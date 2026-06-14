@@ -138,6 +138,22 @@ Backend ("maestro-panel") — needed:
   + **rixxx-panel** (Naive user, + Hy2 user once enabled), one shared expiry.
 - Serve the app **one combined subscription** = all 3 protocol configs for that customer.
 
+## Hysteria2 — INSTALLED & TESTED (2026-06-14, server 2, safe)
+
+- `hysteria v2.9.2`, **independent install** (NOT via the rixxx-panel 443-coexistence
+  mode — to avoid touching naive). Own everything:
+  - listen **`:8443/udp`** (Caddy keeps 443 untouched — naive's 14 users unaffected,
+    verified before/after; UFW additively allows 8443/udp).
+  - self-signed EC cert `/etc/hysteria/server.{crt,key}` → **app uses `insecure: true`
+    or pins SHA256 `A9E737A916426B8B7C5DCF1F43F9C0A8914459F3E4FB3BBC5DE79C752D63F4C7`**.
+  - auth `userpass` (per-customer); systemd `hysteria-server`; masquerade→bing.
+  - test creds root-only in `/root/hysteria-app-creds.txt` (server 2).
+- **Verified:** curl through it → HTTP 204, exit IP 85.137.166.237. Works.
+- App Hy2 outbound: `server: wapmix.duckdns.org:8443`, `auth: <user>:<pass>`,
+  `tls.insecure: true` (or pinSHA256), QUIC.
+- The backend manages real Hy2 users by editing `/etc/hysteria/config.yaml`
+  `auth.userpass` + `systemctl reload/restart hysteria-server` (own, not the panel).
+
 ## Build order
 
 1. **Study 3x-ui v3.3.0 API** (create/extend client) + rixxx-panel API → the
