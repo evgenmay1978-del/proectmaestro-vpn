@@ -56,10 +56,7 @@ sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: I
     )
 }
 
-// TV: only the customer-relevant destinations are in the nav. Diagnostics (Log)
-// and developer Tools/Tailscale/terminal are dropped from the TV surface.
-val bottomNavigationScreens =
-    listOf(
-        Screen.Dashboard,
-        Screen.Settings,
-    )
+// TV: no bottom-nav / rail chrome at all — the app is a single clean flow
+// (TvHome → Buy/Claim). The SFA dashboard/settings/tools screens stay in the
+// graph but are never navigated to.
+val bottomNavigationScreens = emptyList<Screen>()

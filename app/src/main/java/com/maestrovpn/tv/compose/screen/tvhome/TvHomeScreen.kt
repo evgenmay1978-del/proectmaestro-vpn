@@ -38,6 +38,7 @@ fun TvHomeScreen(
     selected: String?,
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
+    onBuy: () -> Unit,
     onEnterCode: () -> Unit,
 ) {
     val connectFocus = remember { FocusRequester() }
@@ -61,6 +62,11 @@ fun TvHomeScreen(
                 modifier = Modifier.focusRequester(connectFocus),
             ) {
                 Text(if (connected) "Отключить" else "Подключить")
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = onBuy) {
+                Text("Купить подписку")
             }
 
             if (protocols.isNotEmpty()) {

@@ -20,6 +20,7 @@ import com.maestrovpn.tv.compose.screen.connections.ConnectionDetailsRoute
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsPage
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
 import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
+import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardScreen
 import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
@@ -122,6 +123,7 @@ fun SFANavHost(
                     selected = selectGroup?.selected,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag -> selectGroup?.let { groupsViewModel.selectGroupItem(it.tag, tag) } },
+                    onBuy = { navController.navigate("buy") },
                     onEnterCode = { navController.navigate("claim") },
                 )
             } else {
@@ -132,6 +134,7 @@ fun SFANavHost(
                     selected = null,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = {},
+                    onBuy = { navController.navigate("buy") },
                     onEnterCode = { navController.navigate("claim") },
                 )
             }
@@ -139,6 +142,10 @@ fun SFANavHost(
 
         composable("claim") {
             ClaimScreen(onDone = { navController.popBackStack() })
+        }
+
+        composable("buy") {
+            BuyScreen(onDone = { navController.popBackStack() })
         }
 
         composable(Screen.Dashboard.route) {
