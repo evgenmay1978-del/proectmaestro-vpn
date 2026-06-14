@@ -1,0 +1,17 @@
+[Unit]
+Description=MaestroVPN TV provisioning + subscription backend (maestro-panel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/maestro-panel.env
+ExecStart=/usr/local/bin/maestro-panel
+Restart=on-failure
+RestartSec=3
+User=root
+# creates /var/lib/maestro for the customer store
+StateDirectory=maestro
+
+[Install]
+WantedBy=multi-user.target
