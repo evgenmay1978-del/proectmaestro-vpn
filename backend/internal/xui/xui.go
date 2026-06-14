@@ -35,12 +35,19 @@ type VLESSClient struct {
 }
 
 // Config configures the 3x-ui client. Creds are operator-supplied.
+//
+// 3x-ui v3.x CSRF-protects the login form, so the supported path is a **Bearer
+// API token** (created in the panel → "API token"): set Token and every request
+// carries `Authorization: Bearer <token>`, which the panel accepts directly. The
+// existing vpn_bot uses exactly this. Username/Password remain for the legacy
+// cookie-login path but are not the recommended route.
 type Config struct {
-	BaseURL  string // e.g. https://127.0.0.1:2053/33NXEZDAMyG5MLLw3x  (no trailing slash)
+	BaseURL  string // e.g. https://wapmixx.ru:2053/33NXEZDAMyG5MLLw3x  (no trailing slash)
 	Host     string // Host header the panel requires, e.g. wapmixx.ru
-	Username string
+	Token    string // Bearer API token (preferred)
+	Username string // legacy cookie login
 	Password string
-	Insecure bool // skip TLS verify (dialing 127.0.0.1 with a domain cert)
+	Insecure bool // skip TLS verify (dialing the domain cert)
 }
 
 // Client talks to one 3x-ui panel.
@@ -76,6 +83,9 @@ func (c *Client) do(method, path string, body io.Reader, contentType string) (*h
 	if c.cfg.Host != "" {
 		req.Host = c.cfg.Host
 	}
+	if c.cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -93,8 +103,12 @@ type apiResp struct {
 	Obj     json.RawMessage `json:"obj"`
 }
 
-// Login establishes a session. Must be called before provisioning.
+// Login establishes a session for the legacy cookie path. With a Bearer Token
+// configured it is a no-op (the token authorizes every request directly).
 func (c *Client) Login() error {
+	if c.cfg.Token != "" {
+		return nil
+	}
 	form := url.Values{"username": {c.cfg.Username}, "password": {c.cfg.Password}}
 	resp, err := c.do(http.MethodPost, "/login", strings.NewReader(form.Encode()),
 		"application/x-www-form-urlencoded")
