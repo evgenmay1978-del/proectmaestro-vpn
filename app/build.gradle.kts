@@ -53,7 +53,7 @@ fun getVersionProps(propName: String): String {
 }
 
 android {
-    namespace = "io.nekohasekai.sfa"
+    namespace = "com.maestrovpn.tv"
     compileSdk = 36
 
     ndkVersion = "28.0.13004108"
@@ -66,7 +66,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.nekohasekai.sfa"
+        applicationId = "com.maestrovpn.tv"
         minSdk = 21
         targetSdk = 35
         versionCode = getVersionProps("VERSION_CODE").toInt()
