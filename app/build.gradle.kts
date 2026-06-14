@@ -327,6 +327,9 @@ dependencies {
     implementation("com.github.jeziellago:compose-markdown:0.5.8")
     implementation("org.kodein.emoji:emoji-kt:2.3.0")
 
+    // Android TV (D-pad / leanback) Material components for the TV-first screens
+    implementation("androidx.tv:tv-material:1.0.0")
+
     // Terminal emulator
     implementation(project(":terminal-emulator"))
     implementation(project(":terminal-view"))
