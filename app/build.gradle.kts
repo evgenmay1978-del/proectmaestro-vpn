@@ -71,7 +71,9 @@ android {
         targetSdk = 35
         versionCode = getVersionProps("VERSION_CODE").toInt()
         versionName = getVersionProps("VERSION_NAME")
-        base.archivesName.set("SFA-${versionName}")
+        base.archivesName.set("MaestroVPN-TV-${versionName}")
+        // backend the TV app hits for the claim-code → subscription exchange
+        buildConfigField("String", "BACKEND_URL", "\"https://wapmixx.ru:8911\"")
     }
 
     signingConfigs {

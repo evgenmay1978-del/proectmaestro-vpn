@@ -19,6 +19,7 @@ import com.maestrovpn.tv.compose.screen.configuration.NewProfileScreen
 import com.maestrovpn.tv.compose.screen.connections.ConnectionDetailsRoute
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsPage
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
+import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardScreen
 import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
@@ -121,7 +122,7 @@ fun SFANavHost(
                     selected = selectGroup?.selected,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag -> selectGroup?.let { groupsViewModel.selectGroupItem(it.tag, tag) } },
-                    onEnterCode = { onOpenNewProfile(NewProfileArgs()) },
+                    onEnterCode = { navController.navigate("claim") },
                 )
             } else {
                 TvHomeScreen(
@@ -131,9 +132,13 @@ fun SFANavHost(
                     selected = null,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = {},
-                    onEnterCode = { onOpenNewProfile(NewProfileArgs()) },
+                    onEnterCode = { navController.navigate("claim") },
                 )
             }
+        }
+
+        composable("claim") {
+            ClaimScreen(onDone = { navController.popBackStack() })
         }
 
         composable(Screen.Dashboard.route) {
