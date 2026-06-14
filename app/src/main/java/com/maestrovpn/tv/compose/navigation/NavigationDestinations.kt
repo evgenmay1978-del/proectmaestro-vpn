@@ -56,10 +56,10 @@ sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: I
     )
 }
 
+// TV: only the customer-relevant destinations are in the nav. Diagnostics (Log)
+// and developer Tools/Tailscale/terminal are dropped from the TV surface.
 val bottomNavigationScreens =
     listOf(
         Screen.Dashboard,
-        Screen.Log,
-        Screen.Tools,
         Screen.Settings,
     )

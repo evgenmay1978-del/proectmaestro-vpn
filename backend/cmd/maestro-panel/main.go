@@ -52,6 +52,7 @@ func main() {
 		xc, err := xui.New(xui.Config{
 			BaseURL:  os.Getenv("XUI_BASE_URL"),
 			Host:     os.Getenv("XUI_HOST"),
+			Token:    os.Getenv("XUI_TOKEN"), // Bearer API token — the real 3x-ui auth (login is CSRF-blocked)
 			Username: os.Getenv("XUI_USER"),
 			Password: os.Getenv("XUI_PASS"),
 			Insecure: env("XUI_INSECURE", "1") == "1",
