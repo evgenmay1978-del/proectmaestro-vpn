@@ -1,11 +1,9 @@
 // Command maestro-panel is the MaestroVPN TV provisioning + subscription backend.
 // It runs on server 1 (alongside 3x-ui) and serves the per-customer sing-box
-// subscription the Android TV app polls.
+// subscription the Android TV app polls, plus a token-guarded admin API to
+// provision and renew customers across both servers.
 //
-// Config via env:
-//
-//	MAESTRO_LISTEN     listen address (default 127.0.0.1:8910)
-//	MAESTRO_STORE      customer store path (default /var/lib/maestro/customers.json)
+// Config via env (see README); secrets never come from flags/repo.
 package main
 
 import (
@@ -14,16 +12,27 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
 )
 
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+func atoi(s string, def int) int {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
 	}
 	return def
 }
@@ -37,9 +46,47 @@ func main() {
 		log.Fatalf("open store: %v", err)
 	}
 
+	// The provisioner is wired only when its dependencies are configured.
+	var prov api.Provisioner
+	if env("XUI_BASE_URL", "") != "" && env("S2_PASSWORD", "") != "" {
+		xc, err := xui.New(xui.Config{
+			BaseURL:  os.Getenv("XUI_BASE_URL"),
+			Host:     os.Getenv("XUI_HOST"),
+			Username: os.Getenv("XUI_USER"),
+			Password: os.Getenv("XUI_PASS"),
+			Insecure: env("XUI_INSECURE", "1") == "1",
+		})
+		if err != nil {
+			log.Fatalf("xui client: %v", err)
+		}
+		s2 := server2.New(server2.Config{
+			Host: env("S2_HOST", "85.137.166.237"), User: env("S2_USER", "root"),
+			Password: os.Getenv("S2_PASSWORD"), Hy2Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
+		})
+		prov = provision.New(st, xc, s2, provision.Config{
+			VLESS: provision.VLESSTmpl{
+				InboundID: atoi(os.Getenv("XUI_INBOUND"), 2),
+				Server:    env("VLESS_SERVER", "wapmixx.ru"), Port: atoi(os.Getenv("VLESS_PORT"), 443),
+				SNI: os.Getenv("VLESS_SNI"), PublicKey: os.Getenv("VLESS_PBK"),
+				ShortID: os.Getenv("VLESS_SID"), Flow: env("VLESS_FLOW", "xtls-rprx-vision"),
+				Fingerprint: env("VLESS_FP", "chrome"),
+			},
+			Hy2: provision.Hy2Tmpl{
+				Server: env("HY2_SERVER", "wapmix.duckdns.org"), Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
+				SNI: env("HY2_SNI", "wapmix.duckdns.org"), Insecure: env("HY2_INSECURE", "1") == "1",
+			},
+		})
+		log.Printf("provisioning enabled (3x-ui + server2)")
+	} else {
+		log.Printf("provisioning disabled (set XUI_BASE_URL + S2_PASSWORD to enable); serving subscriptions only")
+	}
+
 	srv := &http.Server{
-		Addr:              listen,
-		Handler:           api.New(st).Handler(),
+		Addr: listen,
+		Handler: api.New(st, prov, api.Config{
+			AdminToken: os.Getenv("MAESTRO_ADMIN_TOKEN"),
+			SubBaseURL: env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
+		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -8,16 +8,35 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
-// Server wires the HTTP handlers to the store.
-type Server struct{ st *store.Store }
+// Provisioner is the subset of the provision package the admin API drives.
+type Provisioner interface {
+	Provision(login string, dur time.Duration) (*store.Customer, error)
+	Extend(login string, dur time.Duration) (*store.Customer, error)
+}
 
-// New returns an api server.
-func New(st *store.Store) *Server { return &Server{st: st} }
+// Config tunes the api server.
+type Config struct {
+	AdminToken string // bearer token guarding /admin/*; empty disables admin API
+	SubBaseURL string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
+}
+
+// Server wires the HTTP handlers to the store and (optionally) the provisioner.
+type Server struct {
+	st   *store.Store
+	prov Provisioner
+	cfg  Config
+}
+
+// New returns an api server. prov may be nil to serve only the subscription side.
+func New(st *store.Store, prov Provisioner, cfg Config) *Server {
+	return &Server{st: st, prov: prov, cfg: cfg}
+}
 
 // Handler returns the configured http.Handler.
 func (s *Server) Handler() http.Handler {
@@ -27,6 +46,11 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
+	if s.prov != nil && s.cfg.AdminToken != "" {
+		mux.HandleFunc("/admin/provision", s.adminAuth(s.handleProvision))
+		mux.HandleFunc("/admin/extend", s.adminAuth(s.handleExtend))
+		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
+	}
 	return mux
 }
 
