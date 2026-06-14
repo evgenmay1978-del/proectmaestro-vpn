@@ -16,7 +16,8 @@ XURL=$(grep -oP '^PANEL_URL=\K.*' "$VPN_BOT_ENV" || true)
 [ -n "$XTOKEN" ] || { echo "ERROR: PANEL_API_TOKEN not found in $VPN_BOT_ENV" >&2; exit 1; }
 [ -n "$XURL" ]   || { echo "ERROR: PANEL_URL not found in $VPN_BOT_ENV" >&2; exit 1; }
 if [ -f "$S2_PASS_FILE" ]; then S2PASS=$(cat "$S2_PASS_FILE"); else read -rsp "server-2 root password: " S2PASS; echo; fi
-SBPPHONE=$(grep -oP '^PAYMENT_PHONE=\K.*' "$VPN_BOT_ENV" || true)
+# СБП number for in-app purchase (Тинькофф / Сбер), per the owner.
+SBPPHONE="8 977 811 65 64"
 # preserve the admin token + (TLS) sub base across re-runs
 ADMIN=""
 SUBBASE="https://wapmixx.ru:8911"
