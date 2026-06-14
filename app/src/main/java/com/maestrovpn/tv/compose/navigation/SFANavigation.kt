@@ -6,6 +6,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -105,15 +107,33 @@ fun SFANavHost(
                 Status.Started -> "Подключено"
                 else -> "Отключено"
             }
-            TvHomeScreen(
-                statusText = tvStatusText,
-                connected = serviceStatus == Status.Started || serviceStatus == Status.Starting,
-                protocols = emptyList(),
-                selected = null,
-                onToggleConnect = { dashboardViewModel?.toggleService() },
-                onSelectProtocol = {},
-                onEnterCode = { onOpenNewProfile(NewProfileArgs()) },
-            )
+            val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting
+            if (groupsViewModel != null) {
+                val groupsUi = groupsViewModel.uiState.collectAsState().value
+                LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
+                // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
+                val selectGroup = groupsUi.groups.firstOrNull { it.tag == "select" }
+                    ?: groupsUi.groups.firstOrNull { it.selectable }
+                TvHomeScreen(
+                    statusText = tvStatusText,
+                    connected = connected,
+                    protocols = selectGroup?.items?.map { it.tag } ?: emptyList(),
+                    selected = selectGroup?.selected,
+                    onToggleConnect = { dashboardViewModel?.toggleService() },
+                    onSelectProtocol = { tag -> selectGroup?.let { groupsViewModel.selectGroupItem(it.tag, tag) } },
+                    onEnterCode = { onOpenNewProfile(NewProfileArgs()) },
+                )
+            } else {
+                TvHomeScreen(
+                    statusText = tvStatusText,
+                    connected = connected,
+                    protocols = emptyList(),
+                    selected = null,
+                    onToggleConnect = { dashboardViewModel?.toggleService() },
+                    onSelectProtocol = {},
+                    onEnterCode = { onOpenNewProfile(NewProfileArgs()) },
+                )
+            }
         }
 
         composable(Screen.Dashboard.route) {
