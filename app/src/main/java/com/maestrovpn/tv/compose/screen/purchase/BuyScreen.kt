@@ -84,12 +84,22 @@ fun BuyScreen(
                     )
                     Text(s.code, style = MaterialTheme.typography.headlineMedium)
                     Spacer(Modifier.height(24.dp))
+                    Button(onClick = { viewModel.iPaid() }) {
+                        Text("Я оплатил")
+                    }
+                    Spacer(Modifier.height(12.dp))
                     Text(
-                        "После подтверждения оплаты подписка активируется автоматически — оставьте этот экран открытым.",
+                        "После нажатия заявка уйдёт владельцу. Подписка активируется после подтверждения — оставьте экран открытым.",
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                     )
                 }
+
+                is BuyState.AwaitingConfirm -> Text(
+                    "Ожидаем подтверждение оплаты…",
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                )
 
                 is BuyState.Activating -> Text("Активируем подписку…", style = MaterialTheme.typography.titleMedium)
 

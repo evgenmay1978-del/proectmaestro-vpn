@@ -13,6 +13,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/telegram"
 )
 
 // Provisioner is the subset of the provision package the admin API drives.
@@ -27,6 +28,8 @@ type Config struct {
 	AdminToken string // bearer token guarding /admin/*; empty disables admin API
 	SubBaseURL string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
 	SBPPhone   string // СБП phone shown to the customer for in-app purchase
+	TGBotToken string // bot token for owner payment notifications (send-only, no poll)
+	TGAdminID  string // owner's Telegram chat id
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -34,12 +37,13 @@ type Server struct {
 	st     *store.Store
 	prov   Provisioner
 	orders *order.Store
+	tg     *telegram.Client
 	cfg    Config
 }
 
 // New returns an api server. prov/orders may be nil to disable those routes.
 func New(st *store.Store, prov Provisioner, orders *order.Store, cfg Config) *Server {
-	return &Server{st: st, prov: prov, orders: orders, cfg: cfg}
+	return &Server{st: st, prov: prov, orders: orders, tg: telegram.New(cfg.TGBotToken), cfg: cfg}
 }
 
 // Handler returns the configured http.Handler.
@@ -53,6 +57,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/claim", s.handleClaim)
 	if s.orders != nil {
 		mux.HandleFunc("/order/tariffs", s.handleTariffs)
+		mux.HandleFunc("/order/paid-claim", s.handleOrderPaidClaim)
 		mux.HandleFunc("/order", s.handleOrderCreate)
 		mux.HandleFunc("/order/", s.handleOrderGet)
 	}

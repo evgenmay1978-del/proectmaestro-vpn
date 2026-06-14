@@ -94,6 +94,8 @@ func main() {
 			AdminToken: os.Getenv("MAESTRO_ADMIN_TOKEN"),
 			SubBaseURL: env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
 			SBPPhone:   os.Getenv("MAESTRO_SBP_PHONE"),
+			TGBotToken: os.Getenv("MAESTRO_TG_BOT_TOKEN"),
+			TGAdminID:  os.Getenv("MAESTRO_TG_ADMIN_ID"),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

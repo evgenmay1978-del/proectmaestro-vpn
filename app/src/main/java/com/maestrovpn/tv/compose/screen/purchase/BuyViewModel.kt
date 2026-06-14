@@ -30,6 +30,7 @@ sealed interface BuyState {
     data object Loading : BuyState
     data class Tariffs(val items: List<TariffItem>, val phone: String) : BuyState
     data class AwaitingPayment(val rub: Int, val code: String, val phone: String) : BuyState
+    data object AwaitingConfirm : BuyState
     data object Activating : BuyState
     data object Done : BuyState
     data class Error(val message: String) : BuyState
@@ -66,15 +67,30 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var orderId: String? = null
+
     fun buy(tariffKey: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val o = JSONObject(httpPost("$base/order", JSONObject().put("tariff", tariffKey).toString()))
-                val orderId = o.getString("order_id")
+                orderId = o.getString("order_id")
                 _state.value = BuyState.AwaitingPayment(o.getInt("rub"), o.getString("code"), o.optString("sbp_phone"))
+            } catch (e: Exception) {
+                _state.value = BuyState.Error(e.message ?: "ошибка")
+            }
+        }
+    }
+
+    /** Customer pressed «Я оплатил»: notify the owner, then poll until confirmed. */
+    fun iPaid() {
+        val id = orderId ?: return
+        _state.value = BuyState.AwaitingConfirm
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                httpPost("$base/order/paid-claim", JSONObject().put("order_id", id).toString())
                 while (true) {
                     delay(4000)
-                    val po = JSONObject(httpGet("$base/order/$orderId"))
+                    val po = JSONObject(httpGet("$base/order/$id"))
                     if (po.optString("status") == "paid") {
                         _state.value = BuyState.Activating
                         activate(po.getString("sub_url"))

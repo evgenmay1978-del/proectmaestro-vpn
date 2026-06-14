@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -68,6 +69,35 @@ func (s *Server) handleOrderGet(w http.ResponseWriter, r *http.Request) {
 		resp["sub_url"] = s.cfg.SubBaseURL + "/sub/" + o.SubToken
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleOrderPaidClaim (public): the customer pressed «Я оплатил» — notify the
+// owner via the bot with a one-tap confirm button. The order stays pending until
+// the owner confirms; the app keeps polling /order/<id>.
+func (s *Server) handleOrderPaidClaim(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		OrderID string `json:"order_id"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	o, err := s.orders.ByID(req.OrderID)
+	if errors.Is(err, order.ErrNotFound) {
+		http.Error(w, "no such order", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	text := fmt.Sprintf("💳 Оплата подписки\nТариф: %s · %d ₽\nКод платежа: %s\nЗаказ: %s\n\nКлиент нажал «Я оплатил». Проверьте поступление по СБП и подтвердите.",
+		o.Tariff, o.Rub, o.Code, o.ID)
+	_ = s.tg.NotifyOrder(s.cfg.TGAdminID, text, o.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "awaiting_confirm"})
 }
 
 // handleOrderConfirm (admin): the owner confirms a received СБП payment → provision
