@@ -11,6 +11,7 @@
 package xui
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -126,25 +127,50 @@ func (c *Client) Login() error {
 	return nil
 }
 
-// AddClient adds a VLESS client to the given inbound id. Returns nothing; the
-// caller already knows the uuid/email/subId it generated.
+// AddClient adds a VLESS client. This panel (3x-ui v3.2.8) uses the client-centric
+// API `/panel/api/clients/add` with a {client, inboundIds} body — NOT the older
+// `/panel/api/inbounds/addClient`. Matches the working vpn_bot exactly.
 func (c *Client) AddClient(inboundID int, client VLESSClient) error {
-	settings, err := json.Marshal(map[string]any{"clients": []VLESSClient{client}})
-	if err != nil {
-		return fmt.Errorf("xui: marshal client: %w", err)
-	}
-	form := url.Values{"id": {fmt.Sprint(inboundID)}, "settings": {string(settings)}}
-	return c.postExpectSuccess("/panel/api/inbounds/addClient", form)
+	return c.postJSON("/panel/api/clients/add", map[string]any{
+		"client": map[string]any{
+			"id": client.ID, "email": client.Email, "enable": client.Enable,
+			"expiryTime": client.ExpiryTime, "totalGB": client.TotalGB,
+			"subId": client.SubID, "limitIp": client.LimitIP,
+			"flow": client.Flow, "tgId": 0, "reset": 0,
+		},
+		"inboundIds": []int{inboundID},
+	})
 }
 
-// UpdateClient replaces a client (used to extend expiry). uuid is the client id.
-func (c *Client) UpdateClient(inboundID int, uuid string, client VLESSClient) error {
-	settings, err := json.Marshal(map[string]any{"clients": []VLESSClient{client}})
+// UpdateClient updates a client (used to extend expiry) via
+// `/panel/api/clients/update/{email}` with the client record (flat, not wrapped).
+func (c *Client) UpdateClient(_ int, _ string, client VLESSClient) error {
+	return c.postJSON("/panel/api/clients/update/"+url.PathEscape(client.Email), map[string]any{
+		"id": client.ID, "email": client.Email, "enable": client.Enable,
+		"expiryTime": client.ExpiryTime, "totalGB": client.TotalGB,
+		"subId": client.SubID, "limitIp": client.LimitIP, "flow": client.Flow,
+	})
+}
+
+// postJSON POSTs a JSON body and expects {success:true}.
+func (c *Client) postJSON(path string, body any) error {
+	data, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("xui: marshal client: %w", err)
+		return fmt.Errorf("xui: marshal %s: %w", path, err)
 	}
-	form := url.Values{"id": {fmt.Sprint(inboundID)}, "settings": {string(settings)}}
-	return c.postExpectSuccess("/panel/api/inbounds/updateClient/"+uuid, form)
+	resp, err := c.do(http.MethodPost, path, bytes.NewReader(data), "application/json")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var r apiResp
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return fmt.Errorf("xui: %s decode (HTTP %d): %w", path, resp.StatusCode, err)
+	}
+	if !r.Success {
+		return fmt.Errorf("xui: %s failed: %s", path, r.Msg)
+	}
+	return nil
 }
 
 func (c *Client) postExpectSuccess(path string, form url.Values) error {

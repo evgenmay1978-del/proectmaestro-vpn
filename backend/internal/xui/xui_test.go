@@ -1,6 +1,7 @@
 package xui
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,11 +23,15 @@ func TestLoginAndAddClient(t *testing.T) {
 				return
 			}
 			w.Write([]byte(`{"success":true,"msg":"ok"}`))
-		case strings.HasSuffix(r.URL.Path, "/addClient"):
+		case strings.HasSuffix(r.URL.Path, "/clients/add"):
 			sawAdd = true
-			_ = r.ParseForm()
-			if !strings.Contains(r.Form.Get("settings"), `"clients"`) {
-				t.Errorf("addClient settings missing clients: %q", r.Form.Get("settings"))
+			var body struct {
+				Client     map[string]any `json:"client"`
+				InboundIDs []int          `json:"inboundIds"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.Client["email"] != "cust1" || len(body.InboundIDs) != 1 || body.InboundIDs[0] != 2 {
+				t.Errorf("clients/add bad body: %+v", body)
 			}
 			w.Write([]byte(`{"success":true}`))
 		default:
