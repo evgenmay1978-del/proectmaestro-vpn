@@ -26,6 +26,12 @@ type Config struct {
 	Hy2Port    int    // 8443
 	Hy2CertPem string // /etc/hysteria/server.crt (already on the box)
 	Hy2KeyPem  string // /etc/hysteria/server.key
+
+	// rixxx-panel (Naive) — reachable only on server-2 localhost (UFW-denied
+	// externally), so we drive it over the same SSH connection.
+	NaivePanelURL  string // e.g. http://127.0.0.1:3000
+	NaivePanelUser string
+	NaivePanelPass string
 }
 
 // Hy2User is one Hysteria2 userpass credential.

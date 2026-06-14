@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRenderHy2(t *testing.T) {
@@ -62,4 +63,43 @@ func TestSyncHy2Live(t *testing.T) {
 	if !strings.Contains(after, "caddy=active") || !strings.Contains(after, "hysteria=active") {
 		t.Fatalf("a service is down after sync: %s", after)
 	}
+}
+
+// TestNaiveLive hits the real rixxx-panel. Gated behind NAIVE_URL.
+// Run: NAIVE_URL=… NAIVE_USER=… NAIVE_PASS=… go test ./internal/server2 -run NaiveLive -v
+func TestNaiveLive(t *testing.T) {
+	url := os.Getenv("NAIVE_URL")
+	if url == "" {
+		t.Skip("set NAIVE_URL/NAIVE_USER/NAIVE_PASS to run the live naive test")
+	}
+	c := New(Config{NaivePanelURL: url, NaivePanelUser: os.Getenv("NAIVE_USER"), NaivePanelPass: os.Getenv("NAIVE_PASS")})
+
+	// snapshot pre-existing (non-app) is implicitly safe: we only touch mtv_.
+	if err := c.AddNaiveUser("livetest", "pw_"+os.Getenv("NAIVE_USER"), time.Now().Add(365*24*time.Hour)); err != nil {
+		t.Fatalf("AddNaiveUser: %v", err)
+	}
+	users, err := c.ListAppNaiveUsers()
+	if err != nil {
+		t.Fatalf("ListAppNaiveUsers: %v", err)
+	}
+	t.Logf("app naive users after add: %v", users)
+	found := false
+	for _, u := range users {
+		if u == "livetest" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("livetest not found among app users: %v", users)
+	}
+	if err := c.DelNaiveUser("livetest"); err != nil {
+		t.Fatalf("DelNaiveUser: %v", err)
+	}
+	users, _ = c.ListAppNaiveUsers()
+	for _, u := range users {
+		if u == "livetest" {
+			t.Fatalf("livetest still present after delete: %v", users)
+		}
+	}
+	t.Logf("cleanup ok; app naive users now: %v", users)
 }
