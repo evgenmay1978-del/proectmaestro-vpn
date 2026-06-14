@@ -1,0 +1,96 @@
+name: Build libbox.aar
+
+# Produces io.nekohasekai.libbox (libbox.aar) from SagerNet/sing-box, pinned to
+# the ref in version.properties (SINGBOX_REF), to match sing-box-for-android
+# 1.14.0-alpha.31. Build recipe is verbatim from sing-box's own Makefile:
+#   make lib_install   -> installs github.com/sagernet/gomobile/{gomobile,gobind}@v0.1.13
+#   make lib_android   -> go run ./cmd/internal/build_libbox -target android
+# which runs `gomobile bind ... -androidapi 23 -javapkg=io.nekohasekai -libname=box
+# -tags <sharedTags> ./experimental/libbox` -> writes libbox.aar (and libbox-legacy.aar).
+
+on:
+  push:
+    paths:
+      - version.properties
+      - .github/workflows/libbox.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout our repo (for version.properties pin)
+        uses: actions/checkout@v4
+
+      - name: Load pinned versions from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          # version.properties carries e.g. GO_VERSION=go1.25.11
+          source <(grep -E '^(GO_VERSION|SINGBOX_REF|NDK_VERSION)=' version.properties)
+          # actions/setup-go wants "1.25.11", version.properties has "go1.25.11"
+          echo "go_version=${GO_VERSION#go}" >> "$GITHUB_OUTPUT"
+          echo "singbox_ref=${SINGBOX_REF}"  >> "$GITHUB_OUTPUT"
+          echo "ndk_version=${NDK_VERSION}"  >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go ${{ steps.pin.outputs.go_version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          check-latest: false
+
+      # build_libbox/main.go fatals unless `java --version` reports "openjdk 17".
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # build_shared.findNDK() looks for $ANDROID_SDK_ROOT/ndk/<NDK_VERSION>;
+      # install that exact revision and the cmdline-tools licenses it expects.
+      - name: Install pinned Android NDK ${{ steps.pin.outputs.ndk_version }}
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+
+      - name: Clone sing-box at ${{ steps.pin.outputs.singbox_ref }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ steps.pin.outputs.singbox_ref }}" \
+            https://github.com/SagerNet/sing-box.git sing-box
+          echo "built ref:"; git -C sing-box rev-parse HEAD
+
+      # Verbatim Makefile targets. lib_install installs gomobile+gobind @v0.1.13
+      # into $(go env GOPATH)/bin; build_libbox calls $GOPATH/bin/gomobile directly,
+      # so make sure that dir is on PATH (and ANDROID_HOME is set for SDK discovery).
+      - name: make lib_install
+        working-directory: sing-box
+        run: make lib_install
+
+      - name: make lib_android (gomobile bind -> libbox.aar)
+        working-directory: sing-box
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          make lib_android
+
+      - name: Show built artifacts
+        working-directory: sing-box
+        run: ls -lh libbox*.aar
+
+      # We only ship the non-legacy AAR: it is built with -androidapi 23, which
+      # matches our minSdk 23 (we drop SFA's otherLegacy/minSdk-21 flavor).
+      - name: Upload libbox.aar
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-aar
+          path: sing-box/libbox.aar
+          if-no-files-found: error
