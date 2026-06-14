@@ -19,6 +19,7 @@ import (
 type Provisioner interface {
 	Provision(login string, dur time.Duration) (*store.Customer, error)
 	Extend(login string, dur time.Duration) (*store.Customer, error)
+	ActivateExisting(login string) (*store.Customer, error)
 }
 
 // Config tunes the api server.
@@ -120,6 +121,14 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := s.st.ByLogin(code)
 	if errors.Is(err, store.ErrNotFound) {
+		// Fallback: a customer who already exists in the panels (3x-ui/naive)
+		// activating by their login — look them up and mirror their access.
+		if s.prov != nil {
+			if ec, aerr := s.prov.ActivateExisting(code); aerr == nil {
+				s.respCustomer(w, ec)
+				return
+			}
+		}
 		http.Error(w, "unknown code", http.StatusNotFound)
 		return
 	}

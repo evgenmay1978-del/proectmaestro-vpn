@@ -17,6 +17,7 @@ type fakeXUI struct {
 func (f *fakeXUI) Login() error                                    { f.logins++; return nil }
 func (f *fakeXUI) AddClient(int, xui.VLESSClient) error            { f.adds++; return nil }
 func (f *fakeXUI) UpdateClient(int, string, xui.VLESSClient) error { f.updates++; return nil }
+func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error)   { return nil, nil }
 
 type fakeHy2 struct{ lastUsers []server2.Hy2User }
 

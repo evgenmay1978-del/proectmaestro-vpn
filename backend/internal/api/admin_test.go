@@ -26,6 +26,10 @@ func (f *fakeProv) Extend(login string, dur time.Duration) (*store.Customer, err
 	return f.st.Extend(login, dur)
 }
 
+func (f *fakeProv) ActivateExisting(login string) (*store.Customer, error) {
+	return nil, store.ErrNotFound
+}
+
 func adminServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, _ := store.Open(filepath.Join(t.TempDir(), "s.json"))

@@ -21,7 +21,7 @@ func TestOrderPurchaseFlow(t *testing.T) {
 	defer srv.Close()
 
 	// 1. create order
-	resp, err := http.Post(srv.URL+"/order", "application/json", strings.NewReader(`{"tariff":"3m"}`))
+	resp, err := http.Post(srv.URL+"/order", "application/json", strings.NewReader(`{"tariff":"2m"}`))
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}

@@ -24,6 +24,7 @@ type VLESSClienter interface {
 	Login() error
 	AddClient(inboundID int, c xui.VLESSClient) error
 	UpdateClient(inboundID int, uuid string, c xui.VLESSClient) error
+	GetClient(email string) (*xui.ExistingClient, error)
 }
 
 // Hy2Syncer regenerates the server-2 Hysteria user set.
@@ -128,6 +129,43 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	// Server 2: re-sync the Hysteria user set to include this customer.
 	if err := p.syncHy2(); err != nil {
 		return nil, fmt.Errorf("provision: hy2 sync: %w", err)
+	}
+	return cust, nil
+}
+
+// ActivateExisting activates an EXISTING panel customer by their login: it looks
+// the login up in 3x-ui and, if found, registers a subscription mirroring their
+// VLESS access + existing expiry (creates NO new panel client). Lets customers
+// already in the panels just type their login to use the app.
+func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
+	if login == "" {
+		return nil, fmt.Errorf("provision: empty login")
+	}
+	if err := p.xui.Login(); err != nil {
+		return nil, fmt.Errorf("provision: xui login: %w", err)
+	}
+	ex, err := p.xui.GetClient(login)
+	if err != nil {
+		return nil, fmt.Errorf("provision: lookup %q: %w", login, err)
+	}
+	if ex == nil || ex.UUID == "" {
+		return nil, fmt.Errorf("provision: login %q not found in panels", login)
+	}
+	expires := time.Now().Add(365 * 24 * time.Hour)
+	if ex.ExpiryTime > 0 {
+		expires = time.UnixMilli(ex.ExpiryTime)
+	}
+	cust := &store.Customer{
+		Login: login, SubToken: randHex(16), Expires: expires,
+		VLESS: &subgen.VLESSCreds{
+			Server: p.cfg.VLESS.Server, Port: p.cfg.VLESS.Port, UUID: ex.UUID,
+			Flow: p.cfg.VLESS.Flow, SNI: p.cfg.VLESS.SNI,
+			PublicKey: p.cfg.VLESS.PublicKey, ShortID: p.cfg.VLESS.ShortID,
+			Fingerprint: p.cfg.VLESS.Fingerprint,
+		},
+	}
+	if err := p.st.Put(cust); err != nil {
+		return nil, fmt.Errorf("provision: store: %w", err)
 	}
 	return cust, nil
 }

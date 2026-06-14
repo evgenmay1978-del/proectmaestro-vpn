@@ -26,12 +26,10 @@ type Tariff struct {
 	Rub  int    `json:"rub"`
 }
 
-// DefaultTariffs — owner can tune prices later; days are fixed.
+// DefaultTariffs — prices per the owner.
 var DefaultTariffs = []Tariff{
-	{Key: "1m", Name: "1 месяц", Days: 30, Rub: 250},
-	{Key: "3m", Name: "3 месяца", Days: 90, Rub: 600},
-	{Key: "6m", Name: "6 месяцев", Days: 180, Rub: 1100},
-	{Key: "12m", Name: "12 месяцев", Days: 365, Rub: 1990},
+	{Key: "1m", Name: "1 месяц", Days: 30, Rub: 300},
+	{Key: "2m", Name: "2 месяца", Days: 60, Rub: 600},
 }
 
 // TariffByKey returns the tariff for a key, or false.

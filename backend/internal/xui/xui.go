@@ -35,6 +35,14 @@ type VLESSClient struct {
 	LimitIP    int    `json:"limitIp"` // 0 = unlimited devices
 }
 
+// ExistingClient is the subset of a 3x-ui client looked up by email — used to
+// activate an already-existing panel customer in the app by their login.
+type ExistingClient struct {
+	UUID       string
+	Email      string
+	ExpiryTime int64 // unix millis; 0 = never
+}
+
 // Config configures the 3x-ui client. Creds are operator-supplied.
 //
 // 3x-ui v3.x CSRF-protects the login form, so the supported path is a **Bearer
@@ -150,6 +158,41 @@ func (c *Client) UpdateClient(_ int, _ string, client VLESSClient) error {
 		"expiryTime": client.ExpiryTime, "totalGB": client.TotalGB,
 		"subId": client.SubID, "limitIp": client.LimitIP, "flow": client.Flow,
 	})
+}
+
+// GetClient looks up an existing client by email (login). Returns nil if there is
+// no such client. Used for the "activate existing panel customer by login" path.
+func (c *Client) GetClient(email string) (*ExistingClient, error) {
+	resp, err := c.do(http.MethodGet, "/panel/api/clients/get/"+url.PathEscape(email), nil, "")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var r apiResp
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, fmt.Errorf("xui: get client decode (HTTP %d): %w", resp.StatusCode, err)
+	}
+	if len(r.Obj) == 0 || string(r.Obj) == "null" {
+		return nil, nil // no such client
+	}
+	// obj is either {client:{...}} or the client record directly.
+	var wrap struct {
+		Client json.RawMessage `json:"client"`
+	}
+	_ = json.Unmarshal(r.Obj, &wrap)
+	raw := wrap.Client
+	if len(raw) == 0 {
+		raw = r.Obj
+	}
+	var rec struct {
+		Email      string `json:"email"`
+		UUID       string `json:"uuid"`
+		ExpiryTime int64  `json:"expiryTime"`
+	}
+	if err := json.Unmarshal(raw, &rec); err != nil || rec.Email == "" {
+		return nil, nil
+	}
+	return &ExistingClient{UUID: rec.UUID, Email: rec.Email, ExpiryTime: rec.ExpiryTime}, nil
 }
 
 // postJSON POSTs a JSON body and expects {success:true}.
