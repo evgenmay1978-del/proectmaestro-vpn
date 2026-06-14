@@ -3,6 +3,16 @@
 Production step — run as root on server 1. This brings `/sub/<token>` and `/claim`
 online so the TV app can provision + auto-update.
 
+## Quick path (everything pre-filled)
+```bash
+bash /root/maestrovpn-tv/deploy/install.sh
+```
+Reads the 3x-ui Bearer token (from `/root/vpn_bot/.env`) + server-2 password (from
+`/root/.ssh/.s2pass`) server-side, writes `/etc/maestro-panel.env` with the discovered
+Reality params (SNI `www.intel.com`, pbk/sid from inbound :443), builds the binary,
+installs the systemd unit, starts it, and prints the admin token. Then do **step 4 (TLS)**.
+The manual steps below are the same, broken out.
+
 ## 1. Build the binary
 ```bash
 cd /root/maestrovpn-tv/backend
