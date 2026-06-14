@@ -5,3 +5,7 @@ node_modules/
 local.properties
 build/
 .gradle/
+.idea/
+*.iml
+app/libs/*.aar
+captures/

@@ -1,0 +1,74 @@
+name: Build app APK
+
+# Builds the MaestroVPN TV app (forked sing-box-for-android, flavor "other" =
+# GitHub/sideload distribution). Pulls libbox.aar from the latest successful
+# "Build libbox.aar" run. Debug build for now (no signing secret needed) — a
+# signed release variant is added once SIGNING_KEYSTORE_B64 is configured.
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - 'third_party/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
+      - 'gradle.properties'
+      - 'version.properties'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read NDK pin from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          source <(grep -E '^NDK_VERSION=' version.properties)
+          echo "ndk_version=${NDK_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install pinned NDK + SDK platform
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+
+      - name: Fetch libbox.aar from the latest successful libbox build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          RUN_ID=$(gh run list --workflow=libbox.yml --status=success -L1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$RUN_ID" ]; then
+            echo "No successful 'Build libbox.aar' run found — run that workflow first." >&2
+            exit 1
+          fi
+          echo "Downloading libbox.aar from libbox run $RUN_ID"
+          gh run download "$RUN_ID" -n libbox-aar -D app/libs
+          ls -lh app/libs/
+
+      - name: Build :app:assembleOtherDebug
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestrovpn-tv-debug-apk
+          path: app/build/outputs/apk/other/debug/*.apk
+          if-no-files-found: error
