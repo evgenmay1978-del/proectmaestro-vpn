@@ -18,6 +18,7 @@ import com.maestrovpn.tv.compose.screen.connections.ConnectionDetailsRoute
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsPage
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardScreen
+import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.GroupsCard
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
@@ -95,9 +96,26 @@ fun SFANavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Screen.Dashboard.route,
+        startDestination = Screen.TvHome.route,
         modifier = modifier,
     ) {
+        composable(Screen.TvHome.route) {
+            val tvStatusText = when (serviceStatus) {
+                Status.Starting -> "Подключение…"
+                Status.Started -> "Подключено"
+                else -> "Отключено"
+            }
+            TvHomeScreen(
+                statusText = tvStatusText,
+                connected = serviceStatus == Status.Started || serviceStatus == Status.Starting,
+                protocols = emptyList(),
+                selected = null,
+                onToggleConnect = { dashboardViewModel?.toggleService() },
+                onSelectProtocol = {},
+                onEnterCode = { onOpenNewProfile(NewProfileArgs()) },
+            )
+        }
+
         composable(Screen.Dashboard.route) {
             if (dashboardViewModel != null) {
                 DashboardScreen(

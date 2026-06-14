@@ -18,6 +18,13 @@ sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: I
         icon = Icons.Default.Dashboard,
     )
 
+    // TV-first home: the D-pad connect screen, used as the start destination.
+    object TvHome : Screen(
+        route = "tvhome",
+        titleRes = R.string.app_name,
+        icon = Icons.Default.Dashboard,
+    )
+
     object Log : Screen(
         route = "log",
         titleRes = R.string.title_log,
