@@ -19,7 +19,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
-	return httptest.NewServer(New(st, nil, Config{}).Handler()), st
+	return httptest.NewServer(New(st, nil, nil, Config{}).Handler()), st
 }
 
 func TestSubActiveCustomer(t *testing.T) {

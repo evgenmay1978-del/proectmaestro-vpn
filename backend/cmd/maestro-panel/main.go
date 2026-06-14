@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
@@ -44,6 +45,11 @@ func main() {
 	st, err := store.Open(storePath)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
+	}
+
+	ost, err := order.Open(env("MAESTRO_ORDER_STORE", "/var/lib/maestro/orders.json"))
+	if err != nil {
+		log.Fatalf("open order store: %v", err)
 	}
 
 	// The provisioner is wired only when its dependencies are configured.
@@ -84,9 +90,10 @@ func main() {
 
 	srv := &http.Server{
 		Addr: listen,
-		Handler: api.New(st, prov, api.Config{
+		Handler: api.New(st, prov, ost, api.Config{
 			AdminToken: os.Getenv("MAESTRO_ADMIN_TOKEN"),
 			SubBaseURL: env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
+			SBPPhone:   os.Getenv("MAESTRO_SBP_PHONE"),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

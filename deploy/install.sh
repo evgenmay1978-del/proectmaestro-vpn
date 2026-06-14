@@ -16,15 +16,26 @@ XURL=$(grep -oP '^PANEL_URL=\K.*' "$VPN_BOT_ENV" || true)
 [ -n "$XTOKEN" ] || { echo "ERROR: PANEL_API_TOKEN not found in $VPN_BOT_ENV" >&2; exit 1; }
 [ -n "$XURL" ]   || { echo "ERROR: PANEL_URL not found in $VPN_BOT_ENV" >&2; exit 1; }
 if [ -f "$S2_PASS_FILE" ]; then S2PASS=$(cat "$S2_PASS_FILE"); else read -rsp "server-2 root password: " S2PASS; echo; fi
-ADMIN=$(openssl rand -hex 24)
+SBPPHONE=$(grep -oP '^PAYMENT_PHONE=\K.*' "$VPN_BOT_ENV" || true)
+# preserve the admin token + (TLS) sub base across re-runs
+ADMIN=""
+SUBBASE="https://wapmixx.ru:8911"
+if [ -f /etc/maestro-panel.env ]; then
+    ADMIN=$(grep -oP '^MAESTRO_ADMIN_TOKEN=\K.*' /etc/maestro-panel.env || true)
+    EXIST_SUB=$(grep -oP '^MAESTRO_SUB_BASE=\K.*' /etc/maestro-panel.env || true)
+    [ -n "$EXIST_SUB" ] && SUBBASE="$EXIST_SUB"
+fi
+[ -n "$ADMIN" ] || ADMIN=$(openssl rand -hex 24)
 
 install -d -m 700 /var/lib/maestro
 umask 077
 cat > /etc/maestro-panel.env <<EOF
 MAESTRO_LISTEN=127.0.0.1:8910
 MAESTRO_STORE=/var/lib/maestro/customers.json
+MAESTRO_ORDER_STORE=/var/lib/maestro/orders.json
 MAESTRO_ADMIN_TOKEN=$ADMIN
-MAESTRO_SUB_BASE=https://wapmixx.ru:8910
+MAESTRO_SUB_BASE=$SUBBASE
+MAESTRO_SBP_PHONE=$SBPPHONE
 XUI_BASE_URL=$XURL
 XUI_HOST=wapmixx.ru
 XUI_TOKEN=$XTOKEN

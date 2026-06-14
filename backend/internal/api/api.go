@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
@@ -24,18 +25,20 @@ type Provisioner interface {
 type Config struct {
 	AdminToken string // bearer token guarding /admin/*; empty disables admin API
 	SubBaseURL string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
+	SBPPhone   string // СБП phone shown to the customer for in-app purchase
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
 type Server struct {
-	st   *store.Store
-	prov Provisioner
-	cfg  Config
+	st     *store.Store
+	prov   Provisioner
+	orders *order.Store
+	cfg    Config
 }
 
-// New returns an api server. prov may be nil to serve only the subscription side.
-func New(st *store.Store, prov Provisioner, cfg Config) *Server {
-	return &Server{st: st, prov: prov, cfg: cfg}
+// New returns an api server. prov/orders may be nil to disable those routes.
+func New(st *store.Store, prov Provisioner, orders *order.Store, cfg Config) *Server {
+	return &Server{st: st, prov: prov, orders: orders, cfg: cfg}
 }
 
 // Handler returns the configured http.Handler.
@@ -47,10 +50,18 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
 	mux.HandleFunc("/claim", s.handleClaim)
+	if s.orders != nil {
+		mux.HandleFunc("/order/tariffs", s.handleTariffs)
+		mux.HandleFunc("/order", s.handleOrderCreate)
+		mux.HandleFunc("/order/", s.handleOrderGet)
+	}
 	if s.prov != nil && s.cfg.AdminToken != "" {
 		mux.HandleFunc("/admin/provision", s.adminAuth(s.handleProvision))
 		mux.HandleFunc("/admin/extend", s.adminAuth(s.handleExtend))
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
+		if s.orders != nil {
+			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))
+		}
 	}
 	return mux
 }

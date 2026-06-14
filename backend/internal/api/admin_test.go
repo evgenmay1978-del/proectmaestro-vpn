@@ -29,7 +29,7 @@ func (f *fakeProv) Extend(login string, dur time.Duration) (*store.Customer, err
 func adminServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, _ := store.Open(filepath.Join(t.TempDir(), "s.json"))
-	srv := New(st, &fakeProv{st: st}, Config{AdminToken: "sek", SubBaseURL: "https://wapmixx.ru:8910"})
+	srv := New(st, &fakeProv{st: st}, nil, Config{AdminToken: "sek", SubBaseURL: "https://wapmixx.ru:8910"})
 	return httptest.NewServer(srv.Handler()), st
 }
 
