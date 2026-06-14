@@ -46,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
+	mux.HandleFunc("/claim", s.handleClaim)
 	if s.prov != nil && s.cfg.AdminToken != "" {
 		mux.HandleFunc("/admin/provision", s.adminAuth(s.handleProvision))
 		mux.HandleFunc("/admin/extend", s.adminAuth(s.handleExtend))
@@ -81,4 +82,39 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(cfg)
+}
+
+// handleClaim is the public install-time exchange. The customer enters the short
+// code the owner gave them (their login) and the app receives its subscription
+// URL to register as an auto-updating remote profile — so no key is ever typed or
+// moved by hand on the TV. The login is the claim secret (owner should issue
+// non-trivial codes); the sub token inside the returned URL stays the real
+// per-customer secret. Returns the customer even if expired so the app can show
+// "renew" — the /sub poll itself enforces expiry with 402.
+func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Code string `json:"code"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		http.Error(w, "code required", http.StatusBadRequest)
+		return
+	}
+	c, err := s.st.ByLogin(code)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "unknown code", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.respCustomer(w, c)
 }

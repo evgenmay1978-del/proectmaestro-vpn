@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +69,57 @@ func TestSubUnknownToken(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown token status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestClaimReturnsSubURL(t *testing.T) {
+	srv, st := newTestServer(t)
+	defer srv.Close()
+	_ = st.Put(&store.Customer{
+		Login: "MAESTRO-7F3K", SubToken: "tok-x", Expires: time.Now().Add(24 * time.Hour),
+		VLESS: &subgen.VLESSCreds{Server: "s", Port: 443, UUID: "u"},
+		Hy2:   &subgen.Hy2Creds{Server: "s2", Port: 8443, User: "u", Pass: "p", Insecure: true},
+	})
+	resp, err := http.Post(srv.URL+"/claim", "application/json", strings.NewReader(`{"code":"MAESTRO-7F3K"}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("claim status = %d, want 200", resp.StatusCode)
+	}
+	var got struct {
+		SubURL string `json:"sub_url"`
+		Active bool   `json:"active"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.HasSuffix(got.SubURL, "/sub/tok-x") {
+		t.Fatalf("sub_url = %q, want suffix /sub/tok-x", got.SubURL)
+	}
+	if !got.Active {
+		t.Fatalf("want active customer")
+	}
+}
+
+func TestClaimUnknownCode(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+	resp, _ := http.Post(srv.URL+"/claim", "application/json", strings.NewReader(`{"code":"nope"}`))
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown claim status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestClaimRejectsGET(t *testing.T) {
+	srv, _ := newTestServer(t)
+	defer srv.Close()
+	resp, _ := http.Get(srv.URL + "/claim")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /claim status = %d, want 405", resp.StatusCode)
 	}
 }
 
