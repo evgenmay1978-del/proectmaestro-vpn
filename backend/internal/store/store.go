@@ -124,6 +124,17 @@ func (s *Store) ByLogin(login string) (*Customer, error) {
 	return nil, ErrNotFound
 }
 
+// List returns a snapshot of all customers.
+func (s *Store) List() []*Customer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Customer, 0, len(s.byLog))
+	for _, c := range s.byLog {
+		out = append(out, c)
+	}
+	return out
+}
+
 // Extend pushes a customer's expiry by d (from max(now, current expiry)).
 func (s *Store) Extend(login string, d time.Duration) (*Customer, error) {
 	s.mu.Lock()
