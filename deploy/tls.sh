@@ -12,7 +12,6 @@ KEY=/etc/letsencrypt/live/wapmixx.ru/privkey.pem
 cat > /etc/nginx/conf.d/maestro-panel.conf <<EOF
 server {
     listen $PORT ssl;
-    http2 on;
     server_name wapmixx.ru;
     ssl_certificate $CERT;
     ssl_certificate_key $KEY;
