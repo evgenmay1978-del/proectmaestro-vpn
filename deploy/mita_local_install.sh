@@ -42,14 +42,24 @@ else
   url="https://github.com/enfein/mieru/releases/download/v${MITA_VERSION}/mita_${MITA_VERSION}_${ARCH}.deb"
   echo "downloading $url"
   curl -fLS -o "$TMP/mita.deb" "$url"
-  # Wait out any background apt / unattended-upgrade holding the dpkg lock —
-  # never force-remove the lock (can corrupt the package DB).
-  for i in $(seq 1 120); do
-    fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock >/dev/null 2>&1 || break
-    [ "$i" = 1 ] && echo "dpkg is locked by another apt process — waiting for it to finish…"
-    sleep 5
+  # Install, retrying while a background apt/unattended-upgrade holds the dpkg
+  # lock (NEVER force-remove the lock — it can corrupt the package DB). Bails
+  # immediately on any non-lock dpkg error.
+  installed=0
+  for i in $(seq 1 80); do   # up to ~20 min of 15s retries
+    if dpkg -i "$TMP/mita.deb" 2>"$TMP/err"; then installed=1; break; fi
+    if grep -qi "lock" "$TMP/err"; then
+      [ "$i" = 1 ] && echo "dpkg is locked by another apt process (e.g. unattended-upgrades) — waiting, retry every 15s…"
+      sleep 15
+    else
+      cat "$TMP/err" >&2; break
+    fi
   done
-  dpkg -i "$TMP/mita.deb" || { echo "retrying dpkg in 10s…"; sleep 10; dpkg -i "$TMP/mita.deb"; }
+  if [ "$installed" != 1 ]; then
+    echo "ABORT: could not install mita — dpkg stayed busy." >&2
+    echo "  See what holds it:  ps aux | grep -iE 'apt|dpkg|unattended-upgr' | grep -v grep" >&2
+    rm -rf "$TMP"; exit 1
+  fi
   rm -rf "$TMP"
 fi
 systemctl enable mita >/dev/null 2>&1 || true
