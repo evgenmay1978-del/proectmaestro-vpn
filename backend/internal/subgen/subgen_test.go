@@ -68,6 +68,54 @@ func TestGenerateSingboxAllProtocols(t *testing.T) {
 			}
 		}
 	}
+
+	// RU-direct split routing: the two .srs rule-sets must be declared, both
+	// fetched through the selector (download_detour) so the URL needn't be
+	// RU-reachable, and a route rule must send them to the direct outbound.
+	route := cfg["route"].(map[string]any)
+	rsTags := map[string]bool{}
+	for _, rs := range route["rule_set"].([]any) {
+		m := rs.(map[string]any)
+		rsTags[m["tag"].(string)] = true
+		if m["download_detour"] != tagPick {
+			t.Errorf("rule_set %v download_detour = %v, want %q", m["tag"], m["download_detour"], tagPick)
+		}
+		if m["format"] != "binary" {
+			t.Errorf("rule_set %v format = %v, want binary", m["tag"], m["format"])
+		}
+	}
+	if !rsTags[tagRUDomains] || !rsTags[tagRUIP] {
+		t.Fatalf("missing RU rule-sets, got %v", rsTags)
+	}
+	var ruDirect bool
+	for _, r := range route["rules"].([]any) {
+		m := r.(map[string]any)
+		if m["outbound"] == "direct" && m["rule_set"] != nil {
+			ruDirect = true
+		}
+	}
+	if !ruDirect {
+		t.Fatal("no route rule sends the RU rule-sets to the direct outbound")
+	}
+
+	// The RU DOMAIN set must resolve via the local (direct) resolver, so the
+	// lookup isn't proxied and geoip-ru matches the real RU IP.
+	dnsRules, _ := cfg["dns"].(map[string]any)["rules"].([]any)
+	var ruDNS bool
+	for _, r := range dnsRules {
+		m := r.(map[string]any)
+		if m["server"] == "local" && m["rule_set"] != nil {
+			ruDNS = true
+		}
+	}
+	if !ruDNS {
+		t.Fatal("no dns rule routes the RU domain set to the local resolver")
+	}
+
+	// Persistent cache so the fetched rule-sets survive restarts offline.
+	if exp, _ := cfg["experimental"].(map[string]any); exp["cache_file"] == nil {
+		t.Fatal("experimental.cache_file missing (RU rule-sets won't persist)")
+	}
 }
 
 func TestGenerateSingboxPartial(t *testing.T) {
