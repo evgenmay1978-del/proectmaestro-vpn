@@ -14,6 +14,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
@@ -89,6 +90,10 @@ type Config struct {
 
 // Provisioner orchestrates the store + the per-server clients.
 type Provisioner struct {
+	// mu serializes Provision/Extend/ActivateExisting so a double-tapped owner
+	// confirm (or two concurrent /claim hits for the same login) can't run two
+	// provisions for the same customer at once (TOCTOU double-provision).
+	mu  sync.Mutex
 	st  *store.Store
 	xui VLESSClienter
 	s2  Server2
@@ -131,10 +136,26 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	if !ValidLogin(login) {
 		return nil, fmt.Errorf("provision: invalid login")
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	expires := time.Now().Add(dur)
+	// Idempotent: on a retry (e.g. re-confirm after a transient hy2-sync failure)
+	// reuse the prior record's secrets so we REFRESH the same customer instead of
+	// orphaning the old SubToken or duplicating the 3x-ui client.
 	uuid := uuid4()
 	subTok := randHex(16)
 	hy2Pass := randHex(16)
+	if prev, perr := p.st.ByLogin(login); perr == nil && prev != nil {
+		if prev.SubToken != "" {
+			subTok = prev.SubToken
+		}
+		if prev.VLESS != nil && prev.VLESS.UUID != "" {
+			uuid = prev.VLESS.UUID
+		}
+		if prev.Hy2 != nil && prev.Hy2.Pass != "" {
+			hy2Pass = prev.Hy2.Pass
+		}
+	}
 
 	// Server 1: VLESS client in 3x-ui.
 	if err := p.xui.Login(); err != nil {
@@ -144,7 +165,13 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 		ID: uuid, Email: login, Flow: p.cfg.VLESS.Flow, Enable: true,
 		SubID: subTok, ExpiryTime: expires.UnixMilli(),
 	}
-	if err := p.xui.AddClient(p.cfg.VLESS.InboundID, vc); err != nil {
+	// Update an already-present client, else add — so a retry never fails on a
+	// duplicate-email AddClient (which previously wedged the order permanently).
+	if ex, _ := p.xui.GetClient(login); ex != nil {
+		if err := p.xui.UpdateClient(p.cfg.VLESS.InboundID, login, vc); err != nil {
+			return nil, fmt.Errorf("provision: xui updateClient: %w", err)
+		}
+	} else if err := p.xui.AddClient(p.cfg.VLESS.InboundID, vc); err != nil {
 		return nil, fmt.Errorf("provision: xui addClient: %w", err)
 	}
 
@@ -204,6 +231,8 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 	if !ValidLogin(login) {
 		return nil, fmt.Errorf("provision: invalid login")
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if err := p.xui.Login(); err != nil {
 		return nil, fmt.Errorf("provision: xui login: %w", err)
 	}
@@ -298,6 +327,8 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 
 // Extend renews a customer across all servers.
 func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	cust, err := p.st.Extend(login, dur)
 	if err != nil {
 		return nil, fmt.Errorf("provision: extend store: %w", err)

@@ -41,6 +41,34 @@ func (c *Customer) ToSubgen() subgen.Customer {
 	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, Mieru: c.Mieru}
 }
 
+// clone returns an independent deep copy so callers can read it without the lock
+// while another goroutine mutates the stored record in place (e.g. Extend writes
+// Expires under the write lock). Accessors clone UNDER their read lock, so the
+// returned value is a consistent snapshot — no data race.
+func (c *Customer) clone() *Customer {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	if c.VLESS != nil {
+		v := *c.VLESS
+		cp.VLESS = &v
+	}
+	if c.Hy2 != nil {
+		h := *c.Hy2
+		cp.Hy2 = &h
+	}
+	if c.Naive != nil {
+		n := *c.Naive
+		cp.Naive = &n
+	}
+	if c.Mieru != nil {
+		m := *c.Mieru
+		cp.Mieru = &m
+	}
+	return &cp
+}
+
 // Store is a JSON-file-backed customer registry, safe for concurrent use.
 type Store struct {
 	path  string
@@ -109,7 +137,7 @@ func (s *Store) ByToken(tok string) (*Customer, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if c, ok := s.byTok[tok]; ok {
-		return c, nil
+		return c.clone(), nil
 	}
 	return nil, ErrNotFound
 }
@@ -119,7 +147,7 @@ func (s *Store) ByLogin(login string) (*Customer, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if c, ok := s.byLog[login]; ok {
-		return c, nil
+		return c.clone(), nil
 	}
 	return nil, ErrNotFound
 }
@@ -130,7 +158,7 @@ func (s *Store) List() []*Customer {
 	defer s.mu.RUnlock()
 	out := make([]*Customer, 0, len(s.byLog))
 	for _, c := range s.byLog {
-		out = append(out, c)
+		out = append(out, c.clone())
 	}
 	return out
 }
@@ -149,5 +177,5 @@ func (s *Store) Extend(login string, d time.Duration) (*Customer, error) {
 	}
 	c.Expires = base.Add(d)
 	c.Disabled = false
-	return c, s.flush()
+	return c.clone(), s.flush()
 }
