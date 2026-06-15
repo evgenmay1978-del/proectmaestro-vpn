@@ -729,6 +729,11 @@ class MainActivity :
         val isLogRoute = currentRootRoute == Screen.Log.route
 
         val isSubScreen = isSettingsSubScreen || isToolsSubScreen || isConnectionsDetail || isProfileRoute
+        // Clean MaestroVPN screens (home/buy/claim) own all their own UI — suppress
+        // the donor Start/Stop FAB, status bar and bottom nav over them, on both
+        // a TV (rail branch) and a phone (Scaffold branch).
+        val isCleanHome = currentRootRoute == Screen.TvHome.route ||
+            currentRootRoute == "buy" || currentRootRoute == "claim"
         // Get LogViewModel instance if we're on the Log screen
         val logViewModel: LogViewModel? =
             if (isLogRoute) {
@@ -891,7 +896,7 @@ class MainActivity :
                     tailscaleSSHSharedViewModel = tailscaleSSHSharedViewModel,
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (!useNavigationRail) {
+                if (!useNavigationRail && !isCleanHome) {
                     if (isRemote) {
                         RemoteStatusBar(
                             visible = !isSubScreen,
@@ -922,7 +927,7 @@ class MainActivity :
                     }
                 }
 
-                val showPadFab = useNavigationRail && !isSubScreen && (showStartFab || showStatusBar)
+                val showPadFab = useNavigationRail && !isSubScreen && !isCleanHome && (showStartFab || showStatusBar)
                 if (useNavigationRail) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = showPadFab,
@@ -1042,7 +1047,8 @@ class MainActivity :
                         visible = !isRemote &&
                             currentServiceStatus == Status.Stopped &&
                             dashboardUiState.selectedProfileId != -1L &&
-                            !isSubScreen,
+                            !isSubScreen &&
+                            !isCleanHome,
                         enter = scaleIn(),
                         exit = scaleOut(),
                         modifier = Modifier
@@ -1131,7 +1137,7 @@ class MainActivity :
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     topBar = topBarContent,
                     bottomBar = {
-                        if (!isSubScreen) {
+                        if (!isSubScreen && bottomNavigationScreens.isNotEmpty()) {
                             val hasUpdate by UpdateState.hasUpdate
                             NavigationBar {
                                 bottomNavigationScreens.forEach { screen ->
