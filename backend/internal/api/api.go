@@ -101,6 +101,15 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 		s.writeHelpers(w, c)
 		return
 	}
+	// Universal share-links subscription for cross-platform clients (Karing on
+	// iPhone, v2rayN, NekoBox, Shadowrocket…), requested via ?app=karing /
+	// ?format=links. Mieru is excluded (Android-app-only — needs the local helper).
+	if q := r.URL.Query(); q.Get("app") == "karing" || q.Get("format") == "links" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(subgen.ShareLinks(c.ToSubgen())))
+		return
+	}
 	cfg, err := subgen.GenerateSingbox(c.ToSubgen())
 	if err != nil {
 		http.Error(w, "config error", http.StatusInternalServerError)
