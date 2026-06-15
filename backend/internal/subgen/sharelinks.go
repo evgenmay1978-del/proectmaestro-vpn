@@ -51,11 +51,13 @@ func hy2Link(h *Hy2Creds, name string) string {
 	if h.Insecure {
 		q.Set("insecure", "1")
 	}
-	auth := url.QueryEscape(h.User) + ":" + url.QueryEscape(h.Pass)
+	// userinfo encoding (RFC 3986): space → %20, NOT '+'. QueryEscape would emit
+	// '+' which a client decodes as a literal plus, corrupting the password.
+	auth := url.UserPassword(h.User, h.Pass).String()
 	return fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s", auth, h.Server, h.Port, q.Encode(), tag("Hy2", name))
 }
 
 func naiveLink(n *NaiveCreds, name string) string {
-	auth := url.QueryEscape(n.Username) + ":" + url.QueryEscape(n.Password)
+	auth := url.UserPassword(n.Username, n.Password).String()
 	return fmt.Sprintf("naive+https://%s@%s:%d#%s", auth, n.Server, n.Port, tag("Naive", name))
 }
