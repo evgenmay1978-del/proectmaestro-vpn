@@ -186,6 +186,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     override fun serviceStop() {
         notification.close()
         status.postValue(Status.Starting)
+        mieruHelper.stop() // serviceStop()/stopAndAlert() teardown paths previously
         val pfd = fileDescriptor
         if (pfd != null) {
             pfd.close()
@@ -321,6 +322,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             fileDescriptor = null
         }
         DefaultNetworkMonitor.stop()
+        mieruHelper.stop() // never leaked the mieru process/thread on the error path
         if (::commandServer.isInitialized) {
             closeService()
             commandServer.close()
