@@ -137,6 +137,14 @@ func (c *Client) renderHy2(users []Hy2User) (string, error) {
 // SyncHy2Users regenerates /etc/hysteria/config.yaml from the full user list and
 // reloads hysteria-server. A backup is kept; on a failed restart the previous
 // config is restored so a bad write never leaves Hysteria down.
+//
+// SAFETY INVARIANT: /etc/hysteria/config.yaml is APP-EXCLUSIVE — the MaestroVPN
+// panel is its sole owner. Unlike the Naive Caddyfile (shared with 14 pre-existing
+// customers, so app users live in an isolated # MTV-MANAGED block), Hysteria on
+// server 2 has NO non-app users, which is what makes this full-overwrite safe.
+// DO NOT add externally-managed hysteria users to this file — they would be wiped
+// on the next sync. If that ever changes, switch to add-only/marker-block discipline
+// like SyncNaiveUsers before introducing any external user.
 func (c *Client) SyncHy2Users(users []Hy2User) error {
 	cfg, err := c.renderHy2(users)
 	if err != nil {
