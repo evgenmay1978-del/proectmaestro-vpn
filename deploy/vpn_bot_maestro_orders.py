@@ -17,8 +17,7 @@ import os
 
 import httpx
 from aiogram import F, Router
-from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery
 
 router = Router()
 
@@ -65,17 +64,13 @@ async def confirm_order(cb: CallbackQuery):
         await cb.answer(f"Ошибка: {e}", show_alert=True)
 
 
-@router.message(Command("mvsub"))
-async def mv_subscription(msg: Message):
-    """Admin: /mvsub <login> — show a MaestroVPN (app) customer's subscription."""
-    if _ADMINS and str(msg.from_user.id) not in _ADMINS:
-        await msg.answer("Только администратор")
+@router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("aclsub:")))
+async def show_app_subscription(cb: CallbackQuery):
+    """Admin button «🔗 Подписка (приложение)» on a client card → MaestroVPN app sub."""
+    if _ADMINS and str(cb.from_user.id) not in _ADMINS:
+        await cb.answer("Только администратор", show_alert=True)
         return
-    parts = (msg.text or "").split(maxsplit=1)
-    if len(parts) < 2:
-        await msg.answer("Использование: <code>/mvsub &lt;логин&gt;</code>")
-        return
-    login = parts[1].strip()
+    login = cb.data.split(":", 1)[1]
     try:
         async with httpx.AsyncClient(verify=False, timeout=20) as client:
             r = await client.get(
@@ -84,10 +79,10 @@ async def mv_subscription(msg: Message):
                 headers={"Authorization": f"Bearer {_maestro_token()}"},
             )
         if r.status_code == 404:
-            await msg.answer(f"❌ Клиент «{login}» не найден в MaestroVPN")
+            await cb.answer("В приложении MaestroVPN у этого клиента подписки нет.", show_alert=True)
             return
         if r.status_code != 200:
-            await msg.answer(f"Панель вернула HTTP {r.status_code}")
+            await cb.answer(f"Панель вернула HTTP {r.status_code}", show_alert=True)
             return
         d = r.json()
         exp = d.get("expires", "") or ""
@@ -100,11 +95,12 @@ async def mv_subscription(msg: Message):
             pass
         status = "🟢 активна" if d.get("active") else "🔴 истекла"
         protos = ", ".join(d.get("protocols") or []) or "—"
-        await msg.answer(
-            f"<b>MaestroVPN — {login}</b>\n"
+        await cb.answer(
+            f"MaestroVPN-приложение — {login}\n"
             f"Подписка: {status}\n"
-            f"До: {exp[:10]} (осталось дней: {days})\n"
-            f"Протоколы: {protos}"
+            f"До: {exp[:10]} ({days} дн)\n"
+            f"Протоколы: {protos}",
+            show_alert=True,
         )
     except Exception as e:  # noqa: BLE001
-        await msg.answer(f"Ошибка: {e}")
+        await cb.answer(f"Ошибка: {e}", show_alert=True)
