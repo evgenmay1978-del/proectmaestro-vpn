@@ -116,6 +116,7 @@ func main() {
 			SBPPhone:   os.Getenv("MAESTRO_SBP_PHONE"),
 			TGBotToken: os.Getenv("MAESTRO_TG_BOT_TOKEN"),
 			TGAdminID:  os.Getenv("MAESTRO_TG_ADMIN_ID"),
+			UpdateDir:  env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ type Config struct {
 	SBPPhone   string // СБП phone shown to the customer for in-app purchase
 	TGBotToken string // bot token for owner payment notifications (send-only, no poll)
 	TGAdminID  string // owner's Telegram chat id
+	UpdateDir  string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -56,6 +58,12 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
 	mux.HandleFunc("/claim", s.handleClaim)
+	if s.cfg.UpdateDir != "" {
+		// Panel-hosted OTA update channel — the RU-reachable update source the app
+		// prefers over GitHub (throttled from Russian ISPs). Same host:port the
+		// device already polls for /sub every 15 min.
+		mux.HandleFunc("/update/", s.handleUpdate)
+	}
 	if s.orders != nil {
 		mux.HandleFunc("/order/tariffs", s.handleTariffs)
 		mux.HandleFunc("/order/paid-claim", s.handleOrderPaidClaim)
@@ -140,6 +148,36 @@ func (s *Server) writeHelpers(w http.ResponseWriter, c *store.Customer) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// handleUpdate serves the panel-hosted OTA channel: GET /update/update.json (the
+// manifest the app reads to learn the latest version_code/version_name/apk_url/
+// sha256) and GET /update/<file>.apk (the APK bytes, with Range/resume support for
+// the ~140MB file). Read-only static serving from cfg.UpdateDir; only bare
+// .json/.apk filenames are allowed (no path traversal). This is the update source
+// the app prefers because the device reaches wapmixx.ru but not GitHub from RU.
+func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.UpdateDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	name := strings.TrimPrefix(r.URL.Path, "/update/")
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		http.NotFound(w, r)
+		return
+	}
+	switch {
+	case strings.HasSuffix(name, ".json"):
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+	case strings.HasSuffix(name, ".apk"):
+		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(s.cfg.UpdateDir, name))
 }
 
 // handleClaim is the public install-time exchange. The customer enters the short

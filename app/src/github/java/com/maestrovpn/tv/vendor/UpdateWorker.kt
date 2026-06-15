@@ -61,13 +61,15 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
         Log.d(TAG, "Checking for updates...")
 
         return try {
-            val updateInfo = when (UpdateSource.fromString(Settings.updateSource)) {
-                UpdateSource.FDROID -> checkFDroidUpdate(appContext)
-                UpdateSource.GITHUB -> {
-                    val track = UpdateTrack.fromString(Settings.updateTrack)
-                    GitHubUpdateChecker().use { it.checkUpdate(track) }
+            // Panel channel FIRST (RU-reachable); GitHub/F-Droid only as fallback.
+            val updateInfo = runCatching { PanelUpdateChecker().use { it.checkUpdate() } }.getOrNull()
+                ?: when (UpdateSource.fromString(Settings.updateSource)) {
+                    UpdateSource.FDROID -> checkFDroidUpdate(appContext)
+                    UpdateSource.GITHUB -> {
+                        val track = UpdateTrack.fromString(Settings.updateTrack)
+                        GitHubUpdateChecker().use { it.checkUpdate(track) }
+                    }
                 }
-            }
 
             if (updateInfo == null) {
                 Log.d(TAG, "No update available")
