@@ -44,6 +44,7 @@ fun TvHomeScreen(
     onSelectProtocol: (String) -> Unit,
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
+    onSplitTunnel: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -96,6 +97,11 @@ fun TvHomeScreen(
             Spacer(Modifier.height(24.dp))
             Button(onClick = onEnterCode) {
                 Text("Ввести код подписки")
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onSplitTunnel) {
+                Text("Приложения через VPN")
             }
         }
     }

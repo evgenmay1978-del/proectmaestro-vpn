@@ -733,7 +733,8 @@ class MainActivity :
         // the donor Start/Stop FAB, status bar and bottom nav over them, on both
         // a TV (rail branch) and a phone (Scaffold branch).
         val isCleanHome = currentRootRoute == Screen.TvHome.route ||
-            currentRootRoute == "buy" || currentRootRoute == "claim"
+            currentRootRoute == "buy" || currentRootRoute == "claim" ||
+            currentRootRoute == "split"
         // Get LogViewModel instance if we're on the Log screen
         val logViewModel: LogViewModel? =
             if (isLogRoute) {
@@ -791,6 +792,7 @@ class MainActivity :
                 add(Screen.TvHome.route)
                 add("buy")
                 add("claim")
+                add("split")
                 add(Screen.Dashboard.route)
                 add(Screen.Log.route)
                 add(Screen.Tools.route)
