@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -23,6 +25,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.screenPadding
 
 /**
  * In-app purchase screen (all D-pad, no typing): pick a tariff → see СБП payment
@@ -35,6 +39,7 @@ fun BuyScreen(
     viewModel: BuyViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val isTv = rememberIsTv()
 
     LaunchedEffect(state) {
         if (state is BuyState.Done) onDone()
@@ -44,7 +49,8 @@ fun BuyScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(48.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(screenPadding(isTv)),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -59,7 +65,7 @@ fun BuyScreen(
                             onClick = { viewModel.buy(t.key) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .width(420.dp)
+                                .widthIn(max = 420.dp)
                                 .padding(vertical = 6.dp),
                         ) {
                             Text("${t.name}   —   ${t.rub} ₽")
