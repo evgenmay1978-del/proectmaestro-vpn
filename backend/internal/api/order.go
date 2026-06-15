@@ -136,3 +136,19 @@ func (s *Server) handleOrderConfirm(w http.ResponseWriter, r *http.Request) {
 		"sub_url": s.cfg.SubBaseURL + "/sub/" + cust.SubToken,
 	})
 }
+
+// handleOrderCancel (admin): the owner saw no payment → drop the pending order so
+// abandoned "Купить" taps don't pile up. A paid order is refused.
+func (s *Server) handleOrderCancel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OrderID string `json:"order_id"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.orders.Cancel(req.OrderID); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"order_id": req.OrderID, "status": "canceled"})
+}

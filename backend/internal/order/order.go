@@ -108,6 +108,9 @@ func (s *Store) flush() error {
 func (s *Store) Create(t Tariff) (*Order, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Lazy GC: every new order drops abandoned pending orders (a "Купить" tap that
+	// was never paid) older than 24h, so orders.json can't grow without bound.
+	s.purgeStaleLocked(24 * time.Hour)
 	o := &Order{
 		ID:        "ord_" + token(16),
 		Tariff:    t.Key,
@@ -143,6 +146,32 @@ func (s *Store) MarkPaid(id, subToken string) (*Order, error) {
 	o.Status = "paid"
 	o.SubToken = subToken
 	return o, s.flush()
+}
+
+// Cancel removes a still-pending order (the owner saw no payment). A paid order
+// is left intact. Idempotent: a missing order is a no-op (already cleaned up).
+func (s *Store) Cancel(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, ok := s.byID[id]
+	if !ok {
+		return nil
+	}
+	if o.Status == "paid" {
+		return errors.New("order: cannot cancel a paid order")
+	}
+	delete(s.byID, id)
+	return s.flush()
+}
+
+// purgeStaleLocked drops pending orders older than maxAge. Caller holds the lock.
+func (s *Store) purgeStaleLocked(maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	for id, o := range s.byID {
+		if o.Status == "pending" && o.CreatedAt.Before(cutoff) {
+			delete(s.byID, id)
+		}
+	}
 }
 
 // List returns a snapshot of all orders.

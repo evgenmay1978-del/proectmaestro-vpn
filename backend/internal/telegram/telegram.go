@@ -35,6 +35,7 @@ func (c *Client) NotifyOrder(chatID, text, orderID string) error {
 		"reply_markup": map[string]any{
 			"inline_keyboard": [][]map[string]any{{
 				{"text": "✅ Подтвердить оплату", "callback_data": "moconf:" + orderID},
+				{"text": "❌ Отменить", "callback_data": "mocancel:" + orderID},
 			}},
 		},
 	})

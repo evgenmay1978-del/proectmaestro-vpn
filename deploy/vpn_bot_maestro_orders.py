@@ -79,6 +79,31 @@ async def confirm_order(cb: CallbackQuery):
         await cb.answer(f"Ошибка: {e}", show_alert=True)
 
 
+@router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("mocancel:")))
+async def cancel_order(cb: CallbackQuery):
+    """Owner saw no payment → drop the pending order so the bot/panel don't accumulate junk."""
+    if str(cb.from_user.id) not in _ADMINS:
+        await cb.answer("Только администратор", show_alert=True)
+        return
+    order_id = cb.data.split(":", 1)[1]
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+            r = await client.post(
+                f"{MAESTRO_URL}/admin/order/cancel",
+                json={"order_id": order_id},
+                headers={"Authorization": f"Bearer {_maestro_token()}"},
+            )
+        if r.status_code == 200:
+            base = cb.message.text or ""
+            await cb.message.edit_text(base + "\n\n❌ Отменено (оплата не поступила)")
+        elif r.status_code == 409:
+            await cb.answer("Заказ уже оплачен — отменить нельзя.", show_alert=True)
+        else:
+            await cb.answer(f"Панель вернула HTTP {r.status_code}: {r.text[:120]}", show_alert=True)
+    except Exception as e:  # noqa: BLE001
+        await cb.answer(f"Ошибка: {e}", show_alert=True)
+
+
 @router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("aclsub:")))
 async def show_app_subscription(cb: CallbackQuery):
     """Admin button «🔗 Подписка (приложение)» on a client card → MaestroVPN app sub."""

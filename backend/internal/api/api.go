@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
 		if s.orders != nil {
 			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))
+			mux.HandleFunc("/admin/order/cancel", s.adminAuth(s.handleOrderCancel))
 		}
 	}
 	return mux

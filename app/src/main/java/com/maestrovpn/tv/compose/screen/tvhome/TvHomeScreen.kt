@@ -217,7 +217,7 @@ fun TvHomeScreen(
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onShareIos, modifier = Modifier.widthIn(min = 260.dp)) {
-                Text("Подписка для iPhone")
+                Text("Поделиться подпиской")
             }
         }
     }
