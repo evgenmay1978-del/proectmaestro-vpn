@@ -69,8 +69,12 @@ func main() {
 		s2 := server2.New(server2.Config{
 			Host: env("S2_HOST", "85.137.166.237"), User: env("S2_USER", "root"),
 			Password: os.Getenv("S2_PASSWORD"), Hy2Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
+			MitaPort:       atoi(os.Getenv("S2_MITA_PORT"), 2027),
+			NaivePanelURL:  os.Getenv("NAIVE_PANEL_URL"),
+			NaivePanelUser: os.Getenv("NAIVE_PANEL_USER"),
+			NaivePanelPass: os.Getenv("NAIVE_PANEL_PASS"),
 		})
-		prov = provision.New(st, xc, s2, provision.Config{
+		provCfg := provision.Config{
 			VLESS: provision.VLESSTmpl{
 				InboundID: atoi(os.Getenv("XUI_INBOUND"), 2),
 				Server:    env("VLESS_SERVER", "wapmixx.ru"), Port: atoi(os.Getenv("VLESS_PORT"), 443),
@@ -82,8 +86,24 @@ func main() {
 				Server: env("HY2_SERVER", "wapmix.duckdns.org"), Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
 				SNI: env("HY2_SNI", "wapmix.duckdns.org"), Insecure: env("HY2_INSECURE", "1") == "1",
 			},
-		})
-		log.Printf("provisioning enabled (3x-ui + server2)")
+		}
+		// Mieru: enabled once the mita daemon is installed on server 2 (set S2_MITA_PORT).
+		if os.Getenv("S2_MITA_PORT") != "" {
+			provCfg.Mita = provision.MitaTmpl{
+				Server: env("S2_HOST", "85.137.166.237"), Port: atoi(os.Getenv("S2_MITA_PORT"), 2027),
+				Transport: env("MITA_TRANSPORT", "TCP"), HelperSOCKS: atoi(os.Getenv("MITA_HELPER_SOCKS"), 18667),
+			}
+		}
+		// Naive: enabled when the rixxx-panel is reachable + NAIVE_SERVER set.
+		if os.Getenv("NAIVE_SERVER") != "" {
+			provCfg.Naive = provision.NaiveTmpl{
+				Server: os.Getenv("NAIVE_SERVER"), Port: atoi(os.Getenv("NAIVE_PORT"), 443),
+				SNI: env("NAIVE_SNI", os.Getenv("NAIVE_SERVER")),
+			}
+		}
+		prov = provision.New(st, xc, s2, provCfg)
+		log.Printf("provisioning enabled (3x-ui + server2; mieru=%v naive=%v)",
+			os.Getenv("S2_MITA_PORT") != "", os.Getenv("NAIVE_SERVER") != "")
 	} else {
 		log.Printf("provisioning disabled (set XUI_BASE_URL + S2_PASSWORD to enable); serving subscriptions only")
 	}

@@ -7,6 +7,7 @@ package server2
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -32,6 +33,10 @@ type Config struct {
 	NaivePanelURL  string // e.g. http://127.0.0.1:3000
 	NaivePanelUser string
 	NaivePanelPass string
+
+	// Mieru (mita) — additive daemon on its OWN port (default 2027), driven over
+	// the same SSH connection. Never collides with naive:443 / hysteria:8443.
+	MitaPort int
 }
 
 // Hy2User is one Hysteria2 userpass credential.
@@ -160,11 +165,75 @@ systemctl is-active hysteria-server`, hy2ConfigPath)
 	return nil
 }
 
-// Ping verifies SSH connectivity + that the existing services we must not break
-// are still healthy (caddy = naive, hysteria). Returns a short status string.
+// MieruUser is one Mieru (mita) credential.
+type MieruUser struct {
+	User string
+	Pass string
+}
+
+const mitaConfigPath = "/etc/mita/maestro_config.json"
+
+// renderMita builds the FULL mita server config (port bindings + the complete
+// user set) as JSON — a full regen, not a patch, so an expired customer dropped
+// from `users` can no longer connect after the next apply.
+func renderMita(port int, users []MieruUser) (string, error) {
+	if port == 0 {
+		port = 2027
+	}
+	us := make([]map[string]string, 0, len(users))
+	for _, u := range users {
+		us = append(us, map[string]string{"name": u.User, "password": u.Pass})
+	}
+	cfg := map[string]any{
+		"portBindings": []map[string]any{
+			{"port": port, "protocol": "TCP"},
+			{"port": port, "protocol": "UDP"},
+		},
+		"users":        us,
+		"loggingLevel": "INFO",
+		"mtu":          1400,
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("server2: render mita config: %w", err)
+	}
+	return string(b), nil
+}
+
+// SyncMieruUsers regenerates the mita config from the full active user set and
+// applies it with `mita reload` (which does NOT drop live connections). mita is
+// ADDITIVE — its own port, its own systemd unit — so this never touches naive
+// (caddy) or hysteria. NOTE: assumes `mita apply config` replaces the `users`
+// array wholesale (must be verified on first e2e — a removed user has to stop
+// connecting); the install seeds the daemon, this only manages users.
+func (c *Client) SyncMieruUsers(users []MieruUser) error {
+	cfg, err := renderMita(c.cfg.MitaPort, users)
+	if err != nil {
+		return err
+	}
+	script := fmt.Sprintf(`set -e
+mkdir -p /etc/mita
+cat > %[1]s
+mita apply config %[1]s
+mita reload
+sleep 1
+mita status`, mitaConfigPath)
+	out, err := c.run(script, cfg)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(strings.ToUpper(out), "RUNNING") {
+		return fmt.Errorf("server2: mita not running after sync: %q", strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// HealthCheck verifies SSH connectivity + that the existing services we must not
+// break are still healthy (caddy = naive, hysteria) and reports mita's state.
 func (c *Client) HealthCheck() (string, error) {
 	out, err := c.run(
 		`echo "caddy=$(systemctl is-active caddy) hysteria=$(systemctl is-active hysteria-server) `+
+			`mita=$(systemctl is-active mita 2>/dev/null || echo absent) `+
 			`naive443=$(timeout 4 bash -c 'echo>/dev/tcp/127.0.0.1/443' 2>/dev/null && echo ok || echo no)"`, "")
 	return strings.TrimSpace(out), err
 }

@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
@@ -27,9 +28,14 @@ type VLESSClienter interface {
 	GetClient(email string) (*xui.ExistingClient, error)
 }
 
-// Hy2Syncer regenerates the server-2 Hysteria user set.
-type Hy2Syncer interface {
+// Server2 is the slice of the server-2 client provision needs (so it can be
+// faked): the Hysteria + Mieru user-set syncs and the Naive user CRUD.
+type Server2 interface {
 	SyncHy2Users(users []server2.Hy2User) error
+	SyncMieruUsers(users []server2.MieruUser) error
+	AddNaiveUser(login, pass string, realExpiry time.Time) error
+	SetNaiveExpiry(login string, realExpiry time.Time) error
+	DelNaiveUser(login string) error
 }
 
 // VLESSTmpl is the server-side VLESS/Reality inbound facts shared by all clients.
@@ -52,22 +58,42 @@ type Hy2Tmpl struct {
 	Insecure bool
 }
 
-// Config holds the per-server templates.
+// NaiveTmpl is the server-2 Naive (Caddy forward_proxy) listener the app dials
+// via sing-box's native `naive` outbound.
+type NaiveTmpl struct {
+	Server string // host the app connects to (caddy), e.g. the naive domain
+	Port   int    // 443
+	SNI    string
+}
+
+// MitaTmpl is the server-2 Mieru (mita) listener + the local SOCKS port the
+// app's bundled mieru helper exposes for sing-box to dial.
+type MitaTmpl struct {
+	Server      string
+	Port        int    // 2027
+	Transport   string // "TCP"
+	HelperSOCKS int    // 127.0.0.1:<port> the app's mieru helper listens on
+}
+
+// Config holds the per-server templates. Naive/Mita are optional: if their
+// Server is empty, that protocol is simply not provisioned.
 type Config struct {
 	VLESS VLESSTmpl
 	Hy2   Hy2Tmpl
+	Naive NaiveTmpl
+	Mita  MitaTmpl
 }
 
 // Provisioner orchestrates the store + the per-server clients.
 type Provisioner struct {
 	st  *store.Store
 	xui VLESSClienter
-	s2  Hy2Syncer
+	s2  Server2
 	cfg Config
 }
 
 // New builds a provisioner.
-func New(st *store.Store, x VLESSClienter, s2 Hy2Syncer, cfg Config) *Provisioner {
+func New(st *store.Store, x VLESSClienter, s2 Server2, cfg Config) *Provisioner {
 	return &Provisioner{st: st, xui: x, s2: s2, cfg: cfg}
 }
 
@@ -130,6 +156,21 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	if err := p.syncHy2(); err != nil {
 		return nil, fmt.Errorf("provision: hy2 sync: %w", err)
 	}
+
+	// Extra protocols — best-effort: never fail the provision (VLESS+Hy2 are
+	// already up) if Naive's panel or the Mieru daemon isn't reachable yet.
+	p.addNaive(cust, login)
+	p.addMieru(cust, login)
+	if err := p.st.Put(cust); err != nil {
+		return nil, fmt.Errorf("provision: store extras: %w", err)
+	}
+	if cust.Mieru != nil {
+		if err := p.syncMieru(); err != nil {
+			log.Printf("provision: mieru sync for %q skipped: %v", login, err)
+			cust.Mieru = nil
+			_ = p.st.Put(cust)
+		}
+	}
 	return cust, nil
 }
 
@@ -191,6 +232,16 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 	if err := p.syncHy2(); err != nil {
 		return nil, fmt.Errorf("provision: hy2 sync: %w", err)
 	}
+	if cust.Naive != nil {
+		if err := p.s2.SetNaiveExpiry(cust.Login, cust.Expires); err != nil {
+			log.Printf("provision: extend naive %q: %v", cust.Login, err)
+		}
+	}
+	if cust.Mieru != nil {
+		if err := p.syncMieru(); err != nil {
+			log.Printf("provision: extend mieru %q: %v", cust.Login, err)
+		}
+	}
 	return cust, nil
 }
 
@@ -204,4 +255,53 @@ func (p *Provisioner) syncHy2() error {
 		}
 	}
 	return p.s2.SyncHy2Users(users)
+}
+
+// addNaive creates a Naive user on server 2 and records native-outbound creds.
+// No-op if Naive isn't configured; on panel failure it logs and leaves the
+// customer without Naive (so the sub never advertises a protocol they can't use).
+func (p *Provisioner) addNaive(cust *store.Customer, login string) {
+	if p.cfg.Naive.Server == "" {
+		return
+	}
+	pass := randHex(16)
+	if err := p.s2.AddNaiveUser(login, pass, cust.Expires); err != nil {
+		log.Printf("provision: naive for %q skipped: %v", login, err)
+		return
+	}
+	cust.Naive = &subgen.NaiveCreds{
+		Server: p.cfg.Naive.Server, Port: p.cfg.Naive.Port,
+		Username: server2.NaivePrefix + login, Password: pass, SNI: p.cfg.Naive.SNI,
+	}
+}
+
+// addMieru records Mieru creds; the actual server-side user set is pushed by
+// syncMieru (called after the customer is stored). No-op if Mieru isn't configured.
+func (p *Provisioner) addMieru(cust *store.Customer, login string) {
+	if p.cfg.Mita.Server == "" {
+		return
+	}
+	cust.Mieru = &subgen.MieruCreds{
+		Server: p.cfg.Mita.Server, Port: p.cfg.Mita.Port,
+		Username: login, Password: randHex(16),
+		Transport: fallbackStr(p.cfg.Mita.Transport, "TCP"), HelperSOCKS: p.cfg.Mita.HelperSOCKS,
+	}
+}
+
+// syncMieru regenerates server-2's mita user set from all ACTIVE customers.
+func (p *Provisioner) syncMieru() error {
+	var users []server2.MieruUser
+	for _, c := range p.st.List() {
+		if c.Active() && c.Mieru != nil {
+			users = append(users, server2.MieruUser{User: c.Mieru.Username, Pass: c.Mieru.Password})
+		}
+	}
+	return p.s2.SyncMieruUsers(users)
+}
+
+func fallbackStr(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
