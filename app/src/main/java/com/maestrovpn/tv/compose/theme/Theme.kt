@@ -2,7 +2,6 @@ package com.maestrovpn.tv.compose.theme
 
 import android.app.Activity
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -10,6 +9,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -17,9 +17,20 @@ import androidx.core.view.WindowCompat
 
 private val DarkColorScheme =
     darkColorScheme(
-        primary = SingBoxPrimary,
-        secondary = SingBoxPrimaryLight,
-        tertiary = LogBlue,
+        primary = MaestroOrange,
+        onPrimary = Color(0xFF231200),
+        primaryContainer = MaestroOrangeDark,
+        onPrimaryContainer = Color(0xFFFFE2CC),
+        secondary = MaestroSilver,
+        onSecondary = Color(0xFF15151A),
+        tertiary = MaestroOrangeLight,
+        background = MaestroBg,
+        onBackground = Color(0xFFECECEE),
+        surface = MaestroSurface,
+        onSurface = Color(0xFFECECEE),
+        surfaceVariant = MaestroSurfaceHi,
+        onSurfaceVariant = Color(0xFFC8C8CE),
+        outline = Color(0xFF55555E),
     )
 
 private val LightColorScheme =
@@ -31,9 +42,9 @@ private val LightColorScheme =
 
 @Composable
 fun SFATheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    // MaestroVPN is always its branded dark orange theme — not the system wallpaper.
+    darkTheme: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colorScheme =
