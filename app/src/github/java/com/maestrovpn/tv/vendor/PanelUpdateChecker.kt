@@ -60,6 +60,7 @@ class PanelUpdateChecker : Closeable {
             releaseNotes = m.notes,
             isPrerelease = false,
             fileSize = m.size,
+            sha256 = m.sha256,
         )
     }
 

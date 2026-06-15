@@ -36,9 +36,12 @@ def _qr_png(data: str) -> bytes:
 MAESTRO_URL = os.getenv("MAESTRO_URL", "http://127.0.0.1:8910")
 
 try:
-    import config as _cfg
+    # ADMIN_IDS lives on the Config INSTANCE (config.config.ADMIN_IDS), not as a
+    # module attribute — getattr(module,"ADMIN_IDS") returned [] and left the gate
+    # fail-OPEN (any user could confirm payments / read subs). Use the instance.
+    from config import config as _cfg
 
-    _ADMINS = {str(x) for x in getattr(_cfg, "ADMIN_IDS", [])}
+    _ADMINS = {str(x) for x in _cfg.ADMIN_IDS}
 except Exception:
     _ADMINS = {x.strip() for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 
@@ -56,7 +59,7 @@ def _maestro_token() -> str:
 
 @router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("moconf:")))
 async def confirm_order(cb: CallbackQuery):
-    if _ADMINS and str(cb.from_user.id) not in _ADMINS:
+    if str(cb.from_user.id) not in _ADMINS:
         await cb.answer("Только администратор", show_alert=True)
         return
     order_id = cb.data.split(":", 1)[1]
@@ -79,7 +82,7 @@ async def confirm_order(cb: CallbackQuery):
 @router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("aclsub:")))
 async def show_app_subscription(cb: CallbackQuery):
     """Admin button «🔗 Подписка (приложение)» on a client card → MaestroVPN app sub."""
-    if _ADMINS and str(cb.from_user.id) not in _ADMINS:
+    if str(cb.from_user.id) not in _ADMINS:
         await cb.answer("Только администратор", show_alert=True)
         return
     login = cb.data.split(":", 1)[1]
