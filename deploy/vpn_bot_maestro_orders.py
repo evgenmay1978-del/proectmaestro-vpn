@@ -105,11 +105,19 @@ async def show_app_subscription(cb: CallbackQuery):
             await cb.answer("У клиента нет ссылки на подписку.", show_alert=True)
             return
         exp = d.get("expires", "") or ""
-        days = "?"
+        exp_disp = "—"
+        days_disp = ""
         try:
             from datetime import datetime, timezone
             dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-            days = max(0, (dt - datetime.now(timezone.utc)).days)
+            if dt.year > 1970:  # not the zero-time placeholder
+                exp_disp = exp[:10]
+                secs = (dt - datetime.now(timezone.utc)).total_seconds()
+                if secs > 0:
+                    d_left = int(secs // 86400) + (1 if secs % 86400 else 0)  # ceil → <24h shows 1, not 0
+                    days_disp = f" ({d_left} дн)"
+                else:
+                    days_disp = " (истекла)"
         except Exception:
             pass
         status = "🟢 активна" if d.get("active") else "🔴 истекла"
@@ -121,7 +129,7 @@ async def show_app_subscription(cb: CallbackQuery):
         caption = (
             f"🦊 <b>MaestroVPN — подписка</b>\n"
             f"Клиент: <code>{login}</code>\n"
-            f"Статус: {status}  •  до {exp[:10]} ({days} дн)\n"
+            f"Статус: {status}  •  до {exp_disp}{days_disp}\n"
             f"Протоколы ({len(d.get('protocols') or [])}): {protos}\n\n"
             f"🔗 Ссылка на подписку (все протоколы):\n<code>{sub_url}</code>\n\n"
             f"📲 В приложении MaestroVPN — отсканируй этот QR или вставь ссылку.\n"
