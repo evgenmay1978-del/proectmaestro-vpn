@@ -776,19 +776,8 @@ class MainActivity :
                 currentServiceStatus == Status.Started || currentServiceStatus == Status.Starting
             }
 
-        val railScreens =
-            buildList {
-                add(Screen.Dashboard)
-                if (showGroupsInNav) {
-                    add(Screen.Groups)
-                }
-                if (showConnectionsInNav) {
-                    add(Screen.Connections)
-                }
-                add(Screen.Log)
-                add(Screen.Tools)
-                add(Screen.Settings)
-            }
+        // TV: no donor nav rail — the clean home is full-screen (rail items removed).
+        val railScreens = emptyList<Screen>()
 
         val allowedRoutes =
             buildSet {
@@ -1090,7 +1079,7 @@ class MainActivity :
         CompositionLocalProvider(LocalTopBarController provides topBarController) {
             if (useNavigationRail) {
                 Row(modifier = Modifier.fillMaxSize()) {
-                    Surface(tonalElevation = 1.dp) {
+                    if (railScreens.isNotEmpty()) Surface(tonalElevation = 1.dp) {
                         NavigationRail(
                             modifier = Modifier.fillMaxHeight(),
                         ) {
