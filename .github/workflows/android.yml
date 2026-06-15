@@ -74,7 +74,23 @@ jobs:
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
           ls -lh app/libs/
 
+      - name: Materialize the stable signing keystore from secret
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGNING_KEYSTORE_B64:-}" ]; then
+            echo "::warning::SIGNING_KEYSTORE_B64 secret missing — build will use a throwaway debug key and OTA updates won't install." >&2
+          else
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/release.keystore
+            echo "Wrote app/release.keystore ($(stat -c%s app/release.keystore) bytes)"
+          fi
+
       - name: Build :app:assembleOtherDebug
+        env:
+          # base64 properties (KEYSTORE_PASS/ALIAS_NAME/ALIAS_PASS) read by getProps;
+          # makes the debug build sign with the stable release.keystore above.
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
           set -euo pipefail
           chmod +x ./gradlew

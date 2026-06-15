@@ -1,6 +1,7 @@
 node_modules/
 *.apk
 *.keystore
+*.jks
 .env
 local.properties
 build/

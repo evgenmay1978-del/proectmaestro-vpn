@@ -10,7 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,11 +28,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.material3.Button
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 
@@ -37,12 +36,11 @@ import com.maestrovpn.tv.compose.screenPadding
  * existing panel login) the owner gave them; on success a Remote (auto-updating)
  * profile is created and selected, then [onDone] returns to the home screen.
  *
- * Universal: on a phone, a tap opens the soft keyboard. On a TV the field
- * auto-grabs focus so the D-pad reaches it and the leanback on-screen keyboard
- * opens — otherwise the sibling buttons would steal focus and activation (the
- * only path for existing customers) would be unreachable.
+ * Universal (touch + D-pad), plain Material 3: on a phone a tap opens the soft
+ * keyboard; on a TV the field auto-grabs focus so the D-pad reaches it and the
+ * leanback keyboard opens (otherwise sibling buttons steal focus and activation —
+ * the only path for existing customers — would be unreachable).
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ClaimScreen(
     onDone: () -> Unit,
@@ -84,7 +82,7 @@ fun ClaimScreen(
                     .focusRequester(codeFocus)
                     .fillMaxWidth()
                     .widthIn(max = 420.dp),
-                label = { androidx.compose.material3.Text("Код или логин") },
+                label = { Text("Код или логин") },
             )
             Spacer(Modifier.height(20.dp))
 

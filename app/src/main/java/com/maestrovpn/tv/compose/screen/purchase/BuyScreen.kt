@@ -10,29 +10,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.material3.Button
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 
 /**
- * In-app purchase screen (all D-pad, no typing): pick a tariff → see СБП payment
+ * In-app purchase screen (works on touch + D-pad): pick a tariff → see СБП payment
  * details → the box polls and auto-activates once the owner confirms the payment.
+ * Plain Material 3 so taps register on a phone and the D-pad focuses on a TV.
  */
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun BuyScreen(
     onDone: () -> Unit,
