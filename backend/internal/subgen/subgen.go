@@ -123,12 +123,14 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	cfg := map[string]any{
 		"log": map[string]any{"level": "warn"},
 		"dns": map[string]any{
-			// sing-box 1.12+ DNS server format. The legacy {tag, address:"tls://8.8.8.8"}
-			// form is REJECTED by libbox 1.14 ("legacy DNS server formats deprecated"),
-			// which broke every config decode (claim + buy + connect).
+			// sing-box 1.12+ DNS server format. "google" (DoT through the proxy)
+			// resolves user traffic; "local" (the system resolver, direct) is used
+			// only to bootstrap the proxy server domains (see default_domain_resolver).
 			"servers": []map[string]any{
-				{"type": "tls", "tag": "google", "server": "8.8.8.8"},
+				{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": tagPick},
+				{"type": "local", "tag": "local"},
 			},
+			"final": "google",
 		},
 		"inbounds": []map[string]any{{
 			"type": "tun", "tag": "tun-in",
@@ -145,6 +147,11 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			// platform allow/disallow package list on the tun inbound.
 			"final":                 tagPick,
 			"auto_detect_interface": true,
+			// Resolve the proxy SERVER domains (wapmixx.ru, wapmix.duckdns.org…) via
+			// the system resolver — DIRECT, pre-tunnel — so connecting to the proxy
+			// never loops through itself. This was why connect succeeded but no
+			// traffic flowed (the proxy domain couldn't be resolved).
+			"default_domain_resolver": "local",
 			"rules": []map[string]any{
 				{"action": "sniff"},
 				{"protocol": "dns", "action": "hijack-dns"},
