@@ -56,6 +56,17 @@ BLOCK=$(cat)
 sed -i '/# MTV-MANAGED-START/,/# MTV-MANAGED-END/d' "$CF"
 awk -v block="$BLOCK" '/basic_auth/{last=NR}{l[NR]=$0}END{for(i=1;i<=NR;i++){print l[i]; if(i==last)print block}}' "$CF" > "$CF.new"
 mv "$CF.new" "$CF"
+# Integrity guard: the new config MUST contain the MTV block markers and exactly
+# the expected number of mtv_ users. If the awk anchor missed (no basic_auth line
+# to anchor on) the block would be silently dropped — caddy validate still passes,
+# so without THIS check we'd lose every app user. Roll back instead.
+EXPECT=%[2]d
+GOT=$(grep -cE '^[[:space:]]*basic_auth[[:space:]]+mtv_' "$CF" || true)
+if ! grep -q '# MTV-MANAGED-START' "$CF" || [ "$GOT" != "$EXPECT" ]; then
+  mv "$CF.mtvbak" "$CF"
+  echo "naive: integrity check failed (mtv users got=$GOT want=$EXPECT), rolled back" >&2
+  exit 1
+fi
 if ! caddy validate --adapter caddyfile --config "$CF" >/dev/null 2>&1; then
   mv "$CF.mtvbak" "$CF"
   echo "naive: caddy validate failed, rolled back" >&2
@@ -69,7 +80,7 @@ if ! systemctl reload caddy; then
 fi
 rm -f "$CF.mtvbak"
 sleep 1
-systemctl is-active caddy`, caddyfilePath)
+systemctl is-active caddy`, caddyfilePath, len(users))
 
 	out, err := c.run(script, b.String())
 	if err != nil {
