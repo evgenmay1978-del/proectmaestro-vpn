@@ -27,8 +27,8 @@ type Customer struct {
 	Disabled bool               `json:"disabled"`
 	VLESS    *subgen.VLESSCreds `json:"vless,omitempty"`
 	Hy2      *subgen.Hy2Creds   `json:"hy2,omitempty"`
-	Naive    *subgen.SOCKSCreds `json:"naive,omitempty"`
-	Mieru    *subgen.SOCKSCreds `json:"mieru,omitempty"`
+	Naive    *subgen.NaiveCreds `json:"naive,omitempty"`
+	Mieru    *subgen.MieruCreds `json:"mieru,omitempty"`
 }
 
 // Active reports whether the subscription is usable right now.

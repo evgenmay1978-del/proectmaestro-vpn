@@ -4,13 +4,14 @@
 //
 //   - VLESS/Reality (3x-ui)         — native sing-box outbound
 //   - Hysteria2                     — native sing-box outbound
-//   - Naive (Caddy forward_proxy)   — socks outbound to a local naive helper
+//   - Naive (Caddy forward_proxy)   — native sing-box `naive` outbound
 //   - Mieru                         — socks outbound to a local mieru helper
 //
 // plus a `selector` (manual protocol switch) and a `urltest` (auto failover),
 // a `tun` inbound, and a route block that supports per-app split tunnelling.
-// The app runs the naive/mieru client binaries as local SOCKS helpers on the
-// HelperSOCKS ports referenced here.
+// Mieru has no native sing-box outbound, so the app runs the mieru client as a
+// local SOCKS helper on the HelperSOCKS port referenced here; Naive does NOT
+// need a helper (sing-box dials it natively).
 package subgen
 
 import (
@@ -40,10 +41,26 @@ type Hy2Creds struct {
 	Insecure bool // self-signed cert → true (or pin via PinSHA256)
 }
 
-// SOCKSCreds describes a protocol carried by a local helper process exposing a
-// SOCKS5 port (Naive, Mieru). The app launches the helper; sing-box dials it.
-type SOCKSCreds struct {
-	HelperSOCKS int // 127.0.0.1:<port> the app's helper listens on
+// NaiveCreds is a NaiveProxy (Caddy forward_proxy) user. sing-box has a NATIVE
+// `naive` outbound, so no on-device helper is needed.
+type NaiveCreds struct {
+	Server   string
+	Port     int
+	Username string
+	Password string
+	SNI      string
+}
+
+// MieruCreds is a Mieru user. sing-box has NO native mieru outbound, so the app
+// runs the mieru client as a local SOCKS5 helper (on HelperSOCKS) that sing-box
+// dials; the server fields below configure that helper.
+type MieruCreds struct {
+	Server      string
+	Port        int
+	Username    string
+	Password    string
+	Transport   string // "TCP" or "UDP"
+	HelperSOCKS int    // 127.0.0.1:<port> the app's mieru helper listens on
 }
 
 // Customer holds whichever protocols are provisioned for one subscription.
@@ -52,8 +69,8 @@ type Customer struct {
 	Name  string
 	VLESS *VLESSCreds
 	Hy2   *Hy2Creds
-	Naive *SOCKSCreds
-	Mieru *SOCKSCreds
+	Naive *NaiveCreds
+	Mieru *MieruCreds
 }
 
 const (
@@ -79,7 +96,7 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		protoTags = append(protoTags, tagHy2)
 	}
 	if c.Naive != nil {
-		outbounds = append(outbounds, socksOutbound(tagNaive, c.Naive.HelperSOCKS))
+		outbounds = append(outbounds, naiveOutbound(c.Naive))
 		protoTags = append(protoTags, tagNaive)
 	}
 	if c.Mieru != nil {
@@ -161,6 +178,15 @@ func hy2Outbound(h *Hy2Creds) map[string]any {
 			"server_name": h.SNI,
 			"insecure":    h.Insecure,
 		},
+	}
+}
+
+func naiveOutbound(n *NaiveCreds) map[string]any {
+	return map[string]any{
+		"type": "naive", "tag": tagNaive,
+		"server": n.Server, "server_port": n.Port,
+		"username": n.Username, "password": n.Password,
+		"tls": map[string]any{"enabled": true, "server_name": n.SNI},
 	}
 }
 

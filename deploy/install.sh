@@ -51,6 +51,11 @@ S2_HOST=85.137.166.237
 S2_USER=root
 S2_PASSWORD=$S2PASS
 S2_HY2_PORT=8443
+# Mieru (mita) on server 2 — enables mieru provisioning once mita is installed
+# (bash deploy/s2_install_mita.sh). Until then mieru sync is a logged no-op.
+S2_MITA_PORT=2027
+MITA_TRANSPORT=TCP
+MITA_HELPER_SOCKS=18667
 VLESS_SERVER=wapmixx.ru
 VLESS_PORT=443
 VLESS_SNI=www.intel.com
