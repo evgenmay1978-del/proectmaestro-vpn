@@ -45,6 +45,7 @@ fun TvHomeScreen(
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit = {},
+    onShareIos: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -103,6 +104,11 @@ fun TvHomeScreen(
             Spacer(Modifier.height(12.dp))
             Button(onClick = onSplitTunnel) {
                 Text("Приложения через VPN")
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onShareIos) {
+                Text("Подписка для iPhone")
             }
         }
     }

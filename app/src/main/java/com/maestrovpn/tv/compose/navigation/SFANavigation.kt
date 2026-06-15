@@ -8,6 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -22,6 +26,7 @@ import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
 import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
 import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardScreen
+import com.maestrovpn.tv.compose.screen.tvhome.IosKaringDialog
 import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.GroupsCard
@@ -111,6 +116,10 @@ fun SFANavHost(
                 else -> "Отключено"
             }
             val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting
+            var showIosQr by remember { mutableStateOf(false) }
+            if (showIosQr) {
+                IosKaringDialog(onDismiss = { showIosQr = false })
+            }
             if (groupsViewModel != null) {
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
@@ -127,6 +136,7 @@ fun SFANavHost(
                     onBuy = { navController.navigate("buy") },
                     onEnterCode = { navController.navigate("claim") },
                     onSplitTunnel = { navController.navigate("split") },
+                    onShareIos = { showIosQr = true },
                 )
             } else {
                 TvHomeScreen(
@@ -139,6 +149,7 @@ fun SFANavHost(
                     onBuy = { navController.navigate("buy") },
                     onEnterCode = { navController.navigate("claim") },
                     onSplitTunnel = { navController.navigate("split") },
+                    onShareIos = { showIosQr = true },
                 )
             }
         }
