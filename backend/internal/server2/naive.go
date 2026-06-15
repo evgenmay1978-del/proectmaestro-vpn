@@ -94,3 +94,27 @@ func escapeAwk(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `/`, `\/`, `.`, `\.`, `*`, `\*`, `[`, `\[`, `]`, `\]`, `(`, `\(`, `)`, `\)`, `+`, `\+`, `?`, `\?`, `^`, `\^`, `$`, `\$`)
 	return r.Replace(s)
 }
+
+// s2BotDB is the server-2 NaiveProxy bot's SQLite DB (bot_minimal.py). Its
+// `subscriptions` table holds the REAL end date for naive customers, which the
+// naive panel/Caddyfile do not.
+const s2BotDB = "/opt/vpn_bot/bot_minimal.db"
+
+// ReadProxyExpiry returns the raw ISO end date for a naive customer from the
+// server-2 bot DB, so a customer already on the naive panel keeps their actual
+// subscription end when they activate the app (instead of a default). Empty +
+// false when they have no subscription row there.
+func (c *Client) ReadProxyExpiry(proxyUser string) (string, bool, error) {
+	q := strings.ReplaceAll(proxyUser, "'", "''")
+	out, err := c.run(fmt.Sprintf(
+		`sqlite3 %s "SELECT expires_at FROM subscriptions WHERE proxy_user='%s' ORDER BY expires_at DESC LIMIT 1;" 2>/dev/null`,
+		s2BotDB, q), "")
+	if err != nil {
+		return "", false, err
+	}
+	s := strings.TrimSpace(out)
+	if s == "" {
+		return "", false, nil
+	}
+	return s, true, nil
+}

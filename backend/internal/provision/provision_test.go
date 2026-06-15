@@ -25,10 +25,11 @@ type fakeS2 struct {
 	lastNaive []server2.NaiveUser
 }
 
-func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error     { f.lastHy2 = u; return nil }
-func (f *fakeS2) SyncMieruUsers(u []server2.MieruUser) error { f.lastMieru = u; return nil }
-func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error { f.lastNaive = u; return nil }
-func (f *fakeS2) ReadNaiveUser(string) (string, bool, error) { return "", false, nil }
+func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error       { f.lastHy2 = u; return nil }
+func (f *fakeS2) SyncMieruUsers(u []server2.MieruUser) error   { f.lastMieru = u; return nil }
+func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error   { f.lastNaive = u; return nil }
+func (f *fakeS2) ReadNaiveUser(string) (string, bool, error)   { return "", false, nil }
+func (f *fakeS2) ReadProxyExpiry(string) (string, bool, error) { return "", false, nil }
 
 func newProv(t *testing.T) (*Provisioner, *fakeXUI, *fakeS2, *store.Store) {
 	t.Helper()
