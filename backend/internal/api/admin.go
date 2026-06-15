@@ -29,18 +29,33 @@ type provisionReq struct {
 }
 
 type customerResp struct {
-	Login   string    `json:"login"`
-	SubURL  string    `json:"sub_url"`
-	Expires time.Time `json:"expires"`
-	Active  bool      `json:"active"`
+	Login     string    `json:"login"`
+	SubURL    string    `json:"sub_url"`
+	Expires   time.Time `json:"expires"`
+	Active    bool      `json:"active"`
+	Protocols []string  `json:"protocols"`
 }
 
 func (s *Server) respCustomer(w http.ResponseWriter, c *store.Customer) {
+	protos := []string{}
+	if c.VLESS != nil {
+		protos = append(protos, "vless")
+	}
+	if c.Hy2 != nil {
+		protos = append(protos, "hysteria2")
+	}
+	if c.Naive != nil {
+		protos = append(protos, "naive")
+	}
+	if c.Mieru != nil {
+		protos = append(protos, "mieru")
+	}
 	writeJSON(w, http.StatusOK, customerResp{
-		Login:   c.Login,
-		SubURL:  s.cfg.SubBaseURL + "/sub/" + c.SubToken,
-		Expires: c.Expires,
-		Active:  c.Active(),
+		Login:     c.Login,
+		SubURL:    s.cfg.SubBaseURL + "/sub/" + c.SubToken,
+		Expires:   c.Expires,
+		Active:    c.Active(),
+		Protocols: protos,
 	})
 }
 
