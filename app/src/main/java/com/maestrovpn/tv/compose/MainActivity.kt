@@ -792,6 +792,11 @@ class MainActivity :
 
         val allowedRoutes =
             buildSet {
+                // TV-first screens — keep these reachable so the launch redirect
+                // below never bounces us off the clean home into the donor UI.
+                add(Screen.TvHome.route)
+                add("buy")
+                add("claim")
                 add(Screen.Dashboard.route)
                 add(Screen.Log.route)
                 add(Screen.Tools.route)
@@ -816,7 +821,7 @@ class MainActivity :
 
         LaunchedEffect(allowedRoutes, currentRootRoute, useNavigationRail) {
             if (currentRootRoute != null && !allowedRoutes.contains(currentRootRoute)) {
-                navController.navigate(Screen.Dashboard.route) {
+                navController.navigate(Screen.TvHome.route) {
                     popUpTo(navController.graph.findStartDestination().id) {
                         saveState = true
                     }
