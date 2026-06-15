@@ -21,6 +21,8 @@ server {
     location /sub/    { proxy_pass http://127.0.0.1:8910; }
     location = /claim { proxy_pass http://127.0.0.1:8910; }
     location = /healthz { proxy_pass http://127.0.0.1:8910; }
+    # in-app purchase (tariffs, create order, poll, «я оплатил»). NOT /admin.
+    location /order   { proxy_pass http://127.0.0.1:8910; }
     location / { return 404; }
 }
 EOF
