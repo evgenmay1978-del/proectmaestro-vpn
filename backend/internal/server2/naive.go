@@ -2,8 +2,16 @@ package server2
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// safeProxyName is the hard guard for any value interpolated into a remote
+// shell / awk / sqlite command. naive usernames and proxy users are
+// alphanumerics + . _ @ - ; ANYTHING else (quotes, spaces, ;, $, backtick,
+// newline) is rejected so user input from the UNAUTHENTICATED /claim endpoint
+// can never break out of the command and run as root on server 2.
+var safeProxyName = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,64}$`)
 
 // NaivePrefix marks naive (Caddy basic_auth) users created for the TV app. The
 // backend ONLY ever manages users inside the `# MTV-MANAGED` block of the
@@ -77,8 +85,15 @@ systemctl is-active caddy`, caddyfilePath)
 // user, app-managed or not) so a customer already on the naive panel can activate
 // the app with their current credential. Empty pass + false when not found.
 func (c *Client) ReadNaiveUser(username string) (string, bool, error) {
+	if !safeProxyName.MatchString(username) {
+		return "", false, nil // reject injection attempts as "not found"
+	}
+	// Pass the username as an awk variable (-v) and match the field EXACTLY, so
+	// it is never part of the awk program text or a regex — no quote/regex
+	// breakout. Validated to a metachar-free charset above, so direct
+	// interpolation into the -v assignment is shell-safe.
 	out, err := c.run(fmt.Sprintf(
-		`awk '/basic_auth %s /{print $3; exit}' %s`, escapeAwk(username), caddyfilePath), "")
+		`awk -v u=%s '$1=="basic_auth" && $2==u{print $3; exit}' %s`, username, caddyfilePath), "")
 	if err != nil {
 		return "", false, err
 	}
@@ -87,12 +102,6 @@ func (c *Client) ReadNaiveUser(username string) (string, bool, error) {
 		return "", false, nil
 	}
 	return pass, true, nil
-}
-
-// escapeAwk neutralises regex metacharacters in a username used in an awk match.
-func escapeAwk(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `/`, `\/`, `.`, `\.`, `*`, `\*`, `[`, `\[`, `]`, `\]`, `(`, `\(`, `)`, `\)`, `+`, `\+`, `?`, `\?`, `^`, `\^`, `$`, `\$`)
-	return r.Replace(s)
 }
 
 // s2BotDB is the server-2 NaiveProxy bot's SQLite DB (bot_minimal.py). Its
@@ -105,6 +114,9 @@ const s2BotDB = "/opt/vpn_bot/bot_minimal.db"
 // subscription end when they activate the app (instead of a default). Empty +
 // false when they have no subscription row there.
 func (c *Client) ReadProxyExpiry(proxyUser string) (string, bool, error) {
+	if !safeProxyName.MatchString(proxyUser) {
+		return "", false, nil // reject injection attempts as "no subscription"
+	}
 	q := strings.ReplaceAll(proxyUser, "'", "''")
 	out, err := c.run(fmt.Sprintf(
 		`sqlite3 %s "SELECT expires_at FROM subscriptions WHERE proxy_user='%s' ORDER BY expires_at DESC LIMIT 1;" 2>/dev/null`,
