@@ -52,6 +52,19 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      # Cache resolved dependencies so a jitpack/CDN outage (compose-markdown and
+      # libsu live ONLY on jitpack, which periodically 403s behind Cloudflare)
+      # can't block a build once these have been fetched successfully once.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'settings.gradle.kts', 'version.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       - name: Install pinned NDK + SDK platform
         run: |
           set -euo pipefail
@@ -107,7 +120,20 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon
+          # Retry to survive transient jitpack/CDN dependency-resolution blips
+          # (HTTP 403 behind Cloudflare). A sustained outage still fails after the
+          # window, but short flaps self-heal.
+          n=0
+          until [ "$n" -ge 4 ]; do
+            if ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon; then
+              exit 0
+            fi
+            n=$((n + 1))
+            echo "::warning::gradle attempt $n failed (likely a transient jitpack/CDN outage) — retrying in 90s" >&2
+            sleep 90
+          done
+          echo "::error::gradle build failed after retries" >&2
+          exit 1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
