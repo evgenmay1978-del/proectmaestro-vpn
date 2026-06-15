@@ -99,12 +99,19 @@ object Vendor : VendorInterface {
 
     override val updateSources = listOf(UpdateSource.GITHUB, UpdateSource.FDROID)
 
-    override fun checkUpdateAsync(): UpdateInfo? = when (UpdateSource.fromString(Settings.updateSource)) {
-        UpdateSource.FDROID -> checkFDroidUpdate(Application.application)
-        UpdateSource.GITHUB -> {
-            val track = UpdateTrack.fromString(Settings.updateTrack)
-            GitHubUpdateChecker().use { checker ->
-                checker.checkUpdate(track)
+    override fun checkUpdateAsync(): UpdateInfo? {
+        // Panel channel FIRST — it's the only host reachable from RU (the device
+        // hits it for /sub every 15 min). GitHub/F-Droid are foreign-blocked, so
+        // they're only the fallback if the panel returns nothing or errors.
+        runCatching { PanelUpdateChecker().use { it.checkUpdate() } }
+            .getOrNull()?.let { return it }
+        return when (UpdateSource.fromString(Settings.updateSource)) {
+            UpdateSource.FDROID -> checkFDroidUpdate(Application.application)
+            UpdateSource.GITHUB -> {
+                val track = UpdateTrack.fromString(Settings.updateTrack)
+                GitHubUpdateChecker().use { checker ->
+                    checker.checkUpdate(track)
+                }
             }
         }
     }
