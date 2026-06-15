@@ -98,6 +98,26 @@ const (
 	tagRUIP      = "ru-direct-ip"
 )
 
+// forceProxyDomains are FOREIGN services that must ALWAYS egress through the
+// tunnel, never direct. Google serves much of its traffic from Google Global
+// Cache nodes that sit on Russian ISP IP ranges — those IPs are in geoip-ru, so
+// the RU-direct rule would send Google/Gemini out the RU exit and the service
+// then sees a Russian location ("Gemini thinks we're in Russia"). Matching by
+// domain (sniffed SNI, before IP) and routing to the selector overrides that.
+var forceProxyDomains = []string{
+	"google.com",            // gemini.google.com, aistudio.google.com, accounts.google.com…
+	"googleapis.com",        // generativelanguage.googleapis.com = the Gemini API
+	"gstatic.com",
+	"googleusercontent.com",
+	"ggpht.com",
+	"googlevideo.com",
+	"withgoogle.com",
+	"google.dev",            // ai.google.dev
+	"youtube.com",
+	"youtu.be",
+	"ytimg.com",
+}
+
 // GenerateSingbox renders the customer's sing-box configuration as JSON.
 func GenerateSingbox(c Customer) ([]byte, error) {
 	outbounds := []map[string]any{}
@@ -204,6 +224,14 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 				{"action": "sniff"}, // must run first: gives IP-initiated conns an SNI to match
 				{"protocol": "dns", "action": "hijack-dns"},
 				{"ip_is_private": true, "action": "route", "outbound": "direct"},
+				// Foreign services (Google/Gemini/YouTube) MUST go through the tunnel.
+				// Placed ABOVE the RU-direct rule so geoip-ru can't route their RU-cache
+				// (Google Global Cache) IPs out direct, which made the service see a
+				// Russian location (the "Gemini thinks we're in Russia" bug).
+				{
+					"domain_suffix": forceProxyDomains,
+					"action":        "route", "outbound": tagPick,
+				},
 				// Russian services → DIRECT (bypass VPN). MUST sit above final=select
 				// so it short-circuits before traffic reaches the proxy selector.
 				{
