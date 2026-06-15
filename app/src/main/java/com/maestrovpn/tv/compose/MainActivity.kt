@@ -743,8 +743,11 @@ class MainActivity :
                 null
             }
 
+        // Also create it on the TvHome route — the home screen shows the protocol
+        // chips AND the live "active protocol", both of which need the streamed
+        // group state. Without this it was null on TvHome, so nothing showed.
         val groupsViewModel: GroupsViewModel? =
-            if (isGroupsRoute) {
+            if (isGroupsRoute || currentRootRoute == Screen.TvHome.route) {
                 viewModel(
                     factory = object : ViewModelProvider.Factory {
                         override fun <T : ViewModel> create(modelClass: Class<T>): T {
