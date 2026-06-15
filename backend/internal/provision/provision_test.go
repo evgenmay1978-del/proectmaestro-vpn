@@ -22,14 +22,13 @@ func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error)   { return nil,
 type fakeS2 struct {
 	lastHy2   []server2.Hy2User
 	lastMieru []server2.MieruUser
-	naiveAdds int
+	lastNaive []server2.NaiveUser
 }
 
-func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error       { f.lastHy2 = u; return nil }
-func (f *fakeS2) SyncMieruUsers(u []server2.MieruUser) error   { f.lastMieru = u; return nil }
-func (f *fakeS2) AddNaiveUser(string, string, time.Time) error { f.naiveAdds++; return nil }
-func (f *fakeS2) SetNaiveExpiry(string, time.Time) error       { return nil }
-func (f *fakeS2) DelNaiveUser(string) error                    { return nil }
+func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error     { f.lastHy2 = u; return nil }
+func (f *fakeS2) SyncMieruUsers(u []server2.MieruUser) error { f.lastMieru = u; return nil }
+func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error { f.lastNaive = u; return nil }
+func (f *fakeS2) ReadNaiveUser(string) (string, bool, error) { return "", false, nil }
 
 func newProv(t *testing.T) (*Provisioner, *fakeXUI, *fakeS2, *store.Store) {
 	t.Helper()
@@ -62,8 +61,8 @@ func TestProvisionAllProtocols(t *testing.T) {
 	if fx.logins != 1 || fx.adds != 1 {
 		t.Fatalf("xui calls: logins=%d adds=%d", fx.logins, fx.adds)
 	}
-	if fh.naiveAdds != 1 {
-		t.Fatalf("naive adds = %d, want 1", fh.naiveAdds)
+	if len(fh.lastNaive) != 1 || fh.lastNaive[0].User != "mtv_alice" {
+		t.Fatalf("naive sync users = %+v, want [mtv_alice]", fh.lastNaive)
 	}
 	if len(fh.lastHy2) != 1 || fh.lastHy2[0].User != "alice" {
 		t.Fatalf("hy2 sync users = %+v, want [alice]", fh.lastHy2)

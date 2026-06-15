@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
@@ -29,13 +30,13 @@ type VLESSClienter interface {
 }
 
 // Server2 is the slice of the server-2 client provision needs (so it can be
-// faked): the Hysteria + Mieru user-set syncs and the Naive user CRUD.
+// faked): the Hysteria/Mieru/Naive user-set syncs plus a lookup of an existing
+// naive credential (for activating customers already on the naive panel).
 type Server2 interface {
 	SyncHy2Users(users []server2.Hy2User) error
 	SyncMieruUsers(users []server2.MieruUser) error
-	AddNaiveUser(login, pass string, realExpiry time.Time) error
-	SetNaiveExpiry(login string, realExpiry time.Time) error
-	DelNaiveUser(login string) error
+	SyncNaiveUsers(users []server2.NaiveUser) error
+	ReadNaiveUser(username string) (string, bool, error)
 }
 
 // VLESSTmpl is the server-side VLESS/Reality inbound facts shared by all clients.
@@ -164,6 +165,13 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store extras: %w", err)
 	}
+	if cust.Naive != nil {
+		if err := p.syncNaive(); err != nil {
+			log.Printf("provision: naive sync for %q skipped: %v", login, err)
+			cust.Naive = nil
+			_ = p.st.Put(cust)
+		}
+	}
 	if cust.Mieru != nil {
 		if err := p.syncMieru(); err != nil {
 			log.Printf("provision: mieru sync for %q skipped: %v", login, err)
@@ -174,10 +182,12 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	return cust, nil
 }
 
-// ActivateExisting activates an EXISTING panel customer by their login: it looks
-// the login up in 3x-ui and, if found, registers a subscription mirroring their
-// VLESS access + existing expiry (creates NO new panel client). Lets customers
-// already in the panels just type their login to use the app.
+// ActivateExisting activates an EXISTING customer (in 3x-ui and/or on the naive
+// panel) by their login and gives them ALL protocols: it reuses their existing
+// VLESS / Naive credential where present and creates the rest (Hy2, Mieru, plus
+// VLESS or Naive if they lacked one), at their existing 3x-ui expiry (or 30 days
+// if only on the naive panel). So a customer already paying just types their login
+// and gets the full multi-protocol app.
 func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 	if login == "" {
 		return nil, fmt.Errorf("provision: empty login")
@@ -185,28 +195,83 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 	if err := p.xui.Login(); err != nil {
 		return nil, fmt.Errorf("provision: xui login: %w", err)
 	}
-	ex, err := p.xui.GetClient(login)
-	if err != nil {
-		return nil, fmt.Errorf("provision: lookup %q: %w", login, err)
+	ex, _ := p.xui.GetClient(login) // 3x-ui client (nil if absent)
+
+	// Existing naive customer = their raw Caddy basic_auth (not an mtv_ one).
+	naivePass, naiveFound := "", false
+	if p.cfg.Naive.Server != "" {
+		if pw, ok, rerr := p.s2.ReadNaiveUser(login); rerr == nil {
+			naivePass, naiveFound = pw, ok
+		}
 	}
-	if ex == nil || ex.UUID == "" {
+	if (ex == nil || ex.UUID == "") && !naiveFound {
 		return nil, fmt.Errorf("provision: login %q not found in panels", login)
 	}
-	expires := time.Now().Add(365 * 24 * time.Hour)
-	if ex.ExpiryTime > 0 {
+
+	expires := time.Now().Add(30 * 24 * time.Hour)
+	if ex != nil && ex.ExpiryTime > 0 {
 		expires = time.UnixMilli(ex.ExpiryTime)
 	}
-	cust := &store.Customer{
-		Login: login, SubToken: randHex(16), Expires: expires,
-		VLESS: &subgen.VLESSCreds{
-			Server: p.cfg.VLESS.Server, Port: p.cfg.VLESS.Port, UUID: ex.UUID,
-			Flow: p.cfg.VLESS.Flow, SNI: p.cfg.VLESS.SNI,
-			PublicKey: p.cfg.VLESS.PublicKey, ShortID: p.cfg.VLESS.ShortID,
-			Fingerprint: p.cfg.VLESS.Fingerprint,
-		},
+	subTok := randHex(16)
+	cust := &store.Customer{Login: login, SubToken: subTok, Expires: expires}
+
+	// VLESS: reuse their 3x-ui client, else create one so they get VLESS too.
+	uuid := ""
+	if ex != nil && ex.UUID != "" {
+		uuid = ex.UUID
+	} else {
+		uuid = uuid4()
+		vc := xui.VLESSClient{ID: uuid, Email: login, Flow: p.cfg.VLESS.Flow, Enable: true, SubID: subTok, ExpiryTime: expires.UnixMilli()}
+		if err := p.xui.AddClient(p.cfg.VLESS.InboundID, vc); err != nil {
+			log.Printf("activate: vless create for %q: %v", login, err)
+			uuid = ""
+		}
 	}
+	if uuid != "" {
+		cust.VLESS = &subgen.VLESSCreds{
+			Server: p.cfg.VLESS.Server, Port: p.cfg.VLESS.Port, UUID: uuid,
+			Flow: p.cfg.VLESS.Flow, SNI: p.cfg.VLESS.SNI,
+			PublicKey: p.cfg.VLESS.PublicKey, ShortID: p.cfg.VLESS.ShortID, Fingerprint: p.cfg.VLESS.Fingerprint,
+		}
+	}
+
+	// Hy2: always create.
+	cust.Hy2 = &subgen.Hy2Creds{
+		Server: p.cfg.Hy2.Server, Port: p.cfg.Hy2.Port, User: login, Pass: randHex(16),
+		SNI: p.cfg.Hy2.SNI, Insecure: p.cfg.Hy2.Insecure,
+	}
+
+	// Naive: reuse their existing Caddy credential, else create an mtv_ one.
+	if naiveFound {
+		cust.Naive = &subgen.NaiveCreds{
+			Server: p.cfg.Naive.Server, Port: p.cfg.Naive.Port,
+			Username: login, Password: naivePass, SNI: p.cfg.Naive.SNI,
+		}
+	} else {
+		p.addNaive(cust, login)
+	}
+
+	// Mieru.
+	p.addMieru(cust, login)
+
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store: %w", err)
+	}
+	// Push the freshly created server-2 user sets (best-effort).
+	if err := p.syncHy2(); err != nil {
+		log.Printf("activate: hy2 sync %q: %v", login, err)
+	}
+	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
+		if err := p.syncNaive(); err != nil {
+			log.Printf("activate: naive sync %q: %v", login, err)
+		}
+	}
+	if cust.Mieru != nil {
+		if err := p.syncMieru(); err != nil {
+			log.Printf("activate: mieru sync %q: %v", login, err)
+			cust.Mieru = nil
+			_ = p.st.Put(cust)
+		}
 	}
 	return cust, nil
 }
@@ -232,8 +297,8 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 	if err := p.syncHy2(); err != nil {
 		return nil, fmt.Errorf("provision: hy2 sync: %w", err)
 	}
-	if cust.Naive != nil {
-		if err := p.s2.SetNaiveExpiry(cust.Login, cust.Expires); err != nil {
+	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
+		if err := p.syncNaive(); err != nil {
 			log.Printf("provision: extend naive %q: %v", cust.Login, err)
 		}
 	}
@@ -257,22 +322,29 @@ func (p *Provisioner) syncHy2() error {
 	return p.s2.SyncHy2Users(users)
 }
 
-// addNaive creates a Naive user on server 2 and records native-outbound creds.
-// No-op if Naive isn't configured; on panel failure it logs and leaves the
-// customer without Naive (so the sub never advertises a protocol they can't use).
+// addNaive records app-managed Naive creds (mtv_-prefixed Caddy basic_auth);
+// syncNaive pushes the full app set to server 2. No-op if Naive isn't configured.
 func (p *Provisioner) addNaive(cust *store.Customer, login string) {
 	if p.cfg.Naive.Server == "" {
 		return
 	}
-	pass := randHex(16)
-	if err := p.s2.AddNaiveUser(login, pass, cust.Expires); err != nil {
-		log.Printf("provision: naive for %q skipped: %v", login, err)
-		return
-	}
 	cust.Naive = &subgen.NaiveCreds{
 		Server: p.cfg.Naive.Server, Port: p.cfg.Naive.Port,
-		Username: server2.NaivePrefix + login, Password: pass, SNI: p.cfg.Naive.SNI,
+		Username: server2.NaivePrefix + login, Password: randHex(16), SNI: p.cfg.Naive.SNI,
 	}
+}
+
+// syncNaive regenerates server-2's app-managed (mtv_) naive user set in the
+// Caddyfile MTV block. Customers reusing their OWN pre-existing Caddy credential
+// are skipped — they already live in the Caddyfile, outside the MTV block.
+func (p *Provisioner) syncNaive() error {
+	var users []server2.NaiveUser
+	for _, c := range p.st.List() {
+		if c.Active() && c.Naive != nil && strings.HasPrefix(c.Naive.Username, server2.NaivePrefix) {
+			users = append(users, server2.NaiveUser{User: c.Naive.Username, Pass: c.Naive.Password})
+		}
+	}
+	return p.s2.SyncNaiveUsers(users)
 }
 
 // addMieru records Mieru creds; the actual server-side user set is pushed by
