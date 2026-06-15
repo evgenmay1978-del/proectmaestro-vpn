@@ -5,6 +5,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -73,7 +74,12 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
-	tok := strings.TrimPrefix(r.URL.Path, "/sub/")
+	rest := strings.TrimPrefix(r.URL.Path, "/sub/")
+	tok := rest
+	wantHelpers := strings.HasSuffix(rest, "/helpers")
+	if wantHelpers {
+		tok = strings.TrimSuffix(rest, "/helpers")
+	}
 	if tok == "" || strings.Contains(tok, "/") {
 		http.NotFound(w, r)
 		return
@@ -91,6 +97,10 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "subscription expired", http.StatusPaymentRequired)
 		return
 	}
+	if wantHelpers {
+		s.writeHelpers(w, c)
+		return
+	}
 	cfg, err := subgen.GenerateSingbox(c.ToSubgen())
 	if err != nil {
 		http.Error(w, "config error", http.StatusInternalServerError)
@@ -99,6 +109,28 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(cfg)
+}
+
+// writeHelpers serves GET /sub/<token>/helpers — the server creds for protocols
+// the app runs as a bundled local SOCKS helper (only Mieru: sing-box dials the
+// helper on 127.0.0.1:<socks>, the helper authenticates to mita with these). VLESS
+// / Hy2 / Naive are native sing-box outbounds and need nothing here, so the object
+// is empty when the customer has no helper protocols.
+func (s *Server) writeHelpers(w http.ResponseWriter, c *store.Customer) {
+	out := map[string]any{}
+	if c.Mieru != nil {
+		out["mieru"] = map[string]any{
+			"server":    c.Mieru.Server,
+			"port":      c.Mieru.Port,
+			"username":  c.Mieru.Username,
+			"password":  c.Mieru.Password,
+			"transport": c.Mieru.Transport,
+			"socks":     c.Mieru.HelperSOCKS,
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // handleClaim is the public install-time exchange. The customer enters the short
