@@ -126,11 +126,22 @@ fun SFANavHost(
                 // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
                 val selectGroup = groupsUi.groups.firstOrNull { it.tag == "select" }
                     ?: groupsUi.groups.firstOrNull { it.selectable }
+                // Resolve the protocol ACTUALLY carrying traffic: follow the
+                // selector → urltest → … → leaf chain. With "auto", the urltest
+                // group's `selected` is the live lowest-latency pick, so this
+                // updates whenever auto switches protocol.
+                var activeProtocol: String? = selectGroup?.selected
+                var hop = 0
+                while (activeProtocol != null && hop++ < 5) {
+                    val g = groupsUi.groups.firstOrNull { it.tag == activeProtocol } ?: break
+                    activeProtocol = g.selected
+                }
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
                     protocols = selectGroup?.items?.map { it.tag } ?: emptyList(),
                     selected = selectGroup?.selected,
+                    activeProtocol = activeProtocol,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag -> selectGroup?.let { groupsViewModel.selectGroupItem(it.tag, tag) } },
                     onBuy = { navController.navigate("buy") },

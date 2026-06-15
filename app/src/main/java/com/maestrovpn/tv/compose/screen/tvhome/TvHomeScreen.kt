@@ -62,6 +62,7 @@ fun TvHomeScreen(
     connected: Boolean,
     protocols: List<String>,
     selected: String?,
+    activeProtocol: String? = null,
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
     onBuy: () -> Unit,
@@ -147,6 +148,25 @@ fun TvHomeScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = if (connected) ConnGreen else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+
+            // Active protocol — the outbound actually carrying traffic right now.
+            // With "Авто" the urltest re-picks the lowest-latency protocol live, so
+            // this resolves the selector→urltest chain to the real leaf and updates
+            // whenever auto switches.
+            if (connected && !activeProtocol.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                val viaAuto = selected == "auto" && activeProtocol != "auto"
+                Text(
+                    if (viaAuto) {
+                        "Подключён: ${protocolLabel(activeProtocol)}  •  авто"
+                    } else {
+                        "Подключён: ${protocolLabel(activeProtocol)}"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaestroOrange,
                 )
             }
 
