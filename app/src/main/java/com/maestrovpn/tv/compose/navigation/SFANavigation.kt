@@ -32,6 +32,7 @@ import com.maestrovpn.tv.compose.screen.log.LogViewModel
 import com.maestrovpn.tv.compose.screen.privilegesettings.PrivilegeSettingsManageScreen
 import com.maestrovpn.tv.compose.screen.profile.EditProfileRoute
 import com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyScreen
+import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.compose.screen.settings.AppSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.CoreSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.EditRemoteServerScreen
@@ -125,6 +126,7 @@ fun SFANavHost(
                     onSelectProtocol = { tag -> selectGroup?.let { groupsViewModel.selectGroupItem(it.tag, tag) } },
                     onBuy = { navController.navigate("buy") },
                     onEnterCode = { navController.navigate("claim") },
+                    onSplitTunnel = { navController.navigate("split") },
                 )
             } else {
                 TvHomeScreen(
@@ -136,6 +138,7 @@ fun SFANavHost(
                     onSelectProtocol = {},
                     onBuy = { navController.navigate("buy") },
                     onEnterCode = { navController.navigate("claim") },
+                    onSplitTunnel = { navController.navigate("split") },
                 )
             }
         }
@@ -146,6 +149,18 @@ fun SFANavHost(
 
         composable("buy") {
             BuyScreen(onDone = { navController.popBackStack() })
+        }
+
+        composable("split") {
+            // Per-app split tunnel (donor screen). On exit, enable split only when
+            // the user actually picked apps; an empty list means "all apps via VPN".
+            PerAppProxyScreen(
+                onBack = {
+                    Settings.perAppProxyEnabled = Settings.perAppProxyList.isNotEmpty()
+                    navController.popBackStack()
+                },
+                serviceStatus = serviceStatus,
+            )
         }
 
         composable(Screen.Dashboard.route) {
