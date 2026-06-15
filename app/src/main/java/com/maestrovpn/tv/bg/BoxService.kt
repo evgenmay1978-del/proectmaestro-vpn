@@ -74,6 +74,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val binder = ServiceBinder(status)
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
+    private val mieruHelper = MieruHelper(service)
 
     private var receiverRegistered = false
     private val receiver =
@@ -126,6 +127,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             lastProfileName = profile.name
+            // Bring up the bundled Mieru SOCKS helper for this subscription
+            // (best-effort, on its own thread; no-op if the customer has no mieru
+            // protocol or on a non-arm64 device). sing-box's mieru outbound dials it.
+            mieruHelper.start(profile.typed.remoteURL)
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
             }
@@ -279,6 +284,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             receiverRegistered = false
         }
         notification.close()
+        mieruHelper.stop()
         GlobalScope.launch(Dispatchers.IO) {
             val pfd = fileDescriptor
             if (pfd != null) {
