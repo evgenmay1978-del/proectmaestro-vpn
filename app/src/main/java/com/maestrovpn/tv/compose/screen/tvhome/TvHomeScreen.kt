@@ -87,8 +87,9 @@ fun TvHomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     protocols.forEach { protocol ->
+                        val label = protocolLabel(protocol)
                         Button(onClick = { onSelectProtocol(protocol) }) {
-                            Text(if (protocol == selected) "● $protocol" else protocol)
+                            Text(if (protocol == selected) "● $label" else label)
                         }
                     }
                 }
@@ -105,4 +106,14 @@ fun TvHomeScreen(
             }
         }
     }
+}
+
+/** Friendly chip label; "auto" is the urltest pick = the lowest-latency protocol. */
+private fun protocolLabel(tag: String): String = when (tag) {
+    "auto" -> "Авто (лучший пинг)"
+    "hysteria2" -> "Hysteria2"
+    "vless" -> "VLESS"
+    "naive" -> "NaiveProxy"
+    "mieru" -> "Mieru"
+    else -> tag.replaceFirstChar { it.uppercase() }
 }

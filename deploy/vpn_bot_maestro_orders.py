@@ -17,7 +17,8 @@ import os
 
 import httpx
 from aiogram import F, Router
-from aiogram.types import CallbackQuery
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message
 
 router = Router()
 
@@ -62,3 +63,48 @@ async def confirm_order(cb: CallbackQuery):
             await cb.answer(f"Панель вернула HTTP {r.status_code}: {r.text[:120]}", show_alert=True)
     except Exception as e:  # noqa: BLE001
         await cb.answer(f"Ошибка: {e}", show_alert=True)
+
+
+@router.message(Command("mvsub"))
+async def mv_subscription(msg: Message):
+    """Admin: /mvsub <login> — show a MaestroVPN (app) customer's subscription."""
+    if _ADMINS and str(msg.from_user.id) not in _ADMINS:
+        await msg.answer("Только администратор")
+        return
+    parts = (msg.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        await msg.answer("Использование: <code>/mvsub &lt;логин&gt;</code>")
+        return
+    login = parts[1].strip()
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20) as client:
+            r = await client.get(
+                f"{MAESTRO_URL}/admin/customer",
+                params={"login": login},
+                headers={"Authorization": f"Bearer {_maestro_token()}"},
+            )
+        if r.status_code == 404:
+            await msg.answer(f"❌ Клиент «{login}» не найден в MaestroVPN")
+            return
+        if r.status_code != 200:
+            await msg.answer(f"Панель вернула HTTP {r.status_code}")
+            return
+        d = r.json()
+        exp = d.get("expires", "") or ""
+        days = "?"
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+            days = max(0, (dt - datetime.now(timezone.utc)).days)
+        except Exception:
+            pass
+        status = "🟢 активна" if d.get("active") else "🔴 истекла"
+        protos = ", ".join(d.get("protocols") or []) or "—"
+        await msg.answer(
+            f"<b>MaestroVPN — {login}</b>\n"
+            f"Подписка: {status}\n"
+            f"До: {exp[:10]} (осталось дней: {days})\n"
+            f"Протоколы: {protos}"
+        )
+    except Exception as e:  # noqa: BLE001
+        await msg.answer(f"Ошибка: {e}")

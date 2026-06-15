@@ -2,10 +2,20 @@ package com.maestrovpn.tv.compose.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary colors from existing app
-val SingBoxPrimary = Color(0xFFD81B60)
-val SingBoxPrimaryDark = Color(0xFFA00037)
-val SingBoxPrimaryLight = Color(0xFFFF5C8D)
+// MaestroVPN brand palette — matches the app icon (orange fox on a silver shield,
+// black background): vivid orange accent, metallic silver, near-black surfaces.
+val MaestroOrange = Color(0xFFF0792A)
+val MaestroOrangeDark = Color(0xFFC25A14)
+val MaestroOrangeLight = Color(0xFFFF9D52)
+val MaestroSilver = Color(0xFFB8B8C0)
+val MaestroBg = Color(0xFF0E0E10)
+val MaestroSurface = Color(0xFF17171C)
+val MaestroSurfaceHi = Color(0xFF24242B)
+
+// kept for any code still referencing the old names (now mapped to the brand)
+val SingBoxPrimary = MaestroOrange
+val SingBoxPrimaryDark = MaestroOrangeDark
+val SingBoxPrimaryLight = MaestroOrangeLight
 
 // Service status colors
 val ServiceRunning = Color(0xFF4CAF50)
