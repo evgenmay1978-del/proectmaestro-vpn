@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -18,22 +22,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 
 /**
  * MaestroVPN home — universal connect screen for BOTH a TV remote (D-pad) and a
- * touch phone. tv-material3 Buttons fire on tap and on D-pad center alike; the
- * column scrolls so nothing is clipped on a short phone viewport; the protocol
- * chips wrap (FlowRow) instead of overflowing a narrow screen; the launch
- * focus-ring is requested only on TV (a phone has no focus model to seed).
+ * touch phone. Uses plain Material 3 (same as the rest of the app's 67 screens),
+ * which is clickable by touch AND focusable by D-pad on a TV — unlike tv-material3,
+ * which did not react to touch taps on a phone. The column scrolls so nothing is
+ * clipped on a short viewport; protocol chips wrap (FlowRow); the launch focus-ring
+ * is requested only on TV.
  */
-@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TvHomeScreen(
     statusText: String,
