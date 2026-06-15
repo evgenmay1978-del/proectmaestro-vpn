@@ -13,13 +13,25 @@ INSTALL (gated production edit — run yourself on server 1):
        - add `dp.include_router(maestro_orders.router)` next to the other include_router calls
   3. systemctl restart vpnbot
 """
+import io
 import os
 
 import httpx
+import qrcode
 from aiogram import F, Router
-from aiogram.types import CallbackQuery
+from aiogram.types import BufferedInputFile, CallbackQuery
 
 router = Router()
+
+
+def _qr_png(data: str) -> bytes:
+    """Black-on-white scannable QR PNG of `data` (opaque — phone cameras need it)."""
+    qr = qrcode.QRCode(box_size=10, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data(data)
+    qr.make(fit=True)
+    buf = io.BytesIO()
+    qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
+    return buf.getvalue()
 
 MAESTRO_URL = os.getenv("MAESTRO_URL", "http://127.0.0.1:8910")
 
@@ -85,6 +97,10 @@ async def show_app_subscription(cb: CallbackQuery):
             await cb.answer(f"Панель вернула HTTP {r.status_code}", show_alert=True)
             return
         d = r.json()
+        sub_url = d.get("sub_url") or ""
+        if not sub_url:
+            await cb.answer("У клиента нет ссылки на подписку.", show_alert=True)
+            return
         exp = d.get("expires", "") or ""
         days = "?"
         try:
@@ -94,13 +110,25 @@ async def show_app_subscription(cb: CallbackQuery):
         except Exception:
             pass
         status = "🟢 активна" if d.get("active") else "🔴 истекла"
-        protos = ", ".join(d.get("protocols") or []) or "—"
-        await cb.answer(
-            f"MaestroVPN-приложение — {login}\n"
-            f"Подписка: {status}\n"
-            f"До: {exp[:10]} ({days} дн)\n"
-            f"Протоколы: {protos}",
-            show_alert=True,
+        proto_names = {
+            "vless": "VLESS", "hysteria2": "Hysteria2",
+            "naive": "NaiveProxy", "mieru": "Mieru",
+        }
+        protos = ", ".join(proto_names.get(p, p) for p in (d.get("protocols") or [])) or "—"
+        caption = (
+            f"🦊 <b>MaestroVPN — подписка</b>\n"
+            f"Клиент: <code>{login}</code>\n"
+            f"Статус: {status}  •  до {exp[:10]} ({days} дн)\n"
+            f"Протоколы ({len(d.get('protocols') or [])}): {protos}\n\n"
+            f"🔗 Ссылка на подписку (все протоколы):\n<code>{sub_url}</code>\n\n"
+            f"📲 В приложении MaestroVPN — отсканируй этот QR или вставь ссылку.\n"
+            f"Для Karing/Hiddify добавь к ссылке <code>?app=karing</code>."
         )
+        await cb.message.answer_photo(
+            BufferedInputFile(_qr_png(sub_url), filename="maestrovpn_sub.png"),
+            caption=caption,
+            parse_mode="HTML",
+        )
+        await cb.answer()
     except Exception as e:  # noqa: BLE001
         await cb.answer(f"Ошибка: {e}", show_alert=True)
