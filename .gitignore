@@ -9,5 +9,7 @@ build/
 .idea/
 *.iml
 app/libs/*.aar
+# bundled native helper (mieru) — fetched by CI into jniLibs at build time
+app/src/main/jniLibs/
 captures/
 graphify-out/

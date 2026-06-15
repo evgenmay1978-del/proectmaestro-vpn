@@ -74,6 +74,19 @@ jobs:
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
           ls -lh app/libs/
 
+      - name: Bundle the Mieru client helper (android arm64) into jniLibs
+        run: |
+          set -euo pipefail
+          MIERU_VER=3.33.0
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          tmp=$(mktemp -d)
+          curl -fLS -o "$tmp/m.tgz" "https://github.com/enfein/mieru/releases/download/v${MIERU_VER}/mieru_${MIERU_VER}_android_arm64.tar.gz"
+          tar xzf "$tmp/m.tgz" -C "$tmp"
+          # must be named lib*.so so AGP extracts it to nativeLibraryDir as an executable
+          install -m 0755 "$tmp/mieru" app/src/main/jniLibs/arm64-v8a/libmieru.so
+          rm -rf "$tmp"
+          ls -lh app/src/main/jniLibs/arm64-v8a/
+
       - name: Materialize the stable signing keystore from secret
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
