@@ -53,6 +53,13 @@ func TestGenerateSingboxAllProtocols(t *testing.T) {
 		t.Fatalf("route.final = %v, want %q", route["final"], tagPick)
 	}
 
+	// DNS must use the sing-box 1.12+ server format (type+server), NOT the legacy
+	// {address:"tls://8.8.8.8"} that libbox 1.14 rejects with a decode error.
+	dnsSrv := cfg["dns"].(map[string]any)["servers"].([]any)[0].(map[string]any)
+	if dnsSrv["type"] != "tls" || dnsSrv["server"] != "8.8.8.8" || dnsSrv["address"] != nil {
+		t.Fatalf("dns server not in new format: %v", dnsSrv)
+	}
+
 	// hysteria2 password must be user:pass (userpass auth).
 	for _, o := range outs {
 		if m := o.(map[string]any); m["tag"] == tagHy2 {

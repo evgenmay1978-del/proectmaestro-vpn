@@ -123,7 +123,12 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	cfg := map[string]any{
 		"log": map[string]any{"level": "warn"},
 		"dns": map[string]any{
-			"servers": []map[string]any{{"tag": "google", "address": "tls://8.8.8.8"}},
+			// sing-box 1.12+ DNS server format. The legacy {tag, address:"tls://8.8.8.8"}
+			// form is REJECTED by libbox 1.14 ("legacy DNS server formats deprecated"),
+			// which broke every config decode (claim + buy + connect).
+			"servers": []map[string]any{
+				{"type": "tls", "tag": "google", "server": "8.8.8.8"},
+			},
 		},
 		"inbounds": []map[string]any{{
 			"type": "tun", "tag": "tun-in",
