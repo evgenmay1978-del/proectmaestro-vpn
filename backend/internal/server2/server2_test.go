@@ -4,7 +4,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestRenderHy2(t *testing.T) {
@@ -65,41 +64,38 @@ func TestSyncHy2Live(t *testing.T) {
 	}
 }
 
-// TestNaiveLive hits the real rixxx-panel. Gated behind NAIVE_URL.
-// Run: NAIVE_URL=… NAIVE_USER=… NAIVE_PASS=… go test ./internal/server2 -run NaiveLive -v
+// TestNaiveLive edits the real server-2 Caddyfile (the MTV-managed block only).
+// Gated behind MAESTRO_S2_PASS. Run:
+//
+//	MAESTRO_S2_PASS=… go test ./internal/server2 -run NaiveLive -v
 func TestNaiveLive(t *testing.T) {
-	url := os.Getenv("NAIVE_URL")
-	if url == "" {
-		t.Skip("set NAIVE_URL/NAIVE_USER/NAIVE_PASS to run the live naive test")
+	pass := os.Getenv("MAESTRO_S2_PASS")
+	if pass == "" {
+		t.Skip("set MAESTRO_S2_PASS to run the live naive sync test")
 	}
-	c := New(Config{NaivePanelURL: url, NaivePanelUser: os.Getenv("NAIVE_USER"), NaivePanelPass: os.Getenv("NAIVE_PASS")})
+	c := New(Config{Host: "85.137.166.237", User: "root", Password: pass})
 
-	// snapshot pre-existing (non-app) is implicitly safe: we only touch mtv_.
-	if err := c.AddNaiveUser("livetest", "pw_"+os.Getenv("NAIVE_USER"), time.Now().Add(365*24*time.Hour)); err != nil {
-		t.Fatalf("AddNaiveUser: %v", err)
-	}
-	users, err := c.ListAppNaiveUsers()
+	before, err := c.HealthCheck()
 	if err != nil {
-		t.Fatalf("ListAppNaiveUsers: %v", err)
+		t.Fatalf("health before: %v", err)
 	}
-	t.Logf("app naive users after add: %v", users)
-	found := false
-	for _, u := range users {
-		if u == "livetest" {
-			found = true
-		}
+	if !strings.Contains(before, "caddy=active") {
+		t.Fatalf("refusing to proceed — caddy not active: %s", before)
 	}
-	if !found {
-		t.Fatalf("livetest not found among app users: %v", users)
+
+	// Add an app (mtv_) user, confirm caddy survives, then clear the app set.
+	if err := c.SyncNaiveUsers([]NaiveUser{{User: NaivePrefix + "livetest", Pass: "testpass1234567890"}}); err != nil {
+		t.Fatalf("SyncNaiveUsers add: %v", err)
 	}
-	if err := c.DelNaiveUser("livetest"); err != nil {
-		t.Fatalf("DelNaiveUser: %v", err)
+	after, err := c.HealthCheck()
+	if err != nil || !strings.Contains(after, "caddy=active") {
+		t.Fatalf("caddy down after add: %s (%v)", after, err)
 	}
-	users, _ = c.ListAppNaiveUsers()
-	for _, u := range users {
-		if u == "livetest" {
-			t.Fatalf("livetest still present after delete: %v", users)
-		}
+	if err := c.SyncNaiveUsers(nil); err != nil {
+		t.Fatalf("SyncNaiveUsers clear: %v", err)
 	}
-	t.Logf("cleanup ok; app naive users now: %v", users)
+	final, _ := c.HealthCheck()
+	if !strings.Contains(final, "caddy=active") {
+		t.Fatalf("caddy down after clear: %s", final)
+	}
 }

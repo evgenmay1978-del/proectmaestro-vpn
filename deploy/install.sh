@@ -56,6 +56,11 @@ S2_HY2_PORT=8443
 S2_MITA_PORT=2027
 MITA_TRANSPORT=TCP
 MITA_HELPER_SOCKS=18667
+# Naive (Caddy forward_proxy on server 2) — app users managed via the Caddyfile
+# MTV-MANAGED block over SSH (mtv_ prefix; existing users untouched).
+NAIVE_SERVER=wapmix.duckdns.org
+NAIVE_PORT=443
+NAIVE_SNI=wapmix.duckdns.org
 VLESS_SERVER=wapmixx.ru
 VLESS_PORT=443
 VLESS_SNI=www.intel.com
