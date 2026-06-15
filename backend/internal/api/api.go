@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +18,10 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/telegram"
 )
+
+// claimCodeRe bounds a /claim code (a login) to a safe charset before it can
+// reach the unauthenticated → server-2 SSH path (mirrors provision.ValidLogin).
+var claimCodeRe = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,64}$`)
 
 // Provisioner is the subset of the provision package the admin API drives.
 type Provisioner interface {
@@ -201,6 +206,13 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
 		http.Error(w, "code required", http.StatusBadRequest)
+		return
+	}
+	// A claim code is a login (3x-ui email / naive username). Reject anything
+	// outside a safe charset at the door — this code flows unauthenticated into
+	// server-2 SSH commands, so quotes/spaces/; must never get past here.
+	if !claimCodeRe.MatchString(code) {
+		http.Error(w, "invalid code", http.StatusBadRequest)
 		return
 	}
 	c, err := s.st.ByLogin(code)

@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -115,10 +116,20 @@ func uuid4() string {
 }
 
 // Provision creates (or replaces) a customer with all protocols, active for dur.
+// loginRe bounds a login/claim-code to a safe charset (alphanumerics + . _ @ -).
+// Logins flow UNAUTHENTICATED from POST /claim into server-2 SSH commands
+// (ReadNaiveUser/ReadProxyExpiry, Caddyfile/Hysteria sync), so anything able to
+// break a shell/awk/sql quote — quotes, spaces, ;, $, backtick, newlines — must
+// be rejected at the door. This is the hard stop against command injection.
+var loginRe = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,64}$`)
+
+// ValidLogin reports whether a login/claim-code is safe to provision with.
+func ValidLogin(login string) bool { return loginRe.MatchString(login) }
+
 // Returns the stored customer, whose SubToken forms the app subscription URL.
 func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Customer, error) {
-	if login == "" {
-		return nil, fmt.Errorf("provision: empty login")
+	if !ValidLogin(login) {
+		return nil, fmt.Errorf("provision: invalid login")
 	}
 	expires := time.Now().Add(dur)
 	uuid := uuid4()
@@ -190,8 +201,8 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 // if only on the naive panel). So a customer already paying just types their login
 // and gets the full multi-protocol app.
 func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
-	if login == "" {
-		return nil, fmt.Errorf("provision: empty login")
+	if !ValidLogin(login) {
+		return nil, fmt.Errorf("provision: invalid login")
 	}
 	if err := p.xui.Login(); err != nil {
 		return nil, fmt.Errorf("provision: xui login: %w", err)
