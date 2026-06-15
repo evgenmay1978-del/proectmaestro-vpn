@@ -37,6 +37,7 @@ type Server2 interface {
 	SyncMieruUsers(users []server2.MieruUser) error
 	SyncNaiveUsers(users []server2.NaiveUser) error
 	ReadNaiveUser(username string) (string, bool, error)
+	ReadProxyExpiry(proxyUser string) (string, bool, error)
 }
 
 // VLESSTmpl is the server-side VLESS/Reality inbound facts shared by all clients.
@@ -211,6 +212,14 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 	expires := time.Now().Add(30 * 24 * time.Hour)
 	if ex != nil && ex.ExpiryTime > 0 {
 		expires = time.UnixMilli(ex.ExpiryTime)
+	} else if naiveFound {
+		// Carry over the real end date from the server-2 naive bot DB (the panel /
+		// Caddyfile don't store it) so a naive customer keeps their actual sub.
+		if raw, ok, _ := p.s2.ReadProxyExpiry(login); ok {
+			if t, perr := parseProxyExpiry(raw); perr == nil {
+				expires = t
+			}
+		}
 	}
 	subTok := randHex(16)
 	cust := &store.Customer{Login: login, SubToken: subTok, Expires: expires}
@@ -376,4 +385,21 @@ func fallbackStr(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// parseProxyExpiry parses the ISO end date stored by the server-2 naive bot
+// (RFC3339, or fractional seconds with no zone = treated as UTC).
+func parseProxyExpiry(s string) (time.Time, error) {
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05.999999Z07:00",
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("provision: unparseable proxy expiry %q", s)
 }

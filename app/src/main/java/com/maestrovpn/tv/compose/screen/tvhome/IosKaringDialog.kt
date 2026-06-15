@@ -17,7 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.maestrovpn.tv.compose.util.QrCodeGenerator
+import com.maestrovpn.tv.compose.util.QRCodeGenerator
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 
@@ -59,7 +59,7 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
                     )
                     Spacer(Modifier.height(12.dp))
                     Image(
-                        bitmap = QrCodeGenerator.rememberBitmap(u, 640).asImageBitmap(),
+                        bitmap = QRCodeGenerator.rememberBitmap(u, 640).asImageBitmap(),
                         contentDescription = "QR",
                         modifier = Modifier.size(240.dp),
                     )
