@@ -21,8 +21,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set build version (monotonic — the in-app updater always sees newer)
+        id: ver
+        run: |
+          set -euo pipefail
+          VN="1.0.${{ github.run_number }}"
+          VC="${{ github.run_number }}"
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
+          echo "version_name=${VN}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VC}" >> "$GITHUB_OUTPUT"
+          echo "MaestroVPN TV ${VN} (code ${VC})"
 
       - name: Read NDK pin from version.properties
         id: pin
@@ -72,3 +86,19 @@ jobs:
           name: maestrovpn-tv-debug-apk
           path: app/build/outputs/apk/other/debug/*.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release (OTA source for the in-app updater)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VN="${{ steps.ver.outputs.version_name }}"
+          VC="${{ steps.ver.outputs.version_code }}"
+          APK=$(ls app/build/outputs/apk/other/debug/*.apk | head -1)
+          # Asset the in-app GitHubUpdateChecker reads to learn the published version.
+          printf '{"version_code": %s, "version_name": "%s"}\n' "$VC" "$VN" > version-metadata.json
+          gh release create "tv-v${VN}" \
+            "$APK" version-metadata.json \
+            --title "MaestroVPN TV ${VN}" \
+            --notes "Автосборка ${VN} (CI run ${{ github.run_number }}). Установленное приложение обновится само — переустанавливать вручную не нужно." \
+            --latest
