@@ -7,6 +7,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -63,6 +65,10 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
 	mux.HandleFunc("/claim", s.handleClaim)
+	// Diagnostic sink: the on-device Mieru helper POSTs its run output/status here
+	// so the actual failure is visible server-side (read via journalctl). No auth —
+	// it only writes to the panel log, capped, token charset-checked.
+	mux.HandleFunc("/mierulog/", s.handleMieruLog)
 	if s.cfg.UpdateDir != "" {
 		// Panel-hosted OTA update channel — the RU-reachable update source the app
 		// prefers over GitHub (throttled from Russian ISPs). Same host:port the
@@ -184,6 +190,21 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(s.cfg.UpdateDir, name))
+}
+
+// handleMieruLog records the on-device Mieru helper's run output so the actual
+// failure (exec error, bad config, auth/connection error from mita) is visible in
+// the panel log without device access. Diagnostic only — writes nothing but a log
+// line; body capped at 8KB; token must match the safe charset.
+func (s *Server) handleMieruLog(w http.ResponseWriter, r *http.Request) {
+	tok := strings.TrimPrefix(r.URL.Path, "/mierulog/")
+	if !claimCodeRe.MatchString(tok) {
+		http.NotFound(w, r)
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+	log.Printf("mierulog [%s]: %s", tok, strings.TrimSpace(string(body)))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleClaim is the public install-time exchange. The customer enters the short
