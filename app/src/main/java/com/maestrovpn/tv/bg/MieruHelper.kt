@@ -61,16 +61,17 @@ class MieruHelper(private val context: Context) {
         }
         val dir = File(context.filesDir, "mieru").apply { mkdirs() }
         val configJson = File(dir, "client.json").apply { writeText(buildConfig(creds)) }
-        val configPb = File(dir, "client.conf.pb")
 
-        // Apply the config once — writes the protobuf the `run` command reads.
-        runCatching { exec(configPb, "apply", "config", configJson.absolutePath).waitFor() }
-            .onFailure { Log.e(TAG, "mieru apply config failed", it) }
-
+        // `mieru run` loads its config DIRECTLY from MIERU_CONFIG_JSON_FILE (per its
+        // own `run` help) and serves SOCKS5 in the foreground. We deliberately DROP
+        // the old two-step `apply config` → protobuf → run: that extra step could
+        // silently write a bad/empty .pb and leave `run` with no SOCKS5 (that was the
+        // "mieru doesn't work" bug). One process, the documented path, fewer failure
+        // points. mieru's own stdout/stderr is streamed to the log below.
         var backoff = 1000L
         while (running) {
             try {
-                val p = exec(configPb, "run")
+                val p = exec(configJson, "run")
                 process = p
                 p.inputStream.bufferedReader().forEachLine { Log.i(TAG, "mieru: $it") }
                 Log.w(TAG, "mieru run exited (${p.waitFor()})")
@@ -89,10 +90,10 @@ class MieruHelper(private val context: Context) {
         }
     }
 
-    private fun exec(configPb: File, vararg args: String): Process =
+    private fun exec(configJson: File, vararg args: String): Process =
         ProcessBuilder(listOf(binary.absolutePath) + args)
             .redirectErrorStream(true)
-            .also { it.environment()["MIERU_CONFIG_FILE"] = configPb.absolutePath }
+            .also { it.environment()["MIERU_CONFIG_JSON_FILE"] = configJson.absolutePath }
             .start()
 
     private fun fetchCreds(url: String): Creds? {
@@ -129,11 +130,15 @@ class MieruHelper(private val context: Context) {
             .put("profileName", PROFILE)
             .put("user", JSONObject().put("name", c.username).put("password", c.password))
             .put("servers", JSONArray().put(server))
+            .put("mtu", 1400) // MUST match the mita server's mtu (1400)
+        // No rpcPort → it stays 0 = RPC disabled, which `mieru run` correctly skips
+        // (it only needs the foreground SOCKS5 server). socks5Port is the only port.
         return JSONObject()
             .put("profiles", JSONArray().put(profile))
             .put("activeProfile", PROFILE)
             .put("socks5Port", c.socksPort)
             .put("socks5ListenLAN", false)
+            .put("loggingLevel", "INFO")
             .toString()
     }
 
