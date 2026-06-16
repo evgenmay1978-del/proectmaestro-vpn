@@ -131,6 +131,20 @@ var loginRe = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,64}$`)
 // ValidLogin reports whether a login/claim-code is safe to provision with.
 func ValidLogin(login string) bool { return loginRe.MatchString(login) }
 
+// DeviceLimit caps simultaneous devices/IPs per login (3x-ui limitIp).
+const DeviceLimit = 5
+
+// unlimitedLogins are exempt from the device cap (the owner's admin login).
+var unlimitedLogins = map[string]bool{"wapmix": true}
+
+// deviceLimit returns the per-login limitIp (0 = unlimited).
+func deviceLimit(login string) int {
+	if unlimitedLogins[strings.ToLower(login)] {
+		return 0
+	}
+	return DeviceLimit
+}
+
 // Returns the stored customer, whose SubToken forms the app subscription URL.
 func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Customer, error) {
 	if !ValidLogin(login) {
@@ -163,7 +177,7 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	}
 	vc := xui.VLESSClient{
 		ID: uuid, Email: login, Flow: p.cfg.VLESS.Flow, Enable: true,
-		SubID: subTok, ExpiryTime: expires.UnixMilli(),
+		SubID: subTok, ExpiryTime: expires.UnixMilli(), LimitIP: deviceLimit(login),
 	}
 	// Update an already-present client, else add — so a retry never fails on a
 	// duplicate-email AddClient (which previously wedged the order permanently).
@@ -339,7 +353,7 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 		}
 		vc := xui.VLESSClient{
 			ID: cust.VLESS.UUID, Email: cust.Login, Flow: cust.VLESS.Flow, Enable: true,
-			SubID: cust.SubToken, ExpiryTime: cust.Expires.UnixMilli(),
+			SubID: cust.SubToken, ExpiryTime: cust.Expires.UnixMilli(), LimitIP: deviceLimit(cust.Login),
 		}
 		if err := p.xui.UpdateClient(p.cfg.VLESS.InboundID, cust.VLESS.UUID, vc); err != nil {
 			return nil, fmt.Errorf("provision: xui updateClient: %w", err)
