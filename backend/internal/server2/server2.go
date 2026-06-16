@@ -37,6 +37,10 @@ type Config struct {
 	// Mieru (mita) — additive daemon on its OWN port (default 2027), driven over
 	// the same SSH connection. Never collides with naive:443 / hysteria:8443.
 	MitaPort int
+	// MitaTransport is the SINGLE protocol mita binds on MitaPort ("TCP" or "UDP").
+	// It must match the mieru client transport. UDP lets mita share port 443 with
+	// Caddy/naive (which holds 443/TCP) once Caddy's HTTP/3 is disabled.
+	MitaTransport string
 }
 
 // Hy2User is one Hysteria2 userpass credential.
@@ -184,9 +188,17 @@ const mitaConfigPath = "/etc/mita/maestro_config.json"
 // renderMita builds the FULL mita server config (port bindings + the complete
 // user set) as JSON — a full regen, not a patch, so an expired customer dropped
 // from `users` can no longer connect after the next apply.
-func renderMita(port int, users []MieruUser) (string, error) {
+func renderMita(port int, transport string, users []MieruUser) (string, error) {
 	if port == 0 {
 		port = 2027
+	}
+	// Bind ONLY the configured transport's protocol. Binding both used to be
+	// harmless on a dedicated port, but on 443 a TCP binding would collide with
+	// Caddy/naive — so mita must take UDP only there. The mieru client uses a
+	// single transport anyway, so one binding is all that's needed.
+	proto := strings.ToUpper(strings.TrimSpace(transport))
+	if proto != "UDP" {
+		proto = "TCP"
 	}
 	us := make([]map[string]string, 0, len(users))
 	for _, u := range users {
@@ -194,8 +206,7 @@ func renderMita(port int, users []MieruUser) (string, error) {
 	}
 	cfg := map[string]any{
 		"portBindings": []map[string]any{
-			{"port": port, "protocol": "TCP"},
-			{"port": port, "protocol": "UDP"},
+			{"port": port, "protocol": proto},
 		},
 		"users":        us,
 		"loggingLevel": "INFO",
@@ -209,13 +220,20 @@ func renderMita(port int, users []MieruUser) (string, error) {
 }
 
 // SyncMieruUsers regenerates the mita config from the full active user set and
-// applies it with `mita reload` (which does NOT drop live connections). mita is
-// ADDITIVE — its own port, its own systemd unit — so this never touches naive
-// (caddy) or hysteria. NOTE: assumes `mita apply config` replaces the `users`
-// array wholesale (must be verified on first e2e — a removed user has to stop
-// connecting); the install seeds the daemon, this only manages users.
+// applies it, then RESTARTS mita. mita is ADDITIVE — its own port, its own
+// systemd unit — so this never touches naive (caddy) or hysteria.
+//
+// CRITICAL (verified e2e 2026-06-16): a full `systemctl restart mita` is required,
+// NOT `mita reload`. `mita reload` re-reads the config but does NOT re-initialize
+// the per-user cipher state for users added/changed since the daemon last started,
+// so those users' first-packet handshake can never be decrypted server-side
+// (metrics show FailedIterateDecrypt == IterateDecrypt, no session forms) — which
+// is exactly why Mieru never connected for anyone. A clean restart re-derives every
+// user's key from the applied config and fixes it. The brief connection drop is
+// acceptable: Mieru clients reconnect, and syncs only happen on provision/renewal.
+// `mita apply config` persists the config to mita's state, which the restart loads.
 func (c *Client) SyncMieruUsers(users []MieruUser) error {
-	cfg, err := renderMita(c.cfg.MitaPort, users)
+	cfg, err := renderMita(c.cfg.MitaPort, c.cfg.MitaTransport, users)
 	if err != nil {
 		return err
 	}
@@ -223,8 +241,8 @@ func (c *Client) SyncMieruUsers(users []MieruUser) error {
 mkdir -p /etc/mita
 cat > %[1]s
 mita apply config %[1]s
-mita reload
-sleep 1
+systemctl restart mita
+sleep 3
 mita status`, mitaConfigPath)
 	out, err := c.run(script, cfg)
 	if err != nil {
