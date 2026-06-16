@@ -40,7 +40,7 @@ class MieruHelper(private val context: Context) {
     fun start(subUrl: String) {
         if (running || subUrl.isBlank() || !isAvailable()) return
         running = true
-        thread = Thread { run(subUrl.trimEnd('/') + "/helpers") }.apply { isDaemon = true; start() }
+        thread = Thread { run(subUrl.trimEnd('/')) }.apply { isDaemon = true; start() }
     }
 
     @Synchronized
@@ -52,33 +52,48 @@ class MieruHelper(private val context: Context) {
         thread = null
     }
 
-    private fun run(helpersUrl: String) {
-        val creds = runCatching { fetchCreds(helpersUrl) }.getOrNull()
+    private fun run(subUrl: String) {
+        // Diagnostics → panel /mierulog/<token> (read server-side via journalctl), so
+        // the REAL failure (exec error, bad config, mita auth/conn error) is visible
+        // without device access.
+        val logUrl = subUrl.replace("/sub/", "/mierulog/")
+        fun report(msg: String) {
+            runCatching { postLog(logUrl, msg) }
+        }
+        report("start isAvailable=${isAvailable()} bin=${binary.absolutePath} exists=${binary.exists()} exec=${binary.canExecute()}")
+
+        val creds = runCatching { fetchCreds("$subUrl/helpers") }.getOrNull()
         if (creds == null) {
             Log.i(TAG, "no mieru creds for this subscription — helper idle")
+            report("no mieru creds (customer has no mieru / fetch failed)")
             running = false
             return
         }
         val dir = File(context.filesDir, "mieru").apply { mkdirs() }
-        val configJson = File(dir, "client.json").apply { writeText(buildConfig(creds)) }
+        val cfg = buildConfig(creds)
+        val configJson = File(dir, "client.json").apply { writeText(cfg) }
+        report("config $cfg")
 
-        // `mieru run` loads its config DIRECTLY from MIERU_CONFIG_JSON_FILE (per its
-        // own `run` help) and serves SOCKS5 in the foreground. We deliberately DROP
-        // the old two-step `apply config` → protobuf → run: that extra step could
-        // silently write a bad/empty .pb and leave `run` with no SOCKS5 (that was the
-        // "mieru doesn't work" bug). One process, the documented path, fewer failure
-        // points. mieru's own stdout/stderr is streamed to the log below.
+        // `mieru run` loads its config DIRECTLY from MIERU_CONFIG_JSON_FILE and serves
+        // SOCKS5 in the foreground (documented path; no `apply config` step).
         var backoff = 1000L
         while (running) {
             try {
                 val p = exec(configJson, "run")
                 process = p
-                p.inputStream.bufferedReader().forEachLine { Log.i(TAG, "mieru: $it") }
-                Log.w(TAG, "mieru run exited (${p.waitFor()})")
+                val sb = StringBuilder()
+                p.inputStream.bufferedReader().forEachLine {
+                    Log.i(TAG, "mieru: $it")
+                    if (sb.length < 3500) sb.append(it).append('\n')
+                }
+                val code = p.waitFor()
+                Log.w(TAG, "mieru run exited ($code)")
+                report("run exited code=$code\n$sb")
             } catch (_: InterruptedException) {
                 break
             } catch (e: Exception) {
                 Log.e(TAG, "mieru run error", e)
+                report("run EXEC FAILED ${e.javaClass.simpleName}: ${e.message}")
             }
             if (!running) break
             try {
@@ -87,6 +102,21 @@ class MieruHelper(private val context: Context) {
                 break
             }
             backoff = (backoff * 2).coerceAtMost(15_000L)
+        }
+    }
+
+    private fun postLog(url: String, msg: String) {
+        val c = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            connectTimeout = 10_000
+            readTimeout = 10_000
+        }
+        try {
+            c.outputStream.use { it.write(msg.toByteArray()) }
+            c.responseCode
+        } finally {
+            c.disconnect()
         }
     }
 
