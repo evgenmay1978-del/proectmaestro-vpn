@@ -63,7 +63,11 @@ printf '{"version_code": %s, "version_name": "%s", "apk_url": "/update/%s", "siz
   "${vc:-0}" "$vn" "$apk_name" "$sz" "$sha" "$vn" > "$mtmp"
 mv -f "$mtmp" "$DIR/update.json"
 
-# Prune older mirrored APKs (keep the current one).
+# Stable "always latest" copy for the bots' download link
+# (https://<panel>/update/latest.apk). Not matched by the prune glob below.
+cp -f "$DIR/$apk_name" "$DIR/latest.apk"
+
+# Prune older mirrored APKs (keep the current one + latest.apk).
 find "$DIR" -maxdepth 1 -name 'MaestroVPN-TV-*-debug.apk' ! -name "$apk_name" -delete 2>/dev/null || true
 
 echo "mirror: published $vn (code ${vc:-0}, ${sz} bytes) to $DIR"
