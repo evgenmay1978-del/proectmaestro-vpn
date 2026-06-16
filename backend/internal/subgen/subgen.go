@@ -17,6 +17,7 @@ package subgen
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 )
 
 // VLESSCreds is a 3x-ui VLESS+Reality client.
@@ -156,6 +157,59 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		map[string]any{"type": "direct", "tag": "direct"},
 	)
 
+	// Base route rules. sniff first (gives IP-initiated conns an SNI), then
+	// hijack-dns, then private IPs direct.
+	routeRules := []map[string]any{
+		{"action": "sniff"},
+		{"protocol": "dns", "action": "hijack-dns"},
+		{"ip_is_private": true, "action": "route", "outbound": "direct"},
+	}
+	// Anti-loop for the Mieru helper. The bundled mieru client runs as a SEPARATE
+	// OS process, so its TCP connection to the mita server is NOT one of sing-box's
+	// own outbound sockets and is never protect()'d. With strict_route + the tun
+	// capturing the app's own package, that connection re-enters the tun and gets
+	// routed back to the local mieru socks outbound (final=select) — an infinite
+	// loop, so ZERO packets ever reach mita (verified by on-server tcpdump). Pin
+	// the mieru server endpoint to a DIRECT route so the helper's carrier traffic
+	// egresses the real interface. Native VLESS/Hy2/Naive don't need this (sing-box
+	// protect()s their fds, so they already bypass the tun). Placed above the
+	// force-proxy / RU-direct rules so it short-circuits first.
+	if c.Mieru != nil && c.Mieru.Server != "" {
+		routeRules = append(routeRules, mieruDirectRule(c.Mieru.Server))
+	}
+	routeRules = append(routeRules,
+		// Foreign services (Google/Gemini/YouTube) MUST go through the tunnel.
+		// Placed ABOVE the RU-direct rules (belt-and-suspenders for the Google
+		// Global Cache "Gemini thinks we're in Russia" case).
+		map[string]any{
+			"domain_suffix": forceProxyDomains,
+			"action":        "route", "outbound": tagPick,
+		},
+		// RU domestic services → DIRECT, matched by DOMAIN (geosite) — no IP
+		// resolution needed, so this is immune to DNS poisoning.
+		map[string]any{
+			"rule_set": []string{tagRUDomains},
+			"action":   "route", "outbound": "direct",
+		},
+		// CRITICAL: resolve everything still unmatched (i.e. foreign domains) via the
+		// CLEAN DoT resolver (8.8.8.8 over the tunnel) BEFORE the geoip-ru check below.
+		// Otherwise the geoip-ru rule forces sing-box to resolve the domain via
+		// default_domain_resolver=local (the Russian ISP resolver), which POISONS
+		// blocked sites (instagram/x/facebook…) to a RU/blackhole IP → they match
+		// geoip-ru → route DIRECT → stay blocked. (Symptom: "only YouTube works" —
+		// because only forceProxyDomains escaped, being matched by domain above.)
+		// With a clean resolve, geoip-ru sees the REAL foreign IP and lets them proxy.
+		map[string]any{
+			"action": "resolve", "server": "google",
+		},
+		// RU raw-IP apps (no SNI) → DIRECT. Now checks CLEAN IPs, so foreign blocked
+		// sites (non-RU IPs) no longer fall through here.
+		map[string]any{
+			"rule_set": []string{tagRUIP},
+			"action":   "route", "outbound": "direct",
+		},
+	)
+
 	cfg := map[string]any{
 		"log": map[string]any{"level": "warn"},
 		// Persist downloaded rule-sets (and DNS rdrc) so the RU-direct lists
@@ -220,25 +274,7 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 					"update_interval": "24h",
 				},
 			},
-			"rules": []map[string]any{
-				{"action": "sniff"}, // must run first: gives IP-initiated conns an SNI to match
-				{"protocol": "dns", "action": "hijack-dns"},
-				{"ip_is_private": true, "action": "route", "outbound": "direct"},
-				// Foreign services (Google/Gemini/YouTube) MUST go through the tunnel.
-				// Placed ABOVE the RU-direct rule so geoip-ru can't route their RU-cache
-				// (Google Global Cache) IPs out direct, which made the service see a
-				// Russian location (the "Gemini thinks we're in Russia" bug).
-				{
-					"domain_suffix": forceProxyDomains,
-					"action":        "route", "outbound": tagPick,
-				},
-				// Russian services → DIRECT (bypass VPN). MUST sit above final=select
-				// so it short-circuits before traffic reaches the proxy selector.
-				{
-					"rule_set": []string{tagRUDomains, tagRUIP},
-					"action":   "route", "outbound": "direct",
-				},
-			},
+			"rules": routeRules,
 		},
 	}
 	return json.MarshalIndent(cfg, "", "  ")
@@ -290,6 +326,22 @@ func socksOutbound(tag string, port int) map[string]any {
 		"type": "socks", "tag": tag,
 		"server": "127.0.0.1", "server_port": port, "version": "5",
 	}
+}
+
+// mieruDirectRule pins the mieru server endpoint to a DIRECT route. The mieru
+// helper is a separate OS process whose socket sing-box can't protect(), so its
+// carrier connection to mita must bypass the tun or it loops back into the local
+// mieru socks outbound. Mieru servers are configured by raw IP (no SNI on the
+// wire), so match by ip_cidr; fall back to domain_suffix if ever a hostname.
+func mieruDirectRule(server string) map[string]any {
+	if ip := net.ParseIP(server); ip != nil {
+		cidr := server + "/32"
+		if ip.To4() == nil {
+			cidr = server + "/128"
+		}
+		return map[string]any{"ip_cidr": []string{cidr}, "action": "route", "outbound": "direct"}
+	}
+	return map[string]any{"domain_suffix": []string{server}, "action": "route", "outbound": "direct"}
 }
 
 func fallback(s, def string) string {

@@ -70,6 +70,7 @@ func main() {
 			Host: env("S2_HOST", "85.137.166.237"), User: env("S2_USER", "root"),
 			Password: os.Getenv("S2_PASSWORD"), Hy2Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
 			MitaPort:       atoi(os.Getenv("S2_MITA_PORT"), 2027),
+			MitaTransport:  env("MITA_TRANSPORT", "TCP"),
 			NaivePanelURL:  os.Getenv("NAIVE_PANEL_URL"),
 			NaivePanelUser: os.Getenv("NAIVE_PANEL_USER"),
 			NaivePanelPass: os.Getenv("NAIVE_PANEL_PASS"),
