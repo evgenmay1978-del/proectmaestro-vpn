@@ -81,14 +81,31 @@ class MieruHelper(private val context: Context) {
             try {
                 val p = exec(configJson, "run")
                 process = p
-                val sb = StringBuilder()
+                // After a moment, report whether mieru's local SOCKS5 actually came up.
+                Thread {
+                    runCatching {
+                        Thread.sleep(3500)
+                        val up = runCatching {
+                            java.net.Socket().use {
+                                it.connect(java.net.InetSocketAddress("127.0.0.1", creds.socksPort), 2000); true
+                            }
+                        }.getOrDefault(false)
+                        report("socks5 127.0.0.1:${creds.socksPort} up=$up")
+                    }
+                }.apply { isDaemon = true }.start()
+                // Stream mieru's own output and report the first lines (its startup
+                // banner / connection errors) so the actual runtime state is visible.
+                var reported = 0
                 p.inputStream.bufferedReader().forEachLine {
                     Log.i(TAG, "mieru: $it")
-                    if (sb.length < 3500) sb.append(it).append('\n')
+                    if (reported < 25) {
+                        report("out $it")
+                        reported++
+                    }
                 }
                 val code = p.waitFor()
                 Log.w(TAG, "mieru run exited ($code)")
-                report("run exited code=$code\n$sb")
+                report("run exited code=$code")
             } catch (_: InterruptedException) {
                 break
             } catch (e: Exception) {
