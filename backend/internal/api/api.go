@@ -98,8 +98,12 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/sub/")
 	tok := rest
 	wantHelpers := strings.HasSuffix(rest, "/helpers")
-	if wantHelpers {
+	wantInfo := strings.HasSuffix(rest, "/info")
+	switch {
+	case wantHelpers:
 		tok = strings.TrimSuffix(rest, "/helpers")
+	case wantInfo:
+		tok = strings.TrimSuffix(rest, "/info")
 	}
 	if tok == "" || strings.Contains(tok, "/") {
 		http.NotFound(w, r)
@@ -112,6 +116,12 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Account info (login + days left) is served even when EXPIRED, so the app can
+	// always show "Аккаунт: <login> · осталось N дней" (N=0 once expired).
+	if wantInfo {
+		s.writeSubInfo(w, c)
 		return
 	}
 	if !c.Active() {
@@ -161,6 +171,28 @@ func (s *Server) writeHelpers(w http.ResponseWriter, c *store.Customer) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// writeSubInfo serves GET /sub/<token>/info — the customer's login + days remaining, so
+// the app can show "Аккаунт: <login> · осталось N дней". Served even when expired (then
+// active=false, days_left=0). The token is the per-customer secret, so no extra auth.
+func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
+	d := time.Until(c.Expires)
+	daysLeft := int(d / (24 * time.Hour))
+	if d > 0 && d%(24*time.Hour) != 0 {
+		daysLeft++ // count any partial day as a remaining day
+	}
+	if daysLeft < 0 {
+		daysLeft = 0
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"login":     c.Login,
+		"expires":   c.Expires,
+		"days_left": daysLeft,
+		"active":    c.Active(),
+	})
 }
 
 // handleUpdate serves the panel-hosted OTA channel: GET /update/update.json (the

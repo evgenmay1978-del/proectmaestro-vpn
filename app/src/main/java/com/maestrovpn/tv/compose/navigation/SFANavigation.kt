@@ -28,6 +28,7 @@ import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardScreen
 import com.maestrovpn.tv.compose.screen.tvhome.IosKaringDialog
 import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
+import com.maestrovpn.tv.compose.screen.tvhome.rememberAccountInfo
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.GroupsCard
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
@@ -116,6 +117,8 @@ fun SFANavHost(
                 else -> "Отключено"
             }
             val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting
+            // login + days-left for the active subscription (refetched on connect change)
+            val accountInfo by rememberAccountInfo(connected)
             var showIosQr by remember { mutableStateOf(false) }
             if (showIosQr) {
                 IosKaringDialog(onDismiss = { showIosQr = false })
@@ -142,6 +145,8 @@ fun SFANavHost(
                     protocols = selectGroup?.items?.map { it.tag } ?: emptyList(),
                     selected = selectGroup?.selected,
                     activeProtocol = activeProtocol,
+                    accountLogin = accountInfo.login,
+                    daysLeft = accountInfo.daysLeft,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag -> selectGroup?.let { groupsViewModel.selectGroupItem(it.tag, tag) } },
                     onBuy = { navController.navigate("buy") },
@@ -155,6 +160,8 @@ fun SFANavHost(
                     connected = connected,
                     protocols = emptyList(),
                     selected = null,
+                    accountLogin = accountInfo.login,
+                    daysLeft = accountInfo.daysLeft,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = {},
                     onBuy = { navController.navigate("buy") },
