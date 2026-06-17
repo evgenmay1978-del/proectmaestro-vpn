@@ -416,35 +416,38 @@ func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 	return nil
 }
 
-// ReconcileNaiveExpiries mirrors raw-naive customers' authoritative expiry (owned by the
-// s2 bot in bot_minimal.db, read over the existing SSH) into the unified store — but ONLY
-// when the s2 date is LATER than the store's, so an app/3x-ui renewal is never reduced.
-// This is how an owner-confirmed NAIVE renewal on server 2 propagates to the app + the
-// customer's other protocols, with NO admin endpoint exposed and NO s2-bot change. The
-// s2 bot keeps owning the naive lifecycle; the panel only pulls + mirrors the date.
-// Best-effort: per-customer errors are logged and skipped.
-func (p *Provisioner) ReconcileNaiveExpiries() {
+// ReconcileExpiries mirrors each unified customer's authoritative expiry from whichever
+// panel OWNS it — 3x-ui (the VLESS client's expiryTime) and/or the s2 naive panel (the
+// raw bot user's bot_minimal.db date) — into the store, ADVANCE-ONLY: it takes the LATEST
+// of {store, 3x-ui, naive} and never reduces an app/panel renewal. A customer created in
+// the maestro panel is already authoritative in the store, so pulling just confirms it.
+// So no matter which of the 3 panels a client originated in or was last renewed through,
+// the app's days + the customer's cross-protocol expiry stay in sync. Runs at startup +
+// every 15 min over the existing SSH / API; per-customer errors are logged and skipped.
+func (p *Provisioner) ReconcileExpiries() {
 	for _, c := range p.st.List() {
-		if c.Naive == nil || c.Naive.Username == "" {
-			continue
+		latest := c.Expires
+		// 3x-ui (VLESS): pull the client's expiryTime (0 = never → skip; never reduce).
+		if c.VLESS != nil {
+			if ex, err := p.xui.GetClient(c.Login); err == nil && ex != nil && ex.ExpiryTime > 0 {
+				if t := time.UnixMilli(ex.ExpiryTime); t.After(latest) {
+					latest = t
+				}
+			}
 		}
-		// mtv_ naive is panel-owned (no s2-bot DB row); only a RAW naive user is s2-owned.
-		if strings.HasPrefix(c.Naive.Username, server2.NaivePrefix) {
-			continue
+		// s2 naive panel (only RAW, non-mtv_ users — the s2 bot owns those dates).
+		if c.Naive != nil && c.Naive.Username != "" && !strings.HasPrefix(c.Naive.Username, server2.NaivePrefix) {
+			if raw, ok, err := p.s2.ReadProxyExpiry(c.Naive.Username); err == nil && ok {
+				if t, perr := parseProxyExpiry(raw); perr == nil && t.After(latest) {
+					latest = t
+				}
+			}
 		}
-		raw, ok, err := p.s2.ReadProxyExpiry(c.Naive.Username)
-		if err != nil || !ok {
-			continue
-		}
-		t, perr := parseProxyExpiry(raw)
-		if perr != nil {
-			continue
-		}
-		if t.After(c.Expires) {
-			if _, err := p.SetExpiry(c.Login, t); err != nil {
-				log.Printf("reconcile naive %q: %v", c.Login, err)
+		if latest.After(c.Expires) {
+			if _, err := p.SetExpiry(c.Login, latest); err != nil {
+				log.Printf("reconcile %q: %v", c.Login, err)
 			} else {
-				log.Printf("reconcile naive %q: store expiry advanced to %s (from s2)", c.Login, t.UTC().Format(time.RFC3339))
+				log.Printf("reconcile %q: store expiry advanced to %s (pulled from a panel)", c.Login, latest.UTC().Format(time.RFC3339))
 			}
 		}
 	}

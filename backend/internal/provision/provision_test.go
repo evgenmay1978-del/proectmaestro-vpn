@@ -13,6 +13,7 @@ import (
 type fakeXUI struct {
 	logins, adds, updates int
 	getSub                string // if set, GetClient returns a client carrying this subId
+	getExpiry             int64  // if set, GetClient returns this expiryTime (millis) — for reconcile
 	lastSub               string // last subId passed to UpdateClient (assert subId preservation)
 }
 
@@ -24,10 +25,10 @@ func (f *fakeXUI) UpdateClient(_ int, _ string, c xui.VLESSClient) error {
 	return nil
 }
 func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error) {
-	if f.getSub == "" {
+	if f.getSub == "" && f.getExpiry == 0 {
 		return nil, nil
 	}
-	return &xui.ExistingClient{UUID: "u", Email: "e", SubID: f.getSub}, nil
+	return &xui.ExistingClient{UUID: "u", Email: "e", SubID: f.getSub, ExpiryTime: f.getExpiry}, nil
 }
 
 type fakeS2 struct {
@@ -74,6 +75,31 @@ func TestExtendPreservesBotSubId(t *testing.T) {
 	}
 	if fx.lastSub != "botsub88" {
 		t.Fatalf("Extend overwrote the 3x-ui subId: sent %q, want preserved botsub88", fx.lastSub)
+	}
+}
+
+// TestReconcilePullsLater3xuiExpiry: the store must PULL a later 3x-ui expiry (a renewal
+// that happened in the 3x-ui panel) and must NEVER reduce the store from an earlier one.
+func TestReconcilePullsLater3xuiExpiry(t *testing.T) {
+	p, fx, _, st := newProv(t)
+	if _, err := p.Provision("carol", 10*24*time.Hour); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	before, _ := st.ByLogin("carol")
+	// 3x-ui now reports a LATER expiry (the owner extended in the panel) → pull it.
+	later := time.Now().Add(60 * 24 * time.Hour)
+	fx.getExpiry = later.UnixMilli()
+	p.ReconcileExpiries()
+	after, _ := st.ByLogin("carol")
+	if !after.Expires.After(before.Expires.Add(40 * 24 * time.Hour)) {
+		t.Fatalf("reconcile did not pull the later 3x-ui expiry: before %v after %v", before.Expires, after.Expires)
+	}
+	// An EARLIER 3x-ui date must NOT reduce the store (advance-only).
+	fx.getExpiry = time.Now().Add(5 * 24 * time.Hour).UnixMilli()
+	p.ReconcileExpiries()
+	after2, _ := st.ByLogin("carol")
+	if after2.Expires.Before(after.Expires) {
+		t.Fatalf("reconcile reduced the expiry: was %v now %v", after.Expires, after2.Expires)
 	}
 }
 
