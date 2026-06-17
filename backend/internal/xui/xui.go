@@ -40,7 +40,8 @@ type VLESSClient struct {
 type ExistingClient struct {
 	UUID       string
 	Email      string
-	ExpiryTime int64 // unix millis; 0 = never
+	ExpiryTime int64  // unix millis; 0 = never
+	SubID      string // the 3x-ui subId — for a bot-sold client this is the :2096 sub id; preserve it
 }
 
 // Config configures the 3x-ui client. Creds are operator-supplied.
@@ -188,11 +189,12 @@ func (c *Client) GetClient(email string) (*ExistingClient, error) {
 		Email      string `json:"email"`
 		UUID       string `json:"uuid"`
 		ExpiryTime int64  `json:"expiryTime"`
+		SubID      string `json:"subId"`
 	}
 	if err := json.Unmarshal(raw, &rec); err != nil || rec.Email == "" {
 		return nil, nil
 	}
-	return &ExistingClient{UUID: rec.UUID, Email: rec.Email, ExpiryTime: rec.ExpiryTime}, nil
+	return &ExistingClient{UUID: rec.UUID, Email: rec.Email, ExpiryTime: rec.ExpiryTime, SubID: rec.SubID}, nil
 }
 
 // postJSON POSTs a JSON body and expects {success:true}.
