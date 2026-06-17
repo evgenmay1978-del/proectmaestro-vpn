@@ -87,18 +87,26 @@ jobs:
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
           ls -lh app/libs/
 
-      - name: Bundle the Mieru client helper (android arm64) into jniLibs
+      - name: Bundle the Mieru client helper (arm64 + armv7) into jniLibs
         run: |
           set -euo pipefail
           MIERU_VER=3.33.0
-          mkdir -p app/src/main/jniLibs/arm64-v8a
           tmp=$(mktemp -d)
-          curl -fLS -o "$tmp/m.tgz" "https://github.com/enfein/mieru/releases/download/v${MIERU_VER}/mieru_${MIERU_VER}_android_arm64.tar.gz"
-          tar xzf "$tmp/m.tgz" -C "$tmp"
-          # must be named lib*.so so AGP extracts it to nativeLibraryDir as an executable
-          install -m 0755 "$tmp/mieru" app/src/main/jniLibs/arm64-v8a/libmieru.so
+          mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/jniLibs/armeabi-v7a
+          # arm64-v8a (modern TV boxes + phones) — official Android build.
+          curl -fLS -o "$tmp/a64.tgz" "https://github.com/enfein/mieru/releases/download/v${MIERU_VER}/mieru_${MIERU_VER}_android_arm64.tar.gz"
+          mkdir -p "$tmp/a64" && tar xzf "$tmp/a64.tgz" -C "$tmp/a64"
+          # must be named lib*.so so AGP extracts it to nativeLibraryDir as an executable.
+          install -m 0755 "$tmp/a64/mieru" app/src/main/jniLibs/arm64-v8a/libmieru.so
+          # armeabi-v7a (old 32-bit TV boxes). mieru ships no android_armv7, but its
+          # linux_armv7 build is a STATIC Go binary (GOARM=7/VFP) that runs on Android
+          # armeabi-v7a. If a given box rejects it, MieruHelper.exec fails and the app
+          # falls back to the other 3 protocols — no worse than not shipping it.
+          curl -fLS -o "$tmp/a32.tgz" "https://github.com/enfein/mieru/releases/download/v${MIERU_VER}/mieru_${MIERU_VER}_linux_armv7.tar.gz"
+          mkdir -p "$tmp/a32" && tar xzf "$tmp/a32.tgz" -C "$tmp/a32"
+          install -m 0755 "$tmp/a32/mieru" app/src/main/jniLibs/armeabi-v7a/libmieru.so
           rm -rf "$tmp"
-          ls -lh app/src/main/jniLibs/arm64-v8a/
+          ls -lh app/src/main/jniLibs/arm64-v8a/ app/src/main/jniLibs/armeabi-v7a/
 
       - name: Materialize the stable signing keystore from secret
         env:
