@@ -12,12 +12,23 @@ import (
 
 type fakeXUI struct {
 	logins, adds, updates int
+	getSub                string // if set, GetClient returns a client carrying this subId
+	lastSub               string // last subId passed to UpdateClient (assert subId preservation)
 }
 
-func (f *fakeXUI) Login() error                                    { f.logins++; return nil }
-func (f *fakeXUI) AddClient(int, xui.VLESSClient) error            { f.adds++; return nil }
-func (f *fakeXUI) UpdateClient(int, string, xui.VLESSClient) error { f.updates++; return nil }
-func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error)   { return nil, nil }
+func (f *fakeXUI) Login() error                         { f.logins++; return nil }
+func (f *fakeXUI) AddClient(int, xui.VLESSClient) error { f.adds++; return nil }
+func (f *fakeXUI) UpdateClient(_ int, _ string, c xui.VLESSClient) error {
+	f.updates++
+	f.lastSub = c.SubID
+	return nil
+}
+func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error) {
+	if f.getSub == "" {
+		return nil, nil
+	}
+	return &xui.ExistingClient{UUID: "u", Email: "e", SubID: f.getSub}, nil
+}
 
 type fakeS2 struct {
 	lastHy2   []server2.Hy2User
@@ -45,6 +56,25 @@ func newProv(t *testing.T) (*Provisioner, *fakeXUI, *fakeS2, *store.Store) {
 		Mita:  MitaTmpl{Server: "85.137.166.237", Port: 2027, Transport: "TCP", HelperSOCKS: 18667},
 	}
 	return New(st, fx, fh, cfg), fx, fh, st
+}
+
+// TestExtendPreservesBotSubId: a renewal must NOT overwrite the 3x-ui client's existing
+// subId (a bot-sold client's :2096 sub id) with the panel SubToken — that would break
+// the customer's imported bot subscription. The fix reads + re-sends the existing subId.
+func TestExtendPreservesBotSubId(t *testing.T) {
+	p, fx, _, _ := newProv(t)
+	if _, err := p.Provision("bob", 30*24*time.Hour); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	// 3x-ui now reports a bot-minted subId for this client; a renewal must keep it.
+	fx.getSub = "botsub88"
+	fx.lastSub = ""
+	if _, err := p.Extend("bob", 30*24*time.Hour); err != nil {
+		t.Fatalf("extend: %v", err)
+	}
+	if fx.lastSub != "botsub88" {
+		t.Fatalf("Extend overwrote the 3x-ui subId: sent %q, want preserved botsub88", fx.lastSub)
+	}
 }
 
 func TestProvisionAllProtocols(t *testing.T) {

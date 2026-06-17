@@ -84,6 +84,7 @@ func (s *Server) Handler() http.Handler {
 	if s.prov != nil && s.cfg.AdminToken != "" {
 		mux.HandleFunc("/admin/provision", s.adminAuth(s.handleProvision))
 		mux.HandleFunc("/admin/extend", s.adminAuth(s.handleExtend))
+		mux.HandleFunc("/admin/renew", s.adminAuth(s.handleRenew))
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
 		if s.orders != nil {
 			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))

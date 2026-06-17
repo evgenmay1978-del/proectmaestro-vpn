@@ -97,6 +97,41 @@ func (s *Server) handleExtend(w http.ResponseWriter, r *http.Request) {
 	s.respCustomer(w, c)
 }
 
+// handleRenew (admin): the SINGLE cross-channel renewal entrypoint for the "unified
+// account". Renews a customer by login across ALL 4 protocols regardless of which
+// channel sold/confirmed the payment (app, s1 3x-ui bot, s2 naive bot — all call this
+// with login = the shared key: 3x-ui email = naive username). If the login is already
+// a panel customer → Extend; if it's a bot-only client not yet in the store →
+// ActivateExisting (backfill from 3x-ui/naive at their current expiry) then Extend, so
+// their remaining time is kept and the renewal days are stacked on top.
+func (s *Server) handleRenew(w http.ResponseWriter, r *http.Request) {
+	var req provisionReq
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Login == "" || req.Days <= 0 {
+		http.Error(w, "login and positive days required", http.StatusBadRequest)
+		return
+	}
+	if _, err := s.st.ByLogin(req.Login); errors.Is(err, store.ErrNotFound) {
+		// Not in the panel store yet (a bot-only client) → backfill from the bot panels.
+		if _, aerr := s.prov.ActivateExisting(req.Login); aerr != nil {
+			http.Error(w, aerr.Error(), http.StatusNotFound)
+			return
+		}
+	}
+	c, err := s.prov.Extend(req.Login, time.Duration(req.Days)*24*time.Hour)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "no such customer", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.respCustomer(w, c)
+}
+
 func (s *Server) handleCustomer(w http.ResponseWriter, r *http.Request) {
 	login := r.URL.Query().Get("login")
 	c, err := s.st.ByLogin(login)

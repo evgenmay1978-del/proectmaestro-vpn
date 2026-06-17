@@ -66,6 +66,38 @@ func TestAdminProvisionThenSubWorks(t *testing.T) {
 	}
 }
 
+// TestAdminRenew: the cross-channel /admin/renew endpoint extends an existing account,
+// and 404s for a login that is neither in the store nor backfillable from a bot panel.
+func TestAdminRenew(t *testing.T) {
+	srv, st := adminServer(t)
+	defer srv.Close()
+	post := func(path, body string) int {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+path, bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer sek")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := post("/admin/provision", `{"login":"alice","days":30}`); code != http.StatusOK {
+		t.Fatalf("seed provision = %d", code)
+	}
+	before, _ := st.ByLogin("alice")
+	if code := post("/admin/renew", `{"login":"alice","days":30}`); code != http.StatusOK {
+		t.Fatalf("renew existing = %d, want 200", code)
+	}
+	after, _ := st.ByLogin("alice")
+	if !after.Expires.After(before.Expires) {
+		t.Fatalf("renew did not extend: before %v after %v", before.Expires, after.Expires)
+	}
+	// not in store and fake ActivateExisting returns ErrNotFound → 404
+	if code := post("/admin/renew", `{"login":"ghost","days":30}`); code != http.StatusNotFound {
+		t.Fatalf("renew unknown = %d, want 404", code)
+	}
+}
+
 func TestAdminRequiresToken(t *testing.T) {
 	srv, _ := adminServer(t)
 	defer srv.Close()

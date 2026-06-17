@@ -182,6 +182,13 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	// Update an already-present client, else add — so a retry never fails on a
 	// duplicate-email AddClient (which previously wedged the order permanently).
 	if ex, _ := p.xui.GetClient(login); ex != nil {
+		// Preserve the existing 3x-ui subId. For a bot-sold client this is the :2096
+		// sub id every customer already imported into Karing — overwriting it with the
+		// panel SubToken would break their bot subscription. (App-only clients keep the
+		// same value either way.)
+		if ex.SubID != "" {
+			vc.SubID = ex.SubID
+		}
 		if err := p.xui.UpdateClient(p.cfg.VLESS.InboundID, login, vc); err != nil {
 			return nil, fmt.Errorf("provision: xui updateClient: %w", err)
 		}
@@ -351,9 +358,16 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 		if err := p.xui.Login(); err != nil {
 			return nil, fmt.Errorf("provision: xui login: %w", err)
 		}
+		// Preserve the existing 3x-ui subId (a bot-sold client's :2096 sub id) instead of
+		// overwriting it with the panel SubToken — a renewal must NOT break the customer's
+		// imported bot subscription. Falls back to SubToken if the client has none.
+		subID := cust.SubToken
+		if ex, _ := p.xui.GetClient(cust.Login); ex != nil && ex.SubID != "" {
+			subID = ex.SubID
+		}
 		vc := xui.VLESSClient{
 			ID: cust.VLESS.UUID, Email: cust.Login, Flow: cust.VLESS.Flow, Enable: true,
-			SubID: cust.SubToken, ExpiryTime: cust.Expires.UnixMilli(), LimitIP: deviceLimit(cust.Login),
+			SubID: subID, ExpiryTime: cust.Expires.UnixMilli(), LimitIP: deviceLimit(cust.Login),
 		}
 		if err := p.xui.UpdateClient(p.cfg.VLESS.InboundID, cust.VLESS.UUID, vc); err != nil {
 			return nil, fmt.Errorf("provision: xui updateClient: %w", err)
