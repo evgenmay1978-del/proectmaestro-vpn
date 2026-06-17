@@ -66,6 +66,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.app.Activity
+import androidx.compose.animation.core.keyframes
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import com.maestrovpn.tv.vendor.Vendor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
@@ -115,6 +124,60 @@ private fun VolButton(
 }
 
 /**
+ * Volumetric "MaestroVPN" wordmark. Each glyph spins a full turn around its own
+ * vertical axis IN SEQUENCE — a wave that sweeps from the first letter to the last,
+ * then holds, then repeats. Each letter is a light-top → dark-bottom gradient with a
+ * drop shadow so it reads as 3D even while flat; the rotationY + cameraDistance give
+ * the real spin. "Maestro" orange, "VPN" silver.
+ */
+@Composable
+private fun AnimatedLogo(modifier: Modifier = Modifier) {
+    val word = "MaestroVPN"
+    val stepMs = 130   // delay between consecutive letters kicking off
+    val spinMs = 720   // one letter's full 360° turn
+    val pauseMs = 1500 // hold after the wave before it repeats
+    val total = word.length * stepMs + spinMs + pauseMs
+    val tr = rememberInfiniteTransition(label = "logo")
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        word.forEachIndexed { i, ch ->
+            val start = i * stepMs
+            val rot by tr.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = keyframes {
+                        durationMillis = total
+                        // hold facing forward until this letter's turn, spin once, then hold
+                        0f at start using FastOutSlowInEasing
+                        360f at (start + spinMs)
+                        360f at total
+                    },
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "rot$i",
+            )
+            val isVpn = i >= word.length - 3
+            val base = if (isVpn) MaestroSilver else MaestroOrange
+            Text(
+                ch.toString(),
+                fontSize = 40.sp,
+                fontWeight = FontWeight.Black,
+                style = TextStyle(
+                    brush = Brush.verticalGradient(
+                        listOf(lerp(base, Color.White, 0.55f), base, lerp(base, Color.Black, 0.34f)),
+                    ),
+                    shadow = Shadow(Color.Black.copy(alpha = 0.55f), Offset(0f, 5f), 10f),
+                ),
+                modifier = Modifier.graphicsLayer {
+                    rotationY = rot
+                    cameraDistance = 13f * density
+                },
+            )
+        }
+    }
+}
+
+/**
  * MaestroVPN home — universal connect screen for BOTH a TV remote (D-pad) and a
  * touch phone. Hero is a big ROUND power button in the centre (brutal look): it's
  * the focus target on TV and the obvious tap target on a phone. Plain Material 3
@@ -144,6 +207,14 @@ fun TvHomeScreen(
     }
     val accent = if (connected) ConnGreen else MaestroOrange
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val open: (String) -> Unit = { url ->
+        runCatching {
+            ctx.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
 
     // ── Motion: keep the screen alive (tasteful, not gaudy) ─────────────────
     val infinite = rememberInfiniteTransition(label = "home")
@@ -188,21 +259,8 @@ fun TvHomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            // Brand wordmark — "Maestro" orange, "VPN" silver.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Maestro",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Black,
-                    color = MaestroOrange,
-                )
-                Text(
-                    "VPN",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Black,
-                    color = MaestroSilver,
-                )
-            }
+            // Brand wordmark — volumetric; letters spin in turn around their own axis.
+            AnimatedLogo()
             Spacer(Modifier.height(28.dp))
 
             // ── Round power button (the hero) — a living "orb" ──────────────
@@ -370,21 +428,57 @@ fun TvHomeScreen(
             VolButton("Приложения через VPN", onSplitTunnel, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
             Spacer(Modifier.height(8.dp))
             VolButton("Поделиться подпиской", onShareIos, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
+            // Update — prominent. The auto OTA dialog can be swiped away, and a plain
+            // re-open doesn't re-show it (the launch check only runs on a COLD start), so
+            // many users get stuck on an old build. This button re-checks on demand and
+            // always pops a fresh dialog (or "у вас последняя версия"). Vendor.checkUpdate
+            // does blocking network → run it off the main thread.
             VolButton(
-                text = "💬 Поддержка / связь — @wapmixx",
+                text = "⬇️ Обновить приложение",
                 onClick = {
-                    runCatching {
-                        ctx.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/wapmixx"))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
+                    (ctx as? Activity)?.let { act ->
+                        scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } }
                     }
                 },
-                base = PlateDark,
+                base = MaestroOrange,
                 modifier = Modifier.widthIn(min = 260.dp),
-                bold = false,
             )
+
+            // ── Контакты ──────────────────────────────────────────────────
+            Spacer(Modifier.height(26.dp))
+            Text(
+                "КОНТАКТЫ",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaestroSilver,
+                letterSpacing = 2.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            VolButton(
+                text = "📞 8 977 811-65-64",
+                onClick = { open("tel:+79778116564") },
+                base = ConnGreen,
+                modifier = Modifier.widthIn(min = 260.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Если я не ответил на звонок — обязательно напишите в любом из мессенджеров 👇",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .widthIn(max = 340.dp)
+                    .padding(horizontal = 12.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                VolButton("Telegram", { open("https://t.me/wapmixx") }, PlateDark, bold = false)
+                VolButton("WhatsApp", { open("https://wa.me/79778116564") }, PlateDark, bold = false)
+                VolButton("МАКС", { open("https://max.ru/") }, PlateDark, bold = false)
+            }
         }
     }
 }
