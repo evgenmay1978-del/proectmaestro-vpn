@@ -106,15 +106,16 @@ func main() {
 		prov = pc
 		log.Printf("provisioning enabled (3x-ui + server2; mieru=%v naive=%v)",
 			os.Getenv("S2_MITA_PORT") != "", os.Getenv("NAIVE_SERVER") != "")
-		// Mirror s2's naive expiries into the unified store every 15 min (s2 owns the
-		// naive lifecycle; this propagates a naive renewal to the app + the customer's
-		// other protocols — no admin endpoint exposed, no s2-bot change).
+		// Pull each customer's authoritative expiry from whichever panel owns it (3x-ui
+		// VLESS and/or the s2 naive panel) into the unified store, advance-only, every
+		// 15 min — so a renewal in ANY of the 3 panels propagates to the app + the
+		// customer's other protocols. No admin endpoint exposed, no bot change.
 		go func() {
-			pc.ReconcileNaiveExpiries()
+			pc.ReconcileExpiries()
 			tk := time.NewTicker(15 * time.Minute)
 			defer tk.Stop()
 			for range tk.C {
-				pc.ReconcileNaiveExpiries()
+				pc.ReconcileExpiries()
 			}
 		}()
 	} else {
