@@ -126,22 +126,22 @@ private fun VolButton(
 /**
  * Volumetric "MaestroVPN" wordmark. Each glyph spins a full turn around its own
  * vertical axis IN SEQUENCE — a wave that sweeps from the first letter to the last,
- * then holds, then repeats. Each letter is a light-top → dark-bottom gradient with a
- * drop shadow so it reads as 3D even while flat; the rotationY + cameraDistance give
- * the real spin. "Maestro" orange, "VPN" silver.
+ * then holds, then repeats (slow + classy). Each letter is genuinely EXTRUDED (see
+ * [Letter3D]) so it has real depth, not just a flat gradient. "Maestro" orange,
+ * "VPN" silver.
  */
 @Composable
 private fun AnimatedLogo(modifier: Modifier = Modifier) {
     val word = "MaestroVPN"
-    val stepMs = 130   // delay between consecutive letters kicking off
-    val spinMs = 720   // one letter's full 360° turn
-    val pauseMs = 1500 // hold after the wave before it repeats
+    val stepMs = 230    // slower: delay between consecutive letters kicking off
+    val spinMs = 1400   // slower: one letter's full 360° turn
+    val pauseMs = 2200  // longer hold after the wave before it repeats
     val total = word.length * stepMs + spinMs + pauseMs
     val tr = rememberInfiniteTransition(label = "logo")
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         word.forEachIndexed { i, ch ->
             val start = i * stepMs
-            val rot by tr.animateFloat(
+            val rotState = tr.animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
                 animationSpec = infiniteRepeatable(
@@ -157,23 +157,54 @@ private fun AnimatedLogo(modifier: Modifier = Modifier) {
                 label = "rot$i",
             )
             val isVpn = i >= word.length - 3
-            val base = if (isVpn) MaestroSilver else MaestroOrange
+            // pass the animated value as a lambda → read in graphicsLayer (draw phase),
+            // so the 9 layered glyphs per letter compose once and only re-draw, not recompose.
+            Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange) { rotState.value }
+        }
+    }
+}
+
+/**
+ * One EXTRUDED 3D glyph: a stack of dark "side" faces offset down-right builds the
+ * letter's thickness, with a beveled, specular-lit front face on top; the whole stack
+ * is spun around its Y axis by [rot]. That real depth is what the flat version lacked.
+ */
+@Composable
+private fun Letter3D(ch: Char, base: Color, rot: () -> Float) {
+    val depth = 8
+    val side = lerp(base, Color.Black, 0.5f)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.graphicsLayer {
+            rotationY = rot()
+            cameraDistance = 18f * density
+        },
+    ) {
+        // extruded body — copies offset down-right, fading dark→darker, form the thickness
+        for (d in depth downTo 1) {
             Text(
                 ch.toString(),
-                fontSize = 40.sp,
+                fontSize = 46.sp,
                 fontWeight = FontWeight.Black,
-                style = TextStyle(
-                    brush = Brush.verticalGradient(
-                        listOf(lerp(base, Color.White, 0.55f), base, lerp(base, Color.Black, 0.34f)),
-                    ),
-                    shadow = Shadow(Color.Black.copy(alpha = 0.55f), Offset(0f, 5f), 10f),
-                ),
-                modifier = Modifier.graphicsLayer {
-                    rotationY = rot
-                    cameraDistance = 13f * density
-                },
+                color = lerp(side, Color.Black, d / (depth * 1.6f)),
+                modifier = Modifier.graphicsLayer { translationX = d * 1.7f; translationY = d * 1.7f },
             )
         }
+        // front face — bright top → dark bottom with a thin specular band + drop shadow
+        Text(
+            ch.toString(),
+            fontSize = 46.sp,
+            fontWeight = FontWeight.Black,
+            style = TextStyle(
+                brush = Brush.verticalGradient(
+                    0f to lerp(base, Color.White, 0.85f),
+                    0.18f to lerp(base, Color.White, 0.25f),
+                    0.55f to base,
+                    1f to lerp(base, Color.Black, 0.28f),
+                ),
+                shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 4f), 7f),
+            ),
+        )
     }
 }
 
