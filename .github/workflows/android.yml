@@ -72,19 +72,54 @@ jobs:
           sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platforms;android-36" "build-tools;36.0.0" >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
 
-      - name: Fetch libbox.aar from the latest successful libbox build
+      - name: Fetch libbox.aar (mieru-embedded), gated on the SAME-COMMIT combined build
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           mkdir -p app/libs
-          RUN_ID=$(gh run list --workflow=libbox.yml --status=success -L1 --json databaseId -q '.[0].databaseId')
-          if [ -z "$RUN_ID" ]; then
-            echo "No successful 'Build libbox.aar' run found — run that workflow first." >&2
-            exit 1
+          ART=libbox-mieru-aar
+          RUN_ID=""
+          q() { python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') if isinstance(d,dict) else '')"; }
+          sameSHA() {
+            gh run list --workflow=libbox-mieru.yml -L 30 \
+              --json databaseId,headSha,status,conclusion \
+              -q "[.[] | select(.headSha==\"$SHA\")] | .[0] // empty"
+          }
+          # A push touching mieru-bridge/** or version.properties starts libbox-mieru.yml
+          # in PARALLEL with this run at the same SHA — so we must wait for THAT run, not a
+          # stale earlier one (which would silently ship the previous mieru). An app-only
+          # push doesn't rebuild libbox → no same-SHA run → reuse the newest combined aar
+          # (embedded mieru unchanged). Only if no combined build ever succeeded do we fall
+          # back to plain libbox.aar (mieru then runs via the exec'd libmieru.so).
+          SAME="$(sameSHA)"
+          if [ -n "$SAME" ]; then
+            for i in $(seq 1 60); do
+              ST="$(printf '%s' "$SAME" | q status)"; CC="$(printf '%s' "$SAME" | q conclusion)"
+              if [ "$ST" = "completed" ]; then
+                if [ "$CC" = "success" ]; then
+                  RUN_ID="$(printf '%s' "$SAME" | q databaseId)"; break
+                fi
+                echo "::error::libbox-mieru build for $SHA concluded '$CC' — refusing to ship a stale/mismatched aar." >&2
+                exit 1
+              fi
+              echo "waiting for same-commit libbox-mieru build ($ST) [$i/60]..."
+              sleep 30; SAME="$(sameSHA)"
+            done
+            [ -n "$RUN_ID" ] || { echo "::error::timed out waiting for same-commit libbox-mieru build" >&2; exit 1; }
           fi
-          echo "Downloading libbox.aar from libbox run $RUN_ID"
-          gh run download "$RUN_ID" -n libbox-aar -D app/libs
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list --workflow=libbox-mieru.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
+          fi
+          if [ -z "$RUN_ID" ]; then
+            echo "::warning::No successful libbox-mieru build yet — falling back to plain libbox.aar (mieru via exec)." >&2
+            RUN_ID=$(gh run list --workflow=libbox.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
+            ART=libbox-aar
+          fi
+          [ -n "$RUN_ID" ] || { echo "::error::No successful libbox build found — run libbox-mieru.yml (or libbox.yml) first." >&2; exit 1; }
+          echo "Downloading $ART from run $RUN_ID (commit $SHA)"
+          gh run download "$RUN_ID" -n "$ART" -D app/libs
           ls -lh app/libs/
 
       - name: Bundle the Mieru client helper (arm64 + armv7) into jniLibs

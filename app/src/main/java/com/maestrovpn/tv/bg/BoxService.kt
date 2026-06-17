@@ -127,10 +127,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             lastProfileName = profile.name
-            // Bring up the bundled Mieru SOCKS helper for this subscription
-            // (best-effort, on its own thread; no-op if the customer has no mieru
-            // protocol or on a non-arm64 device). sing-box's mieru outbound dials it.
-            mieruHelper.start(profile.typed.remoteURL)
+            // Bring up mieru's local SOCKS5 proxy ONLY if this profile actually carries a
+            // mieru outbound (skips a needless /helpers round-trip for the VLESS/Hy2/Naive-
+            // only majority). Primary path is the in-process bridge embedded in libbox.aar
+            // (every ABI); the exec'd libmieru.so is the fallback. Best-effort, on its own
+            // thread. sing-box's mieru outbound dials 127.0.0.1:<socksPort>.
+            if (content.contains("\"mieru\"")) mieruHelper.start(profile.typed.remoteURL)
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
             }
@@ -220,6 +222,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
         lastProfileName = profile.name
+        // Reload re-reads the profile after auto-key-update (UpdateProfileWork), which may
+        // have ROTATED the mieru creds/server. mieru froze the old creds at start, and a
+        // bare start() is a no-op while running — so rebind with stop()+start() (re-fetches
+        // /helpers). stop() alone covers a profile that dropped mieru. No-op for non-mieru.
+        mieruHelper.stop()
+        if (content.contains("\"mieru\"")) mieruHelper.start(profile.typed.remoteURL)
         try {
             commandServer.startOrReloadService(
                 content,
