@@ -224,6 +224,8 @@ fun TvHomeScreen(
     protocols: List<String>,
     selected: String?,
     activeProtocol: String? = null,
+    accountLogin: String? = null,
+    daysLeft: Int? = null,
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
     onBuy: () -> Unit,
@@ -400,6 +402,43 @@ fun TvHomeScreen(
                 )
             }
 
+            // Account card — the customer's login + how many days are left on their
+            // subscription (fetched from the panel /sub/<token>/info; null = unknown).
+            if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+                Spacer(Modifier.height(14.dp))
+                val expired = daysLeft != null && daysLeft <= 0
+                val low = daysLeft != null && daysLeft in 1..5
+                val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else ConnGreen
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = PlateDark,
+                    modifier = Modifier.widthIn(min = 220.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        if (!accountLogin.isNullOrBlank()) {
+                            Text(
+                                "Аккаунт: $accountLogin",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
+                        if (daysLeft != null) {
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                if (expired) "Подписка истекла" else "Осталось $daysLeft ${daysWord(daysLeft)}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = daysColor,
+                            )
+                        }
+                    }
+                }
+            }
+
             // Active protocol — the outbound actually carrying traffic right now.
             // With "Авто" the urltest re-picks the lowest-latency protocol live, so
             // this resolves the selector→urltest chain to the real leaf and updates
@@ -522,4 +561,14 @@ private fun protocolLabel(tag: String): String = when (tag) {
     "naive" -> "NaiveProxy"
     "mieru" -> "Mieru"
     else -> tag.replaceFirstChar { it.uppercase() }
+}
+
+/** Russian plural of "день" for N: 1 день, 2-4 дня, 5-20 дней (incl. teens). */
+private fun daysWord(n: Int): String {
+    if (n % 100 in 11..14) return "дней"
+    return when (n % 10) {
+        1 -> "день"
+        2, 3, 4 -> "дня"
+        else -> "дней"
+    }
 }
