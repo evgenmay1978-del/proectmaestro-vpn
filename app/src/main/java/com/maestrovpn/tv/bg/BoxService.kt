@@ -278,7 +278,13 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     @OptIn(DelicateCoroutinesApi::class)
     private fun stopService() {
-        if (status.value != Status.Started) return
+        // Allow stopping from Starting too — not only Started. If the user taps the
+        // power button while the tunnel is still coming up, or it got STUCK in Starting
+        // (a protocol can't connect), the stop MUST still take effect. Previously this
+        // returned unless status==Started, so pressing the button during Starting did
+        // nothing ("иногда невозможно отключить"). Idempotent: skip only if already
+        // stopping/stopped.
+        if (status.value == Status.Stopping || status.value == Status.Stopped) return
         status.value = Status.Stopping
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
@@ -293,10 +299,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 fileDescriptor = null
             }
             DefaultNetworkMonitor.stop()
-            closeService()
-            commandServer.apply {
-                close()
-//                Seq.destroyRef(refnum)
+            // commandServer may not be initialized yet if we're stopping mid-Starting.
+            if (::commandServer.isInitialized) {
+                closeService()
+                commandServer.close()
             }
             Settings.startedByUser = false
             withContext(Dispatchers.Main) {
