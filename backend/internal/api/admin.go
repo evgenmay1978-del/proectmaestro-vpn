@@ -97,6 +97,41 @@ func (s *Server) handleExtend(w http.ResponseWriter, r *http.Request) {
 	s.respCustomer(w, c)
 }
 
+// handleSetExpiry (admin): MIRROR an absolute expiry set by a channel that owns the date
+// (the s2 naive bot) into the unified account — sets the store date (no stacking) + fans
+// it out to the customer's other protocols (VLESS date, Hy2/Mieru membership), without
+// touching the raw naive the s2 bot owns. Backfills via ActivateExisting if not in store.
+func (s *Server) handleSetExpiry(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Login   string `json:"login"`
+		Expires string `json:"expires"` // RFC3339
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	t, perr := time.Parse(time.RFC3339, req.Expires)
+	if req.Login == "" || perr != nil {
+		http.Error(w, "login and RFC3339 expires required", http.StatusBadRequest)
+		return
+	}
+	if _, err := s.st.ByLogin(req.Login); errors.Is(err, store.ErrNotFound) {
+		if _, aerr := s.prov.ActivateExisting(req.Login); aerr != nil {
+			http.Error(w, aerr.Error(), http.StatusNotFound)
+			return
+		}
+	}
+	c, err := s.prov.SetExpiry(req.Login, t)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "no such customer", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	s.respCustomer(w, c)
+}
+
 // handleRenew (admin): the SINGLE cross-channel renewal entrypoint for the "unified
 // account". Renews a customer by login across ALL 4 protocols regardless of which
 // channel sold/confirmed the payment (app, s1 3x-ui bot, s2 naive bot — all call this

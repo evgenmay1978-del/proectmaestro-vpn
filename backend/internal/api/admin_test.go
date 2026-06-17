@@ -26,6 +26,10 @@ func (f *fakeProv) Extend(login string, dur time.Duration) (*store.Customer, err
 	return f.st.Extend(login, dur)
 }
 
+func (f *fakeProv) SetExpiry(login string, t time.Time) (*store.Customer, error) {
+	return f.st.SetExpiry(login, t)
+}
+
 func (f *fakeProv) ActivateExisting(login string) (*store.Customer, error) {
 	return nil, store.ErrNotFound
 }

@@ -29,6 +29,7 @@ var claimCodeRe = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,64}$`)
 type Provisioner interface {
 	Provision(login string, dur time.Duration) (*store.Customer, error)
 	Extend(login string, dur time.Duration) (*store.Customer, error)
+	SetExpiry(login string, t time.Time) (*store.Customer, error)
 	ActivateExisting(login string) (*store.Customer, error)
 }
 
@@ -85,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/admin/provision", s.adminAuth(s.handleProvision))
 		mux.HandleFunc("/admin/extend", s.adminAuth(s.handleExtend))
 		mux.HandleFunc("/admin/renew", s.adminAuth(s.handleRenew))
+		mux.HandleFunc("/admin/set-expiry", s.adminAuth(s.handleSetExpiry))
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
 		if s.orders != nil {
 			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))
