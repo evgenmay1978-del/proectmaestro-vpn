@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 )
 
 // handleTariffs lists the purchasable plans + the СБП phone (public).
@@ -26,7 +27,9 @@ func (s *Server) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Tariff string `json:"tariff"`
+		Tariff   string `json:"tariff"`
+		SubToken string `json:"sub_token"` // present → RENEW this existing account
+		Login    string `json:"login"`     // alternative identity if the app knows it
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -36,7 +39,21 @@ func (s *Server) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown tariff", http.StatusBadRequest)
 		return
 	}
-	o, err := s.orders.Create(t)
+	// Decide which account this order renews. The app sends the sub_token from its
+	// active profile; we map it to the customer's login. Unknown or empty → a brand-new
+	// account (first-time purchase is unchanged), so this is fully backward-compatible.
+	login := ""
+	if req.SubToken != "" {
+		if c, e := s.st.ByToken(req.SubToken); e == nil && c != nil {
+			login = c.Login
+		}
+	}
+	if login == "" && req.Login != "" {
+		if c, e := s.st.ByLogin(req.Login); e == nil && c != nil {
+			login = c.Login
+		}
+	}
+	o, err := s.orders.CreateFor(t, login)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -122,7 +139,17 @@ func (s *Server) handleOrderConfirm(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"order_id": o.ID, "status": "paid", "login": o.Login})
 		return
 	}
-	cust, err := s.prov.Provision(o.Login, time.Duration(o.Days)*24*time.Hour)
+	dur := time.Duration(o.Days) * 24 * time.Hour
+	// RENEW the same account if its login already exists (Extend stacks the days from
+	// max(now, current expiry) and re-writes every panel — 3x-ui date + Hy2/Naive/Mieru
+	// membership); otherwise provision a fresh account. This is what makes an in-app
+	// renewal keep the customer's existing subscription instead of orphaning it.
+	var cust *store.Customer
+	if existing, e := s.st.ByLogin(o.Login); e == nil && existing != nil {
+		cust, err = s.prov.Extend(o.Login, dur)
+	} else {
+		cust, err = s.prov.Provision(o.Login, dur)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

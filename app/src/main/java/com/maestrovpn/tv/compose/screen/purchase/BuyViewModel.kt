@@ -7,6 +7,7 @@ import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
+import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
 import com.maestrovpn.tv.utils.HTTPClient
 import io.nekohasekai.libbox.Libbox
@@ -72,7 +73,17 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
     fun buy(tariffKey: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val o = JSONObject(httpPost("$base/order", JSONObject().put("tariff", tariffKey).toString()))
+                val body = JSONObject().put("tariff", tariffKey)
+                // If the user already has a MaestroVPN subscription, RENEW that same
+                // account: send its sub_token (from the profile's /sub/<token> URL) so the
+                // backend extends the SAME login/keys across all 4 panels instead of minting
+                // a brand-new account each time. No subscription yet → omitted → new account.
+                runCatching {
+                    ProfileManager.list().firstNotNullOfOrNull {
+                        it.typed.remoteURL.substringAfterLast("/sub/", "").takeIf { t -> t.isNotBlank() }
+                    }
+                }.getOrNull()?.let { body.put("sub_token", it) }
+                val o = JSONObject(httpPost("$base/order", body.toString()))
                 orderId = o.getString("order_id")
                 _state.value = BuyState.AwaitingPayment(o.getInt("rub"), o.getString("code"), o.optString("sbp_phone"))
             } catch (e: Exception) {
@@ -106,6 +117,20 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun activate(subUrl: String) {
         val context = getApplication<Application>()
+        val content = HTTPClient().use { it.getString(subUrl) }
+        Libbox.checkConfig(content)
+        // A renewal returns the SAME sub_url — refresh the existing profile and reselect
+        // it instead of piling up duplicate "MaestroVPN" entries. Only a first activation
+        // creates a new profile.
+        val existing = ProfileManager.list().firstOrNull { it.typed.remoteURL == subUrl }
+        if (existing != null) {
+            File(existing.typed.path).writeText(content)
+            existing.typed.lastUpdated = Date()
+            ProfileManager.update(existing)
+            Settings.selectedProfile = existing.id
+            UpdateProfileWork.reconfigureUpdater()
+            return
+        }
         val typed = TypedProfile().apply {
             type = TypedProfile.Type.Remote
             remoteURL = subUrl
@@ -120,8 +145,6 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         val dir = File(context.filesDir, "configs").also { it.mkdirs() }
         val file = File(dir, "$fileID.json")
         typed.path = file.path
-        val content = HTTPClient().use { it.getString(subUrl) }
-        Libbox.checkConfig(content)
         file.writeText(content)
         ProfileManager.create(profile, andSelect = true)
         UpdateProfileWork.reconfigureUpdater()
