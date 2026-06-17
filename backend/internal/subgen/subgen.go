@@ -173,16 +173,17 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_is_private": true, "action": "route", "outbound": "direct"},
 	}
-	// Anti-loop for the Mieru helper. The bundled mieru client runs as a SEPARATE
-	// OS process, so its TCP connection to the mita server is NOT one of sing-box's
-	// own outbound sockets and is never protect()'d. With strict_route + the tun
-	// capturing the app's own package, that connection re-enters the tun and gets
-	// routed back to the local mieru socks outbound (final=select) — an infinite
-	// loop, so ZERO packets ever reach mita (verified by on-server tcpdump). Pin
-	// the mieru server endpoint to a DIRECT route so the helper's carrier traffic
-	// egresses the real interface. Native VLESS/Hy2/Naive don't need this (sing-box
-	// protect()s their fds, so they already bypass the tun). Placed above the
-	// force-proxy / RU-direct rules so it short-circuits first.
+	// Anti-loop for Mieru. The mieru client dials the mita server with its OWN
+	// net.Dial — whether it runs in-process (embedded in libbox.aar) or as the exec'd
+	// libmieru.so fallback — so that TCP socket is NOT one of sing-box's own outbound
+	// fds and is never protect()'d. With strict_route + the tun capturing the app's own
+	// package, that carrier connection re-enters the tun and gets routed back to the
+	// local mieru socks outbound (final=select) — an infinite loop, so ZERO packets ever
+	// reach mita (verified by on-server tcpdump). Pin the mieru server endpoint to a
+	// DIRECT route so the carrier traffic egresses the real interface. STILL REQUIRED
+	// after the in-process migration (it's about protect(), not process boundaries).
+	// Native VLESS/Hy2/Naive don't need this (sing-box protect()s their fds). Placed
+	// above the force-proxy / RU-direct rules so it short-circuits first.
 	if c.Mieru != nil && c.Mieru.Server != "" {
 		routeRules = append(routeRules, mieruDirectRule(c.Mieru.Server))
 	}
@@ -337,11 +338,11 @@ func socksOutbound(tag string, port int) map[string]any {
 	}
 }
 
-// mieruDirectRule pins the mieru server endpoint to a DIRECT route. The mieru
-// helper is a separate OS process whose socket sing-box can't protect(), so its
-// carrier connection to mita must bypass the tun or it loops back into the local
-// mieru socks outbound. Mieru servers are configured by raw IP (no SNI on the
-// wire), so match by ip_cidr; fall back to domain_suffix if ever a hostname.
+// mieruDirectRule pins the mieru server endpoint to a DIRECT route. mieru dials
+// mita with its own net.Dial (in-process bridge OR exec fallback), a socket sing-box
+// can't protect(), so its carrier connection must bypass the tun or it loops back
+// into the local mieru socks outbound. Mieru servers are configured by raw IP (no
+// SNI on the wire), so match by ip_cidr; fall back to domain_suffix if ever a hostname.
 func mieruDirectRule(server string) map[string]any {
 	if ip := net.ParseIP(server); ip != nil {
 		cidr := server + "/32"

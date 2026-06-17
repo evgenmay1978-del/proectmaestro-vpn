@@ -16,9 +16,12 @@
 // The wiring is a faithful copy of mieru's own pkg/cli/client.go runClient in
 // its "mobile app" mode (RPC port 0): build the client mux from the active
 // profile, point a local socks5 server at it, serve on 127.0.0.1:<socks5Port>.
-// The single outbound connection to the mita server is made from the app's own
-// UID exactly as the child process did, so sing-box's existing direct route for
-// the mita IP keeps it out of the tunnel (no loop) — behaviour is identical.
+// The carrier connection to the mita server is made with mieru's own net.Dial,
+// OUTSIDE sing-box's outbound machinery, so it is never protect()'d — just as the
+// exec'd child's socket wasn't. Under the tun's strict_route that unprotected
+// socket would loop back into the local mieru socks outbound, so the backend pins
+// the mita IP to a DIRECT route (subgen mieruDirectRule). That rule is STILL
+// required in-process; behaviour is identical to the child-process model.
 package mierubridge
 
 import (
@@ -123,6 +126,18 @@ func Start(configJSON string) error {
 	server = srv
 	listener = l
 	go func(s *socks5.Server, ln *net.TCPListener) {
+		// Recover the ACCEPT loop: mieru shares libbox's Go runtime, so an unrecovered
+		// panic here would kill the whole app (tun + all 4 protocols). This degrades it
+		// to "mieru down, the other 3 survive". NOTE it does NOT cover mieru's per-conn
+		// (socks5.ServeConn) or mux goroutines — mieru spawns those itself and we can't
+		// wrap them, so those panics remain process-fatal. That residual risk is exactly
+		// why MieruHelper keeps the exec'd-binary fallback as the real isolation tier.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorf("mieru bridge: socks5 serve panic: %v", r)
+				go Stop()
+			}
+		}()
 		_ = s.Serve(ln) // returns when Close() is called
 	}(srv, l)
 	return nil

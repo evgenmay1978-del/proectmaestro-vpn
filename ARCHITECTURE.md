@@ -124,13 +124,19 @@ App (Android TV, branded):
 
 ### Engine for 4 disparate protocols
 
-sing-box natively does VLESS + Hy2 only. Naive and **Mieru** are separate clients.
+sing-box natively does VLESS + Hy2 only. Naive and **Mieru** need extra clients.
 Clean design: **sing-box owns the tun + routing + per-app split-tunnel + the
-outbound selector; naive-client and mieru-client run as local SOCKS5 helper
-processes, and sing-box chains to them via `socks` outbounds.** Protocol switch =
-sing-box selector. Bundled native binaries: `naive`, `mieru` (cross-compiled for
-Android). This is the v2rayNG/Hiddify plugin pattern.
-- Outbounds: VLESS (native), Hy2 (native), Naive (socks→naive), Mieru (socks→mieru).
+outbound selector, chaining to a local SOCKS5 proxy for each non-native protocol.**
+Protocol switch = sing-box selector. This is the v2rayNG/Hiddify plugin pattern.
+- **naive**: a bundled `libnaive` exec'd as a child process serving local SOCKS5.
+- **mieru (Phase 2, 2026-06-17)**: runs **IN-PROCESS** — bound into the SAME gomobile
+  library as libbox (`io.nekohasekai.mierubridge.*`, one shared Go runtime), so the
+  Android 12+ phantom-process killer can't reap it and it works on every ABI. See
+  `mieru-bridge/bridge.go` + `MieruHelper.kt`. The bundled `libmieru.so` exec binary
+  is kept only as a fallback (also the panic-isolation tier — a one-runtime panic is
+  process-fatal). A separate gomobile lib was rejected (2nd Go runtime = go.Seq
+  collision + signal-handler crashes).
+- Outbounds: VLESS (native), Hy2 (native), Naive (socks→naive child), Mieru (socks→in-process bridge).
 
 Backend ("maestro-panel") — needed:
 - Accounts + expiry; purchase/renewal via **СБП + Telegram-approve** (reuse vpn_bot).

@@ -85,7 +85,12 @@ jobs:
             cmd/internal/build_libbox/main.go
           echo "--- patched bind package list ---"
           grep -n 'append(args, "\./' cmd/internal/build_libbox/main.go
-          test "$(grep -c 'mierubridge' cmd/internal/build_libbox/main.go)" -ge 1
+          # Assert the ANDROID bind site specifically (buildAndroidVariant) got ./mierubridge,
+          # not just any line — so a future sing-box that retabs/renames only the android line
+          # fails loudly here instead of silently shipping a libbox WITHOUT in-process mieru.
+          # (The post-build aar class grep below is the authoritative gate; this is defence-in-depth.)
+          awk '/func buildAndroidVariant/,/^}/' cmd/internal/build_libbox/main.go | grep -q '"\./mierubridge"' \
+            || { echo "::error::android bind site (buildAndroidVariant) was not patched with ./mierubridge" >&2; exit 1; }
 
       - name: make lib_android (gomobile bind libbox + mieru -> libbox.aar)
         working-directory: sing-box

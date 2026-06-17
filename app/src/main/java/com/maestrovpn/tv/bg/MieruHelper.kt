@@ -9,28 +9,40 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Runs the bundled Mieru client (`libmieru.so`) as a local SOCKS5 helper, because
- * sing-box has no native mieru outbound. sing-box dials `127.0.0.1:<socksPort>`
- * (the subgen `mieru` socks outbound); this process authenticates to the mita
- * server with the customer's creds, fetched from `GET <subUrl>/helpers`.
+ * Brings up a local SOCKS5 proxy for mieru, because sing-box has no native mieru
+ * outbound. sing-box dials `127.0.0.1:<socksPort>` (the subgen `mieru` socks
+ * outbound); mieru authenticates to the mita server with the customer's creds,
+ * fetched from `GET <subUrl>/helpers`.
  *
- * The `mieru run` subcommand serves SOCKS5 in the foreground (no daemon/RPC), so
- * we launch it, stream its log, and restart it with backoff while [running].
- * Everything — the creds fetch, config write, and run loop — happens on a daemon
- * thread, so the VPN start path is never blocked. Bundled arm64-only: [isAvailable]
- * is false on other ABIs, where mieru is simply unavailable and the selector falls
- * back to the other protocols.
+ * PRIMARY path: the mieru client is bound IN-PROCESS into libbox.aar (class
+ * `io.nekohasekai.mierubridge.Mierubridge`, one shared Go runtime). It is started
+ * via reflection so the app still builds/runs even against a libbox without it.
+ * This is immune to the Android 12+ phantom-process killer and works on every ABI.
+ *
+ * FALLBACK path: if that class is absent (older libbox) or refuses to start, we
+ * exec the bundled `libmieru.so` binary as a child process — the original
+ * mechanism — and supervise it with backoff while [running].
+ *
+ * Everything — creds fetch, config build, start — runs on a daemon thread, so the
+ * VPN start path is never blocked.
  */
 class MieruHelper(private val context: Context) {
     @Volatile private var process: Process? = null
     @Volatile private var running = false
+    @Volatile private var inProcess = false
     private var thread: Thread? = null
 
     private val binary: File
         get() = File(context.applicationInfo.nativeLibraryDir, "libmieru.so")
 
-    /** True only on a device that ships the arm64 helper binary. */
-    fun isAvailable(): Boolean = binary.exists() && binary.canExecute()
+    // The in-process mieru client, bound into libbox.aar. Resolved by reflection so
+    // a build whose libbox lacks it simply falls back to the exec'd binary.
+    private val bridgeClass: Class<*>? by lazy {
+        runCatching { Class.forName("io.nekohasekai.mierubridge.Mierubridge") }.getOrNull()
+    }
+
+    /** True if mieru can run here — in-process (any ABI, primary) or via the exec binary. */
+    fun isAvailable(): Boolean = bridgeClass != null || (binary.exists() && binary.canExecute())
 
     /**
      * Start the helper for a Remote profile's subscription [subUrl]. No-op if the
@@ -46,6 +58,15 @@ class MieruHelper(private val context: Context) {
     @Synchronized
     fun stop() {
         running = false
+        // Tear the in-process bridge down UNCONDITIONALLY (Mierubridge.stop is mutex-
+        // guarded + idempotent — a no-op when nothing is running). Gating on `inProcess`
+        // had a TOCTOU hole: a stop landing between Mierubridge.start() returning (socks5
+        // already listening) and `inProcess=true` would skip teardown → a leaked socks5
+        // server that nothing reaps, and mieru un-restartable (bridge no-ops on server!=nil).
+        if (bridgeClass != null) {
+            runCatching { bridgeClass?.getMethod("stop")?.invoke(null) }
+        }
+        inProcess = false
         process?.destroy()
         process = null
         thread?.interrupt()
@@ -73,6 +94,22 @@ class MieruHelper(private val context: Context) {
         val cfg = buildConfig(creds)
         val configJson = File(dir, "client.json").apply { writeText(cfg) }
         report("config $cfg")
+
+        // Prefer in-process mieru (bound into libbox.aar): one Go runtime, immune to
+        // the Android 12+ phantom-process killer, no forked binary. Fall back to the
+        // exec'd libmieru.so only if the library is absent or refuses to start.
+        if (bridgeClass != null && startInProcess(cfg) { report(it) }) {
+            inProcess = true
+            report("in-process mieru started (libbox-embedded)")
+            verifySocks(creds.socksPort) { report(it) }
+            return // the in-process socks5 server runs until stop(); nothing to supervise
+        }
+        if (!binary.exists() || !binary.canExecute()) {
+            report("in-process failed and no exec fallback on this ABI — mieru idle")
+            running = false
+            return
+        }
+        report("in-process unavailable — falling back to exec'd libmieru.so")
 
         // `mieru run` loads its config DIRECTLY from MIERU_CONFIG_JSON_FILE and serves
         // SOCKS5 in the foreground (documented path; no `apply config` step).
@@ -120,6 +157,32 @@ class MieruHelper(private val context: Context) {
             }
             backoff = (backoff * 2).coerceAtMost(15_000L)
         }
+    }
+
+    /** Start the in-process mieru via reflection into libbox's embedded bridge. */
+    private fun startInProcess(cfg: String, report: (String) -> Unit): Boolean = runCatching {
+        bridgeClass!!.getMethod("start", String::class.java).invoke(null, cfg)
+        true
+    }.getOrElse { e ->
+        val cause = (e as? java.lang.reflect.InvocationTargetException)?.targetException ?: e
+        Log.e(TAG, "in-process mieru start failed", cause)
+        report("in-process start FAILED ${cause.javaClass.simpleName}: ${cause.message}")
+        false
+    }
+
+    /** Off-thread reachability check of the local socks5 port, for server-side diagnostics. */
+    private fun verifySocks(socksPort: Int, report: (String) -> Unit) {
+        Thread {
+            runCatching {
+                Thread.sleep(800)
+                val up = runCatching {
+                    java.net.Socket().use {
+                        it.connect(java.net.InetSocketAddress("127.0.0.1", socksPort), 2000); true
+                    }
+                }.getOrDefault(false)
+                report("in-process socks5 127.0.0.1:$socksPort up=$up")
+            }
+        }.apply { isDaemon = true }.start()
     }
 
     private fun postLog(url: String, msg: String) {
