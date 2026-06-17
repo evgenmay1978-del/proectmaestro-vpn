@@ -415,6 +415,40 @@ func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 	return nil
 }
 
+// ReconcileNaiveExpiries mirrors raw-naive customers' authoritative expiry (owned by the
+// s2 bot in bot_minimal.db, read over the existing SSH) into the unified store — but ONLY
+// when the s2 date is LATER than the store's, so an app/3x-ui renewal is never reduced.
+// This is how an owner-confirmed NAIVE renewal on server 2 propagates to the app + the
+// customer's other protocols, with NO admin endpoint exposed and NO s2-bot change. The
+// s2 bot keeps owning the naive lifecycle; the panel only pulls + mirrors the date.
+// Best-effort: per-customer errors are logged and skipped.
+func (p *Provisioner) ReconcileNaiveExpiries() {
+	for _, c := range p.st.List() {
+		if c.Naive == nil || c.Naive.Username == "" {
+			continue
+		}
+		// mtv_ naive is panel-owned (no s2-bot DB row); only a RAW naive user is s2-owned.
+		if strings.HasPrefix(c.Naive.Username, server2.NaivePrefix) {
+			continue
+		}
+		raw, ok, err := p.s2.ReadProxyExpiry(c.Naive.Username)
+		if err != nil || !ok {
+			continue
+		}
+		t, perr := parseProxyExpiry(raw)
+		if perr != nil {
+			continue
+		}
+		if t.After(c.Expires) {
+			if _, err := p.SetExpiry(c.Login, t); err != nil {
+				log.Printf("reconcile naive %q: %v", c.Login, err)
+			} else {
+				log.Printf("reconcile naive %q: store expiry advanced to %s (from s2)", c.Login, t.UTC().Format(time.RFC3339))
+			}
+		}
+	}
+}
+
 // syncHy2 regenerates server-2's Hysteria user set from all ACTIVE customers, so
 // an expired or disabled customer is dropped and can no longer connect.
 func (p *Provisioner) syncHy2() error {

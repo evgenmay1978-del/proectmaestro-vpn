@@ -102,9 +102,21 @@ func main() {
 				SNI: env("NAIVE_SNI", os.Getenv("NAIVE_SERVER")),
 			}
 		}
-		prov = provision.New(st, xc, s2, provCfg)
+		pc := provision.New(st, xc, s2, provCfg)
+		prov = pc
 		log.Printf("provisioning enabled (3x-ui + server2; mieru=%v naive=%v)",
 			os.Getenv("S2_MITA_PORT") != "", os.Getenv("NAIVE_SERVER") != "")
+		// Mirror s2's naive expiries into the unified store every 15 min (s2 owns the
+		// naive lifecycle; this propagates a naive renewal to the app + the customer's
+		// other protocols — no admin endpoint exposed, no s2-bot change).
+		go func() {
+			pc.ReconcileNaiveExpiries()
+			tk := time.NewTicker(15 * time.Minute)
+			defer tk.Stop()
+			for range tk.C {
+				pc.ReconcileNaiveExpiries()
+			}
+		}()
 	} else {
 		log.Printf("provisioning disabled (set XUI_BASE_URL + S2_PASSWORD to enable); serving subscriptions only")
 	}
