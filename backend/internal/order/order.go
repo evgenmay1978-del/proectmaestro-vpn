@@ -28,8 +28,8 @@ type Tariff struct {
 
 // DefaultTariffs — prices per the owner.
 var DefaultTariffs = []Tariff{
-	{Key: "1m", Name: "1 месяц", Days: 30, Rub: 300},
-	{Key: "2m", Name: "2 месяца", Days: 60, Rub: 600},
+	{Key: "1m", Name: "1 месяц", Days: 30, Rub: 400},
+	{Key: "2m", Name: "2 месяца", Days: 60, Rub: 800},
 }
 
 // TariffByKey returns the tariff for a key, or false.
