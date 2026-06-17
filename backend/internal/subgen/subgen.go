@@ -145,14 +145,23 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	}
 
 	// auto = urltest over the real protocols; select = manual switch (default auto).
+	// NB: urltest health probes dial each outbound's DialContext DIRECTLY and bypass the
+	// route block, so listing gstatic in forceProxyDomains does NOT loop the probe (verified).
+	// interrupt_exist_connections=true is the key failover knob: without it, after Auto
+	// re-picks a healthy leaf (or the user manually switches), already-ESTABLISHED flows stay
+	// pinned to the OLD/dead outbound until they close — only new connections move. With it,
+	// sing-box migrates live traffic onto the new pick instantly. interval 1m (was 3m) cuts
+	// worst-case detection of a silently-dead leaf on "Авто".
 	outbounds = append(outbounds,
 		map[string]any{
 			"type": "urltest", "tag": tagAuto, "outbounds": protoTags,
-			"url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 100,
+			"url": "https://www.gstatic.com/generate_204", "interval": "1m", "tolerance": 100,
+			"interrupt_exist_connections": true,
 		},
 		map[string]any{
 			"type": "selector", "tag": tagPick,
 			"outbounds": append([]string{tagAuto}, protoTags...), "default": tagAuto,
+			"interrupt_exist_connections": true,
 		},
 		map[string]any{"type": "direct", "tag": "direct"},
 	)
