@@ -197,6 +197,31 @@ class MainActivity :
         }
     private val pendingNavigationRoute = mutableStateOf<String?>(null)
 
+    /**
+     * One-time nudge to exempt the app from battery optimization. Without it, Doze /
+     * OEM background killers can stop the foreground VPN service (and the mieru helper)
+     * after the screen is off for a while — the biggest reason a VPN "dies in the
+     * background". Asked at most once (a pref flag); declining is respected. Sideloaded
+     * app, so the BatteryLife policy that discourages this for Play does not apply.
+     */
+    @android.annotation.SuppressLint("BatteryLife")
+    private fun maybeRequestBatteryExemption() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return
+        runCatching {
+            val pm = getSystemService(android.os.PowerManager::class.java) ?: return
+            if (pm.isIgnoringBatteryOptimizations(packageName)) return
+            val prefs = getSharedPreferences("maestro_prefs", android.content.Context.MODE_PRIVATE)
+            if (prefs.getBoolean("battery_opt_asked", false)) return
+            prefs.edit().putBoolean("battery_opt_asked", true).apply()
+            startActivity(
+                android.content.Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:$packageName"),
+                ),
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -217,6 +242,7 @@ class MainActivity :
         }
 
         handleIntent(intent)
+        maybeRequestBatteryExemption()
 
         setContent {
             SFATheme {
