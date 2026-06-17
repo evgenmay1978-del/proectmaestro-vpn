@@ -1,0 +1,114 @@
+name: Build libbox+mieru.aar
+
+# Same as libbox.yml, but binds our in-process mieru client (mieru-bridge/) INTO
+# the same gomobile library as sing-box's libbox. One gomobile bind → one Go
+# runtime → no second-runtime signal-handler crashes, no go.Seq class collision.
+# The result is a single libbox.aar exposing io.nekohasekai.mierubridge.* next to
+# io.nekohasekai.libbox.*. The app (android.yml) pulls THIS artifact.
+#
+# libbox.yml is left untouched as a fallback: if this combined build ever breaks,
+# android.yml can be pointed back at libbox.yml without losing the 3 native
+# protocols.
+
+on:
+  push:
+    paths:
+      - version.properties
+      - mieru-bridge/**
+      - .github/workflows/libbox-mieru.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout our repo (version.properties pin + mieru-bridge source)
+        uses: actions/checkout@v4
+
+      - name: Load pinned versions from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          source <(grep -E '^(GO_VERSION|SINGBOX_REF|NDK_VERSION|MIERU_VERSION)=' version.properties)
+          echo "go_version=${GO_VERSION#go}" >> "$GITHUB_OUTPUT"
+          echo "singbox_ref=${SINGBOX_REF}"  >> "$GITHUB_OUTPUT"
+          echo "ndk_version=${NDK_VERSION}"  >> "$GITHUB_OUTPUT"
+          echo "mieru_version=${MIERU_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go ${{ steps.pin.outputs.go_version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          check-latest: false
+
+      # build_libbox/main.go fatals unless `java --version` reports "openjdk 17".
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android NDK ${{ steps.pin.outputs.ndk_version }}
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+
+      - name: Clone sing-box at ${{ steps.pin.outputs.singbox_ref }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ steps.pin.outputs.singbox_ref }}" \
+            https://github.com/SagerNet/sing-box.git sing-box
+          echo "built ref:"; git -C sing-box rev-parse HEAD
+
+      - name: make lib_install (sagernet gomobile + gobind @v0.1.13)
+        working-directory: sing-box
+        run: make lib_install
+
+      # --- inject the in-process mieru client into the sing-box module ---
+      - name: Inject mieru-bridge + add mieru dependency + bind the extra package
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          mkdir -p mierubridge
+          cp "$GITHUB_WORKSPACE/mieru-bridge/bridge.go" mierubridge/bridge.go
+          # mieru as a normal module dependency of the sing-box build.
+          GOFLAGS=-mod=mod go get "github.com/enfein/mieru/v3@${{ steps.pin.outputs.mieru_version }}"
+          GOFLAGS=-mod=mod go mod tidy
+          # Bind ./mierubridge alongside ./experimental/libbox in EVERY android
+          # variant (keeps all sing-box flags/tags verbatim — we only add a pkg).
+          sed -i 's#args = append(args, "\./experimental/libbox")#args = append(args, "./experimental/libbox")\n\targs = append(args, "./mierubridge")#g' \
+            cmd/internal/build_libbox/main.go
+          echo "--- patched bind package list ---"
+          grep -n 'append(args, "\./' cmd/internal/build_libbox/main.go
+          test "$(grep -c 'mierubridge' cmd/internal/build_libbox/main.go)" -ge 1
+
+      - name: make lib_android (gomobile bind libbox + mieru -> libbox.aar)
+        working-directory: sing-box
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          make lib_android
+
+      - name: Verify mieru classes landed in the aar
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          ls -lh libbox*.aar
+          echo "--- io.nekohasekai.mierubridge.* present? ---"
+          unzip -p libbox.aar classes.jar > /tmp/classes.jar
+          unzip -l /tmp/classes.jar | grep -i 'mierubridge' || (echo "::error::mierubridge classes missing from libbox.aar" && exit 1)
+
+      - name: Upload combined libbox.aar
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-mieru-aar
+          path: sing-box/libbox.aar
+          if-no-files-found: error
