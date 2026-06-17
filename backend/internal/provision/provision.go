@@ -354,9 +354,35 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 	if err != nil {
 		return nil, fmt.Errorf("provision: extend store: %w", err)
 	}
+	if err := p.fanOutExpiry(cust); err != nil {
+		return nil, err
+	}
+	return cust, nil
+}
+
+// SetExpiry mirrors an ABSOLUTE expiry into the store and fans it out to all protocols
+// (no day-stacking, unlike Extend). Used by /admin/set-expiry so a channel that OWNS the
+// date elsewhere (the s2 naive bot) can sync the SAME date here without double-counting.
+func (p *Provisioner) SetExpiry(login string, t time.Time) (*store.Customer, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cust, err := p.st.SetExpiry(login, t)
+	if err != nil {
+		return nil, fmt.Errorf("provision: set expiry store: %w", err)
+	}
+	if err := p.fanOutExpiry(cust); err != nil {
+		return nil, err
+	}
+	return cust, nil
+}
+
+// fanOutExpiry pushes the customer's current store expiry to 3x-ui (VLESS date, preserving
+// the bot subId) and re-syncs Hy2 / Naive(mtv_ only) / Mieru membership. The caller holds
+// p.mu. It deliberately does NOT touch a raw (non-mtv_) naive user — the s2 bot owns that.
+func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 	if cust.VLESS != nil {
 		if err := p.xui.Login(); err != nil {
-			return nil, fmt.Errorf("provision: xui login: %w", err)
+			return fmt.Errorf("provision: xui login: %w", err)
 		}
 		// Preserve the existing 3x-ui subId (a bot-sold client's :2096 sub id) instead of
 		// overwriting it with the panel SubToken — a renewal must NOT break the customer's
@@ -370,23 +396,23 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 			SubID: subID, ExpiryTime: cust.Expires.UnixMilli(), LimitIP: deviceLimit(cust.Login),
 		}
 		if err := p.xui.UpdateClient(p.cfg.VLESS.InboundID, cust.VLESS.UUID, vc); err != nil {
-			return nil, fmt.Errorf("provision: xui updateClient: %w", err)
+			return fmt.Errorf("provision: xui updateClient: %w", err)
 		}
 	}
 	if err := p.syncHy2(); err != nil {
-		return nil, fmt.Errorf("provision: hy2 sync: %w", err)
+		return fmt.Errorf("provision: hy2 sync: %w", err)
 	}
 	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
 		if err := p.syncNaive(); err != nil {
-			log.Printf("provision: extend naive %q: %v", cust.Login, err)
+			log.Printf("provision: sync naive %q: %v", cust.Login, err)
 		}
 	}
 	if cust.Mieru != nil {
 		if err := p.syncMieru(); err != nil {
-			log.Printf("provision: extend mieru %q: %v", cust.Login, err)
+			log.Printf("provision: sync mieru %q: %v", cust.Login, err)
 		}
 	}
-	return cust, nil
+	return nil
 }
 
 // syncHy2 regenerates server-2's Hysteria user set from all ACTIVE customers, so

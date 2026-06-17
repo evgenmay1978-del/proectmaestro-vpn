@@ -179,3 +179,19 @@ func (s *Store) Extend(login string, d time.Duration) (*Customer, error) {
 	c.Disabled = false
 	return c.clone(), s.flush()
 }
+
+// SetExpiry sets the customer's expiry to an ABSOLUTE time (no stacking) and clears the
+// disabled flag. Used to MIRROR an authoritative date set elsewhere (e.g. by the s2 naive
+// bot, which owns the naive lifecycle) into the store so the app + the customer's other
+// protocols match — without double-counting days the way Extend (which stacks) would.
+func (s *Store) SetExpiry(login string, t time.Time) (*Customer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.byLog[login]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	c.Expires = t
+	c.Disabled = false
+	return c.clone(), s.flush()
+}
