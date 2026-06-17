@@ -358,7 +358,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     @OptIn(DelicateCoroutinesApi::class)
     @Suppress("SameReturnValue")
     internal fun onStartCommand(): Int {
-        if (status.value != Status.Stopped) return Service.START_NOT_STICKY
+        // START_STICKY: if the OS kills this foreground VPN service under memory pressure,
+        // have the system recreate it. Safe here because onStartCommand reads everything it
+        // needs from Settings / the saved profile and NEVER from the Intent (the restart
+        // delivers a null Intent), so there is no zombie / false-connected state — it simply
+        // re-establishes the tunnel. Closes the one survivability gap of the old
+        // START_NOT_STICKY (a low-memory mid-session kill stayed dead until reopen); reboots
+        // are already covered by BootReceiver.
+        if (status.value != Status.Stopped) return Service.START_STICKY
         status.value = Status.Starting
 
         if (!receiverRegistered) {
@@ -380,13 +387,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             Settings.startedByUser = true
             try {
                 startCommandServer()
+                // startService() promotes to foreground (ServiceNotification.show ->
+                // startForeground). A system-initiated START_STICKY restart runs in the
+                // BACKGROUND, where Android 12+ can refuse that promotion
+                // (ForegroundServiceStartNotAllowedException). A VPN can't run without
+                // foreground, so any failure here must stop CLEANLY — never crash the
+                // process. The user re-launches to resume (no worse than pre-sticky).
+                startService()
             } catch (e: Exception) {
                 stopAndAlert(Alert.StartCommandServer, e.message)
                 return@launch
             }
-            startService()
         }
-        return Service.START_NOT_STICKY
+        return Service.START_STICKY
     }
 
     internal fun onBind(): IBinder = binder
