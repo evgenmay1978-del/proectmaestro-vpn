@@ -104,20 +104,29 @@ func (s *Store) flush() error {
 	return nil
 }
 
-// Create makes a new pending order for the tariff.
-func (s *Store) Create(t Tariff) (*Order, error) {
+// Create makes a new pending order for the tariff (a brand-new account).
+func (s *Store) Create(t Tariff) (*Order, error) { return s.CreateFor(t, "") }
+
+// CreateFor makes a pending order that, on confirm, provisions or RENEWS `login`.
+// An empty login mints a fresh random tv- login (first-time purchase — unchanged);
+// a non-empty EXISTING login means the confirm will Extend that same account, so the
+// customer keeps their subscription instead of getting a new one on every renewal.
+func (s *Store) CreateFor(t Tariff, login string) (*Order, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Lazy GC: every new order drops abandoned pending orders (a "Купить" tap that
 	// was never paid) older than 24h, so orders.json can't grow without bound.
 	s.purgeStaleLocked(24 * time.Hour)
+	if login == "" {
+		login = "tv-" + token(8)
+	}
 	o := &Order{
 		ID:        "ord_" + token(16),
 		Tariff:    t.Key,
 		Days:      t.Days,
 		Rub:       t.Rub,
 		Code:      "M" + token(5),
-		Login:     "tv-" + token(8),
+		Login:     login,
 		Status:    "pending",
 		CreatedAt: time.Now(),
 	}
