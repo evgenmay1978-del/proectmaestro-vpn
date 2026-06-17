@@ -74,6 +74,13 @@ android {
         base.archivesName.set("MaestroVPN-TV-${versionName}")
         // backend the TV app hits for the claim-code → subscription exchange
         buildConfigField("String", "BACKEND_URL", "\"https://wapmixx.ru:8911\"")
+        // Ship only ARM ABIs. Every real RU Android-TV box / phone is arm64-v8a (mieru's
+        // helper is arm64-only) or armeabi-v7a (old 32-bit boxes — 3 protocols). x86/x86_64
+        // are emulator-only and added ~130MB of libbox.so, making a 138MB APK that flaked on
+        // mobile OTA ("то ставится то нет"). Dropping them ~halves the download.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -138,7 +145,7 @@ android {
             isEnable = false
             isUniversalApk = true
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            include("armeabi-v7a", "arm64-v8a")
         }
     }
 
