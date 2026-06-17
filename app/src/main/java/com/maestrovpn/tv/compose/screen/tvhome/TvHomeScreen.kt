@@ -11,7 +11,9 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -36,7 +39,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -69,6 +72,47 @@ import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 
 private val ConnGreen = Color(0xFF2FBF71)
+private val PlateDark = Color(0xFF26262B)
+
+/** Vertical "light-top → dark-bottom" sheen that makes a flat plate read as raised/3D. */
+private fun raisedBrush(base: Color) = Brush.verticalGradient(
+    listOf(lerp(base, Color.White, 0.20f), base, lerp(base, Color.Black, 0.22f)),
+)
+
+/** A volumetric (raised gradient + drop-shadow) button. Keeps Material focus/ripple for D-pad. */
+@Composable
+private fun VolButton(
+    text: String,
+    onClick: () -> Unit,
+    base: Color,
+    modifier: Modifier = Modifier,
+    bold: Boolean = true,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        if (pressed) 0.97f else if (focused) 1.06f else 1f,
+        tween(140, easing = FastOutSlowInEasing), label = "vbScale",
+    )
+    Button(
+        onClick = onClick,
+        shape = shape,
+        interactionSource = interaction,
+        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            contentColor = Color.White,
+        ),
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .shadow(if (focused) 16.dp else 8.dp, shape, clip = false)
+            .background(raisedBrush(base), shape)
+            .border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape),
+    ) { Text(text, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium) }
+}
 
 /**
  * MaestroVPN home — universal connect screen for BOTH a TV remote (D-pad) and a
@@ -164,38 +208,64 @@ fun TvHomeScreen(
             // ── Round power button (the hero) — a living "orb" ──────────────
             val press = remember { MutableInteractionSource() }
             val pressed by press.collectIsPressedAsState()
+            val heroFocused by press.collectIsFocusedAsState()
             val btnScale by animateFloatAsState(
-                if (pressed) 0.93f else 1f, tween(140, easing = FastOutSlowInEasing), label = "btnScale",
+                if (pressed) 0.93f else if (heroFocused) 1.05f else 1f,
+                tween(140, easing = FastOutSlowInEasing), label = "btnScale",
             )
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(248.dp)
+                    .size(240.dp)
+                    .graphicsLayer { scaleX = btnScale; scaleY = btnScale }
                     .drawBehind {
                         val c = Offset(size.width / 2f, size.height / 2f)
-                        // breathing glow halo
+                        val orbR = 94.dp.toPx()
+                        // 1) soft breathing halo — a glow RING hugging the orb (not behind it)
                         drawCircle(
-                            color = accent.copy(alpha = 0.10f + 0.16f * pulse),
-                            radius = 92.dp.toPx() * (1f + 0.16f * pulse),
+                            brush = Brush.radialGradient(
+                                0.00f to Color.Transparent,
+                                0.66f to Color.Transparent,
+                                0.84f to accent.copy(alpha = 0.28f + 0.16f * pulse + (if (heroFocused) 0.24f else 0f)),
+                                1.00f to Color.Transparent,
+                                center = c,
+                                radius = orbR * 1.5f,
+                            ),
+                            radius = orbR * 1.5f,
                             center = c,
                         )
-                        // slow-rotating accent arc ring (a "scanning" highlight)
+                        // 2) slow rotating highlight ring — smooth (transparent at both seam ends)
                         rotate(ringRot, pivot = c) {
                             drawArc(
                                 brush = Brush.sweepGradient(
-                                    listOf(Color.Transparent, accent, accent.copy(alpha = 0f)),
+                                    listOf(Color.Transparent, accent, Color.Transparent),
                                     center = c,
                                 ),
                                 startAngle = 0f,
-                                sweepAngle = 300f,
+                                sweepAngle = 360f,
                                 useCenter = false,
-                                topLeft = Offset(c.x - 110.dp.toPx(), c.y - 110.dp.toPx()),
-                                size = Size(220.dp.toPx(), 220.dp.toPx()),
+                                topLeft = Offset(c.x - orbR * 1.14f, c.y - orbR * 1.14f),
+                                size = Size(orbR * 2.28f, orbR * 2.28f),
                                 style = Stroke(width = 3.dp.toPx()),
                             )
                         }
+                        // 3) the orb — a 3D sphere with an offset (top-left) light source
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    lerp(accent, Color.White, 0.45f),
+                                    accent,
+                                    lerp(accent, Color.Black, 0.30f),
+                                ),
+                                center = Offset(c.x - orbR * 0.34f, c.y - orbR * 0.40f),
+                                radius = orbR * 1.55f,
+                            ),
+                            radius = orbR,
+                            center = c,
+                        )
                     },
             ) {
+                // transparent click/focus layer on top of the drawn orb (no Material shadow)
                 Button(
                     onClick = onToggleConnect,
                     shape = CircleShape,
@@ -205,23 +275,16 @@ fun TvHomeScreen(
                         containerColor = Color.Transparent,
                         contentColor = Color.White,
                     ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 14.dp, pressedElevation = 4.dp),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
                     modifier = Modifier
-                        .size(196.dp)
-                        .graphicsLayer { scaleX = btnScale; scaleY = btnScale }
-                        .background(
-                            brush = Brush.radialGradient(
-                                listOf(lerp(accent, Color.White, 0.30f), accent, lerp(accent, Color.Black, 0.22f)),
-                            ),
-                            shape = CircleShape,
-                        )
+                        .size(188.dp)
                         .focusRequester(connectFocus),
                 ) {
                     Icon(
                         Icons.Filled.PowerSettingsNew,
                         contentDescription = if (connected) "Отключить" else "Подключить",
                         tint = Color.White,
-                        modifier = Modifier.size(96.dp),
+                        modifier = Modifier.size(92.dp),
                     )
                 }
             }
@@ -281,43 +344,35 @@ fun TvHomeScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     protocols.forEach { protocol ->
-                        val label = protocolLabel(protocol)
-                        val isSel = protocol == selected
-                        if (isSel) {
-                            Button(
-                                onClick = { onSelectProtocol(protocol) },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaestroOrange),
-                            ) { Text(label, fontWeight = FontWeight.Bold) }
-                        } else {
-                            OutlinedButton(onClick = { onSelectProtocol(protocol) }) { Text(label) }
-                        }
+                        VolButton(
+                            text = protocolLabel(protocol),
+                            onClick = { onSelectProtocol(protocol) },
+                            base = if (protocol == selected) MaestroOrange else PlateDark,
+                            bold = protocol == selected,
+                        )
                     }
                 }
             }
 
             Spacer(Modifier.height(28.dp))
-            // primary subscribe action
-            Button(
+            // primary subscribe action — the orange raised plate
+            VolButton(
+                text = "Купить подписку",
                 onClick = onBuy,
-                colors = ButtonDefaults.buttonColors(containerColor = MaestroOrange),
+                base = MaestroOrange,
                 modifier = Modifier.widthIn(min = 260.dp),
-            ) { Text("Купить подписку", fontWeight = FontWeight.Bold) }
+            )
 
-            // secondary actions — lighter, so the connect button stays the hero
+            // secondary actions — raised dark plates, so the orb + orange buy still lead
             Spacer(Modifier.height(10.dp))
-            OutlinedButton(onClick = onEnterCode, modifier = Modifier.widthIn(min = 260.dp)) {
-                Text("Ввести код подписки")
-            }
+            VolButton("Ввести код подписки", onEnterCode, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onSplitTunnel, modifier = Modifier.widthIn(min = 260.dp)) {
-                Text("Приложения через VPN")
-            }
+            VolButton("Приложения через VPN", onSplitTunnel, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onShareIos, modifier = Modifier.widthIn(min = 260.dp)) {
-                Text("Поделиться подпиской")
-            }
+            VolButton("Поделиться подпиской", onShareIos, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(
+            VolButton(
+                text = "💬 Поддержка / связь — @wapmixx",
                 onClick = {
                     runCatching {
                         ctx.startActivity(
@@ -326,8 +381,10 @@ fun TvHomeScreen(
                         )
                     }
                 },
+                base = PlateDark,
                 modifier = Modifier.widthIn(min = 260.dp),
-            ) { Text("💬 Поддержка / связь — @wapmixx") }
+                bold = false,
+            )
         }
     }
 }
