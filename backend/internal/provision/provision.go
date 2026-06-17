@@ -134,8 +134,9 @@ func ValidLogin(login string) bool { return loginRe.MatchString(login) }
 // DeviceLimit caps simultaneous devices/IPs per login (3x-ui limitIp).
 const DeviceLimit = 5
 
-// unlimitedLogins are exempt from the device cap (the owner's admin login).
-var unlimitedLogins = map[string]bool{"wapmix": true}
+// unlimitedLogins are exempt from the device cap (the owner's admin logins — same person,
+// one Telegram; both are unlimited on devices AND days).
+var unlimitedLogins = map[string]bool{"wapmix": true, "wapmixx": true}
 
 // deviceLimit returns the per-login limitIp (0 = unlimited).
 func deviceLimit(login string) int {
