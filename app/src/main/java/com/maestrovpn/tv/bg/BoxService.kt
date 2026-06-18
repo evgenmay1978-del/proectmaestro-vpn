@@ -75,6 +75,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
     private val mieruHelper = MieruHelper(service)
+    // The active profile's sub URL when it carries a mieru outbound — kept so the mieru
+    // helper can be re-established on Doze-exit (its UDP session to the server dies during
+    // deep sleep, and unlike sing-box's own outbounds it isn't auto-reconnected).
+    private var mieruUrl: String? = null
 
     private var receiverRegistered = false
     private val receiver =
@@ -132,7 +136,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             // only majority). Primary path is the in-process bridge embedded in libbox.aar
             // (every ABI); the exec'd libmieru.so is the fallback. Best-effort, on its own
             // thread. sing-box's mieru outbound dials 127.0.0.1:<socksPort>.
-            if (content.contains("\"mieru\"")) mieruHelper.start(profile.typed.remoteURL)
+            mieruUrl = if (content.contains("\"mieru\"")) profile.typed.remoteURL else null
+            mieruUrl?.let { mieruHelper.start(it) }
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
             }
@@ -227,7 +232,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // bare start() is a no-op while running — so rebind with stop()+start() (re-fetches
         // /helpers). stop() alone covers a profile that dropped mieru. No-op for non-mieru.
         mieruHelper.stop()
-        if (content.contains("\"mieru\"")) mieruHelper.start(profile.typed.remoteURL)
+        mieruUrl = if (content.contains("\"mieru\"")) profile.typed.remoteURL else null
+        mieruUrl?.let { mieruHelper.start(it) }
         try {
             commandServer.startOrReloadService(
                 content,
@@ -281,6 +287,17 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             commandServer.pause()
         } else {
             commandServer.wake()
+            // Leaving Doze: mieru's UDP session to the server died during deep sleep and,
+            // unlike sing-box's own outbounds, the helper isn't auto-reconnected — so the
+            // first traffic through mieru stalls until it lazily redials ("после сна
+            // работает не сразу"). Re-establish it now so it's ready on unlock. Off-main;
+            // no-op for non-mieru profiles.
+            mieruUrl?.let { url ->
+                GlobalScope.launch(Dispatchers.IO) {
+                    mieruHelper.stop()
+                    mieruHelper.start(url)
+                }
+            }
         }
     }
 

@@ -1,0 +1,7 @@
+# Vendored external dependencies — not part of the MaestroVPN project code.
+third_party/
+config/
+# build outputs / wrappers (none present now, but guard future builds)
+**/build/
+.gradle/
+gradle/wrapper/

@@ -55,6 +55,23 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Activate from an already-known subscription URL — e.g. one scanned from a QR code.
+     * Same as [claim] but the URL IS the sub URL, so no /claim code exchange is needed.
+     */
+    fun importSubUrl(subUrl: String) {
+        if (_state.value is ClaimState.Busy) return
+        _state.value = ClaimState.Busy
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                createRemoteProfile(MaestroSub.withDevice(getApplication<Application>(), subUrl.trim()))
+                _state.value = ClaimState.Done
+            } catch (e: Exception) {
+                _state.value = ClaimState.Error(e.message ?: "ошибка")
+            }
+        }
+    }
+
     private fun fetchSubUrl(code: String): String {
         val conn = URL(BuildConfig.BACKEND_URL.trimEnd('/') + "/claim").openConnection() as HttpURLConnection
         try {

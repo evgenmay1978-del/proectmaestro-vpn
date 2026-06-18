@@ -232,6 +232,7 @@ fun TvHomeScreen(
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit = {},
     onShareIos: () -> Unit = {},
+    onScanQr: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -494,6 +495,11 @@ fun TvHomeScreen(
             // secondary actions — raised dark plates, so the orb + orange buy still lead
             Spacer(Modifier.height(10.dp))
             VolButton("Ввести код подписки", onEnterCode, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
+            // QR scan: convenient on a phone (camera); hidden on TV (no camera, D-pad).
+            if (!isTv) {
+                Spacer(Modifier.height(8.dp))
+                VolButton("Сканировать QR", onScanQr, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
+            }
             Spacer(Modifier.height(8.dp))
             VolButton("Приложения через VPN", onSplitTunnel, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
             Spacer(Modifier.height(8.dp))

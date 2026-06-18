@@ -24,6 +24,7 @@ import com.maestrovpn.tv.compose.screen.connections.ConnectionDetailsRoute
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsPage
 import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
 import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
+import com.maestrovpn.tv.compose.screen.qrscan.ScanQrActivateScreen
 import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardScreen
 import com.maestrovpn.tv.compose.screen.tvhome.IosKaringDialog
@@ -153,6 +154,7 @@ fun SFANavHost(
                     onEnterCode = { navController.navigate("claim") },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
+                    onScanQr = { navController.navigate("scanqr") },
                 )
             } else {
                 TvHomeScreen(
@@ -168,12 +170,17 @@ fun SFANavHost(
                     onEnterCode = { navController.navigate("claim") },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
+                    onScanQr = { navController.navigate("scanqr") },
                 )
             }
         }
 
         composable("claim") {
             ClaimScreen(onDone = { navController.popBackStack() })
+        }
+
+        composable("scanqr") {
+            ScanQrActivateScreen(onDone = { navController.popBackStack() })
         }
 
         composable("buy") {
