@@ -73,7 +73,13 @@ class MieruHelper(private val context: Context) {
         thread = null
     }
 
-    private fun run(subUrl: String) {
+    private fun run(subUrlRaw: String) {
+        // The stored profile URL may carry a ?device=<id> query (the per-account device
+        // cap param, used only on the config poll). /helpers and /mierulog are path-based,
+        // and "$subUrl/helpers" on a query-bearing URL mangles the path into
+        // ".../sub/<tok>?device=<id>/helpers" → the panel serves the config, not the creds,
+        // and Mieru can't start. Strip the query here.
+        val subUrl = subUrlRaw.substringBefore("?")
         // Diagnostics → panel /mierulog/<token> (read server-side via journalctl), so
         // the REAL failure (exec error, bad config, mita auth/conn error) is visible
         // without device access.

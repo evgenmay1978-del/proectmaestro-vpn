@@ -120,6 +120,18 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	case wantInfo:
 		tok = strings.TrimSuffix(rest, "/info")
 	}
+	// Tolerate a TV-app 1.0.74 bug: the stored sub URL's ?device=<id> query got
+	// concatenated with the /helpers (or /info) suffix — "/sub/<tok>?device=<id>/helpers"
+	// — so the suffix landed in the query and the PATH lost it. Recover the intent so
+	// already-installed 1.0.74 devices keep working (this is what broke Mieru, the only
+	// protocol needing /helpers). The mangled device value fails deviceIDRe → not counted.
+	if !wantHelpers && !wantInfo {
+		if dev := r.URL.Query().Get("device"); strings.HasSuffix(dev, "/helpers") {
+			wantHelpers = true
+		} else if strings.HasSuffix(dev, "/info") {
+			wantInfo = true
+		}
+	}
 	if tok == "" || strings.Contains(tok, "/") {
 		http.NotFound(w, r)
 		return
