@@ -17,11 +17,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/anytls"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
 )
+
+// AnyTLSSyncer pushes the active AnyTLS user set to the local sing-box AnyTLS server
+// (on server 1, alongside the panel). Implemented by anytls.Manager; an interface so
+// provision stays testable.
+type AnyTLSSyncer interface {
+	SyncUsers(users []anytls.User) error
+}
 
 // VLESSClienter is the slice of the 3x-ui client used here (so it can be faked).
 type VLESSClienter interface {
@@ -79,13 +87,23 @@ type MitaTmpl struct {
 	HelperSOCKS int    // 127.0.0.1:<port> the app's mieru helper listens on
 }
 
-// Config holds the per-server templates. Naive/Mita are optional: if their
+// AnyTLSTmpl is the server-1 AnyTLS listener facts shared by all clients. AnyTLS is a
+// NATIVE sing-box outbound (no on-device helper). Optional: empty Server = not provisioned.
+type AnyTLSTmpl struct {
+	Server   string
+	Port     int
+	SNI      string
+	Insecure bool // self-signed cert → true
+}
+
+// Config holds the per-server templates. Naive/Mita/AnyTLS are optional: if their
 // Server is empty, that protocol is simply not provisioned.
 type Config struct {
-	VLESS VLESSTmpl
-	Hy2   Hy2Tmpl
-	Naive NaiveTmpl
-	Mita  MitaTmpl
+	VLESS  VLESSTmpl
+	Hy2    Hy2Tmpl
+	Naive  NaiveTmpl
+	Mita   MitaTmpl
+	AnyTLS AnyTLSTmpl
 }
 
 // Provisioner orchestrates the store + the per-server clients.
@@ -93,16 +111,23 @@ type Provisioner struct {
 	// mu serializes Provision/Extend/ActivateExisting so a double-tapped owner
 	// confirm (or two concurrent /claim hits for the same login) can't run two
 	// provisions for the same customer at once (TOCTOU double-provision).
-	mu  sync.Mutex
-	st  *store.Store
-	xui VLESSClienter
-	s2  Server2
-	cfg Config
+	mu     sync.Mutex
+	st     *store.Store
+	xui    VLESSClienter
+	s2     Server2
+	cfg    Config
+	anytls AnyTLSSyncer // local sing-box AnyTLS server on server 1 (nil = AnyTLS off)
 }
 
 // New builds a provisioner.
 func New(st *store.Store, x VLESSClienter, s2 Server2, cfg Config) *Provisioner {
 	return &Provisioner{st: st, xui: x, s2: s2, cfg: cfg}
+}
+
+// WithAnyTLS wires the local AnyTLS server syncer (server 1). Returns p for chaining.
+func (p *Provisioner) WithAnyTLS(sync AnyTLSSyncer) *Provisioner {
+	p.anytls = sync
+	return p
 }
 
 func randHex(n int) string {
@@ -228,6 +253,7 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	// already up) if Naive's panel or the Mieru daemon isn't reachable yet.
 	p.addNaive(cust, login)
 	p.addMieru(cust, login)
+	p.addAnyTLS(cust, login)
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store extras: %w", err)
 	}
@@ -242,6 +268,13 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 		if err := p.syncMieru(); err != nil {
 			log.Printf("provision: mieru sync for %q skipped: %v", login, err)
 			cust.Mieru = nil
+			_ = p.st.Put(cust)
+		}
+	}
+	if cust.AnyTLS != nil {
+		if err := p.syncAnyTLS(); err != nil {
+			log.Printf("provision: anytls sync for %q skipped: %v", login, err)
+			cust.AnyTLS = nil
 			_ = p.st.Put(cust)
 		}
 	}
@@ -329,6 +362,8 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 
 	// Mieru.
 	p.addMieru(cust, login)
+	// AnyTLS (native sing-box outbound, server 1).
+	p.addAnyTLS(cust, login)
 
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store: %w", err)
@@ -346,6 +381,13 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 		if err := p.syncMieru(); err != nil {
 			log.Printf("activate: mieru sync %q: %v", login, err)
 			cust.Mieru = nil
+			_ = p.st.Put(cust)
+		}
+	}
+	if cust.AnyTLS != nil {
+		if err := p.syncAnyTLS(); err != nil {
+			log.Printf("activate: anytls sync %q: %v", login, err)
+			cust.AnyTLS = nil
 			_ = p.st.Put(cust)
 		}
 	}
@@ -416,6 +458,11 @@ func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 	if cust.Mieru != nil {
 		if err := p.syncMieru(); err != nil {
 			log.Printf("provision: sync mieru %q: %v", cust.Login, err)
+		}
+	}
+	if cust.AnyTLS != nil {
+		if err := p.syncAnyTLS(); err != nil {
+			log.Printf("provision: sync anytls %q: %v", cust.Login, err)
 		}
 	}
 	return nil
@@ -517,6 +564,33 @@ func (p *Provisioner) syncMieru() error {
 		}
 	}
 	return p.s2.SyncMieruUsers(users)
+}
+
+// addAnyTLS records AnyTLS creds (a NATIVE sing-box outbound — no on-device helper).
+// No-op if AnyTLS isn't configured. The client authenticates by password, so it's unique.
+func (p *Provisioner) addAnyTLS(cust *store.Customer, login string) {
+	if p.cfg.AnyTLS.Server == "" {
+		return
+	}
+	cust.AnyTLS = &subgen.AnyTLSCreds{
+		Server: p.cfg.AnyTLS.Server, Port: p.cfg.AnyTLS.Port,
+		Password: randHex(16), SNI: p.cfg.AnyTLS.SNI, Insecure: p.cfg.AnyTLS.Insecure,
+	}
+}
+
+// syncAnyTLS rewrites the LOCAL (server-1) sing-box AnyTLS user set from all ACTIVE
+// customers, so an expired/disabled customer can no longer connect. No-op if AnyTLS off.
+func (p *Provisioner) syncAnyTLS() error {
+	if p.anytls == nil {
+		return nil
+	}
+	var users []anytls.User
+	for _, c := range p.st.List() {
+		if c.Active() && c.AnyTLS != nil {
+			users = append(users, anytls.User{Name: c.Login, Password: c.AnyTLS.Password})
+		}
+	}
+	return p.anytls.SyncUsers(users)
 }
 
 func fallbackStr(s, def string) string {

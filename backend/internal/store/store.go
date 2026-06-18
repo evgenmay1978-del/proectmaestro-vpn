@@ -21,14 +21,15 @@ var ErrNotFound = errors.New("store: customer not found")
 // Customer is one subscriber. SubToken is the opaque id in the subscription URL
 // (/sub/<SubToken>); Login is what the customer types once in the app.
 type Customer struct {
-	Login    string             `json:"login"`
-	SubToken string             `json:"sub_token"`
-	Expires  time.Time          `json:"expires"`
-	Disabled bool               `json:"disabled"`
-	VLESS    *subgen.VLESSCreds `json:"vless,omitempty"`
-	Hy2      *subgen.Hy2Creds   `json:"hy2,omitempty"`
-	Naive    *subgen.NaiveCreds `json:"naive,omitempty"`
-	Mieru    *subgen.MieruCreds `json:"mieru,omitempty"`
+	Login    string              `json:"login"`
+	SubToken string              `json:"sub_token"`
+	Expires  time.Time           `json:"expires"`
+	Disabled bool                `json:"disabled"`
+	VLESS    *subgen.VLESSCreds  `json:"vless,omitempty"`
+	Hy2      *subgen.Hy2Creds    `json:"hy2,omitempty"`
+	Naive    *subgen.NaiveCreds  `json:"naive,omitempty"`
+	Mieru    *subgen.MieruCreds  `json:"mieru,omitempty"`
+	AnyTLS   *subgen.AnyTLSCreds `json:"anytls,omitempty"`
 	// Devices is the set of distinct app installs that have activated/polled this
 	// account (deviceId → first-seen). It backs the per-account device cap, enforced
 	// at the subscription chokepoint (/sub, /claim) so it covers ALL four protocols at
@@ -44,7 +45,7 @@ func (c *Customer) Active() bool {
 
 // ToSubgen maps a customer to the subscription generator input.
 func (c *Customer) ToSubgen() subgen.Customer {
-	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, Mieru: c.Mieru}
+	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, Mieru: c.Mieru, AnyTLS: c.AnyTLS}
 }
 
 // clone returns an independent deep copy so callers can read it without the lock

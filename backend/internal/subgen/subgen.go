@@ -64,23 +64,36 @@ type MieruCreds struct {
 	HelperSOCKS int    // 127.0.0.1:<port> the app's mieru helper listens on
 }
 
+// AnyTLSCreds is an AnyTLS user. sing-box has a NATIVE `anytls` outbound (no helper
+// needed); the protocol wraps traffic in standard TLS + a padding scheme to defeat the
+// TLS-in-TLS fingerprint DPI uses against TLS proxies.
+type AnyTLSCreds struct {
+	Server   string
+	Port     int
+	Password string
+	SNI      string
+	Insecure bool // self-signed cert → true
+}
+
 // Customer holds whichever protocols are provisioned for one subscription.
 // Any nil field is skipped.
 type Customer struct {
-	Name  string
-	VLESS *VLESSCreds
-	Hy2   *Hy2Creds
-	Naive *NaiveCreds
-	Mieru *MieruCreds
+	Name   string
+	VLESS  *VLESSCreds
+	Hy2    *Hy2Creds
+	Naive  *NaiveCreds
+	Mieru  *MieruCreds
+	AnyTLS *AnyTLSCreds
 }
 
 const (
-	tagVLESS = "vless"
-	tagHy2   = "hysteria2"
-	tagNaive = "naive"
-	tagMieru = "mieru"
-	tagAuto  = "auto"   // urltest
-	tagPick  = "select" // selector (default outbound the tun routes to)
+	tagVLESS  = "vless"
+	tagHy2    = "hysteria2"
+	tagNaive  = "naive"
+	tagMieru  = "mieru"
+	tagAnyTLS = "anytls"
+	tagAuto   = "auto"   // urltest
+	tagPick   = "select" // selector (default outbound the tun routes to)
 )
 
 // RU-direct rule-sets. So the user never has to toggle the VPN, Russian
@@ -106,14 +119,14 @@ const (
 // then sees a Russian location ("Gemini thinks we're in Russia"). Matching by
 // domain (sniffed SNI, before IP) and routing to the selector overrides that.
 var forceProxyDomains = []string{
-	"google.com",            // gemini.google.com, aistudio.google.com, accounts.google.com…
-	"googleapis.com",        // generativelanguage.googleapis.com = the Gemini API
+	"google.com",     // gemini.google.com, aistudio.google.com, accounts.google.com…
+	"googleapis.com", // generativelanguage.googleapis.com = the Gemini API
 	"gstatic.com",
 	"googleusercontent.com",
 	"ggpht.com",
 	"googlevideo.com",
 	"withgoogle.com",
-	"google.dev",            // ai.google.dev
+	"google.dev", // ai.google.dev
 	"youtube.com",
 	"youtu.be",
 	"ytimg.com",
@@ -139,6 +152,10 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	if c.Mieru != nil {
 		outbounds = append(outbounds, socksOutbound(tagMieru, c.Mieru.HelperSOCKS))
 		protoTags = append(protoTags, tagMieru)
+	}
+	if c.AnyTLS != nil {
+		outbounds = append(outbounds, anytlsOutbound(c.AnyTLS))
+		protoTags = append(protoTags, tagAnyTLS)
 	}
 	if len(protoTags) == 0 {
 		return nil, fmt.Errorf("subgen: customer %q has no protocols", c.Name)
@@ -328,6 +345,15 @@ func naiveOutbound(n *NaiveCreds) map[string]any {
 		"server": n.Server, "server_port": n.Port,
 		"username": n.Username, "password": n.Password,
 		"tls": map[string]any{"enabled": true, "server_name": n.SNI},
+	}
+}
+
+func anytlsOutbound(a *AnyTLSCreds) map[string]any {
+	return map[string]any{
+		"type": "anytls", "tag": tagAnyTLS,
+		"server": a.Server, "server_port": a.Port,
+		"password": a.Password,
+		"tls":      map[string]any{"enabled": true, "server_name": a.SNI, "insecure": a.Insecure},
 	}
 }
 

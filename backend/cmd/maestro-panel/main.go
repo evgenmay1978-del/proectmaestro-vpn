@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/anytls"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
@@ -102,10 +103,29 @@ func main() {
 				SNI: env("NAIVE_SNI", os.Getenv("NAIVE_SERVER")),
 			}
 		}
+		// AnyTLS: a LOCAL standalone sing-box AnyTLS server on THIS box (server 1),
+		// managed directly (no SSH). Enabled when ANYTLS_SERVER is set.
+		var anytlsMgr *anytls.Manager
+		if os.Getenv("ANYTLS_SERVER") != "" {
+			provCfg.AnyTLS = provision.AnyTLSTmpl{
+				Server: os.Getenv("ANYTLS_SERVER"), Port: atoi(os.Getenv("ANYTLS_PORT"), 8444),
+				SNI: env("ANYTLS_SNI", os.Getenv("ANYTLS_SERVER")), Insecure: env("ANYTLS_INSECURE", "1") == "1",
+			}
+			anytlsMgr = &anytls.Manager{
+				ConfigPath: env("ANYTLS_CONFIG", "/etc/sing-box-anytls/config.json"),
+				CertPath:   env("ANYTLS_CERT", "/etc/sing-box-anytls/cert.pem"),
+				KeyPath:    env("ANYTLS_KEY", "/etc/sing-box-anytls/key.pem"),
+				ListenPort: atoi(os.Getenv("ANYTLS_PORT"), 8444),
+				Service:    env("ANYTLS_SERVICE", "sing-box-anytls"),
+			}
+		}
 		pc := provision.New(st, xc, s2, provCfg)
+		if anytlsMgr != nil {
+			pc.WithAnyTLS(anytlsMgr)
+		}
 		prov = pc
-		log.Printf("provisioning enabled (3x-ui + server2; mieru=%v naive=%v)",
-			os.Getenv("S2_MITA_PORT") != "", os.Getenv("NAIVE_SERVER") != "")
+		log.Printf("provisioning enabled (3x-ui + server2; mieru=%v naive=%v anytls=%v)",
+			os.Getenv("S2_MITA_PORT") != "", os.Getenv("NAIVE_SERVER") != "", os.Getenv("ANYTLS_SERVER") != "")
 		// Pull each customer's authoritative expiry from whichever panel owns it (3x-ui
 		// VLESS and/or the s2 naive panel) into the unified store, advance-only, every
 		// 15 min — so a renewal in ANY of the 3 panels propagates to the app + the
