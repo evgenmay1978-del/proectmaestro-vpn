@@ -34,6 +34,15 @@ func (f *fakeProv) ActivateExisting(login string) (*store.Customer, error) {
 	return nil, store.ErrNotFound
 }
 
+// DeviceLimitFor mirrors the real cap: 5 per login, unlimited (0) for the owner admins.
+func (f *fakeProv) DeviceLimitFor(login string) int {
+	switch login {
+	case "wapmix", "wapmixx", "wapmix2":
+		return 0
+	}
+	return 5
+}
+
 func adminServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, _ := store.Open(filepath.Join(t.TempDir(), "s.json"))

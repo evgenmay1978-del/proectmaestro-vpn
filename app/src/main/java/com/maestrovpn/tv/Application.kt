@@ -18,8 +18,10 @@ import com.maestrovpn.tv.bg.CrashReportManager
 import com.maestrovpn.tv.bg.OOMReportManager
 import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.constant.Bugs
+import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.AppLifecycleObserver
+import com.maestrovpn.tv.utils.MaestroSub
 import com.maestrovpn.tv.utils.HookModuleUpdateNotifier
 import com.maestrovpn.tv.utils.HookStatusClient
 import com.maestrovpn.tv.utils.PrivilegeSettingsClient
@@ -64,6 +66,19 @@ class Application : Application() {
         @Suppress("OPT_IN_USAGE")
         GlobalScope.launch(Dispatchers.IO) {
             initialize(baseDir, workingDir, tempDir)
+            // Backfill the per-install device id onto an EXISTING MaestroVPN subscription so
+            // the account's device cap (enforced server-side at /sub) starts applying to
+            // already-installed apps right after this update — not only to freshly claimed
+            // ones. Idempotent: withDevice() no-ops once the param is present.
+            runCatching {
+                for (p in ProfileManager.list()) {
+                    val url = p.typed.remoteURL
+                    if (p.name == "MaestroVPN" && url.contains("/sub/") && !url.contains("device=")) {
+                        p.typed.remoteURL = MaestroSub.withDevice(this@Application, url)
+                        ProfileManager.update(p)
+                    }
+                }
+            }.onFailure { Log.d("Application", "device-id migration: ${it.message}") }
             UpdateProfileWork.reconfigureUpdater()
             HookModuleUpdateNotifier.sync(this@Application)
         }

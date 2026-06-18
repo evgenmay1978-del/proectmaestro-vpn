@@ -167,6 +167,32 @@ func (s *Server) handleRenew(w http.ResponseWriter, r *http.Request) {
 	s.respCustomer(w, c)
 }
 
+// handleResetDevices (admin): clear a customer's recorded device set so support can unstick
+// someone who legitimately replaced hardware and hit the device cap. Idempotent; their next
+// polls repopulate the set from scratch.
+func (s *Server) handleResetDevices(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Login string `json:"login"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Login == "" {
+		http.Error(w, "login required", http.StatusBadRequest)
+		return
+	}
+	c, err := s.st.ResetDevices(req.Login)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "no such customer", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.respCustomer(w, c)
+}
+
 func (s *Server) handleCustomer(w http.ResponseWriter, r *http.Request) {
 	login := r.URL.Query().Get("login")
 	c, err := s.st.ByLogin(login)

@@ -15,10 +15,15 @@ type fakeXUI struct {
 	getSub                string // if set, GetClient returns a client carrying this subId
 	getExpiry             int64  // if set, GetClient returns this expiryTime (millis) — for reconcile
 	lastSub               string // last subId passed to UpdateClient (assert subId preservation)
+	lastAddLimitIP        int    // last limitIp passed to AddClient (assert the device cap)
 }
 
-func (f *fakeXUI) Login() error                         { f.logins++; return nil }
-func (f *fakeXUI) AddClient(int, xui.VLESSClient) error { f.adds++; return nil }
+func (f *fakeXUI) Login() error { f.logins++; return nil }
+func (f *fakeXUI) AddClient(_ int, c xui.VLESSClient) error {
+	f.adds++
+	f.lastAddLimitIP = c.LimitIP
+	return nil
+}
 func (f *fakeXUI) UpdateClient(_ int, _ string, c xui.VLESSClient) error {
 	f.updates++
 	f.lastSub = c.SubID
@@ -35,12 +40,15 @@ type fakeS2 struct {
 	lastHy2   []server2.Hy2User
 	lastMieru []server2.MieruUser
 	lastNaive []server2.NaiveUser
+	naiveUser string // if set, ReadNaiveUser returns this password (customer exists on naive)
 }
 
-func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error       { f.lastHy2 = u; return nil }
-func (f *fakeS2) SyncMieruUsers(u []server2.MieruUser) error   { f.lastMieru = u; return nil }
-func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error   { f.lastNaive = u; return nil }
-func (f *fakeS2) ReadNaiveUser(string) (string, bool, error)   { return "", false, nil }
+func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error     { f.lastHy2 = u; return nil }
+func (f *fakeS2) SyncMieruUsers(u []server2.MieruUser) error { f.lastMieru = u; return nil }
+func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error { f.lastNaive = u; return nil }
+func (f *fakeS2) ReadNaiveUser(string) (string, bool, error) {
+	return f.naiveUser, f.naiveUser != "", nil
+}
 func (f *fakeS2) ReadProxyExpiry(string) (string, bool, error) { return "", false, nil }
 
 func newProv(t *testing.T) (*Provisioner, *fakeXUI, *fakeS2, *store.Store) {
@@ -100,6 +108,54 @@ func TestReconcilePullsLater3xuiExpiry(t *testing.T) {
 	after2, _ := st.ByLogin("carol")
 	if after2.Expires.Before(after.Expires) {
 		t.Fatalf("reconcile reduced the expiry: was %v now %v", after.Expires, after2.Expires)
+	}
+}
+
+// TestActivateExistingSetsLimitIP: when ActivateExisting CREATES a fresh VLESS client for a
+// customer who exists only on the naive panel (no 3x-ui client yet), it must apply the
+// 5-device cap. This closes the audit gap where app-claimed existing customers were created
+// uncapped on VLESS.
+func TestActivateExistingSetsLimitIP(t *testing.T) {
+	p, fx, fh, _ := newProv(t)
+	fh.naiveUser = "secretpw" // exists on naive only → ActivateExisting proceeds + creates VLESS
+	if _, err := p.ActivateExisting("frank"); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	if fx.adds != 1 {
+		t.Fatalf("expected one VLESS create, adds=%d", fx.adds)
+	}
+	if fx.lastAddLimitIP != DeviceLimit {
+		t.Fatalf("ActivateExisting created VLESS with limitIp=%d, want %d", fx.lastAddLimitIP, DeviceLimit)
+	}
+}
+
+// TestActivateExistingExemptUnlimited: the owner admin logins stay uncapped (limitIp=0) on
+// the ActivateExisting create path too.
+func TestActivateExistingExemptUnlimited(t *testing.T) {
+	p, fx, fh, _ := newProv(t)
+	fh.naiveUser = "pw"
+	if _, err := p.ActivateExisting("wapmix"); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	if fx.lastAddLimitIP != 0 {
+		t.Fatalf("wapmix VLESS limitIp=%d, want 0 (unlimited)", fx.lastAddLimitIP)
+	}
+}
+
+// TestProvisionCapsDevices: a normal Provision applies limitIp=5; the owner admins get 0.
+func TestProvisionCapsDevices(t *testing.T) {
+	p, fx, _, _ := newProv(t)
+	if _, err := p.Provision("normaluser", 30*24*time.Hour); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	if fx.lastAddLimitIP != DeviceLimit {
+		t.Fatalf("Provision limitIp=%d, want %d", fx.lastAddLimitIP, DeviceLimit)
+	}
+	if p.DeviceLimitFor("normaluser") != DeviceLimit {
+		t.Fatalf("DeviceLimitFor(normal)=%d, want %d", p.DeviceLimitFor("normaluser"), DeviceLimit)
+	}
+	if p.DeviceLimitFor("WAPMIXX") != 0 {
+		t.Fatalf("DeviceLimitFor(WAPMIXX)=%d, want 0 (case-insensitive exempt)", p.DeviceLimitFor("WAPMIXX"))
 	}
 }
 

@@ -31,7 +31,15 @@ type Provisioner interface {
 	Extend(login string, dur time.Duration) (*store.Customer, error)
 	SetExpiry(login string, t time.Time) (*store.Customer, error)
 	ActivateExisting(login string) (*store.Customer, error)
+	// DeviceLimitFor returns the per-login device cap (0 = unlimited) so the sub
+	// endpoint enforces the same cap + exemption as 3x-ui's limitIp.
+	DeviceLimitFor(login string) int
 }
+
+// deviceIDRe bounds the app's per-install device id (a random UUID the app generates and
+// stores locally). Anything outside this charset is treated as "no device id" → no cap
+// enforcement, so a malformed value can never block a customer or poison the device set.
+var deviceIDRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // Config tunes the api server.
 type Config struct {
@@ -41,6 +49,10 @@ type Config struct {
 	TGBotToken string // bot token for owner payment notifications (send-only, no poll)
 	TGAdminID  string // owner's Telegram chat id
 	UpdateDir  string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
+	// EnforceDeviceLimit gates the per-account 5-device cap at /sub + /claim. A kill
+	// switch (env MAESTRO_DEVICE_LIMIT=off) so the cap can be disabled live without a
+	// redeploy if it ever misbehaves in prod.
+	EnforceDeviceLimit bool
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -87,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/admin/extend", s.adminAuth(s.handleExtend))
 		mux.HandleFunc("/admin/renew", s.adminAuth(s.handleRenew))
 		mux.HandleFunc("/admin/set-expiry", s.adminAuth(s.handleSetExpiry))
+		mux.HandleFunc("/admin/reset-devices", s.adminAuth(s.handleResetDevices))
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
 		if s.orders != nil {
 			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))
@@ -128,6 +141,11 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	}
 	if !c.Active() {
 		http.Error(w, "subscription expired", http.StatusPaymentRequired)
+		return
+	}
+	// Per-account device cap (covers all 4 protocols at this chokepoint). Only the
+	// app sends a device id; Karing/bot subs send none and pass through untouched.
+	if !s.deviceAllowed(w, c.Login, deviceID(r)) {
 		return
 	}
 	if wantHelpers {
@@ -197,6 +215,34 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 	})
 }
 
+// deviceID extracts the app's per-install device id from a request — query param
+// ?device=<id> (used on /sub polls) or the X-Device-Id header. Empty when the caller
+// isn't our app (e.g. a Karing client polling the share-links sub), which disables the
+// cap for that request.
+func deviceID(r *http.Request) string {
+	if d := r.URL.Query().Get("device"); d != "" {
+		return d
+	}
+	return r.Header.Get("X-Device-Id")
+}
+
+// deviceAllowed enforces the per-account device cap. It returns true (allow) when the cap
+// is off, the provisioner is absent, no/invalid device id is sent, the device is already
+// known, or the account is below its cap (recording the new device). It returns false and
+// writes a 403 only when a NEW device would exceed the cap. wapmix/wapmixx get cap 0
+// (unlimited) via the provisioner, so they are never blocked.
+func (s *Server) deviceAllowed(w http.ResponseWriter, login, dev string) bool {
+	if !s.cfg.EnforceDeviceLimit || s.prov == nil || dev == "" || !deviceIDRe.MatchString(dev) {
+		return true
+	}
+	allowed, _, err := s.st.TouchDeviceByLogin(login, dev, s.prov.DeviceLimitFor(login))
+	if err == nil && !allowed {
+		http.Error(w, "device limit reached", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 // handleUpdate serves the panel-hosted OTA channel: GET /update/update.json (the
 // manifest the app reads to learn the latest version_code/version_name/apk_url/
 // sha256) and GET /update/<file>.apk (the APK bytes, with Range/resume support for
@@ -255,7 +301,8 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Code string `json:"code"`
+		Code   string `json:"code"`
+		Device string `json:"device"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -264,6 +311,10 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	if code == "" {
 		http.Error(w, "code required", http.StatusBadRequest)
 		return
+	}
+	dev := strings.TrimSpace(req.Device)
+	if dev == "" {
+		dev = deviceID(r)
 	}
 	// A claim code is a login (3x-ui email / naive username). Reject anything
 	// outside a safe charset at the door — this code flows unauthenticated into
@@ -278,6 +329,9 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		// activating by their login — look them up and mirror their access.
 		if s.prov != nil {
 			if ec, aerr := s.prov.ActivateExisting(code); aerr == nil {
+				if !s.deviceAllowed(w, ec.Login, dev) {
+					return
+				}
 				s.respCustomer(w, ec)
 				return
 			}
@@ -287,6 +341,9 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !s.deviceAllowed(w, c.Login, dev) {
 		return
 	}
 	s.respCustomer(w, c)

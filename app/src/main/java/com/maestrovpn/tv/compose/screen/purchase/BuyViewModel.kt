@@ -10,6 +10,7 @@ import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
 import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.MaestroSub
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -80,7 +81,7 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
                 // a brand-new account each time. No subscription yet → omitted → new account.
                 runCatching {
                     ProfileManager.list().firstNotNullOfOrNull {
-                        it.typed.remoteURL.substringAfterLast("/sub/", "").takeIf { t -> t.isNotBlank() }
+                        MaestroSub.token(it.typed.remoteURL).takeIf { t -> t.isNotBlank() }
                     }
                 }.getOrNull()?.let { body.put("sub_token", it) }
                 val o = JSONObject(httpPost("$base/order", body.toString()))
@@ -117,13 +118,17 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun activate(subUrl: String) {
         val context = getApplication<Application>()
-        val content = HTTPClient().use { it.getString(subUrl) }
+        // Carry this install's device id so the renewed profile keeps counting against the cap.
+        val devUrl = MaestroSub.withDevice(context, subUrl)
+        val content = HTTPClient().use { it.getString(devUrl) }
         Libbox.checkConfig(content)
-        // A renewal returns the SAME sub_url — refresh the existing profile and reselect
-        // it instead of piling up duplicate "MaestroVPN" entries. Only a first activation
+        // A renewal returns the SAME account — match by sub TOKEN (the device query differs)
+        // and refresh the existing profile (also upgrading its URL to carry the device id)
+        // instead of piling up duplicate "MaestroVPN" entries. Only a first activation
         // creates a new profile.
-        val existing = ProfileManager.list().firstOrNull { it.typed.remoteURL == subUrl }
+        val existing = ProfileManager.list().firstOrNull { MaestroSub.token(it.typed.remoteURL) == MaestroSub.token(devUrl) }
         if (existing != null) {
+            existing.typed.remoteURL = devUrl
             File(existing.typed.path).writeText(content)
             existing.typed.lastUpdated = Date()
             ProfileManager.update(existing)
@@ -133,7 +138,7 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         }
         val typed = TypedProfile().apply {
             type = TypedProfile.Type.Remote
-            remoteURL = subUrl
+            remoteURL = devUrl
             autoUpdate = true
             autoUpdateInterval = 15
             lastUpdated = Date()

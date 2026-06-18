@@ -9,6 +9,7 @@ import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.TypedProfile
 import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.MaestroSub
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +44,9 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = ClaimState.Busy
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val subUrl = fetchSubUrl(code.trim())
+                // Bake this install's device id into the stored sub URL so EVERY auto-update
+                // poll carries it and counts against the account's device cap.
+                val subUrl = MaestroSub.withDevice(getApplication<Application>(), fetchSubUrl(code.trim()))
                 createRemoteProfile(subUrl)
                 _state.value = ClaimState.Done
             } catch (e: Exception) {
@@ -60,9 +63,11 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
             conn.connectTimeout = 15000
             conn.readTimeout = 15000
             conn.setRequestProperty("Content-Type", "application/json")
-            conn.outputStream.use { it.write(JSONObject().put("code", code).toString().toByteArray()) }
+            val body = JSONObject().put("code", code).put("device", MaestroSub.deviceId(getApplication<Application>()))
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
             return when (conn.responseCode) {
                 200 -> JSONObject(conn.inputStream.bufferedReader().use { it.readText() }).getString("sub_url")
+                403 -> throw IOException("достигнут лимит 5 устройств — отвяжите лишнее или напишите в поддержку")
                 404 -> throw IOException("код не найден")
                 else -> throw IOException("сервер: HTTP ${conn.responseCode}")
             }

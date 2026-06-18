@@ -29,6 +29,12 @@ type Customer struct {
 	Hy2      *subgen.Hy2Creds   `json:"hy2,omitempty"`
 	Naive    *subgen.NaiveCreds `json:"naive,omitempty"`
 	Mieru    *subgen.MieruCreds `json:"mieru,omitempty"`
+	// Devices is the set of distinct app installs that have activated/polled this
+	// account (deviceId → first-seen). It backs the per-account device cap, enforced
+	// at the subscription chokepoint (/sub, /claim) so it covers ALL four protocols at
+	// once. Only the app sends a device id; other clients (Karing, the bot :2096 sub)
+	// are absent here and never counted — they are capped natively by 3x-ui limitIp.
+	Devices map[string]time.Time `json:"devices,omitempty"`
 }
 
 // Active reports whether the subscription is usable right now.
@@ -65,6 +71,13 @@ func (c *Customer) clone() *Customer {
 	if c.Mieru != nil {
 		m := *c.Mieru
 		cp.Mieru = &m
+	}
+	if c.Devices != nil {
+		d := make(map[string]time.Time, len(c.Devices))
+		for k, v := range c.Devices {
+			d[k] = v
+		}
+		cp.Devices = d
 	}
 	return &cp
 }
@@ -177,6 +190,56 @@ func (s *Store) Extend(login string, d time.Duration) (*Customer, error) {
 	}
 	c.Expires = base.Add(d)
 	c.Disabled = false
+	return c.clone(), s.flush()
+}
+
+// TouchDeviceByToken records deviceID against the customer with subscription token tok and
+// reports whether the device is allowed under the cap. Same rules as TouchDeviceByLogin.
+func (s *Store) TouchDeviceByToken(tok, deviceID string, limit int) (allowed bool, count int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.touchDeviceLocked(s.byTok[tok], deviceID, limit)
+}
+
+// TouchDeviceByLogin records deviceID against the customer with the given login and reports
+// whether it is allowed under the cap. Rules: a device already seen is always allowed (an
+// idempotent re-poll); a NEW device is allowed and recorded only while the distinct-device
+// count is below limit; limit <= 0 means unlimited (always allowed + recorded). The boolean
+// is the gate; count is the resulting distinct-device count. A device beyond the cap is NOT
+// recorded, so the same blocked install keeps being refused without inflating the set.
+func (s *Store) TouchDeviceByLogin(login, deviceID string, limit int) (allowed bool, count int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.touchDeviceLocked(s.byLog[login], deviceID, limit)
+}
+
+func (s *Store) touchDeviceLocked(c *Customer, deviceID string, limit int) (bool, int, error) {
+	if c == nil {
+		return false, 0, ErrNotFound
+	}
+	if c.Devices == nil {
+		c.Devices = map[string]time.Time{}
+	}
+	if _, seen := c.Devices[deviceID]; seen {
+		return true, len(c.Devices), nil
+	}
+	if limit > 0 && len(c.Devices) >= limit {
+		return false, len(c.Devices), nil
+	}
+	c.Devices[deviceID] = time.Now()
+	return true, len(c.Devices), s.flush()
+}
+
+// ResetDevices clears a customer's recorded device set — a support action for a customer who
+// legitimately replaced hardware and hit the cap. The next polls re-populate it from scratch.
+func (s *Store) ResetDevices(login string) (*Customer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.byLog[login]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	c.Devices = nil
 	return c.clone(), s.flush()
 }
 

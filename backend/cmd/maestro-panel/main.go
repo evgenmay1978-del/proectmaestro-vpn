@@ -131,6 +131,9 @@ func main() {
 			TGBotToken: os.Getenv("MAESTRO_TG_BOT_TOKEN"),
 			TGAdminID:  os.Getenv("MAESTRO_TG_ADMIN_ID"),
 			UpdateDir:  env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
+			// Per-account 5-device cap, on by default; MAESTRO_DEVICE_LIMIT=off is a live
+			// kill switch (no redeploy) if it ever misbehaves against real customers.
+			EnforceDeviceLimit: env("MAESTRO_DEVICE_LIMIT", "on") != "off",
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

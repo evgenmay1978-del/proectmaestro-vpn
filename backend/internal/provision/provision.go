@@ -135,8 +135,8 @@ func ValidLogin(login string) bool { return loginRe.MatchString(login) }
 const DeviceLimit = 5
 
 // unlimitedLogins are exempt from the device cap (the owner's admin logins — same person,
-// one Telegram; both are unlimited on devices AND days).
-var unlimitedLogins = map[string]bool{"wapmix": true, "wapmixx": true}
+// one Telegram; all unlimited on devices AND days).
+var unlimitedLogins = map[string]bool{"wapmix": true, "wapmixx": true, "wapmix2": true}
 
 // deviceLimit returns the per-login limitIp (0 = unlimited).
 func deviceLimit(login string) int {
@@ -145,6 +145,11 @@ func deviceLimit(login string) int {
 	}
 	return DeviceLimit
 }
+
+// DeviceLimitFor exposes the per-login device cap (0 = unlimited, for the owner's admin
+// logins) so the subscription endpoint can enforce the SAME cap + wapmix/wapmixx exemption
+// that 3x-ui's limitIp uses — one source of truth, no drift between the two layers.
+func (p *Provisioner) DeviceLimitFor(login string) int { return deviceLimit(login) }
 
 // Returns the stored customer, whose SubToken forms the app subscription URL.
 func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Customer, error) {
@@ -292,7 +297,7 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 		uuid = ex.UUID
 	} else {
 		uuid = uuid4()
-		vc := xui.VLESSClient{ID: uuid, Email: login, Flow: p.cfg.VLESS.Flow, Enable: true, SubID: subTok, ExpiryTime: expires.UnixMilli()}
+		vc := xui.VLESSClient{ID: uuid, Email: login, Flow: p.cfg.VLESS.Flow, Enable: true, SubID: subTok, ExpiryTime: expires.UnixMilli(), LimitIP: deviceLimit(login)}
 		if err := p.xui.AddClient(p.cfg.VLESS.InboundID, vc); err != nil {
 			log.Printf("activate: vless create for %q: %v", login, err)
 			uuid = ""
