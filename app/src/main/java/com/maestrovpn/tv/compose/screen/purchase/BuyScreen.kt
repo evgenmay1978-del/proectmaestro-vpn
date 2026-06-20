@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.purchase
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,13 +20,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
+import com.maestrovpn.tv.compose.util.QRCodeGenerator
 
 /**
  * In-app purchase screen (works on touch + D-pad): pick a tariff → see СБП payment
@@ -80,6 +86,27 @@ fun BuyScreen(
                         textAlign = TextAlign.Center,
                     )
                     Text(s.phone, style = MaterialTheme.typography.headlineMedium)
+                    if (s.phone.isNotBlank()) {
+                        // QR with the СБП phone number so the customer can scan it instead of
+                        // typing the number by hand. Opaque black-on-white — phone cameras need it.
+                        val phoneQr = remember(s.phone) { QRCodeGenerator.generate(s.phone) }
+                        Spacer(Modifier.height(16.dp))
+                        Surface(color = Color.White) {
+                            Image(
+                                bitmap = phoneQr.asImageBitmap(),
+                                contentDescription = "QR с номером СБП ${s.phone}",
+                                modifier = Modifier
+                                    .padding(12.dp)
+                                    .size(200.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Отсканируйте телефоном — номер вводить не нужно",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "В комментарии к переводу укажите код:",
