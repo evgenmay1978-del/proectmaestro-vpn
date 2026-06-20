@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
-# panel_update_mirror.sh — keep the panel-hosted OTA channel current.
+# panel_update_mirror.sh — keep the OTA channel current, served from a Russia-domestic
+# mirror (Yandex Object Storage) so RU devices download updates fast/unthrottled.
 #
-# The panel (server 1) is a datacenter VPS that CAN reach GitHub; the user's RU
-# devices CANNOT (github.com / objects.githubusercontent.com throttled in RU) but
-# they DO reach the panel. So the panel mirrors the latest GitHub release APK into
-# MAESTRO_UPDATE_DIR and regenerates update.json, which the app's PanelUpdateChecker
-# reads. Run from a systemd timer every ~15 min. Idempotent: only downloads when
-# the published version differs from what is already mirrored. Atomic swap.
+# The panel (server 1, NL) CAN reach GitHub; RU devices CANNOT (github.com /
+# objects.githubusercontent.com throttled in RU), and even the panel itself is a slow,
+# resettable foreign hop for a ~90 MB APK. So this script: mirrors the latest GitHub
+# release APK, UPLOADS it to Yandex Object Storage (RU-domestic), and writes update.json
+# with apk_url pointing at the Yandex URL. The local panel copy stays as a fallback (and as
+# the bots' latest.apk). Run from a systemd timer every ~15 min. Idempotent: only acts when
+# the published version differs from what is already mirrored. Atomic manifest swap.
 set -euo pipefail
 
 REPO="${OTA_REPO:-evgenmay1978-del/proectmaestro-vpn}"
 DIR="${MAESTRO_UPDATE_DIR:-/var/lib/maestro/update}"
 API="https://api.github.com/repos/${REPO}/releases/latest"
+
+# Russia-domestic mirror (Yandex Object Storage, S3-compatible). Credentials live in
+# /root/.aws (profile YC_PROFILE), mode 0600. If the upload fails, fall back to the
+# panel-hosted apk_url so updates keep working (just slower) rather than breaking.
+YC_AWS="${YC_AWS:-/root/.local/bin/aws}"
+YC_PROFILE="${YC_PROFILE:-yc}"
+YC_ENDPOINT="${YC_ENDPOINT:-https://storage.yandexcloud.net}"
+YC_BUCKET="${YC_BUCKET:-maestro-apk}"
+YC_PUBLIC_BASE="${YC_PUBLIC_BASE:-https://storage.yandexcloud.net/${YC_BUCKET}}"
 
 mkdir -p "$DIR"
 
@@ -57,17 +68,35 @@ sz="$(stat -c %s "$tmp")"
 sha="$(sha256sum "$tmp" | cut -d' ' -f1)"
 mv -f "$tmp" "$DIR/$apk_name"
 
+# Upload to the Russia-domestic mirror (Yandex Object Storage). apk_path_url starts as the
+# panel-hosted fallback; switch to the Yandex URL ONLY once the upload actually succeeds, so
+# a transient S3 failure degrades to slow-but-working rather than a broken channel.
+apk_path_url="/update/${apk_name}"
+if "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" \
+     s3 cp "$DIR/$apk_name" "s3://${YC_BUCKET}/${apk_name}" \
+     --acl public-read --content-type application/vnd.android.package-archive >/dev/null 2>&1; then
+  apk_path_url="${YC_PUBLIC_BASE}/${apk_name}"
+  echo "mirror: uploaded $apk_name to Yandex Object Storage"
+  # Prune older versioned APKs from the bucket (keep the current one).
+  old_list="$("$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 ls "s3://${YC_BUCKET}/" 2>/dev/null \
+    | awk '{print $4}' | grep -E '^MaestroVPN-TV-.*\.apk$' | grep -vx "$apk_name" || true)"
+  for old in $old_list; do
+    "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 rm "s3://${YC_BUCKET}/${old}" >/dev/null 2>&1 || true
+  done
+else
+  echo "mirror: Yandex upload failed — using panel-hosted apk_url fallback" >&2
+fi
+
 # Atomic manifest swap.
 mtmp="$DIR/.update.json.tmp"
-printf '{"version_code": %s, "version_name": "%s", "apk_url": "/update/%s", "size": %s, "sha256": "%s", "notes": "Автообновление %s."}\n' \
-  "${vc:-0}" "$vn" "$apk_name" "$sz" "$sha" "$vn" > "$mtmp"
+printf '{"version_code": %s, "version_name": "%s", "apk_url": "%s", "size": %s, "sha256": "%s", "notes": "Автообновление %s."}\n' \
+  "${vc:-0}" "$vn" "$apk_path_url" "$sz" "$sha" "$vn" > "$mtmp"
 mv -f "$mtmp" "$DIR/update.json"
 
-# Stable "always latest" copy for the bots' download link
-# (https://<panel>/update/latest.apk). Not matched by the prune glob below.
+# Stable "always latest" copy for the bots' panel-hosted download link.
 cp -f "$DIR/$apk_name" "$DIR/latest.apk"
 
-# Prune older mirrored APKs (keep the current one + latest.apk).
+# Prune older mirrored APKs locally (keep the current one + latest.apk).
 find "$DIR" -maxdepth 1 -name 'MaestroVPN-TV-*-debug.apk' ! -name "$apk_name" -delete 2>/dev/null || true
 
-echo "mirror: published $vn (code ${vc:-0}, ${sz} bytes) to $DIR"
+echo "mirror: published $vn (code ${vc:-0}, ${sz} bytes) — apk_url=$apk_path_url"
