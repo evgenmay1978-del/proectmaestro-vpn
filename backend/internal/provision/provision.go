@@ -593,6 +593,40 @@ func (p *Provisioner) syncAnyTLS() error {
 	return p.anytls.SyncUsers(users)
 }
 
+// BackfillAnyTLS gives AnyTLS to every stored customer that lacks it WITHOUT touching any
+// other protocol: it only re-syncs the LOCAL AnyTLS server (sing-box-anytls), never
+// hy2/naive/mieru, so existing customers' live connections are never disturbed. No-op when
+// AnyTLS isn't configured. Idempotent — re-running only adds it to anyone still missing it.
+// Returns how many customers were backfilled. Run once after enabling AnyTLS so the existing
+// customer base gets the 5th protocol with zero blip to the other four.
+func (p *Provisioner) BackfillAnyTLS() (int, error) {
+	if p.anytls == nil || p.cfg.AnyTLS.Server == "" {
+		return 0, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, c := range p.st.List() {
+		if c.AnyTLS != nil {
+			continue
+		}
+		p.addAnyTLS(c, c.Login)
+		if c.AnyTLS == nil {
+			continue
+		}
+		if err := p.st.Put(c); err != nil {
+			return n, fmt.Errorf("provision: backfill anytls store %q: %w", c.Login, err)
+		}
+		n++
+	}
+	if n > 0 {
+		if err := p.syncAnyTLS(); err != nil {
+			return n, fmt.Errorf("provision: backfill anytls sync: %w", err)
+		}
+	}
+	return n, nil
+}
+
 func fallbackStr(s, def string) string {
 	if s == "" {
 		return def

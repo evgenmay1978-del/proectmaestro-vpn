@@ -50,6 +50,9 @@ func (s *Server) respCustomer(w http.ResponseWriter, c *store.Customer) {
 	if c.Mieru != nil {
 		protos = append(protos, "mieru")
 	}
+	if c.AnyTLS != nil {
+		protos = append(protos, "anytls")
+	}
 	writeJSON(w, http.StatusOK, customerResp{
 		Login:     c.Login,
 		SubURL:    s.cfg.SubBaseURL + "/sub/" + c.SubToken,
@@ -205,6 +208,22 @@ func (s *Server) handleCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.respCustomer(w, c)
+}
+
+// handleBackfillAnyTLS (admin): give AnyTLS to every existing customer that lacks it,
+// re-syncing ONLY the local sing-box AnyTLS server — never hy2/naive/mieru — so live
+// customers are not disturbed. One-shot after enabling AnyTLS; idempotent.
+func (s *Server) handleBackfillAnyTLS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	n, err := s.prov.BackfillAnyTLS()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n})
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {

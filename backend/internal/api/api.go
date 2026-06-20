@@ -31,6 +31,9 @@ type Provisioner interface {
 	Extend(login string, dur time.Duration) (*store.Customer, error)
 	SetExpiry(login string, t time.Time) (*store.Customer, error)
 	ActivateExisting(login string) (*store.Customer, error)
+	// BackfillAnyTLS gives AnyTLS to existing customers that lack it, re-syncing only the
+	// local AnyTLS server (no hy2/naive/mieru restart). Returns the count backfilled.
+	BackfillAnyTLS() (int, error)
 	// DeviceLimitFor returns the per-login device cap (0 = unlimited) so the sub
 	// endpoint enforces the same cap + exemption as 3x-ui's limitIp.
 	DeviceLimitFor(login string) int
@@ -101,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/admin/set-expiry", s.adminAuth(s.handleSetExpiry))
 		mux.HandleFunc("/admin/reset-devices", s.adminAuth(s.handleResetDevices))
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
+		mux.HandleFunc("/admin/backfill-anytls", s.adminAuth(s.handleBackfillAnyTLS))
 		if s.orders != nil {
 			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))
 			mux.HandleFunc("/admin/order/cancel", s.adminAuth(s.handleOrderCancel))

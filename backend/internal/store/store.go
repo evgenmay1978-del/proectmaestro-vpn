@@ -73,6 +73,10 @@ func (c *Customer) clone() *Customer {
 		m := *c.Mieru
 		cp.Mieru = &m
 	}
+	if c.AnyTLS != nil {
+		a := *c.AnyTLS
+		cp.AnyTLS = &a
+	}
 	if c.Devices != nil {
 		d := make(map[string]time.Time, len(c.Devices))
 		for k, v := range c.Devices {

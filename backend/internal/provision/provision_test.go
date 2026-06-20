@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/anytls"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
@@ -223,5 +224,58 @@ func TestExtendRenewsEverywhere(t *testing.T) {
 	}
 	if len(fh.lastMieru) != 1 {
 		t.Fatalf("renewed customer not in mieru sync: %+v", fh.lastMieru)
+	}
+}
+
+type fakeAnyTLS struct {
+	lastUsers []anytls.User
+	syncs     int
+}
+
+func (f *fakeAnyTLS) SyncUsers(u []anytls.User) error { f.lastUsers = u; f.syncs++; return nil }
+
+// TestBackfillAnyTLS: enabling AnyTLS after customers already exist gives them the 5th
+// protocol by re-syncing ONLY the local AnyTLS server (one batch), and is idempotent.
+func TestBackfillAnyTLS(t *testing.T) {
+	p, _, _, st := newProv(t)
+	if _, err := p.Provision("alice", 30*24*time.Hour); err != nil {
+		t.Fatalf("provision alice: %v", err)
+	}
+	if _, err := p.Provision("bob", 30*24*time.Hour); err != nil {
+		t.Fatalf("provision bob: %v", err)
+	}
+	// AnyTLS not wired yet → no-op.
+	if n, err := p.BackfillAnyTLS(); err != nil || n != 0 {
+		t.Fatalf("backfill before enable: n=%d err=%v, want 0,nil", n, err)
+	}
+	// Enable AnyTLS, then backfill the existing customers.
+	p.cfg.AnyTLS = AnyTLSTmpl{Server: "wapmixx.ru", Port: 8444, SNI: "wapmixx.ru", Insecure: true}
+	fa := &fakeAnyTLS{}
+	p.WithAnyTLS(fa)
+	n, err := p.BackfillAnyTLS()
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("backfilled %d, want 2", n)
+	}
+	if fa.syncs != 1 {
+		t.Fatalf("anytls synced %d times, want exactly 1", fa.syncs)
+	}
+	if len(fa.lastUsers) != 2 {
+		t.Fatalf("anytls user set = %d, want 2", len(fa.lastUsers))
+	}
+	for _, login := range []string{"alice", "bob"} {
+		c, _ := st.ByLogin(login)
+		if c.AnyTLS == nil || c.AnyTLS.Password == "" {
+			t.Fatalf("%s has no AnyTLS creds after backfill", login)
+		}
+	}
+	// Idempotent: nothing left to add, no extra sync.
+	if n2, err := p.BackfillAnyTLS(); err != nil || n2 != 0 {
+		t.Fatalf("second backfill n=%d err=%v, want 0,nil", n2, err)
+	}
+	if fa.syncs != 1 {
+		t.Fatalf("idempotent backfill re-synced: syncs=%d, want 1", fa.syncs)
 	}
 }
