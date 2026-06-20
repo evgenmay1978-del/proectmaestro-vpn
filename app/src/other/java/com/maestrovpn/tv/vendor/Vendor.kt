@@ -192,32 +192,11 @@ object Vendor : VendorInterface {
     }
 
     override suspend fun downloadAndInstall(context: android.content.Context, downloadUrl: String) {
-        val cachedApk = UpdateState.cachedApkFile.value
-        val apkFile = if (cachedApk != null && cachedApk.exists() && cachedApk.length() > 0) {
-            cachedApk
-        } else {
-            ApkDownloader().use { it.download(downloadUrl) }
-        }
-        // Integrity check: the panel channel publishes a sha256 in update.json.
-        // Verify the downloaded bytes before installing so a corrupt/MITM'd APK is
-        // never handed to the package installer. GitHub releases carry no hash → "".
-        val want = UpdateState.updateInfo.value?.sha256
-        if (!want.isNullOrBlank()) {
-            val md = java.security.MessageDigest.getInstance("SHA-256")
-            apkFile.inputStream().use { ins ->
-                val buf = ByteArray(8192)
-                while (true) {
-                    val n = ins.read(buf)
-                    if (n < 0) break
-                    md.update(buf, 0, n)
-                }
-            }
-            val got = md.digest().joinToString("") { "%02x".format(it) }
-            if (!got.equals(want, ignoreCase = true)) {
-                apkFile.delete()
-                throw java.io.IOException("Контрольная сумма обновления не совпала — установка отменена")
-            }
-        }
+        // ApkDownloader resumes (HTTP Range), retries on slow/dropped RU links, sets
+        // timeouts, and verifies size + sha256 (from the panel manifest) BEFORE returning —
+        // so only a complete, intact APK reaches the installer. Always route through it
+        // instead of reusing a possibly-partial cached file.
+        val apkFile = ApkDownloader().use { it.download(downloadUrl) }
         ApkInstaller.install(context, apkFile)
     }
 }

@@ -13,7 +13,6 @@ import com.maestrovpn.tv.compose.screen.qrscan.QRCodeCropArea
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.update.UpdateCheckException
 import com.maestrovpn.tv.update.UpdateInfo
-import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
 
 object Vendor : VendorInterface {
@@ -115,12 +114,11 @@ object Vendor : VendorInterface {
     }
 
     override suspend fun downloadAndInstall(context: android.content.Context, downloadUrl: String) {
-        val cachedApk = UpdateState.cachedApkFile.value
-        val apkFile = if (cachedApk != null && cachedApk.exists() && cachedApk.length() > 0) {
-            cachedApk
-        } else {
-            ApkDownloader().use { it.download(downloadUrl) }
-        }
+        // ApkDownloader resumes (HTTP Range), retries on slow/dropped RU links, sets
+        // timeouts, and verifies size + sha256 (from the panel manifest) BEFORE returning —
+        // so only a complete, intact APK reaches the installer. Always route through it
+        // instead of reusing a possibly-partial cached file.
+        val apkFile = ApkDownloader().use { it.download(downloadUrl) }
         ApkInstaller.install(context, apkFile)
     }
 }
