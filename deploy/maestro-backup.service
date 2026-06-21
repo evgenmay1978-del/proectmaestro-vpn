@@ -1,0 +1,10 @@
+[Unit]
+Description=MaestroVPN control-plane backup -> Yandex Object Storage (gpg-encrypted)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/maestro-backup.sh
+Nice=10
+IOSchedulingClass=idle

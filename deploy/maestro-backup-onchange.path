@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up MaestroVPN state immediately when it changes (provision/order)
+
+[Path]
+PathChanged=/var/lib/maestro/customers.json
+PathChanged=/var/lib/maestro/orders.json
+Unit=maestro-backup.service
+
+[Install]
+WantedBy=paths.target
