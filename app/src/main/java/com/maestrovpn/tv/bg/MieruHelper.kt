@@ -280,13 +280,15 @@ class MieruHelper(private val context: Context) {
             .put("profileName", PROFILE)
             .put("user", JSONObject().put("name", c.username).put("password", c.password))
             .put("servers", JSONArray().put(server))
-            // Lowered 1400→1280: mieru pads EVERY datagram up to its mtu (anti-fingerprinting),
-            // so mtu=1400 emits ~1428-byte UDP datagrams that get blackholed on the constrained RU
-            // uplink → upload stalled to ~0 while download (server-sized) was fine. 1280 (IPv6 min)
-            // → ~1308-byte datagrams that fit the uplink. This is the CLIENT/upload side; the mita
-            // server stays 1400 for its download egress — a client mtu below the server's is safe
-            // (verified: a 1280 client passes traffic against the live 1400 server).
-            .put("mtu", 1280)
+            // mieru pads EVERY datagram up to its mtu (anti-fingerprinting), and mtu is the UDP
+            // PAYLOAD size → the wire IP datagram is mtu+28 (IPv4+UDP). On the constrained RU
+            // uplink an oversized datagram is blackholed → upload stalls to ~0 while download
+            // (server-sized) is fine. 1400→1428B AND 1280→1308B both still exceeded the path
+            // (device mierulog + mita decrypt-failures confirm; AnyTLS/TCP works there only because
+            // it MSS-clamps — mieru/UDP is fixed-size). 1200 → a ~1228B IP datagram that fits a
+            // 1280-MTU path with margin. CLIENT/upload side only; the mita server stays 1400 for
+            // its download egress (a client mtu below the server's is safe, verified).
+            .put("mtu", 1200)
         // No rpcPort → it stays 0 = RPC disabled, which `mieru run` correctly skips
         // (it only needs the foreground SOCKS5 server). socks5Port is the only port.
         return JSONObject()
