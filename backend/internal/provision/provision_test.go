@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/anytls"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
@@ -38,15 +37,22 @@ func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error) {
 }
 
 type fakeS2 struct {
-	lastHy2   []server2.Hy2User
-	lastMieru []server2.MieruUser
-	lastNaive []server2.NaiveUser
-	naiveUser string // if set, ReadNaiveUser returns this password (customer exists on naive)
+	lastHy2     []server2.Hy2User
+	lastMieru   []server2.MieruUser
+	lastNaive   []server2.NaiveUser
+	lastAnyTLS  []server2.AnyTLSUser
+	anytlsSyncs int
+	naiveUser   string // if set, ReadNaiveUser returns this password (customer exists on naive)
 }
 
 func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error     { f.lastHy2 = u; return nil }
 func (f *fakeS2) SyncMieruUsers(u []server2.MieruUser) error { f.lastMieru = u; return nil }
 func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error { f.lastNaive = u; return nil }
+func (f *fakeS2) SyncAnyTLSUsers(u []server2.AnyTLSUser) error {
+	f.lastAnyTLS = u
+	f.anytlsSyncs++
+	return nil
+}
 func (f *fakeS2) ReadNaiveUser(string) (string, bool, error) {
 	return f.naiveUser, f.naiveUser != "", nil
 }
@@ -227,17 +233,10 @@ func TestExtendRenewsEverywhere(t *testing.T) {
 	}
 }
 
-type fakeAnyTLS struct {
-	lastUsers []anytls.User
-	syncs     int
-}
-
-func (f *fakeAnyTLS) SyncUsers(u []anytls.User) error { f.lastUsers = u; f.syncs++; return nil }
-
 // TestBackfillAnyTLS: enabling AnyTLS after customers already exist gives them the 5th
-// protocol by re-syncing ONLY the local AnyTLS server (one batch), and is idempotent.
+// protocol by re-syncing ONLY the server-2 AnyTLS server (one batch), and is idempotent.
 func TestBackfillAnyTLS(t *testing.T) {
-	p, _, _, st := newProv(t)
+	p, _, fh, st := newProv(t)
 	if _, err := p.Provision("alice", 30*24*time.Hour); err != nil {
 		t.Fatalf("provision alice: %v", err)
 	}
@@ -248,10 +247,8 @@ func TestBackfillAnyTLS(t *testing.T) {
 	if n, err := p.BackfillAnyTLS(); err != nil || n != 0 {
 		t.Fatalf("backfill before enable: n=%d err=%v, want 0,nil", n, err)
 	}
-	// Enable AnyTLS, then backfill the existing customers.
-	p.cfg.AnyTLS = AnyTLSTmpl{Server: "wapmixx.ru", Port: 8444, SNI: "wapmixx.ru", Insecure: true}
-	fa := &fakeAnyTLS{}
-	p.WithAnyTLS(fa)
+	// Enable AnyTLS (server 2), then backfill the existing customers.
+	p.cfg.AnyTLS = AnyTLSTmpl{Server: "wapmix.duckdns.org", Port: 8443, SNI: "wapmix.duckdns.org", Insecure: true}
 	n, err := p.BackfillAnyTLS()
 	if err != nil {
 		t.Fatalf("backfill: %v", err)
@@ -259,11 +256,11 @@ func TestBackfillAnyTLS(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("backfilled %d, want 2", n)
 	}
-	if fa.syncs != 1 {
-		t.Fatalf("anytls synced %d times, want exactly 1", fa.syncs)
+	if fh.anytlsSyncs != 1 {
+		t.Fatalf("anytls synced %d times, want exactly 1", fh.anytlsSyncs)
 	}
-	if len(fa.lastUsers) != 2 {
-		t.Fatalf("anytls user set = %d, want 2", len(fa.lastUsers))
+	if len(fh.lastAnyTLS) != 2 {
+		t.Fatalf("anytls user set = %d, want 2", len(fh.lastAnyTLS))
 	}
 	for _, login := range []string{"alice", "bob"} {
 		c, _ := st.ByLogin(login)
@@ -275,7 +272,63 @@ func TestBackfillAnyTLS(t *testing.T) {
 	if n2, err := p.BackfillAnyTLS(); err != nil || n2 != 0 {
 		t.Fatalf("second backfill n=%d err=%v, want 0,nil", n2, err)
 	}
-	if fa.syncs != 1 {
-		t.Fatalf("idempotent backfill re-synced: syncs=%d, want 1", fa.syncs)
+	if fh.anytlsSyncs != 1 {
+		t.Fatalf("idempotent backfill re-synced: syncs=%d, want 1", fh.anytlsSyncs)
+	}
+}
+
+// TestMigrateAnyTLSEndpoint: the S1:8444 → S2:8443 cutover repoints every customer's AnyTLS
+// creds to the configured endpoint WITHOUT changing the password, re-syncs once, and is
+// idempotent (a second run is a no-op).
+func TestMigrateAnyTLSEndpoint(t *testing.T) {
+	p, _, fh, st := newProv(t)
+	// Provision two customers with AnyTLS on the OLD endpoint (server 1 :8444).
+	p.cfg.AnyTLS = AnyTLSTmpl{Server: "wapmixx.ru", Port: 8444, SNI: "wapmixx.ru", Insecure: true}
+	for _, login := range []string{"alice", "bob"} {
+		if _, err := p.Provision(login, 30*24*time.Hour); err != nil {
+			t.Fatalf("provision %s: %v", login, err)
+		}
+	}
+	// Capture each customer's AnyTLS password — migration must preserve it.
+	want := map[string]string{}
+	for _, login := range []string{"alice", "bob"} {
+		c, _ := st.ByLogin(login)
+		if c.AnyTLS == nil || c.AnyTLS.Port != 8444 {
+			t.Fatalf("%s not on old endpoint before migrate: %+v", login, c.AnyTLS)
+		}
+		want[login] = c.AnyTLS.Password
+	}
+	syncsBefore := fh.anytlsSyncs
+	// Point config at server 2 and migrate.
+	p.cfg.AnyTLS = AnyTLSTmpl{Server: "wapmix.duckdns.org", Port: 8443, SNI: "wapmix.duckdns.org", Insecure: true}
+	n, err := p.MigrateAnyTLSEndpoint()
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("migrated %d, want 2", n)
+	}
+	if fh.anytlsSyncs != syncsBefore+1 {
+		t.Fatalf("anytls synced %d times, want exactly one more than %d", fh.anytlsSyncs, syncsBefore)
+	}
+	if len(fh.lastAnyTLS) != 2 {
+		t.Fatalf("anytls user set pushed to S2 = %d, want 2", len(fh.lastAnyTLS))
+	}
+	for _, login := range []string{"alice", "bob"} {
+		c, _ := st.ByLogin(login)
+		if c.AnyTLS.Server != "wapmix.duckdns.org" || c.AnyTLS.Port != 8443 || c.AnyTLS.SNI != "wapmix.duckdns.org" {
+			t.Fatalf("%s not repointed to S2: %+v", login, c.AnyTLS)
+		}
+		if c.AnyTLS.Password != want[login] {
+			t.Fatalf("%s AnyTLS password changed during migrate (must be preserved)", login)
+		}
+	}
+	// Idempotent: everyone already on the target endpoint → no rewrite, no extra sync.
+	n2, err := p.MigrateAnyTLSEndpoint()
+	if err != nil || n2 != 0 {
+		t.Fatalf("second migrate n=%d err=%v, want 0,nil", n2, err)
+	}
+	if fh.anytlsSyncs != syncsBefore+1 {
+		t.Fatalf("idempotent migrate re-synced: syncs=%d", fh.anytlsSyncs)
 	}
 }

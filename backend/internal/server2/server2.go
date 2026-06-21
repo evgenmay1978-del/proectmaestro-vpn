@@ -41,6 +41,15 @@ type Config struct {
 	// It must match the mieru client transport. UDP lets mita share port 443 with
 	// Caddy/naive (which holds 443/TCP) once Caddy's HTTP/3 is disabled.
 	MitaTransport string
+
+	// AnyTLS — standalone sing-box "anytls" server on server 2, ADDITIVE on its own
+	// port (8443/tcp) + systemd unit (sing-box-anytls), driven over the same SSH
+	// connection. Independent of caddy(naive):443/tcp, hysteria:8443/udp, mita:443/udp.
+	AnyTLSPort       int    // 8443 (RU-reachable TCP)
+	AnyTLSCert       string // /etc/sing-box-anytls/cert.pem (on server 2)
+	AnyTLSKey        string // /etc/sing-box-anytls/key.pem
+	AnyTLSService    string // sing-box-anytls
+	AnyTLSConfigPath string // /etc/sing-box-anytls/config.json
 }
 
 // Hy2User is one Hysteria2 userpass credential.
@@ -250,6 +259,99 @@ mita status`, mitaConfigPath)
 	}
 	if !strings.Contains(strings.ToUpper(out), "RUNNING") {
 		return fmt.Errorf("server2: mita not running after sync: %q", strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// AnyTLSUser is one standalone sing-box AnyTLS credential (server-side). The client
+// authenticates by password; Name is a server-side label, so each password must be unique.
+type AnyTLSUser struct {
+	Name string
+	Pass string
+}
+
+const anytlsConfigPath = "/etc/sing-box-anytls/config.json"
+
+// renderAnyTLS builds the FULL standalone sing-box AnyTLS server config (one `anytls`
+// inbound with the complete user set + TLS, direct outbound) as JSON — a full regen,
+// not a patch, so an expired customer dropped from `users` can no longer connect after
+// the next apply. Mirrors the config the panel used to write locally on server 1.
+func renderAnyTLS(port int, cert, key string, users []AnyTLSUser) (string, error) {
+	if port == 0 {
+		port = 8443
+	}
+	if cert == "" {
+		cert = "/etc/sing-box-anytls/cert.pem"
+	}
+	if key == "" {
+		key = "/etc/sing-box-anytls/key.pem"
+	}
+	us := make([]map[string]string, 0, len(users))
+	for _, u := range users {
+		us = append(us, map[string]string{"name": u.Name, "password": u.Pass})
+	}
+	cfg := map[string]any{
+		"log": map[string]any{"level": "warn"},
+		"inbounds": []map[string]any{{
+			"type": "anytls", "tag": "anytls-in",
+			"listen": "::", "listen_port": port,
+			"users": us,
+			"tls": map[string]any{
+				"enabled":          true,
+				"certificate_path": cert,
+				"key_path":         key,
+			},
+		}},
+		"outbounds": []map[string]any{{"type": "direct", "tag": "direct"}},
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("server2: render anytls config: %w", err)
+	}
+	return string(b), nil
+}
+
+// SyncAnyTLSUsers regenerates the standalone sing-box AnyTLS config on server 2 from the
+// full active user set and restarts the service, keeping a backup and rolling back on a
+// failed restart so a bad write never leaves AnyTLS down. ADDITIVE — its own port
+// (8443/tcp), its own systemd unit — so this never touches caddy(naive)/hysteria/mita.
+//
+// SAFETY INVARIANT: the AnyTLS config is APP-EXCLUSIVE — the MaestroVPN panel is its sole
+// owner (no external users), exactly like Hysteria on server 2, which is what makes the
+// full overwrite safe. DO NOT add externally-managed anytls users to this file.
+func (c *Client) SyncAnyTLSUsers(users []AnyTLSUser) error {
+	path := c.cfg.AnyTLSConfigPath
+	if path == "" {
+		path = anytlsConfigPath
+	}
+	svc := c.cfg.AnyTLSService
+	if svc == "" {
+		svc = "sing-box-anytls"
+	}
+	cfg, err := renderAnyTLS(c.cfg.AnyTLSPort, c.cfg.AnyTLSCert, c.cfg.AnyTLSKey, users)
+	if err != nil {
+		return err
+	}
+	// Atomic write via stdin (umask 077 → the password-bearing config stays 0600),
+	// back up the old one, restart, verify, rollback on failure.
+	script := fmt.Sprintf(`set -e
+cp -a %[1]s %[1]s.bak 2>/dev/null || true
+umask 077
+cat > %[1]s.new
+mv %[1]s.new %[1]s
+if ! systemctl restart %[2]s; then
+  echo "restart failed, rolling back" >&2
+  [ -f %[1]s.bak ] && mv %[1]s.bak %[1]s && systemctl restart %[2]s
+  exit 1
+fi
+sleep 2
+systemctl is-active %[2]s`, path, svc)
+	out, err := c.run(script, cfg)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) != "active" {
+		return fmt.Errorf("server2: %s not active after sync: %q", svc, strings.TrimSpace(out))
 	}
 	return nil
 }

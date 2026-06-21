@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/anytls"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
@@ -70,11 +69,16 @@ func main() {
 		s2 := server2.New(server2.Config{
 			Host: env("S2_HOST", "85.137.166.237"), User: env("S2_USER", "root"),
 			Password: os.Getenv("S2_PASSWORD"), Hy2Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
-			MitaPort:       atoi(os.Getenv("S2_MITA_PORT"), 2027),
-			MitaTransport:  env("MITA_TRANSPORT", "TCP"),
-			NaivePanelURL:  os.Getenv("NAIVE_PANEL_URL"),
-			NaivePanelUser: os.Getenv("NAIVE_PANEL_USER"),
-			NaivePanelPass: os.Getenv("NAIVE_PANEL_PASS"),
+			MitaPort:         atoi(os.Getenv("S2_MITA_PORT"), 2027),
+			MitaTransport:    env("MITA_TRANSPORT", "TCP"),
+			NaivePanelURL:    os.Getenv("NAIVE_PANEL_URL"),
+			NaivePanelUser:   os.Getenv("NAIVE_PANEL_USER"),
+			NaivePanelPass:   os.Getenv("NAIVE_PANEL_PASS"),
+			AnyTLSPort:       atoi(os.Getenv("ANYTLS_PORT"), 8443),
+			AnyTLSCert:       env("ANYTLS_CERT", "/etc/sing-box-anytls/cert.pem"),
+			AnyTLSKey:        env("ANYTLS_KEY", "/etc/sing-box-anytls/key.pem"),
+			AnyTLSService:    env("ANYTLS_SERVICE", "sing-box-anytls"),
+			AnyTLSConfigPath: env("ANYTLS_CONFIG", "/etc/sing-box-anytls/config.json"),
 		})
 		provCfg := provision.Config{
 			VLESS: provision.VLESSTmpl{
@@ -103,26 +107,16 @@ func main() {
 				SNI: env("NAIVE_SNI", os.Getenv("NAIVE_SERVER")),
 			}
 		}
-		// AnyTLS: a LOCAL standalone sing-box AnyTLS server on THIS box (server 1),
-		// managed directly (no SSH). Enabled when ANYTLS_SERVER is set.
-		var anytlsMgr *anytls.Manager
+		// AnyTLS: standalone sing-box "anytls" server on SERVER 2 (8443/tcp), managed over
+		// SSH alongside hy2/mieru/naive (server-side facts live in server2.Config above).
+		// Enabled when ANYTLS_SERVER is set.
 		if os.Getenv("ANYTLS_SERVER") != "" {
 			provCfg.AnyTLS = provision.AnyTLSTmpl{
-				Server: os.Getenv("ANYTLS_SERVER"), Port: atoi(os.Getenv("ANYTLS_PORT"), 8444),
+				Server: os.Getenv("ANYTLS_SERVER"), Port: atoi(os.Getenv("ANYTLS_PORT"), 8443),
 				SNI: env("ANYTLS_SNI", os.Getenv("ANYTLS_SERVER")), Insecure: env("ANYTLS_INSECURE", "1") == "1",
-			}
-			anytlsMgr = &anytls.Manager{
-				ConfigPath: env("ANYTLS_CONFIG", "/etc/sing-box-anytls/config.json"),
-				CertPath:   env("ANYTLS_CERT", "/etc/sing-box-anytls/cert.pem"),
-				KeyPath:    env("ANYTLS_KEY", "/etc/sing-box-anytls/key.pem"),
-				ListenPort: atoi(os.Getenv("ANYTLS_PORT"), 8444),
-				Service:    env("ANYTLS_SERVICE", "sing-box-anytls"),
 			}
 		}
 		pc := provision.New(st, xc, s2, provCfg)
-		if anytlsMgr != nil {
-			pc.WithAnyTLS(anytlsMgr)
-		}
 		prov = pc
 		log.Printf("provisioning enabled (3x-ui + server2; mieru=%v naive=%v anytls=%v)",
 			os.Getenv("S2_MITA_PORT") != "", os.Getenv("NAIVE_SERVER") != "", os.Getenv("ANYTLS_SERVER") != "")

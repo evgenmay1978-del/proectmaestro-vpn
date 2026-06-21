@@ -43,7 +43,8 @@ func (f *fakeProv) DeviceLimitFor(login string) int {
 	return 5
 }
 
-func (f *fakeProv) BackfillAnyTLS() (int, error) { return 0, nil }
+func (f *fakeProv) BackfillAnyTLS() (int, error)        { return 0, nil }
+func (f *fakeProv) MigrateAnyTLSEndpoint() (int, error) { return 0, nil }
 
 func adminServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()

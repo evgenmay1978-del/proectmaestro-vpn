@@ -211,7 +211,7 @@ func (s *Server) handleCustomer(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBackfillAnyTLS (admin): give AnyTLS to every existing customer that lacks it,
-// re-syncing ONLY the local sing-box AnyTLS server — never hy2/naive/mieru — so live
+// re-syncing ONLY the server-2 sing-box AnyTLS server — never hy2/naive/mieru — so live
 // customers are not disturbed. One-shot after enabling AnyTLS; idempotent.
 func (s *Server) handleBackfillAnyTLS(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -224,6 +224,23 @@ func (s *Server) handleBackfillAnyTLS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n})
+}
+
+// handleMigrateAnyTLSS2 (admin): repoint every existing customer's AnyTLS credential to the
+// CURRENTLY configured endpoint (the S1:8444 → S2:8443 cutover) WITHOUT changing passwords,
+// then re-sync ONLY the AnyTLS server — never hy2/naive/mieru — so live customers are not
+// disturbed. One-shot after pointing ANYTLS_* at server 2; idempotent.
+func (s *Server) handleMigrateAnyTLSS2(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	n, err := s.prov.MigrateAnyTLSEndpoint()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"migrated": n})
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {

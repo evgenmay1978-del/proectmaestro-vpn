@@ -17,19 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/anytls"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
 )
-
-// AnyTLSSyncer pushes the active AnyTLS user set to the local sing-box AnyTLS server
-// (on server 1, alongside the panel). Implemented by anytls.Manager; an interface so
-// provision stays testable.
-type AnyTLSSyncer interface {
-	SyncUsers(users []anytls.User) error
-}
 
 // VLESSClienter is the slice of the 3x-ui client used here (so it can be faked).
 type VLESSClienter interface {
@@ -46,6 +38,7 @@ type Server2 interface {
 	SyncHy2Users(users []server2.Hy2User) error
 	SyncMieruUsers(users []server2.MieruUser) error
 	SyncNaiveUsers(users []server2.NaiveUser) error
+	SyncAnyTLSUsers(users []server2.AnyTLSUser) error
 	ReadNaiveUser(username string) (string, bool, error)
 	ReadProxyExpiry(proxyUser string) (string, bool, error)
 }
@@ -87,7 +80,7 @@ type MitaTmpl struct {
 	HelperSOCKS int    // 127.0.0.1:<port> the app's mieru helper listens on
 }
 
-// AnyTLSTmpl is the server-1 AnyTLS listener facts shared by all clients. AnyTLS is a
+// AnyTLSTmpl is the server-2 AnyTLS listener facts shared by all clients. AnyTLS is a
 // NATIVE sing-box outbound (no on-device helper). Optional: empty Server = not provisioned.
 type AnyTLSTmpl struct {
 	Server   string
@@ -111,23 +104,16 @@ type Provisioner struct {
 	// mu serializes Provision/Extend/ActivateExisting so a double-tapped owner
 	// confirm (or two concurrent /claim hits for the same login) can't run two
 	// provisions for the same customer at once (TOCTOU double-provision).
-	mu     sync.Mutex
-	st     *store.Store
-	xui    VLESSClienter
-	s2     Server2
-	cfg    Config
-	anytls AnyTLSSyncer // local sing-box AnyTLS server on server 1 (nil = AnyTLS off)
+	mu  sync.Mutex
+	st  *store.Store
+	xui VLESSClienter
+	s2  Server2
+	cfg Config
 }
 
 // New builds a provisioner.
 func New(st *store.Store, x VLESSClienter, s2 Server2, cfg Config) *Provisioner {
 	return &Provisioner{st: st, xui: x, s2: s2, cfg: cfg}
-}
-
-// WithAnyTLS wires the local AnyTLS server syncer (server 1). Returns p for chaining.
-func (p *Provisioner) WithAnyTLS(sync AnyTLSSyncer) *Provisioner {
-	p.anytls = sync
-	return p
 }
 
 func randHex(n int) string {
@@ -578,29 +564,29 @@ func (p *Provisioner) addAnyTLS(cust *store.Customer, login string) {
 	}
 }
 
-// syncAnyTLS rewrites the LOCAL (server-1) sing-box AnyTLS user set from all ACTIVE
+// syncAnyTLS regenerates server-2's standalone sing-box AnyTLS user set from all ACTIVE
 // customers, so an expired/disabled customer can no longer connect. No-op if AnyTLS off.
 func (p *Provisioner) syncAnyTLS() error {
-	if p.anytls == nil {
+	if p.cfg.AnyTLS.Server == "" {
 		return nil
 	}
-	var users []anytls.User
+	var users []server2.AnyTLSUser
 	for _, c := range p.st.List() {
 		if c.Active() && c.AnyTLS != nil {
-			users = append(users, anytls.User{Name: c.Login, Password: c.AnyTLS.Password})
+			users = append(users, server2.AnyTLSUser{Name: c.Login, Pass: c.AnyTLS.Password})
 		}
 	}
-	return p.anytls.SyncUsers(users)
+	return p.s2.SyncAnyTLSUsers(users)
 }
 
 // BackfillAnyTLS gives AnyTLS to every stored customer that lacks it WITHOUT touching any
-// other protocol: it only re-syncs the LOCAL AnyTLS server (sing-box-anytls), never
+// other protocol: it only re-syncs the server-2 AnyTLS server (sing-box-anytls), never
 // hy2/naive/mieru, so existing customers' live connections are never disturbed. No-op when
 // AnyTLS isn't configured. Idempotent — re-running only adds it to anyone still missing it.
 // Returns how many customers were backfilled. Run once after enabling AnyTLS so the existing
 // customer base gets the 5th protocol with zero blip to the other four.
 func (p *Provisioner) BackfillAnyTLS() (int, error) {
-	if p.anytls == nil || p.cfg.AnyTLS.Server == "" {
+	if p.cfg.AnyTLS.Server == "" {
 		return 0, nil
 	}
 	p.mu.Lock()
@@ -622,6 +608,43 @@ func (p *Provisioner) BackfillAnyTLS() (int, error) {
 	if n > 0 {
 		if err := p.syncAnyTLS(); err != nil {
 			return n, fmt.Errorf("provision: backfill anytls sync: %w", err)
+		}
+	}
+	return n, nil
+}
+
+// MigrateAnyTLSEndpoint repoints every stored customer's AnyTLS credential to the CURRENT
+// configured endpoint (p.cfg.AnyTLS) WITHOUT changing their password — this is the
+// S1:8444 → S2:8443 cutover. It rewrites only Server/Port/SNI/Insecure on customers still
+// pointing elsewhere, persists, then re-syncs the AnyTLS server ONCE. Idempotent (a customer
+// already on the target endpoint is skipped) and never touches any other protocol. Returns
+// how many customers were repointed.
+func (p *Provisioner) MigrateAnyTLSEndpoint() (int, error) {
+	if p.cfg.AnyTLS.Server == "" {
+		return 0, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, c := range p.st.List() {
+		if c.AnyTLS == nil {
+			continue
+		}
+		if c.AnyTLS.Server == p.cfg.AnyTLS.Server && c.AnyTLS.Port == p.cfg.AnyTLS.Port {
+			continue // already on the target endpoint
+		}
+		c.AnyTLS.Server = p.cfg.AnyTLS.Server
+		c.AnyTLS.Port = p.cfg.AnyTLS.Port
+		c.AnyTLS.SNI = p.cfg.AnyTLS.SNI
+		c.AnyTLS.Insecure = p.cfg.AnyTLS.Insecure
+		if err := p.st.Put(c); err != nil {
+			return n, fmt.Errorf("provision: migrate anytls store %q: %w", c.Login, err)
+		}
+		n++
+	}
+	if n > 0 {
+		if err := p.syncAnyTLS(); err != nil {
+			return n, fmt.Errorf("provision: migrate anytls sync: %w", err)
 		}
 	}
 	return n, nil
