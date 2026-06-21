@@ -30,6 +30,9 @@ class MieruHelper(private val context: Context) {
     @Volatile private var process: Process? = null
     @Volatile private var running = false
     @Volatile private var inProcess = false
+    // The local SOCKS5 port, published once creds are fetched (0 = backend not up yet).
+    // awaitReady() polls it so a caller can gate the sing-box (re)load on it.
+    @Volatile private var socksPort = 0
     private var thread: Thread? = null
 
     private val binary: File
@@ -58,6 +61,7 @@ class MieruHelper(private val context: Context) {
     @Synchronized
     fun stop() {
         running = false
+        socksPort = 0
         // Tear the in-process bridge down UNCONDITIONALLY (Mierubridge.stop is mutex-
         // guarded + idempotent — a no-op when nothing is running). Gating on `inProcess`
         // had a TOCTOU hole: a stop landing between Mierubridge.start() returning (socks5
@@ -71,6 +75,35 @@ class MieruHelper(private val context: Context) {
         process = null
         thread?.interrupt()
         thread = null
+    }
+
+    /**
+     * Blocks up to [timeoutMs] until the local SOCKS5 backend is accepting connections, so a
+     * caller can (re)load the sing-box config — whose `mieru` outbound dials 127.0.0.1:<socks> —
+     * only AFTER the backend is actually listening. Without this, a config reload races the
+     * async [start]: sing-box probes a dead port and the mieru outbound (and, on reload, the
+     * whole tunnel) breaks until a full app restart. Returns true if it came up; false on
+     * timeout (the caller then proceeds — urltest simply marks mieru unhealthy until it appears).
+     */
+    fun awaitReady(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val port = socksPort
+            if (port > 0 && runCatching {
+                    java.net.Socket().use {
+                        it.connect(java.net.InetSocketAddress("127.0.0.1", port), 500); true
+                    }
+                }.getOrDefault(false)
+            ) {
+                return true
+            }
+            try {
+                Thread.sleep(150)
+            } catch (_: InterruptedException) {
+                return false
+            }
+        }
+        return false
     }
 
     private fun run(subUrlRaw: String) {
@@ -96,6 +129,7 @@ class MieruHelper(private val context: Context) {
             running = false
             return
         }
+        socksPort = creds.socksPort // publish for awaitReady() before the backend is brought up
         val dir = File(context.filesDir, "mieru").apply { mkdirs() }
         val cfg = buildConfig(creds)
         val configJson = File(dir, "client.json").apply { writeText(cfg) }

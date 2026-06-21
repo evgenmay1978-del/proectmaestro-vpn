@@ -49,6 +49,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000 // 15 minutes in milliseconds
         private const val TAG = "BoxService"
 
+        // Max time to wait for the in-process mieru SOCKS5 backend to come up before
+        // (re)loading the sing-box config that routes through it. Normally <2s; on timeout
+        // we proceed anyway (mieru is just marked unhealthy by urltest until it appears).
+        private const val MIERU_READY_TIMEOUT_MS = 8000L
+
         fun start() {
             val intent =
                 runBlocking {
@@ -137,7 +142,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             // (every ABI); the exec'd libmieru.so is the fallback. Best-effort, on its own
             // thread. sing-box's mieru outbound dials 127.0.0.1:<socksPort>.
             mieruUrl = if (content.contains("\"mieru\"")) profile.typed.remoteURL else null
-            mieruUrl?.let { mieruHelper.start(it) }
+            mieruUrl?.let {
+                mieruHelper.start(it)
+                // Don't load the config until mieru's socks backend is actually listening,
+                // or its outbound is probed against a dead port (see awaitReady).
+                mieruHelper.awaitReady(MIERU_READY_TIMEOUT_MS)
+            }
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
             }
@@ -233,7 +243,14 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // /helpers). stop() alone covers a profile that dropped mieru. No-op for non-mieru.
         mieruHelper.stop()
         mieruUrl = if (content.contains("\"mieru\"")) profile.typed.remoteURL else null
-        mieruUrl?.let { mieruHelper.start(it) }
+        mieruUrl?.let {
+            mieruHelper.start(it)
+            // Block until the new mieru socks backend is up BEFORE reloading sing-box, so the
+            // `mieru` outbound isn't probed against a dead port on reload. The old config keeps
+            // serving the other 4 protocols meanwhile; mieru is only briefly down (as it would
+            // be during any creds refresh). Times out gracefully → reload proceeds regardless.
+            mieruHelper.awaitReady(MIERU_READY_TIMEOUT_MS)
+        }
         try {
             commandServer.startOrReloadService(
                 content,
