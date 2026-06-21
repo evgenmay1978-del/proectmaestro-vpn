@@ -280,7 +280,13 @@ class MieruHelper(private val context: Context) {
             .put("profileName", PROFILE)
             .put("user", JSONObject().put("name", c.username).put("password", c.password))
             .put("servers", JSONArray().put(server))
-            .put("mtu", 1400) // MUST match the mita server's mtu (1400)
+            // Lowered 1400→1280: mieru pads EVERY datagram up to its mtu (anti-fingerprinting),
+            // so mtu=1400 emits ~1428-byte UDP datagrams that get blackholed on the constrained RU
+            // uplink → upload stalled to ~0 while download (server-sized) was fine. 1280 (IPv6 min)
+            // → ~1308-byte datagrams that fit the uplink. This is the CLIENT/upload side; the mita
+            // server stays 1400 for its download egress — a client mtu below the server's is safe
+            // (verified: a 1280 client passes traffic against the live 1400 server).
+            .put("mtu", 1280)
         // No rpcPort → it stays 0 = RPC disabled, which `mieru run` correctly skips
         // (it only needs the foreground SOCKS5 server). socks5Port is the only port.
         return JSONObject()
