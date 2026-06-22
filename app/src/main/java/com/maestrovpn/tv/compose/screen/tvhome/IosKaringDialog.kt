@@ -47,12 +47,11 @@ private sealed interface ShareState {
 /**
  * "Поделиться подпиской" — a QR of the customer's subscription, with an Android /
  * iPhone toggle:
- *   • Android → the FULL sub URL (`/sub/<token>`): all 4 protocols. Scanned into
- *     MaestroVPN it imports as a remote profile and Mieru works (the app's bundled
- *     helper). Generic sing-box apps (Hiddify/NekoBox) take VLESS+Hy2+Naive and skip
- *     Mieru (no helper) — still fine.
+ *   • Android → the FULL sub URL (`/sub/<token>`): all 4 protocols
+ *     (VLESS+Hy2+Naive+AnyTLS). Scanned into MaestroVPN it imports as a remote
+ *     profile; generic sing-box apps (Hiddify/NekoBox) take the same native set.
  *   • iPhone → `<subUrl>?app=karing`: base64 share-links (VLESS+Hysteria2+Naive) for
- *     Karing. Mieru has no standard share-link, so it's excluded there.
+ *     Karing.
  *
  * Robustness: all Room reads run off-main in a runCatching (a throw in produceState
  * would crash the app); the QR encode is guarded too. Rendered BLACK-on-WHITE so any
@@ -117,7 +116,7 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
                         }
                         Text(
                             if (androidMode) {
-                                "Android: отсканируй в MaestroVPN — подключатся все 4 протокола (включая Mieru)."
+                                "Android: отсканируй в MaestroVPN — подключатся все 4 протокола."
                             } else {
                                 "iPhone: установи Karing из App Store и отсканируй — VLESS + Hysteria2 + Naive."
                             },

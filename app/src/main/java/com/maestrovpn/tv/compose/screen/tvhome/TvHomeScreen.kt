@@ -565,7 +565,7 @@ private fun protocolLabel(tag: String): String = when (tag) {
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
     "naive" -> "NaiveProxy"
-    "mieru" -> "Mieru"
+    "anytls" -> "AnyTLS"
     else -> tag.replaceFirstChar { it.uppercase() }
 }
 

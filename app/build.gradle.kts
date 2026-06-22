@@ -75,10 +75,9 @@ android {
         // backend the TV app hits for the claim-code → subscription exchange
         buildConfigField("String", "BACKEND_URL", "\"https://wapmixx.ru:8911\"")
         // Ship only ARM ABIs. Every real RU Android-TV box / phone is arm64-v8a or
-        // armeabi-v7a (old 32-bit boxes). mieru now works on BOTH (in-process, embedded in
-        // libbox.aar — was arm64-only in the old exec'd-binary era). x86/x86_64 are
-        // emulator-only and added ~130MB of libbox.so, making a 138MB APK that flaked on
-        // mobile OTA ("то ставится то нет"). Dropping them ~halves the download.
+        // armeabi-v7a (old 32-bit boxes). x86/x86_64 are emulator-only and added
+        // ~130MB of libbox.so, making a 138MB APK that flaked on mobile OTA ("то
+        // ставится то нет"). Dropping them ~halves the download.
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }

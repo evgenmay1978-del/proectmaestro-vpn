@@ -60,9 +60,9 @@ class VPNService :
 
         // RU-uplink-safe TUN MTU clamp. sing-box defaults an UNSET mtu to 9000; with that the
         // OS hands us oversized packets that get dropped on the constrained RU UPLOAD path
-        // (DF/PMTUD blackhole), stalling upload to ~0 on the MTU-sensitive outbounds
-        // (Mieru/AnyTLS) while download stays fine. 1280 = IPv6 minimum, universally
-        // deliverable; a config that already carries a smaller mtu is passed through unchanged.
+        // (DF/PMTUD blackhole), stalling upload to ~0 on the MTU-sensitive outbounds (AnyTLS)
+        // while download stays fine. 1280 = IPv6 minimum, universally deliverable; a config
+        // that already carries a smaller mtu is passed through unchanged.
         val tunMtu = options.mtu.let { if (it in 1..1280) it else 1280 }
 
         val builder =

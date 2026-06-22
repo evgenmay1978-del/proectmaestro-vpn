@@ -49,11 +49,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000 // 15 minutes in milliseconds
         private const val TAG = "BoxService"
 
-        // Max time to wait for the in-process mieru SOCKS5 backend to come up before
-        // (re)loading the sing-box config that routes through it. Normally <2s; on timeout
-        // we proceed anyway (mieru is just marked unhealthy by urltest until it appears).
-        private const val MIERU_READY_TIMEOUT_MS = 8000L
-
         fun start() {
             val intent =
                 runBlocking {
@@ -79,11 +74,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val binder = ServiceBinder(status)
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
-    private val mieruHelper = MieruHelper(service)
-    // The active profile's sub URL when it carries a mieru outbound — kept so the mieru
-    // helper can be re-established on Doze-exit (its UDP session to the server dies during
-    // deep sleep, and unlike sing-box's own outbounds it isn't auto-reconnected).
-    private var mieruUrl: String? = null
 
     private var receiverRegistered = false
     private val receiver =
@@ -136,18 +126,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             lastProfileName = profile.name
-            // Bring up mieru's local SOCKS5 proxy ONLY if this profile actually carries a
-            // mieru outbound (skips a needless /helpers round-trip for the VLESS/Hy2/Naive-
-            // only majority). Primary path is the in-process bridge embedded in libbox.aar
-            // (every ABI); the exec'd libmieru.so is the fallback. Best-effort, on its own
-            // thread. sing-box's mieru outbound dials 127.0.0.1:<socksPort>.
-            mieruUrl = if (content.contains("\"mieru\"")) profile.typed.remoteURL else null
-            mieruUrl?.let {
-                mieruHelper.start(it)
-                // Don't load the config until mieru's socks backend is actually listening,
-                // or its outbound is probed against a dead port (see awaitReady).
-                mieruHelper.awaitReady(MIERU_READY_TIMEOUT_MS)
-            }
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
             }
@@ -203,7 +181,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     override fun serviceStop() {
         notification.close()
         status.postValue(Status.Starting)
-        mieruHelper.stop() // serviceStop()/stopAndAlert() teardown paths previously
         val pfd = fileDescriptor
         if (pfd != null) {
             pfd.close()
@@ -237,20 +214,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             return
         }
         lastProfileName = profile.name
-        // Reload re-reads the profile after auto-key-update (UpdateProfileWork), which may
-        // have ROTATED the mieru creds/server. mieru froze the old creds at start, and a
-        // bare start() is a no-op while running — so rebind with stop()+start() (re-fetches
-        // /helpers). stop() alone covers a profile that dropped mieru. No-op for non-mieru.
-        mieruHelper.stop()
-        mieruUrl = if (content.contains("\"mieru\"")) profile.typed.remoteURL else null
-        mieruUrl?.let {
-            mieruHelper.start(it)
-            // Block until the new mieru socks backend is up BEFORE reloading sing-box, so the
-            // `mieru` outbound isn't probed against a dead port on reload. The old config keeps
-            // serving the other 4 protocols meanwhile; mieru is only briefly down (as it would
-            // be during any creds refresh). Times out gracefully → reload proceeds regardless.
-            mieruHelper.awaitReady(MIERU_READY_TIMEOUT_MS)
-        }
         try {
             commandServer.startOrReloadService(
                 content,
@@ -304,17 +267,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             commandServer.pause()
         } else {
             commandServer.wake()
-            // Leaving Doze: mieru's UDP session to the server died during deep sleep and,
-            // unlike sing-box's own outbounds, the helper isn't auto-reconnected — so the
-            // first traffic through mieru stalls until it lazily redials ("после сна
-            // работает не сразу"). Re-establish it now so it's ready on unlock. Off-main;
-            // no-op for non-mieru profiles.
-            mieruUrl?.let { url ->
-                GlobalScope.launch(Dispatchers.IO) {
-                    mieruHelper.stop()
-                    mieruHelper.start(url)
-                }
-            }
         }
     }
 
@@ -333,7 +285,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             receiverRegistered = false
         }
         notification.close()
-        mieruHelper.stop()
         GlobalScope.launch(Dispatchers.IO) {
             val pfd = fileDescriptor
             if (pfd != null) {
@@ -370,7 +321,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             fileDescriptor = null
         }
         DefaultNetworkMonitor.stop()
-        mieruHelper.stop() // never leaked the mieru process/thread on the error path
         if (::commandServer.isInitialized) {
             closeService()
             commandServer.close()

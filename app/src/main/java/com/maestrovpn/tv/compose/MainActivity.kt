@@ -199,8 +199,8 @@ class MainActivity :
 
     /**
      * One-time nudge to exempt the app from battery optimization. Without it, Doze /
-     * OEM background killers can stop the foreground VPN service (and the mieru helper)
-     * after the screen is off for a while — the biggest reason a VPN "dies in the
+     * OEM background killers can stop the foreground VPN service after the screen is off
+     * for a while — the biggest reason a VPN "dies in the
      * background". Asked at most once (a pref flag); declining is respected. Sideloaded
      * app, so the BatteryLife policy that discourages this for Play does not apply.
      */

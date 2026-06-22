@@ -72,27 +72,24 @@ jobs:
           sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platforms;android-36" "build-tools;36.0.0" >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
 
-      - name: Fetch libbox.aar (mieru-embedded), gated on the SAME-COMMIT combined build
+      - name: Fetch libbox.aar, gated on the SAME-COMMIT libbox build
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           mkdir -p app/libs
-          ART=libbox-mieru-aar
+          ART=libbox-aar
           RUN_ID=""
           q() { python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') if isinstance(d,dict) else '')"; }
           sameSHA() {
-            gh run list --workflow=libbox-mieru.yml -L 30 \
+            gh run list --workflow=libbox.yml -L 30 \
               --json databaseId,headSha,status,conclusion \
               -q "[.[] | select(.headSha==\"$SHA\")] | .[0] // empty"
           }
-          # A push touching mieru-bridge/** or version.properties starts libbox-mieru.yml
-          # in PARALLEL with this run at the same SHA — so we must wait for THAT run, not a
-          # stale earlier one (which would silently ship the previous mieru). An app-only
-          # push doesn't rebuild libbox → no same-SHA run → reuse the newest combined aar
-          # (embedded mieru unchanged). Only if no combined build ever succeeded do we fall
-          # back to plain libbox.aar (mieru then runs via the exec'd libmieru.so).
+          # A push touching version.properties starts libbox.yml in PARALLEL with this run at
+          # the same SHA — so we must wait for THAT run, not a stale earlier one. An app-only
+          # push doesn't rebuild libbox → no same-SHA run → reuse the newest libbox.aar.
           SAME="$(sameSHA)"
           if [ -n "$SAME" ]; then
             for i in $(seq 1 60); do
@@ -101,47 +98,21 @@ jobs:
                 if [ "$CC" = "success" ]; then
                   RUN_ID="$(printf '%s' "$SAME" | q databaseId)"; break
                 fi
-                echo "::error::libbox-mieru build for $SHA concluded '$CC' — refusing to ship a stale/mismatched aar." >&2
+                echo "::error::libbox build for $SHA concluded '$CC' — refusing to ship a stale/mismatched aar." >&2
                 exit 1
               fi
-              echo "waiting for same-commit libbox-mieru build ($ST) [$i/60]..."
+              echo "waiting for same-commit libbox build ($ST) [$i/60]..."
               sleep 30; SAME="$(sameSHA)"
             done
-            [ -n "$RUN_ID" ] || { echo "::error::timed out waiting for same-commit libbox-mieru build" >&2; exit 1; }
+            [ -n "$RUN_ID" ] || { echo "::error::timed out waiting for same-commit libbox build" >&2; exit 1; }
           fi
           if [ -z "$RUN_ID" ]; then
-            RUN_ID=$(gh run list --workflow=libbox-mieru.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
-          fi
-          if [ -z "$RUN_ID" ]; then
-            echo "::warning::No successful libbox-mieru build yet — falling back to plain libbox.aar (mieru via exec)." >&2
             RUN_ID=$(gh run list --workflow=libbox.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
-            ART=libbox-aar
           fi
-          [ -n "$RUN_ID" ] || { echo "::error::No successful libbox build found — run libbox-mieru.yml (or libbox.yml) first." >&2; exit 1; }
+          [ -n "$RUN_ID" ] || { echo "::error::No successful libbox build found — run libbox.yml first." >&2; exit 1; }
           echo "Downloading $ART from run $RUN_ID (commit $SHA)"
           gh run download "$RUN_ID" -n "$ART" -D app/libs
           ls -lh app/libs/
-
-      - name: Bundle the Mieru client helper (arm64 + armv7) into jniLibs
-        run: |
-          set -euo pipefail
-          MIERU_VER=3.33.0
-          tmp=$(mktemp -d)
-          mkdir -p app/src/main/jniLibs/arm64-v8a app/src/main/jniLibs/armeabi-v7a
-          # arm64-v8a (modern TV boxes + phones) — official Android build.
-          curl -fLS -o "$tmp/a64.tgz" "https://github.com/enfein/mieru/releases/download/v${MIERU_VER}/mieru_${MIERU_VER}_android_arm64.tar.gz"
-          mkdir -p "$tmp/a64" && tar xzf "$tmp/a64.tgz" -C "$tmp/a64"
-          # must be named lib*.so so AGP extracts it to nativeLibraryDir as an executable.
-          install -m 0755 "$tmp/a64/mieru" app/src/main/jniLibs/arm64-v8a/libmieru.so
-          # armeabi-v7a (old 32-bit TV boxes). mieru ships no android_armv7, but its
-          # linux_armv7 build is a STATIC Go binary (GOARM=7/VFP) that runs on Android
-          # armeabi-v7a. If a given box rejects it, MieruHelper.exec fails and the app
-          # falls back to the other 3 protocols — no worse than not shipping it.
-          curl -fLS -o "$tmp/a32.tgz" "https://github.com/enfein/mieru/releases/download/v${MIERU_VER}/mieru_${MIERU_VER}_linux_armv7.tar.gz"
-          mkdir -p "$tmp/a32" && tar xzf "$tmp/a32.tgz" -C "$tmp/a32"
-          install -m 0755 "$tmp/a32/mieru" app/src/main/jniLibs/armeabi-v7a/libmieru.so
-          rm -rf "$tmp"
-          ls -lh app/src/main/jniLibs/arm64-v8a/ app/src/main/jniLibs/armeabi-v7a/
 
       - name: Materialize the stable signing keystore from secret
         env:
