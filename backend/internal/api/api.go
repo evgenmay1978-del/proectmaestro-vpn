@@ -7,8 +7,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"io"
-	"log"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -32,7 +30,7 @@ type Provisioner interface {
 	SetExpiry(login string, t time.Time) (*store.Customer, error)
 	ActivateExisting(login string) (*store.Customer, error)
 	// BackfillAnyTLS gives AnyTLS to existing customers that lack it, re-syncing only the
-	// server-2 AnyTLS server (no hy2/naive/mieru restart). Returns the count backfilled.
+	// server-2 AnyTLS server (no hy2/naive restart). Returns the count backfilled.
 	BackfillAnyTLS() (int, error)
 	// MigrateAnyTLSEndpoint repoints existing customers' AnyTLS creds to the configured
 	// endpoint (the S1:8444 → S2:8443 cutover), password-preserving. Returns the count moved.
@@ -84,10 +82,6 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
 	mux.HandleFunc("/claim", s.handleClaim)
-	// Diagnostic sink: the on-device Mieru helper POSTs its run output/status here
-	// so the actual failure is visible server-side (read via journalctl). No auth —
-	// it only writes to the panel log, capped, token charset-checked.
-	mux.HandleFunc("/mierulog/", s.handleMieruLog)
 	if s.cfg.UpdateDir != "" {
 		// Panel-hosted OTA update channel — the RU-reachable update source the app
 		// prefers over GitHub (throttled from Russian ISPs). Same host:port the
@@ -131,8 +125,8 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	// Tolerate a TV-app 1.0.74 bug: the stored sub URL's ?device=<id> query got
 	// concatenated with the /helpers (or /info) suffix — "/sub/<tok>?device=<id>/helpers"
 	// — so the suffix landed in the query and the PATH lost it. Recover the intent so
-	// already-installed 1.0.74 devices keep working (this is what broke Mieru, the only
-	// protocol needing /helpers). The mangled device value fails deviceIDRe → not counted.
+	// already-installed 1.0.74 devices keep working. The mangled device value fails
+	// deviceIDRe → not counted.
 	if !wantHelpers && !wantInfo {
 		if dev := r.URL.Query().Get("device"); strings.HasSuffix(dev, "/helpers") {
 			wantHelpers = true
@@ -174,7 +168,7 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	}
 	// Universal share-links subscription for cross-platform clients (Karing on
 	// iPhone, v2rayN, NekoBox, Shadowrocket…), requested via ?app=karing /
-	// ?format=links. Mieru is excluded (Android-app-only — needs the local helper).
+	// ?format=links.
 	if q := r.URL.Query(); q.Get("app") == "karing" || q.Get("format") == "links" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -191,23 +185,11 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(cfg)
 }
 
-// writeHelpers serves GET /sub/<token>/helpers — the server creds for protocols
-// the app runs as a bundled local SOCKS helper (only Mieru: sing-box dials the
-// helper on 127.0.0.1:<socks>, the helper authenticates to mita with these). VLESS
-// / Hy2 / Naive are native sing-box outbounds and need nothing here, so the object
-// is empty when the customer has no helper protocols.
+// writeHelpers serves GET /sub/<token>/helpers. Every protocol is a native sing-box
+// outbound now, so no on-device helper creds are needed and this always returns {}.
+// Kept as a 200-{} stub so older installed apps that still poll the path don't 404.
 func (s *Server) writeHelpers(w http.ResponseWriter, c *store.Customer) {
 	out := map[string]any{}
-	if c.Mieru != nil {
-		out["mieru"] = map[string]any{
-			"server":    c.Mieru.Server,
-			"port":      c.Mieru.Port,
-			"username":  c.Mieru.Username,
-			"password":  c.Mieru.Password,
-			"transport": c.Mieru.Transport,
-			"socks":     c.Mieru.HelperSOCKS,
-		}
-	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(out)
@@ -291,21 +273,6 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(s.cfg.UpdateDir, name))
-}
-
-// handleMieruLog records the on-device Mieru helper's run output so the actual
-// failure (exec error, bad config, auth/connection error from mita) is visible in
-// the panel log without device access. Diagnostic only — writes nothing but a log
-// line; body capped at 8KB; token must match the safe charset.
-func (s *Server) handleMieruLog(w http.ResponseWriter, r *http.Request) {
-	tok := strings.TrimPrefix(r.URL.Path, "/mierulog/")
-	if !claimCodeRe.MatchString(tok) {
-		http.NotFound(w, r)
-		return
-	}
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
-	log.Printf("mierulog [%s]: %s", tok, strings.TrimSpace(string(body)))
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleClaim is the public install-time exchange. The customer enters the short

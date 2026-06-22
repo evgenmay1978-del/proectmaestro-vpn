@@ -36,7 +36,7 @@ const caddyfilePath = "/etc/caddy/Caddyfile"
 // previous Caddyfile on ANY failure so a bad write never takes naive down.
 //
 // The whole app naive user set is regenerated each call (full sync, like
-// Hysteria/Mieru), so an expired/disabled customer dropped from `users` can no
+// Hysteria), so an expired/disabled customer dropped from `users` can no
 // longer connect after the next sync.
 func (c *Client) SyncNaiveUsers(users []NaiveUser) error {
 	var b strings.Builder

@@ -47,9 +47,6 @@ func (s *Server) respCustomer(w http.ResponseWriter, c *store.Customer) {
 	if c.Naive != nil {
 		protos = append(protos, "naive")
 	}
-	if c.Mieru != nil {
-		protos = append(protos, "mieru")
-	}
 	if c.AnyTLS != nil {
 		protos = append(protos, "anytls")
 	}
@@ -102,7 +99,7 @@ func (s *Server) handleExtend(w http.ResponseWriter, r *http.Request) {
 
 // handleSetExpiry (admin): MIRROR an absolute expiry set by a channel that owns the date
 // (the s2 naive bot) into the unified account — sets the store date (no stacking) + fans
-// it out to the customer's other protocols (VLESS date, Hy2/Mieru membership), without
+// it out to the customer's other protocols (VLESS date, Hy2 membership), without
 // touching the raw naive the s2 bot owns. Backfills via ActivateExisting if not in store.
 func (s *Server) handleSetExpiry(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -211,7 +208,7 @@ func (s *Server) handleCustomer(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBackfillAnyTLS (admin): give AnyTLS to every existing customer that lacks it,
-// re-syncing ONLY the server-2 sing-box AnyTLS server — never hy2/naive/mieru — so live
+// re-syncing ONLY the server-2 sing-box AnyTLS server — never hy2/naive — so live
 // customers are not disturbed. One-shot after enabling AnyTLS; idempotent.
 func (s *Server) handleBackfillAnyTLS(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -228,7 +225,7 @@ func (s *Server) handleBackfillAnyTLS(w http.ResponseWriter, r *http.Request) {
 
 // handleMigrateAnyTLSS2 (admin): repoint every existing customer's AnyTLS credential to the
 // CURRENTLY configured endpoint (the S1:8444 → S2:8443 cutover) WITHOUT changing passwords,
-// then re-sync ONLY the AnyTLS server — never hy2/naive/mieru — so live customers are not
+// then re-sync ONLY the AnyTLS server — never hy2/naive — so live customers are not
 // disturbed. One-shot after pointing ANYTLS_* at server 2; idempotent.
 func (s *Server) handleMigrateAnyTLSS2(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

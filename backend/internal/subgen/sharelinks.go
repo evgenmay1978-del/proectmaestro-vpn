@@ -11,9 +11,6 @@ import (
 // vless:// / hysteria2:// / naive:// share-links that cross-platform clients
 // (Karing, v2rayN, NekoBox, Streisand, Shadowrocket, …) import from a URL or QR.
 // This is how non-Android customers (iPhone via Karing) get the subscription.
-//
-// Mieru is intentionally omitted: it has no standard share-link and needs the
-// MaestroVPN app's bundled local helper, so it stays exclusive to our Android app.
 func ShareLinks(c Customer) string {
 	var links []string
 	if c.VLESS != nil {

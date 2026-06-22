@@ -141,7 +141,7 @@ func (s *Server) handleOrderConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	dur := time.Duration(o.Days) * 24 * time.Hour
 	// RENEW the same account if its login already exists (Extend stacks the days from
-	// max(now, current expiry) and re-writes every panel — 3x-ui date + Hy2/Naive/Mieru
+	// max(now, current expiry) and re-writes every panel — 3x-ui date + Hy2/Naive
 	// membership); otherwise provision a fresh account. This is what makes an in-app
 	// renewal keep the customer's existing subscription instead of orphaning it.
 	var cust *store.Customer

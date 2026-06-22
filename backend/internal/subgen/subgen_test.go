@@ -14,7 +14,6 @@ func sampleCustomer() Customer {
 		},
 		Hy2:    &Hy2Creds{Server: "wapmix.duckdns.org", Port: 8443, User: "cust1", Pass: "pw", SNI: "wapmix.duckdns.org", Insecure: true},
 		Naive:  &NaiveCreds{Server: "wapmixx.ru", Port: 443, Username: "mtv_cust1", Password: "np", SNI: "naive.example"},
-		Mieru:  &MieruCreds{Server: "85.137.166.237", Port: 2027, Username: "cust1", Password: "mp", Transport: "TCP", HelperSOCKS: 11082},
 		AnyTLS: &AnyTLSCreds{Server: "wapmixx.ru", Port: 8444, Password: "atpw", SNI: "wapmixx.ru", Insecure: true},
 	}
 }
@@ -37,7 +36,7 @@ func TestGenerateSingboxAllProtocols(t *testing.T) {
 	}
 	want := map[string]string{
 		tagVLESS: "vless", tagHy2: "hysteria2", tagNaive: "naive",
-		tagMieru: "socks", tagAnyTLS: "anytls", tagAuto: "urltest", tagPick: "selector", "direct": "direct",
+		tagAnyTLS: "anytls", tagAuto: "urltest", tagPick: "selector", "direct": "direct",
 	}
 	for tag, typ := range want {
 		if tags[tag] != typ {

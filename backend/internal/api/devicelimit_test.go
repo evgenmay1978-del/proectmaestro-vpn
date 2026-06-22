@@ -3,11 +3,9 @@ package api
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -132,42 +130,6 @@ func TestResetDevicesClears(t *testing.T) {
 	}
 	if code := subStatus(t, srv.URL, tok, "dev-6"); code != http.StatusOK {
 		t.Fatalf("6th after reset = %d, want 200", code)
-	}
-}
-
-// TestHelpersToleratesMangledDeviceURL: the TV-app 1.0.74 bug appended ?device=<id> onto
-// the sub URL, so the mieru helper fetched ".../sub/<tok>?device=<id>/helpers" — the suffix
-// landed in the query and the panel served the config (no mieru creds) → Mieru broke. The
-// panel must recover the /helpers intent from the mangled query so live 1.0.74 devices work.
-func TestHelpersToleratesMangledDeviceURL(t *testing.T) {
-	st, _ := store.Open(filepath.Join(t.TempDir(), "s.json"))
-	tok := "tok-mieru"
-	_ = st.Put(&store.Customer{
-		Login: "mcustomer", SubToken: tok, Expires: time.Now().Add(720 * time.Hour),
-		VLESS: &subgen.VLESSCreds{Server: "s", Port: 443, UUID: "u"},
-		Mieru: &subgen.MieruCreds{Server: "1.2.3.4", Port: 443, Username: "mcustomer", Password: "pw", Transport: "UDP", HelperSOCKS: 18667},
-	})
-	srv := httptest.NewServer(New(st, &fakeProv{st: st}, nil, Config{AdminToken: "sek", EnforceDeviceLimit: true}).Handler())
-	defer srv.Close()
-	get := func(path string) (int, string) {
-		r, err := http.Get(srv.URL + path)
-		if err != nil {
-			t.Fatalf("get %s: %v", path, err)
-		}
-		defer func() { _ = r.Body.Close() }()
-		b, _ := io.ReadAll(r.Body)
-		return r.StatusCode, string(b)
-	}
-	if code, body := get("/sub/" + tok + "/helpers"); code != 200 || !strings.Contains(body, "mieru") {
-		t.Fatalf("clean /helpers = %d %q", code, body)
-	}
-	// MANGLED (the 1.0.74 bug) — must still return the mieru creds, not the config
-	if code, body := get("/sub/" + tok + "?device=devA/helpers"); code != 200 || !strings.Contains(body, "mieru") {
-		t.Fatalf("mangled /helpers = %d %q — tolerance failed", code, body)
-	}
-	// a CLEAN device poll (no mangled suffix) must still return the config, not helpers
-	if code, body := get("/sub/" + tok + "?device=devA"); code != 200 || !strings.Contains(body, "outbounds") {
-		t.Fatalf("clean config poll = %d (len %d) — should be the sing-box config", code, len(body))
 	}
 }
 

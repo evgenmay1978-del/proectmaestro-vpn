@@ -28,7 +28,6 @@ type Customer struct {
 	VLESS    *subgen.VLESSCreds  `json:"vless,omitempty"`
 	Hy2      *subgen.Hy2Creds    `json:"hy2,omitempty"`
 	Naive    *subgen.NaiveCreds  `json:"naive,omitempty"`
-	Mieru    *subgen.MieruCreds  `json:"mieru,omitempty"`
 	AnyTLS   *subgen.AnyTLSCreds `json:"anytls,omitempty"`
 	// Devices is the set of distinct app installs that have activated/polled this
 	// account (deviceId → first-seen). It backs the per-account device cap, enforced
@@ -45,7 +44,7 @@ func (c *Customer) Active() bool {
 
 // ToSubgen maps a customer to the subscription generator input.
 func (c *Customer) ToSubgen() subgen.Customer {
-	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, Mieru: c.Mieru, AnyTLS: c.AnyTLS}
+	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS}
 }
 
 // clone returns an independent deep copy so callers can read it without the lock
@@ -68,10 +67,6 @@ func (c *Customer) clone() *Customer {
 	if c.Naive != nil {
 		n := *c.Naive
 		cp.Naive = &n
-	}
-	if c.Mieru != nil {
-		m := *c.Mieru
-		cp.Mieru = &m
 	}
 	if c.AnyTLS != nil {
 		a := *c.AnyTLS

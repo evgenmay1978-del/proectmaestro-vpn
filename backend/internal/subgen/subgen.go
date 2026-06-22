@@ -5,19 +5,15 @@
 //   - VLESS/Reality (3x-ui)         — native sing-box outbound
 //   - Hysteria2                     — native sing-box outbound
 //   - Naive (Caddy forward_proxy)   — native sing-box `naive` outbound
-//   - Mieru                         — socks outbound to a local mieru helper
+//   - AnyTLS                        — native sing-box outbound
 //
 // plus a `selector` (manual protocol switch) and a `urltest` (auto failover),
 // a `tun` inbound, and a route block that supports per-app split tunnelling.
-// Mieru has no native sing-box outbound, so the app runs the mieru client as a
-// local SOCKS helper on the HelperSOCKS port referenced here; Naive does NOT
-// need a helper (sing-box dials it natively).
 package subgen
 
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 )
 
 // VLESSCreds is a 3x-ui VLESS+Reality client.
@@ -52,18 +48,6 @@ type NaiveCreds struct {
 	SNI      string
 }
 
-// MieruCreds is a Mieru user. sing-box has NO native mieru outbound, so the app
-// runs the mieru client as a local SOCKS5 helper (on HelperSOCKS) that sing-box
-// dials; the server fields below configure that helper.
-type MieruCreds struct {
-	Server      string
-	Port        int
-	Username    string
-	Password    string
-	Transport   string // "TCP" or "UDP"
-	HelperSOCKS int    // 127.0.0.1:<port> the app's mieru helper listens on
-}
-
 // AnyTLSCreds is an AnyTLS user. sing-box has a NATIVE `anytls` outbound (no helper
 // needed); the protocol wraps traffic in standard TLS + a padding scheme to defeat the
 // TLS-in-TLS fingerprint DPI uses against TLS proxies.
@@ -82,7 +66,6 @@ type Customer struct {
 	VLESS  *VLESSCreds
 	Hy2    *Hy2Creds
 	Naive  *NaiveCreds
-	Mieru  *MieruCreds
 	AnyTLS *AnyTLSCreds
 }
 
@@ -90,7 +73,6 @@ const (
 	tagVLESS  = "vless"
 	tagHy2    = "hysteria2"
 	tagNaive  = "naive"
-	tagMieru  = "mieru"
 	tagAnyTLS = "anytls"
 	tagAuto   = "auto"   // urltest
 	tagPick   = "select" // selector (default outbound the tun routes to)
@@ -149,10 +131,6 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		outbounds = append(outbounds, naiveOutbound(c.Naive))
 		protoTags = append(protoTags, tagNaive)
 	}
-	if c.Mieru != nil {
-		outbounds = append(outbounds, socksOutbound(tagMieru, c.Mieru.HelperSOCKS))
-		protoTags = append(protoTags, tagMieru)
-	}
 	if c.AnyTLS != nil {
 		outbounds = append(outbounds, anytlsOutbound(c.AnyTLS))
 		protoTags = append(protoTags, tagAnyTLS)
@@ -189,20 +167,6 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_is_private": true, "action": "route", "outbound": "direct"},
-	}
-	// Anti-loop for Mieru. The mieru client dials the mita server with its OWN
-	// net.Dial — whether it runs in-process (embedded in libbox.aar) or as the exec'd
-	// libmieru.so fallback — so that TCP socket is NOT one of sing-box's own outbound
-	// fds and is never protect()'d. With strict_route + the tun capturing the app's own
-	// package, that carrier connection re-enters the tun and gets routed back to the
-	// local mieru socks outbound (final=select) — an infinite loop, so ZERO packets ever
-	// reach mita (verified by on-server tcpdump). Pin the mieru server endpoint to a
-	// DIRECT route so the carrier traffic egresses the real interface. STILL REQUIRED
-	// after the in-process migration (it's about protect(), not process boundaries).
-	// Native VLESS/Hy2/Naive don't need this (sing-box protect()s their fds). Placed
-	// above the force-proxy / RU-direct rules so it short-circuits first.
-	if c.Mieru != nil && c.Mieru.Server != "" {
-		routeRules = append(routeRules, mieruDirectRule(c.Mieru.Server))
 	}
 	routeRules = append(routeRules,
 		// Foreign services (Google/Gemini/YouTube) MUST go through the tunnel.
@@ -355,29 +319,6 @@ func anytlsOutbound(a *AnyTLSCreds) map[string]any {
 		"password": a.Password,
 		"tls":      map[string]any{"enabled": true, "server_name": a.SNI, "insecure": a.Insecure},
 	}
-}
-
-func socksOutbound(tag string, port int) map[string]any {
-	return map[string]any{
-		"type": "socks", "tag": tag,
-		"server": "127.0.0.1", "server_port": port, "version": "5",
-	}
-}
-
-// mieruDirectRule pins the mieru server endpoint to a DIRECT route. mieru dials
-// mita with its own net.Dial (in-process bridge OR exec fallback), a socket sing-box
-// can't protect(), so its carrier connection must bypass the tun or it loops back
-// into the local mieru socks outbound. Mieru servers are configured by raw IP (no
-// SNI on the wire), so match by ip_cidr; fall back to domain_suffix if ever a hostname.
-func mieruDirectRule(server string) map[string]any {
-	if ip := net.ParseIP(server); ip != nil {
-		cidr := server + "/32"
-		if ip.To4() == nil {
-			cidr = server + "/128"
-		}
-		return map[string]any{"ip_cidr": []string{cidr}, "action": "route", "outbound": "direct"}
-	}
-	return map[string]any{"domain_suffix": []string{server}, "action": "route", "outbound": "direct"}
 }
 
 func fallback(s, def string) string {

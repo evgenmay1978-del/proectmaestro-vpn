@@ -2,9 +2,6 @@
 // customer across every server — a VLESS client in 3x-ui (server 1) and a
 // Hysteria2 user on server 2 — records it in the store, and re-syncs the
 // server-2 Hysteria user set so only active customers can connect.
-//
-// (Naive and Mieru provisioning plug in here the same way once their server-side
-// management is wired.)
 package provision
 
 import (
@@ -32,11 +29,10 @@ type VLESSClienter interface {
 }
 
 // Server2 is the slice of the server-2 client provision needs (so it can be
-// faked): the Hysteria/Mieru/Naive user-set syncs plus a lookup of an existing
+// faked): the Hysteria/Naive user-set syncs plus a lookup of an existing
 // naive credential (for activating customers already on the naive panel).
 type Server2 interface {
 	SyncHy2Users(users []server2.Hy2User) error
-	SyncMieruUsers(users []server2.MieruUser) error
 	SyncNaiveUsers(users []server2.NaiveUser) error
 	SyncAnyTLSUsers(users []server2.AnyTLSUser) error
 	ReadNaiveUser(username string) (string, bool, error)
@@ -71,15 +67,6 @@ type NaiveTmpl struct {
 	SNI    string
 }
 
-// MitaTmpl is the server-2 Mieru (mita) listener + the local SOCKS port the
-// app's bundled mieru helper exposes for sing-box to dial.
-type MitaTmpl struct {
-	Server      string
-	Port        int    // 2027
-	Transport   string // "TCP"
-	HelperSOCKS int    // 127.0.0.1:<port> the app's mieru helper listens on
-}
-
 // AnyTLSTmpl is the server-2 AnyTLS listener facts shared by all clients. AnyTLS is a
 // NATIVE sing-box outbound (no on-device helper). Optional: empty Server = not provisioned.
 type AnyTLSTmpl struct {
@@ -89,13 +76,12 @@ type AnyTLSTmpl struct {
 	Insecure bool // self-signed cert → true
 }
 
-// Config holds the per-server templates. Naive/Mita/AnyTLS are optional: if their
+// Config holds the per-server templates. Naive/AnyTLS are optional: if their
 // Server is empty, that protocol is simply not provisioned.
 type Config struct {
 	VLESS  VLESSTmpl
 	Hy2    Hy2Tmpl
 	Naive  NaiveTmpl
-	Mita   MitaTmpl
 	AnyTLS AnyTLSTmpl
 }
 
@@ -236,9 +222,8 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	}
 
 	// Extra protocols — best-effort: never fail the provision (VLESS+Hy2 are
-	// already up) if Naive's panel or the Mieru daemon isn't reachable yet.
+	// already up) if Naive's panel isn't reachable yet.
 	p.addNaive(cust, login)
-	p.addMieru(cust, login)
 	p.addAnyTLS(cust, login)
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store extras: %w", err)
@@ -247,13 +232,6 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 		if err := p.syncNaive(); err != nil {
 			log.Printf("provision: naive sync for %q skipped: %v", login, err)
 			cust.Naive = nil
-			_ = p.st.Put(cust)
-		}
-	}
-	if cust.Mieru != nil {
-		if err := p.syncMieru(); err != nil {
-			log.Printf("provision: mieru sync for %q skipped: %v", login, err)
-			cust.Mieru = nil
 			_ = p.st.Put(cust)
 		}
 	}
@@ -269,7 +247,7 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 
 // ActivateExisting activates an EXISTING customer (in 3x-ui and/or on the naive
 // panel) by their login and gives them ALL protocols: it reuses their existing
-// VLESS / Naive credential where present and creates the rest (Hy2, Mieru, plus
+// VLESS / Naive credential where present and creates the rest (Hy2, plus
 // VLESS or Naive if they lacked one), at their existing 3x-ui expiry (or 30 days
 // if only on the naive panel). So a customer already paying just types their login
 // and gets the full multi-protocol app.
@@ -346,8 +324,6 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 		p.addNaive(cust, login)
 	}
 
-	// Mieru.
-	p.addMieru(cust, login)
 	// AnyTLS (native sing-box outbound, server 1).
 	p.addAnyTLS(cust, login)
 
@@ -361,13 +337,6 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
 		if err := p.syncNaive(); err != nil {
 			log.Printf("activate: naive sync %q: %v", login, err)
-		}
-	}
-	if cust.Mieru != nil {
-		if err := p.syncMieru(); err != nil {
-			log.Printf("activate: mieru sync %q: %v", login, err)
-			cust.Mieru = nil
-			_ = p.st.Put(cust)
 		}
 	}
 	if cust.AnyTLS != nil {
@@ -411,7 +380,7 @@ func (p *Provisioner) SetExpiry(login string, t time.Time) (*store.Customer, err
 }
 
 // fanOutExpiry pushes the customer's current store expiry to 3x-ui (VLESS date, preserving
-// the bot subId) and re-syncs Hy2 / Naive(mtv_ only) / Mieru membership. The caller holds
+// the bot subId) and re-syncs Hy2 / Naive(mtv_ only) membership. The caller holds
 // p.mu. It deliberately does NOT touch a raw (non-mtv_) naive user — the s2 bot owns that.
 func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 	if cust.VLESS != nil {
@@ -439,11 +408,6 @@ func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
 		if err := p.syncNaive(); err != nil {
 			log.Printf("provision: sync naive %q: %v", cust.Login, err)
-		}
-	}
-	if cust.Mieru != nil {
-		if err := p.syncMieru(); err != nil {
-			log.Printf("provision: sync mieru %q: %v", cust.Login, err)
 		}
 	}
 	if cust.AnyTLS != nil {
@@ -528,30 +492,6 @@ func (p *Provisioner) syncNaive() error {
 	return p.s2.SyncNaiveUsers(users)
 }
 
-// addMieru records Mieru creds; the actual server-side user set is pushed by
-// syncMieru (called after the customer is stored). No-op if Mieru isn't configured.
-func (p *Provisioner) addMieru(cust *store.Customer, login string) {
-	if p.cfg.Mita.Server == "" {
-		return
-	}
-	cust.Mieru = &subgen.MieruCreds{
-		Server: p.cfg.Mita.Server, Port: p.cfg.Mita.Port,
-		Username: login, Password: randHex(16),
-		Transport: fallbackStr(p.cfg.Mita.Transport, "TCP"), HelperSOCKS: p.cfg.Mita.HelperSOCKS,
-	}
-}
-
-// syncMieru regenerates server-2's mita user set from all ACTIVE customers.
-func (p *Provisioner) syncMieru() error {
-	var users []server2.MieruUser
-	for _, c := range p.st.List() {
-		if c.Active() && c.Mieru != nil {
-			users = append(users, server2.MieruUser{User: c.Mieru.Username, Pass: c.Mieru.Password})
-		}
-	}
-	return p.s2.SyncMieruUsers(users)
-}
-
 // addAnyTLS records AnyTLS creds (a NATIVE sing-box outbound — no on-device helper).
 // No-op if AnyTLS isn't configured. The client authenticates by password, so it's unique.
 func (p *Provisioner) addAnyTLS(cust *store.Customer, login string) {
@@ -581,7 +521,7 @@ func (p *Provisioner) syncAnyTLS() error {
 
 // BackfillAnyTLS gives AnyTLS to every stored customer that lacks it WITHOUT touching any
 // other protocol: it only re-syncs the server-2 AnyTLS server (sing-box-anytls), never
-// hy2/naive/mieru, so existing customers' live connections are never disturbed. No-op when
+// hy2/naive, so existing customers' live connections are never disturbed. No-op when
 // AnyTLS isn't configured. Idempotent — re-running only adds it to anyone still missing it.
 // Returns how many customers were backfilled. Run once after enabling AnyTLS so the existing
 // customer base gets the 5th protocol with zero blip to the other four.
@@ -648,13 +588,6 @@ func (p *Provisioner) MigrateAnyTLSEndpoint() (int, error) {
 		}
 	}
 	return n, nil
-}
-
-func fallbackStr(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }
 
 // parseProxyExpiry parses the ISO end date stored by the server-2 naive bot

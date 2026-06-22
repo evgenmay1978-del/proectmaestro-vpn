@@ -69,8 +69,6 @@ func main() {
 		s2 := server2.New(server2.Config{
 			Host: env("S2_HOST", "85.137.166.237"), User: env("S2_USER", "root"),
 			Password: os.Getenv("S2_PASSWORD"), Hy2Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
-			MitaPort:         atoi(os.Getenv("S2_MITA_PORT"), 2027),
-			MitaTransport:    env("MITA_TRANSPORT", "TCP"),
 			NaivePanelURL:    os.Getenv("NAIVE_PANEL_URL"),
 			NaivePanelUser:   os.Getenv("NAIVE_PANEL_USER"),
 			NaivePanelPass:   os.Getenv("NAIVE_PANEL_PASS"),
@@ -93,13 +91,6 @@ func main() {
 				SNI: env("HY2_SNI", "wapmix.duckdns.org"), Insecure: env("HY2_INSECURE", "1") == "1",
 			},
 		}
-		// Mieru: enabled once the mita daemon is installed on server 2 (set S2_MITA_PORT).
-		if os.Getenv("S2_MITA_PORT") != "" {
-			provCfg.Mita = provision.MitaTmpl{
-				Server: env("S2_HOST", "85.137.166.237"), Port: atoi(os.Getenv("S2_MITA_PORT"), 2027),
-				Transport: env("MITA_TRANSPORT", "TCP"), HelperSOCKS: atoi(os.Getenv("MITA_HELPER_SOCKS"), 18667),
-			}
-		}
 		// Naive: enabled when the rixxx-panel is reachable + NAIVE_SERVER set.
 		if os.Getenv("NAIVE_SERVER") != "" {
 			provCfg.Naive = provision.NaiveTmpl{
@@ -108,7 +99,7 @@ func main() {
 			}
 		}
 		// AnyTLS: standalone sing-box "anytls" server on SERVER 2 (8443/tcp), managed over
-		// SSH alongside hy2/mieru/naive (server-side facts live in server2.Config above).
+		// SSH alongside hy2/naive (server-side facts live in server2.Config above).
 		// Enabled when ANYTLS_SERVER is set.
 		if os.Getenv("ANYTLS_SERVER") != "" {
 			provCfg.AnyTLS = provision.AnyTLSTmpl{
@@ -118,8 +109,8 @@ func main() {
 		}
 		pc := provision.New(st, xc, s2, provCfg)
 		prov = pc
-		log.Printf("provisioning enabled (3x-ui + server2; mieru=%v naive=%v anytls=%v)",
-			os.Getenv("S2_MITA_PORT") != "", os.Getenv("NAIVE_SERVER") != "", os.Getenv("ANYTLS_SERVER") != "")
+		log.Printf("provisioning enabled (3x-ui + server2; naive=%v anytls=%v)",
+			os.Getenv("NAIVE_SERVER") != "", os.Getenv("ANYTLS_SERVER") != "")
 		// Pull each customer's authoritative expiry from whichever panel owns it (3x-ui
 		// VLESS and/or the s2 naive panel) into the unified store, advance-only, every
 		// 15 min — so a renewal in ANY of the 3 panels propagates to the app + the
