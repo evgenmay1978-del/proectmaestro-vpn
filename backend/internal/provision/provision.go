@@ -135,10 +135,18 @@ const DeviceLimit = 5
 // one Telegram; all unlimited on devices AND days).
 var unlimitedLogins = map[string]bool{"wapmix": true, "wapmixx": true, "wapmix2": true}
 
+// deviceLimitOverrides raises (or lowers) the cap for specific logins — e.g. a customer
+// with more household devices. (For UNLIMITED use unlimitedLogins, not 0 here.)
+var deviceLimitOverrides = map[string]int{"strogino": 8}
+
 // deviceLimit returns the per-login limitIp (0 = unlimited).
 func deviceLimit(login string) int {
-	if unlimitedLogins[strings.ToLower(login)] {
+	l := strings.ToLower(login)
+	if unlimitedLogins[l] {
 		return 0
+	}
+	if n, ok := deviceLimitOverrides[l]; ok {
+		return n
 	}
 	return DeviceLimit
 }

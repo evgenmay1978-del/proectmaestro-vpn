@@ -84,11 +84,14 @@ const (
 // branch — native sing-box .srs, rebuilt every 6h. `ru-available-only-inside`
 // is the domestic-only domain list (NOT a blanket .ru TLD, NOT the proxy-side
 // censorship list). geoip-ru is a secondary catch for raw-IP RU apps with no
-// SNI. Both fetched THROUGH the tunnel (download_detour=select) so the URL need
-// not be reachable from a Russian ISP in the clear.
+// SNI. Served DIRECT from our RU-domestic mirror (Yandex Object Storage) and
+// fetched with download_detour=direct at startup: GitHub raw is throttled in RU,
+// and the old download_detour=select fetched THROUGH the tunnel — which fails
+// before the tunnel is up ("Создание службы … context canceled"). An S1 timer
+// (maestro-rules-mirror) refreshes the mirror from runetfreedom (rebuilt ~6h).
 const (
-	ruDomainsURL = "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/rule-set-geosite/geosite-ru-available-only-inside.srs"
-	ruIPURL      = "https://raw.githubusercontent.com/runetfreedom/russia-v2ray-rules-dat/release/sing-box/rule-set-geoip/geoip-ru.srs"
+	ruDomainsURL = "https://storage.yandexcloud.net/maestro-apk/rules/geosite-ru-available-only-inside.srs"
+	ruIPURL      = "https://storage.yandexcloud.net/maestro-apk/rules/geoip-ru.srs"
 
 	tagRUDomains = "ru-direct-domains"
 	tagRUIP      = "ru-direct-ip"
@@ -247,21 +250,23 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			// never loops through itself. This was why connect succeeded but no
 			// traffic flowed (the proxy domain couldn't be resolved).
 			"default_domain_resolver": "local",
-			// Remote .srs rule-sets, fetched THROUGH the tunnel (download_detour =
-			// the selector) so the GitHub URL need not be RU-reachable in the clear.
+			// Remote .srs rule-sets from our RU-domestic mirror, fetched DIRECT
+			// (download_detour=direct) at startup — NOT through the tunnel: the
+			// selector isn't connected yet during service init, so a proxied fetch
+			// fails ("context canceled") and the whole service refuses to start.
 			// format:binary is mandatory for .srs. download_detour is deprecated in
 			// sing-box 1.14 / removed in 1.16 → swap for http_client.detour on bump.
 			"rule_set": []map[string]any{
 				{
 					"type": "remote", "tag": tagRUDomains, "format": "binary",
 					"url":             ruDomainsURL,
-					"download_detour": tagPick,
+					"download_detour": "direct",
 					"update_interval": "24h",
 				},
 				{
 					"type": "remote", "tag": tagRUIP, "format": "binary",
 					"url":             ruIPURL,
-					"download_detour": tagPick,
+					"download_detour": "direct",
 					"update_interval": "24h",
 				},
 			},

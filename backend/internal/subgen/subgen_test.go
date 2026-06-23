@@ -70,15 +70,17 @@ func TestGenerateSingboxAllProtocols(t *testing.T) {
 	}
 
 	// RU-direct split routing: the two .srs rule-sets must be declared, both
-	// fetched through the selector (download_detour) so the URL needn't be
-	// RU-reachable, and a route rule must send them to the direct outbound.
+	// fetched DIRECT (download_detour=direct) from our RU-domestic mirror — NOT
+	// through the selector, which isn't connected during service init (a proxied
+	// fetch fails "context canceled" and the service won't start). A route rule
+	// must send them to the direct outbound.
 	route := cfg["route"].(map[string]any)
 	rsTags := map[string]bool{}
 	for _, rs := range route["rule_set"].([]any) {
 		m := rs.(map[string]any)
 		rsTags[m["tag"].(string)] = true
-		if m["download_detour"] != tagPick {
-			t.Errorf("rule_set %v download_detour = %v, want %q", m["tag"], m["download_detour"], tagPick)
+		if m["download_detour"] != "direct" {
+			t.Errorf("rule_set %v download_detour = %v, want %q", m["tag"], m["download_detour"], "direct")
 		}
 		if m["format"] != "binary" {
 			t.Errorf("rule_set %v format = %v, want binary", m["tag"], m["format"])
