@@ -78,42 +78,55 @@ fun BuyScreen(
                 }
 
                 is BuyState.AwaitingPayment -> {
-                    Text("Оплата по СБП", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.height(16.dp))
+                    Text("Оплата", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        "Переведите ${s.rub} ₽ по СБП на номер:",
-                        style = MaterialTheme.typography.bodyLarge,
+                        "Сумма: ${s.rub} ₽",
+                        style = MaterialTheme.typography.headlineSmall,
                         textAlign = TextAlign.Center,
                     )
-                    Text(s.phone, style = MaterialTheme.typography.headlineMedium)
-                    if (s.phone.isNotBlank()) {
-                        // QR with the СБП phone number so the customer can scan it instead of
-                        // typing the number by hand. Opaque black-on-white — phone cameras need it.
-                        val phoneQr = remember(s.phone) { QRCodeGenerator.generate(s.phone) }
+                    // Scan-to-pay QR. Prefer the cross-bank pay link (T-Bank «Сбор денег» / СБП)
+                    // so the phone opens a real payment page — pay from any bank, no acquiring.
+                    // Falls back to a QR of the СБП phone number if no pay link is configured.
+                    val payContent = if (s.payUrl.isNotBlank()) s.payUrl else s.phone
+                    if (payContent.isNotBlank()) {
+                        val payQr = remember(payContent) { QRCodeGenerator.generate(payContent) }
                         Spacer(Modifier.height(16.dp))
                         Surface(color = Color.White) {
                             Image(
-                                bitmap = phoneQr.asImageBitmap(),
-                                contentDescription = "QR с номером СБП ${s.phone}",
+                                bitmap = payQr.asImageBitmap(),
+                                contentDescription = "QR для оплаты",
                                 modifier = Modifier
                                     .padding(12.dp)
-                                    .size(200.dp),
+                                    .size(220.dp),
                             )
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Отсканируйте телефоном — номер вводить не нужно",
+                            if (s.payUrl.isNotBlank()) {
+                                "Отсканируйте телефоном — откроется оплата (СБП или картой, из любого банка)"
+                            } else {
+                                "Отсканируйте телефоном — номер вводить не нужно"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                         )
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "В комментарии к переводу укажите код:",
+                        "Код заказа (укажите в сообщении к переводу, если есть поле):",
                         style = MaterialTheme.typography.bodyLarge,
                         textAlign = TextAlign.Center,
                     )
                     Text(s.code, style = MaterialTheme.typography.headlineMedium)
+                    if (s.phone.isNotBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Или вручную по СБП на номер: ${s.phone}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     Spacer(Modifier.height(24.dp))
                     Button(onClick = { viewModel.iPaid() }) {
                         Text("Я оплатил")

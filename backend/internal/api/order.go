@@ -16,6 +16,7 @@ func (s *Server) handleTariffs(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tariffs":   order.DefaultTariffs,
 		"sbp_phone": s.cfg.SBPPhone,
+		"pay_url":   s.cfg.PayURL,
 	})
 }
 
@@ -60,7 +61,7 @@ func (s *Server) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"order_id": o.ID, "code": o.Code, "rub": o.Rub, "days": o.Days,
-		"tariff": t.Name, "sbp_phone": s.cfg.SBPPhone, "status": o.Status,
+		"tariff": t.Name, "sbp_phone": s.cfg.SBPPhone, "pay_url": s.cfg.PayURL, "status": o.Status,
 	})
 }
 

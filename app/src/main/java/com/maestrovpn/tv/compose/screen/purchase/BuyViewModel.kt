@@ -31,7 +31,7 @@ data class TariffItem(val key: String, val name: String, val rub: Int)
 sealed interface BuyState {
     data object Loading : BuyState
     data class Tariffs(val items: List<TariffItem>, val phone: String) : BuyState
-    data class AwaitingPayment(val rub: Int, val code: String, val phone: String) : BuyState
+    data class AwaitingPayment(val rub: Int, val code: String, val phone: String, val payUrl: String) : BuyState
     data object AwaitingConfirm : BuyState
     data object Activating : BuyState
     data object Done : BuyState
@@ -86,7 +86,7 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
                 }.getOrNull()?.let { body.put("sub_token", it) }
                 val o = JSONObject(httpPost("$base/order", body.toString()))
                 orderId = o.getString("order_id")
-                _state.value = BuyState.AwaitingPayment(o.getInt("rub"), o.getString("code"), o.optString("sbp_phone"))
+                _state.value = BuyState.AwaitingPayment(o.getInt("rub"), o.getString("code"), o.optString("sbp_phone"), o.optString("pay_url"))
             } catch (e: Exception) {
                 _state.value = BuyState.Error(e.message ?: "ошибка")
             }

@@ -18,6 +18,8 @@ XURL=$(grep -oP '^PANEL_URL=\K.*' "$VPN_BOT_ENV" || true)
 if [ -f "$S2_PASS_FILE" ]; then S2PASS=$(cat "$S2_PASS_FILE"); else read -rsp "server-2 root password: " S2PASS; echo; fi
 # СБП number for in-app purchase (Тинькофф / Сбер), per the owner.
 SBPPHONE="8 977 811 65 64"
+# СБП pay link (T-Bank «Сбор денег» — cross-bank, no acquiring) shown as a scannable QR.
+SBPPAYURL="https://tbank.ru/cf/AL6tPKPozJo"
 # owner Telegram notify (reuse the vpn_bot's token + admin id; send-only, no poll conflict)
 TGTOKEN=$(grep -oP '^BOT_TOKEN=\K.*' "$VPN_BOT_ENV" || true)
 TGADMIN=$(grep -oP '^ADMIN_IDS?=\K[^,[:space:]]*' "$VPN_BOT_ENV" || true)
@@ -28,6 +30,8 @@ if [ -f /etc/maestro-panel.env ]; then
     ADMIN=$(grep -oP '^MAESTRO_ADMIN_TOKEN=\K.*' /etc/maestro-panel.env || true)
     EXIST_SUB=$(grep -oP '^MAESTRO_SUB_BASE=\K.*' /etc/maestro-panel.env || true)
     [ -n "$EXIST_SUB" ] && SUBBASE="$EXIST_SUB"
+    EXIST_PAY=$(grep -oP '^MAESTRO_SBP_PAY_URL=\K.*' /etc/maestro-panel.env || true)
+    [ -n "$EXIST_PAY" ] && SBPPAYURL="$EXIST_PAY"
 fi
 [ -n "$ADMIN" ] || ADMIN=$(openssl rand -hex 24)
 
@@ -40,6 +44,7 @@ MAESTRO_ORDER_STORE=/var/lib/maestro/orders.json
 MAESTRO_ADMIN_TOKEN=$ADMIN
 MAESTRO_SUB_BASE=$SUBBASE
 MAESTRO_SBP_PHONE=$SBPPHONE
+MAESTRO_SBP_PAY_URL=$SBPPAYURL
 MAESTRO_TG_BOT_TOKEN=$TGTOKEN
 MAESTRO_TG_ADMIN_ID=$TGADMIN
 XUI_BASE_URL=$XURL

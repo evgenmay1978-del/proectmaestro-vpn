@@ -50,6 +50,7 @@ type Config struct {
 	AdminToken string // bearer token guarding /admin/*; empty disables admin API
 	SubBaseURL string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
 	SBPPhone   string // СБП phone shown to the customer for in-app purchase
+	PayURL     string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
 	TGBotToken string // bot token for owner payment notifications (send-only, no poll)
 	TGAdminID  string // owner's Telegram chat id
 	UpdateDir  string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
