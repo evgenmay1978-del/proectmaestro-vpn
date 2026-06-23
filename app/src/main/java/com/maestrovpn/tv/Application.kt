@@ -116,8 +116,8 @@ class Application : Application() {
         it.workingPath = workingDir.path
         it.tempPath = tempDir.path
         it.fixAndroidStack = Bugs.fixAndroidStack
-        it.logMaxLines = 3000
-        it.debug = BuildConfig.DEBUG
+        it.logMaxLines = 100   // smaller Go log ring buffer — pure resident-RAM trim (weak 1GB TVs)
+        it.debug = false       // never run libbox in debug (extra formatting/overhead) even in a debug build
         it.crashReportSource = "Application"
         it.oomKillerEnabled = Settings.oomKillerEnabled
         it.oomKillerDisabled = Settings.oomKillerDisabled

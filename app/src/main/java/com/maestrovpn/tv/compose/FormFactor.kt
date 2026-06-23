@@ -28,6 +28,21 @@ fun rememberIsTv(): Boolean {
     }
 }
 
+/**
+ * True on weak / low-RAM devices (≈1GB Android-TV boxes like Sony/TCL). The universal APK
+ * reads this to drop the heaviest START-screen work — the perpetual 3D-logo spin and the
+ * per-frame animated background — to a static render, so a weak GPU/CPU stops thrashing.
+ * Gated UI only; NEVER touches the VPN tunnel / libbox.
+ */
+@Composable
+fun rememberIsLowRam(): Boolean {
+    val context = LocalContext.current
+    return remember {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        am?.isLowRamDevice == true || (am?.memoryClass ?: 256) <= 96
+    }
+}
+
 /** Outer screen padding: overscan-safe on TV, tight on a phone. */
 @Composable
 fun screenPadding(isTv: Boolean): Dp = if (isTv) 48.dp else 20.dp

@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
@@ -131,8 +132,20 @@ private fun VolButton(
  * "VPN" silver.
  */
 @Composable
-private fun AnimatedLogo(modifier: Modifier = Modifier) {
+private fun AnimatedLogo(modifier: Modifier = Modifier, lowRam: Boolean = false) {
     val word = "MaestroVPN"
+    // Low-RAM (≈1GB Sony/TCL): render a STATIC wordmark — no rememberInfiniteTransition, no
+    // per-frame rotationY. The perpetual 90-glyph spin is the biggest GPU/CPU sink on the home
+    // screen and is wasted on a weak box (letters keep their 3D depth, they just don't rotate).
+    if (lowRam) {
+        Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+            word.forEachIndexed { i, ch ->
+                val isVpn = i >= word.length - 3
+                Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange) { 0f }
+            }
+        }
+        return
+    }
     val stepMs = 230    // slower: delay between consecutive letters kicking off
     val spinMs = 1400   // slower: one letter's full 360° turn
     val pauseMs = 2200  // longer hold after the wave before it repeats
@@ -235,6 +248,7 @@ fun TvHomeScreen(
     onScanQr: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
+    val lowRam = rememberIsLowRam()
     val connectFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (isTv) runCatching { connectFocus.requestFocus() }
@@ -293,8 +307,8 @@ fun TvHomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            // Brand wordmark — volumetric; letters spin in turn around their own axis.
-            AnimatedLogo()
+            // Brand wordmark — volumetric; letters spin in turn (STATIC on low-RAM boxes).
+            AnimatedLogo(lowRam = lowRam)
             Spacer(Modifier.height(28.dp))
 
             // ── Round power button (the hero) — a living "orb" ──────────────
