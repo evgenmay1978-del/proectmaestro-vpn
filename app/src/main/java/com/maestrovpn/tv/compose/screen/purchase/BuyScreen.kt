@@ -56,7 +56,11 @@ fun BuyScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(screenPadding(isTv)),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            // Top (not Center): with verticalScroll, Arrangement.Center pushes the top of
+            // tall content (the "Сумма: X ₽" line on the payment screen) ABOVE the viewport
+            // and out of scroll reach — the customer couldn't see how much to pay. Top keeps
+            // the amount visible at the top and the rest reachable by scrolling.
+            verticalArrangement = Arrangement.Top,
         ) {
             when (val s = state) {
                 is BuyState.Loading -> Text("Загрузка тарифов…", style = MaterialTheme.typography.titleMedium)
