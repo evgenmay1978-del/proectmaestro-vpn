@@ -72,7 +72,9 @@ object Settings {
         // Default OFF on weak 1GB boxes (Sony/TCL): the realtime-speed notification runs a
         // SECOND independent 1s libbox status feed — pure churn on a weak box. On by default elsewhere.
         val am = Application.application.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-        !(am?.isLowRamDevice == true || (am?.memoryClass ?: 256) <= 96)
+        // not-low-RAM (same shape as FormFactor.rememberIsLowRam, inverted): a return line
+        // starting with `!(` tripped the K2 parser, so express the negation inline instead.
+        am?.isLowRamDevice != true && (am?.memoryClass ?: 256) > 96
     }
     var disableDeprecatedWarnings by dataStore.boolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS) { false }
 
