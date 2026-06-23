@@ -148,12 +148,16 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	// interrupt_exist_connections=true is the key failover knob: without it, after Auto
 	// re-picks a healthy leaf (or the user manually switches), already-ESTABLISHED flows stay
 	// pinned to the OLD/dead outbound until they close — only new connections move. With it,
-	// sing-box migrates live traffic onto the new pick instantly. interval 1m (was 3m) cuts
-	// worst-case detection of a silently-dead leaf on "Авто".
+	// sing-box migrates live traffic onto the new pick instantly. interval 3m (2026-06-23,
+	// was 1m) balances Auto-failover latency against probe wakeups: each tick dials EVERY leaf
+	// (4 TLS handshakes), which on weak 1GB Android-TV boxes (Sony/TCL) blocks CPU deep-sleep
+	// and burns thermal headroom. 3m cuts that ~67% vs 1m; interrupt_exist_connections keeps
+	// live flows moving when it does re-pick, so the only cost is slightly slower detection of
+	// a silently-dead leaf on "Авто" — the tunnel never breaks.
 	outbounds = append(outbounds,
 		map[string]any{
 			"type": "urltest", "tag": tagAuto, "outbounds": protoTags,
-			"url": "https://www.gstatic.com/generate_204", "interval": "1m", "tolerance": 100,
+			"url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 100,
 			"interrupt_exist_connections": true,
 		},
 		map[string]any{

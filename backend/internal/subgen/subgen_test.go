@@ -49,6 +49,13 @@ func TestGenerateSingboxAllProtocols(t *testing.T) {
 	if len(ins) != 1 || ins[0].(map[string]any)["type"] != "tun" {
 		t.Fatalf("expected a single tun inbound, got %v", ins)
 	}
+	// GUARD: the tun MUST use the kernel ("system") netstack, never "gvisor". gvisor is a
+	// userspace TCP/IP stack (per-connection ring buffers + extra goroutines + packet copies)
+	// — the one config change that genuinely OOM-kills a 1GB Android-TV box. Upstream sing-box
+	// samples often default to gvisor, so fail loudly if a future edit/copy-paste flips it.
+	if ins[0].(map[string]any)["stack"] != "system" {
+		t.Fatalf("tun.stack = %v, want \"system\" (gvisor would OOM weak 1GB TVs)", ins[0].(map[string]any)["stack"])
+	}
 	if route, _ := cfg["route"].(map[string]any); route["final"] != tagPick {
 		t.Fatalf("route.final = %v, want %q", route["final"], tagPick)
 	}
