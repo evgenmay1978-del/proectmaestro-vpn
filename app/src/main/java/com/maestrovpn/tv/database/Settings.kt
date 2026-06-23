@@ -68,7 +68,12 @@ object Settings {
     var fdroidMirrorUrl by dataStore.string(SettingsKey.FDROID_MIRROR_URL) { "https://f-droid.org/repo" }
     var fdroidCustomMirrors by dataStore.stringSet(SettingsKey.FDROID_CUSTOM_MIRRORS) { emptySet() }
     var autoUpdateEnabled by dataStore.boolean(SettingsKey.AUTO_UPDATE_ENABLED) { false }
-    var dynamicNotification by dataStore.boolean(SettingsKey.DYNAMIC_NOTIFICATION) { true }
+    var dynamicNotification by dataStore.boolean(SettingsKey.DYNAMIC_NOTIFICATION) {
+        // Default OFF on weak 1GB boxes (Sony/TCL): the realtime-speed notification runs a
+        // SECOND independent 1s libbox status feed — pure churn on a weak box. On by default elsewhere.
+        val am = Application.application.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        !(am?.isLowRamDevice == true || (am?.memoryClass ?: 256) <= 96)
+    }
     var disableDeprecatedWarnings by dataStore.boolean(SettingsKey.DISABLE_DEPRECATED_WARNINGS) { false }
 
     const val PER_APP_PROXY_DISABLED = 0

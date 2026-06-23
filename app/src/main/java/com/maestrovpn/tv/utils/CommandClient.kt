@@ -142,7 +142,10 @@ open class CommandClient(
                     }
                 options.addCommand(command)
             }
-            options.statusInterval = 1 * 1000 * 1000 * 1000
+            // Weak 1GB TVs (Sony/TCL): poll status every 2s instead of 1s — halves the live
+            // status churn (GC + recompositions) that runs the whole session. Never touches the tunnel.
+            val lowRam = (com.maestrovpn.tv.Application.application.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager)?.isLowRamDevice == true
+            options.statusInterval = (if (lowRam) 2 else 1) * 1000 * 1000 * 1000
             val remoteServer = if (localOnly) null else CommandTarget.remoteServer
             val newClient: io.nekohasekai.libbox.CommandClient
             try {

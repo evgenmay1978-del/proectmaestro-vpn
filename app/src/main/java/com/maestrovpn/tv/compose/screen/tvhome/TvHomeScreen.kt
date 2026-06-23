@@ -265,17 +265,30 @@ fun TvHomeScreen(
     }
 
     // ── Motion: keep the screen alive (tasteful, not gaudy) ─────────────────
-    val infinite = rememberInfiniteTransition(label = "home")
-    val pulse by infinite.animateFloat(
-        0f, 1f,
-        infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "pulse",
-    )
-    val ringRot by infinite.animateFloat(
-        0f, 360f,
-        infiniteRepeatable(tween(7000, easing = LinearEasing)),
-        label = "ringRot",
-    )
+    // Low-RAM (≈1GB Sony/TCL): skip the perpetual background animation entirely — no
+    // rememberInfiniteTransition, static values. The lambda accessors keep State reactivity on
+    // normal devices (the value is read in the draw phase) while staying constant on weak boxes,
+    // so drawBehind stops re-rasterizing the full-screen gradient + orb ring every vsync.
+    val pulse: () -> Float
+    val ringRot: () -> Float
+    if (lowRam) {
+        pulse = { 0.5f }
+        ringRot = { 0f }
+    } else {
+        val infinite = rememberInfiniteTransition(label = "home")
+        val pulseAnim by infinite.animateFloat(
+            0f, 1f,
+            infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "pulse",
+        )
+        val ringRotAnim by infinite.animateFloat(
+            0f, 360f,
+            infiniteRepeatable(tween(7000, easing = LinearEasing)),
+            label = "ringRot",
+        )
+        pulse = { pulseAnim }
+        ringRot = { ringRotAnim }
+    }
     // Gentle entrance — crash-safe: the LaunchedEffect only flips a flag, never throws.
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
@@ -290,7 +303,7 @@ fun TvHomeScreen(
                 .drawBehind {
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(accent.copy(alpha = 0.05f + 0.06f * pulse), Color.Transparent),
+                            colors = listOf(accent.copy(alpha = 0.05f + 0.06f * pulse()), Color.Transparent),
                             center = Offset(size.width * 0.5f, size.height * 0.30f),
                             radius = size.maxDimension * 0.55f,
                         ),
@@ -332,7 +345,7 @@ fun TvHomeScreen(
                             brush = Brush.radialGradient(
                                 0.00f to Color.Transparent,
                                 0.66f to Color.Transparent,
-                                0.84f to accent.copy(alpha = 0.28f + 0.16f * pulse + (if (heroFocused) 0.24f else 0f)),
+                                0.84f to accent.copy(alpha = 0.28f + 0.16f * pulse() + (if (heroFocused) 0.24f else 0f)),
                                 1.00f to Color.Transparent,
                                 center = c,
                                 radius = orbR * 1.5f,
@@ -341,7 +354,7 @@ fun TvHomeScreen(
                             center = c,
                         )
                         // 2) slow rotating highlight ring — smooth (transparent at both seam ends)
-                        rotate(ringRot, pivot = c) {
+                        rotate(ringRot(), pivot = c) {
                             drawArc(
                                 brush = Brush.sweepGradient(
                                     listOf(Color.Transparent, accent, Color.Transparent),
@@ -402,7 +415,7 @@ fun TvHomeScreen(
                     Modifier
                         .size(11.dp)
                         .graphicsLayer {
-                            val s = if (connected) 1f + 0.35f * pulse else 1f
+                            val s = if (connected) 1f + 0.35f * pulse() else 1f
                             scaleX = s; scaleY = s
                         }
                         .clip(CircleShape)
