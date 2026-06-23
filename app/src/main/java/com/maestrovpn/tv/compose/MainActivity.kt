@@ -159,12 +159,13 @@ class MainActivity :
     private val notificationPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission(),
-        ) { isGranted ->
-            if (Settings.dynamicNotification && !isGranted) {
-                onServiceAlert(Alert.RequestNotificationPermission, null)
-            } else {
-                startService0()
-            }
+        ) { _ ->
+            // Start the tunnel regardless of the notification-permission decision: a VPN
+            // foreground service runs fine on Android 13+ WITHOUT POST_NOTIFICATIONS (only
+            // the realtime-speed line in the notification is hidden). Never block the
+            // connection or nag with a dialog — a customer who declined notifications must
+            // still be able to connect; they can enable the speed notification in Settings.
+            startService0()
         }
 
     private val locationPermissionLauncher =
