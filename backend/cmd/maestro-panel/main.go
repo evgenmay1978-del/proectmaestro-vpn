@@ -107,10 +107,44 @@ func main() {
 				SNI: env("ANYTLS_SNI", os.Getenv("ANYTLS_SERVER")), Insecure: env("ANYTLS_INSECURE", "1") == "1",
 			}
 		}
+		// 3rd node (S3): a SECOND 3x-ui panel serving VLESS-Reality + Trojan, managed over the
+		// public internet via its Bearer API token. Enabled when S3_XUI_BASE_URL + S3_VLESS_SERVER
+		// are set; otherwise every S3 code path is a no-op (xui3 stays nil).
+		var xc3 provision.NodeClienter
+		if env("S3_XUI_BASE_URL", "") != "" && env("S3_VLESS_SERVER", "") != "" {
+			x3, err := xui.New(xui.Config{
+				BaseURL:  os.Getenv("S3_XUI_BASE_URL"),
+				Host:     os.Getenv("S3_XUI_HOST"),
+				Token:    os.Getenv("S3_XUI_TOKEN"),
+				Insecure: env("S3_XUI_INSECURE", "1") == "1",
+			})
+			if err != nil {
+				log.Fatalf("s3 xui client: %v", err)
+			}
+			xc3 = x3
+			provCfg.VLESS3 = provision.VLESSTmpl{
+				InboundID: atoi(os.Getenv("S3_VLESS_INBOUND"), 1),
+				Server:    os.Getenv("S3_VLESS_SERVER"), Port: atoi(os.Getenv("S3_VLESS_PORT"), 443),
+				SNI: os.Getenv("S3_VLESS_SNI"), PublicKey: os.Getenv("S3_VLESS_PBK"),
+				ShortID: os.Getenv("S3_VLESS_SID"), Flow: env("S3_VLESS_FLOW", "xtls-rprx-vision"),
+				Fingerprint: env("S3_VLESS_FP", "chrome"),
+			}
+			if os.Getenv("S3_TROJAN_SERVER") != "" {
+				provCfg.Trojan = provision.TrojanTmpl{
+					InboundID: atoi(os.Getenv("S3_TROJAN_INBOUND"), 2),
+					Server:    os.Getenv("S3_TROJAN_SERVER"), Port: atoi(os.Getenv("S3_TROJAN_PORT"), 8443),
+					SNI: env("S3_TROJAN_SNI", os.Getenv("S3_TROJAN_SERVER")), Insecure: env("S3_TROJAN_INSECURE", "1") == "1",
+				}
+			}
+		}
 		pc := provision.New(st, xc, s2, provCfg)
+		if xc3 != nil {
+			pc.SetS3Node(xc3)
+		}
 		prov = pc
-		log.Printf("provisioning enabled (3x-ui + server2; naive=%v anytls=%v)",
-			os.Getenv("NAIVE_SERVER") != "", os.Getenv("ANYTLS_SERVER") != "")
+		log.Printf("provisioning enabled (3x-ui + server2; naive=%v anytls=%v s3=%v trojan=%v)",
+			os.Getenv("NAIVE_SERVER") != "", os.Getenv("ANYTLS_SERVER") != "",
+			os.Getenv("S3_VLESS_SERVER") != "", os.Getenv("S3_TROJAN_SERVER") != "")
 		// Pull each customer's authoritative expiry from whichever panel owns it (3x-ui
 		// VLESS and/or the s2 naive panel) into the unified store, advance-only, every
 		// 15 min — so a renewal in ANY of the 3 panels propagates to the app + the

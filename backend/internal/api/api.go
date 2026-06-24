@@ -32,6 +32,9 @@ type Provisioner interface {
 	// BackfillAnyTLS gives AnyTLS to existing customers that lack it, re-syncing only the
 	// server-2 AnyTLS server (no hy2/naive restart). Returns the count backfilled.
 	BackfillAnyTLS() (int, error)
+	// BackfillS3 gives the 3rd node (S3 VLESS-Reality + Trojan) to existing customers that
+	// lack it, adding only S3 panel clients (no other server touched). Returns the count.
+	BackfillS3() (int, error)
 	// MigrateAnyTLSEndpoint repoints existing customers' AnyTLS creds to the configured
 	// endpoint (the S1:8444 → S2:8443 cutover), password-preserving. Returns the count moved.
 	MigrateAnyTLSEndpoint() (int, error)
@@ -103,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/admin/reset-devices", s.adminAuth(s.handleResetDevices))
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
 		mux.HandleFunc("/admin/backfill-anytls", s.adminAuth(s.handleBackfillAnyTLS))
+		mux.HandleFunc("/admin/backfill-s3", s.adminAuth(s.handleBackfillS3))
 		mux.HandleFunc("/admin/migrate-anytls-s2", s.adminAuth(s.handleMigrateAnyTLSS2))
 		if s.orders != nil {
 			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))

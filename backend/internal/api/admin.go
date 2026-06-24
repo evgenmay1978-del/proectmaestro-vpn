@@ -223,6 +223,22 @@ func (s *Server) handleBackfillAnyTLS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n})
 }
 
+// handleBackfillS3 (admin): give the 3rd node (S3 VLESS-Reality + Trojan) to every existing
+// customer that lacks it, adding only S3 panel clients — no other server touched, so live
+// S1/S2 connections are not disturbed. One-shot after wiring S3; idempotent.
+func (s *Server) handleBackfillS3(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	n, err := s.prov.BackfillS3()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n})
+}
+
 // handleMigrateAnyTLSS2 (admin): repoint every existing customer's AnyTLS credential to the
 // CURRENTLY configured endpoint (the S1:8444 → S2:8443 cutover) WITHOUT changing passwords,
 // then re-sync ONLY the AnyTLS server — never hy2/naive — so live customers are not

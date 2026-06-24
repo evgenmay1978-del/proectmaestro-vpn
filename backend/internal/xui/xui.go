@@ -35,6 +35,19 @@ type VLESSClient struct {
 	LimitIP    int    `json:"limitIp"` // 0 = unlimited devices
 }
 
+// TrojanClient is a 3x-ui trojan client object. Trojan authenticates by PASSWORD
+// (no uuid/flow), so the panel client record carries `password` where a VLESS one
+// carries `id`+`flow`. Same /panel/api/clients/{add,update} endpoints.
+type TrojanClient struct {
+	Password   string `json:"password"`
+	Email      string `json:"email"`
+	TotalGB    int64  `json:"totalGB"`
+	ExpiryTime int64  `json:"expiryTime"`
+	Enable     bool   `json:"enable"`
+	SubID      string `json:"subId"`
+	LimitIP    int    `json:"limitIp"`
+}
+
 // ExistingClient is the subset of a 3x-ui client looked up by email — used to
 // activate an already-existing panel customer in the app by their login.
 type ExistingClient struct {
@@ -158,6 +171,28 @@ func (c *Client) UpdateClient(_ int, _ string, client VLESSClient) error {
 		"id": client.ID, "email": client.Email, "enable": client.Enable,
 		"expiryTime": client.ExpiryTime, "totalGB": client.TotalGB,
 		"subId": client.SubID, "limitIp": client.LimitIP, "flow": client.Flow,
+	})
+}
+
+// AddTrojanClient adds a Trojan client to a trojan inbound (same client-centric API
+// as AddClient, but the client record is password-based). Used for the 3rd node (S3).
+func (c *Client) AddTrojanClient(inboundID int, client TrojanClient) error {
+	return c.postJSON("/panel/api/clients/add", map[string]any{
+		"client": map[string]any{
+			"password": client.Password, "email": client.Email, "enable": client.Enable,
+			"expiryTime": client.ExpiryTime, "totalGB": client.TotalGB,
+			"subId": client.SubID, "limitIp": client.LimitIP, "flow": "", "tgId": 0, "reset": 0,
+		},
+		"inboundIds": []int{inboundID},
+	})
+}
+
+// UpdateTrojanClient updates a trojan client (e.g. extend expiry) by email.
+func (c *Client) UpdateTrojanClient(_ int, _ string, client TrojanClient) error {
+	return c.postJSON("/panel/api/clients/update/"+url.PathEscape(client.Email), map[string]any{
+		"password": client.Password, "email": client.Email, "enable": client.Enable,
+		"expiryTime": client.ExpiryTime, "totalGB": client.TotalGB,
+		"subId": client.SubID, "limitIp": client.LimitIP,
 	})
 }
 

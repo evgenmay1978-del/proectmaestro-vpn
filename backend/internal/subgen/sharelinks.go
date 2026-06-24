@@ -22,6 +22,15 @@ func ShareLinks(c Customer) string {
 	if c.Naive != nil {
 		links = append(links, naiveLink(c.Naive, c.Name))
 	}
+	if c.AnyTLS != nil {
+		links = append(links, anytlsLink(c.AnyTLS, c.Name))
+	}
+	if c.VLESS3 != nil {
+		links = append(links, vlessLink(c.VLESS3, c.Name+" S3"))
+	}
+	if c.Trojan != nil {
+		links = append(links, trojanLink(c.Trojan, c.Name))
+	}
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 }
 
@@ -57,4 +66,26 @@ func hy2Link(h *Hy2Creds, name string) string {
 func naiveLink(n *NaiveCreds, name string) string {
 	auth := url.UserPassword(n.Username, n.Password).String()
 	return fmt.Sprintf("naive+https://%s@%s:%d#%s", auth, n.Server, n.Port, tag("Naive", name))
+}
+
+func anytlsLink(a *AnyTLSCreds, name string) string {
+	q := url.Values{}
+	q.Set("sni", a.SNI)
+	if a.Insecure {
+		q.Set("insecure", "1")
+	}
+	// Password is hex (randHex) → no reserved chars, safe as raw userinfo.
+	return fmt.Sprintf("anytls://%s@%s:%d?%s#%s", a.Password, a.Server, a.Port, q.Encode(), tag("AnyTLS", name))
+}
+
+func trojanLink(t *TrojanCreds, name string) string {
+	q := url.Values{}
+	q.Set("security", "tls")
+	q.Set("sni", t.SNI)
+	q.Set("type", "tcp")
+	if t.Insecure {
+		q.Set("allowInsecure", "1")
+	}
+	// Password is hex (randHex) → safe as raw userinfo.
+	return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", t.Password, t.Server, t.Port, q.Encode(), tag("Trojan", name))
 }
