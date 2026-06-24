@@ -15,7 +15,7 @@ import com.maestrovpn.tv.database.TypedProfile
 import com.maestrovpn.tv.utils.AppLifecycleObserver
 import com.maestrovpn.tv.utils.CommandClient
 import com.maestrovpn.tv.utils.CommandTarget
-import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import com.maestrovpn.tv.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -368,7 +368,7 @@ class DashboardViewModel :
 
             try {
                 // Fetch remote config
-                val content = HTTPClient().use { it.getString(profile.typed.remoteURL) }
+                val content = httpGetStringTimed(profile.typed.remoteURL) ?: error("подписка недоступна (таймаут)")
                 Libbox.checkConfig(content)
 
                 // Check if content changed

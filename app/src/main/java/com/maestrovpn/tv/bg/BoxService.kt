@@ -57,6 +57,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // VPNService is what makes Android tear the tun interface down.
         private const val STOP_CLOSE_TIMEOUT = 3000L
 
+        // Same idea for reload: the native startOrReloadService can wedge; bound how long the
+        // libbox command thread waits before it's freed (the reload still applies when the
+        // detached job finishes). 10s tolerates a legitimately-slow rebuild.
+        private const val RELOAD_TIMEOUT = 10000L
+
         fun start() {
             val intent =
                 runBlocking {
@@ -197,13 +202,35 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         closeService()
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     override fun serviceReload() {
+        // serviceReload0 calls the native commandServer.startOrReloadService, which can BLOCK
+        // (bad/slow config parse, in-flight urltest probe, tun reconfigure). This is a libbox-IPC
+        // callback on the command-server thread, so a bare runBlocking would park that thread
+        // forever and silently strand ALL future reloads (a /sub change would never apply until
+        // an app restart). Run the reload on its own job and bound the wait: on timeout the
+        // existing tunnel keeps serving (startOrReloadService builds-then-swaps) and the command
+        // thread is freed — the reload still applies when the job finishes. Mirrors the stop fix.
+        val job = GlobalScope.launch(Dispatchers.IO) {
+            // runCatching is REQUIRED: serviceReload0 does a profile File.readText() (and other
+            // work) OUTSIDE its own try. On this detached GlobalScope job an uncaught throw has
+            // no parent to absorb it → it would reach the default handler and CRASH the process,
+            // tearing down a connected user's tunnel. (The old runBlocking ran serviceReload0 on
+            // the libbox command thread, where native libbox absorbed the throw.) job.join()
+            // does not rethrow a launch failure, so this is the only place to catch it.
+            runCatching { serviceReload0() }.onFailure { Log.e(TAG, "serviceReload0", it) }
+        }
         runBlocking {
-            serviceReload0()
+            if (withTimeoutOrNull(RELOAD_TIMEOUT) { job.join() } == null) {
+                Log.w(TAG, "serviceReload: exceeded ${RELOAD_TIMEOUT}ms — kept the existing tunnel; reload applies when it completes")
+            }
         }
     }
 
     suspend fun serviceReload0() {
+        // Never reload a tunnel the user is stopping / has stopped (e.g. a periodic UpdateTask
+        // reload landing mid-teardown would briefly reconnect what the user just switched off).
+        if (status.value == Status.Stopping || status.value == Status.Stopped) return
         val selectedProfileId = Settings.selectedProfile
         if (selectedProfileId == -1L) {
             stopAndAlert(Alert.EmptyConfiguration)

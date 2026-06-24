@@ -7,6 +7,10 @@ name: Build app APK
 
 on:
   push:
+    # ONLY main publishes an OTA Release. Feature-branch pushes must NOT cut a
+    # --latest GitHub Release (that would auto-OTA un-merged code via the mirror);
+    # use android-test.yml (artifact-only) to compile-check a branch instead.
+    branches: [main]
     paths:
       - 'app/**'
       - 'third_party/**'

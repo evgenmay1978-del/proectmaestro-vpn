@@ -8,7 +8,7 @@ import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.TypedProfile
-import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import com.maestrovpn.tv.utils.MaestroSub
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.Dispatchers
@@ -109,7 +109,7 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
         val dir = File(context.filesDir, "configs").also { it.mkdirs() }
         val file = File(dir, "$fileID.json")
         typed.path = file.path
-        val content = HTTPClient().use { it.getString(subUrl) }
+        val content = httpGetStringTimed(subUrl) ?: error("подписка недоступна (таймаут)")
         Libbox.checkConfig(content)
         file.writeText(content)
         ProfileManager.create(profile, andSelect = true)

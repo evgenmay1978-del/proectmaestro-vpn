@@ -49,9 +49,6 @@ class Application : Application() {
         }.onFailure {
             Log.d("Application", "set locale: ${it.message}")
         }
-        HookStatusClient.register(this)
-        PrivilegeSettingsClient.register(this)
-
         val baseDir = filesDir
         baseDir.mkdirs()
         val workingDir = getExternalFilesDir(null)
@@ -65,6 +62,12 @@ class Application : Application() {
 
         @Suppress("OPT_IN_USAGE")
         GlobalScope.launch(Dispatchers.IO) {
+            // Probe the (largely dead-on-TV) Xposed/privilege hooks OFF the cold-start path:
+            // register() does a BLOCKING binder.transact to system_server, dead weight on stock
+            // TVs. Settings screens call refresh() themselves, so a slightly-deferred populate
+            // is invisible.
+            HookStatusClient.register(this@Application)
+            PrivilegeSettingsClient.register(this@Application)
             initialize(baseDir, workingDir, tempDir)
             // Backfill the per-install device id onto an EXISTING MaestroVPN subscription so
             // the account's device cap (enforced server-side at /sub) starts applying to

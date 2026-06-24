@@ -1401,10 +1401,11 @@ class MainActivity :
         }
 
         BoxService.stop()
-        // Bounded wait (~3s) instead of while(true): if a binder drop ever strands
-        // currentServiceStatus in Stopping, the old loop spun a 100ms coroutine forever for
-        // the Activity's life. After the window, start anyway so the restart always resolves.
-        for (i in 0 until 30) {
+        // Bounded wait (~10s) instead of while(true): if a binder drop ever strands
+        // currentServiceStatus in Stopping, the old loop spun a 100ms coroutine forever for the
+        // Activity's life. 10s comfortably covers the stop path (libbox close bounded at 3s).
+        // After the window, start anyway so the restart always resolves.
+        for (i in 0 until 100) {
             when (currentServiceStatus) {
                 Status.Stopped -> {
                     startService()

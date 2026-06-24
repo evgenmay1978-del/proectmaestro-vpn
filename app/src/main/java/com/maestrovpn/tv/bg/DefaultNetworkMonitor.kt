@@ -58,8 +58,8 @@ object DefaultNetworkMonitor {
                 }
                 listener.updateDefaultInterface(linkProperties.interfaceName, interfaceIndex, false, false)
                 // Resolved successfully — stop. Without this break the loop ran all 10 times,
-                // pushing the same interface update into libbox 10× per network change (the
-                // upstream sing-box code has this break; it was lost in the package rename).
+                // pushing the same interface update into libbox 10× per network change for no
+                // benefit (upstream lacks the break too; this is a deliberate improvement).
                 break
             }
         } else {

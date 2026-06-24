@@ -10,7 +10,7 @@ import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.TypedProfile
-import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -259,7 +259,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
                                     File(Uri.parse(sourceURL).path!!).readText()
                                 }
                                 sourceURL.startsWith("http://") || sourceURL.startsWith("https://") -> {
-                                    HTTPClient().use { it.getString(sourceURL) }
+                                    httpGetStringTimed(sourceURL) ?: error("источник недоступен (таймаут)")
                                 }
                                 else -> throw Exception("Unsupported source: $sourceURL")
                             }
@@ -300,7 +300,7 @@ class NewProfileViewModel(application: Application) : AndroidViewModel(applicati
         typedProfile.path = configFile.path
 
         // Fetch initial config - this MUST succeed for remote profiles
-        val content = HTTPClient().use { it.getString(state.remoteUrl) }
+        val content = httpGetStringTimed(state.remoteUrl) ?: error("подписка недоступна (таймаут)")
         Libbox.checkConfig(content)
         val configContent = content
 

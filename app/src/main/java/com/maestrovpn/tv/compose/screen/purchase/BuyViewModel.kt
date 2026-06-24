@@ -9,7 +9,7 @@ import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
-import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import com.maestrovpn.tv.utils.MaestroSub
 import io.nekohasekai.libbox.Libbox
 import kotlinx.coroutines.Dispatchers
@@ -120,7 +120,7 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         val context = getApplication<Application>()
         // Carry this install's device id so the renewed profile keeps counting against the cap.
         val devUrl = MaestroSub.withDevice(context, subUrl)
-        val content = HTTPClient().use { it.getString(devUrl) }
+        val content = httpGetStringTimed(devUrl) ?: error("подписка недоступна (таймаут)")
         Libbox.checkConfig(content)
         // A renewal returns the SAME account — match by sub TOKEN (the device query differs)
         // and refresh the existing profile (also upgrading its URL to carry the device id)

@@ -14,9 +14,6 @@ import com.maestrovpn.tv.constant.Action
 import com.maestrovpn.tv.constant.Alert
 import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.Settings
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 
 class ServiceConnection(private val context: Context, callback: Callback, private val register: Boolean = true) : ServiceConnection {
     companion object {
@@ -29,12 +26,10 @@ class ServiceConnection(private val context: Context, callback: Callback, privat
     val status get() = service?.status?.let { Status.values()[it] } ?: Status.Stopped
 
     fun connect() {
-        val intent =
-            runBlocking {
-                withContext(Dispatchers.IO) {
-                    Intent(context, Settings.serviceClass()).setAction(Action.SERVICE)
-                }
-            }
+        // Intent built inline (no runBlocking/withContext(IO)): Settings.serviceClass() is a
+        // trivial keyed Room read on an allowMainThreadQueries DB — the runBlocking just added
+        // two dispatch hops while still blocking the caller. AIDL wiring below is unchanged.
+        val intent = Intent(context, Settings.serviceClass()).setAction(Action.SERVICE)
         context.bindService(intent, this, AppCompatActivity.BIND_AUTO_CREATE)
         Log.d(TAG, "request connect")
     }
@@ -52,12 +47,7 @@ class ServiceConnection(private val context: Context, callback: Callback, privat
             context.unbindService(this)
         } catch (_: IllegalArgumentException) {
         }
-        val intent =
-            runBlocking {
-                withContext(Dispatchers.IO) {
-                    Intent(context, Settings.serviceClass()).setAction(Action.SERVICE)
-                }
-            }
+        val intent = Intent(context, Settings.serviceClass()).setAction(Action.SERVICE)
         context.bindService(intent, this, AppCompatActivity.BIND_AUTO_CREATE)
         Log.d(TAG, "request reconnect")
     }

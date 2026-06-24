@@ -13,7 +13,7 @@ import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
-import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -255,7 +255,7 @@ class EditProfileViewModel(application: Application) : AndroidViewModel(applicat
                 var selectedProfileUpdated = false
 
                 // Fetch remote config
-                val content = HTTPClient().use { it.getString(profile.typed.remoteURL) }
+                val content = httpGetStringTimed(profile.typed.remoteURL) ?: error("подписка недоступна (таймаут)")
                 Libbox.checkConfig(content)
 
                 // Check if content changed
