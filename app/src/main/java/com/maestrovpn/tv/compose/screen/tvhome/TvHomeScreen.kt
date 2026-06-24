@@ -70,6 +70,17 @@ import android.app.Activity
 import androidx.compose.animation.core.keyframes
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.animation.core.Animatable
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.sin
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import com.maestrovpn.tv.vendor.Vendor
@@ -137,42 +148,13 @@ private fun AnimatedLogo(modifier: Modifier = Modifier, lowRam: Boolean = false)
     // Low-RAM (≈1GB Sony/TCL): render a STATIC wordmark — no rememberInfiniteTransition, no
     // per-frame rotationY. The perpetual 90-glyph spin is the biggest GPU/CPU sink on the home
     // screen and is wasted on a weak box (letters keep their 3D depth, they just don't rotate).
-    if (lowRam) {
-        Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-            word.forEachIndexed { i, ch ->
-                val isVpn = i >= word.length - 3
-                Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange) { 0f }
-            }
-        }
-        return
-    }
-    val stepMs = 230    // slower: delay between consecutive letters kicking off
-    val spinMs = 1400   // slower: one letter's full 360° turn
-    val pauseMs = 2200  // longer hold after the wave before it repeats
-    val total = word.length * stepMs + spinMs + pauseMs
-    val tr = rememberInfiniteTransition(label = "logo")
+    // STATIC embossed wordmark on ALL devices (2026-06-24): the per-glyph rotationY spin was the
+    // #1 home-screen GPU/CPU sink. Letters keep their extruded 3D depth (Letter3D) — they just
+    // don't rotate. Reads as «объёмная выпуклая» and is essentially free. lowRam now unused.
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         word.forEachIndexed { i, ch ->
-            val start = i * stepMs
-            val rotState = tr.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = keyframes {
-                        durationMillis = total
-                        // hold facing forward until this letter's turn, spin once, then hold
-                        0f at start using FastOutSlowInEasing
-                        360f at (start + spinMs)
-                        360f at total
-                    },
-                    repeatMode = RepeatMode.Restart,
-                ),
-                label = "rot$i",
-            )
             val isVpn = i >= word.length - 3
-            // pass the animated value as a lambda → read in graphicsLayer (draw phase),
-            // so the 9 layered glyphs per letter compose once and only re-draw, not recompose.
-            Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange) { rotState.value }
+            Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange) { 0f }
         }
     }
 }
@@ -219,6 +201,78 @@ private fun Letter3D(ch: Char, base: Color, rot: () -> Float) {
             ),
         )
     }
+}
+
+// Spider leg fan (front→back spread angles) + per-rank lengths (front & back legs longer, like a
+// real spider). Mirrored left/right so it's symmetric, not "crippled".
+private val spiderSpread = floatArrayOf(0.55f, 1.22f, 1.95f, 2.55f)
+private val spiderLegLen = floatArrayOf(58f, 47f, 45f, 56f)
+
+/**
+ * Draws the spider centered at [center], scaled by [s], with [walk] (radians) driving the walking
+ * gait. Top view, head UP: 8 mirrored 3-segment legs (high knee), glossy teardrop abdomen with a
+ * red folium marking, cephalothorax, 8 eyes, pedipalps, and a VERTICAL contact shadow.
+ */
+private fun DrawScope.drawSpider(center: Offset, s: Float, walk: Float) {
+    val leg = Color(0xFF0B0C10)
+    fun p(lx: Float, ly: Float) = Offset(center.x + lx * s, center.y + ly * s)
+    // vertical contact shadow, aligned with the upward body
+    drawOval(Color.Black.copy(alpha = 0.28f), topLeft = p(-11f, -27f), size = Size(26f * s, 54f * s))
+    for (side in 0..1) {
+        val sgn = if (side == 1) 1f else -1f
+        for (k in 0..3) {
+            val ang = (-PI / 2f + sgn * spiderSpread[k]).toFloat()
+            val ux = cos(ang); val uy = sin(ang)
+            val ph = ((k + side) % 2) * PI.toFloat()
+            val cyc = sin(walk + ph)
+            val lift = max(0f, cyc) * 7f
+            val rr = spiderLegLen[k] * (1f + 0.07f * cyc)
+            val h = p(ux * 9f, uy * 9f + 1f)
+            val k1 = p(ux * rr * 0.46f, uy * rr * 0.46f - 15f - lift)
+            val k2 = p(ux * rr * 0.80f, uy * rr * 0.80f - 5f - lift * 0.4f)
+            val ft = p(ux * rr + sgn * 2f, uy * rr + 4f)
+            drawLine(leg, h, k1, 3.4f * s, StrokeCap.Round)
+            drawLine(leg, k1, k2, 2.3f * s, StrokeCap.Round)
+            drawLine(leg, k2, ft, 1.4f * s, StrokeCap.Round)
+        }
+    }
+    drawLine(leg, p(-3f, -13f), p(-8f, -25f), 2.6f * s, StrokeCap.Round)
+    drawLine(leg, p(3f, -13f), p(8f, -25f), 2.6f * s, StrokeCap.Round)
+    drawLine(leg, p(-2f, -17f), p(-3f, -22f), 2f * s, StrokeCap.Round)
+    drawLine(leg, p(2f, -17f), p(3f, -22f), 2f * s, StrokeCap.Round)
+    drawOval(
+        Brush.radialGradient(
+            0f to Color(0xFF46342A), 0.45f to Color(0xFF271A13), 1f to Color(0xFF0A0603),
+            center = p(-5f, 3f), radius = 22f * s,
+        ),
+        topLeft = p(-15f, -10f), size = Size(30f * s, 38f * s),
+    )
+    drawOval(
+        Brush.radialGradient(
+            0f to Color(0xFF7A6450).copy(alpha = 0.5f), 1f to Color.Transparent,
+            center = p(-5f, 1f), radius = 10f * s,
+        ),
+        topLeft = p(-11f, -7f), size = Size(14f * s, 18f * s),
+    )
+    val fol = Color(0xFFB04228).copy(alpha = 0.8f)
+    drawLine(fol, p(0f, -1f), p(0f, 20f), 1.8f * s, StrokeCap.Round)
+    for (cc in 0..3) {
+        val yy = 2f + cc * 4.5f
+        drawLine(fol, p(-5f + cc * 0.7f, yy + 3f), p(0f, yy), 1.8f * s, StrokeCap.Round)
+        drawLine(fol, p(0f, yy), p(5f - cc * 0.7f, yy + 3f), 1.8f * s, StrokeCap.Round)
+    }
+    drawOval(
+        Brush.radialGradient(
+            0f to Color(0xFF3C2F26), 1f to Color(0xFF120C08),
+            center = p(-3f, -13f), radius = 13f * s,
+        ),
+        topLeft = p(-10.5f, -20.5f), size = Size(21f * s, 23f * s),
+    )
+    val eye = Color(0xFFF0D291)
+    drawCircle(eye, 1.5f * s, p(-5f, -16f)); drawCircle(eye, 1.5f * s, p(5f, -16f))
+    drawCircle(eye, 1.1f * s, p(-2f, -18f)); drawCircle(eye, 1.1f * s, p(2f, -18f))
+    drawCircle(eye, 1f * s, p(-6f, -13f)); drawCircle(eye, 1f * s, p(6f, -13f))
+    drawCircle(eye, 0.9f * s, p(-2.4f, -14f)); drawCircle(eye, 0.9f * s, p(2.4f, -14f))
 }
 
 /**
@@ -269,32 +323,35 @@ fun TvHomeScreen(
     // rememberInfiniteTransition, static values. The lambda accessors keep State reactivity on
     // normal devices (the value is read in the draw phase) while staying constant on weak boxes,
     // so drawBehind stops re-rasterizing the full-screen gradient + orb ring every vsync.
-    val pulse: () -> Float
-    val ringRot: () -> Float
-    if (lowRam) {
-        pulse = { 0.5f }
-        ringRot = { 0f }
-    } else {
-        val infinite = rememberInfiniteTransition(label = "home")
-        val pulseAnim by infinite.animateFloat(
-            0f, 1f,
-            infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "pulse",
-        )
-        val ringRotAnim by infinite.animateFloat(
-            0f, 360f,
-            infiniteRepeatable(tween(7000, easing = LinearEasing)),
-            label = "ringRot",
-        )
-        pulse = { pulseAnim }
-        ringRot = { ringRotAnim }
-    }
+    // STATIC home screen (2026-06-24): drop the perpetual background pulse + the button's rotating
+    // sweep ring — the heavy continuous animations the owner asked to remove. `pulse` is a constant
+    // now; the SPIDER (below) is the only motion, and it runs only while connecting/disconnecting.
+    val pulse: () -> Float = { 0.5f }
     // Gentle entrance — crash-safe: the LaunchedEffect only flips a flag, never throws.
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
     val enter by animateFloatAsState(
         if (shown) 1f else 0f, tween(600, easing = FastOutSlowInEasing), label = "enter",
     )
+
+    // Spider on the power button: on CONNECT it crawls out from UNDER the button up to the CENTER
+    // and settles; on DISCONNECT it crawls UP and out the TOP. pos: 0 = center, +1 = below (hidden),
+    // -1 = above (hidden). The legs are driven by `pos`, so they walk only while it moves and are
+    // frozen (free) at rest — no perpetual animation.
+    val spiderPos = remember { Animatable(if (connected) 0f else 1f) }
+    var spiderFirst by remember { mutableStateOf(true) }
+    LaunchedEffect(connected) {
+        if (spiderFirst) {
+            spiderFirst = false
+            spiderPos.snapTo(if (connected) 0f else 1f)
+        } else if (connected) {
+            spiderPos.snapTo(1f)
+            spiderPos.animateTo(0f, tween(1500, easing = FastOutSlowInEasing))
+        } else {
+            spiderPos.animateTo(-1f, tween(1300, easing = FastOutSlowInEasing))
+            spiderPos.snapTo(1f)
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -353,22 +410,7 @@ fun TvHomeScreen(
                             radius = orbR * 1.5f,
                             center = c,
                         )
-                        // 2) slow rotating highlight ring — smooth (transparent at both seam ends)
-                        rotate(ringRot(), pivot = c) {
-                            drawArc(
-                                brush = Brush.sweepGradient(
-                                    listOf(Color.Transparent, accent, Color.Transparent),
-                                    center = c,
-                                ),
-                                startAngle = 0f,
-                                sweepAngle = 360f,
-                                useCenter = false,
-                                topLeft = Offset(c.x - orbR * 1.14f, c.y - orbR * 1.14f),
-                                size = Size(orbR * 2.28f, orbR * 2.28f),
-                                style = Stroke(width = 3.dp.toPx()),
-                            )
-                        }
-                        // 3) the orb — a 3D sphere with an offset (top-left) light source
+                        // the orb — a 3D sphere with an offset (top-left) light source
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(
@@ -382,6 +424,13 @@ fun TvHomeScreen(
                             radius = orbR,
                             center = c,
                         )
+                        // the spider — clipped to the orb so it emerges from under the rim.
+                        // pos>0 = below (hidden), 0 = center, <0 = above (hidden).
+                        val sp = spiderPos.value
+                        val py = c.y + sp * (orbR + 30.dp.toPx())
+                        clipPath(Path().apply { addOval(Rect(c.x - orbR, c.y - orbR, c.x + orbR, c.y + orbR)) }) {
+                            drawSpider(Offset(c.x, py), orbR / 86f, sp * 18f)
+                        }
                     },
             ) {
                 // transparent click/focus layer on top of the drawn orb (no Material shadow)
@@ -403,7 +452,10 @@ fun TvHomeScreen(
                         Icons.Filled.PowerSettingsNew,
                         contentDescription = if (connected) "Отключить" else "Подключить",
                         tint = Color.White,
-                        modifier = Modifier.size(92.dp),
+                        // Fade the power icon out as the spider reaches the center, back in as it leaves.
+                        modifier = Modifier
+                            .size(92.dp)
+                            .graphicsLayer { alpha = ((abs(spiderPos.value) - 0.4f) / 0.6f).coerceIn(0f, 1f) },
                     )
                 }
             }
