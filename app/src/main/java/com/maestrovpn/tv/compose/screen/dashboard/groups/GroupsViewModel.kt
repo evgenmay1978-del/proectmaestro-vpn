@@ -59,12 +59,15 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         viewModelScope.launch {
             combine(
                 AppLifecycleObserver.isForeground,
+                AppLifecycleObserver.isScreenOn,
                 RemoteControlManager.remoteServer,
                 RemoteControlManager.isConnected,
                 _serviceStatus,
-            ) { foreground, remoteServer, remoteConnected, status ->
+            ) { foreground, screenOn, remoteServer, remoteConnected, status ->
                 SessionTarget(
-                    connect = foreground &&
+                    // Pause the groups feed while the TV screen is off — mirrors
+                    // ConnectionsViewModel; reconnects on SCREEN_ON. VPN data path untouched.
+                    connect = foreground && screenOn &&
                         if (remoteServer != null) remoteConnected else status == Status.Started,
                     remoteServerId = remoteServer?.id,
                 )

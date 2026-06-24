@@ -162,12 +162,17 @@ class DashboardViewModel :
         viewModelScope.launch {
             combine(
                 AppLifecycleObserver.isForeground,
+                AppLifecycleObserver.isScreenOn,
                 RemoteControlManager.remoteServer,
                 RemoteControlManager.isConnected,
                 _serviceStatus,
-            ) { foreground, remoteServer, remoteConnected, status ->
+            ) { foreground, screenOn, remoteServer, remoteConnected, status ->
                 SessionTarget(
-                    connect = foreground &&
+                    // screenOn gate: on a TV the app stays "foreground" under a screensaver/
+                    // dark panel, which kept the 1s libbox telemetry poll churning all night.
+                    // Mirror ConnectionsViewModel — pause the feed while the screen is off; it
+                    // reconnects automatically on ACTION_SCREEN_ON. VPN data path is untouched.
+                    connect = foreground && screenOn &&
                         if (remoteServer != null) remoteConnected else status == Status.Started,
                     remoteServerId = remoteServer?.id,
                 )

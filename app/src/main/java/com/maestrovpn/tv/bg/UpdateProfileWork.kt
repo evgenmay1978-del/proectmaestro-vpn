@@ -13,7 +13,7 @@ import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
-import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import java.io.File
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -75,7 +75,12 @@ class UpdateProfileWork {
                     continue
                 }
                 try {
-                    val content = HTTPClient().use { it.getString(profile.typed.remoteURL) }
+                    // Bounded fetch: a panel that stalls after TLS used to hang this worker
+                    // (and thus the updater) forever. null = unreachable → fail this profile,
+                    // Result.retry() reschedules. The config is overwritten only AFTER a good
+                    // fetch + checkConfig, so a timed-out fetch never disturbs the live tunnel.
+                    val content = httpGetStringTimed(profile.typed.remoteURL)
+                        ?: error("sub fetch timed out / panel unreachable")
                     Libbox.checkConfig(content)
                     val file = File(profile.typed.path)
                     if (file.readText() != content) {

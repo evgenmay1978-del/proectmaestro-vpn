@@ -38,12 +38,15 @@ class LogViewModel :
         viewModelScope.launch {
             combine(
                 AppLifecycleObserver.isForeground,
+                AppLifecycleObserver.isScreenOn,
                 RemoteControlManager.remoteServer,
                 RemoteControlManager.isConnected,
                 serviceStatusFlow,
-            ) { foreground, remoteServer, remoteConnected, status ->
+            ) { foreground, screenOn, remoteServer, remoteConnected, status ->
                 SessionTarget(
-                    connect = foreground &&
+                    // Pause the log feed while the TV screen is off (foreground stays true under
+                    // a screensaver) — mirrors ConnectionsViewModel; reconnects on SCREEN_ON.
+                    connect = foreground && screenOn &&
                         if (remoteServer != null) remoteConnected else status == Status.Started,
                     remoteServerId = remoteServer?.id,
                 )

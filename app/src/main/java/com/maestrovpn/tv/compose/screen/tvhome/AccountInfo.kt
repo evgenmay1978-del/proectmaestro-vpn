@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import com.maestrovpn.tv.database.ProfileManager
-import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -29,7 +29,7 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                     .firstOrNull { it.typed.remoteURL.contains("/sub/") }
                     ?: return@withContext AccountInfo()
                 val url = profile.typed.remoteURL.trimEnd('/') + "/info"
-                val json = HTTPClient().use { it.getString(url) }
+                val json = httpGetStringTimed(url) ?: return@withContext AccountInfo()
                 val o = JSONObject(json)
                 AccountInfo(
                     login = o.optString("login").ifBlank { null },
