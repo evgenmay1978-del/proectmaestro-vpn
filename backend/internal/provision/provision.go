@@ -28,13 +28,11 @@ type VLESSClienter interface {
 	GetClient(email string) (*xui.ExistingClient, error)
 }
 
-// NodeClienter is a 3x-ui panel client for the 3rd node (S3), which serves BOTH a
-// VLESS-Reality and a Trojan inbound — so it needs the VLESS client ops PLUS the
-// password-based Trojan client ops. The real *xui.Client satisfies it.
+// NodeClienter is a 3x-ui panel client for the 3rd node (S3), which serves a
+// VLESS-Reality inbound — so it needs the VLESS client ops. The real *xui.Client
+// satisfies it.
 type NodeClienter interface {
 	VLESSClienter
-	AddTrojanClient(inboundID int, c xui.TrojanClient) error
-	UpdateTrojanClient(inboundID int, email string, c xui.TrojanClient) error
 }
 
 // Server2 is the slice of the server-2 client provision needs (so it can be
@@ -85,25 +83,14 @@ type AnyTLSTmpl struct {
 	Insecure bool // self-signed cert → true
 }
 
-// TrojanTmpl is the 3rd-node (S3) Trojan inbound facts shared by all clients.
-// Optional: empty Server = not provisioned. Self-signed cert → Insecure=true.
-type TrojanTmpl struct {
-	InboundID int
-	Server    string
-	Port      int
-	SNI       string
-	Insecure  bool
-}
-
-// Config holds the per-server templates. Naive/AnyTLS/VLESS3/Trojan are optional:
+// Config holds the per-server templates. Naive/AnyTLS/VLESS3 are optional:
 // if their Server is empty, that protocol is simply not provisioned.
 type Config struct {
 	VLESS  VLESSTmpl
 	Hy2    Hy2Tmpl
 	Naive  NaiveTmpl
 	AnyTLS AnyTLSTmpl
-	VLESS3 VLESSTmpl  // VLESS-Reality on the 3rd node (S3); empty Server = off
-	Trojan TrojanTmpl // Trojan on the 3rd node (S3); empty Server = off
+	VLESS3 VLESSTmpl // VLESS-Reality on the 3rd node (S3); empty Server = off
 }
 
 // Provisioner orchestrates the store + the per-server clients.
@@ -260,7 +247,7 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	// already up) if Naive's panel isn't reachable yet.
 	p.addNaive(cust, login)
 	p.addAnyTLS(cust, login)
-	p.provisionS3(cust, login) // 3rd node (S3): VLESS-Reality + Trojan, best-effort
+	p.provisionS3(cust, login) // 3rd node (S3): VLESS-Reality, best-effort
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store extras: %w", err)
 	}
@@ -387,7 +374,7 @@ func (p *Provisioner) activateExistingLocked(login string) (*store.Customer, err
 		p.addNaive(cust, login)
 	}
 
-	// AnyTLS (native sing-box outbound) + 3rd node (S3): VLESS-Reality + Trojan.
+	// AnyTLS (native sing-box outbound) + 3rd node (S3): VLESS-Reality.
 	p.addAnyTLS(cust, login)
 	p.provisionS3(cust, login)
 
@@ -505,10 +492,10 @@ func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 			log.Printf("provision: sync anytls %q: %v", cust.Login, err)
 		}
 	}
-	// 3rd node (S3): push the new expiry to the VLESS/Trojan clients (and add them if a
-	// renewal is the first time this customer touches S3). Persist any newly-added creds.
+	// 3rd node (S3): push the new expiry to the VLESS client (and add it if a renewal is
+	// the first time this customer touches S3). Persist any newly-added creds.
 	p.provisionS3(cust, cust.Login)
-	if cust.VLESS3 != nil || cust.Trojan != nil {
+	if cust.VLESS3 != nil {
 		_ = p.st.Put(cust)
 	}
 	return nil
@@ -649,15 +636,11 @@ func (p *Provisioner) BackfillAnyTLS() (int, error) {
 	return n, nil
 }
 
-// trojanEmail derives the S3 Trojan client's panel email. 3x-ui emails are unique across
-// the whole panel, so the Trojan client can't reuse the VLESS client's email (= login).
-func trojanEmail(login string) string { return login + "-tr" }
-
 // provisionS3 best-effort adds/updates the customer on the 3rd node (S3): VLESS-Reality
-// (reusing their VLESS uuid for one identity) + Trojan (password). On success it sets
-// cust.VLESS3 / cust.Trojan. It NEVER fails the caller — S3 is additive; if the node is
-// unreachable the other servers still stand and the customer is just missing S3 until the
-// next provision/backfill. Caller holds p.mu.
+// (reusing their VLESS uuid for one identity). On success it sets cust.VLESS3. It NEVER
+// fails the caller — S3 is additive; if the node is unreachable the other servers still
+// stand and the customer is just missing S3 until the next provision/backfill. Caller
+// holds p.mu.
 func (p *Provisioner) provisionS3(cust *store.Customer, login string) {
 	if p.xui3 == nil || p.cfg.VLESS3.Server == "" {
 		return
@@ -698,42 +681,13 @@ func (p *Provisioner) provisionS3(cust *store.Customer, login string) {
 			PublicKey: p.cfg.VLESS3.PublicKey, ShortID: p.cfg.VLESS3.ShortID, Fingerprint: p.cfg.VLESS3.Fingerprint,
 		}
 	}
-	// Trojan on S3 — distinct panel email, password auth.
-	if p.cfg.Trojan.Server != "" {
-		pass := randHex(16)
-		if cust.Trojan != nil && cust.Trojan.Password != "" {
-			pass = cust.Trojan.Password
-		}
-		email := trojanEmail(login)
-		// Distinct subId: 3x-ui requires a globally-unique subId per panel, so the Trojan
-		// client can't reuse the VLESS client's subId (= SubToken). The value is irrelevant to
-		// our app sub (built from stored creds, not 3x-ui's :2096 sub) — it just must be unique.
-		tc := xui.TrojanClient{
-			Password: pass, Email: email, Enable: true,
-			SubID: cust.SubToken + "-tr", ExpiryTime: cust.Expires.UnixMilli(), LimitIP: deviceLimit(login),
-		}
-		var terr error
-		if ex, _ := p.xui3.GetClient(email); ex != nil {
-			terr = p.xui3.UpdateTrojanClient(p.cfg.Trojan.InboundID, email, tc)
-		} else {
-			terr = p.xui3.AddTrojanClient(p.cfg.Trojan.InboundID, tc)
-		}
-		if terr != nil {
-			log.Printf("provision: s3 trojan %q: %v", login, terr)
-		} else {
-			cust.Trojan = &subgen.TrojanCreds{
-				Server: p.cfg.Trojan.Server, Port: p.cfg.Trojan.Port,
-				Password: pass, SNI: p.cfg.Trojan.SNI, Insecure: p.cfg.Trojan.Insecure,
-			}
-		}
-	}
 }
 
-// BackfillS3 gives the 3rd node (S3 VLESS-Reality + Trojan) to every stored customer that
-// lacks it, WITHOUT touching any other server/protocol — it only adds clients to S3's panel,
-// so existing customers' live S1/S2 connections are never disturbed. Best-effort per customer,
-// idempotent. Returns how many customers gained at least one S3 protocol. Run once after S3 is
-// wired so the existing base gets the new server + Trojan with zero blip.
+// BackfillS3 gives the 3rd node (S3 VLESS-Reality) to every stored customer that lacks it,
+// WITHOUT touching any other server/protocol — it only adds clients to S3's panel, so
+// existing customers' live S1/S2 connections are never disturbed. Best-effort per customer,
+// idempotent. Returns how many customers gained S3. Run once after S3 is wired so the
+// existing base gets the new server with zero blip.
 func (p *Provisioner) BackfillS3() (int, error) {
 	if p.xui3 == nil || p.cfg.VLESS3.Server == "" {
 		return 0, nil
@@ -742,14 +696,11 @@ func (p *Provisioner) BackfillS3() (int, error) {
 	defer p.mu.Unlock()
 	n := 0
 	for _, c := range p.st.List() {
-		needV := c.VLESS3 == nil
-		needT := p.cfg.Trojan.Server != "" && c.Trojan == nil
-		if !needV && !needT {
+		if c.VLESS3 != nil {
 			continue
 		}
-		hadV, hadT := c.VLESS3 != nil, c.Trojan != nil
 		p.provisionS3(c, c.Login)
-		if (c.VLESS3 != nil && !hadV) || (c.Trojan != nil && !hadT) {
+		if c.VLESS3 != nil {
 			if err := p.st.Put(c); err != nil {
 				return n, fmt.Errorf("provision: backfill s3 store %q: %w", c.Login, err)
 			}

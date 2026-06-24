@@ -28,9 +28,6 @@ func ShareLinks(c Customer) string {
 	if c.VLESS3 != nil {
 		links = append(links, vlessLink(c.VLESS3, c.Name+" S3"))
 	}
-	if c.Trojan != nil {
-		links = append(links, trojanLink(c.Trojan, c.Name))
-	}
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 }
 
@@ -76,16 +73,4 @@ func anytlsLink(a *AnyTLSCreds, name string) string {
 	}
 	// Password is hex (randHex) → no reserved chars, safe as raw userinfo.
 	return fmt.Sprintf("anytls://%s@%s:%d?%s#%s", a.Password, a.Server, a.Port, q.Encode(), tag("AnyTLS", name))
-}
-
-func trojanLink(t *TrojanCreds, name string) string {
-	q := url.Values{}
-	q.Set("security", "tls")
-	q.Set("sni", t.SNI)
-	q.Set("type", "tcp")
-	if t.Insecure {
-		q.Set("allowInsecure", "1")
-	}
-	// Password is hex (randHex) → safe as raw userinfo.
-	return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", t.Password, t.Server, t.Port, q.Encode(), tag("Trojan", name))
 }

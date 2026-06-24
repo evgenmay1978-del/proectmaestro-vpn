@@ -32,7 +32,7 @@ type Provisioner interface {
 	// BackfillAnyTLS gives AnyTLS to existing customers that lack it, re-syncing only the
 	// server-2 AnyTLS server (no hy2/naive restart). Returns the count backfilled.
 	BackfillAnyTLS() (int, error)
-	// BackfillS3 gives the 3rd node (S3 VLESS-Reality + Trojan) to existing customers that
+	// BackfillS3 gives the 3rd node (S3 VLESS-Reality) to existing customers that
 	// lack it, adding only S3 panel clients (no other server touched). Returns the count.
 	BackfillS3() (int, error)
 	// BulkActivateExisting imports many existing panel logins into the unified store with a

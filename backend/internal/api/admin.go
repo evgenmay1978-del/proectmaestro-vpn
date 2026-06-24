@@ -223,7 +223,7 @@ func (s *Server) handleBackfillAnyTLS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n})
 }
 
-// handleBackfillS3 (admin): give the 3rd node (S3 VLESS-Reality + Trojan) to every existing
+// handleBackfillS3 (admin): give the 3rd node (S3 VLESS-Reality) to every existing
 // customer that lacks it, adding only S3 panel clients — no other server touched, so live
 // S1/S2 connections are not disturbed. One-shot after wiring S3; idempotent.
 func (s *Server) handleBackfillS3(w http.ResponseWriter, r *http.Request) {

@@ -59,28 +59,17 @@ type AnyTLSCreds struct {
 	Insecure bool // self-signed cert → true
 }
 
-// TrojanCreds is a Trojan-over-TLS user (3x-ui/xray `trojan` inbound). sing-box has a
-// NATIVE `trojan` outbound. Hosted on the 3rd node (S3); self-signed cert → Insecure=true.
-type TrojanCreds struct {
-	Server   string
-	Port     int
-	Password string
-	SNI      string
-	Insecure bool
-}
-
 // Customer holds whichever protocols are provisioned for one subscription.
-// Any nil field is skipped. VLESS3 (VLESS-Reality on the 3rd node) and Trojan (on the
-// 3rd node) are kept as their own fields/tags because each outbound has a fixed tag — a
-// second VLESS endpoint needs a distinct tag, not a second "vless".
+// Any nil field is skipped. VLESS3 (VLESS-Reality on the 3rd node) is kept as its own
+// field/tag because each outbound has a fixed tag — a second VLESS endpoint needs a
+// distinct tag, not a second "vless".
 type Customer struct {
 	Name   string
 	VLESS  *VLESSCreds
 	Hy2    *Hy2Creds
 	Naive  *NaiveCreds
 	AnyTLS *AnyTLSCreds
-	VLESS3 *VLESSCreds  // VLESS-Reality on the 3rd node (S3)
-	Trojan *TrojanCreds // Trojan on the 3rd node (S3)
+	VLESS3 *VLESSCreds // VLESS-Reality on the 3rd node (S3)
 }
 
 const (
@@ -89,7 +78,6 @@ const (
 	tagHy2    = "hysteria2"
 	tagNaive  = "naive"
 	tagAnyTLS = "anytls"
-	tagTrojan = "trojan"
 	tagAuto   = "auto"   // urltest
 	tagPick   = "select" // selector (default outbound the tun routes to)
 )
@@ -157,10 +145,6 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	if c.VLESS3 != nil {
 		outbounds = append(outbounds, vlessOutbound(c.VLESS3, tagVLESS3))
 		protoTags = append(protoTags, tagVLESS3)
-	}
-	if c.Trojan != nil {
-		outbounds = append(outbounds, trojanOutbound(c.Trojan))
-		protoTags = append(protoTags, tagTrojan)
 	}
 	if len(protoTags) == 0 {
 		return nil, fmt.Errorf("subgen: customer %q has no protocols", c.Name)
@@ -351,15 +335,6 @@ func anytlsOutbound(a *AnyTLSCreds) map[string]any {
 		"server": a.Server, "server_port": a.Port,
 		"password": a.Password,
 		"tls":      map[string]any{"enabled": true, "server_name": a.SNI, "insecure": a.Insecure},
-	}
-}
-
-func trojanOutbound(t *TrojanCreds) map[string]any {
-	return map[string]any{
-		"type": "trojan", "tag": tagTrojan,
-		"server": t.Server, "server_port": t.Port,
-		"password": t.Password,
-		"tls":      map[string]any{"enabled": true, "server_name": t.SNI, "insecure": t.Insecure},
 	}
 }
 
