@@ -239,6 +239,28 @@ func (s *Server) handleBackfillS3(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n})
 }
 
+// handleBulkImport (admin): import a list of existing panel logins into the unified store,
+// syncing server-2 ONCE at the end (never restarts hy2/anytls per customer). Body:
+// {"logins":["a","b",...]}. Logins already unified are skipped. Returns {imported, failed}.
+func (s *Server) handleBulkImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Logins []string `json:"logins"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	n, failed, err := s.prov.BulkActivateExisting(req.Logins)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"imported": n, "failed": failed})
+}
+
 // handleMigrateAnyTLSS2 (admin): repoint every existing customer's AnyTLS credential to the
 // CURRENTLY configured endpoint (the S1:8444 → S2:8443 cutover) WITHOUT changing passwords,
 // then re-sync ONLY the AnyTLS server — never hy2/naive — so live customers are not

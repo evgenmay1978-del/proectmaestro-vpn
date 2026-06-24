@@ -35,6 +35,10 @@ type Provisioner interface {
 	// BackfillS3 gives the 3rd node (S3 VLESS-Reality + Trojan) to existing customers that
 	// lack it, adding only S3 panel clients (no other server touched). Returns the count.
 	BackfillS3() (int, error)
+	// BulkActivateExisting imports many existing panel logins into the unified store with a
+	// SINGLE server-2 sync at the end (no per-customer hy2/anytls restart). Returns
+	// (imported, failed-logins, err).
+	BulkActivateExisting(logins []string) (int, []string, error)
 	// MigrateAnyTLSEndpoint repoints existing customers' AnyTLS creds to the configured
 	// endpoint (the S1:8444 → S2:8443 cutover), password-preserving. Returns the count moved.
 	MigrateAnyTLSEndpoint() (int, error)
@@ -107,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/admin/customer", s.adminAuth(s.handleCustomer))
 		mux.HandleFunc("/admin/backfill-anytls", s.adminAuth(s.handleBackfillAnyTLS))
 		mux.HandleFunc("/admin/backfill-s3", s.adminAuth(s.handleBackfillS3))
+		mux.HandleFunc("/admin/bulk-import", s.adminAuth(s.handleBulkImport))
 		mux.HandleFunc("/admin/migrate-anytls-s2", s.adminAuth(s.handleMigrateAnyTLSS2))
 		if s.orders != nil {
 			mux.HandleFunc("/admin/order/confirm", s.adminAuth(s.handleOrderConfirm))

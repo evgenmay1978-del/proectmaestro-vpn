@@ -293,6 +293,33 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	cust, err := p.activateExistingLocked(login)
+	if err != nil {
+		return nil, err
+	}
+	// Push the freshly created server-2 user sets (best-effort).
+	if err := p.syncHy2(); err != nil {
+		log.Printf("activate: hy2 sync %q: %v", login, err)
+	}
+	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
+		if err := p.syncNaive(); err != nil {
+			log.Printf("activate: naive sync %q: %v", login, err)
+		}
+	}
+	if cust.AnyTLS != nil {
+		if err := p.syncAnyTLS(); err != nil {
+			log.Printf("activate: anytls sync %q: %v", login, err)
+			cust.AnyTLS = nil
+			_ = p.st.Put(cust)
+		}
+	}
+	return cust, nil
+}
+
+// activateExistingLocked builds + stores the unified record for an existing panel customer
+// WITHOUT syncing server-2 (the caller syncs — ONCE — so a bulk import doesn't restart
+// hy2/anytls per customer and never blips connected S2 users). Caller holds p.mu.
+func (p *Provisioner) activateExistingLocked(login string) (*store.Customer, error) {
 	if err := p.xui.Login(); err != nil {
 		return nil, fmt.Errorf("provision: xui login: %w", err)
 	}
@@ -360,30 +387,56 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 		p.addNaive(cust, login)
 	}
 
-	// AnyTLS (native sing-box outbound, server 1).
+	// AnyTLS (native sing-box outbound) + 3rd node (S3): VLESS-Reality + Trojan.
 	p.addAnyTLS(cust, login)
-	p.provisionS3(cust, login) // 3rd node (S3): VLESS-Reality + Trojan, best-effort
+	p.provisionS3(cust, login)
 
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store: %w", err)
 	}
-	// Push the freshly created server-2 user sets (best-effort).
-	if err := p.syncHy2(); err != nil {
-		log.Printf("activate: hy2 sync %q: %v", login, err)
-	}
-	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
-		if err := p.syncNaive(); err != nil {
-			log.Printf("activate: naive sync %q: %v", login, err)
-		}
-	}
-	if cust.AnyTLS != nil {
-		if err := p.syncAnyTLS(); err != nil {
-			log.Printf("activate: anytls sync %q: %v", login, err)
-			cust.AnyTLS = nil
-			_ = p.st.Put(cust)
-		}
-	}
 	return cust, nil
+}
+
+// BulkActivateExisting imports MANY existing panel customers into the unified store in one
+// shot, syncing server-2 (hy2/naive/anytls) ONCE at the end instead of per-customer — so the
+// import does NOT restart S2's hysteria/sing-box dozens of times and never blips connected S2
+// users (HARD RULE #1). Logins already in the store are SKIPPED so their sub URL / token is
+// preserved. Returns the number imported and the logins that failed (not in any panel / store
+// error). Per-customer 3x-ui (S1 + S3) client writes still happen inline (those are additive).
+func (p *Provisioner) BulkActivateExisting(logins []string) (int, []string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	imported := 0
+	var failed []string
+	for _, login := range logins {
+		if !ValidLogin(login) {
+			failed = append(failed, login)
+			continue
+		}
+		if _, err := p.st.ByLogin(login); err == nil {
+			continue // already unified — leave their record + sub token untouched
+		}
+		if _, err := p.activateExistingLocked(login); err != nil {
+			log.Printf("bulk-activate %q: %v", login, err)
+			failed = append(failed, login)
+			continue
+		}
+		imported++
+	}
+	// One server-2 sync for the WHOLE batch (full-regen from the active set) — one
+	// hysteria restart + one sing-box-anytls restart + one Caddy reload, not N.
+	if imported > 0 {
+		if err := p.syncHy2(); err != nil {
+			log.Printf("bulk-activate: hy2 sync: %v", err)
+		}
+		if err := p.syncNaive(); err != nil {
+			log.Printf("bulk-activate: naive sync: %v", err)
+		}
+		if err := p.syncAnyTLS(); err != nil {
+			log.Printf("bulk-activate: anytls sync: %v", err)
+		}
+	}
+	return imported, failed, nil
 }
 
 // Extend renews a customer across all servers.
