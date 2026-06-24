@@ -1,0 +1,105 @@
+name: Build app APK (test / compile-check)
+
+# Generic NON-OTA test build of the app on a feature branch, against the NORMAL
+# libbox.aar (the fleet engine). Used to compile-check + optionally device-test app
+# changes before merging them to main (which is what OTAs them).
+#
+# ⛔ SAFETY: NO GitHub Release → the OTA mirror never sees it. APK = artifact only
+# (maestrovpn-tv-test-apk). HIGH versionCode so it won't self-update mid-test.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/android-test.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set test version (HIGH code so the OTA never replaces it)
+        id: ver
+        run: |
+          set -euo pipefail
+          VC="$(( 90000 + ${{ github.run_number }} ))"
+          VN="1.0.92-test"
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
+
+      - name: Read NDK pin from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          source <(grep -E '^NDK_VERSION=' version.properties)
+          echo "ndk_version=${NDK_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'settings.gradle.kts', 'version.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install pinned NDK + SDK platform
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+
+      - name: Fetch the NORMAL libbox.aar (latest successful libbox.yml run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          RUN_ID=$(gh run list --workflow=libbox.yml --status=success -L1 \
+            --json databaseId -q '.[0].databaseId // empty')
+          [ -n "$RUN_ID" ] || { echo "::error::No successful libbox.yml build found." >&2; exit 1; }
+          gh run download "$RUN_ID" -n libbox-aar -D app/libs
+          test -f app/libs/libbox.aar
+          ls -lh app/libs/
+
+      - name: Materialize the stable signing keystore from secret
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SIGNING_KEYSTORE_B64:-}" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/release.keystore
+          fi
+
+      - name: Build :app:assembleOtherDebug
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          n=0
+          until [ "$n" -ge 4 ]; do
+            if ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon; then exit 0; fi
+            n=$((n + 1))
+            echo "::warning::gradle attempt $n failed — retrying in 90s" >&2
+            sleep 90
+          done
+          echo "::error::gradle build failed after retries" >&2
+          exit 1
+
+      - name: Upload test APK (artifact only — NO Release, NO OTA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestrovpn-tv-test-apk
+          path: app/build/outputs/apk/other/debug/*.apk
+          if-no-files-found: error
