@@ -16,6 +16,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.MutableLiveData
 import go.Seq
@@ -42,12 +43,19 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
     companion object {
         private const val PROFILE_UPDATE_INTERVAL = 15L * 60 * 1000 // 15 minutes in milliseconds
         private const val TAG = "BoxService"
+
+        // Hard cap on how long we wait for the native libbox close during stop. libbox holds
+        // its own dup of the tun fd, so a wedged close keeps the VPN UP ("невозможно выключить,
+        // VPN не гаснет"). Past this, we force the service down regardless — destroying the
+        // VPNService is what makes Android tear the tun interface down.
+        private const val STOP_CLOSE_TIMEOUT = 3000L
 
         fun start() {
             val intent =
@@ -285,21 +293,38 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             receiverRegistered = false
         }
         notification.close()
+        // Record the user-stop intent BEFORE the (possibly hanging) close below, so that if
+        // the process is recreated by START_STICKY we don't silently reconnect a tunnel the
+        // user explicitly switched off.
+        Settings.startedByUser = false
         GlobalScope.launch(Dispatchers.IO) {
             val pfd = fileDescriptor
             if (pfd != null) {
-                pfd.close()
+                runCatching { pfd.close() }
                 fileDescriptor = null
             }
             DefaultNetworkMonitor.stop()
-            // commandServer may not be initialized yet if we're stopping mid-Starting.
+            // The native libbox close can BLOCK indefinitely (a stuck goroutine, an in-flight
+            // urltest probe, gvisor/tun teardown). Because libbox holds its own dup of the tun
+            // fd, the VPN stays UP until it returns — which is the "VPN не гаснет / невозможно
+            // выключить" bug. So we bound it: run the close on its own job and wait at most
+            // STOP_CLOSE_TIMEOUT, then force the service down regardless. commandServer may not
+            // be initialized yet if we're stopping mid-Starting.
             if (::commandServer.isInitialized) {
-                closeService()
-                commandServer.close()
+                val closeJob = GlobalScope.launch(Dispatchers.IO) {
+                    runCatching { closeService() }
+                    runCatching { commandServer.close() }
+                }
+                if (withTimeoutOrNull(STOP_CLOSE_TIMEOUT) { closeJob.join() } == null) {
+                    Log.w(TAG, "stopService: libbox close exceeded ${STOP_CLOSE_TIMEOUT}ms — forcing service down; the tun is released when the VPNService is destroyed")
+                }
             }
-            Settings.startedByUser = false
             withContext(Dispatchers.Main) {
                 status.value = Status.Stopped
+                // stopForeground(REMOVE) + stopSelf() ALWAYS run, even if the close above
+                // timed out — destroying the VPNService is what guarantees Android tears down
+                // the tun interface, so the VPN can never get stuck "on".
+                runCatching { ServiceCompat.stopForeground(service, ServiceCompat.STOP_FOREGROUND_REMOVE) }
                 service.stopSelf()
             }
         }
