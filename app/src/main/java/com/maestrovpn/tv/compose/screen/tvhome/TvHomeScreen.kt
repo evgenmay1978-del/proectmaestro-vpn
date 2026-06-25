@@ -1,43 +1,49 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,131 +57,55 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.app.Activity
-import androidx.compose.animation.core.keyframes
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.animation.core.Animatable
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.sin
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextAlign
-import com.maestrovpn.tv.vendor.Vendor
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import com.maestrovpn.tv.compose.rememberIsLowRam
+import com.maestrovpn.tv.compose.component.GlossyButton
+import com.maestrovpn.tv.compose.component.NeonAccountCard
+import com.maestrovpn.tv.compose.component.NeonChip
+import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
-
-private val ConnGreen = Color(0xFF2FBF71)
-private val PlateDark = Color(0xFF26262B)
-
-/** Vertical "light-top → dark-bottom" sheen that makes a flat plate read as raised/3D. */
-private fun raisedBrush(base: Color) = Brush.verticalGradient(
-    listOf(lerp(base, Color.White, 0.20f), base, lerp(base, Color.Black, 0.22f)),
-)
-
-/** A volumetric (raised gradient + drop-shadow) button. Keeps Material focus/ripple for D-pad. */
-@Composable
-private fun VolButton(
-    text: String,
-    onClick: () -> Unit,
-    base: Color,
-    modifier: Modifier = Modifier,
-    bold: Boolean = true,
-) {
-    val shape = RoundedCornerShape(16.dp)
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        if (pressed) 0.97f else if (focused) 1.06f else 1f,
-        tween(140, easing = FastOutSlowInEasing), label = "vbScale",
-    )
-    Button(
-        onClick = onClick,
-        shape = shape,
-        interactionSource = interaction,
-        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = Color.Transparent,
-            contentColor = Color.White,
-        ),
-        modifier = modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .shadow(if (focused) 16.dp else 8.dp, shape, clip = false)
-            .background(raisedBrush(base), shape)
-            .border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape),
-    ) { Text(text, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium) }
-}
+import com.maestrovpn.tv.compose.theme.NeonGreen
+import com.maestrovpn.tv.vendor.Vendor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 /**
- * Volumetric "MaestroVPN" wordmark. Each glyph spins a full turn around its own
- * vertical axis IN SEQUENCE — a wave that sweeps from the first letter to the last,
- * then holds, then repeats (slow + classy). Each letter is genuinely EXTRUDED (see
- * [Letter3D]) so it has real depth, not just a flat gradient. "Maestro" orange,
- * "VPN" silver.
+ * Volumetric "MaestroVPN" wordmark — each glyph is genuinely EXTRUDED (a stack of dark
+ * side faces under a beveled, specular-lit front face), giving real depth. "Maestro"
+ * orange, "VPN" silver. Static (no per-frame spin) so it's free on a weak TV box.
  */
 @Composable
-private fun AnimatedLogo(modifier: Modifier = Modifier, lowRam: Boolean = false) {
+private fun AnimatedLogo(modifier: Modifier = Modifier) {
     val word = "MaestroVPN"
-    // Low-RAM (≈1GB Sony/TCL): render a STATIC wordmark — no rememberInfiniteTransition, no
-    // per-frame rotationY. The perpetual 90-glyph spin is the biggest GPU/CPU sink on the home
-    // screen and is wasted on a weak box (letters keep their 3D depth, they just don't rotate).
-    // STATIC embossed wordmark on ALL devices (2026-06-24): the per-glyph rotationY spin was the
-    // #1 home-screen GPU/CPU sink. Letters keep their extruded 3D depth (Letter3D) — they just
-    // don't rotate. Reads as «объёмная выпуклая» and is essentially free. lowRam now unused.
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         word.forEachIndexed { i, ch ->
             val isVpn = i >= word.length - 3
-            Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange) { 0f }
+            Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange)
         }
     }
 }
 
-/**
- * One EXTRUDED 3D glyph: a stack of dark "side" faces offset down-right builds the
- * letter's thickness, with a beveled, specular-lit front face on top; the whole stack
- * is spun around its Y axis by [rot]. That real depth is what the flat version lacked.
- */
 @Composable
-private fun Letter3D(ch: Char, base: Color, rot: () -> Float) {
+private fun Letter3D(ch: Char, base: Color) {
     val depth = 8
     val side = lerp(base, Color.Black, 0.5f)
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.graphicsLayer {
-            rotationY = rot()
-            cameraDistance = 18f * density
-        },
-    ) {
-        // extruded body — copies offset down-right, fading dark→darker, form the thickness
+    Box(contentAlignment = Alignment.Center) {
         for (d in depth downTo 1) {
             Text(
                 ch.toString(),
@@ -185,7 +115,6 @@ private fun Letter3D(ch: Char, base: Color, rot: () -> Float) {
                 modifier = Modifier.graphicsLayer { translationX = d * 1.7f; translationY = d * 1.7f },
             )
         }
-        // front face — bright top → dark bottom with a thin specular band + drop shadow
         Text(
             ch.toString(),
             fontSize = 46.sp,
@@ -203,85 +132,12 @@ private fun Letter3D(ch: Char, base: Color, rot: () -> Float) {
     }
 }
 
-// Spider leg fan (front→back spread angles) + per-rank lengths (front & back legs longer, like a
-// real spider). Mirrored left/right so it's symmetric, not "crippled".
-private val spiderSpread = floatArrayOf(0.55f, 1.22f, 1.95f, 2.55f)
-private val spiderLegLen = floatArrayOf(58f, 47f, 45f, 56f)
-
 /**
- * Draws the spider centered at [center], scaled by [s], with [walk] (radians) driving the walking
- * gait. Top view, head UP: 8 mirrored 3-segment legs (high knee), glossy teardrop abdomen with a
- * red folium marking, cephalothorax, 8 eyes, pedipalps, and a VERTICAL contact shadow.
- */
-private fun DrawScope.drawSpider(center: Offset, s: Float, walk: Float) {
-    val leg = Color(0xFF0B0C10)
-    fun p(lx: Float, ly: Float) = Offset(center.x + lx * s, center.y + ly * s)
-    // vertical contact shadow, aligned with the upward body
-    drawOval(Color.Black.copy(alpha = 0.28f), topLeft = p(-11f, -27f), size = Size(26f * s, 54f * s))
-    for (side in 0..1) {
-        val sgn = if (side == 1) 1f else -1f
-        for (k in 0..3) {
-            val ang = (-PI / 2f + sgn * spiderSpread[k]).toFloat()
-            val ux = cos(ang); val uy = sin(ang)
-            val ph = ((k + side) % 2) * PI.toFloat()
-            val cyc = sin(walk + ph)
-            val lift = max(0f, cyc) * 7f
-            val rr = spiderLegLen[k] * (1f + 0.07f * cyc)
-            val h = p(ux * 9f, uy * 9f + 1f)
-            val k1 = p(ux * rr * 0.46f, uy * rr * 0.46f - 15f - lift)
-            val k2 = p(ux * rr * 0.80f, uy * rr * 0.80f - 5f - lift * 0.4f)
-            val ft = p(ux * rr + sgn * 2f, uy * rr + 4f)
-            drawLine(leg, h, k1, 3.4f * s, StrokeCap.Round)
-            drawLine(leg, k1, k2, 2.3f * s, StrokeCap.Round)
-            drawLine(leg, k2, ft, 1.4f * s, StrokeCap.Round)
-        }
-    }
-    drawLine(leg, p(-3f, -13f), p(-8f, -25f), 2.6f * s, StrokeCap.Round)
-    drawLine(leg, p(3f, -13f), p(8f, -25f), 2.6f * s, StrokeCap.Round)
-    drawLine(leg, p(-2f, -17f), p(-3f, -22f), 2f * s, StrokeCap.Round)
-    drawLine(leg, p(2f, -17f), p(3f, -22f), 2f * s, StrokeCap.Round)
-    drawOval(
-        Brush.radialGradient(
-            0f to Color(0xFF46342A), 0.45f to Color(0xFF271A13), 1f to Color(0xFF0A0603),
-            center = p(-5f, 3f), radius = 22f * s,
-        ),
-        topLeft = p(-15f, -10f), size = Size(30f * s, 38f * s),
-    )
-    drawOval(
-        Brush.radialGradient(
-            0f to Color(0xFF7A6450).copy(alpha = 0.5f), 1f to Color.Transparent,
-            center = p(-5f, 1f), radius = 10f * s,
-        ),
-        topLeft = p(-11f, -7f), size = Size(14f * s, 18f * s),
-    )
-    val fol = Color(0xFFB04228).copy(alpha = 0.8f)
-    drawLine(fol, p(0f, -1f), p(0f, 20f), 1.8f * s, StrokeCap.Round)
-    for (cc in 0..3) {
-        val yy = 2f + cc * 4.5f
-        drawLine(fol, p(-5f + cc * 0.7f, yy + 3f), p(0f, yy), 1.8f * s, StrokeCap.Round)
-        drawLine(fol, p(0f, yy), p(5f - cc * 0.7f, yy + 3f), 1.8f * s, StrokeCap.Round)
-    }
-    drawOval(
-        Brush.radialGradient(
-            0f to Color(0xFF3C2F26), 1f to Color(0xFF120C08),
-            center = p(-3f, -13f), radius = 13f * s,
-        ),
-        topLeft = p(-10.5f, -20.5f), size = Size(21f * s, 23f * s),
-    )
-    val eye = Color(0xFFF0D291)
-    drawCircle(eye, 1.5f * s, p(-5f, -16f)); drawCircle(eye, 1.5f * s, p(5f, -16f))
-    drawCircle(eye, 1.1f * s, p(-2f, -18f)); drawCircle(eye, 1.1f * s, p(2f, -18f))
-    drawCircle(eye, 1f * s, p(-6f, -13f)); drawCircle(eye, 1f * s, p(6f, -13f))
-    drawCircle(eye, 0.9f * s, p(-2.4f, -14f)); drawCircle(eye, 0.9f * s, p(2.4f, -14f))
-}
-
-/**
- * MaestroVPN home — universal connect screen for BOTH a TV remote (D-pad) and a
- * touch phone. Hero is a big ROUND power button in the centre (brutal look): it's
- * the focus target on TV and the obvious tap target on a phone. Plain Material 3
- * (clickable by touch AND D-pad-focusable, unlike tv-material3). The column
- * scrolls so nothing clips; protocol chips wrap (FlowRow); secondary actions are
- * lighter outlined buttons so the connect button stays dominant.
+ * MaestroVPN home — the universal connect screen for BOTH a TV remote (D-pad) and a
+ * touch phone, restyled to the owner's reference (spiderinterfeis.png): deep near-black
+ * with a green glow, the photoreal spider medallion as the hero connect button, dark
+ * green-glass chips/cards with neon borders + icons. Orange is kept for SELECTION and
+ * the primary CTA (buy). The column scrolls; chips wrap (FlowRow).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -302,12 +158,10 @@ fun TvHomeScreen(
     onScanQr: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
-    val lowRam = rememberIsLowRam()
     val connectFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (isTv) runCatching { connectFocus.requestFocus() }
     }
-    val accent = if (connected) ConnGreen else MaestroOrange
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val open: (String) -> Unit = { url ->
@@ -318,15 +172,6 @@ fun TvHomeScreen(
         }
     }
 
-    // ── Motion: keep the screen alive (tasteful, not gaudy) ─────────────────
-    // Low-RAM (≈1GB Sony/TCL): skip the perpetual background animation entirely — no
-    // rememberInfiniteTransition, static values. The lambda accessors keep State reactivity on
-    // normal devices (the value is read in the draw phase) while staying constant on weak boxes,
-    // so drawBehind stops re-rasterizing the full-screen gradient + orb ring every vsync.
-    // STATIC home screen (2026-06-24): drop the perpetual background pulse + the button's rotating
-    // sweep ring — the heavy continuous animations the owner asked to remove. `pulse` is a constant
-    // now; the SPIDER (below) is the only motion, and it runs only while connecting/disconnecting.
-    val pulse: () -> Float = { 0.5f }
     // Gentle entrance — crash-safe: the LaunchedEffect only flips a flag, never throws.
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
@@ -334,38 +179,23 @@ fun TvHomeScreen(
         if (shown) 1f else 0f, tween(600, easing = FastOutSlowInEasing), label = "enter",
     )
 
-    // Spider on the power button: on CONNECT it crawls out from UNDER the button up to the CENTER
-    // and settles; on DISCONNECT it crawls UP and out the TOP. pos: 0 = center, +1 = below (hidden),
-    // -1 = above (hidden). The legs are driven by `pos`, so they walk only while it moves and are
-    // frozen (free) at rest — no perpetual animation.
-    val spiderPos = remember { Animatable(if (connected) 0f else 1f) }
-    var spiderFirst by remember { mutableStateOf(true) }
-    LaunchedEffect(connected) {
-        if (spiderFirst) {
-            spiderFirst = false
-            spiderPos.snapTo(if (connected) 0f else 1f)
-        } else if (connected) {
-            spiderPos.snapTo(1f)
-            spiderPos.animateTo(0f, tween(1500, easing = FastOutSlowInEasing))
-        } else {
-            spiderPos.animateTo(-1f, tween(1300, easing = FastOutSlowInEasing))
-            spiderPos.snapTo(1f)
-        }
-    }
-
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
+                    // green glow centred behind the medallion (matches the reference)
+                    val center = Offset(size.width * 0.5f, size.height * 0.28f)
+                    val radius = size.maxDimension * 0.5f
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(accent.copy(alpha = 0.05f + 0.06f * pulse()), Color.Transparent),
-                            center = Offset(size.width * 0.5f, size.height * 0.30f),
-                            radius = size.maxDimension * 0.55f,
+                            colors = listOf(
+                                NeonGreen.copy(alpha = if (connected) 0.12f else 0.07f),
+                                Color.Transparent,
+                            ),
+                            center = center, radius = radius,
                         ),
-                        radius = size.maxDimension * 0.55f,
-                        center = Offset(size.width * 0.5f, size.height * 0.30f),
+                        radius = radius, center = center,
                     )
                 }
                 .verticalScroll(rememberScrollState())
@@ -377,243 +207,137 @@ fun TvHomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            // Brand wordmark — volumetric; letters spin in turn (STATIC on low-RAM boxes).
-            AnimatedLogo(lowRam = lowRam)
-            Spacer(Modifier.height(28.dp))
+            AnimatedLogo()
+            Spacer(Modifier.height(22.dp))
 
-            // ── Round power button (the hero) — a living "orb" ──────────────
-            val press = remember { MutableInteractionSource() }
-            val pressed by press.collectIsPressedAsState()
-            val heroFocused by press.collectIsFocusedAsState()
-            val btnScale by animateFloatAsState(
-                if (pressed) 0.93f else if (heroFocused) 1.05f else 1f,
-                tween(140, easing = FastOutSlowInEasing), label = "btnScale",
+            // ── Hero: the spider medallion connect button ──────────────────
+            SpiderMedallion(
+                connected = connected,
+                onToggle = onToggleConnect,
+                focusRequester = connectFocus,
             )
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(240.dp)
-                    .graphicsLayer { scaleX = btnScale; scaleY = btnScale }
-                    .drawBehind {
-                        val c = Offset(size.width / 2f, size.height / 2f)
-                        val orbR = 94.dp.toPx()
-                        // 1) soft breathing halo — a glow RING hugging the orb (not behind it)
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                0.00f to Color.Transparent,
-                                0.66f to Color.Transparent,
-                                0.84f to accent.copy(alpha = 0.28f + 0.16f * pulse() + (if (heroFocused) 0.24f else 0f)),
-                                1.00f to Color.Transparent,
-                                center = c,
-                                radius = orbR * 1.5f,
-                            ),
-                            radius = orbR * 1.5f,
-                            center = c,
-                        )
-                        // the orb — a 3D sphere with an offset (top-left) light source
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    lerp(accent, Color.White, 0.45f),
-                                    accent,
-                                    lerp(accent, Color.Black, 0.30f),
-                                ),
-                                center = Offset(c.x - orbR * 0.34f, c.y - orbR * 0.40f),
-                                radius = orbR * 1.55f,
-                            ),
-                            radius = orbR,
-                            center = c,
-                        )
-                        // the spider — clipped to the orb so it emerges from under the rim.
-                        // pos>0 = below (hidden), 0 = center, <0 = above (hidden).
-                        val sp = spiderPos.value
-                        val py = c.y + sp * (orbR + 30.dp.toPx())
-                        clipPath(Path().apply { addOval(Rect(c.x - orbR, c.y - orbR, c.x + orbR, c.y + orbR)) }) {
-                            drawSpider(Offset(c.x, py), orbR / 86f, sp * 18f)
-                        }
-                    },
-            ) {
-                // transparent click/focus layer on top of the drawn orb (no Material shadow)
-                Button(
-                    onClick = onToggleConnect,
-                    shape = CircleShape,
-                    contentPadding = PaddingValues(0.dp),
-                    interactionSource = press,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = Color.White,
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                    modifier = Modifier
-                        .size(188.dp)
-                        .focusRequester(connectFocus),
-                ) {
-                    Icon(
-                        Icons.Filled.PowerSettingsNew,
-                        contentDescription = if (connected) "Отключить" else "Подключить",
-                        tint = Color.White,
-                        // Fade the power icon out as the spider reaches the center, back in as it leaves.
-                        modifier = Modifier
-                            .size(92.dp)
-                            .graphicsLayer { alpha = ((abs(spiderPos.value) - 0.4f) / 0.6f).coerceIn(0f, 1f) },
-                    )
-                }
-            }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
             // status with a state dot
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier
                         .size(11.dp)
-                        .graphicsLayer {
-                            val s = if (connected) 1f + 0.35f * pulse() else 1f
-                            scaleX = s; scaleY = s
-                        }
                         .clip(CircleShape)
-                        .background(if (connected) ConnGreen else MaestroSilver),
+                        .background(if (connected) NeonGreen else MaestroSilver),
                 )
                 Spacer(Modifier.width(9.dp))
                 Text(
                     statusText.uppercase(),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (connected) ConnGreen else MaterialTheme.colorScheme.onSurface,
+                    color = if (connected) NeonGreen else MaterialTheme.colorScheme.onSurface,
                 )
             }
 
-            // Account card — the customer's login + how many days are left on their
-            // subscription (fetched from the panel /sub/<token>/info; null = unknown).
+            // Account card — login + days left (from the panel /sub/<token>/info).
             if (!accountLogin.isNullOrBlank() || daysLeft != null) {
                 Spacer(Modifier.height(14.dp))
                 val expired = daysLeft != null && daysLeft <= 0
                 val low = daysLeft != null && daysLeft in 1..5
-                val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else ConnGreen
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = PlateDark,
-                    modifier = Modifier.widthIn(min = 220.dp),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        if (!accountLogin.isNullOrBlank()) {
-                            Text(
-                                "Аккаунт: $accountLogin",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                            )
-                        }
-                        if (daysLeft != null) {
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                if (expired) "Подписка истекла" else "Осталось $daysLeft ${daysWord(daysLeft)}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                color = daysColor,
-                            )
-                        }
-                    }
+                val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
+                val daysText = when {
+                    daysLeft == null -> null
+                    expired -> "Подписка истекла"
+                    else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
                 }
+                NeonAccountCard(
+                    login = accountLogin,
+                    daysText = daysText,
+                    daysColor = daysColor,
+                    leadingIcon = Icons.Filled.Person,
+                    trailingIcon = Icons.Filled.CalendarMonth,
+                    modifier = Modifier.widthIn(min = 240.dp),
+                )
             }
 
-            // Active protocol — the outbound actually carrying traffic right now.
-            // With "Авто" the urltest re-picks the lowest-latency protocol live, so
-            // this resolves the selector→urltest chain to the real leaf and updates
-            // whenever auto switches.
+            // Active protocol — the outbound actually carrying traffic right now (orange).
             if (connected && !activeProtocol.isNullOrBlank()) {
                 Spacer(Modifier.height(10.dp))
                 val viaAuto = selected == "auto" && activeProtocol != "auto"
                 Text(
-                    if (viaAuto) {
-                        "Подключён: ${protocolLabel(activeProtocol)}  •  авто"
-                    } else {
-                        "Подключён: ${protocolLabel(activeProtocol)}"
-                    },
+                    if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaestroOrange,
                 )
             }
 
+            // content width cap so the grids stay tidy on a wide TV (centred column)
+            val contentMod = Modifier.fillMaxWidth().widthIn(max = 520.dp)
+
+            // ── ПРОТОКОЛ — 2-column equal-width grid (matches the sketch) ──
             if (protocols.isNotEmpty()) {
-                Spacer(Modifier.height(26.dp))
-                Text(
-                    "ПРОТОКОЛ",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaestroSilver,
-                    letterSpacing = 2.sp,
-                )
+                Spacer(Modifier.height(24.dp))
+                SectionLabel("ПРОТОКОЛ")
                 Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    protocols.forEach { protocol ->
-                        VolButton(
-                            text = protocolLabel(protocol),
-                            onClick = { onSelectProtocol(protocol) },
-                            base = if (protocol == selected) MaestroOrange else PlateDark,
-                            bold = protocol == selected,
-                        )
+                Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    protocols.chunked(2).forEach { pair ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { p ->
+                                NeonChip(
+                                    label = protocolLabel(p),
+                                    onClick = { onSelectProtocol(p) },
+                                    modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                                    icon = protocolIcon(p),
+                                    selected = p == selected,
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
-            // primary subscribe action — the orange raised plate
-            VolButton(
-                text = "Купить подписку",
+            Spacer(Modifier.height(22.dp))
+            GlossyButton(
+                label = "Купить подписку",
                 onClick = onBuy,
-                base = MaestroOrange,
-                modifier = Modifier.widthIn(min = 260.dp),
+                accent = MaestroOrange,
+                icon = Icons.Filled.ShoppingCart,
+                modifier = contentMod,
             )
 
-            // secondary actions — raised dark plates, so the orb + orange buy still lead
+            // ── secondary actions — 2-column equal-width grid (matches the sketch) ──
             Spacer(Modifier.height(10.dp))
-            VolButton("Ввести код подписки", onEnterCode, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
-            // QR scan: convenient on a phone (camera); hidden on TV (no camera, D-pad).
-            if (!isTv) {
-                Spacer(Modifier.height(8.dp))
-                VolButton("Сканировать QR", onScanQr, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
+            val onUpdate: () -> Unit = {
+                (ctx as? Activity)?.let { act ->
+                    scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } }
+                }
             }
-            Spacer(Modifier.height(8.dp))
-            VolButton("Приложения через VPN", onSplitTunnel, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
-            Spacer(Modifier.height(8.dp))
-            VolButton("Поделиться подпиской", onShareIos, PlateDark, Modifier.widthIn(min = 260.dp), bold = false)
-            Spacer(Modifier.height(10.dp))
-            // Update — prominent. The auto OTA dialog can be swiped away, and a plain
-            // re-open doesn't re-show it (the launch check only runs on a COLD start), so
-            // many users get stuck on an old build. This button re-checks on demand and
-            // always pops a fresh dialog (or "у вас последняя версия"). Vendor.checkUpdate
-            // does blocking network → run it off the main thread.
-            VolButton(
-                text = "⬇️ Обновить приложение",
-                onClick = {
-                    (ctx as? Activity)?.let { act ->
-                        scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } }
+            val actions = buildList<Triple<String, ImageVector, () -> Unit>> {
+                add(Triple("Ввести код подписки", Icons.Filled.Search, onEnterCode))
+                if (!isTv) add(Triple("Сканировать QR", Icons.Filled.QrCode2, onScanQr))
+                add(Triple("Приложения через VPN", Icons.Filled.Public, onSplitTunnel))
+                add(Triple("Поделиться подпиской", Icons.Filled.Share, onShareIos))
+                add(Triple("Обновить приложение", Icons.Filled.CloudDownload, onUpdate))
+            }
+            Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions.chunked(2).forEach { pair ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        pair.forEach { a ->
+                            NeonChip(a.first, a.third, Modifier.weight(1f).heightIn(min = 54.dp), icon = a.second)
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
-                },
-                base = MaestroOrange,
-                modifier = Modifier.widthIn(min = 260.dp),
-            )
+                }
+            }
 
             // ── Контакты ──────────────────────────────────────────────────
-            Spacer(Modifier.height(26.dp))
-            Text(
-                "КОНТАКТЫ",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaestroSilver,
-                letterSpacing = 2.sp,
-            )
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("КОНТАКТЫ")
             Spacer(Modifier.height(10.dp))
-            VolButton(
-                text = "📞 8 977 811-65-64",
+            GlossyButton(
+                label = "8 977 811-65-64",
                 onClick = { open("tel:+79778116564") },
-                base = ConnGreen,
-                modifier = Modifier.widthIn(min = 260.dp),
+                accent = NeonGreen,
+                icon = Icons.Filled.Call,
+                modifier = contentMod,
             )
             Spacer(Modifier.height(10.dp))
             Text(
@@ -621,21 +345,27 @@ fun TvHomeScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .widthIn(max = 340.dp)
-                    .padding(horizontal = 12.dp),
+                modifier = Modifier.widthIn(max = 360.dp).padding(horizontal = 12.dp),
             )
             Spacer(Modifier.height(10.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                VolButton("Telegram", { open("https://t.me/wapmixx") }, PlateDark, bold = false)
-                VolButton("WhatsApp", { open("https://wa.me/79778116564") }, PlateDark, bold = false)
-                VolButton("МАКС", { open("https://max.ru/") }, PlateDark, bold = false)
+            Row(contentMod, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE))
+                NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366))
+                NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5))
             }
+            Spacer(Modifier.height(20.dp))
         }
     }
+}
+
+/** Small per-protocol glyph for the chips. */
+private fun protocolIcon(tag: String): ImageVector = when (tag) {
+    "auto" -> Icons.Filled.Speed
+    "hysteria2" -> Icons.Filled.Bolt
+    "vless" -> Icons.Filled.Shield
+    "naive" -> Icons.Filled.Hub
+    "anytls" -> Icons.Filled.Lock
+    else -> Icons.Filled.Layers
 }
 
 /** Friendly chip label; "auto" is the urltest pick = the lowest-latency protocol. */

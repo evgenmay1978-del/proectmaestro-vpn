@@ -175,19 +175,35 @@ fun SFANavHost(
             }
         }
 
-        composable("claim") {
+        composable(
+            "claim",
+            enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
+            popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
+        ) {
             ClaimScreen(onDone = { navController.popBackStack() })
         }
 
-        composable("scanqr") {
+        composable(
+            "scanqr",
+            enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
+            popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
+        ) {
             ScanQrActivateScreen(onDone = { navController.popBackStack() })
         }
 
-        composable("buy") {
+        composable(
+            "buy",
+            enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
+            popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
+        ) {
             BuyScreen(onDone = { navController.popBackStack() })
         }
 
-        composable("split") {
+        composable(
+            "split",
+            enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
+            popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
+        ) {
             // Per-app split tunnel (donor screen). On exit, enable split only when
             // the user actually picked apps; an empty list means "all apps via VPN".
             PerAppProxyScreen(
