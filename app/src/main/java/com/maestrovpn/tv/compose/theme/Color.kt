@@ -8,9 +8,20 @@ val MaestroOrange = Color(0xFFF0792A)
 val MaestroOrangeDark = Color(0xFFC25A14)
 val MaestroOrangeLight = Color(0xFFFF9D52)
 val MaestroSilver = Color(0xFFB8B8C0)
-val MaestroBg = Color(0xFF0E0E10)
-val MaestroSurface = Color(0xFF17171C)
-val MaestroSurfaceHi = Color(0xFF24242B)
+// "Spider" reference (spiderinterfeis.png): deep near-black like rgb(6,9,14).
+val MaestroBg = Color(0xFF06090E)
+val MaestroSurface = Color(0xFF0E1217)
+val MaestroSurfaceHi = Color(0xFF181D24)
+
+// "Spider" theme accents — NEON GREEN is the primary glow/border/icon colour
+// (status, account days, protocol/action icons, phone). Orange (MaestroOrange) is
+// kept for SELECTION + the primary CTA (buy) + the active-protocol line.
+val NeonGreen = Color(0xFF46E05A)
+val NeonGreenBright = Color(0xFF6BF06B)
+val NeonGreenDeep = Color(0xFF123A22)
+// Dark translucent "glass" plate (top sheen → darker bottom) for chips/cards.
+val GlassTop = Color(0xFF1B232B)
+val GlassBottom = Color(0xFF090D12)
 
 // kept for any code still referencing the old names (now mapped to the brand)
 val SingBoxPrimary = MaestroOrange
