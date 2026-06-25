@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -23,19 +22,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
+import com.maestrovpn.tv.compose.theme.MaestroOrange
+import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
 
 /**
  * In-app purchase screen (works on touch + D-pad): pick a tariff → see СБП payment
  * details → the box polls and auto-activates once the owner confirms the payment.
- * Plain Material 3 so taps register on a phone and the D-pad focuses on a TV.
+ * Restyled to the "spider" green-glass theme: tariffs are glossy orange CTAs, "Я
+ * оплатил" is a glossy green confirm; the payment QR stays black-on-white so any
+ * camera can scan it.
  */
 @Composable
 fun BuyScreen(
@@ -53,6 +61,17 @@ fun BuyScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .drawBehind {
+                    val center = Offset(size.width * 0.5f, size.height * 0.22f)
+                    val radius = size.maxDimension * 0.5f
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(NeonGreen.copy(alpha = 0.07f), Color.Transparent),
+                            center = center, radius = radius,
+                        ),
+                        radius = radius, center = center,
+                    )
+                }
                 .verticalScroll(rememberScrollState())
                 .padding(screenPadding(isTv)),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -66,27 +85,39 @@ fun BuyScreen(
                 is BuyState.Loading -> Text("Загрузка тарифов…", style = MaterialTheme.typography.titleMedium)
 
                 is BuyState.Tariffs -> {
-                    Text("Выберите подписку", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.height(24.dp))
+                    Text(
+                        "Выберите подписку",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(22.dp))
                     s.items.forEach { t ->
-                        Button(
+                        GlossyButton(
+                            label = "${t.name}   —   ${t.rub} ₽",
                             onClick = { viewModel.buy(t.key) },
+                            accent = MaestroOrange,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .widthIn(max = 420.dp)
                                 .padding(vertical = 6.dp),
-                        ) {
-                            Text("${t.name}   —   ${t.rub} ₽")
-                        }
+                        )
                     }
                 }
 
                 is BuyState.AwaitingPayment -> {
-                    Text("Оплата", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        "Оплата",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Сумма: ${s.rub} ₽",
                         style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = NeonGreen,
                         textAlign = TextAlign.Center,
                     )
                     // Scan-to-pay QR. Prefer the cross-bank pay link (T-Bank «Сбор денег» / СБП)
@@ -122,7 +153,7 @@ fun BuyScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         textAlign = TextAlign.Center,
                     )
-                    Text(s.code, style = MaterialTheme.typography.headlineMedium)
+                    Text(s.code, style = MaterialTheme.typography.headlineMedium, color = NeonGreen)
                     if (s.phone.isNotBlank()) {
                         Spacer(Modifier.height(12.dp))
                         Text(
@@ -132,9 +163,12 @@ fun BuyScreen(
                         )
                     }
                     Spacer(Modifier.height(24.dp))
-                    Button(onClick = { viewModel.iPaid() }) {
-                        Text("Я оплатил")
-                    }
+                    GlossyButton(
+                        label = "Я оплатил",
+                        onClick = { viewModel.iPaid() },
+                        accent = NeonGreen,
+                        modifier = Modifier.widthIn(min = 220.dp),
+                    )
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "После нажатия заявка уйдёт владельцу. Подписка активируется после подтверждения — оставьте экран открытым.",
@@ -151,12 +185,12 @@ fun BuyScreen(
 
                 is BuyState.Activating -> Text("Активируем подписку…", style = MaterialTheme.typography.titleMedium)
 
-                is BuyState.Done -> Text("Готово!", style = MaterialTheme.typography.titleMedium)
+                is BuyState.Done -> Text("Готово!", style = MaterialTheme.typography.titleMedium, color = NeonGreen)
 
                 is BuyState.Error -> {
                     Text("Ошибка: ${s.message}", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(20.dp))
-                    Button(onClick = { viewModel.loadTariffs() }) { Text("Повторить") }
+                    GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen)
                 }
             }
         }
