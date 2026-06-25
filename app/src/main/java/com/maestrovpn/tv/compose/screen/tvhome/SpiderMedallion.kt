@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -70,7 +71,7 @@ private val SPIDER_LEGS = listOf(
 )
 
 private const val IDLE_DEG = 2.4f     // gentle leg sway while connected & resting (idle)
-private const val BURST_DEG = 6.5f    // extra leg sway during the crawl "scuttle"
+private const val BURST_DEG = 13.0f   // big leg STRIDE during the crawl, so it grips & climbs (no slide)
 
 /**
  * The hero connect button — the photoreal spider medallion from the owner's reference,
@@ -112,7 +113,7 @@ fun SpiderMedallion(
     // visibly STEP as the body climbs (a real crawl, never a slide); idle stays slow.
     val scramble by rememberInfiniteTransition(label = "scr").animateFloat(
         0f, (2f * PI).toFloat(),
-        infiniteRepeatable(tween(620, easing = LinearEasing), RepeatMode.Restart), label = "scrClock",
+        infiniteRepeatable(tween(520, easing = LinearEasing), RepeatMode.Restart), label = "scrClock",
     )
     // crawl "scuttle" burst (extra leg sway) + crawl position
     val burst = remember { Animatable(0f) }
@@ -125,16 +126,35 @@ fun SpiderMedallion(
         if (wasFirst) {
             pos.snapTo(if (connected) 0f else 1f)
         } else {
-            // CONNECT → clamber UP from under the BOTTOM rim to the centre. DISCONNECT → keep
-            // clambering UP, off the TOP, then reset to the bottom for the next connect — like a
-            // real spider passing through, never sliding back down. burst (the leg scramble) is a
-            // cancellable child; pos animates in the effect body so a re-toggle cancels both.
+            // CONNECT → clamber UP from the BOTTOM rim to centre in distinct STRIDES (a quick
+            // pull, then a brief plant, ×4) so it grips and climbs like a real spider instead of
+            // gliding. DISCONNECT → keep clambering UP and off the TOP, then reset to the bottom.
+            // burst (the big leg sweep) is a cancellable child; pos animates here so a re-toggle
+            // cancels both. The leg "scramble" clock keeps the legs stepping through each stride.
             burst.snapTo(1f)
-            launch { burst.animateTo(0f, tween(1900, easing = FastOutSlowInEasing)) }
+            launch { burst.animateTo(0f, tween(2600, easing = LinearEasing)) }
             if (connected) {
-                pos.animateTo(0f, tween(1700, easing = FastOutSlowInEasing))
+                pos.animateTo(0f, keyframes {
+                    durationMillis = 2600
+                    0.80f at 350 using FastOutSlowInEasing
+                    0.76f at 600 using LinearEasing
+                    0.56f at 950 using FastOutSlowInEasing
+                    0.52f at 1200 using LinearEasing
+                    0.32f at 1550 using FastOutSlowInEasing
+                    0.28f at 1800 using LinearEasing
+                    0.10f at 2150 using FastOutSlowInEasing
+                    0.08f at 2350 using LinearEasing
+                })
             } else {
-                pos.animateTo(-1f, tween(1500, easing = FastOutSlowInEasing))
+                pos.animateTo(-1f, keyframes {
+                    durationMillis = 2200
+                    -0.24f at 400 using FastOutSlowInEasing
+                    -0.28f at 650 using LinearEasing
+                    -0.52f at 1050 using FastOutSlowInEasing
+                    -0.56f at 1300 using LinearEasing
+                    -0.80f at 1700 using FastOutSlowInEasing
+                    -0.84f at 1950 using LinearEasing
+                })
                 pos.snapTo(1f)
             }
         }
