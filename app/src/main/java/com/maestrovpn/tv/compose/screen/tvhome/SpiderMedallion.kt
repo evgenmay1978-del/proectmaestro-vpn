@@ -132,28 +132,37 @@ fun SpiderMedallion(
             // burst (the big leg sweep) is a cancellable child; pos animates here so a re-toggle
             // cancels both. The leg "scramble" clock keeps the legs stepping through each stride.
             burst.snapTo(1f)
-            launch { burst.animateTo(0f, tween(2600, easing = LinearEasing)) }
+            launch { burst.animateTo(0f, tween(5200, easing = LinearEasing)) }
             if (connected) {
+                // ~5.2s climb in 6 strides — slow enough that the legs visibly step it up
                 pos.animateTo(0f, keyframes {
-                    durationMillis = 2600
-                    0.80f at 350 using FastOutSlowInEasing
-                    0.76f at 600 using LinearEasing
-                    0.56f at 950 using FastOutSlowInEasing
-                    0.52f at 1200 using LinearEasing
-                    0.32f at 1550 using FastOutSlowInEasing
-                    0.28f at 1800 using LinearEasing
-                    0.10f at 2150 using FastOutSlowInEasing
-                    0.08f at 2350 using LinearEasing
+                    durationMillis = 5200
+                    0.84f at 380 using FastOutSlowInEasing
+                    0.82f at 720 using LinearEasing
+                    0.68f at 1120 using FastOutSlowInEasing
+                    0.66f at 1460 using LinearEasing
+                    0.52f at 1880 using FastOutSlowInEasing
+                    0.50f at 2220 using LinearEasing
+                    0.36f at 2660 using FastOutSlowInEasing
+                    0.34f at 3000 using LinearEasing
+                    0.20f at 3460 using FastOutSlowInEasing
+                    0.18f at 3820 using LinearEasing
+                    0.06f at 4320 using FastOutSlowInEasing
+                    0.04f at 4700 using LinearEasing
                 })
             } else {
                 pos.animateTo(-1f, keyframes {
-                    durationMillis = 2200
-                    -0.24f at 400 using FastOutSlowInEasing
-                    -0.28f at 650 using LinearEasing
-                    -0.52f at 1050 using FastOutSlowInEasing
-                    -0.56f at 1300 using LinearEasing
-                    -0.80f at 1700 using FastOutSlowInEasing
-                    -0.84f at 1950 using LinearEasing
+                    durationMillis = 4400
+                    -0.18f at 380 using FastOutSlowInEasing
+                    -0.20f at 720 using LinearEasing
+                    -0.38f at 1180 using FastOutSlowInEasing
+                    -0.40f at 1520 using LinearEasing
+                    -0.58f at 1980 using FastOutSlowInEasing
+                    -0.60f at 2320 using LinearEasing
+                    -0.78f at 2820 using FastOutSlowInEasing
+                    -0.80f at 3160 using LinearEasing
+                    -0.94f at 3700 using FastOutSlowInEasing
+                    -0.96f at 4040 using LinearEasing
                 })
                 pos.snapTo(1f)
             }
