@@ -3,6 +3,7 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -136,8 +137,8 @@ fun SpiderMedallion(
 
     val bgP = painterResource(R.drawable.home_medallion_bg)
     val ringP = painterResource(R.drawable.home_ring)
-    val bodyBmp = imageResource(R.drawable.spider_body)
-    val legBmps = SPIDER_LEGS.map { imageResource(it.res) }
+    val bodyBmp = ImageBitmap.imageResource(R.drawable.spider_body)
+    val legBmps = SPIDER_LEGS.map { ImageBitmap.imageResource(it.res) }
     val webFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.12f + 0.88f * power) })
 
     Box(
