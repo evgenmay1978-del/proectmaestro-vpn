@@ -133,6 +133,10 @@ fun SpiderMedallion(
             burst.snapTo(1f)
             launch { burst.animateTo(0f, tween(5800, easing = LinearEasing)) }
             if (connected) {
+                // ALWAYS emerge from the BOTTOM legs-first. If a disconnect was still mid-flight
+                // (spider climbing up top, pos < 0), snap it back under the bottom rim first so a
+                // fast off→on never makes it descend rear-first from the top.
+                pos.snapTo(1f)
                 // SMOOTH slow climb — FastOutSlowIn means a slow start (legs emerge first) and a
                 // steady glide to centre, with NO keyframe holds → no jerks. The busy, big-sweep
                 // legs carry the "walk", so it reads as crawling, not sliding.
