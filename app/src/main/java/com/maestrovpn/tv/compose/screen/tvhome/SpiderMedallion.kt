@@ -70,8 +70,8 @@ private val SPIDER_LEGS = listOf(
     LegRig(R.drawable.spider_leg_08, 0.6722f, 0.5421f, 0.0000f),
 )
 
-private const val IDLE_DEG = 2.4f     // gentle leg sway while connected & resting (idle)
-private const val BURST_DEG = 13.0f   // big leg STRIDE during the crawl, so it grips & climbs (no slide)
+private const val IDLE_DEG = 2.9f     // gentle leg sway while connected & resting (idle)
+private const val BURST_DEG = 17.0f   // big leg STRIDE/lift during the crawl, so it grips & climbs high
 
 /**
  * The hero connect button — the photoreal spider medallion from the owner's reference,
@@ -132,23 +132,24 @@ fun SpiderMedallion(
             // burst (the big leg sweep) is a cancellable child; pos animates here so a re-toggle
             // cancels both. The leg "scramble" clock keeps the legs stepping through each stride.
             burst.snapTo(1f)
-            launch { burst.animateTo(0f, tween(5200, easing = LinearEasing)) }
+            launch { burst.animateTo(0f, tween(6000, easing = LinearEasing)) }
             if (connected) {
-                // ~5.2s climb in 6 strides — slow enough that the legs visibly step it up
+                // FIRST the legs appear from the seam and scramble (slow), THEN the body
+                // gradually clambers out in strides to the centre — never a slide.
                 pos.animateTo(0f, keyframes {
-                    durationMillis = 5200
-                    0.84f at 380 using FastOutSlowInEasing
-                    0.82f at 720 using LinearEasing
-                    0.68f at 1120 using FastOutSlowInEasing
-                    0.66f at 1460 using LinearEasing
-                    0.52f at 1880 using FastOutSlowInEasing
-                    0.50f at 2220 using LinearEasing
-                    0.36f at 2660 using FastOutSlowInEasing
-                    0.34f at 3000 using LinearEasing
-                    0.20f at 3460 using FastOutSlowInEasing
-                    0.18f at 3820 using LinearEasing
-                    0.06f at 4320 using FastOutSlowInEasing
-                    0.04f at 4700 using LinearEasing
+                    durationMillis = 6000
+                    0.95f at 600 using LinearEasing          // legs peek from the bottom seam
+                    0.90f at 1300 using LinearEasing
+                    0.85f at 2000 using FastOutSlowInEasing   // legs out, feeling around
+                    0.84f at 2300 using LinearEasing
+                    0.68f at 2800 using FastOutSlowInEasing   // body starts clambering up, in strides
+                    0.66f at 3150 using LinearEasing
+                    0.50f at 3650 using FastOutSlowInEasing
+                    0.48f at 4000 using LinearEasing
+                    0.32f at 4500 using FastOutSlowInEasing
+                    0.30f at 4850 using LinearEasing
+                    0.14f at 5400 using FastOutSlowInEasing
+                    0.12f at 5750 using LinearEasing
                 })
             } else {
                 pos.animateTo(-1f, keyframes {
