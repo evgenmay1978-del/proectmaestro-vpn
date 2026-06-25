@@ -54,38 +54,38 @@ import kotlin.math.sin
 /** One rigged leg: its drawable + pivot (fraction of the medallion) + gait phase. */
 private data class LegRig(val res: Int, val px: Float, val py: Float, val phase: Float)
 
-// Pivots/phases derived offline from the segmented reference spider (cut_spider.py): each
-// leg rotates about its root (hidden under the body) with an alternating tetrapod phase.
+// Pivots/phases derived offline (rig_spider.py) from the OWNER's clean spider asset:
+// each leg rotates about its root (hidden under the body) in an alternating tetrapod gait.
 private val SPIDER_LEGS = listOf(
-    LegRig(R.drawable.spider_leg_00, 0.5931f, 0.5426f, 3.1416f),
-    LegRig(R.drawable.spider_leg_01, 0.5426f, 0.4920f, 0.0000f),
-    LegRig(R.drawable.spider_leg_02, 0.4335f, 0.4920f, 0.0000f),
-    LegRig(R.drawable.spider_leg_03, 0.3856f, 0.5399f, 3.1416f),
-    LegRig(R.drawable.spider_leg_04, 0.3830f, 0.6223f, 0.0000f),
-    LegRig(R.drawable.spider_leg_05, 0.5984f, 0.6250f, 3.1416f),
-    LegRig(R.drawable.spider_leg_06, 0.3750f, 0.6410f, 3.1416f),
-    LegRig(R.drawable.spider_leg_07, 0.5851f, 0.6436f, 0.0000f),
-    LegRig(R.drawable.spider_leg_08, 0.3431f, 0.7500f, 0.0000f),
-    LegRig(R.drawable.spider_leg_09, 0.6356f, 0.7500f, 3.1416f),
+    LegRig(R.drawable.spider_leg_00, 0.5824f, 0.3388f, 3.1416f),
+    LegRig(R.drawable.spider_leg_01, 0.4194f, 0.3516f, 0.0000f),
+    LegRig(R.drawable.spider_leg_02, 0.4542f, 0.3168f, 3.1416f),
+    LegRig(R.drawable.spider_leg_03, 0.3901f, 0.3974f, 0.0000f),
+    LegRig(R.drawable.spider_leg_04, 0.6117f, 0.3883f, 0.0000f),
+    LegRig(R.drawable.spider_leg_05, 0.6136f, 0.4414f, 3.1416f),
+    LegRig(R.drawable.spider_leg_06, 0.3901f, 0.4487f, 3.1416f),
+    LegRig(R.drawable.spider_leg_07, 0.6484f, 0.5366f, 0.0000f),
+    LegRig(R.drawable.spider_leg_08, 0.3516f, 0.5330f, 0.0000f),
 )
 
-private const val IDLE_DEG = 2.1f     // gentle leg sway while connected & resting
-private const val BURST_DEG = 5.4f    // extra leg sway during the connect "scuttle"
+private const val IDLE_DEG = 2.6f     // gentle leg sway while connected & resting (idle)
+private const val BURST_DEG = 7.0f    // extra leg sway during the crawl "scuttle"
 
 /**
  * The hero connect button — the photoreal spider medallion from the owner's reference,
- * but the spider is RIGGED: its body + 8 legs (cut from the photo) are separate layers,
- * so it genuinely crawls — each leg swings about its own root in an alternating gait.
+ * but the spider is RIGGED: its body + legs (from the owner's clean spider asset) are
+ * separate layers, so it genuinely crawls — each leg swings about its own root in gait.
  *
- * Layers (back→front): web/ring background (spider painted out) · moving leg SHADOWS ·
- * the lit legs · the body · the chrome rim · a dim scrim. The spider always stays in the
- * medallion (it never leaves), so the inpainted centre is always covered — no leftover
- * artifact on disconnect. Leg shadows are the same legs drawn dark + offset, so the
+ * Layers (back→front): web/ring background (the owner's clean button — no spider baked in)
+ * · moving leg SHADOWS · the lit legs · the body · the chrome rim · a dim scrim. Because
+ * the background web is already clean, when the spider is tucked away the medallion shows
+ * a clean web — no artifact. Leg shadows are the same legs drawn dark + offset, so the
  * shadows move WITH the legs by pure translation/rotation — never skewed.
  *
- * Behaviour: CONNECT → web powers up green, the spider crawls up from the bottom and the
- * legs scuttle (a burst that settles into a gentle idle sway). RESTING (connected) → legs
- * keep a subtle живое idle sway. DISCONNECT → legs go still and the web desaturates/dims.
+ * Behaviour: DISCONNECTED → the spider is hidden UP under the TOP rim (between button &
+ * ring). CONNECT → web powers up green and it crawls DOWN to centre, legs scuttling (a
+ * burst that settles into a gentle idle sway). RESTING (connected) → legs keep a subtle
+ * idle sway in place, going nowhere. DISCONNECT → it crawls back UP and hides; web dims.
  */
 @Composable
 fun SpiderMedallion(
@@ -106,19 +106,23 @@ fun SpiderMedallion(
         0f, (2f * PI).toFloat(),
         infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart), label = "gaitClock",
     )
-    // connect "scuttle" burst + crawl-up entrance (spider never exits → no artifact)
+    // crawl "scuttle" burst (extra leg sway) + crawl position
     val burst = remember { Animatable(0f) }
-    val entrance = remember { Animatable(0f) }
+    // crawl position: 0 = centred (connected), 1 = hidden UP under the top rim (disconnected).
+    val pos = remember { Animatable(if (connected) 0f else 1f) }
     var first by remember { mutableStateOf(true) }
     LaunchedEffect(connected) {
         val wasFirst = first
         first = false
-        if (connected && !wasFirst) {
-            // crawl up from the bottom rim while the legs scuttle, then settle to idle
-            entrance.snapTo(0.12f)
+        if (wasFirst) {
+            pos.snapTo(if (connected) 0f else 1f)
+        } else {
+            // CONNECT → crawl DOWN from under the top rim to centre; DISCONNECT → crawl
+            // back UP and hide. Both run as children of this effect, so a re-toggle
+            // cancels the in-flight burst AND crawl cleanly (no animation fight).
             burst.snapTo(1f)
-            launch { entrance.animateTo(0f, tween(1200, easing = FastOutSlowInEasing)) }
-            launch { burst.animateTo(0f, tween(1600, easing = FastOutSlowInEasing)) }
+            launch { burst.animateTo(0f, tween(1700, easing = FastOutSlowInEasing)) }
+            launch { pos.animateTo(if (connected) 0f else 1f, tween(1400, easing = FastOutSlowInEasing)) }
         }
     }
 
@@ -168,8 +172,8 @@ fun SpiderMedallion(
                     val h = size.height
                     val box = IntSize(w.roundToInt(), h.roundToInt())
                     val amp = IDLE_DEG * live + BURST_DEG * burst.value
-                    val gy = entrance.value * h                       // crawl-up entrance
-                    val bob = (amp * 0.5f) * sin(2f * gait)           // body bob with the gait
+                    val gy = -pos.value * h * 0.74f                   // hides UP under the top rim; crawls down to centre
+                    val bob = (amp * 0.5f) * live * sin(gait)         // body bob, same gait freq as legs; still when off
                     val legShadow = ColorFilter.tint(Color.Black)
 
                     // leg SHADOWS (dark, offset down-right) — move with the legs
@@ -180,7 +184,7 @@ fun SpiderMedallion(
                         withTransform({ rotate(deg, piv) }) {
                             drawImage(
                                 bmp, dstOffset = IntOffset(5, (gy + 6f).roundToInt()), dstSize = box,
-                                alpha = 0.28f * power, colorFilter = legShadow,
+                                alpha = 0.28f, colorFilter = legShadow,
                             )
                         }
                     }
@@ -196,7 +200,7 @@ fun SpiderMedallion(
                     // body shadow + body (bob)
                     drawImage(
                         bodyBmp, dstOffset = IntOffset(5, (gy + bob + 6f).roundToInt()), dstSize = box,
-                        alpha = 0.30f * power, colorFilter = legShadow,
+                        alpha = 0.30f, colorFilter = legShadow,
                     )
                     drawImage(bodyBmp, dstOffset = IntOffset(0, (gy + bob).roundToInt()), dstSize = box)
                 },
