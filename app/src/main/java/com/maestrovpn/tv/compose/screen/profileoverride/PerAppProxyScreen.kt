@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import com.maestrovpn.tv.compose.theme.NeonGreen
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -421,7 +426,21 @@ fun PerAppProxyScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .drawBehind {
+                // unified "spider" backdrop — a soft green glow on the deep-black theme bg,
+                // so this donor screen reads as part of the same app as the home screen.
+                val center = Offset(size.width * 0.5f, size.height * 0.12f)
+                val radius = size.maxDimension * 0.55f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(NeonGreen.copy(alpha = 0.06f), Color.Transparent),
+                        center = center, radius = radius,
+                    ),
+                    radius = radius, center = center,
+                )
+            },
     ) {
         AnimatedVisibility(
             visible = isLoading,
