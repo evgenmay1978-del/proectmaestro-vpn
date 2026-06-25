@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -266,60 +268,68 @@ fun TvHomeScreen(
                 )
             }
 
+            // content width cap so the grids stay tidy on a wide TV (centred column)
+            val contentMod = Modifier.fillMaxWidth().widthIn(max = 520.dp)
+
+            // ── ПРОТОКОЛ — 2-column equal-width grid (matches the sketch) ──
             if (protocols.isNotEmpty()) {
                 Spacer(Modifier.height(24.dp))
                 SectionLabel("ПРОТОКОЛ")
                 Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    protocols.forEach { protocol ->
-                        NeonChip(
-                            label = protocolLabel(protocol),
-                            onClick = { onSelectProtocol(protocol) },
-                            icon = protocolIcon(protocol),
-                            selected = protocol == selected,
-                        )
+                Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    protocols.chunked(2).forEach { pair ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { p ->
+                                NeonChip(
+                                    label = protocolLabel(p),
+                                    onClick = { onSelectProtocol(p) },
+                                    modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                                    icon = protocolIcon(p),
+                                    selected = p == selected,
+                                )
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
 
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(22.dp))
             GlossyButton(
                 label = "Купить подписку",
                 onClick = onBuy,
                 accent = MaestroOrange,
                 icon = Icons.Filled.ShoppingCart,
-                modifier = Modifier.widthIn(min = 260.dp),
+                modifier = contentMod,
             )
 
-            // secondary actions — green-glass chips with icons
-            Spacer(Modifier.height(12.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.widthIn(max = 560.dp),
-            ) {
-                NeonChip("Ввести код подписки", onEnterCode, icon = Icons.Filled.Search)
-                if (!isTv) {
-                    NeonChip("Сканировать QR", onScanQr, icon = Icons.Filled.QrCode2)
+            // ── secondary actions — 2-column equal-width grid (matches the sketch) ──
+            Spacer(Modifier.height(10.dp))
+            val onUpdate: () -> Unit = {
+                (ctx as? Activity)?.let { act ->
+                    scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } }
                 }
-                NeonChip("Приложения через VPN", onSplitTunnel, icon = Icons.Filled.Public)
-                NeonChip("Поделиться подпиской", onShareIos, icon = Icons.Filled.Share)
-                NeonChip(
-                    "Обновить приложение",
-                    onClick = {
-                        (ctx as? Activity)?.let { act ->
-                            scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } }
+            }
+            val actions = buildList<Triple<String, ImageVector, () -> Unit>> {
+                add(Triple("Ввести код подписки", Icons.Filled.Search, onEnterCode))
+                if (!isTv) add(Triple("Сканировать QR", Icons.Filled.QrCode2, onScanQr))
+                add(Triple("Приложения через VPN", Icons.Filled.Public, onSplitTunnel))
+                add(Triple("Поделиться подпиской", Icons.Filled.Share, onShareIos))
+                add(Triple("Обновить приложение", Icons.Filled.CloudDownload, onUpdate))
+            }
+            Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions.chunked(2).forEach { pair ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        pair.forEach { a ->
+                            NeonChip(a.first, a.third, Modifier.weight(1f).heightIn(min = 54.dp), icon = a.second)
                         }
-                    },
-                    icon = Icons.Filled.CloudDownload,
-                )
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
             }
 
             // ── Контакты ──────────────────────────────────────────────────
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(24.dp))
             SectionLabel("КОНТАКТЫ")
             Spacer(Modifier.height(10.dp))
             GlossyButton(
@@ -327,7 +337,7 @@ fun TvHomeScreen(
                 onClick = { open("tel:+79778116564") },
                 accent = NeonGreen,
                 icon = Icons.Filled.Call,
-                modifier = Modifier.widthIn(min = 260.dp),
+                modifier = contentMod,
             )
             Spacer(Modifier.height(10.dp))
             Text(
@@ -335,16 +345,13 @@ fun TvHomeScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 340.dp).padding(horizontal = 12.dp),
+                modifier = Modifier.widthIn(max = 360.dp).padding(horizontal = 12.dp),
             )
             Spacer(Modifier.height(10.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                NeonChip("Telegram", { open("https://t.me/wapmixx") }, icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE))
-                NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366))
-                NeonChip("МАКС", { open("https://max.ru/") }, icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5))
+            Row(contentMod, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE))
+                NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366))
+                NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5))
             }
             Spacer(Modifier.height(20.dp))
         }
