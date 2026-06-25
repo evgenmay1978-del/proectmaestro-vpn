@@ -30,11 +30,16 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.compose.component.GlossyButton
+import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
-import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
 
@@ -91,16 +96,23 @@ fun BuyScreen(
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                     )
-                    Spacer(Modifier.height(22.dp))
-                    s.items.forEach { t ->
-                        GlossyButton(
-                            label = "${t.name}   —   ${t.rub} ₽",
+                    Spacer(Modifier.height(18.dp))
+                    // compact green-glass tariff chips (app style); the focused one is clearly
+                    // highlighted (brighter border + scale + glow) so a D-pad user sees the pick.
+                    // On a TV the first tariff grabs focus so the remote starts on a visible item.
+                    val firstFocus = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { if (isTv) runCatching { firstFocus.requestFocus() } }
+                    s.items.forEachIndexed { i, t ->
+                        NeonChip(
+                            label = "${t.name}  —  ${t.rub} ₽",
                             onClick = { viewModel.buy(t.key) },
-                            accent = MaestroOrange,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .widthIn(max = 420.dp)
-                                .padding(vertical = 6.dp),
+                                .widthIn(max = 360.dp)
+                                .heightIn(min = 50.dp)
+                                .padding(vertical = 4.dp)
+                                .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier),
+                            icon = Icons.Filled.Star,
                         )
                     }
                 }
