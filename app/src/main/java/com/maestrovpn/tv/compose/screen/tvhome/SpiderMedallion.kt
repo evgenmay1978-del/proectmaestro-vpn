@@ -58,14 +58,15 @@ private data class LegRig(val res: Int, val px: Float, val py: Float, val phase:
 // Pivots/phases derived offline (rig_spider.py) from the OWNER's clean spider asset:
 // each leg rotates about its root (hidden under the body) in an alternating tetrapod gait.
 private val SPIDER_LEGS = listOf(
-    LegRig(R.drawable.spider_leg_00, 0.5751f, 0.3516f, 3.1416f),
-    LegRig(R.drawable.spider_leg_01, 0.4267f, 0.3608f, 0.0000f),
-    LegRig(R.drawable.spider_leg_02, 0.3993f, 0.3993f, 3.1416f),
-    LegRig(R.drawable.spider_leg_03, 0.6044f, 0.3974f, 0.0000f),
-    LegRig(R.drawable.spider_leg_04, 0.6062f, 0.4451f, 3.1416f),
-    LegRig(R.drawable.spider_leg_05, 0.3993f, 0.4286f, 0.0000f),
-    LegRig(R.drawable.spider_leg_06, 0.6374f, 0.5330f, 0.0000f),
-    LegRig(R.drawable.spider_leg_07, 0.3626f, 0.5311f, 3.1416f),
+    LegRig(R.drawable.spider_leg_00, 0.5971f, 0.3150f, 3.1416f),
+    LegRig(R.drawable.spider_leg_01, 0.4084f, 0.3278f, 0.0000f),
+    LegRig(R.drawable.spider_leg_02, 0.4487f, 0.2875f, 3.1416f),
+    LegRig(R.drawable.spider_leg_03, 0.3755f, 0.3810f, 0.0000f),
+    LegRig(R.drawable.spider_leg_04, 0.6117f, 0.3901f, 0.0000f),
+    LegRig(R.drawable.spider_leg_05, 0.6319f, 0.4322f, 3.1416f),
+    LegRig(R.drawable.spider_leg_06, 0.3755f, 0.4396f, 3.1416f),
+    LegRig(R.drawable.spider_leg_07, 0.3333f, 0.5366f, 0.0000f),
+    LegRig(R.drawable.spider_leg_08, 0.6722f, 0.5421f, 0.0000f),
 )
 
 private const val IDLE_DEG = 2.4f     // gentle leg sway while connected & resting (idle)
@@ -76,17 +77,17 @@ private const val BURST_DEG = 6.5f    // extra leg sway during the crawl "scuttl
  * but the spider is RIGGED: its body + legs (from the owner's clean spider asset) are
  * separate layers, so it genuinely crawls — each leg swings about its own root in gait.
  *
- * Layers (back→front): web/ring background (the owner's clean button — no spider baked in)
- * · moving leg SHADOWS · the lit legs · the body · the chrome rim · a dim scrim. Because
- * the background web is already clean, when the spider is tucked away the medallion shows
- * a clean web — no artifact. Leg shadows are the same legs drawn dark + offset, so the
- * shadows move WITH the legs by pure translation/rotation — never skewed.
+ * Layers (back→front): the owner's clean button (chrome ring + green web) · moving leg
+ * SHADOWS · the lit legs · the body · a dim scrim. The spider is drawn OVER the ring (no
+ * overlay) so legs that overflow the web rest ON the ring, and it's clipped to the medallion
+ * circle so it vanishes at the rim. The clean button web means a tucked-away spider leaves
+ * no artifact. Leg shadows are the same legs drawn dark + offset, tracking by pure
+ * translation/rotation — never skewed.
  *
- * Behaviour: DISCONNECTED → the spider is hidden under the BOTTOM rim (between button &
- * ring). CONNECT → web powers up green and it crawls UP from the bottom to centre, front
- * legs leading (a scuttle burst that settles into a gentle idle sway). RESTING (connected)
- * → legs keep a subtle idle sway in place, going nowhere. DISCONNECT → it crawls back down
- * and hides; web dims.
+ * Behaviour (pass-through, like a real spider): DISCONNECTED → hidden under the BOTTOM rim.
+ * CONNECT → web powers up green and it clambers UP from the bottom to centre, legs STEPPING
+ * (a fast scramble that settles into a gentle slow idle sway in place). DISCONNECT → it keeps
+ * clambering UP and off the TOP, then resets to the bottom for next time; web dims.
  */
 @Composable
 fun SpiderMedallion(
@@ -102,14 +103,20 @@ fun SpiderMedallion(
     val live by animateFloatAsState(
         if (connected) 1f else 0f, tween(1000, easing = FastOutSlowInEasing), label = "live",
     )
-    // perpetual gait clock (the only continuous animation; one float, draw-phase only)
+    // slow gait clock — the gentle idle leg sway (one float, draw-phase only)
     val gait by rememberInfiniteTransition(label = "gait").animateFloat(
         0f, (2f * PI).toFloat(),
         infiniteRepeatable(tween(2800, easing = LinearEasing), RepeatMode.Restart), label = "gaitClock",
     )
+    // faster "scramble" clock — used (scaled by burst) ONLY while crawling, so the legs
+    // visibly STEP as the body climbs (a real crawl, never a slide); idle stays slow.
+    val scramble by rememberInfiniteTransition(label = "scr").animateFloat(
+        0f, (2f * PI).toFloat(),
+        infiniteRepeatable(tween(620, easing = LinearEasing), RepeatMode.Restart), label = "scrClock",
+    )
     // crawl "scuttle" burst (extra leg sway) + crawl position
     val burst = remember { Animatable(0f) }
-    // crawl position: 0 = centred (connected), 1 = hidden under the bottom rim (disconnected).
+    // crawl position: 0 = centred, +1 = hidden below the bottom rim, -1 = climbed off the top.
     val pos = remember { Animatable(if (connected) 0f else 1f) }
     var first by remember { mutableStateOf(true) }
     LaunchedEffect(connected) {
@@ -118,12 +125,18 @@ fun SpiderMedallion(
         if (wasFirst) {
             pos.snapTo(if (connected) 0f else 1f)
         } else {
-            // CONNECT → crawl UP from under the bottom rim to centre; DISCONNECT → crawl
-            // back down and hide. Both run as children of this effect, so a re-toggle
-            // cancels the in-flight burst AND crawl cleanly (no animation fight).
+            // CONNECT → clamber UP from under the BOTTOM rim to the centre. DISCONNECT → keep
+            // clambering UP, off the TOP, then reset to the bottom for the next connect — like a
+            // real spider passing through, never sliding back down. burst (the leg scramble) is a
+            // cancellable child; pos animates in the effect body so a re-toggle cancels both.
             burst.snapTo(1f)
-            launch { burst.animateTo(0f, tween(1700, easing = FastOutSlowInEasing)) }
-            launch { pos.animateTo(if (connected) 0f else 1f, tween(1400, easing = FastOutSlowInEasing)) }
+            launch { burst.animateTo(0f, tween(1900, easing = FastOutSlowInEasing)) }
+            if (connected) {
+                pos.animateTo(0f, tween(1700, easing = FastOutSlowInEasing))
+            } else {
+                pos.animateTo(-1f, tween(1500, easing = FastOutSlowInEasing))
+                pos.snapTo(1f)
+            }
         }
     }
 
@@ -136,7 +149,6 @@ fun SpiderMedallion(
     )
 
     val bgP = painterResource(R.drawable.home_medallion_bg)
-    val ringP = painterResource(R.drawable.home_ring)
     val bodyBmp = ImageBitmap.imageResource(R.drawable.spider_body)
     val legBmps = SPIDER_LEGS.map { ImageBitmap.imageResource(it.res) }
     val webFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.12f + 0.88f * power) })
@@ -163,7 +175,7 @@ fun SpiderMedallion(
         )
 
         Box(Modifier.size(232.dp).clip(CircleShape)) {
-            // 1) web + ring background (spider painted out)
+            // 1) the owner's clean button (chrome ring + green web)
             Image(bgP, null, Modifier.size(232.dp), contentScale = ContentScale.Fit, colorFilter = webFilter)
 
             // 2) the rigged spider — drawn in ONE pass: leg shadows, legs, body
@@ -172,43 +184,44 @@ fun SpiderMedallion(
                     val w = size.width
                     val h = size.height
                     val box = IntSize(w.roundToInt(), h.roundToInt())
-                    val amp = IDLE_DEG * live + BURST_DEG * burst.value
-                    val gy = pos.value * h * 0.74f                    // hides DOWN under the bottom rim; crawls up to centre
-                    val bob = (amp * 0.5f) * live * sin(gait)         // body bob, same gait freq as legs; still when off
+                    val idleA = IDLE_DEG * live
+                    val crawlA = BURST_DEG * burst.value
+                    // each leg = slow idle sway + a FAST scramble while crawling, so it steps
+                    // (never slides) as it climbs, then settles to a gentle idle.
+                    fun legDeg(phase: Float) = idleA * sin(gait + phase) + crawlA * sin(scramble + phase)
+                    val gy = pos.value * h * 0.98f                    // +1 hides below, -1 climbs off the top
+                    val bob = 0.5f * (idleA * sin(2f * gait) + crawlA * sin(2f * scramble))
                     val legShadow = ColorFilter.tint(Color.Black)
 
-                    // leg SHADOWS (dark, offset down-right) — move with the legs
+                    // leg SHADOWS (dark, offset) cast on the web/ring — track the legs exactly
                     legBmps.forEachIndexed { i, bmp ->
                         val leg = SPIDER_LEGS[i]
                         val piv = Offset(leg.px * w, leg.py * h + gy)
-                        val deg = amp * sin(gait + leg.phase)
-                        withTransform({ rotate(deg, piv) }) {
+                        withTransform({ rotate(legDeg(leg.phase), piv) }) {
                             drawImage(
-                                bmp, dstOffset = IntOffset(5, (gy + 6f).roundToInt()), dstSize = box,
-                                alpha = 0.28f, colorFilter = legShadow,
+                                bmp, dstOffset = IntOffset(6, (gy + 8f).roundToInt()), dstSize = box,
+                                alpha = 0.30f, colorFilter = legShadow,
                             )
                         }
                     }
-                    // lit legs
+                    // lit legs — drawn OVER the chrome ring, so legs that overflow the web rest on it
                     legBmps.forEachIndexed { i, bmp ->
                         val leg = SPIDER_LEGS[i]
                         val piv = Offset(leg.px * w, leg.py * h + gy)
-                        val deg = amp * sin(gait + leg.phase)
-                        withTransform({ rotate(deg, piv) }) {
+                        withTransform({ rotate(legDeg(leg.phase), piv) }) {
                             drawImage(bmp, dstOffset = IntOffset(0, gy.roundToInt()), dstSize = box)
                         }
                     }
-                    // body shadow + body (bob)
+                    // body contact shadow + body (small bob)
                     drawImage(
-                        bodyBmp, dstOffset = IntOffset(5, (gy + bob + 6f).roundToInt()), dstSize = box,
-                        alpha = 0.30f, colorFilter = legShadow,
+                        bodyBmp, dstOffset = IntOffset(6, (gy + bob + 8f).roundToInt()), dstSize = box,
+                        alpha = 0.34f, colorFilter = legShadow,
                     )
                     drawImage(bodyBmp, dstOffset = IntOffset(0, (gy + bob).roundToInt()), dstSize = box)
                 },
             )
 
-            // 3) chrome rim on top, then dim scrim when powered down
-            Image(ringP, null, Modifier.size(232.dp), contentScale = ContentScale.Fit, colorFilter = webFilter)
+            // 3) dim scrim when powered down (the spider is drawn over the ring — no overlay)
             Box(Modifier.size(232.dp).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
         }
 
