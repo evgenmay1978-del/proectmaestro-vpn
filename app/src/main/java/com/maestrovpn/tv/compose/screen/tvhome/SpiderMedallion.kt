@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -132,39 +131,14 @@ fun SpiderMedallion(
             // burst (the big leg sweep) is a cancellable child; pos animates here so a re-toggle
             // cancels both. The leg "scramble" clock keeps the legs stepping through each stride.
             burst.snapTo(1f)
-            launch { burst.animateTo(0f, tween(6000, easing = LinearEasing)) }
+            launch { burst.animateTo(0f, tween(5800, easing = LinearEasing)) }
             if (connected) {
-                // FIRST the legs appear from the seam and scramble (slow), THEN the body
-                // gradually clambers out in strides to the centre — never a slide.
-                pos.animateTo(0f, keyframes {
-                    durationMillis = 6000
-                    0.95f at 600 using LinearEasing          // legs peek from the bottom seam
-                    0.90f at 1300 using LinearEasing
-                    0.85f at 2000 using FastOutSlowInEasing   // legs out, feeling around
-                    0.84f at 2300 using LinearEasing
-                    0.68f at 2800 using FastOutSlowInEasing   // body starts clambering up, in strides
-                    0.66f at 3150 using LinearEasing
-                    0.50f at 3650 using FastOutSlowInEasing
-                    0.48f at 4000 using LinearEasing
-                    0.32f at 4500 using FastOutSlowInEasing
-                    0.30f at 4850 using LinearEasing
-                    0.14f at 5400 using FastOutSlowInEasing
-                    0.12f at 5750 using LinearEasing
-                })
+                // SMOOTH slow climb — FastOutSlowIn means a slow start (legs emerge first) and a
+                // steady glide to centre, with NO keyframe holds → no jerks. The busy, big-sweep
+                // legs carry the "walk", so it reads as crawling, not sliding.
+                pos.animateTo(0f, tween(5800, easing = FastOutSlowInEasing))
             } else {
-                pos.animateTo(-1f, keyframes {
-                    durationMillis = 4400
-                    -0.18f at 380 using FastOutSlowInEasing
-                    -0.20f at 720 using LinearEasing
-                    -0.38f at 1180 using FastOutSlowInEasing
-                    -0.40f at 1520 using LinearEasing
-                    -0.58f at 1980 using FastOutSlowInEasing
-                    -0.60f at 2320 using LinearEasing
-                    -0.78f at 2820 using FastOutSlowInEasing
-                    -0.80f at 3160 using LinearEasing
-                    -0.94f at 3700 using FastOutSlowInEasing
-                    -0.96f at 4040 using LinearEasing
-                })
+                pos.animateTo(-1f, tween(4200, easing = FastOutSlowInEasing))
                 pos.snapTo(1f)
             }
         }
