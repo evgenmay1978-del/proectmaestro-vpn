@@ -268,18 +268,19 @@ fun TvHomeScreen(
                 )
             }
 
-            // content width cap so the grids stay tidy on a wide TV (centred column)
-            val contentMod = Modifier.fillMaxWidth().widthIn(max = 520.dp)
+            // content width cap so the grids stay tidy on a wide TV (centred column).
+            // 600dp gives three equal columns enough room without crowding the labels.
+            val contentMod = Modifier.fillMaxWidth().widthIn(max = 600.dp)
 
-            // ── ПРОТОКОЛ — 2-column equal-width grid (matches the sketch) ──
+            // ── ПРОТОКОЛ — 3-column equal-width grid ──
             if (protocols.isNotEmpty()) {
                 Spacer(Modifier.height(24.dp))
                 SectionLabel("ПРОТОКОЛ")
                 Spacer(Modifier.height(10.dp))
                 Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    protocols.chunked(2).forEach { pair ->
+                    protocols.chunked(3).forEach { row ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            pair.forEach { p ->
+                            row.forEach { p ->
                                 NeonChip(
                                     label = protocolLabel(p),
                                     onClick = { onSelectProtocol(p) },
@@ -288,7 +289,8 @@ fun TvHomeScreen(
                                     selected = p == selected,
                                 )
                             }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            // keep columns equal-width when the last row is short
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
@@ -303,7 +305,7 @@ fun TvHomeScreen(
                 modifier = contentMod,
             )
 
-            // ── secondary actions — 2-column equal-width grid (matches the sketch) ──
+            // ── secondary actions — 3-column equal-width grid ──
             Spacer(Modifier.height(10.dp))
             val onUpdate: () -> Unit = {
                 (ctx as? Activity)?.let { act ->
@@ -318,12 +320,13 @@ fun TvHomeScreen(
                 add(Triple("Обновить приложение", Icons.Filled.CloudDownload, onUpdate))
             }
             Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                actions.chunked(2).forEach { pair ->
+                actions.chunked(3).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        pair.forEach { a ->
+                        row.forEach { a ->
                             NeonChip(a.first, a.third, Modifier.weight(1f).heightIn(min = 54.dp), icon = a.second)
                         }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        // keep columns equal-width when the last row is short
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
