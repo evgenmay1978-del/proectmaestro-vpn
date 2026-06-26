@@ -20,9 +20,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.maestrovpn.tv.compose.screen.configuration.NewProfileScreen
-import com.maestrovpn.tv.compose.screen.connections.ConnectionDetailsRoute
-import com.maestrovpn.tv.compose.screen.connections.ConnectionsPage
-import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
 import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
 import com.maestrovpn.tv.compose.screen.qrscan.ScanQrActivateScreen
 import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
@@ -100,7 +97,6 @@ fun SFANavHost(
     dashboardViewModel: DashboardViewModel? = null,
     logViewModel: LogViewModel? = null,
     groupsViewModel: GroupsViewModel? = null,
-    connectionsViewModel: ConnectionsViewModel? = null,
     tailscaleStatusViewModel: TailscaleStatusViewModel? = null,
     tailscaleSSHSharedViewModel: TailscaleSSHSharedViewModel? = null,
     modifier: Modifier = Modifier,
@@ -248,31 +244,6 @@ fun SFANavHost(
             }
         }
 
-        composable(Screen.Connections.route) {
-            if (connectionsViewModel != null) {
-                ConnectionsPage(
-                    serviceStatus = serviceStatus,
-                    viewModel = connectionsViewModel,
-                    showTitle = false,
-                    showTopBar = true,
-                    onConnectionClick = { connectionId ->
-                        navController.navigate("connections/detail/${Uri.encode(connectionId)}")
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                ConnectionsPage(
-                    serviceStatus = serviceStatus,
-                    showTitle = false,
-                    showTopBar = true,
-                    onConnectionClick = { connectionId ->
-                        navController.navigate("connections/detail/${Uri.encode(connectionId)}")
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
         composable(ProfileRoutes.NewProfile) {
             DisposableEffect(Unit) {
                 onDispose { onClearNewProfileArgs() }
@@ -310,28 +281,6 @@ fun SFANavHost(
                 onNavigateBack = { navController.navigateUp() },
                 modifier = Modifier.fillMaxSize(),
             )
-        }
-
-        composable("connections/detail/{connectionId}") { backStackEntry ->
-            val connectionId = backStackEntry.arguments?.getString("connectionId")
-            if (connectionId != null) {
-                if (connectionsViewModel != null) {
-                    ConnectionDetailsRoute(
-                        connectionId = connectionId,
-                        serviceStatus = serviceStatus,
-                        viewModel = connectionsViewModel,
-                        onBack = { navController.navigateUp() },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    ConnectionDetailsRoute(
-                        connectionId = connectionId,
-                        serviceStatus = serviceStatus,
-                        onBack = { navController.navigateUp() },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
         }
 
         composable(Screen.Tools.route) {

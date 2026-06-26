@@ -16,5 +16,17 @@
       "mcp__visualize__show_widget",
       "mcp__Claude_in_Chrome__read_network_requests"
     ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "(cd /root/maestrovpn-tv && nohup /root/.local/bin/graphify update . >/tmp/graphify-stop.log 2>&1 &) ; exit 0"
+          }
+        ]
+      }
+    ]
   }
 }

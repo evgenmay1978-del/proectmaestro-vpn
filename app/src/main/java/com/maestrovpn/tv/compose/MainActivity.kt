@@ -102,16 +102,12 @@ import com.maestrovpn.tv.compose.component.RemoteStatusBar
 import com.maestrovpn.tv.compose.component.ServiceStatusBar
 import com.maestrovpn.tv.compose.component.UpdateAvailableDialog
 import com.maestrovpn.tv.compose.component.UptimeText
-import com.maestrovpn.tv.compose.model.Connection
 import com.maestrovpn.tv.compose.navigation.NewProfileArgs
 import com.maestrovpn.tv.compose.navigation.ProfileRoutes
 import com.maestrovpn.tv.compose.navigation.SFANavHost
 import com.maestrovpn.tv.compose.navigation.Screen
 import com.maestrovpn.tv.compose.navigation.bottomNavigationScreens
 import com.maestrovpn.tv.compose.screen.configuration.ProfileImportHandler
-import com.maestrovpn.tv.compose.screen.connections.ConnectionDetailsScreen
-import com.maestrovpn.tv.compose.screen.connections.ConnectionsPage
-import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.GroupsCard
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
@@ -451,8 +447,6 @@ class MainActivity :
         // Groups Sheet state
         var showGroupsSheet by remember { mutableStateOf(false) }
 
-        // Connections Sheet state
-        var showConnectionsSheet by remember { mutableStateOf(false) }
 
         // Error dialog state for UiEvent.ShowError
         val pendingIntentError = pendingIntentErrorMessage
@@ -748,22 +742,19 @@ class MainActivity :
 
         val isSettingsSubScreen = currentRoute?.startsWith("settings/") == true
         val isToolsSubScreen = currentRoute?.startsWith("tools/") == true
-        val isConnectionsDetail = currentRoute?.startsWith("connections/detail") == true
         val isProfileRoute = currentRoute?.startsWith("profile/") == true
         val currentRootRoute =
             when {
                 isSettingsSubScreen -> Screen.Settings.route
                 isToolsSubScreen -> Screen.Tools.route
-                currentRoute?.startsWith(Screen.Connections.route) == true -> Screen.Connections.route
                 currentRoute?.startsWith(Screen.Log.route) == true -> Screen.Log.route
                 isProfileRoute -> Screen.TvHome.route
                 else -> currentRoute
             }
-        val isConnectionsRoute = currentRootRoute == Screen.Connections.route
         val isGroupsRoute = currentRootRoute == Screen.Groups.route
         val isLogRoute = currentRootRoute == Screen.Log.route
 
-        val isSubScreen = isSettingsSubScreen || isToolsSubScreen || isConnectionsDetail || isProfileRoute
+        val isSubScreen = isSettingsSubScreen || isToolsSubScreen || isProfileRoute
         // Clean MaestroVPN screens (home/buy/claim) own all their own UI — suppress
         // the donor Start/Stop FAB, status bar and bottom nav over them, on both
         // a TV (rail branch) and a phone (Scaffold branch).
@@ -795,13 +786,6 @@ class MainActivity :
                 null
             }
 
-        val connectionsViewModel: ConnectionsViewModel? =
-            if (isConnectionsRoute) {
-                viewModel()
-            } else {
-                null
-            }
-
         val tailscaleSSHSharedViewModel: TailscaleSSHSharedViewModel = viewModel()
 
         val isToolsRoute = currentRootRoute == Screen.Tools.route
@@ -813,12 +797,6 @@ class MainActivity :
             }
 
         val showGroupsInNav = dashboardUiState.hasGroups
-        val showConnectionsInNav =
-            if (isRemote) {
-                remoteConnected
-            } else {
-                currentServiceStatus == Status.Started || currentServiceStatus == Status.Starting
-            }
 
         // TV: no donor nav rail — the clean home is full-screen (rail items removed).
         val railScreens = emptyList<Screen>()
@@ -836,9 +814,6 @@ class MainActivity :
                 add(Screen.Settings.route)
                 if (useNavigationRail && showGroupsInNav) {
                     add(Screen.Groups.route)
-                }
-                if (useNavigationRail && showConnectionsInNav) {
-                    add(Screen.Connections.route)
                 }
             }
 
@@ -930,7 +905,6 @@ class MainActivity :
                     dashboardViewModel = dashboardViewModel,
                     logViewModel = logViewModel,
                     groupsViewModel = groupsViewModel,
-                    connectionsViewModel = connectionsViewModel,
                     tailscaleStatusViewModel = tailscaleStatusViewModel,
                     tailscaleSSHSharedViewModel = tailscaleSSHSharedViewModel,
                     modifier = Modifier.fillMaxSize(),
@@ -946,7 +920,7 @@ class MainActivity :
                             hasGroups = dashboardUiState.hasGroups,
                             onGroupsClick = { showGroupsSheet = true },
                             connectionsCount = dashboardUiState.connectionsCount,
-                            onConnectionsClick = { showConnectionsSheet = true },
+                            onConnectionsClick = {},
                             onDisconnectClick = { RemoteControlManager.exitRemoteControl() },
                             modifier = Modifier.align(Alignment.BottomCenter),
                         )
@@ -959,7 +933,7 @@ class MainActivity :
                             hasGroups = dashboardUiState.hasGroups,
                             onGroupsClick = { showGroupsSheet = true },
                             connectionsCount = dashboardUiState.connectionsCount,
-                            onConnectionsClick = { showConnectionsSheet = true },
+                            onConnectionsClick = {},
                             onStopClick = { dashboardViewModel.toggleService() },
                             modifier = Modifier.align(Alignment.BottomCenter),
                         )
@@ -1293,71 +1267,6 @@ class MainActivity :
             }
         }
 
-        // Connections ModalBottomSheet
-        if (showConnectionsSheet && !useNavigationRail) {
-            val connectionsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-            val connectionsViewModel: ConnectionsViewModel = viewModel()
-            val connectionsUiState by connectionsViewModel.uiState.collectAsState()
-            var selectedConnectionId by remember { mutableStateOf<String?>(null) }
-            val selectedConnection = connectionsUiState.allConnections.find { it.id == selectedConnectionId }
-            var cachedConnection by remember { mutableStateOf<Connection?>(null) }
-            if (selectedConnection != null) {
-                cachedConnection = selectedConnection
-            } else if (selectedConnectionId != null && cachedConnection?.isActive == true) {
-                cachedConnection = cachedConnection?.copy(closedAt = System.currentTimeMillis())
-            }
-            val displayConnection = if (selectedConnectionId != null) cachedConnection else null
-
-            LaunchedEffect(Unit) {
-                connectionsViewModel.setVisible(true)
-            }
-
-            DisposableEffect(Unit) {
-                onDispose {
-                    connectionsViewModel.setVisible(false)
-                }
-            }
-
-            BackHandler(enabled = selectedConnectionId != null) {
-                selectedConnectionId = null
-            }
-
-            ModalBottomSheet(
-                onDismissRequest = {
-                    showConnectionsSheet = false
-                    selectedConnectionId = null
-                },
-                sheetState = connectionsSheetState,
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(),
-                ) {
-                    if (displayConnection != null) {
-                        ConnectionDetailsScreen(
-                            connection = displayConnection,
-                            onBack = { selectedConnectionId = null },
-                            onClose = {
-                                selectedConnectionId?.let { connectionsViewModel.closeConnection(it) }
-                            },
-                            asSheet = true,
-                        )
-                    } else {
-                        ConnectionsPage(
-                            serviceStatus = currentServiceStatus,
-                            viewModel = connectionsViewModel,
-                            asSheet = true,
-                            showTitle = true,
-                            onConnectionClick = { selectedConnectionId = it },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-            }
-        }
     }
 
     override fun onServiceStatusChanged(status: Status) {
