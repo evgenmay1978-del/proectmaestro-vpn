@@ -67,7 +67,7 @@ android {
 
     defaultConfig {
         applicationId = "com.maestrovpn.tv"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 35
         versionCode = getVersionProps("VERSION_CODE").toInt()
         versionName = getVersionProps("VERSION_NAME")
@@ -115,18 +115,11 @@ android {
         create("other") {
             minSdk = 23
         }
-        create("otherLegacy") {
-            minSdk = 21
-        }
     }
 
     sourceSets {
         getByName("other") {
             java.directories.addAll(listOf("src/minApi23/java", "src/github/java"))
-            aidl.directories.add("src/minApi23/aidl")
-        }
-        getByName("otherLegacy") {
-            java.directories.addAll(listOf("src/minApi21/java", "src/github/java"))
             aidl.directories.add("src/minApi23/aidl")
         }
     }
@@ -173,7 +166,6 @@ android {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
             var fileName = output.outputFileName
             fileName = fileName.replace("-release", "")
-            fileName = fileName.replace("-otherLegacy", "-legacy-android-5")
             fileName = fileName.replace("-other", "")
             output.outputFileName = fileName
         }
@@ -183,7 +175,6 @@ android {
 dependencies {
     // libbox
     "otherImplementation"(files("libs/libbox.aar"))
-    "otherLegacyImplementation"(files("libs/libbox-legacy.aar"))
 
     // API level specific versions
     val lifecycleVersion23 = "2.10.0"
@@ -192,11 +183,6 @@ dependencies {
     val cameraVersion23 = "1.5.3"
     val browserVersion23 = "1.9.0"
 
-    val lifecycleVersion21 = "2.9.4"
-    val roomVersion21 = "2.7.2"
-    val workVersion21 = "2.10.5"
-    val cameraVersion21 = "1.4.2"
-    val browserVersion21 = "1.9.0"
 
     // Common dependencies (no API level difference)
     implementation("androidx.core:core-ktx:1.17.0")
@@ -231,16 +217,6 @@ dependencies {
     "kspOther"("androidx.room:room-compiler:$roomVersion23")
 
     // API 21 dependencies (otherLegacy)
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion21")
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion21")
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-process:$lifecycleVersion21")
-    "otherLegacyImplementation"("androidx.room:room-runtime:$roomVersion21")
-    "otherLegacyImplementation"("androidx.work:work-runtime-ktx:$workVersion21")
-    "otherLegacyImplementation"("androidx.camera:camera-view:$cameraVersion21")
-    "otherLegacyImplementation"("androidx.camera:camera-lifecycle:$cameraVersion21")
-    "otherLegacyImplementation"("androidx.camera:camera-camera2:$cameraVersion21")
-    "otherLegacyImplementation"("androidx.browser:browser:$browserVersion21")
-    "kspOtherLegacy"("androidx.room:room-compiler:$roomVersion21")
 
     // Play Store specific
 
@@ -253,8 +229,6 @@ dependencies {
     val libsuVersion = "6.0.0"
     "otherImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
     "otherImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
-    "otherLegacyImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
-    "otherLegacyImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
 
     // Compose dependencies - API 23+ (play/other)
     val composeBom23 = platform("androidx.compose:compose-bom:2026.02.00")
@@ -274,26 +248,12 @@ dependencies {
     "otherImplementation"("androidx.compose.runtime:runtime-livedata")
 
     // Compose dependencies - API 21 (otherLegacy)
-    val composeBom21 = platform("androidx.compose:compose-bom:2025.01.00")
-    val activityVersion21 = "1.11.0"
-    val lifecycleComposeVersion21 = "2.9.4"
 
-    "otherLegacyImplementation"(composeBom21)
-    "otherLegacyImplementation"("androidx.compose.material3:material3")
-    "otherLegacyImplementation"("androidx.compose.material3.adaptive:adaptive")
-    "otherLegacyImplementation"("androidx.compose.ui:ui")
-    "otherLegacyImplementation"("androidx.compose.ui:ui-tooling-preview")
-    "otherLegacyImplementation"("androidx.compose.material:material-icons-extended")
-    "otherLegacyImplementation"("androidx.activity:activity-compose:$activityVersion21")
-    "otherLegacyImplementation"("androidx.navigation:navigation-compose:2.9.7")
-    "otherLegacyImplementation"("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleComposeVersion21")
-    "otherLegacyImplementation"("androidx.compose.runtime:runtime-livedata")
 
     // Debug/Test dependencies
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     "androidTestOtherImplementation"(composeBom23)
-    "androidTestOtherLegacyImplementation"(composeBom21)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     // Common Compose-related libraries
