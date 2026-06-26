@@ -365,7 +365,6 @@
     <string name="error_start_service">Запуск службы</string>
     <string name="error_deprecated_warning">Предупреждение об устаревании</string>
     <string name="error_deprecated_documentation">Документация</string>
-    <string name="file_manager_missing">На Вашем устройстве отсутствует стандартный файловый менеджер Android. Установите, например, Material Files.</string>
     <string name="no_file_manager">Файловый менеджер не найден</string>
     
     <!-- Failed Operations -->

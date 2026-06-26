@@ -359,7 +359,6 @@
     <string name="error_start_service">啟動服務</string>
     <string name="error_deprecated_warning">棄用警告</string>
     <string name="error_deprecated_documentation">文件</string>
-    <string name="file_manager_missing">您的裝置缺少 Android 標準檔案選擇器，請安裝一個，例如 Material Files。</string>
     <string name="no_file_manager">未找到檔案管理器</string>
 
     <!-- Failed Operations -->

@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(journalctl:*)",
+      "Bash(systemctl status:*)",
+      "Bash(systemctl is-active:*)",
+      "Bash(systemctl is-enabled:*)",
+      "Bash(systemctl show:*)",
+      "Bash(systemctl cat:*)",
+      "Bash(systemctl list-units:*)",
+      "Bash(systemctl list-timers:*)",
+      "Bash(graphify query:*)",
+      "Bash(graphify path:*)",
+      "Bash(graphify explain:*)",
+      "mcp__visualize__read_me",
+      "mcp__visualize__show_widget",
+      "mcp__Claude_in_Chrome__read_network_requests"
+    ]
+  }
+}

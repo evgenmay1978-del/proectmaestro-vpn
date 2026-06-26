@@ -359,7 +359,6 @@
     <string name="error_start_service">شروع سرویس</string>
     <string name="error_deprecated_warning">هشدار منسوخ</string>
     <string name="error_deprecated_documentation">مستندات</string>
-    <string name="file_manager_missing">دستگاه شما فاقد فایل‌گزین استاندارد Android است، لطفا یکی مثل Material Files نصب کنید.</string>
     <string name="no_file_manager">مدیر فایل پیدا نشد</string>
 
     <!-- Failed Operations -->

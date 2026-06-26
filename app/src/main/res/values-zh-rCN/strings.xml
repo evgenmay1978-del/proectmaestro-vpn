@@ -356,7 +356,6 @@
     <string name="error_start_service">启动服务</string>
     <string name="error_deprecated_warning">弃用警告</string>
     <string name="error_deprecated_documentation">文档</string>
-    <string name="file_manager_missing">您的设备缺少 Android 标准文件选择器，请安装一个，例如 Material Files。</string>
     <string name="no_file_manager">未找到文件管理器</string>
 
     <!-- Failed Operations -->
