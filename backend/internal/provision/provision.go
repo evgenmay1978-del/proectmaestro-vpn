@@ -164,7 +164,7 @@ var unlimitedLogins = map[string]bool{"wapmix": true, "wapmixx": true, "wapmix2"
 
 // deviceLimitOverrides raises (or lowers) the cap for specific logins — e.g. a customer
 // with more household devices. (For UNLIMITED use unlimitedLogins, not 0 here.)
-var deviceLimitOverrides = map[string]int{"strogino": 8}
+var deviceLimitOverrides = map[string]int{"strogino": 9}
 
 // deviceLimit returns the per-login limitIp (0 = unlimited).
 func deviceLimit(login string) int {
