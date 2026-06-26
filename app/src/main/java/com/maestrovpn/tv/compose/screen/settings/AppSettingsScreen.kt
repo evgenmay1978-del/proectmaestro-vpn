@@ -100,9 +100,7 @@ import com.maestrovpn.tv.update.UpdateCheckException
 import com.maestrovpn.tv.update.UpdateSource
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
-import com.maestrovpn.tv.utils.HookStatusClient
 import com.maestrovpn.tv.vendor.Vendor
-import com.maestrovpn.tv.xposed.XposedActivation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -146,8 +144,8 @@ fun AppSettingsScreen(
 
     var silentInstallEnabled by remember { mutableStateOf(Settings.silentInstallEnabled) }
     var silentInstallMethod by remember { mutableStateOf(Settings.silentInstallMethod) }
-    val systemHookStatus by HookStatusClient.status.collectAsState()
-    val xposedActivated = systemHookStatus?.active == true || XposedActivation.isActivated(context)
+    // Hide-VPN Xposed/root auto-detect removed; the install-method picker is now unconditional.
+    val xposedActivated = false
     var isMethodAvailable by remember { mutableStateOf(true) }
     var autoUpdateEnabled by remember { mutableStateOf(Settings.autoUpdateEnabled) }
     var showInstallMethodMenu by remember { mutableStateOf(false) }
@@ -186,13 +184,11 @@ fun AppSettingsScreen(
     }
 
     LaunchedEffect(Unit) {
-        HookStatusClient.refresh()
         refreshCacheSize()
     }
 
     // Re-check states when returning from background (e.g., after granting permission)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        HookStatusClient.refresh()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Application.notification.createNotificationChannel(
                 NotificationChannel(

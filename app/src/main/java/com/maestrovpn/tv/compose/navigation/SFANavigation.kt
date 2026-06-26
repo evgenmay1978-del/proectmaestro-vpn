@@ -29,10 +29,8 @@ import com.maestrovpn.tv.compose.screen.tvhome.rememberAccountInfo
 import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.GroupsCard
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
-import com.maestrovpn.tv.compose.screen.log.HookLogScreen
 import com.maestrovpn.tv.compose.screen.log.LogScreen
 import com.maestrovpn.tv.compose.screen.log.LogViewModel
-import com.maestrovpn.tv.compose.screen.privilegesettings.PrivilegeSettingsManageScreen
 import com.maestrovpn.tv.compose.screen.profile.EditProfileRoute
 import com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyScreen
 import com.maestrovpn.tv.database.Settings
@@ -40,7 +38,6 @@ import com.maestrovpn.tv.compose.screen.settings.AppSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.CoreSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.EditRemoteServerScreen
 import com.maestrovpn.tv.compose.screen.settings.FDroidMirrorScreen
-import com.maestrovpn.tv.compose.screen.settings.PrivilegeSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.ProfileOverrideScreen
 import com.maestrovpn.tv.compose.screen.settings.RemoteControlScreen
 import com.maestrovpn.tv.compose.screen.settings.ServiceSettingsScreen
@@ -356,34 +353,5 @@ fun SFANavHost(
             EditRemoteServerScreen(navController = navController, serverId = serverId)
         }
 
-        composable(
-            route = "settings/privilege",
-            enterTransition = slideInFromRight,
-            exitTransition = slideOutToLeft,
-            popEnterTransition = slideInFromLeft,
-            popExitTransition = slideOutToRight,
-        ) {
-            PrivilegeSettingsScreen(navController = navController, serviceStatus = serviceStatus)
-        }
-
-        composable(
-            route = "settings/privilege/manage",
-            enterTransition = slideInFromRight,
-            exitTransition = slideOutToLeft,
-            popEnterTransition = slideInFromLeft,
-            popExitTransition = slideOutToRight,
-        ) {
-            PrivilegeSettingsManageScreen(onBack = { navController.navigateUp() }, serviceStatus = serviceStatus)
-        }
-
-        composable(
-            route = "settings/privilege/logs",
-            enterTransition = slideInFromRight,
-            exitTransition = slideOutToLeft,
-            popEnterTransition = slideInFromLeft,
-            popExitTransition = slideOutToRight,
-        ) {
-            HookLogScreen(onBack = { navController.navigateUp() })
-        }
     }
 }

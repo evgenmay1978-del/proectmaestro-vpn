@@ -22,9 +22,6 @@ import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.AppLifecycleObserver
 import com.maestrovpn.tv.utils.MaestroSub
-import com.maestrovpn.tv.utils.HookModuleUpdateNotifier
-import com.maestrovpn.tv.utils.HookStatusClient
-import com.maestrovpn.tv.utils.PrivilegeSettingsClient
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -62,12 +59,6 @@ class Application : Application() {
 
         @Suppress("OPT_IN_USAGE")
         GlobalScope.launch(Dispatchers.IO) {
-            // Probe the (largely dead-on-TV) Xposed/privilege hooks OFF the cold-start path:
-            // register() does a BLOCKING binder.transact to system_server, dead weight on stock
-            // TVs. Settings screens call refresh() themselves, so a slightly-deferred populate
-            // is invisible.
-            HookStatusClient.register(this@Application)
-            PrivilegeSettingsClient.register(this@Application)
             initialize(baseDir, workingDir, tempDir)
             // Backfill the per-install device id onto an EXISTING MaestroVPN subscription so
             // the account's device cap (enforced server-side at /sub) starts applying to
@@ -83,7 +74,6 @@ class Application : Application() {
                 }
             }.onFailure { Log.d("Application", "device-id migration: ${it.message}") }
             UpdateProfileWork.reconfigureUpdater()
-            HookModuleUpdateNotifier.sync(this@Application)
             // Silently ship any locally-recorded crash reports to the panel's /report sink so the
             // fleet's real failures land on S1 — proactive, no waiting for a customer to complain.
             // Off the cold-start path, best-effort; never throws.

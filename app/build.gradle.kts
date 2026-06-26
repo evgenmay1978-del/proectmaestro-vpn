@@ -264,11 +264,6 @@ dependencies {
     // Android TV (D-pad / leanback) Material components for the TV-first screens
     implementation("androidx.tv:tv-material:1.0.0")
 
-    // Terminal emulator
-
-    // Xposed API for self-hooking VPN hide module
-    compileOnly("de.robv.android.xposed:api:82")
-    compileOnly(project(":libxposed-api"))
 }
 
 tasks.withType<KotlinCompile>().configureEach {

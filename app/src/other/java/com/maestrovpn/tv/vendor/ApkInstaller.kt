@@ -5,8 +5,6 @@ import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.bg.BoxService
 import com.maestrovpn.tv.bg.RootClient
 import com.maestrovpn.tv.database.Settings
-import com.maestrovpn.tv.utils.HookStatusClient
-import com.maestrovpn.tv.xposed.XposedActivation
 import kotlinx.coroutines.delay
 import java.io.File
 
@@ -33,11 +31,9 @@ object ApkInstaller {
     }
 
     fun getConfiguredMethod(): InstallMethod {
-        if (HookStatusClient.status.value?.active == true ||
-            XposedActivation.isActivated(Application.application)
-        ) {
-            return InstallMethod.ROOT
-        }
+        // The Xposed/root auto-detect that used to force ROOT here was removed with the
+        // hide-VPN module; fall back to the user's configured silent method (or the system
+        // package installer). Stock TVs already took this path.
         return if (Settings.silentInstallEnabled) {
             InstallMethod.valueOf(Settings.silentInstallMethod)
         } else {

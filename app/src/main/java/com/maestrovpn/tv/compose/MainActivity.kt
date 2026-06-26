@@ -255,9 +255,6 @@ class MainActivity :
         if (intent == null) {
             return
         }
-        if (intent.categories?.contains("de.robv.android.xposed.category.MODULE_SETTINGS") == true) {
-            pendingNavigationRoute.value = "settings/privilege"
-        }
         val uri = intent.data ?: return
         if (intent.action == Action.OPEN_URL) {
             launchCustomTab(uri.toString())

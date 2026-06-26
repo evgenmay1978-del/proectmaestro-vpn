@@ -54,7 +54,6 @@
         android:name=".Application"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:description="@string/xposed_description"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/tv_banner"
@@ -75,12 +74,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <!-- Android TV home row -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
             </intent-filter>
 
             <intent-filter>
@@ -175,11 +168,6 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-
-        <provider
-            android:name="io.github.libxposed.service.XposedProvider"
-            android:authorities="${applicationId}.XposedService"
-            android:exported="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
