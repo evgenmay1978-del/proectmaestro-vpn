@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -137,7 +137,12 @@ private fun Letter3D(ch: Char, base: Color) {
  * touch phone, restyled to the owner's reference (spiderinterfeis.png): deep near-black
  * with a green glow, the photoreal spider medallion as the hero connect button, dark
  * green-glass chips/cards with neon borders + icons. Orange is kept for SELECTION and
- * the primary CTA (buy). The column scrolls; chips wrap (FlowRow).
+ * the primary CTA (buy).
+ *
+ * Layout adapts to the screen: a TV is WIDE, so it gets a two-zone LANDSCAPE layout —
+ * hero (medallion + status + account) on the left, the menu on the right — which fits in
+ * roughly one screen so there's almost nothing to scroll with the D-pad. A phone keeps
+ * the familiar single scrolling column.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -162,15 +167,6 @@ fun TvHomeScreen(
     LaunchedEffect(Unit) {
         if (isTv) runCatching { connectFocus.requestFocus() }
     }
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val open: (String) -> Unit = { url ->
-        runCatching {
-            ctx.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }
-    }
 
     // Gentle entrance — crash-safe: the LaunchedEffect only flips a flag, never throws.
     var shown by remember { mutableStateOf(false) }
@@ -180,12 +176,17 @@ fun TvHomeScreen(
     )
 
     Surface(modifier = Modifier.fillMaxSize()) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    // green glow centred behind the medallion (matches the reference)
-                    val center = Offset(size.width * 0.5f, size.height * 0.28f)
+                    // green glow — behind the medallion. On TV the medallion sits on the LEFT,
+                    // so move the glow there; on a phone it stays upper-centre (matches the ref).
+                    val center = if (isTv) {
+                        Offset(size.width * 0.24f, size.height * 0.5f)
+                    } else {
+                        Offset(size.width * 0.5f, size.height * 0.28f)
+                    }
                     val radius = size.maxDimension * 0.5f
                     drawCircle(
                         brush = Brush.radialGradient(
@@ -198,166 +199,272 @@ fun TvHomeScreen(
                         radius = radius, center = center,
                     )
                 }
-                .verticalScroll(rememberScrollState())
                 .graphicsLayer {
                     alpha = enter
                     translationY = (1f - enter) * 36f
                 }
                 .padding(screenPadding(isTv)),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
         ) {
-            AnimatedLogo()
-            Spacer(Modifier.height(22.dp))
-
-            // ── Hero: the spider medallion connect button ──────────────────
-            SpiderMedallion(
-                connected = connected,
-                onToggle = onToggleConnect,
-                focusRequester = connectFocus,
-            )
-
-            Spacer(Modifier.height(16.dp))
-            // status with a state dot
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(11.dp)
-                        .clip(CircleShape)
-                        .background(if (connected) NeonGreen else MaestroSilver),
-                )
-                Spacer(Modifier.width(9.dp))
-                Text(
-                    statusText.uppercase(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (connected) NeonGreen else MaterialTheme.colorScheme.onSurface,
-                )
-            }
-
-            // Account card — login + days left (from the panel /sub/<token>/info).
-            if (!accountLogin.isNullOrBlank() || daysLeft != null) {
-                Spacer(Modifier.height(14.dp))
-                val expired = daysLeft != null && daysLeft <= 0
-                val low = daysLeft != null && daysLeft in 1..5
-                val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
-                val daysText = when {
-                    daysLeft == null -> null
-                    expired -> "Подписка истекла"
-                    else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
+            if (isTv) {
+                // ── LANDSCAPE (TV): hero on the left, menu on the right ──
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    HeroPane(
+                        statusText = statusText,
+                        connected = connected,
+                        activeProtocol = activeProtocol,
+                        selected = selected,
+                        accountLogin = accountLogin,
+                        daysLeft = daysLeft,
+                        onToggleConnect = onToggleConnect,
+                        connectFocus = connectFocus,
+                        modifier = Modifier.weight(0.42f),
+                    )
+                    Spacer(Modifier.width(28.dp))
+                    MenuPane(
+                        protocols = protocols,
+                        selected = selected,
+                        isTv = true,
+                        onSelectProtocol = onSelectProtocol,
+                        onBuy = onBuy,
+                        onEnterCode = onEnterCode,
+                        onSplitTunnel = onSplitTunnel,
+                        onShareIos = onShareIos,
+                        onScanQr = onScanQr,
+                        // fillMaxHeight + scroll is a safety net for short (720p) TVs; the menu
+                        // normally fits without scrolling.
+                        modifier = Modifier
+                            .weight(0.58f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState()),
+                    )
                 }
-                NeonAccountCard(
-                    login = accountLogin,
-                    daysText = daysText,
-                    daysColor = daysColor,
-                    leadingIcon = Icons.Filled.Person,
-                    trailingIcon = Icons.Filled.CalendarMonth,
-                    modifier = Modifier.widthIn(min = 240.dp),
-                )
-            }
-
-            // Active protocol — the outbound actually carrying traffic right now (orange).
-            if (connected && !activeProtocol.isNullOrBlank()) {
-                Spacer(Modifier.height(10.dp))
-                val viaAuto = selected == "auto" && activeProtocol != "auto"
-                Text(
-                    if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaestroOrange,
-                )
-            }
-
-            // content width cap so the grids stay tidy on a wide TV (centred column).
-            // 600dp gives three equal columns enough room without crowding the labels.
-            val contentMod = Modifier.fillMaxWidth().widthIn(max = 600.dp)
-
-            // ── ПРОТОКОЛ — 3-column equal-width grid ──
-            if (protocols.isNotEmpty()) {
-                Spacer(Modifier.height(24.dp))
-                SectionLabel("ПРОТОКОЛ")
-                Spacer(Modifier.height(10.dp))
-                Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    protocols.chunked(3).forEach { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            row.forEach { p ->
-                                NeonChip(
-                                    label = protocolLabel(p),
-                                    onClick = { onSelectProtocol(p) },
-                                    modifier = Modifier.weight(1f).heightIn(min = 54.dp),
-                                    icon = protocolIcon(p),
-                                    selected = p == selected,
-                                )
-                            }
-                            // keep columns equal-width when the last row is short
-                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                        }
-                    }
+            } else {
+                // ── PORTRAIT (phone): single scrolling column ──
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    HeroPane(
+                        statusText = statusText,
+                        connected = connected,
+                        activeProtocol = activeProtocol,
+                        selected = selected,
+                        accountLogin = accountLogin,
+                        daysLeft = daysLeft,
+                        onToggleConnect = onToggleConnect,
+                        connectFocus = connectFocus,
+                        modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    MenuPane(
+                        protocols = protocols,
+                        selected = selected,
+                        isTv = false,
+                        onSelectProtocol = onSelectProtocol,
+                        onBuy = onBuy,
+                        onEnterCode = onEnterCode,
+                        onSplitTunnel = onSplitTunnel,
+                        onShareIos = onShareIos,
+                        onScanQr = onScanQr,
+                        modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
+                    )
                 }
             }
+        }
+    }
+}
 
-            Spacer(Modifier.height(22.dp))
-            GlossyButton(
-                label = "Купить подписку",
-                onClick = onBuy,
-                accent = MaestroOrange,
-                icon = Icons.Filled.ShoppingCart,
-                modifier = contentMod,
+/** The hero zone: wordmark + the spider medallion connect button + status + account. */
+@Composable
+private fun HeroPane(
+    statusText: String,
+    connected: Boolean,
+    activeProtocol: String?,
+    selected: String?,
+    accountLogin: String?,
+    daysLeft: Int?,
+    onToggleConnect: () -> Unit,
+    connectFocus: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        AnimatedLogo()
+        Spacer(Modifier.height(18.dp))
+
+        SpiderMedallion(
+            connected = connected,
+            onToggle = onToggleConnect,
+            focusRequester = connectFocus,
+        )
+
+        Spacer(Modifier.height(14.dp))
+        // status with a state dot
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(11.dp)
+                    .clip(CircleShape)
+                    .background(if (connected) NeonGreen else MaestroSilver),
             )
+            Spacer(Modifier.width(9.dp))
+            Text(
+                statusText.uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (connected) NeonGreen else MaterialTheme.colorScheme.onSurface,
+            )
+        }
 
-            // ── secondary actions — 3-column equal-width grid ──
+        // Account card — login + days left (from the panel /sub/<token>/info).
+        if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+            Spacer(Modifier.height(12.dp))
+            val expired = daysLeft != null && daysLeft <= 0
+            val low = daysLeft != null && daysLeft in 1..5
+            val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
+            val daysText = when {
+                daysLeft == null -> null
+                expired -> "Подписка истекла"
+                else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
+            }
+            NeonAccountCard(
+                login = accountLogin,
+                daysText = daysText,
+                daysColor = daysColor,
+                leadingIcon = Icons.Filled.Person,
+                trailingIcon = Icons.Filled.CalendarMonth,
+                modifier = Modifier.widthIn(min = 240.dp),
+            )
+        }
+
+        // Active protocol — the outbound actually carrying traffic right now (orange).
+        if (connected && !activeProtocol.isNullOrBlank()) {
             Spacer(Modifier.height(10.dp))
-            val onUpdate: () -> Unit = {
-                (ctx as? Activity)?.let { act ->
-                    scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } }
-                }
-            }
-            val actions = buildList<Triple<String, ImageVector, () -> Unit>> {
-                add(Triple("Ввести код подписки", Icons.Filled.Search, onEnterCode))
-                if (!isTv) add(Triple("Сканировать QR", Icons.Filled.QrCode2, onScanQr))
-                add(Triple("Приложения через VPN", Icons.Filled.Public, onSplitTunnel))
-                add(Triple("Поделиться подпиской", Icons.Filled.Share, onShareIos))
-                add(Triple("Обновить приложение", Icons.Filled.CloudDownload, onUpdate))
-            }
-            Column(contentMod, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                actions.chunked(3).forEach { row ->
+            val viaAuto = selected == "auto" && activeProtocol != "auto"
+            Text(
+                if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaestroOrange,
+            )
+        }
+    }
+}
+
+/** The menu zone: protocol picker + buy + secondary actions + contacts. */
+@Composable
+private fun MenuPane(
+    protocols: List<String>,
+    selected: String?,
+    isTv: Boolean,
+    onSelectProtocol: (String) -> Unit,
+    onBuy: () -> Unit,
+    onEnterCode: () -> Unit,
+    onSplitTunnel: () -> Unit,
+    onShareIos: () -> Unit,
+    onScanQr: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val open: (String) -> Unit = { url ->
+        runCatching {
+            ctx.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+    val onUpdate: () -> Unit = {
+        (ctx as? Activity)?.let { act ->
+            scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } }
+        }
+    }
+
+    Column(modifier = modifier) {
+        // ── ПРОТОКОЛ — 3-column equal-width grid ──
+        if (protocols.isNotEmpty()) {
+            SectionLabel("ПРОТОКОЛ")
+            Spacer(Modifier.height(10.dp))
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                protocols.chunked(3).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        row.forEach { a ->
-                            NeonChip(a.first, a.third, Modifier.weight(1f).heightIn(min = 54.dp), icon = a.second)
+                        row.forEach { p ->
+                            NeonChip(
+                                label = protocolLabel(p),
+                                onClick = { onSelectProtocol(p) },
+                                modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                                icon = protocolIcon(p),
+                                selected = p == selected,
+                            )
                         }
                         // keep columns equal-width when the last row is short
                         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
-
-            // ── Контакты ──────────────────────────────────────────────────
-            Spacer(Modifier.height(24.dp))
-            SectionLabel("КОНТАКТЫ")
-            Spacer(Modifier.height(10.dp))
-            GlossyButton(
-                label = "8 977 811-65-64",
-                onClick = { open("tel:+79778116564") },
-                accent = NeonGreen,
-                icon = Icons.Filled.Call,
-                modifier = contentMod,
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Если я не ответил на звонок — обязательно напишите в любом из мессенджеров 👇",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 360.dp).padding(horizontal = 12.dp),
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(contentMod, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE))
-                NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366))
-                NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5))
-            }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
         }
+
+        GlossyButton(
+            label = "Купить подписку",
+            onClick = onBuy,
+            accent = MaestroOrange,
+            icon = Icons.Filled.ShoppingCart,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // ── secondary actions — 3-column equal-width grid ──
+        Spacer(Modifier.height(10.dp))
+        val actions = buildList<Triple<String, ImageVector, () -> Unit>> {
+            add(Triple("Ввести код подписки", Icons.Filled.Search, onEnterCode))
+            if (!isTv) add(Triple("Сканировать QR", Icons.Filled.QrCode2, onScanQr))
+            add(Triple("Приложения через VPN", Icons.Filled.Public, onSplitTunnel))
+            add(Triple("Поделиться подпиской", Icons.Filled.Share, onShareIos))
+            add(Triple("Обновить приложение", Icons.Filled.CloudDownload, onUpdate))
+        }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            actions.chunked(3).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { a ->
+                        NeonChip(a.first, a.third, Modifier.weight(1f).heightIn(min = 54.dp), icon = a.second)
+                    }
+                    // keep columns equal-width when the last row is short
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+
+        // ── Контакты ──────────────────────────────────────────────────
+        Spacer(Modifier.height(20.dp))
+        SectionLabel("КОНТАКТЫ")
+        Spacer(Modifier.height(10.dp))
+        GlossyButton(
+            label = "8 977 811-65-64",
+            onClick = { open("tel:+79778116564") },
+            accent = NeonGreen,
+            icon = Icons.Filled.Call,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Если я не ответил на звонок — обязательно напишите в любом из мессенджеров 👇",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE))
+            NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366))
+            NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5))
+        }
+        Spacer(Modifier.height(20.dp))
     }
 }
 
