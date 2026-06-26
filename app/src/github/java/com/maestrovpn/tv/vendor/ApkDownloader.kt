@@ -34,9 +34,14 @@ import kotlin.coroutines.coroutineContext
 class ApkDownloader : Closeable {
 
     suspend fun download(url: String): File = withContext(Dispatchers.IO) {
-        val cacheDir = File(Application.application.cacheDir, "updates").apply { mkdirs() }
-        val apkFile = File(cacheDir, "update.apk")
-        val partFile = File(cacheDir, "update.apk.part")
+        // noBackupFilesDir (NOT cacheDir): on 1 GB TVs Android evicts cacheDir under pressure, and
+        // an ~85 MB file is a prime target — losing it mid-flight makes the download restart from 0
+        // ("downloads, then starts over"). noBackupFilesDir is app-owned and not auto-purged, so the
+        // .part survives across attempts and app restarts; it's excluded from cloud backup (correct
+        // for a throwaway APK).
+        val dlDir = File(Application.application.noBackupFilesDir, "updates").apply { mkdirs() }
+        val apkFile = File(dlDir, "update.apk")
+        val partFile = File(dlDir, "update.apk.part")
 
         val info = UpdateState.updateInfo.value
         val expectedSize = info?.fileSize ?: 0L
@@ -49,6 +54,21 @@ class ApkDownloader : Closeable {
             return@withContext apkFile
         }
         if (apkFile.exists()) apkFile.delete()
+
+        // Identity guard: a leftover .part may belong to a DIFFERENT release. When the fleet saw
+        // 1.0.100 then 1.0.101 in quick succession, a client mid-download had a .part for the old
+        // APK; resuming it appends the NEW APK's bytes onto a stale prefix → length can reach
+        // expectedSize while the sha256 never matches → delete → re-download → the reported
+        // "downloads to 100%, then starts over" loop. Tag the .part with this target's identity;
+        // if a leftover .part doesn't match, discard it and start clean (resume of a truncated —
+        // not cross-version — .part still works, because same target ⇒ same id).
+        val partId = File(dlDir, "update.apk.part.id")
+        val wantId = "$expectedSize:$expectedSha"
+        if (wantId != "0:" && partFile.exists() &&
+            (!partId.exists() || partId.readText().trim() != wantId)) {
+            partFile.delete()
+        }
+        runCatching { partId.writeText(wantId) }
 
         var lastError: Exception? = null
         repeat(MAX_ATTEMPTS) { attempt ->
