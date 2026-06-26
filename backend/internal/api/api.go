@@ -61,6 +61,7 @@ type Config struct {
 	TGBotToken string // bot token for owner payment notifications (send-only, no poll)
 	TGAdminID  string // owner's Telegram chat id
 	UpdateDir  string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
+	ReportDir  string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
 	// EnforceDeviceLimit gates the per-account 5-device cap at /sub + /claim. A kill
 	// switch (env MAESTRO_DEVICE_LIMIT=off) so the cap can be disabled live without a
 	// redeploy if it ever misbehaves in prod.
@@ -95,6 +96,11 @@ func (s *Server) Handler() http.Handler {
 		// prefers over GitHub (throttled from Russian ISPs). Same host:port the
 		// device already polls for /sub every 15 min.
 		mux.HandleFunc("/update/", s.handleUpdate)
+	}
+	if s.cfg.ReportDir != "" {
+		// Public crash/diagnostic sink — devices POST here after a local crash/OOM so
+		// the fleet's real failures land on S1 (read-only intake; never blocks anything).
+		mux.HandleFunc("/report", s.handleReport)
 	}
 	if s.orders != nil {
 		mux.HandleFunc("/order/tariffs", s.handleTariffs)
