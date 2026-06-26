@@ -112,8 +112,6 @@ import com.maestrovpn.tv.compose.screen.dashboard.DashboardViewModel
 import com.maestrovpn.tv.compose.screen.dashboard.GroupsCard
 import com.maestrovpn.tv.compose.screen.dashboard.groups.GroupsViewModel
 import com.maestrovpn.tv.compose.screen.log.LogViewModel
-import com.maestrovpn.tv.compose.screen.tools.TailscaleSSHSharedViewModel
-import com.maestrovpn.tv.compose.screen.tools.TailscaleStatusViewModel
 import com.maestrovpn.tv.compose.theme.SFATheme
 import com.maestrovpn.tv.compose.topbar.LocalTopBarController
 import com.maestrovpn.tv.compose.topbar.TopBarController
@@ -786,15 +784,6 @@ class MainActivity :
                 null
             }
 
-        val tailscaleSSHSharedViewModel: TailscaleSSHSharedViewModel = viewModel()
-
-        val isToolsRoute = currentRootRoute == Screen.Tools.route
-        val tailscaleStatusViewModel: TailscaleStatusViewModel? =
-            if (isToolsRoute) {
-                viewModel()
-            } else {
-                null
-            }
 
         val showGroupsInNav = dashboardUiState.hasGroups
 
@@ -810,7 +799,6 @@ class MainActivity :
                 add("claim")
                 add("split")
                 add(Screen.Log.route)
-                add(Screen.Tools.route)
                 add(Screen.Settings.route)
                 if (useNavigationRail && showGroupsInNav) {
                     add(Screen.Groups.route)
@@ -905,8 +893,6 @@ class MainActivity :
                     dashboardViewModel = dashboardViewModel,
                     logViewModel = logViewModel,
                     groupsViewModel = groupsViewModel,
-                    tailscaleStatusViewModel = tailscaleStatusViewModel,
-                    tailscaleSSHSharedViewModel = tailscaleSSHSharedViewModel,
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (!useNavigationRail && !isCleanHome) {
