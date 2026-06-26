@@ -1,8 +1,11 @@
 package com.maestrovpn.tv.bg
 
+import android.os.Build
 import io.nekohasekai.libbox.Libbox
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.BuildConfig
+import com.maestrovpn.tv.utils.HTTPClient
+import com.maestrovpn.tv.utils.MaestroSub
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,6 +14,8 @@ import org.json.JSONObject
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -44,6 +49,7 @@ object CrashReportManager {
     private const val CONFIG_FILE_NAME = "configuration.json"
     private const val READ_MARKER_FILE_NAME = ".read"
     private const val CRASH_REPORTS_DIR_NAME = "crash_reports"
+    private const val UPLOADED_MARKER_FILE_NAME = ".uploaded"
     private const val PENDING_JVM_CRASH_FILE_NAME = "CrashReport-JVM.log"
     private const val PENDING_JVM_METADATA_FILE_NAME = "CrashReport-JVM-metadata.json"
 
@@ -98,6 +104,66 @@ object CrashReportManager {
         _reports.value = reports
         _unreadCount.value = reports.count { !it.isRead }
     }
+
+    /**
+     * Silently POST any locally-recorded crash reports we haven't shipped yet to the panel's
+     * /report sink (BuildConfig.BACKEND_URL), so the fleet's real failures land on S1 without
+     * waiting for a customer to complain. PII-free: only metadata.json (exception + versions) and
+     * jvm.log (the stack) are sent — NEVER configuration.json, which holds server creds. Strictly
+     * best-effort: a per-dir .uploaded marker stops re-sends, the run is capped, and any
+     * network/parse error just leaves the report for the next launch. Never throws.
+     */
+    suspend fun uploadPending() = withContext(Dispatchers.IO) {
+        if (!::workingDir.isInitialized) return@withContext
+        val crashReportsDir = File(workingDir, CRASH_REPORTS_DIR_NAME)
+        val dirs = crashReportsDir.listFiles { f -> f.isDirectory } ?: return@withContext
+        // newest first, capped per run so a backlog can never become a POST storm
+        dirs.sortedByDescending { it.lastModified() }.take(20).forEach { dir ->
+            if (File(dir, UPLOADED_MARKER_FILE_NAME).exists()) return@forEach
+            runCatching {
+                if (uploadReportDir(dir)) File(dir, UPLOADED_MARKER_FILE_NAME).createNewFile()
+            }
+        }
+    }
+
+    private fun uploadReportDir(dir: File): Boolean {
+        val meta = runCatching { JSONObject(File(dir, METADATA_FILE_NAME).readText()) }.getOrNull()
+        val stack = runCatching { File(dir, JVM_LOG_FILE_NAME).readText() }.getOrNull().orEmpty()
+        if (meta == null && stack.isBlank()) return true // nothing useful — mark done so we skip it forever
+        val exName = meta?.optString("exceptionName").orEmpty()
+        val exReason = meta?.optString("exceptionReason").orEmpty()
+        val msg = listOf(exName, exReason).filter { it.isNotBlank() }.joinToString(": ").ifBlank { "crash" }
+        val payload = JSONObject().apply {
+            put("kind", "crash")
+            put("v", meta?.optString("appMarketingVersion")?.ifBlank { null } ?: BuildConfig.VERSION_NAME)
+            put("vc", meta?.optString("appVersion")?.toIntOrNull() ?: BuildConfig.VERSION_CODE)
+            put("device", Build.MANUFACTURER + " " + Build.MODEL)
+            put("api", Build.VERSION.SDK_INT)
+            put("id", runCatching { MaestroSub.deviceId(Application.application) }.getOrDefault(""))
+            put("ts", dir.lastModified())
+            put("msg", msg)
+            put("stack", if (stack.length > 8000) stack.substring(0, 8000) else stack)
+        }
+        return postReport(payload)
+    }
+
+    private fun postReport(payload: JSONObject): Boolean = runCatching {
+        val url = URL(BuildConfig.BACKEND_URL.trimEnd('/') + "/report")
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 8000
+            readTimeout = 8000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("User-Agent", HTTPClient.userAgent)
+        }
+        try {
+            conn.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            conn.responseCode in 200..299
+        } finally {
+            conn.disconnect()
+        }
+    }.getOrDefault(false)
 
     private fun archivePendingJvmCrashReport() {
         val crashFile = File(workingDir, PENDING_JVM_CRASH_FILE_NAME)

@@ -84,6 +84,10 @@ class Application : Application() {
             }.onFailure { Log.d("Application", "device-id migration: ${it.message}") }
             UpdateProfileWork.reconfigureUpdater()
             HookModuleUpdateNotifier.sync(this@Application)
+            // Silently ship any locally-recorded crash reports to the panel's /report sink so the
+            // fleet's real failures land on S1 — proactive, no waiting for a customer to complain.
+            // Off the cold-start path, best-effort; never throws.
+            runCatching { CrashReportManager.uploadPending() }
         }
 
         if (Vendor.isPerAppProxyAvailable()) {
