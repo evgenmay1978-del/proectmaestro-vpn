@@ -69,7 +69,7 @@ private val SPIDER_LEGS = listOf(
     LegRig(R.drawable.spider_leg_08, 0.6722f, 0.5421f, 0.0000f),
 )
 
-private const val IDLE_DEG = 2.9f     // gentle leg sway while connected & resting (idle)
+private const val IDLE_DEG = 5.0f     // visible leg sway while connected & resting (idle, in place)
 private const val BURST_DEG = 17.0f   // big leg STRIDE/lift during the crawl, so it grips & climbs high
 
 /**
