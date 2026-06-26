@@ -735,6 +735,14 @@ class MainActivity :
         val dashboardViewModel: DashboardViewModel = viewModel()
         if (!::dashboardViewModel.isInitialized) {
             this.dashboardViewModel = dashboardViewModel
+            // The authoritative service status can arrive via onServiceStatusChanged BEFORE this
+            // assignment runs in the first composition. That early callback is dropped (its
+            // isInitialized guard is still false), so the VM stays at its default Stopped while the
+            // tunnel is actually up — then the spider tap routes to RECONNECT instead of stop, i.e.
+            // "невозможно отключить VPN". Seed the VM from currentServiceStatus (kept accurate in
+            // onServiceStatusChanged) to recover that dropped callback. Pure status sync: it only
+            // mirrors an existing status into the VM, it never starts or stops the service.
+            dashboardViewModel.updateServiceStatus(currentServiceStatus)
         }
         val dashboardUiState by dashboardViewModel.uiState.collectAsState()
 
@@ -1422,6 +1430,18 @@ class MainActivity :
             }
         }
         startService()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Belt-and-suspenders resync: every time the activity comes forward, re-push the
+        // authoritative status into the dashboard VM so the connect/disconnect decision can never
+        // be stranded by a status callback missed while the VM wasn't bound. No-op when they
+        // already agree; like updateServiceStatus everywhere, it only mirrors status — never
+        // starts or stops the service, so it cannot affect the connect path.
+        if (::dashboardViewModel.isInitialized) {
+            dashboardViewModel.updateServiceStatus(currentServiceStatus)
+        }
     }
 
     override fun onDestroy() {
