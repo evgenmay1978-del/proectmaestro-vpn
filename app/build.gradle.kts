@@ -112,9 +112,6 @@ android {
 
     flavorDimensions += "vendor"
     productFlavors {
-        create("play") {
-            minSdk = 23
-        }
         create("other") {
             minSdk = 23
         }
@@ -124,10 +121,6 @@ android {
     }
 
     sourceSets {
-        getByName("play") {
-            java.directories.add("src/minApi23/java")
-            aidl.directories.add("src/minApi23/aidl")
-        }
         getByName("other") {
             java.directories.addAll(listOf("src/minApi23/java", "src/github/java"))
             aidl.directories.add("src/minApi23/aidl")
@@ -180,7 +173,6 @@ android {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
             var fileName = output.outputFileName
             fileName = fileName.replace("-release", "")
-            fileName = fileName.replace("-play", "-play")
             fileName = fileName.replace("-otherLegacy", "-legacy-android-5")
             fileName = fileName.replace("-other", "")
             output.outputFileName = fileName
@@ -190,7 +182,6 @@ android {
 
 dependencies {
     // libbox
-    "playImplementation"(files("libs/libbox.aar"))
     "otherImplementation"(files("libs/libbox.aar"))
     "otherLegacyImplementation"(files("libs/libbox-legacy.aar"))
 
@@ -227,17 +218,6 @@ dependencies {
     implementation("com.google.guava:guava:33.5.0-android")
 
     // API 23+ dependencies (play/other)
-    "playImplementation"("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion23")
-    "playImplementation"("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion23")
-    "playImplementation"("androidx.lifecycle:lifecycle-process:$lifecycleVersion23")
-    "playImplementation"("androidx.room:room-runtime:$roomVersion23")
-    "playImplementation"("androidx.work:work-runtime-ktx:$workVersion23")
-    "playImplementation"("androidx.camera:camera-view:$cameraVersion23")
-    "playImplementation"("androidx.camera:camera-lifecycle:$cameraVersion23")
-    "playImplementation"("androidx.camera:camera-camera2:$cameraVersion23")
-    "playImplementation"("androidx.browser:browser:$browserVersion23")
-    "playAnnotationProcessor"("androidx.room:room-compiler:$roomVersion23")
-    "kspPlay"("androidx.room:room-compiler:$roomVersion23")
 
     "otherImplementation"("androidx.lifecycle:lifecycle-livedata-ktx:$lifecycleVersion23")
     "otherImplementation"("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycleVersion23")
@@ -263,20 +243,14 @@ dependencies {
     "kspOtherLegacy"("androidx.room:room-compiler:$roomVersion21")
 
     // Play Store specific
-    "playImplementation"("com.google.android.play:app-update-ktx:2.1.0")
-    "playImplementation"("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
 
     // Shizuku (play and other flavors, API 23+ only)
     val shizukuVersion = "12.2.0"
-    "playImplementation"("dev.rikka.shizuku:api:$shizukuVersion")
-    "playImplementation"("dev.rikka.shizuku:provider:$shizukuVersion")
     "otherImplementation"("dev.rikka.shizuku:api:$shizukuVersion")
     "otherImplementation"("dev.rikka.shizuku:provider:$shizukuVersion")
 
     // libsu for ROOT package query (all flavors)
     val libsuVersion = "6.0.0"
-    "playImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
-    "playImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
     "otherImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
     "otherImplementation"("com.github.topjohnwu.libsu:service:$libsuVersion")
     "otherLegacyImplementation"("com.github.topjohnwu.libsu:core:$libsuVersion")
@@ -287,16 +261,6 @@ dependencies {
     val activityVersion23 = "1.12.4"
     val lifecycleComposeVersion23 = "2.10.0"
 
-    "playImplementation"(composeBom23)
-    "playImplementation"("androidx.compose.material3:material3")
-    "playImplementation"("androidx.compose.material3.adaptive:adaptive")
-    "playImplementation"("androidx.compose.ui:ui")
-    "playImplementation"("androidx.compose.ui:ui-tooling-preview")
-    "playImplementation"("androidx.compose.material:material-icons-extended")
-    "playImplementation"("androidx.activity:activity-compose:$activityVersion23")
-    "playImplementation"("androidx.navigation:navigation-compose:2.9.7")
-    "playImplementation"("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleComposeVersion23")
-    "playImplementation"("androidx.compose.runtime:runtime-livedata")
 
     "otherImplementation"(composeBom23)
     "otherImplementation"("androidx.compose.material3:material3")
@@ -328,7 +292,6 @@ dependencies {
     // Debug/Test dependencies
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    "androidTestPlayImplementation"(composeBom23)
     "androidTestOtherImplementation"(composeBom23)
     "androidTestOtherLegacyImplementation"(composeBom21)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
