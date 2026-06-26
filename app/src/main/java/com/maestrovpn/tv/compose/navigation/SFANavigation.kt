@@ -45,9 +45,6 @@ import com.maestrovpn.tv.compose.screen.settings.ProfileOverrideScreen
 import com.maestrovpn.tv.compose.screen.settings.RemoteControlScreen
 import com.maestrovpn.tv.compose.screen.settings.ServiceSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.SettingsScreen
-import com.maestrovpn.tv.compose.screen.settings.TailscaleFontPickerScreen
-import com.maestrovpn.tv.compose.screen.settings.TailscaleTerminalConfigScreen
-import com.maestrovpn.tv.compose.screen.settings.TailscaleThemePickerScreen
 import com.maestrovpn.tv.constant.Status
 
 private val slideInFromRight: AnimatedContentTransitionScope<*>.() -> androidx.compose.animation.EnterTransition = {
@@ -377,38 +374,6 @@ fun SFANavHost(
             popExitTransition = slideOutToRight,
         ) {
             PrivilegeSettingsManageScreen(onBack = { navController.navigateUp() }, serviceStatus = serviceStatus)
-        }
-
-        composable(
-            route = "settings/tailscale/terminal_config",
-            enterTransition = slideInFromRight,
-            exitTransition = slideOutToLeft,
-            popEnterTransition = slideInFromLeft,
-            popExitTransition = slideOutToRight,
-        ) {
-            TailscaleTerminalConfigScreen(navController = navController)
-        }
-
-        composable(
-            route = "settings/tailscale/theme_picker/{isDark}",
-            arguments = listOf(navArgument("isDark") { type = NavType.StringType }),
-            enterTransition = slideInFromRight,
-            exitTransition = slideOutToLeft,
-            popEnterTransition = slideInFromLeft,
-            popExitTransition = slideOutToRight,
-        ) { backStackEntry ->
-            val isDarkStr = backStackEntry.arguments?.getString("isDark") ?: "false"
-            TailscaleThemePickerScreen(navController = navController, isDark = isDarkStr == "true")
-        }
-
-        composable(
-            route = "settings/tailscale/font_picker",
-            enterTransition = slideInFromRight,
-            exitTransition = slideOutToLeft,
-            popEnterTransition = slideInFromLeft,
-            popExitTransition = slideOutToRight,
-        ) {
-            TailscaleFontPickerScreen(navController = navController)
         }
 
         composable(

@@ -342,8 +342,6 @@ dependencies {
     implementation("androidx.tv:tv-material:1.0.0")
 
     // Terminal emulator
-    implementation(project(":terminal-emulator"))
-    implementation(project(":terminal-view"))
 
     // Xposed API for self-hooking VPN hide module
     compileOnly("de.robv.android.xposed:api:82")
