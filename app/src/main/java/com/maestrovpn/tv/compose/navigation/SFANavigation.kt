@@ -26,7 +26,6 @@ import com.maestrovpn.tv.compose.screen.connections.ConnectionsViewModel
 import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
 import com.maestrovpn.tv.compose.screen.qrscan.ScanQrActivateScreen
 import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
-import com.maestrovpn.tv.compose.screen.dashboard.DashboardScreen
 import com.maestrovpn.tv.compose.screen.tvhome.IosKaringDialog
 import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
 import com.maestrovpn.tv.compose.screen.tvhome.rememberAccountInfo
@@ -213,25 +212,6 @@ fun SFANavHost(
                 },
                 serviceStatus = serviceStatus,
             )
-        }
-
-        composable(Screen.Dashboard.route) {
-            if (dashboardViewModel != null) {
-                DashboardScreen(
-                    serviceStatus = serviceStatus,
-                    showStartFab = showStartFab,
-                    showStatusBar = showStatusBar,
-                    onOpenNewProfile = onOpenNewProfile,
-                    viewModel = dashboardViewModel,
-                )
-            } else {
-                DashboardScreen(
-                    serviceStatus = serviceStatus,
-                    showStartFab = showStartFab,
-                    showStatusBar = showStatusBar,
-                    onOpenNewProfile = onOpenNewProfile,
-                )
-            }
         }
 
         composable(Screen.Log.route) {

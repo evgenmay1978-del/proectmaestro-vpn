@@ -756,7 +756,7 @@ class MainActivity :
                 isToolsSubScreen -> Screen.Tools.route
                 currentRoute?.startsWith(Screen.Connections.route) == true -> Screen.Connections.route
                 currentRoute?.startsWith(Screen.Log.route) == true -> Screen.Log.route
-                isProfileRoute -> Screen.Dashboard.route
+                isProfileRoute -> Screen.TvHome.route
                 else -> currentRoute
             }
         val isConnectionsRoute = currentRootRoute == Screen.Connections.route
@@ -831,7 +831,6 @@ class MainActivity :
                 add("buy")
                 add("claim")
                 add("split")
-                add(Screen.Dashboard.route)
                 add(Screen.Log.route)
                 add(Screen.Tools.route)
                 add(Screen.Settings.route)
