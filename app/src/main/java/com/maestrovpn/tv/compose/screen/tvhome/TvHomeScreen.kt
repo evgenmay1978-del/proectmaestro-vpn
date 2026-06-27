@@ -386,13 +386,18 @@ private fun MenuPane(
         }
     }
 
+    // Column count adapts to the surface: a phone is NARROW → 2 columns (long RU labels
+    // fit with no mid-word break); a TV menu pane is WIDE → 3 columns so the chrome chips
+    // fill it instead of stretching huge.
+    val cols = if (isTv) 3 else 2
+
     Column(modifier = modifier) {
-        // ── ПРОТОКОЛ — 2-column equal-width chrome chips (wide enough: no mid-word wrap) ──
+        // ── ПРОТОКОЛ — equal-width chrome chips (2 col phone / 3 col TV) ──
         if (protocols.isNotEmpty()) {
             SectionLabel("ПРОТОКОЛ")
             Spacer(Modifier.height(10.dp))
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                protocols.chunked(2).forEach { row ->
+                protocols.chunked(cols).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEach { p ->
                             NeonChip(
@@ -404,7 +409,7 @@ private fun MenuPane(
                             )
                         }
                         // keep columns equal-width when the last row is short
-                        repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
+                        repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -428,13 +433,13 @@ private fun MenuPane(
             add(Triple("Поделиться", Icons.Filled.Share, onShareIos))
         }
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            tiles.chunked(2).forEach { row ->
+            tiles.chunked(cols).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { a ->
                         ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 86.dp))
                     }
                     // keep columns equal-width when the last row is short
-                    repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
+                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
