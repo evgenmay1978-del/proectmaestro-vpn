@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sshpass -f /root/.ssh/.s2pass ssh root@85.137.166.237:*)"
+    ]
+  },
+  "agentPushNotifEnabled": true,
+  "inputNeededNotifEnabled": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.claude/deny-askuser.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.claude/maestro-orient.sh 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.claude/maestro-orient.sh > /root/.claude/maestro-precompact-snapshot.md 2>&1; printf 'CONTEXT IS ABOUT TO COMPACT. Durable memory is ON DISK and survives this: the project MEMORY.md + memory/*.md, /root/.claude/maestro-state.md (in-flight), /root/.claude/maestro-infra.md (infra). After compaction RE-READ maestro-state.md + the relevant memory file; do NOT trust the summary to have kept every detail. Stay the top engineer — do not become forgetful.'"
+          }
+        ]
+      }
+    ]
+  }
+}
