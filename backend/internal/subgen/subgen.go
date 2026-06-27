@@ -182,12 +182,14 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	}
 	// AmneziaWG goes in the top-level "endpoints" array (NOT outbounds). ⛔ Only the
 	// with_awg libbox parses it; the PLAIN fleet libbox HARD-FAILS the whole config → c.WG
-	// stays nil for every real customer (canary devices only). Joins protoTags so it enrolls
-	// in urltest("auto")/selector("select") like the other protocols.
+	// stays nil for every real customer (canary devices only). ⚠️ AWG is SELECTOR-ONLY: it is
+	// deliberately kept OUT of the urltest "auto" pool — it's slow UDP (RU mobile shapes it), so
+	// "Авто" must never auto-pick it. It's a MANUAL fallback for when TCP protocols get DPI-blocked.
 	var endpoints []map[string]any
+	var selOnly []string
 	if c.WG != nil {
 		endpoints = append(endpoints, awgEndpoint(c.WG))
-		protoTags = append(protoTags, tagWG)
+		selOnly = append(selOnly, tagWG)
 	}
 	if len(protoTags) == 0 {
 		return nil, fmt.Errorf("subgen: customer %q has no protocols", c.Name)
@@ -213,7 +215,7 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		},
 		map[string]any{
 			"type": "selector", "tag": tagPick,
-			"outbounds": append([]string{tagAuto}, protoTags...), "default": tagAuto,
+			"outbounds": append(append([]string{tagAuto}, protoTags...), selOnly...), "default": tagAuto,
 			"interrupt_exist_connections": true,
 		},
 		map[string]any{"type": "direct", "tag": "direct"},
