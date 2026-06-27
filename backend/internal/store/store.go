@@ -30,6 +30,7 @@ type Customer struct {
 	Naive    *subgen.NaiveCreds  `json:"naive,omitempty"`
 	AnyTLS   *subgen.AnyTLSCreds `json:"anytls,omitempty"`
 	VLESS3   *subgen.VLESSCreds  `json:"vless3,omitempty"` // VLESS-Reality on the 3rd node (S3)
+	WG       *subgen.WGCreds     `json:"wg,omitempty"`     // AmneziaWG (S3); ⛔ nil for ALL real customers until the with_awg libbox is the fleet engine
 	// Devices is the set of distinct app installs that have activated/polled this
 	// account (deviceId → first-seen). It backs the per-account device cap, enforced
 	// at the subscription chokepoint (/sub, /claim) so it covers ALL four protocols at
@@ -45,7 +46,7 @@ func (c *Customer) Active() bool {
 
 // ToSubgen maps a customer to the subscription generator input.
 func (c *Customer) ToSubgen() subgen.Customer {
-	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3}
+	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3, WG: c.WG}
 }
 
 // clone returns an independent deep copy so callers can read it without the lock
@@ -76,6 +77,10 @@ func (c *Customer) clone() *Customer {
 	if c.VLESS3 != nil {
 		v := *c.VLESS3
 		cp.VLESS3 = &v
+	}
+	if c.WG != nil {
+		w := *c.WG
+		cp.WG = &w
 	}
 	if c.Devices != nil {
 		d := make(map[string]time.Time, len(c.Devices))

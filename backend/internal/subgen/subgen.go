@@ -70,6 +70,21 @@ type Customer struct {
 	Naive  *NaiveCreds
 	AnyTLS *AnyTLSCreds
 	VLESS3 *VLESSCreds // VLESS-Reality on the 3rd node (S3)
+	WG     *WGCreds    // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
+}
+
+// WGCreds is one AmneziaWG client (the official amneziawg-go engine, endpoint type "awg").
+// Per-customer fields only; the shared obfuscation block (awg* consts) is global and MUST
+// byte-match the S3 server awg0.conf [Interface] (/root/.s3wg). ⛔ Only the `with_awg` libbox
+// parses an awg endpoint; the PLAIN shipping fleet libbox HARD-FAILS the whole config — so WG
+// must stay nil for every real customer until the with_awg libbox is the OTA'd fleet engine
+// (canary devices only). See [[amneziawg-app-support]].
+type WGCreds struct {
+	Server        string // peer (S3) address, e.g. "46.30.42.151"
+	Port          int    // peer (S3) UDP port, e.g. 443
+	PeerPublicKey string // S3 server public key (base64)
+	PrivateKey    string // THIS customer's client private key (base64)
+	LocalAddress  string // this customer's tunnel IP, e.g. "10.10.8.2/32"
 }
 
 const (
@@ -78,8 +93,27 @@ const (
 	tagHy2    = "hysteria2"
 	tagNaive  = "naive"
 	tagAnyTLS = "anytls"
+	tagWG     = "awg"    // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema
 	tagAuto   = "auto"   // urltest
 	tagPick   = "select" // selector (default outbound the tun routes to)
+)
+
+// AmneziaWG shared obfuscation block — the SINGLE source of truth for the client side.
+// MUST byte-match the S3 server awg0.conf [Interface] (/root/.s3wg); params are NOT
+// negotiated on the wire, so any drift breaks every AWG client at once. h1-h4 are STRINGS
+// in the official `awg` endpoint schema. i1 (the 2.0 decoy) is CLIENT-ONLY — intentionally
+// absent from the server [Interface].
+const (
+	awgJc   = 4
+	awgJmin = 40
+	awgJmax = 70
+	awgS1   = 86
+	awgS2   = 148
+	awgH1   = "1148714657"
+	awgH2   = "1730977510"
+	awgH3   = "1957464804"
+	awgH4   = "1310196031"
+	awgI1   = `<b 0xc000000001081c3d9a2b><r 64><t>`
 )
 
 // RU-direct rule-sets. So the user never has to toggle the VPN, Russian
@@ -145,6 +179,15 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	if c.VLESS3 != nil {
 		outbounds = append(outbounds, vlessOutbound(c.VLESS3, tagVLESS3))
 		protoTags = append(protoTags, tagVLESS3)
+	}
+	// AmneziaWG goes in the top-level "endpoints" array (NOT outbounds). ⛔ Only the
+	// with_awg libbox parses it; the PLAIN fleet libbox HARD-FAILS the whole config → c.WG
+	// stays nil for every real customer (canary devices only). Joins protoTags so it enrolls
+	// in urltest("auto")/selector("select") like the other protocols.
+	var endpoints []map[string]any
+	if c.WG != nil {
+		endpoints = append(endpoints, awgEndpoint(c.WG))
+		protoTags = append(protoTags, tagWG)
 	}
 	if len(protoTags) == 0 {
 		return nil, fmt.Errorf("subgen: customer %q has no protocols", c.Name)
@@ -285,7 +328,30 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			"rules": routeRules,
 		},
 	}
+	if len(endpoints) > 0 {
+		cfg["endpoints"] = endpoints
+	}
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// awgEndpoint builds the OFFICIAL AmneziaWG endpoint (sing-box 1.14 "endpoints" entry, type
+// "awg", amneziawg-go v0.2.15). h1-4 are STRINGS in this schema. Per-customer key + tunnel
+// address + the S3 peer; shared awg* obfuscation block (must byte-match S3 awg0.conf; i1
+// client-only). allowed_ips must be present+non-empty; mtu 1280 fits the junk train.
+func awgEndpoint(w *WGCreds) map[string]any {
+	return map[string]any{
+		"type": "awg", "tag": tagWG,
+		"address":     []string{w.LocalAddress},
+		"private_key": w.PrivateKey,
+		"mtu":         1280,
+		"jc":          awgJc, "jmin": awgJmin, "jmax": awgJmax, "s1": awgS1, "s2": awgS2,
+		"h1": awgH1, "h2": awgH2, "h3": awgH3, "h4": awgH4, "i1": awgI1,
+		"peers": []map[string]any{{
+			"address": w.Server, "port": w.Port, "public_key": w.PeerPublicKey,
+			"allowed_ips":                   []string{"0.0.0.0/0", "::/0"},
+			"persistent_keepalive_interval": 25,
+		}},
+	}
 }
 
 func vlessOutbound(v *VLESSCreds, tag string) map[string]any {
