@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,6 +129,37 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// awgMinVC is the minimum app versionCode that may receive an "awg" endpoint in its /sub
+// (= the version that ships the with_awg libbox). Default 999999 = OFF: until
+// MAESTRO_AWG_MIN_VC is set to the shipped AWG version, NO client qualifies, so an awg
+// endpoint never reaches a libbox that would HARD-FAIL the whole config on it.
+var awgMinVC = func() int {
+	if n, err := strconv.Atoi(os.Getenv("MAESTRO_AWG_MIN_VC")); err == nil && n > 0 {
+		return n
+	}
+	return 999999
+}()
+
+// appVersionCode parses the SFA app versionCode from the User-Agent, e.g.
+// "SFA/1.0.106 (106; sing-box 1.14.0-alpha.31; language ru_RU)" → 106. Returns 0 for any
+// non-SFA client (Karing, v2rayN, curl…) so they never qualify for the awg endpoint.
+func appVersionCode(ua string) int {
+	if !strings.HasPrefix(ua, "SFA/") {
+		return 0
+	}
+	i := strings.IndexByte(ua, '(')
+	if i < 0 {
+		return 0
+	}
+	rest := ua[i+1:]
+	j := strings.IndexByte(rest, ';')
+	if j < 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(rest[:j]))
+	return n
+}
+
 func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/sub/")
 	tok := rest
@@ -182,16 +215,24 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 		s.writeHelpers(w, c)
 		return
 	}
+	// ⛔ AWG version-gate: an "awg" endpoint only parses on the with_awg libbox (app
+	// versionCode >= awgMinVC). The PLAIN/older libbox HARD-FAILS the ENTIRE config on an
+	// awg endpoint → strip WG for any client older than that (or non-SFA, e.g. Karing/curl,
+	// which return 0) so it NEVER reaches a device that can't handle it.
+	sc := c.ToSubgen()
+	if sc.WG != nil && appVersionCode(r.UserAgent()) < awgMinVC {
+		sc.WG = nil
+	}
 	// Universal share-links subscription for cross-platform clients (Karing on
 	// iPhone, v2rayN, NekoBox, Shadowrocket…), requested via ?app=karing /
 	// ?format=links.
 	if q := r.URL.Query(); q.Get("app") == "karing" || q.Get("format") == "links" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(subgen.ShareLinks(c.ToSubgen())))
+		_, _ = w.Write([]byte(subgen.ShareLinks(sc)))
 		return
 	}
-	cfg, err := subgen.GenerateSingbox(c.ToSubgen())
+	cfg, err := subgen.GenerateSingbox(sc)
 	if err != nil {
 		http.Error(w, "config error", http.StatusInternalServerError)
 		return
