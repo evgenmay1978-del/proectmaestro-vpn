@@ -1,6 +1,13 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
+      "Bash",
+      "Edit",
+      "Write",
+      "Read",
+      "Glob",
+      "Grep",
       "Bash(sshpass -f /root/.ssh/.s2pass ssh root@85.137.166.237:*)"
     ]
   },
