@@ -1,0 +1,112 @@
+name: Build libbox.aar (AmneziaWG canary, OFFICIAL engine)
+
+# Builds an AmneziaWG-enabled libbox.aar from SagerNet/sing-box @ SINGBOX_REF
+# (version.properties) + the OFFICIAL AmneziaWG patch in libbox-awg/ (amnezia-vpn/amneziawg-go
+# v0.2.15, ported onto the SAME 1.14 base as the shipping libbox — Path A, so the libbox API is
+# unchanged and the app needs NO code changes). This REPLACES the earlier Leadaxe engine, which
+# did not interoperate with the AmneziaWG kernel server (proven S2->S3). The official engine
+# handshakes + passes traffic (verified end-to-end with the ported sb-awg-official binary).
+#
+# SAFETY: SEPARATE workflow + DIFFERENT artifact name (libbox-awg-aar). android.yml only pulls
+# "libbox-aar" from "libbox.yml", so this AWG build is NEVER auto-shipped to the fleet — it is a
+# downloadable artifact for CANARY testing only.
+
+on:
+  push:
+    paths:
+      - libbox-awg/**
+      - .github/workflows/libbox-awg.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout our repo (version.properties pin + AWG patch)
+        uses: actions/checkout@v4
+
+      - name: Load pinned versions from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          source <(grep -E '^(GO_VERSION|SINGBOX_REF|NDK_VERSION)=' version.properties)
+          echo "go_version=${GO_VERSION#go}" >> "$GITHUB_OUTPUT"
+          echo "singbox_ref=${SINGBOX_REF}"  >> "$GITHUB_OUTPUT"
+          echo "ndk_version=${NDK_VERSION}"  >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go ${{ steps.pin.outputs.go_version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          check-latest: false
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android NDK ${{ steps.pin.outputs.ndk_version }}
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+
+      - name: Clone sing-box at ${{ steps.pin.outputs.singbox_ref }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ steps.pin.outputs.singbox_ref }}" \
+            https://github.com/SagerNet/sing-box.git sing-box
+          echo "built ref:"; git -C sing-box rev-parse HEAD
+
+      - name: Apply OFFICIAL AmneziaWG patch (amneziawg-go v0.2.15 onto the 1.14 base)
+        run: |
+          set -euo pipefail
+          # 1) overlay the ported OFFICIAL AWG source. include/{awg.go,awg_stub.go,registry.go} +
+          #    constant/proxy.go are FULL patched copies of the v1.14.0-alpha.31 files (no fragile
+          #    sed); option/awg.go + protocol/awg/ + transport/awg/ are new packages.
+          cp -rv libbox-awg/option    sing-box/
+          cp -rv libbox-awg/protocol  sing-box/
+          cp -rv libbox-awg/transport sing-box/
+          cp -rv libbox-awg/include   sing-box/
+          cp -rv libbox-awg/constant  sing-box/
+          grep -q 'registerAwgEndpoint' sing-box/include/registry.go \
+            || { echo "::error::awg endpoint not registered"; exit 1; }
+          # 2) add the with_awg build tag to the libbox shared-tags set
+          sed -i 's/"with_clash_api", "badlinkname"/"with_clash_api", "with_awg", "badlinkname"/' \
+            sing-box/cmd/internal/build_libbox/main.go
+          grep -q '"with_awg"' sing-box/cmd/internal/build_libbox/main.go \
+            || { echo "::error::with_awg tag not added to build_libbox"; exit 1; }
+          # 3) pull in the OFFICIAL AmneziaWG engine (replaces Leadaxe)
+          cd sing-box
+          go get github.com/amnezia-vpn/amneziawg-go@v0.2.15
+          go mod tidy
+
+      - name: make lib_install
+        working-directory: sing-box
+        run: make lib_install
+
+      - name: make lib_android (gomobile bind -> libbox.aar WITH OFFICIAL AmneziaWG)
+        working-directory: sing-box
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          make lib_android
+
+      - name: Show built artifacts
+        working-directory: sing-box
+        run: ls -lh libbox*.aar
+
+      - name: Upload AWG libbox.aar (CANARY artifact — NOT the fleet libbox)
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-awg-aar
+          path: sing-box/libbox.aar
+          if-no-files-found: error
