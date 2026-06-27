@@ -18,6 +18,16 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.claude/maestro-orient.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
