@@ -57,7 +57,10 @@ object Settings {
             "stable"
         }
     }
-    var silentInstallEnabled by dataStore.boolean(SettingsKey.SILENT_INSTALL_ENABLED) { false }
+    // ON by default — on devices that allow it (Android 12+ self-update / privileged TVs,
+    // gated by ApkInstaller.canSilentInstall()) the background worker updates hands-free;
+    // elsewhere it harmlessly falls back to the in-app "Обновить?" prompt.
+    var silentInstallEnabled by dataStore.boolean(SettingsKey.SILENT_INSTALL_ENABLED) { true }
     var silentInstallMethod by dataStore.string(SettingsKey.SILENT_INSTALL_METHOD) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             "PACKAGE_INSTALLER"
@@ -67,7 +70,9 @@ object Settings {
     }
     var fdroidMirrorUrl by dataStore.string(SettingsKey.FDROID_MIRROR_URL) { "https://f-droid.org/repo" }
     var fdroidCustomMirrors by dataStore.stringSet(SettingsKey.FDROID_CUSTOM_MIRRORS) { emptySet() }
-    var autoUpdateEnabled by dataStore.boolean(SettingsKey.AUTO_UPDATE_ENABLED) { false }
+    // Our own app — auto-update ON by default so the fleet actually converges to the latest
+    // build instead of stalling on whatever version the user last cold-started.
+    var autoUpdateEnabled by dataStore.boolean(SettingsKey.AUTO_UPDATE_ENABLED) { true }
     var dynamicNotification by dataStore.boolean(SettingsKey.DYNAMIC_NOTIFICATION) {
         // Default OFF on weak 1GB boxes (Sony/TCL): the realtime-speed notification runs a
         // SECOND independent 1s libbox status feed — pure churn on a weak box. On by default elsewhere.

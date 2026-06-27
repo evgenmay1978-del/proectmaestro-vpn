@@ -39,6 +39,11 @@ class Application : Application() {
     override fun onCreate() {
         super.onCreate()
         AppLifecycleObserver.register(this)
+        // Ensure the periodic background update worker is actually scheduled on every start.
+        // It was previously scheduled ONLY when the user toggled the Settings switch, so most
+        // installs never ran a background update check → the fleet stalled on old versions.
+        // Honors Settings.autoUpdateEnabled (now ON by default); safe no-op if disabled.
+        runCatching { Vendor.scheduleAutoUpdate() }
 
 //        Seq.setContext(this)
         runCatching {

@@ -36,7 +36,7 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
                 .build()
 
             val workRequest = PeriodicWorkRequestBuilder<UpdateWorker>(
-                24,
+                6,
                 TimeUnit.HOURS,
             )
                 .setConstraints(constraints)
@@ -45,7 +45,7 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 workRequest,
             )
             Log.d(TAG, "Auto update scheduled")
