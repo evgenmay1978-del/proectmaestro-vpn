@@ -28,6 +28,16 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.claude/maestro-orient.sh > /root/.claude/maestro-precompact-snapshot.md 2>&1; printf 'CONTEXT IS ABOUT TO COMPACT. Durable memory is ON DISK and survives this: MEMORY.md index + memory/*.md, /root/.claude/maestro-state.md (in-flight handoff), /root/.claude/maestro-infra.md (infra map). After compaction RE-READ maestro-state.md + the relevant memory file; do NOT trust the summary to have kept every detail.'"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
