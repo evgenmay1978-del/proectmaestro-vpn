@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -302,6 +303,55 @@ func (s *Server) deviceAllowed(w http.ResponseWriter, login, dev string) bool {
 	return true
 }
 
+// updateWaypoints are MANDATORY intermediate versions every device must install IN ORDER
+// before being offered anything newer (env MAESTRO_UPDATE_WAYPOINTS, comma-separated
+// versionCodes; empty = no waypoints = always latest). Used to force the AWG-engine
+// introduction (107) as a checkpoint: a device on <107 is offered 1.0.107 first (never a
+// later build that carries awg creds), then may skip versions freely once it's on ≥107.
+var updateWaypoints = func() []int {
+	var ws []int
+	for _, p := range strings.Split(os.Getenv("MAESTRO_UPDATE_WAYPOINTS"), ",") {
+		if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil && n > 0 {
+			ws = append(ws, n)
+		}
+	}
+	sort.Ints(ws)
+	return ws
+}()
+
+// manifestCode reads version_code from a manifest file (0 on error/missing).
+func manifestCode(path string) int {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	var m struct {
+		VersionCode int `json:"version_code"`
+	}
+	_ = json.Unmarshal(b, &m)
+	return m.VersionCode
+}
+
+// updateManifestFor picks the manifest filename to serve a device on versionCode v: the
+// smallest waypoint strictly between v and the latest version (so the device steps UP to it
+// next), else "update.json" (the latest). Falls back to latest if the frozen waypoint manifest
+// is missing. Non-app clients (v<=0) and the no-waypoint config always get the latest.
+func updateManifestFor(dir string, v int) string {
+	if v <= 0 || len(updateWaypoints) == 0 {
+		return "update.json"
+	}
+	latest := manifestCode(filepath.Join(dir, "update.json"))
+	for _, w := range updateWaypoints { // sorted ascending → first match is the smallest
+		if v < w && w < latest {
+			f := "update-" + strconv.Itoa(w) + ".json"
+			if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+				return f
+			}
+		}
+	}
+	return "update.json"
+}
+
 // handleUpdate serves the panel-hosted OTA channel: GET /update/update.json (the
 // manifest the app reads to learn the latest version_code/version_name/apk_url/
 // sha256) and GET /update/<file>.apk (the APK bytes, with Range/resume support for
@@ -317,6 +367,12 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
 		http.NotFound(w, r)
 		return
+	}
+	// Staged rollout: route the manifest by the requesting app's versionCode so a device
+	// behind a mandatory waypoint (e.g. the AWG-engine 107) is stepped UP to it before any
+	// newer build. updateManifestFor returns a safe "update[-N].json" name (no traversal).
+	if name == "update.json" {
+		name = updateManifestFor(s.cfg.UpdateDir, appVersionCode(r.UserAgent()))
 	}
 	switch {
 	case strings.HasSuffix(name, ".json"):
