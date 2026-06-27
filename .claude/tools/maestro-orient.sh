@@ -16,6 +16,13 @@ OTA=$(curl -fsS --max-time 4 https://wapmixx.ru:8911/update/update.json 2>/dev/n
 REPDAY=/var/lib/maestro/reports/reports-$(date +%Y-%m-%d).jsonl
 REPN=$(wc -l < "$REPDAY" 2>/dev/null || echo 0)
 REPTOT=$(cat /var/lib/maestro/reports/*.jsonl 2>/dev/null | wc -l)
+# fleet pulse from nginx access (active devices, /sub errors, backend 4xx/5xx)
+NLOG=$(ls -t /var/log/nginx/*access*.log 2>/dev/null | head -1)
+DEVS=$(tail -4000 "$NLOG" 2>/dev/null | grep -c '/sub/' >/dev/null && tail -4000 "$NLOG" 2>/dev/null | awk '$7 ~ /\/sub\//{print $1}' | sort -u | wc -l)
+SUBERR=$(tail -4000 "$NLOG" 2>/dev/null | awk '$7 ~ /\/sub\// && $9!=200 && $7 !~ /test/' | wc -l)
+BKERR=$(tail -4000 "$NLOG" 2>/dev/null | awk '$9>=500 || ($9>=400 && $9!=404 && $7 !~ /report/)' | wc -l)
+GRAPHTS=$(stat -c %y graphify-out/graph.json 2>/dev/null | cut -d. -f1 || echo '?')
+GRAPHN=$(grep -c '^NODE\|Community Hub\|god' graphify-out/GRAPH_REPORT.md 2>/dev/null || echo '?')
 
 cat <<EOF
 ===== MAESTRO ORIENTATION (auto-injected, $(date -u +%Y-%m-%dT%H:%MZ)) =====
@@ -34,6 +41,8 @@ LIVE STATE (pulled just now — trust over stale memory):
  - git: $(git rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(git rev-parse --short HEAD 2>/dev/null) | uncommitted: $(git status --porcelain 2>/dev/null | wc -l) file(s)
  - fleet OTA live: ${OTA:-"(unreachable)"}
  - fleet crash reports: ${REPN} today / ${REPTOT} total  → READ them: tail /var/lib/maestro/reports/*.jsonl
+ - fleet pulse (nginx ~4k reqs): ~${DEVS:-?} active devices on /sub · /sub non-200: ${SUBERR:-?} · backend 4xx/5xx: ${BKERR:-?}  (investigate if errors > 0)
+ - GRAPH (code map — USE it, don't blind-read 340 files): graphify-out/ fresh ${GRAPHTS} · navigate with \`graphify query "<terms>"\` (god-nodes: SFANavHost, DashboardViewModel, BoxService, GenerateSingbox, Provisioner) or read graphify-out/GRAPH_REPORT.md
 
 INFRA MAP — where everything runs + how loaded (auto-probed ${AGEMIN}min ago; full: $INFRA):
 $(grep -E '^### |  host:|  load:' "$INFRA" 2>/dev/null | sed -E 's/ — / · /; s/^/   /' | head -12)
