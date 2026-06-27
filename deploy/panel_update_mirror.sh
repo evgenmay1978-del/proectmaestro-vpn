@@ -77,9 +77,16 @@ if "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" \
      --acl public-read --content-type application/vnd.android.package-archive >/dev/null 2>&1; then
   apk_path_url="${YC_PUBLIC_BASE}/${apk_name}"
   echo "mirror: uploaded $apk_name to Yandex Object Storage"
-  # Prune older versioned APKs from the bucket (keep the current one).
+  # Prune older versioned APKs — but KEEP the current one AND any mandatory WAYPOINT APKs
+  # (MAESTRO_UPDATE_WAYPOINTS from the panel env): a device behind a waypoint still downloads
+  # that frozen version, so its APK must never be pruned (see api.go updateManifestFor).
+  WAYPOINTS="$(grep -oP '^MAESTRO_UPDATE_WAYPOINTS=\K.*' /etc/maestro-panel.env 2>/dev/null || true)"
+  keep="$apk_name"
+  for wp in ${WAYPOINTS//,/ }; do
+    [ -n "$wp" ] && keep="${keep}|MaestroVPN-TV-1.0.${wp}-debug.apk"
+  done
   old_list="$("$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 ls "s3://${YC_BUCKET}/" 2>/dev/null \
-    | awk '{print $4}' | grep -E '^MaestroVPN-TV-.*\.apk$' | grep -vx "$apk_name" || true)"
+    | awk '{print $4}' | grep -E '^MaestroVPN-TV-.*\.apk$' | grep -vE "^(${keep})$" || true)"
   for old in $old_list; do
     "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 rm "s3://${YC_BUCKET}/${old}" >/dev/null 2>&1 || true
   done
@@ -93,8 +100,26 @@ printf '{"version_code": %s, "version_name": "%s", "apk_url": "%s", "size": %s, 
   "${vc:-0}" "$vn" "$apk_path_url" "$sz" "$sha" "$vn" > "$mtmp"
 mv -f "$mtmp" "$DIR/update.json"
 
-# Stable "always latest" copy for the bots' panel-hosted download link.
+# Freeze a per-version copy so the panel can serve it as a WAYPOINT manifest to devices that
+# must step through this version before a newer one (api.go updateManifestFor). Its apk_url
+# points at this version's Yandex APK, which the waypoint-aware prune above keeps alive.
+cp -f "$DIR/update.json" "$DIR/update-${vc:-0}.json"
+
+# HA: mirror the manifest to Yandex too — it is otherwise served ONLY by S1's nginx, so if S1
+# dies the app can't even DISCOVER updates (the APK binary already survives on Yandex). This
+# lets a future app build fall back to the public Yandex update.json. Best-effort; panel copy
+# stays primary.
+"$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" \
+  s3 cp "$DIR/update.json" "s3://${YC_BUCKET}/update.json" \
+  --acl public-read --content-type application/json --cache-control no-cache >/dev/null 2>&1 \
+  && echo "mirror: uploaded update.json manifest to Yandex" || true
+
+# Stable "always latest" copy for the bots' download link (panel + Yandex mirror).
 cp -f "$DIR/$apk_name" "$DIR/latest.apk"
+if [ "$apk_path_url" != "/update/${apk_name}" ]; then
+  "$YC_AWS" --profile "$YC_PROFILE" --endpoint-url "$YC_ENDPOINT" s3 cp "$DIR/latest.apk" "s3://${YC_BUCKET}/latest.apk" \
+    --acl public-read --content-type application/vnd.android.package-archive >/dev/null 2>&1 || true
+fi
 
 # Prune older mirrored APKs locally (keep the current one + latest.apk).
 find "$DIR" -maxdepth 1 -name 'MaestroVPN-TV-*-debug.apk' ! -name "$apk_name" -delete 2>/dev/null || true
