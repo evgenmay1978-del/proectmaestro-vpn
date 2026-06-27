@@ -1323,6 +1323,8 @@ class MainActivity :
         startService()
     }
 
+    private var lastUpdateCheckMs = 0L
+
     override fun onResume() {
         super.onResume()
         // Belt-and-suspenders resync: every time the activity comes forward, re-push the
@@ -1332,6 +1334,20 @@ class MainActivity :
         // starts or stops the service, so it cannot affect the connect path.
         if (::dashboardViewModel.isInitialized) {
             dashboardViewModel.updateServiceStatus(currentServiceStatus)
+        }
+        // Re-check for updates whenever the app returns to the foreground (not only on cold
+        // start), throttled to once per 15 min. Cheap panel-first GET (RU-reachable); the result
+        // surfaces via UpdateState so a long-open / backgrounded install still discovers new builds.
+        if (Settings.checkUpdateEnabled &&
+            System.currentTimeMillis() - lastUpdateCheckMs > 15 * 60 * 1000L
+        ) {
+            lastUpdateCheckMs = System.currentTimeMillis()
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    UpdateState.setUpdate(Vendor.checkUpdateAsync())
+                } catch (_: Exception) {
+                }
+            }
         }
     }
 
