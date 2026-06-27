@@ -1,0 +1,127 @@
+name: Build app APK (AmneziaWG canary)
+
+# Builds a CANARY MaestroVPN TV APK linked against the AmneziaWG-enabled
+# libbox.aar (artifact "libbox-awg-aar" from the latest successful libbox-awg.yml
+# run) instead of the normal libbox-aar. For on-device smoke-testing of the new
+# engine (existing protocols must still work + AmneziaWG must come up) BEFORE any
+# fleet OTA.
+#
+# ⛔ SAFETY — this NEVER ships to the fleet:
+#   * NO "gh release create" step → no GitHub Release is published.
+#   * The OTA mirror (panel_update_mirror.sh) only ever pulls the LATEST GitHub
+#     Release, so with no Release this APK is invisible to OTA.
+#   * The APK is a downloadable ARTIFACT only (name: maestrovpn-tv-awg-canary-apk).
+#   * versionCode is deliberately HIGH (90000+run) + versionName ".-awg-canary" so
+#     it will NOT auto-update away mid-test — INSTALL ON A THROWAWAY/TEST DEVICE
+#     ONLY (a high code blocks the real OTA; uninstall it after testing).
+#
+# Manual trigger only.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/android-awg-canary.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set canary version (HIGH code so it won't self-update mid-test)
+        id: ver
+        run: |
+          set -euo pipefail
+          VC="$(( 90000 + ${{ github.run_number }} ))"
+          VN="awg-canary-${{ github.run_number }}"
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
+          echo "version_name=${VN}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VC}" >> "$GITHUB_OUTPUT"
+          echo "MaestroVPN TV ${VN} (code ${VC}) — CANARY"
+
+      - name: Read NDK pin from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          source <(grep -E '^NDK_VERSION=' version.properties)
+          echo "ndk_version=${NDK_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'settings.gradle.kts', 'version.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install pinned NDK + SDK platform
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+
+      - name: Fetch the AmneziaWG libbox.aar (libbox-awg-aar, latest successful libbox-awg.yml run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          RUN_ID=$(gh run list --workflow=libbox-awg.yml --status=success -L1 \
+            --json databaseId -q '.[0].databaseId // empty')
+          [ -n "$RUN_ID" ] || { echo "::error::No successful libbox-awg.yml build found — run it first." >&2; exit 1; }
+          echo "Downloading libbox-awg-aar from libbox-awg.yml run $RUN_ID"
+          gh run download "$RUN_ID" -n libbox-awg-aar -D app/libs
+          # build_app expects app/libs/libbox.aar (same path the normal libbox-aar lands at)
+          test -f app/libs/libbox.aar
+          ls -lh app/libs/
+          echo "AWG markers in the aar's arm64 lib:"
+          unzip -p app/libs/libbox.aar jni/arm64-v8a/libbox.so | strings -n 6 | grep -ic 'AmneziaWG' || true
+
+      - name: Materialize the stable signing keystore from secret
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGNING_KEYSTORE_B64:-}" ]; then
+            echo "::warning::SIGNING_KEYSTORE_B64 secret missing — using a throwaway debug key." >&2
+          else
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/release.keystore
+            echo "Wrote app/release.keystore ($(stat -c%s app/release.keystore) bytes)"
+          fi
+
+      - name: Build :app:assembleOtherDebug (against the AWG libbox)
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          n=0
+          until [ "$n" -ge 4 ]; do
+            if ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon; then
+              exit 0
+            fi
+            n=$((n + 1))
+            echo "::warning::gradle attempt $n failed (likely a transient jitpack/CDN outage) — retrying in 90s" >&2
+            sleep 90
+          done
+          echo "::error::gradle build failed after retries" >&2
+          exit 1
+
+      - name: Upload CANARY APK (artifact only — NO Release, NO OTA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestrovpn-tv-awg-canary-apk
+          path: app/build/outputs/apk/other/debug/*.apk
+          if-no-files-found: error
