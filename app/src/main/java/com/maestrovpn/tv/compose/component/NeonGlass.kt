@@ -37,8 +37,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.maestrovpn.tv.compose.theme.ChromeDark
+import com.maestrovpn.tv.compose.theme.ChromeHi
+import com.maestrovpn.tv.compose.theme.ChromeLight
+import com.maestrovpn.tv.compose.theme.ChromeLow
+import com.maestrovpn.tv.compose.theme.ChromeMid
+import com.maestrovpn.tv.compose.theme.ChromeOrangeHi
+import com.maestrovpn.tv.compose.theme.ChromeOrangeLow
 import com.maestrovpn.tv.compose.theme.GlassBottom
 import com.maestrovpn.tv.compose.theme.GlassTop
 import com.maestrovpn.tv.compose.theme.MaestroOrange
@@ -46,13 +54,27 @@ import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
 
 /**
- * Shared "spider / green-glass" UI kit. Every interactive surface is a dark glass
- * plate with a thin NEON-GREEN border + a coloured focus glow (real colored shadow
- * on API 28+), matching the owner's reference (spiderinterfeis.png). SELECTION and
- * the primary CTA switch the accent to orange. All controls are plain Material 3 so
- * they're D-pad-focusable on a TV AND tappable on a phone.
+ * Shared "spider / chrome-glass" UI kit. Every interactive surface is a dark glass
+ * plate FRAMED IN BRUSHED CHROME — the same polished-steel bezel as the spider-medallion
+ * ring — so the whole app shares one metal language on every screen. Green is kept only
+ * for icons / status; SELECTION + the primary CTA switch the accent (and the bezel) to
+ * orange. A coloured glow appears on focus (TV D-pad) and on the selected chip. All
+ * controls are plain Material 3 so they're D-pad-focusable on a TV AND tappable on a phone.
  */
 internal fun glassBrush() = Brush.verticalGradient(listOf(GlassTop, GlassBottom))
+
+/**
+ * The brushed-chrome bezel brush (top-lit → steel → dark edge), identical to the
+ * medallion ring. [selected] swaps it to a warm orange-lit steel for the active control.
+ */
+internal fun chromeBezelBrush(selected: Boolean = false): Brush =
+    if (selected) {
+        Brush.verticalGradient(listOf(ChromeOrangeHi, MaestroOrange, ChromeOrangeLow, ChromeDark))
+    } else {
+        Brush.verticalGradient(
+            0f to ChromeHi, 0.12f to ChromeLight, 0.5f to ChromeMid, 0.82f to ChromeLow, 1f to ChromeDark,
+        )
+    }
 
 /**
  * Glass pill with a neon border + optional leading icon. Used for protocol chips,
@@ -73,6 +95,8 @@ fun NeonChip(
     val focused by interaction.collectIsFocusedAsState()
     val pressed by interaction.collectIsPressedAsState()
     val accent = if (selected) MaestroOrange else NeonGreen
+    // glow: neutral dark at rest (chrome reads clean), accent only on focus / selection
+    val glow = if (selected) MaestroOrange else if (focused) NeonGreen else Color.Black
     val scale by animateFloatAsState(
         if (pressed) 0.97f else if (focused) 1.06f else 1f,
         tween(140, easing = FastOutSlowInEasing), label = "chipScale",
@@ -87,14 +111,14 @@ fun NeonChip(
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(
-                elevation = if (focused) 18.dp else 8.dp,
+                elevation = if (focused) 16.dp else if (selected) 12.dp else 6.dp,
                 shape = shape,
                 clip = false,
-                ambientColor = accent,
-                spotColor = accent,
+                ambientColor = glow,
+                spotColor = glow,
             )
             .background(glassBrush(), shape)
-            .border(if (focused) 2.dp else 1.4.dp, accent.copy(alpha = if (focused) 1f else 0.75f), shape),
+            .border(if (focused) 2.dp else 1.5.dp, chromeBezelBrush(selected), shape),
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = iconTint ?: accent, modifier = Modifier.size(20.dp))
@@ -149,13 +173,70 @@ fun GlossyButton(
                 spotColor = accent,
             )
             .background(brush, shape)
-            .border(if (focused) 2.dp else 0.dp, if (focused) Color.White else Color.Transparent, shape),
+            .border(if (focused) 2.5.dp else 1.5.dp, chromeBezelBrush(), shape),
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
         }
         Text(label, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    }
+}
+
+/**
+ * Vertical chrome tile — a brushed-chrome framed glass plate with the icon stacked
+ * ABOVE a short, centred label. Used for the secondary-action grid (icon-on-top tiles).
+ */
+@Composable
+fun ChromeTile(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconTint: Color = NeonGreen,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        if (pressed) 0.97f else if (focused) 1.05f else 1f,
+        tween(140, easing = FastOutSlowInEasing), label = "tileScale",
+    )
+    Button(
+        onClick = onClick,
+        shape = shape,
+        interactionSource = interaction,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .shadow(
+                elevation = if (focused) 16.dp else 6.dp,
+                shape = shape,
+                clip = false,
+                ambientColor = if (focused) NeonGreen else Color.Black,
+                spotColor = if (focused) NeonGreen else Color.Black,
+            )
+            .background(glassBrush(), shape)
+            .border(if (focused) 2.dp else 1.5.dp, chromeBezelBrush(), shape),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.height(7.dp))
+            Text(
+                label,
+                color = Color.White,
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+            )
+        }
     }
 }
 
@@ -196,9 +277,9 @@ fun NeonAccountCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = modifier
-            .shadow(10.dp, shape, clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
+            .shadow(8.dp, shape, clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
             .background(glassBrush(), shape)
-            .border(1.4.dp, NeonGreen.copy(alpha = 0.8f), shape)
+            .border(1.5.dp, chromeBezelBrush(), shape)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         GreenBadge(leadingIcon)

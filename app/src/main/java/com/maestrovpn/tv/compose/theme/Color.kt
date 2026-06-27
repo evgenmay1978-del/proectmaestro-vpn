@@ -23,6 +23,18 @@ val NeonGreenDeep = Color(0xFF123A22)
 val GlassTop = Color(0xFF1B232B)
 val GlassBottom = Color(0xFF090D12)
 
+// Brushed-CHROME bezel — the SAME polished-steel as the spider-medallion ring.
+// Every control is framed in this so the whole UI shares one metal language:
+// bright lit top edge → cool steel → mid grey body → dark lower → near-black edge.
+val ChromeHi = Color(0xFFF2F4F7)
+val ChromeLight = Color(0xFFC7CCD2)
+val ChromeMid = Color(0xFF9AA0A6)
+val ChromeLow = Color(0xFF3A3D42)
+val ChromeDark = Color(0xFF15171A)
+// Warm "lit chrome" stops for a SELECTED control's bezel (orange-tinted steel).
+val ChromeOrangeHi = Color(0xFFF6C79A)
+val ChromeOrangeLow = Color(0xFF7A2F0C)
+
 // kept for any code still referencing the old names (now mapped to the brand)
 val SingBoxPrimary = MaestroOrange
 val SingBoxPrimaryDark = MaestroOrangeDark

@@ -71,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.maestrovpn.tv.compose.component.ChromeTile
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.component.NeonAccountCard
 import com.maestrovpn.tv.compose.component.NeonChip
@@ -386,24 +387,24 @@ private fun MenuPane(
     }
 
     Column(modifier = modifier) {
-        // ── ПРОТОКОЛ — 3-column equal-width grid ──
+        // ── ПРОТОКОЛ — 2-column equal-width chrome chips (wide enough: no mid-word wrap) ──
         if (protocols.isNotEmpty()) {
             SectionLabel("ПРОТОКОЛ")
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                protocols.chunked(3).forEach { row ->
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                protocols.chunked(2).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEach { p ->
                             NeonChip(
                                 label = protocolLabel(p),
                                 onClick = { onSelectProtocol(p) },
-                                modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 60.dp),
                                 icon = protocolIcon(p),
                                 selected = p == selected,
                             )
                         }
                         // keep columns equal-width when the last row is short
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -418,26 +419,32 @@ private fun MenuPane(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // ── secondary actions — 3-column equal-width grid ──
-        Spacer(Modifier.height(10.dp))
-        val actions = buildList<Triple<String, ImageVector, () -> Unit>> {
-            add(Triple("Ввести код подписки", Icons.Filled.Search, onEnterCode))
+        // ── secondary actions — chrome tiles (icon on top, short label); update full-width ──
+        Spacer(Modifier.height(12.dp))
+        val tiles = buildList<Triple<String, ImageVector, () -> Unit>> {
+            add(Triple("Ввести код", Icons.Filled.Search, onEnterCode))
             if (!isTv) add(Triple("Сканировать QR", Icons.Filled.QrCode2, onScanQr))
-            add(Triple("Приложения через VPN", Icons.Filled.Public, onSplitTunnel))
-            add(Triple("Поделиться подпиской", Icons.Filled.Share, onShareIos))
-            add(Triple("Обновить приложение", Icons.Filled.CloudDownload, onUpdate))
+            add(Triple("Приложения VPN", Icons.Filled.Public, onSplitTunnel))
+            add(Triple("Поделиться", Icons.Filled.Share, onShareIos))
         }
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            actions.chunked(3).forEach { row ->
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            tiles.chunked(2).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { a ->
-                        NeonChip(a.first, a.third, Modifier.weight(1f).heightIn(min = 54.dp), icon = a.second)
+                        ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 86.dp))
                     }
                     // keep columns equal-width when the last row is short
-                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
+        Spacer(Modifier.height(10.dp))
+        NeonChip(
+            label = "Обновить приложение",
+            onClick = onUpdate,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
+            icon = Icons.Filled.CloudDownload,
+        )
 
         // ── Контакты ──────────────────────────────────────────────────
         Spacer(Modifier.height(20.dp))
@@ -480,7 +487,7 @@ private fun protocolIcon(tag: String): ImageVector = when (tag) {
 
 /** Friendly chip label; "auto" is the urltest pick = the lowest-latency protocol. */
 private fun protocolLabel(tag: String): String = when (tag) {
-    "auto" -> "Авто (лучший пинг)"
+    "auto" -> "Авто"
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
     "naive" -> "NaiveProxy"
