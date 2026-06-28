@@ -326,10 +326,13 @@ private fun HeroPane(
                 sizeDp = if (isTv) 30.dp else 38.dp,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .offset { IntOffset(0, (logoH * 0.76f).roundToInt()) },
+                    // hang from a bit higher up the web so the spider doesn't dangle so low — this
+                    // lets the connect button sit HIGHER without ever covering the spider.
+                    .offset { IntOffset(0, (logoH * 0.62f).roundToInt()) },
             )
         }
-        Spacer(Modifier.height(if (isTv) 30.dp else 34.dp))
+        // raised the medallion up (smaller gap) — but still clears the swaying spider above it.
+        Spacer(Modifier.height(if (isTv) 20.dp else 16.dp))
 
         SpiderMedallion(
             connected = connected,
