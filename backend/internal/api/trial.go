@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -11,8 +10,8 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
 )
 
-// trialVelocity is a small IN-MEMORY soft rate-limiter: how many trials a /24 subnet started in a
-// rolling window. Kept LENIENT on purpose — RU CGNAT/mobile shares IPs, so a hard block would hit
+// trialVelocity is a small IN-MEMORY soft rate-limiter: how many NEW trials a /24 subnet started in
+// a rolling window. Kept LENIENT on purpose — RU CGNAT/mobile shares IPs, so a hard block would hit
 // real users; this only blunts crude single-network farming. Resets on restart (a soft signal).
 type trialVelocity struct {
 	mu     sync.Mutex
@@ -76,15 +75,20 @@ func ipNet24(ip string) string {
 	return masked.String() + "/48"
 }
 
-// handleTrial is the public POST /trial: an app with NO key enters a nickname and gets a short
-// free trial. Anti-abuse runs cheapest→costliest, first failure exits:
+// handleTrial is the public POST /trial: an app with NO key enters a nickname and gets a short free
+// trial. The trial account is KEYED ON THE NICK (login = "trial-"+nick) so it's persistent and
+// reusable — the same person keeps the SAME account (re-entry, renewal) instead of spawning
+// duplicates ("не нужно плодить"). Flow:
 //  1. validate nick + device anchor;
-//  2/3. atomic ledger gate — this DEVICE (anchor) or this NICK already trialed → 403/409;
+//  2. if this DEVICE already trialed → return its EXISTING account (re-activate, e.g. after a
+//     reinstall) — never a second account;
+//  3. else if the nick is already taken by ANOTHER device → 409;
 //  4. soft per-/24 velocity → 429;
-//  5. provision a short all-protocol trial account (reusing the normal path);
-//  6. on failure, release the reservation (don't burn the device's one trial); else confirm + audit.
+//  5. provision a short all-protocol account named "trial-<nick>" + record the device in the ledger.
+//
 // The anchor is the app's ANDROID_ID(+Widevine+model) composite — it survives reinstall (unlike the
-// device UUID), which is what stops the 95% "uninstall→reinstall→trial again" case.
+// device UUID), which is what stops the 95% "uninstall→reinstall→trial again" case. Renewal is the
+// normal pay flow, which extends THIS account (BuyViewModel sends its sub_token) — no new account.
 func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -93,7 +97,7 @@ func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Nick   string `json:"nick"`
 		Anchor string `json:"anchor"`
-		Device string `json:"device"` // app UUID for the device-cap (enforced later at /sub)
+		Device string `json:"device"` // app UUID (device-cap is enforced later at /sub)
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -114,37 +118,42 @@ func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	anchorHash := s.promos.Hash(anchor)
-	ipNet := ipNet24(clientIP(r))
 
-	// 4. soft velocity (before the persistent reserve, so farming attempts don't churn the ledger)
+	// 2. this DEVICE already trialed → hand back its EXISTING account (don't make a new one).
+	if prev := s.promos.AnchorLogin(anchorHash); prev != "" {
+		if c, err := s.st.ByLogin(prev); err == nil {
+			s.respCustomer(w, c)
+			return
+		}
+		// the recorded account was removed (owner cleanup) → don't issue a fresh trial.
+		http.Error(w, "trial already used on this device", http.StatusForbidden)
+		return
+	}
+
+	// 3. the nick IS the trial account id. If it already exists, it belongs to another device.
+	login := "trial-" + promo.NormNick(nick)
+	if _, err := s.st.ByLogin(login); err == nil {
+		http.Error(w, "nickname already used", http.StatusConflict)
+		return
+	}
+
+	// 4. soft velocity (only NEW trials count).
+	ipNet := ipNet24(clientIP(r))
 	if !s.trialVel.allow(ipNet) {
 		http.Error(w, "too many trials from your network, try later", http.StatusTooManyRequests)
 		return
 	}
-	// 2/3. atomic anti-abuse reserve (one trial per device anchor, one per nick)
-	if err := s.promos.Reserve(anchorHash, nick); err != nil {
-		switch {
-		case errors.Is(err, promo.ErrAnchorUsed):
-			http.Error(w, "trial already used on this device", http.StatusForbidden)
-		case errors.Is(err, promo.ErrNickUsed):
-			http.Error(w, "nickname already used", http.StatusConflict)
-		default:
-			http.Error(w, "internal error", http.StatusInternalServerError)
-		}
-		return
-	}
-	// 5. grant a short all-protocol trial account (same provisioning path as a paid order).
+
+	// 5. provision a short all-protocol trial account (same path as a paid order), then record it.
 	dur := time.Duration(s.cfg.TrialDays) * 24 * time.Hour
 	if dur <= 0 {
 		dur = 48 * time.Hour
 	}
-	c, err := s.prov.Provision("trial-"+promo.Token(8), dur)
+	c, err := s.prov.Provision(login, dur)
 	if err != nil {
-		_ = s.promos.Release(anchorHash, nick) // failed grant → keep the device's trial right
 		http.Error(w, "could not start trial", http.StatusBadGateway)
 		return
 	}
-	// 6. confirm + audit, then respond exactly like /claim so the app activates the sub the same way.
-	_ = s.promos.Confirm(anchorHash, nick, c.Login, ipNet)
+	_ = s.promos.SetAnchor(anchorHash, c.Login, nick, ipNet)
 	s.respCustomer(w, c)
 }

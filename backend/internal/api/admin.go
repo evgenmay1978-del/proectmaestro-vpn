@@ -50,6 +50,9 @@ func (s *Server) respCustomer(w http.ResponseWriter, c *store.Customer) {
 	if c.AnyTLS != nil {
 		protos = append(protos, "anytls")
 	}
+	if c.VLESS3 != nil {
+		protos = append(protos, "vless-s3") // the 5th protocol (VLESS-Reality on the S3 node)
+	}
 	writeJSON(w, http.StatusOK, customerResp{
 		Login:     c.Login,
 		SubURL:    s.cfg.SubBaseURL + "/sub/" + c.SubToken,
