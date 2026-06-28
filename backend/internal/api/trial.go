@@ -1,0 +1,150 @@
+package api
+
+import (
+	"errors"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
+)
+
+// trialVelocity is a small IN-MEMORY soft rate-limiter: how many trials a /24 subnet started in a
+// rolling window. Kept LENIENT on purpose — RU CGNAT/mobile shares IPs, so a hard block would hit
+// real users; this only blunts crude single-network farming. Resets on restart (a soft signal).
+type trialVelocity struct {
+	mu     sync.Mutex
+	window time.Duration
+	limit  int
+	hits   map[string][]time.Time
+}
+
+func newTrialVelocity(limit int, window time.Duration) *trialVelocity {
+	return &trialVelocity{window: window, limit: limit, hits: map[string][]time.Time{}}
+}
+
+// allow records a hit for ipNet and reports whether it stays under the limit. limit<=0 disables it.
+func (v *trialVelocity) allow(ipNet string) bool {
+	if v.limit <= 0 {
+		return true
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	cutoff := time.Now().Add(-v.window)
+	old := v.hits[ipNet]
+	kept := make([]time.Time, 0, len(old)+1)
+	for _, t := range old {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) >= v.limit {
+		v.hits[ipNet] = kept
+		return false
+	}
+	v.hits[ipNet] = append(kept, time.Now())
+	return true
+}
+
+// clientIP is the caller's real IP — the first X-Forwarded-For hop (we sit behind nginx) or RemoteAddr.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if ip := strings.TrimSpace(strings.Split(xff, ",")[0]); ip != "" {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// ipNet24 aggregates an IP to its /24 (IPv4) or /48 (IPv6) for velocity bucketing + audit.
+func ipNet24(ip string) string {
+	p := net.ParseIP(ip)
+	if p == nil {
+		return ip
+	}
+	if v4 := p.To4(); v4 != nil {
+		return net.IP{v4[0], v4[1], v4[2], 0}.String() + "/24"
+	}
+	masked := make(net.IP, net.IPv6len)
+	copy(masked, p[:6])
+	return masked.String() + "/48"
+}
+
+// handleTrial is the public POST /trial: an app with NO key enters a nickname and gets a short
+// free trial. Anti-abuse runs cheapest→costliest, first failure exits:
+//  1. validate nick + device anchor;
+//  2/3. atomic ledger gate — this DEVICE (anchor) or this NICK already trialed → 403/409;
+//  4. soft per-/24 velocity → 429;
+//  5. provision a short all-protocol trial account (reusing the normal path);
+//  6. on failure, release the reservation (don't burn the device's one trial); else confirm + audit.
+// The anchor is the app's ANDROID_ID(+Widevine+model) composite — it survives reinstall (unlike the
+// device UUID), which is what stops the 95% "uninstall→reinstall→trial again" case.
+func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Nick   string `json:"nick"`
+		Anchor string `json:"anchor"`
+		Device string `json:"device"` // app UUID for the device-cap (enforced later at /sub)
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	// 1. validate
+	nick := strings.TrimSpace(req.Nick)
+	if nick == "" || !claimCodeRe.MatchString(nick) {
+		http.Error(w, "invalid nick", http.StatusBadRequest)
+		return
+	}
+	anchor := strings.TrimSpace(req.Anchor)
+	androidID := anchor
+	if i := strings.IndexByte(anchor, '|'); i >= 0 {
+		androidID = anchor[:i]
+	}
+	if androidID == "" {
+		http.Error(w, "device anchor required", http.StatusBadRequest)
+		return
+	}
+	anchorHash := s.promos.Hash(anchor)
+	ipNet := ipNet24(clientIP(r))
+
+	// 4. soft velocity (before the persistent reserve, so farming attempts don't churn the ledger)
+	if !s.trialVel.allow(ipNet) {
+		http.Error(w, "too many trials from your network, try later", http.StatusTooManyRequests)
+		return
+	}
+	// 2/3. atomic anti-abuse reserve (one trial per device anchor, one per nick)
+	if err := s.promos.Reserve(anchorHash, nick); err != nil {
+		switch {
+		case errors.Is(err, promo.ErrAnchorUsed):
+			http.Error(w, "trial already used on this device", http.StatusForbidden)
+		case errors.Is(err, promo.ErrNickUsed):
+			http.Error(w, "nickname already used", http.StatusConflict)
+		default:
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
+		return
+	}
+	// 5. grant a short all-protocol trial account (same provisioning path as a paid order).
+	dur := time.Duration(s.cfg.TrialDays) * 24 * time.Hour
+	if dur <= 0 {
+		dur = 48 * time.Hour
+	}
+	c, err := s.prov.Provision("trial-"+promo.Token(8), dur)
+	if err != nil {
+		_ = s.promos.Release(anchorHash, nick) // failed grant → keep the device's trial right
+		http.Error(w, "could not start trial", http.StatusBadGateway)
+		return
+	}
+	// 6. confirm + audit, then respond exactly like /claim so the app activates the sub the same way.
+	_ = s.promos.Confirm(anchorHash, nick, c.Login, ipNet)
+	s.respCustomer(w, c)
+}

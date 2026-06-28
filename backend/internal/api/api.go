@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/telegram"
@@ -69,20 +70,31 @@ type Config struct {
 	// switch (env MAESTRO_DEVICE_LIMIT=off) so the cap can be disabled live without a
 	// redeploy if it ever misbehaves in prod.
 	EnforceDeviceLimit bool
+	// TrialDays is the length of the in-app free trial (POST /trial); default 2.
+	TrialDays int
+	// TrialIPQuota caps trials started per /24 subnet per 24h (soft, lenient — RU CGNAT);
+	// 0 disables the velocity check.
+	TrialIPQuota int
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
 type Server struct {
-	st     *store.Store
-	prov   Provisioner
-	orders *order.Store
-	tg     *telegram.Client
-	cfg    Config
+	st       *store.Store
+	prov     Provisioner
+	orders   *order.Store
+	promos   *promo.Store
+	trialVel *trialVelocity
+	tg       *telegram.Client
+	cfg      Config
 }
 
-// New returns an api server. prov/orders may be nil to disable those routes.
-func New(st *store.Store, prov Provisioner, orders *order.Store, cfg Config) *Server {
-	return &Server{st: st, prov: prov, orders: orders, tg: telegram.New(cfg.TGBotToken), cfg: cfg}
+// New returns an api server. prov/orders/promos may be nil to disable those routes.
+func New(st *store.Store, prov Provisioner, orders *order.Store, promos *promo.Store, cfg Config) *Server {
+	return &Server{
+		st: st, prov: prov, orders: orders, promos: promos,
+		trialVel: newTrialVelocity(cfg.TrialIPQuota, 24*time.Hour),
+		tg:       telegram.New(cfg.TGBotToken), cfg: cfg,
+	}
 }
 
 // Handler returns the configured http.Handler.
@@ -110,6 +122,10 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/order/paid-claim", s.handleOrderPaidClaim)
 		mux.HandleFunc("/order", s.handleOrderCreate)
 		mux.HandleFunc("/order/", s.handleOrderGet)
+	}
+	// In-app free trial: needs the ledger (promos) + the provisioner to grant the account.
+	if s.promos != nil && s.prov != nil {
+		mux.HandleFunc("/trial", s.handleTrial)
 	}
 	if s.prov != nil && s.cfg.AdminToken != "" {
 		mux.HandleFunc("/admin/provision", s.adminAuth(s.handleProvision))

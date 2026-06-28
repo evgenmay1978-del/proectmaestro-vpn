@@ -24,7 +24,7 @@ func deviceServer(t *testing.T, login string) (*httptest.Server, *store.Store, s
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	srv := New(st, &fakeProv{st: st}, nil, Config{
+	srv := New(st, &fakeProv{st: st}, nil, nil, Config{
 		AdminToken: "sek", SubBaseURL: "https://x", EnforceDeviceLimit: true,
 	})
 	return httptest.NewServer(srv.Handler()), st, tok
@@ -138,7 +138,7 @@ func TestDeviceLimitOffPassThrough(t *testing.T) {
 	st, _ := store.Open(filepath.Join(t.TempDir(), "s.json"))
 	_ = st.Put(&store.Customer{Login: "dave", SubToken: "tok-dave", Expires: time.Now().Add(720 * time.Hour),
 		VLESS: &subgen.VLESSCreds{Server: "s", Port: 443, UUID: "u"}})
-	srv := httptest.NewServer(New(st, &fakeProv{st: st}, nil, Config{AdminToken: "sek"}).Handler())
+	srv := httptest.NewServer(New(st, &fakeProv{st: st}, nil, nil, Config{AdminToken: "sek"}).Handler())
 	defer srv.Close()
 	for i := 1; i <= 8; i++ {
 		if code := subStatus(t, srv.URL, "tok-dave", fmt.Sprintf("dev-%d", i)); code != http.StatusOK {

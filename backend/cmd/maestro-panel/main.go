@@ -18,6 +18,7 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
@@ -50,6 +51,12 @@ func main() {
 	ost, err := order.Open(env("MAESTRO_ORDER_STORE", "/var/lib/maestro/orders.json"))
 	if err != nil {
 		log.Fatalf("open order store: %v", err)
+	}
+
+	// In-app free-trial ledger (anti-abuse). Salt seeds the HMAC over device anchors.
+	pst, err := promo.Open(env("MAESTRO_PROMO_FILE", "/var/lib/maestro/trials.json"), env("MAESTRO_TRIAL_SALT", "maestro-trial-v1"))
+	if err != nil {
+		log.Fatalf("open trial store: %v", err)
 	}
 
 	// The provisioner is wired only when its dependencies are configured.
@@ -156,7 +163,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr: listen,
-		Handler: api.New(st, prov, ost, api.Config{
+		Handler: api.New(st, prov, ost, pst, api.Config{
 			AdminToken: os.Getenv("MAESTRO_ADMIN_TOKEN"),
 			SubBaseURL: env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
 			SBPPhone:   os.Getenv("MAESTRO_SBP_PHONE"),
@@ -168,6 +175,9 @@ func main() {
 			// Per-account 5-device cap, on by default; MAESTRO_DEVICE_LIMIT=off is a live
 			// kill switch (no redeploy) if it ever misbehaves against real customers.
 			EnforceDeviceLimit: env("MAESTRO_DEVICE_LIMIT", "on") != "off",
+			// In-app free trial (POST /trial): 2 days, soft per-/24 quota of 3 trials per day.
+			TrialDays:    atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
+			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

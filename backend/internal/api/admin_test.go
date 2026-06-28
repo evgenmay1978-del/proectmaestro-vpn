@@ -51,7 +51,7 @@ func (f *fakeProv) MigrateAnyTLSEndpoint() (int, error)                    { ret
 func adminServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, _ := store.Open(filepath.Join(t.TempDir(), "s.json"))
-	srv := New(st, &fakeProv{st: st}, nil, Config{AdminToken: "sek", SubBaseURL: "https://wapmixx.ru:8910"})
+	srv := New(st, &fakeProv{st: st}, nil, nil, Config{AdminToken: "sek", SubBaseURL: "https://wapmixx.ru:8910"})
 	return httptest.NewServer(srv.Handler()), st
 }
 

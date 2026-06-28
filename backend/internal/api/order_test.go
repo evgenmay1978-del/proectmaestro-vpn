@@ -16,7 +16,7 @@ import (
 func TestOrderPurchaseFlow(t *testing.T) {
 	st, _ := store.Open(filepath.Join(t.TempDir(), "c.json"))
 	ost, _ := order.Open(filepath.Join(t.TempDir(), "o.json"))
-	srv := httptest.NewServer(New(st, &fakeProv{st: st}, ost, Config{
+	srv := httptest.NewServer(New(st, &fakeProv{st: st}, ost, nil, Config{
 		AdminToken: "sek", SubBaseURL: "https://wapmixx.ru:8910", SBPPhone: "+79991234567",
 	}).Handler())
 	defer srv.Close()
@@ -80,7 +80,7 @@ func TestOrderRenewsSameAccount(t *testing.T) {
 	if _, err := fp.Provision("alice", 30*24*time.Hour); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	srv := httptest.NewServer(New(st, fp, ost, Config{
+	srv := httptest.NewServer(New(st, fp, ost, nil, Config{
 		AdminToken: "sek", SubBaseURL: "https://wapmixx.ru:8910", SBPPhone: "+7",
 	}).Handler())
 	defer srv.Close()
@@ -127,7 +127,7 @@ func TestOrderRenewsSameAccount(t *testing.T) {
 func TestOrderUnknownTariff(t *testing.T) {
 	st, _ := store.Open(filepath.Join(t.TempDir(), "c.json"))
 	ost, _ := order.Open(filepath.Join(t.TempDir(), "o.json"))
-	srv := httptest.NewServer(New(st, &fakeProv{st: st}, ost, Config{}).Handler())
+	srv := httptest.NewServer(New(st, &fakeProv{st: st}, ost, nil, Config{}).Handler())
 	defer srv.Close()
 	resp, _ := http.Post(srv.URL+"/order", "application/json", strings.NewReader(`{"tariff":"99y"}`))
 	defer func() { _ = resp.Body.Close() }()
