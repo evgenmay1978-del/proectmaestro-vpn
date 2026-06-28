@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(journalctl:*)",
       "Bash(systemctl status:*)",
@@ -23,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "(cd /root/maestrovpn-tv && nohup /root/.local/bin/graphify update . >/tmp/graphify-stop.log 2>&1 &) ; exit 0"
+            "command": "(cd /root/maestrovpn-tv && nohup /root/.local/bin/graphify update . --force >/tmp/graphify-stop.log 2>&1 &) ; exit 0"
           }
         ]
       }
