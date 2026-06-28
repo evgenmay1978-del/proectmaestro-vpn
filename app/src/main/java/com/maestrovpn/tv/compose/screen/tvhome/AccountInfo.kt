@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 /** The active subscription's login + days remaining, for the home screen. Null fields
  *  mean "unknown" (no subscription profile yet, or the panel was unreachable). */
-data class AccountInfo(val login: String? = null, val daysLeft: Int? = null)
+data class AccountInfo(val login: String? = null, val daysLeft: Int? = null, val hasSubProfile: Boolean = false)
 
 /**
  * Fetches [AccountInfo] from the panel `GET /sub/<token>/info` using the active
@@ -25,15 +25,20 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
     produceState(initialValue = AccountInfo(), refreshKey) {
         value = runCatching {
             withContext(Dispatchers.IO) {
+                // hasSubProfile is true whenever a MaestroVPN sub profile exists locally — even if
+                // the panel is unreachable below — so a transient timeout never makes a payer "look
+                // keyless" (drives the Trial-CTA gating in TvHomeScreen).
+                val hasSubProfile = ProfileManager.list().any { it.typed.remoteURL.contains("/sub/") }
                 val profile = ProfileManager.list()
                     .firstOrNull { it.typed.remoteURL.contains("/sub/") }
-                    ?: return@withContext AccountInfo()
+                    ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                 val url = profile.typed.remoteURL.trimEnd('/') + "/info"
-                val json = httpGetStringTimed(url) ?: return@withContext AccountInfo()
+                val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                 val o = JSONObject(json)
                 AccountInfo(
                     login = o.optString("login").ifBlank { null },
                     daysLeft = if (o.has("days_left")) o.getInt("days_left") else null,
+                    hasSubProfile = hasSubProfile,
                 )
             }
         }.getOrDefault(AccountInfo())

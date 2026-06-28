@@ -59,7 +59,7 @@ class PackageCache(
 ) {
     val packageName: String get() = packageInfo.packageName
 
-    val uid: Int get() = packageInfo.applicationInfo!!.uid
+    val uid: Int get() = appInfo.uid
 
     val installTime: Long get() = packageInfo.firstInstallTime
     val updateTime: Long get() = packageInfo.lastUpdateTime

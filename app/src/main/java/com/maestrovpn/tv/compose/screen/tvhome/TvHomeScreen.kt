@@ -155,6 +155,7 @@ fun TvHomeScreen(
     activeProtocol: String? = null,
     accountLogin: String? = null,
     daysLeft: Int? = null,
+    hasSubProfile: Boolean = false,
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
     onBuy: () -> Unit,
@@ -236,7 +237,7 @@ fun TvHomeScreen(
                         onShareIos = onShareIos,
                         onScanQr = onScanQr,
                         onEnterTrial = onEnterTrial,
-                        showTrial = accountLogin == null,
+                        showTrial = !hasSubProfile,
                         // fillMaxHeight + scroll is a safety net for short (720p) TVs; the menu
                         // normally fits without scrolling.
                         modifier = Modifier
@@ -277,7 +278,7 @@ fun TvHomeScreen(
                         onShareIos = onShareIos,
                         onScanQr = onScanQr,
                         onEnterTrial = onEnterTrial,
-                        showTrial = accountLogin == null,
+                        showTrial = !hasSubProfile,
                         modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
                     )
                 }
@@ -423,8 +424,9 @@ private fun MenuPane(
             Spacer(Modifier.height(16.dp))
         }
 
-        // Free-trial CTA — shown ONLY when there is no key/account (accountLogin == null), so an
-        // active subscriber can't tap it and have their paid profile replaced by a 2-day trial.
+        // Free-trial CTA — shown ONLY when there is no MaestroVPN sub profile (!hasSubProfile), so an
+        // active subscriber can't tap it and have their paid profile replaced by a 2-day trial. Keying
+        // on the LOCAL profile (not a panel field) means a transient timeout never re-shows it to a payer.
         if (showTrial) {
             GlossyButton(
                 label = "🎁 Попробовать 2 дня бесплатно",

@@ -3,12 +3,18 @@
 
     <include
         domain="database"
-        path="profiles.db" />
-    <include
-        domain="database"
         path="settings.db" />
     <include
         domain="file"
         path="configs" />
+    <!--
+        Deliberately do NOT back up profiles.db: it holds the per-install device-id (in
+        remoteURL) and the remote_servers secret. Cloud-restoring it onto another device would
+        leak/clone those credentials. The exclude is explicit (belt-and-suspenders) on top of
+        simply not including it.
+    -->
+    <exclude
+        domain="database"
+        path="profiles.db" />
 
 </full-backup-content>

@@ -50,8 +50,11 @@ object MaestroSub {
         val drm = try {
             val m = MediaDrm(UUID.fromString("edef8ba9-79d6-4ace-a3c8-27dcd51d21ed")) // Widevine
             try {
+                // getPropertyByteArray can return null on L3 boxes — fall back to "" instead of
+                // NPE-ing (the outer catch would swallow it, but make the null explicit).
                 m.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
-                    .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+                    ?.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+                    ?: ""
             } finally {
                 @Suppress("DEPRECATION") m.release()
             }

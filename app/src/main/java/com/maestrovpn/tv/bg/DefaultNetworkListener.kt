@@ -35,7 +35,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.ObsoleteCoroutinesApi
 import kotlinx.coroutines.channels.actor
-import kotlinx.coroutines.runBlocking
 
 object DefaultNetworkListener {
     private sealed class NetworkMessage {
@@ -56,7 +55,10 @@ object DefaultNetworkListener {
 
     @OptIn(DelicateCoroutinesApi::class, ObsoleteCoroutinesApi::class)
     private val networkActor =
-        GlobalScope.actor<NetworkMessage>(Dispatchers.Unconfined) {
+        // capacity=64: a buffered mailbox so the non-blocking trySend() in the network callbacks
+        // (below) never DROPS a network-change event nor blocks the Connectivity callback thread.
+        // Network events are rare/bursty (well under 64), so the buffer never fills.
+        GlobalScope.actor<NetworkMessage>(Dispatchers.Unconfined, capacity = 64) {
             val listeners = mutableMapOf<Any, (Network?) -> Unit>()
             var network: Network? = null
             val pendingRequests = arrayListOf<NetworkMessage.Get>()
@@ -136,8 +138,10 @@ object DefaultNetworkListener {
 
     // NB: this runs in ConnectivityThread, and this behavior cannot be changed until API 26
     private object Callback : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = runBlocking {
-            networkActor.send(
+        override fun onAvailable(network: Network) {
+            // Non-blocking send so the Connectivity callback thread never blocks; the actor
+            // mailbox is effectively unbounded (RENDEZVOUS on Unconfined → handled inline).
+            networkActor.trySend(
                 NetworkMessage.Put(
                     network,
                 ),
@@ -146,11 +150,11 @@ object DefaultNetworkListener {
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
             // it's a good idea to refresh capabilities
-            runBlocking { networkActor.send(NetworkMessage.Update(network)) }
+            networkActor.trySend(NetworkMessage.Update(network))
         }
 
-        override fun onLost(network: Network) = runBlocking {
-            networkActor.send(
+        override fun onLost(network: Network) {
+            networkActor.trySend(
                 NetworkMessage.Lost(
                     network,
                 ),

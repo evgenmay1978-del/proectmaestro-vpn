@@ -7,6 +7,7 @@ import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
+import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
 import com.maestrovpn.tv.utils.httpGetStringTimed
 import com.maestrovpn.tv.utils.MaestroSub
@@ -95,6 +96,21 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun createRemoteProfile(subUrl: String) {
         val context = getApplication<Application>()
+        val content = httpGetStringTimed(subUrl) ?: error("подписка недоступна (таймаут)")
+        Libbox.checkConfig(content)
+        // DEDUPE: if a profile for this same account already exists (match by sub TOKEN —
+        // the device query differs), refresh it in place instead of piling up a 2nd
+        // "MaestroVPN" entry that would orphan the paid one. Only a first activation creates new.
+        val existing = ProfileManager.list().firstOrNull { MaestroSub.token(it.typed.remoteURL) == MaestroSub.token(subUrl) }
+        if (existing != null) {
+            existing.typed.remoteURL = subUrl
+            File(existing.typed.path).writeText(content)
+            existing.typed.lastUpdated = Date()
+            ProfileManager.update(existing)
+            Settings.selectedProfile = existing.id
+            UpdateProfileWork.reconfigureUpdater()
+            return
+        }
         val typed = TypedProfile().apply {
             type = TypedProfile.Type.Remote
             remoteURL = subUrl
@@ -109,8 +125,6 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
         val dir = File(context.filesDir, "configs").also { it.mkdirs() }
         val file = File(dir, "$fileID.json")
         typed.path = file.path
-        val content = httpGetStringTimed(subUrl) ?: error("подписка недоступна (таймаут)")
-        Libbox.checkConfig(content)
         file.writeText(content)
         ProfileManager.create(profile, andSelect = true)
         UpdateProfileWork.reconfigureUpdater()

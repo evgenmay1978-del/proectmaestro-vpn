@@ -155,10 +155,13 @@ class MainActivity :
             ActivityResultContracts.RequestPermission(),
         ) { _ ->
             // Start the tunnel regardless of the notification-permission decision: a VPN
-            // foreground service runs fine on Android 13+ WITHOUT POST_NOTIFICATIONS (only
-            // the realtime-speed line in the notification is hidden). Never block the
-            // connection or nag with a dialog — a customer who declined notifications must
-            // still be able to connect; they can enable the speed notification in Settings.
+            // foreground service runs fine on Android 13+ WITHOUT POST_NOTIFICATIONS. The rich
+            // realtime-speed line is only shown when the permission is actually granted —
+            // ServiceNotification.start() gates the dynamic-notification updater behind
+            // checkPermission() (true on <A13; areNotificationsEnabled() on A13+), so when
+            // declined the foreground notification just shows the static title without speeds.
+            // Never block the connection or nag with a dialog — a customer who declined
+            // notifications must still be able to connect; they can enable it later in Settings.
             startService0()
         }
 

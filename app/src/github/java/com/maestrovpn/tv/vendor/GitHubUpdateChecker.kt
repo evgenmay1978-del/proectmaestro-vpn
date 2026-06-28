@@ -51,16 +51,16 @@ class GitHubUpdateChecker : Closeable {
             asset.name.endsWith(".apk") &&
                 !asset.name.contains("play") &&
                 asset.name.contains("legacy-android-5") == isLegacy
-        }
+        } ?: return null // no installable APK asset → skip (never hand the HTML page URL to the installer)
 
         return UpdateInfo(
             versionCode = metadata.versionCode,
             versionName = metadata.versionName,
-            downloadUrl = apkAsset?.browserDownloadUrl ?: release.htmlUrl,
+            downloadUrl = apkAsset.browserDownloadUrl,
             releaseUrl = release.htmlUrl,
             releaseNotes = release.body,
             isPrerelease = release.prerelease,
-            fileSize = apkAsset?.size ?: 0,
+            fileSize = apkAsset.size,
         )
     }
 
@@ -73,7 +73,9 @@ class GitHubUpdateChecker : Closeable {
         val response = request.execute()
         val content = response.content.unwrap
 
-        return json.decodeFromString(content)
+        // A malformed/unexpected releases payload must not throw out to the update worker; on a
+        // SerializationException (or any decode error) treat it as "no releases" and skip this check.
+        return runCatching { json.decodeFromString<List<GitHubRelease>>(content) }.getOrDefault(emptyList())
     }
 
     private fun isReleaseInTrack(release: GitHubRelease, track: UpdateTrack): Boolean {

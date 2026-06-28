@@ -22,6 +22,8 @@ class UpdateProfileWork {
     companion object {
         private const val WORK_NAME = "UpdateProfile"
         private const val TAG = "UpdateProfileWork"
+        // Trusted panel origin for the SILENT background auto-updater (SSRF guard).
+        private const val TRUSTED_HOST = "wapmixx.ru"
 
         suspend fun reconfigureUpdater() {
             runCatching {
@@ -72,6 +74,15 @@ class UpdateProfileWork {
                 val lastSeconds =
                     (System.currentTimeMillis() - profile.typed.lastUpdated.time) / 1000L
                 if (lastSeconds < profile.typed.autoUpdateInterval * 60) {
+                    continue
+                }
+                // SSRF guard: the SILENT background updater only fetches from our trusted
+                // panel host. A profile whose remoteURL points anywhere else is skipped here
+                // (the explicit QR-import / buy path stays as-is). Never disturb the live tunnel
+                // by talking to an untrusted origin on a timer.
+                val host = runCatching { java.net.URI(profile.typed.remoteURL).host }.getOrNull()
+                if (host == null || !(host == TRUSTED_HOST || host.endsWith(".$TRUSTED_HOST"))) {
+                    Log.w(TAG, "skip auto-update for untrusted origin host=$host profile=${profile.name}")
                     continue
                 }
                 try {

@@ -8,6 +8,7 @@ import android.provider.DocumentsContract
 import android.provider.DocumentsProvider
 import android.webkit.MimeTypeMap
 import java.io.File
+import java.io.FileNotFoundException
 
 class WorkingDirectoryProvider : DocumentsProvider() {
 
@@ -34,8 +35,15 @@ class WorkingDirectoryProvider : DocumentsProvider() {
         )
     }
 
-    private val baseDir: File
-        get() = context!!.getExternalFilesDir(null)!!
+    // getExternalFilesDir(null) can legitimately return null (storage unmounted / no context),
+    // so baseDir is nullable here. Each override resolves it via requireBaseDir() and degrades
+    // gracefully (throws FileNotFoundException / returns an empty cursor) instead of crashing the
+    // whole DocumentsProvider with an NPE.
+    private val baseDir: File?
+        get() = context?.getExternalFilesDir(null)
+
+    private fun requireBaseDir(): File =
+        baseDir ?: throw FileNotFoundException("working directory unavailable")
 
     override fun onCreate(): Boolean = true
 
@@ -114,15 +122,25 @@ class WorkingDirectoryProvider : DocumentsProvider() {
     }
 
     private fun getFileForDocId(documentId: String): File {
+        val base = requireBaseDir()
         if (documentId == ROOT_DOC_ID) {
-            return baseDir
+            return base
         }
-        return File(baseDir, documentId)
+        val file = File(base, documentId)
+        // Reject ../ traversal: the resolved path must stay under baseDir (same containment
+        // check isChildDocument uses), otherwise a crafted documentId could read/write outside
+        // the working directory.
+        val basePath = base.absolutePath
+        val resolvedPath = file.canonicalFile.absolutePath
+        if (resolvedPath != basePath && !resolvedPath.startsWith("$basePath/")) {
+            throw FileNotFoundException("documentId escapes working directory: $documentId")
+        }
+        return file
     }
 
     private fun getDocIdForFile(file: File): String {
         val path = file.absolutePath
-        val basePath = baseDir.absolutePath
+        val basePath = requireBaseDir().absolutePath
 
         return if (path == basePath) {
             ROOT_DOC_ID

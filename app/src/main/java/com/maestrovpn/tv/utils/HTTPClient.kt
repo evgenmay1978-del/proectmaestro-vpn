@@ -62,12 +62,20 @@ class HTTPClient : Closeable {
 @OptIn(DelicateCoroutinesApi::class)
 suspend fun httpGetStringTimed(url: String, timeoutMs: Long = 15_000): String? {
     val result = CompletableDeferred<String?>()
+    // Hold the client OUTSIDE the detached job so the caller can close() it on timeout,
+    // aborting the in-flight native request and releasing its socket FD instead of leaking
+    // it until the OS times out (the leak piled up on slow TVs that hit this path often).
+    val client = HTTPClient()
     GlobalScope.launch(Dispatchers.IO) {
         try {
-            HTTPClient().use { result.complete(it.getString(url)) }
+            result.complete(client.getString(url))
         } catch (t: Throwable) {
             result.complete(null)
         }
     }
-    return withTimeoutOrNull(timeoutMs) { result.await() }
+    return try {
+        withTimeoutOrNull(timeoutMs) { result.await() }
+    } finally {
+        runCatching { client.close() }
+    }
 }

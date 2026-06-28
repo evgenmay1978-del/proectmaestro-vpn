@@ -45,6 +45,8 @@ class PanelUpdateChecker : Closeable {
         val content = request.execute().content.unwrap
         val m = json.decodeFromString<PanelManifest>(content)
         if (m.versionName.isBlank()) return null
+        // A blank apk_url would resolve to "$BASE/" (a directory, not an APK) → reject the manifest.
+        if (m.apkUrl.isBlank()) return null
         // Libbox.compareSemver(a, b) == a is newer than b.
         if (!Libbox.compareSemver(m.versionName, BuildConfig.VERSION_NAME)) return null
         val apk = when {

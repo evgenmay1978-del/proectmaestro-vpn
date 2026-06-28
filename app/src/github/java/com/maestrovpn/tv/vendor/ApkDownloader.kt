@@ -47,6 +47,13 @@ class ApkDownloader : Closeable {
         val expectedSize = info?.fileSize ?: 0L
         val expectedSha = info?.sha256?.lowercase().orEmpty()
 
+        // Refuse to download (and install) an APK we cannot validate at all. With neither a size nor a
+        // sha256 the size/sha checks below are both skipped and the installer would receive an
+        // unverified file — never accept that. Require at least one of them.
+        if (expectedSize <= 0 && expectedSha.isBlank()) {
+            throw IOException("Обновление без контрольной суммы и размера — установка отклонена")
+        }
+
         // A complete, verified APK from a prior run → reuse it (no re-download).
         if (apkFile.exists() && verifies(apkFile, expectedSize, expectedSha)) {
             UpdateState.downloadProgress.value = 1f

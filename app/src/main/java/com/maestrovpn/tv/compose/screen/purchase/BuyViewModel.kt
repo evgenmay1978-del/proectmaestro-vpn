@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -100,15 +101,21 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 httpPost("$base/order/paid-claim", JSONObject().put("order_id", id).toString())
-                while (true) {
-                    delay(4000)
-                    val po = JSONObject(httpGet("$base/order/$id"))
-                    if (po.optString("status") == "paid") {
-                        _state.value = BuyState.Activating
-                        activate(po.getString("sub_url"))
-                        _state.value = BuyState.Done
-                        return@launch
+                val confirmed = withTimeoutOrNull(15 * 60 * 1000L) {
+                    while (true) {
+                        delay(4000)
+                        val po = JSONObject(httpGet("$base/order/$id"))
+                        if (po.optString("status") == "paid") {
+                            _state.value = BuyState.Activating
+                            activate(po.getString("sub_url"))
+                            _state.value = BuyState.Done
+                            return@withTimeoutOrNull true
+                        }
                     }
+                    @Suppress("UNREACHABLE_CODE") false
+                }
+                if (confirmed == null) {
+                    _state.value = BuyState.Error("не удалось подтвердить оплату — попробуйте позже")
                 }
             } catch (e: Exception) {
                 _state.value = BuyState.Error(e.message ?: "ошибка")
