@@ -162,6 +162,7 @@ fun TvHomeScreen(
     onSplitTunnel: () -> Unit = {},
     onShareIos: () -> Unit = {},
     onScanQr: () -> Unit = {},
+    onEnterTrial: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -234,6 +235,8 @@ fun TvHomeScreen(
                         onSplitTunnel = onSplitTunnel,
                         onShareIos = onShareIos,
                         onScanQr = onScanQr,
+                        onEnterTrial = onEnterTrial,
+                        showTrial = accountLogin == null,
                         // fillMaxHeight + scroll is a safety net for short (720p) TVs; the menu
                         // normally fits without scrolling.
                         modifier = Modifier
@@ -273,6 +276,8 @@ fun TvHomeScreen(
                         onSplitTunnel = onSplitTunnel,
                         onShareIos = onShareIos,
                         onScanQr = onScanQr,
+                        onEnterTrial = onEnterTrial,
+                        showTrial = accountLogin == null,
                         modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
                     )
                 }
@@ -369,6 +374,8 @@ private fun MenuPane(
     onSplitTunnel: () -> Unit,
     onShareIos: () -> Unit,
     onScanQr: () -> Unit,
+    onEnterTrial: () -> Unit = {},
+    showTrial: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val ctx = LocalContext.current
@@ -414,6 +421,18 @@ private fun MenuPane(
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+
+        // Free-trial CTA — shown ONLY when there is no key/account (accountLogin == null), so an
+        // active subscriber can't tap it and have their paid profile replaced by a 2-day trial.
+        if (showTrial) {
+            GlossyButton(
+                label = "🎁 Попробовать 2 дня бесплатно",
+                onClick = onEnterTrial,
+                accent = NeonGreen,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
         }
 
         GlossyButton(

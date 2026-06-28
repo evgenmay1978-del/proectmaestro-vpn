@@ -1,6 +1,9 @@
 package com.maestrovpn.tv.utils
 
 import android.content.Context
+import android.media.MediaDrm
+import android.os.Build
+import android.provider.Settings
 import java.util.UUID
 
 /**
@@ -26,6 +29,34 @@ object MaestroSub {
         val id = UUID.randomUUID().toString()
         sp.edit().putString(KEY, id).apply()
         return id
+    }
+
+    /**
+     * Anti-abuse anchor for the in-app free trial — DISTINCT from [deviceId]. Unlike the
+     * per-install UUID (which regenerates on reinstall and so can't stop trial farming), this
+     * composite is built from reinstall-surviving hardware-ish ids so the backend can enforce
+     * "one trial per device, ever":
+     *   - ANDROID_ID (SSAID): survives app reinstall/clear-data (resets only on factory reset);
+     *     present on every Android incl. no-GMS boxes — the primary anchor.
+     *   - Widevine/MediaDrm device id: survives even a factory reset where DRM is provisioned;
+     *     absent on cheap L3 boxes (UnsupportedSchemeException) → empty, then we lean on SSAID.
+     *   - Build.MODEL: lowers MediaDrm/SSAID collisions across distinct units.
+     * Sent raw in the POST /trial body; the SERVER salts + HMACs it (no secret salt in the APK).
+     */
+    fun antiAbuseAnchor(context: Context): String {
+        val androidId = try {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: ""
+        } catch (_: Exception) { "" }
+        val drm = try {
+            val m = MediaDrm(UUID.fromString("edef8ba9-79d6-4ace-a3c8-27dcd51d21ed")) // Widevine
+            try {
+                m.getPropertyByteArray(MediaDrm.PROPERTY_DEVICE_UNIQUE_ID)
+                    .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            } finally {
+                @Suppress("DEPRECATION") m.release()
+            }
+        } catch (_: Exception) { "" } // UnsupportedSchemeException / null on no-DRM boxes
+        return "$androidId|$drm|${Build.MODEL ?: ""}"
     }
 
     /** Returns subUrl with this install's device id appended (idempotent — no double-add). */

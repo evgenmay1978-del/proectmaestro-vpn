@@ -24,6 +24,7 @@ import com.maestrovpn.tv.compose.screen.configuration.NewProfileScreen
 import com.maestrovpn.tv.compose.screen.claim.ClaimScreen
 import com.maestrovpn.tv.compose.screen.qrscan.ScanQrActivateScreen
 import com.maestrovpn.tv.compose.screen.purchase.BuyScreen
+import com.maestrovpn.tv.compose.screen.trial.TrialScreen
 import com.maestrovpn.tv.compose.screen.tvhome.IosKaringDialog
 import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
 import com.maestrovpn.tv.compose.screen.tvhome.rememberAccountInfo
@@ -147,6 +148,7 @@ fun SFANavHost(
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
+                    onEnterTrial = { navController.navigate("trial") },
                 )
             } else {
                 TvHomeScreen(
@@ -163,6 +165,7 @@ fun SFANavHost(
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
+                    onEnterTrial = { navController.navigate("trial") },
                 )
             }
         }
@@ -189,6 +192,14 @@ fun SFANavHost(
             popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
         ) {
             BuyScreen(onDone = { navController.popBackStack() })
+        }
+
+        composable(
+            "trial",
+            enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
+            popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
+        ) {
+            TrialScreen(onDone = { navController.popBackStack() })
         }
 
         composable(
