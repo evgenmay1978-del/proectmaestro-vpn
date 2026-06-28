@@ -11,6 +11,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -74,6 +75,10 @@ fun SFANavHost(
     groupsViewModel: GroupsViewModel? = null,
     modifier: Modifier = Modifier,
 ) {
+    // Hoisted ABOVE the NavHost so it survives the Home destination being disposed/recomposed
+    // as the user navigates: have we already auto-opened the payment screen for the current
+    // expired state? Keeps the user from being trapped on Buy (Back returns home and stays).
+    var autoBuyShown by rememberSaveable { mutableStateOf(false) }
     NavHost(
         navController = navController,
         startDestination = Screen.TvHome.route,
@@ -88,6 +93,25 @@ fun SFANavHost(
             val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting
             // login + days-left for the active subscription (refetched on connect change)
             val accountInfo by rememberAccountInfo(connected)
+            // ⛔ Expiry gate (owner: «при истёкшей подписке открывать экран оплаты»). When the
+            // subscription has EXPIRED, greet the user with the payment screen instead of home.
+            // Keyed on days_left and acts ONLY on an explicit value — NEVER on null (loading /
+            // offline / no profile / panel unreachable), so a paying customer with a flaky link is
+            // never locked out (HARD RULE #1). Shown once per app open (autoBuyShown, hoisted in
+            // SFANavHost): D-pad Back returns home and STAYS — on re-entry produceState briefly
+            // reports null then days_left=0 again, but null is a no-op and the flag is still set,
+            // so no re-trap. A confirmed renewal (days_left>0) re-arms the gate.
+            val daysLeft = accountInfo.daysLeft
+            LaunchedEffect(daysLeft) {
+                when {
+                    daysLeft == null -> Unit // unknown: loading/offline/no-profile — never gate, never reset
+                    daysLeft > 0 -> autoBuyShown = false // confirmed active / renewed → re-arm
+                    !autoBuyShown && navController.currentDestination?.route == Screen.TvHome.route -> {
+                        autoBuyShown = true
+                        navController.navigate("buy") { launchSingleTop = true }
+                    }
+                }
+            }
             var showIosQr by remember { mutableStateOf(false) }
             if (showIosQr) {
                 IosKaringDialog(onDismiss = { showIosQr = false })
