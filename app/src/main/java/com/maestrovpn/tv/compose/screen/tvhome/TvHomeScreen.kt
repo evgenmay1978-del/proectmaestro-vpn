@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,18 +60,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.ChromeTile
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.component.NeonAccountCard
@@ -85,53 +85,6 @@ import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-
-/**
- * Volumetric "MaestroVPN" wordmark — each glyph is genuinely EXTRUDED (a stack of dark
- * side faces under a beveled, specular-lit front face), giving real depth. "Maestro"
- * orange, "VPN" silver. Static (no per-frame spin) so it's free on a weak TV box.
- */
-@Composable
-private fun AnimatedLogo(modifier: Modifier = Modifier) {
-    val word = "MaestroVPN"
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        word.forEachIndexed { i, ch ->
-            val isVpn = i >= word.length - 3
-            Letter3D(ch, if (isVpn) MaestroSilver else MaestroOrange)
-        }
-    }
-}
-
-@Composable
-private fun Letter3D(ch: Char, base: Color) {
-    val depth = 8
-    val side = lerp(base, Color.Black, 0.5f)
-    Box(contentAlignment = Alignment.Center) {
-        for (d in depth downTo 1) {
-            Text(
-                ch.toString(),
-                fontSize = 46.sp,
-                fontWeight = FontWeight.Black,
-                color = lerp(side, Color.Black, d / (depth * 1.6f)),
-                modifier = Modifier.graphicsLayer { translationX = d * 1.7f; translationY = d * 1.7f },
-            )
-        }
-        Text(
-            ch.toString(),
-            fontSize = 46.sp,
-            fontWeight = FontWeight.Black,
-            style = TextStyle(
-                brush = Brush.verticalGradient(
-                    0f to lerp(base, Color.White, 0.85f),
-                    0.18f to lerp(base, Color.White, 0.25f),
-                    0.55f to base,
-                    1f to lerp(base, Color.Black, 0.28f),
-                ),
-                shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 4f), 7f),
-            ),
-        )
-    }
-}
 
 /**
  * MaestroVPN home — the universal connect screen for BOTH a TV remote (D-pad) and a
@@ -301,7 +254,15 @@ private fun HeroPane(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        AnimatedLogo()
+        // Brand wordmark — the owner's spiderweb logo (orange "Maestro" / green "VPN" + a
+        // hanging spider). Width matched to the medallion (252.dp) so the hero reads as one
+        // unit; height follows the asset's ~2.15:1 aspect. Transparent PNG → blends on the dark bg.
+        Image(
+            painter = painterResource(R.drawable.maestro_wordmark),
+            contentDescription = "MaestroVPN",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.width(252.dp).height(117.dp),
+        )
         Spacer(Modifier.height(18.dp))
 
         SpiderMedallion(
