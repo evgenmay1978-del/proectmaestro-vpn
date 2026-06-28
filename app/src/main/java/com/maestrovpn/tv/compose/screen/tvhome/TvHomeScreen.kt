@@ -257,15 +257,13 @@ private fun HeroPane(
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         // Brand wordmark — the owner's spiderweb logo (orange "Maestro" / green "VPN" + a
         // hanging spider). On TV the width = the medallion (252.dp) so the hero reads as one
-        // centred unit; on a phone it's a bit larger (308.dp). Height follows the ~2.15:1 aspect.
-        // Transparent PNG → blends on the dark bg.
+        // centred unit; on a phone it spans the FULL hero width (banner-style, as large as fits
+        // — never overflows since it can't exceed the parent). Height follows the ~2.15:1 aspect.
         Image(
             painter = painterResource(R.drawable.maestro_wordmark),
             contentDescription = "MaestroVPN",
             contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .width(if (isTv) 252.dp else 308.dp)
-                .height(if (isTv) 117.dp else 143.dp),
+            modifier = if (isTv) Modifier.width(252.dp).height(117.dp) else Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(18.dp))
 
