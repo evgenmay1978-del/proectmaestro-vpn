@@ -253,15 +253,19 @@ private fun HeroPane(
     connectFocus: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
+    val isTv = rememberIsTv()
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         // Brand wordmark — the owner's spiderweb logo (orange "Maestro" / green "VPN" + a
-        // hanging spider). Width matched to the medallion (252.dp) so the hero reads as one
-        // unit; height follows the asset's ~2.15:1 aspect. Transparent PNG → blends on the dark bg.
+        // hanging spider). On TV the width = the medallion (252.dp) so the hero reads as one
+        // centred unit; on a phone it's a bit larger (308.dp). Height follows the ~2.15:1 aspect.
+        // Transparent PNG → blends on the dark bg.
         Image(
             painter = painterResource(R.drawable.maestro_wordmark),
             contentDescription = "MaestroVPN",
             contentScale = ContentScale.Fit,
-            modifier = Modifier.width(252.dp).height(117.dp),
+            modifier = Modifier
+                .width(if (isTv) 252.dp else 308.dp)
+                .height(if (isTv) 117.dp else 143.dp),
         )
         Spacer(Modifier.height(18.dp))
 
