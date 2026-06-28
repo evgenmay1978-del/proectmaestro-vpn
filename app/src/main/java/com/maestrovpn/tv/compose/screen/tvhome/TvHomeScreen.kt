@@ -85,6 +85,17 @@ import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.Dp
+import com.maestrovpn.tv.compose.rememberIsLowRam
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * MaestroVPN home — the universal connect screen for BOTH a TV remote (D-pad) and a
@@ -154,6 +165,11 @@ fun TvHomeScreen(
                         ),
                         radius = radius, center = center,
                     )
+                    // faint cobwebs in the BOTTOM corners — ambient background, far from the top
+                    // logo + geometric/faint, so they never merge with the photoreal logo web.
+                    val wr = size.minDimension * 0.34f
+                    cornerWeb(Offset(0f, size.height), 1f, -1f, wr, 0.055f)
+                    cornerWeb(Offset(size.width, size.height), -1f, -1f, wr, 0.055f)
                 }
                 .graphicsLayer {
                     alpha = enter
@@ -240,6 +256,75 @@ fun TvHomeScreen(
     }
 }
 
+private val SpiderSilk = Color(0xFFC2C8D0)
+
+/**
+ * A spider hanging from a silk thread below the wordmark, swaying gently as if in a breeze. The
+ * sway is ONE cheap graphicsLayer rotation (a GPU transform, no recomposition) about the thread's
+ * top anchor — but it's still gated off on low-RAM TVs to honour the low-RAM budget.
+ */
+@Composable
+private fun HangingSpider(animated: Boolean, sizeDp: Dp) {
+    val sway = if (animated) {
+        val transition = rememberInfiniteTransition(label = "spiderSway")
+        val deg by transition.animateFloat(
+            initialValue = -7f,
+            targetValue = 7f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2600, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "spiderSwayDeg",
+        )
+        deg
+    } else {
+        0f
+    }
+    Box(
+        modifier = Modifier.graphicsLayer {
+            rotationZ = sway
+            transformOrigin = TransformOrigin(0.5f, 0f) // pivot at the top of the thread
+        },
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.width(1.5.dp).height(24.dp).background(SpiderSilk.copy(alpha = 0.45f)))
+            Image(
+                painter = painterResource(R.drawable.hanging_spider),
+                contentDescription = null,
+                modifier = Modifier.width(sizeDp).height(sizeDp * (120f / 73f)),
+            )
+        }
+    }
+}
+
+/**
+ * A faint cobweb tucked into a screen corner — ambient background atmosphere, deliberately
+ * geometric and very faint so it never merges with the photoreal web inside the logo.
+ */
+private fun DrawScope.cornerWeb(corner: Offset, dirX: Float, dirY: Float, radius: Float, alpha: Float) {
+    val col = Color.White.copy(alpha = alpha)
+    val spokes = 6
+    for (i in 0..spokes) {
+        val ang = (PI / 2.0) * i / spokes
+        drawLine(
+            col,
+            corner,
+            Offset(corner.x + dirX * radius * cos(ang).toFloat(), corner.y + dirY * radius * sin(ang).toFloat()),
+            strokeWidth = 1f,
+        )
+    }
+    for (ring in 1..3) {
+        val rr = radius * ring / 3.4f
+        var prev: Offset? = null
+        for (i in 0..spokes) {
+            val ang = (PI / 2.0) * i / spokes
+            val p = Offset(corner.x + dirX * rr * cos(ang).toFloat(), corner.y + dirY * rr * sin(ang).toFloat())
+            prev?.let { drawLine(col, it, p, strokeWidth = 1f) }
+            prev = p
+        }
+    }
+}
+
 /** The hero zone: wordmark + the spider medallion connect button + status + account. */
 @Composable
 private fun HeroPane(
@@ -254,6 +339,7 @@ private fun HeroPane(
     modifier: Modifier = Modifier,
 ) {
     val isTv = rememberIsTv()
+    val isLowRam = rememberIsLowRam()
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         // Brand wordmark — the owner's spiderweb logo (orange "Maestro" / green "VPN" + a
         // hanging spider). On TV the width = the medallion (252.dp) so the hero reads as one
@@ -265,7 +351,11 @@ private fun HeroPane(
             contentScale = ContentScale.Fit,
             modifier = if (isTv) Modifier.width(252.dp).height(117.dp) else Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(18.dp))
+
+        // A spider hangs from the wordmark on a silk thread, swaying as if in a breeze — it also
+        // fills the space between the logo and the medallion.
+        HangingSpider(animated = !isLowRam, sizeDp = if (isTv) 30.dp else 38.dp)
+        Spacer(Modifier.height(10.dp))
 
         SpiderMedallion(
             connected = connected,
