@@ -118,13 +118,20 @@ fun BuyScreen(
                 }
 
                 is BuyState.AwaitingPayment -> {
-                    Text(
-                        "Оплата",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                    )
-                    Spacer(Modifier.height(8.dp))
+                    // On TV the viewport is SHORT (landscape). The "Оплата" header is redundant
+                    // (you reached this screen by buying) and its height was part of what pushed
+                    // the amount off the top: the focusable "Я оплатил" button auto-scrolls into
+                    // view, dragging the top of a too-tall column above the viewport. Drop it on
+                    // TV so the amount line is the top. Phone (tall, no focus-scroll) keeps it.
+                    if (!isTv) {
+                        Text(
+                            "Оплата",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                     Text(
                         "Сумма: ${s.rub} ₽",
                         style = MaterialTheme.typography.headlineSmall,
@@ -138,14 +145,17 @@ fun BuyScreen(
                     val payContent = if (s.payUrl.isNotBlank()) s.payUrl else s.phone
                     if (payContent.isNotBlank()) {
                         val payQr = remember(payContent) { QRCodeGenerator.generate(payContent) }
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(if (isTv) 10.dp else 16.dp))
                         Surface(color = Color.White) {
                             Image(
                                 bitmap = payQr.asImageBitmap(),
                                 contentDescription = "QR для оплаты",
                                 modifier = Modifier
                                     .padding(12.dp)
-                                    .size(220.dp),
+                                    // Smaller on TV so the whole payment card fits the short
+                                    // landscape viewport WITHOUT scrolling (scrolling hid the
+                                    // amount). 170dp ≈ 340px on 1080p — still easily phone-scannable.
+                                    .size(if (isTv) 170.dp else 220.dp),
                             )
                         }
                         Spacer(Modifier.height(8.dp))
@@ -174,7 +184,7 @@ fun BuyScreen(
                             textAlign = TextAlign.Center,
                         )
                     }
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(if (isTv) 16.dp else 24.dp))
                     GlossyButton(
                         label = "Я оплатил",
                         onClick = { viewModel.iPaid() },
