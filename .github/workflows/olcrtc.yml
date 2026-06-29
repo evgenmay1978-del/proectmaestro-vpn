@@ -61,7 +61,11 @@ jobs:
         run: |
           set -euo pipefail
           go mod download
-          gomobile bind -target=android -androidapi 21 -ldflags "-s -w -checklinkname=0" -o olcrtc.aar ./mobile
+          # -javapkg namespaces ALL generated classes (incl. the gomobile `go.*` runtime support)
+          # under com.maestrovpn.olcrtc.* so they CANNOT collide with libbox.aar's classes — the same
+          # trick libbox uses (-javapkg=io.nekohasekai). The native lib stays libgojni.so (≠ libbox.so).
+          gomobile bind -target=android -androidapi 21 -javapkg=com.maestrovpn.olcrtc \
+            -ldflags "-s -w -checklinkname=0" -o olcrtc.aar ./mobile
           ls -lh olcrtc.aar
       - name: Show built artifact
         run: ls -lh olcrtc/olcrtc.aar

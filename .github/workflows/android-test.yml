@@ -72,6 +72,18 @@ jobs:
           test -f app/libs/libbox.aar
           ls -lh app/libs/
 
+      - name: Fetch olcrtc.aar (latest successful olcrtc.yml run) — coexistence test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RUN_ID=$(gh run list --workflow=olcrtc.yml --status=success -L1 \
+            --json databaseId -q '.[0].databaseId // empty')
+          [ -n "$RUN_ID" ] || { echo "::error::No successful olcrtc.yml build found." >&2; exit 1; }
+          gh run download "$RUN_ID" -n olcrtc-aar -D app/libs
+          test -f app/libs/olcrtc.aar
+          ls -lh app/libs/
+
       - name: Materialize the stable signing keystore from secret
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}

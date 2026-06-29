@@ -176,6 +176,10 @@ dependencies {
     // libbox
     "otherImplementation"(files("libs/libbox.aar"))
 
+    // olcRTC — WebRTC video-disguise fallback transport (gomobile binding, com.maestrovpn.olcrtc.*).
+    // Native lib is libgojni.so (≠ libbox.so), classes are -javapkg-namespaced → coexists with libbox.
+    "otherImplementation"(files("libs/olcrtc.aar"))
+
     // API level specific versions
     val lifecycleVersion23 = "2.10.0"
     val roomVersion23 = "2.8.4"
