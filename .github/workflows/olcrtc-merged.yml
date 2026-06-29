@@ -1,0 +1,125 @@
+name: Build merged libbox+olcrtc.aar (EXPERIMENT — option-1 spike)
+
+# EXPERIMENT (branch feat/olcrtc-aar): bind BOTH sing-box libbox AND olcRTC's mobile package in ONE
+# gomobile bind → a single libbox.aar with ONE shared gomobile `go.*` runtime + one .so, so they
+# don't hit "Duplicate class go.Seq" (the two-separate-.aar problem from android-test run 28399699046).
+# Same recipe as libbox.yml + `go get olcrtc` + the olcrtc/mobile package appended to build_libbox's
+# bind list. Built with Go 1.26 (olcRTC needs it; satisfies sing-box's >=1.25 too). workflow_dispatch
+# ONLY — does NOT touch the real libbox.yml or the fleet engine. Output artifact: libbox-merged-aar.
+on:
+  push:
+    paths:
+      - .github/workflows/olcrtc-merged.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout our repo (for version.properties pin)
+        uses: actions/checkout@v4
+
+      - name: Load pinned versions from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          # MERGED build uses OLCRTC_GO_VERSION (Go 1.26 — olcRTC needs it; satisfies sing-box too).
+          source <(grep -E '^(OLCRTC_GO_VERSION|SINGBOX_REF|NDK_VERSION|OLCRTC_REF)=' version.properties)
+          echo "go_version=${OLCRTC_GO_VERSION#go}" >> "$GITHUB_OUTPUT"
+          echo "singbox_ref=${SINGBOX_REF}"         >> "$GITHUB_OUTPUT"
+          echo "ndk_version=${NDK_VERSION}"         >> "$GITHUB_OUTPUT"
+          echo "olcrtc_ref=${OLCRTC_REF}"           >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go ${{ steps.pin.outputs.go_version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          check-latest: false
+
+      # build_libbox/main.go fatals unless `java --version` reports "openjdk 17".
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # build_shared.findNDK() looks for $ANDROID_SDK_ROOT/ndk/<NDK_VERSION>;
+      # install that exact revision and the cmdline-tools licenses it expects.
+      - name: Install pinned Android NDK ${{ steps.pin.outputs.ndk_version }}
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+
+      - name: Clone sing-box at ${{ steps.pin.outputs.singbox_ref }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ steps.pin.outputs.singbox_ref }}" \
+            https://github.com/SagerNet/sing-box.git sing-box
+          echo "built ref:"; git -C sing-box rev-parse HEAD
+
+      # AmneziaWG (official amneziawg-go v0.2.15) is now part of the FLEET libbox so the whole
+      # fleet can run AWG as an unblockable manual-fallback protocol. The awg endpoint stays
+      # DORMANT until a customer is provisioned WG creds AND their app is version-gated in (see
+      # api.go awgMinVC) — so shipping this engine ahead of provisioning is safe and inert.
+      - name: Apply OFFICIAL AmneziaWG patch (amneziawg-go v0.2.15 onto the 1.14 base)
+        run: |
+          set -euo pipefail
+          # 1) overlay the ported OFFICIAL AWG source (full patched copies — no fragile sed).
+          cp -rv libbox-awg/option    sing-box/
+          cp -rv libbox-awg/protocol  sing-box/
+          cp -rv libbox-awg/transport sing-box/
+          cp -rv libbox-awg/include   sing-box/
+          cp -rv libbox-awg/constant  sing-box/
+          grep -q 'registerAwgEndpoint' sing-box/include/registry.go \
+            || { echo "::error::awg endpoint not registered"; exit 1; }
+          # 2) add the with_awg build tag to the libbox shared-tags set
+          sed -i 's/"with_clash_api", "badlinkname"/"with_clash_api", "with_awg", "badlinkname"/' \
+            sing-box/cmd/internal/build_libbox/main.go
+          grep -q '"with_awg"' sing-box/cmd/internal/build_libbox/main.go \
+            || { echo "::error::with_awg tag not added to build_libbox"; exit 1; }
+          # 3) pull in the OFFICIAL AmneziaWG engine
+          cd sing-box
+          go get github.com/amnezia-vpn/amneziawg-go@v0.2.15
+          # MERGED: pull olcRTC into the SAME go module + add its mobile package to build_libbox's bind
+          go get "github.com/openlibrecommunity/olcrtc@${{ steps.pin.outputs.olcrtc_ref }}"
+          # append olcrtc/mobile to the gomobile bind arg list inside build_libbox/main.go
+          sed -i 's#"./experimental/libbox"#"./experimental/libbox", "github.com/openlibrecommunity/olcrtc/mobile"#' \
+            cmd/internal/build_libbox/main.go
+          grep -q 'olcrtc/mobile' cmd/internal/build_libbox/main.go \
+            || { echo "::error::could not add olcrtc/mobile to build_libbox bind — open cmd/internal/build_libbox/main.go, find how it passes ./experimental/libbox to gomobile, and adjust the sed"; exit 1; }
+          go mod tidy
+
+      # Verbatim Makefile targets. lib_install installs gomobile+gobind @v0.1.13
+      # into $(go env GOPATH)/bin; build_libbox calls $GOPATH/bin/gomobile directly,
+      # so make sure that dir is on PATH (and ANDROID_HOME is set for SDK discovery).
+      - name: make lib_install
+        working-directory: sing-box
+        run: make lib_install
+
+      - name: make lib_android (gomobile bind -> libbox.aar)
+        working-directory: sing-box
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          make lib_android
+
+      - name: Show built artifacts
+        working-directory: sing-box
+        run: ls -lh libbox*.aar
+
+      # We only ship the non-legacy AAR: it is built with -androidapi 23, which
+      # matches our minSdk 23 (we drop SFA's otherLegacy/minSdk-21 flavor).
+      - name: Upload libbox.aar
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-merged-aar
+          path: sing-box/libbox.aar
+          if-no-files-found: error
