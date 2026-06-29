@@ -683,16 +683,22 @@ class MainActivity :
                             )
                         } else {
                             val progress by UpdateState.downloadProgress
+                            // Capture ONCE into a local: `progress` is a delegated snapshot read,
+                            // so `{ progress!! }` re-reads it at draw/semantics time — if the
+                            // download finished/reset to null between composition and that lambda
+                            // firing, `!!` threw NPE (fleet crash on the update screen). The local
+                            // `p` is a stable non-null value captured per-recomposition.
+                            val p = progress
                             Column {
-                                if (progress != null) {
-                                    Text("${stringResource(R.string.downloading)} ${(progress!! * 100).toInt()}%")
+                                if (p != null) {
+                                    Text("${stringResource(R.string.downloading)} ${(p * 100).toInt()}%")
                                 } else {
                                     Text(stringResource(R.string.downloading))
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                if (progress != null) {
+                                if (p != null) {
                                     LinearProgressIndicator(
-                                        progress = { progress!! },
+                                        progress = { p },
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                 } else {
