@@ -308,22 +308,22 @@ private fun HeroPane(
     val isTv = rememberIsTv()
     val isLowRam = rememberIsLowRam()
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        // Brand wordmark — the owner's spiderweb logo (orange "Maestro" / green "VPN"). TV: width =
-        // the medallion (252.dp) so the hero reads as one unit; phone: spans the FULL hero width.
-        // The spider hangs from the web (≈0.76 down the logo) on a silk thread and sways like a
-        // breeze — OVERLAID on the logo so it stays attached exactly as in the original art.
+        // Brand wordmark — the owner's spiderweb logo (orange "Maestro" / green "VPN"). Spans the
+        // FULL hero width on BOTH phone and TV (the old TV 252.dp version read far too small next to
+        // the big medallion). The spider hangs from the web (≈0.72 down the logo) on a silk thread
+        // and sways like a breeze — OVERLAID on the logo so it stays attached as in the original art.
         Box(contentAlignment = Alignment.TopCenter) {
             var logoH by remember { mutableStateOf(0) }
             Image(
                 painter = painterResource(R.drawable.maestro_wordmark),
                 contentDescription = "MaestroVPN",
                 contentScale = ContentScale.Fit,
-                modifier = (if (isTv) Modifier.width(252.dp) else Modifier.fillMaxWidth())
+                modifier = Modifier.fillMaxWidth()
                     .onGloballyPositioned { logoH = it.size.height },
             )
             HangingSpider(
                 animated = !isLowRam,
-                sizeDp = if (isTv) 22.dp else 26.dp,
+                sizeDp = if (isTv) 30.dp else 26.dp,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     // hang from a bit higher up the web so the spider doesn't dangle so low — this
