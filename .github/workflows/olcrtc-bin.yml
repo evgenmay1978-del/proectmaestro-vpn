@@ -1,4 +1,4 @@
-name: Build olcrtc android binaries (option-b: separate process)
+name: Build olcrtc android binaries (option-b — separate process)
 
 # Option-b path for integrating olcRTC WITHOUT the gomobile-merge pain (the separate-.aar build hit
 # "Duplicate class go.Seq"; the merged bind hit "no exported names"). Here we cross-compile olcRTC's
