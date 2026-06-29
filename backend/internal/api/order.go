@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
@@ -118,6 +119,13 @@ func (s *Server) handleOrderPaidClaim(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "awaiting_confirm"})
 }
 
+// confirmMu serializes order confirmations so a double-tapped Telegram «Подтвердить»
+// button (or a retry) can't let two requests both pass the pending→paid gate and
+// double-provision — for a RENEWAL store.Extend STACKS days (≈60 instead of 30). The
+// second caller waits, re-reads the order as already "paid", and early-returns. Confirms
+// are rare + admin-only, so one mutex for the whole confirm path is fine.
+var confirmMu sync.Mutex
+
 // handleOrderConfirm (admin): the owner confirms a received СБП payment → provision
 // the customer and flip the order to paid, so the app's poll returns the sub_url.
 func (s *Server) handleOrderConfirm(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +135,8 @@ func (s *Server) handleOrderConfirm(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	confirmMu.Lock()
+	defer confirmMu.Unlock()
 	o, err := s.orders.ByID(req.OrderID)
 	if errors.Is(err, order.ErrNotFound) {
 		http.Error(w, "no such order", http.StatusNotFound)
