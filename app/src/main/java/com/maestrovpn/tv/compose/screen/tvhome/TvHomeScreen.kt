@@ -286,7 +286,7 @@ private fun HangingSpider(animated: Boolean, sizeDp: Dp, modifier: Modifier = Mo
             Image(
                 painter = painterResource(R.drawable.hanging_spider),
                 contentDescription = null,
-                modifier = Modifier.width(sizeDp).height(sizeDp * (120f / 73f)),
+                modifier = Modifier.width(sizeDp).height(sizeDp * (327f / 131f)),
             )
         }
     }
@@ -318,21 +318,21 @@ private fun HeroPane(
                 painter = painterResource(R.drawable.maestro_wordmark),
                 contentDescription = "MaestroVPN",
                 contentScale = ContentScale.Fit,
-                modifier = (if (isTv) Modifier.width(252.dp).height(117.dp) else Modifier.fillMaxWidth())
+                modifier = (if (isTv) Modifier.width(252.dp) else Modifier.fillMaxWidth())
                     .onGloballyPositioned { logoH = it.size.height },
             )
             HangingSpider(
                 animated = !isLowRam,
-                sizeDp = if (isTv) 30.dp else 38.dp,
+                sizeDp = if (isTv) 22.dp else 26.dp,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     // hang from a bit higher up the web so the spider doesn't dangle so low — this
                     // lets the connect button sit HIGHER without ever covering the spider.
-                    .offset { IntOffset(0, (logoH * 0.62f).roundToInt()) },
+                    .offset { IntOffset(0, (logoH * 0.72f).roundToInt()) },
             )
         }
         // raised the medallion up (smaller gap) — but still clears the swaying spider above it.
-        Spacer(Modifier.height(if (isTv) 20.dp else 16.dp))
+        Spacer(Modifier.height(if (isTv) 24.dp else 28.dp))
 
         SpiderMedallion(
             connected = connected,
