@@ -312,7 +312,20 @@ private fun HeroPane(
         // FULL hero width on BOTH phone and TV (the old TV 252.dp version read far too small next to
         // the big medallion). The spider hangs from the web (≈0.72 down the logo) on a silk thread
         // and sways like a breeze — OVERLAID on the logo so it stays attached as in the original art.
-        Box(contentAlignment = Alignment.TopCenter) {
+        Box(
+            modifier = Modifier.drawBehind {
+                // soft neon glow behind the wordmark so it reads as a LIT UI element (same neon
+                // family as the buttons + the medallion), not a separate sticker laid on top.
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(NeonGreen.copy(alpha = 0.13f), Color.Transparent),
+                        center = Offset(size.width / 2f, size.height * 0.46f),
+                        radius = size.height * 1.05f,
+                    ),
+                )
+            },
+            contentAlignment = Alignment.TopCenter,
+        ) {
             var logoH by remember { mutableStateOf(0) }
             Image(
                 painter = painterResource(R.drawable.maestro_wordmark),
