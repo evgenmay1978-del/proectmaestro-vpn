@@ -277,16 +277,20 @@ fun AppSettingsScreen(
                         )
                     } else {
                         val progress by UpdateState.downloadProgress
+                        // Capture ONCE — same deferred-snapshot-read NPE fixed in MainActivity:
+                        // `{ progress!! }` re-reads the delegate at draw time, and downloadProgress
+                        // goes null mid-stream (unknown Content-Length) / on reset → `!!` crashed.
+                        val p = progress
                         Column {
-                            if (progress != null) {
-                                Text("${stringResource(R.string.downloading)} ${(progress!! * 100).toInt()}%")
+                            if (p != null) {
+                                Text("${stringResource(R.string.downloading)} ${(p * 100).toInt()}%")
                             } else {
                                 Text(stringResource(R.string.downloading))
                             }
                             Spacer(modifier = Modifier.height(8.dp))
-                            if (progress != null) {
+                            if (p != null) {
                                 LinearProgressIndicator(
-                                    progress = { progress!! },
+                                    progress = { p },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             } else {
