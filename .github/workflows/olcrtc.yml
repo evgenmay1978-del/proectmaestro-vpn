@@ -1,0 +1,72 @@
+name: Build olcrtc.aar
+# Produces olcrtc.aar (the olcRTC WebRTC-disguise transport, github.com/openlibrecommunity/olcrtc)
+# as a gomobile Android binding, pinned to OLCRTC_REF in version.properties. The app's android.yml
+# downloads this artifact into app/libs alongside libbox.aar. Mirrors libbox.yml.
+# This is the FIRST integration step: it proves the .aar builds in CI and produces the artifact the
+# Kotlin side will drive (Start() -> local SOCKS5, SocketProtector -> VpnService.protect()).
+on:
+  push:
+    paths:
+      - version.properties
+      - .github/workflows/olcrtc.yml
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout our repo (for the pinned OLCRTC_REF / NDK_VERSION)
+        uses: actions/checkout@v4
+      - name: Load pinned versions from version.properties
+        id: pin
+        run: |
+          set -euo pipefail
+          source <(grep -E '^(OLCRTC_REF|OLCRTC_GO_VERSION|NDK_VERSION)=' version.properties)
+          echo "olcrtc_ref=${OLCRTC_REF}"           >> "$GITHUB_OUTPUT"
+          echo "go_version=${OLCRTC_GO_VERSION#go}"  >> "$GITHUB_OUTPUT"
+          echo "ndk_version=${NDK_VERSION}"          >> "$GITHUB_OUTPUT"
+      - name: Set up Go ${{ steps.pin.outputs.go_version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          check-latest: false
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install pinned Android NDK ${{ steps.pin.outputs.ndk_version }}
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" "platform-tools"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+      - name: Clone olcRTC at ${{ steps.pin.outputs.olcrtc_ref }}
+        run: |
+          set -euo pipefail
+          git clone https://github.com/openlibrecommunity/olcrtc.git olcrtc
+          git -C olcrtc checkout "${{ steps.pin.outputs.olcrtc_ref }}"
+          echo "built ref:"; git -C olcrtc rev-parse HEAD
+      - name: Install gomobile + gobind (upstream golang.org/x/mobile)
+        run: |
+          set -euo pipefail
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: gomobile init
+        run: gomobile init
+      - name: gomobile bind -> olcrtc.aar
+        working-directory: olcrtc
+        run: |
+          set -euo pipefail
+          go mod download
+          gomobile bind -target=android -androidapi 21 -ldflags "-s -w -checklinkname=0" -o olcrtc.aar ./mobile
+          ls -lh olcrtc.aar
+      - name: Show built artifact
+        run: ls -lh olcrtc/olcrtc.aar
+      - name: Upload olcrtc.aar
+        uses: actions/upload-artifact@v4
+        with:
+          name: olcrtc-aar
+          path: olcrtc/olcrtc.aar
