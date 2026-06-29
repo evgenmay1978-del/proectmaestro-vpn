@@ -85,17 +85,6 @@ import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import com.maestrovpn.tv.compose.rememberIsLowRam
-import kotlin.math.roundToInt
 
 /**
  * MaestroVPN home — the universal connect screen for BOTH a TV remote (D-pad) and a
@@ -251,47 +240,6 @@ fun TvHomeScreen(
     }
 }
 
-private val SpiderSilk = Color(0xFFC2C8D0)
-
-/**
- * A spider hanging from a silk thread below the wordmark, swaying gently as if in a breeze. The
- * sway is ONE cheap graphicsLayer rotation (a GPU transform, no recomposition) about the thread's
- * top anchor — but it's still gated off on low-RAM TVs to honour the low-RAM budget.
- */
-@Composable
-private fun HangingSpider(animated: Boolean, sizeDp: Dp, modifier: Modifier = Modifier) {
-    val sway = if (animated) {
-        val transition = rememberInfiniteTransition(label = "spiderSway")
-        val deg by transition.animateFloat(
-            initialValue = -7f,
-            targetValue = 7f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2600, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "spiderSwayDeg",
-        )
-        deg
-    } else {
-        0f
-    }
-    Box(
-        modifier = modifier.graphicsLayer {
-            rotationZ = sway
-            transformOrigin = TransformOrigin(0.5f, 0f) // pivot at the top of the thread (the web)
-        },
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.width(1.5.dp).height(10.dp).background(SpiderSilk.copy(alpha = 0.5f)))
-            Image(
-                painter = painterResource(R.drawable.hanging_spider),
-                contentDescription = null,
-                modifier = Modifier.width(sizeDp).height(sizeDp * (327f / 131f)),
-            )
-        }
-    }
-}
-
 /** The hero zone: wordmark + the spider medallion connect button + status + account. */
 @Composable
 private fun HeroPane(
@@ -306,46 +254,17 @@ private fun HeroPane(
     modifier: Modifier = Modifier,
 ) {
     val isTv = rememberIsTv()
-    val isLowRam = rememberIsLowRam()
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        // Brand wordmark — the owner's spiderweb logo (orange "Maestro" / green "VPN"). Spans the
-        // FULL hero width on BOTH phone and TV (the old TV 252.dp version read far too small next to
-        // the big medallion). The spider hangs from the web (≈0.72 down the logo) on a silk thread
-        // and sways like a breeze — OVERLAID on the logo so it stays attached as in the original art.
-        Box(
-            modifier = Modifier.drawBehind {
-                // soft neon glow behind the wordmark so it reads as a LIT UI element (same neon
-                // family as the buttons + the medallion), not a separate sticker laid on top.
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(NeonGreen.copy(alpha = 0.13f), Color.Transparent),
-                        center = Offset(size.width / 2f, size.height * 0.46f),
-                        radius = size.height * 1.05f,
-                    ),
-                )
-            },
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            var logoH by remember { mutableStateOf(0) }
-            Image(
-                painter = painterResource(R.drawable.maestro_wordmark),
-                contentDescription = "MaestroVPN",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth()
-                    .onGloballyPositioned { logoH = it.size.height },
-            )
-            HangingSpider(
-                animated = !isLowRam,
-                sizeDp = if (isTv) 30.dp else 26.dp,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    // hang from a bit higher up the web so the spider doesn't dangle so low — this
-                    // lets the connect button sit HIGHER without ever covering the spider.
-                    .offset { IntOffset(0, (logoH * 0.72f).roundToInt()) },
-            )
-        }
-        // raised the medallion up (smaller gap) — but still clears the swaying spider above it.
-        Spacer(Modifier.height(if (isTv) 24.dp else 28.dp))
+        // Brand wordmark — the owner's glossy green-glass PANEL (its own chrome bevel + neon-green
+        // sheen = the SAME UI family as the buttons → reads as one unified element, not a sticker).
+        // One whole piece, full hero width; no separate animated spider (the new art has none).
+        Image(
+            painter = painterResource(R.drawable.maestro_wordmark),
+            contentDescription = "MaestroVPN",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(if (isTv) 14.dp else 16.dp))
 
         SpiderMedallion(
             connected = connected,
