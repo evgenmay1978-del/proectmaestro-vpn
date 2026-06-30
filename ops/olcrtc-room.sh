@@ -23,15 +23,18 @@ esac
 
 PANEL=http://127.0.0.1:8910
 S3=46.30.42.151
-TOKEN=$(. /etc/maestro-panel.env 2>/dev/null; printf '%s' "${MAESTRO_ADMIN_TOKEN:-}")
+# Read the token by PARSING the env file (it's a systemd EnvironmentFile — KEY=VALUE — not
+# always valid shell, so `.`-sourcing it can fail). Strip surrounding quotes if any.
+TOKEN=$(grep -E '^MAESTRO_ADMIN_TOKEN=' /etc/maestro-panel.env | head -1 | cut -d= -f2- | sed 's/^"//;s/"$//')
 [ -n "$TOKEN" ] || { echo "MAESTRO_ADMIN_TOKEN not in /etc/maestro-panel.env"; exit 1; }
 
 echo "→ 1/3 panel global olcRTC config (clients update via /info)"
 HTTP=$(curl -s -o /tmp/olc-room.out -w '%{http_code}' -X POST "$PANEL/admin/olcrtc/room" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d "{\"room\":\"$ROOM\"}")
-[ "$HTTP" = 200 ] || { echo "  ❌ panel update failed (HTTP $HTTP): $(cat /tmp/olc-room.out)"; exit 1; }
-echo "  ✅ panel updated: $(cat /tmp/olc-room.out)"
+[ "$HTTP" = 200 ] || { echo "  ❌ panel update failed (HTTP $HTTP)"; exit 1; }
+# Redact the hex key before printing (this output is relayed to the owner's Telegram).
+echo "  ✅ panel updated: $(sed 's/"key":"[0-9a-fA-F]*"/"key":"<redacted>"/' /tmp/olc-room.out)"
 
 echo "→ 2/3 S3 srv server.yaml + restart"
 ssh -o StrictHostKeyChecking=no "root@$S3" "
