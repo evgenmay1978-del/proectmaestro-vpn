@@ -157,6 +157,25 @@ var awgMinVC = func() int {
 	return 999999
 }()
 
+// olcLogins is the set of logins that may receive the olcRTC fallback in their /sub + /info
+// (owner's own accounts — the feature is "под замком для wapmix"). Defaults to {wapmix};
+// override with MAESTRO_OLC_LOGINS="wapmix,wapmixx" (comma-separated) without a redeploy.
+// Belt-and-suspenders: OLC creds are only stored on these accounts anyway, but this strips
+// them even if a record were mis-set, so the working transport never reaches anyone else.
+var olcLogins = func() map[string]bool {
+	raw := os.Getenv("MAESTRO_OLC_LOGINS")
+	if strings.TrimSpace(raw) == "" {
+		raw = "wapmix"
+	}
+	m := map[string]bool{}
+	for _, l := range strings.Split(raw, ",") {
+		if l = strings.TrimSpace(l); l != "" {
+			m[l] = true
+		}
+	}
+	return m
+}()
+
 // appVersionCode parses the SFA app versionCode from the User-Agent, e.g.
 // "SFA/1.0.106 (106; sing-box 1.14.0-alpha.31; language ru_RU)" → 106. Returns 0 for any
 // non-SFA client (Karing, v2rayN, curl…) so they never qualify for the awg endpoint.
@@ -240,6 +259,12 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	if sc.WG != nil && appVersionCode(r.UserAgent()) < awgMinVC {
 		sc.WG = nil
 	}
+	// olcRTC creds-gate: emit the olcRTC socks outbound ONLY for the owner's logins. The
+	// working transport (room/key) is delivered separately over /info — also gated below — so
+	// even if someone bypasses the UI teaser, no creds = no tunnel.
+	if sc.OLC != nil && !olcLogins[c.Login] {
+		sc.OLC = nil
+	}
 	// Universal share-links subscription for cross-platform clients (Karing on
 	// iPhone, v2rayN, NekoBox, Shadowrocket…), requested via ?app=karing /
 	// ?format=links.
@@ -283,12 +308,25 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	out := map[string]any{
 		"login":     c.Login,
 		"expires":   c.Expires,
 		"days_left": daysLeft,
 		"active":    c.Active(),
-	})
+	}
+	// olcRTC WebRTC params (provider/room/key/transport) — NOT sing-box fields, so they can't
+	// ride in /sub; the app writes them into the child's client.yaml. Gated to the owner's
+	// logins (same set as the /sub creds-gate). The token is the per-customer secret, so the
+	// key is no more exposed than the rest of /info.
+	if c.OLC != nil && olcLogins[c.Login] {
+		out["olcrtc"] = map[string]any{
+			"provider":  c.OLC.Provider,
+			"room":      c.OLC.Room,
+			"key":       c.OLC.Key,
+			"transport": c.OLC.Transport,
+		}
+	}
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // deviceID extracts the app's per-install device id from a request — query param

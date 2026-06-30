@@ -69,8 +69,26 @@ type Customer struct {
 	Hy2    *Hy2Creds
 	Naive  *NaiveCreds
 	AnyTLS *AnyTLSCreds
-	VLESS3 *VLESSCreds // VLESS-Reality on the 3rd node (S3)
-	WG     *WGCreds    // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
+	VLESS3 *VLESSCreds  // VLESS-Reality on the 3rd node (S3)
+	WG     *WGCreds     // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
+	OLC    *OLCRTCCreds // olcRTC (WebRTC video-disguise) — opt-in fallback; ⛔ emitted ONLY for login "wapmix" (creds-gate in the /sub handler), nil otherwise
+}
+
+// OLCRTCCreds is one olcRTC client (WebRTC video-disguise transport, separate-process
+// binary that opens a local SOCKS5). UNLIKE the other protocols this is NOT a native
+// sing-box outbound: the app exec's libolcrtc.so (jniLibs) which JOINs a Yandex Telemost /
+// Jitsi video call and bridges it to a local SOCKS5 at 127.0.0.1:olcrtcSocksPort; subgen
+// emits a plain `socks` outbound pointing at that port. The WebRTC params (provider/room/
+// key/transport) are NOT sing-box fields — they ride to the app over GET /sub/<tok>/info and
+// are written into the child's client.yaml. ⛔ Gated to login "wapmix" in the /sub handler
+// (mirrors the AWG per-customer gate); the socks outbound is SELECTOR-ONLY (never in the
+// "auto" urltest pool — a video tunnel is slow, a manual fallback, not an auto pick). See
+// [[olcrtc-integration]].
+type OLCRTCCreds struct {
+	Provider  string // auth provider: "telemost" (RU-domestic, production) | "jitsi"
+	Room      string // room id/URL (Telemost: the https://telemost.yandex.ru/j/<id> URL)
+	Key       string // 64-hex shared secret (must byte-match the olcrtc srv on S3)
+	Transport string // "vp8channel" (the only RU+mobile transport) | "datachannel" (jitsi)
 }
 
 // WGCreds is one AmneziaWG client (the official amneziawg-go engine, endpoint type "awg").
@@ -94,9 +112,26 @@ const (
 	tagNaive  = "naive"
 	tagAnyTLS = "anytls"
 	tagWG     = "awg"    // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema
+	tagOLC    = "olcrtc" // olcRTC SOCKS5 outbound (app exec's libolcrtc.so → 127.0.0.1:olcrtcSocksPort)
 	tagAuto   = "auto"   // urltest
 	tagPick   = "select" // selector (default outbound the tun routes to)
 )
+
+// olcRTC local SOCKS5 — the app exec's libolcrtc.so which listens here; subgen's `socks`
+// outbound dials it. Host/port MUST match the app's OlcrtcManager client.yaml (socks.host/
+// socks.port). 127.0.0.1 so the listener is unreachable off-device.
+const (
+	olcrtcSocksHost = "127.0.0.1"
+	olcrtcSocksPort = 8808
+)
+
+// olcrtcDirectDomains are the carrier's own hosts (Yandex Telemost signalling + WebRTC media/
+// STUN/TURN). The olcRTC child process shares the app UID, so its sockets are captured by the
+// tun (auto_route) — these MUST route DIRECT or the disguise traffic loops back through the
+// olcRTC outbound (a routing loop). yandex.ru/yandex.net suffixes cover telemost.yandex.ru +
+// *.yandex.net media/stun/turn; raw-IP media candidates fall to the geoip-ru DIRECT rule.
+// The child's own DNS is pinned to a RU resolver (77.88.8.8) for the same reason.
+var olcrtcDirectDomains = []string{"yandex.ru", "yandex.net", "yastatic.net"}
 
 // AmneziaWG shared obfuscation block — the SINGLE source of truth for the client side.
 // MUST byte-match the S3 server awg0.conf [Interface] (/root/.s3wg); params are NOT
@@ -191,6 +226,15 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		endpoints = append(endpoints, awgEndpoint(c.WG))
 		selOnly = append(selOnly, tagWG)
 	}
+	// olcRTC: a plain `socks` outbound to the local listener the app spins up (libolcrtc.so).
+	// SELECTOR-ONLY (selOnly, never in the urltest "auto" pool — it's a slow manual fallback).
+	// When the child isn't running the outbound is simply unused (sing-box dials lazily), so
+	// it never breaks the config; it only carries traffic once the user picks it AND the app
+	// has started the child. ⛔ c.OLC is nil for everyone but wapmix (gated in the /sub handler).
+	if c.OLC != nil {
+		outbounds = append(outbounds, olcrtcOutbound())
+		selOnly = append(selOnly, tagOLC)
+	}
 	if len(protoTags) == 0 {
 		return nil, fmt.Errorf("subgen: customer %q has no protocols", c.Name)
 	}
@@ -241,6 +285,15 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_is_private": true, "action": "route", "outbound": "direct"},
+	}
+	// olcRTC carrier hosts DIRECT — placed FIRST (above forceProxyDomains) so the child's own
+	// WebRTC/signalling traffic to Yandex never loops back through the olcRTC outbound. Only
+	// present when olcRTC is provisioned (wapmix).
+	if c.OLC != nil {
+		routeRules = append(routeRules, map[string]any{
+			"domain_suffix": olcrtcDirectDomains,
+			"action":        "route", "outbound": "direct",
+		})
 	}
 	routeRules = append(routeRules,
 		// Foreign services (Google/Gemini/YouTube) MUST go through the tunnel.
@@ -367,6 +420,17 @@ func awgEndpoint(w *WGCreds) map[string]any {
 			"allowed_ips":                   []string{"0.0.0.0/0", "::/0"},
 			"persistent_keepalive_interval": 25,
 		}},
+	}
+}
+
+// olcrtcOutbound is the SOCKS5 outbound to the local listener opened by the olcRTC child
+// process (libolcrtc.so). No server creds in sing-box — the WebRTC params travel via /info
+// and the child auths the tunnel itself; sing-box just forwards bytes to the local SOCKS5.
+func olcrtcOutbound() map[string]any {
+	return map[string]any{
+		"type": "socks", "tag": tagOLC,
+		"server": olcrtcSocksHost, "server_port": olcrtcSocksPort,
+		"version": "5",
 	}
 }
 

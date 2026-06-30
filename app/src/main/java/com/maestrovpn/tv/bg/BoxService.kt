@@ -315,6 +315,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // stopping/stopped.
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
         status.value = Status.Stopping
+        // Tear down the olcRTC child (if it was running) the moment the tunnel stops, so a
+        // disguise video-call process never outlives the VPN. No-op when olcRTC wasn't used.
+        OlcrtcManager.stop()
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
             receiverRegistered = false

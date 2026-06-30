@@ -22,6 +22,49 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 	return httptest.NewServer(New(st, nil, nil, nil, Config{}).Handler()), st
 }
 
+// TestSubOLCRTCGate: olcRTC creds reach /sub + /info ONLY for an allowed login (default
+// "wapmix"); any other login with the same creds set gets them stripped (the creds-gate).
+func TestSubOLCRTCGate(t *testing.T) {
+	srv, st := newTestServer(t)
+	defer srv.Close()
+	olc := &subgen.OLCRTCCreds{Provider: "telemost", Room: "https://telemost.yandex.ru/j/1", Key: "deadbeef", Transport: "vp8channel"}
+	_ = st.Put(&store.Customer{
+		Login: "wapmix", SubToken: "tok-owner", Expires: time.Now().Add(24 * time.Hour),
+		VLESS: &subgen.VLESSCreds{Server: "wapmixx.ru", Port: 443, UUID: "u"}, OLC: olc,
+	})
+	_ = st.Put(&store.Customer{
+		Login: "stranger", SubToken: "tok-other", Expires: time.Now().Add(24 * time.Hour),
+		VLESS: &subgen.VLESSCreds{Server: "wapmixx.ru", Port: 443, UUID: "u"}, OLC: olc,
+	})
+
+	get := func(path string) string {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b := make([]byte, 1<<16)
+		n, _ := resp.Body.Read(b)
+		return string(b[:n])
+	}
+
+	// /sub: owner gets the olcrtc socks outbound; stranger does not.
+	if !strings.Contains(get("/sub/tok-owner"), "\"olcrtc\"") {
+		t.Error("owner /sub missing olcrtc outbound")
+	}
+	if strings.Contains(get("/sub/tok-other"), "\"olcrtc\"") {
+		t.Error("stranger /sub leaked olcrtc outbound")
+	}
+	// /info: owner gets the WebRTC params; stranger does not.
+	ownerInfo := get("/sub/tok-owner/info")
+	if !strings.Contains(ownerInfo, "olcrtc") || !strings.Contains(ownerInfo, "telemost") {
+		t.Errorf("owner /info missing olcrtc params: %s", ownerInfo)
+	}
+	if strings.Contains(get("/sub/tok-other/info"), "olcrtc") {
+		t.Error("stranger /info leaked olcrtc params")
+	}
+}
+
 func TestSubActiveCustomer(t *testing.T) {
 	srv, st := newTestServer(t)
 	defer srv.Close()

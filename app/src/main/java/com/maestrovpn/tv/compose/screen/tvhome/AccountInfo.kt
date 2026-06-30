@@ -3,6 +3,7 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
+import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.utils.httpGetStringTimed
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,16 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                 val url = profile.typed.remoteURL.trimEnd('/') + "/info"
                 val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                 val o = JSONObject(json)
+                // olcRTC WebRTC params (owner-gated server-side) ride in /info, not /sub. Push them
+                // into the manager so the olcRTC selector item becomes startable; a response without
+                // them clears any stale creds. Inert for the fleet (only the owner's /info has it).
+                val olc = o.optJSONObject("olcrtc")
+                OlcrtcManager.setCreds(
+                    provider = olc?.optString("provider"),
+                    room = olc?.optString("room"),
+                    key = olc?.optString("key"),
+                    transport = olc?.optString("transport"),
+                )
                 AccountInfo(
                     login = o.optString("login").ifBlank { null },
                     daysLeft = if (o.has("days_left")) o.getInt("days_left") else null,
