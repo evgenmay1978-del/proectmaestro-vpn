@@ -171,8 +171,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     fun selectGroupItem(groupTag: String, itemTag: String) {
         // Check if this is actually a different selection
         val currentGroup = uiState.value.groups.find { it.tag == groupTag }
-        if (currentGroup?.selected == itemTag) {
-            // Same item selected, no need to do anything
+        // Re-tapping the ALREADY-selected item is normally a no-op — EXCEPT olcRTC when its child
+        // died (flaky video tunnel): traffic is then blackholing through the dead :8808 socks
+        // outbound and re-tapping is the user's natural recovery, so let it through to respawn.
+        val olcDeadRetap = itemTag == OlcrtcManager.OUTBOUND_TAG && !OlcrtcManager.isRunning
+        if (currentGroup?.selected == itemTag && !olcDeadRetap) {
             return
         }
 

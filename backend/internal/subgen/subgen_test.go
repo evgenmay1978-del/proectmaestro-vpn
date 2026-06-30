@@ -201,20 +201,34 @@ func TestGenerateSingboxOLCRTC(t *testing.T) {
 		t.Error("olcrtc must NOT be in the urltest auto pool (slow manual fallback)")
 	}
 
-	// 3) a DIRECT route rule for the carrier hosts (anti-loop).
-	var carrierDirect bool
+	// 3) DIRECT route rules for the carrier hosts (anti-loop): a domain rule AND a static
+	// ip_cidr rule (so raw-IP media/STUN don't depend on the remote geoip-ru being loaded).
+	var carrierDomainDirect, carrierCIDRDirect bool
 	for _, r := range cfg["route"].(map[string]any)["rules"].([]any) {
 		m := r.(map[string]any)
-		if m["outbound"] == "direct" && m["domain_suffix"] != nil {
+		if m["outbound"] != "direct" {
+			continue
+		}
+		if m["domain_suffix"] != nil {
 			for _, d := range m["domain_suffix"].([]any) {
 				if d == "yandex.ru" {
-					carrierDirect = true
+					carrierDomainDirect = true
+				}
+			}
+		}
+		if m["ip_cidr"] != nil {
+			for _, d := range m["ip_cidr"].([]any) {
+				if d == "77.88.0.0/18" {
+					carrierCIDRDirect = true
 				}
 			}
 		}
 	}
-	if !carrierDirect {
-		t.Error("no DIRECT route rule for the olcRTC carrier hosts")
+	if !carrierDomainDirect {
+		t.Error("no DIRECT domain rule for the olcRTC carrier hosts")
+	}
+	if !carrierCIDRDirect {
+		t.Error("no static DIRECT ip_cidr rule for the olcRTC carrier ranges (geoip-ru cold-start loop guard)")
 	}
 
 	// 4) absent OLC → nothing olcrtc anywhere.

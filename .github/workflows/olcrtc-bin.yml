@@ -11,6 +11,7 @@ on:
   push:
     paths:
       - .github/workflows/olcrtc-bin.yml
+      - version.properties # OLCRTC_REF / OLCRTC_GO_VERSION / NDK_VERSION bump → rebuild the binary
   workflow_dispatch:
 jobs:
   build:

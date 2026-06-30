@@ -125,13 +125,23 @@ const (
 	olcrtcSocksPort = 8808
 )
 
-// olcrtcDirectDomains are the carrier's own hosts (Yandex Telemost signalling + WebRTC media/
-// STUN/TURN). The olcRTC child process shares the app UID, so its sockets are captured by the
-// tun (auto_route) — these MUST route DIRECT or the disguise traffic loops back through the
-// olcRTC outbound (a routing loop). yandex.ru/yandex.net suffixes cover telemost.yandex.ru +
-// *.yandex.net media/stun/turn; raw-IP media candidates fall to the geoip-ru DIRECT rule.
-// The child's own DNS is pinned to a RU resolver (77.88.8.8) for the same reason.
-var olcrtcDirectDomains = []string{"yandex.ru", "yandex.net", "yastatic.net"}
+// olcRTC carrier-DIRECT routing. ⚠️ ANTI-LOOP IS PURELY ROUTE-BASED: the olcRTC child runs as
+// a SEPARATE PROCESS (option-b), so it CANNOT call VpnService.protect() — there is no OS-level
+// socket bypass. The child shares the app UID, so its sockets ARE captured by the tun
+// (auto_route); these rules are the ONLY thing keeping its WebRTC/signalling traffic from
+// looping back through the olcRTC outbound itself. Two layers, both emitted ONLY when c.OLC:
+//   - olcrtcDirectDomains: SNI/DNS-named signalling (Telemost API + the dynamic media WSS).
+//   - olcrtcDirectCIDRs: STATIC Yandex ranges for the raw-IP WebRTC media + STUN/TURN
+//     candidates (no SNI → can't match a domain). STATIC so it does NOT depend on the REMOTE
+//     geoip-ru .srs being downloaded yet — otherwise a fresh-install/offline first run would
+//     have an empty geoip-ru and the media would loop (review finding). Ranges from Yandex's
+//     published Telemost network list; geoip-ru remains a superset catch when loaded.
+var olcrtcDirectDomains = []string{"yandex.ru", "yandex.net", "yandex.com", "yastatic.net", "mds.yandex.net", "strm.yandex.net"}
+
+var olcrtcDirectCIDRs = []string{
+	"77.88.0.0/18", "5.45.192.0/18", "5.255.192.0/18", "37.9.64.0/18", "37.140.128.0/18",
+	"84.252.160.0/19", "87.250.224.0/19", "95.108.128.0/17", "178.154.128.0/18", "2a02:6b8::/32",
+}
 
 // AmneziaWG shared obfuscation block — the SINGLE source of truth for the client side.
 // MUST byte-match the S3 server awg0.conf [Interface] (/root/.s3wg); params are NOT
@@ -287,13 +297,20 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		{"ip_is_private": true, "action": "route", "outbound": "direct"},
 	}
 	// olcRTC carrier hosts DIRECT — placed FIRST (above forceProxyDomains) so the child's own
-	// WebRTC/signalling traffic to Yandex never loops back through the olcRTC outbound. Only
-	// present when olcRTC is provisioned (wapmix).
+	// WebRTC/signalling traffic to Yandex never loops back through the olcRTC outbound. Both a
+	// domain rule (named signalling) and a STATIC ip_cidr rule (raw-IP media/STUN, no geoip-ru
+	// dependency). Only present when olcRTC is provisioned (wapmix).
 	if c.OLC != nil {
-		routeRules = append(routeRules, map[string]any{
-			"domain_suffix": olcrtcDirectDomains,
-			"action":        "route", "outbound": "direct",
-		})
+		routeRules = append(routeRules,
+			map[string]any{
+				"domain_suffix": olcrtcDirectDomains,
+				"action":        "route", "outbound": "direct",
+			},
+			map[string]any{
+				"ip_cidr": olcrtcDirectCIDRs,
+				"action":  "route", "outbound": "direct",
+			},
+		)
 	}
 	routeRules = append(routeRules,
 		// Foreign services (Google/Gemini/YouTube) MUST go through the tunnel.
@@ -328,6 +345,20 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		},
 	)
 
+	// DNS rules: RU domains resolve via the local (direct) resolver. When olcRTC is on, the
+	// carrier domains MUST also resolve via local — otherwise the child's SFU lookup (hijacked
+	// into sing-box's resolver) would fall to the "google" DoT server, which detours through
+	// the SELECTOR = the olcRTC outbound itself = a DNS bootstrap loop (the tunnel can't come
+	// up because its own SFU can't be resolved). Fleet-inert (only when c.OLC != nil).
+	dnsRules := []map[string]any{
+		{"rule_set": []string{tagRUDomains}, "action": "route", "server": "local"},
+	}
+	if c.OLC != nil {
+		dnsRules = append(dnsRules, map[string]any{
+			"domain_suffix": olcrtcDirectDomains, "action": "route", "server": "local",
+		})
+	}
+
 	cfg := map[string]any{
 		"log": map[string]any{"level": "warn"},
 		// Persist downloaded rule-sets (and DNS rdrc) so the RU-direct lists
@@ -344,14 +375,11 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 				{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": tagPick},
 				{"type": "local", "tag": "local"},
 			},
-			"rules": []map[string]any{
-				// RU service domains resolve via the system resolver (direct), so
-				// the A/AAAA lookup isn't proxied and geoip-ru matches the REAL RU
-				// IP — otherwise the lookup egresses the tunnel and RU traffic leaks
-				// into the proxy. geoip can't match a domain pre-resolution, so only
-				// the DOMAIN set goes here, never the IP set.
-				{"rule_set": []string{tagRUDomains}, "action": "route", "server": "local"},
-			},
+			// RU service domains (and, when olcRTC is on, the carrier domains) resolve via
+			// the system resolver (direct) — so the A/AAAA lookup isn't proxied, geoip-ru
+			// matches the REAL RU IP, and the olcRTC SFU lookup never bootstraps through the
+			// tunnel. geoip can't match a domain pre-resolution, so only DOMAIN sets go here.
+			"rules": dnsRules,
 			"final": "google",
 		},
 		"inbounds": []map[string]any{{

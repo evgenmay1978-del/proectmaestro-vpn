@@ -231,6 +231,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // Never reload a tunnel the user is stopping / has stopped (e.g. a periodic UpdateTask
         // reload landing mid-teardown would briefly reconnect what the user just switched off).
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
+        // A reload rebuilds the box → the selector reverts to "auto" (no store_selected), so an
+        // olcRTC child would be orphaned (idle, no traffic). Reap it; the user re-selects olcRTC
+        // to respawn. No-op when olcRTC wasn't running.
+        OlcrtcManager.stop()
         val selectedProfileId = Settings.selectedProfile
         if (selectedProfileId == -1L) {
             stopAndAlert(Alert.EmptyConfiguration)

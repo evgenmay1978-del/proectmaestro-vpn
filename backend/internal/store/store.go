@@ -31,7 +31,9 @@ type Customer struct {
 	AnyTLS   *subgen.AnyTLSCreds `json:"anytls,omitempty"`
 	VLESS3   *subgen.VLESSCreds  `json:"vless3,omitempty"` // VLESS-Reality on the 3rd node (S3)
 	WG       *subgen.WGCreds     `json:"wg,omitempty"`     // AmneziaWG (S3); ⛔ nil for ALL real customers until the with_awg libbox is the fleet engine
-	OLC      *subgen.OLCRTCCreds `json:"olc,omitempty"`    // olcRTC (WebRTC video-disguise) fallback; ⛔ set ONLY for login "wapmix" (creds-gated in /sub), nil otherwise
+	// olcRTC is NOT per-customer: its room/key are GLOBAL (one srv, one room) and live in
+	// package olcconf (the panel's olcrtc.json). WHO gets olcRTC is the MAESTRO_OLC_LOGINS
+	// allowlist gate in package api. So there is no OLC field here.
 	// Devices is the set of distinct app installs that have activated/polled this
 	// account (deviceId → first-seen). It backs the per-account device cap, enforced
 	// at the subscription chokepoint (/sub, /claim) so it covers ALL four protocols at
@@ -47,7 +49,7 @@ func (c *Customer) Active() bool {
 
 // ToSubgen maps a customer to the subscription generator input.
 func (c *Customer) ToSubgen() subgen.Customer {
-	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3, WG: c.WG, OLC: c.OLC}
+	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3, WG: c.WG}
 }
 
 // clone returns an independent deep copy so callers can read it without the lock
@@ -82,10 +84,6 @@ func (c *Customer) clone() *Customer {
 	if c.WG != nil {
 		w := *c.WG
 		cp.WG = &w
-	}
-	if c.OLC != nil {
-		o := *c.OLC
-		cp.OLC = &o
 	}
 	if c.Devices != nil {
 		d := make(map[string]time.Time, len(c.Devices))

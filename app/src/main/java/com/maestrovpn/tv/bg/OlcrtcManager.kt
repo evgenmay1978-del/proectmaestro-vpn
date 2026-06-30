@@ -19,6 +19,12 @@ import java.net.Socket
  * for the owner's login only) has a `socks` outbound named [OUTBOUND_TAG] pointing there, plus a
  * DIRECT route for the carrier hosts so the child's own WebRTC sockets don't loop the tun.
  *
+ * ⚠️ A separate process CANNOT call VpnService.protect() (it's an in-process binder bound to the
+ * VPNService), so there is NO OS-level socket bypass: the child's traffic IS captured by the tun
+ * and loop-avoidance rests ENTIRELY on the backend's route rules (carrier domains + static Yandex
+ * CIDRs DIRECT + carrier DNS → local), emitted only for the gated login. Route-log-verify on a
+ * real device before relying on it.
+ *
  * Lifecycle: lazy. The child starts ONLY when the user picks the olcRTC item in the protocol
  * selector ([GroupsViewModel.selectGroupItem] calls [ensureStarted] before `selectOutbound`), and
  * is killed when the user switches away or the tunnel stops ([BoxService.stopService] → [stop]).
@@ -43,13 +49,25 @@ object OlcrtcManager {
     @Volatile private var process: Process? = null
     private val lock = Any()
 
-    /** Push the WebRTC params delivered over /sub/<tok>/info (owner-gated). Empty/blank → cleared. */
+    private val tokenRe = Regex("^[a-z0-9]{1,32}$")
+    private val keyRe = Regex("^[0-9a-fA-F]{16,128}$")
+
+    /**
+     * Push the WebRTC params delivered over /sub/<tok>/info (owner-gated). Absent → cleared
+     * (locked). VALIDATED before use: these values are templated into a YAML the child reads,
+     * so provider/transport must be a lowercase token, key hex, room an http(s) URL with no
+     * whitespace/quote/control char — any failure clears creds rather than writing a malformed
+     * or injectable client.yaml. Owner-controlled today, but cheap defense-in-depth.
+     */
     fun setCreds(provider: String?, room: String?, key: String?, transport: String?) {
-        creds = if (!provider.isNullOrBlank() && !room.isNullOrBlank() && !key.isNullOrBlank()) {
-            Creds(provider.trim(), room.trim(), key.trim(), transport?.trim()?.ifBlank { "vp8channel" } ?: "vp8channel")
-        } else {
-            null
-        }
+        val p = provider?.trim().orEmpty()
+        val r = room?.trim().orEmpty()
+        val k = key?.trim().orEmpty()
+        val t = transport?.trim().orEmpty().ifBlank { "vp8channel" }
+        val valid = p.matches(tokenRe) && k.matches(keyRe) && t.matches(tokenRe) &&
+            (r.startsWith("https://") || r.startsWith("http://")) &&
+            r.none { it.isWhitespace() || it == '"' || it == '\'' || it.code < 0x20 }
+        creds = if (valid) Creds(p, r, k, t) else null
     }
 
     /** True when the olcRTC entry should be UNLOCKED (creds delivered + the binary is bundled). */
@@ -70,10 +88,15 @@ object OlcrtcManager {
      * called off the main thread (it blocks). Idempotent: a live+listening child returns true fast.
      */
     fun ensureStarted(): Boolean {
+        val started: Process
         synchronized(lock) {
             val c = creds ?: run { Log.w(TAG, "ensureStarted: no creds (locked)"); return false }
             if (isRunning && portOpen()) return true
-            stopLocked() // clear any half-dead child before respawning
+            stopLocked() // kill our tracked child (if any) before respawning
+            // Reap any ORPHAN libolcrtc.so left by a previous app-process instance that was
+            // OS-killed (low-mem / swipe-away / START_STICKY restart): a fresh singleton has
+            // process=null but the orphan still holds :8808, so a new exec would bind-fail.
+            reapStaleChildren()
 
             val bin = binaryFile()
             if (bin == null || !bin.exists()) {
@@ -85,14 +108,15 @@ object OlcrtcManager {
             val yaml = File(dir, "client.yaml")
             yaml.writeText(buildClientYaml(c, dataDir.absolutePath))
 
-            try {
+            started = try {
                 val p = ProcessBuilder(bin.absolutePath, yaml.absolutePath)
                     .directory(dir)
                     .redirectErrorStream(true)
                     .start()
                 process = p
                 drainLogs(p)
-                Log.i(TAG, "olcRTC child started (pid via ${bin.name}); waiting for SOCKS5 :$SOCKS_PORT")
+                Log.i(TAG, "olcRTC child started; waiting for SOCKS5 :$SOCKS_PORT")
+                p
             } catch (e: Exception) {
                 Log.e(TAG, "ensureStarted: exec failed: ${e.message}", e)
                 return false
@@ -101,14 +125,20 @@ object OlcrtcManager {
         // Poll the port OUTSIDE the lock so stop() can still interrupt a stuck start.
         val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
-            val p = process ?: return false
-            if (!alive(p)) {
-                Log.e(TAG, "olcRTC child exited early (code=${runCatching { p.exitValue() }.getOrNull()}) — see olcRTC logs above")
+            if (!alive(started)) {
+                Log.e(TAG, "olcRTC child exited early (code=${runCatching { started.exitValue() }.getOrNull()}) — see olcRTC logs above")
                 return false
             }
             if (portOpen()) {
-                Log.i(TAG, "olcRTC SOCKS5 ready")
-                return true
+                // Re-check under the lock that OUR child is still the live one — stop()/a
+                // respawn could have raced in while we were polling the open port.
+                synchronized(lock) {
+                    if (process === started && alive(started)) {
+                        Log.i(TAG, "olcRTC SOCKS5 ready")
+                        return true
+                    }
+                }
+                return false
             }
             try {
                 Thread.sleep(POLL_INTERVAL_MS)
@@ -119,6 +149,28 @@ object OlcrtcManager {
         Log.e(TAG, "olcRTC SOCKS5 did not open within ${READY_TIMEOUT_MS}ms — giving up")
         stop()
         return false
+    }
+
+    /**
+     * Kill any orphan libolcrtc.so processes left under our UID (we exec the child; if the app
+     * process is OS-killed the child is reparented to init and keeps holding :8808). Scans /proc
+     * for our own binary path and SIGKILLs matches. Same-UID only, so this can't touch anything
+     * but our own leaked children.
+     */
+    private fun reapStaleChildren() {
+        val bin = binaryFile()?.absolutePath ?: return
+        val me = android.os.Process.myPid()
+        runCatching {
+            File("/proc").listFiles { f -> f.isDirectory && f.name.all(Char::isDigit) }?.forEach { d ->
+                val pid = d.name.toIntOrNull() ?: return@forEach
+                if (pid == me) return@forEach
+                val cmdline = runCatching { File(d, "cmdline").readText() }.getOrNull() ?: return@forEach
+                if (cmdline.contains(bin)) {
+                    Log.w(TAG, "reaping orphan olcRTC child pid=$pid")
+                    runCatching { android.os.Process.killProcess(pid) }
+                }
+            }
+        }
     }
 
     /** Kill the child process (idempotent). Called on switch-away and on tunnel stop. */
@@ -145,18 +197,26 @@ object OlcrtcManager {
         Socket().use { it.connect(InetSocketAddress(SOCKS_HOST, SOCKS_PORT), 400); true }
     }.getOrDefault(false)
 
+    private val secretRe = Regex("[0-9a-fA-F]{16,}")
+
     private fun drainLogs(p: Process) {
         Thread({
             runCatching {
-                p.inputStream.bufferedReader().forEachLine { line -> Log.i("olcRTC", line) }
+                // Redact long hex runs (the 64-hex shared key) so it can't land in logcat /
+                // the crash-telemetry log.
+                p.inputStream.bufferedReader().forEachLine { line ->
+                    Log.i("olcRTC", secretRe.replace(line) { "<redacted:${it.value.length}>" })
+                }
             }
         }, "olcrtc-logs").apply { isDaemon = true; start() }
     }
 
     /**
-     * The cnc-mode client config (mirrors olcrtc's telemost+vp8channel client example). The carrier's
-     * own DNS is pinned to a RU resolver (77.88.8.8) so the child's lookups route DIRECT (geoip-ru)
-     * and don't loop back through the olcRTC outbound. room/key are quoted (room is a URL).
+     * The cnc-mode client config (mirrors olcrtc's telemost+vp8channel client example). The DNS is
+     * set to a RU resolver (77.88.8.8), but note sing-box's hijack-dns intercepts the child's :53
+     * traffic anyway — the actual loop-avoidance for the SFU lookup is the backend DNS rule
+     * (carrier domains → local resolver), not this value. room/key are validated in setCreds and
+     * quoted here (room is a URL).
      */
     private fun buildClientYaml(c: Creds, dataDir: String): String = buildString {
         appendLine("mode: cnc")
