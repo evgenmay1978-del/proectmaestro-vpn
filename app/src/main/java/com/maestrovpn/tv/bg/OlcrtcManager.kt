@@ -154,7 +154,7 @@ object OlcrtcManager {
     }
 
     /**
-     * The cnc-mode client config (see olcrtc docs/examples/client/*.vp8channel.yaml). The carrier's
+     * The cnc-mode client config (mirrors olcrtc's telemost+vp8channel client example). The carrier's
      * own DNS is pinned to a RU resolver (77.88.8.8) so the child's lookups route DIRECT (geoip-ru)
      * and don't loop back through the olcRTC outbound. room/key are quoted (room is a URL).
      */
