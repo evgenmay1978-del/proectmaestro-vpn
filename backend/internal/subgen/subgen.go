@@ -207,9 +207,23 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	// and burns thermal headroom. 3m cuts that ~67% vs 1m; interrupt_exist_connections keeps
 	// live flows moving when it does re-pick, so the only cost is slightly slower detection of
 	// a silently-dead leaf on "Авто" — the tunnel never breaks.
+	// naive is DPI-fragile on the RU→server leg (TLS-in-TLS fingerprint; TSPU throttles it —
+	// the light urltest probe passes in ~0.3s while sustained traffic stalls). Keep naive OUT
+	// of the "auto" pool so "Авто" never auto-pins a throttled naive; it stays in the selector
+	// as a MANUAL option for users whose ISP doesn't shape it. (2026-06-30, owner's naive died
+	// in RU while VLESS-Reality/AnyTLS/Hy2 stayed fine.)
+	autoTags := make([]string, 0, len(protoTags))
+	for _, t := range protoTags {
+		if t != tagNaive {
+			autoTags = append(autoTags, t)
+		}
+	}
+	if len(autoTags) == 0 { // customer with ONLY naive → keep something auto-selectable
+		autoTags = protoTags
+	}
 	outbounds = append(outbounds,
 		map[string]any{
-			"type": "urltest", "tag": tagAuto, "outbounds": protoTags,
+			"type": "urltest", "tag": tagAuto, "outbounds": autoTags,
 			"url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 100,
 			"interrupt_exist_connections": true,
 		},
