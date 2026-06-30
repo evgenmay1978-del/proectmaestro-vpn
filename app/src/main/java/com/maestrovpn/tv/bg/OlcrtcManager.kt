@@ -57,7 +57,12 @@ object OlcrtcManager {
 
     fun hasCreds(): Boolean = creds != null
 
-    val isRunning: Boolean get() = process?.isAlive == true
+    val isRunning: Boolean get() = process?.let { alive(it) } == true
+
+    // minSdk 23 — Process.isAlive()/waitFor(timeout)/destroyForcibly() are API 26+, so probe
+    // liveness the portable way (exitValue throws while still running).
+    private fun alive(p: Process): Boolean =
+        try { p.exitValue(); false } catch (_: IllegalThreadStateException) { true }
 
     /**
      * Start the olcRTC child (if not already up) and block until its SOCKS5 listener accepts, up
@@ -97,7 +102,7 @@ object OlcrtcManager {
         val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
             val p = process ?: return false
-            if (!p.isAlive) {
+            if (!alive(p)) {
                 Log.e(TAG, "olcRTC child exited early (code=${runCatching { p.exitValue() }.getOrNull()}) — see olcRTC logs above")
                 return false
             }
@@ -125,10 +130,10 @@ object OlcrtcManager {
         val p = process ?: return
         process = null
         runCatching {
-            p.destroy()
-            if (!p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
-                p.destroyForcibly()
-            }
+            p.destroy() // SIGTERM (== SIGKILL on the runtimes we ship to); no destroyForcibly (API 26+)
+            // Best-effort reap so a zombie doesn't linger, without the API-26 waitFor(timeout).
+            val until = System.currentTimeMillis() + 2_000
+            while (alive(p) && System.currentTimeMillis() < until) Thread.sleep(50)
         }
         Log.i(TAG, "olcRTC child stopped")
     }
