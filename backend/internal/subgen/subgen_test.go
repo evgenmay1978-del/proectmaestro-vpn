@@ -1,6 +1,7 @@
 package subgen
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -142,5 +143,97 @@ func TestGenerateSingboxPartial(t *testing.T) {
 func TestGenerateSingboxNoProtocols(t *testing.T) {
 	if _, err := GenerateSingbox(Customer{Name: "empty"}); err == nil {
 		t.Fatal("expected error for a customer with no protocols")
+	}
+}
+
+// TestGenerateSingboxOLCRTC: when OLC creds are present, the config gets a SOCKS5 outbound to
+// the local olcRTC listener, exposed in the SELECTOR but kept OUT of the urltest "auto" pool,
+// plus a DIRECT route rule for the carrier hosts (anti-loop). Absent OLC → none of it.
+func TestGenerateSingboxOLCRTC(t *testing.T) {
+	c := sampleCustomer()
+	c.OLC = &OLCRTCCreds{Provider: "telemost", Room: "https://telemost.yandex.ru/j/123", Key: "ab", Transport: "vp8channel"}
+	raw, err := GenerateSingbox(c)
+	if err != nil {
+		t.Fatalf("GenerateSingbox(+olc): %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// 1) socks outbound tag "olcrtc" → 127.0.0.1:8808, version 5.
+	var socks map[string]any
+	for _, o := range cfg["outbounds"].([]any) {
+		if m := o.(map[string]any); m["tag"] == tagOLC {
+			socks = m
+		}
+	}
+	if socks == nil {
+		t.Fatal("no olcrtc socks outbound emitted")
+	}
+	if socks["type"] != "socks" || socks["server"] != olcrtcSocksHost || int(socks["server_port"].(float64)) != olcrtcSocksPort {
+		t.Fatalf("olcrtc outbound wrong: %v", socks)
+	}
+
+	// 2) in the selector, NOT in auto.
+	var inSelector, inAuto bool
+	for _, o := range cfg["outbounds"].([]any) {
+		m := o.(map[string]any)
+		switch m["tag"] {
+		case tagPick:
+			for _, t := range m["outbounds"].([]any) {
+				if t == tagOLC {
+					inSelector = true
+				}
+			}
+		case tagAuto:
+			for _, t := range m["outbounds"].([]any) {
+				if t == tagOLC {
+					inAuto = true
+				}
+			}
+		}
+	}
+	if !inSelector {
+		t.Error("olcrtc missing from the selector")
+	}
+	if inAuto {
+		t.Error("olcrtc must NOT be in the urltest auto pool (slow manual fallback)")
+	}
+
+	// 3) DIRECT route rules for the carrier hosts (anti-loop): a domain rule AND a static
+	// ip_cidr rule (so raw-IP media/STUN don't depend on the remote geoip-ru being loaded).
+	var carrierDomainDirect, carrierCIDRDirect bool
+	for _, r := range cfg["route"].(map[string]any)["rules"].([]any) {
+		m := r.(map[string]any)
+		if m["outbound"] != "direct" {
+			continue
+		}
+		if m["domain_suffix"] != nil {
+			for _, d := range m["domain_suffix"].([]any) {
+				if d == "yandex.ru" {
+					carrierDomainDirect = true
+				}
+			}
+		}
+		if m["ip_cidr"] != nil {
+			for _, d := range m["ip_cidr"].([]any) {
+				if d == "77.88.0.0/18" {
+					carrierCIDRDirect = true
+				}
+			}
+		}
+	}
+	if !carrierDomainDirect {
+		t.Error("no DIRECT domain rule for the olcRTC carrier hosts")
+	}
+	if !carrierCIDRDirect {
+		t.Error("no static DIRECT ip_cidr rule for the olcRTC carrier ranges (geoip-ru cold-start loop guard)")
+	}
+
+	// 4) absent OLC → nothing olcrtc anywhere.
+	raw2, _ := GenerateSingbox(sampleCustomer())
+	if bytes.Contains(raw2, []byte(tagOLC)) {
+		t.Error("olcrtc leaked into a config without OLC creds")
 	}
 }

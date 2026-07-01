@@ -31,6 +31,9 @@ type Customer struct {
 	AnyTLS   *subgen.AnyTLSCreds `json:"anytls,omitempty"`
 	VLESS3   *subgen.VLESSCreds  `json:"vless3,omitempty"` // VLESS-Reality on the 3rd node (S3)
 	WG       *subgen.WGCreds     `json:"wg,omitempty"`     // AmneziaWG (S3); ⛔ nil for ALL real customers until the with_awg libbox is the fleet engine
+	// olcRTC is NOT per-customer: its room/key are GLOBAL (one srv, one room) and live in
+	// package olcconf (the panel's olcrtc.json). WHO gets olcRTC is the MAESTRO_OLC_LOGINS
+	// allowlist gate in package api. So there is no OLC field here.
 	// Devices is the set of distinct app installs that have activated/polled this
 	// account (deviceId → first-seen). It backs the per-account device cap, enforced
 	// at the subscription chokepoint (/sub, /claim) so it covers ALL four protocols at

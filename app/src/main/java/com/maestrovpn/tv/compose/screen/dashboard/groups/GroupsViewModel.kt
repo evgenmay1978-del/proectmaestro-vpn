@@ -2,6 +2,7 @@ package com.maestrovpn.tv.compose.screen.dashboard.groups
 
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.OutboundGroup
+import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
 import com.maestrovpn.tv.compose.model.Group
@@ -170,13 +171,28 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     fun selectGroupItem(groupTag: String, itemTag: String) {
         // Check if this is actually a different selection
         val currentGroup = uiState.value.groups.find { it.tag == groupTag }
-        if (currentGroup?.selected == itemTag) {
-            // Same item selected, no need to do anything
+        // Re-tapping the ALREADY-selected item is normally a no-op — EXCEPT olcRTC when its child
+        // died (flaky video tunnel): traffic is then blackholing through the dead :8808 socks
+        // outbound and re-tapping is the user's natural recovery, so let it through to respawn.
+        val olcDeadRetap = itemTag == OlcrtcManager.OUTBOUND_TAG && !OlcrtcManager.isRunning
+        if (currentGroup?.selected == itemTag && !olcDeadRetap) {
             return
         }
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // olcRTC (separate-process WebRTC-disguise fallback): the socks outbound only
+                // carries traffic once the child binary is up. Start it BEFORE selecting; abort the
+                // switch if it doesn't come up. Switching to anything else tears the child down.
+                if (itemTag == OlcrtcManager.OUTBOUND_TAG) {
+                    if (!OlcrtcManager.ensureStarted()) {
+                        sendError(IllegalStateException("olcRTC: видео-туннель не поднялся (см. логи)"))
+                        return@launch
+                    }
+                } else if (OlcrtcManager.isRunning) {
+                    OlcrtcManager.stop()
+                }
+
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
 

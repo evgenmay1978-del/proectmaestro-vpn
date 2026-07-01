@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
@@ -20,6 +21,89 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	return httptest.NewServer(New(st, nil, nil, nil, Config{}).Handler()), st
+}
+
+// TestSubOLCRTCGate: olcRTC reaches /sub + /info ONLY for an allowed login (default "wapmix")
+// AND only when the GLOBAL olcconf is enabled+configured; any other login gets nothing (the
+// creds-gate), and the creds come from the global config, never per-customer.
+func TestSubOLCRTCGate(t *testing.T) {
+	olc, err := olcconf.Open("")
+	if err != nil {
+		t.Fatalf("olcconf.Open: %v", err)
+	}
+	if err := olc.Set(olcconf.Config{Enabled: true, Provider: "telemost", Room: "https://telemost.yandex.ru/j/1", Key: "deadbeef", Transport: "vp8channel"}); err != nil {
+		t.Fatalf("olc.Set: %v", err)
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "store.json"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	srv := httptest.NewServer(New(st, nil, nil, nil, Config{OLC: olc}).Handler())
+	defer srv.Close()
+	_ = st.Put(&store.Customer{
+		Login: "wapmix", SubToken: "tok-owner", Expires: time.Now().Add(24 * time.Hour),
+		VLESS: &subgen.VLESSCreds{Server: "wapmixx.ru", Port: 443, UUID: "u"},
+	})
+	_ = st.Put(&store.Customer{
+		Login: "stranger", SubToken: "tok-other", Expires: time.Now().Add(24 * time.Hour),
+		VLESS: &subgen.VLESSCreds{Server: "wapmixx.ru", Port: 443, UUID: "u"},
+	})
+
+	get := func(path string) string {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b := make([]byte, 1<<16)
+		n, _ := resp.Body.Read(b)
+		return string(b[:n])
+	}
+
+	// /sub: owner gets the olcrtc socks outbound; stranger does not.
+	if !strings.Contains(get("/sub/tok-owner"), "\"olcrtc\"") {
+		t.Error("owner /sub missing olcrtc outbound")
+	}
+	if strings.Contains(get("/sub/tok-other"), "\"olcrtc\"") {
+		t.Error("stranger /sub leaked olcrtc outbound")
+	}
+	// /info: owner gets the WebRTC params; stranger does not.
+	ownerInfo := get("/sub/tok-owner/info")
+	if !strings.Contains(ownerInfo, "olcrtc") || !strings.Contains(ownerInfo, "telemost") {
+		t.Errorf("owner /info missing olcrtc params: %s", ownerInfo)
+	}
+	if strings.Contains(get("/sub/tok-other/info"), "olcrtc") {
+		t.Error("stranger /info leaked olcrtc params")
+	}
+
+	// Disable the global config → even wapmix gets nothing (master switch + fleet-safety).
+	if err := olc.Set(olcconf.Config{Enabled: false, Room: "https://telemost.yandex.ru/j/1", Key: "deadbeef"}); err != nil {
+		t.Fatalf("olc.Set(disabled): %v", err)
+	}
+	if strings.Contains(get("/sub/tok-owner"), "\"olcrtc\"") {
+		t.Error("disabled olcRTC still emitted in /sub for wapmix")
+	}
+	if strings.Contains(get("/sub/tok-owner/info"), "olcrtc") {
+		t.Error("disabled olcRTC still emitted in /info for wapmix")
+	}
+}
+
+// TestSubOLCRTCNilStoreInert: with no olcconf at all (OLC nil in Config), olcRTC is fully
+// inert even for an allowlisted login — the fleet-default path.
+func TestSubOLCRTCNilStoreInert(t *testing.T) {
+	srv, st := newTestServer(t) // Config{} → OLC nil
+	defer srv.Close()
+	_ = st.Put(&store.Customer{
+		Login: "wapmix", SubToken: "tok-nil", Expires: time.Now().Add(24 * time.Hour),
+		VLESS: &subgen.VLESSCreds{Server: "wapmixx.ru", Port: 443, UUID: "u"},
+	})
+	resp, _ := http.Get(srv.URL + "/sub/tok-nil")
+	defer func() { _ = resp.Body.Close() }()
+	b := make([]byte, 1<<16)
+	n, _ := resp.Body.Read(b)
+	if strings.Contains(string(b[:n]), "\"olcrtc\"") {
+		t.Error("olcRTC emitted with a nil olcconf store")
+	}
 }
 
 func TestSubActiveCustomer(t *testing.T) {

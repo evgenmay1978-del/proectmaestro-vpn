@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
@@ -75,6 +76,9 @@ type Config struct {
 	// TrialIPQuota caps trials started per /24 subnet per 24h (soft, lenient — RU CGNAT);
 	// 0 disables the velocity check.
 	TrialIPQuota int
+	// OLC is the global olcRTC config (room/key/etc.), hot-swappable at runtime. nil → olcRTC
+	// disabled entirely. Emitted in /sub + /info only for the MAESTRO_OLC_LOGINS allowlist.
+	OLC *olcconf.Store
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -85,6 +89,7 @@ type Server struct {
 	promos   *promo.Store
 	trialVel *trialVelocity
 	tg       *telegram.Client
+	olc      *olcconf.Store
 	cfg      Config
 }
 
@@ -93,7 +98,7 @@ func New(st *store.Store, prov Provisioner, orders *order.Store, promos *promo.S
 	return &Server{
 		st: st, prov: prov, orders: orders, promos: promos,
 		trialVel: newTrialVelocity(cfg.TrialIPQuota, 24*time.Hour),
-		tg:       telegram.New(cfg.TGBotToken), cfg: cfg,
+		tg:       telegram.New(cfg.TGBotToken), olc: cfg.OLC, cfg: cfg,
 	}
 }
 
@@ -143,6 +148,12 @@ func (s *Server) Handler() http.Handler {
 			mux.HandleFunc("/admin/order/cancel", s.adminAuth(s.handleOrderCancel))
 		}
 	}
+	// olcRTC admin (independent of the provisioner): swap the carrier room when it expires,
+	// or read the live config (the S1 swap script + inspection). GET reads, POST sets.
+	if s.olc != nil && s.cfg.AdminToken != "" {
+		mux.HandleFunc("/admin/olcrtc", s.adminAuth(s.handleOlcrtc))
+		mux.HandleFunc("/admin/olcrtc/room", s.adminAuth(s.handleOlcrtcRoom))
+	}
 	return mux
 }
 
@@ -155,6 +166,25 @@ var awgMinVC = func() int {
 		return n
 	}
 	return 999999
+}()
+
+// olcLogins is the set of logins that may receive the olcRTC fallback in their /sub + /info
+// (owner's own accounts — the feature is "под замком для wapmix"). Defaults to {wapmix};
+// override with MAESTRO_OLC_LOGINS="wapmix,wapmixx" (comma-separated) without a redeploy.
+// Belt-and-suspenders: OLC creds are only stored on these accounts anyway, but this strips
+// them even if a record were mis-set, so the working transport never reaches anyone else.
+var olcLogins = func() map[string]bool {
+	raw := os.Getenv("MAESTRO_OLC_LOGINS")
+	if strings.TrimSpace(raw) == "" {
+		raw = "wapmix"
+	}
+	m := map[string]bool{}
+	for _, l := range strings.Split(raw, ",") {
+		if l = strings.TrimSpace(l); l != "" {
+			m[l] = true
+		}
+	}
+	return m
 }()
 
 // appVersionCode parses the SFA app versionCode from the User-Agent, e.g.
@@ -240,6 +270,14 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	if sc.WG != nil && appVersionCode(r.UserAgent()) < awgMinVC {
 		sc.WG = nil
 	}
+	// olcRTC creds-gate: emit the olcRTC socks outbound ONLY for the owner's logins, and ONLY
+	// when the GLOBAL olcRTC config is enabled+configured (olcconf — single source of truth,
+	// hot-swappable). The WebRTC params (room/key) ride over /info, same gate; no creds = no
+	// tunnel even if the UI is bypassed. sc.OLC starts nil (no per-customer creds), so a
+	// non-allowlisted login can never get it.
+	if oc := s.olcConfig(); oc.Ready() && olcLogins[c.Login] {
+		sc.OLC = &subgen.OLCRTCCreds{Provider: oc.Provider, Room: oc.Room, Key: oc.Key, Transport: oc.Transport}
+	}
 	// Universal share-links subscription for cross-platform clients (Karing on
 	// iPhone, v2rayN, NekoBox, Shadowrocket…), requested via ?app=karing /
 	// ?format=links.
@@ -283,12 +321,34 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	out := map[string]any{
 		"login":     c.Login,
 		"expires":   c.Expires,
 		"days_left": daysLeft,
 		"active":    c.Active(),
-	})
+	}
+	// olcRTC WebRTC params (provider/room/key/transport) — NOT sing-box fields, so they can't
+	// ride in /sub; the app writes them into the child's client.yaml. From the GLOBAL olcconf
+	// (hot-swappable room), gated to the owner's logins (same set as the /sub creds-gate). The
+	// token is the per-customer secret, so the key is no more exposed than the rest of /info.
+	if oc := s.olcConfig(); oc.Ready() && olcLogins[c.Login] {
+		out["olcrtc"] = map[string]any{
+			"provider":  oc.Provider,
+			"room":      oc.Room,
+			"key":       oc.Key,
+			"transport": oc.Transport,
+		}
+	}
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// olcConfig returns the live global olcRTC config, or a zero (not-Ready) config when olcRTC
+// is disabled (s.olc == nil) — so callers can always call .Ready() without a nil check.
+func (s *Server) olcConfig() olcconf.Config {
+	if s.olc == nil {
+		return olcconf.Config{}
+	}
+	return s.olc.Get()
 }
 
 // deviceID extracts the app's per-install device id from a request — query param

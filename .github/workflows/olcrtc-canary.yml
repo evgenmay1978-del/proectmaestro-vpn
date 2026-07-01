@@ -1,17 +1,16 @@
-name: Build app APK (test / compile-check)
+name: Build olcRTC sideload canary APK
 
-# Generic NON-OTA test build of the app on a feature branch, against the NORMAL
-# libbox.aar (the fleet engine). Used to compile-check + optionally device-test app
-# changes before merging them to main (which is what OTAs them).
-#
-# ⛔ SAFETY: NO GitHub Release → the OTA mirror never sees it. APK = artifact only
-# (maestrovpn-tv-test-apk). HIGH versionCode so it won't self-update mid-test.
-
+# A NORMALLY-VERSIONED, release-signed sideload APK of feat/olcrtc-aar that the owner can
+# install on ANY device to test olcRTC, WITHOUT blocking future OTAs (unlike android-test.yml,
+# whose 90000+ versionCode permanently freezes the device). vc=119 = one above the live fleet
+# (118): installs as an update, and the next monotonic fleet release (run_number ≥120) OTA-
+# replaces it automatically. ⛔ Artifact ONLY — NO GitHub Release, so the OTA mirror never
+# serves it. Carries the NORMAL fleet libbox.aar (engine unchanged) + the olcRTC binary.
 on:
   workflow_dispatch:
   push:
     paths:
-      - .github/workflows/android-test.yml
+      - .github/workflows/olcrtc-canary.yml
 
 jobs:
   build:
@@ -19,14 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set test version (HIGH code so the OTA never replaces it)
-        id: ver
+      - name: Set canary version (vc 119 — installs over fleet 118, OTA-replaceable by ≥120)
         run: |
           set -euo pipefail
-          VC="$(( 90000 + ${{ github.run_number }} ))"
-          VN="1.0.92-test"
-          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=${VC}/" version.properties
-          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=${VN}/" version.properties
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=119/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=1.0.119-olcrtc/" version.properties
 
       - name: Read NDK pin from version.properties
         id: pin
@@ -70,27 +66,22 @@ jobs:
           [ -n "$RUN_ID" ] || { echo "::error::No successful libbox.yml build found." >&2; exit 1; }
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
           test -f app/libs/libbox.aar
-          ls -lh app/libs/
 
-      - name: Fetch olcrtc android binaries → jniLibs (option-b; NON-FATAL)
-        # Option-b ships olcRTC as a separate-process native binary in jniLibs/<abi>/libolcrtc.so
-        # (NOT the old gomobile .aar, which collided with libbox's go.* runtime). Non-fatal so a
-        # broken olcrtc-bin.yml never blocks the app compile-check.
+      - name: Fetch olcrtc android binaries → jniLibs (option-b; REQUIRED for the canary)
         env:
           GH_TOKEN: ${{ github.token }}
-        continue-on-error: true
         run: |
           set -euo pipefail
           RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -L1 \
             --json databaseId -q '.[0].databaseId // empty')
-          [ -n "$RUN_ID" ] || { echo "::warning::No successful olcrtc-bin.yml run — compiling without the binary." >&2; exit 0; }
+          [ -n "$RUN_ID" ] || { echo "::error::No successful olcrtc-bin.yml run — the canary needs the binary." >&2; exit 1; }
           gh run download "$RUN_ID" -n olcrtc-bin -D olcrtc-bin
           for abi in arm64-v8a armeabi-v7a; do
-            [ -f "olcrtc-bin/libolcrtc-${abi}.so" ] || continue
+            test -f "olcrtc-bin/libolcrtc-${abi}.so"
             mkdir -p "app/src/main/jniLibs/${abi}"
             cp "olcrtc-bin/libolcrtc-${abi}.so" "app/src/main/jniLibs/${abi}/libolcrtc.so"
           done
-          ls -lhR app/src/main/jniLibs/ 2>/dev/null || true
+          ls -lhR app/src/main/jniLibs/
 
       - name: Materialize the stable signing keystore from secret
         env:
@@ -99,6 +90,9 @@ jobs:
           set -euo pipefail
           if [ -n "${SIGNING_KEYSTORE_B64:-}" ]; then
             echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/release.keystore
+          else
+            echo "::error::SIGNING_KEYSTORE_B64 missing — canary must be release-signed to install over the existing app." >&2
+            exit 1
           fi
 
       - name: Build :app:assembleOtherDebug
@@ -117,9 +111,9 @@ jobs:
           echo "::error::gradle build failed after retries" >&2
           exit 1
 
-      - name: Upload test APK (artifact only — NO Release, NO OTA)
+      - name: Upload canary APK (artifact only — NO Release, NO OTA)
         uses: actions/upload-artifact@v4
         with:
-          name: maestrovpn-tv-test-apk
+          name: maestrovpn-tv-olcrtc-canary
           path: app/build/outputs/apk/other/debug/*.apk
           if-no-files-found: error

@@ -176,6 +176,12 @@ dependencies {
     // libbox
     "otherImplementation"(files("libs/libbox.aar"))
 
+    // olcRTC — WebRTC video-disguise fallback transport. Integrated as a SEPARATE-PROCESS native
+    // binary (option-b), NOT a gomobile .aar: the old olcrtc.aar gomobile binding collided with
+    // libbox's go.* JNI runtime ("Duplicate class go.Seq"). The binary ships as
+    // src/main/jniLibs/<abi>/libolcrtc.so (downloaded from olcrtc-bin.yml by android.yml) and the
+    // app exec's it as a child process (see bg/OlcrtcManager.kt) → no shared go.*/JNI, no .aar dep.
+
     // API level specific versions
     val lifecycleVersion23 = "2.10.0"
     val roomVersion23 = "2.8.4"

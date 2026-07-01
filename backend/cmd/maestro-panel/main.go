@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
@@ -57,6 +58,13 @@ func main() {
 	pst, err := promo.Open(env("MAESTRO_PROMO_FILE", "/var/lib/maestro/trials.json"), env("MAESTRO_TRIAL_SALT", "maestro-trial-v1"))
 	if err != nil {
 		log.Fatalf("open trial store: %v", err)
+	}
+
+	// olcRTC global config (carrier room/key) — hot-swappable so an expired Telemost room
+	// propagates without a redeploy (POST /admin/olcrtc/room). Missing file = disabled.
+	olc, err := olcconf.Open(env("MAESTRO_OLC_FILE", "/var/lib/maestro/olcrtc.json"))
+	if err != nil {
+		log.Fatalf("open olcrtc config: %v", err)
 	}
 
 	// The provisioner is wired only when its dependencies are configured.
@@ -178,6 +186,7 @@ func main() {
 			// In-app free trial (POST /trial): 2 days, soft per-/24 quota of 3 trials per day.
 			TrialDays:    atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
 			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
+			OLC:          olc,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
