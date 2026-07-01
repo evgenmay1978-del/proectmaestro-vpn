@@ -1,16 +1,19 @@
 name: Build olcRTC sideload canary APK
 
-# A NORMALLY-VERSIONED, release-signed sideload APK of feat/olcrtc-aar that the owner can
-# install on ANY device to test olcRTC, WITHOUT blocking future OTAs (unlike android-test.yml,
-# whose 90000+ versionCode permanently freezes the device). vc=119 = one above the live fleet
-# (118): installs as an update, and the next monotonic fleet release (run_number ≥120) OTA-
-# replaces it automatically. ⛔ Artifact ONLY — NO GitHub Release, so the OTA mirror never
-# serves it. Carries the NORMAL fleet libbox.aar (engine unchanged) + the olcRTC binary.
+# A NORMALLY-VERSIONED, release-signed sideload APK the owner can install on ANY device to test
+# olcRTC, WITHOUT blocking future OTAs (unlike android-test.yml, whose 90000+ versionCode
+# permanently freezes the device). vc=121 = one above the live fleet (120): installs as an update,
+# and the next monotonic fleet release (run_number ≥122) OTA-replaces it automatically. ⛔ Artifact
+# ONLY — NO GitHub Release, so the OTA mirror never serves it. Carries the NORMAL fleet libbox.aar
+# (engine unchanged) + a SELF-BUILT, PATCHED olcRTC binary (Yandex relay-pin): this workflow clones
+# olcRTC and applies patches/olcrtc-*.patch itself, so the fleet olcrtc-bin.yml stays UNPATCHED
+# (relay-pin is a canary-only, owner-sideload experiment until proven on a Rostov device).
 on:
   workflow_dispatch:
   push:
     paths:
       - .github/workflows/olcrtc-canary.yml
+      - patches/olcrtc-*.patch
 
 jobs:
   build:
@@ -18,18 +21,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set canary version (vc 119 — installs over fleet 118, OTA-replaceable by ≥120)
+      - name: Set canary version (vc 121 — installs over fleet 120, OTA-replaceable by ≥122)
         run: |
           set -euo pipefail
-          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=119/" version.properties
-          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=1.0.119-olcrtc/" version.properties
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=121/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=1.0.121-olcrtc-relaypin/" version.properties
 
-      - name: Read NDK pin from version.properties
+      - name: Read pins from version.properties
         id: pin
         run: |
           set -euo pipefail
-          source <(grep -E '^NDK_VERSION=' version.properties)
-          echo "ndk_version=${NDK_VERSION}" >> "$GITHUB_OUTPUT"
+          source <(grep -E '^(NDK_VERSION|OLCRTC_GO_VERSION|OLCRTC_REF)=' version.properties)
+          echo "ndk_version=${NDK_VERSION}"           >> "$GITHUB_OUTPUT"
+          echo "go_version=${OLCRTC_GO_VERSION#go}"    >> "$GITHUB_OUTPUT"
+          echo "olcrtc_ref=${OLCRTC_REF}"             >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v4
         with:
@@ -67,19 +72,36 @@ jobs:
           gh run download "$RUN_ID" -n libbox-aar -D app/libs
           test -f app/libs/libbox.aar
 
-      - name: Fetch olcrtc android binaries → jniLibs (option-b; REQUIRED for the canary)
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Set up Go ${{ steps.pin.outputs.go_version }} (for the patched olcrtc build)
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          check-latest: false
+
+      - name: Build the PATCHED olcrtc binary (Yandex relay-pin) → jniLibs
+        # SELF-CONTAINED: clone upstream olcRTC at OLCRTC_REF, apply our
+        # patches/olcrtc-*.patch (client-only ICETransportPolicyRelay + Yandex-CIDR
+        # candidate filter), cross-compile static PIE for both ABIs. Deliberately does
+        # NOT reuse the shared olcrtc-bin artifact, so the fleet olcRTC binary stays
+        # UNPATCHED (relay-pin is a canary-only owner-sideload experiment).
         run: |
           set -euo pipefail
-          RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -L1 \
-            --json databaseId -q '.[0].databaseId // empty')
-          [ -n "$RUN_ID" ] || { echo "::error::No successful olcrtc-bin.yml run — the canary needs the binary." >&2; exit 1; }
-          gh run download "$RUN_ID" -n olcrtc-bin -D olcrtc-bin
+          git clone https://github.com/openlibrecommunity/olcrtc.git olcrtc
+          git -C olcrtc checkout "${{ steps.pin.outputs.olcrtc_ref }}"
+          for p in patches/olcrtc-*.patch; do
+            echo "applying $p"; git -C olcrtc apply --3way "$GITHUB_WORKSPACE/$p"
+          done
+          git -C olcrtc --no-pager diff --stat
+          TC="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          ( cd olcrtc && go mod download && mkdir -p out
+            CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$TC/aarch64-linux-android21-clang" \
+              go build -buildmode=pie -ldflags '-s -w -checklinkname=0' -o out/libolcrtc-arm64-v8a.so   ./cmd/olcrtc
+            CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC="$TC/armv7a-linux-androideabi21-clang" \
+              go build -buildmode=pie -ldflags '-s -w -checklinkname=0' -o out/libolcrtc-armeabi-v7a.so ./cmd/olcrtc )
           for abi in arm64-v8a armeabi-v7a; do
-            test -f "olcrtc-bin/libolcrtc-${abi}.so"
+            test -f "olcrtc/out/libolcrtc-${abi}.so"
             mkdir -p "app/src/main/jniLibs/${abi}"
-            cp "olcrtc-bin/libolcrtc-${abi}.so" "app/src/main/jniLibs/${abi}/libolcrtc.so"
+            cp "olcrtc/out/libolcrtc-${abi}.so" "app/src/main/jniLibs/${abi}/libolcrtc.so"
           done
           ls -lhR app/src/main/jniLibs/
 

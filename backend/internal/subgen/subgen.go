@@ -138,9 +138,13 @@ const (
 //     published Telemost network list; geoip-ru remains a superset catch when loaded.
 var olcrtcDirectDomains = []string{"yandex.ru", "yandex.net", "yandex.com", "yastatic.net", "mds.yandex.net", "strm.yandex.net"}
 
+// Kept in sync with the goolom relay-pin Yandex-CIDR filter (patches/olcrtc-yandex-relay-pin.patch):
+// 213.180.192.0/19 covers the bootstrap STUN (stun.rtc.yandex.net, 213.180.205.180) so the child's
+// STUN socket doesn't loop the tun; 93.158.128.0/18 is another Yandex media range.
 var olcrtcDirectCIDRs = []string{
 	"77.88.0.0/18", "5.45.192.0/18", "5.255.192.0/18", "37.9.64.0/18", "37.140.128.0/18",
-	"84.252.160.0/19", "87.250.224.0/19", "95.108.128.0/17", "178.154.128.0/18", "2a02:6b8::/32",
+	"84.252.160.0/19", "87.250.224.0/19", "93.158.128.0/18", "95.108.128.0/17", "178.154.128.0/18",
+	"213.180.192.0/19", "2a02:6b8::/32",
 }
 
 // AmneziaWG shared obfuscation block — the SINGLE source of truth for the client side.
