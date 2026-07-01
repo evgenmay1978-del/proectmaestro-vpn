@@ -1,16 +1,17 @@
 diff --git a/internal/client/client.go b/internal/client/client.go
-index 6730d7c..9b5472a 100644
+index 6730d7c..37a954f 100644
 --- a/internal/client/client.go
 +++ b/internal/client/client.go
-@@ -196,7 +196,12 @@ func (c *Client) bringUpLink(
+@@ -196,7 +196,13 @@ func (c *Client) bringUpLink(
  		OnData:              c.onData,
  		DNSServer:           cfg.DNSServer,
  		RequireTargetedPeer: true,
 -		Options:             cfg.TransportOptions,
-+		// Client always pins media to the SFU's Yandex TURN relay (relay-only +
-+		// Yandex-CIDR candidate filter) so the client<->SFU leg rides a
-+		// whitelisted Yandex IP — required to survive RU {Yandex,VK,MAX} regions.
-+		// The server (server.go) leaves this off and keeps plain IPv4 candidates.
++		// Client always pins media to the SFU's own TURN relay via
++		// ICETransportPolicyRelay (no host/srflx/direct candidates). For Telemost
++		// the relay is a Yandex IP, so the client<->SFU leg rides a whitelisted
++		// Yandex address — required to survive RU {Yandex,VK,MAX} regions. The
++		// server (server.go) leaves this off and keeps all candidate types.
 +		RelayPin: true,
 +		Options:  cfg.TransportOptions,
  		Traffic:             cfg.Traffic,
@@ -65,7 +66,7 @@ index efd2038..da87559 100644
  
  // Session is the engine-level runtime handle. It is shaped to match what
 diff --git a/internal/engine/goolom/lifecycle.go b/internal/engine/goolom/lifecycle.go
-index 78dc37a..8eea440 100644
+index 78dc37a..900a90a 100644
 --- a/internal/engine/goolom/lifecycle.go
 +++ b/internal/engine/goolom/lifecycle.go
 @@ -30,6 +30,12 @@ func (s *Session) Connect(ctx context.Context) error {
@@ -81,43 +82,6 @@ index 78dc37a..8eea440 100644
  
  	if err := s.setupPeerConnections(config); err != nil {
  		return err
-@@ -83,7 +89,7 @@ func (s *Session) waitForMediaReady(ctx context.Context, timeout time.Duration)
- }
- 
- func (s *Session) setupPeerConnections(config webrtc.Configuration) error {
--	api, err := newWebRTCAPI()
-+	api, err := newWebRTCAPI(s.relayPin)
- 	if err != nil {
- 		return err
- 	}
-@@ -109,7 +115,7 @@ func (s *Session) setupPeerConnections(config webrtc.Configuration) error {
- 
- // newWebRTCAPI builds a pion API with IPv4-only ICE and the default media
- // engine + interceptors.
--func newWebRTCAPI() (*webrtc.API, error) {
-+func newWebRTCAPI(relayPin bool) (*webrtc.API, error) {
- 	settingEngine := webrtc.SettingEngine{}
- 	if protect.Protector != nil {
- 		settingEngine.SetICEProxyDialer(protect.NewProxyDialer())
-@@ -124,7 +130,17 @@ func newWebRTCAPI() (*webrtc.API, error) {
- 	// to IPv4 keeps the candidate set small and consent alive for the session.
- 	settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
- 	settingEngine.SetIPFilter(func(ip net.IP) bool {
--		return ip.To4() != nil
-+		if ip.To4() == nil {
-+			return false
-+		}
-+		// Client relay-pin: additionally drop any candidate whose IP is not in a
-+		// Yandex range, so the surviving media path can ONLY be the SFU's Yandex
-+		// TURN relay (relay candidate IPs are the Yandex relay address, which
-+		// passes; host/srflx on the phone's carrier IP are dropped).
-+		if relayPin && !ipInYandexCIDR(ip) {
-+			return false
-+		}
-+		return true
- 	})
- 
- 	// Register the default media engine + interceptors. Without the default
 diff --git a/internal/engine/goolom/media.go b/internal/engine/goolom/media.go
 index f0af72f..bccd47c 100644
 --- a/internal/engine/goolom/media.go
@@ -139,115 +103,23 @@ index f0af72f..bccd47c 100644
  	if s.pcSub != nil {
  		_ = s.pcSub.SetConfiguration(cfg)
  	}
-diff --git a/internal/engine/goolom/relaypin.go b/internal/engine/goolom/relaypin.go
-new file mode 100644
-index 0000000..4e533a4
---- /dev/null
-+++ b/internal/engine/goolom/relaypin.go
-@@ -0,0 +1,47 @@
-+package goolom
-+
-+import "net"
-+
-+// yandexCIDRs are the Yandex (AS13238 and neighbours) ranges the Telemost SFU's
-+// TURN relay candidates fall in. When a Session has relayPin set (client only),
-+// the ICE candidate filter keeps ONLY candidates whose IP is inside one of these
-+// ranges, so the client<->SFU media leg can ride ONLY whitelisted Yandex
-+// infrastructure — the requirement for surviving RU {Yandex,VK,MAX} allowlist
-+// regions. Mirrors the backend subgen olcrtcDirectCIDRs list; the verified live
-+// relay IPs (77.88.7.x, 37.9.82.x, 37.9.102.x, 5.255.211.x) are all covered.
-+var yandexCIDRs = mustParseCIDRs([]string{
-+	"77.88.0.0/18",
-+	"5.45.192.0/18",
-+	"5.255.192.0/18",
-+	"37.9.64.0/18",
-+	"37.140.128.0/18",
-+	"84.252.160.0/19",
-+	"87.250.224.0/19",
-+	"93.158.128.0/18",
-+	"95.108.128.0/17",
-+	"178.154.128.0/18",
-+	"213.180.192.0/19",
-+	"2a02:6b8::/32",
-+})
-+
-+func mustParseCIDRs(cidrs []string) []*net.IPNet {
-+	out := make([]*net.IPNet, 0, len(cidrs))
-+	for _, c := range cidrs {
-+		_, n, err := net.ParseCIDR(c)
-+		if err != nil {
-+			panic("goolom: bad yandex CIDR " + c + ": " + err.Error())
-+		}
-+		out = append(out, n)
-+	}
-+	return out
-+}
-+
-+// ipInYandexCIDR reports whether ip is inside any known Yandex range.
-+func ipInYandexCIDR(ip net.IP) bool {
-+	for _, n := range yandexCIDRs {
-+		if n.Contains(ip) {
-+			return true
-+		}
-+	}
-+	return false
-+}
-diff --git a/internal/engine/goolom/relaypin_test.go b/internal/engine/goolom/relaypin_test.go
-new file mode 100644
-index 0000000..2a78a4c
---- /dev/null
-+++ b/internal/engine/goolom/relaypin_test.go
-@@ -0,0 +1,34 @@
-+package goolom
-+
-+import (
-+	"net"
-+	"testing"
-+)
-+
-+func TestIPInYandexCIDR(t *testing.T) {
-+	cases := []struct {
-+		ip   string
-+		want bool
-+	}{
-+		// Verified live Telemost TURN relay IPs — MUST pass the filter.
-+		{"77.88.7.53", true},
-+		{"37.9.82.148", true},
-+		{"37.9.102.65", true},
-+		{"5.255.211.241", true},
-+		{"213.180.205.180", true}, // bootstrap STUN (stun.rtc.yandex.net)
-+		// Non-Yandex — MUST be dropped so media can't leak off-whitelist.
-+		{"46.30.42.151", false}, // S3 host (our exit)
-+		{"8.8.8.8", false},      // Google DoT
-+		{"1.1.1.1", false},
-+		{"192.168.1.1", false},
-+	}
-+	for _, c := range cases {
-+		ip := net.ParseIP(c.ip)
-+		if ip == nil {
-+			t.Fatalf("bad test ip %q", c.ip)
-+		}
-+		if got := ipInYandexCIDR(ip); got != c.want {
-+			t.Errorf("ipInYandexCIDR(%s) = %v, want %v", c.ip, got, c.want)
-+		}
-+	}
-+}
 diff --git a/internal/engine/goolom/session.go b/internal/engine/goolom/session.go
-index 3322e89..31175ea 100644
+index 3322e89..436e2dd 100644
 --- a/internal/engine/goolom/session.go
 +++ b/internal/engine/goolom/session.go
-@@ -103,6 +103,10 @@ type Session struct {
+@@ -103,6 +103,11 @@ type Session struct {
  	shouldReconnect func() bool
  	onEnded         func(string)
  
-+	// relayPin (client-only) forces ICETransportPolicyRelay + a Yandex-CIDR
-+	// candidate filter so media rides ONLY the SFU's Yandex TURN relay.
++	// relayPin (client-only) forces ICETransportPolicyRelay so pion emits ONLY
++	// relay candidates — media then rides ONLY the SFU's own TURN relay, which
++	// for Telemost is a Yandex IP (whitelisted in RU {Yandex,VK,MAX} regions).
 +	relayPin bool
 +
  	reconnectCh    chan struct{}
  	closeCh        chan struct{}
  	keepAliveCh    chan struct{}
-@@ -176,6 +180,7 @@ func New(_ context.Context, cfg engine.Config) (engine.Session, error) {
+@@ -176,6 +181,7 @@ func New(_ context.Context, cfg engine.Config) (engine.Session, error) {
  		telemetryReferer: telemetryReferer,
  		refresh:          cfg.Refresh,
  		onData:           cfg.OnData,
