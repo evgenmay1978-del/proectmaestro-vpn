@@ -4,7 +4,12 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -58,6 +63,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
@@ -77,6 +84,7 @@ import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.component.NeonAccountCard
 import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
+import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
@@ -279,15 +287,62 @@ private fun HeroPane(
     modifier: Modifier = Modifier,
 ) {
     val isTv = rememberIsTv()
+    val lowRam = rememberIsLowRam()
+    // slow "breath" clock for the living pulses (logo glow + status dot). Its readers only redraw
+    // their small areas, and they read it only when connected & not low-RAM → cheap.
+    val breath by rememberInfiniteTransition(label = "heroBreath").animateFloat(
+        0f, 1f, infiniteRepeatable(tween(2800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "breathClock",
+    )
+    // ⚠️ `breath` is read ONLY inside the drawBehind lambdas below (draw-phase) — never in the
+    // composable body — so it invalidates just those small draws, not a whole-HeroPane recompose.
+    // connect light-WAVE: a bright band sweeps across the logo once when the tunnel comes up.
+    val wave = remember { Animatable(0f) }
+    LaunchedEffect(connected) {
+        if (connected) {
+            wave.snapTo(0f)
+            wave.animateTo(1f, tween(950, easing = FastOutSlowInEasing))
+        }
+    }
+
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        // Brand wordmark — the owner's glossy green-glass PANEL (its own chrome bevel + neon-green
-        // sheen = the SAME UI family as the buttons → reads as one unified element, not a sticker).
-        // One whole piece, full hero width; no separate animated spider (the new art has none).
+        // Brand wordmark — the owner's glossy green-glass PANEL. A gentle green glow breathes
+        // behind it when connected; on connect a light wave runs ACROSS the panel (SrcAtop → only
+        // over the logo pixels, not the transparent margins). Full hero width, one whole piece.
         Image(
             painter = painterResource(R.drawable.maestro_wordmark),
             contentDescription = "MaestroVPN",
             contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    val pulse = if (connected && !lowRam) breath else 0f
+                    val a = 0.04f + 0.10f * pulse
+                    if (a > 0.001f) {
+                        drawRect(
+                            Brush.radialGradient(
+                                listOf(NeonGreen.copy(alpha = a), Color.Transparent),
+                                center = Offset(size.width / 2f, size.height / 2f),
+                                radius = size.maxDimension * 0.6f,
+                            ),
+                        )
+                    }
+                }
+                .drawWithContent {
+                    drawContent()
+                    val w = wave.value
+                    if (w > 0f && w < 1f) {
+                        val x = 0.15f + 0.70f * w // band centre 0.15..0.85 → stops always strictly increasing
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                (x - 0.12f) to Color.Transparent,
+                                x to Color.White.copy(alpha = 0.42f),
+                                (x + 0.12f) to Color.Transparent,
+                            ),
+                            blendMode = BlendMode.SrcAtop,
+                        )
+                    }
+                },
         )
         Spacer(Modifier.height(if (isTv) 14.dp else 16.dp))
 
@@ -298,14 +353,29 @@ private fun HeroPane(
         )
 
         Spacer(Modifier.height(14.dp))
-        // status with a state dot
+        // status with a state dot — the dot gets a soft glow HALO that pulses (breathes) when
+        // connected, at the same rate as the spider's eyes.
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier
-                    .size(11.dp)
-                    .clip(CircleShape)
-                    .background(if (connected) NeonGreen else MaestroSilver),
-            )
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(22.dp).drawBehind {
+                    if (connected) {
+                        val pulse = if (lowRam) 0f else breath
+                        val a = 0.30f + 0.42f * pulse
+                        val r = size.minDimension / 2f
+                        drawCircle(
+                            Brush.radialGradient(
+                                listOf(NeonGreen.copy(alpha = a), Color.Transparent),
+                                center = Offset(size.width / 2f, size.height / 2f),
+                                radius = r,
+                            ),
+                            radius = r,
+                        )
+                    }
+                },
+            ) {
+                Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else MaestroSilver))
+            }
             Spacer(Modifier.width(9.dp))
             Text(
                 statusText.uppercase(),

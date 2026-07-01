@@ -77,6 +77,12 @@ private val SPIDER_LEGS = listOf(
 private const val IDLE_DEG = 5.0f     // visible leg sway while connected & resting (idle, in place)
 private const val BURST_DEG = 17.0f   // big leg STRIDE/lift during the crawl, so it grips & climbs high
 
+// The spider's two head eyes (dark domes) — fractions of the medallion, measured from
+// spider_body.png. A warm amber glow lights them on connect and "breathes" at the gait rate.
+private val EYE_COLOR = Color(0xFFFFB84D)
+private val EYE_XS = listOf(0.44f, 0.56f)
+private const val EYE_Y = 0.315f
+
 /**
  * The hero connect button — the photoreal spider medallion from the owner's reference,
  * but the spider is RIGGED: its body + legs (from the owner's clean spider asset) are
@@ -238,6 +244,27 @@ fun SpiderMedallion(
                         alpha = 0.34f, colorFilter = legShadow,
                     )
                     drawImage(bodyBmp, dstOffset = IntOffset(0, (gy + bob).roundToInt()), dstSize = box)
+
+                    // EYES — warm amber glow on the head. Fades in with `live` (0 off → 1 on) and
+                    // BREATHES at the gait rate (reuses the gait clock → no new perpetual anim). The
+                    // Canvas already redraws each frame, so this is essentially free.
+                    if (live > 0.01f) {
+                        val pulse = 0.5f + 0.5f * sin(gait)
+                        val eyeA = live * (0.35f + 0.5f * pulse)
+                        val er = w * 0.05f
+                        EYE_XS.forEach { ex ->
+                            val ec = Offset(ex * w, EYE_Y * h + gy + bob)
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0f to EYE_COLOR.copy(alpha = eyeA),
+                                    0.55f to EYE_COLOR.copy(alpha = eyeA * 0.45f),
+                                    1f to Color.Transparent,
+                                    center = ec, radius = er,
+                                ),
+                                radius = er, center = ec,
+                            )
+                        }
+                    }
                 },
             )
 
