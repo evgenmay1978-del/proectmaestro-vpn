@@ -8,6 +8,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
@@ -86,6 +87,7 @@ import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.rememberIsTv
+import kotlin.math.floor
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
@@ -128,6 +130,7 @@ fun TvHomeScreen(
     onEnterTrial: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
+    val lowRam = rememberIsLowRam()
     val connectFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (isTv) runCatching { connectFocus.requestFocus() }
@@ -194,6 +197,9 @@ fun TvHomeScreen(
                 }
                 .padding(screenPadding(isTv)),
         ) {
+            // atmosphere particles behind the content (gated OFF on low-RAM TVs — perpetual clock)
+            if (!lowRam) Particles(Modifier.matchParentSize())
+
             if (isTv) {
                 // ── LANDSCAPE (TV): hero on the left, menu on the right ──
                 Row(
@@ -344,7 +350,14 @@ private fun HeroPane(
                     }
                 },
         )
-        Spacer(Modifier.height(if (isTv) 14.dp else 16.dp))
+        // Web strand visually connecting the logo panel to the spider medallion below — a faint
+        // silk thread + a small web fan. Static (draw-phase reads only `connected`) → cheap.
+        WebConnector(
+            connected = connected,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (isTv) 22.dp else 26.dp),
+        )
 
         SpiderMedallion(
             connected = connected,
@@ -560,6 +573,56 @@ private fun MenuPane(
 }
 
 /** Small per-protocol glyph for the chips. */
+/** Faint silk web connecting the logo panel to the medallion — a thread + a small web fan. Static. */
+@Composable
+private fun WebConnector(connected: Boolean, modifier: Modifier) {
+    Box(
+        modifier.drawBehind {
+            val cx = size.width / 2f
+            val h = size.height
+            val a = if (connected) 0.20f else 0.12f
+            val col = NeonGreen.copy(alpha = a)
+            val colDim = NeonGreen.copy(alpha = a * 0.6f)
+            val spread = size.width * 0.13f
+            // central silk thread top→bottom
+            drawLine(col, Offset(cx, 0f), Offset(cx, h), strokeWidth = 1.6f)
+            // a small web fan spreading toward the medallion top
+            listOf(-1f, -0.5f, 0.5f, 1f).forEach { k ->
+                drawLine(colDim, Offset(cx, 0f), Offset(cx + spread * k, h), strokeWidth = 1f)
+            }
+            // two cross-strands joining the outer fan strands (web rings)
+            for (ring in 1..2) {
+                val yf = ring / 3f
+                drawLine(colDim, Offset(cx - spread * yf, h * yf), Offset(cx + spread * yf, h * yf), strokeWidth = 0.9f)
+            }
+        },
+    )
+}
+
+/** Slow drifting atmosphere particles with 3-depth parallax. Perpetual clock → NON-low-RAM only. */
+@Composable
+private fun Particles(modifier: Modifier) {
+    val t by rememberInfiniteTransition(label = "particles").animateFloat(
+        0f, 1f, infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Restart), label = "ptClock",
+    )
+    Box(
+        modifier.drawBehind {
+            for (i in 0 until 18) {
+                val fx = frac(i * 0.61803f + 0.13f)
+                val depth = i % 3
+                val fy = frac(i * 0.7549f + t * (0.5f + depth * 0.35f)) // parallax: deeper drifts faster
+                drawCircle(
+                    NeonGreen.copy(alpha = 0.05f + 0.045f * depth),
+                    radius = 1.2f + depth * 0.9f,
+                    center = Offset(fx * size.width, (1f - fy) * size.height),
+                )
+            }
+        },
+    )
+}
+
+private fun frac(v: Float): Float = v - floor(v)
+
 private fun protocolIcon(tag: String): ImageVector = when (tag) {
     "auto" -> Icons.Filled.Speed
     "hysteria2" -> Icons.Filled.Bolt
