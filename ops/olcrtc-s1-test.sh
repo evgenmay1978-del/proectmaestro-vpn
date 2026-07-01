@@ -50,14 +50,17 @@ PY
 
 echo "→ starting client (systemd-run — plain bg dies on S1)"
 systemctl reset-failed "$UNIT" 2>/dev/null || true
+# --since START pins journalctl to THIS run only — the unit name is reused across
+# runs, so without it grep matches a PREVIOUS run's logs and can show a stale PASS.
+START=$(date '+%Y-%m-%d %H:%M:%S')
 systemd-run --unit="$UNIT" --property=Type=simple "$TMP/olcrtc" "$TMP/client.yaml" >/dev/null
 
 i=0
 while [ "$i" -lt 22 ]; do
-  journalctl -u "$UNIT" --no-pager 2>/dev/null | grep -qiE "SOCKS5 server listening|SELECTED media pair|no candidate pairs" && break
+  journalctl -u "$UNIT" --since "$START" --no-pager 2>/dev/null | grep -qiE "SOCKS5 server listening|SELECTED media pair|no candidate pairs" && break
   i=$((i + 1)); sleep 3
 done
-L=$(journalctl -u "$UNIT" --no-pager 2>/dev/null)
+L=$(journalctl -u "$UNIT" --since "$START" --no-pager 2>/dev/null)
 
 echo
 echo "=== SELECTED media pair (relay/udp = shaped in RU · relay/tcp = shaping-resistant) ==="
