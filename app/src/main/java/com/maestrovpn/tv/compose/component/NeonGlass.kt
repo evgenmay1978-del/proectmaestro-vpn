@@ -1,6 +1,8 @@
 package com.maestrovpn.tv.compose.component
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -89,6 +91,7 @@ fun NeonChip(
     icon: ImageVector? = null,
     selected: Boolean = false,
     iconTint: Color? = null,
+    subtitle: String? = null,
 ) {
     val shape = RoundedCornerShape(16.dp)
     val interaction = remember { MutableInteractionSource() }
@@ -124,11 +127,28 @@ fun NeonChip(
             Icon(icon, contentDescription = null, tint = iconTint ?: accent, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
         }
-        Text(
-            label,
-            color = if (selected) MaestroOrange else Color.White,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        )
+        if (subtitle != null) {
+            // two-line chip: protocol name + a small recommendation BADGE (unified style)
+            Column {
+                Text(
+                    label,
+                    color = if (selected) MaestroOrange else Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    subtitle,
+                    color = (if (selected) MaestroOrange else NeonGreen).copy(alpha = 0.85f),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                )
+            }
+        } else {
+            Text(
+                label,
+                color = if (selected) MaestroOrange else Color.White,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            )
+        }
     }
 }
 
@@ -277,8 +297,20 @@ fun NeonAccountCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = modifier
-            .shadow(8.dp, shape, clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
+            .shadow(10.dp, shape, clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
             .background(glassBrush(), shape)
+            // glassmorphism inner highlight — a soft top sheen clipped to the rounded card, so
+            // the plate reads as lit glass (blur is unavailable pre-31, this is the cheap look).
+            .drawBehind {
+                val cr = 18.dp.toPx()
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.12f),
+                        0.45f to Color.Transparent,
+                    ),
+                    cornerRadius = CornerRadius(cr, cr),
+                )
+            }
             .border(1.5.dp, chromeBezelBrush(), shape)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {

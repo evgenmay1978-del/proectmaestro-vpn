@@ -62,6 +62,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -144,16 +145,40 @@ fun TvHomeScreen(
                         Offset(size.width * 0.5f, size.height * 0.28f)
                     }
                     val radius = size.maxDimension * 0.5f
+                    // Depth: a layered radial glow (brighter core → soft green halo → dark) behind
+                    // the medallion. Static — only redraws when `connected`/`isTv` change (cheap).
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                NeonGreen.copy(alpha = if (connected) 0.12f else 0.07f),
+                                NeonGreen.copy(alpha = if (connected) 0.14f else 0.08f),
+                                NeonGreen.copy(alpha = if (connected) 0.05f else 0.03f),
                                 Color.Transparent,
                             ),
                             center = center, radius = radius,
                         ),
                         radius = radius, center = center,
                     )
+                    // Faint decorative SPIDERWEB around the glow — a few radial spokes + concentric
+                    // rings at very low alpha for atmosphere/depth. Also static (no per-frame clock).
+                    val webR = size.minDimension * (if (isTv) 0.46f else 0.58f)
+                    val webA = if (connected) 0.055f else 0.038f
+                    val spokes = 12
+                    for (i in 0 until spokes) {
+                        val a = (i * 2f * Math.PI / spokes).toFloat()
+                        drawLine(
+                            color = NeonGreen.copy(alpha = webA),
+                            start = center,
+                            end = Offset(center.x + kotlin.math.cos(a) * webR, center.y + kotlin.math.sin(a) * webR),
+                            strokeWidth = 1f,
+                        )
+                    }
+                    for (ring in 1..4) {
+                        drawCircle(
+                            color = NeonGreen.copy(alpha = webA * 0.6f),
+                            radius = webR * ring / 4f, center = center,
+                            style = Stroke(width = 1f),
+                        )
+                    }
                 }
                 .graphicsLayer {
                     alpha = enter
@@ -373,9 +398,10 @@ private fun MenuPane(
                             NeonChip(
                                 label = protocolLabel(p),
                                 onClick = { onSelectProtocol(p) },
-                                modifier = Modifier.weight(1f).heightIn(min = 60.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 64.dp),
                                 icon = protocolIcon(p),
                                 selected = p == selected,
+                                subtitle = protocolBadge(p),
                             )
                         }
                         // keep columns equal-width when the last row is short
@@ -481,6 +507,18 @@ private fun protocolLabel(tag: String): String = when (tag) {
     "naive" -> "NaiveProxy"
     "anytls" -> "AnyTLS"
     else -> tag.replaceFirstChar { it.uppercase() }
+}
+
+/** Short recommendation badge under each protocol chip (unified style). */
+private fun protocolBadge(tag: String): String = when (tag) {
+    "auto" -> "Рекомендуется"
+    "vless", "vless-s3" -> "Оптимальный"
+    "hysteria2" -> "Самый быстрый"
+    "naive" -> "Обход блокировок"
+    "anytls" -> "Без TLS-отпечатка"
+    "trojan" -> "Макс. защита"
+    "shadowsocks" -> "Стабильный"
+    else -> "Стабильный"
 }
 
 /** Russian plural of "день" for N: 1 день, 2-4 дня, 5-20 дней (incl. teens). */

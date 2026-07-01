@@ -42,10 +42,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -155,6 +160,7 @@ fun SpiderMedallion(
         if (pressed) 0.94f else if (focused) 1.05f else 1f,
         tween(140, easing = FastOutSlowInEasing), label = "medScale",
     )
+    val lowRam = rememberIsLowRam()
 
     val bgP = painterResource(R.drawable.home_medallion_bg)
     val bodyBmp = ImageBitmap.imageResource(R.drawable.spider_body)
@@ -185,6 +191,12 @@ fun SpiderMedallion(
         Box(Modifier.size(232.dp).clip(CircleShape)) {
             // 1) the owner's clean button (chrome ring + green web)
             Image(bgP, null, Modifier.size(232.dp), contentScale = ContentScale.Fit, colorFilter = webFilter)
+
+            // 1b) ring effects: a static green INNER-RIM glow (brightens with power) + a slow
+            // steel SHINE sweeping the chrome ring. The shine is a perpetual clock, so it's gated
+            // OFF on low-RAM 1 GB TVs (they keep only the cheap static inner glow). Drawn under the
+            // spider so its legs still sit on top of the ring.
+            RingEffects(power = power, lowRam = lowRam, modifier = Modifier.size(232.dp))
 
             // 2) the rigged spider — drawn in ONE pass: leg shadows, legs, body
             Box(
@@ -244,4 +256,55 @@ fun SpiderMedallion(
             content = {},
         )
     }
+}
+
+/** Static inner-rim green glow (power-scaled) + an optional rotating steel shine on the ring. */
+@Composable
+private fun RingEffects(power: Float, lowRam: Boolean, modifier: Modifier) {
+    Box(
+        modifier.drawBehind {
+            val c = Offset(size.width / 2f, size.height / 2f)
+            val r = size.minDimension / 2f
+            // a thin green band JUST INSIDE the chrome rim — lights up as the web powers on.
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0.62f to Color.Transparent,
+                    0.78f to NeonGreen.copy(alpha = 0.05f + 0.22f * power),
+                    0.88f to Color.Transparent,
+                    center = c, radius = r,
+                ),
+                radius = r, center = c,
+            )
+        },
+    )
+    if (!lowRam) RingShine(power)
+}
+
+/** A slow bright arc sweeping around the chrome ring (~10s/rev). Perpetual → non-low-RAM only. */
+@Composable
+private fun RingShine(power: Float) {
+    val ang by rememberInfiniteTransition(label = "ringShine").animateFloat(
+        0f, 360f, infiniteRepeatable(tween(10000, easing = LinearEasing), RepeatMode.Restart),
+        label = "ringAng",
+    )
+    Box(
+        Modifier.size(232.dp).drawBehind {
+            val stroke = size.minDimension * 0.055f
+            val d = size.minDimension - stroke * 1.8f // ring diameter, inset so the arc sits on the rim
+            rotate(ang) {
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        0.00f to Color.Transparent,
+                        0.06f to Color.White.copy(alpha = 0.18f + 0.20f * power),
+                        0.12f to Color.Transparent,
+                        1.00f to Color.Transparent,
+                    ),
+                    startAngle = 0f, sweepAngle = 360f, useCenter = false,
+                    topLeft = Offset((size.width - d) / 2f, (size.height - d) / 2f),
+                    size = Size(d, d),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+            }
+        },
+    )
 }
