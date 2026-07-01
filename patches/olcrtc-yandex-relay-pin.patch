@@ -66,7 +66,7 @@ index efd2038..da87559 100644
  
  // Session is the engine-level runtime handle. It is shaped to match what
 diff --git a/internal/engine/goolom/lifecycle.go b/internal/engine/goolom/lifecycle.go
-index 78dc37a..900a90a 100644
+index 78dc37a..da0c67b 100644
 --- a/internal/engine/goolom/lifecycle.go
 +++ b/internal/engine/goolom/lifecycle.go
 @@ -30,6 +30,12 @@ func (s *Session) Connect(ctx context.Context) error {
@@ -82,6 +82,59 @@ index 78dc37a..900a90a 100644
  
  	if err := s.setupPeerConnections(config); err != nil {
  		return err
+@@ -218,6 +224,7 @@ func (s *Session) onSubscriberConnectionStateChange(state webrtc.PeerConnectionS
+ 	case webrtc.PeerConnectionStateConnected:
+ 		s.subscriberReady.Store(true)
+ 		closeSignal(s.subscriberConn)
++		logSelectedPair(s.pcSub, "subscriber")
+ 	case webrtc.PeerConnectionStateDisconnected,
+ 		webrtc.PeerConnectionStateFailed,
+ 		webrtc.PeerConnectionStateClosed:
+@@ -235,6 +242,7 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
+ 	case webrtc.PeerConnectionStateConnected:
+ 		s.publisherReady.Store(true)
+ 		closeSignal(s.publisherConn)
++		logSelectedPair(s.pcPub, "publisher")
+ 	case webrtc.PeerConnectionStateDisconnected,
+ 		webrtc.PeerConnectionStateFailed,
+ 		webrtc.PeerConnectionStateClosed:
+@@ -252,6 +260,36 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
+ 	s.onConnectionStateChange(state)
+ }
+ 
++// logSelectedPair logs the NOMINATED ICE candidate pair for a PC — its type
++// (relay/host) and protocol (udp/tcp) + IP — so per connection we can SEE
++// whether media rides a Yandex relay over UDP (shaped in RU whitelist regions)
++// or TCP. The key observability for the Rostov UDP-shaping work; INFO, no verbose
++// flood. Best-effort — nil pair until ICE nominates one.
++func logSelectedPair(pc *webrtc.PeerConnection, which string) {
++	if pc == nil {
++		return
++	}
++	report := pc.GetStats()
++	var localID, remoteID string
++	for _, stat := range report {
++		if p, ok := stat.(webrtc.ICECandidatePairStats); ok && p.Nominated {
++			localID, remoteID = p.LocalCandidateID, p.RemoteCandidateID
++			break
++		}
++	}
++	if localID == "" {
++		logger.Infof("goolom %s selected pair: <none nominated yet>", which)
++		return
++	}
++	desc := func(id string) string {
++		if c, ok := report[id].(webrtc.ICECandidateStats); ok {
++			return fmt.Sprintf("%s/%s %s:%d", c.CandidateType, c.Protocol, c.IP, c.Port)
++		}
++		return "?"
++	}
++	logger.Infof("goolom %s SELECTED media pair: local[%s] <-> remote[%s]", which, desc(localID), desc(remoteID))
++}
++
+ // pcCloseTimeout bounds how long teardown waits for a pion
+ // PeerConnection to close. With the advertised TURN relays now retained
+ // (issue #95), PeerConnection.Close() tries to free the server-side TURN
 diff --git a/internal/engine/goolom/media.go b/internal/engine/goolom/media.go
 index f0af72f..bccd47c 100644
 --- a/internal/engine/goolom/media.go
