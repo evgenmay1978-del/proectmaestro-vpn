@@ -207,44 +207,60 @@ fun TvHomeScreen(
             if (!lowRam) Particles(Modifier.matchParentSize())
 
             if (isTv) {
-                // ── LANDSCAPE (TV): hero on the left, menu on the right ──
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    HeroPane(
-                        statusText = statusText,
-                        connected = connected,
-                        activeProtocol = activeProtocol,
-                        selected = selected,
-                        accountLogin = accountLogin,
-                        daysLeft = daysLeft,
-                        onToggleConnect = onToggleConnect,
-                        connectFocus = connectFocus,
-                        modifier = Modifier.weight(0.42f),
-                    )
-                    Spacer(Modifier.width(28.dp))
-                    MenuPane(
-                        protocols = protocols,
-                        selected = selected,
-                        isTv = true,
-                        onSelectProtocol = onSelectProtocol,
-                        hasOlcrtcCreds = hasOlcrtcCreds,
-                        onSelectOlcrtc = onSelectOlcrtc,
-                        onBuy = onBuy,
-                        onEnterCode = onEnterCode,
-                        onSplitTunnel = onSplitTunnel,
-                        onShareIos = onShareIos,
-                        onScanQr = onScanQr,
-                        onEnterTrial = onEnterTrial,
-                        showTrial = !hasSubProfile,
-                        // fillMaxHeight + scroll is a safety net for short (720p) TVs; the menu
-                        // normally fits without scrolling.
-                        modifier = Modifier
-                            .weight(0.58f)
-                            .fillMaxHeight()
-                            .verticalScroll(rememberScrollState()),
-                    )
+                // ── LANDSCAPE (TV): a slim ALWAYS-VISIBLE account strip on top, then hero (left) +
+                // menu (right). The hero pane is vertically centered and NOT scrollable, so an
+                // account card placed inside it clips off the bottom on many TVs — the top strip
+                // guarantees the customer always sees their login + days-left.
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+                        AccountCard(
+                            login = accountLogin,
+                            daysLeft = daysLeft,
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .widthIn(min = 240.dp, max = 620.dp),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        HeroPane(
+                            statusText = statusText,
+                            connected = connected,
+                            activeProtocol = activeProtocol,
+                            selected = selected,
+                            accountLogin = accountLogin,
+                            daysLeft = daysLeft,
+                            onToggleConnect = onToggleConnect,
+                            connectFocus = connectFocus,
+                            modifier = Modifier.weight(0.42f),
+                            showAccountCard = false,
+                        )
+                        Spacer(Modifier.width(28.dp))
+                        MenuPane(
+                            protocols = protocols,
+                            selected = selected,
+                            isTv = true,
+                            onSelectProtocol = onSelectProtocol,
+                            hasOlcrtcCreds = hasOlcrtcCreds,
+                            onSelectOlcrtc = onSelectOlcrtc,
+                            onBuy = onBuy,
+                            onEnterCode = onEnterCode,
+                            onSplitTunnel = onSplitTunnel,
+                            onShareIos = onShareIos,
+                            onScanQr = onScanQr,
+                            onEnterTrial = onEnterTrial,
+                            showTrial = !hasSubProfile,
+                            // fillMaxHeight + scroll is a safety net for short (720p) TVs; the menu
+                            // normally fits without scrolling.
+                            modifier = Modifier
+                                .weight(0.58f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState()),
+                        )
+                    }
                 }
             } else {
                 // ── PORTRAIT (phone): single scrolling column ──
@@ -289,6 +305,28 @@ fun TvHomeScreen(
     }
 }
 
+/** Login + days-left glass card. Shared by the phone hero and the TV top strip so the two never
+ *  diverge. Computes the day colour/label (green / orange when ≤5 / red when expired) from [daysLeft]. */
+@Composable
+private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier) {
+    val expired = daysLeft != null && daysLeft <= 0
+    val low = daysLeft != null && daysLeft in 1..5
+    val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
+    val daysText = when {
+        daysLeft == null -> null
+        expired -> "Подписка истекла"
+        else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
+    }
+    NeonAccountCard(
+        login = login,
+        daysText = daysText,
+        daysColor = daysColor,
+        leadingIcon = Icons.Filled.Person,
+        trailingIcon = Icons.Filled.CalendarMonth,
+        modifier = modifier,
+    )
+}
+
 /** The hero zone: wordmark + the spider medallion connect button + status + account. */
 @Composable
 private fun HeroPane(
@@ -301,6 +339,7 @@ private fun HeroPane(
     onToggleConnect: () -> Unit,
     connectFocus: FocusRequester,
     modifier: Modifier = Modifier,
+    showAccountCard: Boolean = true,
 ) {
     val isTv = rememberIsTv()
     val lowRam = rememberIsLowRam()
@@ -408,23 +447,14 @@ private fun HeroPane(
             )
         }
 
-        // Account card — login + days left (from the panel /sub/<token>/info).
-        if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+        // Account card — login + days left (from the panel /sub/<token>/info). Suppressed on TV
+        // (showAccountCard=false): the TV hero pane is vertically centered and NOT scrollable, so a
+        // card down here clips off the bottom — TV renders it as an always-visible top strip instead.
+        if (showAccountCard && (!accountLogin.isNullOrBlank() || daysLeft != null)) {
             Spacer(Modifier.height(12.dp))
-            val expired = daysLeft != null && daysLeft <= 0
-            val low = daysLeft != null && daysLeft in 1..5
-            val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
-            val daysText = when {
-                daysLeft == null -> null
-                expired -> "Подписка истекла"
-                else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
-            }
-            NeonAccountCard(
+            AccountCard(
                 login = accountLogin,
-                daysText = daysText,
-                daysColor = daysColor,
-                leadingIcon = Icons.Filled.Person,
-                trailingIcon = Icons.Filled.CalendarMonth,
+                daysLeft = daysLeft,
                 modifier = Modifier.widthIn(min = 240.dp),
             )
         }
