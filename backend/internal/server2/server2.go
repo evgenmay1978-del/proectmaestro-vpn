@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"text/template"
@@ -117,6 +118,28 @@ func (c *Client) run(cmd, stdin string) (string, error) {
 	return out.String(), nil
 }
 
+// hy2SafeUser reports whether a username is safe to embed as a Hysteria (viper) userpass key.
+// Hysteria parses its YAML through viper, which treats "." as a KEY-NESTING delimiter: a username
+// containing "." is read as a nested map ("a.b: p" → {a:{b:p}}), so mapstructure then rejects the
+// WHOLE `auth` block ("expected string, got map") and Hysteria fails to start — taking Hy2 down for
+// EVERY user, not just the offending one (this actually happened: a "trial-roman.pfa" login put the
+// server in a 4800-restart crash-loop). Any YAML-structural char (":", whitespace, leading "-") on a
+// bare "  user: pass" line is likewise unsafe. Restrict to a conservative login charset; such a
+// username can't authenticate on Hysteria anyway, and the user still has every other protocol.
+func hy2SafeUser(u string) bool {
+	if u == "" || len(u) > 64 {
+		return false
+	}
+	for _, r := range u {
+		ok := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // renderHy2 builds the full Hysteria config for the given user set.
 func (c *Client) renderHy2(users []Hy2User) (string, error) {
 	cert := c.cfg.Hy2CertPem
@@ -131,6 +154,16 @@ func (c *Client) renderHy2(users []Hy2User) (string, error) {
 	if port == 0 {
 		port = 8443
 	}
+	// Defensive filter: one malformed login must NEVER be able to crash Hy2 for the whole fleet.
+	safe := make([]Hy2User, 0, len(users))
+	for _, u := range users {
+		if !hy2SafeUser(u.User) {
+			log.Printf("server2: skipping Hy2 user %q — unsafe as a hysteria/viper config key", u.User)
+			continue
+		}
+		safe = append(safe, u)
+	}
+	users = safe
 	var b bytes.Buffer
 	err := hy2Tmpl.Execute(&b, map[string]any{"Port": port, "Cert": cert, "Key": key, "Users": users})
 	if err != nil {
@@ -156,16 +189,22 @@ func (c *Client) SyncHy2Users(users []Hy2User) error {
 		return err
 	}
 	// Write atomically via stdin, back up the old one, restart, verify, rollback on failure.
+	// `systemctl restart` returns 0 as soon as the unit STARTS, even if the process then dies and
+	// enters a Restart=always crash-loop (a bad config = FATAL-on-parse). So checking the restart
+	// exit code alone misses crash-loops. Instead: restart, wait, and if it isn't genuinely `active`
+	// afterwards, roll the previous config back — so a bad write never leaves Hysteria down.
 	script := fmt.Sprintf(`set -e
 cp -a %[1]s %[1]s.bak 2>/dev/null || true
 cat > %[1]s.new
 mv %[1]s.new %[1]s
-if ! systemctl restart hysteria-server; then
-  echo "restart failed, rolling back" >&2
-  [ -f %[1]s.bak ] && mv %[1]s.bak %[1]s && systemctl restart hysteria-server
-  exit 1
-fi
+systemctl restart hysteria-server || true
 sleep 2
+if [ "$(systemctl is-active hysteria-server)" != active ]; then
+  echo "hysteria not active after restart — rolling back to last-good config" >&2
+  [ -f %[1]s.bak ] && mv %[1]s.bak %[1]s
+  systemctl restart hysteria-server || true
+  sleep 2
+fi
 systemctl is-active hysteria-server`, hy2ConfigPath)
 	// The script is the SSH command; its `cat > …` reads the config from stdin.
 	out, err := c.run(script, cfg)

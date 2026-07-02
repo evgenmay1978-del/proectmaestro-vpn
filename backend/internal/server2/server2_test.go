@@ -26,6 +26,38 @@ func TestRenderHy2(t *testing.T) {
 	}
 }
 
+// A username with a "." (or other viper/YAML-unsafe char) must be DROPPED, not emitted — a single
+// such key nests the userpass map and crashes Hysteria for every user. Regression guard for the
+// 2026-07-02 "trial-roman.pfa" fleet-wide Hy2 outage.
+func TestRenderHy2DropsUnsafeUsers(t *testing.T) {
+	c := New(Config{Hy2Port: 8443})
+	out, err := c.renderHy2([]Hy2User{
+		{User: "good", Pass: "p1"},
+		{User: "trial-roman.pfa", Pass: "p2"}, // dot → viper nesting → must be dropped
+		{User: "has space", Pass: "p3"},       // YAML-structural → must be dropped
+		{User: "keep-me_1", Pass: "p4"},
+	})
+	if err != nil {
+		t.Fatalf("renderHy2: %v", err)
+	}
+	if !strings.Contains(out, "    good: p1") || !strings.Contains(out, "    keep-me_1: p4") {
+		t.Errorf("safe users missing from config:\n%s", out)
+	}
+	if strings.Contains(out, "trial-roman") || strings.Contains(out, "has space") {
+		t.Errorf("unsafe user was NOT dropped:\n%s", out)
+	}
+	for _, bad := range []string{"", "a.b", "a:b", "a b", "тест"} {
+		if hy2SafeUser(bad) {
+			t.Errorf("hy2SafeUser(%q) = true, want false", bad)
+		}
+	}
+	for _, ok := range []string{"good", "keep-me_1", "Evgenpristavki", "u5650030056"} {
+		if !hy2SafeUser(ok) {
+			t.Errorf("hy2SafeUser(%q) = false, want true", ok)
+		}
+	}
+}
+
 // TestSyncHy2Live hits the real server 2. Gated behind MAESTRO_S2_PASS so CI and
 // casual `go test` skip it. Run manually:
 //
