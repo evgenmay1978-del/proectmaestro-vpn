@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
@@ -75,7 +76,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -473,11 +476,8 @@ private fun MenuPane(
         }
     }
 
-    // Secondary-action tiles stay 2-col on a narrow phone / 3-col on TV.
-    val cols = if (isTv) 3 else 2
-    // Protocol chips: a COMPACT 3-per-row grid on every surface (owner: the old
-    // 2-col phone list was too stretched). maxLines+ellipsis in NeonChip keeps
-    // long RU labels from breaking in the narrower cells.
+    // Protocol chips + secondary-action tiles: a COMPACT 3-per-row grid on every surface
+    // (matches the design mock). Long RU names wrap to 2 lines in NeonChip so they FIT.
     val protoCols = 3
 
     // olcRTC is a TEASER: shown to EVERYONE, but usable ONLY by owner logins whose
@@ -536,32 +536,49 @@ private fun MenuPane(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // ── secondary actions — chrome tiles (icon on top, short label); update full-width ──
+        // ── secondary actions — 6 chrome tiles, 3 per row (matches the design mock) ──
+        // "Проверить соединение" does a quick 204-probe and toasts the result (no new screen).
+        val ctx = LocalContext.current
+        val scope = rememberCoroutineScope()
+        val onCheckConnection: () -> Unit = {
+            scope.launch(Dispatchers.IO) {
+                val ok = runCatching {
+                    (java.net.URL("https://www.google.com/generate_204").openConnection()
+                        as java.net.HttpURLConnection).run {
+                        connectTimeout = 5000; readTimeout = 5000
+                        try { responseCode in 200..399 } finally { disconnect() }
+                    }
+                }.getOrDefault(false)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        ctx,
+                        if (ok) "✅ Соединение работает" else "❌ Нет соединения",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
+        val actionCols = 3
         val tiles = buildList<Triple<String, ImageVector, () -> Unit>> {
             add(Triple("Ввести код", Icons.Filled.Search, onEnterCode))
             if (!isTv) add(Triple("Сканировать QR", Icons.Filled.QrCode2, onScanQr))
             add(Triple("Приложения VPN", Icons.Filled.Public, onSplitTunnel))
             add(Triple("Поделиться", Icons.Filled.Share, onShareIos))
+            add(Triple("Обновить приложение", Icons.Filled.CloudDownload, onUpdate))
+            add(Triple("Проверить соединение", Icons.Filled.NetworkCheck, onCheckConnection))
         }
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            tiles.chunked(cols).forEach { row ->
+            tiles.chunked(actionCols).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { a ->
-                        ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 86.dp))
+                        ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 92.dp))
                     }
                     // keep columns equal-width when the last row is short
-                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+                    repeat(actionCols - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
-        NeonChip(
-            label = "Обновить приложение",
-            onClick = onUpdate,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
-            icon = Icons.Filled.CloudDownload,
-        )
 
         // ── Контакты ──────────────────────────────────────────────────
         Spacer(Modifier.height(20.dp))

@@ -110,7 +110,7 @@ fun NeonChip(
         onClick = onClick,
         shape = shape,
         interactionSource = interaction,
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
         modifier = modifier
@@ -126,26 +126,29 @@ fun NeonChip(
             .border(if (focused) 2.dp else 1.5.dp, chromeBezelBrush(selected), shape),
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = iconTint ?: accent, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(10.dp))
+            Icon(icon, contentDescription = null, tint = iconTint ?: accent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(7.dp))
         }
         if (subtitle != null) {
             // two-line chip: protocol name + a small recommendation BADGE (unified style).
-            // maxLines+ellipsis so a 3-column (narrow) chip never wraps/breaks mid-word.
-            Column {
+            // In the narrow 3-per-row grid long RU names (Hysteria2 / NaiveProxy / Vless+Reality)
+            // must FIT, so the name wraps to a 2nd line instead of being ellipsised mid-word.
+            Column(Modifier.weight(1f, fill = false)) {
                 Text(
                     label,
                     color = if (selected) MaestroOrange else Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    maxLines = 1,
+                    fontSize = 12.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 2,
+                    softWrap = true,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     subtitle,
                     color = (if (selected) MaestroOrange else NeonGreen).copy(alpha = 0.85f),
                     fontWeight = FontWeight.Medium,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
