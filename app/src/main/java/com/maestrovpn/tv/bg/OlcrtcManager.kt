@@ -40,7 +40,12 @@ object OlcrtcManager {
     const val SOCKS_PORT = 8808
 
     private const val TAG = "OlcrtcManager"
-    private const val READY_TIMEOUT_MS = 25_000L
+    // The SOCKS listener comes up ONLY after the full video tunnel is established
+    // (media connect → waitForPeer → smux). In RU whitelist regions the forced
+    // TURN-over-TCP-443 relay warms up in ~30-60s (vs <25s for UDP on open net), so
+    // a 25s deadline gave up BEFORE the tunnel finished → "видео-туннель не поднялся"
+    // even when it would have come up. 90s covers the tcp-relay warm-up.
+    private const val READY_TIMEOUT_MS = 90_000L
     private const val POLL_INTERVAL_MS = 300L
 
     private data class Creds(val provider: String, val room: String, val key: String, val transport: String)

@@ -1,7 +1,9 @@
 package com.maestrovpn.tv.compose.screen.dashboard.groups
 
+import android.widget.Toast
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.OutboundGroup
+import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
@@ -185,8 +187,18 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // carries traffic once the child binary is up. Start it BEFORE selecting; abort the
                 // switch if it doesn't come up. Switching to anything else tears the child down.
                 if (itemTag == OlcrtcManager.OUTBOUND_TAG) {
+                    // The SOCKS listener only comes up after the WebRTC video tunnel is fully
+                    // established — up to ~90s while a TURN-over-TCP relay warms up in RU whitelist
+                    // regions. Surface that so a long wait doesn't read as a freeze.
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            Application.application,
+                            "Запуск видео-туннеля, это может занять до 1,5 минут…",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                     if (!OlcrtcManager.ensureStarted()) {
-                        sendError(IllegalStateException("olcRTC: видео-туннель не поднялся (см. логи)"))
+                        sendError(IllegalStateException("olcRTC: видео-туннель не поднялся за 90 сек — подождите и попробуйте ещё раз (см. логи)"))
                         return@launch
                     }
                 } else if (OlcrtcManager.isRunning) {
