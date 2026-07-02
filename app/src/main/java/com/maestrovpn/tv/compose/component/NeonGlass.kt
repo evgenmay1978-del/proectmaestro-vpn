@@ -38,6 +38,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -131,26 +134,31 @@ fun NeonChip(
         }
         if (subtitle != null) {
             // two-line chip: protocol name + a small recommendation BADGE (unified style).
-            // In the narrow 3-per-row grid long RU names (Hysteria2 / NaiveProxy / Vless+Reality)
-            // must FIT, so the name wraps to a 2nd line instead of being ellipsised mid-word.
+            // NO wrapping, NO ellipsis (owner: must look like the mock) — autoSize shrinks the
+            // font just enough so even long RU names (Hysteria2 / NaiveProxy / Vless+Reality)
+            // FIT on ONE line in the narrow 3-per-row cell.
             Column(Modifier.weight(1f, fill = false)) {
-                Text(
-                    label,
-                    color = if (selected) MaestroOrange else Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    lineHeight = 13.sp,
-                    maxLines = 2,
-                    softWrap = true,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    subtitle,
-                    color = (if (selected) MaestroOrange else NeonGreen).copy(alpha = 0.85f),
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 9.sp,
+                BasicText(
+                    text = label,
+                    style = TextStyle(
+                        color = if (selected) MaestroOrange else Color.White,
+                        fontWeight = FontWeight.Bold,
+                    ),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    autoSize = TextAutoSize.StepBased(
+                        minFontSize = 9.sp, maxFontSize = 15.sp, stepSize = 0.5.sp,
+                    ),
+                )
+                BasicText(
+                    text = subtitle,
+                    style = TextStyle(
+                        color = (if (selected) MaestroOrange else NeonGreen).copy(alpha = 0.85f),
+                        fontWeight = FontWeight.Medium,
+                    ),
+                    maxLines = 1,
+                    autoSize = TextAutoSize.StepBased(
+                        minFontSize = 7.sp, maxFontSize = 11.sp, stepSize = 0.5.sp,
+                    ),
                 )
             }
         } else {
