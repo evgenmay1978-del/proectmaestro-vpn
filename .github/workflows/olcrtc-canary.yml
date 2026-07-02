@@ -21,11 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set canary version (vc 123 — installs over prior canary 122 & fleet 120, OTA-replaceable by ≥124)
+      - name: Set canary version (vc 124 — installs over prior canary 123 & fleet 120, OTA-replaceable by ≥125)
         run: |
           set -euo pipefail
-          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=123/" version.properties
-          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=1.0.123-olcrtc-diag/" version.properties
+          sed -i -E "s/^VERSION_CODE=.*/VERSION_CODE=124/" version.properties
+          sed -i -E "s/^VERSION_NAME=.*/VERSION_NAME=1.0.124-olcrtc-coldfix/" version.properties
 
       - name: Read pins from version.properties
         id: pin

@@ -66,7 +66,7 @@ index efd2038..da87559 100644
  
  // Session is the engine-level runtime handle. It is shaped to match what
 diff --git a/internal/engine/goolom/lifecycle.go b/internal/engine/goolom/lifecycle.go
-index 78dc37a..6fd9f06 100644
+index 78dc37a..987d078 100644
 --- a/internal/engine/goolom/lifecycle.go
 +++ b/internal/engine/goolom/lifecycle.go
 @@ -30,6 +30,12 @@ func (s *Session) Connect(ctx context.Context) error {
@@ -82,7 +82,20 @@ index 78dc37a..6fd9f06 100644
  
  	if err := s.setupPeerConnections(config); err != nil {
  		return err
-@@ -83,7 +89,7 @@ func (s *Session) waitForMediaReady(ctx context.Context, timeout time.Duration)
+@@ -65,7 +71,11 @@ func (s *Session) Connect(ctx context.Context) error {
+ 		}
+ 	}
+ 
+-	return s.waitForMediaReady(ctx, 20*time.Second)
++	// Cold-start hardening: a stalled TURN-over-TCP-443 Allocate yields ZERO candidate
++	// pairs and otherwise burns the full timeout doing nothing, while a healthy relay
++	// nominates in ~2-3s. Cap the wait short so the supervisor can retry a fresh Allocate
++	// several times inside the app's 90s ensureStarted window instead of 1-2 dead attempts.
++	return s.waitForMediaReady(ctx, 10*time.Second)
+ }
+ 
+ func (s *Session) waitForMediaReady(ctx context.Context, timeout time.Duration) error {
+@@ -83,7 +93,7 @@ func (s *Session) waitForMediaReady(ctx context.Context, timeout time.Duration)
  }
  
  func (s *Session) setupPeerConnections(config webrtc.Configuration) error {
@@ -91,7 +104,7 @@ index 78dc37a..6fd9f06 100644
  	if err != nil {
  		return err
  	}
-@@ -109,7 +115,7 @@ func (s *Session) setupPeerConnections(config webrtc.Configuration) error {
+@@ -109,7 +119,7 @@ func (s *Session) setupPeerConnections(config webrtc.Configuration) error {
  
  // newWebRTCAPI builds a pion API with IPv4-only ICE and the default media
  // engine + interceptors.
@@ -100,7 +113,7 @@ index 78dc37a..6fd9f06 100644
  	settingEngine := webrtc.SettingEngine{}
  	if protect.Protector != nil {
  		settingEngine.SetICEProxyDialer(protect.NewProxyDialer())
-@@ -122,7 +128,15 @@ func newWebRTCAPI() (*webrtc.API, error) {
+@@ -122,7 +132,15 @@ func newWebRTCAPI() (*webrtc.API, error) {
  	// pairs starves ICE consent-freshness checks on the working pair, so the
  	// SFU stops receiving consent and tears down media after ~30-40 s. Limiting
  	// to IPv4 keeps the candidate set small and consent alive for the session.
@@ -117,7 +130,7 @@ index 78dc37a..6fd9f06 100644
  	settingEngine.SetIPFilter(func(ip net.IP) bool {
  		return ip.To4() != nil
  	})
-@@ -218,6 +232,7 @@ func (s *Session) onSubscriberConnectionStateChange(state webrtc.PeerConnectionS
+@@ -218,6 +236,7 @@ func (s *Session) onSubscriberConnectionStateChange(state webrtc.PeerConnectionS
  	case webrtc.PeerConnectionStateConnected:
  		s.subscriberReady.Store(true)
  		closeSignal(s.subscriberConn)
@@ -125,7 +138,7 @@ index 78dc37a..6fd9f06 100644
  	case webrtc.PeerConnectionStateDisconnected,
  		webrtc.PeerConnectionStateFailed,
  		webrtc.PeerConnectionStateClosed:
-@@ -235,6 +250,7 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
+@@ -235,6 +254,7 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
  	case webrtc.PeerConnectionStateConnected:
  		s.publisherReady.Store(true)
  		closeSignal(s.publisherConn)
@@ -133,7 +146,7 @@ index 78dc37a..6fd9f06 100644
  	case webrtc.PeerConnectionStateDisconnected,
  		webrtc.PeerConnectionStateFailed,
  		webrtc.PeerConnectionStateClosed:
-@@ -252,6 +268,36 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
+@@ -252,6 +272,36 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
  	s.onConnectionStateChange(state)
  }
  
@@ -241,6 +254,21 @@ index 3322e89..436e2dd 100644
  		reconnectCh:      make(chan struct{}, 1),
  		closeCh:          make(chan struct{}),
  		keepAliveCh:      make(chan struct{}),
+diff --git a/internal/supervisor/supervisor.go b/internal/supervisor/supervisor.go
+index 9406952..559a0e1 100644
+--- a/internal/supervisor/supervisor.go
++++ b/internal/supervisor/supervisor.go
+@@ -11,7 +11,9 @@ import (
+ )
+ 
+ // DefaultRetryDelay is used between profile attempts when Config.RetryDelay is unset.
+-const DefaultRetryDelay = 2 * time.Second
++// Kept short so cold-start (a fresh room-join racing a flaky TURN-over-TCP-443 Allocate)
++// gets several fast retries inside the app's 90s ensureStarted window rather than 1-2.
++const DefaultRetryDelay = 1 * time.Second
+ 
+ // DefaultHistoryLimit bounds emitted status history when Config.HistoryLimit is unset.
+ const DefaultHistoryLimit = 20
 diff --git a/internal/transport/transport.go b/internal/transport/transport.go
 index bef4c73..df3667a 100644
 --- a/internal/transport/transport.go
