@@ -207,13 +207,15 @@ fun TvHomeScreen(
             if (!lowRam) Particles(Modifier.matchParentSize())
 
             if (isTv) {
-                // ── LANDSCAPE (TV): logo + spider medallion at the TOP of the hero column, the
-                // account (login + days) pinned to the BOTTOM of it (owner layout). Both panes fill
-                // the height; the hero pushes its account card down with a weight spacer (HeroPane).
+                // ── LANDSCAPE (TV): logo + spider medallion at the TOP (hero), login + days in a
+                // FIXED bar at the BOTTOM of the screen (owner layout). The account bar has its OWN
+                // reserved slot below the hero+menu Row, so a tall hero / big medallion on a
+                // high-density TV can never push it off-screen (that was the 1.0.125 regression where
+                // a weight-spacer inside the hero collapsed to 0 and login+days vanished).
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.Top,
                     ) {
                         HeroPane(
                             statusText = statusText,
@@ -225,7 +227,7 @@ fun TvHomeScreen(
                             onToggleConnect = onToggleConnect,
                             connectFocus = connectFocus,
                             modifier = Modifier.weight(0.42f).fillMaxHeight(),
-                            showAccountCard = true,
+                            showAccountCard = false, // rendered as the fixed bottom bar below instead
                         )
                         Spacer(Modifier.width(28.dp))
                         MenuPane(
@@ -248,6 +250,17 @@ fun TvHomeScreen(
                                 .weight(0.58f)
                                 .fillMaxHeight()
                                 .verticalScroll(rememberScrollState()),
+                        )
+                    }
+                    // FIXED bottom bar — login + days, always visible (own slot, never clipped).
+                    if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+                        Spacer(Modifier.height(10.dp))
+                        AccountCard(
+                            login = accountLogin,
+                            daysLeft = daysLeft,
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .widthIn(min = 240.dp, max = 620.dp),
                         )
                     }
                 }
@@ -449,12 +462,10 @@ private fun HeroPane(
             )
         }
 
-        // Account (login + days) — pinned to the BOTTOM of the hero (owner layout: logo+medallion up
-        // top, login+days down). On TV the hero fills the height, so a weight spacer pushes the card
-        // to the bottom edge; on the phone it just follows in the scroll flow. Shows «Безлимит» for
-        // unlimited accounts (see AccountCard).
+        // Account (login + days) — PHONE only (TV renders it as a fixed bottom bar in TvHomeScreen so
+        // it can never be clipped by a tall hero). Shows «Безлимит» for unlimited accounts.
         if (showAccountCard && (!accountLogin.isNullOrBlank() || daysLeft != null)) {
-            if (isTv) Spacer(Modifier.weight(1f)) else Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
             AccountCard(
                 login = accountLogin,
                 daysLeft = daysLeft,
