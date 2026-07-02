@@ -207,21 +207,10 @@ fun TvHomeScreen(
             if (!lowRam) Particles(Modifier.matchParentSize())
 
             if (isTv) {
-                // ── LANDSCAPE (TV): a slim ALWAYS-VISIBLE account strip on top, then hero (left) +
-                // menu (right). The hero pane is vertically centered and NOT scrollable, so an
-                // account card placed inside it clips off the bottom on many TVs — the top strip
-                // guarantees the customer always sees their login + days-left.
+                // ── LANDSCAPE (TV): logo + spider medallion at the TOP of the hero column, the
+                // account (login + days) pinned to the BOTTOM of it (owner layout). Both panes fill
+                // the height; the hero pushes its account card down with a weight spacer (HeroPane).
                 Column(modifier = Modifier.fillMaxSize()) {
-                    if (!accountLogin.isNullOrBlank() || daysLeft != null) {
-                        AccountCard(
-                            login = accountLogin,
-                            daysLeft = daysLeft,
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .widthIn(min = 240.dp, max = 620.dp),
-                        )
-                        Spacer(Modifier.height(12.dp))
-                    }
                     Row(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
@@ -235,8 +224,8 @@ fun TvHomeScreen(
                             daysLeft = daysLeft,
                             onToggleConnect = onToggleConnect,
                             connectFocus = connectFocus,
-                            modifier = Modifier.weight(0.42f),
-                            showAccountCard = false,
+                            modifier = Modifier.weight(0.42f).fillMaxHeight(),
+                            showAccountCard = true,
                         )
                         Spacer(Modifier.width(28.dp))
                         MenuPane(
@@ -305,8 +294,8 @@ fun TvHomeScreen(
     }
 }
 
-/** Login + days-left glass card. Shared by the phone hero and the TV top strip so the two never
- *  diverge. Computes the day colour/label (green / orange when ≤5 / red when expired) from [daysLeft]. */
+/** Login + days-left glass card (bottom of the hero on both phone and TV). Computes the day
+ *  colour/label — green / orange when ≤5 / red when expired / «Безлимит» for unlimited — from [daysLeft]. */
 @Composable
 private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier) {
     val expired = daysLeft != null && daysLeft <= 0
@@ -315,6 +304,7 @@ private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Mod
     val daysText = when {
         daysLeft == null -> null
         expired -> "Подписка истекла"
+        daysLeft > 3650 -> "Безлимит" // unlimited/owner accounts → don't show an absurd day count
         else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
     }
     NeonAccountCard(
@@ -447,18 +437,6 @@ private fun HeroPane(
             )
         }
 
-        // Account card — login + days left (from the panel /sub/<token>/info). Suppressed on TV
-        // (showAccountCard=false): the TV hero pane is vertically centered and NOT scrollable, so a
-        // card down here clips off the bottom — TV renders it as an always-visible top strip instead.
-        if (showAccountCard && (!accountLogin.isNullOrBlank() || daysLeft != null)) {
-            Spacer(Modifier.height(12.dp))
-            AccountCard(
-                login = accountLogin,
-                daysLeft = daysLeft,
-                modifier = Modifier.widthIn(min = 240.dp),
-            )
-        }
-
         // Active protocol — the outbound actually carrying traffic right now (orange).
         if (connected && !activeProtocol.isNullOrBlank()) {
             Spacer(Modifier.height(10.dp))
@@ -468,6 +446,19 @@ private fun HeroPane(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaestroOrange,
+            )
+        }
+
+        // Account (login + days) — pinned to the BOTTOM of the hero (owner layout: logo+medallion up
+        // top, login+days down). On TV the hero fills the height, so a weight spacer pushes the card
+        // to the bottom edge; on the phone it just follows in the scroll flow. Shows «Безлимит» for
+        // unlimited accounts (see AccountCard).
+        if (showAccountCard && (!accountLogin.isNullOrBlank() || daysLeft != null)) {
+            if (isTv) Spacer(Modifier.weight(1f)) else Spacer(Modifier.height(12.dp))
+            AccountCard(
+                login = accountLogin,
+                daysLeft = daysLeft,
+                modifier = Modifier.widthIn(min = 240.dp),
             )
         }
     }
