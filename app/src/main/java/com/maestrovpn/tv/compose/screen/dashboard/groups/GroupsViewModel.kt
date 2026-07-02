@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.OutboundGroup
 import com.maestrovpn.tv.Application
+import com.maestrovpn.tv.bg.CrashReportManager
 import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
@@ -197,7 +198,12 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                             Toast.LENGTH_LONG,
                         ).show()
                     }
-                    if (!OlcrtcManager.ensureStarted()) {
+                    val cold = !OlcrtcManager.isRunning
+                    val ok = OlcrtcManager.ensureStarted()
+                    // Ship a redacted connect-diagnostic to /report (owner-gated) so we can see WHY
+                    // the tunnel fails cold-start on a real device — there's no in-app log export.
+                    runCatching { CrashReportManager.reportOlcrtc(ok, cold, OlcrtcManager.recentLog()) }
+                    if (!ok) {
                         sendError(IllegalStateException("olcRTC: видео-туннель не поднялся за 90 сек — подождите и попробуйте ещё раз (см. логи)"))
                         return@launch
                     }

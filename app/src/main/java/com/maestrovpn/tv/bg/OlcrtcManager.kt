@@ -204,17 +204,31 @@ object OlcrtcManager {
 
     private val secretRe = Regex("[0-9a-fA-F]{16,}")
 
+    // Ring buffer of the child's most-recent (redacted) log lines, for the connect diagnostic
+    // shipped to /report — there's no in-app log export, so this is how we see WHY the tunnel
+    // fails to come up on a real device (esp. cold-start). Bounded so it can't grow unbounded.
+    private const val LOG_RING_MAX = 160
+    private val logRing = ArrayDeque<String>()
+
     private fun drainLogs(p: Process) {
         Thread({
             runCatching {
                 // Redact long hex runs (the 64-hex shared key) so it can't land in logcat /
                 // the crash-telemetry log.
                 p.inputStream.bufferedReader().forEachLine { line ->
-                    Log.i("olcRTC", secretRe.replace(line) { "<redacted:${it.value.length}>" })
+                    val safe = secretRe.replace(line) { "<redacted:${it.value.length}>" }
+                    Log.i("olcRTC", safe)
+                    synchronized(logRing) {
+                        logRing.addLast(safe)
+                        while (logRing.size > LOG_RING_MAX) logRing.removeFirst()
+                    }
                 }
             }
         }, "olcrtc-logs").apply { isDaemon = true; start() }
     }
+
+    /** Recent (redacted, secret-free) child log lines, oldest→newest — for the /report diagnostic. */
+    fun recentLog(): String = synchronized(logRing) { logRing.joinToString("\n") }
 
     /**
      * The cnc-mode client config (mirrors olcrtc's telemost+vp8channel client example). The DNS is

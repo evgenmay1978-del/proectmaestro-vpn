@@ -147,6 +147,32 @@ object CrashReportManager {
         return postReport(payload)
     }
 
+    /**
+     * Ship an olcRTC connect diagnostic to /report (owner-gated feature — fired from the protocol
+     * selector after an olcRTC start attempt). Lets us see WHY the video tunnel fails to come up on
+     * a real device WITHOUT an in-app log export: the msg says cold-start-vs-switch + OK-vs-FAIL,
+     * the stack is the child's recent (already secret-redacted) log tail. PII-free like the crash
+     * path; best-effort, never throws.
+     */
+    suspend fun reportOlcrtc(ok: Boolean, cold: Boolean, log: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            val payload = JSONObject().apply {
+                put("kind", "olcrtc")
+                put("v", BuildConfig.VERSION_NAME)
+                put("vc", BuildConfig.VERSION_CODE)
+                put("device", Build.MANUFACTURER + " " + Build.MODEL)
+                put("api", Build.VERSION.SDK_INT)
+                put("id", runCatching { MaestroSub.deviceId(Application.application) }.getOrDefault(""))
+                put("ts", System.currentTimeMillis())
+                put("msg", (if (cold) "cold-start " else "switch ") + (if (ok) "OK" else "FAIL"))
+                // Tail, not head — the failure is at the END of the log.
+                put("stack", if (log.length > 8000) log.substring(log.length - 8000) else log)
+            }
+            postReport(payload)
+        }
+        Unit
+    }
+
     private fun postReport(payload: JSONObject): Boolean = runCatching {
         val url = URL(BuildConfig.BACKEND_URL.trimEnd('/') + "/report")
         val conn = (url.openConnection() as HttpURLConnection).apply {
