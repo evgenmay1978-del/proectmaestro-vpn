@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -92,6 +93,7 @@ fun NeonChip(
     selected: Boolean = false,
     iconTint: Color? = null,
     subtitle: String? = null,
+    locked: Boolean = false,
 ) {
     val shape = RoundedCornerShape(16.dp)
     val interaction = remember { MutableInteractionSource() }
@@ -112,7 +114,7 @@ fun NeonChip(
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
         modifier = modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (locked) 0.55f else 1f }
             .shadow(
                 elevation = if (focused) 16.dp else if (selected) 12.dp else 6.dp,
                 shape = shape,
@@ -128,18 +130,24 @@ fun NeonChip(
             Spacer(Modifier.width(10.dp))
         }
         if (subtitle != null) {
-            // two-line chip: protocol name + a small recommendation BADGE (unified style)
+            // two-line chip: protocol name + a small recommendation BADGE (unified style).
+            // maxLines+ellipsis so a 3-column (narrow) chip never wraps/breaks mid-word.
             Column {
                 Text(
                     label,
                     color = if (selected) MaestroOrange else Color.White,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     subtitle,
                     color = (if (selected) MaestroOrange else NeonGreen).copy(alpha = 0.85f),
                     fontWeight = FontWeight.Medium,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         } else {
@@ -147,6 +155,8 @@ fun NeonChip(
                 label,
                 color = if (selected) MaestroOrange else Color.White,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

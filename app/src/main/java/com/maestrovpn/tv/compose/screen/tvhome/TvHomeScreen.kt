@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode2
@@ -120,8 +121,10 @@ fun TvHomeScreen(
     accountLogin: String? = null,
     daysLeft: Int? = null,
     hasSubProfile: Boolean = false,
+    hasOlcrtcCreds: Boolean = false,
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
+    onSelectOlcrtc: () -> Unit = {},
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit = {},
@@ -223,6 +226,8 @@ fun TvHomeScreen(
                         selected = selected,
                         isTv = true,
                         onSelectProtocol = onSelectProtocol,
+                        hasOlcrtcCreds = hasOlcrtcCreds,
+                        onSelectOlcrtc = onSelectOlcrtc,
                         onBuy = onBuy,
                         onEnterCode = onEnterCode,
                         onSplitTunnel = onSplitTunnel,
@@ -264,6 +269,8 @@ fun TvHomeScreen(
                         selected = selected,
                         isTv = false,
                         onSelectProtocol = onSelectProtocol,
+                        hasOlcrtcCreds = hasOlcrtcCreds,
+                        onSelectOlcrtc = onSelectOlcrtc,
                         onBuy = onBuy,
                         onEnterCode = onEnterCode,
                         onSplitTunnel = onSplitTunnel,
@@ -440,6 +447,8 @@ private fun MenuPane(
     selected: String?,
     isTv: Boolean,
     onSelectProtocol: (String) -> Unit,
+    hasOlcrtcCreds: Boolean,
+    onSelectOlcrtc: () -> Unit,
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
     onSplitTunnel: () -> Unit,
@@ -464,31 +473,42 @@ private fun MenuPane(
         }
     }
 
-    // Column count adapts to the surface: a phone is NARROW → 2 columns (long RU labels
-    // fit with no mid-word break); a TV menu pane is WIDE → 3 columns so the chrome chips
-    // fill it instead of stretching huge.
+    // Secondary-action tiles stay 2-col on a narrow phone / 3-col on TV.
     val cols = if (isTv) 3 else 2
+    // Protocol chips: a COMPACT 3-per-row grid on every surface (owner: the old
+    // 2-col phone list was too stretched). maxLines+ellipsis in NeonChip keeps
+    // long RU labels from breaking in the narrower cells.
+    val protoCols = 3
+
+    // olcRTC is a TEASER: shown to EVERYONE, but usable ONLY by owner logins whose
+    // creds arrive via /info (hasOlcrtcCreds). Non-owner clients have no olcrtc outbound
+    // in their sing-box config, so it appears LOCKED (🔒, dimmed, tap = "по запросу",
+    // never selectable) — selecting it would route to a dead 127.0.0.1:8808 and kill
+    // their connection. The working entry (owner) comes from the server list as usual.
+    val displayProtocols = if (protocols.contains("olcrtc")) protocols else protocols + "olcrtc"
 
     Column(modifier = modifier) {
-        // ── ПРОТОКОЛ — equal-width chrome chips (2 col phone / 3 col TV) ──
-        if (protocols.isNotEmpty()) {
+        // ── ПРОТОКОЛ — equal-width chrome chips, 3 per row ──
+        if (displayProtocols.isNotEmpty()) {
             SectionLabel("ПРОТОКОЛ")
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                protocols.chunked(cols).forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                displayProtocols.chunked(protoCols).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { p ->
+                            val olcLocked = p == "olcrtc" && !hasOlcrtcCreds
                             NeonChip(
                                 label = protocolLabel(p),
-                                onClick = { onSelectProtocol(p) },
-                                modifier = Modifier.weight(1f).heightIn(min = 64.dp),
-                                icon = protocolIcon(p),
-                                selected = p == selected,
-                                subtitle = protocolBadge(p),
+                                onClick = { if (olcLocked) onSelectOlcrtc() else onSelectProtocol(p) },
+                                modifier = Modifier.weight(1f).heightIn(min = 62.dp),
+                                icon = if (olcLocked) Icons.Filled.Lock else protocolIcon(p),
+                                selected = p == selected && !olcLocked,
+                                subtitle = if (olcLocked) "🔒 по запросу" else protocolBadge(p),
+                                locked = olcLocked,
                             )
                         }
                         // keep columns equal-width when the last row is short
-                        repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+                        repeat(protoCols - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -629,6 +649,7 @@ private fun protocolIcon(tag: String): ImageVector = when (tag) {
     "vless" -> Icons.Filled.Shield
     "naive" -> Icons.Filled.Hub
     "anytls" -> Icons.Filled.Lock
+    "olcrtc" -> Icons.Filled.Videocam
     else -> Icons.Filled.Layers
 }
 
@@ -639,6 +660,7 @@ private fun protocolLabel(tag: String): String = when (tag) {
     "vless" -> "VLESS"
     "naive" -> "NaiveProxy"
     "anytls" -> "AnyTLS"
+    "olcrtc" -> "olcRTC"
     else -> tag.replaceFirstChar { it.uppercase() }
 }
 
@@ -647,8 +669,9 @@ private fun protocolBadge(tag: String): String = when (tag) {
     "auto" -> "Рекомендуется"
     "vless", "vless-s3" -> "Оптимальный"
     "hysteria2" -> "Самый быстрый"
-    "naive" -> "Обход блокировок"
+    "naive" -> "⚠ нестабильный"
     "anytls" -> "Без TLS-отпечатка"
+    "olcrtc" -> "через Яндекс"
     "trojan" -> "Макс. защита"
     "shadowsocks" -> "Стабильный"
     else -> "Стабильный"
