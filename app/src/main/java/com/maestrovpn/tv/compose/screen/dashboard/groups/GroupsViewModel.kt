@@ -9,6 +9,8 @@ import com.maestrovpn.tv.compose.model.Group
 import com.maestrovpn.tv.compose.model.GroupItem
 import com.maestrovpn.tv.compose.model.toList
 import com.maestrovpn.tv.constant.Status
+import com.maestrovpn.tv.database.ProfileManager
+import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.AppLifecycleObserver
 import com.maestrovpn.tv.utils.CommandClient
 import com.maestrovpn.tv.utils.CommandTarget
@@ -20,6 +22,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
 
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
@@ -89,6 +93,15 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 }
             }
         }
+
+        // Cold start with the VPN OFF: seed the protocol menu from the saved config right away,
+        // so an activated app shows its protocols before any service-status change fires.
+        viewModelScope.launch {
+            if (_serviceStatus.value != Status.Started && uiState.value.groups.isEmpty()) {
+                val offline = loadOfflineGroups()
+                if (offline.isNotEmpty()) updateState { copy(groups = offline) }
+            }
+        }
     }
 
     private data class SessionTarget(val connect: Boolean, val remoteServerId: Long?)
@@ -109,13 +122,57 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             return
         }
         if (status != Status.Started) {
-            updateState {
-                copy(
-                    groups = emptyList(),
-                    isLoading = false,
-                )
+            // VPN off: DON'T wipe the protocol list. libbox only serves live groups while running,
+            // so fall back to the protocols parsed from the saved sub config — an ACTIVATED app then
+            // keeps its protocols visible in BOTH connected and disconnected states (owner request).
+            viewModelScope.launch {
+                val offline = loadOfflineGroups()
+                updateState { copy(groups = offline, isLoading = false) }
             }
         }
+    }
+
+    /**
+     * Protocols parsed from the saved sub config (TypedProfile.path) so the menu can show them while
+     * the VPN is OFF. libbox exposes OutboundGroup only while the service runs; this reads the same
+     * JSON the service would load and extracts the "select" selector's outbounds. Empty if the app
+     * isn't activated (no selected sub profile) or the config can't be read. urlTestDelay=0 (unknown
+     * offline). Live libbox groups replace these the moment the service reports Started.
+     */
+    private suspend fun loadOfflineGroups(): List<Group> = withContext(Dispatchers.IO) {
+        runCatching {
+            val pid = Settings.selectedProfile
+            if (pid == -1L) return@withContext emptyList()
+            val profile = ProfileManager.get(pid) ?: return@withContext emptyList()
+            val path = profile.typed.path
+            if (path.isBlank() || !File(path).isFile) return@withContext emptyList()
+            val outbounds = JSONObject(File(path).readText()).optJSONArray("outbounds")
+                ?: return@withContext emptyList()
+            val typeByTag = HashMap<String, String>()
+            var selectTags: List<String> = emptyList()
+            var selectDefault = ""
+            for (i in 0 until outbounds.length()) {
+                val o = outbounds.optJSONObject(i) ?: continue
+                val tag = o.optString("tag")
+                typeByTag[tag] = o.optString("type")
+                if (o.optString("type") == "selector" && tag == "select") {
+                    val arr = o.optJSONArray("outbounds")
+                    if (arr != null) selectTags = (0 until arr.length()).map { arr.optString(it) }
+                    selectDefault = o.optString("default", selectTags.firstOrNull().orEmpty())
+                }
+            }
+            if (selectTags.isEmpty()) return@withContext emptyList()
+            listOf(
+                Group(
+                    tag = "select",
+                    type = "selector",
+                    selectable = true,
+                    selected = selectDefault.ifBlank { selectTags.first() },
+                    isExpand = true,
+                    items = selectTags.map { GroupItem(it, typeByTag[it].orEmpty(), 0L, 0) },
+                ),
+            )
+        }.getOrDefault(emptyList())
     }
 
     fun updateServiceStatus(status: Status) {
@@ -259,13 +316,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     override fun onDisconnected() {
-        viewModelScope.launch(Dispatchers.Main) {
-            updateState {
-                copy(
-                    groups = emptyList(),
-                    isLoading = false,
-                )
-            }
+        // Command feed dropped (VPN off / screen off): keep the menu populated from the saved
+        // config instead of blanking it, so protocols stay visible while disconnected.
+        viewModelScope.launch {
+            val offline = loadOfflineGroups()
+            updateState { copy(groups = offline, isLoading = false) }
         }
     }
 
