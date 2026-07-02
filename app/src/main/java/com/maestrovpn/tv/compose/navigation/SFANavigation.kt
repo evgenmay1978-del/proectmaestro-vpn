@@ -150,7 +150,21 @@ fun SFANavHost(
                     // (creds delivered via /info) can actually use it; hasCreds() gates the lock.
                     hasOlcrtcCreds = OlcrtcManager.hasCreds(),
                     onToggleConnect = { dashboardViewModel?.toggleService() },
-                    onSelectProtocol = { tag -> selectGroup?.let { groupsViewModel.selectGroupItem(it.tag, tag) } },
+                    onSelectProtocol = { tag ->
+                        selectGroup?.let { g ->
+                            if (serviceStatus == Status.Started) {
+                                // VPN already up — just switch the live protocol.
+                                groupsViewModel.selectGroupItem(g.tag, tag)
+                            } else {
+                                // VPN off/starting — remember this protocol and turn the VPN ON
+                                // (unless it's already coming up); GroupsViewModel applies the pick
+                                // once libbox reports the selector. So tapping any protocol both
+                                // connects AND lands on exactly that protocol (owner request).
+                                groupsViewModel.setPendingSelect(g.tag, tag)
+                                if (serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
+                            }
+                        }
+                    },
                     onSelectOlcrtc = {
                         Toast.makeText(olcCtx, "olcRTC — по запросу у поддержки (@wapmixx)", Toast.LENGTH_LONG).show()
                     },

@@ -2,6 +2,7 @@ package com.maestrovpn.tv.bg
 
 import android.app.KeyguardManager
 import android.content.Context
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import androidx.annotation.RequiresApi
@@ -17,10 +18,22 @@ class TileService :
         qsTile?.apply {
             state =
                 when (status) {
-                    Status.Started -> Tile.STATE_ACTIVE
-                    Status.Stopped -> Tile.STATE_INACTIVE
-                    else -> Tile.STATE_UNAVAILABLE
+                    // Starting/Stopping stay ACTIVE/INACTIVE (not UNAVAILABLE) so the tile is
+                    // never greyed-out and un-tappable mid-transition — the user can always toggle.
+                    Status.Started, Status.Starting -> Tile.STATE_ACTIVE
+                    else -> Tile.STATE_INACTIVE
                 }
+            // Small state caption under the spider, Russian to match the app. Tile.subtitle lands on
+            // Android 11+ (API 30); guard at R — never lower, or older devices hit NoSuchMethodError.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                subtitle =
+                    when (status) {
+                        Status.Started -> "Подключено"
+                        Status.Starting -> "Подключение…"
+                        Status.Stopping -> "Отключение…"
+                        else -> "Отключено"
+                    }
+            }
             updateTile()
         }
     }

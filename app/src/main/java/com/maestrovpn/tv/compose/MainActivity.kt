@@ -220,6 +220,30 @@ class MainActivity :
         }
     }
 
+    /**
+     * Offer to drop our VPN tile (spider) into the notification shade next to Wi-Fi. Android 13+
+     * only (the API), phones only (TV has no QS shade). Shown once (Settings.qsTilePrompted), and
+     * best-effort — any failure is swallowed so it can never affect launch. On older phones the
+     * user adds the tile the usual way (edit the quick-settings panel). The tile itself works on
+     * every API ≥24 regardless; this only makes it discoverable.
+     */
+    private fun maybeOfferQsTile() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (isTelevision(this)) return
+        if (Settings.qsTilePrompted) return
+        runCatching {
+            val sbm = getSystemService(android.app.StatusBarManager::class.java) ?: return
+            Settings.qsTilePrompted = true
+            sbm.requestAddTileService(
+                android.content.ComponentName(this, com.maestrovpn.tv.bg.TileService::class.java),
+                getString(R.string.app_name),
+                android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_qs_spider),
+                androidx.core.content.ContextCompat.getMainExecutor(this),
+                {},
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -241,6 +265,7 @@ class MainActivity :
 
         handleIntent(intent)
         maybeRequestBatteryExemption()
+        maybeOfferQsTile()
 
         setContent {
             SFATheme {

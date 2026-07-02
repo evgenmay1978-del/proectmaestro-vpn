@@ -16,6 +16,7 @@ import com.maestrovpn.tv.utils.CommandClient
 import com.maestrovpn.tv.utils.CommandTarget
 import com.maestrovpn.tv.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -24,6 +25,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
+
+// How long a protocol tapped while the VPN was OFF stays "armed". If the VPN comes up within this
+// window the pick is applied and cleared; otherwise it's DROPPED so it can never apply to an
+// unrelated later start (e.g. after VPN-consent was denied, or a protocol that never appears).
+// Generous vs a normal tun bring-up — the command feed connects within a couple of seconds.
+private const val PENDING_SELECT_TTL_MS = 20_000L
 
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
@@ -45,6 +53,20 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     private val _serviceStatus = MutableStateFlow(Status.Stopped)
     val serviceStatus = _serviceStatus.asStateFlow()
     private var lastServiceStatus: Status = Status.Stopped
+
+    // A protocol the user tapped while the VPN was OFF. We turn the VPN on (caller's job) and apply
+    // this pick the moment the live selector arrives — a freshly-built box always defaults the
+    // selector to "auto" (no store_selected), so the pick is a real change we must push. STRICTLY
+    // bounded: applied+cleared on the first live payload that contains it, cleared on stop, and
+    // auto-dropped after PENDING_SELECT_TTL_MS so a stale pick can NEVER switch a by-then-connected
+    // user's protocol on its own. See SFANavigation.onSelectProtocol.
+    @Volatile
+    private var pendingSelect: Pair<String, String>? = null
+
+    // Bumped every time the pending pick changes/clears; the TTL watchdog only drops the pick it
+    // was armed for (so a newer tap or an apply can't be clobbered by an older watchdog firing).
+    // Atomic — incremented from a couple of call sites; a lost update could strand a watchdog.
+    private val pendingGeneration = AtomicInteger(0)
 
     init {
         if (sharedCommandClient != null) {
@@ -180,9 +202,74 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             return
         }
         lastServiceStatus = status
+        // A real transition into Stopped (a stop, or a start that failed to come up) discards any
+        // never-applied pick so it can't ambush a LATER manual start with a stale protocol. This is
+        // a genuine transition only — a tap while already Stopped hits the `status == lastServiceStatus`
+        // guard above and returns, so the pick set just before the start survives to Started.
+        if (status == Status.Stopped) {
+            pendingSelect = null
+            pendingGeneration.incrementAndGet()
+        }
         viewModelScope.launch {
             _serviceStatus.emit(status)
             handleServiceStatusChange(status)
+        }
+    }
+
+    /**
+     * The user tapped a protocol chip while the VPN was OFF. Remember it (with an optimistic
+     * highlight so the chip lights up during "Подключение…") and let the caller turn the VPN on;
+     * [updateGroups] applies it once libbox reports the live selector, spawning olcRTC's child
+     * first if that's the pick. Result: tapping any protocol both connects AND lands on exactly
+     * that protocol (owner request).
+     */
+    fun setPendingSelect(groupTag: String, itemTag: String) {
+        pendingSelect = groupTag to itemTag
+        val gen = pendingGeneration.incrementAndGet()
+        updateState {
+            copy(groups = groups.map { if (it.tag == groupTag) it.copy(selected = itemTag) else it })
+        }
+        // Watchdog: if the VPN never comes up (consent denied) or the protocol never shows up in the
+        // live selector, drop the pick after the TTL so it can NEVER apply to an unrelated later
+        // start. Only clears the pick THIS call armed (generation match) — a newer tap or an apply
+        // bumps the generation and takes precedence.
+        viewModelScope.launch {
+            delay(PENDING_SELECT_TTL_MS)
+            if (pendingGeneration.get() == gen) pendingSelect = null
+        }
+    }
+
+    /**
+     * Push a pick recorded while the VPN was off, now that the box is up. Mirrors the olcRTC-aware
+     * core of [selectGroupItem] but WITHOUT its "already selected" short-circuit — a fresh box
+     * reports "auto", so the pick is always a real change.
+     */
+    private fun applyPendingSelection(groupTag: String, itemTag: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // The box may have died between updateGroups and here (OOM/watchdog) — never push a
+                // selection at a torn-down command server; the offline-groups path repaints anyway.
+                if (_serviceStatus.value != Status.Started) return@launch
+                if (itemTag == OlcrtcManager.OUTBOUND_TAG) {
+                    if (!OlcrtcManager.ensureStarted()) {
+                        sendError(IllegalStateException("olcRTC: видео-туннель не поднялся (см. логи)"))
+                        return@launch
+                    }
+                } else if (OlcrtcManager.isRunning) {
+                    OlcrtcManager.stop()
+                }
+                CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                // Pin the chip to the picked protocol: a live-groups payload racing in right after
+                // the box starts reports the momentary "auto", which would otherwise flick the
+                // highlight off the protocol the user chose until the next payload catches up.
+                withContext(Dispatchers.Main) {
+                    updateState {
+                        copy(groups = groups.map { if (it.tag == groupTag) it.copy(selected = itemTag) else it })
+                    }
+                }
+            } catch (e: Exception) {
+                sendError(e)
+            }
         }
     }
 
@@ -235,6 +322,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         if (currentGroup?.selected == itemTag && !olcDeadRetap) {
             return
         }
+
+        // A real manual switch is authoritative — drop any armed "tapped-while-off" pick so a
+        // still-pending pick can never re-apply over the protocol the user just chose live.
+        pendingSelect = null
+        pendingGeneration.incrementAndGet()
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -385,18 +477,37 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                         }.map(::Group)
                 }
 
+            // A protocol tapped while the VPN was off applies now that the live selector is here —
+            // but ONLY once the tapped item actually exists in the fresh groups. If it's not here
+            // yet (groups can arrive in stages) we DON'T discard the pick: a later payload applies
+            // it, and the TTL watchdog drops it if it never shows. Pre-set its `selected` in the
+            // committed state so the chip doesn't flicker auto→target during connect.
+            val pending = pendingSelect
+            val pendingOk = pending != null &&
+                mergedGroups.any { g -> g.tag == pending.first && g.items.any { it.tag == pending.second } }
+            val committedGroups = if (pendingOk) {
+                mergedGroups.map { g -> if (g.tag == pending!!.first) g.copy(selected = pending.second) else g }
+            } else {
+                mergedGroups
+            }
+
             withContext(Dispatchers.Main) {
                 updateState {
                     val initialExpandedGroups = if (expandedGroups.isEmpty() && currentGroups.isEmpty()) {
-                        mergedGroups.filter { it.isExpand }.map { it.tag }.toSet()
+                        committedGroups.filter { it.isExpand }.map { it.tag }.toSet()
                     } else {
                         expandedGroups
                     }
                     copy(
-                        groups = mergedGroups,
+                        groups = committedGroups,
                         expandedGroups = initialExpandedGroups,
                         isLoading = false,
                     )
+                }
+                if (pendingOk) {
+                    pendingSelect = null
+                    pendingGeneration.incrementAndGet() // consumed — invalidate its TTL watchdog
+                    applyPendingSelection(pending!!.first, pending.second)
                 }
             }
         }

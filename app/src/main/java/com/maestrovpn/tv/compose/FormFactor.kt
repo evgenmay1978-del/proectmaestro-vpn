@@ -19,13 +19,20 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun rememberIsTv(): Boolean {
     val context = LocalContext.current
-    return remember {
-        val pm = context.packageManager
-        val uiMode = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
-        pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-            pm.hasSystemFeature("android.hardware.type.television") ||
-            uiMode?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
-    }
+    return remember { isTelevision(context) }
+}
+
+/**
+ * Non-Composable form-factor check for use outside Compose (Activity / Service). True on Android
+ * TV / leanback devices, false on phones and tablets. Used e.g. to offer the quick-settings tile
+ * only where a notification shade with QS tiles exists (phones), never on TV.
+ */
+fun isTelevision(context: Context): Boolean {
+    val pm = context.packageManager
+    val uiMode = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+    return pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+        pm.hasSystemFeature("android.hardware.type.television") ||
+        uiMode?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
 }
 
 /**
