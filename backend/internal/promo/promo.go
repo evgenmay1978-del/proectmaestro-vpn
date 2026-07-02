@@ -93,8 +93,19 @@ func (s *Store) Hash(anchor string) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-// NormNick canonicalises a nickname into the trial login suffix.
-func NormNick(nick string) string { return strings.ToLower(strings.TrimSpace(nick)) }
+// NormNick canonicalises a nickname into the trial login SUFFIX. It lowercases, trims, and strips
+// every character outside [a-z0-9_-] — the login becomes a Hysteria (viper) userpass key, where a
+// "." nests the map and crashes Hy2 for the WHOLE fleet (see server2.hy2SafeUser; a "trial-roman.pfa"
+// login did exactly that on 2026-07-02). Returns "" if nothing survives (the caller then rejects).
+func NormNick(nick string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(nick)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
 
 // AnchorLogin returns the trial login this device already received, or "" if it never trialed.
 func (s *Store) AnchorLogin(anchorHash string) string {

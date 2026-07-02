@@ -131,7 +131,13 @@ func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. the nick IS the trial account id. If it already exists, it belongs to another device.
-	login := "trial-" + promo.NormNick(nick)
+	// NormNick strips it to a Hy2/viper-safe charset; reject if nothing usable remains.
+	suffix := promo.NormNick(nick)
+	if suffix == "" {
+		http.Error(w, "invalid nick", http.StatusBadRequest)
+		return
+	}
+	login := "trial-" + suffix
 	if _, err := s.st.ByLogin(login); err == nil {
 		http.Error(w, "nickname already used", http.StatusConflict)
 		return
