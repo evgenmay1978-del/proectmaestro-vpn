@@ -66,7 +66,7 @@ index efd2038..da87559 100644
  
  // Session is the engine-level runtime handle. It is shaped to match what
 diff --git a/internal/engine/goolom/lifecycle.go b/internal/engine/goolom/lifecycle.go
-index 78dc37a..da0c67b 100644
+index 78dc37a..6fd9f06 100644
 --- a/internal/engine/goolom/lifecycle.go
 +++ b/internal/engine/goolom/lifecycle.go
 @@ -30,6 +30,12 @@ func (s *Session) Connect(ctx context.Context) error {
@@ -82,7 +82,42 @@ index 78dc37a..da0c67b 100644
  
  	if err := s.setupPeerConnections(config); err != nil {
  		return err
-@@ -218,6 +224,7 @@ func (s *Session) onSubscriberConnectionStateChange(state webrtc.PeerConnectionS
+@@ -83,7 +89,7 @@ func (s *Session) waitForMediaReady(ctx context.Context, timeout time.Duration)
+ }
+ 
+ func (s *Session) setupPeerConnections(config webrtc.Configuration) error {
+-	api, err := newWebRTCAPI()
++	api, err := newWebRTCAPI(s.relayPin)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -109,7 +115,7 @@ func (s *Session) setupPeerConnections(config webrtc.Configuration) error {
+ 
+ // newWebRTCAPI builds a pion API with IPv4-only ICE and the default media
+ // engine + interceptors.
+-func newWebRTCAPI() (*webrtc.API, error) {
++func newWebRTCAPI(relayPin bool) (*webrtc.API, error) {
+ 	settingEngine := webrtc.SettingEngine{}
+ 	if protect.Protector != nil {
+ 		settingEngine.SetICEProxyDialer(protect.NewProxyDialer())
+@@ -122,7 +128,15 @@ func newWebRTCAPI() (*webrtc.API, error) {
+ 	// pairs starves ICE consent-freshness checks on the working pair, so the
+ 	// SFU stops receiving consent and tears down media after ~30-40 s. Limiting
+ 	// to IPv4 keeps the candidate set small and consent alive for the session.
+-	settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
++	// Client relay-pin may nominate a TURN-over-TCP-443 relay (real Telemost's
++	// shaping-resistant path in RU whitelist regions), so allow TCP4 gathering on
++	// the client. The srv stays UDP4-only — its multi-iface docker/veth host
++	// floods dead candidates on other network types (the guard this preserves).
++	networkTypes := []webrtc.NetworkType{webrtc.NetworkTypeUDP4}
++	if relayPin {
++		networkTypes = append(networkTypes, webrtc.NetworkTypeTCP4)
++	}
++	settingEngine.SetNetworkTypes(networkTypes)
+ 	settingEngine.SetIPFilter(func(ip net.IP) bool {
+ 		return ip.To4() != nil
+ 	})
+@@ -218,6 +232,7 @@ func (s *Session) onSubscriberConnectionStateChange(state webrtc.PeerConnectionS
  	case webrtc.PeerConnectionStateConnected:
  		s.subscriberReady.Store(true)
  		closeSignal(s.subscriberConn)
@@ -90,7 +125,7 @@ index 78dc37a..da0c67b 100644
  	case webrtc.PeerConnectionStateDisconnected,
  		webrtc.PeerConnectionStateFailed,
  		webrtc.PeerConnectionStateClosed:
-@@ -235,6 +242,7 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
+@@ -235,6 +250,7 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
  	case webrtc.PeerConnectionStateConnected:
  		s.publisherReady.Store(true)
  		closeSignal(s.publisherConn)
@@ -98,7 +133,7 @@ index 78dc37a..da0c67b 100644
  	case webrtc.PeerConnectionStateDisconnected,
  		webrtc.PeerConnectionStateFailed,
  		webrtc.PeerConnectionStateClosed:
-@@ -252,6 +260,36 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
+@@ -252,6 +268,36 @@ func (s *Session) onPublisherConnectionStateChange(state webrtc.PeerConnectionSt
  	s.onConnectionStateChange(state)
  }
  
@@ -136,21 +171,47 @@ index 78dc37a..da0c67b 100644
  // PeerConnection to close. With the advertised TURN relays now retained
  // (issue #95), PeerConnection.Close() tries to free the server-side TURN
 diff --git a/internal/engine/goolom/media.go b/internal/engine/goolom/media.go
-index f0af72f..bccd47c 100644
+index f0af72f..7b5c970 100644
 --- a/internal/engine/goolom/media.go
 +++ b/internal/engine/goolom/media.go
-@@ -319,6 +319,16 @@ func (s *Session) applyServerHelloConfig(serverHello map[string]any) {
- 		ICEServers:   iceServers,
- 		SDPSemantics: webrtc.SDPSemanticsUnifiedPlan,
+@@ -315,10 +315,42 @@ func (s *Session) applyServerHelloConfig(serverHello map[string]any) {
+ 	if len(iceServers) == 0 {
+ 		return
  	}
 +	// Capture what the SFU advertised (URLs only; credentials redacted) so an
-+	// on-device Rostov log reveals whether Yandex ever offers a TURN-TCP/443
-+	// relay there — the shaping-resistant path we'd need if UDP-to-Yandex is
-+	// throttled. Cheap, PII-free, always on.
++	// on-device Rostov log shows exactly which relays Yandex offers there.
 +	for _, ice := range iceServers {
 +		logger.Infof("serverHello iceServer urls=%v has_cred=%t", ice.URLs, ice.Credential != "")
 +	}
+ 	cfg := webrtc.Configuration{
+ 		ICEServers:   iceServers,
+ 		SDPSemantics: webrtc.SDPSemanticsUnifiedPlan,
+ 	}
 +	if s.relayPin {
++		// FORCE the TURN-over-TCP-443 relay. Real Telemost survives the RU
++		// {Yandex,VK,MAX} whitelist by falling back to turn:...:443?transport=tcp
++		// when UDP is shaped. Our client otherwise nominates the UDP relay — it
++		// passes the whitelist by IP so ICE "connects", but shaped UDP carries no
++		// data → liveness death in ~1-2min (exactly the Rostov symptom). Keeping
++		// ONLY the tcp TURN makes pion gather ONLY the tcp relay candidate → media
++		// rides TCP-443 to a whitelisted Yandex IP, like real Telemost.
++		// Fail-open: if no transport=tcp entry is advertised, keep all rather than
++		// nulling the ICE set (→ dead session).
++		var tcp []webrtc.ICEServer
++		for _, ice := range iceServers {
++			for _, u := range ice.URLs {
++				if strings.Contains(u, "transport=tcp") {
++					tcp = append(tcp, ice)
++					break
++				}
++			}
++		}
++		if len(tcp) > 0 {
++			cfg.ICEServers = tcp
++			logger.Infof("goolom relay-pin: forcing TURN-over-TCP-443 (%d tcp server(s), dropped %d udp/stun)", len(tcp), len(iceServers)-len(tcp))
++		} else {
++			logger.Warnf("goolom relay-pin: no transport=tcp TURN advertised — keeping all (udp path may be shaped)")
++		}
 +		cfg.ICETransportPolicy = webrtc.ICETransportPolicyRelay
 +	}
  	if s.pcSub != nil {

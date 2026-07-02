@@ -63,11 +63,20 @@ done
 L=$(journalctl -u "$UNIT" --since "$START" --no-pager 2>/dev/null)
 
 echo
-echo "=== SELECTED media pair (relay/udp = shaped in RU · relay/tcp = shaping-resistant) ==="
-echo "$L" | grep -iE "SELECTED media pair" | tail -2 || true
+echo "=== SELECTED pair + relay-pin mode ==="
+echo "$L" | grep -iE "SELECTED media pair|forcing TURN-over-TCP-443|no transport=tcp TURN" | tail -3 || true
+echo "  (note: a TURN relay candidate ALWAYS shows 'relay/udp' — that's the relay↔SFU"
+echo "   leg; the client↔TURN leg is checked below by the actual socket protocol.)"
+echo "=== ACTUAL media transport to Yandex (definitive — TCP:443 = shaping-resistant · UDP = shaped in RU) ==="
+PID=$(systemctl show "$UNIT" -p MainPID --value 2>/dev/null)
+TCP443=$(ss -tnp 2>/dev/null | grep ESTAB | grep ':443' | grep "pid=$PID," | grep -oE '(77\.88\.|37\.9\.|5\.255\.|213\.180\.|93\.158\.)[0-9.]+:443' | sort -u)
+UDPY=$(ss -unp 2>/dev/null | grep "pid=$PID," | grep -oE '(77\.88\.|37\.9\.|5\.255\.)[0-9.]+:[0-9]+' | sort -u | head -3)
+[ -n "$TCP443" ] && echo "  ✅ TCP-443 to Yandex: $(echo "$TCP443" | tr '\n' ' ')" || echo "  ⚠️ no TCP-443 to Yandex"
+[ -n "$UDPY" ]   && echo "  ⚠️ UDP to Yandex (shaped path): $(echo "$UDPY" | tr '\n' ' ')" || echo "  ✅ no UDP to Yandex (pure TCP path)"
 echo "=== connection state ==="
 echo "$L" | grep -iE "SOCKS5 server listening|connection state: Connected|no candidate pairs" | tail -3 || true
-echo "=== traffic test (expect the S3 exit IP, ~18s cold start) ==="
-timeout 55 curl -s --socks5-hostname "127.0.0.1:$PORT" https://icanhazip.com 2>&1 | head -1 || echo "  (curl timeout/fail)"
+echo "=== traffic test (expect the S3 exit IP; TCP-relay needs ~30-60s warm-up) ==="
+sleep 12
+timeout 95 curl -s --max-time 90 --socks5-hostname "127.0.0.1:$PORT" https://icanhazip.com 2>&1 | head -1 || echo "  (curl timeout/fail)"
 echo
 echo "→ done (unit + temp auto-cleaned)"
