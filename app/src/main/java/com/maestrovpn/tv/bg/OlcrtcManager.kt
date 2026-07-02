@@ -206,9 +206,14 @@ object OlcrtcManager {
 
     // Ring buffer of the child's most-recent (redacted) log lines, for the connect diagnostic
     // shipped to /report — there's no in-app log export, so this is how we see WHY the tunnel
-    // fails to come up on a real device (esp. cold-start). Bounded so it can't grow unbounded.
-    private const val LOG_RING_MAX = 160
+    // fails to come up on a real device (esp. cold-start). CONSECUTIVE-DUPLICATE-COLLAPSED so a
+    // 90s cold-start attempt's "Failed to ping without candidate pairs" spam (dozens of identical
+    // lines) can't evict the START of the log (serverHello / relay-pin / DNS / the FIRST divergence
+    // = the actual cause). Bounded so it can't grow unbounded.
+    private const val LOG_RING_MAX = 600
     private val logRing = ArrayDeque<String>()
+    private var lastLogLine: String? = null
+    private var dupCount = 0
 
     private fun drainLogs(p: Process) {
         Thread({
@@ -219,8 +224,20 @@ object OlcrtcManager {
                     val safe = secretRe.replace(line) { "<redacted:${it.value.length}>" }
                     Log.i("olcRTC", safe)
                     synchronized(logRing) {
-                        logRing.addLast(safe)
-                        while (logRing.size > LOG_RING_MAX) logRing.removeFirst()
+                        // Collapse a run of identical lines into one + a "(×N)" marker so the
+                        // buffer keeps signal (the first-failure line) instead of ICE-warn spam.
+                        val stripped = safe.replace(Regex("^[0-9/]+ [0-9:]+ "), "")
+                        if (stripped == lastLogLine) {
+                            dupCount++
+                        } else {
+                            if (dupCount > 0) {
+                                logRing.addLast("  … (предыдущая строка ×${dupCount + 1})")
+                                dupCount = 0
+                            }
+                            logRing.addLast(safe)
+                            lastLogLine = stripped
+                            while (logRing.size > LOG_RING_MAX) logRing.removeFirst()
+                        }
                     }
                 }
             }

@@ -114,6 +114,8 @@ object CrashReportManager {
      * network/parse error just leaves the report for the next launch. Never throws.
      */
     suspend fun uploadPending() = withContext(Dispatchers.IO) {
+        // Also flush any olcRTC cold-start FAIL reports stranded when their tunnel was down.
+        runCatching { flushPendingOlcrtc() }
         if (!::workingDir.isInitialized) return@withContext
         val crashReportsDir = File(workingDir, CRASH_REPORTS_DIR_NAME)
         val dirs = crashReportsDir.listFiles { f -> f.isDirectory } ?: return@withContext
@@ -155,7 +157,16 @@ object CrashReportManager {
      * path; best-effort, never throws.
      */
     suspend fun reportOlcrtc(ok: Boolean, cold: Boolean, log: String) = withContext(Dispatchers.IO) {
+        // A working attempt (switch/OK) has a live tunnel, so flush any cold-start FAIL reports that
+        // couldn't reach /report earlier (their own traffic died in the not-yet-up tunnel).
+        runCatching { flushPendingOlcrtc() }
         runCatching {
+            val stack = when {
+                log.length <= 8000 -> log
+                // Keep BOTH the START (serverHello / relay-pin / DNS / the FIRST divergence = the
+                // real cause) and the END (the failure line) — not just the tail.
+                else -> log.substring(0, 3500) + "\n… …\n" + log.substring(log.length - 4300)
+            }
             val payload = JSONObject().apply {
                 put("kind", "olcrtc")
                 put("v", BuildConfig.VERSION_NAME)
@@ -165,12 +176,31 @@ object CrashReportManager {
                 put("id", runCatching { MaestroSub.deviceId(Application.application) }.getOrDefault(""))
                 put("ts", System.currentTimeMillis())
                 put("msg", (if (cold) "cold-start " else "switch ") + (if (ok) "OK" else "FAIL"))
-                // Tail, not head — the failure is at the END of the log.
-                put("stack", if (log.length > 8000) log.substring(log.length - 8000) else log)
+                put("stack", stack)
             }
-            postReport(payload)
+            // A cold-start FAIL usually CAN'T reach /report (its POST rides the dead olcrtc outbound),
+            // so if the send fails, persist it and let the next working attempt flush it out.
+            if (!postReport(payload)) persistPendingOlcrtc(payload)
         }
         Unit
+    }
+
+    private fun pendingOlcrtcDir(): File =
+        File(Application.application.filesDir, "olcrtc_pending").apply { mkdirs() }
+
+    private fun persistPendingOlcrtc(payload: JSONObject) {
+        runCatching {
+            val dir = pendingOlcrtcDir()
+            dir.listFiles()?.sortedBy { it.lastModified() }?.dropLast(9)?.forEach { it.delete() }
+            File(dir, "${payload.optLong("ts")}.json").writeText(payload.toString())
+        }
+    }
+
+    /** Re-send olcRTC FAIL reports that couldn't reach /report while their tunnel was down. */
+    fun flushPendingOlcrtc() {
+        pendingOlcrtcDir().listFiles()?.sortedBy { it.lastModified() }?.forEach { f ->
+            runCatching { if (postReport(JSONObject(f.readText()))) f.delete() }
+        }
     }
 
     private fun postReport(payload: JSONObject): Boolean = runCatching {
