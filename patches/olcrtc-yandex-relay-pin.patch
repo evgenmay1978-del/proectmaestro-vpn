@@ -1,18 +1,19 @@
 diff --git a/internal/client/client.go b/internal/client/client.go
-index 6730d7c..37a954f 100644
+index 6730d7c..ce81d46 100644
 --- a/internal/client/client.go
 +++ b/internal/client/client.go
-@@ -196,7 +196,13 @@ func (c *Client) bringUpLink(
+@@ -196,7 +196,14 @@ func (c *Client) bringUpLink(
  		OnData:              c.onData,
  		DNSServer:           cfg.DNSServer,
  		RequireTargetedPeer: true,
 -		Options:             cfg.TransportOptions,
-+		// Client always pins media to the SFU's own TURN relay via
-+		// ICETransportPolicyRelay (no host/srflx/direct candidates). For Telemost
-+		// the relay is a Yandex IP, so the client<->SFU leg rides a whitelisted
-+		// Yandex address — required to survive RU {Yandex,VK,MAX} regions. The
-+		// server (server.go) leaves this off and keeps all candidate types.
-+		RelayPin: true,
++		// HYPOTHESIS TEST (cold-start in Moscow): relay-pin forces TURN-over-TCP-443
++		// ONLY (drops udp TURN + STUN), and a cold TCP Allocate is flaky → "no
++		// candidate pairs" → cold-start fails. Turn it OFF so the client keeps the
++		// fast/reliable UDP relay + STUN path (normal olcRTC, as before the Rostov
++		// experiment). If cold-start recovers in Moscow, relay-pin was the cause and
++		// gets re-added as a FAILOVER profile (udp first → tcp only when udp is shaped).
++		RelayPin: false,
 +		Options:  cfg.TransportOptions,
  		Traffic:             cfg.Traffic,
  	})
