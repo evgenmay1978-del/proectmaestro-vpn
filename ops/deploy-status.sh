@@ -14,14 +14,15 @@ REPO=${MAESTRO_REPO:-/root/maestrovpn-tv}
 PANEL=${MAESTRO_PANEL:-http://127.0.0.1:8910}
 
 HEAD=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)
-RUN=$(curl -s --max-time 5 "$PANEL/healthz" | awk '{print $2}')
+BODY=$(curl -s --max-time 5 "$PANEL/healthz" || true)
 
-if [ -z "$RUN" ]; then
+if [ -z "$BODY" ]; then
   echo "⚠️  panel unreachable at $PANEL/healthz — cannot verify deploy freshness"
   exit 2
 fi
-if [ "$RUN" = "dev" ] || [ "$RUN" = "unknown" ]; then
-  echo "⚠️  running panel has no build-commit (reports '$RUN') — redeploy with ops/deploy-panel.sh to enable drift detection"
+RUN=$(printf '%s' "$BODY" | awk '{print $2}')   # "ok <sha>"; empty on a pre-stamp binary that returns just "ok"
+if [ -z "$RUN" ] || [ "$RUN" = "dev" ] || [ "$RUN" = "unknown" ]; then
+  echo "⚠️  running panel has no build-commit (reports '$BODY') — redeploy with ops/deploy-panel.sh to enable drift detection"
   exit 2
 fi
 # strip a "-dirty" suffix for the ancestry compare (still reported verbatim above)
