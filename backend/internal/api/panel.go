@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log"
 	"net"
@@ -621,6 +622,7 @@ func (s *Server) panelOlcrtc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := s.olc.Get()
+	health := s.readOlcHealth() // per-login S3 exit liveness (from the health probe); may be empty
 	rooms := map[string]any{}
 	for lg, rk := range cfg.Rooms {
 		rooms[lg] = map[string]any{"room": rk.Room, "has_key": rk.Key != ""}
@@ -628,7 +630,27 @@ func (s *Server) panelOlcrtc(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": cfg.Enabled, "provider": cfg.Provider, "transport": cfg.Transport,
 		"global_room": cfg.Room, "rooms": rooms, "logins": sortedLogins(cfg.Logins),
+		"health": health.Exits, "health_checked": health.Checked,
 	})
+}
+
+// olcHealth mirrors /var/lib/maestro/olcrtc-health.json (written by the S3 exit-liveness probe).
+type olcHealth struct {
+	Checked int64                     `json:"checked"`
+	Exits   map[string]map[string]any `json:"exits"`
+}
+
+// readOlcHealth loads the latest exit-liveness snapshot; a missing/unreadable file yields a zero
+// value (no health shown) rather than a false "healthy".
+func (s *Server) readOlcHealth() olcHealth {
+	var h olcHealth
+	if s.cfg.OlcHealthFile == "" {
+		return h
+	}
+	if b, err := os.ReadFile(s.cfg.OlcHealthFile); err == nil {
+		_ = json.Unmarshal(b, &h)
+	}
+	return h
 }
 
 func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {

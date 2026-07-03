@@ -186,6 +186,7 @@ func main() {
 			PanelPasswordHash: os.Getenv("MAESTRO_PANEL_PASSWORD_HASH"),
 			PanelPWFile:       env("MAESTRO_PANEL_PW_FILE", "/var/lib/maestro/panel-pw.hash"),
 			OlcrtcRoomScript:  env("MAESTRO_OLCRTC_ROOM_SH", "/usr/local/bin/olcrtc-room.sh"),
+			OlcHealthFile:     env("MAESTRO_OLC_HEALTH_FILE", "/var/lib/maestro/olcrtc-health.json"),
 			SubBaseURL:        env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
 			SBPPhone:          os.Getenv("MAESTRO_SBP_PHONE"),
 			PayURL:            os.Getenv("MAESTRO_SBP_PAY_URL"),

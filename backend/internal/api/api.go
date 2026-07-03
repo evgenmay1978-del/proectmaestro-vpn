@@ -77,13 +77,16 @@ type Config struct {
 	// panel config + bring up the per-login S3 exit), not just a config-only write. Empty →
 	// the panel falls back to a config-only room set (no S3 exit).
 	OlcrtcRoomScript string
-	SubBaseURL       string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
-	SBPPhone         string // СБП phone shown to the customer for in-app purchase
-	PayURL           string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
-	TGBotToken       string // bot token for owner payment notifications (send-only, no poll)
-	TGAdminID        string // owner's Telegram chat id
-	UpdateDir        string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
-	ReportDir        string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
+	// OlcHealthFile is the JSON snapshot the S3 exit-liveness probe writes (maestro-olcrtc-health
+	// timer). The panel reads it so a dead per-login exit shows red. Empty → no health shown.
+	OlcHealthFile string
+	SubBaseURL    string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
+	SBPPhone      string // СБП phone shown to the customer for in-app purchase
+	PayURL        string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
+	TGBotToken    string // bot token for owner payment notifications (send-only, no poll)
+	TGAdminID     string // owner's Telegram chat id
+	UpdateDir     string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
+	ReportDir     string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
 	// EnforceDeviceLimit gates the per-account 5-device cap at /sub + /claim. A kill
 	// switch (env MAESTRO_DEVICE_LIMIT=off) so the cap can be disabled live without a
 	// redeploy if it ever misbehaves in prod.

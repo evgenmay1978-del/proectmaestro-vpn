@@ -170,9 +170,11 @@ function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…<
  if(!o.enabled){el('body').innerHTML='<p class="mut">olcRTC выключен.</p>';return;}
  var rooms=o.rooms||{};var h='<p class="mut">Провайдер '+esc(o.provider)+' · транспорт '+esc(o.transport)+'</p>'+
   '<h3 style="margin:6px 0">Клиенты с доступом к olcRTC</h3>'+
-  '<table><thead><tr><th>Логин</th><th>Комната</th><th>Тип</th><th></th></tr></thead><tbody>';
- h+='<tr><td class="mut">(общая)</td><td><code>'+esc(o.global_room||'—')+'</code></td><td class="mut">fallback</td><td></td></tr>';
- (o.logins||[]).forEach(function(lg){var r=rooms[lg];h+='<tr><td><b>'+esc(lg)+'</b></td><td><code>'+esc(r?r.room:'(общая)')+'</code></td><td>'+(r?'<span class="badge b-ok">своя</span>':'<span class="badge b-off">общая</span>')+'</td><td><button class="btn dng sm" data-rm="'+esc(lg)+'">убрать</button></td></tr>';});
+  '<table><thead><tr><th>Логин</th><th>Комната</th><th>Тип</th><th>Exit-сервер</th><th></th></tr></thead><tbody>';
+ var he=o.health||{};
+ function exitCell(lg,hasRoom){if(!hasRoom)return '<span class="mut">—</span>';var s=he[lg];if(!s)return '<span class="mut">?</span>';if(s.healthy)return '<span class="badge b-ok">● живой</span>';if(s.active==="active")return '<span class="badge b-soon">не в комнате</span>';return '<span class="badge b-exp">● мёртв</span>';}
+ h+='<tr><td class="mut">(общая)</td><td><code>'+esc(o.global_room||'—')+'</code></td><td class="mut">fallback</td><td></td><td></td></tr>';
+ (o.logins||[]).forEach(function(lg){var r=rooms[lg];h+='<tr><td><b>'+esc(lg)+'</b></td><td><code>'+esc(r?r.room:'(нет комнаты)')+'</code></td><td>'+(r?'<span class="badge b-ok">своя</span>':'<span class="badge b-off">заперт</span>')+'</td><td>'+exitCell(lg,!!r)+'</td><td><button class="btn dng sm" data-rm="'+esc(lg)+'">убрать</button></td></tr>';});
  h+='</tbody></table>'+
   '<div class="toolbar" style="margin-top:10px"><input id="o_add" placeholder="логин клиента" style="min-width:180px"><button class="btn pri" id="o_addb">+ Добавить клиента в olcRTC</button><span class="mut">даёт доступ; комнату назначь ниже</span></div>'+
   '<h3 style="margin:14px 0 6px">Назначить комнату</h3>'+
