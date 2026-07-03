@@ -11,11 +11,12 @@ import (
 )
 
 type fakeXUI struct {
-	logins, adds, updates int
-	getSub                string // if set, GetClient returns a client carrying this subId
-	getExpiry             int64  // if set, GetClient returns this expiryTime (millis) — for reconcile
-	lastSub               string // last subId passed to UpdateClient (assert subId preservation)
-	lastAddLimitIP        int    // last limitIp passed to AddClient (assert the device cap)
+	logins, adds, updates, dels int
+	getSub                      string // if set, GetClient returns a client carrying this subId
+	getExpiry                   int64  // if set, GetClient returns this expiryTime (millis) — for reconcile
+	lastSub                     string // last subId passed to UpdateClient (assert subId preservation)
+	lastAddLimitIP              int    // last limitIp passed to AddClient (assert the device cap)
+	traffic                     int64  // UsedTraffic returns this
 }
 
 func (f *fakeXUI) Login() error { f.logins++; return nil }
@@ -35,6 +36,8 @@ func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error) {
 	}
 	return &xui.ExistingClient{UUID: "u", Email: "e", SubID: f.getSub, ExpiryTime: f.getExpiry}, nil
 }
+func (f *fakeXUI) DelClient(string) error            { f.dels++; return nil }
+func (f *fakeXUI) UsedTraffic(string) (int64, error) { return f.traffic, nil }
 
 type fakeS2 struct {
 	lastHy2     []server2.Hy2User

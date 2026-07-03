@@ -26,6 +26,8 @@ type VLESSClienter interface {
 	AddClient(inboundID int, c xui.VLESSClient) error
 	UpdateClient(inboundID int, uuid string, c xui.VLESSClient) error
 	GetClient(email string) (*xui.ExistingClient, error)
+	DelClient(email string) error
+	UsedTraffic(email string) (int64, error)
 }
 
 // NodeClienter is a 3x-ui panel client for the 3rd node (S3), which serves a
@@ -454,6 +456,47 @@ func (p *Provisioner) SetExpiry(login string, t time.Time) (*store.Customer, err
 		return nil, err
 	}
 	return cust, nil
+}
+
+// DeleteCustomer removes a customer from the panel store AND deletes their VLESS clients on S1
+// and S3 (best-effort — a node error is logged, not fatal, so a dead node can't block cleanup).
+// S2 protocols (hy2/naive/anytls) are rebuilt from store.List() on the next ReconcileExpiries
+// tick (≤15 min), so a deleted customer drops off S2 automatically — no per-delete S2 restart.
+// Returns the store error if any.
+func (p *Provisioner) DeleteCustomer(login string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.xui != nil {
+		if err := p.xui.Login(); err != nil {
+			log.Printf("delete: s1 xui login for %q: %v", login, err)
+		} else if err := p.xui.DelClient(login); err != nil {
+			log.Printf("delete: s1 vless %q: %v", login, err)
+		}
+	}
+	if p.xui3 != nil {
+		if err := p.xui3.DelClient(login); err != nil {
+			log.Printf("delete: s3 vless %q: %v", login, err)
+		}
+	}
+	return p.st.Delete(login)
+}
+
+// TrafficFor returns the customer's total used traffic in bytes (S1 VLESS + S3 VLESS), best-effort
+// (0 on any node error). Only VLESS/3x-ui reports per-user traffic; the S2 protocols do not, so
+// this is the VLESS total, which is representative for most customers.
+func (p *Provisioner) TrafficFor(login string) int64 {
+	var total int64
+	if p.xui != nil {
+		if n, err := p.xui.UsedTraffic(login); err == nil {
+			total += n
+		}
+	}
+	if p.xui3 != nil {
+		if n, err := p.xui3.UsedTraffic(login); err == nil {
+			total += n
+		}
+	}
+	return total
 }
 
 // fanOutExpiry pushes the customer's current store expiry to 3x-ui (VLESS date, preserving

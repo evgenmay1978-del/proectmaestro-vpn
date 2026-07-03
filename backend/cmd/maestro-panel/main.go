@@ -173,13 +173,18 @@ func main() {
 		Addr: listen,
 		Handler: api.New(st, prov, ost, pst, api.Config{
 			AdminToken: os.Getenv("MAESTRO_ADMIN_TOKEN"),
-			SubBaseURL: env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
-			SBPPhone:   os.Getenv("MAESTRO_SBP_PHONE"),
-			PayURL:     os.Getenv("MAESTRO_SBP_PAY_URL"),
-			TGBotToken: os.Getenv("MAESTRO_TG_BOT_TOKEN"),
-			TGAdminID:  os.Getenv("MAESTRO_TG_ADMIN_ID"),
-			UpdateDir:  env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
-			ReportDir:  env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
+			// Web admin panel: served under a secret path, guarded by a bcrypt password hash.
+			// Both must be set to enable it (env holds the HASH, never the plaintext).
+			PanelPath:         os.Getenv("MAESTRO_PANEL_PATH"),
+			PanelPasswordHash: os.Getenv("MAESTRO_PANEL_PASSWORD_HASH"),
+			PanelPWFile:       env("MAESTRO_PANEL_PW_FILE", "/var/lib/maestro/panel-pw.hash"),
+			SubBaseURL:        env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
+			SBPPhone:          os.Getenv("MAESTRO_SBP_PHONE"),
+			PayURL:            os.Getenv("MAESTRO_SBP_PAY_URL"),
+			TGBotToken:        os.Getenv("MAESTRO_TG_BOT_TOKEN"),
+			TGAdminID:         os.Getenv("MAESTRO_TG_ADMIN_ID"),
+			UpdateDir:         env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
+			ReportDir:         env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
 			// Per-account 5-device cap, on by default; MAESTRO_DEVICE_LIMIT=off is a live
 			// kill switch (no redeploy) if it ever misbehaves against real customers.
 			EnforceDeviceLimit: env("MAESTRO_DEVICE_LIMIT", "on") != "off",

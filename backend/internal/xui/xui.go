@@ -197,6 +197,45 @@ func (c *Client) GetClient(email string) (*ExistingClient, error) {
 	return &ExistingClient{UUID: rec.UUID, Email: rec.Email, ExpiryTime: rec.ExpiryTime, SubID: rec.SubID}, nil
 }
 
+// DelClient removes a client by email (login) via the client-centric API
+// `/panel/api/clients/del/{email}`. Idempotent: a "not found" reply is treated as success so
+// deleting an already-absent client never errors.
+func (c *Client) DelClient(email string) error {
+	resp, err := c.do(http.MethodPost, "/panel/api/clients/del/"+url.PathEscape(email), nil, "application/json")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var r apiResp
+	_ = json.NewDecoder(resp.Body).Decode(&r)
+	if r.Success || strings.Contains(strings.ToLower(r.Msg), "not found") {
+		return nil
+	}
+	return fmt.Errorf("xui: del client %q: %s", email, r.Msg)
+}
+
+// UsedTraffic returns the client's total used traffic in bytes (0 when the client isn't found).
+// 3x-ui reports it at the top of the `/panel/api/clients/get/{email}` object as `usedTraffic`.
+func (c *Client) UsedTraffic(email string) (int64, error) {
+	resp, err := c.do(http.MethodGet, "/panel/api/clients/get/"+url.PathEscape(email), nil, "")
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var r apiResp
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return 0, fmt.Errorf("xui: traffic decode (HTTP %d): %w", resp.StatusCode, err)
+	}
+	if len(r.Obj) == 0 || string(r.Obj) == "null" {
+		return 0, nil
+	}
+	var o struct {
+		UsedTraffic int64 `json:"usedTraffic"`
+	}
+	_ = json.Unmarshal(r.Obj, &o)
+	return o.UsedTraffic, nil
+}
+
 // postJSON POSTs a JSON body and expects {success:true}.
 func (c *Client) postJSON(path string, body any) error {
 	data, err := json.Marshal(body)

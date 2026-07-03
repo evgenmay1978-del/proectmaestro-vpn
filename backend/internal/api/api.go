@@ -50,6 +50,11 @@ type Provisioner interface {
 	// DeviceLimitFor returns the per-login device cap (0 = unlimited) so the sub
 	// endpoint enforces the same cap + exemption as 3x-ui's limitIp.
 	DeviceLimitFor(login string) int
+	// DeleteCustomer removes a customer from the store and deletes their VLESS clients on the
+	// nodes (best-effort). Used by the web panel to purge inactive users.
+	DeleteCustomer(login string) error
+	// TrafficFor returns the customer's total used traffic in bytes (VLESS; 0 on error).
+	TrafficFor(login string) int64
 }
 
 // deviceIDRe bounds the app's per-install device id (a random UUID the app generates and
@@ -60,13 +65,20 @@ var deviceIDRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 // Config tunes the api server.
 type Config struct {
 	AdminToken string // bearer token guarding /admin/*; empty disables admin API
-	SubBaseURL string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
-	SBPPhone   string // СБП phone shown to the customer for in-app purchase
-	PayURL     string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
-	TGBotToken string // bot token for owner payment notifications (send-only, no poll)
-	TGAdminID  string // owner's Telegram chat id
-	UpdateDir  string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
-	ReportDir  string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
+	// PanelPath + PanelPasswordHash enable the password-protected WEB admin panel (served under
+	// PanelPath, a secret non-obvious prefix the public nginx front proxies). Both must be set
+	// or the panel is off. PanelPasswordHash is the BOOTSTRAP bcrypt hash (never the plaintext);
+	// PanelPWFile, if set, holds a runtime-changed hash that overrides it and persists.
+	PanelPath         string
+	PanelPasswordHash string
+	PanelPWFile       string
+	SubBaseURL        string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
+	SBPPhone          string // СБП phone shown to the customer for in-app purchase
+	PayURL            string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
+	TGBotToken        string // bot token for owner payment notifications (send-only, no poll)
+	TGAdminID         string // owner's Telegram chat id
+	UpdateDir         string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
+	ReportDir         string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
 	// EnforceDeviceLimit gates the per-account 5-device cap at /sub + /claim. A kill
 	// switch (env MAESTRO_DEVICE_LIMIT=off) so the cap can be disabled live without a
 	// redeploy if it ever misbehaves in prod.
@@ -90,6 +102,7 @@ type Server struct {
 	trialVel *trialVelocity
 	tg       *telegram.Client
 	olc      *olcconf.Store
+	panel    *panelState // web admin panel session/rate-limit state (nil until registerPanel)
 	cfg      Config
 }
 
@@ -154,6 +167,9 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("/admin/olcrtc", s.adminAuth(s.handleOlcrtc))
 		mux.HandleFunc("/admin/olcrtc/room", s.adminAuth(s.handleOlcrtcRoom))
 	}
+	// Web admin panel (password + session) — a public, browser-facing surface, separate from the
+	// localhost-only bearer /admin/*. Registered only when configured (PanelPath + password hash).
+	s.registerPanel(mux)
 	return mux
 }
 

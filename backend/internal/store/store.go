@@ -280,6 +280,34 @@ func (s *Store) ResetDevices(login string) (*Customer, error) {
 	return c.clone(), s.flush()
 }
 
+// Delete removes a customer from the store entirely (both indexes) and persists. Idempotent:
+// deleting an absent login is a no-op success. NB: this only removes the panel record — node
+// creds (VLESS/hy2/…) are deprovisioned separately by the provisioner.
+func (s *Store) Delete(login string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.byLog[login]
+	if !ok {
+		return nil
+	}
+	delete(s.byTok, c.SubToken)
+	delete(s.byLog, login)
+	return s.flush()
+}
+
+// SetDisabled toggles a customer's disabled flag (a soft on/off: a disabled account fails
+// Active() so /sub stops serving it, without touching the node creds). Atomic + persisted.
+func (s *Store) SetDisabled(login string, disabled bool) (*Customer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.byLog[login]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	c.Disabled = disabled
+	return c.clone(), s.flush()
+}
+
 // SetExpiry sets the customer's expiry to an ABSOLUTE time (no stacking) and clears the
 // disabled flag. Used to MIRROR an authoritative date set elsewhere (e.g. by the s2 naive
 // bot, which owns the naive lifecycle) into the store so the app + the customer's other
