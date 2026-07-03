@@ -31,7 +31,14 @@ func TestSubOLCRTCGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("olcconf.Open: %v", err)
 	}
-	if err := olc.Set(olcconf.Config{Enabled: true, Provider: "telemost", Room: "https://telemost.yandex.ru/j/1", Key: "deadbeef", Transport: "vp8channel", Logins: []string{"wapmix"}}); err != nil {
+	// wapmix is allowlisted AND has its OWN dedicated room (the new invariant: allowlisted-but-
+	// roomless emits nothing, so a gated login must have a per-login room to get creds).
+	if err := olc.Set(olcconf.Config{
+		Enabled: true, Provider: "telemost", Transport: "vp8channel",
+		Room: "https://telemost.yandex.ru/j/GLOBAL", Key: "deadbeef",
+		Logins: []string{"wapmix"},
+		Rooms:  map[string]olcconf.RoomKey{"wapmix": {Room: "https://telemost.yandex.ru/j/1", Key: "deadbeef"}},
+	}); err != nil {
 		t.Fatalf("olc.Set: %v", err)
 	}
 	st, err := store.Open(filepath.Join(t.TempDir(), "store.json"))

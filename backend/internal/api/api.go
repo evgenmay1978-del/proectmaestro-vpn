@@ -294,7 +294,10 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	// hot-swappable). The WebRTC params (room/key) ride over /info, same gate; no creds = no
 	// tunnel even if the UI is bypassed. sc.OLC starts nil (no per-customer creds), so a
 	// non-allowlisted login can never get it.
-	if oc := s.olcConfig(); oc.Enabled && oc.Allowed(c.Login) {
+	// ⛔ Require a DEDICATED per-login room (not the shared global fallback): an allowlisted login
+	// without its own room emits NO olcRTC — never falling onto the global room, which would
+	// cross-latch two logins on one srv. So the chip stays locked until a room is assigned.
+	if oc := s.olcConfig(); oc.Enabled && oc.Allowed(c.Login) && oc.Dedicated(c.Login) {
 		if room, key, ok := oc.RoomFor(c.Login); ok {
 			sc.OLC = &subgen.OLCRTCCreds{Provider: oc.Provider, Room: room, Key: key, Transport: oc.Transport}
 		}
@@ -352,7 +355,9 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 	// ride in /sub; the app writes them into the child's client.yaml. From the GLOBAL olcconf
 	// (hot-swappable room), gated to the owner's logins (same set as the /sub creds-gate). The
 	// token is the per-customer secret, so the key is no more exposed than the rest of /info.
-	if oc := s.olcConfig(); oc.Enabled && oc.Allowed(c.Login) {
+	// Same gate as /sub PLUS c.Active(): an EXPIRED account must NOT get an unlocked olcRTC chip
+	// (its /sub would 402 → the chip would be a dead end). Dedicated-room-only (no global fallback).
+	if oc := s.olcConfig(); oc.Enabled && c.Active() && oc.Allowed(c.Login) && oc.Dedicated(c.Login) {
 		if room, key, ok := oc.RoomFor(c.Login); ok {
 			out["olcrtc"] = map[string]any{
 				"provider":  oc.Provider,
