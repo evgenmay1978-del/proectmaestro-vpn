@@ -337,8 +337,15 @@ func (s *Server) panelPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.panel.pwFile != "" {
-		if err := os.WriteFile(s.panel.pwFile, append(nh, '\n'), 0o600); err != nil {
+		// Atomic write (temp + rename) with an explicit, non-aliased byte slice so the persisted
+		// hash can never be a partial/garbled value.
+		tmp := s.panel.pwFile + ".tmp"
+		if err := os.WriteFile(tmp, []byte(string(nh)+"\n"), 0o600); err != nil {
 			panelErrLog(w, http.StatusInternalServerError, "could not persist password", "write pwfile", err)
+			return
+		}
+		if err := os.Rename(tmp, s.panel.pwFile); err != nil {
+			panelErrLog(w, http.StatusInternalServerError, "could not persist password", "rename pwfile", err)
 			return
 		}
 	}
