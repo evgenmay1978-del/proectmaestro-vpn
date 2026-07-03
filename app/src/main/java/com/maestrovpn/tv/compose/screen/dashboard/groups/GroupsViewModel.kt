@@ -11,6 +11,7 @@ import com.maestrovpn.tv.compose.model.GroupItem
 import com.maestrovpn.tv.compose.model.toList
 import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.ProfileManager
+import com.maestrovpn.tv.utils.httpGetStringTimed
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.AppLifecycleObserver
 import com.maestrovpn.tv.utils.CommandClient
@@ -362,6 +363,9 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // carries traffic once the child binary is up. Start it BEFORE selecting; abort the
                 // switch if it doesn't come up. Switching to anything else tears the child down.
                 if (isOlc) {
+                    // Pull the freshest room/key first so selecting olcRTC right after a panel/bot
+                    // room swap connects to the NEW room (ensureStarted restarts on a change).
+                    refreshOlcCreds()
                     if (!OlcrtcManager.ensureStarted()) {
                         sendError(IllegalStateException("olcRTC: видео-туннель не поднялся (см. логи)"))
                         return@launch
@@ -406,6 +410,27 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      * [OLC_WATCHDOG_MAX_FAILS] consecutive failed respawns and surfaces an error. Cancelled on
      * switch-away / stop / VM clear. Respawns coalesce with user taps via OlcrtcManager's own guard.
      */
+    /**
+     * Re-pull the owner-gated olcRTC params from GET /sub/<tok>/info and push them into
+     * [OlcrtcManager]. Lets a room/key SWAP (from the panel or the bot) reach a device that's
+     * already connected, WITHOUT a reconnect. A failed/timed-out fetch keeps the cached creds
+     * (never revokes) — so it stays safe behind an ISP whitelist that blocks the panel.
+     */
+    private suspend fun refreshOlcCreds() {
+        runCatching {
+            val profile = ProfileManager.list().firstOrNull { it.typed.remoteURL.contains("/sub/") } ?: return
+            val url = profile.typed.remoteURL.trimEnd('/') + "/info"
+            val json = httpGetStringTimed(url, 6_000) ?: return // short timeout; keep cached creds on failure
+            val olc = JSONObject(json).optJSONObject("olcrtc")
+            OlcrtcManager.setCreds(
+                provider = olc?.optString("provider"),
+                room = olc?.optString("room"),
+                key = olc?.optString("key"),
+                transport = olc?.optString("transport"),
+            )
+        }
+    }
+
     private fun startOlcWatchdog() {
         olcWatchdog?.cancel()
         olcWatchdog = viewModelScope.launch(Dispatchers.IO) {
@@ -414,10 +439,24 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             fun stillGuarding() = isActive && _serviceStatus.value == Status.Started &&
                 uiState.value.groups.firstOrNull { it.tag == "select" }?.selected == OlcrtcManager.OUTBOUND_TAG
             var fails = 0
+            var ticks = 0
             while (isActive) {
                 delay(OLC_WATCHDOG_INTERVAL_MS)
                 if (!stillGuarding()) break
-                if (OlcrtcManager.isRunning) { fails = 0; continue } // healthy
+                // Every ~4 ticks (~32s) re-pull /info so a room/key swap from the panel/bot reaches
+                // this device without a reconnect. Cheap; skipped-on-failure keeps cached creds.
+                if (ticks++ % 4 == 0) refreshOlcCreds()
+                if (OlcrtcManager.isRunning) {
+                    // Room/key changed under the running child → restart it onto the NEW room, else
+                    // it stays joined to the old (now srv-less) room and traffic quietly blackholes.
+                    if (OlcrtcManager.credsChanged()) {
+                        Log.i("GroupsVM", "olcRTC room/key changed — restarting child onto the new room")
+                        OlcrtcManager.ensureStarted() // blocks up to ~25s while it rejoins
+                        // The blocking restart may have raced a switch-away — don't orphan the child.
+                        if (!stillGuarding()) { OlcrtcManager.stop(); break }
+                    }
+                    fails = 0; continue
+                }
                 // Child died while olcRTC is the active outbound → traffic is blackholing. Respawn,
                 // but COUNT every death (not just failed ensureStarted): a child that starts then dies
                 // within the cycle must not respawn every 8s forever (battery/CPU drain). Give up after
