@@ -178,6 +178,7 @@ func main() {
 			PanelPath:         os.Getenv("MAESTRO_PANEL_PATH"),
 			PanelPasswordHash: os.Getenv("MAESTRO_PANEL_PASSWORD_HASH"),
 			PanelPWFile:       env("MAESTRO_PANEL_PW_FILE", "/var/lib/maestro/panel-pw.hash"),
+			OlcrtcRoomScript:  env("MAESTRO_OLCRTC_ROOM_SH", "/usr/local/bin/olcrtc-room.sh"),
 			SubBaseURL:        env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
 			SBPPhone:          os.Getenv("MAESTRO_SBP_PHONE"),
 			PayURL:            os.Getenv("MAESTRO_SBP_PAY_URL"),

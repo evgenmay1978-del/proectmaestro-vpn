@@ -72,13 +72,18 @@ type Config struct {
 	PanelPath         string
 	PanelPasswordHash string
 	PanelPWFile       string
-	SubBaseURL        string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
-	SBPPhone          string // СБП phone shown to the customer for in-app purchase
-	PayURL            string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
-	TGBotToken        string // bot token for owner payment notifications (send-only, no poll)
-	TGAdminID         string // owner's Telegram chat id
-	UpdateDir         string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
-	ReportDir         string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
+	// OlcrtcRoomScript is the path to ops/olcrtc-room.sh (the SAME one the Telegram bridge runs):
+	// the panel execs it so an olcRTC room assigned from the UI does the FULL work (mint key +
+	// panel config + bring up the per-login S3 exit), not just a config-only write. Empty →
+	// the panel falls back to a config-only room set (no S3 exit).
+	OlcrtcRoomScript string
+	SubBaseURL       string // public base for building sub URLs, e.g. https://wapmixx.ru:8910
+	SBPPhone         string // СБП phone shown to the customer for in-app purchase
+	PayURL           string // pay link (T-Bank «Сбор денег» / СБП) shown as a scannable QR — cross-bank, no acquiring; empty → fall back to the phone QR
+	TGBotToken       string // bot token for owner payment notifications (send-only, no poll)
+	TGAdminID        string // owner's Telegram chat id
+	UpdateDir        string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
+	ReportDir        string // dir for the fleet crash/diagnostic log (JSON-lines per day); empty disables /report
 	// EnforceDeviceLimit gates the per-account 5-device cap at /sub + /claim. A kill
 	// switch (env MAESTRO_DEVICE_LIMIT=off) so the cap can be disabled live without a
 	// redeploy if it ever misbehaves in prod.

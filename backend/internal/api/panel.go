@@ -11,6 +11,7 @@ package api
 // registered at all — the panel is off and invisible).
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -649,8 +651,28 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid login", http.StatusBadRequest)
 		return
 	}
-	if err := s.olc.SetRoomFor(req.Login, req.Room, ""); err != nil {
-		panelErrLog(w, http.StatusInternalServerError, "could not set room", "olcrtc room", err)
+	// Run the SAME script the Telegram bridge uses so a UI room-swap does the FULL work: mint the
+	// login's key + write the panel config + bring up (or restart) that login's S3 exit. Falls
+	// back to a config-only write if the script isn't configured (no S3 exit, matches the old
+	// behaviour). Inputs are already validated (URL + login charset) so there's no shell injection.
+	if s.cfg.OlcrtcRoomScript == "" {
+		if err := s.olc.SetRoomFor(req.Login, req.Room, ""); err != nil {
+			panelErrLog(w, http.StatusInternalServerError, "could not set room", "olcrtc room", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	argv := []string{s.cfg.OlcrtcRoomScript}
+	if req.Login != "" {
+		argv = append(argv, req.Login)
+	}
+	argv = append(argv, req.Room)
+	ctx, cancel := context.WithTimeout(r.Context(), 100*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "/bin/sh", argv...).CombinedOutput()
+	if err != nil {
+		panelErrLog(w, http.StatusBadGateway, "room assign failed on S3 — try again", "olcrtc room script", errors.New(strings.TrimSpace(string(out))))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
