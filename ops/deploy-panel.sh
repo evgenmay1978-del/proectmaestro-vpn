@@ -16,9 +16,18 @@ PANEL=http://127.0.0.1:8910
 DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
 
 cd "$REPO"
-echo "→ go build ./cmd/maestro-panel"
-go build -o /tmp/maestro-panel-new ./cmd/maestro-panel
-echo "  ✅ built ($(stat -c%s /tmp/maestro-panel-new) bytes)"
+# Stamp the binary with the git commit it was built from so /healthz can prove — for the session
+# orientation + ops/deploy-status.sh — exactly what is running vs HEAD. This is the guardrail
+# against "fix committed but never deployed" (the 2026-07-02/03 Hy2 recurrence sat ~22h undeployed).
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  COMMIT="$COMMIT-dirty"
+  echo "  ⚠️  working tree DIRTY — deploying uncommitted changes as $COMMIT"
+fi
+LDF="-X github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api.BuildCommit=$COMMIT"
+echo "→ go build ./cmd/maestro-panel (commit $COMMIT)"
+go build -ldflags "$LDF" -o /tmp/maestro-panel-new ./cmd/maestro-panel
+echo "  ✅ built ($(stat -c%s /tmp/maestro-panel-new) bytes, stamped $COMMIT)"
 echo "→ go vet (informational)"; go vet ./... 2>&1 | head -5 || true
 
 if [ "$DRY" = 1 ]; then
@@ -37,7 +46,8 @@ TF=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$PANEL/order/tariffs" 
 echo "  panel=$ACT healthz=$HZ tariffs=$TF"
 
 if [ "$ACT" = active ] && [ "$HZ" = 200 ] && [ "$TF" = 200 ]; then
-  echo "  ✅ deployed OK (prev binary backed up: $BK)"
+  RUN=$(curl -s --max-time 5 "$PANEL/healthz" | awk '{print $2}')
+  echo "  ✅ deployed OK — /healthz reports running commit: ${RUN:-unknown} (prev binary backed up: $BK)"
 else
   echo "  ❌ unhealthy after deploy — ROLLING BACK to $BK"
   mv "$BK" "$BIN"; systemctl restart maestro-panel; sleep 2

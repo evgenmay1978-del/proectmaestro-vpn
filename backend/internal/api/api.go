@@ -123,12 +123,19 @@ func New(st *store.Store, prov Provisioner, orders *order.Store, promos *promo.S
 	}
 }
 
+// BuildCommit is the git short-SHA this binary was built from, injected via -ldflags by
+// ops/deploy-panel.sh. It is exposed on /healthz so ops/deploy-status.sh (and the session-start
+// orientation) can prove what is ACTUALLY running vs git HEAD — closing the "fix committed but
+// never deployed" gap that let the 2026-07-02 Hy2 crash-loop recur for ~22h (the sanitizer fix
+// sat in git while the pre-fix binary kept re-rendering the poisoned config).
+var BuildCommit = "dev"
+
 // Handler returns the configured http.Handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok " + BuildCommit))
 	})
 	mux.HandleFunc("/sub/", s.handleSub)
 	mux.HandleFunc("/claim", s.handleClaim)
