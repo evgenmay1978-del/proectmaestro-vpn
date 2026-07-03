@@ -169,15 +169,21 @@ function provisionDlg(){modal('<h3>Выдать нового клиента</h3>
 function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/olcrtc').then(function(o){
  if(!o.enabled){el('body').innerHTML='<p class="mut">olcRTC выключен.</p>';return;}
  var rooms=o.rooms||{};var h='<p class="mut">Провайдер '+esc(o.provider)+' · транспорт '+esc(o.transport)+'</p>'+
-  '<table><thead><tr><th>Логин</th><th>Комната</th><th>Тип</th></tr></thead><tbody>';
- h+='<tr><td class="mut">(общая)</td><td><code>'+esc(o.global_room||'—')+'</code></td><td class="mut">fallback</td></tr>';
- (o.logins||[]).forEach(function(lg){var r=rooms[lg];h+='<tr><td><b>'+esc(lg)+'</b></td><td><code>'+esc(r?r.room:'(общая)')+'</code></td><td>'+(r?'<span class="badge b-ok">своя</span>':'<span class="badge b-off">общая</span>')+'</td></tr>';});
+  '<h3 style="margin:6px 0">Клиенты с доступом к olcRTC</h3>'+
+  '<table><thead><tr><th>Логин</th><th>Комната</th><th>Тип</th><th></th></tr></thead><tbody>';
+ h+='<tr><td class="mut">(общая)</td><td><code>'+esc(o.global_room||'—')+'</code></td><td class="mut">fallback</td><td></td></tr>';
+ (o.logins||[]).forEach(function(lg){var r=rooms[lg];h+='<tr><td><b>'+esc(lg)+'</b></td><td><code>'+esc(r?r.room:'(общая)')+'</code></td><td>'+(r?'<span class="badge b-ok">своя</span>':'<span class="badge b-off">общая</span>')+'</td><td><button class="btn dng sm" data-rm="'+esc(lg)+'">убрать</button></td></tr>';});
  h+='</tbody></table>'+
-  '<div class="toolbar" style="margin-top:14px"><select id="o_login"><option value="">(общая комната)</option>'+(o.logins||[]).map(function(lg){return '<option>'+esc(lg)+'</option>';}).join('')+'</select>'+
+  '<div class="toolbar" style="margin-top:10px"><input id="o_add" placeholder="логин клиента" style="min-width:180px"><button class="btn pri" id="o_addb">+ Добавить клиента в olcRTC</button><span class="mut">даёт доступ; комнату назначь ниже</span></div>'+
+  '<h3 style="margin:14px 0 6px">Назначить комнату</h3>'+
+  '<div class="toolbar"><select id="o_login"><option value="">(общая комната)</option>'+(o.logins||[]).map(function(lg){return '<option>'+esc(lg)+'</option>';}).join('')+'</select>'+
   '<input id="o_url" placeholder="https://telemost.yandex.ru/j/…" style="flex:1;min-width:240px">'+
-  '<button class="btn pri" id="o_set">Назначить комнату</button></div>';
+  '<button class="btn pri" id="o_set">Назначить комнату</button></div>'+
+  '<p class="mut">Назначение комнаты создаёт клиенту отдельный exit-сервер (~15 сек). Комнату сперва создай в Яндекс.Телемосте и вставь ссылку.</p>';
  el('body').innerHTML=h;
- el('o_set').onclick=function(){var u=el('o_url').value.trim();if(!u)return;post('api/olcrtc/room',{login:el('o_login').value,room:u}).then(function(){toast('Комната назначена');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};
+ el('o_addb').onclick=function(){var l=el('o_add').value.trim();if(!l)return;post('api/olcrtc/login',{login:l,action:'add'}).then(function(){toast(l+' добавлен в olcRTC');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};
+ Array.prototype.forEach.call(document.querySelectorAll('#body button[data-rm]'),function(b){b.onclick=function(){var l=b.getAttribute('data-rm');if(!confirm('Убрать '+l+' из olcRTC? (доступ + своя комната)'))return;post('api/olcrtc/login',{login:l,action:'remove'}).then(function(){toast(l+' убран');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};});
+ el('o_set').onclick=function(){var u=el('o_url').value.trim();if(!u)return;toast('Назначаю комнату…');post('api/olcrtc/room',{login:el('o_login').value,room:u}).then(function(){toast('Комната назначена');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};
 }).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
 
 function modal(html){closeModal();var m=document.createElement('div');m.className='modal';m.id='modal';m.innerHTML='<div class="box">'+html+'<div style="text-align:right;margin-top:14px"><button class="btn" id="mclose">Закрыть</button></div></div>';document.body.appendChild(m);el('mclose').onclick=closeModal;m.onclick=function(e){if(e.target===m)closeModal();};}

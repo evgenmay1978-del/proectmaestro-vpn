@@ -84,12 +84,9 @@ func panelToken() string {
 	return hex.EncodeToString(b)
 }
 
-// olcLoginList returns the sorted set of logins allowed olcRTC (for the panel's olcRTC view).
-func olcLoginList() []string {
-	out := make([]string, 0, len(olcLogins))
-	for lg := range olcLogins {
-		out = append(out, lg)
-	}
+// sortedLogins returns a sorted copy of the olcRTC allowlist (for the panel's olcRTC view).
+func sortedLogins(logins []string) []string {
+	out := append([]string(nil), logins...)
 	sort.Strings(out)
 	return out
 }
@@ -212,17 +209,18 @@ func (s *Server) registerPanel(mux *http.ServeMux) {
 		}
 	}
 	s.panel.startJanitor()
-	mux.HandleFunc(p, s.panelApp)                       // GET the SPA shell
-	mux.HandleFunc(p+"api/login", s.panelLogin)         // POST {password}
-	mux.HandleFunc(p+"api/logout", s.panelLogout)       // POST
-	mux.HandleFunc(p+"api/me", s.panelMe)               // GET
-	mux.HandleFunc(p+"api/password", s.panelPassword)   // POST {current,new}
-	mux.HandleFunc(p+"api/customers", s.panelCustomers) // GET
-	mux.HandleFunc(p+"api/customer", s.panelCustomer)   // GET ?login=
-	mux.HandleFunc(p+"api/stats", s.panelStats)         // GET
-	mux.HandleFunc(p+"api/action", s.panelActionH)      // POST
-	mux.HandleFunc(p+"api/olcrtc", s.panelOlcrtc)       // GET
-	mux.HandleFunc(p+"api/olcrtc/room", s.panelOlcRoom) // POST
+	mux.HandleFunc(p, s.panelApp)                         // GET the SPA shell
+	mux.HandleFunc(p+"api/login", s.panelLogin)           // POST {password}
+	mux.HandleFunc(p+"api/logout", s.panelLogout)         // POST
+	mux.HandleFunc(p+"api/me", s.panelMe)                 // GET
+	mux.HandleFunc(p+"api/password", s.panelPassword)     // POST {current,new}
+	mux.HandleFunc(p+"api/customers", s.panelCustomers)   // GET
+	mux.HandleFunc(p+"api/customer", s.panelCustomer)     // GET ?login=
+	mux.HandleFunc(p+"api/stats", s.panelStats)           // GET
+	mux.HandleFunc(p+"api/action", s.panelActionH)        // POST
+	mux.HandleFunc(p+"api/olcrtc", s.panelOlcrtc)         // GET
+	mux.HandleFunc(p+"api/olcrtc/room", s.panelOlcRoom)   // POST
+	mux.HandleFunc(p+"api/olcrtc/login", s.panelOlcLogin) // POST {login,action:add|remove}
 }
 
 // panelErrLog returns a GENERIC message to the browser (an internet-facing surface) while
@@ -622,7 +620,7 @@ func (s *Server) panelOlcrtc(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": cfg.Enabled, "provider": cfg.Provider, "transport": cfg.Transport,
-		"global_room": cfg.Room, "rooms": rooms, "logins": olcLoginList(),
+		"global_room": cfg.Room, "rooms": rooms, "logins": sortedLogins(cfg.Logins),
 	})
 }
 
@@ -673,6 +671,46 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 	out, err := exec.CommandContext(ctx, "/bin/sh", argv...).CombinedOutput()
 	if err != nil {
 		panelErrLog(w, http.StatusBadGateway, "room assign failed on S3 — try again", "olcrtc room script", errors.New(strings.TrimSpace(string(out))))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// panelOlcLogin adds or removes a login from the olcRTC ALLOWLIST (who gets olcRTC creds) — the
+// "add a client to olcRTC" control. Adding only grants access (the login then gets the GLOBAL
+// room until a dedicated room is assigned via panelOlcRoom). Removing also drops any dedicated
+// room. It does NOT tear down an S3 exit — harmless, since an unlisted login gets no creds.
+func (s *Server) panelOlcLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.panelGuard(w, r, true) {
+		return
+	}
+	if s.olc == nil {
+		http.Error(w, "olcRTC disabled", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Login  string `json:"login"`
+		Action string `json:"action"` // add | remove
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !claimCodeRe.MatchString(req.Login) {
+		http.Error(w, "invalid login", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch req.Action {
+	case "add":
+		err = s.olc.AddLogin(req.Login)
+	case "remove":
+		err = s.olc.RemoveLogin(req.Login)
+	default:
+		http.Error(w, "action must be add or remove", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		panelErrLog(w, http.StatusInternalServerError, "could not update allowlist", "olcrtc login", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

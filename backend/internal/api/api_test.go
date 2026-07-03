@@ -31,7 +31,7 @@ func TestSubOLCRTCGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("olcconf.Open: %v", err)
 	}
-	if err := olc.Set(olcconf.Config{Enabled: true, Provider: "telemost", Room: "https://telemost.yandex.ru/j/1", Key: "deadbeef", Transport: "vp8channel"}); err != nil {
+	if err := olc.Set(olcconf.Config{Enabled: true, Provider: "telemost", Room: "https://telemost.yandex.ru/j/1", Key: "deadbeef", Transport: "vp8channel", Logins: []string{"wapmix"}}); err != nil {
 		t.Fatalf("olc.Set: %v", err)
 	}
 	st, err := store.Open(filepath.Join(t.TempDir(), "store.json"))

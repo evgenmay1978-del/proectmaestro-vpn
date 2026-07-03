@@ -189,24 +189,22 @@ var awgMinVC = func() int {
 	return 999999
 }()
 
-// olcLogins is the set of logins that may receive the olcRTC fallback in their /sub + /info
-// (owner's own accounts — the feature is "под замком для wapmix"). Defaults to {wapmix};
-// override with MAESTRO_OLC_LOGINS="wapmix,wapmixx" (comma-separated) without a redeploy.
-// Belt-and-suspenders: OLC creds are only stored on these accounts anyway, but this strips
-// them even if a record were mis-set, so the working transport never reaches anyone else.
-var olcLogins = func() map[string]bool {
-	raw := os.Getenv("MAESTRO_OLC_LOGINS")
+// ParseOlcLogins parses a comma-separated MAESTRO_OLC_LOGINS value into the olcRTC allowlist.
+// Used ONCE at startup to seed the mutable allowlist held in olcconf (the panel then manages it
+// at runtime). Defaults to {wapmix} when unset. WHO gets olcRTC now lives in olcconf.Config.Logins
+// (hot-reloadable), not this static value.
+func ParseOlcLogins(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		raw = "wapmix"
 	}
-	m := map[string]bool{}
+	var out []string
 	for _, l := range strings.Split(raw, ",") {
 		if l = strings.TrimSpace(l); l != "" {
-			m[l] = true
+			out = append(out, l)
 		}
 	}
-	return m
-}()
+	return out
+}
 
 // appVersionCode parses the SFA app versionCode from the User-Agent, e.g.
 // "SFA/1.0.106 (106; sing-box 1.14.0-alpha.31; language ru_RU)" → 106. Returns 0 for any
@@ -296,7 +294,7 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	// hot-swappable). The WebRTC params (room/key) ride over /info, same gate; no creds = no
 	// tunnel even if the UI is bypassed. sc.OLC starts nil (no per-customer creds), so a
 	// non-allowlisted login can never get it.
-	if oc := s.olcConfig(); oc.Enabled && olcLogins[c.Login] {
+	if oc := s.olcConfig(); oc.Enabled && oc.Allowed(c.Login) {
 		if room, key, ok := oc.RoomFor(c.Login); ok {
 			sc.OLC = &subgen.OLCRTCCreds{Provider: oc.Provider, Room: room, Key: key, Transport: oc.Transport}
 		}
@@ -354,7 +352,7 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 	// ride in /sub; the app writes them into the child's client.yaml. From the GLOBAL olcconf
 	// (hot-swappable room), gated to the owner's logins (same set as the /sub creds-gate). The
 	// token is the per-customer secret, so the key is no more exposed than the rest of /info.
-	if oc := s.olcConfig(); oc.Enabled && olcLogins[c.Login] {
+	if oc := s.olcConfig(); oc.Enabled && oc.Allowed(c.Login) {
 		if room, key, ok := oc.RoomFor(c.Login); ok {
 			out["olcrtc"] = map[string]any{
 				"provider":  oc.Provider,

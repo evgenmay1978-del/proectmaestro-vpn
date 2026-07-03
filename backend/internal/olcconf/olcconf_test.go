@@ -164,3 +164,44 @@ func mergeGlobal(c Config, room, key string) Config {
 	c.Key = key
 	return c
 }
+
+func TestAllowlist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "olcrtc.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := s.SetLogins([]string{"wapmix", "wapmix", "wapmixx"}); err != nil { // dedupes
+		t.Fatalf("SetLogins: %v", err)
+	}
+	if g := s.Get(); len(g.Logins) != 2 || !g.Allowed("wapmix") || !g.Allowed("wapmixx") || g.Allowed("stranger") {
+		t.Fatalf("after SetLogins: %+v", g.Logins)
+	}
+	if err := s.AddLogin("wapmix2"); err != nil {
+		t.Fatalf("AddLogin: %v", err)
+	}
+	if err := s.AddLogin("wapmix"); err != nil { // no-op dup
+		t.Fatalf("AddLogin dup: %v", err)
+	}
+	if g := s.Get(); len(g.Logins) != 3 || !g.Allowed("wapmix2") {
+		t.Fatalf("after AddLogin: %+v", g.Logins)
+	}
+	// RemoveLogin drops the login AND its dedicated room.
+	if err := s.SetRoomFor("wapmix2", "https://telemost.yandex.ru/j/Z", "kz"); err != nil {
+		t.Fatalf("SetRoomFor: %v", err)
+	}
+	if err := s.RemoveLogin("wapmix2"); err != nil {
+		t.Fatalf("RemoveLogin: %v", err)
+	}
+	if g := s.Get(); g.Allowed("wapmix2") || g.Dedicated("wapmix2") {
+		t.Fatalf("wapmix2 still present after remove: %+v", g)
+	}
+	// Persisted across reopen.
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if g := s2.Get(); !g.Allowed("wapmix") || g.Allowed("wapmix2") {
+		t.Fatalf("persisted allowlist mismatch: %+v", g.Logins)
+	}
+}

@@ -36,12 +36,23 @@ type RoomKey struct {
 // Config is the olcRTC transport configuration. Provider/Transport are shared; Room/Key are
 // the GLOBAL default; Rooms holds per-login {room,key} overrides for isolation.
 type Config struct {
-	Enabled   bool               `json:"enabled"`         // master switch; false → olcRTC never emitted
-	Provider  string             `json:"provider"`        // "telemost" (RU production) | "jitsi"
-	Room      string             `json:"room"`            // GLOBAL default room (fallback for logins w/o a dedicated one)
-	Key       string             `json:"key"`             // GLOBAL default key
-	Transport string             `json:"transport"`       // "vp8channel" (RU/mobile) | "datachannel"
-	Rooms     map[string]RoomKey `json:"rooms,omitempty"` // login → its OWN {room,key} (isolation); empty → use global
+	Enabled   bool               `json:"enabled"`          // master switch; false → olcRTC never emitted
+	Provider  string             `json:"provider"`         // "telemost" (RU production) | "jitsi"
+	Room      string             `json:"room"`             // GLOBAL default room (fallback for logins w/o a dedicated one)
+	Key       string             `json:"key"`              // GLOBAL default key
+	Transport string             `json:"transport"`        // "vp8channel" (RU/mobile) | "datachannel"
+	Rooms     map[string]RoomKey `json:"rooms,omitempty"`  // login → its OWN {room,key} (isolation); empty → use global
+	Logins    []string           `json:"logins,omitempty"` // the olcRTC ALLOWLIST — WHO gets olcRTC creds in /sub+/info
+}
+
+// Allowed reports whether login is on the olcRTC allowlist.
+func (c Config) Allowed(login string) bool {
+	for _, l := range c.Logins {
+		if l == login {
+			return true
+		}
+	}
+	return false
 }
 
 // Ready reports whether olcRTC is enabled AND has at least the GLOBAL room/key configured.
@@ -170,6 +181,49 @@ func (s *Store) hasAnyReadyLocked() bool {
 		}
 	}
 	return false
+}
+
+// SetLogins replaces the whole olcRTC allowlist (deduped, order preserved) and persists.
+func (s *Store) SetLogins(logins []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	out := make([]string, 0, len(logins))
+	for _, l := range logins {
+		if l != "" && !seen[l] {
+			seen[l] = true
+			out = append(out, l)
+		}
+	}
+	s.cfg.Logins = out
+	return s.persistLocked()
+}
+
+// AddLogin grants login olcRTC access (no-op if already present). Persists.
+func (s *Store) AddLogin(login string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if login == "" || s.cfg.Allowed(login) {
+		return nil
+	}
+	s.cfg.Logins = append(s.cfg.Logins, login)
+	return s.persistLocked()
+}
+
+// RemoveLogin revokes login's olcRTC access AND drops its dedicated room (so it stops getting
+// creds and its per-login entry doesn't linger). Persists.
+func (s *Store) RemoveLogin(login string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.cfg.Logins[:0:0]
+	for _, l := range s.cfg.Logins {
+		if l != login {
+			out = append(out, l)
+		}
+	}
+	s.cfg.Logins = out
+	delete(s.cfg.Rooms, login)
+	return s.persistLocked()
 }
 
 func (s *Store) persistLocked() error {

@@ -66,6 +66,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("open olcrtc config: %v", err)
 	}
+	// Seed the olcRTC allowlist from MAESTRO_OLC_LOGINS the FIRST time (empty config) — after
+	// that the panel manages it at runtime, so the env is just the bootstrap value.
+	if len(olc.Get().Logins) == 0 {
+		if err := olc.SetLogins(api.ParseOlcLogins(os.Getenv("MAESTRO_OLC_LOGINS"))); err != nil {
+			log.Printf("seed olcrtc logins: %v", err)
+		}
+	}
 
 	// The provisioner is wired only when its dependencies are configured.
 	var prov api.Provisioner
