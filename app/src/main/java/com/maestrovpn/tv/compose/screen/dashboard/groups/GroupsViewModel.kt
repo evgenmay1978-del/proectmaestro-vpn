@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.dashboard.groups
 
+import android.util.Log
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.OutboundGroup
 import com.maestrovpn.tv.bg.OlcrtcManager
@@ -16,7 +17,9 @@ import com.maestrovpn.tv.utils.CommandClient
 import com.maestrovpn.tv.utils.CommandTarget
 import com.maestrovpn.tv.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -32,6 +35,11 @@ import java.util.concurrent.atomic.AtomicInteger
 // unrelated later start (e.g. after VPN-consent was denied, or a protocol that never appears).
 // Generous vs a normal tun bring-up — the command feed connects within a couple of seconds.
 private const val PENDING_SELECT_TTL_MS = 20_000L
+
+// olcRTC liveness watchdog: how often to check the child process while olcRTC is the active
+// outbound, and how many consecutive failed respawns before giving up + telling the user.
+private const val OLC_WATCHDOG_INTERVAL_MS = 8_000L
+private const val OLC_WATCHDOG_MAX_FAILS = 3
 
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
@@ -67,6 +75,15 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     // was armed for (so a newer tap or an apply can't be clobbered by an older watchdog firing).
     // Atomic — incremented from a couple of call sites; a lost update could strand a watchdog.
     private val pendingGeneration = AtomicInteger(0)
+
+    // olcRTC anti-spam: an olcRTC (re)start blocks up to ~25s. While a select is in flight, ignore
+    // further olcRTC taps so a burst can't queue N blocking starts (a device-hang DoS). See selectGroupItem.
+    @Volatile private var olcSelectInFlight = false
+
+    // olcRTC liveness watchdog job: while olcRTC is the SELECTED outbound and the tunnel is up, it
+    // periodically checks the child process and TRANSPARENTLY respawns it if it died (crash/OOM),
+    // instead of silently blackholing traffic through the dead :8808 socks ("подключено, но не работает").
+    @Volatile private var olcWatchdog: Job? = null
 
     init {
         if (sharedCommandClient != null) {
@@ -132,6 +149,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
 
     override fun onCleared() {
         super.onCleared()
+        stopOlcWatchdog()
         if (isUsingSharedClient) {
             commandClient.removeHandler(this)
         } else {
@@ -209,6 +227,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         if (status == Status.Stopped) {
             pendingSelect = null
             pendingGeneration.incrementAndGet()
+            stopOlcWatchdog() // tunnel down → nothing to guard (BoxService already stopped the child)
         }
         viewModelScope.launch {
             _serviceStatus.emit(status)
@@ -257,8 +276,10 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     }
                 } else if (OlcrtcManager.isRunning) {
                     OlcrtcManager.stop()
+                    stopOlcWatchdog()
                 }
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                if (itemTag == OlcrtcManager.OUTBOUND_TAG) startOlcWatchdog()
                 // Pin the chip to the picked protocol: a live-groups payload racing in right after
                 // the box starts reports the momentary "auto", which would otherwise flick the
                 // highlight off the protocol the user chose until the next payload catches up.
@@ -315,12 +336,19 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     fun selectGroupItem(groupTag: String, itemTag: String) {
         // Check if this is actually a different selection
         val currentGroup = uiState.value.groups.find { it.tag == groupTag }
+        val isOlc = itemTag == OlcrtcManager.OUTBOUND_TAG
         // Re-tapping the ALREADY-selected item is normally a no-op — EXCEPT olcRTC when its child
-        // died (flaky video tunnel): traffic is then blackholing through the dead :8808 socks
-        // outbound and re-tapping is the user's natural recovery, so let it through to respawn.
-        val olcDeadRetap = itemTag == OlcrtcManager.OUTBOUND_TAG && !OlcrtcManager.isRunning
+        // died: traffic then blackholes through the dead :8808 socks and a re-tap is manual recovery
+        // (the watchdog usually recovers it first, but keep this as a fallback).
+        val olcDeadRetap = isOlc && !OlcrtcManager.isRunning
         if (currentGroup?.selected == itemTag && !olcDeadRetap) {
             return
+        }
+        // Anti-spam: an olcRTC (re)start blocks up to ~25s; drop taps while one is already running so
+        // a frustrated user spamming the chip can't queue N blocking starts (device-hang DoS).
+        if (isOlc) {
+            if (olcSelectInFlight) return
+            olcSelectInFlight = true
         }
 
         // A real manual switch is authoritative — drop any armed "tapped-while-off" pick so a
@@ -333,17 +361,19 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // olcRTC (separate-process WebRTC-disguise fallback): the socks outbound only
                 // carries traffic once the child binary is up. Start it BEFORE selecting; abort the
                 // switch if it doesn't come up. Switching to anything else tears the child down.
-                if (itemTag == OlcrtcManager.OUTBOUND_TAG) {
+                if (isOlc) {
                     if (!OlcrtcManager.ensureStarted()) {
                         sendError(IllegalStateException("olcRTC: видео-туннель не поднялся (см. логи)"))
                         return@launch
                     }
                 } else if (OlcrtcManager.isRunning) {
                     OlcrtcManager.stop()
+                    stopOlcWatchdog() // switched away from olcRTC → stop guarding it
                 }
 
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
+                if (isOlc) startOlcWatchdog() // now guard olcRTC liveness (auto-respawn on child death)
 
                 // Update local state and show snackbar
                 withContext(Dispatchers.Main) {
@@ -364,8 +394,55 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 }
             } catch (e: Exception) {
                 sendError(e)
+            } finally {
+                if (isOlc) olcSelectInFlight = false
             }
         }
+    }
+
+    /**
+     * While olcRTC is the active outbound, poll its child process; if it died (crash/OOM) transparently
+     * respawn it instead of leaving the user "connected" over a dead :8808 socks. Gives up after
+     * [OLC_WATCHDOG_MAX_FAILS] consecutive failed respawns and surfaces an error. Cancelled on
+     * switch-away / stop / VM clear. Respawns coalesce with user taps via OlcrtcManager's own guard.
+     */
+    private fun startOlcWatchdog() {
+        olcWatchdog?.cancel()
+        olcWatchdog = viewModelScope.launch(Dispatchers.IO) {
+            // true while olcRTC is STILL the active outbound and the tunnel is up — i.e. we should
+            // keep guarding. Also false once the job is cancelled (switch-away / stop / VM clear).
+            fun stillGuarding() = isActive && _serviceStatus.value == Status.Started &&
+                uiState.value.groups.firstOrNull { it.tag == "select" }?.selected == OlcrtcManager.OUTBOUND_TAG
+            var fails = 0
+            while (isActive) {
+                delay(OLC_WATCHDOG_INTERVAL_MS)
+                if (!stillGuarding()) break
+                if (OlcrtcManager.isRunning) { fails = 0; continue } // healthy
+                // Child died while olcRTC is the active outbound → traffic is blackholing. Respawn,
+                // but COUNT every death (not just failed ensureStarted): a child that starts then dies
+                // within the cycle must not respawn every 8s forever (battery/CPU drain). Give up after
+                // MAX consecutive deaths; a respawn that STAYS alive resets the counter (isRunning above).
+                fails++
+                if (fails > OLC_WATCHDOG_MAX_FAILS) {
+                    OlcrtcManager.stop()
+                    sendError(IllegalStateException("olcRTC туннель упал и не восстанавливается — переключитесь на другой протокол"))
+                    break
+                }
+                Log.w("GroupsVM", "olcRTC child died while selected — auto-respawning (attempt $fails)")
+                OlcrtcManager.ensureStarted() // blocks up to ~25s; success/failure both re-checked next cycle
+                // The blocking respawn may have raced with a switch-away / stop / cancel — if we're no
+                // longer guarding olcRTC, tear down whatever we just started so it can't orphan on :8808.
+                if (!stillGuarding()) {
+                    OlcrtcManager.stop()
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopOlcWatchdog() {
+        olcWatchdog?.cancel()
+        olcWatchdog = null
     }
 
     fun closeConnections() {

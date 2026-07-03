@@ -233,7 +233,6 @@ class MainActivity :
         if (Settings.qsTilePrompted) return
         runCatching {
             val sbm = getSystemService(android.app.StatusBarManager::class.java) ?: return
-            Settings.qsTilePrompted = true
             sbm.requestAddTileService(
                 android.content.ComponentName(this, com.maestrovpn.tv.bg.TileService::class.java),
                 getString(R.string.app_name),
@@ -241,6 +240,9 @@ class MainActivity :
                 androidx.core.content.ContextCompat.getMainExecutor(this),
                 {},
             )
+            // Mark prompted ONLY after the request didn't throw — a transient failure (StatusBarManager
+            // unavailable / SecurityException) then retries on the next launch instead of never offering.
+            Settings.qsTilePrompted = true
         }
     }
 

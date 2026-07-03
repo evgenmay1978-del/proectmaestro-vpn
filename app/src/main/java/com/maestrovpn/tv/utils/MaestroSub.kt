@@ -35,7 +35,11 @@ object MaestroSub {
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         sp.getString(KEY, null)?.let { return it }
         val id = stableDeviceId(context)
-        sp.edit().putString(KEY, id).apply()
+        // commit() (synchronous), not apply(): the id MUST be on disk before we return it, else a
+        // crash right after could regenerate a different id next launch (a fallback-UUID device would
+        // then count as two). One-time tiny write.
+        @Suppress("ApplySharedPref")
+        sp.edit().putString(KEY, id).commit()
         return id
     }
 

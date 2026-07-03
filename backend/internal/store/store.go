@@ -226,6 +226,12 @@ func (s *Store) TouchDeviceByLogin(login, deviceID string, limit int) (allowed b
 	return s.touchDeviceLocked(s.byLog[login], deviceID, limit)
 }
 
+// deviceTTL: a device not seen for this long drops off the cap. Before this, device ids were
+// per-INSTALL (regenerated on reinstall) and NEVER expired, so ghosts from past reinstalls piled up
+// forever and tripped the 5-device cap. An actively-used device re-touches every /sub poll, so this
+// only ever drops truly-gone devices.
+const deviceTTL = 60 * 24 * time.Hour
+
 func (s *Store) touchDeviceLocked(c *Customer, deviceID string, limit int) (bool, int, error) {
 	if c == nil {
 		return false, 0, ErrNotFound
@@ -233,13 +239,31 @@ func (s *Store) touchDeviceLocked(c *Customer, deviceID string, limit int) (bool
 	if c.Devices == nil {
 		c.Devices = map[string]time.Time{}
 	}
+	now := time.Now()
+	// Prune stale devices (ghost ids from old reinstalls) so they don't occupy cap slots forever.
+	structural := false
+	for id, seen := range c.Devices {
+		if now.Sub(seen) > deviceTTL {
+			delete(c.Devices, id)
+			structural = true
+		}
+	}
 	if _, seen := c.Devices[deviceID]; seen {
+		c.Devices[deviceID] = now // refresh last-seen so an active device never ages out
+		// Persist only on a structural change (a prune) — NOT on every poll's timestamp refresh,
+		// which would hammer the JSON store; the in-memory refresh persists on the next structural flush.
+		if structural {
+			return true, len(c.Devices), s.flush()
+		}
 		return true, len(c.Devices), nil
 	}
 	if limit > 0 && len(c.Devices) >= limit {
+		if structural {
+			_ = s.flush()
+		}
 		return false, len(c.Devices), nil
 	}
-	c.Devices[deviceID] = time.Now()
+	c.Devices[deviceID] = now
 	return true, len(c.Devices), s.flush()
 }
 

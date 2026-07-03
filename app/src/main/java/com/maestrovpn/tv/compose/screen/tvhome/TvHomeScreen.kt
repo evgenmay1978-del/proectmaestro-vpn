@@ -317,7 +317,7 @@ private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Mod
     val daysText = when {
         daysLeft == null -> null
         expired -> "Подписка истекла"
-        daysLeft > 3650 -> "Безлимит" // unlimited/owner accounts → don't show an absurd day count
+        daysLeft >= 3650 -> "Безлимит" // unlimited/owner accounts (~10y+) → don't show an absurd count
         else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
     }
     NeonAccountCard(

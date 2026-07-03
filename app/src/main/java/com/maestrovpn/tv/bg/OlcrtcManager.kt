@@ -50,6 +50,10 @@ object OlcrtcManager {
     @Volatile private var creds: Creds? = null
     @Volatile private var loaded = false
     @Volatile private var process: Process? = null
+    // A start is in flight. Coalesces concurrent/rapid ensureStarted() calls so a burst of taps on a
+    // dead olcRTC chip can't each kill+respawn the child and block 25s polling — which turned into a
+    // multi-minute device hang (DoS on the user's own device).
+    @Volatile private var starting = false
     private val lock = Any()
 
     private val tokenRe = Regex("^[a-z0-9]{1,32}$")
@@ -127,67 +131,78 @@ object OlcrtcManager {
      */
     fun ensureStarted(): Boolean {
         ensureLoaded() // creds may live only in the persisted cache (e.g. this launch never hit /info)
-        val started: Process
         synchronized(lock) {
-            val c = creds ?: run { Log.w(TAG, "ensureStarted: no creds (locked)"); return false }
+            if (creds == null) { Log.w(TAG, "ensureStarted: no creds (locked)"); return false }
             if (isRunning && portOpen()) return true
-            stopLocked() // kill our tracked child (if any) before respawning
-            // Reap any ORPHAN libolcrtc.so left by a previous app-process instance that was
-            // OS-killed (low-mem / swipe-away / START_STICKY restart): a fresh singleton has
-            // process=null but the orphan still holds :8808, so a new exec would bind-fail.
-            reapStaleChildren()
-
-            val bin = binaryFile()
-            if (bin == null || !bin.exists()) {
-                Log.e(TAG, "ensureStarted: libolcrtc.so not bundled in this build — olcRTC unavailable")
-                return false
-            }
-            val dir = File(Application.application.filesDir, "olcrtc").apply { mkdirs() }
-            val dataDir = File(dir, "data").apply { mkdirs() }
-            val yaml = File(dir, "client.yaml")
-            yaml.writeText(buildClientYaml(c, dataDir.absolutePath))
-
-            started = try {
-                val p = ProcessBuilder(bin.absolutePath, yaml.absolutePath)
-                    .directory(dir)
-                    .redirectErrorStream(true)
-                    .start()
-                process = p
-                drainLogs(p)
-                Log.i(TAG, "olcRTC child started; waiting for SOCKS5 :$SOCKS_PORT")
-                p
-            } catch (e: Exception) {
-                Log.e(TAG, "ensureStarted: exec failed: ${e.message}", e)
-                return false
-            }
+            // Coalesce: if a start is ALREADY running, don't kill it and respawn. A burst of taps on a
+            // dead chip would otherwise each stopLocked()+spawn+poll-25s → a multi-minute hang.
+            if (starting) { Log.i(TAG, "ensureStarted: a start is already in flight — coalescing"); return false }
+            starting = true
         }
-        // Poll the port OUTSIDE the lock so stop() can still interrupt a stuck start.
-        val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline) {
-            if (!alive(started)) {
-                Log.e(TAG, "olcRTC child exited early (code=${runCatching { started.exitValue() }.getOrNull()}) — see olcRTC logs above")
-                return false
-            }
-            if (portOpen()) {
-                // Re-check under the lock that OUR child is still the live one — stop()/a
-                // respawn could have raced in while we were polling the open port.
-                synchronized(lock) {
-                    if (process === started && alive(started)) {
-                        Log.i(TAG, "olcRTC SOCKS5 ready")
-                        return true
-                    }
+        try {
+            val started: Process
+            synchronized(lock) {
+                val c = creds ?: return false // creds cleared meanwhile
+                stopLocked() // kill our tracked child (if any) before respawning
+                // Reap any ORPHAN libolcrtc.so left by a previous app-process instance that was
+                // OS-killed (low-mem / swipe-away / START_STICKY restart): a fresh singleton has
+                // process=null but the orphan still holds :8808, so a new exec would bind-fail.
+                reapStaleChildren()
+
+                val bin = binaryFile()
+                if (bin == null || !bin.exists()) {
+                    Log.e(TAG, "ensureStarted: libolcrtc.so not bundled in this build — olcRTC unavailable")
+                    return false
                 }
-                return false
+                val dir = File(Application.application.filesDir, "olcrtc").apply { mkdirs() }
+                val dataDir = File(dir, "data").apply { mkdirs() }
+                val yaml = File(dir, "client.yaml")
+                yaml.writeText(buildClientYaml(c, dataDir.absolutePath))
+
+                started = try {
+                    val p = ProcessBuilder(bin.absolutePath, yaml.absolutePath)
+                        .directory(dir)
+                        .redirectErrorStream(true)
+                        .start()
+                    process = p
+                    drainLogs(p)
+                    Log.i(TAG, "olcRTC child started; waiting for SOCKS5 :$SOCKS_PORT")
+                    p
+                } catch (e: Exception) {
+                    Log.e(TAG, "ensureStarted: exec failed: ${e.message}", e)
+                    return false
+                }
             }
-            try {
-                Thread.sleep(POLL_INTERVAL_MS)
-            } catch (_: InterruptedException) {
-                return false
+            // Poll the port OUTSIDE the lock so stop() can still interrupt a stuck start.
+            val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
+            while (System.currentTimeMillis() < deadline) {
+                if (!alive(started)) {
+                    Log.e(TAG, "olcRTC child exited early (code=${runCatching { started.exitValue() }.getOrNull()}) — see olcRTC logs above")
+                    return false
+                }
+                if (portOpen()) {
+                    // Re-check under the lock that OUR child is still the live one — stop()/a
+                    // respawn could have raced in while we were polling the open port.
+                    synchronized(lock) {
+                        if (process === started && alive(started)) {
+                            Log.i(TAG, "olcRTC SOCKS5 ready")
+                            return true
+                        }
+                    }
+                    return false
+                }
+                try {
+                    Thread.sleep(POLL_INTERVAL_MS)
+                } catch (_: InterruptedException) {
+                    return false
+                }
             }
+            Log.e(TAG, "olcRTC SOCKS5 did not open within ${READY_TIMEOUT_MS}ms — giving up")
+            stop()
+            return false
+        } finally {
+            synchronized(lock) { starting = false }
         }
-        Log.e(TAG, "olcRTC SOCKS5 did not open within ${READY_TIMEOUT_MS}ms — giving up")
-        stop()
-        return false
     }
 
     /**
