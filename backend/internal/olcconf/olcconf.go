@@ -1,14 +1,20 @@
 // Package olcconf is the SINGLE SOURCE OF TRUTH for the olcRTC fallback transport's
-// runtime parameters (carrier room URL + shared key + provider/transport). It is GLOBAL,
-// not per-customer: there is one olcrtc srv (on S3) joined to one carrier room with one
-// shared key, so the room/key are shared by every olcRTC client (currently the owner's
-// gated login only).
+// runtime parameters (carrier room URL + shared key + provider/transport).
+//
+// PER-LOGIN ROOMS (isolation): a Telemost room + srv is a 1-participant channel — if two
+// gated logins (the owner's family: wapmix/wapmixx/wapmix2) join the SAME room+srv at once
+// they cross-latch (wrong-peer / zombie peers / liveness-death). So each login can be given
+// its OWN {room,key} in Rooms[login], served by its OWN srv instance on S3. A login WITHOUT
+// a dedicated entry falls back to the GLOBAL Room/Key (the shared default). Yandex Telemost
+// has no room-creation API (rooms are born in the Yandex UI), so the owner supplies each
+// room URL; this package just routes the right room+key to the right login.
 //
 // Why a hot-reloadable FILE (not env): Yandex Telemost rooms can expire, and a new room
-// must propagate WITHOUT a panel redeploy. The room is updated at runtime via the admin
-// endpoint (POST /admin/olcrtc/room) → persisted here → the next /sub and /info polls
-// serve the new room automatically. A one-command swap (ops/olcrtc-room.sh) also pushes
-// the new room to the S3 srv, so both consumers update from a single action.
+// must propagate WITHOUT a panel redeploy. Rooms are updated at runtime via the admin
+// endpoint (POST /admin/olcrtc/room, optional "login") → persisted here → the next /sub and
+// /info polls serve the new room automatically. A one-command swap (ops/olcrtc-room.sh
+// [login] <url>) also pushes the room to that login's S3 srv, so both consumers update from
+// a single action.
 //
 // WHO gets olcRTC is a SEPARATE gate (the MAESTRO_OLC_LOGINS allowlist in package api);
 // this package only holds WHAT the transport is.
@@ -21,17 +27,48 @@ import (
 	"sync"
 )
 
-// Config is the global olcRTC transport configuration.
-type Config struct {
-	Enabled   bool   `json:"enabled"`   // master switch; false → olcRTC never emitted
-	Provider  string `json:"provider"`  // "telemost" (RU production) | "jitsi"
-	Room      string `json:"room"`      // carrier room id/URL (Telemost: the j/<id> URL)
-	Key       string `json:"key"`       // 64-hex shared secret (must match the S3 srv)
-	Transport string `json:"transport"` // "vp8channel" (RU/mobile) | "datachannel"
+// RoomKey is one carrier room + its shared key (a per-login isolation channel).
+type RoomKey struct {
+	Room string `json:"room"` // carrier room id/URL (Telemost: the https://…/j/<id> URL)
+	Key  string `json:"key"`  // 64-hex shared secret (must byte-match this login's S3 srv)
 }
 
-// Ready reports whether olcRTC may be emitted: enabled AND fully configured.
+// Config is the olcRTC transport configuration. Provider/Transport are shared; Room/Key are
+// the GLOBAL default; Rooms holds per-login {room,key} overrides for isolation.
+type Config struct {
+	Enabled   bool               `json:"enabled"`         // master switch; false → olcRTC never emitted
+	Provider  string             `json:"provider"`        // "telemost" (RU production) | "jitsi"
+	Room      string             `json:"room"`            // GLOBAL default room (fallback for logins w/o a dedicated one)
+	Key       string             `json:"key"`             // GLOBAL default key
+	Transport string             `json:"transport"`       // "vp8channel" (RU/mobile) | "datachannel"
+	Rooms     map[string]RoomKey `json:"rooms,omitempty"` // login → its OWN {room,key} (isolation); empty → use global
+}
+
+// Ready reports whether olcRTC is enabled AND has at least the GLOBAL room/key configured.
+// (Kept for the global-config invariant; per-login emission uses RoomFor, which also accepts
+// a login that only has a dedicated room even when the global default is unset.)
 func (c Config) Ready() bool { return c.Enabled && c.Room != "" && c.Key != "" }
+
+// RoomFor returns the room+key a given login should use: its dedicated per-login room when
+// configured (both room and key non-empty), else the GLOBAL default. ok is false only when
+// NEITHER a per-login nor a global room+key is set (so the caller emits nothing). Callers
+// must still check Enabled and the MAESTRO_OLC_LOGINS gate.
+func (c Config) RoomFor(login string) (room, key string, ok bool) {
+	if rk, has := c.Rooms[login]; has && rk.Room != "" && rk.Key != "" {
+		return rk.Room, rk.Key, true
+	}
+	if c.Room != "" && c.Key != "" {
+		return c.Room, c.Key, true
+	}
+	return "", "", false
+}
+
+// Dedicated reports whether login has its OWN room (not the shared global fallback) — used
+// by ops/inspection to know which logins are isolated.
+func (c Config) Dedicated(login string) bool {
+	rk, has := c.Rooms[login]
+	return has && rk.Room != "" && rk.Key != ""
+}
 
 // Store is a file-backed, concurrency-safe holder for the global Config.
 type Store struct {
@@ -83,16 +120,56 @@ func (s *Store) Set(c Config) error {
 	return s.persistLocked()
 }
 
-// SetRoom swaps ONLY the room URL (the common case when a Telemost room expires), keeping
-// the key/provider/transport. Auto-enables once room+key are both set. Persists.
-func (s *Store) SetRoom(room string) error {
+// SetRoom swaps ONLY the GLOBAL room URL (the common case when the shared Telemost room
+// expires), keeping the key/provider/transport. Auto-enables once room+key are both set.
+// Thin wrapper over SetRoomFor("", …) so the auto-enable logic lives in one place.
+func (s *Store) SetRoom(room string) error { return s.SetRoomFor("", room, "") }
+
+// SetRoomFor assigns login its OWN room+key (isolation channel), overriding the global
+// default for that login only. An empty room REMOVES the override (login reverts to the
+// global room). An empty key keeps the login's existing key (so a room-only swap doesn't
+// wipe the key + desync the S3 srv). Auto-enables once any usable room+key exists. Persists.
+func (s *Store) SetRoomFor(login, room, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cfg.Room = room
-	if room != "" && s.cfg.Key != "" {
+	if login == "" { // no login → this is a global-room swap
+		s.cfg.Room = room
+		if key != "" {
+			s.cfg.Key = key
+		}
+	} else {
+		if s.cfg.Rooms == nil {
+			s.cfg.Rooms = map[string]RoomKey{}
+		}
+		if room == "" {
+			delete(s.cfg.Rooms, login)
+		} else {
+			rk := s.cfg.Rooms[login]
+			rk.Room = room
+			if key != "" {
+				rk.Key = key
+			}
+			s.cfg.Rooms[login] = rk
+		}
+	}
+	// Auto-enable once at least one login can be served (global default OR any per-login room).
+	if !s.cfg.Enabled && s.hasAnyReadyLocked() {
 		s.cfg.Enabled = true
 	}
 	return s.persistLocked()
+}
+
+// hasAnyReadyLocked reports whether ANY usable room+key exists (global or per-login).
+func (s *Store) hasAnyReadyLocked() bool {
+	if s.cfg.Room != "" && s.cfg.Key != "" {
+		return true
+	}
+	for _, rk := range s.cfg.Rooms {
+		if rk.Room != "" && rk.Key != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) persistLocked() error {

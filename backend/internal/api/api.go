@@ -275,8 +275,10 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	// hot-swappable). The WebRTC params (room/key) ride over /info, same gate; no creds = no
 	// tunnel even if the UI is bypassed. sc.OLC starts nil (no per-customer creds), so a
 	// non-allowlisted login can never get it.
-	if oc := s.olcConfig(); oc.Ready() && olcLogins[c.Login] {
-		sc.OLC = &subgen.OLCRTCCreds{Provider: oc.Provider, Room: oc.Room, Key: oc.Key, Transport: oc.Transport}
+	if oc := s.olcConfig(); oc.Enabled && olcLogins[c.Login] {
+		if room, key, ok := oc.RoomFor(c.Login); ok {
+			sc.OLC = &subgen.OLCRTCCreds{Provider: oc.Provider, Room: room, Key: key, Transport: oc.Transport}
+		}
 	}
 	// Universal share-links subscription for cross-platform clients (Karing on
 	// iPhone, v2rayN, NekoBox, Shadowrocket…), requested via ?app=karing /
@@ -331,12 +333,14 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 	// ride in /sub; the app writes them into the child's client.yaml. From the GLOBAL olcconf
 	// (hot-swappable room), gated to the owner's logins (same set as the /sub creds-gate). The
 	// token is the per-customer secret, so the key is no more exposed than the rest of /info.
-	if oc := s.olcConfig(); oc.Ready() && olcLogins[c.Login] {
-		out["olcrtc"] = map[string]any{
-			"provider":  oc.Provider,
-			"room":      oc.Room,
-			"key":       oc.Key,
-			"transport": oc.Transport,
+	if oc := s.olcConfig(); oc.Enabled && olcLogins[c.Login] {
+		if room, key, ok := oc.RoomFor(c.Login); ok {
+			out["olcrtc"] = map[string]any{
+				"provider":  oc.Provider,
+				"room":      room,
+				"key":       key,
+				"transport": oc.Transport,
+			}
 		}
 	}
 	_ = json.NewEncoder(w).Encode(out)

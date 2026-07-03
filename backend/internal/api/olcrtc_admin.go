@@ -29,17 +29,22 @@ func (s *Server) handleOlcrtc(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleOlcrtcRoom (admin) swaps ONLY the carrier room URL — the common operation when a
-// Yandex Telemost room expires. Keeps the key/provider/transport and auto-enables once
-// room+key are both set. Clients pick up the new room on their next /info poll; the S1 swap
-// script (ops/olcrtc-room.sh) also pushes it to the S3 srv, so one call updates both.
+// handleOlcrtcRoom (admin) swaps a carrier room URL — the common operation when a Yandex
+// Telemost room expires. With "login" set, it swaps that login's DEDICATED room (isolation);
+// without it, the GLOBAL default room. An optional "key" sets a per-login shared key (leave
+// empty to keep the existing one — a room-only swap must not wipe the key + desync the srv).
+// Keeps provider/transport and auto-enables once any room+key exists. Clients pick up the new
+// room on their next /info poll; the S1 swap script (ops/olcrtc-room.sh [login] <url>) also
+// pushes it to that login's S3 srv, so one call updates both.
 func (s *Server) handleOlcrtcRoom(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var req struct {
-		Room string `json:"room"`
+		Login string `json:"login"` // empty → global room; else this login's dedicated room
+		Room  string `json:"room"`
+		Key   string `json:"key"` // optional; empty keeps the existing key
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -48,7 +53,7 @@ func (s *Server) handleOlcrtcRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "room required", http.StatusBadRequest)
 		return
 	}
-	if err := s.olc.SetRoom(req.Room); err != nil {
+	if err := s.olc.SetRoomFor(req.Login, req.Room, req.Key); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

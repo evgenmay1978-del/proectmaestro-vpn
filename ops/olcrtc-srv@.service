@@ -1,0 +1,30 @@
+# olcRTC srv — PER-LOGIN exit (family isolation). One systemd instance per family login
+# (olcrtc-srv@wapmix, @wapmixx, @wapmix2, …), each joined to that login's OWN Telemost room via
+# /opt/olcrtc/rooms/<login>.yaml, so two family members never share one room+srv → no cross-latch
+# (wrong-peer / zombie peers / liveness-death). Managed by ops/olcrtc-room.sh <login> <url>, which
+# writes the per-login rooms/<login>.yaml and (re)starts this instance.
+#
+# The GLOBAL olcrtc-srv.service stays untouched as the fallback exit for any gated login that has
+# NOT yet been given a dedicated room.
+#
+# INSTALL (on S3, once — needs owner go-ahead; touches the production host):
+#   scp ops/olcrtc-srv@.service root@46.30.42.151:/etc/systemd/system/olcrtc-srv@.service
+#   ssh root@46.30.42.151 'mkdir -p /opt/olcrtc/rooms /opt/olcrtc/data && systemctl daemon-reload'
+[Unit]
+Description=olcRTC per-login exit (%i) — MaestroVPN family isolation
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/olcrtc/rooms/%i.yaml
+
+[Service]
+Type=simple
+ExecStart=/opt/olcrtc/olcrtc /opt/olcrtc/rooms/%i.yaml
+Restart=always
+RestartSec=10
+# S3 = 1 core / 1.8G — keep every instance small so idle family exits don't starve the live VPN.
+Nice=10
+MemoryMax=300M
+WorkingDirectory=/opt/olcrtc
+
+[Install]
+WantedBy=multi-user.target
