@@ -11,10 +11,12 @@ import java.util.UUID
  *
  * The backend caps an account at a fixed number of devices (default 5) by counting the
  * distinct device ids that fetch its subscription, which covers ALL protocols at once (every
- * protocol's creds are delivered through /sub). The id is a random UUID generated once per
- * install and stored in app-private prefs — it is NOT a hardware identifier (privacy, and it
- * regenerates on reinstall / data-clear, which is the intended "this is a new device"
- * semantics). Every /sub poll and the /claim call carries it via ?device=<id>.
+ * protocol's creds are delivered through /sub). The id is derived from ANDROID_ID so it
+ * SURVIVES a reinstall / data-clear on the same physical device — re-activating after a reinstall
+ * is therefore NOT counted as a new device against the cap (owner request: "the app must know this
+ * device was already installed and not count it as new"). It is hashed (not the raw SSAID) for
+ * privacy, and falls back to a random UUID only when no stable anchor exists. Every /sub poll and
+ * the /claim call carries it via ?device=<id>.
  *
  * The owner admin logins (wapmix/wapmixx) are exempted server-side, so they are never capped.
  */
@@ -22,14 +24,42 @@ object MaestroSub {
     private const val PREFS = "maestro_device"
     private const val KEY = "device_id"
 
-    /** Stable per-install device id; generated + persisted on first use. */
+    /**
+     * Stable per-DEVICE id. Persisted once; on FIRST generation it is derived from ANDROID_ID so a
+     * reinstall (which clears prefs) re-derives the SAME id → the backend does not count it as a new
+     * device. Existing installs keep whatever id they already stored (no disruption / no re-count on
+     * update). If a customer already tripped the cap from past reinstalls, clear it once server-side:
+     * `POST /admin/reset-devices {login}`; afterwards reinstalls reuse the one stable id.
+     */
     fun deviceId(context: Context): String {
         val sp = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         sp.getString(KEY, null)?.let { return it }
-        val id = UUID.randomUUID().toString()
+        val id = stableDeviceId(context)
         sp.edit().putString(KEY, id).apply()
         return id
     }
+
+    /**
+     * A device id that SURVIVES reinstall/data-clear on the same physical device. ANDROID_ID (SSAID)
+     * is stable per app-signing-key + device and only resets on factory reset — exactly the "same
+     * device" semantics the cap needs. Hashed so we never send the raw SSAID. Falls back to a random
+     * UUID (old per-install behaviour) when SSAID is missing or the well-known buggy constant, so the
+     * cap still functions on those devices.
+     */
+    private fun stableDeviceId(context: Context): String {
+        val ssaid = try {
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        } catch (_: Exception) { null }
+        if (ssaid.isNullOrBlank() || ssaid.length < 8 || ssaid == "9774d56d682e549c") {
+            return UUID.randomUUID().toString()
+        }
+        return "d-" + sha256Hex("maestro-dev:$ssaid").take(32)
+    }
+
+    private fun sha256Hex(s: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(s.toByteArray())
+            .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
     /**
      * Anti-abuse anchor for the in-app free trial — DISTINCT from [deviceId]. Unlike the
