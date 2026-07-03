@@ -191,5 +191,5 @@ function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…<
 function modal(html){closeModal();var m=document.createElement('div');m.className='modal';m.id='modal';m.innerHTML='<div class="box">'+html+'<div style="text-align:right;margin-top:14px"><button class="btn" id="mclose">Закрыть</button></div></div>';document.body.appendChild(m);el('mclose').onclick=closeModal;m.onclick=function(e){if(e.target===m)closeModal();};}
 function closeModal(){var m=el('modal');if(m)m.remove();}
 
-api('api/me').then(function(j){if(j.logged_in)showApp();else showLogin();}).catch(function(){showLogin();});
+api('api/me').then(function(j){if(j.logged_in){CSRF=j.csrf;showApp();}else showLogin();}).catch(function(){showLogin();});
 </script></body></html>`

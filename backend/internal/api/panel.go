@@ -301,9 +301,17 @@ func (s *Server) panelLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) panelMe(w http.ResponseWriter, r *http.Request) {
 	s.panel.mu.Lock()
-	_, ok := s.panel.validSession(r, time.Now())
+	sess, ok := s.panel.validSession(r, time.Now())
 	s.panel.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"logged_in": ok})
+	// Return the session's CSRF token so a page that reloads (or returns to a still-valid session
+	// WITHOUT a fresh login) can recover it — otherwise every write (change-password, room assign,
+	// customer actions) would fail with "bad csrf". Safe: only the authenticated same-origin session
+	// (which sent the HttpOnly cookie) can read this response; SameSite=Strict blocks cross-origin.
+	out := map[string]any{"logged_in": ok}
+	if ok {
+		out["csrf"] = sess.csrf
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // panelPassword changes the panel login password at runtime. Requires a live session + CSRF +
