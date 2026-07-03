@@ -50,6 +50,10 @@ object OlcrtcManager {
     @Volatile private var creds: Creds? = null
     @Volatile private var loaded = false
     @Volatile private var process: Process? = null
+    // The creds the CURRENTLY-running child was started with. A running child is reused only while
+    // startedWith == creds; when the room/key changes (a panel/bot room swap), it no longer matches
+    // and the child is restarted onto the new room instead of silently staying on the stale one.
+    @Volatile private var startedWith: Creds? = null
     // A start is in flight. Coalesces concurrent/rapid ensureStarted() calls so a burst of taps on a
     // dead olcRTC chip can't each kill+respawn the child and block 25s polling — which turned into a
     // multi-minute device hang (DoS on the user's own device).
@@ -117,6 +121,14 @@ object OlcrtcManager {
 
     fun hasCreds(): Boolean { ensureLoaded(); return creds != null }
 
+    /** True when a child is running but on STALE creds (the room/key changed under it) — the
+     * watchdog uses this to restart it onto the new room without waiting for it to die. */
+    fun credsChanged(): Boolean {
+        ensureLoaded()
+        val c = creds ?: return false
+        return isRunning && startedWith != null && startedWith != c
+    }
+
     val isRunning: Boolean get() = process?.let { alive(it) } == true
 
     // minSdk 23 — Process.isAlive()/waitFor(timeout)/destroyForcibly() are API 26+, so probe
@@ -133,7 +145,12 @@ object OlcrtcManager {
         ensureLoaded() // creds may live only in the persisted cache (e.g. this launch never hit /info)
         synchronized(lock) {
             if (creds == null) { Log.w(TAG, "ensureStarted: no creds (locked)"); return false }
-            if (isRunning && portOpen()) return true
+            // Reuse the live child ONLY if it was started with the CURRENT creds. If the room/key
+            // changed (panel/bot swap), fall through to restart it onto the new room.
+            if (isRunning && portOpen() && startedWith == creds) return true
+            if (isRunning && startedWith != creds) {
+                Log.i(TAG, "ensureStarted: room/key changed — restarting child onto the new room")
+            }
             // Coalesce: if a start is ALREADY running, don't kill it and respawn. A burst of taps on a
             // dead chip would otherwise each stopLocked()+spawn+poll-25s → a multi-minute hang.
             if (starting) { Log.i(TAG, "ensureStarted: a start is already in flight — coalescing"); return false }
@@ -165,6 +182,7 @@ object OlcrtcManager {
                         .redirectErrorStream(true)
                         .start()
                     process = p
+                    startedWith = c // remember which room/key this child joined (for change-detect)
                     drainLogs(p)
                     Log.i(TAG, "olcRTC child started; waiting for SOCKS5 :$SOCKS_PORT")
                     p
@@ -233,8 +251,10 @@ object OlcrtcManager {
     }
 
     private fun stopLocked() {
-        val p = process ?: return
+        val p = process
         process = null
+        startedWith = null
+        if (p == null) return
         runCatching {
             p.destroy() // SIGTERM (== SIGKILL on the runtimes we ship to); no destroyForcibly (API 26+)
             // Best-effort reap so a zombie doesn't linger, without the API-26 waitFor(timeout).
