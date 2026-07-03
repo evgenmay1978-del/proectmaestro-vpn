@@ -337,7 +337,10 @@ func (s *Server) panelPassword(w http.ResponseWriter, r *http.Request) {
 	cur := s.panel.pwHash
 	s.panel.mu.Unlock()
 	if bcrypt.CompareHashAndPassword([]byte(cur), []byte(req.Current)) != nil {
-		http.Error(w, "current password is wrong", http.StatusUnauthorized)
+		// 403, NOT 401: the session IS valid (the operator is logged in), only the typed CURRENT
+		// password is wrong. A 401 here makes the SPA's api() treat it as an expired session and
+		// bounce to the login screen — so a mistyped current password looked like "can't change it".
+		http.Error(w, "current password is wrong", http.StatusForbidden)
 		return
 	}
 	nh, err := bcrypt.GenerateFromPassword([]byte(req.New), 12)
