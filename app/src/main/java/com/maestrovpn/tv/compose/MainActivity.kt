@@ -93,6 +93,7 @@ import com.maestrovpn.tv.bg.CrashReportManager
 import com.maestrovpn.tv.bg.OOMReportManager
 import com.maestrovpn.tv.bg.ServiceConnection
 import com.maestrovpn.tv.bg.ServiceNotification
+import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.compat.WindowSizeClassCompat
 import com.maestrovpn.tv.compat.isWidthAtLeastBreakpointCompat
 import com.maestrovpn.tv.compose.base.GlobalEventBus
@@ -1360,6 +1361,7 @@ class MainActivity :
     }
 
     private var lastUpdateCheckMs = 0L
+    private var lastSubRefreshMs = 0L
 
     override fun onResume() {
         super.onResume()
@@ -1383,6 +1385,16 @@ class MainActivity :
                     UpdateState.setUpdate(Vendor.checkUpdateAsync())
                 } catch (_: Exception) {
                 }
+            }
+        }
+        // Force a fresh /sub pull on foreground (bypasses the 15-min periodic floor) so an
+        // expiry/renewal, device-cap, or olcRTC room/outbound change reflects the moment the user
+        // opens the app — not only on the next timer tick. Light 30s throttle; cheap + safe (keeps
+        // the live config on failure, hot-reloads only if the selected profile actually changed).
+        if (System.currentTimeMillis() - lastSubRefreshMs > 30 * 1000L) {
+            lastSubRefreshMs = System.currentTimeMillis()
+            lifecycleScope.launch(Dispatchers.IO) {
+                runCatching { UpdateProfileWork.refreshNow() }
             }
         }
     }

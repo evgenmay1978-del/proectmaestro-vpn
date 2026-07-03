@@ -33,6 +33,45 @@ class UpdateProfileWork {
             }
         }
 
+        /**
+         * Force an IMMEDIATE /sub re-fetch of the trusted remote profiles, BYPASSING the
+         * autoUpdateInterval guard (unlike the periodic worker, which floors at the Android
+         * 15-min minimum). Called on app foreground + on connect so a change — expiry/renewal,
+         * device-cap, or the olcRTC outbound appearing/leaving — is reflected the instant the
+         * user acts, not only on the next 15-min tick. Same SSRF guard + bounded fetch +
+         * checkConfig + hot-reload-if-selected as the worker; a failed fetch keeps the live
+         * config untouched (never disturbs the running tunnel).
+         */
+        suspend fun refreshNow() {
+            runCatching {
+                val remoteProfiles = ProfileManager.list()
+                    .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
+                if (remoteProfiles.isEmpty()) return
+                val selectedProfile = Settings.selectedProfile
+                var selectedUpdated = false
+                for (profile in remoteProfiles) {
+                    val host = runCatching { java.net.URI(profile.typed.remoteURL).host }.getOrNull()
+                    if (host == null || !(host == TRUSTED_HOST || host.endsWith(".$TRUSTED_HOST"))) continue
+                    val content = httpGetStringTimed(profile.typed.remoteURL, 6_000) ?: continue
+                    try {
+                        Libbox.checkConfig(content)
+                    } catch (_: Exception) {
+                        continue // bad config → leave the live one in place
+                    }
+                    val file = File(profile.typed.path)
+                    if (file.readText() != content) {
+                        file.writeText(content)
+                        profile.typed.lastUpdated = Date()
+                        ProfileManager.update(profile)
+                        if (profile.id == selectedProfile) selectedUpdated = true
+                    }
+                }
+                if (selectedUpdated) {
+                    runCatching { Libbox.newStandaloneCommandClient().serviceReload() }
+                }
+            }.onFailure { Log.e(TAG, "refreshNow", it) }
+        }
+
         private suspend fun reconfigureUpdater0() {
             val remoteProfiles =
                 ProfileManager.list()
