@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.bg
 
+import android.content.Context
 import android.util.Log
 import com.maestrovpn.tv.Application
 import java.io.File
@@ -42,10 +43,12 @@ object OlcrtcManager {
     private const val TAG = "OlcrtcManager"
     private const val READY_TIMEOUT_MS = 25_000L
     private const val POLL_INTERVAL_MS = 300L
+    private const val CREDS_PREFS = "maestro_olcrtc"
 
     private data class Creds(val provider: String, val room: String, val key: String, val transport: String)
 
     @Volatile private var creds: Creds? = null
+    @Volatile private var loaded = false
     @Volatile private var process: Process? = null
     private val lock = Any()
 
@@ -68,12 +71,47 @@ object OlcrtcManager {
             (r.startsWith("https://") || r.startsWith("http://")) &&
             r.none { it.isWhitespace() || it == '"' || it == '\'' || it.code < 0x20 }
         creds = if (valid) Creds(p, r, k, t) else null
+        loaded = true
+        // Persist the unlock (or the revoke) so it survives an app restart AND — crucially — a launch
+        // where /info can't be reached (behind an ISP whitelist that blocks the panel): the child can
+        // still start from cache. Cleared when a SUCCESSFUL /info returns no olcrtc (owner revoked).
+        // A FAILED /info never calls setCreds, so the cached unlock is kept.
+        runCatching {
+            val e = credsPrefs().edit()
+            val c = creds
+            if (c != null) {
+                e.putString("p", c.provider).putString("r", c.room).putString("k", c.key).putString("t", c.transport)
+            } else {
+                e.clear()
+            }
+            e.apply()
+        }
+    }
+
+    private fun credsPrefs() = Application.application.getSharedPreferences(CREDS_PREFS, Context.MODE_PRIVATE)
+
+    // Load the persisted unlock ONCE so hasCreds()/isUnlocked() are correct right at launch — BEFORE
+    // any /info round-trip — which is what lets olcRTC work behind a whitelist that blocks the panel.
+    private fun ensureLoaded() {
+        if (loaded) return
+        synchronized(lock) {
+            if (loaded) return
+            runCatching {
+                val sp = credsPrefs()
+                val p = sp.getString("p", null)
+                val r = sp.getString("r", null)
+                val k = sp.getString("k", null)
+                val t = sp.getString("t", null)
+                if (p != null && r != null && k != null && t != null) creds = Creds(p, r, k, t)
+            }
+            loaded = true
+        }
     }
 
     /** True when the olcRTC entry should be UNLOCKED (creds delivered + the binary is bundled). */
-    fun isUnlocked(): Boolean = creds != null && binaryFile()?.exists() == true
+    fun isUnlocked(): Boolean { ensureLoaded(); return creds != null && binaryFile()?.exists() == true }
 
-    fun hasCreds(): Boolean = creds != null
+    fun hasCreds(): Boolean { ensureLoaded(); return creds != null }
 
     val isRunning: Boolean get() = process?.let { alive(it) } == true
 
@@ -88,6 +126,7 @@ object OlcrtcManager {
      * called off the main thread (it blocks). Idempotent: a live+listening child returns true fast.
      */
     fun ensureStarted(): Boolean {
+        ensureLoaded() // creds may live only in the persisted cache (e.g. this launch never hit /info)
         val started: Process
         synchronized(lock) {
             val c = creds ?: run { Log.w(TAG, "ensureStarted: no creds (locked)"); return false }
