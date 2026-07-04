@@ -411,11 +411,21 @@ private fun HeroPane(
                 .height(if (isTv) 22.dp else 26.dp),
         )
 
-        SpiderMedallion(
-            connected = connected,
-            onToggle = onToggleConnect,
-            focusRequester = connectFocus,
-        )
+        // ТВ остаётся на прежней (лёгкой) графике паука; НОВЫЙ процедурный паук — ТОЛЬКО телефон
+        // (реальный sim тяжелее для 1 ГБ-ТВ). Форм-фактор решает, что рисовать.
+        if (isTv) {
+            SpiderMedallion(
+                connected = connected,
+                onToggle = onToggleConnect,
+                focusRequester = connectFocus,
+            )
+        } else {
+            PaukMedallion(
+                connected = connected,
+                onToggle = onToggleConnect,
+                focusRequester = connectFocus,
+            )
+        }
 
         Spacer(Modifier.height(14.dp))
         // status with a state dot — the dot gets a soft glow HALO that pulses (breathes) when
