@@ -55,9 +55,16 @@ import com.maestrovpn.tv.compose.theme.ChromeOrangeHi
 import com.maestrovpn.tv.compose.theme.ChromeOrangeLow
 import com.maestrovpn.tv.compose.theme.GlassBottom
 import com.maestrovpn.tv.compose.theme.GlassTop
+import com.maestrovpn.tv.compose.theme.GoldDark
+import com.maestrovpn.tv.compose.theme.GoldHi
+// GoldHi used both for the gold bezel and the phone SectionLabel colour
+import com.maestrovpn.tv.compose.theme.GoldLow
+import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
+import com.maestrovpn.tv.compose.theme.WoodTileBottom
+import com.maestrovpn.tv.compose.theme.WoodTileTop
 
 /**
  * Shared "spider / chrome-glass" UI kit. Every interactive surface is a dark glass
@@ -82,6 +89,31 @@ internal fun chromeBezelBrush(selected: Boolean = false): Brush =
         )
     }
 
+// ── PHONE-ONLY wood/gold variants (derived from the эскиз). These are NEVER used on TV: only
+// phone call sites pass wood=true. TV keeps glassBrush()/chromeBezelBrush() byte-for-byte. ──
+
+/** Dark carved-wood tile fill (lit top → shadowed bottom) — the phone plate face. */
+internal fun woodBrush() = Brush.verticalGradient(listOf(WoodTileTop, WoodTileBottom))
+
+/**
+ * The gold-bezel brush (bright lit edge → gold body → dark edge), the phone counterpart of
+ * [chromeBezelBrush]. [selected] swaps it to the SAME warm orange-lit steel as chrome, so the
+ * SELECTED state semantics are identical to TV/glass.
+ */
+internal fun goldBezelBrush(selected: Boolean = false): Brush =
+    if (selected) {
+        Brush.verticalGradient(listOf(ChromeOrangeHi, MaestroOrange, ChromeOrangeLow, ChromeDark))
+    } else {
+        Brush.verticalGradient(listOf(GoldHi, GoldMid, GoldLow, GoldDark))
+    }
+
+/** Plate face brush: wood on phone, glass on TV. */
+private fun plateBrush(wood: Boolean) = if (wood) woodBrush() else glassBrush()
+
+/** Bezel brush: gold on phone, chrome on TV. */
+private fun bezelBrush(wood: Boolean, selected: Boolean = false) =
+    if (wood) goldBezelBrush(selected) else chromeBezelBrush(selected)
+
 /**
  * Glass pill with a neon border + optional leading icon. Used for protocol chips,
  * secondary actions and contact links. [selected] flips the accent to orange.
@@ -97,6 +129,7 @@ fun NeonChip(
     iconTint: Color? = null,
     subtitle: String? = null,
     locked: Boolean = false,
+    wood: Boolean = false,
 ) {
     val shape = RoundedCornerShape(16.dp)
     val interaction = remember { MutableInteractionSource() }
@@ -125,8 +158,8 @@ fun NeonChip(
                 ambientColor = glow,
                 spotColor = glow,
             )
-            .background(glassBrush(), shape)
-            .border(if (focused) 2.dp else 1.5.dp, chromeBezelBrush(selected), shape),
+            .background(plateBrush(wood), shape)
+            .border(if (focused) 2.dp else 1.5.dp, bezelBrush(wood, selected), shape),
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = iconTint ?: accent, modifier = Modifier.size(18.dp))
@@ -185,6 +218,7 @@ fun GlossyButton(
     accent: Color,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    wood: Boolean = false,
 ) {
     val shape = RoundedCornerShape(18.dp)
     val interaction = remember { MutableInteractionSource() }
@@ -214,7 +248,7 @@ fun GlossyButton(
                 spotColor = accent,
             )
             .background(brush, shape)
-            .border(if (focused) 2.5.dp else 1.5.dp, chromeBezelBrush(), shape),
+            .border(if (focused) 2.5.dp else 1.5.dp, bezelBrush(wood), shape),
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
@@ -235,6 +269,7 @@ fun ChromeTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     iconTint: Color = NeonGreen,
+    wood: Boolean = false,
 ) {
     val shape = RoundedCornerShape(14.dp)
     val interaction = remember { MutableInteractionSource() }
@@ -260,8 +295,8 @@ fun ChromeTile(
                 ambientColor = if (focused) NeonGreen else Color.Black,
                 spotColor = if (focused) NeonGreen else Color.Black,
             )
-            .background(glassBrush(), shape)
-            .border(if (focused) 2.dp else 1.5.dp, chromeBezelBrush(), shape),
+            .background(plateBrush(wood), shape)
+            .border(if (focused) 2.dp else 1.5.dp, bezelBrush(wood), shape),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -312,6 +347,7 @@ fun NeonAccountCard(
     modifier: Modifier = Modifier,
     leadingIcon: ImageVector,
     trailingIcon: ImageVector,
+    wood: Boolean = false,
 ) {
     val shape = RoundedCornerShape(18.dp)
     Row(
@@ -319,7 +355,7 @@ fun NeonAccountCard(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = modifier
             .shadow(10.dp, shape, clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
-            .background(glassBrush(), shape)
+            .background(plateBrush(wood), shape)
             // glassmorphism inner highlight — a soft top sheen clipped to the rounded card, so
             // the plate reads as lit glass (blur is unavailable pre-31, this is the cheap look).
             .drawBehind {
@@ -332,7 +368,7 @@ fun NeonAccountCard(
                     cornerRadius = CornerRadius(cr, cr),
                 )
             }
-            .border(1.5.dp, chromeBezelBrush(), shape)
+            .border(1.5.dp, bezelBrush(wood), shape)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         GreenBadge(leadingIcon)
@@ -354,13 +390,14 @@ fun NeonAccountCard(
     }
 }
 
-/** Spaced uppercase section label ("ПРОТОКОЛ", "КОНТАКТЫ"). */
+/** Spaced uppercase section label ("ПРОТОКОЛ", "КОНТАКТЫ"). On phone (wood) it reads GOLD to
+ *  match the carved-wood frame; on TV it stays silver. */
 @Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+fun SectionLabel(text: String, modifier: Modifier = Modifier, wood: Boolean = false) {
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
-        color = MaestroSilver,
+        color = if (wood) GoldHi else MaestroSilver,
         letterSpacing = 2.sp,
         modifier = modifier,
     )

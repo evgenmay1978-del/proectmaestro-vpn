@@ -2,6 +2,7 @@ package com.maestrovpn.tv.compose.screen.purchase
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -36,6 +39,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.rememberIsTv
@@ -63,19 +67,34 @@ fun BuyScreen(
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
+      Box(modifier = Modifier.fillMaxSize()) {
+        // PHONE: premium carved-wood эскиз backdrop (fixed, behind the scroll) so this screen
+        // reads as part of the same wood/gold app as home. TV keeps the plain green-glow theme.
+        if (!isTv) {
+            Image(
+                painter = painterResource(R.drawable.home_eskiz),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            // slight dark scrim so text/QR stay legible over the busy эскиз
+            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.45f)) })
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    val center = Offset(size.width * 0.5f, size.height * 0.22f)
-                    val radius = size.maxDimension * 0.5f
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(NeonGreen.copy(alpha = 0.07f), Color.Transparent),
-                            center = center, radius = radius,
-                        ),
-                        radius = radius, center = center,
-                    )
+                    if (isTv) {
+                        val center = Offset(size.width * 0.5f, size.height * 0.22f)
+                        val radius = size.maxDimension * 0.5f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(NeonGreen.copy(alpha = 0.07f), Color.Transparent),
+                                center = center, radius = radius,
+                            ),
+                            radius = radius, center = center,
+                        )
+                    }
                 }
                 .verticalScroll(rememberScrollState())
                 .padding(screenPadding(isTv)),
@@ -113,6 +132,7 @@ fun BuyScreen(
                                 .padding(vertical = 4.dp)
                                 .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier),
                             icon = Icons.Filled.Star,
+                            wood = !isTv,
                         )
                     }
                 }
@@ -189,6 +209,7 @@ fun BuyScreen(
                         label = "Я оплатил",
                         onClick = { viewModel.iPaid() },
                         accent = NeonGreen,
+                        wood = !isTv,
                         modifier = Modifier.widthIn(min = 220.dp),
                     )
                     Spacer(Modifier.height(12.dp))
@@ -212,9 +233,10 @@ fun BuyScreen(
                 is BuyState.Error -> {
                     Text("Ошибка: ${s.message}", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(20.dp))
-                    GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen)
+                    GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen, wood = !isTv)
                 }
             }
         }
+      }
     }
 }

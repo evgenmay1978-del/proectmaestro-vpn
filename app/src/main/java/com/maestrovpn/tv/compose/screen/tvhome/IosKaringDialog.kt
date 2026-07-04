@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
 import com.maestrovpn.tv.database.ProfileManager
@@ -59,6 +61,8 @@ private sealed interface ShareState {
  */
 @Composable
 fun IosKaringDialog(onDismiss: () -> Unit) {
+    // PHONE uses the gold accent (wood/gold app language); TV keeps the orange selection accent.
+    val toggleAccent = if (rememberIsTv()) MaestroOrange else GoldMid
     val state by produceState<ShareState>(ShareState.Loading) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -96,14 +100,14 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
                             if (androidMode) {
                                 Button(
                                     onClick = { androidMode = true },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaestroOrange),
+                                    colors = ButtonDefaults.buttonColors(containerColor = toggleAccent),
                                 ) { Text("Android") }
                                 OutlinedButton(onClick = { androidMode = false }) { Text("iPhone") }
                             } else {
                                 OutlinedButton(onClick = { androidMode = true }) { Text("Android") }
                                 Button(
                                     onClick = { androidMode = false },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaestroOrange),
+                                    colors = ButtonDefaults.buttonColors(containerColor = toggleAccent),
                                 ) { Text("iPhone") }
                             }
                         }

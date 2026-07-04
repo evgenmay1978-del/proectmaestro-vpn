@@ -10,6 +10,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -425,23 +429,38 @@ fun PerAppProxyScreen(
         )
     }
 
-    Column(
+    val isTv = rememberIsTv()
+    Box(modifier = Modifier.fillMaxSize()) {
+      // PHONE: carved-wood эскиз backdrop (with a dark scrim) so the split-tunnel screen matches
+      // the wood/gold app. TV keeps the plain green-glow.
+      if (!isTv) {
+          Image(
+              painter = painterResource(R.drawable.home_eskiz),
+              contentDescription = null,
+              modifier = Modifier.fillMaxSize(),
+              contentScale = ContentScale.Crop,
+          )
+          Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.62f)) })
+      }
+      Column(
         modifier = Modifier
             .fillMaxSize()
             .drawBehind {
-                // unified "spider" backdrop — a soft green glow on the deep-black theme bg,
-                // so this donor screen reads as part of the same app as the home screen.
-                val center = Offset(size.width * 0.5f, size.height * 0.12f)
-                val radius = size.maxDimension * 0.55f
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(NeonGreen.copy(alpha = 0.06f), Color.Transparent),
-                        center = center, radius = radius,
-                    ),
-                    radius = radius, center = center,
-                )
+                if (isTv) {
+                    // unified "spider" backdrop — a soft green glow on the deep-black theme bg,
+                    // so this donor screen reads as part of the same app as the home screen.
+                    val center = Offset(size.width * 0.5f, size.height * 0.12f)
+                    val radius = size.maxDimension * 0.55f
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(NeonGreen.copy(alpha = 0.06f), Color.Transparent),
+                            center = center, radius = radius,
+                        ),
+                        radius = radius, center = center,
+                    )
+                }
             },
-    ) {
+      ) {
         AnimatedVisibility(
             visible = isLoading,
             enter = fadeIn(),
@@ -535,6 +554,7 @@ fun PerAppProxyScreen(
                 )
             }
         }
+      }
     }
 
     if (scanProgress != null) {

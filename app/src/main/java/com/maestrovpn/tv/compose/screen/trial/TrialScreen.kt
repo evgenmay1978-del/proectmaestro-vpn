@@ -1,6 +1,8 @@
 package com.maestrovpn.tv.compose.screen.trial
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,9 +31,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
@@ -62,19 +67,31 @@ fun TrialScreen(
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
+      Box(modifier = Modifier.fillMaxSize()) {
+        if (!isTv) {
+            Image(
+                painter = painterResource(R.drawable.home_eskiz),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.45f)) })
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    val center = Offset(size.width * 0.5f, size.height * 0.30f)
-                    val radius = size.maxDimension * 0.5f
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(NeonGreen.copy(alpha = 0.08f), Color.Transparent),
-                            center = center, radius = radius,
-                        ),
-                        radius = radius, center = center,
-                    )
+                    if (isTv) {
+                        val center = Offset(size.width * 0.5f, size.height * 0.30f)
+                        val radius = size.maxDimension * 0.5f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(NeonGreen.copy(alpha = 0.08f), Color.Transparent),
+                                center = center, radius = radius,
+                            ),
+                            radius = radius, center = center,
+                        )
+                    }
                 }
                 .verticalScroll(rememberScrollState())
                 .padding(screenPadding(isTv)),
@@ -112,6 +129,7 @@ fun TrialScreen(
                 label = if (busy) "Активируем…" else "Получить 2 дня",
                 onClick = { if (nick.isNotBlank() && !busy) viewModel.activate(nick) },
                 accent = NeonGreen,
+                wood = !isTv,
                 modifier = Modifier.widthIn(min = 240.dp),
             )
 
@@ -120,5 +138,6 @@ fun TrialScreen(
                 Text(text = err.message, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE5484D))
             }
         }
+      }
     }
 }

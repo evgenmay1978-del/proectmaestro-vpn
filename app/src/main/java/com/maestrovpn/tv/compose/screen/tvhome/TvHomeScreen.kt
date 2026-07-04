@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -267,29 +266,81 @@ fun TvHomeScreen(
                     }
                 }
             } else {
-                // ── PHONE Этап-1: ТОЧНАЯ КОПИЯ ЭСКИЗА (фон) + наш живой паук на медальоне ──
-                // Весь премиум-дизайн (рамка/дерево/плющ/логотип/медальон-кнопка с цветом) = пиксели
-                // эскиза `home_eskiz`. Паук рисуется В РЕЖИМЕ backdrop (без своего кольца) поверх
-                // медальона эскиза. Живые плитки/статус/аккаунт — следующий этап.
+                // ── PHONE: премиум-эскиз как ФИКСИРОВАННЫЙ фон (резная рамка/дерево/плющ/логотип +
+                // медальон-кольцо = пиксели `home_eskiz`, НЕ скроллится), а ЖИВОЙ контент скроллится
+                // поверх деревянного окна. Архитектура (owner): рамка+логотип не двигаются, крутится
+                // только внутренний контент, где плиток БОЛЬШЕ шести. Наш живой паук — в backdrop-режиме
+                // поверх медальона эскиза; статус/аккаунт/полное меню (wood=true) идут ниже, скроллом. ──
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    // (a) ФИКСИРОВАННЫЙ фон-эскиз — не в скролле, поэтому логотип/рамка/края НЕ двигаются
                     Image(
                         painter = painterResource(R.drawable.home_eskiz),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
-                    // медальон эскиза: центр ≈ (0.497W, 0.395H); поле паука 360×440 → сдвиг на пол-поля
-                    Box(
-                        modifier = Modifier.offset(
-                            x = maxWidth * 0.497f - 180.dp,
-                            y = maxHeight * 0.395f - 220.dp,
-                        ),
+                    // (b) СКРОЛЛ живого контента поверх деревянного окна. Верхний отступ уводит контент
+                    // ниже логотипа эскиза; горизонтальный — внутрь резной рамки. Медальон+паук стоят
+                    // на позиции медальона эскиза в САМОМ ВЕРХУ контента.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(top = maxHeight * 0.055f, start = 18.dp, end = 18.dp, bottom = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        PaukMedallion(
+                        // Медальон эскиза ≈ центр (0.497W, 0.395H). В скролл-колонке ставим поле паука
+                        // (360×440) по центру, слегка приподняв к эскизному кольцу. backdropMode=true →
+                        // рисуем ТОЛЬКО паука (кольцо/паутина уже на эскизе), ОДИН паук, без дубля.
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.height(360.dp).fillMaxWidth(),
+                        ) {
+                            PaukMedallion(
+                                connected = connected,
+                                onToggle = onToggleConnect,
+                                focusRequester = connectFocus,
+                                backdropMode = true,
+                            )
+                        }
+
+                        // LIVE статус-строка (точка + текст, активный протокол) под медальоном.
+                        PhoneStatusRow(
+                            statusText = statusText,
                             connected = connected,
-                            onToggle = onToggleConnect,
-                            focusRequester = connectFocus,
-                            backdropMode = true,
+                            activeProtocol = activeProtocol,
+                            selected = selected,
+                        )
+
+                        // LIVE аккаунт-карточка (логин + дни) — золото/дерево.
+                        if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+                            Spacer(Modifier.height(14.dp))
+                            AccountCard(
+                                login = accountLogin,
+                                daysLeft = daysLeft,
+                                wood = true,
+                                modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
+                            )
+                        }
+
+                        Spacer(Modifier.height(18.dp))
+                        // Полное меню (все протоколы + действия + контакты + покупка), стиль дерево/золото.
+                        MenuPane(
+                            protocols = protocols,
+                            selected = selected,
+                            isTv = false,
+                            onSelectProtocol = onSelectProtocol,
+                            hasOlcrtcCreds = hasOlcrtcCreds,
+                            onSelectOlcrtc = onSelectOlcrtc,
+                            onBuy = onBuy,
+                            onEnterCode = onEnterCode,
+                            onSplitTunnel = onSplitTunnel,
+                            onShareIos = onShareIos,
+                            onScanQr = onScanQr,
+                            onEnterTrial = onEnterTrial,
+                            showTrial = !hasSubProfile,
+                            wood = true,
+                            modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
                         )
                     }
                 }
@@ -301,7 +352,7 @@ fun TvHomeScreen(
 /** Login + days-left glass card (bottom of the hero on both phone and TV). Computes the day
  *  colour/label — green / orange when ≤5 / red when expired / «Безлимит» for unlimited — from [daysLeft]. */
 @Composable
-private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier) {
+private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier, wood: Boolean = false) {
     val expired = daysLeft != null && daysLeft <= 0
     val low = daysLeft != null && daysLeft in 1..5
     val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
@@ -317,8 +368,41 @@ private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Mod
         daysColor = daysColor,
         leadingIcon = Icons.Filled.Person,
         trailingIcon = Icons.Filled.CalendarMonth,
+        wood = wood,
         modifier = modifier,
     )
+}
+
+/** PHONE status row under the medallion: a state dot + status text, plus the active protocol
+ *  line when connected. Mirrors the HeroPane status semantics but flat (no breath clock). */
+@Composable
+private fun PhoneStatusRow(
+    statusText: String,
+    connected: Boolean,
+    activeProtocol: String?,
+    selected: String?,
+) {
+    Spacer(Modifier.height(6.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else MaestroSilver))
+        Spacer(Modifier.width(9.dp))
+        Text(
+            statusText.uppercase(),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (connected) NeonGreen else Color.White,
+        )
+    }
+    if (connected && !activeProtocol.isNullOrBlank()) {
+        Spacer(Modifier.height(8.dp))
+        val viaAuto = selected == "auto" && activeProtocol != "auto"
+        Text(
+            if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaestroOrange,
+        )
+    }
 }
 
 /** The hero zone: wordmark + the spider medallion connect button + status + account. */
@@ -492,6 +576,7 @@ private fun MenuPane(
     onScanQr: () -> Unit,
     onEnterTrial: () -> Unit = {},
     showTrial: Boolean = false,
+    wood: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val ctx = LocalContext.current
@@ -523,7 +608,7 @@ private fun MenuPane(
     Column(modifier = modifier) {
         // ── ПРОТОКОЛ — equal-width chrome chips, 3 per row ──
         if (displayProtocols.isNotEmpty()) {
-            SectionLabel("ПРОТОКОЛ")
+            SectionLabel("ПРОТОКОЛ", wood = wood)
             Spacer(Modifier.height(10.dp))
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 displayProtocols.chunked(protoCols).forEach { row ->
@@ -538,6 +623,7 @@ private fun MenuPane(
                                 selected = p == selected && !olcLocked,
                                 subtitle = if (olcLocked) "🔒 по запросу" else protocolBadge(p),
                                 locked = olcLocked,
+                                wood = wood,
                             )
                         }
                         // keep columns equal-width when the last row is short
@@ -556,6 +642,7 @@ private fun MenuPane(
                 label = "🎁 Попробовать 2 дня бесплатно",
                 onClick = onEnterTrial,
                 accent = NeonGreen,
+                wood = wood,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
@@ -566,6 +653,7 @@ private fun MenuPane(
             onClick = onBuy,
             accent = MaestroOrange,
             icon = Icons.Filled.ShoppingCart,
+            wood = wood,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -605,7 +693,7 @@ private fun MenuPane(
             tiles.chunked(actionCols).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { a ->
-                        ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 92.dp))
+                        ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 92.dp), wood = wood)
                     }
                     // keep columns equal-width when the last row is short
                     repeat(actionCols - row.size) { Spacer(Modifier.weight(1f)) }
@@ -615,13 +703,14 @@ private fun MenuPane(
 
         // ── Контакты ──────────────────────────────────────────────────
         Spacer(Modifier.height(20.dp))
-        SectionLabel("КОНТАКТЫ")
+        SectionLabel("КОНТАКТЫ", wood = wood)
         Spacer(Modifier.height(10.dp))
         GlossyButton(
             label = "8 977 811-65-64",
             onClick = { open("tel:+79778116564") },
             accent = NeonGreen,
             icon = Icons.Filled.Call,
+            wood = wood,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(10.dp))
@@ -634,9 +723,9 @@ private fun MenuPane(
         )
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE))
-            NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366))
-            NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5))
+            NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE), wood = wood)
+            NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366), wood = wood)
+            NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5), wood = wood)
         }
         Spacer(Modifier.height(20.dp))
     }

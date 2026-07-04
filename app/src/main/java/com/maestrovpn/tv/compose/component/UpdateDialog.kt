@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -21,6 +22,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.theme.GoldHi
 import com.maestrovpn.tv.update.UpdateInfo
 import org.kodein.emoji.Emoji
 import org.kodein.emoji.EmojiTemplateCatalog
@@ -30,6 +33,8 @@ import org.kodein.emoji.all
 fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdate: () -> Unit) {
     val context = LocalContext.current
     val emojiCatalog = remember { EmojiTemplateCatalog(Emoji.all()) }
+    // PHONE: gold "Обновить" CTA to match the wood/gold app; TV keeps the theme default.
+    val phoneGold = !rememberIsTv()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -63,6 +68,7 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
                     onDismiss()
                     onUpdate()
                 },
+                colors = if (phoneGold) ButtonDefaults.textButtonColors(contentColor = GoldHi) else ButtonDefaults.textButtonColors(),
             ) {
                 Text(stringResource(R.string.update))
             }
