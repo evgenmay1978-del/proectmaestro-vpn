@@ -81,6 +81,11 @@ private const val LEG_TIP_YF = 0.997f
 
 // «эталонное тело» = 200px, как в JS: локальные px лап заданы в этой системе, экран через SC.
 private const val BODY_REF = 200f
+// увеличение паука относительно исходной раскладки (owner: «очень маленький, на кнопке еле
+// заметен» → занять почти весь медальон, кончики лап у самого хром-кольца). ⚠️ выше ~2.07
+// самая длинная передняя лапа начнёт заходить за круг и срезаться клипом-CircleShape; поэтому
+// блуждание ниже урезано пропорционально — крупному пауку негде ходить, он «стоит на кнопке».
+private const val SPIDER_SCALE = 2.0f
 private val BLACK_TINT = ColorFilter.tint(Color.Black)   // тень: один общий фильтр, не аллоцируем на кадр
 
 // анатомия лап: [fx,fy(доля спрайта тела), угол°, reach(px)] — правая; левая зеркалится.
@@ -341,10 +346,11 @@ private class SpiderSim {
         inited = true
         cx = w / 2f; cy = h / 2f
         radius = (if (w < h) w else h) * 0.5f
-        // масштаб: тело+лапы должны помещаться в кольцо в покое и в патруле.
-        // самая длинная лапа reach≈172 (в 200px-теле) + запас. держим в ~0.30·radius по reach.
-        // sc задаёт, сколько px = 1 «200px-тело» px. reach 172·sc + patrol‑drift(0.32·R) < R.
-        sc = (radius * 0.34f) / 172f
+        // масштаб: тело+лапы должны помещаться в кольцо. SPIDER_SCALE делает паука крупным
+        // (owner «еле заметен» → почти весь медальон, кончики передних лап у самого хром-кольца).
+        // sc задаёт, сколько px = 1 «200px-тело» px. При крупном пауке блужданию почти нет места →
+        // leash-и ниже урезаны: паук в основном стоит по центру и перебирает/шевелит лапами.
+        sc = (radius * 0.34f) / 172f * SPIDER_SCALE
         x = cx; y = cy
         targetX = cx; targetY = cy
         shadowX = cx; shadowY = cy
@@ -380,9 +386,10 @@ private class SpiderSim {
             // изредка сам неспешно пройдётся в ЛЮБУЮ сторону (тело не крутится), в пределах медальона
             if (idleT > rnd(4f, 7f) && Math.random() < dt * roam) {
                 idleT = 0f; walking = true
-                val ta = rnd(0f, (2f * PI).toFloat()); val r = radius * rnd(0.26f, 0.52f)
+                // крупный паук: короткие микро-переходы у центра (иначе лапы вылезут за кольцо)
+                val ta = rnd(0f, (2f * PI).toFloat()); val r = radius * rnd(0.03f, 0.08f)
                 var tx = x + cos(ta) * r; var ty = y + sin(ta) * r
-                val ddx = tx - cx; val ddy = ty - cy; val dd = hypot(ddx, ddy); val lim = radius * 0.32f
+                val ddx = tx - cx; val ddy = ty - cy; val dd = hypot(ddx, ddy); val lim = radius * 0.06f
                 if (dd > lim) { tx = cx + ddx / dd * lim; ty = cy + ddy / dd * lim }
                 targetX = tx; targetY = ty
             }
@@ -395,7 +402,7 @@ private class SpiderSim {
         x += vx * dt; y += vy * dt
         // мягкий «поводок» к центру, чтобы никогда не выйти из кольца
         run {
-            val ddx = x - cx; val ddy = y - cy; val dd = hypot(ddx, ddy); val lim = radius * 0.36f
+            val ddx = x - cx; val ddy = y - cy; val dd = hypot(ddx, ddy); val lim = radius * 0.06f
             if (dd > lim) { x = cx + ddx / dd * lim; y = cy + ddy / dd * lim }
         }
         crouch = lerp(crouch, crouchTarget, dt * 4f)
