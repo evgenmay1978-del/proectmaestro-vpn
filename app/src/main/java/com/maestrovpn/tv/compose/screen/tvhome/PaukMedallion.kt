@@ -81,12 +81,25 @@ private const val LEG_TIP_YF = 0.997f
 
 // «эталонное тело» = 200px, как в JS: локальные px лап заданы в этой системе, экран через SC.
 private const val BODY_REF = 200f
-// увеличение паука относительно исходной раскладки (owner: «очень маленький, на кнопке еле
-// заметен» → занять почти весь медальон, кончики лап у самого хром-кольца). ⚠️ выше ~2.07
-// самая длинная передняя лапа начнёт заходить за круг и срезаться клипом-CircleShape; поэтому
-// блуждание ниже урезано пропорционально — крупному пауку негде ходить, он «стоит на кнопке».
-private const val SPIDER_SCALE = 2.0f
+// увеличение паука (owner: «увеличиваем ещё в 2 раза, разрешаем ВСЕ движения, выползает ЗА
+// кнопку, но охраняет кнопку»). Паук теперь рисуется в БОЛЬШОМ поле БЕЗ круглого клипа (лапы
+// свободно выходят за кольцо-кнопку на тёмный фон) и ХОДИТ вокруг кнопки. Масштаб = доля поля;
+// вместе с увеличенным полем даёт ~2× от прежнего размера. Тюнить одним числом.
+private const val SPIDER_SCALE = 2.5f
+// насколько далеко от центра кнопки паук отходит, «охраняя» её (доля радиуса поля) — виден
+// как ходьба вокруг кнопки, но держится рядом. Больше = гуляет дальше (лапы уходят к краю экрана).
+private const val GUARD_LEASH = 0.14f
 private val BLACK_TINT = ColorFilter.tint(Color.Black)   // тень: один общий фильтр, не аллоцируем на кадр
+
+// фазы жизненного цикла паука (выход из-под кнопки / охрана / уход под кнопку)
+private const val PH_HIDDEN = 0
+private const val PH_EMERGING = 1
+private const val PH_GUARDING = 2
+private const val PH_HIDING = 3
+
+// диагональные четвёрки тетрапода (шагают в противофазе) — хоистнуты, не аллоцируем на кадр
+private val GAIT_A = intArrayOf(0, 3, 4, 7)
+private val GAIT_B = intArrayOf(1, 2, 5, 6)
 
 // анатомия лап: [fx,fy(доля спрайта тела), угол°, reach(px)] — правая; левая зеркалится.
 // fx/fy взяты из LEGDEF (build_final_spider.py); reach = последний столбец LEGDEF.
@@ -195,6 +208,15 @@ private class SpiderSim {
     var shadowX = 0f
     var shadowY = 0f
 
+    // ── фазы «выход/охрана/уход» (owner: выползает из-под кнопки при подключении, охраняет,
+    //    заползает под кнопку при отключении). HIDDEN=спрятан под кнопкой (не рисуем),
+    //    EMERGING=выходит к центру, GUARDING=охраняет (блуждает у кнопки), HIDING=уходит вниз. ──
+    var phase = PH_HIDDEN
+    var hideY = 0f            // «под кнопкой» = ниже поля, невидим
+    var emergeAlpha = 1f      // fade при выходе/уходе (0=спрятан, 1=на кнопке)
+    private var started = false
+    private var prevConnected = false
+
     private fun buildRig() {
         legs.clear()
         for (d in LEGDEF) {
@@ -255,18 +277,16 @@ private class SpiderSim {
     }
 
     /** Чередующийся тетрапод: диагональные четвёрки шагают в противофазе, когда дрейф > порога. */
+    private fun strain(g: IntArray): Float {
+        var s = 0f
+        for (i in g) { val L = legs[i]; val r = restFoot(L); s += dist(L.footX, L.footY, r.x, r.y) }
+        return s / g.size
+    }
     private fun gait() {
-        if (legs.any { it.moving }) return
-        val groupA = intArrayOf(0, 3, 4, 7)
-        val groupB = intArrayOf(1, 2, 5, 6)
-        fun strain(g: IntArray): Float {
-            var s = 0f
-            for (i in g) { val L = legs[i]; val r = restFoot(L); s += dist(L.footX, L.footY, r.x, r.y) }
-            return s / g.size
-        }
-        val sA = strain(groupA); val sB = strain(groupB); val th = 20f * sc
-        if (sA > th && sA >= sB) for (i in groupA) startSwing(legs[i])
-        else if (sB > th) for (i in groupB) startSwing(legs[i])
+        for (L in legs) if (L.moving) return
+        val sA = strain(GAIT_A); val sB = strain(GAIT_B); val th = 20f * sc
+        if (sA > th && sA >= sB) for (i in GAIT_A) startSwing(legs[i])
+        else if (sB > th) for (i in GAIT_B) startSwing(legs[i])
     }
 
     /** Экстренный до-шаг: улетевшая слишком далеко лапа шагает вне очереди (тело догоняют волной).
@@ -346,11 +366,10 @@ private class SpiderSim {
         inited = true
         cx = w / 2f; cy = h / 2f
         radius = (if (w < h) w else h) * 0.5f
-        // масштаб: тело+лапы должны помещаться в кольцо. SPIDER_SCALE делает паука крупным
-        // (owner «еле заметен» → почти весь медальон, кончики передних лап у самого хром-кольца).
-        // sc задаёт, сколько px = 1 «200px-тело» px. При крупном пауке блужданию почти нет места →
-        // leash-и ниже урезаны: паук в основном стоит по центру и перебирает/шевелит лапами.
+        // масштаб: sc = сколько экранных px в 1 «200px-тело» px. Паук КРУПНЫЙ и живёт в поле шире
+        // кольца-кнопки → лапы свободно выходят ЗА кнопку (клипа нет). Ходит вокруг, охраняя кнопку.
         sc = (radius * 0.34f) / 172f * SPIDER_SCALE
+        hideY = cy + radius * 1.15f      // «под кнопкой»: ниже поля → полностью скрыт
         x = cx; y = cy
         targetX = cx; targetY = cy
         shadowX = cx; shadowY = cy
@@ -364,32 +383,53 @@ private class SpiderSim {
         ensureInit(w, h)
         bt += dt
 
+        // первый кадр: подключён → сразу охраняем в центре; иначе спрятан под кнопкой (не видно)
+        if (!started) {
+            started = true; prevConnected = connected
+            if (connected) { phase = PH_GUARDING; x = cx; y = cy } else {
+                phase = PH_HIDDEN; x = cx; y = hideY; walking = false
+                for (L in legs) { val r = restFoot(L); L.footX = r.x; L.footY = r.y }
+                for (p in palps) { val hp = hipWPalp(p); p.footX = hp.x; p.footY = hp.y }
+            }
+        }
+        // фронт подключения → ВЫХОД из-под кнопки; отключения → УХОД под кнопку
+        if (connected != prevConnected) {
+            prevConnected = connected
+            walking = true; idleT = 0f
+            if (connected) { phase = PH_EMERGING; targetX = cx; targetY = cy }
+            else { phase = PH_HIDING; targetX = cx; targetY = hideY }
+        }
+
         if (walking) {
             val dx = targetX - x; val dy = targetY - y; val d = hypot(dx, dy)
             if (d < 10f) {
-                walking = false; vx = 0f; vy = 0f; idleT = 0f; behaviorReset()
+                walking = false; vx = 0f; vy = 0f; idleT = 0f
+                when (phase) {
+                    PH_EMERGING -> { phase = PH_GUARDING; behaviorReset() }   // вышел → охраняет
+                    // ушёл под кнопку → прижимаем точно к hideY, чтобы emergeAlpha дошёл до 0 (без призрака)
+                    PH_HIDING -> { phase = PH_HIDDEN; x = cx; y = hideY }
+                    else -> behaviorReset()                                  // дошёл в патруле охраны
+                }
             } else {
                 if (pause > 0f) { pause -= dt; vx *= 0.85f; vy *= 0.85f } else {
-                    if (Math.random() < dt * 0.4f) pause = rnd(1f, 2f)
-                    // ОМНИнаправленно к цели БЕЗ поворота тела
-                    val a = atan2(dy, dx); val spd = rnd(38f, 56f) * sc
+                    if (phase == PH_GUARDING && Math.random() < dt * 0.4f) pause = rnd(1f, 2f)
+                    // ОМНИнаправленно к цели БЕЗ поворота тела; выход/уход чуть быстрее патруля
+                    val base = if (phase == PH_GUARDING) rnd(34f, 52f) else rnd(58f, 78f)
+                    val a = atan2(dy, dx); val spd = base * sc
                     vx = lerp(vx, cos(a) * spd, dt * 2.5f)
                     vy = lerp(vy, sin(a) * spd, dt * 2.5f)
                 }
             }
             gait()
-        } else {
+        } else if (phase == PH_GUARDING) {
             idleT += dt
             behaviorUpdate(dt)
-            // отключён → паук спокойнее (реже сам пускается в патруль); подключён → живее
-            val roam = if (connected) 0.25f else 0.10f
-            // изредка сам неспешно пройдётся в ЛЮБУЮ сторону (тело не крутится), в пределах медальона
-            if (idleT > rnd(4f, 7f) && Math.random() < dt * roam) {
+            // ОХРАНЯЕТ кнопку: неспешно прохаживается ВОКРУГ неё (тело не крутится, лапы веером)
+            if (idleT > rnd(3f, 6f) && Math.random() < dt * 0.5f) {
                 idleT = 0f; walking = true
-                // крупный паук: короткие микро-переходы у центра (иначе лапы вылезут за кольцо)
-                val ta = rnd(0f, (2f * PI).toFloat()); val r = radius * rnd(0.03f, 0.08f)
+                val ta = rnd(0f, (2f * PI).toFloat()); val r = radius * rnd(0.10f, 0.26f)
                 var tx = x + cos(ta) * r; var ty = y + sin(ta) * r
-                val ddx = tx - cx; val ddy = ty - cy; val dd = hypot(ddx, ddy); val lim = radius * 0.06f
+                val ddx = tx - cx; val ddy = ty - cy; val dd = hypot(ddx, ddy); val lim = radius * GUARD_LEASH
                 if (dd > lim) { tx = cx + ddx / dd * lim; ty = cy + ddy / dd * lim }
                 targetX = tx; targetY = ty
             }
@@ -397,12 +437,13 @@ private class SpiderSim {
                 val L = legs[(Math.random() * 8).toInt()]; if (!L.moving) startSwing(L)
             }
         }
+        // PH_HIDDEN: спрятан под кнопкой — стоит, ничего не делаем (emergeAlpha=0 → не рисуется)
 
         // физика тела
         x += vx * dt; y += vy * dt
-        // мягкий «поводок» к центру, чтобы никогда не выйти из кольца
-        run {
-            val ddx = x - cx; val ddy = y - cy; val dd = hypot(ddx, ddy); val lim = radius * 0.06f
+        // «поводок» к кнопке — ТОЛЬКО в охране (при выходе/уходе паук должен дойти до центра/hideY)
+        if (phase == PH_GUARDING) {
+            val ddx = x - cx; val ddy = y - cy; val dd = hypot(ddx, ddy); val lim = radius * GUARD_LEASH
             if (dd > lim) { x = cx + ddx / dd * lim; y = cy + ddy / dd * lim }
         }
         crouch = lerp(crouch, crouchTarget, dt * 4f)
@@ -436,6 +477,11 @@ private class SpiderSim {
 
         shadowX = lerp(shadowX, x, dt * 33f)
         shadowY = lerp(shadowY, y, dt * 33f)
+
+        // прозрачность выхода/ухода: у кнопки полностью видим, гаснет по мере ухода вниз ПОД кнопку.
+        // hideStart за пределами зоны охраны → при патруле охраны НЕ гаснет.
+        val hideStart = cy + radius * 0.34f
+        emergeAlpha = clamp((hideY - y) / (hideY - hideStart), 0f, 1f)
     }
 }
 
@@ -531,68 +577,57 @@ fun PaukMedallion(
         }
     }
 
+    // Размеры: КНОПКА (медальон-кольцо) увеличена; ПАУК живёт в бОльшем ПОЛЕ без круглого клипа —
+    // лапы свободно выходят ЗА кнопку на тёмный фон, паук ходит вокруг и охраняет кнопку.
+    // Поле выше, чем шире: передние/задние лапы тянутся вверх/вниз (за кольцо), по бокам — уже.
+    val medSize = 272.dp       // кнопка (кольцо+паутина) — было 232
+    val btnSize = 240.dp       // тап-зона по центру кольца
+    val fieldW = 360.dp        // ширина поля паука (упирается в ширину экрана)
+    val fieldH = 440.dp        // высота поля (запас для лап вверх/вниз за кнопку)
+
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(252.dp).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
+        modifier = modifier.size(fieldW, fieldH).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
     ) {
-        // green glow hugging the medallion — brightens with power + focus
+        // КНОПКА: чистый медальон (хром-кольцо + зелёная паутина) + внутренние эффекты + затемнение.
+        // Ореол-свечение вокруг кнопки УБРАН (owner). Клип по кругу — только на самом медальоне.
+        Box(Modifier.size(medSize).clip(CircleShape)) {
+            Image(bgP, null, Modifier.size(medSize), contentScale = ContentScale.Fit, colorFilter = webFilter)
+            PaukRingEffects(power = power, lowRam = lowRam, modifier = Modifier.size(medSize))
+            // dim scrim when powered down
+            Box(Modifier.size(medSize).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
+        }
+
+        // ПАУК — отдельный слой БЕЗ клипа, размером с поле → лапы/тело выходят ЗА кольцо-кнопку.
+        // ОДИН проход drawBehind, читаем frame.value → кадрит каждый кадр без рекомпозиции.
         Box(
-            Modifier.size(252.dp).drawBehind {
-                val c = Offset(size.width / 2f, size.height / 2f)
-                val r = size.minDimension * 0.5f
-                val a = 0.18f + 0.30f * power + if (focused) 0.26f else 0f
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.00f to Color.Transparent, 0.64f to Color.Transparent,
-                        0.82f to NeonGreen.copy(alpha = a), 1.00f to Color.Transparent,
-                        center = c, radius = r * 1.16f,
-                    ),
-                    radius = r * 1.16f, center = c,
-                )
-            },
-        )
-
-        Box(Modifier.size(232.dp).clip(CircleShape)) {
-            // 1) the owner's clean button (chrome ring + green web)
-            Image(bgP, null, Modifier.size(232.dp), contentScale = ContentScale.Fit, colorFilter = webFilter)
-
-            // 1b) ring effects (static inner glow + optional shine, gated off low-RAM)
-            PaukRingEffects(power = power, lowRam = lowRam, modifier = Modifier.size(232.dp))
-
-            // 2) процедурный паук — ОДИН проход drawBehind, читаем frame.value → кадрит каждый кадр
-            Box(
-                Modifier.size(232.dp).drawBehind {
-                    // читаем часовой кадр, чтобы drawBehind переигрывался каждый кадр
-                    @Suppress("UNUSED_EXPRESSION")
-                    frame.value
-                    // прокрутить симуляцию (dt посчитан в withFrameNanos)
-                    sim.update(sim.pendingDt, size.width, size.height, sim.pendingConnected)
-
-                    // --- ТЕНЬ (perf-gated): low-RAM = один дешёвый контактный блоб; иначе — 1 силуэт-пасс ---
+            Modifier.size(fieldW, fieldH).drawBehind {
+                @Suppress("UNUSED_EXPRESSION")
+                frame.value
+                // прокрутить симуляцию по размеру ПОЛЯ (dt посчитан в withFrameNanos)
+                sim.update(sim.pendingDt, size.width, size.height, sim.pendingConnected)
+                // спрятан под кнопкой → ничего не рисуем (экономим кадр)
+                if (sim.emergeAlpha > 0.004f) {
+                    // --- ТЕНЬ (perf-gated): low-RAM = дешёвый контактный блоб; иначе — 1 силуэт-пасс ---
                     if (lowRam) {
-                        // дешёвая мягкая контактная тень под телом
                         val sc0 = Offset(sim.shadowX, sim.shadowY + 6f)
+                        val rr = sim.sc * BODY_REF * 0.42f
                         drawCircle(
                             brush = Brush.radialGradient(
-                                0f to Color.Black.copy(alpha = 0.30f),
+                                0f to Color.Black.copy(alpha = 0.30f * sim.emergeAlpha),
                                 1f to Color.Transparent,
-                                center = sc0, radius = sim.sc * BODY_REF * 0.42f,
+                                center = sc0, radius = rr,
                             ),
-                            radius = sim.sc * BODY_REF * 0.42f, center = sc0,
+                            radius = rr, center = sc0,
                         )
                     } else {
-                        // 1 проход: силуэт паука (лапы+тело) чёрным, со смещением и низкой альфой
                         drawSpiderSilhouette(sim, bodyBmp, legBmp)
                     }
-
                     // --- сам паук ---
                     drawSpider(sim, bodyBmp, legBmp, live, power)
-                },
-            )
-
-            // 3) dim scrim when powered down (the spider is drawn over the ring — no overlay)
-            Box(Modifier.size(232.dp).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
-        }
+                }
+            },
+        )
 
         Button(
             onClick = onToggle,
@@ -601,7 +636,7 @@ fun PaukMedallion(
             contentPadding = PaddingValues(0.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-            modifier = Modifier.size(200.dp).focusRequester(focusRequester),
+            modifier = Modifier.size(btnSize).focusRequester(focusRequester),
             content = {},
         )
     }
@@ -613,7 +648,7 @@ private fun DrawScope.drawSpiderSilhouette(sim: SpiderSim, bodyBmp: ImageBitmap,
     val offX = 11f * sim.sc * rz
     val offY = 17f * sim.sc * rz
     val tint = BLACK_TINT
-    val a = 0.34f
+    val a = 0.34f * sim.emergeAlpha        // тень тоже гаснет при уходе под кнопку
     withTransform({ translate(offX, offY) }) {
         // задние пары под телом
         for (i in 4 until sim.legs.size) drawLegForRise(sim, sim.legs[i], legBmp, a, tint)
@@ -628,17 +663,18 @@ private fun DrawScope.drawSpiderSilhouette(sim: SpiderSim, bodyBmp: ImageBitmap,
 private fun DrawScope.drawSpider(
     sim: SpiderSim, bodyBmp: ImageBitmap, legBmp: ImageBitmap, live: Float, power: Float,
 ) {
+    val a = sim.emergeAlpha        // общий fade выхода/ухода под кнопку
     // задние пары (idx 4..7) под телом
-    for (i in 4 until sim.legs.size) drawLegForRise(sim, sim.legs[i], legBmp, 1f, null)
+    for (i in 4 until sim.legs.size) drawLegForRise(sim, sim.legs[i], legBmp, a, null)
     // тело + глаза
-    drawBodySprite(sim, bodyBmp, 1f, null, drawEyes = true, live = live * power)
+    drawBodySprite(sim, bodyBmp, a, null, drawEyes = true, live = live * power * a)
     // педипальпы (щупают, поверх головы, но под передними лапами)
     for (p in sim.palps) {
         val hp = sim.hipWPalp(p)
-        drawLegSprite(legBmp, hp.x, hp.y, p.footX, p.footY, mirror = p.side < 0)
+        drawLegSprite(legBmp, hp.x, hp.y, p.footX, p.footY, mirror = p.side < 0, alpha = a)
     }
     // передние пары (idx 0..3) над телом
-    for (i in 0 until 4) drawLegForRise(sim, sim.legs[i], legBmp, 1f, null)
+    for (i in 0 until 4) drawLegForRise(sim, sim.legs[i], legBmp, a, null)
 }
 
 /** Лапа с учётом RISE: при подъёме стопа подтягивается ~0.13·rise к бедру (лапа укорачивается). */
@@ -690,36 +726,39 @@ private fun DrawScope.drawBodySprite(
     }
 }
 
-/** Static inner-rim green glow (power-scaled) + an optional rotating steel shine on the ring. */
+/** Static inner-rim green glow (power-scaled) + an optional rotating steel shine on the ring.
+ *  Both fill the passed medallion size (matchParentSize) so they scale with the ring. */
 @Composable
 private fun PaukRingEffects(power: Float, lowRam: Boolean, modifier: Modifier) {
-    Box(
-        modifier.drawBehind {
-            val c = Offset(size.width / 2f, size.height / 2f)
-            val r = size.minDimension / 2f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    0.62f to Color.Transparent,
-                    0.78f to NeonGreen.copy(alpha = 0.05f + 0.22f * power),
-                    0.88f to Color.Transparent,
-                    center = c, radius = r,
-                ),
-                radius = r, center = c,
-            )
-        },
-    )
-    if (!lowRam) PaukRingShine(power)
+    Box(modifier) {
+        Box(
+            Modifier.matchParentSize().drawBehind {
+                val c = Offset(size.width / 2f, size.height / 2f)
+                val r = size.minDimension / 2f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.62f to Color.Transparent,
+                        0.78f to NeonGreen.copy(alpha = 0.05f + 0.22f * power),
+                        0.88f to Color.Transparent,
+                        center = c, radius = r,
+                    ),
+                    radius = r, center = c,
+                )
+            },
+        )
+        if (!lowRam) PaukRingShine(power, Modifier.matchParentSize())
+    }
 }
 
 /** A slow bright arc sweeping around the chrome ring (~10s/rev). Perpetual → non-low-RAM only. */
 @Composable
-private fun PaukRingShine(power: Float) {
+private fun PaukRingShine(power: Float, modifier: Modifier) {
     val ang by rememberInfiniteTransition(label = "ringShine").animateFloat(
         0f, 360f, infiniteRepeatable(tween(10000, easing = LinearEasing), RepeatMode.Restart),
         label = "ringAng",
     )
     Box(
-        Modifier.size(232.dp).drawBehind {
+        modifier.drawBehind {
             val stroke = size.minDimension * 0.055f
             val d = size.minDimension - stroke * 1.8f
             rotate(ang) {
