@@ -536,6 +536,7 @@ fun PaukMedallion(
     onToggle: () -> Unit,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
+    backdropMode: Boolean = false,   // true = медальон-кольцо уже на фоне-эскизе → рисуем ТОЛЬКО паука
 ) {
     val power by animateFloatAsState(
         if (connected) 1f else 0.16f, tween(900, easing = FastOutSlowInEasing), label = "power",
@@ -590,12 +591,14 @@ fun PaukMedallion(
         modifier = modifier.size(fieldW, fieldH).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
     ) {
         // КНОПКА: чистый медальон (хром-кольцо + зелёная паутина) + внутренние эффекты + затемнение.
-        // Ореол-свечение вокруг кнопки УБРАН (owner). Клип по кругу — только на самом медальоне.
-        Box(Modifier.size(medSize).clip(CircleShape)) {
-            Image(bgP, null, Modifier.size(medSize), contentScale = ContentScale.Fit, colorFilter = webFilter)
-            PaukRingEffects(power = power, lowRam = lowRam, modifier = Modifier.size(medSize))
-            // dim scrim when powered down
-            Box(Modifier.size(medSize).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
+        // В backdropMode медальон-кольцо УЖЕ на фоне-эскизе → своё не рисуем, только паук поверх.
+        if (!backdropMode) {
+            Box(Modifier.size(medSize).clip(CircleShape)) {
+                Image(bgP, null, Modifier.size(medSize), contentScale = ContentScale.Fit, colorFilter = webFilter)
+                PaukRingEffects(power = power, lowRam = lowRam, modifier = Modifier.size(medSize))
+                // dim scrim when powered down
+                Box(Modifier.size(medSize).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
+            }
         }
 
         // ПАУК — отдельный слой БЕЗ клипа, размером с поле → лапы/тело выходят ЗА кольцо-кнопку.

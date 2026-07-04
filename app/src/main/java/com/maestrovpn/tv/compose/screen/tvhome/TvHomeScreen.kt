@@ -16,7 +16,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -201,10 +203,10 @@ fun TvHomeScreen(
                     alpha = enter
                     translationY = (1f - enter) * 36f
                 }
-                .padding(screenPadding(isTv)),
+                .padding(if (isTv) screenPadding(true) else 0.dp),   // phone эскиз = full-bleed
         ) {
-            // atmosphere particles behind the content (gated OFF on low-RAM TVs — perpetual clock)
-            if (!lowRam) Particles(Modifier.matchParentSize())
+            // atmosphere particles behind the content (TV only; phone uses the эскиз backdrop)
+            if (isTv && !lowRam) Particles(Modifier.matchParentSize())
 
             if (isTv) {
                 // ── LANDSCAPE (TV): logo + spider medallion at the TOP (hero), login + days in a
@@ -265,42 +267,31 @@ fun TvHomeScreen(
                     }
                 }
             } else {
-                // ── PORTRAIT (phone): single scrolling column ──
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    HeroPane(
-                        statusText = statusText,
-                        connected = connected,
-                        activeProtocol = activeProtocol,
-                        selected = selected,
-                        accountLogin = accountLogin,
-                        daysLeft = daysLeft,
-                        onToggleConnect = onToggleConnect,
-                        connectFocus = connectFocus,
-                        modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
+                // ── PHONE Этап-1: ТОЧНАЯ КОПИЯ ЭСКИЗА (фон) + наш живой паук на медальоне ──
+                // Весь премиум-дизайн (рамка/дерево/плющ/логотип/медальон-кнопка с цветом) = пиксели
+                // эскиза `home_eskiz`. Паук рисуется В РЕЖИМЕ backdrop (без своего кольца) поверх
+                // медальона эскиза. Живые плитки/статус/аккаунт — следующий этап.
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    Image(
+                        painter = painterResource(R.drawable.home_eskiz),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
                     )
-                    Spacer(Modifier.height(14.dp))
-                    MenuPane(
-                        protocols = protocols,
-                        selected = selected,
-                        isTv = false,
-                        onSelectProtocol = onSelectProtocol,
-                        hasOlcrtcCreds = hasOlcrtcCreds,
-                        onSelectOlcrtc = onSelectOlcrtc,
-                        onBuy = onBuy,
-                        onEnterCode = onEnterCode,
-                        onSplitTunnel = onSplitTunnel,
-                        onShareIos = onShareIos,
-                        onScanQr = onScanQr,
-                        onEnterTrial = onEnterTrial,
-                        showTrial = !hasSubProfile,
-                        modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
-                    )
+                    // медальон эскиза: центр ≈ (0.497W, 0.395H); поле паука 360×440 → сдвиг на пол-поля
+                    Box(
+                        modifier = Modifier.offset(
+                            x = maxWidth * 0.497f - 180.dp,
+                            y = maxHeight * 0.395f - 220.dp,
+                        ),
+                    ) {
+                        PaukMedallion(
+                            connected = connected,
+                            onToggle = onToggleConnect,
+                            focusRequester = connectFocus,
+                            backdropMode = true,
+                        )
+                    }
                 }
             }
         }
