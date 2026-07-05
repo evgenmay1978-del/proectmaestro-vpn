@@ -14,6 +14,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
@@ -85,7 +87,10 @@ private const val BODY_REF = 200f
 // кнопку, но охраняет кнопку»). Паук теперь рисуется в БОЛЬШОМ поле БЕЗ круглого клипа (лапы
 // свободно выходят за кольцо-кнопку на тёмный фон) и ХОДИТ вокруг кнопки. Масштаб = доля поля;
 // вместе с увеличенным полем даёт ~2× от прежнего размера. Тюнить одним числом.
-private const val SPIDER_SCALE = 2.5f
+// Медальон подложки пересобран под макет (кольцо меньше, зелёный диск ≈0.53W) → паук ужат под него.
+// Поле паука в backdrop-режиме теперь тянется на ширину экрана → масштаб паука ТРЕКАЕТ кольцо на всех
+// телефонах (см. fieldMod ниже). 1.32 = лапы достают ~0.77 радиуса диска (как на макете). Было 2.35.
+private const val SPIDER_SCALE = 1.32f
 // насколько далеко от центра кнопки паук отходит, «охраняя» её (доля радиуса поля) — виден
 // как ходьба вокруг кнопки, но держится рядом. Больше = гуляет дальше (лапы уходят к краю экрана).
 private const val GUARD_LEASH = 0.14f
@@ -583,12 +588,16 @@ fun PaukMedallion(
     // Поле выше, чем шире: передние/задние лапы тянутся вверх/вниз (за кольцо), по бокам — уже.
     val medSize = 272.dp       // кнопка (кольцо+паутина) — было 232
     val btnSize = 240.dp       // тап-зона по центру кольца
-    val fieldW = 360.dp        // ширина поля паука (упирается в ширину экрана)
+    val fieldW = 360.dp        // ширина поля паука (hero/non-backdrop)
     val fieldH = 440.dp        // высота поля (запас для лап вверх/вниз за кнопку)
+    // В backdrop-режиме (телефон) поле тянется на ШИРИНУ экрана → паук масштабируется ВМЕСТЕ с
+    // запечённым кольцом подложки (кольцо = доля ширины экрана при ContentScale.Crop). Фикс-360dp
+    // рассинхронивался с кольцом на узких/широких телефонах.
+    val fieldMod = if (backdropMode) Modifier.fillMaxWidth().height(fieldH) else Modifier.size(fieldW, fieldH)
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(fieldW, fieldH).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
+        modifier = modifier.then(fieldMod).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
     ) {
         // КНОПКА: чистый медальон (хром-кольцо + зелёная паутина) + внутренние эффекты + затемнение.
         // В backdropMode медальон-кольцо УЖЕ на фоне-эскизе → своё не рисуем, только паук поверх.
@@ -604,7 +613,7 @@ fun PaukMedallion(
         // ПАУК — отдельный слой БЕЗ клипа, размером с поле → лапы/тело выходят ЗА кольцо-кнопку.
         // ОДИН проход drawBehind, читаем frame.value → кадрит каждый кадр без рекомпозиции.
         Box(
-            Modifier.size(fieldW, fieldH).drawBehind {
+            fieldMod.drawBehind {
                 @Suppress("UNUSED_EXPRESSION")
                 frame.value
                 // прокрутить симуляцию по размеру ПОЛЯ (dt посчитан в withFrameNanos)

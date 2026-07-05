@@ -12,10 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -23,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -33,6 +38,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -42,18 +48,25 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.component.NeonChip
+import com.maestrovpn.tv.compose.fantasy.FantasyListRow
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
+import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.NeonGreen
+import com.maestrovpn.tv.compose.theme.PlayfairFamily
+import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
 
 /**
  * In-app purchase screen (works on touch + D-pad): pick a tariff → see СБП payment
  * details → the box polls and auto-activates once the owner confirms the payment.
- * Restyled to the "spider" green-glass theme: tariffs are glossy orange CTAs, "Я
- * оплатил" is a glossy green confirm; the payment QR stays black-on-white so any
- * camera can scan it.
+ *
+ * PHONE: restyled to the Dark-Fantasy kit — carved-oak page (`FantasyScreenBackground`),
+ * a Playfair oak top bar, tariffs as aged-bronze `FantasyListRow`s and glossy wood CTAs;
+ * the payment QR stays black-on-white on a rounded card so any camera can scan it.
+ * TV: keeps the plain green-glass theme byte-for-byte (live 1GB fleet).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BuyScreen(
     onDone: () -> Unit,
@@ -66,19 +79,39 @@ fun BuyScreen(
         if (state is BuyState.Done) onDone()
     }
 
+    // PHONE: a carved-oak Playfair top bar (same language as Settings). TV: no override → its
+    // usual top bar stays untouched.
+    if (!isTv) {
+        OverrideTopBar {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Подписка",
+                        fontFamily = PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE8C877),
+                        letterSpacing = 1.sp,
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF17110A),
+                    titleContentColor = Color(0xFFE8C877),
+                ),
+            )
+        }
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
       Box(modifier = Modifier.fillMaxSize()) {
-        // PHONE: premium carved-wood эскиз backdrop (fixed, behind the scroll) so this screen
-        // reads as part of the same wood/gold app as home. TV keeps the plain green-glow theme.
+        // PHONE: tiled carved-oak background (same kit as Settings). TV keeps the plain
+        // green-glow theme drawn on the Column below.
         if (!isTv) {
             Image(
-                painter = painterResource(R.drawable.home_eskiz),
+                painter = painterResource(R.drawable.oak_bg),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            // slight dark scrim so text/QR stay legible over the busy эскиз
-            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.45f)) })
         }
         Column(
             modifier = Modifier
@@ -112,28 +145,51 @@ fun BuyScreen(
                     Text(
                         "Выберите подписку",
                         style = MaterialTheme.typography.headlineSmall,
+                        fontFamily = if (!isTv) PlayfairFamily else null,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = if (!isTv) Color(0xFFE8C877) else Color.White,
                     )
                     Spacer(Modifier.height(18.dp))
-                    // compact green-glass tariff chips (app style); the focused one is clearly
-                    // highlighted (brighter border + scale + glow) so a D-pad user sees the pick.
                     // On a TV the first tariff grabs focus so the remote starts on a visible item.
                     val firstFocus = remember { FocusRequester() }
                     LaunchedEffect(Unit) { if (isTv) runCatching { firstFocus.requestFocus() } }
                     s.items.forEachIndexed { i, t ->
-                        NeonChip(
-                            label = "${t.name}  —  ${t.rub} ₽",
-                            onClick = { viewModel.buy(t.key) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .widthIn(max = 360.dp)
-                                .heightIn(min = 50.dp)
-                                .padding(vertical = 4.dp)
-                                .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier),
-                            icon = Icons.Filled.Star,
-                            wood = !isTv,
-                        )
+                        val tariffMod = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 420.dp)
+                            .padding(vertical = 4.dp)
+                            .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
+                        if (!isTv) {
+                            // PHONE: aged-bronze tariff row (price shown as a bold gold trailing).
+                            FantasyListRow(
+                                title = t.name,
+                                subtitle = "Нажмите, чтобы оплатить",
+                                icon = Icons.Filled.Star,
+                                onClick = { viewModel.buy(t.key) },
+                                iconTint = GoldMid,
+                                trailing = {
+                                    Text(
+                                        "${t.rub} ₽",
+                                        fontFamily = PlayfairFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE8C877),
+                                        fontSize = 20.sp,
+                                    )
+                                },
+                                modifier = tariffMod,
+                            )
+                        } else {
+                            // TV: compact green-glass tariff chip (unchanged), D-pad focusable.
+                            NeonChip(
+                                label = "${t.name}  —  ${t.rub} ₽",
+                                onClick = { viewModel.buy(t.key) },
+                                modifier = tariffMod
+                                    .widthIn(max = 360.dp)
+                                    .heightIn(min = 50.dp),
+                                icon = Icons.Filled.Star,
+                                wood = false,
+                            )
+                        }
                     }
                 }
 
@@ -147,8 +203,9 @@ fun BuyScreen(
                         Text(
                             "Оплата",
                             style = MaterialTheme.typography.headlineSmall,
+                            fontFamily = PlayfairFamily,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = Color(0xFFE8C877),
                         )
                         Spacer(Modifier.height(8.dp))
                     }
@@ -166,12 +223,14 @@ fun BuyScreen(
                     if (payContent.isNotBlank()) {
                         val payQr = remember(payContent) { QRCodeGenerator.generate(payContent) }
                         Spacer(Modifier.height(if (isTv) 10.dp else 16.dp))
-                        Surface(color = Color.White) {
+                        // QR stays black-on-white on a rounded white card so any camera scans it.
+                        Surface(color = Color.White, shape = RoundedCornerShape(16.dp)) {
                             Image(
                                 bitmap = payQr.asImageBitmap(),
                                 contentDescription = "QR для оплаты",
                                 modifier = Modifier
                                     .padding(12.dp)
+                                    .clip(RoundedCornerShape(8.dp))
                                     // Smaller on TV so the whole payment card fits the short
                                     // landscape viewport WITHOUT scrolling (scrolling hid the
                                     // amount). 170dp ≈ 340px on 1080p — still easily phone-scannable.

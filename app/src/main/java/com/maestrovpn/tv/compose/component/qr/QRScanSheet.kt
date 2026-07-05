@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -49,14 +51,24 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.component.GlossyButton
+import com.maestrovpn.tv.compose.fantasy.FantasyDialog
+import com.maestrovpn.tv.compose.fantasy.FantasyScreenBackground
+import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screen.qrscan.QRCodeCropArea
 import com.maestrovpn.tv.compose.screen.qrscan.QRScanResult
 import com.maestrovpn.tv.compose.screen.qrscan.QRScanViewModel
+import com.maestrovpn.tv.compose.theme.GoldHi
+import com.maestrovpn.tv.compose.theme.GoldMid
+import com.maestrovpn.tv.compose.theme.NeonGreen
+import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,12 +112,17 @@ fun QRScanSheet(onDismiss: () -> Unit, onScanResult: (QRScanResult) -> Unit, vie
 
     var showMenu by remember { mutableStateOf(false) }
 
+    // PHONE → dark-oak sheet + carved-gold header; TV → the unchanged Material surface.
+    val isTv = rememberIsTv()
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        containerColor = if (isTv) MaterialTheme.colorScheme.surface else Color(0xFF1B1206),
+        contentColor = if (isTv) MaterialTheme.colorScheme.onSurface else Color(0xFFECE2CC),
     ) {
+        // PHONE → carved-oak texture behind the sheet content; TV → plain surface.
+        SheetSurface(isTv = isTv) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -115,21 +132,34 @@ fun QRScanSheet(onDismiss: () -> Unit, onScanResult: (QRScanResult) -> Unit, vie
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(bottom = 16.dp),
+                    .padding(top = 4.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = stringResource(R.string.profile_add_scan_qr_code),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Medium,
-                )
+                if (isTv) {
+                    Text(
+                        text = stringResource(R.string.profile_add_scan_qr_code),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Medium,
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.profile_add_scan_qr_code),
+                        color = GoldHi,
+                        fontFamily = PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        letterSpacing = 0.5.sp,
+                    )
+                }
 
                 Box {
                     IconButton(onClick = { showMenu = true }) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = stringResource(R.string.more_options),
+                            // TV: Color.Unspecified → Icon falls back to LocalContentColor (unchanged).
+                            tint = if (isTv) Color.Unspecified else GoldMid,
                         )
                     }
                     DropdownMenu(
@@ -181,7 +211,18 @@ fun QRScanSheet(onDismiss: () -> Unit, onScanResult: (QRScanResult) -> Unit, vie
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    // PHONE → seat the live preview inside a carved bronze frame; TV unchanged.
+                    .then(
+                        if (isTv) {
+                            Modifier
+                        } else {
+                            Modifier
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .fantasyFrame(R.drawable.frame_panel)
+                                .padding(10.dp)
+                        },
+                    ),
             ) {
                 if (hasPermission) {
                     CameraPreview(
@@ -196,10 +237,10 @@ fun QRScanSheet(onDismiss: () -> Unit, onScanResult: (QRScanResult) -> Unit, vie
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surface),
+                            .background(if (isTv) MaterialTheme.colorScheme.surface else Color(0xFF1B1206)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator()
+                        if (isTv) CircularProgressIndicator() else CircularProgressIndicator(color = NeonGreen)
                     }
                 }
 
@@ -242,19 +283,59 @@ fun QRScanSheet(onDismiss: () -> Unit, onScanResult: (QRScanResult) -> Unit, vie
                 }
             }
         }
+        } // SheetSurface
     }
 
     if (uiState.errorMessage != null) {
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissError() },
-            title = { Text(stringResource(android.R.string.dialog_alert_title)) },
-            text = { Text(uiState.errorMessage ?: "") },
-            confirmButton = {
-                TextButton(onClick = { viewModel.dismissError() }) {
-                    Text(stringResource(android.R.string.ok))
-                }
-            },
-        )
+        if (isTv) {
+            // ── TV: Material dialog (unchanged) ──
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissError() },
+                title = { Text(stringResource(android.R.string.dialog_alert_title)) },
+                text = { Text(uiState.errorMessage ?: "") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.dismissError() }) {
+                        Text(stringResource(android.R.string.ok))
+                    }
+                },
+            )
+        } else {
+            // ── PHONE: Dark-Fantasy modal ──
+            FantasyDialog(
+                onDismiss = { viewModel.dismissError() },
+                title = stringResource(android.R.string.dialog_alert_title),
+            ) {
+                Text(
+                    text = uiState.errorMessage ?: "",
+                    color = Color(0xFFECE2CC),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(18.dp))
+                GlossyButton(
+                    label = stringResource(android.R.string.ok),
+                    onClick = { viewModel.dismissError() },
+                    accent = NeonGreen,
+                    wood = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Sheet-content wrapper. On phone it lays the carved-oak texture (via [FantasyScreenBackground])
+ * behind the sheet's Column so the header + preview frame sit on wood; on TV it is a transparent
+ * pass-through so the Material surface stays exactly as before.
+ */
+@Composable
+private fun SheetSurface(isTv: Boolean, content: @Composable () -> Unit) {
+    if (isTv) {
+        content()
+    } else {
+        FantasyScreenBackground {
+            content()
+        }
     }
 }
 

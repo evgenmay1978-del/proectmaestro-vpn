@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
+import com.maestrovpn.tv.compose.fantasy.FantasyTextField
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroSilver
@@ -112,16 +113,16 @@ fun TrialScreen(
             )
             Spacer(Modifier.height(22.dp))
 
-            OutlinedTextField(
+            FantasyTextField(
                 value = nick,
                 onValueChange = { nick = it },
-                singleLine = true,
                 enabled = !busy,
+                singleLine = true,
+                placeholder = "Ваш ник",
+                focusRequester = nickFocus,
                 modifier = Modifier
-                    .focusRequester(nickFocus)
                     .fillMaxWidth()
                     .widthIn(max = 420.dp),
-                label = { Text("Ваш ник") },
             )
             Spacer(Modifier.height(22.dp))
 

@@ -38,11 +38,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.fantasy.FantasyToggle
+import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.theme.GoldMid
+import com.maestrovpn.tv.compose.theme.NeonGreen
 
 enum class SortMode {
     NAME,
@@ -157,62 +165,84 @@ fun AppSelectionCard(
     var showContextMenu by remember { mutableStateOf(false) }
     var showCopyMenu by remember { mutableStateOf(false) }
     val cardShape = MaterialTheme.shapes.medium
-    val cardModifier =
+    val isTv = rememberIsTv()
+    val clickMod =
         if (enableCopyActions) {
-            Modifier
-                .fillMaxWidth()
-                .clip(cardShape)
-                .combinedClickable(
-                    onClick = { onToggle(!selected) },
-                    onLongClick = { showContextMenu = true },
-                )
+            Modifier.combinedClickable(
+                onClick = { onToggle(!selected) },
+                onLongClick = { showContextMenu = true },
+            )
         } else {
-            Modifier
-                .fillMaxWidth()
-                .clip(cardShape)
-                .clickable { onToggle(!selected) }
+            Modifier.clickable { onToggle(!selected) }
         }
 
-    Box {
-        Card(
-            modifier = cardModifier,
-            shape = cardShape,
-            colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
+    // Shared row (icon + labels + toggle). Container frame + toggle are form-factor aware:
+    // PHONE = carved-wood card with an aged-bronze frame (эскиз 9-patch), the Dark-Fantasy toggle,
+    // and a soft green glow when active. TV = the original Material card + Switch (untouched).
+    val rowContent: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Image(
-                    bitmap = packageCache.applicationIcon,
-                    contentDescription = stringResource(R.string.content_description_app_icon),
-                    modifier = Modifier.size(40.dp),
+            Image(
+                bitmap = packageCache.applicationIcon,
+                contentDescription = stringResource(R.string.content_description_app_icon),
+                modifier = Modifier.size(40.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = packageCache.applicationLabel,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isTv) Color.Unspecified else Color(0xFFF1EEE6),
                 )
-                Column(
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        text = packageCache.applicationLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${packageCache.packageName} (${packageCache.uid})",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        softWrap = true,
-                    )
-                }
-                Switch(
-                    checked = selected,
-                    onCheckedChange = { onToggle(it) },
+                Text(
+                    text = "${packageCache.packageName} (${packageCache.uid})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isTv) MaterialTheme.colorScheme.onSurfaceVariant else GoldMid.copy(alpha = 0.8f),
+                    softWrap = true,
                 )
             }
+            if (isTv) {
+                Switch(checked = selected, onCheckedChange = { onToggle(it) })
+            } else {
+                FantasyToggle(checked = selected, onCheckedChange = { onToggle(it) })
+            }
+        }
+    }
+
+    Box {
+        if (isTv) {
+            Card(
+                modifier = Modifier.fillMaxWidth().clip(cardShape).then(clickMod),
+                shape = cardShape,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+            ) { rowContent() }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(clickMod)
+                    .then(
+                        if (selected) {
+                            Modifier.shadow(
+                                elevation = 9.dp,
+                                shape = RoundedCornerShape(18.dp),
+                                clip = false,
+                                ambientColor = NeonGreen,
+                                spotColor = NeonGreen,
+                            )
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .fantasyFrame(R.drawable.frame_bar)
+                    .padding(6.dp),
+            ) { rowContent() }
         }
 
         if (enableCopyActions) {

@@ -2,9 +2,15 @@ package com.maestrovpn.tv.compose.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.maestrovpn.tv.R
+
+/** Engraved premium serif (Playfair Display, OFL — Latin + Cyrillic) for titles / section
+ *  labels / dialog headings. Body & protocol names stay the clean system sans (matches эскиз). */
+val PlayfairFamily = FontFamily(Font(R.font.playfair_display))
 
 // Material 3 Typography
 val Typography =
@@ -12,7 +18,7 @@ val Typography =
         // Display styles
         displayLarge =
         TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = PlayfairFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 57.sp,
             lineHeight = 64.sp,
@@ -20,7 +26,7 @@ val Typography =
         ),
         displayMedium =
         TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = PlayfairFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 45.sp,
             lineHeight = 52.sp,
@@ -28,7 +34,7 @@ val Typography =
         ),
         displaySmall =
         TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = PlayfairFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 36.sp,
             lineHeight = 44.sp,
@@ -37,7 +43,7 @@ val Typography =
         // Headline styles
         headlineLarge =
         TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = PlayfairFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 32.sp,
             lineHeight = 40.sp,
@@ -45,7 +51,7 @@ val Typography =
         ),
         headlineMedium =
         TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = PlayfairFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 28.sp,
             lineHeight = 36.sp,
@@ -53,7 +59,7 @@ val Typography =
         ),
         headlineSmall =
         TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = PlayfairFamily,
             fontWeight = FontWeight.Normal,
             fontSize = 24.sp,
             lineHeight = 32.sp,
@@ -62,7 +68,7 @@ val Typography =
         // Title styles
         titleLarge =
         TextStyle(
-            fontFamily = FontFamily.Default,
+            fontFamily = PlayfairFamily,
             fontWeight = FontWeight.Medium,
             fontSize = 22.sp,
             lineHeight = 28.sp,

@@ -66,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
@@ -272,75 +273,91 @@ fun TvHomeScreen(
                 // только внутренний контент, где плиток БОЛЬШЕ шести. Наш живой паук — в backdrop-режиме
                 // поверх медальона эскиза; статус/аккаунт/полное меню (wood=true) идут ниже, скроллом. ──
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                    // (a) ФИКСИРОВАННЫЙ фон-эскиз — не в скролле, поэтому логотип/рамка/края НЕ двигаются
+                    // (a) ФИКСИРОВАННЫЙ фон — резная рама/дерево/плющ/логотип/вензели (верх+низ) + пустой
+                    //     медальон-обод запечены в `home_backdrop`. НЕ скроллится.
                     Image(
-                        painter = painterResource(R.drawable.home_eskiz),
+                        painter = painterResource(R.drawable.home_backdrop),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
-                    // (b) СКРОЛЛ живого контента поверх деревянного окна. Верхний отступ уводит контент
-                    // ниже логотипа эскиза; горизонтальный — внутрь резной рамки. Медальон+паук стоят
-                    // на позиции медальона эскиза в САМОМ ВЕРХУ контента.
-                    Column(
+
+                    // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
+                    // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
+                    val medTop    = (maxHeight * 0.405f - 150.dp).coerceAtLeast(0.dp) // верх медальон-бокса(300dp) → центр 0.405H
+                    val windowTop = maxHeight * 0.560f   // низ медальона → верх скролл-окна (контент прячется тут ЗА кнопку)
+                    val windowBot = maxHeight * 0.070f   // отступ снизу → нижний вензель рамы остаётся видимым/статичным
+
+                    // (b) СКРОЛЛ-ОКНО меню — ОБРЕЗАНО по [под медальоном .. над нижним вензелем]. Статус/
+                    //     аккаунт/меню скроллятся ВНУТРИ окна: сверху исчезают за кнопкой, снизу — за вензелем.
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(top = maxHeight * 0.055f, start = 18.dp, end = 18.dp, bottom = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                            .padding(top = windowTop, bottom = windowBot)
+                            .clipToBounds(),
                     ) {
-                        // Медальон эскиза ≈ центр (0.497W, 0.395H). В скролл-колонке ставим поле паука
-                        // (360×440) по центру, слегка приподняв к эскизному кольцу. backdropMode=true →
-                        // рисуем ТОЛЬКО паука (кольцо/паутина уже на эскизе), ОДИН паук, без дубля.
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.height(360.dp).fillMaxWidth(),
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(start = 18.dp, end = 18.dp, bottom = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            PaukMedallion(
+                            // LIVE статус-строка (точка + текст, активный протокол).
+                            PhoneStatusRow(
+                                statusText = statusText,
                                 connected = connected,
-                                onToggle = onToggleConnect,
-                                focusRequester = connectFocus,
-                                backdropMode = true,
+                                activeProtocol = activeProtocol,
+                                selected = selected,
                             )
-                        }
-
-                        // LIVE статус-строка (точка + текст, активный протокол) под медальоном.
-                        PhoneStatusRow(
-                            statusText = statusText,
-                            connected = connected,
-                            activeProtocol = activeProtocol,
-                            selected = selected,
-                        )
-
-                        // LIVE аккаунт-карточка (логин + дни) — золото/дерево.
-                        if (!accountLogin.isNullOrBlank() || daysLeft != null) {
-                            Spacer(Modifier.height(14.dp))
-                            AccountCard(
-                                login = accountLogin,
-                                daysLeft = daysLeft,
+                            // LIVE аккаунт-карточка (логин + дни) — золото/дерево.
+                            if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+                                Spacer(Modifier.height(14.dp))
+                                AccountCard(
+                                    login = accountLogin,
+                                    daysLeft = daysLeft,
+                                    wood = true,
+                                    modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
+                                )
+                            }
+                            Spacer(Modifier.height(18.dp))
+                            // Полное меню (протоколы → покупка → действия → контакты) — единственное, что скроллится.
+                            MenuPane(
+                                protocols = protocols,
+                                selected = selected,
+                                isTv = false,
+                                onSelectProtocol = onSelectProtocol,
+                                hasOlcrtcCreds = hasOlcrtcCreds,
+                                onSelectOlcrtc = onSelectOlcrtc,
+                                onBuy = onBuy,
+                                onEnterCode = onEnterCode,
+                                onSplitTunnel = onSplitTunnel,
+                                onShareIos = onShareIos,
+                                onScanQr = onScanQr,
+                                onEnterTrial = onEnterTrial,
+                                showTrial = !hasSubProfile,
                                 wood = true,
-                                modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
+                                modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
                             )
                         }
+                    }
 
-                        Spacer(Modifier.height(18.dp))
-                        // Полное меню (все протоколы + действия + контакты + покупка), стиль дерево/золото.
-                        MenuPane(
-                            protocols = protocols,
-                            selected = selected,
-                            isTv = false,
-                            onSelectProtocol = onSelectProtocol,
-                            hasOlcrtcCreds = hasOlcrtcCreds,
-                            onSelectOlcrtc = onSelectOlcrtc,
-                            onBuy = onBuy,
-                            onEnterCode = onEnterCode,
-                            onSplitTunnel = onSplitTunnel,
-                            onShareIos = onShareIos,
-                            onScanQr = onScanQr,
-                            onEnterTrial = onEnterTrial,
-                            showTrial = !hasSubProfile,
-                            wood = true,
-                            modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
+                    // (c) ФИКСИРОВАННАЯ кнопка подключения (медальон-обод подложки + ЖИВОЙ паук) ПОВЕРХ
+                    //     скролла → меню уходит ЗА неё. Центр паука на кольце подложки (0.405H) на любом
+                    //     экране. backdropMode=true → рисуем только паука (обод уже на подложке).
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(top = medTop, start = 18.dp, end = 18.dp)
+                            .height(300.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        PaukMedallion(
+                            connected = connected,
+                            onToggle = onToggleConnect,
+                            focusRequester = connectFocus,
+                            backdropMode = true,
                         )
                     }
                 }

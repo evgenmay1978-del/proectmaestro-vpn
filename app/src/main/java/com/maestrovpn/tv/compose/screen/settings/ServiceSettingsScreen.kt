@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.BatteryChargingFull
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +36,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,11 +56,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.bg.ServiceConnection
 import com.maestrovpn.tv.compose.base.UiEvent
 import com.maestrovpn.tv.compose.base.rememberApplyServiceChangeNotifier
+import com.maestrovpn.tv.compose.component.GlossyButton
+import com.maestrovpn.tv.compose.component.SectionLabel
+import com.maestrovpn.tv.compose.fantasy.FantasyListRow
+import com.maestrovpn.tv.compose.fantasy.FantasyScreenBackground
+import com.maestrovpn.tv.compose.fantasy.FantasyToggle
+import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.theme.GoldMid
+import com.maestrovpn.tv.compose.theme.MaestroSilver
+import com.maestrovpn.tv.compose.theme.NeonGreen
+import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.Settings
@@ -74,18 +88,47 @@ fun ServiceSettingsScreen(
     serviceConnection: ServiceConnection? = null,
     serviceStatus: Status = Status.Stopped,
 ) {
+    val isTv = rememberIsTv()
+
     OverrideTopBar {
-        TopAppBar(
-            title = { Text(stringResource(R.string.service)) },
-            navigationIcon = {
-                IconButton(onClick = { navController.navigateUp() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.content_description_back),
+        if (isTv) {
+            TopAppBar(
+                title = { Text(stringResource(R.string.service)) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back),
+                        )
+                    }
+                },
+            )
+        } else {
+            TopAppBar(
+                title = {
+                    Text(
+                        stringResource(R.string.service),
+                        fontFamily = PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE8C877),
+                        letterSpacing = 1.sp,
                     )
-                }
-            },
-        )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back),
+                            tint = Color(0xFFE8C877),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF17110A),
+                    titleContentColor = Color(0xFFE8C877),
+                ),
+            )
+        }
     }
 
     val context = LocalContext.current
@@ -114,6 +157,154 @@ fun ServiceSettingsScreen(
         }
     }
 
+    // Shared logic callbacks (identical for TV + phone) ──────────────────────────
+    val requestBatteryOptimization: () -> Unit = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent =
+                Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:${context.packageName}"),
+                )
+            requestBatteryOptimizationLauncher.launch(intent)
+        }
+    }
+    val onAllowBypassChange: (Boolean) -> Unit = { checked ->
+        allowBypass = checked
+        scope.launch(Dispatchers.IO) {
+            Settings.allowBypass = checked
+            withContext(Dispatchers.Main) {
+                notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+            }
+        }
+    }
+
+    if (!isTv) {
+        // ── PHONE: Dark-Fantasy kit ──────────────────────────────────────────
+        FantasyScreenBackground {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (!isBatteryOptimizationIgnored && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    // Carved-wood warning panel (aged-bronze frame) with the two actions.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fantasyFrame(R.drawable.frame_panel)
+                            .padding(horizontal = 18.dp, vertical = 16.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.BatteryChargingFull,
+                                contentDescription = null,
+                                tint = NeonGreen,
+                                modifier = Modifier.padding(end = 12.dp),
+                            )
+                            Text(
+                                stringResource(R.string.background_permission),
+                                fontFamily = PlayfairFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = Color(0xFFE8C877),
+                            )
+                        }
+
+                        Text(
+                            stringResource(R.string.background_permission_description),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaestroSilver,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 16.dp),
+                        )
+
+                        GlossyButton(
+                            label = stringResource(R.string.request_background_permission),
+                            onClick = requestBatteryOptimization,
+                            accent = NeonGreen,
+                            wood = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            androidx.compose.material3.TextButton(
+                                onClick = { context.launchCustomTab("https://dontkillmyapp.com/") },
+                            ) {
+                                Text(
+                                    stringResource(R.string.read_more),
+                                    color = GoldMid,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── VPN section ──
+                SectionLabel("VPN", wood = true)
+
+                FantasyListRow(
+                    title = stringResource(R.string.allow_bypass),
+                    icon = Icons.Outlined.VpnKey,
+                    trailing = {
+                        FantasyToggle(
+                            checked = allowBypass,
+                            onCheckedChange = onAllowBypassChange,
+                        )
+                    },
+                )
+
+                // allow_bypass description + a tappable documentation link (bronze card).
+                val descriptionText = stringResource(R.string.allow_bypass_description)
+                val linkText = stringResource(R.string.android_documentation)
+                val annotatedString = buildAnnotatedString {
+                    withStyle(SpanStyle(color = MaestroSilver)) {
+                        append(descriptionText)
+                    }
+                    append("\n\n")
+                    pushStringAnnotation(tag = "URL", annotation = ALLOW_BYPASS_DOC_URL)
+                    withStyle(
+                        SpanStyle(
+                            color = GoldMid,
+                            textDecoration = TextDecoration.Underline,
+                        ),
+                    ) {
+                        append(linkText)
+                    }
+                    pop()
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fantasyFrame(R.drawable.frame_bar)
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                ) {
+                    ClickableText(
+                        text = annotatedString,
+                        style = MaterialTheme.typography.bodyMedium,
+                        onClick = { offset ->
+                            annotatedString.getStringAnnotations(
+                                tag = "URL",
+                                start = offset,
+                                end = offset,
+                            ).firstOrNull()?.let {
+                                context.launchCustomTab(it.item)
+                            }
+                        },
+                    )
+                }
+
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        return
+    }
+
+    // ── TV: original Material3 layout (unchanged) ────────────────────────────
     Column(
         modifier =
         Modifier
@@ -260,15 +451,7 @@ fun ServiceSettingsScreen(
                 trailingContent = {
                     Switch(
                         checked = allowBypass,
-                        onCheckedChange = { checked ->
-                            allowBypass = checked
-                            scope.launch(Dispatchers.IO) {
-                                Settings.allowBypass = checked
-                                withContext(Dispatchers.Main) {
-                                    notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
-                                }
-                            }
-                        },
+                        onCheckedChange = onAllowBypassChange,
                     )
                 },
                 modifier = Modifier.clip(RoundedCornerShape(12.dp)),

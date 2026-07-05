@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -46,6 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.fantasy.fantasyFrame
 import com.maestrovpn.tv.compose.theme.ChromeDark
 import com.maestrovpn.tv.compose.theme.ChromeHi
 import com.maestrovpn.tv.compose.theme.ChromeLight
@@ -57,6 +60,7 @@ import com.maestrovpn.tv.compose.theme.GlassBottom
 import com.maestrovpn.tv.compose.theme.GlassTop
 import com.maestrovpn.tv.compose.theme.GoldDark
 import com.maestrovpn.tv.compose.theme.GoldHi
+import com.maestrovpn.tv.compose.theme.PlayfairFamily
 // GoldHi used both for the gold bezel and the phone SectionLabel colour
 import com.maestrovpn.tv.compose.theme.GoldLow
 import com.maestrovpn.tv.compose.theme.GoldMid
@@ -158,50 +162,61 @@ fun NeonChip(
                 ambientColor = glow,
                 spotColor = glow,
             )
-            .background(plateBrush(wood), shape)
-            .border(if (focused) 2.dp else 1.5.dp, bezelBrush(wood, selected), shape),
+            .then(
+                // PHONE (wood) → real sliced aged-bronze NinePatch from the эскиз; TV → glass/chrome (unchanged).
+                if (wood) Modifier.fantasyFrame(R.drawable.frame_button, selected)
+                else Modifier.background(plateBrush(false), shape)
+                    .border(if (focused) 2.dp else 1.5.dp, bezelBrush(false, selected), shape),
+            ),
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, tint = iconTint ?: accent, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(7.dp))
-        }
-        if (subtitle != null) {
-            // two-line chip: protocol name + a small recommendation BADGE (unified style).
-            // NO wrapping, NO ellipsis (owner: must look like the mock) — autoSize shrinks the
-            // font just enough so even long RU names (Hysteria2 / NaiveProxy / Vless+Reality)
-            // FIT on ONE line in the narrow 3-per-row cell.
-            Column(Modifier.weight(1f, fill = false)) {
-                BasicText(
-                    text = label,
-                    style = TextStyle(
-                        color = if (selected) MaestroOrange else Color.White,
-                        fontWeight = FontWeight.Bold,
-                    ),
+        // Icon LEFT + text LEFT-aligned across the full width (matches the эскиз — not centered).
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Start,
+        ) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = iconTint ?: accent, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+            }
+            if (subtitle != null) {
+                // two-line chip: protocol name + a small recommendation BADGE, LEFT-aligned.
+                // NO wrap/ellipsis — autoSize shrinks long RU names (Hysteria2 / NaiveProxy) so they
+                // FIT one line in the narrow 3-per-row cell.
+                Column(Modifier.weight(1f)) {
+                    BasicText(
+                        text = label,
+                        style = TextStyle(
+                            color = if (selected) MaestroOrange else Color.White,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        maxLines = 1,
+                        autoSize = TextAutoSize.StepBased(
+                            minFontSize = 10.sp, maxFontSize = 18.sp, stepSize = 0.5.sp,
+                        ),
+                    )
+                    BasicText(
+                        text = subtitle,
+                        style = TextStyle(
+                            color = (if (selected) MaestroOrange else NeonGreen).copy(alpha = 0.85f),
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        maxLines = 1,
+                        autoSize = TextAutoSize.StepBased(
+                            minFontSize = 7.sp, maxFontSize = 11.sp, stepSize = 0.5.sp,
+                        ),
+                    )
+                }
+            } else {
+                Text(
+                    label,
+                    color = if (selected) MaestroOrange else Color.White,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1,
-                    autoSize = TextAutoSize.StepBased(
-                        minFontSize = 9.sp, maxFontSize = 15.sp, stepSize = 0.5.sp,
-                    ),
-                )
-                BasicText(
-                    text = subtitle,
-                    style = TextStyle(
-                        color = (if (selected) MaestroOrange else NeonGreen).copy(alpha = 0.85f),
-                        fontWeight = FontWeight.Medium,
-                    ),
-                    maxLines = 1,
-                    autoSize = TextAutoSize.StepBased(
-                        minFontSize = 7.sp, maxFontSize = 11.sp, stepSize = 0.5.sp,
-                    ),
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
             }
-        } else {
-            Text(
-                label,
-                color = if (selected) MaestroOrange else Color.White,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
@@ -247,8 +262,13 @@ fun GlossyButton(
                 ambientColor = accent,
                 spotColor = accent,
             )
-            .background(brush, shape)
-            .border(if (focused) 2.5.dp else 1.5.dp, bezelBrush(wood), shape),
+            .then(
+                // PHONE (wood) → wide bronze plaque frame (accent lives in the glow + text, not a bright dome);
+                // TV → the accent-domed gradient + chrome bezel (unchanged).
+                if (wood) Modifier.fantasyFrame(R.drawable.frame_bar)
+                else Modifier.background(brush, shape)
+                    .border(if (focused) 2.5.dp else 1.5.dp, bezelBrush(false), shape),
+            ),
     ) {
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
@@ -295,8 +315,11 @@ fun ChromeTile(
                 ambientColor = if (focused) NeonGreen else Color.Black,
                 spotColor = if (focused) NeonGreen else Color.Black,
             )
-            .background(plateBrush(wood), shape)
-            .border(if (focused) 2.dp else 1.5.dp, bezelBrush(wood), shape),
+            .then(
+                if (wood) Modifier.fantasyFrame(R.drawable.frame_button)
+                else Modifier.background(plateBrush(false), shape)
+                    .border(if (focused) 2.dp else 1.5.dp, bezelBrush(false), shape),
+            ),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -318,20 +341,25 @@ fun ChromeTile(
 
 /** Embossed green badge (rounded square) holding an icon — the account-card adornments. */
 @Composable
-private fun GreenBadge(icon: ImageVector, modifier: Modifier = Modifier) {
+private fun GreenBadge(icon: ImageVector, modifier: Modifier = Modifier, big: Boolean = false) {
+    // PHONE (эскиз) → larger, richer JADE-glass badge to match the mockup; TV → original bright chip.
+    val sz = if (big) 48.dp else 46.dp      // эскиз-бейдж ≈47dp → почти как было; НЕ раздувать
+    val rad = if (big) 14.dp else 13.dp
+    // deeper emerald base on phone (was acid-bright NeonGreen) → reads as polished jade, not neon plastic.
+    val base = if (big) Color(0xFF27A85E) else NeonGreen
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(46.dp)
-            .shadow(8.dp, RoundedCornerShape(13.dp), clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
-            .clip(RoundedCornerShape(13.dp))
+            .size(sz)
+            .shadow(if (big) 10.dp else 8.dp, RoundedCornerShape(rad), clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
+            .clip(RoundedCornerShape(rad))
             .background(
                 Brush.verticalGradient(
-                    listOf(lerp(NeonGreen, Color.White, 0.30f), NeonGreen, lerp(NeonGreen, Color.Black, 0.32f)),
+                    listOf(lerp(base, Color.White, 0.34f), base, lerp(base, Color.Black, 0.38f)),
                 ),
             ),
     ) {
-        Icon(icon, contentDescription = null, tint = Color(0xFF06210F), modifier = Modifier.size(26.dp))
+        Icon(icon, contentDescription = null, tint = Color(0xFF06210F), modifier = Modifier.size(if (big) 27.dp else 26.dp))
     }
 }
 
@@ -355,38 +383,58 @@ fun NeonAccountCard(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = modifier
             .shadow(10.dp, shape, clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
-            .background(plateBrush(wood), shape)
-            // glassmorphism inner highlight — a soft top sheen clipped to the rounded card, so
-            // the plate reads as lit glass (blur is unavailable pre-31, this is the cheap look).
-            .drawBehind {
-                val cr = 18.dp.toPx()
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.White.copy(alpha = 0.12f),
-                        0.45f to Color.Transparent,
-                    ),
-                    cornerRadius = CornerRadius(cr, cr),
-                )
-            }
-            .border(1.5.dp, bezelBrush(wood), shape)
+            .then(
+                // PHONE (wood) → real sliced aged-bronze panel NinePatch; TV → glass plate + sheen + chrome bezel.
+                if (wood) {
+                    Modifier.fantasyFrame(R.drawable.frame_panel)
+                } else {
+                    Modifier
+                        .background(plateBrush(false), shape)
+                        // glassmorphism inner highlight — a soft top sheen clipped to the rounded card, so
+                        // the plate reads as lit glass (blur is unavailable pre-31, this is the cheap look).
+                        .drawBehind {
+                            val cr = 18.dp.toPx()
+                            drawRoundRect(
+                                brush = Brush.verticalGradient(
+                                    0f to Color.White.copy(alpha = 0.12f),
+                                    0.45f to Color.Transparent,
+                                ),
+                                cornerRadius = CornerRadius(cr, cr),
+                            )
+                        }
+                        .border(1.5.dp, bezelBrush(false), shape)
+                }
+            )
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        GreenBadge(leadingIcon)
-        Column(modifier = Modifier.padding(horizontal = 2.dp)) {
+        GreenBadge(leadingIcon, big = wood)
+        // login + days CENTERED between the two badges (weight fills the space; text centered) —
+        // matches the эскиз (was left-aligned = «Безлимит не по центру»).
+        Column(
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             if (!login.isNullOrBlank()) {
                 Text(
                     "Аккаунт: $login",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
+                    textAlign = TextAlign.Center,
                 )
             }
             if (!daysText.isNullOrBlank()) {
                 Spacer(Modifier.height(2.dp))
-                Text(daysText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = daysColor)
+                Text(
+                    daysText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = daysColor,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
-        GreenBadge(trailingIcon)
+        GreenBadge(trailingIcon, big = wood)
     }
 }
 
@@ -397,8 +445,10 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, wood: Boolean = fa
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
+        fontFamily = PlayfairFamily,
+        fontWeight = FontWeight.Bold,
         color = if (wood) GoldHi else MaestroSilver,
-        letterSpacing = 2.sp,
+        letterSpacing = 3.sp,
         modifier = modifier,
     )
 }
