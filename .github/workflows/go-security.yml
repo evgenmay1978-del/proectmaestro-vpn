@@ -40,7 +40,13 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: backend/go.mod
+          # Build/scan with the latest 1.25.x PATCH, NOT the exact go.mod 1.25.0. The Go stdlib
+          # ships security fixes in patch releases, so govulncheck is only meaningful against a
+          # current toolchain (go.mod stays at the 1.25 language floor). ⚠️ The panel must ALSO be
+          # rebuilt with a current Go (>=1.25.11) in prod — a binary built on an old patch carries
+          # the same reachable stdlib CVEs this gate would otherwise flag.
+          go-version: '1.25'
+          check-latest: true
           cache-dependency-path: backend/go.sum
 
       - name: govulncheck (known-CVE scan of Go deps) — BLOCKING
