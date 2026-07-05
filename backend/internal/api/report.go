@@ -72,7 +72,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	if mkErr := os.MkdirAll(s.cfg.ReportDir, 0o750); mkErr == nil {
 		day := time.Now().UTC().Format("2006-01-02")
 		path := filepath.Join(s.cfg.ReportDir, "reports-"+day+".jsonl")
-		if f, oErr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); oErr == nil {
+		if f, oErr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); oErr == nil { //#nosec G304 -- path is ReportDir (config) + date, never request-derived
 			_, _ = f.Write(append(line, '\n'))
 			_ = f.Close()
 		}

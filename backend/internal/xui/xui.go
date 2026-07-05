@@ -78,7 +78,7 @@ func New(cfg Config) (*Client, error) {
 			Jar:     jar,
 			Timeout: 20 * time.Second,
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.Insecure}, //nolint:gosec // domain cert on loopback
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.Insecure}, //nolint:gosec // #nosec G402 -- 3x-ui reached on loopback with a domain/self-signed cert; gated by XUI_INSECURE
 			},
 		},
 	}, nil
