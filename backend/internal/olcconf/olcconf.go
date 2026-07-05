@@ -95,7 +95,7 @@ func Open(path string) (*Store, error) {
 	if path == "" {
 		return s, nil
 	}
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //#nosec G304 -- path is the server-configured olcconf file (cfg/env), never request-derived
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return s, nil
