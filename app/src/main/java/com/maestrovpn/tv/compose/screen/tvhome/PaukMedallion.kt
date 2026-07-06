@@ -41,6 +41,8 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -54,6 +56,7 @@ import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -96,6 +99,20 @@ private const val SPIDER_SCALE = 1.32f
 private const val GUARD_LEASH = 0.14f
 private val BLACK_TINT = ColorFilter.tint(Color.Black)   // тень: один общий фильтр, не аллоцируем на кадр
 
+// --- v19 ГНУЩИЕСЯ ЛАПЫ (mesh-warp, порт из принятого owner прототипа emerald_proto ?v=19) ---
+// Лапа = единый спрайт, натянутый на сетку из NRIB поперечных рёбер, гнётся вдоль 2-коленной
+// АРКИ (femur→tibia→metatarsus/tarsus, оба колена наружу от тела). Рисуется нативным
+// drawBitmapMesh (аппаратно). Длина лапы = reach*SLACK > дистанции стопы → колено ВСЕГДА согнуто.
+private const val NRIB = 13
+private const val LEG_SLACK = 1.40f     // длина/дистанция → выраженное колено (ratio ~0.71)
+private const val LEG_WID = 1.25f       // толщина (читается сегментами, не волосок)
+private const val KH1 = 0.32f           // главное колено femur-patella: оффсет наружу (доля Lg)
+private const val KH2 = 0.17f           // второй излом tibia-metatarsus (дистал изгибается к стопе)
+private const val KF1 = 0.40f           // доля хорды hip→foot до k1
+private const val KF2 = 0.72f           // доля хорды до k2
+private const val LEG_SMOOTH = 2        // проходов сглаживания угла колена (меньше = острее кинк)
+private const val MESH_DENSE = 160      // ёмкость буфера плотной полилинии пути
+
 // фазы жизненного цикла паука (выход из-под кнопки / охрана / уход под кнопку)
 private const val PH_HIDDEN = 0
 private const val PH_EMERGING = 1
@@ -109,8 +126,8 @@ private val GAIT_B = intArrayOf(1, 2, 5, 6)
 // анатомия лап: [fx,fy(доля спрайта тела), угол°, reach(px)] — правая; левая зеркалится.
 // fx/fy взяты из LEGDEF (build_final_spider.py); reach = последний столбец LEGDEF.
 private val LEGDEF = arrayOf(
-    floatArrayOf(0.72f, 0.14f, 32f, 172f),   // I  перед  (самая длинная)
-    floatArrayOf(0.84f, 0.25f, 66f, 150f),   // II
+    floatArrayOf(0.72f, 0.14f, 44f, 150f),   // I  перед  (v19: расширена+укорочена 32°/172→44°/150, чтоб не иглой)
+    floatArrayOf(0.84f, 0.25f, 68f, 146f),   // II
     floatArrayOf(0.85f, 0.37f, 104f, 130f),  // III       (самая короткая)
     floatArrayOf(0.75f, 0.47f, 150f, 168f),  // IV зад     (длинная)
 )
@@ -490,9 +507,144 @@ private class SpiderSim {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+//  ГНУЩИЕСЯ ЛАПЫ (mesh-warp) — порт принятого прототипа ?v=19
+//  Лапа-спрайт натянута на сетку рёбер вдоль 2-коленной IK-арки, рисуется нативным
+//  drawBitmapMesh. Медиальная ось (cx per-row) извлекается из альфы спрайта один раз.
+// ────────────────────────────────────────────────────────────────────────────
+/** Спрайт лапы (software-битмап для мешинга) + медиальный центр по строкам (px). */
+private class LegMesh(val bmp: android.graphics.Bitmap, val cx: FloatArray, val w: Int, val h: Int)
+
+/** Один раз: software-копия + per-row медиальный центр (середина непрозрачных px) с заливкой+сглаживанием. */
+private fun buildLegMesh(legBmp: ImageBitmap): LegMesh {
+    // ARGB_8888-копия (софт): нужна для getPixels (hardware-битмап не читается) и безопасна для drawBitmapMesh.
+    // Всегда копируем → не ссылаемся на Bitmap.Config.HARDWARE (API26, уронил бы lint NewApi на minSdk23).
+    val src = legBmp.asAndroidBitmap()
+    val sw = src.copy(android.graphics.Bitmap.Config.ARGB_8888, false) ?: src
+    val w = sw.width; val h = sw.height
+    val cx = FloatArray(h); val has = BooleanArray(h); val row = IntArray(w)
+    for (y in 0 until h) {
+        sw.getPixels(row, 0, w, 0, y, w, 1)
+        var mn = Int.MAX_VALUE; var mx = -1
+        for (x in 0 until w) if ((row[x] ushr 24) > 40) { if (x < mn) mn = x; if (x > mx) mx = x }
+        if (mx >= 0) { cx[y] = (mn + mx) * 0.5f; has[y] = true }
+    }
+    var first = -1; var last = -1
+    for (y in 0 until h) if (has[y]) { if (first < 0) first = y; last = y }
+    if (first < 0) { for (y in 0 until h) cx[y] = w * 0.5f }
+    else {
+        for (y in 0 until first) cx[y] = cx[first]
+        for (y in last + 1 until h) cx[y] = cx[last]
+        var prev = cx[first]
+        for (y in first..last) { if (has[y]) prev = cx[y] else cx[y] = prev }   // forward-fill gaps
+        val tmp = FloatArray(h)
+        for (p in 0 until 2) {                                                    // smooth (окно 5, 2 прохода)
+            System.arraycopy(cx, 0, tmp, 0, h)
+            for (y in first..last) { var s = 0f; var n = 0
+                for (k in -2..2) { val z = y + k; if (z in first..last) { s += tmp[z]; n++ } }
+                cx[y] = s / n }
+        }
+    }
+    return LegMesh(sw, cx, w, h)
+}
+
+// Скретч-буферы (отрисовка однопоточная в drawBehind → без аллокаций/GC на кадр).
+private val sPX = FloatArray(MESH_DENSE); private val sPY = FloatArray(MESH_DENSE)
+private val sPX2 = FloatArray(MESH_DENSE); private val sPY2 = FloatArray(MESH_DENSE)
+private val sCL = FloatArray(MESH_DENSE)
+private val sOX = FloatArray(NRIB + 1); private val sOY = FloatArray(NRIB + 1)
+private val sNX = FloatArray(NRIB + 1); private val sNY = FloatArray(NRIB + 1)
+private val sVerts = FloatArray((NRIB + 1) * 4)
+private val sLegPaint = android.graphics.Paint().apply { isFilterBitmap = true; isAntiAlias = true }
+private val sBlackFilter =
+    android.graphics.PorterDuffColorFilter(android.graphics.Color.BLACK, android.graphics.PorterDuff.Mode.SRC_ATOP)
+
+/** Строит гладкий путь hip→k1→k2→foot в скретч sOX/sOY(+нормали sNX/sNY), NRIB+1 равных по длине точек. */
+private fun buildBentPath(
+    ax: Float, ay: Float, k1x: Float, k1y: Float, k2x: Float, k2y: Float, bx: Float, by: Float,
+) {
+    var m = 0
+    // плотная выборка 3 сегментов
+    val segX = floatArrayOf(ax, k1x, k2x); val segY = floatArrayOf(ay, k1y, k2y)
+    val endX = floatArrayOf(k1x, k2x, bx); val endY = floatArrayOf(k1y, k2y, by)
+    for (s in 0 until 3) {
+        val sx = segX[s]; val sy = segY[s]; val ex = endX[s]; val ey = endY[s]
+        val seg = hypot(ex - sx, ey - sy); val n = (seg / 7f).toInt().coerceAtLeast(3)
+        var i = 0
+        while (i < n && m < MESH_DENSE - 1) { val t = i.toFloat() / n; sPX[m] = sx + (ex - sx) * t; sPY[m] = sy + (ey - sy) * t; m++; i++ }
+    }
+    if (m < MESH_DENSE) { sPX[m] = bx; sPY[m] = by; m++ }
+    for (pass in 0 until LEG_SMOOTH) {                       // сглаживание углов колен
+        System.arraycopy(sPX, 0, sPX2, 0, m); System.arraycopy(sPY, 0, sPY2, 0, m)
+        for (i in 1 until m - 1) {
+            sPX[i] = (sPX2[i - 1] + 2f * sPX2[i] + sPX2[i + 1]) / 4f
+            sPY[i] = (sPY2[i - 1] + 2f * sPY2[i] + sPY2[i + 1]) / 4f
+        }
+    }
+    sCL[0] = 0f
+    for (i in 1 until m) sCL[i] = sCL[i - 1] + hypot(sPX[i] - sPX[i - 1], sPY[i] - sPY[i - 1])
+    val tot = sCL[m - 1].coerceAtLeast(1e-4f)
+    for (j in 0..NRIB) {                                     // ресемпл равномерно по длине
+        val ss = j.toFloat() / NRIB * tot
+        var i = 1; while (i < m - 1 && sCL[i] < ss) i++
+        val t = (ss - sCL[i - 1]) / (sCL[i] - sCL[i - 1]).coerceAtLeast(1e-4f)
+        sOX[j] = sPX[i - 1] + (sPX[i] - sPX[i - 1]) * t
+        sOY[j] = sPY[i - 1] + (sPY[i] - sPY[i - 1]) * t
+    }
+    for (j in 0..NRIB) {                                     // нормали (касательная +90°)
+        val a = (j - 1).coerceAtLeast(0); val b = (j + 1).coerceAtMost(NRIB)
+        val tx = sOX[b] - sOX[a]; val ty = sOY[b] - sOY[a]; val l = hypot(tx, ty).coerceAtLeast(1e-4f)
+        sNX[j] = -ty / l; sNY[j] = tx / l
+    }
+}
+
+/**
+ * Рисует лапу как ИЗОГНУТУЮ ленту: спрайт натянут на сетку рёбер вдоль 2-коленной арки hip→foot.
+ * baseLen = reach*sc (длина внутри ×SLACK). black=true → чёрный силуэт для тени.
+ */
+private fun DrawScope.drawLegMesh(
+    sim: SpiderSim, mesh: LegMesh, ax: Float, ay: Float, bx: Float, by: Float,
+    baseLen: Float, alpha: Float, black: Boolean,
+) {
+    val vx = bx - ax; val vy = by - ay; val D = hypot(vx, vy)
+    if (D < 2f) return
+    var Lg = baseLen * LEG_SLACK; if (Lg < D * 1.02f) Lg = D * 1.02f
+    val hF = mesh.h.toFloat(); val wF = mesh.w.toFloat()
+    val sCross = Lg / hF * LEG_WID
+    val ux = vx / D; val uy = vy / D
+    // полюс колена: наружу-радиально; для ~радиальных (передняя пара вдоль heading) — латерально
+    var nx = -uy; var ny = ux
+    val mx = (ax + bx) * 0.5f; val my = (ay + by) * 0.5f
+    val rx = mx - sim.x; val ry = my - sim.y; val rl = hypot(rx, ry).coerceAtLeast(1e-4f)
+    val dr = (nx * rx + ny * ry) / rl
+    if (abs(dr) < 0.40f) {
+        val ba = sim.headingWorld
+        val lx = cos(ba + PI.toFloat() / 2f); val ly = sin(ba + PI.toFloat() / 2f)
+        val sgn = if ((ax - sim.x) * lx + (ay - sim.y) * ly >= 0f) 1f else -1f
+        if ((nx * lx + ny * ly) * sgn < 0f) { nx = -nx; ny = -ny }
+    } else if (dr < 0f) { nx = -nx; ny = -ny }
+    val h1 = Lg * KH1; val h2 = Lg * KH2
+    val k1x = ax + ux * (D * KF1) + nx * h1; val k1y = ay + uy * (D * KF1) + ny * h1
+    val k2x = ax + ux * (D * KF2) + nx * h2; val k2y = ay + uy * (D * KF2) + ny * h2
+    buildBentPath(ax, ay, k1x, k1y, k2x, k2y, bx, by)
+    for (j in 0..NRIB) {                                     // full-width [0,W] маппинг, медиаль cx на путь
+        val yb = ((j.toFloat() / NRIB) * (mesh.h - 1)).toInt().coerceIn(0, mesh.h - 1)
+        val cxj = mesh.cx[yb]
+        val offL = (0f - cxj) * sCross; val offR = (wF - cxj) * sCross
+        val px = sOX[j]; val py = sOY[j]; val pnx = sNX[j]; val pny = sNY[j]
+        sVerts[j * 4] = px + pnx * offL;     sVerts[j * 4 + 1] = py + pny * offL
+        sVerts[j * 4 + 2] = px + pnx * offR; sVerts[j * 4 + 3] = py + pny * offR
+    }
+    val paint = sLegPaint
+    paint.alpha = (alpha * 255f).toInt().coerceIn(0, 255)
+    paint.colorFilter = if (black) sBlackFilter else null
+    drawContext.canvas.nativeCanvas.drawBitmapMesh(mesh.bmp, 1, NRIB, sVerts, 0, null, 0, paint)
+}
+
 /**
  * Рисует лапа-текстуру так, чтобы её ПИВОТ(бедро)→A и КОНЧИК(стопа)→B (поворот + равномерный масштаб).
  * mirror=true → ЛЕВАЯ лапа: тот же битмап, зеркалим по X (пивот/кончик x→W-1-x, +горизонтальный flip).
+ * (Осталось для педипальп — короткие щупальца, изгиб не нужен.)
  */
 private fun DrawScope.drawLegSprite(
     bmp: ImageBitmap,
@@ -562,6 +714,7 @@ fun PaukMedallion(
     val bgP = painterResource(R.drawable.home_medallion_bg)
     val bodyBmp = ImageBitmap.imageResource(R.drawable.pauk_body)
     val legBmp = ImageBitmap.imageResource(R.drawable.pauk_leg)
+    val legMesh = remember(legBmp) { buildLegMesh(legBmp) }   // software-копия + медиаль (один раз)
     val webFilter = ColorFilter.colorMatrix(
         ColorMatrix().apply { setToSaturation(0.12f + 0.88f * power) },
     )
@@ -633,10 +786,10 @@ fun PaukMedallion(
                             radius = rr, center = sc0,
                         )
                     } else {
-                        drawSpiderSilhouette(sim, bodyBmp, legBmp)
+                        drawSpiderSilhouette(sim, bodyBmp, legMesh)
                     }
                     // --- сам паук ---
-                    drawSpider(sim, bodyBmp, legBmp, live, power)
+                    drawSpider(sim, bodyBmp, legMesh, legBmp, live, power)
                 }
             },
         )
@@ -655,49 +808,48 @@ fun PaukMedallion(
 }
 
 /** Мягкая направленная drop-тень (1 пасс, не low-RAM): силуэт лап+тела чёрным, смещён + низкая альфа. */
-private fun DrawScope.drawSpiderSilhouette(sim: SpiderSim, bodyBmp: ImageBitmap, legBmp: ImageBitmap) {
+private fun DrawScope.drawSpiderSilhouette(sim: SpiderSim, bodyBmp: ImageBitmap, mesh: LegMesh) {
     val rz = 1f + 0.6f * sim.rise
     val offX = 11f * sim.sc * rz
     val offY = 17f * sim.sc * rz
-    val tint = BLACK_TINT
     val a = 0.34f * sim.emergeAlpha        // тень тоже гаснет при уходе под кнопку
     withTransform({ translate(offX, offY) }) {
         // задние пары под телом
-        for (i in 4 until sim.legs.size) drawLegForRise(sim, sim.legs[i], legBmp, a, tint)
+        for (i in 4 until sim.legs.size) drawLegForRise(sim, mesh, sim.legs[i], a, black = true)
         // тело
-        drawBodySprite(sim, bodyBmp, a, tint, drawEyes = false, live = 0f)
+        drawBodySprite(sim, bodyBmp, a, BLACK_TINT, drawEyes = false, live = 0f)
         // передние пары
-        for (i in 0 until 4) drawLegForRise(sim, sim.legs[i], legBmp, a, tint)
+        for (i in 0 until 4) drawLegForRise(sim, mesh, sim.legs[i], a, black = true)
     }
 }
 
 /** Порядок отрисовки: задние лапы → тело(+глаза) → передние лапы → педипальпы. */
 private fun DrawScope.drawSpider(
-    sim: SpiderSim, bodyBmp: ImageBitmap, legBmp: ImageBitmap, live: Float, power: Float,
+    sim: SpiderSim, bodyBmp: ImageBitmap, mesh: LegMesh, legBmp: ImageBitmap, live: Float, power: Float,
 ) {
     val a = sim.emergeAlpha        // общий fade выхода/ухода под кнопку
     // задние пары (idx 4..7) под телом
-    for (i in 4 until sim.legs.size) drawLegForRise(sim, sim.legs[i], legBmp, a, null)
+    for (i in 4 until sim.legs.size) drawLegForRise(sim, mesh, sim.legs[i], a, black = false)
     // тело + глаза
     drawBodySprite(sim, bodyBmp, a, null, drawEyes = true, live = live * power * a)
-    // педипальпы (щупают, поверх головы, но под передними лапами)
+    // педипальпы (щупают, поверх головы, но под передними лапами) — прямой спрайт (короткие)
     for (p in sim.palps) {
         val hp = sim.hipWPalp(p)
         drawLegSprite(legBmp, hp.x, hp.y, p.footX, p.footY, mirror = p.side < 0, alpha = a)
     }
     // передние пары (idx 0..3) над телом
-    for (i in 0 until 4) drawLegForRise(sim, sim.legs[i], legBmp, a, null)
+    for (i in 0 until 4) drawLegForRise(sim, mesh, sim.legs[i], a, black = false)
 }
 
 /** Лапа с учётом RISE: при подъёме стопа подтягивается ~0.13·rise к бедру (лапа укорачивается). */
 private fun DrawScope.drawLegForRise(
-    sim: SpiderSim, leg: SimLeg, legBmp: ImageBitmap, alpha: Float, filter: ColorFilter?,
+    sim: SpiderSim, mesh: LegMesh, leg: SimLeg, alpha: Float, black: Boolean,
 ) {
     val a = sim.hipW(leg)
     var bx = leg.footX; var by = leg.footY
     val r = sim.rise
     if (r > 0.01f) { val k = 1f - 0.13f * r; bx = a.x + (bx - a.x) * k; by = a.y + (by - a.y) * k }
-    drawLegSprite(legBmp, a.x, a.y, bx, by, mirror = leg.side < 0, alpha = alpha, filter = filter)
+    drawLegMesh(sim, mesh, a.x, a.y, bx, by, leg.reach * sim.sc, alpha, black)
 }
 
 /** Тело-спрайт: масштаб *(1+0.13·rise), лёгкое «дыхание», амбер-глаза (по live·power). */
