@@ -169,16 +169,16 @@ fun TvHomeScreen(
                     val center = if (isTv) {
                         Offset(size.width * 0.24f, size.height * 0.5f)
                     } else {
-                        Offset(size.width * 0.5f, size.height * 0.28f)
+                        Offset(size.width * 0.5f, size.height * 0.40f)   // ON the medallion
                     }
-                    val radius = size.maxDimension * 0.5f
-                    // Depth: a layered radial glow (brighter core → soft green halo → dark) behind
-                    // the medallion. Static — only redraws when `connected`/`isTv` change (cheap).
+                    // Glow ONLY around the central element (owner: свечение только вокруг центра).
+                    // Tight radius (was half the screen → bled onto account/status).
+                    val radius = if (isTv) size.maxDimension * 0.45f else size.minDimension * 0.52f
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                NeonGreen.copy(alpha = if (connected) 0.14f else 0.08f),
-                                NeonGreen.copy(alpha = if (connected) 0.05f else 0.03f),
+                                NeonGreen.copy(alpha = if (connected) 0.11f else 0.06f),
+                                NeonGreen.copy(alpha = if (connected) 0.035f else 0.02f),
                                 Color.Transparent,
                             ),
                             center = center, radius = radius,
@@ -308,7 +308,7 @@ fun TvHomeScreen(
 
                     // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
                     // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
-                    val windowTop = maxHeight * 0.560f   // низ медальона → верх скролл-окна (контент прячется тут ЗА кнопку)
+                    val windowTop = maxHeight * 0.585f   // больше воздуха между глазом и статусом (owner) → верх скролл-окна
                     val windowBot = maxHeight * 0.070f   // отступ снизу → нижний вензель рамы остаётся видимым/статичным
 
                     // (b) СКРОЛЛ-ОКНО меню — ОБРЕЗАНО по [под медальоном .. над нижним вензелем]. Статус/
@@ -847,6 +847,32 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
                         1f to Color.Transparent, center = rimC, radius = r * 1.02f,
                     ),
                     radius = r * 1.02f, center = rimC, blendMode = BlendMode.Plus,
+                )
+                // secondary INTERNAL reflection (the highlight bouncing inside — reads as GLASS not plastic)
+                val sr = Offset(c.x - r * 0.16f, c.y + r * 0.30f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.11f), Color.Transparent),
+                        center = sr, radius = r * 0.44f,
+                    ),
+                    radius = r * 0.44f, center = sr, blendMode = BlendMode.Plus,
+                )
+                // caustic: light focused through the glass → bright spot low-centre
+                val ca = Offset(c.x + r * 0.04f, c.y + r * 0.42f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0xFFBFFFD0).copy(alpha = 0.30f), Color.Transparent),
+                        center = ca, radius = r * 0.19f,
+                    ),
+                    radius = r * 0.19f, center = ca, blendMode = BlendMode.Plus,
+                )
+                // fresnel rim: a thin reflective bright edge all around (glass reflects more at grazing angle)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.87f to Color.Transparent, 0.97f to Color(0xFFAFFFC8).copy(alpha = 0.18f),
+                        1f to Color.Transparent, center = c, radius = r,
+                    ),
+                    radius = r, center = c, blendMode = BlendMode.Plus,
                 )
 
                 // ---------- CONNECTED: living eye ----------
