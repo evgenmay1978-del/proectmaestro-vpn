@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -284,7 +285,6 @@ fun TvHomeScreen(
 
                     // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
                     // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
-                    val medTop    = (maxHeight * 0.405f - 150.dp).coerceAtLeast(0.dp) // верх медальон-бокса(300dp) → центр 0.405H
                     val windowTop = maxHeight * 0.560f   // низ медальона → верх скролл-окна (контент прячется тут ЗА кнопку)
                     val windowBot = maxHeight * 0.070f   // отступ снизу → нижний вензель рамы остаётся видимым/статичным
 
@@ -342,22 +342,27 @@ fun TvHomeScreen(
                         }
                     }
 
-                    // (c) ФИКСИРОВАННАЯ кнопка подключения (медальон-обод подложки + ЖИВОЙ паук) ПОВЕРХ
-                    //     скролла → меню уходит ЗА неё. Центр паука на кольце подложки (0.405H) на любом
-                    //     экране. ЖИВОЙ ИЗУМРУД (272dp = medSize эскиз-диска) поверх запечённого обода:
-                    //     твёрдый кристалл ↔ кипящая магма при подключении, паук запечатан внутри.
+                    // (c) ФИКСИРОВАННАЯ кнопка подключения ПОВЕРХ скролла → меню уходит ЗА неё.
+                    //     ЖИВОЙ ИЗУМРУД — посажен ТОЧНО на отверстие эскиз-диска той же Crop-матрицей,
+                    //     что и фон (измерено на home_backdrop 853x1844: центр обода (429,697.5), радиус
+                    //     220.8px), поэтому изумруд совпадает с ободом рамы на ЛЮБОМ экране/пропорции.
+                    //     Кристалл ↔ кипящая магма при подключении, паук запечатан внутри.
+                    val imgW = 853f; val imgH = 1844f
+                    val dcx = 429.0f; val dcy = 697.5f; val dr = 220.8f
+                    val medS = maxOf(maxWidth.value / imgW, maxHeight.value / imgH)   // ContentScale.Crop scale
+                    val medR = dr * medS
+                    val medCx = (maxWidth.value - imgW * medS) / 2f + dcx * medS
+                    val medCy = (maxHeight.value - imgH * medS) / 2f + dcy * medS
                     Box(
                         modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .padding(top = medTop, start = 18.dp, end = 18.dp)
-                            .height(300.dp),
+                            .offset(x = (medCx - medR).dp, y = (medCy - medR).dp)
+                            .size((2f * medR).dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         EmeraldMedallion(
                             connected = connected,
                             onToggle = onToggleConnect,
-                            modifier = Modifier.size(272.dp),
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
                 }
