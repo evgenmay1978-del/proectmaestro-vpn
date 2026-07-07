@@ -185,6 +185,7 @@ fun EmeraldMedallion(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val ctx = LocalContext.current
     val lowRam = rememberIsLowRam()
     val canAgsl = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !lowRam
 
@@ -195,14 +196,36 @@ fun EmeraldMedallion(
         label = "molten",
     )
 
+    // Spider silhouette (R=shape, G=halo) as a child `uniform shader`. Decoded once.
+    val spider = remember {
+        runCatching {
+            val bmp = BitmapFactory.decodeResource(ctx.resources, R.drawable.emerald_spider)
+            Pair(BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP), bmp)
+        }.getOrNull()
+    }
+    // Create AND fully validate the shader once: set EVERY uniform + the input shader now, so a
+    // missing/typo uniform name throws HERE (caught → still fallback) instead of crashing later in
+    // the per-frame draw phase. Constant uniforms (finger/freeze/spider) persist for the lifetime.
+    val shader = remember(spider) {
+        if (!canAgsl || spider == null) return@remember null
+        runCatching {
+            val s = RuntimeShader(EMERALD_AGSL)
+            s.setFloatUniform("iResolution", 100f, 100f)
+            s.setFloatUniform("iTime", 0f)
+            s.setFloatUniform("uMolten", 0f)
+            s.setFloatUniform("uFreeze", 0f)
+            s.setFloatUniform("uFinger", -10f, -10f)
+            s.setFloatUniform("uFingerAmt", 0f)
+            s.setFloatUniform("uSpiderRes", spider.second.width.toFloat(), spider.second.height.toFloat())
+            s.setInputShader("uSpider", spider.first)
+            s
+        }.getOrNull()
+    }
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier.size(252.dp),
     ) {
-        // shader is created lazily and defensively: a compile failure => null => still fallback
-        val shader = remember {
-            if (canAgsl) runCatching { RuntimeShader(EMERALD_AGSL) }.getOrNull() else null
-        }
         if (shader != null) {
             EmeraldShaderDisc(shader, molten, Modifier.size(232.dp).clip(CircleShape))
         } else {
@@ -229,12 +252,6 @@ private fun EmeraldShaderDisc(
     molten: Float,
     modifier: Modifier = Modifier,
 ) {
-    val ctx = LocalContext.current
-    // spider silhouette (R=shape, G=halo) as a child `uniform shader`
-    val spiderShader = remember {
-        val bmp = BitmapFactory.decodeResource(ctx.resources, R.drawable.emerald_spider)
-        BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP) to bmp
-    }
     // frame clock — the ONLY per-frame state; draw-phase reads it so only the disc redraws
     val time = remember { mutableStateOf(0f) }
     LaunchedEffect(Unit) {
@@ -243,20 +260,18 @@ private fun EmeraldShaderDisc(
             withFrameNanos { frame -> time.value = (frame - t0) / 1_000_000_000f }
         }
     }
-    val (bitmapShader, bmp) = spiderShader
     val brush = remember(shader) { ShaderBrush(shader) }
     Box(
         modifier.drawWithCache {
             shader.setFloatUniform("iResolution", size.width, size.height)
-            shader.setFloatUniform("uSpiderRes", bmp.width.toFloat(), bmp.height.toFloat())
-            shader.setInputShader("uSpider", bitmapShader)
-            shader.setFloatUniform("uFinger", -10f, -10f)
-            shader.setFloatUniform("uFingerAmt", 0f)
-            shader.setFloatUniform("uFreeze", 0f)
             onDrawBehind {
-                shader.setFloatUniform("uTime", time.value)
-                shader.setFloatUniform("uMolten", molten)
-                drawRect(brush)
+                // names validated at creation; guard anyway so the home screen can never crash
+                // from a draw-phase shader error.
+                runCatching {
+                    shader.setFloatUniform("iTime", time.value)
+                    shader.setFloatUniform("uMolten", molten)
+                    drawRect(brush)
+                }
             }
         },
     )
