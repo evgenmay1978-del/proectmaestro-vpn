@@ -6,7 +6,7 @@ name: Build app APK (test / compile-check)
 #
 # ⛔ SAFETY: NO GitHub Release → the OTA mirror never sees it. APK = artifact only
 # (maestrovpn-tv-test-apk). HIGH versionCode so it won't self-update mid-test.
-# (ci trigger: fantasy+emerald v2 exact-disc-fit 2026-07-07)
+# (ci trigger: fantasy+emerald v3 inside-bronze-ring 2026-07-07)
 
 on:
   workflow_dispatch:
