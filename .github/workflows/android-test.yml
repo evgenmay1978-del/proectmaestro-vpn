@@ -9,6 +9,7 @@ name: Build app APK (test / compile-check)
 # (ci trigger: fantasy crisp-fill-eye v12 2026-07-07)
 # (ci trigger: target-1to1 — mockup medallions + status colors 2026-07-07)
 # (ci trigger: target-1to1 v2 — full medallion ring + live under-glow 2026-07-07)
+# (ci trigger: target-1to1 v3 — CTA gold + tile icons per mockup 2026-07-07)
 
 on:
   workflow_dispatch:

@@ -246,13 +246,15 @@ fun GlossyButton(
     val brush = Brush.verticalGradient(
         listOf(lerp(accent, Color.White, 0.42f), accent, lerp(accent, Color.Black, 0.34f)),
     )
+    // Эталон owner (телефон/дерево): текст и иконка CTA — кремово-золотые, не белые.
+    val content = if (wood) Color(0xFFEFE0B0) else Color.White
     Button(
         onClick = onClick,
         shape = shape,
         interactionSource = interaction,
         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = content),
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(
@@ -271,7 +273,7 @@ fun GlossyButton(
             ),
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
         }
         Text(label, fontWeight = FontWeight.Bold, fontSize = 17.sp)
@@ -325,13 +327,14 @@ fun ChromeTile(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
+            // Эталон owner (телефон/дерево): иконка плитки крупнее, подпись чуть больше.
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(if (wood) 28.dp else 24.dp))
             Spacer(Modifier.height(7.dp))
             Text(
                 label,
                 color = Color.White,
                 fontWeight = FontWeight.Medium,
-                fontSize = 13.sp,
+                fontSize = if (wood) 14.sp else 13.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
             )
