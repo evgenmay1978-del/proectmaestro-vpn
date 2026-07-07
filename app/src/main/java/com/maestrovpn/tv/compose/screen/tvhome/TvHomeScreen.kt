@@ -344,7 +344,8 @@ fun TvHomeScreen(
 
                     // (c) ФИКСИРОВАННАЯ кнопка подключения (медальон-обод подложки + ЖИВОЙ паук) ПОВЕРХ
                     //     скролла → меню уходит ЗА неё. Центр паука на кольце подложки (0.405H) на любом
-                    //     экране. backdropMode=true → рисуем только паука (обод уже на подложке).
+                    //     экране. ЖИВОЙ ИЗУМРУД (272dp = medSize эскиз-диска) поверх запечённого обода:
+                    //     твёрдый кристалл ↔ кипящая магма при подключении, паук запечатан внутри.
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
@@ -353,11 +354,10 @@ fun TvHomeScreen(
                             .height(300.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        PaukMedallion(
+                        EmeraldMedallion(
                             connected = connected,
                             onToggle = onToggleConnect,
-                            focusRequester = connectFocus,
-                            backdropMode = true,
+                            modifier = Modifier.size(272.dp),
                         )
                     }
                 }
