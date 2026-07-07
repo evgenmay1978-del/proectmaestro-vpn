@@ -804,40 +804,46 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
                 val t = clock.value
                 val c = center
                 val r = size.minDimension / 2f
-                // smooth dome — darken toward the edges (symmetric bulge → volume, no crookedness)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.40f),
-                        center = c, radius = r,
-                    ),
-                    radius = r, center = c,
-                )
-                // ONE soft glossy highlight (upper) — wide and soft so it's a sheen, not a blob
-                val hl = Offset(c.x - r * 0.20f, c.y - r * 0.34f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.24f), Color.Transparent),
-                        center = hl, radius = r * 0.55f,
-                    ),
-                    radius = r * 0.55f, center = hl, blendMode = BlendMode.Plus,
-                )
-                // subtle fresnel rim (thin, all around)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.90f to Color.Transparent, 0.97f to Color(0xFFBFFFD0).copy(alpha = 0.12f),
-                        1f to Color.Transparent, center = c, radius = r,
-                    ),
-                    radius = r, center = c, blendMode = BlendMode.Plus,
-                )
-                // connected: gentle green glow breath — the only life (no blobs)
-                if (eyeAlpha > 0.01f) {
-                    val g = 0.08f + 0.06f * sin(t * 1.1f)
+                // The dome only shapes the DISCONNECTED sphere; it FADES OUT as the eye appears so the
+                // crisp eye stays crisp and unified (owner: глаз чёткий, ничего не выбивается).
+                val domeK = (1f - eyeAlpha).coerceIn(0f, 1f)
+                if (domeK > 0.01f) {
+                    // smooth dome — darken toward the edges (symmetric bulge → volume)
                     drawCircle(
                         brush = Brush.radialGradient(
-                            listOf(Color(0xFF34E67A).copy(alpha = g * eyeAlpha), Color.Transparent),
-                            center = c, radius = r * 1.05f,
+                            0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.40f * domeK),
+                            center = c, radius = r,
                         ),
-                        radius = r * 1.05f, center = c, blendMode = BlendMode.Plus,
+                        radius = r, center = c,
+                    )
+                    // ONE soft glossy highlight (upper) — wide & soft sheen, not a blob
+                    val hl = Offset(c.x - r * 0.20f, c.y - r * 0.34f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color.White.copy(alpha = 0.24f * domeK), Color.Transparent),
+                            center = hl, radius = r * 0.55f,
+                        ),
+                        radius = r * 0.55f, center = hl, blendMode = BlendMode.Plus,
+                    )
+                    // subtle fresnel rim
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            0.90f to Color.Transparent, 0.97f to Color(0xFFBFFFD0).copy(alpha = 0.12f * domeK),
+                            1f to Color.Transparent, center = c, radius = r,
+                        ),
+                        radius = r, center = c, blendMode = BlendMode.Plus,
+                    )
+                }
+                // connected: gentle green glow breath — the only life on the crisp eye (no blobs)
+                if (eyeAlpha > 0.01f) {
+                    val g = 0.06f + 0.05f * sin(t * 1.1f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            0.55f to Color.Transparent,
+                            1f to Color(0xFF34E67A).copy(alpha = g * eyeAlpha),
+                            center = c, radius = r * 1.06f,
+                        ),
+                        radius = r * 1.06f, center = c, blendMode = BlendMode.Plus,
                     )
                 }
             },
