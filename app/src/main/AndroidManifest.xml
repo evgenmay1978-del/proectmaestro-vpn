@@ -29,6 +29,9 @@
         android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Hold a PARTIAL_WAKE_LOCK for the tunnel lifetime so the connection keeps passing
+         traffic when the screen is off / device dozes (fix: "ВПН при отключённом экране засыпает"). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />

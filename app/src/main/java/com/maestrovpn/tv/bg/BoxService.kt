@@ -89,6 +89,9 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private lateinit var commandServer: CommandServer
 
     private var receiverRegistered = false
+    // Held for the whole tunnel lifetime so the CPU stays awake in Doze and the engine's
+    // packet loop + keepalives keep running when the screen is off (screen-off "sleep" fix).
+    private var wakeLock: PowerManager.WakeLock? = null
     private val receiver =
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -181,6 +184,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
 
             status.postValue(Status.Started)
+            acquireWakeLock()   // keep the CPU alive so the tunnel survives screen-off / Doze
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_started)
             }
@@ -192,6 +196,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     override fun serviceStop() {
+        releaseWakeLock()
         notification.close()
         status.postValue(Status.Starting)
         val pfd = fileDescriptor
@@ -302,11 +307,31 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     @RequiresApi(Build.VERSION_CODES.M)
     private fun serviceUpdateIdleMode() {
-        if (Application.powerManager.isDeviceIdleMode) {
-            commandServer.pause()
-        } else {
-            commandServer.wake()
-        }
+        // Keep the tunnel alive in Doze. An always-on VPN must keep passing background traffic
+        // while the screen is off; the old code called commandServer.pause() on
+        // ACTION_DEVICE_IDLE_MODE_CHANGED, which quiesced the engine and dropped the connection
+        // until the screen came back on ("ВПН при отключённом экране засыпает"). We hold a
+        // PARTIAL_WAKE_LOCK for the tunnel lifetime so the CPU keeps running — therefore never
+        // pause; call wake() defensively so any prior pause is undone. Guard against the brief
+        // startup window where the idle broadcast can arrive before commandServer is created.
+        if (::commandServer.isInitialized) commandServer.wake()
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock != null) return
+        runCatching {
+            wakeLock = Application.powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "MaestroVPN:tunnel",
+            ).apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.onFailure { Log.w(TAG, "acquireWakeLock failed: ${it.message}") }
+    }
+
+    private fun releaseWakeLock() {
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+        wakeLock = null
     }
 
     @OptIn(DelicateCoroutinesApi::class)
@@ -319,6 +344,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // stopping/stopped.
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
         status.value = Status.Stopping
+        releaseWakeLock()
         // Tear down the olcRTC child (if it was running) the moment the tunnel stops, so a
         // disguise video-call process never outlives the VPN. No-op when olcRTC wasn't used.
         OlcrtcManager.stop()
@@ -374,6 +400,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
         Settings.startedByUser = false
+        releaseWakeLock()
         val pfd = fileDescriptor
         if (pfd != null) {
             pfd.close()
