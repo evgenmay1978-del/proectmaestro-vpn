@@ -14,6 +14,7 @@ name: Build app APK (test / compile-check)
 # (ci trigger: target-1to1 v5 — tap-zone на орб (430,711,R228) + процедурный купол удалён (1:1 baked) 2026-07-07)
 # (ci trigger: living-eye v6 — живой глаз по спеке владельца (слои из его пикселей) 2026-07-08)
 # (ci trigger: living-eye v7 — веки из кожи арта + вихрь только ядра (анти-артефакт) 2026-07-08)
+# (ci trigger: living-eye v8 — полировка: быстрый старт вихря, направленное веко, тремор фиксации 2026-07-08)
 
 on:
   workflow_dispatch:

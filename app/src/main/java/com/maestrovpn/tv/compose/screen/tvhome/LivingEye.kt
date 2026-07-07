@@ -36,7 +36,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
@@ -85,7 +84,14 @@ fun LivingEye(
                     launch { gaze.animateTo(t, tween(150, easing = FastOutSlowInEasing)) }
                 } else if (watching > 0f) {
                     release = launch {
-                        delay(Random.nextLong(2000, 3500))
+                        // «наблюдает» за местом касания: тремор фиксации как у настоящего глаза
+                        repeat(Random.nextInt(1, 3)) {
+                            delay(Random.nextLong(450, 900))
+                            val g = gaze.value + randomDir(0.015f, 0.04f)
+                            gaze.animateTo(Offset(g.x.coerceIn(-1f, 1f), g.y.coerceIn(-1f, 1f)),
+                                tween(Random.nextInt(60, 90), easing = LinearOutSlowInEasing))
+                        }
+                        delay(Random.nextLong(700, 1400))
                         watching = 0f
                     }
                 }
@@ -98,7 +104,7 @@ fun LivingEye(
         if (connected) {
             // ПОЯВЛЕНИЕ: энергия закручивается, из глубины силуэт, веки открываются, зрачок фокусируется
             lid.snapTo(1f); dilate.snapTo(0f); gaze.snapTo(Offset.Zero); squint.snapTo(0f)
-            launch { spin.animateTo(spin.value + 480f, tween(1000, easing = CubicBezierEasing(0.4f, 0f, 0.8f, 1f))) }
+            launch { spin.animateTo(spin.value + 480f, tween(1000, easing = CubicBezierEasing(0.15f, 0.55f, 0.35f, 1f))) }
             delay(260)                                     // силуэт проступает под открывающимися веками
             lid.animateTo(0f, tween(680, easing = CubicBezierEasing(0.25f, 0f, 0.2f, 1f)))
             launch { dilate.animateTo(1f, tween(400, easing = FastOutSlowInEasing)); dilate.animateTo(0.30f, tween(650)) }
@@ -239,7 +245,7 @@ fun LivingEye(
             // веки: КОЖА ИЗ АРТА (растянутая верхняя/нижняя дуга сокета — прожилки владельца) +
             // затемнение к краю, ресничная кромка, тёплый подповерхностный штрих, тень на яблоко.
             // Верхнее ведущее (+ след взгляда + прищур), нижнее — 40% хода. Проверено симуляцией.
-            val lidK = (lid.value + squint.value * 0.9f + abs(gaze.value.y) * 0.05f).coerceIn(0f, 1f)
+            val lidK = (lid.value + squint.value * 0.9f + gaze.value.y.coerceAtLeast(0f) * 0.08f).coerceIn(0f, 1f)
             if (lidK > 0.002f) {
                 val travel = 2f * r * 0.56f * lidK
                 val texW = eyeBase.width; val texH = eyeBase.height
