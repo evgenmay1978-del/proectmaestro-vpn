@@ -77,7 +77,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
@@ -886,15 +885,6 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
                         Color.White.copy(alpha = (0.40f + 0.20f * sin(t * 1.9f)) * a),
                         radius = r * 0.06f, center = gp, blendMode = BlendMode.Plus,
                     )
-                    // periodic BLINK (every ~4.2s, quick) — the clearest "alive" cue
-                    val ph = (t % 4.2f) / 4.2f
-                    val blink = if (ph < 0.05f) sin((ph / 0.05f) * 3.14159f) else 0f
-                    if (blink > 0.01f) {
-                        val lid = blink * 1.06f
-                        val lc = Color(0xFF241206).copy(alpha = 0.94f * a)
-                        drawRect(lc, topLeft = Offset(c.x - r, c.y - r), size = Size(2 * r, r * lid))
-                        drawRect(lc, topLeft = Offset(c.x - r, c.y + r - r * lid), size = Size(2 * r, r * lid))
-                    }
                 }
             },
     )
