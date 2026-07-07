@@ -79,7 +79,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -303,6 +305,35 @@ fun TvHomeScreen(
                             alpha = eyeAlpha,
                         )
                     }
+                    // Живой отсвет медальона на дереве ПОД кольцом (1:1 к эталону owner):
+                    // ОТКЛЮЧЕНО = тёплый красный, ПОДКЛЮЧЕНО = зелёный; кроссфейд вместе с глазом.
+                    // Рисуется по геометрии Crop-фона (853×1844, сокет (428,711), обод R≈341).
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .drawBehind {
+                                val sc = kotlin.math.max(size.width / 853f, size.height / 1844f)
+                                val cx = (size.width - 853f * sc) / 2f + 428f * sc
+                                val cy = (size.height - 1844f * sc) / 2f + 711f * sc
+                                val r = 341f * sc
+                                val gy = cy + r * 1.02f
+                                fun DrawScope.underGlow(c: Color, a: Float) {
+                                    if (a <= 0.01f) return
+                                    withTransform({ scale(1f, 0.34f, pivot = Offset(cx, gy)) }) {
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                listOf(c.copy(alpha = 0.30f * a), Color.Transparent),
+                                                center = Offset(cx, gy), radius = r * 1.18f,
+                                            ),
+                                            radius = r * 1.18f, center = Offset(cx, gy),
+                                            blendMode = BlendMode.Plus,
+                                        )
+                                    }
+                                }
+                                underGlow(Color(0xFFB23222), 1f - eyeAlpha)
+                                underGlow(Color(0xFF2FD16B), eyeAlpha)
+                            },
+                    )
 
                     // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
                     // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
