@@ -79,7 +79,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -303,6 +305,35 @@ fun TvHomeScreen(
                             alpha = eyeAlpha,
                         )
                     }
+                    // Живой отсвет медальона на дереве ПОД кольцом (1:1 к эталону owner):
+                    // ОТКЛЮЧЕНО = тёплый красный, ПОДКЛЮЧЕНО = зелёный; кроссфейд вместе с глазом.
+                    // Рисуется по геометрии Crop-фона (853×1844, сокет (428,711), обод R≈341).
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .drawBehind {
+                                val sc = kotlin.math.max(size.width / 853f, size.height / 1844f)
+                                val cx = (size.width - 853f * sc) / 2f + 428f * sc
+                                val cy = (size.height - 1844f * sc) / 2f + 711f * sc
+                                val r = 341f * sc
+                                val gy = cy + r * 1.02f
+                                fun DrawScope.underGlow(c: Color, a: Float) {
+                                    if (a <= 0.01f) return
+                                    withTransform({ scale(1f, 0.34f, pivot = Offset(cx, gy)) }) {
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                listOf(c.copy(alpha = 0.30f * a), Color.Transparent),
+                                                center = Offset(cx, gy), radius = r * 1.18f,
+                                            ),
+                                            radius = r * 1.18f, center = Offset(cx, gy),
+                                            blendMode = BlendMode.Plus,
+                                        )
+                                    }
+                                }
+                                underGlow(Color(0xFFB23222), 1f - eyeAlpha)
+                                underGlow(Color(0xFF2FD16B), eyeAlpha)
+                            },
+                    )
 
                     // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
                     // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
@@ -367,7 +398,8 @@ fun TvHomeScreen(
                     //     уходит ЗА неё. Глаз/диск запечены в фон (проём фиксирован Crop-ом сам); тап-зона
                     //     садится на тот же проём Crop-матрицей (центр обода dcx=433/dcy=693, r=206 = полный проём).
                     val imgW = 853f; val imgH = 1844f
-                    val dcx = 433.0f; val dcy = 693.0f; val dr = 206f
+                    // Геометрия НОВОГО (макетного) медальона: стеклянный орб центр (430,711), R≈228
+                    val dcx = 430.0f; val dcy = 711.0f; val dr = 228f
                     val medS = maxOf(maxWidth.value / imgW, maxHeight.value / imgH)   // ContentScale.Crop scale
                     val medR = dr * medS
                     val medCx = (maxWidth.value - imgW * medS) / 2f + dcx * medS
@@ -435,21 +467,26 @@ private fun PhoneStatusRow(
     selected: String?,
 ) {
     Spacer(Modifier.height(6.dp))
+    // 1:1 к эталону owner: ОТКЛЮЧЕНО = красная точка + красный текст (было серебро/белый),
+    // и строка протокола видна в ОБОИХ состояниях («Отключён: Vless-s3 • авто»).
+    val stateRed = Color(0xFFFF4040)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else MaestroSilver))
+        Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else stateRed))
         Spacer(Modifier.width(9.dp))
         Text(
             statusText.uppercase(),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = if (connected) NeonGreen else Color.White,
+            color = if (connected) NeonGreen else stateRed,
         )
     }
-    if (connected && !activeProtocol.isNullOrBlank()) {
+    val protoMain = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
+    if (!protoMain.isNullOrBlank()) {
         Spacer(Modifier.height(8.dp))
-        val viaAuto = selected == "auto" && activeProtocol != "auto"
+        val viaAuto = selected == "auto" && protoMain != "auto"
+        val prefix = if (connected) "Подключён" else "Отключён"
         Text(
-            if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
+            if (viaAuto) "$prefix: ${protocolLabel(protoMain)}  •  авто" else "$prefix: ${protocolLabel(protoMain)}",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = MaestroOrange,
@@ -783,10 +820,10 @@ private fun MenuPane(
     }
 }
 
-/** Medallion life/volume layer over the disc opening.
- *  ONE smooth glassy dome (edge shading for volume + a single soft highlight + a subtle fresnel
- *  rim) — NO scattered blobs. CONNECTED: only a gentle green glow breath. Clean and coherent so it
- *  never turns into a mess over the baked eye. Clock runs only while connected (no idle cost). */
+/** Medallion life layer over the glass orb.
+ *  Купол/блик/объём теперь ЗАПЕЧЕНЫ в фон из пикселей макета владельца (1:1) — процедурный купол
+ *  УДАЛЁН, чтобы не дублировать блик и не «выдумывать» поверх эскиза. Остаётся только едва заметное
+ *  зелёное дыхание по ободу в состоянии ПОДКЛЮЧЕНО. Clock runs only while connected (no idle cost). */
 @Composable
 private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modifier) {
     val clock = remember { mutableStateOf(0f) }
@@ -804,36 +841,6 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
                 val t = clock.value
                 val c = center
                 val r = size.minDimension / 2f
-                // The dome only shapes the DISCONNECTED sphere; it FADES OUT as the eye appears so the
-                // crisp eye stays crisp and unified (owner: глаз чёткий, ничего не выбивается).
-                val domeK = (1f - eyeAlpha).coerceIn(0f, 1f)
-                if (domeK > 0.01f) {
-                    // smooth dome — darken toward the edges (symmetric bulge → volume)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.40f * domeK),
-                            center = c, radius = r,
-                        ),
-                        radius = r, center = c,
-                    )
-                    // ONE soft glossy highlight (upper) — wide & soft sheen, not a blob
-                    val hl = Offset(c.x - r * 0.20f, c.y - r * 0.34f)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.24f * domeK), Color.Transparent),
-                            center = hl, radius = r * 0.55f,
-                        ),
-                        radius = r * 0.55f, center = hl, blendMode = BlendMode.Plus,
-                    )
-                    // subtle fresnel rim
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            0.90f to Color.Transparent, 0.97f to Color(0xFFBFFFD0).copy(alpha = 0.12f * domeK),
-                            1f to Color.Transparent, center = c, radius = r,
-                        ),
-                        radius = r, center = c, blendMode = BlendMode.Plus,
-                    )
-                }
                 // connected: gentle green glow breath — the only life on the crisp eye (no blobs)
                 if (eyeAlpha > 0.01f) {
                     val g = 0.06f + 0.05f * sin(t * 1.1f)
