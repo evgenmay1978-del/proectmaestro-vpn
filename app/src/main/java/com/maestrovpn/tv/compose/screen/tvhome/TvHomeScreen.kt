@@ -398,7 +398,8 @@ fun TvHomeScreen(
                     //     уходит ЗА неё. Глаз/диск запечены в фон (проём фиксирован Crop-ом сам); тап-зона
                     //     садится на тот же проём Crop-матрицей (центр обода dcx=433/dcy=693, r=206 = полный проём).
                     val imgW = 853f; val imgH = 1844f
-                    val dcx = 433.0f; val dcy = 693.0f; val dr = 206f
+                    // Геометрия НОВОГО (макетного) медальона: стеклянный орб центр (430,711), R≈228
+                    val dcx = 430.0f; val dcy = 711.0f; val dr = 228f
                     val medS = maxOf(maxWidth.value / imgW, maxHeight.value / imgH)   // ContentScale.Crop scale
                     val medR = dr * medS
                     val medCx = (maxWidth.value - imgW * medS) / 2f + dcx * medS
@@ -819,10 +820,10 @@ private fun MenuPane(
     }
 }
 
-/** Medallion life/volume layer over the disc opening.
- *  ONE smooth glassy dome (edge shading for volume + a single soft highlight + a subtle fresnel
- *  rim) — NO scattered blobs. CONNECTED: only a gentle green glow breath. Clean and coherent so it
- *  never turns into a mess over the baked eye. Clock runs only while connected (no idle cost). */
+/** Medallion life layer over the glass orb.
+ *  Купол/блик/объём теперь ЗАПЕЧЕНЫ в фон из пикселей макета владельца (1:1) — процедурный купол
+ *  УДАЛЁН, чтобы не дублировать блик и не «выдумывать» поверх эскиза. Остаётся только едва заметное
+ *  зелёное дыхание по ободу в состоянии ПОДКЛЮЧЕНО. Clock runs only while connected (no idle cost). */
 @Composable
 private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modifier) {
     val clock = remember { mutableStateOf(0f) }
@@ -840,36 +841,6 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
                 val t = clock.value
                 val c = center
                 val r = size.minDimension / 2f
-                // The dome only shapes the DISCONNECTED sphere; it FADES OUT as the eye appears so the
-                // crisp eye stays crisp and unified (owner: глаз чёткий, ничего не выбивается).
-                val domeK = (1f - eyeAlpha).coerceIn(0f, 1f)
-                if (domeK > 0.01f) {
-                    // smooth dome — darken toward the edges (symmetric bulge → volume)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.40f * domeK),
-                            center = c, radius = r,
-                        ),
-                        radius = r, center = c,
-                    )
-                    // ONE soft glossy highlight (upper) — wide & soft sheen, not a blob
-                    val hl = Offset(c.x - r * 0.20f, c.y - r * 0.34f)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.24f * domeK), Color.Transparent),
-                            center = hl, radius = r * 0.55f,
-                        ),
-                        radius = r * 0.55f, center = hl, blendMode = BlendMode.Plus,
-                    )
-                    // subtle fresnel rim
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            0.90f to Color.Transparent, 0.97f to Color(0xFFBFFFD0).copy(alpha = 0.12f * domeK),
-                            1f to Color.Transparent, center = c, radius = r,
-                        ),
-                        radius = r, center = c, blendMode = BlendMode.Plus,
-                    )
-                }
                 // connected: gentle green glow breath — the only life on the crisp eye (no blobs)
                 if (eyeAlpha > 0.01f) {
                     val g = 0.06f + 0.05f * sin(t * 1.1f)
