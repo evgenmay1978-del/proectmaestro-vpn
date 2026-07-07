@@ -435,21 +435,26 @@ private fun PhoneStatusRow(
     selected: String?,
 ) {
     Spacer(Modifier.height(6.dp))
+    // 1:1 к эталону owner: ОТКЛЮЧЕНО = красная точка + красный текст (было серебро/белый),
+    // и строка протокола видна в ОБОИХ состояниях («Отключён: Vless-s3 • авто»).
+    val stateRed = Color(0xFFFF4040)
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else MaestroSilver))
+        Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else stateRed))
         Spacer(Modifier.width(9.dp))
         Text(
             statusText.uppercase(),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = if (connected) NeonGreen else Color.White,
+            color = if (connected) NeonGreen else stateRed,
         )
     }
-    if (connected && !activeProtocol.isNullOrBlank()) {
+    val protoMain = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
+    if (!protoMain.isNullOrBlank()) {
         Spacer(Modifier.height(8.dp))
-        val viaAuto = selected == "auto" && activeProtocol != "auto"
+        val viaAuto = selected == "auto" && protoMain != "auto"
+        val prefix = if (connected) "Подключён" else "Отключён"
         Text(
-            if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
+            if (viaAuto) "$prefix: ${protocolLabel(protoMain)}  •  авто" else "$prefix: ${protocolLabel(protoMain)}",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = MaestroOrange,
