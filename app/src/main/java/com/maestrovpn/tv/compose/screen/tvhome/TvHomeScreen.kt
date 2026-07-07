@@ -77,6 +77,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -280,7 +282,30 @@ fun TvHomeScreen(
                 // поверх деревянного окна. Архитектура (owner): рамка+логотип не двигаются, крутится
                 // только внутренний контент, где плиток БОЛЬШЕ шести. Наш живой паук — в backdrop-режиме
                 // поверх медальона эскиза; статус/аккаунт/полное меню (wood=true) идут ниже, скроллом. ──
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                // Направление на палец (для живого глаза): пишется pointerInput'ом ниже, читается LivingEye.
+                val eyeTouchDir = remember { mutableStateOf<Offset?>(null) }
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // Наблюдение (Initial pass, ничего не потребляет): глаз следит за пальцем по всему
+                        // экрану; тап по медальону по-прежнему уходит в Button (подключить/отключить).
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                val imgW = 853f; val imgH = 1844f
+                                while (true) {
+                                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                                    val p = e.changes.firstOrNull { it.pressed }?.position
+                                    eyeTouchDir.value = p?.let {
+                                        val s = maxOf(size.width / imgW, size.height / imgH)
+                                        val cx = (size.width - imgW * s) / 2f + 430f * s
+                                        val cy = (size.height - imgH * s) / 2f + 711f * s
+                                        val rr = 228f * s
+                                        Offset((it.x - cx) / (rr * 2.2f), (it.y - cy) / (rr * 2.2f)).clampLen1()
+                                    }
+                                }
+                            }
+                        },
+                ) {
                     // (a) ФИКСИРОВАННЫЙ фон — резная рама/дерево/плющ/логотип/вензели (верх+низ) + пустой
                     //     медальон-обод запечены в `home_backdrop`. НЕ скроллится.
                     Image(
@@ -410,8 +435,15 @@ fun TvHomeScreen(
                             .size((2f * medR).dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        // Медальон-слой: ВСЕГДА стеклянный купол (объём диска, не плоский круг);
-                        // ПОДКЛЮЧЕНО → живой глаз (дыхание/зрачок/радужка/блик/моргание).
+                        // ЖИВОЙ ГЛАЗ: слои из пикселей мокапа (склера/радужка/зрачок) + веки/взгляд/
+                        // саккады/дыхание зрачка/слежение за пальцем; вихрь плазмы на переходах.
+                        LivingEye(
+                            connected = connected,
+                            eyeAlpha = { eyeAlpha },
+                            touchDir = eyeTouchDir,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        // Поверх — только едва заметное зелёное дыхание обода (connected).
                         MedallionOverlay(
                             connected = connected,
                             eyeAlpha = eyeAlpha,
