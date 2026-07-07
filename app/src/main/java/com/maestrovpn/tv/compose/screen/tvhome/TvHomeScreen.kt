@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -55,6 +56,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -282,6 +285,22 @@ fun TvHomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
+                    // (a2) ПОДКЛЮЧЕНО → в проёме медальона ОТКРЫВАЕТСЯ «глаз» (тот же фон, но с запечённым
+                    //      в проём глазом-эталоном owner). Кросс-фейд по connected. ОТКЛЮЧЕНО → чистый
+                    //      зелёный диск (обычный home_backdrop, без паука). Глаз запечён В ФОН → проём
+                    //      совпадает Crop-ом сам, без ручной посадки.
+                    val eyeAlpha by animateFloatAsState(
+                        if (connected) 1f else 0f, tween(800, easing = FastOutSlowInEasing), label = "eye",
+                    )
+                    if (eyeAlpha > 0.004f) {
+                        Image(
+                            painter = painterResource(R.drawable.home_backdrop_connected),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            alpha = eyeAlpha,
+                        )
+                    }
 
                     // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
                     // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
@@ -342,15 +361,11 @@ fun TvHomeScreen(
                         }
                     }
 
-                    // (c) ФИКСИРОВАННАЯ кнопка подключения ПОВЕРХ скролла → меню уходит ЗА неё.
-                    //     ЖИВОЙ ИЗУМРУД — посажен ТОЧНО в ЗЕЛЁНЫЙ диск ВНУТРИ бронзового кольца той же
-                    //     Crop-матрицей, что и фон (измерено на home_backdrop 853x1844: центр (429,697.5);
-                    //     ⭐ КАЛИБРОВАНО ПО РЕАЛЬНОМУ СКРИНУ УСТРОЙСТВА (1080x2340): камень при r=206
-                    //     заполнял диск до бронзы (перекрывал). Замер на скрине: обод-центр диска даёт
-                    //     dcx=433/dcy=693 (не 429/697.5), а r=172 сажает камень ЧЁТКО внутри бронзового
-                    //     кольца (край ~227px при внутр.бронзе ~272px). Кристалл ↔ кипящая магма, паук внутри.
+                    // (c) ФИКСИРОВАННАЯ прозрачная ТАП-ЗОНА на проёме медальона ПОВЕРХ скролла → меню
+                    //     уходит ЗА неё. Глаз/диск запечены в фон (проём фиксирован Crop-ом сам); тап-зона
+                    //     садится на тот же проём Crop-матрицей (центр обода dcx=433/dcy=693, r=206 = полный проём).
                     val imgW = 853f; val imgH = 1844f
-                    val dcx = 433.0f; val dcy = 693.0f; val dr = 172f
+                    val dcx = 433.0f; val dcy = 693.0f; val dr = 206f
                     val medS = maxOf(maxWidth.value / imgW, maxHeight.value / imgH)   // ContentScale.Crop scale
                     val medR = dr * medS
                     val medCx = (maxWidth.value - imgW * medS) / 2f + dcx * medS
@@ -361,10 +376,14 @@ fun TvHomeScreen(
                             .size((2f * medR).dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        EmeraldMedallion(
-                            connected = connected,
-                            onToggle = onToggleConnect,
+                        Button(
+                            onClick = onToggleConnect,
+                            shape = CircleShape,
+                            contentPadding = PaddingValues(0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
                             modifier = Modifier.fillMaxSize(),
+                            content = {},
                         )
                     }
                 }
