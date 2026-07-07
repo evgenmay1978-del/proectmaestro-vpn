@@ -77,7 +77,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -99,7 +98,6 @@ import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.rememberIsTv
-import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
 import com.maestrovpn.tv.compose.screenPadding
@@ -786,11 +784,9 @@ private fun MenuPane(
 }
 
 /** Medallion life/volume layer over the disc opening.
- *  ALWAYS (both states): a glossy DOME — edge shading + top light + specular catchlight + rim light
- *  → gives the flat disc real VOLUME (fixes "плоский круг").
- *  CONNECTED (eyeAlpha>0): the eye LIVES — breathing glow, dilating pupil, rotating iris shimmer,
- *  drifting wet catchlight, and a periodic BLINK. Clock runs only while connected (no idle cost).
- *  Placement-tolerant (soft, centred) → never disturbs the confirmed baked fit. */
+ *  ONE smooth glassy dome (edge shading for volume + a single soft highlight + a subtle fresnel
+ *  rim) — NO scattered blobs. CONNECTED: only a gentle green glow breath. Clean and coherent so it
+ *  never turns into a mess over the baked eye. Clock runs only while connected (no idle cost). */
 @Composable
 private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modifier) {
     val clock = remember { mutableStateOf(0f) }
@@ -808,108 +804,40 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
                 val t = clock.value
                 val c = center
                 val r = size.minDimension / 2f
-                // ---------- ALWAYS: glassy DOME → volume ----------
-                // edge darkening (the disc bulges out toward the viewer)
+                // smooth dome — darken toward the edges (symmetric bulge → volume, no crookedness)
                 drawCircle(
                     brush = Brush.radialGradient(
-                        0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.42f),
+                        0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.40f),
                         center = c, radius = r,
                     ),
                     radius = r, center = c,
                 )
-                // dome lit from above (soft)
-                val lit = Offset(c.x, c.y - r * 0.30f)
+                // ONE soft glossy highlight (upper) — wide and soft so it's a sheen, not a blob
+                val hl = Offset(c.x - r * 0.20f, c.y - r * 0.34f)
                 drawCircle(
                     brush = Brush.radialGradient(
-                        listOf(Color(0xFFBFFFD0).copy(alpha = 0.20f), Color.Transparent),
-                        center = lit, radius = r * 0.95f,
+                        listOf(Color.White.copy(alpha = 0.24f), Color.Transparent),
+                        center = hl, radius = r * 0.55f,
                     ),
-                    radius = r * 0.95f, center = lit, blendMode = BlendMode.Plus,
+                    radius = r * 0.55f, center = hl, blendMode = BlendMode.Plus,
                 )
-                // glossy specular catchlight (upper-left) + a sharp hot spot
-                val hl = Offset(c.x - r * 0.34f, c.y - r * 0.36f)
+                // subtle fresnel rim (thin, all around)
                 drawCircle(
                     brush = Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.50f), Color.Transparent),
-                        center = hl, radius = r * 0.34f,
-                    ),
-                    radius = r * 0.34f, center = hl, blendMode = BlendMode.Plus,
-                )
-                drawCircle(
-                    Color.White.copy(alpha = 0.85f), radius = r * 0.05f,
-                    center = Offset(c.x - r * 0.30f, c.y - r * 0.42f), blendMode = BlendMode.Plus,
-                )
-                // rim light lower-right (light wrapping the glass)
-                val rimC = Offset(c.x + r * 0.10f, c.y + r * 0.14f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.80f to Color.Transparent, 0.97f to Color(0xFF7CF0A8).copy(alpha = 0.34f),
-                        1f to Color.Transparent, center = rimC, radius = r * 1.02f,
-                    ),
-                    radius = r * 1.02f, center = rimC, blendMode = BlendMode.Plus,
-                )
-                // secondary INTERNAL reflection (the highlight bouncing inside — reads as GLASS not plastic)
-                val sr = Offset(c.x - r * 0.16f, c.y + r * 0.30f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.11f), Color.Transparent),
-                        center = sr, radius = r * 0.44f,
-                    ),
-                    radius = r * 0.44f, center = sr, blendMode = BlendMode.Plus,
-                )
-                // caustic: light focused through the glass → bright spot low-centre
-                val ca = Offset(c.x + r * 0.04f, c.y + r * 0.42f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(Color(0xFFBFFFD0).copy(alpha = 0.30f), Color.Transparent),
-                        center = ca, radius = r * 0.19f,
-                    ),
-                    radius = r * 0.19f, center = ca, blendMode = BlendMode.Plus,
-                )
-                // fresnel rim: a thin reflective bright edge all around (glass reflects more at grazing angle)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.87f to Color.Transparent, 0.97f to Color(0xFFAFFFC8).copy(alpha = 0.18f),
+                        0.90f to Color.Transparent, 0.97f to Color(0xFFBFFFD0).copy(alpha = 0.12f),
                         1f to Color.Transparent, center = c, radius = r,
                     ),
                     radius = r, center = c, blendMode = BlendMode.Plus,
                 )
-
-                // ---------- CONNECTED: living eye ----------
+                // connected: gentle green glow breath — the only life (no blobs)
                 if (eyeAlpha > 0.01f) {
-                    val a = eyeAlpha
-                    val pc = Offset(c.x, c.y - r * 0.04f)
-                    // breathing green glow (strong)
-                    val g = 0.16f + 0.16f * sin(t * 1.3f)
+                    val g = 0.08f + 0.06f * sin(t * 1.1f)
                     drawCircle(
                         brush = Brush.radialGradient(
-                            listOf(Color(0xFF34E67A).copy(alpha = g * a), Color.Transparent),
-                            center = c, radius = r * 1.15f,
+                            listOf(Color(0xFF34E67A).copy(alpha = g * eyeAlpha), Color.Transparent),
+                            center = c, radius = r * 1.05f,
                         ),
-                        radius = r * 1.15f, center = c, blendMode = BlendMode.Plus,
-                    )
-                    // rotating iris shimmer
-                    rotate(t * 14f, pivot = pc) {
-                        for (i in 0 until 4) {
-                            val ang = i * 1.5708f
-                            val p = Offset(pc.x + cos(ang) * r * 0.44f, pc.y + sin(ang) * r * 0.44f)
-                            drawCircle(Color(0xFFBFFFD0).copy(alpha = 0.14f * a), radius = r * 0.13f, center = p, blendMode = BlendMode.Plus)
-                        }
-                    }
-                    // pupil dilation (clearly visible)
-                    val prr = r * 0.24f * (1f + 0.24f * sin(t * 0.7f))
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(Color.Black.copy(alpha = 0.45f * a), Color.Transparent),
-                            center = pc, radius = prr,
-                        ),
-                        radius = prr, center = pc,
-                    )
-                    // wet catchlight drifting on the cornea (bright)
-                    val gp = Offset(c.x - r * 0.18f + sin(t * 0.6f) * r * 0.06f, c.y - r * 0.24f + cos(t * 0.5f) * r * 0.04f)
-                    drawCircle(
-                        Color.White.copy(alpha = (0.40f + 0.20f * sin(t * 1.9f)) * a),
-                        radius = r * 0.06f, center = gp, blendMode = BlendMode.Plus,
+                        radius = r * 1.05f, center = c, blendMode = BlendMode.Plus,
                     )
                 }
             },
