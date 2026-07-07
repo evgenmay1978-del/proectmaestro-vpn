@@ -97,7 +97,9 @@ import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.rememberIsTv
+import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.sin
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
@@ -376,6 +378,11 @@ fun TvHomeScreen(
                             .size((2f * medR).dp),
                         contentAlignment = Alignment.Center,
                     ) {
+                        // ЖИВОЙ ГЛАЗ — тонкая жизнь поверх запечённого глаза (когда подключено): дыхание
+                        // зелёного свечения, дилатация зрачка, мерцание радужки, мокрый блик-дрейф.
+                        if (eyeAlpha > 0.01f) {
+                            LiveEyeOverlay(alpha = eyeAlpha, modifier = Modifier.fillMaxSize())
+                        }
                         Button(
                             onClick = onToggleConnect,
                             shape = CircleShape,
@@ -772,6 +779,68 @@ private fun MenuPane(
         }
         Spacer(Modifier.height(20.dp))
     }
+}
+
+/** Living-eye life layer: drawn OVER the baked eye when connected. Placement-tolerant soft effects
+ *  (breathing green glow, dilating pupil, iris shimmer, drifting wet catchlight) — so the eye lives
+ *  without disturbing the confirmed baked fit. Only composed while connected → no idle battery cost. */
+@Composable
+private fun LiveEyeOverlay(alpha: Float, modifier: Modifier) {
+    val clock = remember { mutableStateOf(0f) }
+    LaunchedEffect(Unit) {
+        val t0 = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { f -> clock.value = (f - t0) / 1_000_000_000f }
+        }
+    }
+    Box(
+        modifier
+            .clip(CircleShape)
+            .drawBehind {
+                val t = clock.value
+                val c = center
+                val rad = size.minDimension / 2f
+                val pc = Offset(c.x, c.y - rad * 0.04f)   // pupil sits a touch above centre
+                // 1) breathing green glow
+                val g = 0.12f + 0.07f * sin(t * 1.1f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0xFF39E67A).copy(alpha = g * alpha), Color.Transparent),
+                        center = c, radius = rad * 1.15f,
+                    ),
+                    radius = rad * 1.15f, center = c, blendMode = BlendMode.Plus,
+                )
+                // 2) iris ring shimmer
+                val ir = 0.06f + 0.05f * sin(t * 0.8f + 1.3f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.30f to Color.Transparent,
+                        0.60f to Color(0xFF8CFFB4).copy(alpha = ir * alpha),
+                        0.85f to Color.Transparent,
+                        center = pc, radius = rad * 0.95f,
+                    ),
+                    radius = rad * 0.95f, center = pc, blendMode = BlendMode.Plus,
+                )
+                // 3) subtle pupil dilation (soft dark pulse)
+                val prr = rad * 0.22f * (1f + 0.12f * sin(t * 0.5f))
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color.Black.copy(alpha = 0.28f * alpha), Color.Transparent),
+                        center = pc, radius = prr,
+                    ),
+                    radius = prr, center = pc,
+                )
+                // 4) wet catchlight drifting on the cornea
+                val gp = Offset(
+                    c.x - rad * 0.20f + sin(t * 0.5f) * rad * 0.04f,
+                    c.y - rad * 0.26f + cos(t * 0.4f) * rad * 0.03f,
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = (0.26f + 0.12f * sin(t * 1.6f)) * alpha),
+                    radius = rad * 0.05f, center = gp, blendMode = BlendMode.Plus,
+                )
+            },
+    )
 }
 
 /** Small per-protocol glyph for the chips. */
