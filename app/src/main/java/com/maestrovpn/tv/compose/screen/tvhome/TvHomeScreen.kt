@@ -77,6 +77,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -379,11 +381,13 @@ fun TvHomeScreen(
                             .size((2f * medR).dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        // ЖИВОЙ ГЛАЗ — тонкая жизнь поверх запечённого глаза (когда подключено): дыхание
-                        // зелёного свечения, дилатация зрачка, мерцание радужки, мокрый блик-дрейф.
-                        if (eyeAlpha > 0.01f) {
-                            LiveEyeOverlay(alpha = eyeAlpha, modifier = Modifier.fillMaxSize())
-                        }
+                        // Медальон-слой: ВСЕГДА стеклянный купол (объём диска, не плоский круг);
+                        // ПОДКЛЮЧЕНО → живой глаз (дыхание/зрачок/радужка/блик/моргание).
+                        MedallionOverlay(
+                            connected = connected,
+                            eyeAlpha = eyeAlpha,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                         Button(
                             onClick = onToggleConnect,
                             shape = CircleShape,
@@ -782,13 +786,17 @@ private fun MenuPane(
     }
 }
 
-/** Living-eye life layer: drawn OVER the baked eye when connected. Placement-tolerant soft effects
- *  (breathing green glow, dilating pupil, iris shimmer, drifting wet catchlight) — so the eye lives
- *  without disturbing the confirmed baked fit. Only composed while connected → no idle battery cost. */
+/** Medallion life/volume layer over the disc opening.
+ *  ALWAYS (both states): a glossy DOME — edge shading + top light + specular catchlight + rim light
+ *  → gives the flat disc real VOLUME (fixes "плоский круг").
+ *  CONNECTED (eyeAlpha>0): the eye LIVES — breathing glow, dilating pupil, rotating iris shimmer,
+ *  drifting wet catchlight, and a periodic BLINK. Clock runs only while connected (no idle cost).
+ *  Placement-tolerant (soft, centred) → never disturbs the confirmed baked fit. */
 @Composable
-private fun LiveEyeOverlay(alpha: Float, modifier: Modifier) {
+private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modifier) {
     val clock = remember { mutableStateOf(0f) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(connected) {
+        if (!connected) return@LaunchedEffect
         val t0 = withFrameNanos { it }
         while (true) {
             withFrameNanos { f -> clock.value = (f - t0) / 1_000_000_000f }
@@ -800,46 +808,94 @@ private fun LiveEyeOverlay(alpha: Float, modifier: Modifier) {
             .drawBehind {
                 val t = clock.value
                 val c = center
-                val rad = size.minDimension / 2f
-                val pc = Offset(c.x, c.y - rad * 0.04f)   // pupil sits a touch above centre
-                // 1) breathing green glow
-                val g = 0.12f + 0.07f * sin(t * 1.1f)
+                val r = size.minDimension / 2f
+                // ---------- ALWAYS: glassy DOME → volume ----------
+                // edge darkening (the disc bulges out toward the viewer)
                 drawCircle(
                     brush = Brush.radialGradient(
-                        listOf(Color(0xFF39E67A).copy(alpha = g * alpha), Color.Transparent),
-                        center = c, radius = rad * 1.15f,
+                        0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.42f),
+                        center = c, radius = r,
                     ),
-                    radius = rad * 1.15f, center = c, blendMode = BlendMode.Plus,
+                    radius = r, center = c,
                 )
-                // 2) iris ring shimmer
-                val ir = 0.06f + 0.05f * sin(t * 0.8f + 1.3f)
+                // dome lit from above (soft)
+                val lit = Offset(c.x, c.y - r * 0.30f)
                 drawCircle(
                     brush = Brush.radialGradient(
-                        0.30f to Color.Transparent,
-                        0.60f to Color(0xFF8CFFB4).copy(alpha = ir * alpha),
-                        0.85f to Color.Transparent,
-                        center = pc, radius = rad * 0.95f,
+                        listOf(Color(0xFFBFFFD0).copy(alpha = 0.20f), Color.Transparent),
+                        center = lit, radius = r * 0.95f,
                     ),
-                    radius = rad * 0.95f, center = pc, blendMode = BlendMode.Plus,
+                    radius = r * 0.95f, center = lit, blendMode = BlendMode.Plus,
                 )
-                // 3) subtle pupil dilation (soft dark pulse)
-                val prr = rad * 0.22f * (1f + 0.12f * sin(t * 0.5f))
+                // glossy specular catchlight (upper-left) + a sharp hot spot
+                val hl = Offset(c.x - r * 0.34f, c.y - r * 0.36f)
                 drawCircle(
                     brush = Brush.radialGradient(
-                        listOf(Color.Black.copy(alpha = 0.28f * alpha), Color.Transparent),
-                        center = pc, radius = prr,
+                        listOf(Color.White.copy(alpha = 0.50f), Color.Transparent),
+                        center = hl, radius = r * 0.34f,
                     ),
-                    radius = prr, center = pc,
-                )
-                // 4) wet catchlight drifting on the cornea
-                val gp = Offset(
-                    c.x - rad * 0.20f + sin(t * 0.5f) * rad * 0.04f,
-                    c.y - rad * 0.26f + cos(t * 0.4f) * rad * 0.03f,
+                    radius = r * 0.34f, center = hl, blendMode = BlendMode.Plus,
                 )
                 drawCircle(
-                    color = Color.White.copy(alpha = (0.26f + 0.12f * sin(t * 1.6f)) * alpha),
-                    radius = rad * 0.05f, center = gp, blendMode = BlendMode.Plus,
+                    Color.White.copy(alpha = 0.85f), radius = r * 0.05f,
+                    center = Offset(c.x - r * 0.30f, c.y - r * 0.42f), blendMode = BlendMode.Plus,
                 )
+                // rim light lower-right (light wrapping the glass)
+                val rimC = Offset(c.x + r * 0.10f, c.y + r * 0.14f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0.80f to Color.Transparent, 0.97f to Color(0xFF7CF0A8).copy(alpha = 0.34f),
+                        1f to Color.Transparent, center = rimC, radius = r * 1.02f,
+                    ),
+                    radius = r * 1.02f, center = rimC, blendMode = BlendMode.Plus,
+                )
+
+                // ---------- CONNECTED: living eye ----------
+                if (eyeAlpha > 0.01f) {
+                    val a = eyeAlpha
+                    val pc = Offset(c.x, c.y - r * 0.04f)
+                    // breathing green glow (strong)
+                    val g = 0.16f + 0.16f * sin(t * 1.3f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color(0xFF34E67A).copy(alpha = g * a), Color.Transparent),
+                            center = c, radius = r * 1.15f,
+                        ),
+                        radius = r * 1.15f, center = c, blendMode = BlendMode.Plus,
+                    )
+                    // rotating iris shimmer
+                    rotate(t * 14f, pivot = pc) {
+                        for (i in 0 until 4) {
+                            val ang = i * 1.5708f
+                            val p = Offset(pc.x + cos(ang) * r * 0.44f, pc.y + sin(ang) * r * 0.44f)
+                            drawCircle(Color(0xFFBFFFD0).copy(alpha = 0.14f * a), radius = r * 0.13f, center = p, blendMode = BlendMode.Plus)
+                        }
+                    }
+                    // pupil dilation (clearly visible)
+                    val prr = r * 0.24f * (1f + 0.24f * sin(t * 0.7f))
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color.Black.copy(alpha = 0.45f * a), Color.Transparent),
+                            center = pc, radius = prr,
+                        ),
+                        radius = prr, center = pc,
+                    )
+                    // wet catchlight drifting on the cornea (bright)
+                    val gp = Offset(c.x - r * 0.18f + sin(t * 0.6f) * r * 0.06f, c.y - r * 0.24f + cos(t * 0.5f) * r * 0.04f)
+                    drawCircle(
+                        Color.White.copy(alpha = (0.40f + 0.20f * sin(t * 1.9f)) * a),
+                        radius = r * 0.06f, center = gp, blendMode = BlendMode.Plus,
+                    )
+                    // periodic BLINK (every ~4.2s, quick) — the clearest "alive" cue
+                    val ph = (t % 4.2f) / 4.2f
+                    val blink = if (ph < 0.05f) sin((ph / 0.05f) * 3.14159f) else 0f
+                    if (blink > 0.01f) {
+                        val lid = blink * 1.06f
+                        val lc = Color(0xFF241206).copy(alpha = 0.94f * a)
+                        drawRect(lc, topLeft = Offset(c.x - r, c.y - r), size = Size(2 * r, r * lid))
+                        drawRect(lc, topLeft = Offset(c.x - r, c.y + r - r * lid), size = Size(2 * r, r * lid))
+                    }
+                }
             },
     )
 }
