@@ -2,11 +2,15 @@ package com.maestrovpn.tv.compose.screen.tvhome
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,11 +29,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.component.GlossyButton
+import com.maestrovpn.tv.compose.fantasy.FantasyDialog
+import com.maestrovpn.tv.compose.fantasy.FantasySegmented
+import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.MaestroOrange
+import com.maestrovpn.tv.compose.theme.MaestroSilver
+import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
@@ -53,12 +69,14 @@ private sealed interface ShareState {
  *   • iPhone → `<subUrl>?app=karing`: base64 share-links (VLESS+Hysteria2+Naive) for
  *     Karing.
  *
- * Robustness: all Room reads run off-main in a runCatching (a throw in produceState
- * would crash the app); the QR encode is guarded too. Rendered BLACK-on-WHITE so any
- * camera can scan it regardless of the dark theme.
+ * PHONE gets the Dark-Fantasy modal (carved wood + aged-bronze frame + ivy, an engraved
+ * segmented Android/iPhone toggle and a bronze-framed QR). TV keeps its Material dialog.
+ * Robustness: all Room reads run off-main in a runCatching (a throw in produceState would
+ * crash the app); the QR encode is guarded too and stays BLACK-on-WHITE so any camera scans it.
  */
 @Composable
 fun IosKaringDialog(onDismiss: () -> Unit) {
+    val isTv = rememberIsTv()
     val state by produceState<ShareState>(ShareState.Loading) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -74,79 +92,163 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
     }
     var androidMode by remember { mutableStateOf(true) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
-        title = { Text("Поделиться подпиской") },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                when (val s = state) {
-                    ShareState.Loading -> Text("Загрузка…")
-                    ShareState.NeedActivate -> Text(
-                        "Сначала активируйте подписку («Купить» или «Ввести код»).",
-                        textAlign = TextAlign.Center,
-                    )
-                    is ShareState.Failed -> Text(
-                        "Не удалось создать QR: ${s.reason}",
-                        textAlign = TextAlign.Center,
-                    )
-                    is ShareState.Ready -> {
-                        // Android / iPhone toggle.
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (androidMode) {
-                                Button(
-                                    onClick = { androidMode = true },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaestroOrange),
-                                ) { Text("Android") }
-                                OutlinedButton(onClick = { androidMode = false }) { Text("iPhone") }
-                            } else {
-                                OutlinedButton(onClick = { androidMode = true }) { Text("Android") }
-                                Button(
-                                    onClick = { androidMode = false },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaestroOrange),
-                                ) { Text("iPhone") }
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
+    if (isTv) {
+        // ── TV: original Material dialog (unchanged) ──
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+            title = { Text("Поделиться подпиской") },
+            text = { ShareBody(state, androidMode, { androidMode = it }, fantasy = false) },
+        )
+    } else {
+        // ── PHONE: Dark-Fantasy modal ──
+        FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
+            ShareBody(state, androidMode, { androidMode = it }, fantasy = true)
+            Spacer(Modifier.height(18.dp))
+            GlossyButton(
+                label = "Закрыть",
+                onClick = onDismiss,
+                accent = NeonGreen,
+                wood = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
 
-                        val shareUrl = if (androidMode) {
-                            s.baseUrl
+/** Shared share-dialog body — the toggle + explainer + QR — rendered either in the Dark-Fantasy
+ *  style (phone) or plain Material (TV). All logic (shareUrl, black-on-white QR) is identical. */
+@Composable
+private fun ShareBody(
+    state: ShareState,
+    androidMode: Boolean,
+    onMode: (Boolean) -> Unit,
+    fantasy: Boolean,
+) {
+    val bodyColor = if (fantasy) MaestroSilver else Color.Unspecified
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        when (val s = state) {
+            ShareState.Loading -> Text("Загрузка…", color = bodyColor)
+            ShareState.NeedActivate -> Text(
+                "Сначала активируйте подписку («Купить» или «Ввести код»).",
+                textAlign = TextAlign.Center,
+                color = bodyColor,
+            )
+            is ShareState.Failed -> Text(
+                "Не удалось создать QR: ${s.reason}",
+                textAlign = TextAlign.Center,
+                color = bodyColor,
+            )
+            is ShareState.Ready -> {
+                // Android / iPhone toggle.
+                if (fantasy) {
+                    FantasySegmented(
+                        options = listOf("Android", "iPhone"),
+                        selected = if (androidMode) 0 else 1,
+                        onSelect = { onMode(it == 0) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    val toggleAccent = MaestroOrange
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (androidMode) {
+                            Button(
+                                onClick = { onMode(true) },
+                                colors = ButtonDefaults.buttonColors(containerColor = toggleAccent),
+                            ) { Text("Android") }
+                            OutlinedButton(onClick = { onMode(false) }) { Text("iPhone") }
                         } else {
-                            s.baseUrl + (if ('?' in s.baseUrl) "&" else "?") + "app=karing"
+                            OutlinedButton(onClick = { onMode(true) }) { Text("Android") }
+                            Button(
+                                onClick = { onMode(false) },
+                                colors = ButtonDefaults.buttonColors(containerColor = toggleAccent),
+                            ) { Text("iPhone") }
                         }
-                        Text(
-                            if (androidMode) {
-                                "Android: отсканируй в MaestroVPN — подключатся все 4 протокола."
-                            } else {
-                                "iPhone: установи Karing из App Store и отсканируй — VLESS + Hysteria2 + Naive."
-                            },
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
 
-                        val qr = remember(shareUrl) {
-                            runCatching {
-                                QRCodeGenerator.generate(
-                                    content = shareUrl, size = 640,
-                                    foregroundColor = android.graphics.Color.BLACK,
-                                    backgroundColor = android.graphics.Color.WHITE,
-                                )
-                            }.getOrNull()
-                        }
-                        if (qr != null) {
-                            Box(Modifier.background(Color.White).padding(12.dp)) {
+                val shareUrl = if (androidMode) {
+                    s.baseUrl
+                } else {
+                    s.baseUrl + (if ('?' in s.baseUrl) "&" else "?") + "app=karing"
+                }
+                Text(
+                    if (androidMode) {
+                        "Android: отсканируй в MaestroVPN — подключатся все 4 протокола."
+                    } else {
+                        "iPhone: установи Karing из App Store и отсканируй — VLESS + Hysteria2 + Naive."
+                    },
+                    textAlign = TextAlign.Center,
+                    color = bodyColor,
+                )
+                Spacer(Modifier.height(12.dp))
+
+                val qr = remember(shareUrl) {
+                    runCatching {
+                        QRCodeGenerator.generate(
+                            content = shareUrl, size = 640,
+                            foregroundColor = android.graphics.Color.BLACK,
+                            backgroundColor = android.graphics.Color.WHITE,
+                        )
+                    }.getOrNull()
+                }
+                if (qr != null) {
+                    if (fantasy) {
+                        // Bronze QR frame — a SQUARE frame scaled uniformly (corners stay proportional,
+                        // no 9-patch thinning) around a WHITE quiet-zone; the code itself stays
+                        // black-on-white & fully scannable.
+                        // Frame fills the dialog width (matches the эскиз quar.png); the white card
+                        // fills the frame opening, leaving only a thin wood reveal (было: мелкая карточка
+                        // в широком деревянном поле = «дырки»). Responsive so it holds on any phone width.
+                        // QR stays BLACK-on-WHITE & fully scannable.
+                        Box(
+                            Modifier
+                                .fillMaxWidth(0.84f)
+                                .aspectRatio(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.frame_qr),
+                                contentDescription = null,
+                                modifier = Modifier.matchParentSize(),
+                                contentScale = ContentScale.FillBounds,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize(0.80f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White),
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 Image(
                                     bitmap = qr.asImageBitmap(),
                                     contentDescription = "QR",
-                                    modifier = Modifier.size(240.dp),
+                                    modifier = Modifier.fillMaxSize(0.86f),
                                 )
                             }
-                            Spacer(Modifier.height(8.dp))
                         }
-                        Text(shareUrl, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                    } else {
+                        Box(Modifier.background(Color.White).padding(12.dp)) {
+                            Image(
+                                bitmap = qr.asImageBitmap(),
+                                contentDescription = "QR",
+                                modifier = Modifier.size(240.dp),
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
+                Text(
+                    shareUrl,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = if (fantasy) GoldMid else Color.Unspecified,
+                )
             }
-        },
-    )
+        }
+    }
 }

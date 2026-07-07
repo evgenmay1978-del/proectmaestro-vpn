@@ -6,6 +6,7 @@ name: Build app APK (test / compile-check)
 #
 # ⛔ SAFETY: NO GitHub Release → the OTA mirror never sees it. APK = artifact only
 # (maestrovpn-tv-test-apk). HIGH versionCode so it won't self-update mid-test.
+# (ci trigger: fantasy crisp-fill-eye v12 2026-07-07)
 
 on:
   workflow_dispatch:

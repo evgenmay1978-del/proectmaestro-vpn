@@ -35,6 +35,16 @@ val ChromeDark = Color(0xFF15171A)
 val ChromeOrangeHi = Color(0xFFF6C79A)
 val ChromeOrangeLow = Color(0xFF7A2F0C)
 
+// ── PHONE-ONLY wood/gold palette (derived from the эскиз `home_eskiz.png`). Used ONLY on
+// the phone (!isTv) so the live tiles/cards match the ornate carved-wood + gold-bezel frame
+// of the эскиз. TV keeps the chrome/glass language untouched. ──
+val WoodTileTop = Color(0xFF2A1D10)     // dark wood tile — lit top
+val WoodTileBottom = Color(0xFF120B05)  // dark wood tile — shadowed bottom
+val GoldHi = Color(0xFFE8C877)          // gold bezel — bright lit edge
+val GoldMid = Color(0xFFC9A24A)         // gold bezel — body
+val GoldLow = Color(0xFF8A6D2F)         // gold bezel — lower
+val GoldDark = Color(0xFF3A2C14)        // gold bezel — dark edge
+
 // kept for any code still referencing the old names (now mapped to the brand)
 val SingBoxPrimary = MaestroOrange
 val SingBoxPrimaryDark = MaestroOrangeDark

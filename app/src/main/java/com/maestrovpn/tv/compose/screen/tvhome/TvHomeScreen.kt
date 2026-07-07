@@ -16,6 +16,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -25,7 +26,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -53,6 +56,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,9 +67,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
@@ -92,6 +99,7 @@ import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.rememberIsTv
 import kotlin.math.floor
+import kotlin.math.sin
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
@@ -159,16 +167,16 @@ fun TvHomeScreen(
                     val center = if (isTv) {
                         Offset(size.width * 0.24f, size.height * 0.5f)
                     } else {
-                        Offset(size.width * 0.5f, size.height * 0.28f)
+                        Offset(size.width * 0.5f, size.height * 0.40f)   // ON the medallion
                     }
-                    val radius = size.maxDimension * 0.5f
-                    // Depth: a layered radial glow (brighter core → soft green halo → dark) behind
-                    // the medallion. Static — only redraws when `connected`/`isTv` change (cheap).
+                    // Glow ONLY around the central element (owner: свечение только вокруг центра).
+                    // Tight radius (was half the screen → bled onto account/status).
+                    val radius = if (isTv) size.maxDimension * 0.45f else size.minDimension * 0.52f
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                NeonGreen.copy(alpha = if (connected) 0.14f else 0.08f),
-                                NeonGreen.copy(alpha = if (connected) 0.05f else 0.03f),
+                                NeonGreen.copy(alpha = if (connected) 0.11f else 0.06f),
+                                NeonGreen.copy(alpha = if (connected) 0.035f else 0.02f),
                                 Color.Transparent,
                             ),
                             center = center, radius = radius,
@@ -201,10 +209,10 @@ fun TvHomeScreen(
                     alpha = enter
                     translationY = (1f - enter) * 36f
                 }
-                .padding(screenPadding(isTv)),
+                .padding(if (isTv) screenPadding(true) else 0.dp),   // phone эскиз = full-bleed
         ) {
-            // atmosphere particles behind the content (gated OFF on low-RAM TVs — perpetual clock)
-            if (!lowRam) Particles(Modifier.matchParentSize())
+            // atmosphere particles behind the content (TV only; phone uses the эскиз backdrop)
+            if (isTv && !lowRam) Particles(Modifier.matchParentSize())
 
             if (isTv) {
                 // ── LANDSCAPE (TV): logo + spider medallion at the TOP (hero), login + days in a
@@ -265,42 +273,128 @@ fun TvHomeScreen(
                     }
                 }
             } else {
-                // ── PORTRAIT (phone): single scrolling column ──
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    HeroPane(
-                        statusText = statusText,
-                        connected = connected,
-                        activeProtocol = activeProtocol,
-                        selected = selected,
-                        accountLogin = accountLogin,
-                        daysLeft = daysLeft,
-                        onToggleConnect = onToggleConnect,
-                        connectFocus = connectFocus,
-                        modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
+                // ── PHONE: премиум-эскиз как ФИКСИРОВАННЫЙ фон (резная рамка/дерево/плющ/логотип +
+                // медальон-кольцо = пиксели `home_eskiz`, НЕ скроллится), а ЖИВОЙ контент скроллится
+                // поверх деревянного окна. Архитектура (owner): рамка+логотип не двигаются, крутится
+                // только внутренний контент, где плиток БОЛЬШЕ шести. Наш живой паук — в backdrop-режиме
+                // поверх медальона эскиза; статус/аккаунт/полное меню (wood=true) идут ниже, скроллом. ──
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    // (a) ФИКСИРОВАННЫЙ фон — резная рама/дерево/плющ/логотип/вензели (верх+низ) + пустой
+                    //     медальон-обод запечены в `home_backdrop`. НЕ скроллится.
+                    Image(
+                        painter = painterResource(R.drawable.home_backdrop),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
                     )
-                    Spacer(Modifier.height(14.dp))
-                    MenuPane(
-                        protocols = protocols,
-                        selected = selected,
-                        isTv = false,
-                        onSelectProtocol = onSelectProtocol,
-                        hasOlcrtcCreds = hasOlcrtcCreds,
-                        onSelectOlcrtc = onSelectOlcrtc,
-                        onBuy = onBuy,
-                        onEnterCode = onEnterCode,
-                        onSplitTunnel = onSplitTunnel,
-                        onShareIos = onShareIos,
-                        onScanQr = onScanQr,
-                        onEnterTrial = onEnterTrial,
-                        showTrial = !hasSubProfile,
-                        modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp),
+                    // (a2) ПОДКЛЮЧЕНО → в проёме медальона ОТКРЫВАЕТСЯ «глаз» (тот же фон, но с запечённым
+                    //      в проём глазом-эталоном owner). Кросс-фейд по connected. ОТКЛЮЧЕНО → чистый
+                    //      зелёный диск (обычный home_backdrop, без паука). Глаз запечён В ФОН → проём
+                    //      совпадает Crop-ом сам, без ручной посадки.
+                    val eyeAlpha by animateFloatAsState(
+                        if (connected) 1f else 0f, tween(800, easing = FastOutSlowInEasing), label = "eye",
                     )
+                    if (eyeAlpha > 0.004f) {
+                        Image(
+                            painter = painterResource(R.drawable.home_backdrop_connected),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            alpha = eyeAlpha,
+                        )
+                    }
+
+                    // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
+                    // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
+                    val windowTop = maxHeight * 0.585f   // больше воздуха между глазом и статусом (owner) → верх скролл-окна
+                    val windowBot = maxHeight * 0.070f   // отступ снизу → нижний вензель рамы остаётся видимым/статичным
+
+                    // (b) СКРОЛЛ-ОКНО меню — ОБРЕЗАНО по [под медальоном .. над нижним вензелем]. Статус/
+                    //     аккаунт/меню скроллятся ВНУТРИ окна: сверху исчезают за кнопкой, снизу — за вензелем.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = windowTop, bottom = windowBot)
+                            .clipToBounds(),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(start = 18.dp, end = 18.dp, bottom = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            // LIVE статус-строка (точка + текст, активный протокол).
+                            PhoneStatusRow(
+                                statusText = statusText,
+                                connected = connected,
+                                activeProtocol = activeProtocol,
+                                selected = selected,
+                            )
+                            // LIVE аккаунт-карточка (логин + дни) — золото/дерево.
+                            if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+                                Spacer(Modifier.height(14.dp))
+                                AccountCard(
+                                    login = accountLogin,
+                                    daysLeft = daysLeft,
+                                    wood = true,
+                                    modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
+                                )
+                            }
+                            Spacer(Modifier.height(18.dp))
+                            // Полное меню (протоколы → покупка → действия → контакты) — единственное, что скроллится.
+                            MenuPane(
+                                protocols = protocols,
+                                selected = selected,
+                                isTv = false,
+                                onSelectProtocol = onSelectProtocol,
+                                hasOlcrtcCreds = hasOlcrtcCreds,
+                                onSelectOlcrtc = onSelectOlcrtc,
+                                onBuy = onBuy,
+                                onEnterCode = onEnterCode,
+                                onSplitTunnel = onSplitTunnel,
+                                onShareIos = onShareIos,
+                                onScanQr = onScanQr,
+                                onEnterTrial = onEnterTrial,
+                                showTrial = !hasSubProfile,
+                                wood = true,
+                                modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
+                            )
+                        }
+                    }
+
+                    // (c) ФИКСИРОВАННАЯ прозрачная ТАП-ЗОНА на проёме медальона ПОВЕРХ скролла → меню
+                    //     уходит ЗА неё. Глаз/диск запечены в фон (проём фиксирован Crop-ом сам); тап-зона
+                    //     садится на тот же проём Crop-матрицей (центр обода dcx=433/dcy=693, r=206 = полный проём).
+                    val imgW = 853f; val imgH = 1844f
+                    val dcx = 433.0f; val dcy = 693.0f; val dr = 206f
+                    val medS = maxOf(maxWidth.value / imgW, maxHeight.value / imgH)   // ContentScale.Crop scale
+                    val medR = dr * medS
+                    val medCx = (maxWidth.value - imgW * medS) / 2f + dcx * medS
+                    val medCy = (maxHeight.value - imgH * medS) / 2f + dcy * medS
+                    Box(
+                        modifier = Modifier
+                            .offset(x = (medCx - medR).dp, y = (medCy - medR).dp)
+                            .size((2f * medR).dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // Медальон-слой: ВСЕГДА стеклянный купол (объём диска, не плоский круг);
+                        // ПОДКЛЮЧЕНО → живой глаз (дыхание/зрачок/радужка/блик/моргание).
+                        MedallionOverlay(
+                            connected = connected,
+                            eyeAlpha = eyeAlpha,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        Button(
+                            onClick = onToggleConnect,
+                            shape = CircleShape,
+                            contentPadding = PaddingValues(0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            modifier = Modifier.fillMaxSize(),
+                            content = {},
+                        )
+                    }
                 }
             }
         }
@@ -310,7 +404,7 @@ fun TvHomeScreen(
 /** Login + days-left glass card (bottom of the hero on both phone and TV). Computes the day
  *  colour/label — green / orange when ≤5 / red when expired / «Безлимит» for unlimited — from [daysLeft]. */
 @Composable
-private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier) {
+private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier, wood: Boolean = false) {
     val expired = daysLeft != null && daysLeft <= 0
     val low = daysLeft != null && daysLeft in 1..5
     val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
@@ -326,8 +420,41 @@ private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Mod
         daysColor = daysColor,
         leadingIcon = Icons.Filled.Person,
         trailingIcon = Icons.Filled.CalendarMonth,
+        wood = wood,
         modifier = modifier,
     )
+}
+
+/** PHONE status row under the medallion: a state dot + status text, plus the active protocol
+ *  line when connected. Mirrors the HeroPane status semantics but flat (no breath clock). */
+@Composable
+private fun PhoneStatusRow(
+    statusText: String,
+    connected: Boolean,
+    activeProtocol: String?,
+    selected: String?,
+) {
+    Spacer(Modifier.height(6.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else MaestroSilver))
+        Spacer(Modifier.width(9.dp))
+        Text(
+            statusText.uppercase(),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (connected) NeonGreen else Color.White,
+        )
+    }
+    if (connected && !activeProtocol.isNullOrBlank()) {
+        Spacer(Modifier.height(8.dp))
+        val viaAuto = selected == "auto" && activeProtocol != "auto"
+        Text(
+            if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaestroOrange,
+        )
+    }
 }
 
 /** The hero zone: wordmark + the spider medallion connect button + status + account. */
@@ -411,11 +538,21 @@ private fun HeroPane(
                 .height(if (isTv) 22.dp else 26.dp),
         )
 
-        SpiderMedallion(
-            connected = connected,
-            onToggle = onToggleConnect,
-            focusRequester = connectFocus,
-        )
+        // ТВ остаётся на прежней (лёгкой) графике паука; НОВЫЙ процедурный паук — ТОЛЬКО телефон
+        // (реальный sim тяжелее для 1 ГБ-ТВ). Форм-фактор решает, что рисовать.
+        if (isTv) {
+            SpiderMedallion(
+                connected = connected,
+                onToggle = onToggleConnect,
+                focusRequester = connectFocus,
+            )
+        } else {
+            PaukMedallion(
+                connected = connected,
+                onToggle = onToggleConnect,
+                focusRequester = connectFocus,
+            )
+        }
 
         Spacer(Modifier.height(14.dp))
         // status with a state dot — the dot gets a soft glow HALO that pulses (breathes) when
@@ -491,6 +628,7 @@ private fun MenuPane(
     onScanQr: () -> Unit,
     onEnterTrial: () -> Unit = {},
     showTrial: Boolean = false,
+    wood: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val ctx = LocalContext.current
@@ -522,7 +660,7 @@ private fun MenuPane(
     Column(modifier = modifier) {
         // ── ПРОТОКОЛ — equal-width chrome chips, 3 per row ──
         if (displayProtocols.isNotEmpty()) {
-            SectionLabel("ПРОТОКОЛ")
+            SectionLabel("ПРОТОКОЛ", wood = wood)
             Spacer(Modifier.height(10.dp))
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 displayProtocols.chunked(protoCols).forEach { row ->
@@ -537,6 +675,7 @@ private fun MenuPane(
                                 selected = p == selected && !olcLocked,
                                 subtitle = if (olcLocked) "🔒 по запросу" else protocolBadge(p),
                                 locked = olcLocked,
+                                wood = wood,
                             )
                         }
                         // keep columns equal-width when the last row is short
@@ -555,6 +694,7 @@ private fun MenuPane(
                 label = "🎁 Попробовать 2 дня бесплатно",
                 onClick = onEnterTrial,
                 accent = NeonGreen,
+                wood = wood,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
@@ -565,6 +705,7 @@ private fun MenuPane(
             onClick = onBuy,
             accent = MaestroOrange,
             icon = Icons.Filled.ShoppingCart,
+            wood = wood,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -604,7 +745,7 @@ private fun MenuPane(
             tiles.chunked(actionCols).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { a ->
-                        ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 92.dp))
+                        ChromeTile(a.first, a.second, a.third, Modifier.weight(1f).heightIn(min = 92.dp), wood = wood)
                     }
                     // keep columns equal-width when the last row is short
                     repeat(actionCols - row.size) { Spacer(Modifier.weight(1f)) }
@@ -614,13 +755,14 @@ private fun MenuPane(
 
         // ── Контакты ──────────────────────────────────────────────────
         Spacer(Modifier.height(20.dp))
-        SectionLabel("КОНТАКТЫ")
+        SectionLabel("КОНТАКТЫ", wood = wood)
         Spacer(Modifier.height(10.dp))
         GlossyButton(
             label = "8 977 811-65-64",
             onClick = { open("tel:+79778116564") },
             accent = NeonGreen,
             icon = Icons.Filled.Call,
+            wood = wood,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(10.dp))
@@ -633,12 +775,79 @@ private fun MenuPane(
         )
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE))
-            NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366))
-            NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5))
+            NeonChip("Telegram", { open("https://t.me/wapmixx") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Send, iconTint = Color(0xFF2AABEE), wood = wood)
+            NeonChip("WhatsApp", { open("https://wa.me/79778116564") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Chat, iconTint = Color(0xFF25D366), wood = wood)
+            NeonChip("МАКС", { open("https://max.ru/") }, Modifier.weight(1f).heightIn(min = 50.dp), icon = Icons.Filled.Forum, iconTint = Color(0xFF2787F5), wood = wood)
         }
         Spacer(Modifier.height(20.dp))
     }
+}
+
+/** Medallion life/volume layer over the disc opening.
+ *  ONE smooth glassy dome (edge shading for volume + a single soft highlight + a subtle fresnel
+ *  rim) — NO scattered blobs. CONNECTED: only a gentle green glow breath. Clean and coherent so it
+ *  never turns into a mess over the baked eye. Clock runs only while connected (no idle cost). */
+@Composable
+private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modifier) {
+    val clock = remember { mutableStateOf(0f) }
+    LaunchedEffect(connected) {
+        if (!connected) return@LaunchedEffect
+        val t0 = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { f -> clock.value = (f - t0) / 1_000_000_000f }
+        }
+    }
+    Box(
+        modifier
+            .clip(CircleShape)
+            .drawBehind {
+                val t = clock.value
+                val c = center
+                val r = size.minDimension / 2f
+                // The dome only shapes the DISCONNECTED sphere; it FADES OUT as the eye appears so the
+                // crisp eye stays crisp and unified (owner: глаз чёткий, ничего не выбивается).
+                val domeK = (1f - eyeAlpha).coerceIn(0f, 1f)
+                if (domeK > 0.01f) {
+                    // smooth dome — darken toward the edges (symmetric bulge → volume)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.40f * domeK),
+                            center = c, radius = r,
+                        ),
+                        radius = r, center = c,
+                    )
+                    // ONE soft glossy highlight (upper) — wide & soft sheen, not a blob
+                    val hl = Offset(c.x - r * 0.20f, c.y - r * 0.34f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color.White.copy(alpha = 0.24f * domeK), Color.Transparent),
+                            center = hl, radius = r * 0.55f,
+                        ),
+                        radius = r * 0.55f, center = hl, blendMode = BlendMode.Plus,
+                    )
+                    // subtle fresnel rim
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            0.90f to Color.Transparent, 0.97f to Color(0xFFBFFFD0).copy(alpha = 0.12f * domeK),
+                            1f to Color.Transparent, center = c, radius = r,
+                        ),
+                        radius = r, center = c, blendMode = BlendMode.Plus,
+                    )
+                }
+                // connected: gentle green glow breath — the only life on the crisp eye (no blobs)
+                if (eyeAlpha > 0.01f) {
+                    val g = 0.06f + 0.05f * sin(t * 1.1f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            0.55f to Color.Transparent,
+                            1f to Color(0xFF34E67A).copy(alpha = g * eyeAlpha),
+                            center = c, radius = r * 1.06f,
+                        ),
+                        radius = r * 1.06f, center = c, blendMode = BlendMode.Plus,
+                    )
+                }
+            },
+    )
 }
 
 /** Small per-protocol glyph for the chips. */

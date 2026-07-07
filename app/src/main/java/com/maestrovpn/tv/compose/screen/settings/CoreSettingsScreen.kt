@@ -9,6 +9,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,10 +55,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import io.nekohasekai.libbox.Libbox
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.component.SectionLabel
+import com.maestrovpn.tv.compose.fantasy.FantasyListRow
+import com.maestrovpn.tv.compose.fantasy.FantasyScreenBackground
+import com.maestrovpn.tv.compose.fantasy.FantasyToggle
+import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.clipboardText
@@ -67,18 +77,47 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CoreSettingsScreen(navController: NavController) {
+    val isTv = rememberIsTv()
+
     OverrideTopBar {
-        TopAppBar(
-            title = { Text(stringResource(R.string.core)) },
-            navigationIcon = {
-                IconButton(onClick = { navController.navigateUp() }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.content_description_back),
+        if (isTv) {
+            TopAppBar(
+                title = { Text(stringResource(R.string.core)) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back),
+                        )
+                    }
+                },
+            )
+        } else {
+            TopAppBar(
+                title = {
+                    Text(
+                        stringResource(R.string.core),
+                        fontFamily = PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE8C877),
+                        letterSpacing = 1.sp,
                     )
-                }
-            },
-        )
+                },
+                navigationIcon = {
+                    IconButton(onClick = { navController.navigateUp() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.content_description_back),
+                            tint = Color(0xFFE8C877),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF17110A),
+                    titleContentColor = Color(0xFFE8C877),
+                ),
+            )
+        }
     }
 
     val context = LocalContext.current
@@ -102,6 +141,122 @@ fun CoreSettingsScreen(navController: NavController) {
         }
     }
 
+    // Shared logic callbacks (identical for TV + phone) ────────────────────────
+    val copyVersion: () -> Unit = {
+        clipboardText = version
+        Toast.makeText(
+            context,
+            R.string.copied_to_clipboard,
+            Toast.LENGTH_SHORT,
+        ).show()
+        showVersionMenu = false
+    }
+    val onDestroy: () -> Unit = {
+        scope.launch(Dispatchers.IO) {
+            val filesDir = context.getExternalFilesDir(null) ?: context.filesDir
+            filesDir.deleteRecursively()
+            filesDir.mkdirs()
+
+            // Recalculate data size
+            val newSize =
+                filesDir.walkTopDown()
+                    .filter { it.isFile }
+                    .map { it.length() }
+                    .sum()
+            val formattedSize = Libbox.formatBytes(newSize)
+            dataSize = formattedSize
+        }
+    }
+
+    if (!isTv) {
+        // ── PHONE: Dark-Fantasy kit ──────────────────────────────────────────
+        FantasyScreenBackground {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // Version info — long-press to copy
+                Box {
+                    FantasyListRow(
+                        title = stringResource(R.string.core_version_title),
+                        subtitle = version,
+                        icon = Icons.Outlined.Info,
+                        modifier = Modifier.combinedClickable(
+                            onClick = {},
+                            onLongClick = { showVersionMenu = true },
+                        ),
+                    )
+                    Box(modifier = Modifier.align(Alignment.BottomEnd)) {
+                        DropdownMenu(
+                            expanded = showVersionMenu,
+                            onDismissRequest = { showVersionMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.per_app_proxy_action_copy)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.ContentCopy,
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = copyVersion,
+                            )
+                        }
+                    }
+                }
+
+                // Data size
+                FantasyListRow(
+                    title = stringResource(R.string.core_data_size),
+                    subtitle = dataSize.ifEmpty { stringResource(R.string.calculating) },
+                    icon = Icons.Outlined.Storage,
+                )
+
+                if (version.contains("-")) {
+                    Spacer(Modifier.height(6.dp))
+                    SectionLabel(stringResource(R.string.beta_settings).uppercase(), wood = true)
+                    FantasyListRow(
+                        title = stringResource(R.string.disable_deprecated_warnings),
+                        icon = Icons.Outlined.WarningAmber,
+                        trailing = {
+                            FantasyToggle(
+                                checked = disableDeprecatedWarnings,
+                                onCheckedChange = { checked ->
+                                    disableDeprecatedWarnings = checked
+                                    scope.launch(Dispatchers.IO) {
+                                        Settings.disableDeprecatedWarnings = checked
+                                    }
+                                },
+                            )
+                        },
+                    )
+                }
+
+                // Working directory section
+                Spacer(Modifier.height(6.dp))
+                SectionLabel(stringResource(R.string.working_directory).uppercase(), wood = true)
+
+                FantasyListRow(
+                    title = stringResource(R.string.browse),
+                    icon = Icons.Outlined.FolderOpen,
+                    onClick = { openInFileManager(context) },
+                )
+                FantasyListRow(
+                    title = stringResource(R.string.destroy),
+                    icon = Icons.Outlined.DeleteForever,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    onClick = onDestroy,
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        return
+    }
+
+    // ── TV: original Material3 layout (unchanged) ────────────────────────────
     Column(
         modifier =
         Modifier
@@ -170,15 +325,7 @@ fun CoreSettingsScreen(navController: NavController) {
                                         contentDescription = null,
                                     )
                                 },
-                                onClick = {
-                                    clipboardText = version
-                                    Toast.makeText(
-                                        context,
-                                        R.string.copied_to_clipboard,
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                    showVersionMenu = false
-                                },
+                                onClick = copyVersion,
                             )
                         }
                     }
@@ -342,22 +489,7 @@ fun CoreSettingsScreen(navController: NavController) {
                 modifier =
                 Modifier
                     .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
-                    .clickable {
-                        scope.launch(Dispatchers.IO) {
-                            val filesDir = context.getExternalFilesDir(null) ?: context.filesDir
-                            filesDir.deleteRecursively()
-                            filesDir.mkdirs()
-
-                            // Recalculate data size
-                            val newSize =
-                                filesDir.walkTopDown()
-                                    .filter { it.isFile }
-                                    .map { it.length() }
-                                    .sum()
-                            val formattedSize = Libbox.formatBytes(newSize)
-                            dataSize = formattedSize
-                        }
-                    },
+                    .clickable { onDestroy() },
                 colors =
                 ListItemDefaults.colors(
                     containerColor = Color.Transparent,

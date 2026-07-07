@@ -1,5 +1,8 @@
 package com.maestrovpn.tv.compose.screen.qrscan
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -10,10 +13,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.maestrovpn.tv.compose.component.qr.QRScanSheet
+import com.maestrovpn.tv.compose.component.GlossyButton
+import com.maestrovpn.tv.compose.fantasy.FantasyDialog
+import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screen.claim.ClaimState
 import com.maestrovpn.tv.compose.screen.claim.ClaimViewModel
+import com.maestrovpn.tv.compose.component.qr.QRScanSheet
+import com.maestrovpn.tv.compose.theme.NeonGreen
 
 /**
  * Phone QR-activation: opens the camera scanner and, for a MaestroVPN subscription QR
@@ -43,13 +53,29 @@ fun ScanQrActivateScreen(onDone: () -> Unit) {
 
     val errorMessage = (state as? ClaimState.Error)?.message
     if (unsupported || errorMessage != null) {
-        AlertDialog(
-            onDismissRequest = onDone,
-            confirmButton = { TextButton(onClick = onDone) { Text("OK") } },
-            title = { Text("Не удалось") },
-            text = {
-                Text(errorMessage ?: "Это не QR-код подписки MaestroVPN. Отсканируйте QR из бота или с сайта.")
-            },
-        )
+        val body = errorMessage
+            ?: "Это не QR-код подписки MaestroVPN. Отсканируйте QR из бота или с сайта."
+        if (rememberIsTv()) {
+            // ── TV: Material dialog (unchanged) ──
+            AlertDialog(
+                onDismissRequest = onDone,
+                confirmButton = { TextButton(onClick = onDone) { Text("OK") } },
+                title = { Text("Не удалось") },
+                text = { Text(body) },
+            )
+        } else {
+            // ── PHONE: Dark-Fantasy modal ──
+            FantasyDialog(onDismiss = onDone, title = "Не удалось") {
+                Text(text = body, color = Color(0xFFECE2CC))
+                Spacer(Modifier.height(18.dp))
+                GlossyButton(
+                    label = "OK",
+                    onClick = onDone,
+                    accent = NeonGreen,
+                    wood = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
