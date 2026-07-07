@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.res.imageResource
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.unit.IntOffset
@@ -58,7 +59,9 @@ fun LivingEye(
 ) {
     val eyeBase = ImageBitmap.imageResource(R.drawable.home_eye_base)
     val eyeIris = ImageBitmap.imageResource(R.drawable.home_eye_iris)
-    val plasma = ImageBitmap.imageResource(R.drawable.home_plasma_disc)
+    // ЯДРО энергии (r=198 из 234): вращается ТОЛЬКО оно — стеклянный купол с бликом
+    // остаётся запечённым в фоне неподвижным (иначе блик «уезжает» = артефакт).
+    val plasmaCore = ImageBitmap.imageResource(R.drawable.home_plasma_core)
 
     // взгляд в долях макс. сдвига (-1..1 по обеим осям, длина ≤1)
     val gaze = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
@@ -177,11 +180,13 @@ fun LivingEye(
         val r = size.minDimension / 2f
         val c = Offset(size.width / 2f, size.height / 2f)
 
-        // ── плазменный вихрь (отключено/переходы): его же пиксели, только вращение ──
-        if (ea < 0.995f && (spin.value % 360f != 0f || ea > 0.005f)) {
+        // ── плазменный вихрь (отключено/переходы): вращается только ЯДРО энергии,
+        //    стеклянный купол/блик — неподвижный запечённый фон ──
+        if (ea < 0.995f && spin.value % 360f != 0f) {
+            val cr = r * (198f / 234f)
             rotate(spin.value, c) {
-                drawImage(plasma, dstOffset = IntOffset((c.x - r).toInt(), (c.y - r).toInt()),
-                    dstSize = IntSize((2 * r).toInt(), (2 * r).toInt()),
+                drawImage(plasmaCore, dstOffset = IntOffset((c.x - cr).toInt(), (c.y - cr).toInt()),
+                    dstSize = IntSize((2 * cr).toInt(), (2 * cr).toInt()),
                     alpha = 1f - ea, filterQuality = FilterQuality.Medium)
             }
         }
@@ -231,30 +236,84 @@ fun LivingEye(
                 )
             }
 
-            // веки: верхнее ведущее (+ след взгляда вверх/вниз + прищур), нижнее — 40% хода
+            // веки: КОЖА ИЗ АРТА (растянутая верхняя/нижняя дуга сокета — прожилки владельца) +
+            // затемнение к краю, ресничная кромка, тёплый подповерхностный штрих, тень на яблоко.
+            // Верхнее ведущее (+ след взгляда + прищур), нижнее — 40% хода. Проверено симуляцией.
             val lidK = (lid.value + squint.value * 0.9f + abs(gaze.value.y) * 0.05f).coerceIn(0f, 1f)
             if (lidK > 0.002f) {
-                val lidBrush = Brush.verticalGradient(
-                    0f to Color(0xFF17110A), 0.8f to Color(0xFF241A0F), 1f to Color(0xFF312514),
-                    startY = c.y - r, endY = c.y + r,
-                )
-                val upperEdge = c.y - r + (2f * r) * (0.56f * lidK)
+                val travel = 2f * r * 0.56f * lidK
+                val texW = eyeBase.width; val texH = eyeBase.height
+                // ── верхнее веко ──
+                val apexY = c.y - r + travel + 0.16f * r          // нижняя точка кривой (центр)
+                val sideY = c.y - r + travel - 0.10f * r          // край у боков выше
                 val upper = Path().apply {
                     moveTo(c.x - r, c.y - r); lineTo(c.x + r, c.y - r)
-                    lineTo(c.x + r, upperEdge - r * 0.10f)
-                    quadraticBezierTo(c.x, upperEdge + r * 0.16f, c.x - r, upperEdge - r * 0.10f)
+                    lineTo(c.x + r, sideY)
+                    quadraticBezierTo(c.x, c.y - r + travel + 0.42f * r, c.x - r, sideY)
                     close()
                 }
-                drawPath(upper, lidBrush, alpha = ea)
-                drawPath(upper, Color(0xFF0B0805), alpha = 0.35f * ea, style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.012f))
-                val lowerEdge = c.y + r - (2f * r) * (0.40f * 0.56f * lidK)
-                val lower = Path().apply {
-                    moveTo(c.x - r, c.y + r); lineTo(c.x + r, c.y + r)
-                    lineTo(c.x + r, lowerEdge + r * 0.08f)
-                    quadraticBezierTo(c.x, lowerEdge - r * 0.12f, c.x - r, lowerEdge + r * 0.08f)
-                    close()
+                clipPath(upper) {
+                    drawImage(eyeBase,
+                        srcOffset = IntOffset(0, 0), srcSize = IntSize(texW, (texH * 0.22f).toInt()),
+                        dstOffset = IntOffset((c.x - r).toInt(), (c.y - r).toInt()),
+                        dstSize = IntSize((2 * r).toInt(), (apexY - (c.y - r)).toInt().coerceAtLeast(1)),
+                        alpha = ea, filterQuality = FilterQuality.Medium)
+                    // затемнение кожи к ресничному краю (объём)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.30f),
+                            startY = c.y - r, endY = apexY,
+                        ),
+                        topLeft = Offset(c.x - r, c.y - r),
+                        size = androidx.compose.ui.geometry.Size(2 * r, (apexY - (c.y - r)).coerceAtLeast(1f)),
+                        alpha = ea,
+                    )
                 }
-                drawPath(lower, lidBrush, alpha = 0.92f * ea)
+                // ресничная кромка + тёплый подповерхностный штрих (вдоль кривой края)
+                val edgeCurve = Path().apply {
+                    moveTo(c.x - r, sideY)
+                    quadraticBezierTo(c.x, c.y - r + travel + 0.42f * r, c.x + r, sideY)
+                }
+                drawPath(edgeCurve, Color(0xFF0B0805), alpha = 0.78f * ea,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.026f))
+                translate(top = r * 0.024f) {
+                    drawPath(edgeCurve, Color(0xFF6B5230), alpha = 0.40f * ea,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.016f))
+                }
+                // мягкая тень века на глазном яблоке
+                translate(top = r * 0.020f) {
+                    drawPath(edgeCurve, Color.Black, alpha = 0.24f * ea,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.11f))
+                }
+                // ── нижнее веко (кожа нижней дуги арта, 40% хода) ──
+                val loTravel = travel * 0.40f
+                if (loTravel > r * 0.01f) {
+                    val loSideY = c.y + r - loTravel + 0.08f * r
+                    val lower = Path().apply {
+                        moveTo(c.x - r, c.y + r); lineTo(c.x + r, c.y + r)
+                        lineTo(c.x + r, loSideY)
+                        quadraticBezierTo(c.x, c.y + r - loTravel - 0.34f * r, c.x - r, loSideY)
+                        close()
+                    }
+                    val loTop = c.y + r - loTravel - 0.12f * r
+                    clipPath(lower) {
+                        drawImage(eyeBase,
+                            srcOffset = IntOffset(0, (texH * 0.84f).toInt()),
+                            srcSize = IntSize(texW, (texH * 0.16f).toInt()),
+                            dstOffset = IntOffset((c.x - r).toInt(), loTop.toInt()),
+                            dstSize = IntSize((2 * r).toInt(), ((c.y + r) - loTop).toInt().coerceAtLeast(1)),
+                            alpha = ea, filterQuality = FilterQuality.Medium)
+                        drawRect(Color.Black, topLeft = Offset(c.x - r, loTop),
+                            size = androidx.compose.ui.geometry.Size(2 * r, ((c.y + r) - loTop).coerceAtLeast(1f)),
+                            alpha = 0.12f * ea)
+                    }
+                    val loCurve = Path().apply {
+                        moveTo(c.x - r, loSideY)
+                        quadraticBezierTo(c.x, c.y + r - loTravel - 0.34f * r, c.x + r, loSideY)
+                    }
+                    drawPath(loCurve, Color(0xFF1A120A), alpha = 0.55f * ea,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.018f))
+                }
             }
         }
     }
