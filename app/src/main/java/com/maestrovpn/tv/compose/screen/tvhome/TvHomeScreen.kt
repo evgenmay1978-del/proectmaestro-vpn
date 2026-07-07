@@ -411,11 +411,20 @@ private fun HeroPane(
                 .height(if (isTv) 22.dp else 26.dp),
         )
 
-        SpiderMedallion(
-            connected = connected,
-            onToggle = onToggleConnect,
-            focusRequester = connectFocus,
-        )
+        // Phone gets the live jewel-grade EMERALD medallion (AGSL, spider sealed inside, melts on
+        // connect); TV keeps the lightweight SpiderMedallion (D-pad focus + low-RAM friendly).
+        if (isTv) {
+            SpiderMedallion(
+                connected = connected,
+                onToggle = onToggleConnect,
+                focusRequester = connectFocus,
+            )
+        } else {
+            EmeraldMedallion(
+                connected = connected,
+                onToggle = onToggleConnect,
+            )
+        }
 
         Spacer(Modifier.height(14.dp))
         // status with a state dot — the dot gets a soft glow HALO that pulses (breathes) when
