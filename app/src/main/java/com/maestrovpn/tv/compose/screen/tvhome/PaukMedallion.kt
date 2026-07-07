@@ -66,7 +66,7 @@ import kotlin.math.sin
 //  MaestroVPN — процедурный 2D-паук (порт из build_final_spider.py).
 //  Тело = спрайт pauk_body, 8 лап + 2 педипальпы = реальная лапа-текстура pauk_leg,
 //  размещённая бедро→стопа матрицей (поворот+масштаб). 2D-плантинг стоп (без скольжения),
-//  чередующийся тетрапод, ОМНИнаправленное перемещение (тело НИКОГДА не крутится, heading=вверх),
+//  чередующийся тетрапод, перемещение с ПОВОРОТОМ тела к ходу (v19) + leg-driven brake,
 //  повадки покоя (look/groom/crouch/RISE/shuffle/turn), покачивание (sway ±3°, бёдра качаются
 //  ВМЕСТЕ с телом), 3-слойная мягкая направленная тень, медальон.
 //  Симуляция крутится на withFrameNanos → перерисовка каждый кадр БЕЗ рекомпозиции.
@@ -171,6 +171,12 @@ private class Palp(
 private fun rnd(a: Float, b: Float) = a + (Math.random().toFloat()) * (b - a)
 private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 private fun clamp(v: Float, a: Float, b: Float) = if (v < a) a else if (v > b) b else v
+private fun lerpAngle(a: Float, b: Float, t: Float): Float {   // поворот по кратчайшей дуге
+    var d = b - a
+    while (d > PI.toFloat()) d -= 2f * PI.toFloat()
+    while (d < -PI.toFloat()) d += 2f * PI.toFloat()
+    return a + d * t
+}
 private fun dist(ax: Float, ay: Float, bx: Float, by: Float) = hypot(ax - bx, ay - by)
 
 /**
@@ -192,7 +198,8 @@ private class SpiderSim {
     // тело
     var x = 0f
     var y = 0f
-    val headingWorld: Float get() = -(PI.toFloat() / 2f) + sway   // heading ФИКСИРОВАН вверх (+sway)
+    var heading = -(PI.toFloat() / 2f)                            // куда «смотрит» тело — ПОВОРАЧИВАЕТСЯ к ходу (v19)
+    val headingWorld: Float get() = heading + sway                // фактическое направление тела (+покачивание)
     var vx = 0f
     var vy = 0f
     var crouch = 1f
@@ -405,6 +412,14 @@ private class SpiderSim {
         ensureInit(w, h)
         bt += dt
 
+        // leg-driven brake: тело не обгоняет лапы (лечит «коньковое» скольжение) — из v19
+        var maxStretch = 0f
+        for (L in legs) {
+            val hp = hipW(L); val d = dist(L.footX, L.footY, hp.x, hp.y) / (L.reach * sc).coerceAtLeast(1e-4f)
+            if (d > maxStretch) maxStretch = d
+        }
+        val brk = if (maxStretch > 1.0f) (1f - (maxStretch - 1.0f) / 0.35f).coerceAtLeast(0.10f) else 1f
+
         // первый кадр: подключён → сразу охраняем в центре; иначе спрятан под кнопкой (не видно)
         if (!started) {
             started = true; prevConnected = connected
@@ -437,7 +452,7 @@ private class SpiderSim {
                     if (phase == PH_GUARDING && Math.random() < dt * 0.4f) pause = rnd(1f, 2f)
                     // ОМНИнаправленно к цели БЕЗ поворота тела; выход/уход чуть быстрее патруля
                     val base = if (phase == PH_GUARDING) rnd(34f, 52f) else rnd(58f, 78f)
-                    val a = atan2(dy, dx); val spd = base * sc
+                    val a = atan2(dy, dx); val spd = base * sc * brk   // тормозим, если лапы растянуты
                     vx = lerp(vx, cos(a) * spd, dt * 2.5f)
                     vy = lerp(vy, sin(a) * spd, dt * 2.5f)
                 }
@@ -468,6 +483,10 @@ private class SpiderSim {
             val ddx = x - cx; val ddy = y - cy; val dd = hypot(ddx, ddy); val lim = radius * GUARD_LEASH
             if (dd > lim) { x = cx + ddx / dd * lim; y = cy + ddy / dd * lim }
         }
+        // тело ПОВОРАЧИВАЕТСЯ к направлению хода; в покое плавно возвращается «головой вверх» (v19)
+        val movespd = hypot(vx, vy)
+        heading = if (movespd > radius * 0.10f) lerpAngle(heading, atan2(vy, vx), dt * 1.6f * brk)
+                  else lerpAngle(heading, -(PI.toFloat() / 2f), dt * 2.4f)
         crouch = lerp(crouch, crouchTarget, dt * 4f)
         rise = lerp(rise, riseTarget, dt * 3.5f)
         breathe = sin(bt * 0.3f * (2f * PI).toFloat()) * 0.01f
@@ -859,7 +878,7 @@ private fun DrawScope.drawBodySprite(
 ) {
     // спрайт тела 176×390; рисуем центрированно, поворот=heading(+sway), масштаб SC·crouch·(1+0.13·rise)
     val bodyScale = sim.sc * (BODY_REF / PAUK_BODY_H) * sim.crouch * (1f + 0.13f * sim.rise)
-    val rot = sim.sway * 180f / PI.toFloat()   // тело качается ±~3° (heading фиксирован вверх)
+    val rot = (sim.headingWorld + PI.toFloat() / 2f) * 180f / PI.toFloat()   // тело смотрит по heading (+sway)
     withTransform({
         translate(sim.x, sim.y)
         rotate(rot, pivot = Offset.Zero)
