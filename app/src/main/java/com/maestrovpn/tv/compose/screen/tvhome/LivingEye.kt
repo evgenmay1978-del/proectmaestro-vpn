@@ -64,7 +64,8 @@ fun LivingEye(
     val eyeBall = ImageBitmap.imageResource(R.drawable.home_eye_ball)
     val eyeIris2 = ImageBitmap.imageResource(R.drawable.home_eye_iris2)
     val eyeCatch = ImageBitmap.imageResource(R.drawable.home_eye_catch)
-    val lidUp = ImageBitmap.imageResource(R.drawable.home_lid_up)
+    val lidSkin = ImageBitmap.imageResource(R.drawable.home_lid_skin)   // кожа века (полноширинная, тянется)
+    val lidLash = ImageBitmap.imageResource(R.drawable.home_lid_lash)   // край с РЕСНИЦАМИ (жёсткий сдвиг, не мажется)
     val lidLo = ImageBitmap.imageResource(R.drawable.home_lid_lo)
     // ЯДРО энергии (r=198 из 234): вращается ТОЛЬКО оно — стеклянный купол с бликом
     // остаётся запечённым в фоне неподвижным (иначе блик «уезжает» = артефакт).
@@ -281,15 +282,6 @@ fun LivingEye(
                         alpha = ea, filterQuality = FilterQuality.Medium)
                 }
 
-                // лёгкая мир-анкерная тень кривизны на переднем крае (довесок объёма)
-                if (gazeLen > 0.01f) {
-                    val u = Offset(gzx / gazeLen, gzy / gazeLen)
-                    val leadC = irisC + u * (irisR * 1.02f)
-                    drawCircle(brush = Brush.radialGradient(
-                        listOf(Color.Black.copy(alpha = 0.16f * gazeLen * ea), Color.Transparent),
-                        center = leadC, radius = irisR * 0.8f), radius = irisR * 0.8f, center = leadC)
-                }
-
                 // ЗРАЧОК — ОТДЕЛЬНЫЙ СЛОЙ (§3): может и расширяться, и СУЖАТЬСЯ ниже артового;
                 // ведёт за взглядом на 18% (преломление роговицы).
                 val pupilC = irisC + Offset(gzx, gzy) * (maxShift * 0.18f)
@@ -332,22 +324,49 @@ fun LivingEye(
                             1f to Color.Transparent, center = c, radius = r),
                         radius = r, center = c)
                 }
+                // ЖИВАЯ ТЕНЬ ВЕКА (фидбек: тень не должна ездить с глазом): запечённая тень снята
+                // с яблока/радужки, эта — привязана к КРАЮ ВЕКА и едет только с морганием.
+                run {
+                    val shTravel = 1.10f * r * lidK0
+                    translate(top = shTravel) {
+                        val bandTop = c.y - 0.37f * r
+                        val band = Path().apply {
+                            moveTo(c.x - r, bandTop)
+                            quadraticBezierTo(c.x, c.y - 0.55f * r, c.x + r, bandTop)
+                            lineTo(c.x + r, bandTop + 0.25f * r)
+                            quadraticBezierTo(c.x, c.y - 0.55f * r + 0.25f * r, c.x - r, bandTop + 0.25f * r)
+                            close()
+                        }
+                        drawPath(band, brush = Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.58f * ea),
+                            0.48f to Color.Black.copy(alpha = 0.42f * ea),
+                            1f to Color.Transparent,
+                            startY = c.y - 0.46f * r, endY = c.y - 0.21f * r,
+                        ))
+                    }
+                }
             } // конец окна яблока
             } // конец squash
 
-            // ── ВЕКИ ИЗ ЭСКИЗА (фидбек владельца): артовые дуги с ресницами. Моргание =
-            //    вертикальная растяжка от якоря (верх дуги / низ валика): край с НАСТОЯЩИМИ
-            //    ресницами едет к линии смыкания (+0.50R), нижний валик ведомый (~15%). ──
+            // ── ВЕКИ ИЗ ЭСКИЗА: КОЖА тянется от якоря (полноширинный варп — не уже глаза),
+            //    ЛЕНТА С РЕСНИЦАМИ едет ЖЁСТКО (форма и ресницы арта не мажутся). ──
             val lidLayerR = 234f / 228f * r
-            val srcHUp = (0.90f - 0.46f) * r
-            val scaleUp = (srcHUp + 0.96f * r * lidK0) / srcHUp
-            withTransform({ scale(1f, scaleUp, pivot = Offset(c.x, c.y - 0.90f * r)) }) {
-                drawImage(lidUp, dstOffset = IntOffset((c.x - lidLayerR).toInt(), (c.y - lidLayerR).toInt()),
-                    dstSize = IntSize((2 * lidLayerR).toInt(), (2 * lidLayerR).toInt()),
-                    alpha = ea, filterQuality = FilterQuality.Medium)
+            if (lidK0 > 0.004f) {
+                val travel = 1.10f * r * lidK0
+                val skinH = 0.40f * r
+                withTransform({ scale(1f, (skinH + travel) / skinH, pivot = Offset(c.x, c.y - 0.92f * r)) }) {
+                    drawImage(lidSkin, dstOffset = IntOffset((c.x - lidLayerR).toInt(), (c.y - 0.92f * r).toInt()),
+                        dstSize = IntSize((2 * lidLayerR).toInt(), skinH.toInt().coerceAtLeast(1)),
+                        alpha = ea, filterQuality = FilterQuality.Medium)
+                }
+                translate(top = travel) {
+                    drawImage(lidLash, dstOffset = IntOffset((c.x - lidLayerR).toInt(), (c.y - lidLayerR).toInt()),
+                        dstSize = IntSize((2 * lidLayerR).toInt(), (2 * lidLayerR).toInt()),
+                        alpha = ea, filterQuality = FilterQuality.Medium)
+                }
             }
             val srcHLo = (0.97f - 0.64f) * r
-            val scaleLo = (srcHLo + 0.14f * r * lidK0) / srcHLo
+            val scaleLo = (srcHLo + 0.165f * r * lidK0) / srcHLo
             withTransform({ scale(1f, scaleLo, pivot = Offset(c.x, c.y + 0.97f * r)) }) {
                 drawImage(lidLo, dstOffset = IntOffset((c.x - lidLayerR).toInt(), (c.y - lidLayerR).toInt()),
                     dstSize = IntSize((2 * lidLayerR).toInt(), (2 * lidLayerR).toInt()),
@@ -356,7 +375,7 @@ fun LivingEye(
 
             // ВЛАЖНЫЙ МЕНИСК (реф-видео владельца): постоянная тонкая линия слёзной жидкости
             // вдоль края нижнего века, едва мерцает; едет вверх вместе с краем при морге.
-            withTransform({ translate(top = -0.14f * r * lidK0) }) {
+            withTransform({ translate(top = -0.165f * r * lidK0) }) {
                 val menisc = Path().apply {
                     moveTo(c.x - 0.86f * r, c.y + 0.551f * r)
                     quadraticBezierTo(c.x, c.y + 0.729f * r, c.x + 0.86f * r, c.y + 0.551f * r)

@@ -22,6 +22,7 @@ name: Build app APK (test / compile-check)
 # (ci trigger: living-eye v13 — фикс компиляции v12: порядок определений gzx/gzy/lidK0 2026-07-08)
 # (ci trigger: living-eye v14 — анатомия слоёв по фидбеку: яблоко целиком, зрачок отдельно, веки из эскиза, катчлайт арта 2026-07-08)
 # (ci trigger: living-eye v15 — влажный мениск нижнего века (реф magnific) 2026-07-08)
+# (ci trigger: living-eye v16 — верхнее веко: кожа+жёсткая лента ресниц; тень снята с яблока → живая у века 2026-07-08)
 
 on:
   workflow_dispatch:
