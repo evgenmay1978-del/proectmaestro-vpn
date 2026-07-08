@@ -212,6 +212,14 @@ fun LivingEye(
         val r = size.minDimension / 2f
         val c = Offset(size.width / 2f, size.height / 2f)
 
+        // §2 феномен Белла: при закрытии век яблоко уходит вверх и чуть наружу (smoothstep 0.3→1).
+        // gzx/gzy = «эффективный» взгляд для всей отрисовки (взгляд + увод Белла).
+        val bellT = ((lid.value - 0.3f) / 0.7f).coerceIn(0f, 1f)
+        val bellS = bellT * bellT * (3f - 2f * bellT)
+        val gzx = (gaze.value.x + EyeTune.BELL_OUT * bellS).coerceIn(-1f, 1f)
+        val gzy = (gaze.value.y + EyeTune.BELL_UP * bellS).coerceIn(-1f, 1f)
+        val lidK0 = (lid.value + squint.value * 0.9f + gzy.coerceAtLeast(0f) * 0.08f).coerceIn(0f, 1f)
+
         // ── плазменный вихрь (отключено/переходы): вращается только ЯДРО энергии,
         //    стеклянный купол/блик — неподвижный запечённый фон ──
         if (ea < 0.995f && spin.value % 360f != 0f) {
@@ -235,13 +243,6 @@ fun LivingEye(
                 alpha = ea, filterQuality = FilterQuality.Medium)
 
             // радужка+зрачок: покой = точное запечённое место (+7,+10 от центра сокета в осях арта 234)
-            // §2 феномен Белла: при закрытии век яблоко уходит вверх и чуть наружу (smoothstep 0.3→1)
-            val bellT = ((lid.value - 0.3f) / 0.7f).coerceIn(0f, 1f)
-            val bellS = bellT * bellT * (3f - 2f * bellT)
-            val gzx = (gzx + EyeTune.BELL_OUT * bellS).coerceIn(-1f, 1f)
-            val gzy = (gzy + EyeTune.BELL_UP * bellS).coerceIn(-1f, 1f)
-            val lidK0 = (lid.value + squint.value * 0.9f + gzy.coerceAtLeast(0f) * 0.08f).coerceIn(0f, 1f)
-
             val maxShift = r * 0.115f
             val irisC = c + Offset(7f / 234f * r, 10f / 234f * r) +
                 Offset(gzx * maxShift, gzy * maxShift)
