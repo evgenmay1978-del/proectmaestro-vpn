@@ -26,7 +26,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.res.imageResource
 import androidx.compose.runtime.withFrameNanos
@@ -44,12 +43,13 @@ import kotlin.random.Random
 
 /**
  * Живой глаз в сокете медальона (только телефон). Арт = ПИКСЕЛИ мокапа владельца, разрезанные на
- * слои (home_eye_base = склера с дорисованной под радужкой тканью, home_eye_iris = радужка+зрачок,
- * home_plasma_disc = энергосфера отключённого состояния). Вся «жизнь» — только трансформации этих
- * слоёв: моргание/прищур (веки), блуждание взгляда + саккады, дыхание зрачка, влажные блики,
- * слежение за пальцем, вихрь плазмы на появление/растворение. В покое по центру композиция
- * пиксель-в-пиксель совпадает с запечённым фоном (проверено попиксельно при раскройке).
- * Никакой линейной механики: все движения на кривых с лёгкой случайностью.
+ * слои по анатомии (фидбек владельца 2026-07-08): home_eye_ball = ЯБЛОКО ЦЕЛИКОМ (белок+прожилки,
+ * двигается как один шар — радужка не «отрывается» от белка), home_eye_iris2 = радужка БЕЗ зрачка,
+ * зрачок = отдельный процедурный слой (расширяется И сужается), home_eye_catch = артовый катчлайт
+ * (свет-анкерный, почти не движется), home_lid_up/lo = ВЕКИ ИЗ ЭСКИЗА с настоящими ресницами
+ * (моргание = растяжка от якоря), home_plasma_core = ядро энергосферы. Поведение: спека владельца
+ * (Белл, тайминг-асимметрия, зрачковый рефлекс, squash, wet-flash, слёзная плёнка, саккады).
+ * В покое композиция совпадает с запечённым фоном (diff 1.1/255, проверено при раскройке).
  */
 @Composable
 fun LivingEye(
@@ -58,8 +58,13 @@ fun LivingEye(
     touchDir: State<Offset?>,       // направление на палец в долях (-1..1) от центра сокета, null = нет касания
     modifier: Modifier = Modifier,
 ) {
-    val eyeBase = ImageBitmap.imageResource(R.drawable.home_eye_base)
-    val eyeIris = ImageBitmap.imageResource(R.drawable.home_eye_iris)
+    // СЛОИ ИЗ АРТА (фидбек владельца): яблоко ЦЕЛИКОМ (белок+прожилки, двигается как одно),
+    // радужка БЕЗ зрачка (зрачок отдельный), артовый катчлайт (свет-анкерный), артовые ВЕКИ.
+    val eyeBall = ImageBitmap.imageResource(R.drawable.home_eye_ball)
+    val eyeIris2 = ImageBitmap.imageResource(R.drawable.home_eye_iris2)
+    val eyeCatch = ImageBitmap.imageResource(R.drawable.home_eye_catch)
+    val lidUp = ImageBitmap.imageResource(R.drawable.home_lid_up)
+    val lidLo = ImageBitmap.imageResource(R.drawable.home_lid_lo)
     // ЯДРО энергии (r=198 из 234): вращается ТОЛЬКО оно — стеклянный купол с бликом
     // остаётся запечённым в фоне неподвижным (иначе блик «уезжает» = артефакт).
     val plasmaCore = ImageBitmap.imageResource(R.drawable.home_plasma_core)
@@ -233,192 +238,119 @@ fun LivingEye(
         if (ea < 0.005f) return@Canvas
 
         val socket = Path().apply { addOval(Rect(c.x - r, c.y - r, c.x + r, c.y + r)) }
+        // Кривые краёв АРТОВЫХ век (сняты с эскиза): верх −0.46+0.09·nx², низ +0.64−0.12·nx².
+        // «Окно» = зона глазного яблока между веками; яблоко/радужка/зрачок живут только в нём.
+        val window = Path().apply {
+            moveTo(c.x - r, c.y - 0.37f * r)
+            quadraticBezierTo(c.x, c.y - 0.55f * r, c.x + r, c.y - 0.37f * r)
+            lineTo(c.x + r, c.y + 0.52f * r)
+            quadraticBezierTo(c.x, c.y + 0.76f * r, c.x - r, c.y + 0.52f * r)
+            close()
+        }
         clipPath(socket) {
-            // §4 squash: веки давят на яблоко — микро-сплющивание всего глаза (не век)
+            // §4 squash: веки давят на яблоко — микро-сплющивание глаза (не век)
             val sqK = ((lidK0 - 0.7f) / 0.3f).coerceIn(0f, 1f)
             withTransform({ if (sqK > 0f) scale(1f + EyeTune.SQUASH_X * sqK, 1f - EyeTune.SQUASH_Y * sqK, pivot = c) }) {
-            // склера (под радужкой — дорисованная ткань, видна только при сдвиге взгляда)
-            drawImage(eyeBase, dstOffset = IntOffset((c.x - r).toInt(), (c.y - r).toInt()),
-                dstSize = IntSize((2 * r).toInt(), (2 * r).toInt()),
-                alpha = ea, filterQuality = FilterQuality.Medium)
-
-            // радужка+зрачок: покой = точное запечённое место (+7,+10 от центра сокета в осях арта 234)
-            val maxShift = r * 0.115f
-            val irisC = c + Offset(7f / 234f * r, 10f / 234f * r) +
-                Offset(gzx * maxShift, gzy * maxShift)
-            val irisR = r * (146f / 234f)
-            // перспектива РОГОВИЦЫ: глаз ВРАЩАЕТСЯ — радужка сжимается ВДОЛЬ направления взгляда
-            // (rotate→scale→rotate), зрачок (за выпуклой линзой) ведёт на ~18% хода. Без этого +
-            // теней кривизны ниже радужка выглядит «приклеенной монеткой» (фидбек владельца).
-            val gazeLen = hypot(gzx, gzy).coerceAtMost(1f)
-            val gazeDeg = Math.toDegrees(atan2(gzy, gzx).toDouble()).toFloat()
-            val pupilC = irisC + Offset(gzx, gzy) * (maxShift * 0.18f)
-            val pupilR = r * (43f / 234f) * (1f + 0.38f * dilate.value + breath.coerceAtLeast(-0.04f)
-                + EyeTune.PUPIL_DARK * lid.value - EyeTune.PUPIL_LIGHT * postLight.value)
-            withTransform({
-                if (gazeLen > 0.01f) {
-                    rotate(gazeDeg, irisC)
-                    scale(1f - 0.20f * gazeLen, 1f, pivot = irisC)
-                    rotate(-gazeDeg, irisC)
-                }
-            }) {
-                drawImage(eyeIris, dstOffset = IntOffset((irisC.x - irisR).toInt(), (irisC.y - irisR).toInt()),
-                    dstSize = IntSize((2 * irisR).toInt(), (2 * irisR).toInt()),
+            clipPath(window) {
+                // ЯБЛОКО ЦЕЛИКОМ (белок+прожилки+лимб) едет со взглядом — радужка «не отрывается»
+                // от белка по построению: они один движущийся шар под статичными веками.
+                val maxShift = r * 0.115f
+                val ballShift = Offset(gzx * maxShift, gzy * maxShift)
+                val ballR = r * (246f / 228f)
+                val ballC = c + ballShift
+                drawImage(eyeBall, dstOffset = IntOffset((ballC.x - ballR).toInt(), (ballC.y - ballR).toInt()),
+                    dstSize = IntSize((2 * ballR).toInt(), (2 * ballR).toInt()),
                     alpha = ea, filterQuality = FilterQuality.Medium)
-                // зрачок: расширение поверх артового (арт = минимальный размер, только рост)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0f to Color(0xFF060604), 0.74f to Color(0xFF060604), 1f to Color(0x00060604),
-                        center = pupilC, radius = pupilR * 1.18f,
-                    ),
-                    radius = pupilR * 1.18f, center = pupilC, alpha = ea,
-                )
-            }
 
-            // ТЕНИ КРИВИЗНЫ ЯБЛОКА (мир-анкерные, не едут с радужкой): передний край радужки
-            // уходит в тень поворота, открывшаяся склера у заднего угла темнеет. Именно это
-            // «вклеивает» радужку в шар вместо ощущения наклейки.
-            if (gazeLen > 0.01f) {
-                val u = Offset(gzx / gazeLen, gzy / gazeLen)
-                val leadC = irisC + u * (irisR * 1.05f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(Color.Black.copy(alpha = 0.28f * gazeLen * ea), Color.Transparent),
-                        center = leadC, radius = irisR * 0.75f),
-                    radius = irisR * 0.75f, center = leadC,
-                )
-                val trailC = irisC - u * (irisR * 1.60f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(Color.Black.copy(alpha = 0.20f * gazeLen * ea), Color.Transparent),
-                        center = trailC, radius = irisR * 1.05f),
-                    radius = irisR * 1.05f, center = trailC,
-                )
-            }
-
-            // влажные блики: чуть противоходом взгляду + медленный дрейф (запечённые остаются на радужке)
-            val g1 = pupilC + Offset(-pupilR * 0.55f, -pupilR * 1.15f) -
-                Offset(gzx, gzy) * (maxShift * 0.35f) + Offset(glintDrift * 2f, glintDrift * 1.2f)
-            val wetK = 1f + EyeTune.WET_FLASH * wetFlash.value
-            drawCircle(Color.White.copy(alpha = (0.22f * wetK * ea).coerceAtMost(0.42f)),
-                radius = r * 0.030f * (1f + 0.12f * wetFlash.value), center = g1)
-            drawCircle(Color.White.copy(alpha = (0.12f * wetK * ea).coerceAtMost(0.26f)), radius = r * 0.016f,
-                center = pupilC + Offset(pupilR * 0.9f, pupilR * 0.7f) - Offset(glintDrift * 1.5f, glintDrift * 0.8f))
-
-            // §5 слёзная плёнка: 200-400мс после моргания — влажная полоса внизу роговицы
-            if (tear.value > 0.01f) {
-                val ty = irisC.y + irisR * 0.40f
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.Transparent, 0.5f to Color.White.copy(alpha = 0.075f * tear.value * ea),
-                        1f to Color.Transparent, startY = ty, endY = ty + irisR * 0.5f,
-                    ),
-                    topLeft = Offset(irisC.x - irisR * 0.8f, ty),
-                    size = androidx.compose.ui.geometry.Size(irisR * 1.6f, irisR * 0.5f),
-                )
-            }
-
-            // подключение: радужка становится ярче (мягкая волна по ней) + зелёный отблеск по ободу
-            if (greenGlint.value > 0.01f) {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0f to Color(0xFFCFFFE0).copy(alpha = 0.16f * greenGlint.value),
-                        0.75f to Color(0xFF9FF7C0).copy(alpha = 0.10f * greenGlint.value),
-                        1f to Color.Transparent, center = irisC, radius = irisR,
-                    ),
-                    radius = irisR, center = irisC,
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.35f to Color(0x0034E67A), 0.8f to Color(0xFF34E67A).copy(alpha = 0.30f * greenGlint.value),
-                        1f to Color.Transparent, center = c, radius = r,
-                    ),
-                    radius = r, center = c,
-                )
-            }
-
-            } // конец squash-блока яблока
-
-            // веки: КОЖА ИЗ АРТА (растянутая верхняя/нижняя дуга сокета — прожилки владельца) +
-            // затемнение к краю, ресничная кромка, тёплый подповерхностный штрих, тень на яблоко.
-            // Верхнее ведущее (+ след взгляда + прищур), нижнее — 40% хода. Проверено симуляцией.
-            val lidK = lidK0
-            if (lidK > 0.002f) {
-                val texW = eyeBase.width; val texH = eyeBase.height
-                // ── АНАТОМИЯ МОРГАНИЯ: бока смыкаются на 30% раньше центра → миндалевидная щель
-                // (не «прямоугольная щёлка»); линия смыкания в нижней трети, лёгкое перекрытие век.
-                val ks = (lidK * 1.30f).coerceAtMost(1f)
-                val upS = c.y - r + 1.56f * r * ks               // край века у боков
-                val upC = c.y - r + 1.62f * r * lidK             // край в центре
-                val apexY = maxOf(upS, upC)
-                val upper = Path().apply {
-                    moveTo(c.x - r, c.y - r); lineTo(c.x + r, c.y - r)
-                    lineTo(c.x + r, upS)
-                    quadraticBezierTo(c.x, 2f * upC - upS, c.x - r, upS)
-                    close()
-                }
-                clipPath(upper) {
-                    drawImage(eyeBase,
-                        srcOffset = IntOffset(0, 0), srcSize = IntSize(texW, (texH * 0.22f).toInt()),
-                        dstOffset = IntOffset((c.x - r).toInt(), (c.y - r).toInt()),
-                        dstSize = IntSize((2 * r).toInt(), (apexY - (c.y - r)).toInt().coerceAtLeast(1)),
+                // РАДУЖКА (зрачок в ней заинпейнчен — он отдельным слоем ниже): тот же сдвиг, что
+                // и яблоко, плюс перспектива роговицы вдоль направления взгляда.
+                val irisC = c + Offset(7f / 228f * r, 10f / 228f * r) + ballShift
+                val irisR = r * (158f / 228f)
+                val gazeLen = hypot(gzx, gzy).coerceAtMost(1f)
+                val gazeDeg = Math.toDegrees(atan2(gzy, gzx).toDouble()).toFloat()
+                withTransform({
+                    if (gazeLen > 0.01f) {
+                        rotate(gazeDeg, irisC)
+                        scale(1f - 0.20f * gazeLen, 1f, pivot = irisC)
+                        rotate(-gazeDeg, irisC)
+                    }
+                }) {
+                    drawImage(eyeIris2, dstOffset = IntOffset((irisC.x - irisR).toInt(), (irisC.y - irisR).toInt()),
+                        dstSize = IntSize((2 * irisR).toInt(), (2 * irisR).toInt()),
                         alpha = ea, filterQuality = FilterQuality.Medium)
-                    // затемнение кожи к ресничному краю (объём)
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.30f),
-                            startY = c.y - r, endY = apexY,
-                        ),
-                        topLeft = Offset(c.x - r, c.y - r),
-                        size = androidx.compose.ui.geometry.Size(2 * r, (apexY - (c.y - r)).coerceAtLeast(1f)),
-                        alpha = ea,
-                    )
                 }
-                // ресничная кромка + тёплый подповерхностный штрих (вдоль кривой края)
-                val edgeCurve = Path().apply {
-                    moveTo(c.x - r, upS)
-                    quadraticBezierTo(c.x, 2f * upC - upS, c.x + r, upS)
+
+                // лёгкая мир-анкерная тень кривизны на переднем крае (довесок объёма)
+                if (gazeLen > 0.01f) {
+                    val u = Offset(gzx / gazeLen, gzy / gazeLen)
+                    val leadC = irisC + u * (irisR * 1.02f)
+                    drawCircle(brush = Brush.radialGradient(
+                        listOf(Color.Black.copy(alpha = 0.16f * gazeLen * ea), Color.Transparent),
+                        center = leadC, radius = irisR * 0.8f), radius = irisR * 0.8f, center = leadC)
                 }
-                drawPath(edgeCurve, Color(0xFF0B0805), alpha = 0.78f * ea,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.026f))
-                translate(top = r * 0.024f) {
-                    drawPath(edgeCurve, Color(0xFF6B5230), alpha = 0.40f * ea,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.016f))
+
+                // ЗРАЧОК — ОТДЕЛЬНЫЙ СЛОЙ (§3): может и расширяться, и СУЖАТЬСЯ ниже артового;
+                // ведёт за взглядом на 18% (преломление роговицы).
+                val pupilC = irisC + Offset(gzx, gzy) * (maxShift * 0.18f)
+                val pupilR = r * (45f / 228f) * (1f + 0.38f * dilate.value + breath.coerceAtLeast(-0.06f)
+                    + EyeTune.PUPIL_DARK * lid.value - EyeTune.PUPIL_LIGHT * postLight.value)
+                drawCircle(brush = Brush.radialGradient(
+                        0f to Color(0xFF020603), 0.72f to Color(0xFF020603), 1f to Color(0x00020603),
+                        center = pupilC, radius = pupilR * 1.16f),
+                    radius = pupilR * 1.16f, center = pupilC, alpha = ea)
+
+                // КАТЧЛАЙТ ИЗ АРТА: отражение света на роговице — стоит на месте (лёгкий противоход
+                // взгляду), медленно дрейфует, вспыхивает при открытии века (§5 wet flash).
+                val wetK = (1f + EyeTune.WET_FLASH * wetFlash.value)
+                val catchC = c + Offset(5f / 228f * r, 1f / 228f * r) -
+                    Offset(gzx, gzy) * (maxShift * 0.15f) + Offset(glintDrift * 2f, glintDrift * 1.2f)
+                val catchR = r * (40f / 228f) * (1f + 0.10f * wetFlash.value)
+                drawImage(eyeCatch, dstOffset = IntOffset((catchC.x - catchR).toInt(), (catchC.y - catchR).toInt()),
+                    dstSize = IntSize((2 * catchR).toInt(), (2 * catchR).toInt()),
+                    alpha = (ea * wetK).coerceAtMost(1f), filterQuality = FilterQuality.Medium)
+
+                // §5 слёзная плёнка: 200-400мс после моргания — влажная полоса внизу роговицы
+                if (tear.value > 0.01f) {
+                    val ty = irisC.y + irisR * 0.35f
+                    drawRect(brush = Brush.verticalGradient(
+                            0f to Color.Transparent, 0.5f to Color.White.copy(alpha = 0.075f * tear.value * ea),
+                            1f to Color.Transparent, startY = ty, endY = ty + irisR * 0.5f),
+                        topLeft = Offset(irisC.x - irisR * 0.8f, ty),
+                        size = androidx.compose.ui.geometry.Size(irisR * 1.6f, irisR * 0.5f))
                 }
-                // мягкая тень века на глазном яблоке
-                translate(top = r * 0.020f) {
-                    drawPath(edgeCurve, Color.Black, alpha = 0.24f * ea,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.11f))
+
+                // подключение: радужка светлеет волной + зелёный отблеск по ободу
+                if (greenGlint.value > 0.01f) {
+                    drawCircle(brush = Brush.radialGradient(
+                            0f to Color(0xFFCFFFE0).copy(alpha = 0.16f * greenGlint.value),
+                            0.75f to Color(0xFF9FF7C0).copy(alpha = 0.10f * greenGlint.value),
+                            1f to Color.Transparent, center = irisC, radius = irisR),
+                        radius = irisR, center = irisC)
+                    drawCircle(brush = Brush.radialGradient(
+                            0.35f to Color(0x0034E67A), 0.8f to Color(0xFF34E67A).copy(alpha = 0.30f * greenGlint.value),
+                            1f to Color.Transparent, center = c, radius = r),
+                        radius = r, center = c)
                 }
-                // ── нижнее веко: центр 0.86R·k, бока быстрее (та же миндалевидная логика) ──
-                run {
-                    val loS = c.y + r - 0.46f * r * ks
-                    val loC = c.y + r - 0.44f * r * lidK
-                    val lower = Path().apply {
-                        moveTo(c.x - r, c.y + r); lineTo(c.x + r, c.y + r)
-                        lineTo(c.x + r, loS)
-                        quadraticBezierTo(c.x, 2f * loC - loS, c.x - r, loS)
-                        close()
-                    }
-                    val loTop = minOf(loC, loS) - 0.02f * r
-                    clipPath(lower) {
-                        drawImage(eyeBase,
-                            srcOffset = IntOffset(0, (texH * 0.84f).toInt()),
-                            srcSize = IntSize(texW, (texH * 0.16f).toInt()),
-                            dstOffset = IntOffset((c.x - r).toInt(), loTop.toInt()),
-                            dstSize = IntSize((2 * r).toInt(), ((c.y + r) - loTop).toInt().coerceAtLeast(1)),
-                            alpha = ea, filterQuality = FilterQuality.Medium)
-                        drawRect(Color.Black, topLeft = Offset(c.x - r, loTop),
-                            size = androidx.compose.ui.geometry.Size(2 * r, ((c.y + r) - loTop).coerceAtLeast(1f)),
-                            alpha = 0.12f * ea)
-                    }
-                    val loCurve = Path().apply {
-                        moveTo(c.x - r, loS)
-                        quadraticBezierTo(c.x, 2f * loC - loS, c.x + r, loS)
-                    }
-                    drawPath(loCurve, Color(0xFF1A120A), alpha = 0.55f * ea,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.018f))
-                }
+            } // конец окна яблока
+            } // конец squash
+
+            // ── ВЕКИ ИЗ ЭСКИЗА (фидбек владельца): артовые дуги с ресницами. Моргание =
+            //    вертикальная растяжка от якоря (верх дуги / низ валика): край с НАСТОЯЩИМИ
+            //    ресницами едет к линии смыкания (+0.50R), нижний валик ведомый (~15%). ──
+            val lidLayerR = 234f / 228f * r
+            val srcHUp = (0.90f - 0.46f) * r
+            val scaleUp = (srcHUp + 0.96f * r * lidK0) / srcHUp
+            withTransform({ scale(1f, scaleUp, pivot = Offset(c.x, c.y - 0.90f * r)) }) {
+                drawImage(lidUp, dstOffset = IntOffset((c.x - lidLayerR).toInt(), (c.y - lidLayerR).toInt()),
+                    dstSize = IntSize((2 * lidLayerR).toInt(), (2 * lidLayerR).toInt()),
+                    alpha = ea, filterQuality = FilterQuality.Medium)
+            }
+            val srcHLo = (0.97f - 0.64f) * r
+            val scaleLo = (srcHLo + 0.14f * r * lidK0) / srcHLo
+            withTransform({ scale(1f, scaleLo, pivot = Offset(c.x, c.y + 0.97f * r)) }) {
+                drawImage(lidLo, dstOffset = IntOffset((c.x - lidLayerR).toInt(), (c.y - lidLayerR).toInt()),
+                    dstSize = IntSize((2 * lidLayerR).toInt(), (2 * lidLayerR).toInt()),
+                    alpha = ea, filterQuality = FilterQuality.Medium)
             }
         }
     }
