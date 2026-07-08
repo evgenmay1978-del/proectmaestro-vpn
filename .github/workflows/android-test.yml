@@ -131,3 +131,4 @@ jobs:
           if-no-files-found: error
 
 # (ci trigger: brand-icon — новая VM-иконка (launcher/round/adaptive/tv-banner/трей/шторка) 2026-07-08)
+# (ci trigger: brand+tv v2 — ТВ Dark-Fantasy без анимаций: wood-kit, StaticTvMedallion(VM), Particles/breath/gait/wave заморожены 2026-07-08)
