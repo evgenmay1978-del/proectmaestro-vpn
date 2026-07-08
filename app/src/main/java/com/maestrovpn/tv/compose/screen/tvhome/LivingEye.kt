@@ -115,44 +115,16 @@ fun LivingEye(
     LaunchedEffect(connected) {
         if (connected) {
             // ПОЯВЛЕНИЕ: энергия закручивается, из глубины силуэт, веки открываются, зрачок фокусируется
-            lid.snapTo(1f); dilate.snapTo(0f); gaze.snapTo(Offset.Zero); squint.snapTo(0f)
+            lid.snapTo(0f); dilate.snapTo(0f); gaze.snapTo(Offset.Zero); squint.snapTo(0f)
             postLight.snapTo(0f); wetFlash.snapTo(0f); tear.snapTo(0f)
             launch { spin.animateTo(spin.value + 480f, tween(1000, easing = CubicBezierEasing(0.15f, 0.55f, 0.35f, 1f))) }
-            delay(260)                                     // силуэт проступает под открывающимися веками
-            lid.animateTo(0f, tween(680, easing = CubicBezierEasing(0.25f, 0f, 0.2f, 1f)))
+            delay(420)                                     // силуэт проступает из вихря
             launch { dilate.animateTo(1f, tween(400, easing = FastOutSlowInEasing)); dilate.animateTo(0.30f, tween(650)) }
             launch { greenGlint.animateTo(1f, tween(260)); greenGlint.animateTo(0f, tween(950)) }
             delay(Random.nextLong(500, 1000))              // первый фокус на пользователе
 
             // ЖИЗНЬ — три параллельных контура, каждый со случайностью (цикл не повторяется)
             coroutineScope {
-                launch { // §1/§6: быстрое закрытие → пауза → медленное открытие; полу- и двойные моргания
-                    suspend fun doBlink(half: Boolean) {
-                        val depth = if (half) 0.5f + Random.nextFloat() * 0.2f else 1f
-                        val v = 0.85f + Random.nextFloat() * 0.30f          // ±15% скорость
-                        lid.animateTo(depth, tween((Random.nextInt(EyeTune.CLOSE_MS_MIN, EyeTune.CLOSE_MS_MAX) * v).toInt(),
-                            easing = CubicBezierEasing(0.11f, 0f, 0.5f, 0f)))          // easeInQuad
-                        delay(Random.nextLong(EyeTune.PAUSE_MS_MIN, EyeTune.PAUSE_MS_MAX))
-                        if (!half) {
-                            wetFlash.snapTo(1f); tear.snapTo(1f); postLight.snapTo(1f)
-                            launch { wetFlash.animateTo(0f, tween(EyeTune.WET_MS)) }
-                            launch { tear.animateTo(0f, tween(EyeTune.TEAR_MS)) }
-                            launch { postLight.animateTo(0f, tween(EyeTune.PUPIL_LIGHT_MS, easing = LinearOutSlowInEasing)) }
-                        }
-                        lid.animateTo(0f, tween((Random.nextInt(EyeTune.OPEN_MS_MIN, EyeTune.OPEN_MS_MAX) * v).toInt(),
-                            easing = CubicBezierEasing(0.215f, 0.61f, 0.355f, 1f)))    // easeOutCubic
-                    }
-                    while (true) {
-                        delay(blinkGapMs())
-                        if (Random.nextFloat() < EyeTune.SACC_PRE) microSaccade(gaze)   // §3c: fixation reset до
-                        val half = Random.nextFloat() < EyeTune.HALF_CHANCE
-                        doBlink(half)
-                        if (!half && Random.nextFloat() < EyeTune.DOUBLE_CHANCE) {
-                            delay(Random.nextLong(EyeTune.DOUBLE_GAP_MIN, EyeTune.DOUBLE_GAP_MAX)); doBlink(false)
-                        }
-                        if (Random.nextFloat() < EyeTune.SACC_POST) microSaccade(gaze)  // §3c: сдвиг после
-                    }
-                }
                 launch { // блуждание взгляда + саккады + возврат в центр
                     while (true) {
                         if (watching == 0f) {
@@ -171,16 +143,6 @@ fun LivingEye(
                             }
                         }
                         delay(Random.nextLong(500, 2200))
-                    }
-                }
-                launch { // редкий прищур
-                    while (true) {
-                        delay(Random.nextLong(7000, 15000))
-                        if (watching == 0f && Random.nextFloat() < 0.7f) {
-                            squint.animateTo(0.22f + Random.nextFloat() * 0.10f, tween(260, easing = FastOutSlowInEasing))
-                            delay(Random.nextLong(400, 900))
-                            squint.animateTo(0f, tween(340, easing = FastOutSlowInEasing))
-                        }
                     }
                 }
                 launch { // дыхание зрачка (реакция на свет) + дрейф влажных бликов — покадрово
@@ -202,7 +164,6 @@ fun LivingEye(
                     gaze.animateTo(randomDir(0.5f, 0.9f), tween(130, easing = FastOutLinearInEasing))
                     delay(Random.nextLong(60, 140))
                 }
-                blink(lid)
                 dilate.animateTo(0f, tween(200))
                 gaze.animateTo(Offset.Zero, tween(300))
             }
@@ -225,7 +186,9 @@ fun LivingEye(
         val bellS = bellT * bellT * (3f - 2f * bellT)
         val gzx = (gaze.value.x + EyeTune.BELL_OUT * bellS).coerceIn(-1f, 1f)
         val gzy = (gaze.value.y + EyeTune.BELL_UP * bellS).coerceIn(-1f, 1f)
-        val lidK0 = (lid.value + squint.value * 0.9f + gzy.coerceAtLeast(0f) * 0.08f).coerceIn(0f, 1f)
+        // ⛔ МОРГАНИЕ ОТКЛЮЧЕНО владельцем (2026-07-08, «убери совсем моргание»): веки не двигаются
+        // и не рисуются; живая тень века статична (заменяет снятую с яблока запечённую).
+        val lidK0 = 0f
 
         // ── плазменный вихрь (отключено/переходы): вращается только ЯДРО энергии,
         //    стеклянный купол/блик — неподвижный запечённый фон ──
@@ -407,28 +370,6 @@ private object EyeTune {
     const val SQUASH_X = 0.02f; const val SQUASH_Y = 0.05f
     // §5 влажность: вспышка блика при открытии + слёзная плёнка
     const val WET_FLASH = 0.45f; const val WET_MS = 170; const val TEAR_MS = 380
-}
-
-/** §6: интервал между морганиями — колокол (сумма равномерных) μ≈4с, в пределах 2-6с. */
-private fun blinkGapMs(): Long {
-    val g = (Random.nextFloat() + Random.nextFloat() + Random.nextFloat()) / 3f
-    return EyeTune.GAP_MIN_MS + (g * (EyeTune.GAP_MAX_MS - EyeTune.GAP_MIN_MS)).toLong()
-}
-
-/** §3c: микросаккада — крохотный быстрый сдвиг взгляда (fixation reset). */
-private suspend fun microSaccade(gaze: Animatable<Offset, *>) {
-    val j = gaze.value + randomDir(0.02f, 0.05f)
-    gaze.animateTo(
-        Offset(j.x.coerceIn(-1f, 1f), j.y.coerceIn(-1f, 1f)),
-        tween(Random.nextInt(55, 85), easing = LinearOutSlowInEasing),
-    )
-}
-
-/** Одно естественное моргание: быстро вниз, короткая пауза, мягче вверх. */
-private suspend fun blink(lid: Animatable<Float, *>) {
-    lid.animateTo(1f, tween(Random.nextInt(90, 120), easing = FastOutLinearInEasing))
-    delay(Random.nextLong(25, 55))
-    lid.animateTo(0f, tween(Random.nextInt(150, 210), easing = LinearOutSlowInEasing))
 }
 
 /** Случайное направление взгляда длиной в [rMin..rMax] долей от максимума. */
