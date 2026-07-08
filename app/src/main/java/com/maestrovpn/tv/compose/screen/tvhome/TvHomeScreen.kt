@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -73,15 +72,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -213,8 +209,8 @@ fun TvHomeScreen(
                 }
                 .padding(if (isTv) screenPadding(true) else 0.dp),   // phone эскиз = full-bleed
         ) {
-            // atmosphere particles behind the content (TV only; phone uses the эскиз backdrop)
-            if (isTv && !lowRam) Particles(Modifier.matchParentSize())
+            // ⛔ Particles убраны на ТВ (owner «без анимаций»): 20с infinite-clock + полноэкранная
+            // перерисовка каждый кадр — дорого для 1 ГБ-боксов. Атмосферу даёт статичный glow+web ниже.
 
             if (isTv) {
                 // ── LANDSCAPE (TV): logo + spider medallion at the TOP (hero), login + days in a
@@ -305,35 +301,8 @@ fun TvHomeScreen(
                             alpha = eyeAlpha,
                         )
                     }
-                    // Живой отсвет медальона на дереве ПОД кольцом (1:1 к эталону owner):
-                    // ОТКЛЮЧЕНО = тёплый красный, ПОДКЛЮЧЕНО = зелёный; кроссфейд вместе с глазом.
-                    // Рисуется по геометрии Crop-фона (853×1844, сокет (428,711), обод R≈341).
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .drawBehind {
-                                val sc = kotlin.math.max(size.width / 853f, size.height / 1844f)
-                                val cx = (size.width - 853f * sc) / 2f + 428f * sc
-                                val cy = (size.height - 1844f * sc) / 2f + 711f * sc
-                                val r = 341f * sc
-                                val gy = cy + r * 1.02f
-                                fun DrawScope.underGlow(c: Color, a: Float) {
-                                    if (a <= 0.01f) return
-                                    withTransform({ scale(1f, 0.34f, pivot = Offset(cx, gy)) }) {
-                                        drawCircle(
-                                            brush = Brush.radialGradient(
-                                                listOf(c.copy(alpha = 0.30f * a), Color.Transparent),
-                                                center = Offset(cx, gy), radius = r * 1.18f,
-                                            ),
-                                            radius = r * 1.18f, center = Offset(cx, gy),
-                                            blendMode = BlendMode.Plus,
-                                        )
-                                    }
-                                }
-                                underGlow(Color(0xFFB23222), 1f - eyeAlpha)
-                                underGlow(Color(0xFF2FD16B), eyeAlpha)
-                            },
-                    )
+                    // ⛔ Живой отсвет под кольцом УБРАН (owner 2026-07-08: «засвет у надписи — убрать»):
+                    // аддитивный градиент высветлял дерево у статус-строки. Фон = чистые пиксели эскиза.
 
                     // Геометрия рамы (owner: рама/логотип/вензели/кнопка СТАТИЧНЫ; крутится ТОЛЬКО меню
                     // протоколы→контакты, уходя ВВЕРХ ЗА кнопку и скрываясь за нижним вензелем).
@@ -510,22 +479,11 @@ private fun HeroPane(
 ) {
     val isTv = rememberIsTv()
     val lowRam = rememberIsLowRam()
-    // slow "breath" clock for the living pulses (logo glow + status dot). Its readers only redraw
-    // their small areas, and they read it only when connected & not low-RAM → cheap.
-    val breath by rememberInfiniteTransition(label = "heroBreath").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(2800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "breathClock",
-    )
-    // ⚠️ `breath` is read ONLY inside the drawBehind lambdas below (draw-phase) — never in the
-    // composable body — so it invalidates just those small draws, not a whole-HeroPane recompose.
-    // connect light-WAVE: a bright band sweeps across the logo once when the tunnel comes up.
-    val wave = remember { Animatable(0f) }
-    LaunchedEffect(connected) {
-        if (connected) {
-            wave.snapTo(0f)
-            wave.animateTo(1f, tween(950, easing = FastOutSlowInEasing))
-        }
-    }
+    // ⛔ breath-клок ЗАМОРОЖЕН на ТВ (owner «без анимаций», HeroPane — только ТВ): вечный
+    // infinite-transition будил choreographer каждый кадр. 0f → лого-гало и гало-точка статуса
+    // становятся статичным слабым свечением (Dark-Fantasy атмосфера без движения, 0 fps в покое).
+    val breath = 0f
+    // wave (световая волна по лого на подключение) убрана — «без анимаций».
 
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         // Brand wordmark — the owner's glossy green-glass PANEL. A gentle green glow breathes
@@ -549,21 +507,6 @@ private fun HeroPane(
                             ),
                         )
                     }
-                }
-                .drawWithContent {
-                    drawContent()
-                    val w = wave.value
-                    if (w > 0f && w < 1f) {
-                        val x = 0.15f + 0.70f * w // band centre 0.15..0.85 → stops always strictly increasing
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                (x - 0.12f) to Color.Transparent,
-                                x to Color.White.copy(alpha = 0.42f),
-                                (x + 0.12f) to Color.Transparent,
-                            ),
-                            blendMode = BlendMode.SrcAtop,
-                        )
-                    }
                 },
         )
         // Web strand visually connecting the logo panel to the spider medallion below — a faint
@@ -575,21 +518,13 @@ private fun HeroPane(
                 .height(if (isTv) 22.dp else 26.dp),
         )
 
-        // ТВ остаётся на прежней (лёгкой) графике паука; НОВЫЙ процедурный паук — ТОЛЬКО телефон
-        // (реальный sim тяжелее для 1 ГБ-ТВ). Форм-фактор решает, что рисовать.
-        if (isTv) {
-            SpiderMedallion(
-                connected = connected,
-                onToggle = onToggleConnect,
-                focusRequester = connectFocus,
-            )
-        } else {
-            PaukMedallion(
-                connected = connected,
-                onToggle = onToggleConnect,
-                focusRequester = connectFocus,
-            )
-        }
+        // ТВ (Dark-Fantasy, БЕЗ анимаций — 1 ГБ-боксы): статичный медальон с вензелем-брендом VM.
+        // HeroPane вызывается только в isTv-ветке, поэтому здесь всегда ТВ.
+        StaticTvMedallion(
+            connected = connected,
+            onToggle = onToggleConnect,
+            focusRequester = connectFocus,
+        )
 
         Spacer(Modifier.height(14.dp))
         // status with a state dot — the dot gets a soft glow HALO that pulses (breathes) when

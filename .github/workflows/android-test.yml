@@ -129,3 +129,8 @@ jobs:
           name: maestrovpn-tv-test-apk
           path: app/build/outputs/apk/other/debug/*.apk
           if-no-files-found: error
+
+# (ci trigger: brand-icon — новая VM-иконка (launcher/round/adaptive/tv-banner/трей/шторка) 2026-07-08)
+# (ci trigger: brand+tv v2 — ТВ Dark-Fantasy без анимаций: wood-kit, StaticTvMedallion(VM), Particles/breath/gait/wave заморожены 2026-07-08)
+# (ci trigger: brand v3 — релизный скоуп owner: телефон=иконки+без засвета, ТВ=старый вид статично, баннер полный 3 плотности 2026-07-08)
+# (ci trigger: brand v4 — баннер = ТОЛЬКО иконка владельца (коллаж убран) 2026-07-08)
