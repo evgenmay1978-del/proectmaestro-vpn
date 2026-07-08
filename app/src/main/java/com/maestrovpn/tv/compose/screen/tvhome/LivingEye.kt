@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.res.imageResource
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.unit.IntOffset
@@ -36,6 +37,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
@@ -210,26 +212,32 @@ fun LivingEye(
             val irisC = c + Offset(7f / 234f * r, 10f / 234f * r) +
                 Offset(gaze.value.x * maxShift, gaze.value.y * maxShift)
             val irisR = r * (146f / 234f)
-            drawImage(eyeIris, dstOffset = IntOffset((irisC.x - irisR).toInt(), (irisC.y - irisR).toInt()),
-                dstSize = IntSize((2 * irisR).toInt(), (2 * irisR).toInt()),
-                alpha = ea, filterQuality = FilterQuality.Medium)
-
-            // зрачок: расширение поверх артового (арт = минимальный размер, только рост)
+            // перспектива РОГОВИЦЫ: глаз вращается, а не скользит — радужка сжимается в эллипс
+            // по направлению взгляда, зрачок (за выпуклой линзой) ведёт на ~18% хода.
+            val sxK = 1f - 0.16f * abs(gaze.value.x)
+            val syK = 1f - 0.16f * abs(gaze.value.y)
+            val pupilC = irisC + Offset(gaze.value.x, gaze.value.y) * (maxShift * 0.18f)
             val pupilR = r * (43f / 234f) * (1f + 0.38f * dilate.value + breath.coerceAtLeast(-0.04f))
-            drawCircle(
-                brush = Brush.radialGradient(
-                    0f to Color(0xFF060604), 0.74f to Color(0xFF060604), 1f to Color(0x00060604),
-                    center = irisC, radius = pupilR * 1.18f,
-                ),
-                radius = pupilR * 1.18f, center = irisC, alpha = ea,
-            )
+            withTransform({ scale(sxK, syK, pivot = irisC) }) {
+                drawImage(eyeIris, dstOffset = IntOffset((irisC.x - irisR).toInt(), (irisC.y - irisR).toInt()),
+                    dstSize = IntSize((2 * irisR).toInt(), (2 * irisR).toInt()),
+                    alpha = ea, filterQuality = FilterQuality.Medium)
+                // зрачок: расширение поверх артового (арт = минимальный размер, только рост)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0f to Color(0xFF060604), 0.74f to Color(0xFF060604), 1f to Color(0x00060604),
+                        center = pupilC, radius = pupilR * 1.18f,
+                    ),
+                    radius = pupilR * 1.18f, center = pupilC, alpha = ea,
+                )
+            }
 
             // влажные блики: чуть противоходом взгляду + медленный дрейф (запечённые остаются на радужке)
-            val g1 = irisC + Offset(-pupilR * 0.55f, -pupilR * 1.15f) -
+            val g1 = pupilC + Offset(-pupilR * 0.55f, -pupilR * 1.15f) -
                 Offset(gaze.value.x, gaze.value.y) * (maxShift * 0.35f) + Offset(glintDrift * 2f, glintDrift * 1.2f)
             drawCircle(Color.White.copy(alpha = 0.22f * ea), radius = r * 0.030f, center = g1)
             drawCircle(Color.White.copy(alpha = 0.12f * ea), radius = r * 0.016f,
-                center = irisC + Offset(pupilR * 0.9f, pupilR * 0.7f) - Offset(glintDrift * 1.5f, glintDrift * 0.8f))
+                center = pupilC + Offset(pupilR * 0.9f, pupilR * 0.7f) - Offset(glintDrift * 1.5f, glintDrift * 0.8f))
 
             // подключение: радужка становится ярче (мягкая волна по ней) + зелёный отблеск по ободу
             if (greenGlint.value > 0.01f) {
@@ -255,15 +263,17 @@ fun LivingEye(
             // Верхнее ведущее (+ след взгляда + прищур), нижнее — 40% хода. Проверено симуляцией.
             val lidK = (lid.value + squint.value * 0.9f + gaze.value.y.coerceAtLeast(0f) * 0.08f).coerceIn(0f, 1f)
             if (lidK > 0.002f) {
-                val travel = 2f * r * 0.56f * lidK
                 val texW = eyeBase.width; val texH = eyeBase.height
-                // ── верхнее веко ──
-                val apexY = c.y - r + travel + 0.16f * r          // нижняя точка кривой (центр)
-                val sideY = c.y - r + travel - 0.10f * r          // край у боков выше
+                // ── АНАТОМИЯ МОРГАНИЯ: бока смыкаются на 30% раньше центра → миндалевидная щель
+                // (не «прямоугольная щёлка»); линия смыкания в нижней трети, лёгкое перекрытие век.
+                val ks = (lidK * 1.30f).coerceAtMost(1f)
+                val upS = c.y - r + 1.18f * r * ks               // край века у боков
+                val upC = c.y - r + 1.20f * r * lidK             // край в центре
+                val apexY = maxOf(upS, upC)
                 val upper = Path().apply {
                     moveTo(c.x - r, c.y - r); lineTo(c.x + r, c.y - r)
-                    lineTo(c.x + r, sideY)
-                    quadraticBezierTo(c.x, c.y - r + travel + 0.42f * r, c.x - r, sideY)
+                    lineTo(c.x + r, upS)
+                    quadraticBezierTo(c.x, 2f * upC - upS, c.x - r, upS)
                     close()
                 }
                 clipPath(upper) {
@@ -285,8 +295,8 @@ fun LivingEye(
                 }
                 // ресничная кромка + тёплый подповерхностный штрих (вдоль кривой края)
                 val edgeCurve = Path().apply {
-                    moveTo(c.x - r, sideY)
-                    quadraticBezierTo(c.x, c.y - r + travel + 0.42f * r, c.x + r, sideY)
+                    moveTo(c.x - r, upS)
+                    quadraticBezierTo(c.x, 2f * upC - upS, c.x + r, upS)
                 }
                 drawPath(edgeCurve, Color(0xFF0B0805), alpha = 0.78f * ea,
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.026f))
@@ -299,17 +309,17 @@ fun LivingEye(
                     drawPath(edgeCurve, Color.Black, alpha = 0.24f * ea,
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.11f))
                 }
-                // ── нижнее веко (кожа нижней дуги арта, 40% хода) ──
-                val loTravel = travel * 0.40f
-                if (loTravel > r * 0.01f) {
-                    val loSideY = c.y + r - loTravel + 0.08f * r
+                // ── нижнее веко: центр 0.86R·k, бока быстрее (та же миндалевидная логика) ──
+                run {
+                    val loS = c.y + r - 0.82f * r * ks
+                    val loC = c.y + r - 0.86f * r * lidK
                     val lower = Path().apply {
                         moveTo(c.x - r, c.y + r); lineTo(c.x + r, c.y + r)
-                        lineTo(c.x + r, loSideY)
-                        quadraticBezierTo(c.x, c.y + r - loTravel - 0.34f * r, c.x - r, loSideY)
+                        lineTo(c.x + r, loS)
+                        quadraticBezierTo(c.x, 2f * loC - loS, c.x - r, loS)
                         close()
                     }
-                    val loTop = c.y + r - loTravel - 0.12f * r
+                    val loTop = minOf(loC, loS) - 0.02f * r
                     clipPath(lower) {
                         drawImage(eyeBase,
                             srcOffset = IntOffset(0, (texH * 0.84f).toInt()),
@@ -322,8 +332,8 @@ fun LivingEye(
                             alpha = 0.12f * ea)
                     }
                     val loCurve = Path().apply {
-                        moveTo(c.x - r, loSideY)
-                        quadraticBezierTo(c.x, c.y + r - loTravel - 0.34f * r, c.x + r, loSideY)
+                        moveTo(c.x - r, loS)
+                        quadraticBezierTo(c.x, 2f * loC - loS, c.x + r, loS)
                     }
                     drawPath(loCurve, Color(0xFF1A120A), alpha = 0.55f * ea,
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.018f))
