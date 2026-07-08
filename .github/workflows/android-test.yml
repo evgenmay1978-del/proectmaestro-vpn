@@ -129,3 +129,5 @@ jobs:
           name: maestrovpn-tv-test-apk
           path: app/build/outputs/apk/other/debug/*.apk
           if-no-files-found: error
+
+# (ci trigger: brand-icon — новая VM-иконка (launcher/round/adaptive/tv-banner/трей/шторка) 2026-07-08)
