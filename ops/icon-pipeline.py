@@ -108,15 +108,26 @@ for d, sz in LAUNCH.items():
 # ── 2) ADAPTIVE FOREGROUND (вензель на ПРОЗРАЧНОМ в safe-zone; фон = #0A0A0A из XML) ──
 for d, sz in FG.items():
     save(fit_center(content_t, sz, 0.66), f"{RES}/mipmap-{d}/ic_launcher_foreground.png"); n += 1
-# ── 3) TV BANNER 640×360 (вензель слева-центр на чёрном + мягкое зелёное свечение) ──
-ban = Image.new("RGBA", (640, 360), (8, 8, 8, 255))
-glow = Image.new("RGBA", (640, 360), (0, 0, 0, 0))
-gd = ImageDraw.Draw(glow)
-gd.ellipse((70, 60, 370, 300), fill=(34, 200, 110, 60))
-ban = Image.alpha_composite(ban, glow.filter(ImageFilter.GaussianBlur(60)))
-vm = content.resize((260, 260), Image.LANCZOS)
-ban.paste(vm, (60, 50), vm)
-save(ban.convert("RGB").convert("RGBA"), f"{RES}/drawable-xhdpi/tv_banner.png"); n += 1
+# ── 3) TV BANNER (Android TV + Google TV): ПОЛНЫЙ баннер — вензель КРУПНО слева (88% высоты)
+#     + wordmark «MaestroVPN» справа (гайдлайн ТВ: имя приложения в баннере обязательно).
+#     Три плотности, чтобы лаунчеры Google TV/Android TV не апскейлили мыло. ──
+wm_src = Image.open(f"{RES}/drawable-nodpi/maestro_wordmark.png").convert("RGBA")
+BANNERS = {"hdpi": (480, 270), "xhdpi": (640, 360), "xxhdpi": (960, 540)}
+for d, (bw, bh) in BANNERS.items():
+    ban = Image.new("RGBA", (bw, bh), (8, 8, 8, 255))
+    glow = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gd.ellipse((int(bw*0.02), int(bh*0.08), int(bw*0.52), int(bh*0.96)), fill=(34, 200, 110, 55))
+    ban = Image.alpha_composite(ban, glow.filter(ImageFilter.GaussianBlur(max(8, int(bh*0.16)))))
+    vm_h = int(bh * 0.88)
+    vm = fit_center(content_t, vm_h, 1.0)
+    ban.paste(vm, (int(bw*0.035), (bh - vm_h)//2), vm)
+    max_w, max_h = int(bw*0.58), int(bh*0.50)
+    sc2 = min(max_w / wm_src.width, max_h / wm_src.height)
+    wm2 = wm_src.resize((int(wm_src.width*sc2), int(wm_src.height*sc2)), Image.LANCZOS)
+    wx = int(bw*0.37) + (int(bw*0.60) - wm2.width)//2
+    ban.paste(wm2, (wx, (bh - wm2.height)//2), wm2)
+    save(ban, f"{RES}/drawable-{d}/tv_banner.png"); n += 1
 # ── 4) СИЛУЭТЫ трея + шторки (белый VM на прозрачном, вписан 92%) ──
 for name in ("ic_stat_fox", "ic_qs_spider"):
     for d, sz in SIL.items():

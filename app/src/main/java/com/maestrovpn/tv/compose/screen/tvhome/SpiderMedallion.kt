@@ -27,21 +27,39 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.theme.NeonGreen
+import kotlin.math.roundToInt
+
+// Ноги паука из чистого ассета владельца (риг из rig_spider.py). В СТАТИЧНОЙ версии ноги
+// не качаются (углы = 0) — паук сидит в своей естественной позе из арта.
+private val SPIDER_LEG_RES = listOf(
+    R.drawable.spider_leg_00, R.drawable.spider_leg_01, R.drawable.spider_leg_02,
+    R.drawable.spider_leg_03, R.drawable.spider_leg_04, R.drawable.spider_leg_05,
+    R.drawable.spider_leg_06, R.drawable.spider_leg_07, R.drawable.spider_leg_08,
+)
+
+// Глаза паука (тёплый янтарь) — доли медальона, сняты с spider_body.png.
+private val EYE_COLOR = Color(0xFFFFB84D)
+private val EYE_XS = listOf(0.44f, 0.56f)
+private const val EYE_Y = 0.315f
 
 /**
- * TV hero connect button — the Dark-Fantasy medallion, STATIC (owner: «тв версии без анимаций»,
- * 1 GB Sony/TCL boxes). Layers (back→front): green glow → the owner's chrome ring + green web
- * (home_medallion_bg) → the brand VM gem emblem in the centre → a static inner-rim glow → the
- * transparent connect Button (keeps D-pad focus + toggle). NO perpetual clocks / withFrameNanos:
- * the only motion is a one-shot 900 ms `power` cross-fade on connect/disconnect and the 140 ms
- * focus/press scale for the remote — both settle to 0 fps at idle, so the screen never repaints
- * while resting. Replaces the old rigged crawling spider (gait/scramble/RingShine clocks removed).
+ * ТВ-медальон подключения — СТАРЫЙ вид (owner: «на андроид тв интерфейс старый без анимации»):
+ * хром-кольцо + зелёная паутина (home_medallion_bg) и фотореал-паук из ассетов владельца, но
+ * СТАТИЧНЫЙ — паук сидит по центру, ноги не шагают, глаза светятся ровно. Подключение/отключение —
+ * один короткий кроссфейд (паук проявляется/тает, паутина насыщается), после чего экран не
+ * перерисовывается вовсе (0 fps в покое — важно для 1 ГБ Sony/TCL). Убраны все вечные клоки старой
+ * версии: gait/scramble (шаг ног), burst/pos (ползание), RingShine (блик по кольцу), пульс глаз.
+ * D-pad-фокус и кнопка-toggle сохранены 1:1 (200dp, focusRequester, scale-отклик 140мс).
  */
 @Composable
 fun StaticTvMedallion(
@@ -50,10 +68,12 @@ fun StaticTvMedallion(
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
-    // one-shot cross-fade: bright when connected, dim when off. Animates only during the
-    // transition moment, then holds → no idle repaint.
+    // one-shot кроссфейды состояния (анимируются только в момент переключения, в покое держат значение)
     val power by animateFloatAsState(
         if (connected) 1f else 0.16f, tween(900, easing = FastOutSlowInEasing), label = "power",
+    )
+    val live by animateFloatAsState(
+        if (connected) 1f else 0f, tween(700, easing = FastOutSlowInEasing), label = "live",
     )
 
     val interaction = remember { MutableInteractionSource() }
@@ -65,20 +85,20 @@ fun StaticTvMedallion(
     )
 
     val bgP = painterResource(R.drawable.home_medallion_bg)
-    val emblemP = painterResource(R.drawable.home_vm_emblem)
-    // desaturate the chrome/web when powered down so it reads as "asleep", full colour when on.
-    val webFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.15f + 0.85f * power) })
+    val bodyBmp = ImageBitmap.imageResource(R.drawable.spider_body)
+    val legBmps = SPIDER_LEG_RES.map { ImageBitmap.imageResource(it) }
+    val webFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.12f + 0.88f * power) })
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier.size(252.dp).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
     ) {
-        // green glow hugging the medallion — brightens with power + focus (static, draw-phase)
+        // зелёное свечение вокруг медальона — ярче при подключении и фокусе (статика, draw-фаза)
         Box(
             Modifier.size(252.dp).drawBehind {
                 val c = Offset(size.width / 2f, size.height / 2f)
                 val r = size.minDimension * 0.5f
-                val a = 0.16f + 0.30f * power + if (focused) 0.26f else 0f
+                val a = 0.18f + 0.30f * power + if (focused) 0.26f else 0f
                 drawCircle(
                     brush = Brush.radialGradient(
                         0.00f to Color.Transparent, 0.64f to Color.Transparent,
@@ -91,10 +111,10 @@ fun StaticTvMedallion(
         )
 
         Box(Modifier.size(232.dp).clip(CircleShape)) {
-            // 1) the owner's clean button — chrome ring + green web
+            // 1) чистая кнопка владельца: хром-кольцо + зелёная web
             Image(bgP, null, Modifier.size(232.dp), contentScale = ContentScale.Fit, colorFilter = webFilter)
 
-            // 2) static green inner-rim glow (brightens with power)
+            // 2) статичная зелёная кромка у внутреннего края кольца (насыщается с power)
             Box(
                 Modifier.size(232.dp).drawBehind {
                     val c = Offset(size.width / 2f, size.height / 2f)
@@ -111,30 +131,42 @@ fun StaticTvMedallion(
                 },
             )
 
-            // 3) brand VM gem emblem in the centre (the new icon), with a soft green underglow
-            //    when connected so it reads as "alive/powered" without any motion.
-            Box(Modifier.size(232.dp), contentAlignment = Alignment.Center) {
+            // 3) СТАТИЧНЫЙ паук: тени ног + ноги + тело в естественной позе арта, по центру.
+            //    Проявляется кроссфейдом `live` при подключении; ничего не шагает и не ползёт.
+            if (live > 0.01f) {
                 Box(
-                    Modifier.size(150.dp).drawBehind {
-                        val g = 0.10f + 0.34f * power
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(NeonGreen.copy(alpha = g), Color.Transparent),
-                                center = Offset(size.width / 2f, size.height / 2f),
-                                radius = size.minDimension * 0.5f,
-                            ),
-                        )
+                    Modifier.size(232.dp).drawBehind {
+                        val box = IntSize(size.width.roundToInt(), size.height.roundToInt())
+                        val shadow = ColorFilter.tint(Color.Black)
+                        legBmps.forEach { bmp ->
+                            drawImage(bmp, dstOffset = IntOffset(6, 8), dstSize = box, alpha = 0.30f * live, colorFilter = shadow)
+                        }
+                        legBmps.forEach { bmp ->
+                            drawImage(bmp, dstOffset = IntOffset(0, 0), dstSize = box, alpha = live)
+                        }
+                        drawImage(bodyBmp, dstOffset = IntOffset(6, 8), dstSize = box, alpha = 0.34f * live, colorFilter = shadow)
+                        drawImage(bodyBmp, dstOffset = IntOffset(0, 0), dstSize = box, alpha = live)
+                        // глаза — ровный тёплый свет (без пульса)
+                        val eyeA = 0.62f * live
+                        val er = size.width * 0.05f
+                        EYE_XS.forEach { ex ->
+                            val ec = Offset(ex * size.width, EYE_Y * size.height)
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    0f to EYE_COLOR.copy(alpha = eyeA),
+                                    0.55f to EYE_COLOR.copy(alpha = eyeA * 0.45f),
+                                    1f to Color.Transparent,
+                                    center = ec, radius = er,
+                                ),
+                                radius = er, center = ec,
+                            )
+                        }
                     },
-                )
-                Image(
-                    emblemP, null,
-                    Modifier.size(132.dp).graphicsLayer { alpha = 0.55f + 0.45f * power },
-                    contentScale = ContentScale.Fit,
                 )
             }
 
-            // 4) dim scrim when powered down
-            Box(Modifier.size(232.dp).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.28f)) })
+            // 4) затемнение когда выключено
+            Box(Modifier.size(232.dp).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
         }
 
         Button(
