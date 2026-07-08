@@ -71,6 +71,9 @@ fun LivingEye(
     val dilate = remember { Animatable(0f) }     // 0 = зрачок как в арте, 1 = максимально расширен
     val greenGlint = remember { Animatable(0f) } // зелёный отблеск при подключении
     val spin = remember { Animatable(0f) }       // градусы вихря плазмы
+    val postLight = remember { Animatable(0f) }  // §3b: сужение зрачка на свет после открытия века
+    val wetFlash = remember { Animatable(0f) }   // §5: «влажная вспышка» блика после моргания
+    val tear = remember { Animatable(0f) }       // §5: слёзная плёнка, растекающаяся после моргания
     var breath by remember { mutableFloatStateOf(0f) }      // медленное «дыхание» зрачка ±
     var glintDrift by remember { mutableFloatStateOf(0f) }  // дрейф влажных бликов
     var watching by remember { mutableFloatStateOf(0f) }    // >0 = следим за пальцем/точкой (гасим блуждание)
@@ -106,6 +109,7 @@ fun LivingEye(
         if (connected) {
             // ПОЯВЛЕНИЕ: энергия закручивается, из глубины силуэт, веки открываются, зрачок фокусируется
             lid.snapTo(1f); dilate.snapTo(0f); gaze.snapTo(Offset.Zero); squint.snapTo(0f)
+            postLight.snapTo(0f); wetFlash.snapTo(0f); tear.snapTo(0f)
             launch { spin.animateTo(spin.value + 480f, tween(1000, easing = CubicBezierEasing(0.15f, 0.55f, 0.35f, 1f))) }
             delay(260)                                     // силуэт проступает под открывающимися веками
             lid.animateTo(0f, tween(680, easing = CubicBezierEasing(0.25f, 0f, 0.2f, 1f)))
@@ -115,11 +119,31 @@ fun LivingEye(
 
             // ЖИЗНЬ — три параллельных контура, каждый со случайностью (цикл не повторяется)
             coroutineScope {
-                launch { // моргание 3-8с, иногда двойное; веко чуть движется с взглядом само (в draw)
+                launch { // §1/§6: быстрое закрытие → пауза → медленное открытие; полу- и двойные моргания
+                    suspend fun doBlink(half: Boolean) {
+                        val depth = if (half) 0.5f + Random.nextFloat() * 0.2f else 1f
+                        val v = 0.85f + Random.nextFloat() * 0.30f          // ±15% скорость
+                        lid.animateTo(depth, tween((Random.nextInt(EyeTune.CLOSE_MS_MIN, EyeTune.CLOSE_MS_MAX) * v).toInt(),
+                            easing = CubicBezierEasing(0.11f, 0f, 0.5f, 0f)))          // easeInQuad
+                        delay(Random.nextLong(EyeTune.PAUSE_MS_MIN, EyeTune.PAUSE_MS_MAX))
+                        if (!half) {
+                            wetFlash.snapTo(1f); tear.snapTo(1f); postLight.snapTo(1f)
+                            launch { wetFlash.animateTo(0f, tween(EyeTune.WET_MS)) }
+                            launch { tear.animateTo(0f, tween(EyeTune.TEAR_MS)) }
+                            launch { postLight.animateTo(0f, tween(EyeTune.PUPIL_LIGHT_MS, easing = LinearOutSlowInEasing)) }
+                        }
+                        lid.animateTo(0f, tween((Random.nextInt(EyeTune.OPEN_MS_MIN, EyeTune.OPEN_MS_MAX) * v).toInt(),
+                            easing = CubicBezierEasing(0.215f, 0.61f, 0.355f, 1f)))    // easeOutCubic
+                    }
                     while (true) {
-                        delay(Random.nextLong(3000, 8000))
-                        blink(lid)
-                        if (Random.nextFloat() < 0.24f) { delay(Random.nextLong(160, 320)); blink(lid) }
+                        delay(blinkGapMs())
+                        if (Random.nextFloat() < EyeTune.SACC_PRE) microSaccade(gaze)   // §3c: fixation reset до
+                        val half = Random.nextFloat() < EyeTune.HALF_CHANCE
+                        doBlink(half)
+                        if (!half && Random.nextFloat() < EyeTune.DOUBLE_CHANCE) {
+                            delay(Random.nextLong(EyeTune.DOUBLE_GAP_MIN, EyeTune.DOUBLE_GAP_MAX)); doBlink(false)
+                        }
+                        if (Random.nextFloat() < EyeTune.SACC_POST) microSaccade(gaze)  // §3c: сдвиг после
                     }
                 }
                 launch { // блуждание взгляда + саккады + возврат в центр
@@ -202,23 +226,34 @@ fun LivingEye(
 
         val socket = Path().apply { addOval(Rect(c.x - r, c.y - r, c.x + r, c.y + r)) }
         clipPath(socket) {
+            // §4 squash: веки давят на яблоко — микро-сплющивание всего глаза (не век)
+            val sqK = ((lidK0 - 0.7f) / 0.3f).coerceIn(0f, 1f)
+            withTransform({ if (sqK > 0f) scale(1f + EyeTune.SQUASH_X * sqK, 1f - EyeTune.SQUASH_Y * sqK, pivot = c) }) {
             // склера (под радужкой — дорисованная ткань, видна только при сдвиге взгляда)
             drawImage(eyeBase, dstOffset = IntOffset((c.x - r).toInt(), (c.y - r).toInt()),
                 dstSize = IntSize((2 * r).toInt(), (2 * r).toInt()),
                 alpha = ea, filterQuality = FilterQuality.Medium)
 
             // радужка+зрачок: покой = точное запечённое место (+7,+10 от центра сокета в осях арта 234)
+            // §2 феномен Белла: при закрытии век яблоко уходит вверх и чуть наружу (smoothstep 0.3→1)
+            val bellT = ((lid.value - 0.3f) / 0.7f).coerceIn(0f, 1f)
+            val bellS = bellT * bellT * (3f - 2f * bellT)
+            val gzx = (gzx + EyeTune.BELL_OUT * bellS).coerceIn(-1f, 1f)
+            val gzy = (gzy + EyeTune.BELL_UP * bellS).coerceIn(-1f, 1f)
+            val lidK0 = (lid.value + squint.value * 0.9f + gzy.coerceAtLeast(0f) * 0.08f).coerceIn(0f, 1f)
+
             val maxShift = r * 0.115f
             val irisC = c + Offset(7f / 234f * r, 10f / 234f * r) +
-                Offset(gaze.value.x * maxShift, gaze.value.y * maxShift)
+                Offset(gzx * maxShift, gzy * maxShift)
             val irisR = r * (146f / 234f)
             // перспектива РОГОВИЦЫ: глаз ВРАЩАЕТСЯ — радужка сжимается ВДОЛЬ направления взгляда
             // (rotate→scale→rotate), зрачок (за выпуклой линзой) ведёт на ~18% хода. Без этого +
             // теней кривизны ниже радужка выглядит «приклеенной монеткой» (фидбек владельца).
-            val gazeLen = hypot(gaze.value.x, gaze.value.y).coerceAtMost(1f)
-            val gazeDeg = Math.toDegrees(atan2(gaze.value.y, gaze.value.x).toDouble()).toFloat()
-            val pupilC = irisC + Offset(gaze.value.x, gaze.value.y) * (maxShift * 0.18f)
-            val pupilR = r * (43f / 234f) * (1f + 0.38f * dilate.value + breath.coerceAtLeast(-0.04f))
+            val gazeLen = hypot(gzx, gzy).coerceAtMost(1f)
+            val gazeDeg = Math.toDegrees(atan2(gzy, gzx).toDouble()).toFloat()
+            val pupilC = irisC + Offset(gzx, gzy) * (maxShift * 0.18f)
+            val pupilR = r * (43f / 234f) * (1f + 0.38f * dilate.value + breath.coerceAtLeast(-0.04f)
+                + EyeTune.PUPIL_DARK * lid.value - EyeTune.PUPIL_LIGHT * postLight.value)
             withTransform({
                 if (gazeLen > 0.01f) {
                     rotate(gazeDeg, irisC)
@@ -243,7 +278,7 @@ fun LivingEye(
             // уходит в тень поворота, открывшаяся склера у заднего угла темнеет. Именно это
             // «вклеивает» радужку в шар вместо ощущения наклейки.
             if (gazeLen > 0.01f) {
-                val u = Offset(gaze.value.x / gazeLen, gaze.value.y / gazeLen)
+                val u = Offset(gzx / gazeLen, gzy / gazeLen)
                 val leadC = irisC + u * (irisR * 1.05f)
                 drawCircle(
                     brush = Brush.radialGradient(
@@ -262,10 +297,25 @@ fun LivingEye(
 
             // влажные блики: чуть противоходом взгляду + медленный дрейф (запечённые остаются на радужке)
             val g1 = pupilC + Offset(-pupilR * 0.55f, -pupilR * 1.15f) -
-                Offset(gaze.value.x, gaze.value.y) * (maxShift * 0.35f) + Offset(glintDrift * 2f, glintDrift * 1.2f)
-            drawCircle(Color.White.copy(alpha = 0.22f * ea), radius = r * 0.030f, center = g1)
-            drawCircle(Color.White.copy(alpha = 0.12f * ea), radius = r * 0.016f,
+                Offset(gzx, gzy) * (maxShift * 0.35f) + Offset(glintDrift * 2f, glintDrift * 1.2f)
+            val wetK = 1f + EyeTune.WET_FLASH * wetFlash.value
+            drawCircle(Color.White.copy(alpha = (0.22f * wetK * ea).coerceAtMost(0.42f)),
+                radius = r * 0.030f * (1f + 0.12f * wetFlash.value), center = g1)
+            drawCircle(Color.White.copy(alpha = (0.12f * wetK * ea).coerceAtMost(0.26f)), radius = r * 0.016f,
                 center = pupilC + Offset(pupilR * 0.9f, pupilR * 0.7f) - Offset(glintDrift * 1.5f, glintDrift * 0.8f))
+
+            // §5 слёзная плёнка: 200-400мс после моргания — влажная полоса внизу роговицы
+            if (tear.value > 0.01f) {
+                val ty = irisC.y + irisR * 0.40f
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Transparent, 0.5f to Color.White.copy(alpha = 0.075f * tear.value * ea),
+                        1f to Color.Transparent, startY = ty, endY = ty + irisR * 0.5f,
+                    ),
+                    topLeft = Offset(irisC.x - irisR * 0.8f, ty),
+                    size = androidx.compose.ui.geometry.Size(irisR * 1.6f, irisR * 0.5f),
+                )
+            }
 
             // подключение: радужка становится ярче (мягкая волна по ней) + зелёный отблеск по ободу
             if (greenGlint.value > 0.01f) {
@@ -286,17 +336,19 @@ fun LivingEye(
                 )
             }
 
+            } // конец squash-блока яблока
+
             // веки: КОЖА ИЗ АРТА (растянутая верхняя/нижняя дуга сокета — прожилки владельца) +
             // затемнение к краю, ресничная кромка, тёплый подповерхностный штрих, тень на яблоко.
             // Верхнее ведущее (+ след взгляда + прищур), нижнее — 40% хода. Проверено симуляцией.
-            val lidK = (lid.value + squint.value * 0.9f + gaze.value.y.coerceAtLeast(0f) * 0.08f).coerceIn(0f, 1f)
+            val lidK = lidK0
             if (lidK > 0.002f) {
                 val texW = eyeBase.width; val texH = eyeBase.height
                 // ── АНАТОМИЯ МОРГАНИЯ: бока смыкаются на 30% раньше центра → миндалевидная щель
                 // (не «прямоугольная щёлка»); линия смыкания в нижней трети, лёгкое перекрытие век.
                 val ks = (lidK * 1.30f).coerceAtMost(1f)
-                val upS = c.y - r + 1.18f * r * ks               // край века у боков
-                val upC = c.y - r + 1.20f * r * lidK             // край в центре
+                val upS = c.y - r + 1.56f * r * ks               // край века у боков
+                val upC = c.y - r + 1.62f * r * lidK             // край в центре
                 val apexY = maxOf(upS, upC)
                 val upper = Path().apply {
                     moveTo(c.x - r, c.y - r); lineTo(c.x + r, c.y - r)
@@ -339,8 +391,8 @@ fun LivingEye(
                 }
                 // ── нижнее веко: центр 0.86R·k, бока быстрее (та же миндалевидная логика) ──
                 run {
-                    val loS = c.y + r - 0.82f * r * ks
-                    val loC = c.y + r - 0.86f * r * lidK
+                    val loS = c.y + r - 0.46f * r * ks
+                    val loC = c.y + r - 0.44f * r * lidK
                     val lower = Path().apply {
                         moveTo(c.x - r, c.y + r); lineTo(c.x + r, c.y + r)
                         lineTo(c.x + r, loS)
@@ -369,6 +421,43 @@ fun LivingEye(
             }
         }
     }
+}
+
+/** §7: все параметры моргания/жизни глаза в одном месте (спека владельца, ЧАСТЬ 2). */
+private object EyeTune {
+    // §1 тайминг: закрытие быстрое (ease-in), пауза, открытие медленнее (ease-out)
+    const val CLOSE_MS_MIN = 80; const val CLOSE_MS_MAX = 120
+    const val PAUSE_MS_MIN = 50L; const val PAUSE_MS_MAX = 100L
+    const val OPEN_MS_MIN = 150; const val OPEN_MS_MAX = 250
+    // §6 интервалы: колокол μ≈4с в пределах 2-6с; двойные 15%; полу-моргания 20%
+    const val GAP_MIN_MS = 2000L; const val GAP_MAX_MS = 6000L
+    const val DOUBLE_CHANCE = 0.15f; const val DOUBLE_GAP_MIN = 250L; const val DOUBLE_GAP_MAX = 400L
+    const val HALF_CHANCE = 0.20f
+    // §2 феномен Белла: вверх до ~5°, наружу до ~2° (в долях нашего хода взгляда)
+    const val BELL_UP = -0.30f; const val BELL_OUT = 0.10f
+    // §3b зрачок: расширение за закрытым веком + сужение на свет после открытия
+    const val PUPIL_DARK = 0.07f; const val PUPIL_LIGHT = 0.13f; const val PUPIL_LIGHT_MS = 320
+    // §3c микросаккады до/после моргания
+    const val SACC_PRE = 0.40f; const val SACC_POST = 0.60f
+    // §4 squash яблока при blink>0.7
+    const val SQUASH_X = 0.02f; const val SQUASH_Y = 0.05f
+    // §5 влажность: вспышка блика при открытии + слёзная плёнка
+    const val WET_FLASH = 0.45f; const val WET_MS = 170; const val TEAR_MS = 380
+}
+
+/** §6: интервал между морганиями — колокол (сумма равномерных) μ≈4с, в пределах 2-6с. */
+private fun blinkGapMs(): Long {
+    val g = (Random.nextFloat() + Random.nextFloat() + Random.nextFloat()) / 3f
+    return EyeTune.GAP_MIN_MS + (g * (EyeTune.GAP_MAX_MS - EyeTune.GAP_MIN_MS)).toLong()
+}
+
+/** §3c: микросаккада — крохотный быстрый сдвиг взгляда (fixation reset). */
+private suspend fun microSaccade(gaze: Animatable<Offset, *>) {
+    val j = gaze.value + randomDir(0.02f, 0.05f)
+    gaze.animateTo(
+        Offset(j.x.coerceIn(-1f, 1f), j.y.coerceIn(-1f, 1f)),
+        tween(Random.nextInt(55, 85), easing = LinearOutSlowInEasing),
+    )
 }
 
 /** Одно естественное моргание: быстро вниз, короткая пауза, мягче вверх. */
