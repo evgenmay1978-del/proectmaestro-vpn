@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.res.imageResource
 import androidx.compose.runtime.withFrameNanos
@@ -351,6 +352,17 @@ fun LivingEye(
                 drawImage(lidLo, dstOffset = IntOffset((c.x - lidLayerR).toInt(), (c.y - lidLayerR).toInt()),
                     dstSize = IntSize((2 * lidLayerR).toInt(), (2 * lidLayerR).toInt()),
                     alpha = ea, filterQuality = FilterQuality.Medium)
+            }
+
+            // ВЛАЖНЫЙ МЕНИСК (реф-видео владельца): постоянная тонкая линия слёзной жидкости
+            // вдоль края нижнего века, едва мерцает; едет вверх вместе с краем при морге.
+            withTransform({ translate(top = -0.14f * r * lidK0) }) {
+                val menisc = Path().apply {
+                    moveTo(c.x - 0.86f * r, c.y + 0.551f * r)
+                    quadraticBezierTo(c.x, c.y + 0.729f * r, c.x + 0.86f * r, c.y + 0.551f * r)
+                }
+                drawPath(menisc, Color.White.copy(alpha = (0.055f + 0.030f * (glintDrift * 0.5f + 0.5f)) * ea),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.016f))
             }
         }
     }
