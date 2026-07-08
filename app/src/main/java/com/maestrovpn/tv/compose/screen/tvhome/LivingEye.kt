@@ -231,8 +231,16 @@ fun LivingEye(
             drawCircle(Color.White.copy(alpha = 0.12f * ea), radius = r * 0.016f,
                 center = irisC + Offset(pupilR * 0.9f, pupilR * 0.7f) - Offset(glintDrift * 1.5f, glintDrift * 0.8f))
 
-            // зелёный отблеск подключения
+            // подключение: радужка становится ярче (мягкая волна по ней) + зелёный отблеск по ободу
             if (greenGlint.value > 0.01f) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        0f to Color(0xFFCFFFE0).copy(alpha = 0.16f * greenGlint.value),
+                        0.75f to Color(0xFF9FF7C0).copy(alpha = 0.10f * greenGlint.value),
+                        1f to Color.Transparent, center = irisC, radius = irisR,
+                    ),
+                    radius = irisR, center = irisC,
+                )
                 drawCircle(
                     brush = Brush.radialGradient(
                         0.35f to Color(0x0034E67A), 0.8f to Color(0xFF34E67A).copy(alpha = 0.30f * greenGlint.value),

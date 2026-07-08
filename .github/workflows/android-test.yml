@@ -15,6 +15,7 @@ name: Build app APK (test / compile-check)
 # (ci trigger: living-eye v6 — живой глаз по спеке владельца (слои из его пикселей) 2026-07-08)
 # (ci trigger: living-eye v7 — веки из кожи арта + вихрь только ядра (анти-артефакт) 2026-07-08)
 # (ci trigger: living-eye v8 — полировка: быстрый старт вихря, направленное веко, тремор фиксации 2026-07-08)
+# (ci trigger: living-eye v9 — радужка ярче при подключении (по спеке) 2026-07-08)
 
 on:
   workflow_dispatch:
