@@ -37,7 +37,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
@@ -212,13 +212,20 @@ fun LivingEye(
             val irisC = c + Offset(7f / 234f * r, 10f / 234f * r) +
                 Offset(gaze.value.x * maxShift, gaze.value.y * maxShift)
             val irisR = r * (146f / 234f)
-            // перспектива РОГОВИЦЫ: глаз вращается, а не скользит — радужка сжимается в эллипс
-            // по направлению взгляда, зрачок (за выпуклой линзой) ведёт на ~18% хода.
-            val sxK = 1f - 0.16f * abs(gaze.value.x)
-            val syK = 1f - 0.16f * abs(gaze.value.y)
+            // перспектива РОГОВИЦЫ: глаз ВРАЩАЕТСЯ — радужка сжимается ВДОЛЬ направления взгляда
+            // (rotate→scale→rotate), зрачок (за выпуклой линзой) ведёт на ~18% хода. Без этого +
+            // теней кривизны ниже радужка выглядит «приклеенной монеткой» (фидбек владельца).
+            val gazeLen = hypot(gaze.value.x, gaze.value.y).coerceAtMost(1f)
+            val gazeDeg = Math.toDegrees(atan2(gaze.value.y, gaze.value.x).toDouble()).toFloat()
             val pupilC = irisC + Offset(gaze.value.x, gaze.value.y) * (maxShift * 0.18f)
             val pupilR = r * (43f / 234f) * (1f + 0.38f * dilate.value + breath.coerceAtLeast(-0.04f))
-            withTransform({ scale(sxK, syK, pivot = irisC) }) {
+            withTransform({
+                if (gazeLen > 0.01f) {
+                    rotate(gazeDeg, irisC)
+                    scale(1f - 0.20f * gazeLen, 1f, pivot = irisC)
+                    rotate(-gazeDeg, irisC)
+                }
+            }) {
                 drawImage(eyeIris, dstOffset = IntOffset((irisC.x - irisR).toInt(), (irisC.y - irisR).toInt()),
                     dstSize = IntSize((2 * irisR).toInt(), (2 * irisR).toInt()),
                     alpha = ea, filterQuality = FilterQuality.Medium)
@@ -229,6 +236,27 @@ fun LivingEye(
                         center = pupilC, radius = pupilR * 1.18f,
                     ),
                     radius = pupilR * 1.18f, center = pupilC, alpha = ea,
+                )
+            }
+
+            // ТЕНИ КРИВИЗНЫ ЯБЛОКА (мир-анкерные, не едут с радужкой): передний край радужки
+            // уходит в тень поворота, открывшаяся склера у заднего угла темнеет. Именно это
+            // «вклеивает» радужку в шар вместо ощущения наклейки.
+            if (gazeLen > 0.01f) {
+                val u = Offset(gaze.value.x / gazeLen, gaze.value.y / gazeLen)
+                val leadC = irisC + u * (irisR * 1.05f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color.Black.copy(alpha = 0.28f * gazeLen * ea), Color.Transparent),
+                        center = leadC, radius = irisR * 0.75f),
+                    radius = irisR * 0.75f, center = leadC,
+                )
+                val trailC = irisC - u * (irisR * 1.60f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color.Black.copy(alpha = 0.20f * gazeLen * ea), Color.Transparent),
+                        center = trailC, radius = irisR * 1.05f),
+                    radius = irisR * 1.05f, center = trailC,
                 )
             }
 
