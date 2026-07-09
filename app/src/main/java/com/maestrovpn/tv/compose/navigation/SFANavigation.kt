@@ -149,6 +149,7 @@ fun SFANavHost(
                     // olcRTC teaser: the entry is shown to everyone, but only owner logins
                     // (creds delivered via /info) can actually use it; hasCreds() gates the lock.
                     hasOlcrtcCreds = OlcrtcManager.hasCreds(),
+                    olcrtcProvider = OlcrtcManager.provider(),
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag ->
                         selectGroup?.let { g ->

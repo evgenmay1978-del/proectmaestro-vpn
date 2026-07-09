@@ -131,6 +131,10 @@ object OlcrtcManager {
 
     fun hasCreds(): Boolean { ensureLoaded(); return creds != null }
 
+    /** The carrier the current olcRTC creds use ("wbstream" | "telemost" | …), or null if none —
+     *  so the UI can label the single olcRTC chip with the real service (WB vs Яндекс). */
+    fun provider(): String? { ensureLoaded(); return creds?.provider }
+
     /** True when a child is running but on STALE creds (the room/key changed under it) — the
      * watchdog uses this to restart it onto the new room without waiting for it to die. */
     fun credsChanged(): Boolean {
