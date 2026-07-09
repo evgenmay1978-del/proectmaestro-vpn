@@ -1,6 +1,7 @@
 package com.maestrovpn.tv.compose.fantasy
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
@@ -78,6 +79,9 @@ fun FantasyTextField(
             textStyle = TextStyle(color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium),
             cursorBrush = SolidColor(GoldHi),
             modifier = Modifier
+                // Fill the decorated frame: the tap/focus target is the BasicTextField's own
+                // layout — wrapped to the text width, ~80% of the visible field ignored taps.
+                .fillMaxWidth()
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { focused = it.isFocused },
             decorationBox = { inner ->

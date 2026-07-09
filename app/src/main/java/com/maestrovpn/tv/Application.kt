@@ -82,6 +82,9 @@ class Application : Application() {
             // Silently ship any locally-recorded crash reports to the panel's /report sink so the
             // fleet's real failures land on S1 — proactive, no waiting for a customer to complain.
             // Off the cold-start path, best-effort; never throws.
+            // One "hello" per installed version FIRST: makes an empty crash log provably mean
+            // "no crashes" (vs a dead uploader) and counts each OTA cohort as it lands.
+            runCatching { CrashReportManager.sendHelloOnce() }
             runCatching { CrashReportManager.uploadPending() }
         }
 

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -104,6 +105,7 @@ import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
@@ -292,15 +294,16 @@ fun TvHomeScreen(
                     val eyeAlpha by animateFloatAsState(
                         if (connected) 1f else 0f, tween(800, easing = FastOutSlowInEasing), label = "eye",
                     )
-                    if (eyeAlpha > 0.004f) {
-                        Image(
-                            painter = painterResource(R.drawable.home_backdrop_connected),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            alpha = eyeAlpha,
-                        )
-                    }
+                    // ALWAYS composed (alpha 0 while off): its one-time full-res decode then
+                    // lands at screen-open — not on the CONNECT press, where it hitched the
+                    // crossfade on weak phones for 100ms+.
+                    Image(
+                        painter = painterResource(R.drawable.home_backdrop_connected),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        alpha = eyeAlpha,
+                    )
                     // ⛔ Живой отсвет под кольцом УБРАН (owner 2026-07-08: «засвет у надписи — убрать»):
                     // аддитивный градиент высветлял дерево у статус-строки. Фон = чистые пиксели эскиза.
 
@@ -485,7 +488,17 @@ private fun HeroPane(
     val breath = 0f
     // wave (световая волна по лого на подключение) убрана — «без анимаций».
 
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    // Height-aware scale: on standard TVs (1080p@xhdpi and 720p@tvdpi are BOTH ~960×540dp) the
+    // natural hero (wordmark ~133dp + 252dp medallion + status rows) overflows its slot next to
+    // the bottom account bar; Compose then silently squashes the medallion (ellipse, stretched
+    // sprites) and measures everything after it at 0 height — the status line was INVISIBLE on
+    // the whole standard-density fleet. Shrink wordmark+medallion proportionally so it always
+    // fits; roomy TVs (density-1.0 boxes) get scale=1 → pixel-identical to before.
+    BoxWithConstraints(modifier = modifier) {
+    val heroFixedH = 22.dp + 14.dp + 30.dp + 34.dp // web connector + spacer + status row + protocol reserve
+    val heroNaturalH = maxWidth * (456f / 1200f) + 252.dp // wordmark (asset aspect) + medallion
+    val heroScale = ((maxHeight - heroFixedH) / heroNaturalH).coerceIn(0.4f, 1f)
+    Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         // Brand wordmark — the owner's glossy green-glass PANEL. A gentle green glow breathes
         // behind it when connected; on connect a light wave runs ACROSS the panel (SrcAtop → only
         // over the logo pixels, not the transparent margins). Full hero width, one whole piece.
@@ -494,7 +507,10 @@ private fun HeroPane(
             contentDescription = "MaestroVPN",
             contentScale = ContentScale.Fit,
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(heroScale)
+                // aspectRatio pins the LAYOUT height to the drawn height (1200×456 asset): without
+                // it the Image measured taller than it draws and wasted hero height on letterbox.
+                .aspectRatio(1200f / 456f)
                 .drawBehind {
                     val pulse = if (connected && !lowRam) breath else 0f
                     val a = 0.04f + 0.10f * pulse
@@ -524,6 +540,7 @@ private fun HeroPane(
             connected = connected,
             onToggle = onToggleConnect,
             focusRequester = connectFocus,
+            sizeDp = 252.dp * heroScale,
         )
 
         Spacer(Modifier.height(14.dp))
@@ -582,6 +599,7 @@ private fun HeroPane(
             )
         }
     }
+    } // BoxWithConstraints (height-aware hero scale)
 }
 
 /** The menu zone: protocol picker + buy + secondary actions + contacts. */
@@ -767,6 +785,7 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
         val t0 = withFrameNanos { it }
         while (true) {
             withFrameNanos { f -> clock.value = (f - t0) / 1_000_000_000f }
+            delay(80) // ~12fps: a slow alpha breath needs no per-vsync clock (GC/battery churn)
         }
     }
     Box(

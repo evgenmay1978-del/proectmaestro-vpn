@@ -58,6 +58,10 @@ object OlcrtcManager {
     // dead olcRTC chip can't each kill+respawn the child and block 25s polling — which turned into a
     // multi-minute device hang (DoS on the user's own device).
     @Volatile private var starting = false
+    // Bumped on every stop(); lets an in-flight ensureStarted detect a stop that landed between
+    // its lock windows and reap its own freshly-spawned child instead of leaving an orphan
+    // streaming fake video with the VPN off.
+    private var stopEpoch = 0L
     private val lock = Any()
 
     private val tokenRe = Regex("^[a-z0-9]{1,32}$")
@@ -143,6 +147,7 @@ object OlcrtcManager {
      */
     fun ensureStarted(): Boolean {
         ensureLoaded() // creds may live only in the persisted cache (e.g. this launch never hit /info)
+        var epochAtStart = 0L
         synchronized(lock) {
             if (creds == null) { Log.w(TAG, "ensureStarted: no creds (locked)"); return false }
             // Reuse the live child ONLY if it was started with the CURRENT creds. If the room/key
@@ -155,6 +160,7 @@ object OlcrtcManager {
             // dead chip would otherwise each stopLocked()+spawn+poll-25s → a multi-minute hang.
             if (starting) { Log.i(TAG, "ensureStarted: a start is already in flight — coalescing"); return false }
             starting = true
+            epochAtStart = stopEpoch
         }
         try {
             val started: Process
@@ -202,10 +208,12 @@ object OlcrtcManager {
                     // Re-check under the lock that OUR child is still the live one — stop()/a
                     // respawn could have raced in while we were polling the open port.
                     synchronized(lock) {
-                        if (process === started && alive(started)) {
+                        if (stopEpoch == epochAtStart && process === started && alive(started)) {
                             Log.i(TAG, "olcRTC SOCKS5 ready")
                             return true
                         }
+                        // a stop() landed while we were coming up → this child must not outlive it
+                        if (process === started) stopLocked()
                     }
                     return false
                 }
@@ -247,7 +255,10 @@ object OlcrtcManager {
 
     /** Kill the child process (idempotent). Called on switch-away and on tunnel stop. */
     fun stop() {
-        synchronized(lock) { stopLocked() }
+        synchronized(lock) {
+            stopEpoch++
+            stopLocked()
+        }
     }
 
     private fun stopLocked() {
