@@ -68,7 +68,9 @@ object CrashReportManager {
     fun install(workingDir: File, baseDir: File) {
         this.workingDir = workingDir
         this.baseDir = baseDir
-        archivePendingJvmCrashReport()
+        // Guarded: this runs in Application.onCreate BEFORE the crash handler below is installed;
+        // an IO error (disk full on a cheap TV box) used to crash-loop the app on every launch.
+        runCatching { archivePendingJvmCrashReport() }
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             writePendingJvmCrashReport(thread, throwable)
@@ -117,22 +119,36 @@ object CrashReportManager {
         if (!::workingDir.isInitialized) return@withContext
         val crashReportsDir = File(workingDir, CRASH_REPORTS_DIR_NAME)
         val dirs = crashReportsDir.listFiles { f -> f.isDirectory } ?: return@withContext
-        // newest first, capped per run so a backlog can never become a POST storm
-        dirs.sortedByDescending { it.lastModified() }.take(20).forEach { dir ->
-            if (File(dir, UPLOADED_MARKER_FILE_NAME).exists()) return@forEach
-            runCatching {
-                if (uploadReportDir(dir)) File(dir, UPLOADED_MARKER_FILE_NAME).createNewFile()
+        // Filter BEFORE capping: creating the .uploaded marker bumps the dir mtime, so uploaded
+        // dirs would monopolize a take-first window and starve an unsent backlog forever.
+        // Still ≤20 POSTs per run so a backlog can never become a POST storm.
+        dirs.filter { !File(it, UPLOADED_MARKER_FILE_NAME).exists() }
+            .sortedByDescending { it.lastModified() }.take(20).forEach { dir ->
+                runCatching {
+                    if (uploadReportDir(dir)) File(dir, UPLOADED_MARKER_FILE_NAME).createNewFile()
+                }
             }
-        }
     }
 
     private fun uploadReportDir(dir: File): Boolean {
         val meta = runCatching { JSONObject(File(dir, METADATA_FILE_NAME).readText()) }.getOrNull()
-        val stack = runCatching { File(dir, JVM_LOG_FILE_NAME).readText() }.getOrNull().orEmpty()
+        // JVM crashes carry jvm.log; GO/libbox crashes carry ONLY go.log (+ metadata without the
+        // Darwin-only exception fields) — reading just jvm.log shipped engine panics to the panel
+        // as msg="crash", stack="" and then burned them forever with the .uploaded marker. Read
+        // the file HEAD only: a Go dump's diagnostic part (panic + crashing goroutine) is at the
+        // top, and a dump with hundreds of goroutines can be MBs.
+        val jvm = readHead(File(dir, JVM_LOG_FILE_NAME))
+        val go = if (jvm.isBlank()) readHead(File(dir, GO_LOG_FILE_NAME)) else ""
+        var stack = jvm.ifBlank { go }
         if (meta == null && stack.isBlank()) return true // nothing useful — mark done so we skip it forever
         val exName = meta?.optString("exceptionName").orEmpty()
         val exReason = meta?.optString("exceptionReason").orEmpty()
-        val msg = listOf(exName, exReason).filter { it.isNotBlank() }.joinToString(": ").ifBlank { "crash" }
+        val msg = listOf(exName, exReason).filter { it.isNotBlank() }.joinToString(": ")
+            .ifBlank { go.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().take(160) }
+            .ifBlank { "crash" }
+        // Go metadata has no app version, but coreVersion pins the engine build for triage.
+        val core = meta?.optString("coreVersion").orEmpty()
+        if (go.isNotBlank() && core.isNotBlank()) stack = ("core: " + core + "\n" + stack).take(8000)
         val payload = JSONObject().apply {
             put("kind", "crash")
             put("v", meta?.optString("appMarketingVersion")?.ifBlank { null } ?: BuildConfig.VERSION_NAME)
@@ -140,12 +156,29 @@ object CrashReportManager {
             put("device", Build.MANUFACTURER + " " + Build.MODEL)
             put("api", Build.VERSION.SDK_INT)
             put("id", runCatching { MaestroSub.deviceId(Application.application) }.getOrDefault(""))
-            put("ts", dir.lastModified())
+            // The dir NAME encodes the true crash time (both writers derive it from the crash
+            // file's mtime); dir.lastModified() is merely the LAUNCH that archived the report —
+            // on an idle TV that can be days later and misleads incident correlation.
+            put("ts", parseTimestamp(dir.name)?.time ?: dir.lastModified())
             put("msg", msg)
-            put("stack", if (stack.length > 8000) stack.substring(0, 8000) else stack)
+            put("stack", stack)
         }
         return postReport(payload)
     }
+
+    /** Read at most [limit] chars from the head of [f] without loading the whole file. */
+    private fun readHead(f: File, limit: Int = 8000): String = runCatching {
+        f.inputStream().reader(Charsets.UTF_8).use { r ->
+            val buf = CharArray(limit)
+            var off = 0
+            while (off < limit) {
+                val n = r.read(buf, off, limit - off)
+                if (n < 0) break
+                off += n
+            }
+            String(buf, 0, off)
+        }
+    }.getOrDefault("")
 
     private fun postReport(payload: JSONObject): Boolean = runCatching {
         val url = URL(BuildConfig.BACKEND_URL.trimEnd('/') + "/report")
@@ -164,6 +197,30 @@ object CrashReportManager {
             conn.disconnect()
         }
     }.getOrDefault(false)
+
+    /** One "hello" per installed VERSION_CODE: proves the uploader chain is alive, so an empty
+     *  crash log provably means "no crashes" (not "dead telemetry"), and counts each OTA cohort
+     *  as it lands. The marker is written only after a 2xx, so it retries until delivered. */
+    suspend fun sendHelloOnce() = withContext(Dispatchers.IO) {
+        if (!::workingDir.isInitialized) return@withContext
+        val marker = File(workingDir, ".hello_" + BuildConfig.VERSION_CODE)
+        if (marker.exists()) return@withContext
+        runCatching {
+            val payload = JSONObject().apply {
+                put("kind", "hello")
+                put("v", BuildConfig.VERSION_NAME)
+                put("vc", BuildConfig.VERSION_CODE)
+                put("device", Build.MANUFACTURER + " " + Build.MODEL)
+                put("api", Build.VERSION.SDK_INT)
+                put("id", runCatching { MaestroSub.deviceId(Application.application) }.getOrDefault(""))
+                put("ts", System.currentTimeMillis())
+                put("msg", "hello")
+                put("stack", "")
+            }
+            if (postReport(payload)) marker.createNewFile()
+        }
+        Unit
+    }
 
     private fun archivePendingJvmCrashReport() {
         val crashFile = File(workingDir, PENDING_JVM_CRASH_FILE_NAME)

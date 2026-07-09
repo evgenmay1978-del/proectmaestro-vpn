@@ -92,6 +92,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     // Held for the whole tunnel lifetime so the CPU stays awake in Doze and the engine's
     // packet loop + keepalives keep running when the screen is off (screen-off "sleep" fix).
     private var wakeLock: PowerManager.WakeLock? = null
+    private val wakeLockGuard = Any()
     private val receiver =
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -318,18 +319,25 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private fun acquireWakeLock() {
-        if (wakeLock != null) return
-        runCatching {
-            wakeLock = Application.powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK, "MaestroVPN:tunnel",
-            ).apply {
-                setReferenceCounted(false)
-                acquire()
-            }
-        }.onFailure { Log.w(TAG, "acquireWakeLock failed: ${it.message}") }
+        synchronized(wakeLockGuard) {
+            // Stop-during-Starting race: the user can hit stop (main thread) while startService's
+            // IO coroutine is still coming up — its releaseWakeLock() then runs BEFORE this
+            // acquire and the lock would be held forever with the VPN off. Re-check the status
+            // under the same guard releaseWakeLock uses, so a stop that already began always wins.
+            if (status.value == Status.Stopping || status.value == Status.Stopped) return
+            if (wakeLock != null) return
+            runCatching {
+                wakeLock = Application.powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK, "MaestroVPN:tunnel",
+                ).apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }.onFailure { Log.w(TAG, "acquireWakeLock failed: ${it.message}") }
+        }
     }
 
-    private fun releaseWakeLock() {
+    private fun releaseWakeLock() = synchronized(wakeLockGuard) {
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
         wakeLock = null
     }
@@ -345,9 +353,6 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
         status.value = Status.Stopping
         releaseWakeLock()
-        // Tear down the olcRTC child (if it was running) the moment the tunnel stops, so a
-        // disguise video-call process never outlives the VPN. No-op when olcRTC wasn't used.
-        OlcrtcManager.stop()
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
             receiverRegistered = false
@@ -358,6 +363,11 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // user explicitly switched off.
         Settings.startedByUser = false
         GlobalScope.launch(Dispatchers.IO) {
+            // Tear down the olcRTC child (if it was running) the moment the tunnel stops, so a
+            // disguise video-call process never outlives the VPN. No-op when olcRTC wasn't used.
+            // Runs HERE (off the main thread): stopLocked can block up to ~2s reaping the child,
+            // which froze the UI when it ran synchronously on the stop path.
+            OlcrtcManager.stop()
             val pfd = fileDescriptor
             if (pfd != null) {
                 runCatching { pfd.close() }

@@ -14,6 +14,8 @@ import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
 import com.maestrovpn.tv.utils.httpGetStringTimed
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -41,12 +43,28 @@ class UpdateProfileWork {
          * user acts, not only on the next 15-min tick. Same SSRF guard + bounded fetch +
          * checkConfig + hot-reload-if-selected as the worker; a failed fetch keeps the live
          * config untouched (never disturbs the running tunnel).
+         *
+         * Truncate-then-write can be observed torn by a concurrent serviceReload (it reads the
+         * profile file bare, no checkConfig) — a torn read stops a live tunnel with an error, so
+         * all writers go through [writeAtomic]: every reader sees old or new, never a mix.
          */
-        suspend fun refreshNow() {
+        private fun writeAtomic(file: File, content: String) {
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(content)
+            if (!tmp.renameTo(file)) { // some vendor ROMs fail renameTo → degrade to the old path
+                file.writeText(content)
+                tmp.delete()
+            }
+        }
+
+        suspend fun refreshNow() = withContext(NonCancellable) {
+            // NonCancellable: the caller is the Activity's lifecycleScope — the user backing out
+            // of the app must not abort the pass between "config written to disk" and "tunnel
+            // reloaded", or the tunnel stays on the OLD config forever (disk==fetched → every
+            // future pass sees "no change" and never reloads).
             runCatching {
                 val remoteProfiles = ProfileManager.list()
                     .filter { it.typed.type == TypedProfile.Type.Remote && it.typed.autoUpdate }
-                if (remoteProfiles.isEmpty()) return
                 val selectedProfile = Settings.selectedProfile
                 var selectedUpdated = false
                 for (profile in remoteProfiles) {
@@ -59,12 +77,16 @@ class UpdateProfileWork {
                         continue // bad config → leave the live one in place
                     }
                     val file = File(profile.typed.path)
-                    if (file.readText() != content) {
-                        file.writeText(content)
-                        profile.typed.lastUpdated = Date()
-                        ProfileManager.update(profile)
-                        if (profile.id == selectedProfile) selectedUpdated = true
-                    }
+                    // Flag BEFORE the suspend DB update + guard per profile: if a later profile
+                    // throws after this one already hit disk, the reload below must still fire.
+                    runCatching {
+                        if (file.readText() != content) {
+                            if (profile.id == selectedProfile) selectedUpdated = true
+                            writeAtomic(file, content)
+                            profile.typed.lastUpdated = Date()
+                            ProfileManager.update(profile)
+                        }
+                    }.onFailure { Log.e(TAG, "refreshNow: profile ${profile.name}", it) }
                 }
                 if (selectedUpdated) {
                     runCatching { Libbox.newStandaloneCommandClient().serviceReload() }
@@ -134,7 +156,7 @@ class UpdateProfileWork {
                     Libbox.checkConfig(content)
                     val file = File(profile.typed.path)
                     if (file.readText() != content) {
-                        File(profile.typed.path).writeText(content)
+                        writeAtomic(file, content)
                         if (profile.id == selectedProfile) {
                             selectedProfileUpdated = true
                         }

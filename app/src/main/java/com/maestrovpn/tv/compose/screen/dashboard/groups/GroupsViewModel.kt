@@ -35,7 +35,9 @@ import java.util.concurrent.atomic.AtomicInteger
 // window the pick is applied and cleared; otherwise it's DROPPED so it can never apply to an
 // unrelated later start (e.g. after VPN-consent was denied, or a protocol that never appears).
 // Generous vs a normal tun bring-up — the command feed connects within a couple of seconds.
-private const val PENDING_SELECT_TTL_MS = 20_000L
+// 60s (was 20s): the TTL runs from the TAP, and a first-ever connect pops the system VPN-consent
+// dialog — a user reading it slower than the TTL silently lost the protocol pick to «Авто».
+private const val PENDING_SELECT_TTL_MS = 60_000L
 
 // olcRTC liveness watchdog: how often to check the child process while olcRTC is the active
 // outbound, and how many consecutive failed respawns before giving up + telling the user.
@@ -167,7 +169,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             // so fall back to the protocols parsed from the saved sub config — an ACTIVATED app then
             // keeps its protocols visible in BOTH connected and disconnected states (owner request).
             viewModelScope.launch {
-                val offline = loadOfflineGroups()
+                val offline = withPendingSelect(loadOfflineGroups())
                 updateState { copy(groups = offline, isLoading = false) }
             }
         }
@@ -180,6 +182,15 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      * isn't activated (no selected sub profile) or the config can't be read. urlTestDelay=0 (unknown
      * offline). Live libbox groups replace these the moment the service reports Started.
      */
+    /** Re-apply an armed pending pick onto an offline-skeleton repaint, so the optimistic chip
+     *  highlight survives the Starting-phase repaint instead of flicking back to the default. */
+    private fun withPendingSelect(groups: List<Group>): List<Group> {
+        val p = pendingSelect ?: return groups
+        return groups.map { g ->
+            if (g.tag == p.first && g.items.any { it.tag == p.second }) g.copy(selected = p.second) else g
+        }
+    }
+
     private suspend fun loadOfflineGroups(): List<Group> = withContext(Dispatchers.IO) {
         runCatching {
             val pid = Settings.selectedProfile
@@ -290,6 +301,8 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     }
                 }
             } catch (e: Exception) {
+                // Same orphan-reap as selectGroupItem: never leave the spawned child behind.
+                if (itemTag == OlcrtcManager.OUTBOUND_TAG) runCatching { OlcrtcManager.stop() }
                 sendError(e)
             }
         }
@@ -397,6 +410,10 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     sendEvent(GroupsEvent.GroupSelected(groupTag, itemTag))
                 }
             } catch (e: Exception) {
+                // The olcRTC child may already be up when the select throws (e.g. the live
+                // selector has no `olcrtc` outbound) — reap it, or a fake-video process keeps
+                // streaming with nothing routed through it.
+                if (isOlc) runCatching { OlcrtcManager.stop() }
                 sendError(e)
             } finally {
                 if (isOlc) olcSelectInFlight = false
@@ -431,13 +448,18 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         }
     }
 
+    // Selector tag from the most recent LIVE groups payload (offline skeleton repaints never
+    // touch it): the watchdog's guard used to read the UI mirror, which the screen-off repaint
+    // resets to the config default — silently killing the watchdog while olcRTC kept routing.
+    @Volatile private var liveSelectedTag: String? = null
+
     private fun startOlcWatchdog() {
         olcWatchdog?.cancel()
         olcWatchdog = viewModelScope.launch(Dispatchers.IO) {
             // true while olcRTC is STILL the active outbound and the tunnel is up — i.e. we should
             // keep guarding. Also false once the job is cancelled (switch-away / stop / VM clear).
             fun stillGuarding() = isActive && _serviceStatus.value == Status.Started &&
-                uiState.value.groups.firstOrNull { it.tag == "select" }?.selected == OlcrtcManager.OUTBOUND_TAG
+                (liveSelectedTag ?: OlcrtcManager.OUTBOUND_TAG) == OlcrtcManager.OUTBOUND_TAG
             var fails = 0
             var ticks = 0
             while (isActive) {
@@ -527,7 +549,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         // Command feed dropped (VPN off / screen off): keep the menu populated from the saved
         // config instead of blanking it, so protocols stay visible while disconnected.
         viewModelScope.launch {
-            val offline = loadOfflineGroups()
+            val offline = withPendingSelect(loadOfflineGroups())
             updateState { copy(groups = offline, isLoading = false) }
         }
     }
@@ -606,6 +628,10 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             } else {
                 mergedGroups
             }
+
+            // Live-feed truth for the olcRTC watchdog guard (includes the pending overlay: a
+            // pick in flight counts as intent to stay on it).
+            liveSelectedTag = committedGroups.firstOrNull { it.tag == "select" }?.selected
 
             withContext(Dispatchers.Main) {
                 updateState {

@@ -40,7 +40,9 @@ class TileService :
 
     override fun onStartListening() {
         super.onStartListening()
-        connection.connect()
+        // Belt for Before-First-Unlock: the settings DB (CE storage) is unreadable pre-unlock and
+        // an uncaught throw here would crash-loop the whole app while the QS shade is open.
+        runCatching { connection.connect() }
     }
 
     override fun onStopListening() {
@@ -62,7 +64,9 @@ class TileService :
     private fun toggleService() {
         when (connection.status) {
             Status.Stopped -> BoxService.start()
-            Status.Started -> BoxService.stop()
+            // The tile shows ACTIVE during Starting — a tap must be able to stop a stuck connect
+            // (stop-from-Starting is supported since the 1.0.94 fix), not be silently dropped.
+            Status.Started, Status.Starting -> BoxService.stop()
             else -> {}
         }
     }

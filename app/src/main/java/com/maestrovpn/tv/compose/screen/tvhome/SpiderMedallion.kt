@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -67,6 +68,7 @@ fun StaticTvMedallion(
     onToggle: () -> Unit,
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier,
+    sizeDp: Dp = 252.dp, // hero passes a height-aware size so tight TVs never squash the circle
 ) {
     // one-shot кроссфейды состояния (анимируются только в момент переключения, в покое держат значение)
     val power by animateFloatAsState(
@@ -91,11 +93,11 @@ fun StaticTvMedallion(
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(252.dp).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
+        modifier = modifier.size(sizeDp).graphicsLayer { scaleX = btnScale; scaleY = btnScale },
     ) {
         // зелёное свечение вокруг медальона — ярче при подключении и фокусе (статика, draw-фаза)
         Box(
-            Modifier.size(252.dp).drawBehind {
+            Modifier.size(sizeDp).drawBehind {
                 val c = Offset(size.width / 2f, size.height / 2f)
                 val r = size.minDimension * 0.5f
                 val a = 0.18f + 0.30f * power + if (focused) 0.26f else 0f
@@ -110,13 +112,13 @@ fun StaticTvMedallion(
             },
         )
 
-        Box(Modifier.size(232.dp).clip(CircleShape)) {
+        Box(Modifier.size(sizeDp - 20.dp).clip(CircleShape)) {
             // 1) чистая кнопка владельца: хром-кольцо + зелёная web
-            Image(bgP, null, Modifier.size(232.dp), contentScale = ContentScale.Fit, colorFilter = webFilter)
+            Image(bgP, null, Modifier.size(sizeDp - 20.dp), contentScale = ContentScale.Fit, colorFilter = webFilter)
 
             // 2) статичная зелёная кромка у внутреннего края кольца (насыщается с power)
             Box(
-                Modifier.size(232.dp).drawBehind {
+                Modifier.size(sizeDp - 20.dp).drawBehind {
                     val c = Offset(size.width / 2f, size.height / 2f)
                     val r = size.minDimension / 2f
                     drawCircle(
@@ -135,7 +137,7 @@ fun StaticTvMedallion(
             //    Проявляется кроссфейдом `live` при подключении; ничего не шагает и не ползёт.
             if (live > 0.01f) {
                 Box(
-                    Modifier.size(232.dp).drawBehind {
+                    Modifier.size(sizeDp - 20.dp).drawBehind {
                         val box = IntSize(size.width.roundToInt(), size.height.roundToInt())
                         val shadow = ColorFilter.tint(Color.Black)
                         legBmps.forEach { bmp ->
@@ -166,7 +168,7 @@ fun StaticTvMedallion(
             }
 
             // 4) затемнение когда выключено
-            Box(Modifier.size(232.dp).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
+            Box(Modifier.size(sizeDp - 20.dp).drawBehind { drawCircle(Color.Black.copy(alpha = (1f - power) * 0.30f)) })
         }
 
         Button(
@@ -176,7 +178,7 @@ fun StaticTvMedallion(
             contentPadding = PaddingValues(0.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-            modifier = Modifier.size(200.dp).focusRequester(focusRequester),
+            modifier = Modifier.size(sizeDp * (200f / 252f)).focusRequester(focusRequester),
             content = {},
         )
     }
