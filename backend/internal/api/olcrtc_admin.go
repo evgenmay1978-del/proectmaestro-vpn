@@ -42,9 +42,10 @@ func (s *Server) handleOlcrtcRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Login string `json:"login"` // empty → global room; else this login's dedicated room
-		Room  string `json:"room"`
-		Key   string `json:"key"` // optional; empty keeps the existing key
+		Login    string `json:"login"` // empty → global room; else this login's dedicated room
+		Room     string `json:"room"`
+		Key      string `json:"key"`      // optional; empty keeps the existing key
+		Provider string `json:"provider"` // optional; "wbstream"|"telemost"; empty keeps existing
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -53,7 +54,7 @@ func (s *Server) handleOlcrtcRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "room required", http.StatusBadRequest)
 		return
 	}
-	if err := s.olc.SetRoomFor(req.Login, req.Room, req.Key); err != nil {
+	if err := s.olc.SetRoomProviderFor(req.Login, req.Room, req.Key, req.Provider); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

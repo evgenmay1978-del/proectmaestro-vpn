@@ -17,6 +17,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -210,18 +212,20 @@ func (s *Server) registerPanel(mux *http.ServeMux) {
 		}
 	}
 	s.panel.startJanitor()
-	mux.HandleFunc(p, s.panelApp)                         // GET the SPA shell
-	mux.HandleFunc(p+"api/login", s.panelLogin)           // POST {password}
-	mux.HandleFunc(p+"api/logout", s.panelLogout)         // POST
-	mux.HandleFunc(p+"api/me", s.panelMe)                 // GET
-	mux.HandleFunc(p+"api/password", s.panelPassword)     // POST {current,new}
-	mux.HandleFunc(p+"api/customers", s.panelCustomers)   // GET
-	mux.HandleFunc(p+"api/customer", s.panelCustomer)     // GET ?login=
-	mux.HandleFunc(p+"api/stats", s.panelStats)           // GET
-	mux.HandleFunc(p+"api/action", s.panelActionH)        // POST
-	mux.HandleFunc(p+"api/olcrtc", s.panelOlcrtc)         // GET
-	mux.HandleFunc(p+"api/olcrtc/room", s.panelOlcRoom)   // POST
-	mux.HandleFunc(p+"api/olcrtc/login", s.panelOlcLogin) // POST {login,action:add|remove}
+	mux.HandleFunc(p, s.panelApp)                             // GET the SPA shell
+	mux.HandleFunc(p+"api/login", s.panelLogin)               // POST {password}
+	mux.HandleFunc(p+"api/logout", s.panelLogout)             // POST
+	mux.HandleFunc(p+"api/me", s.panelMe)                     // GET
+	mux.HandleFunc(p+"api/password", s.panelPassword)         // POST {current,new}
+	mux.HandleFunc(p+"api/customers", s.panelCustomers)       // GET
+	mux.HandleFunc(p+"api/customer", s.panelCustomer)         // GET ?login=
+	mux.HandleFunc(p+"api/stats", s.panelStats)               // GET
+	mux.HandleFunc(p+"api/action", s.panelActionH)            // POST
+	mux.HandleFunc(p+"api/olcrtc", s.panelOlcrtc)             // GET
+	mux.HandleFunc(p+"api/olcrtc/room", s.panelOlcRoom)       // POST {login,room,provider}
+	mux.HandleFunc(p+"api/olcrtc/login", s.panelOlcLogin)     // POST {login,action:add|remove}
+	mux.HandleFunc(p+"api/olcrtc/wbtoken", s.panelOlcWBToken) // POST {token} — set wbstream account token
+	mux.HandleFunc(p+"api/olcrtc/wbroom", s.panelOlcWBRoom)   // POST {login} — create+assign a fresh wbstream room
 }
 
 // panelErrLog returns a GENERIC message to the browser (an internet-facing surface) while
@@ -636,12 +640,13 @@ func (s *Server) panelOlcrtc(w http.ResponseWriter, r *http.Request) {
 	health := s.readOlcHealth() // per-login S3 exit liveness (from the health probe); may be empty
 	rooms := map[string]any{}
 	for lg, rk := range cfg.Rooms {
-		rooms[lg] = map[string]any{"room": rk.Room, "has_key": rk.Key != ""}
+		rooms[lg] = map[string]any{"room": rk.Room, "has_key": rk.Key != "", "provider": cfg.ProviderFor(lg)}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": cfg.Enabled, "provider": cfg.Provider, "transport": cfg.Transport,
 		"global_room": cfg.Room, "rooms": rooms, "logins": sortedLogins(cfg.Logins),
 		"health": health.Exits, "health_checked": health.Checked,
+		"wb_token_set": s.wbTokenSet(), // wbstream account token present on this node?
 	})
 }
 
@@ -673,16 +678,27 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Login string `json:"login"`
-		Room  string `json:"room"`
+		Login    string `json:"login"`
+		Room     string `json:"room"`
+		Provider string `json:"provider"` // "wbstream" | "telemost"/"" (default)
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	// Validate the room is an http(s) URL and the (optional) login is a sane token, so a typo or
-	// junk value can't poison the persisted config / the S3 srv.
-	if !strings.HasPrefix(req.Room, "https://") && !strings.HasPrefix(req.Room, "http://") {
+	// Validate the room per carrier + the (optional) login token, so a typo or junk value can't
+	// poison the persisted config / the S3 srv. wbstream joins by a BARE room id (UUID); every
+	// other carrier uses an http(s) URL.
+	if req.Provider == "wbstream" {
+		if !olcRoomIDRe.MatchString(req.Room) {
+			http.Error(w, "wbstream room must be a bare id (letters/digits/._~-, 8-128 chars)", http.StatusBadRequest)
+			return
+		}
+	} else if !strings.HasPrefix(req.Room, "https://") && !strings.HasPrefix(req.Room, "http://") {
 		http.Error(w, "room must be an http(s) URL", http.StatusBadRequest)
+		return
+	}
+	if req.Provider != "" && req.Provider != "wbstream" && req.Provider != "telemost" {
+		http.Error(w, "provider must be wbstream or telemost", http.StatusBadRequest)
 		return
 	}
 	if req.Login != "" && !claimCodeRe.MatchString(req.Login) {
@@ -694,7 +710,7 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 	// back to a config-only write if the script isn't configured (no S3 exit, matches the old
 	// behaviour). Inputs are already validated (URL + login charset) so there's no shell injection.
 	if s.cfg.OlcrtcRoomScript == "" {
-		if err := s.olc.SetRoomFor(req.Login, req.Room, ""); err != nil {
+		if err := s.olc.SetRoomProviderFor(req.Login, req.Room, "", req.Provider); err != nil {
 			panelErrLog(w, http.StatusInternalServerError, "could not set room", "olcrtc room", err)
 			return
 		}
@@ -706,6 +722,9 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 		argv = append(argv, req.Login)
 	}
 	argv = append(argv, req.Room)
+	if req.Provider != "" {
+		argv = append(argv, req.Provider) // ops script: <login> <room> [provider]
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 100*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "/bin/sh", argv...).CombinedOutput()
@@ -754,4 +773,131 @@ func (s *Server) panelOlcLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// wbToken returns the wbstream ACCOUNT token stored on this node (trimmed), or "" if unset. It is
+// the WB session JWT the panel uses to create rooms; the ops room script injects it into each
+// wbstream login's S3 srv config so the exit joins AS the account (keeping the room alive).
+func (s *Server) wbToken() string {
+	if s.cfg.OlcWBTokenFile == "" {
+		return ""
+	}
+	b, err := os.ReadFile(s.cfg.OlcWBTokenFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// wbTokenSet reports whether a wbstream account token is present (shown in the panel; never the value).
+func (s *Server) wbTokenSet() bool { return s.wbToken() != "" }
+
+// panelOlcWBToken sets/updates the wbstream ACCOUNT token (a WB session JWT). Stored root-only on
+// this node (0600); the ops room script injects it into each wbstream login's S3 srv config. The
+// value is NEVER echoed back. POST {token}.
+func (s *Server) panelOlcWBToken(w http.ResponseWriter, r *http.Request) {
+	if !s.panelGuard(w, r, true) {
+		return
+	}
+	if s.cfg.OlcWBTokenFile == "" {
+		http.Error(w, "wbtoken storage not configured", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Token string `json:"token"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	tok := strings.TrimSpace(req.Token)
+	// A WB token is a JWT (three dot-separated base64url segments); reject junk before storing.
+	if strings.Count(tok, ".") != 2 || len(tok) < 40 || strings.ContainsAny(tok, " \t\r\n\"'") {
+		http.Error(w, "token must be a bare JWT (header.payload.signature)", http.StatusBadRequest)
+		return
+	}
+	if err := os.WriteFile(s.cfg.OlcWBTokenFile, []byte(tok+"\n"), 0o600); err != nil {
+		panelErrLog(w, http.StatusInternalServerError, "could not store token", "wbtoken write", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// createWBStreamRoom mints a FRESH wbstream room using the stored account token and returns its
+// bare room id. WB — unlike Yandex Telemost — HAS a room-creation API, so the panel can regenerate
+// a room in one click (the "как в яндексе" ask). Bounded + LimitReader so a slow/huge reply can't hang.
+func (s *Server) createWBStreamRoom(ctx context.Context) (string, error) {
+	tok := s.wbToken()
+	if tok == "" {
+		return "", errors.New("no wbstream token set")
+	}
+	body := strings.NewReader(`{"roomType":"ROOM_TYPE_ALL_ON_SCREEN","roomPrivacy":"ROOM_PRIVACY_FREE"}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://stream.wb.ru/api-room/api/v2/room", body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("wbstream create room: HTTP %d", resp.StatusCode)
+	}
+	var out struct {
+		RoomID string `json:"roomId"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil || out.RoomID == "" {
+		return "", errors.New("wbstream create room: no roomId in reply")
+	}
+	return out.RoomID, nil
+}
+
+// panelOlcWBRoom creates a fresh wbstream room via the account token and assigns it to a login —
+// the one-click "новая комната" (like a new Yandex meeting). POST {login}. Runs the SAME room
+// script as a manual set (mint key + panel config + bring up the login's S3 wbstream exit).
+func (s *Server) panelOlcWBRoom(w http.ResponseWriter, r *http.Request) {
+	if !s.panelGuard(w, r, true) {
+		return
+	}
+	if s.olc == nil {
+		http.Error(w, "olcRTC disabled", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Login string `json:"login"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !claimCodeRe.MatchString(req.Login) {
+		http.Error(w, "invalid login", http.StatusBadRequest)
+		return
+	}
+	cctx, ccancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer ccancel()
+	roomID, err := s.createWBStreamRoom(cctx)
+	if err != nil {
+		panelErrLog(w, http.StatusBadGateway, "could not create a wbstream room — check the token", "wbstream create", err)
+		return
+	}
+	if s.cfg.OlcrtcRoomScript == "" {
+		if err := s.olc.SetRoomProviderFor(req.Login, roomID, "", "wbstream"); err != nil {
+			panelErrLog(w, http.StatusInternalServerError, "could not set room", "wbstream assign", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "room": roomID})
+		return
+	}
+	sctx, scancel := context.WithTimeout(r.Context(), 100*time.Second)
+	defer scancel()
+	out, err := exec.CommandContext(sctx, "/bin/sh", s.cfg.OlcrtcRoomScript, req.Login, roomID, "wbstream").CombinedOutput()
+	if err != nil {
+		panelErrLog(w, http.StatusBadGateway, "room assign failed on S3 — try again", "wbstream room script", errors.New(strings.TrimSpace(string(out))))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "room": roomID})
 }

@@ -29,8 +29,9 @@ import (
 
 // RoomKey is one carrier room + its shared key (a per-login isolation channel).
 type RoomKey struct {
-	Room string `json:"room"` // carrier room id/URL (Telemost: the https://…/j/<id> URL)
-	Key  string `json:"key"`  // 64-hex shared secret (must byte-match this login's S3 srv)
+	Room     string `json:"room"`               // carrier room id/URL (Telemost: https://…/j/<id>; wbstream: bare room UUID)
+	Key      string `json:"key"`                // 64-hex shared secret (must byte-match this login's S3 srv)
+	Provider string `json:"provider,omitempty"` // per-login carrier override: "wbstream" | "telemost" | "" (=> global)
 }
 
 // Config is the olcRTC transport configuration. Provider/Transport are shared; Room/Key are
@@ -79,6 +80,19 @@ func (c Config) RoomFor(login string) (room, key string, ok bool) {
 func (c Config) Dedicated(login string) bool {
 	rk, has := c.Rooms[login]
 	return has && rk.Room != "" && rk.Key != ""
+}
+
+// ProviderFor returns the carrier a given login should use: its per-login override when set,
+// else the GLOBAL provider, else "telemost". Mirrors RoomFor so /info emits the right carrier
+// per login (a wbstream login and a telemost login can coexist under one panel).
+func (c Config) ProviderFor(login string) string {
+	if rk, has := c.Rooms[login]; has && rk.Provider != "" {
+		return rk.Provider
+	}
+	if c.Provider != "" {
+		return c.Provider
+	}
+	return "telemost"
 }
 
 // Store is a file-backed, concurrency-safe holder for the global Config.
@@ -141,12 +155,23 @@ func (s *Store) SetRoom(room string) error { return s.SetRoomFor("", room, "") }
 // global room). An empty key keeps the login's existing key (so a room-only swap doesn't
 // wipe the key + desync the S3 srv). Auto-enables once any usable room+key exists. Persists.
 func (s *Store) SetRoomFor(login, room, key string) error {
+	return s.SetRoomProviderFor(login, room, key, "")
+}
+
+// SetRoomProviderFor is SetRoomFor plus a per-login carrier override. provider=="" keeps the
+// login's existing provider (a room-only swap on a wbstream login stays wbstream); a non-empty
+// value ("wbstream"|"telemost") sets it. On the GLOBAL swap (login=="") a non-empty provider
+// updates the global default provider. Persists.
+func (s *Store) SetRoomProviderFor(login, room, key, provider string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if login == "" { // no login → this is a global-room swap
 		s.cfg.Room = room
 		if key != "" {
 			s.cfg.Key = key
+		}
+		if provider != "" {
+			s.cfg.Provider = provider
 		}
 	} else {
 		if s.cfg.Rooms == nil {
@@ -159,6 +184,9 @@ func (s *Store) SetRoomFor(login, room, key string) error {
 			rk.Room = room
 			if key != "" {
 				rk.Key = key
+			}
+			if provider != "" {
+				rk.Provider = provider
 			}
 			s.cfg.Rooms[login] = rk
 		}
