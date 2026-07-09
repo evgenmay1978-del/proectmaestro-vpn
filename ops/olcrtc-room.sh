@@ -21,25 +21,43 @@
 set -eu
 
 usage() {
-	echo "usage: $0 <login> <telemost-room-url>   # per-login (isolation)"
-	echo "       $0 <telemost-room-url>           # global fallback room"
+	echo "usage: $0 <login> <room> [telemost|wbstream] [newkey]   # per-login (isolation)"
+	echo "       $0 <telemost-room-url>                           # global fallback room"
+	echo "   telemost/jitsi room = http(s) URL ; wbstream room = bare id (UUID)"
 	exit 1
 }
 
 LOGIN=""
 ROOM=""
 NEWKEY=0
-case $# in
-	1) ROOM="$1" ;;
-	2) LOGIN="$1"; ROOM="$2" ;;
-	3) LOGIN="$1"; ROOM="$2"; [ "$3" = "newkey" ] && NEWKEY=1 || usage ;;
-	*) usage ;;
-esac
+PROVIDER=telemost
+# Positional: <login> <room> [provider] [newkey]  (or <room> for the global telemost swap).
+# provider ∈ {telemost, wbstream}; newkey forces a fresh per-login key.
+if [ $# -eq 1 ]; then
+	ROOM="$1"
+else
+	LOGIN="$1"; ROOM="$2"; shift 2
+	for a in "$@"; do
+		case "$a" in
+			telemost|wbstream) PROVIDER="$a" ;;
+			newkey) NEWKEY=1 ;;
+			*) usage ;;
+		esac
+	done
+fi
 [ -n "$ROOM" ] || usage
-case "$ROOM" in
-	https://* | http://*) ;;
-	*) echo "room must be an http(s) URL"; exit 1 ;;
-esac
+# Room shape per carrier: wbstream = bare room id (UUID); everything else = http(s) URL.
+if [ "$PROVIDER" = wbstream ]; then
+	case "$ROOM" in
+		*[!A-Za-z0-9._~-]* | "") echo "wbstream room must be a bare id (A-Za-z0-9._~-)"; exit 1 ;;
+	esac
+	[ -n "$LOGIN" ] || { echo "wbstream is per-login only (needs a <login>)"; exit 1; }
+else
+	case "$ROOM" in
+		https://* | http://*) ;;
+		*) echo "room must be an http(s) URL"; exit 1 ;;
+	esac
+fi
 # Guard the login against shell/YAML/systemd-instance injection (same charset the panel accepts).
 if [ -n "$LOGIN" ]; then
 	case "$LOGIN" in
@@ -100,12 +118,25 @@ case "$KEY" in
 esac
 [ "${#KEY}" -eq 64 ] || { echo "  ❌ key must be 64 hex chars (got ${#KEY})"; exit 1; }
 
-echo "→ 2/4 panel per-login room for $LOGIN (its /sub + /info serve THIS room)"
+echo "→ 2/4 panel per-login room for $LOGIN (provider=$PROVIDER; its /sub + /info serve THIS room)"
 HTTP=$(curl -s -o /tmp/olc-room.out -w '%{http_code}' -X POST "$PANEL/admin/olcrtc/room" \
 	-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-	-d "{\"login\":\"$LOGIN\",\"room\":\"$ROOM\",\"key\":\"$KEY\"}")
+	-d "{\"login\":\"$LOGIN\",\"room\":\"$ROOM\",\"key\":\"$KEY\",\"provider\":\"$PROVIDER\"}")
 [ "$HTTP" = 200 ] || { echo "  ❌ panel update failed (HTTP $HTTP)"; exit 1; }
 echo "  ✅ panel updated for $LOGIN (key redacted)"
+
+# Build the auth block for the S3 srv. wbstream must join AS THE ACCOUNT (else the room dies when
+# no owner is present) → embed the account token; telemost/jitsi join anonymously.
+if [ "$PROVIDER" = wbstream ]; then
+	WBTOK=$(cat /var/lib/maestro/wb.token 2>/dev/null | tr -d '\r\n')
+	[ -n "$WBTOK" ] || { echo "  ❌ no wbstream account token at /var/lib/maestro/wb.token — set it in the panel first"; exit 1; }
+	AUTHBLOCK="auth:
+  provider: wbstream
+  token: \"$WBTOK\""
+else
+	AUTHBLOCK="auth:
+  provider: $PROVIDER"
+fi
 
 echo "→ 3/4 S3 exit olcrtc-srv@$LOGIN → rooms/$LOGIN.yaml + (re)start"
 ssh -o StrictHostKeyChecking=no "root@$S3" "
@@ -114,8 +145,7 @@ ssh -o StrictHostKeyChecking=no "root@$S3" "
 	umask 077
 	cat > /opt/olcrtc/rooms/$LOGIN.yaml <<YAML
 mode: srv
-auth:
-  provider: telemost
+$AUTHBLOCK
 room:
   id: \"$ROOM\"
 crypto:

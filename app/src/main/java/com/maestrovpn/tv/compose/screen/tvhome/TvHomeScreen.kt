@@ -133,6 +133,7 @@ fun TvHomeScreen(
     daysLeft: Int? = null,
     hasSubProfile: Boolean = false,
     hasOlcrtcCreds: Boolean = false,
+    olcrtcProvider: String? = null, // "wbstream" | "telemost" — labels the single olcRTC chip
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
     onSelectOlcrtc: () -> Unit = {},
@@ -244,6 +245,7 @@ fun TvHomeScreen(
                             isTv = true,
                             onSelectProtocol = onSelectProtocol,
                             hasOlcrtcCreds = hasOlcrtcCreds,
+                            olcrtcProvider = olcrtcProvider,
                             onSelectOlcrtc = onSelectOlcrtc,
                             onBuy = onBuy,
                             onEnterCode = onEnterCode,
@@ -352,6 +354,7 @@ fun TvHomeScreen(
                                 isTv = false,
                                 onSelectProtocol = onSelectProtocol,
                                 hasOlcrtcCreds = hasOlcrtcCreds,
+                                olcrtcProvider = olcrtcProvider,
                                 onSelectOlcrtc = onSelectOlcrtc,
                                 onBuy = onBuy,
                                 onEnterCode = onEnterCode,
@@ -610,6 +613,7 @@ private fun MenuPane(
     isTv: Boolean,
     onSelectProtocol: (String) -> Unit,
     hasOlcrtcCreds: Boolean,
+    olcrtcProvider: String? = null,
     onSelectOlcrtc: () -> Unit,
     onBuy: () -> Unit,
     onEnterCode: () -> Unit,
@@ -663,7 +667,11 @@ private fun MenuPane(
                                 modifier = Modifier.weight(1f).heightIn(min = 62.dp),
                                 icon = if (olcLocked) Icons.Filled.Lock else protocolIcon(p),
                                 selected = p == selected && !olcLocked,
-                                subtitle = if (olcLocked) "🔒 по запросу" else protocolBadge(p),
+                                subtitle = when {
+                                    olcLocked -> "🔒 по запросу"
+                                    p == "olcrtc" -> if (olcrtcProvider == "wbstream") "через WB" else "через Яндекс"
+                                    else -> protocolBadge(p)
+                                },
                                 locked = olcLocked,
                                 wood = wood,
                             )

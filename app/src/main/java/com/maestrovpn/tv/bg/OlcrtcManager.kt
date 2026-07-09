@@ -66,6 +66,9 @@ object OlcrtcManager {
 
     private val tokenRe = Regex("^[a-z0-9]{1,32}$")
     private val keyRe = Regex("^[0-9a-fA-F]{16,128}$")
+    // wbstream joins by a BARE room id (a UUID), not an http(s) URL — the WB API path is
+    // /api-room/api/v1/room/<id>/… so the child needs the id verbatim.
+    private val roomIdRe = Regex("^[a-zA-Z0-9._~-]{8,128}$")
 
     /**
      * Push the WebRTC params delivered over /sub/<tok>/info (owner-gated). Absent → cleared
@@ -79,8 +82,11 @@ object OlcrtcManager {
         val r = room?.trim().orEmpty()
         val k = key?.trim().orEmpty()
         val t = transport?.trim().orEmpty().ifBlank { "vp8channel" }
-        val valid = p.matches(tokenRe) && k.matches(keyRe) && t.matches(tokenRe) &&
-            (r.startsWith("https://") || r.startsWith("http://")) &&
+        // wbstream = bare room id; every other provider = http(s) room URL. Both still reject any
+        // whitespace/quote/control char so the value can't break out of the templated client.yaml.
+        val roomOk = if (p == "wbstream") r.matches(roomIdRe)
+        else r.startsWith("https://") || r.startsWith("http://")
+        val valid = p.matches(tokenRe) && k.matches(keyRe) && t.matches(tokenRe) && roomOk &&
             r.none { it.isWhitespace() || it == '"' || it == '\'' || it.code < 0x20 }
         creds = if (valid) Creds(p, r, k, t) else null
         loaded = true
@@ -124,6 +130,10 @@ object OlcrtcManager {
     fun isUnlocked(): Boolean { ensureLoaded(); return creds != null && binaryFile()?.exists() == true }
 
     fun hasCreds(): Boolean { ensureLoaded(); return creds != null }
+
+    /** The carrier the current olcRTC creds use ("wbstream" | "telemost" | …), or null if none —
+     *  so the UI can label the single olcRTC chip with the real service (WB vs Яндекс). */
+    fun provider(): String? { ensureLoaded(); return creds?.provider }
 
     /** True when a child is running but on STALE creds (the room/key changed under it) — the
      * watchdog uses this to restart it onto the new room without waiting for it to die. */
