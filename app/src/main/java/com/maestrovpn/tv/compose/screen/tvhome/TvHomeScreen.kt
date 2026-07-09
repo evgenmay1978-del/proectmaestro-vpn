@@ -4,12 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,8 +15,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -95,11 +88,8 @@ import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.component.NeonAccountCard
 import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
-import com.maestrovpn.tv.compose.rememberIsLowRam
 import com.maestrovpn.tv.compose.rememberIsTv
-import kotlin.math.floor
 import kotlin.math.sin
-import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -145,7 +135,6 @@ fun TvHomeScreen(
     onEnterTrial: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
-    val lowRam = rememberIsLowRam()
     val connectFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (isTv) runCatching { connectFocus.requestFocus() }
@@ -208,72 +197,36 @@ fun TvHomeScreen(
                 }
                 .graphicsLayer {
                     alpha = enter
-                    translationY = (1f - enter) * 36f
+                    // ТВ-эскиз = full-bleed фон: сдвиг обнажил бы чёрную полосу сверху → только на телефоне
+                    translationY = if (isTv) 0f else (1f - enter) * 36f
                 }
-                .padding(if (isTv) screenPadding(true) else 0.dp),   // phone эскиз = full-bleed
+                .padding(0.dp),   // и ТВ-эскиз, и телефон-эскиз = full-bleed
         ) {
             // ⛔ Particles убраны на ТВ (owner «без анимаций»): 20с infinite-clock + полноэкранная
             // перерисовка каждый кадр — дорого для 1 ГБ-боксов. Атмосферу даёт статичный glow+web ниже.
 
             if (isTv) {
-                // ── LANDSCAPE (TV): logo + spider medallion at the TOP (hero), login + days in a
-                // FIXED bar at the BOTTOM of the screen (owner layout). The account bar has its OWN
-                // reserved slot below the hero+menu Row, so a tall hero / big medallion on a
-                // high-density TV can never push it off-screen (that was the 1.0.125 regression where
-                // a weight-spacer inside the hero collapsed to 0 and login+days vanished).
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        HeroPane(
-                            statusText = statusText,
-                            connected = connected,
-                            activeProtocol = activeProtocol,
-                            selected = selected,
-                            accountLogin = accountLogin,
-                            daysLeft = daysLeft,
-                            onToggleConnect = onToggleConnect,
-                            connectFocus = connectFocus,
-                            modifier = Modifier.weight(0.42f).fillMaxHeight(),
-                            showAccountCard = false, // rendered as the fixed bottom bar below instead
-                        )
-                        Spacer(Modifier.width(28.dp))
-                        MenuPane(
-                            protocols = protocols,
-                            selected = selected,
-                            isTv = true,
-                            onSelectProtocol = onSelectProtocol,
-                            hasOlcrtcCreds = hasOlcrtcCreds,
-                            olcrtcProvider = olcrtcProvider,
-                            onSelectOlcrtc = onSelectOlcrtc,
-                            onBuy = onBuy,
-                            onEnterCode = onEnterCode,
-                            onSplitTunnel = onSplitTunnel,
-                            onShareIos = onShareIos,
-                            onScanQr = onScanQr,
-                            onEnterTrial = onEnterTrial,
-                            showTrial = !hasSubProfile,
-                            // fillMaxHeight + scroll is a safety net for short (720p) TVs; the menu
-                            // normally fits without scrolling.
-                            modifier = Modifier
-                                .weight(0.58f)
-                                .fillMaxHeight()
-                                .verticalScroll(rememberScrollState()),
-                        )
-                    }
-                    // FIXED bottom bar — login + days, always visible (own slot, never clipped).
-                    if (!accountLogin.isNullOrBlank() || daysLeft != null) {
-                        Spacer(Modifier.height(10.dp))
-                        AccountCard(
-                            login = accountLogin,
-                            daysLeft = daysLeft,
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .widthIn(min = 240.dp, max = 620.dp),
-                        )
-                    }
-                }
+                TvEskizHome(
+                    statusText = statusText,
+                    connected = connected,
+                    protocols = protocols,
+                    selected = selected,
+                    activeProtocol = activeProtocol,
+                    accountLogin = accountLogin,
+                    daysLeft = daysLeft,
+                    hasSubProfile = hasSubProfile,
+                    hasOlcrtcCreds = hasOlcrtcCreds,
+                    olcrtcProvider = olcrtcProvider,
+                    onToggleConnect = onToggleConnect,
+                    onSelectProtocol = onSelectProtocol,
+                    onSelectOlcrtc = onSelectOlcrtc,
+                    onBuy = onBuy,
+                    onEnterCode = onEnterCode,
+                    onSplitTunnel = onSplitTunnel,
+                    onShareIos = onShareIos,
+                    onEnterTrial = onEnterTrial,
+                    connectFocus = connectFocus,
+                )
             } else {
                 // ── PHONE: премиум-эскиз как ФИКСИРОВАННЫЙ фон (резная рамка/дерево/плющ/логотип +
                 // медальон-кольцо = пиксели `home_eskiz`, НЕ скроллится), а ЖИВОЙ контент скроллится
@@ -467,142 +420,6 @@ private fun PhoneStatusRow(
             color = MaestroOrange,
         )
     }
-}
-
-/** The hero zone: wordmark + the spider medallion connect button + status + account. */
-@Composable
-private fun HeroPane(
-    statusText: String,
-    connected: Boolean,
-    activeProtocol: String?,
-    selected: String?,
-    accountLogin: String?,
-    daysLeft: Int?,
-    onToggleConnect: () -> Unit,
-    connectFocus: FocusRequester,
-    modifier: Modifier = Modifier,
-    showAccountCard: Boolean = true,
-) {
-    val isTv = rememberIsTv()
-    val lowRam = rememberIsLowRam()
-    // ⛔ breath-клок ЗАМОРОЖЕН на ТВ (owner «без анимаций», HeroPane — только ТВ): вечный
-    // infinite-transition будил choreographer каждый кадр. 0f → лого-гало и гало-точка статуса
-    // становятся статичным слабым свечением (Dark-Fantasy атмосфера без движения, 0 fps в покое).
-    val breath = 0f
-    // wave (световая волна по лого на подключение) убрана — «без анимаций».
-
-    // Height-aware scale: on standard TVs (1080p@xhdpi and 720p@tvdpi are BOTH ~960×540dp) the
-    // natural hero (wordmark ~133dp + 252dp medallion + status rows) overflows its slot next to
-    // the bottom account bar; Compose then silently squashes the medallion (ellipse, stretched
-    // sprites) and measures everything after it at 0 height — the status line was INVISIBLE on
-    // the whole standard-density fleet. Shrink wordmark+medallion proportionally so it always
-    // fits; roomy TVs (density-1.0 boxes) get scale=1 → pixel-identical to before.
-    BoxWithConstraints(modifier = modifier) {
-    val heroFixedH = 22.dp + 14.dp + 30.dp + 34.dp // web connector + spacer + status row + protocol reserve
-    val heroNaturalH = maxWidth * (456f / 1200f) + 252.dp // wordmark (asset aspect) + medallion
-    val heroScale = ((maxHeight - heroFixedH) / heroNaturalH).coerceIn(0.4f, 1f)
-    Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-        // Brand wordmark — the owner's glossy green-glass PANEL. A gentle green glow breathes
-        // behind it when connected; on connect a light wave runs ACROSS the panel (SrcAtop → only
-        // over the logo pixels, not the transparent margins). Full hero width, one whole piece.
-        Image(
-            painter = painterResource(R.drawable.maestro_wordmark),
-            contentDescription = "MaestroVPN",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxWidth(heroScale)
-                // aspectRatio pins the LAYOUT height to the drawn height (1200×456 asset): without
-                // it the Image measured taller than it draws and wasted hero height on letterbox.
-                .aspectRatio(1200f / 456f)
-                .drawBehind {
-                    val pulse = if (connected && !lowRam) breath else 0f
-                    val a = 0.04f + 0.10f * pulse
-                    if (a > 0.001f) {
-                        drawRect(
-                            Brush.radialGradient(
-                                listOf(NeonGreen.copy(alpha = a), Color.Transparent),
-                                center = Offset(size.width / 2f, size.height / 2f),
-                                radius = size.maxDimension * 0.6f,
-                            ),
-                        )
-                    }
-                },
-        )
-        // Web strand visually connecting the logo panel to the spider medallion below — a faint
-        // silk thread + a small web fan. Static (draw-phase reads only `connected`) → cheap.
-        WebConnector(
-            connected = connected,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (isTv) 22.dp else 26.dp),
-        )
-
-        // ТВ (Dark-Fantasy, БЕЗ анимаций — 1 ГБ-боксы): статичный медальон с вензелем-брендом VM.
-        // HeroPane вызывается только в isTv-ветке, поэтому здесь всегда ТВ.
-        StaticTvMedallion(
-            connected = connected,
-            onToggle = onToggleConnect,
-            focusRequester = connectFocus,
-            sizeDp = 252.dp * heroScale,
-        )
-
-        Spacer(Modifier.height(14.dp))
-        // status with a state dot — the dot gets a soft glow HALO that pulses (breathes) when
-        // connected, at the same rate as the spider's eyes.
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(22.dp).drawBehind {
-                    if (connected) {
-                        val pulse = if (lowRam) 0f else breath
-                        val a = 0.30f + 0.42f * pulse
-                        val r = size.minDimension / 2f
-                        drawCircle(
-                            Brush.radialGradient(
-                                listOf(NeonGreen.copy(alpha = a), Color.Transparent),
-                                center = Offset(size.width / 2f, size.height / 2f),
-                                radius = r,
-                            ),
-                            radius = r,
-                        )
-                    }
-                },
-            ) {
-                Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else MaestroSilver))
-            }
-            Spacer(Modifier.width(9.dp))
-            Text(
-                statusText.uppercase(),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (connected) NeonGreen else MaterialTheme.colorScheme.onSurface,
-            )
-        }
-
-        // Active protocol — the outbound actually carrying traffic right now (orange).
-        if (connected && !activeProtocol.isNullOrBlank()) {
-            Spacer(Modifier.height(10.dp))
-            val viaAuto = selected == "auto" && activeProtocol != "auto"
-            Text(
-                if (viaAuto) "Подключён: ${protocolLabel(activeProtocol)}  •  авто" else "Подключён: ${protocolLabel(activeProtocol)}",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaestroOrange,
-            )
-        }
-
-        // Account (login + days) — PHONE only (TV renders it as a fixed bottom bar in TvHomeScreen so
-        // it can never be clipped by a tall hero). Shows «Безлимит» for unlimited accounts.
-        if (showAccountCard && (!accountLogin.isNullOrBlank() || daysLeft != null)) {
-            Spacer(Modifier.height(12.dp))
-            AccountCard(
-                login = accountLogin,
-                daysLeft = daysLeft,
-                modifier = Modifier.widthIn(min = 240.dp),
-            )
-        }
-    }
-    } // BoxWithConstraints (height-aware hero scale)
 }
 
 /** The menu zone: protocol picker + buy + secondary actions + contacts. */
@@ -820,56 +637,6 @@ private fun MedallionOverlay(connected: Boolean, eyeAlpha: Float, modifier: Modi
 }
 
 /** Small per-protocol glyph for the chips. */
-/** Faint silk web connecting the logo panel to the medallion — a thread + a small web fan. Static. */
-@Composable
-private fun WebConnector(connected: Boolean, modifier: Modifier) {
-    Box(
-        modifier.drawBehind {
-            val cx = size.width / 2f
-            val h = size.height
-            val a = if (connected) 0.20f else 0.12f
-            val col = NeonGreen.copy(alpha = a)
-            val colDim = NeonGreen.copy(alpha = a * 0.6f)
-            val spread = size.width * 0.13f
-            // central silk thread top→bottom
-            drawLine(col, Offset(cx, 0f), Offset(cx, h), strokeWidth = 1.6f)
-            // a small web fan spreading toward the medallion top
-            listOf(-1f, -0.5f, 0.5f, 1f).forEach { k ->
-                drawLine(colDim, Offset(cx, 0f), Offset(cx + spread * k, h), strokeWidth = 1f)
-            }
-            // two cross-strands joining the outer fan strands (web rings)
-            for (ring in 1..2) {
-                val yf = ring / 3f
-                drawLine(colDim, Offset(cx - spread * yf, h * yf), Offset(cx + spread * yf, h * yf), strokeWidth = 0.9f)
-            }
-        },
-    )
-}
-
-/** Slow drifting atmosphere particles with 3-depth parallax. Perpetual clock → NON-low-RAM only. */
-@Composable
-private fun Particles(modifier: Modifier) {
-    val t by rememberInfiniteTransition(label = "particles").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Restart), label = "ptClock",
-    )
-    Box(
-        modifier.drawBehind {
-            for (i in 0 until 18) {
-                val fx = frac(i * 0.61803f + 0.13f)
-                val depth = i % 3
-                val fy = frac(i * 0.7549f + t * (0.5f + depth * 0.35f)) // parallax: deeper drifts faster
-                drawCircle(
-                    NeonGreen.copy(alpha = 0.05f + 0.045f * depth),
-                    radius = 1.2f + depth * 0.9f,
-                    center = Offset(fx * size.width, (1f - fy) * size.height),
-                )
-            }
-        },
-    )
-}
-
-private fun frac(v: Float): Float = v - floor(v)
-
 private fun protocolIcon(tag: String): ImageVector = when (tag) {
     "auto" -> Icons.Filled.Speed
     "hysteria2" -> Icons.Filled.Bolt
@@ -881,7 +648,7 @@ private fun protocolIcon(tag: String): ImageVector = when (tag) {
 }
 
 /** Friendly chip label; "auto" is the urltest pick = the lowest-latency protocol. */
-private fun protocolLabel(tag: String): String = when (tag) {
+internal fun protocolLabel(tag: String): String = when (tag) {
     "auto" -> "Авто"
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
@@ -905,7 +672,7 @@ private fun protocolBadge(tag: String): String = when (tag) {
 }
 
 /** Russian plural of "день" for N: 1 день, 2-4 дня, 5-20 дней (incl. teens). */
-private fun daysWord(n: Int): String {
+internal fun daysWord(n: Int): String {
     if (n % 100 in 11..14) return "дней"
     return when (n % 10) {
         1 -> "день"
