@@ -66,7 +66,7 @@ type Store struct {
 // Open loads (or creates) the order store.
 func Open(path string) (*Store, error) {
 	s := &Store{path: path, byID: map[string]*Order{}}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //#nosec G304 -- path is the server-configured order-store file (cfg/env), never request-derived
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}

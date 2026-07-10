@@ -1,0 +1,62 @@
+name: Go backend security (gosec + govulncheck)
+
+# Static application security testing for the Go control-plane (backend/ = maestro-panel).
+# Two gates, both run on GitHub runners (NEVER on the low-RAM S1 box — compiling these tools
+# spikes S1 load and can lag live VPN clients):
+#   • govulncheck — flags REACHABLE known CVEs in our Go deps (near-zero false positives) → BLOCKING.
+#   • gosec       — SAST for insecure code patterns → BLOCKING, tuned for this repo:
+#       -tests=false            → skip *_test.go helpers (their w.Write/http.Get are not shipped code).
+#       -exclude=G703,G705,G706 → gosec's EXPERIMENTAL taint-analysis rules (path-traversal / XSS /
+#                                  log-injection). Every current hit was verified benign — JSON/plain
+#                                  API responses, a ServeFile whose `name` is already rejected on
+#                                  `/ \ ..`, and boolean log args — and these rules are noisy. The
+#                                  classic file/exec rules (G304/G204/G301/...) stay ON; the handful of
+#                                  verified false positives carry an inline //#nosec with a justification.
+#
+# Scoped to Go changes only. Deploys NOTHING → no deploy-drift risk to the running panel.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/go-security.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/go-security.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Build/scan with the latest 1.25.x PATCH, NOT the exact go.mod 1.25.0. The Go stdlib
+          # ships security fixes in patch releases, so govulncheck is only meaningful against a
+          # current toolchain (go.mod stays at the 1.25 language floor). ⚠️ The panel must ALSO be
+          # rebuilt with a current Go (>=1.25.11) in prod — a binary built on an old patch carries
+          # the same reachable stdlib CVEs this gate would otherwise flag.
+          go-version: '1.25'
+          check-latest: true
+          cache-dependency-path: backend/go.sum
+
+      - name: govulncheck (known-CVE scan of Go deps) — BLOCKING
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+      - name: gosec (SAST) — BLOCKING (tuned; see workflow header)
+        run: |
+          set -euo pipefail
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          "$(go env GOPATH)/bin/gosec" -tests=false -exclude=G703,G705,G706 ./...

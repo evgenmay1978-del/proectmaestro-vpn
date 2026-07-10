@@ -727,6 +727,7 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 100*time.Second)
 	defer cancel()
+	//#nosec G204 -- argv = fixed script path + validated login (charset-checked) + room (URL-validated), passed as separate args (no shell string); endpoint is admin-authenticated
 	out, err := exec.CommandContext(ctx, "/bin/sh", argv...).CombinedOutput()
 	if err != nil {
 		panelErrLog(w, http.StatusBadGateway, "room assign failed on S3 — try again", "olcrtc room script", errors.New(strings.TrimSpace(string(out))))

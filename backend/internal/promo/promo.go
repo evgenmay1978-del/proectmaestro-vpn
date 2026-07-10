@@ -50,7 +50,7 @@ type fileData struct {
 // Open loads (or creates) the ledger. salt seeds the HMAC over device anchors.
 func Open(path, salt string) (*Store, error) {
 	s := &Store{path: path, salt: []byte(salt), RedeemedAnchors: map[string]string{}}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //#nosec G304 -- path is the server-configured promo-ledger file (cfg/env), never request-derived
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}

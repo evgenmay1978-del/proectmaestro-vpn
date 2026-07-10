@@ -443,7 +443,7 @@ var updateWaypoints = func() []int {
 
 // manifestCode reads version_code from a manifest file (0 on error/missing).
 func manifestCode(path string) int {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //#nosec G304 -- path is a server-built manifest path under UpdateDir (config), never request-derived
 	if err != nil {
 		return 0
 	}

@@ -84,7 +84,7 @@ func (c *Client) dial() (*ssh.Client, error) {
 	conf := &ssh.ClientConfig{
 		User:            c.cfg.User,
 		Auth:            []ssh.AuthMethod{ssh.Password(c.cfg.Password)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // owner's server, password auth
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //#nosec G106 -- SSH to the owner's own S2/S3 by password; known_hosts pinning is a separate hardening item
 		Timeout:         15 * time.Second,
 	}
 	cl, err := ssh.Dial("tcp", net.JoinHostPort(c.cfg.Host, fmt.Sprint(port)), conf)
