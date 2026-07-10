@@ -1379,6 +1379,14 @@ class MainActivity :
 
     override fun onResume() {
         super.onResume()
+        // An install is parked on the system confirm dialog that Android refused to show from
+        // the background (worker-committed session) — we're foreground now, so fire it: the
+        // update completes IN PLACE without a new download. One shot: if the user declines,
+        // the receiver gets a terminal STATUS_FAILURE_ABORTED and the flow ends normally.
+        UpdateState.pendingConfirmIntent.value?.let { confirm ->
+            UpdateState.pendingConfirmIntent.value = null
+            runCatching { startActivity(confirm) }
+        }
         // Belt-and-suspenders resync: every time the activity comes forward, re-push the
         // authoritative status into the dashboard VM so the connect/disconnect decision can never
         // be stranded by a status callback missed while the VM wasn't bound. No-op when they

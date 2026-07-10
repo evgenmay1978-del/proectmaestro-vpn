@@ -47,8 +47,18 @@ class PanelUpdateChecker : Closeable {
         if (m.versionName.isBlank()) return null
         // A blank apk_url would resolve to "$BASE/" (a directory, not an APK) → reject the manifest.
         if (m.apkUrl.isBlank()) return null
-        // Libbox.compareSemver(a, b) == a is newer than b.
-        if (!Libbox.compareSemver(m.versionName, BuildConfig.VERSION_NAME)) return null
+        // versionCode is the ground truth Android installs by — compare it when the manifest
+        // provides one. Deciding by versionName semver alone looped clients forever whenever the
+        // name and the actual APK disagreed (a manifest claiming "newer" while shipping the same
+        // or older versionCode can never be installed past). Semver stays as the fallback for
+        // manifests without version_code.
+        val newer = if (m.versionCode > 0) {
+            m.versionCode > BuildConfig.VERSION_CODE
+        } else {
+            // Libbox.compareSemver(a, b) == a is newer than b.
+            Libbox.compareSemver(m.versionName, BuildConfig.VERSION_NAME)
+        }
+        if (!newer) return null
         val apk = when {
             m.apkUrl.startsWith("http") -> m.apkUrl
             m.apkUrl.startsWith("/") -> BASE + m.apkUrl

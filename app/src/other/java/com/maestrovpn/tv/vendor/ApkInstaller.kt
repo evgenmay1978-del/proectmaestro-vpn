@@ -3,9 +3,11 @@ package com.maestrovpn.tv.vendor
 import android.content.Context
 import android.util.Log
 import com.maestrovpn.tv.Application
+import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.bg.BoxService
 import com.maestrovpn.tv.bg.RootClient
 import com.maestrovpn.tv.database.Settings
+import com.maestrovpn.tv.update.UpdateState
 import kotlinx.coroutines.delay
 import java.io.File
 import java.io.IOException
@@ -49,17 +51,91 @@ object ApkInstaller {
         }
     }
 
-    suspend fun install(context: Context, apkFile: File, method: InstallMethod = getConfiguredMethod()) {
-        if (!stopServiceIfRunning()) {
-            // VPN engine still holding command.sock after the wait — do NOT install blindly over a
-            // live tunnel; abort and let the caller retry on the next cycle.
-            Log.w(TAG, "VPN service still running after stop timeout; aborting install")
-            throw IOException("VPN service still running; install aborted")
+    /**
+     * The method that can ACTUALLY install right now. The configured silent method is a
+     * preference, not a guarantee — on Android <12 the default was SHIZUKU, which no client
+     * box actually has, so EVERY install (including the manual «Обновить») died on a dead
+     * Shizuku binder while the system package installer sat unused. Never let an unavailable
+     * helper block the universal PACKAGE_INSTALLER path (works on every device, shows the
+     * system confirm when it must).
+     */
+    private suspend fun resolveUsableMethod(): InstallMethod = when (val m = getConfiguredMethod()) {
+        InstallMethod.SHIZUKU ->
+            if (ShizukuInstaller.isAvailable() && ShizukuInstaller.checkPermission()) {
+                m
+            } else {
+                Log.w(TAG, "Shizuku configured but unavailable — falling back to PACKAGE_INSTALLER")
+                InstallMethod.PACKAGE_INSTALLER
+            }
+        InstallMethod.ROOT ->
+            if (RootClient.checkRootAvailable()) {
+                m
+            } else {
+                Log.w(TAG, "ROOT configured but unavailable — falling back to PACKAGE_INSTALLER")
+                InstallMethod.PACKAGE_INSTALLER
+            }
+        InstallMethod.PACKAGE_INSTALLER -> m
+    }
+
+    /**
+     * Validate the downloaded archive BEFORE touching the VPN or the package installer.
+     * This is the anti-loop gate: if the "update" the channel served is actually the same
+     * or an older build (broken manifest, stale mirror, wrong asset), installing it can
+     * never advance the version — the checker would offer it again on the next pass and
+     * the client would download+install forever. Reject it here, drop the bad APK and the
+     * cached offer, and record the strike so the auto-updater stops retrying this version.
+     */
+    private fun validateArchive(context: Context, apkFile: File) {
+        val pm = context.packageManager
+        val info = pm.getPackageArchiveInfo(apkFile.absolutePath, 0)
+        if (info == null) {
+            apkFile.delete()
+            throw IOException("Файл обновления повреждён — загрузка будет повторена")
         }
-        when (method) {
-            InstallMethod.SHIZUKU -> ShizukuInstaller.install(apkFile)
-            InstallMethod.ROOT -> RootInstaller.install(apkFile)
-            InstallMethod.PACKAGE_INSTALLER -> SystemPackageInstaller.install(context, apkFile)
+        if (info.packageName != context.packageName) {
+            apkFile.delete()
+            throw IOException("Файл обновления от другого приложения (${info.packageName}) — установка отклонена")
+        }
+        @Suppress("DEPRECATION")
+        val archiveVersionCode = info.versionCode
+        if (archiveVersionCode <= BuildConfig.VERSION_CODE) {
+            apkFile.delete()
+            // The channel advertised something "newer" but shipped bytes that are not —
+            // clear the cached offer so the UI stops re-prompting for it.
+            UpdateState.clear()
+            throw IOException(
+                "Загруженная версия (код $archiveVersionCode) не новее установленной " +
+                    "(код ${BuildConfig.VERSION_CODE}) — обновление отменено",
+            )
+        }
+    }
+
+    suspend fun install(context: Context, apkFile: File, requestedMethod: InstallMethod? = null) {
+        val method = requestedMethod ?: resolveUsableMethod()
+        // The versionCode this attempt is trying to reach, for the failure damper — the
+        // manifest's claim, because that is the key the checkers re-offer the update under.
+        val targetVersionCode = UpdateState.updateInfo.value?.versionCode ?: 0
+        try {
+            validateArchive(context, apkFile)
+            if (!stopServiceIfRunning()) {
+                // VPN engine still holding command.sock after the wait — do NOT install blindly over a
+                // live tunnel; abort and let the caller retry on the next cycle.
+                Log.w(TAG, "VPN service still running after stop timeout; aborting install")
+                throw IOException("VPN service still running; install aborted")
+            }
+            when (method) {
+                InstallMethod.SHIZUKU -> ShizukuInstaller.install(apkFile)
+                InstallMethod.ROOT -> RootInstaller.install(apkFile)
+                InstallMethod.PACKAGE_INSTALLER -> SystemPackageInstaller.install(context, apkFile)
+            }
+            // Reached only when the process survives the install (rare: system normally kills
+            // us on success) — but if we're here, the attempt went through cleanly.
+            Settings.clearUpdateInstallFailures()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            runCatching { Settings.recordUpdateInstallFailure(targetVersionCode) }
+            throw e
         }
     }
 
