@@ -185,20 +185,22 @@ internal fun TvEskizHome(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Spacer(Modifier.height((TvEskizSpec.TOP_PAD * s).dp))
-                ArtBar(TvEskizSpec.BUY, s, onBuy, pill = true, onRes = R.drawable.tv_ek_buy_on, onAlpha = onAlpha)
-                ArtRow3(TvEskizSpec.ROW_CODE, s, listOf(onEnterCode, onSplitTunnel, onShareIos))
-                ArtBar(TvEskizSpec.UPDATE, s, onUpdate, pill = true)
-                ArtBar(TvEskizSpec.KONTAKTY, s, {})
-                ArtBar(TvEskizSpec.PHONE, s, { open("tel:+79778116564") }, pill = true)
-                ArtBar(TvEskizSpec.HINT, s, {})
-                ArtRow3(
-                    TvEskizSpec.ROW_TG, s,
-                    listOf({ open("https://t.me/wapmixx") }, { open("https://wa.me/79778116564") }, { open("https://max.ru/") }),
-                )
+                // Арт-зона: кропы на АБСОЛЮТНЫХ позициях эскиза (z-порядок = порядок вызовов;
+                // телефон легально перекрывает фезер-поле КОНТАКТОВ — так в самом арте).
+                Box(Modifier.fillMaxWidth().height((TvEskizSpec.ZONE_H * s).dp)) {
+                    ArtBar(TvEskizSpec.BUY, s, onBuy, pill = true, onRes = R.drawable.tv_ek_buy_on, onAlpha = onAlpha)
+                    ArtRow3(TvEskizSpec.ROW_CODE, s, listOf(onEnterCode, onSplitTunnel, onShareIos))
+                    ArtBar(TvEskizSpec.UPDATE, s, onUpdate, pill = true)
+                    ArtBar(TvEskizSpec.KONTAKTY, s, {})
+                    ArtBar(TvEskizSpec.PHONE, s, { open("tel:+79778116564") }, pill = true)
+                    ArtBar(TvEskizSpec.HINT, s, {})
+                    ArtRow3(
+                        TvEskizSpec.ROW_TG, s,
+                        listOf({ open("https://t.me/wapmixx") }, { open("https://wa.me/79778116564") }, { open("https://max.ru/") }),
+                    )
+                }
 
                 // ── доп-функционал ниже эскиза (единый дерево-золото стиль) ──
-                Spacer(Modifier.height(26.dp))
                 EskizExtras(
                     protocols = protocols,
                     selected = selected,
@@ -217,7 +219,8 @@ internal fun TvEskizHome(
     }
 }
 
-/** Полноширинная арт-кнопка эскиза (кроп-PNG). [onRes]/[onAlpha] — кроссфейд «Купить» off→on. */
+/** Полноширинная арт-кнопка эскиза (кроп-PNG) на АБСОЛЮТНОЙ позиции bar.top (арт-y).
+ *  [onRes]/[onAlpha] — кроссфейд «Купить» off→on. */
 @Composable
 private fun ArtBar(
     bar: TvEskizSpec.Bar,
@@ -228,12 +231,16 @@ private fun ArtBar(
     onAlpha: Float = 0f,
 ) {
     val h = (bar.h * s).dp
+    val place = Modifier
+        .offset(y = (bar.top * s).dp)
+        .fillMaxWidth()
+        .height(h)
     if (!bar.focusable) {
         // заголовок/подпись — не фокусируется, просто картинка
         Image(
             painter = painterResource(bar.res),
             contentDescription = null,
-            modifier = Modifier.fillMaxWidth().height(h),
+            modifier = place,
             contentScale = ContentScale.FillBounds,
         )
         return
@@ -242,9 +249,7 @@ private fun ArtBar(
     val focused by interaction.collectIsFocusedAsState()
     val scale by animateFloatAsState(if (focused) 1.028f else 1f, tween(140, easing = FastOutSlowInEasing), label = "barScale")
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(h)
+        modifier = place
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clickable(interactionSource = interaction, indication = null) { onClick() }
             .focusRing(focused, pill, s),
@@ -266,33 +271,30 @@ private fun ArtBar(
     }
 }
 
-/** Ряд из 3 равных арт-кнопок (код/приложения/поделиться, tg/wa/макс). */
+/** Ряд из 3 равных арт-кнопок (код/приложения/поделиться, tg/wa/макс) на абсолютных позициях. */
 @Composable
 private fun ArtRow3(row: TvEskizSpec.Row3, s: Float, onClicks: List<() -> Unit>) {
     val cellW = (TvEskizSpec.CELL_W * s).dp
     val cellH = (row.h * s).dp
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy((TvEskizSpec.GUT * s).dp, Alignment.CenterHorizontally),
-    ) {
-        row.res.forEachIndexed { i, res ->
-            val interaction = remember { MutableInteractionSource() }
-            val focused by interaction.collectIsFocusedAsState()
-            val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(140, easing = FastOutSlowInEasing), label = "cellScale")
-            Box(
-                modifier = Modifier
-                    .size(width = cellW, height = cellH)
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .clickable(interactionSource = interaction, indication = null) { onClicks.getOrNull(i)?.invoke() }
-                    .focusRing(focused, pill = false, s = s),
-            ) {
-                Image(
-                    painter = painterResource(res),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.FillBounds,
-                )
-            }
+    row.res.forEachIndexed { i, res ->
+        val cellX = (TvEskizSpec.COL_X0 - TvEskizSpec.PANEL_X0 + i * (TvEskizSpec.CELL_W + TvEskizSpec.GUT)) * s
+        val interaction = remember { MutableInteractionSource() }
+        val focused by interaction.collectIsFocusedAsState()
+        val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(140, easing = FastOutSlowInEasing), label = "cellScale")
+        Box(
+            modifier = Modifier
+                .offset(x = cellX.dp, y = (row.top * s).dp)
+                .size(width = cellW, height = cellH)
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .clickable(interactionSource = interaction, indication = null) { onClicks.getOrNull(i)?.invoke() }
+                .focusRing(focused, pill = false, s = s),
+        ) {
+            Image(
+                painter = painterResource(res),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds,
+            )
         }
     }
 }

@@ -13,6 +13,7 @@ name: Build app APK (test / compile-check)
 # (ci trigger: target-1to1 v4 — top cartouche warm-grade + gilded ivy 2026-07-07)
 # (ci trigger: target-1to1 v5 — tap-zone на орб (430,711,R228) + процедурный купол удалён (1:1 baked) 2026-07-07)
 # (ci trigger: tv-eskiz unified-style swarm 2026-07-10)
+# (ci trigger: tv-eskiz absolute-geometry fix 2026-07-10)
 # (ci trigger: tv-eskiz-redesign — ТВ-главный пиксель-в-пиксель по vpnon/vpnoff (кроп-кнопки+bg-кроссфейд) 2026-07-09)
 
 on:
