@@ -31,7 +31,7 @@ import (
 type RoomKey struct {
 	Room     string `json:"room"`               // carrier room id/URL (Telemost: https://…/j/<id>; wbstream: bare room UUID)
 	Key      string `json:"key"`                // 64-hex shared secret (must byte-match this login's S3 srv)
-	Provider string `json:"provider,omitempty"` // per-login carrier override: "wbstream" | "max" | "telemost" | "" (=> global)
+	Provider string `json:"provider,omitempty"` // per-login carrier override: "wbstream" | "telemost" | "" (=> global)
 }
 
 // Config is the olcRTC transport configuration. Provider/Transport are shared; Room/Key are
@@ -160,7 +160,7 @@ func (s *Store) SetRoomFor(login, room, key string) error {
 
 // SetRoomProviderFor is SetRoomFor plus a per-login carrier override. provider=="" keeps the
 // login's existing provider (a room-only swap on a wbstream login stays wbstream); a non-empty
-// value ("wbstream"|"max"|"telemost") sets it. On the GLOBAL swap (login=="") a non-empty provider
+// value ("wbstream"|"telemost") sets it. On the GLOBAL swap (login=="") a non-empty provider
 // updates the global default provider. Persists.
 func (s *Store) SetRoomProviderFor(login, room, key, provider string) error {
 	s.mu.Lock()
