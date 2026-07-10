@@ -1,0 +1,8 @@
+[Unit]
+Description=MaestroVPN unified-expiry reconciler — pull dates from all panels, raise-only (the "single organism")
+After=network-online.target maestro-panel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/maestro-dates-reconcile.py --apply
+TimeoutStartSec=180

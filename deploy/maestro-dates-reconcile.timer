@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly MaestroVPN expiry reconcile (dates converge across panel / x-ui S1+S3 / S2 bot)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
