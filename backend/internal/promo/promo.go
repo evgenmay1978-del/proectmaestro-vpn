@@ -39,17 +39,24 @@ type Store struct {
 	salt            []byte
 	path            string
 	RedeemedAnchors map[string]string
-	Audit           []Redemption
+	// RedeemedDRM indexes redemptions by the Widevine/MediaDrm device id ALONE (drmHash → login).
+	// The full composite anchor (SSAID|DRM|model) misses a factory reset because the SSAID changes;
+	// the DRM id is hardware-backed and survives a factory reset, so matching it independently
+	// closes the "reset to factory → trial again" hole. Only VALID (non-empty, ≥16-hex) DRM ids are
+	// stored/matched, so no-DRM L3 boxes (empty id) never collide into one another.
+	RedeemedDRM map[string]string
+	Audit       []Redemption
 }
 
 type fileData struct {
 	RedeemedAnchors map[string]string `json:"redeemed_anchors"`
+	RedeemedDRM     map[string]string `json:"redeemed_drm"`
 	Audit           []Redemption      `json:"audit"`
 }
 
 // Open loads (or creates) the ledger. salt seeds the HMAC over device anchors.
 func Open(path, salt string) (*Store, error) {
-	s := &Store{path: path, salt: []byte(salt), RedeemedAnchors: map[string]string{}}
+	s := &Store{path: path, salt: []byte(salt), RedeemedAnchors: map[string]string{}, RedeemedDRM: map[string]string{}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -65,13 +72,16 @@ func Open(path, salt string) (*Store, error) {
 		if fd.RedeemedAnchors != nil {
 			s.RedeemedAnchors = fd.RedeemedAnchors
 		}
+		if fd.RedeemedDRM != nil {
+			s.RedeemedDRM = fd.RedeemedDRM
+		}
 		s.Audit = fd.Audit
 	}
 	return s, nil
 }
 
 func (s *Store) persist() error {
-	fd := fileData{RedeemedAnchors: s.RedeemedAnchors, Audit: s.Audit}
+	fd := fileData{RedeemedAnchors: s.RedeemedAnchors, RedeemedDRM: s.RedeemedDRM, Audit: s.Audit}
 	data, err := json.MarshalIndent(fd, "", "  ")
 	if err != nil {
 		return fmt.Errorf("promo: marshal: %w", err)
@@ -121,4 +131,64 @@ func (s *Store) SetAnchor(anchorHash, login, nick, ipNet string) error {
 	s.RedeemedAnchors[anchorHash] = login
 	s.Audit = append(s.Audit, Redemption{At: time.Now(), Login: login, Nick: nick, AnchorHash: anchorHash, IPNet: ipNet})
 	return s.persist()
+}
+
+// drmOf extracts the Widevine/MediaDrm id (2nd field) from the app anchor "SSAID|DRM|model".
+// Returns "" when absent or too short to be a real, unique hardware id (no-DRM L3 boxes send "").
+func drmOf(anchor string) string {
+	parts := strings.Split(anchor, "|")
+	if len(parts) < 2 {
+		return ""
+	}
+	drm := strings.TrimSpace(parts[1])
+	// Widevine PROPERTY_DEVICE_UNIQUE_ID is a hex-encoded per-device blob (typically 32 bytes =
+	// 64 hex). Require ≥16 hex so a blank/garbage value can never bucket distinct devices together.
+	if len(drm) < 16 {
+		return ""
+	}
+	for _, r := range drm {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return ""
+		}
+	}
+	return drm
+}
+
+// AnchorLoginMulti returns the trial login this device already received — matched by the FULL
+// composite anchor (catches reinstall/clear-data via the stable SSAID) OR, independently, by the
+// hardware Widevine id (catches a factory reset, which changes the SSAID but not the DRM id).
+// Empty string = this device never trialed.
+func (s *Store) AnchorLoginMulti(anchor string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if login := s.RedeemedAnchors[s.hashLocked(anchor)]; login != "" {
+		return login
+	}
+	if drm := drmOf(anchor); drm != "" {
+		if login := s.RedeemedDRM[s.hashLocked("drm:"+drm)]; login != "" {
+			return login
+		}
+	}
+	return ""
+}
+
+// SetAnchorMulti records a redemption under BOTH the full composite anchor and (when present) the
+// hardware DRM id, so a later factory reset on the same device is still recognised.
+func (s *Store) SetAnchorMulti(anchor, login, nick, ipNet string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	anchorHash := s.hashLocked(anchor)
+	s.RedeemedAnchors[anchorHash] = login
+	if drm := drmOf(anchor); drm != "" {
+		s.RedeemedDRM[s.hashLocked("drm:"+drm)] = login
+	}
+	s.Audit = append(s.Audit, Redemption{At: time.Now(), Login: login, Nick: nick, AnchorHash: anchorHash, IPNet: ipNet})
+	return s.persist()
+}
+
+// hashLocked is Hash without taking the mutex (callers already hold it).
+func (s *Store) hashLocked(anchor string) string {
+	m := hmac.New(sha256.New, s.salt)
+	m.Write([]byte(anchor))
+	return hex.EncodeToString(m.Sum(nil))
 }

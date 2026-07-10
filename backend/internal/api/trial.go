@@ -117,10 +117,10 @@ func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "device anchor required", http.StatusBadRequest)
 		return
 	}
-	anchorHash := s.promos.Hash(anchor)
-
 	// 2. this DEVICE already trialed → hand back its EXISTING account (don't make a new one).
-	if prev := s.promos.AnchorLogin(anchorHash); prev != "" {
+	// Matches the full composite anchor (reinstall/clear-data via the stable SSAID) AND, on its
+	// own, the hardware Widevine id (a factory reset changes the SSAID but not the DRM id).
+	if prev := s.promos.AnchorLoginMulti(anchor); prev != "" {
 		if c, err := s.st.ByLogin(prev); err == nil {
 			s.respCustomer(w, c)
 			return
@@ -160,6 +160,6 @@ func (s *Server) handleTrial(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not start trial", http.StatusBadGateway)
 		return
 	}
-	_ = s.promos.SetAnchor(anchorHash, c.Login, nick, ipNet)
+	_ = s.promos.SetAnchorMulti(anchor, c.Login, nick, ipNet)
 	s.respCustomer(w, c)
 }
