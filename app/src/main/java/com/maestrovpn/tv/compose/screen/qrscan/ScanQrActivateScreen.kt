@@ -3,9 +3,7 @@ package com.maestrovpn.tv.compose.screen.qrscan
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -19,7 +17,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
-import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screen.claim.ClaimState
 import com.maestrovpn.tv.compose.screen.claim.ClaimViewModel
 import com.maestrovpn.tv.compose.component.qr.QRScanSheet
@@ -55,27 +52,17 @@ fun ScanQrActivateScreen(onDone: () -> Unit) {
     if (unsupported || errorMessage != null) {
         val body = errorMessage
             ?: "Это не QR-код подписки MaestroVPN. Отсканируйте QR из бота или с сайта."
-        if (rememberIsTv()) {
-            // ── TV: Material dialog (unchanged) ──
-            AlertDialog(
-                onDismissRequest = onDone,
-                confirmButton = { TextButton(onClick = onDone) { Text("OK") } },
-                title = { Text("Не удалось") },
-                text = { Text(body) },
+        // Dark-Fantasy modal (дерево/золото) — одинаково на телефоне и ТВ
+        FantasyDialog(onDismiss = onDone, title = "Не удалось") {
+            Text(text = body, color = Color(0xFFECE2CC))
+            Spacer(Modifier.height(18.dp))
+            GlossyButton(
+                label = "OK",
+                onClick = onDone,
+                accent = NeonGreen,
+                wood = true,
+                modifier = Modifier.fillMaxWidth(),
             )
-        } else {
-            // ── PHONE: Dark-Fantasy modal ──
-            FantasyDialog(onDismiss = onDone, title = "Не удалось") {
-                Text(text = body, color = Color(0xFFECE2CC))
-                Spacer(Modifier.height(18.dp))
-                GlossyButton(
-                    label = "OK",
-                    onClick = onDone,
-                    accent = NeonGreen,
-                    wood = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
         }
     }
 }

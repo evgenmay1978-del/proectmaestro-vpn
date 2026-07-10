@@ -130,7 +130,7 @@ fun ClaimScreen(
                 label = if (busy) "Проверяем…" else "Активировать",
                 onClick = { if (code.isNotBlank() && !busy) viewModel.claim(code) },
                 accent = NeonGreen,
-                wood = !isTv,
+                wood = true,
                 modifier = Modifier.widthIn(min = 240.dp),
             )
 

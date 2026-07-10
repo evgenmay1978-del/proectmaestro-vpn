@@ -145,6 +145,7 @@ fun SFANavHost(
                     activeProtocol = activeProtocol,
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
+                    accountExpires = accountInfo.expiresDate,
                     hasSubProfile = accountInfo.hasSubProfile,
                     // olcRTC teaser: the entry is shown to everyone, but only owner logins
                     // (creds delivered via /info) can actually use it; hasCreds() gates the lock.
@@ -184,6 +185,7 @@ fun SFANavHost(
                     selected = null,
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
+                    accountExpires = accountInfo.expiresDate,
                     hasSubProfile = accountInfo.hasSubProfile,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = {},

@@ -39,15 +39,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
-import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.fantasy.FantasyListRow
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
@@ -64,7 +67,8 @@ import com.maestrovpn.tv.compose.util.QRCodeGenerator
  * PHONE: restyled to the Dark-Fantasy kit — carved-oak page (`FantasyScreenBackground`),
  * a Playfair oak top bar, tariffs as aged-bronze `FantasyListRow`s and glossy wood CTAs;
  * the payment QR stays black-on-white on a rounded card so any camera can scan it.
- * TV: keeps the plain green-glass theme byte-for-byte (live 1GB fleet).
+ * TV: now shares the same Dark-Fantasy wood/gold styling so every screen matches the
+ * redesigned home; only layout/size/focus gates (short landscape viewport, D-pad) stay TV-specific.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,26 +83,24 @@ fun BuyScreen(
         if (state is BuyState.Done) onDone()
     }
 
-    // PHONE: a carved-oak Playfair top bar (same language as Settings). TV: no override → its
-    // usual top bar stays untouched.
-    if (!isTv) {
-        OverrideTopBar {
-            TopAppBar(
-                title = {
-                    Text(
-                        "Подписка",
-                        fontFamily = PlayfairFamily,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE8C877),
-                        letterSpacing = 1.sp,
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF17110A),
-                    titleContentColor = Color(0xFFE8C877),
-                ),
-            )
-        }
+    // Carved-oak Playfair top bar (same language as Settings) — now on TV too so every screen
+    // matches the redesigned home.
+    OverrideTopBar {
+        TopAppBar(
+            title = {
+                Text(
+                    "Подписка",
+                    fontFamily = PlayfairFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFE8C877),
+                    letterSpacing = 1.sp,
+                )
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Color(0xFF17110A),
+                titleContentColor = Color(0xFFE8C877),
+            ),
+        )
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -145,9 +147,9 @@ fun BuyScreen(
                     Text(
                         "Выберите подписку",
                         style = MaterialTheme.typography.headlineSmall,
-                        fontFamily = if (!isTv) PlayfairFamily else null,
+                        fontFamily = PlayfairFamily,
                         fontWeight = FontWeight.Bold,
-                        color = if (!isTv) Color(0xFFE8C877) else Color.White,
+                        color = Color(0xFFE8C877),
                     )
                     Spacer(Modifier.height(18.dp))
                     // On a TV the first tariff grabs focus so the remote starts on a visible item.
@@ -159,37 +161,26 @@ fun BuyScreen(
                             .widthIn(max = 420.dp)
                             .padding(vertical = 4.dp)
                             .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
-                        if (!isTv) {
-                            // PHONE: aged-bronze tariff row (price shown as a bold gold trailing).
-                            FantasyListRow(
-                                title = t.name,
-                                subtitle = "Нажмите, чтобы оплатить",
-                                icon = Icons.Filled.Star,
-                                onClick = { viewModel.buy(t.key) },
-                                iconTint = GoldMid,
-                                trailing = {
-                                    Text(
-                                        "${t.rub} ₽",
-                                        fontFamily = PlayfairFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFE8C877),
-                                        fontSize = 20.sp,
-                                    )
-                                },
-                                modifier = tariffMod,
-                            )
-                        } else {
-                            // TV: compact green-glass tariff chip (unchanged), D-pad focusable.
-                            NeonChip(
-                                label = "${t.name}  —  ${t.rub} ₽",
-                                onClick = { viewModel.buy(t.key) },
-                                modifier = tariffMod
-                                    .widthIn(max = 360.dp)
-                                    .heightIn(min = 50.dp),
-                                icon = Icons.Filled.Star,
-                                wood = false,
-                            )
-                        }
+                        // Aged-bronze tariff row (price shown as a bold gold trailing) — phone + TV
+                        // (D-pad focusable via FantasyListRow's clickable). tariffMod carries the
+                        // first-item focusRequester so the remote lands on a visible tariff.
+                        FantasyListRow(
+                            title = t.name,
+                            subtitle = "Нажмите, чтобы оплатить",
+                            icon = Icons.Filled.Star,
+                            onClick = { viewModel.buy(t.key) },
+                            iconTint = GoldMid,
+                            trailing = {
+                                Text(
+                                    "${t.rub} ₽",
+                                    fontFamily = PlayfairFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFE8C877),
+                                    fontSize = 20.sp,
+                                )
+                            },
+                            modifier = tariffMod,
+                        )
                     }
                 }
 
@@ -248,6 +239,34 @@ fun BuyScreen(
                             textAlign = TextAlign.Center,
                         )
                     }
+                    // Открыть страницу оплаты ПРЯМО с устройства (owner: «приложение должно
+                    // открывать страницу оплаты»). На телефоне откроется банковская страница
+                    // pay_url; на ТВ-боксе без браузера — ловим и подсказываем платить по QR.
+                    if (s.payUrl.isNotBlank()) {
+                        val payCtx = LocalContext.current
+                        Spacer(Modifier.height(if (isTv) 10.dp else 14.dp))
+                        GlossyButton(
+                            label = "Открыть страницу оплаты",
+                            onClick = {
+                                runCatching {
+                                    payCtx.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(s.payUrl))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }.onFailure {
+                                    Toast.makeText(
+                                        payCtx,
+                                        "Браузер не найден — отсканируйте QR телефоном",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            },
+                            accent = NeonGreen,
+                            icon = Icons.Filled.ShoppingCart,
+                            wood = true,
+                            modifier = Modifier.widthIn(min = 260.dp),
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "Код заказа (укажите в сообщении к переводу, если есть поле):",
@@ -268,7 +287,7 @@ fun BuyScreen(
                         label = "Я оплатил",
                         onClick = { viewModel.iPaid() },
                         accent = NeonGreen,
-                        wood = !isTv,
+                        wood = true,
                         modifier = Modifier.widthIn(min = 220.dp),
                     )
                     Spacer(Modifier.height(12.dp))
@@ -292,7 +311,7 @@ fun BuyScreen(
                 is BuyState.Error -> {
                     Text("Ошибка: ${s.message}", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(20.dp))
-                    GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen, wood = !isTv)
+                    GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen, wood = true)
                 }
             }
         }

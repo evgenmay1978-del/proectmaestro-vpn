@@ -7,34 +7,18 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -54,14 +38,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.maestrovpn.tv.R
-import com.maestrovpn.tv.compat.WindowSizeClassCompat
-import com.maestrovpn.tv.compat.isWidthAtLeastBreakpointCompat
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
-import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldHi
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.MaestroSilver
@@ -73,9 +52,6 @@ import kotlinx.coroutines.delay
 @Composable
 fun QRSDialog(profileData: ByteArray, profileName: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val isTv = rememberIsTv()
-    val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
-    val isTablet = windowSizeClass.isWidthAtLeastBreakpointCompat(WindowSizeClassCompat.WIDTH_DP_MEDIUM_LOWER_BOUND)
     val coroutineScope = rememberCoroutineScope()
     var fps by remember { mutableIntStateOf(QRSConstants.DEFAULT_FPS) }
     var sliceSize by remember { mutableIntStateOf(QRSConstants.DEFAULT_SLICE_SIZE) }
@@ -135,283 +111,106 @@ fun QRSDialog(profileData: ByteArray, profileName: String, onDismiss: () -> Unit
         context.startActivity(intent)
     }
 
-    if (!isTv) {
-        // ── PHONE: Dark-Fantasy modal ──
-        FantasyDialog(onDismiss = onDismiss, title = "QR") {
-            // Bronze-framed white QR card (black-on-white, fully scannable) — same recipe as
-            // the share dialog: a square bronze frame around a white rounded quiet-zone card.
+    // ── Dark-Fantasy modal (phone + TV) ──
+    FantasyDialog(onDismiss = onDismiss, title = "QR") {
+        // Bronze-framed white QR card (black-on-white, fully scannable) — same recipe as
+        // the share dialog: a square bronze frame around a white rounded quiet-zone card.
+        Box(
+            Modifier
+                .fillMaxWidth(0.84f)
+                .aspectRatio(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.frame_qr),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.FillBounds,
+            )
             Box(
-                Modifier
-                    .fillMaxWidth(0.84f)
-                    .aspectRatio(1f),
+                modifier = Modifier
+                    .fillMaxSize(0.80f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(androidx.compose.ui.graphics.Color.White),
                 contentAlignment = Alignment.Center,
             ) {
-                Image(
-                    painter = painterResource(R.drawable.frame_qr),
-                    contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.FillBounds,
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize(0.80f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(androidx.compose.ui.graphics.Color.White),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    generationState.currentBitmap?.let { bitmap ->
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = stringResource(R.string.content_description_qr_code),
-                            modifier = Modifier.fillMaxSize(0.90f),
-                            contentScale = ContentScale.Fit,
-                        )
-                    }
+                generationState.currentBitmap?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = stringResource(R.string.content_description_qr_code),
+                        modifier = Modifier.fillMaxSize(0.90f),
+                        contentScale = ContentScale.Fit,
+                    )
                 }
-            }
-
-            Spacer(Modifier.height(18.dp))
-
-            // FPS control.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.qrs_fps),
-                    color = MaestroSilver,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "$fps Hz",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GoldMid,
-                )
-            }
-            Slider(
-                value = fps.toFloat(),
-                onValueChange = { fps = it.toInt() },
-                valueRange = QRSConstants.MIN_FPS.toFloat()..QRSConstants.MAX_FPS.toFloat(),
-                colors = fantasySliderColors(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            // Slice-size control.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.qrs_slice_size),
-                    color = MaestroSilver,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "$sliceSize",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GoldMid,
-                )
-            }
-            Slider(
-                value = sliceSize.toFloat(),
-                onValueChange = { sliceSize = it.toInt() },
-                valueRange = QRSConstants.MIN_SLICE_SIZE.toFloat()..QRSConstants.MAX_SLICE_SIZE.toFloat(),
-                colors = fantasySliderColors(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Spacer(Modifier.height(18.dp))
-
-            GlossyButton(
-                label = stringResource(R.string.close),
-                onClick = onDismiss,
-                accent = NeonGreen,
-                wood = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(6.dp))
-            TextButton(onClick = openQrsInfo) {
-                Text(stringResource(R.string.qrs_what_is_qrs), color = GoldMid, fontWeight = FontWeight.Medium)
             }
         }
-        return
-    }
 
-    // ── TV: original Material dialog (unchanged) ──
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Card(
-            modifier =
-            if (isTablet) {
-                Modifier
-                    .fillMaxWidth(0.85f)
-                    .sizeIn(maxWidth = 960.dp)
-                    .wrapContentHeight()
-            } else {
-                Modifier
-                    .fillMaxWidth(0.9f)
-                    .wrapContentHeight()
-            },
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
+        Spacer(Modifier.height(18.dp))
+
+        // FPS control.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            val qrSurface: @Composable () -> Unit = {
-                Surface(
-                    modifier = Modifier
-                        .sizeIn(maxWidth = if (isTablet) 420.dp else 360.dp, maxHeight = if (isTablet) 420.dp else 360.dp)
-                        .fillMaxWidth()
-                        .aspectRatio(1f),
-                    shape = RoundedCornerShape(0.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(androidx.compose.ui.graphics.Color.White),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        generationState.currentBitmap?.let { bitmap ->
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = stringResource(R.string.content_description_qr_code),
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
-                            )
-                        }
-                    }
-                }
-            }
+            Text(
+                text = stringResource(R.string.qrs_fps),
+                color = MaestroSilver,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "$fps Hz",
+                style = MaterialTheme.typography.bodySmall,
+                color = GoldMid,
+            )
+        }
+        Slider(
+            value = fps.toFloat(),
+            onValueChange = { fps = it.toInt() },
+            valueRange = QRSConstants.MIN_FPS.toFloat()..QRSConstants.MAX_FPS.toFloat(),
+            colors = fantasySliderColors(),
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-            val controlsContent: @Composable () -> Unit = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.qrs_fps),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = "$fps Hz",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+        Spacer(Modifier.height(8.dp))
 
-                    Slider(
-                        value = fps.toFloat(),
-                        onValueChange = { fps = it.toInt() },
-                        valueRange = QRSConstants.MIN_FPS.toFloat()..QRSConstants.MAX_FPS.toFloat(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+        // Slice-size control.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.qrs_slice_size),
+                color = MaestroSilver,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = "$sliceSize",
+                style = MaterialTheme.typography.bodySmall,
+                color = GoldMid,
+            )
+        }
+        Slider(
+            value = sliceSize.toFloat(),
+            onValueChange = { sliceSize = it.toInt() },
+            valueRange = QRSConstants.MIN_SLICE_SIZE.toFloat()..QRSConstants.MAX_SLICE_SIZE.toFloat(),
+            colors = fantasySliderColors(),
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(18.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.qrs_slice_size),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = "$sliceSize",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    Slider(
-                        value = sliceSize.toFloat(),
-                        onValueChange = { sliceSize = it.toInt() },
-                        valueRange = QRSConstants.MIN_SLICE_SIZE.toFloat()..QRSConstants.MAX_SLICE_SIZE.toFloat(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = openQrsInfo,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Info,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.qrs_what_is_qrs))
-                    }
-
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(stringResource(R.string.close))
-                    }
-                }
-            }
-
-            if (isTablet) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        qrSurface()
-                    }
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        controlsContent()
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    qrSurface()
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    controlsContent()
-                }
-            }
+        GlossyButton(
+            label = stringResource(R.string.close),
+            onClick = onDismiss,
+            accent = NeonGreen,
+            wood = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        TextButton(onClick = openQrsInfo) {
+            Text(stringResource(R.string.qrs_what_is_qrs), color = GoldMid, fontWeight = FontWeight.Medium)
         }
     }
 }

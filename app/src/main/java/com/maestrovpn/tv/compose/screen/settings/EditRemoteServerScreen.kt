@@ -1,6 +1,5 @@
 package com.maestrovpn.tv.compose.screen.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,12 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -52,7 +48,6 @@ import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.fantasy.FantasyScreenBackground
 import com.maestrovpn.tv.compose.fantasy.FantasyTextField
 import com.maestrovpn.tv.compose.fantasy.fantasyFrame
-import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
@@ -67,63 +62,38 @@ import kotlinx.coroutines.withContext
 @Composable
 fun EditRemoteServerScreen(navController: NavController, serverId: Long = -1L) {
     val isNewServer = serverId == -1L
-    val isTv = rememberIsTv()
 
     OverrideTopBar {
-        if (isTv) {
-            TopAppBar(
-                title = {
-                    Text(
-                        stringResource(
-                            if (isNewServer) {
-                                R.string.remote_new_server
-                            } else {
-                                R.string.remote_edit_server
-                            },
-                        ),
+        TopAppBar(
+            title = {
+                Text(
+                    stringResource(
+                        if (isNewServer) {
+                            R.string.remote_new_server
+                        } else {
+                            R.string.remote_edit_server
+                        },
+                    ),
+                    fontFamily = PlayfairFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFE8C877),
+                    letterSpacing = 1.sp,
+                )
+            },
+            navigationIcon = {
+                IconButton(onClick = { navController.navigateUp() }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.content_description_back),
+                        tint = GoldMid,
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.content_description_back),
-                        )
-                    }
-                },
-            )
-        } else {
-            TopAppBar(
-                title = {
-                    Text(
-                        stringResource(
-                            if (isNewServer) {
-                                R.string.remote_new_server
-                            } else {
-                                R.string.remote_edit_server
-                            },
-                        ),
-                        fontFamily = PlayfairFamily,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE8C877),
-                        letterSpacing = 1.sp,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.content_description_back),
-                            tint = GoldMid,
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF17110A),
-                    titleContentColor = Color(0xFFE8C877),
-                ),
-            )
-        }
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Color(0xFF17110A),
+                titleContentColor = Color(0xFFE8C877),
+            ),
+        )
     }
 
     val scope = rememberCoroutineScope()
@@ -177,176 +147,97 @@ fun EditRemoteServerScreen(navController: NavController, serverId: Long = -1L) {
         }
     }
 
-    if (!isTv) {
-        // ─────────────── Dark-Fantasy (phone) ───────────────
-        FantasyScreenBackground {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+    // ─────────────── Dark-Fantasy ───────────────
+    FantasyScreenBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // ── Имя ──
+            SectionLabel(stringResource(R.string.profile_name).uppercase(), wood = true)
+            FantasyTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = stringResource(R.string.remote_optional),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            // ── URL ──
+            SectionLabel(stringResource(R.string.profile_url).uppercase(), wood = true)
+            FantasyTextField(
+                value = url,
+                onValueChange = {
+                    url = it
+                    urlError = false
+                },
+                placeholder = stringResource(R.string.profile_input_required),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (urlError) {
+                Text(
+                    text = stringResource(R.string.remote_invalid_url, url),
+                    color = Color(0xFFE5484D),
+                    fontSize = 14.sp,
+                )
+            }
+
+            // ── Секрет (с переключателем видимости) ──
+            SectionLabel(stringResource(R.string.remote_secret).uppercase(), wood = true)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                // ── Имя ──
-                SectionLabel(stringResource(R.string.profile_name).uppercase(), wood = true)
                 FantasyTextField(
-                    value = name,
-                    onValueChange = { name = it },
+                    value = secret,
+                    onValueChange = { secret = it },
                     placeholder = stringResource(R.string.remote_optional),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                // ── URL ──
-                SectionLabel(stringResource(R.string.profile_url).uppercase(), wood = true)
-                FantasyTextField(
-                    value = url,
-                    onValueChange = {
-                        url = it
-                        urlError = false
+                    visualTransformation =
+                    if (secretVisible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
                     },
-                    placeholder = stringResource(R.string.profile_input_required),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.weight(1f),
                 )
-                if (urlError) {
-                    Text(
-                        text = stringResource(R.string.remote_invalid_url, url),
-                        color = Color(0xFFE5484D),
-                        fontSize = 14.sp,
-                    )
-                }
-
-                // ── Секрет (с переключателем видимости) ──
-                SectionLabel(stringResource(R.string.remote_secret).uppercase(), wood = true)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .fantasyFrame(R.drawable.frame_button),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    FantasyTextField(
-                        value = secret,
-                        onValueChange = { secret = it },
-                        placeholder = stringResource(R.string.remote_optional),
-                        singleLine = true,
-                        visualTransformation =
-                        if (secretVisible) {
-                            VisualTransformation.None
-                        } else {
-                            PasswordVisualTransformation()
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .fantasyFrame(R.drawable.frame_button),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        IconButton(onClick = { secretVisible = !secretVisible }) {
-                            Icon(
-                                imageVector =
-                                if (secretVisible) {
-                                    Icons.Default.VisibilityOff
-                                } else {
-                                    Icons.Default.Visibility
-                                },
-                                contentDescription = null,
-                                tint = GoldMid,
-                            )
-                        }
+                    IconButton(onClick = { secretVisible = !secretVisible }) {
+                        Icon(
+                            imageVector =
+                            if (secretVisible) {
+                                Icons.Default.VisibilityOff
+                            } else {
+                                Icons.Default.Visibility
+                            },
+                            contentDescription = null,
+                            tint = GoldMid,
+                        )
                     }
                 }
-
-                Spacer(Modifier.height(8.dp))
-                GlossyButton(
-                    label = stringResource(R.string.save),
-                    onClick = onSave,
-                    accent = NeonGreen,
-                    wood = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(16.dp))
             }
-        }
-        return
-    }
 
-    // ─────────────── Material (TV — unchanged) ───────────────
-    Column(
-        modifier =
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.profile_name)) },
-            placeholder = { Text(stringResource(R.string.remote_optional)) },
-            singleLine = true,
-        )
-
-        OutlinedTextField(
-            value = url,
-            onValueChange = {
-                url = it
-                urlError = false
-            },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.profile_url)) },
-            placeholder = { Text(stringResource(R.string.profile_input_required)) },
-            isError = urlError,
-            supportingText =
-            if (urlError) {
-                { Text(stringResource(R.string.remote_invalid_url, url)) }
-            } else {
-                null
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-        )
-
-        OutlinedTextField(
-            value = secret,
-            onValueChange = { secret = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.remote_secret)) },
-            placeholder = { Text(stringResource(R.string.remote_optional)) },
-            singleLine = true,
-            visualTransformation =
-            if (secretVisible) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-            trailingIcon = {
-                IconButton(onClick = { secretVisible = !secretVisible }) {
-                    Icon(
-                        imageVector =
-                        if (secretVisible) {
-                            Icons.Default.VisibilityOff
-                        } else {
-                            Icons.Default.Visibility
-                        },
-                        contentDescription = null,
-                    )
-                }
-            },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        )
-
-        Button(
-            onClick = onSave,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(stringResource(R.string.save))
+            Spacer(Modifier.height(8.dp))
+            GlossyButton(
+                label = stringResource(R.string.save),
+                onClick = onSave,
+                accent = NeonGreen,
+                wood = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

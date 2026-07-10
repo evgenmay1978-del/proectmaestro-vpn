@@ -3,24 +3,15 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,10 +31,7 @@ import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
 import com.maestrovpn.tv.compose.fantasy.FantasySegmented
-import com.maestrovpn.tv.compose.fantasy.fantasyFrame
-import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldMid
-import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
@@ -69,14 +57,13 @@ private sealed interface ShareState {
  *   • iPhone → `<subUrl>?app=karing`: base64 share-links (VLESS+Hysteria2+Naive) for
  *     Karing.
  *
- * PHONE gets the Dark-Fantasy modal (carved wood + aged-bronze frame + ivy, an engraved
- * segmented Android/iPhone toggle and a bronze-framed QR). TV keeps its Material dialog.
+ * Both phone and TV get the Dark-Fantasy modal (carved wood + aged-bronze frame + ivy, an
+ * engraved segmented Android/iPhone toggle and a bronze-framed QR).
  * Robustness: all Room reads run off-main in a runCatching (a throw in produceState would
  * crash the app); the QR encode is guarded too and stays BLACK-on-WHITE so any camera scans it.
  */
 @Composable
 fun IosKaringDialog(onDismiss: () -> Unit) {
-    val isTv = rememberIsTv()
     val state by produceState<ShareState>(ShareState.Loading) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -92,40 +79,29 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
     }
     var androidMode by remember { mutableStateOf(true) }
 
-    if (isTv) {
-        // ── TV: original Material dialog (unchanged) ──
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
-            title = { Text("Поделиться подпиской") },
-            text = { ShareBody(state, androidMode, { androidMode = it }, fantasy = false) },
+    // ── Dark-Fantasy modal (phone + TV) ──
+    FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
+        ShareBody(state, androidMode, { androidMode = it })
+        Spacer(Modifier.height(18.dp))
+        GlossyButton(
+            label = "Закрыть",
+            onClick = onDismiss,
+            accent = NeonGreen,
+            wood = true,
+            modifier = Modifier.fillMaxWidth(),
         )
-    } else {
-        // ── PHONE: Dark-Fantasy modal ──
-        FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
-            ShareBody(state, androidMode, { androidMode = it }, fantasy = true)
-            Spacer(Modifier.height(18.dp))
-            GlossyButton(
-                label = "Закрыть",
-                onClick = onDismiss,
-                accent = NeonGreen,
-                wood = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
     }
 }
 
-/** Shared share-dialog body — the toggle + explainer + QR — rendered either in the Dark-Fantasy
- *  style (phone) or plain Material (TV). All logic (shareUrl, black-on-white QR) is identical. */
+/** Shared share-dialog body — the toggle + explainer + QR — rendered in the Dark-Fantasy style
+ *  (phone + TV). All logic (shareUrl, black-on-white QR) is identical. */
 @Composable
 private fun ShareBody(
     state: ShareState,
     androidMode: Boolean,
     onMode: (Boolean) -> Unit,
-    fantasy: Boolean,
 ) {
-    val bodyColor = if (fantasy) MaestroSilver else Color.Unspecified
+    val bodyColor = MaestroSilver
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -144,31 +120,12 @@ private fun ShareBody(
             )
             is ShareState.Ready -> {
                 // Android / iPhone toggle.
-                if (fantasy) {
-                    FantasySegmented(
-                        options = listOf("Android", "iPhone"),
-                        selected = if (androidMode) 0 else 1,
-                        onSelect = { onMode(it == 0) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    val toggleAccent = MaestroOrange
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (androidMode) {
-                            Button(
-                                onClick = { onMode(true) },
-                                colors = ButtonDefaults.buttonColors(containerColor = toggleAccent),
-                            ) { Text("Android") }
-                            OutlinedButton(onClick = { onMode(false) }) { Text("iPhone") }
-                        } else {
-                            OutlinedButton(onClick = { onMode(true) }) { Text("Android") }
-                            Button(
-                                onClick = { onMode(false) },
-                                colors = ButtonDefaults.buttonColors(containerColor = toggleAccent),
-                            ) { Text("iPhone") }
-                        }
-                    }
-                }
+                FantasySegmented(
+                    options = listOf("Android", "iPhone"),
+                    selected = if (androidMode) 0 else 1,
+                    onSelect = { onMode(it == 0) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(12.dp))
 
                 val shareUrl = if (androidMode) {
@@ -197,46 +154,34 @@ private fun ShareBody(
                     }.getOrNull()
                 }
                 if (qr != null) {
-                    if (fantasy) {
-                        // Bronze QR frame — a SQUARE frame scaled uniformly (corners stay proportional,
-                        // no 9-patch thinning) around a WHITE quiet-zone; the code itself stays
-                        // black-on-white & fully scannable.
-                        // Frame fills the dialog width (matches the эскиз quar.png); the white card
-                        // fills the frame opening, leaving only a thin wood reveal (было: мелкая карточка
-                        // в широком деревянном поле = «дырки»). Responsive so it holds on any phone width.
-                        // QR stays BLACK-on-WHITE & fully scannable.
+                    // Bronze QR frame — a SQUARE frame scaled uniformly (corners stay proportional,
+                    // no 9-patch thinning) around a WHITE quiet-zone; the code itself stays
+                    // black-on-white & fully scannable. Frame fills the dialog width (matches the
+                    // эскиз quar.png); the white card fills the frame opening, leaving only a thin
+                    // wood reveal. Responsive so it holds on any width. QR stays BLACK-on-WHITE.
+                    Box(
+                        Modifier
+                            .fillMaxWidth(0.84f)
+                            .aspectRatio(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.frame_qr),
+                            contentDescription = null,
+                            modifier = Modifier.matchParentSize(),
+                            contentScale = ContentScale.FillBounds,
+                        )
                         Box(
-                            Modifier
-                                .fillMaxWidth(0.84f)
-                                .aspectRatio(1f),
+                            modifier = Modifier
+                                .fillMaxSize(0.80f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color.White),
                             contentAlignment = Alignment.Center,
                         ) {
                             Image(
-                                painter = painterResource(R.drawable.frame_qr),
-                                contentDescription = null,
-                                modifier = Modifier.matchParentSize(),
-                                contentScale = ContentScale.FillBounds,
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize(0.80f)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Image(
-                                    bitmap = qr.asImageBitmap(),
-                                    contentDescription = "QR",
-                                    modifier = Modifier.fillMaxSize(0.86f),
-                                )
-                            }
-                        }
-                    } else {
-                        Box(Modifier.background(Color.White).padding(12.dp)) {
-                            Image(
                                 bitmap = qr.asImageBitmap(),
                                 contentDescription = "QR",
-                                modifier = Modifier.size(240.dp),
+                                modifier = Modifier.fillMaxSize(0.86f),
                             )
                         }
                     }
@@ -246,7 +191,7 @@ private fun ShareBody(
                     shareUrl,
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center,
-                    color = if (fantasy) GoldMid else Color.Unspecified,
+                    color = GoldMid,
                 )
             }
         }
