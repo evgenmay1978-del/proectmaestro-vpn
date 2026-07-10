@@ -88,6 +88,24 @@ def load_s2bot():
     return out
 
 
+def load_naive():
+    """Owner-added users in the S2 naive panel (raw usernames; mtv_* are panel-owned mirrors)."""
+    snippet = (
+        "set -a; . /opt/vpn_bot/.env; set +a; C=$(mktemp); "
+        'curl -sk -m 15 -c "$C" -X POST "$PANEL_URL/api/login" -H "Content-Type: application/json" '
+        '-d "{\\"username\\":\\"$PANEL_USER\\",\\"password\\":\\"$PANEL_PASS\\"}" >/dev/null; '
+        'curl -sk -m 15 -b "$C" "$PANEL_URL/api/naive/users"; rm -f "$C"'
+    )
+    raw = run(SSH + [S2, snippet])
+    out = {}
+    for u in json.loads(raw).get("users", []):
+        name = u.get("username", "")
+        d = parse_dt(str(u.get("expiresAt") or ""))
+        if name and not name.startswith("mtv_") and d:
+            out[name] = d
+    return out
+
+
 def set_expiry(token, login, target):
     body = json.dumps({"login": login, "expires": target.strftime("%Y-%m-%dT%H:%M:%SZ")}).encode()
     req = urllib.request.Request(PANEL + "/admin/set-expiry", data=body, method="POST",
@@ -108,10 +126,19 @@ def raise_s2bot(proxy_user, target):
     return check.strip().startswith(iso[:10])
 
 
+IMPORT_SKIP = {"awgtest", "moy2", "test", "diag", "audit", "admin"}
+
+
+def importable(login):
+    return (len(login) >= 3 and re.fullmatch(r"[A-Za-z0-9._-]+", login)
+            and login.lower() not in IMPORT_SKIP
+            and not login.lower().startswith(("test", "diag", "tmp", "trial-")))
+
+
 def main():
     panel = load_panel()
     sources = {}
-    for name, loader in (("s1xui", load_s1xui), ("s3xui", load_s3xui), ("s2bot", load_s2bot)):
+    for name, loader in (("s1xui", load_s1xui), ("s3xui", load_s3xui), ("s2bot", load_s2bot), ("naive", load_naive)):
         try:
             sources[name] = loader()
         except Exception as e:  # a dead source must not block reconciling the rest
@@ -139,12 +166,14 @@ def main():
         lag = [n for n, v in vals.items() if target - v > TOL]
         if not lag:
             continue
+        if set(lag) == {"naive"}:  # naive is bot/panel-capped (max 3650d) and not ours to write —
+            continue               # a naive-only lag (e.g. 2036 vs unlimited-2099) is not drift
         drift += 1
         detail = " ".join(f"{n}={v.strftime(fmt)}" for n, v in vals.items())
         print(f"DRIFT {login}: target={target.strftime(fmt)} lagging={','.join(lag)} [{detail}]")
         if not APPLY:
             continue
-        if any(n != "s2bot" for n in lag):  # panel/x-ui lag → panel mirror + fan-out
+        if any(n not in ("s2bot", "naive") for n in lag):  # panel/x-ui lag → panel mirror + fan-out
             try:
                 ok = set_expiry(token, login, target)
             except Exception as e:
@@ -164,14 +193,37 @@ def main():
             if not ok:
                 failures += 1
 
+    # Clients created OUTSIDE the panel (owner adds someone in x-ui / the naive panel / the
+    # bot sells one): import them — /admin/set-expiry backfills via ActivateExisting, which
+    # pulls existing creds and mints the missing protocols. Skip test artifacts and the dead.
     known = {l.lower() for l in panel}
+    strays = {}  # lower → (original_name, max_date, [sources])
     for name, vals in sources.items():
-        strays = sorted(k for k in vals if k.lower() not in known)
-        if strays:
-            print(f"INFO: {name} logins not in panel (untouched): {', '.join(strays)}")
+        for k, v in vals.items():
+            if k.lower() in known:
+                continue
+            cur = strays.get(k.lower())
+            strays[k.lower()] = (cur[0] if cur else k, max(v, cur[1]) if cur else v,
+                                 (cur[2] if cur else []) + [name])
+    imported = 0
+    for orig, target, srcs in sorted(strays.values()):
+        if target <= NOW or not importable(orig):
+            print(f"INFO: stray {orig} ({','.join(srcs)}, exp {target.strftime(fmt)}) — skipped")
+            continue
+        print(f"IMPORT {orig}: found in {','.join(srcs)}, exp {target.strftime(fmt)} -> panel")
+        if APPLY:
+            try:
+                if set_expiry(token, orig, target):
+                    imported += 1
+                    print(f"  IMPORTED {orig}")
+                else:
+                    failures += 1
+            except Exception as e:
+                failures += 1
+                print(f"  IMPORT FAILED {orig}: {e}", file=sys.stderr)
 
-    print(f"SUMMARY: {len(panel)} panel clients, {drift} drifted{' (applied)' if APPLY else ' (report-only)'}, "
-          f"{expired} expired everywhere, {failures} apply-failures")
+    print(f"SUMMARY: {len(panel)} panel clients, {drift} drifted, {imported} imported"
+          f"{' (applied)' if APPLY else ' (report-only)'}, {expired} expired everywhere, {failures} apply-failures")
     sys.exit(1 if failures else 0)
 
 
