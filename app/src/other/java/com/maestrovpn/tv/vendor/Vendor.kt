@@ -33,6 +33,14 @@ object Vendor : VendorInterface {
         try {
             val updateInfo = checkUpdateAsync()
             if (updateInfo != null) {
+                // Publish THIS offer as the authoritative one before any download: ApkDownloader
+                // verifies size/sha256 against UpdateState.updateInfo, and a stale entry from an
+                // earlier check (e.g. the GitHub fallback with a different URL/size) makes every
+                // completed download fail verification → delete → re-download, up to 8 full passes.
+                // Mark it as already-shown first — we present our own dialog right below, and
+                // setUpdate() would otherwise ALSO trigger MainActivity's Compose update dialog.
+                Settings.lastShownUpdateVersion = maxOf(Settings.lastShownUpdateVersion, updateInfo.versionCode)
+                UpdateState.setUpdate(updateInfo)
                 activity.runOnUiThread {
                     showUpdateDialog(activity, updateInfo)
                 }
@@ -94,6 +102,7 @@ object Vendor : VendorInterface {
             .setCancelable(false)
             .create()
         runCatching { progress.show() }
+        UpdateState.resetDownload()
         scope.launch {
             val ticker = launch {
                 while (isActive) {

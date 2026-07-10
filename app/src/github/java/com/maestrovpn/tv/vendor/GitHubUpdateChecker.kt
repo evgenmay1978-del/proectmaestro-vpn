@@ -34,7 +34,7 @@ class GitHubUpdateChecker : Closeable {
                 continue
             }
             val metadata = runCatching { downloadMetadata(release) }.getOrNull() ?: continue
-            if (!isNewerThanCurrent(metadata.versionName)) {
+            if (!isNewerThanCurrent(metadata)) {
                 continue
             }
             val currentBest = selected
@@ -88,7 +88,14 @@ class GitHubUpdateChecker : Closeable {
         }
     }
 
-    private fun isNewerThanCurrent(versionName: String): Boolean = Libbox.compareSemver(versionName, BuildConfig.VERSION_NAME)
+    // versionCode is what Android actually installs by — prefer it over the semver of the
+    // display name (a release whose name claims "newer" but whose code is not can never be
+    // installed past, and deciding by name alone made clients re-download it forever).
+    private fun isNewerThanCurrent(metadata: VersionMetadata): Boolean = if (metadata.versionCode > 0) {
+        metadata.versionCode > BuildConfig.VERSION_CODE
+    } else {
+        Libbox.compareSemver(metadata.versionName, BuildConfig.VERSION_NAME)
+    }
 
     private fun isBetterVersion(version: VersionMetadata, other: VersionMetadata): Boolean {
         if (Libbox.compareSemver(version.versionName, other.versionName)) {

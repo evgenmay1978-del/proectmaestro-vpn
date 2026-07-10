@@ -25,6 +25,12 @@ object UpdateState {
 
     val installStatus = mutableStateOf<InstallStatus>(InstallStatus.Idle)
 
+    // System-installer confirm dialog the user has not answered yet. Android silently drops
+    // startActivity from the background (worker-committed installs), so the receiver parks the
+    // confirm Intent here and MainActivity re-fires it on the next foreground — the install
+    // then completes IN PLACE instead of looping another download cycle.
+    val pendingConfirmIntent = mutableStateOf<android.content.Intent?>(null)
+
     fun setUpdate(info: UpdateInfo?) {
         updateInfo.value = info
         hasUpdate.value = info != null
@@ -43,6 +49,7 @@ object UpdateState {
         downloadError.value = null
         installStatus.value = InstallStatus.Idle
         cachedApkFile.value = null
+        pendingConfirmIntent.value = null
         clearCache()
     }
 

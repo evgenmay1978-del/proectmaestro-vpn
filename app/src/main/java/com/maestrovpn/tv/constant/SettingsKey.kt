@@ -57,6 +57,8 @@ object SettingsKey {
     const val CACHED_UPDATE_INFO = "cached_update_info"
     const val CACHED_APK_PATH = "cached_apk_path"
     const val LAST_SHOWN_UPDATE_VERSION = "last_shown_update_version"
+    const val UPDATE_FAILED_VERSION_CODE = "update_failed_version_code"
+    const val UPDATE_FAILED_COUNT = "update_failed_count"
 
     // Whether we've already offered (once) to add the quick-settings tile to the shade (Android 13+).
     const val QS_TILE_PROMPTED = "qs_tile_prompted"
