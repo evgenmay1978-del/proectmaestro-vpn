@@ -200,6 +200,17 @@ var forceProxyDomains = []string{
 	"ytimg.com",
 }
 
+// otaDirectDomains are OUR OWN update-delivery hosts that must egress DIRECT (never through the
+// tunnel). The APK lives on Yandex Object Storage (RU-domestic, fast, un-throttled); tunnelling the
+// ~118 MB download through an RU-throttled VPN protocol makes it drop and a client's downloader
+// restart — the "обновление постоянно сбрасывается и качается заново" loop. Routing it direct (like
+// every other RU-domestic service) lets the download complete reliably. Reaches the whole fleet on
+// the next /sub poll — no app update needed. The manifest/panel host (BACKEND_URL) is already direct
+// (it is a proxy-server domain resolved pre-tunnel).
+var otaDirectDomains = []string{
+	"storage.yandexcloud.net",
+}
+
 // GenerateSingbox renders the customer's sing-box configuration as JSON.
 func GenerateSingbox(c Customer) ([]byte, error) {
 	outbounds := []map[string]any{}
@@ -295,6 +306,9 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_is_private": true, "action": "route", "outbound": "direct"},
+		// OTA download host (Yandex Object Storage) → DIRECT, above everything else, so the
+		// ~118 MB APK never rides the (RU-throttled) tunnel and drop-restarts. Fleet-wide via /sub.
+		{"domain_suffix": otaDirectDomains, "action": "route", "outbound": "direct"},
 	}
 	// olcRTC carrier hosts DIRECT — placed FIRST (above forceProxyDomains) so the child's own
 	// WebRTC/signalling traffic to Yandex never loops back through the olcRTC outbound. Both a
@@ -352,6 +366,8 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	// up because its own SFU can't be resolved). Fleet-inert (only when c.OLC != nil).
 	dnsRules := []map[string]any{
 		{"rule_set": []string{tagRUDomains}, "action": "route", "server": "local"},
+		// Resolve the OTA host via the direct RU resolver so it maps to the fast RU-domestic IP.
+		{"domain_suffix": otaDirectDomains, "action": "route", "server": "local"},
 	}
 	if c.OLC != nil {
 		dnsRules = append(dnsRules, map[string]any{
