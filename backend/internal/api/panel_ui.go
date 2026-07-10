@@ -182,10 +182,10 @@ function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…<
   '<div class="toolbar" style="margin-top:10px"><input id="o_add" placeholder="логин клиента" style="min-width:180px"><button class="btn pri" id="o_addb">+ Добавить клиента в olcRTC</button><span class="mut">даёт доступ; комнату назначь ниже</span></div>'+
   '<h3 style="margin:14px 0 6px">Назначить комнату вручную</h3>'+
   '<div class="toolbar"><select id="o_login"><option value="">(общая комната)</option>'+(o.logins||[]).map(function(lg){return '<option>'+esc(lg)+'</option>';}).join('')+'</select>'+
-  '<select id="o_prov"><option value="telemost">Telemost (ссылка)</option><option value="max">MAX (ссылка)</option><option value="wbstream">WbStream (id комнаты)</option></select>'+
-  '<input id="o_url" placeholder="https://telemost.yandex.ru/j/…  ·  https://max.ru/call/…  ·  wbstream room id" style="flex:1;min-width:240px">'+
+  '<select id="o_prov"><option value="telemost">Telemost (ссылка)</option><option value="max" disabled>MAX (скоро — нужен бинарник)</option><option value="wbstream">WbStream (id комнаты)</option></select>'+
+  '<input id="o_url" placeholder="https://telemost.yandex.ru/j/…  или  wbstream room id" style="flex:1;min-width:240px">'+
   '<button class="btn pri" id="o_set">Назначить</button></div>'+
-  '<p class="mut">Telemost / MAX: создай звонок по ссылке, вставь ссылку. WbStream: проще нажми «новая WbStream» у клиента — панель создаст комнату сама (нужен токен выше). Отдельный exit поднимается ~15 сек.</p>';
+  '<p class="mut">Telemost: создай комнату в Яндекс.Телемосте, вставь ссылку. WbStream: проще нажми «новая WbStream» у клиента — панель создаст комнату сама (нужен токен выше). MAX: пока не активен — бинарник olcrtc его ещё не умеет (см. docs/olcrtc-max-carrier.md). Отдельный exit поднимается ~15 сек.</p>';
  el('body').innerHTML=h;
  el('o_addb').onclick=function(){var l=el('o_add').value.trim();if(!l)return;post('api/olcrtc/login',{login:l,action:'add'}).then(function(){toast(l+' добавлен в olcRTC');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};
  Array.prototype.forEach.call(document.querySelectorAll('#body button[data-rm]'),function(b){b.onclick=function(){var l=b.getAttribute('data-rm');if(!confirm('Убрать '+l+' из olcRTC? (доступ + своя комната)'))return;post('api/olcrtc/login',{login:l,action:'remove'}).then(function(){toast(l+' убран');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};});
