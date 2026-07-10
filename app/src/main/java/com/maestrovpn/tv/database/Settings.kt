@@ -146,6 +146,29 @@ object Settings {
     var cachedApkPath by dataStore.string(SettingsKey.CACHED_APK_PATH) { "" }
     var lastShownUpdateVersion by dataStore.int(SettingsKey.LAST_SHOWN_UPDATE_VERSION) { 0 }
 
+    // Anti-loop damper for OTA: versionCode whose install keeps failing + how many times it
+    // failed. The background UpdateWorker stops re-downloading/re-installing a version after
+    // MAX_UPDATE_INSTALL_FAILURES strikes (manual «Обновить» always allowed and resets it on
+    // success or on a newer version). Without this a permanently failing install (signature
+    // mismatch, downgrade, unconfirmed dialog) re-downloaded the ~90 MB APK forever.
+    var updateFailedVersionCode by dataStore.int(SettingsKey.UPDATE_FAILED_VERSION_CODE) { 0 }
+    var updateFailedCount by dataStore.int(SettingsKey.UPDATE_FAILED_COUNT) { 0 }
+
+    fun recordUpdateInstallFailure(versionCode: Int) {
+        if (versionCode <= 0) return
+        if (updateFailedVersionCode == versionCode) {
+            updateFailedCount += 1
+        } else {
+            updateFailedVersionCode = versionCode
+            updateFailedCount = 1
+        }
+    }
+
+    fun clearUpdateInstallFailures() {
+        updateFailedVersionCode = 0
+        updateFailedCount = 0
+    }
+
     fun serviceClass(): Class<*> = when (serviceMode) {
         ServiceMode.VPN -> VPNService::class.java
         else -> ProxyService::class.java

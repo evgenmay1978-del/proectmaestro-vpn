@@ -23,6 +23,10 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
         private const val WORK_NAME = "AutoUpdate"
         private const val TAG = "UpdateWorker"
 
+        // After this many failed installs of the SAME versionCode the background worker stops
+        // retrying it (manual install stays available; a newer release resets the counter).
+        private const val MAX_INSTALL_FAILURES = 3
+
         fun schedule(context: Context) {
             if (!Settings.autoUpdateEnabled) {
                 WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
@@ -79,11 +83,39 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
             Log.d(TAG, "Update available: ${updateInfo.versionName}")
             UpdateState.setUpdate(updateInfo)
 
+            // A different (newer) version than the one that kept failing → give it a clean slate.
+            if (Settings.updateFailedVersionCode != 0 &&
+                updateInfo.versionCode > 0 &&
+                updateInfo.versionCode != Settings.updateFailedVersionCode
+            ) {
+                Settings.clearUpdateInstallFailures()
+            }
+
+            // Anti-loop damper: installing this exact version already failed MAX_INSTALL_FAILURES
+            // times (signature mismatch, downgrade-in-disguise, unconfirmed dialog…). Retrying in
+            // the background can only burn traffic — before this gate the fleet re-downloaded the
+            // ~90 MB APK on every 6h cycle forever. Leave the offer visible in the UI; a manual
+            // «Обновить» (with its visible error) is still allowed.
+            if (updateInfo.versionCode > 0 &&
+                updateInfo.versionCode == Settings.updateFailedVersionCode &&
+                Settings.updateFailedCount >= MAX_INSTALL_FAILURES
+            ) {
+                Log.w(
+                    TAG,
+                    "Skipping auto-install of ${updateInfo.versionName}: " +
+                        "${Settings.updateFailedCount} failed attempts — waiting for a newer build or manual install",
+                )
+                return Result.success()
+            }
+
             if (Settings.silentInstallEnabled && ApkInstaller.canSilentInstall()) {
                 Log.d(TAG, "Downloading update...")
                 val apkFile = ApkDownloader().use { it.download(updateInfo.downloadUrl) }
 
                 Log.d(TAG, "Installing update...")
+                // On success the system replaces our process, so this call normally never
+                // returns; on failure it now THROWS the real installer verdict (the old
+                // fire-and-forget commit logged "installed successfully" no matter what).
                 ApkInstaller.install(appContext, apkFile)
                 Log.d(TAG, "Update installed successfully")
             } else {
