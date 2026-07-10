@@ -438,7 +438,7 @@ private fun EskizExtras(
                                 selected = p == selected && !olcLocked,
                                 subtitle = when {
                                     olcLocked -> "🔒 по запросу"
-                                    p == "olcrtc" -> if (olcrtcProvider == "wbstream") "через WB" else "через Яндекс"
+                                    p == "olcrtc" -> olcrtcCarrierLabel(olcrtcProvider)
                                     else -> null
                                 },
                                 locked = olcLocked,

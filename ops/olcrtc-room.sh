@@ -21,9 +21,9 @@
 set -eu
 
 usage() {
-	echo "usage: $0 <login> <room> [telemost|wbstream] [newkey]   # per-login (isolation)"
-	echo "       $0 <telemost-room-url>                           # global fallback room"
-	echo "   telemost/jitsi room = http(s) URL ; wbstream room = bare id (UUID)"
+	echo "usage: $0 <login> <room> [telemost|max|wbstream] [newkey]   # per-login (isolation)"
+	echo "       $0 <telemost-room-url>                              # global fallback room"
+	echo "   telemost/max/jitsi room = http(s) URL ; wbstream room = bare id (UUID)"
 	exit 1
 }
 
@@ -32,14 +32,14 @@ ROOM=""
 NEWKEY=0
 PROVIDER=telemost
 # Positional: <login> <room> [provider] [newkey]  (or <room> for the global telemost swap).
-# provider ∈ {telemost, wbstream}; newkey forces a fresh per-login key.
+# provider ∈ {telemost, max, wbstream}; newkey forces a fresh per-login key.
 if [ $# -eq 1 ]; then
 	ROOM="$1"
 else
 	LOGIN="$1"; ROOM="$2"; shift 2
 	for a in "$@"; do
 		case "$a" in
-			telemost|wbstream) PROVIDER="$a" ;;
+			telemost|max|wbstream) PROVIDER="$a" ;;
 			newkey) NEWKEY=1 ;;
 			*) usage ;;
 		esac

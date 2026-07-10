@@ -378,7 +378,7 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 	if oc := s.olcConfig(); oc.Enabled && c.Active() && oc.Allowed(c.Login) && oc.Dedicated(c.Login) {
 		if room, key, ok := oc.RoomFor(c.Login); ok {
 			out["olcrtc"] = map[string]any{
-				"provider":  oc.ProviderFor(c.Login), // per-login carrier (wbstream|telemost)
+				"provider":  oc.ProviderFor(c.Login), // per-login carrier (wbstream|max|telemost)
 				"room":      room,
 				"key":       key,
 				"transport": oc.Transport,

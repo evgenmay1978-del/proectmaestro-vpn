@@ -124,7 +124,7 @@ fun TvHomeScreen(
     accountExpires: String? = null,
     hasSubProfile: Boolean = false,
     hasOlcrtcCreds: Boolean = false,
-    olcrtcProvider: String? = null, // "wbstream" | "telemost" — labels the single olcRTC chip
+    olcrtcProvider: String? = null, // "wbstream" | "max" | "telemost" — labels the single olcRTC chip
     onToggleConnect: () -> Unit,
     onSelectProtocol: (String) -> Unit,
     onSelectOlcrtc: () -> Unit = {},
@@ -489,7 +489,7 @@ private fun MenuPane(
                                 selected = p == selected && !olcLocked,
                                 subtitle = when {
                                     olcLocked -> "🔒 по запросу"
-                                    p == "olcrtc" -> if (olcrtcProvider == "wbstream") "через WB" else "через Яндекс"
+                                    p == "olcrtc" -> olcrtcCarrierLabel(olcrtcProvider)
                                     else -> protocolBadge(p)
                                 },
                                 locked = olcLocked,
@@ -662,6 +662,14 @@ internal fun protocolLabel(tag: String): String = when (tag) {
 }
 
 /** Short recommendation badge under each protocol chip (unified style). */
+/** Labels the single olcRTC chip with the real carrier the current creds use
+ *  ("wbstream" → «через WB», "max" → «через MAX», else Telemost/Яндекс). */
+internal fun olcrtcCarrierLabel(provider: String?): String = when (provider) {
+    "wbstream" -> "через WB"
+    "max" -> "через MAX"
+    else -> "через Яндекс"
+}
+
 private fun protocolBadge(tag: String): String = when (tag) {
     "auto" -> "Рекомендуется"
     "vless", "vless-s3" -> "Оптимальный"

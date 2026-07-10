@@ -45,7 +45,7 @@ func (s *Server) handleOlcrtcRoom(w http.ResponseWriter, r *http.Request) {
 		Login    string `json:"login"` // empty → global room; else this login's dedicated room
 		Room     string `json:"room"`
 		Key      string `json:"key"`      // optional; empty keeps the existing key
-		Provider string `json:"provider"` // optional; "wbstream"|"telemost"; empty keeps existing
+		Provider string `json:"provider"` // optional; "wbstream"|"telemost"|"max"; empty keeps existing
 	}
 	if !decodeJSON(w, r, &req) {
 		return
