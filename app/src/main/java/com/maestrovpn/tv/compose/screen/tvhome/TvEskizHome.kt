@@ -24,17 +24,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NetworkCheck
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
@@ -63,7 +60,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
-import com.maestrovpn.tv.compose.component.NeonAccountCard
 import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
 import androidx.compose.ui.focus.FocusRequester
@@ -99,6 +95,7 @@ internal fun TvEskizHome(
     activeProtocol: String?,
     accountLogin: String?,
     daysLeft: Int?,
+    accountExpires: String?,
     hasSubProfile: Boolean,
     hasOlcrtcCreds: Boolean,
     olcrtcProvider: String?,
@@ -162,12 +159,15 @@ internal fun TvEskizHome(
                 .size(ringD.dp),
         )
 
-        // ── (3) живой статус под медальоном ───────────────────────────────────────────
+        // ── (3) живой статус под медальоном (+ строка аккаунта: логин · дни · до даты) ──
         EskizStatus(
             statusText = statusText,
             connected = connected,
             activeProtocol = activeProtocol,
             selected = selected,
+            accountLogin = accountLogin,
+            daysLeft = daysLeft,
+            accountExpires = accountExpires,
             dotR = (TvEskizSpec.DOT_R * s).dp,
             modifier = Modifier
                 .offset(x = ax(60f).dp, y = ay(TvEskizSpec.STATUS_TOP).dp)
@@ -204,8 +204,6 @@ internal fun TvEskizHome(
                 EskizExtras(
                     protocols = protocols,
                     selected = selected,
-                    accountLogin = accountLogin,
-                    daysLeft = daysLeft,
                     showTrial = !hasSubProfile,
                     hasOlcrtcCreds = hasOlcrtcCreds,
                     olcrtcProvider = olcrtcProvider,
@@ -339,13 +337,17 @@ private fun MedallionButton(
     )
 }
 
-/** Живой статус под медальоном: точка + «ОТКЛЮЧЕНО/ПОДКЛЮЧЕНО» + строка активного протокола. */
+/** Живой статус под медальоном: точка + «ОТКЛЮЧЕНО/ПОДКЛЮЧЕНО» + строка активного протокола
+ *  + строка аккаунта (owner: логин, сколько дней и дата окончания подписки — видны сразу). */
 @Composable
 private fun EskizStatus(
     statusText: String,
     connected: Boolean,
     activeProtocol: String?,
     selected: String?,
+    accountLogin: String?,
+    daysLeft: Int?,
+    accountExpires: String?,
     dotR: androidx.compose.ui.unit.Dp,
     modifier: Modifier,
 ) {
@@ -375,16 +377,39 @@ private fun EskizStatus(
                 textAlign = TextAlign.Center,
             )
         }
+        // Аккаунт: «login · осталось N дней · до 02.08.2026» (истёк → красным, безлимит → без даты)
+        val expired = daysLeft != null && daysLeft <= 0
+        val accountLine = buildList {
+            accountLogin?.takeIf { it.isNotBlank() }?.let { add(it) }
+            when {
+                daysLeft == null -> {}
+                expired -> add("подписка истекла")
+                daysLeft >= 3650 -> add("безлимит")
+                else -> {
+                    add("осталось $daysLeft ${daysWord(daysLeft)}")
+                    accountExpires?.let { add("до $it") }
+                }
+            }
+        }.joinToString(" · ")
+        if (accountLine.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                accountLine,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (expired) Color(0xFFE5484D) else Color(0xFFE8C877), // GoldHi кита
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
-/** Доп-функционал под эскизом: протоколы + аккаунт + триал + проверка соединения (дерево-золото). */
+/** Доп-функционал под эскизом: протоколы + триал + проверка соединения (дерево-золото).
+ *  Аккаунт здесь НЕ дублируется — он всегда виден строкой под медальоном (owner). */
 @Composable
 private fun EskizExtras(
     protocols: List<String>,
     selected: String?,
-    accountLogin: String?,
-    daysLeft: Int?,
     showTrial: Boolean,
     hasOlcrtcCreds: Boolean,
     olcrtcProvider: String?,
@@ -425,28 +450,6 @@ private fun EskizExtras(
                 }
             }
             Spacer(Modifier.height(16.dp))
-        }
-
-        if (!accountLogin.isNullOrBlank() || daysLeft != null) {
-            val expired = daysLeft != null && daysLeft <= 0
-            val low = daysLeft != null && daysLeft in 1..5
-            val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
-            val daysText = when {
-                daysLeft == null -> null
-                expired -> "Подписка истекла"
-                daysLeft >= 3650 -> "Безлимит"
-                else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
-            }
-            NeonAccountCard(
-                login = accountLogin,
-                daysText = daysText,
-                daysColor = daysColor,
-                leadingIcon = Icons.Filled.Person,
-                trailingIcon = Icons.Filled.CalendarMonth,
-                wood = true,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 620.dp),
-            )
-            Spacer(Modifier.height(12.dp))
         }
 
         if (showTrial) {

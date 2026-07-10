@@ -10,9 +10,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** The active subscription's login + days remaining, for the home screen. Null fields
- *  mean "unknown" (no subscription profile yet, or the panel was unreachable). */
-data class AccountInfo(val login: String? = null, val daysLeft: Int? = null, val hasSubProfile: Boolean = false)
+/** The active subscription's login + days remaining + expiry date, for the home screen. Null
+ *  fields mean "unknown" (no subscription profile yet, or the panel was unreachable). */
+data class AccountInfo(
+    val login: String? = null,
+    val daysLeft: Int? = null,
+    val hasSubProfile: Boolean = false,
+    /** дата окончания подписки «ДД.ММ.ГГГГ» из /info `expires` (RFC3339) — для строки аккаунта */
+    val expiresDate: String? = null,
+)
+
+/** "2026-08-02T15:04:05Z"/"+03:00"-варианты → "02.08.2026"; мусор → null (строка просто короче). */
+private fun formatExpires(raw: String?): String? {
+    val date = raw?.substringBefore('T') ?: return null
+    val p = date.split('-')
+    if (p.size != 3 || p[0].length != 4) return null
+    return "${p[2]}.${p[1]}.${p[0]}"
+}
 
 /**
  * Fetches [AccountInfo] from the panel `GET /sub/<token>/info` using the active
@@ -50,6 +64,7 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                     login = o.optString("login").ifBlank { null },
                     daysLeft = if (o.has("days_left")) o.getInt("days_left") else null,
                     hasSubProfile = hasSubProfile,
+                    expiresDate = formatExpires(o.optString("expires").ifBlank { null }),
                 )
             }
         }.getOrDefault(AccountInfo())

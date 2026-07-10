@@ -41,8 +41,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
@@ -232,6 +237,34 @@ fun BuyScreen(
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
+                        )
+                    }
+                    // Открыть страницу оплаты ПРЯМО с устройства (owner: «приложение должно
+                    // открывать страницу оплаты»). На телефоне откроется банковская страница
+                    // pay_url; на ТВ-боксе без браузера — ловим и подсказываем платить по QR.
+                    if (s.payUrl.isNotBlank()) {
+                        val payCtx = LocalContext.current
+                        Spacer(Modifier.height(if (isTv) 10.dp else 14.dp))
+                        GlossyButton(
+                            label = "Открыть страницу оплаты",
+                            onClick = {
+                                runCatching {
+                                    payCtx.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(s.payUrl))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }.onFailure {
+                                    Toast.makeText(
+                                        payCtx,
+                                        "Браузер не найден — отсканируйте QR телефоном",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            },
+                            accent = NeonGreen,
+                            icon = Icons.Filled.ShoppingCart,
+                            wood = true,
+                            modifier = Modifier.widthIn(min = 260.dp),
                         )
                     }
                     Spacer(Modifier.height(12.dp))

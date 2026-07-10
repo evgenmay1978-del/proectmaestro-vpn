@@ -121,6 +121,7 @@ fun TvHomeScreen(
     activeProtocol: String? = null,
     accountLogin: String? = null,
     daysLeft: Int? = null,
+    accountExpires: String? = null,
     hasSubProfile: Boolean = false,
     hasOlcrtcCreds: Boolean = false,
     olcrtcProvider: String? = null, // "wbstream" | "telemost" — labels the single olcRTC chip
@@ -214,6 +215,7 @@ fun TvHomeScreen(
                     activeProtocol = activeProtocol,
                     accountLogin = accountLogin,
                     daysLeft = daysLeft,
+                    accountExpires = accountExpires,
                     hasSubProfile = hasSubProfile,
                     hasOlcrtcCreds = hasOlcrtcCreds,
                     olcrtcProvider = olcrtcProvider,
@@ -295,6 +297,7 @@ fun TvHomeScreen(
                                 AccountCard(
                                     login = accountLogin,
                                     daysLeft = daysLeft,
+                                    expires = accountExpires,
                                     wood = true,
                                     modifier = Modifier.fillMaxWidth().widthIn(max = 460.dp),
                                 )
@@ -364,7 +367,7 @@ fun TvHomeScreen(
 /** Login + days-left glass card (bottom of the hero on both phone and TV). Computes the day
  *  colour/label — green / orange when ≤5 / red when expired / «Безлимит» for unlimited — from [daysLeft]. */
 @Composable
-private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier, wood: Boolean = false) {
+private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Modifier, wood: Boolean = false, expires: String? = null) {
     val expired = daysLeft != null && daysLeft <= 0
     val low = daysLeft != null && daysLeft in 1..5
     val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
@@ -372,7 +375,7 @@ private fun AccountCard(login: String?, daysLeft: Int?, modifier: Modifier = Mod
         daysLeft == null -> null
         expired -> "Подписка истекла"
         daysLeft >= 3650 -> "Безлимит" // unlimited/owner accounts (~10y+) → don't show an absurd count
-        else -> "Осталось $daysLeft ${daysWord(daysLeft)}"
+        else -> "Осталось $daysLeft ${daysWord(daysLeft)}" + (expires?.let { " · до $it" } ?: "")
     }
     NeonAccountCard(
         login = login,
