@@ -6,19 +6,15 @@ import android.content.Intent
 import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -28,17 +24,12 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -51,7 +42,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -65,7 +55,6 @@ import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.fantasy.FantasyListRow
 import com.maestrovpn.tv.compose.fantasy.FantasyScreenBackground
 import com.maestrovpn.tv.compose.fantasy.FantasyToggle
-import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.database.Settings
@@ -77,47 +66,31 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CoreSettingsScreen(navController: NavController) {
-    val isTv = rememberIsTv()
-
     OverrideTopBar {
-        if (isTv) {
-            TopAppBar(
-                title = { Text(stringResource(R.string.core)) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.content_description_back),
-                        )
-                    }
-                },
-            )
-        } else {
-            TopAppBar(
-                title = {
-                    Text(
-                        stringResource(R.string.core),
-                        fontFamily = PlayfairFamily,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE8C877),
-                        letterSpacing = 1.sp,
+        TopAppBar(
+            title = {
+                Text(
+                    stringResource(R.string.core),
+                    fontFamily = PlayfairFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFE8C877),
+                    letterSpacing = 1.sp,
+                )
+            },
+            navigationIcon = {
+                IconButton(onClick = { navController.navigateUp() }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.content_description_back),
+                        tint = Color(0xFFE8C877),
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.content_description_back),
-                            tint = Color(0xFFE8C877),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF17110A),
-                    titleContentColor = Color(0xFFE8C877),
-                ),
-            )
-        }
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Color(0xFF17110A),
+                titleContentColor = Color(0xFFE8C877),
+            ),
+        )
     }
 
     val context = LocalContext.current
@@ -168,243 +141,60 @@ fun CoreSettingsScreen(navController: NavController) {
         }
     }
 
-    if (!isTv) {
-        // ── PHONE: Dark-Fantasy kit ──────────────────────────────────────────
-        FantasyScreenBackground {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                // Version info — long-press to copy
-                Box {
-                    FantasyListRow(
-                        title = stringResource(R.string.core_version_title),
-                        subtitle = version,
-                        icon = Icons.Outlined.Info,
-                        modifier = Modifier.combinedClickable(
-                            onClick = {},
-                            onLongClick = { showVersionMenu = true },
-                        ),
-                    )
-                    Box(modifier = Modifier.align(Alignment.BottomEnd)) {
-                        DropdownMenu(
-                            expanded = showVersionMenu,
-                            onDismissRequest = { showVersionMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.per_app_proxy_action_copy)) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Filled.ContentCopy,
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = copyVersion,
-                            )
-                        }
-                    }
-                }
-
-                // Data size
-                FantasyListRow(
-                    title = stringResource(R.string.core_data_size),
-                    subtitle = dataSize.ifEmpty { stringResource(R.string.calculating) },
-                    icon = Icons.Outlined.Storage,
-                )
-
-                if (version.contains("-")) {
-                    Spacer(Modifier.height(6.dp))
-                    SectionLabel(stringResource(R.string.beta_settings).uppercase(), wood = true)
-                    FantasyListRow(
-                        title = stringResource(R.string.disable_deprecated_warnings),
-                        icon = Icons.Outlined.WarningAmber,
-                        trailing = {
-                            FantasyToggle(
-                                checked = disableDeprecatedWarnings,
-                                onCheckedChange = { checked ->
-                                    disableDeprecatedWarnings = checked
-                                    scope.launch(Dispatchers.IO) {
-                                        Settings.disableDeprecatedWarnings = checked
-                                    }
-                                },
-                            )
-                        },
-                    )
-                }
-
-                // Working directory section
-                Spacer(Modifier.height(6.dp))
-                SectionLabel(stringResource(R.string.working_directory).uppercase(), wood = true)
-
-                FantasyListRow(
-                    title = stringResource(R.string.browse),
-                    icon = Icons.Outlined.FolderOpen,
-                    onClick = { openInFileManager(context) },
-                )
-                FantasyListRow(
-                    title = stringResource(R.string.destroy),
-                    icon = Icons.Outlined.DeleteForever,
-                    iconTint = MaterialTheme.colorScheme.error,
-                    onClick = onDestroy,
-                )
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-        return
-    }
-
-    // ── TV: original Material3 layout (unchanged) ────────────────────────────
-    Column(
-        modifier =
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp),
-    ) {
-        // Core Information Card
-        Card(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
+    // ── Dark-Fantasy kit ─────────────────────────────────────────────────────
+    FantasyScreenBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column {
-                // Version Info
-                Box {
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                stringResource(R.string.core_version_title),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                        },
-                        supportingContent = {
-                            Text(
-                                version,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        },
-                        leadingContent = {
-                            Icon(
-                                imageVector = Icons.Outlined.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                            .combinedClickable(
-                                onClick = {},
-                                onLongClick = { showVersionMenu = true },
-                            ),
-                        colors =
-                        ListItemDefaults.colors(
-                            containerColor = Color.Transparent,
-                        ),
-                    )
-                    Box(modifier = Modifier.align(Alignment.BottomEnd)) {
-                        DropdownMenu(
-                            expanded = showVersionMenu,
-                            onDismissRequest = { showVersionMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.per_app_proxy_action_copy)) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Filled.ContentCopy,
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = copyVersion,
-                            )
-                        }
-                    }
-                }
-
-                // Data Size
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            stringResource(R.string.core_data_size),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            dataSize.ifEmpty { stringResource(R.string.calculating) },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    },
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Outlined.Storage,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                    modifier =
-                    Modifier.clip(
-                        RoundedCornerShape(
-                            bottomStart = 12.dp,
-                            bottomEnd = 12.dp,
-                        ),
-                    ),
-                    colors =
-                    ListItemDefaults.colors(
-                        containerColor = Color.Transparent,
+            // Version info — long-press to copy
+            Box {
+                FantasyListRow(
+                    title = stringResource(R.string.core_version_title),
+                    subtitle = version,
+                    icon = Icons.Outlined.Info,
+                    modifier = Modifier.combinedClickable(
+                        onClick = {},
+                        onLongClick = { showVersionMenu = true },
                     ),
                 )
+                Box(modifier = Modifier.align(Alignment.BottomEnd)) {
+                    DropdownMenu(
+                        expanded = showVersionMenu,
+                        onDismissRequest = { showVersionMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.per_app_proxy_action_copy)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.ContentCopy,
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = copyVersion,
+                        )
+                    }
+                }
             }
-        }
 
-        if (version.contains("-")) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = stringResource(R.string.beta_settings),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+            // Data size
+            FantasyListRow(
+                title = stringResource(R.string.core_data_size),
+                subtitle = dataSize.ifEmpty { stringResource(R.string.calculating) },
+                icon = Icons.Outlined.Storage,
             )
 
-            Card(
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                colors =
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
-            ) {
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            stringResource(R.string.disable_deprecated_warnings),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    },
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Outlined.WarningAmber,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    },
-                    trailingContent = {
-                        Switch(
+            if (version.contains("-")) {
+                Spacer(Modifier.height(6.dp))
+                SectionLabel(stringResource(R.string.beta_settings).uppercase(), wood = true)
+                FantasyListRow(
+                    title = stringResource(R.string.disable_deprecated_warnings),
+                    icon = Icons.Outlined.WarningAmber,
+                    trailing = {
+                        FantasyToggle(
                             checked = disableDeprecatedWarnings,
                             onCheckedChange = { checked ->
                                 disableDeprecatedWarnings = checked
@@ -414,90 +204,26 @@ fun CoreSettingsScreen(navController: NavController) {
                             },
                         )
                     },
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp)),
-                    colors =
-                    ListItemDefaults.colors(
-                        containerColor = Color.Transparent,
-                    ),
                 )
             }
-        }
 
-        // Working Directory Section
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = stringResource(R.string.working_directory),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
-        )
+            // Working directory section
+            Spacer(Modifier.height(6.dp))
+            SectionLabel(stringResource(R.string.working_directory).uppercase(), wood = true)
 
-        // Working Directory Card
-        Card(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        ) {
-            // Browse
-            ListItem(
-                headlineContent = {
-                    Text(
-                        stringResource(R.string.browse),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                },
-                leadingContent = {
-                    Icon(
-                        imageVector = Icons.Outlined.FolderOpen,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                },
-                modifier =
-                Modifier
-                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-                    .clickable {
-                        openInFileManager(context)
-                    },
-                colors =
-                ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                ),
+            FantasyListRow(
+                title = stringResource(R.string.browse),
+                icon = Icons.Outlined.FolderOpen,
+                onClick = { openInFileManager(context) },
             )
-
-            // Destroy
-            ListItem(
-                headlineContent = {
-                    Text(
-                        stringResource(R.string.destroy),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                },
-                leadingContent = {
-                    Icon(
-                        imageVector = Icons.Outlined.DeleteForever,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                },
-                modifier =
-                Modifier
-                    .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
-                    .clickable { onDestroy() },
-                colors =
-                ListItemDefaults.colors(
-                    containerColor = Color.Transparent,
-                ),
+            FantasyListRow(
+                title = stringResource(R.string.destroy),
+                icon = Icons.Outlined.DeleteForever,
+                iconTint = MaterialTheme.colorScheme.error,
+                onClick = onDestroy,
             )
+            Spacer(Modifier.height(16.dp))
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

@@ -130,7 +130,7 @@ fun TrialScreen(
                 label = if (busy) "Активируем…" else "Получить 2 дня",
                 onClick = { if (nick.isNotBlank() && !busy) viewModel.activate(nick) },
                 accent = NeonGreen,
-                wood = !isTv,
+                wood = true,
                 modifier = Modifier.widthIn(min = 240.dp),
             )
 

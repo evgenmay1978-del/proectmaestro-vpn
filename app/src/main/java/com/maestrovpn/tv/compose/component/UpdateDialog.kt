@@ -4,17 +4,13 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
-import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -50,75 +45,40 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
         onDismiss()
     }
 
-    if (rememberIsTv()) {
-        // ── TV: Material dialog (unchanged) ──
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text(stringResource(R.string.check_update)) },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        text = stringResource(R.string.new_version_available, updateInfo.versionName),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (processedNotes != null) {
-                        Spacer(Modifier.height(12.dp))
-                        MarkdownText(
-                            markdown = processedNotes,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { onDismiss(); onUpdate() }) { Text(stringResource(R.string.update)) }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = viewRelease) { Text(stringResource(R.string.view_release)) }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
-                }
-            },
+    // ── Dark-Fantasy modal (phone + TV) ──
+    FantasyDialog(onDismiss = onDismiss, title = stringResource(R.string.check_update)) {
+        Text(
+            text = stringResource(R.string.new_version_available, updateInfo.versionName),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFFECE2CC),
         )
-    } else {
-        // ── PHONE: Dark-Fantasy modal ──
-        FantasyDialog(onDismiss = onDismiss, title = stringResource(R.string.check_update)) {
-            Text(
-                text = stringResource(R.string.new_version_available, updateInfo.versionName),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFECE2CC),
-            )
-            if (processedNotes != null) {
-                Spacer(Modifier.height(12.dp))
-                Box(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
-                    MarkdownText(
-                        markdown = processedNotes,
-                        style = MaterialTheme.typography.bodySmall.copy(color = MaestroSilver),
-                    )
-                }
+        if (processedNotes != null) {
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+                MarkdownText(
+                    markdown = processedNotes,
+                    style = MaterialTheme.typography.bodySmall.copy(color = MaestroSilver),
+                )
             }
-            Spacer(Modifier.height(18.dp))
-            GlossyButton(
-                label = stringResource(R.string.update),
-                onClick = { onDismiss(); onUpdate() },
-                accent = NeonGreen,
-                wood = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                TextButton(onClick = viewRelease) {
-                    Text(stringResource(R.string.view_release), color = GoldMid, fontWeight = FontWeight.Medium)
-                }
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(android.R.string.cancel), color = GoldMid.copy(alpha = 0.7f))
-                }
+        }
+        Spacer(Modifier.height(18.dp))
+        GlossyButton(
+            label = stringResource(R.string.update),
+            onClick = { onDismiss(); onUpdate() },
+            accent = NeonGreen,
+            wood = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            TextButton(onClick = viewRelease) {
+                Text(stringResource(R.string.view_release), color = GoldMid, fontWeight = FontWeight.Medium)
+            }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(android.R.string.cancel), color = GoldMid.copy(alpha = 0.7f))
             }
         }
     }

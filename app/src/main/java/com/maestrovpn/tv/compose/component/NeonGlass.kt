@@ -93,10 +93,11 @@ internal fun chromeBezelBrush(selected: Boolean = false): Brush =
         )
     }
 
-// ── PHONE-ONLY wood/gold variants (derived from the эскиз). These are NEVER used on TV: only
-// phone call sites pass wood=true. TV keeps glassBrush()/chromeBezelBrush() byte-for-byte. ──
+// ── Wood/gold variants (derived from the эскиз). С ТВ-редизайна 2026-07-09 wood=true на ВСЕХ
+// поверхностях (телефон + ТВ, единый Dark-Fantasy стиль); glass/chrome остаются wood=false
+// fallback-ом. ──
 
-/** Dark carved-wood tile fill (lit top → shadowed bottom) — the phone plate face. */
+/** Dark carved-wood tile fill (lit top → shadowed bottom) — the plate face. */
 internal fun woodBrush() = Brush.verticalGradient(listOf(WoodTileTop, WoodTileBottom))
 
 /**
@@ -441,8 +442,8 @@ fun NeonAccountCard(
     }
 }
 
-/** Spaced uppercase section label ("ПРОТОКОЛ", "КОНТАКТЫ"). On phone (wood) it reads GOLD to
- *  match the carved-wood frame; on TV it stays silver. */
+/** Spaced uppercase section label ("ПРОТОКОЛ", "КОНТАКТЫ"). With wood=true (phone + TV — единый
+ *  Dark-Fantasy стиль) it reads GOLD to match the carved-wood frame; silver otherwise. */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier, wood: Boolean = false) {
     Text(

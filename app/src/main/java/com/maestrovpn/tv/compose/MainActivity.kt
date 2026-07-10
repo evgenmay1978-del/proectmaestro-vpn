@@ -88,6 +88,9 @@ import io.nekohasekai.libbox.Libbox
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.R
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import com.maestrovpn.tv.bg.BoxService
 import com.maestrovpn.tv.bg.CrashReportManager
 import com.maestrovpn.tv.bg.OOMReportManager
@@ -909,6 +912,17 @@ class MainActivity :
                     .fillMaxSize()
                     .padding(paddingValues),
             ) {
+                // Единый ТВ-фон: тёмное резное дерево эскиза ЗА всеми экранами (телефон рисует свой
+                // портретный oak_bg сам; home full-bleed перекрывает). Даёт всем ТВ-экранам общий
+                // дерево-фон вместо near-black → единый стиль с главным эскизом.
+                if (isTelevision(this@MainActivity)) {
+                    Image(
+                        painter = painterResource(R.drawable.tv_wood_bg),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
                 // Service Status Bar (shown when service is running or stopping);
                 // remote control replaces it with the remote session bar.
                 val serviceRunning =

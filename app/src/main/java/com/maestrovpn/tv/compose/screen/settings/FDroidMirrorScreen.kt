@@ -3,7 +3,6 @@ package com.maestrovpn.tv.compose.screen.settings
 import android.webkit.URLUtil
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,26 +16,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -53,7 +41,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -64,7 +51,6 @@ import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.fantasy.FantasyListRow
 import com.maestrovpn.tv.compose.fantasy.FantasyScreenBackground
 import com.maestrovpn.tv.compose.fantasy.FantasyTextField
-import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldHi
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -87,49 +73,32 @@ private data class MirrorEntry(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FDroidMirrorScreen(navController: NavController) {
-    val isTv = rememberIsTv()
-
     OverrideTopBar {
-        if (!isTv) {
-            // ── PHONE: oak top bar + Playfair gold title ──
-            TopAppBar(
-                title = {
-                    Text(
-                        stringResource(R.string.fdroid_mirror),
-                        fontFamily = PlayfairFamily,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE8C877),
-                        letterSpacing = 1.sp,
+        // ── oak top bar + Playfair gold title ──
+        TopAppBar(
+            title = {
+                Text(
+                    stringResource(R.string.fdroid_mirror),
+                    fontFamily = PlayfairFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFE8C877),
+                    letterSpacing = 1.sp,
+                )
+            },
+            navigationIcon = {
+                IconButton(onClick = { navController.navigateUp() }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.content_description_back),
+                        tint = GoldHi,
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.content_description_back),
-                            tint = GoldHi,
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF17110A),
-                    titleContentColor = Color(0xFFE8C877),
-                ),
-            )
-        } else {
-            // ── TV: Material top bar (unchanged) ──
-            TopAppBar(
-                title = { Text(stringResource(R.string.fdroid_mirror)) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.content_description_back),
-                        )
-                    }
-                },
-            )
-        }
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Color(0xFF17110A),
+                titleContentColor = Color(0xFFE8C877),
+            ),
+        )
     }
 
     val scope = rememberCoroutineScope()
@@ -231,61 +200,36 @@ fun FDroidMirrorScreen(navController: NavController) {
     }
     val countryOrder = remember(grouped) { grouped.keys.toList() }
 
-    if (!isTv) {
-        // ══════════════ PHONE: Dark-Fantasy ══════════════
-        FantasyScreenBackground {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                GlossyButton(
-                    label = if (isTesting) {
-                        stringResource(R.string.fdroid_mirror_testing)
-                    } else {
-                        stringResource(R.string.fdroid_mirror_test_all)
-                    },
-                    onClick = { if (!isTesting) testAllMirrors() },
-                    accent = NeonGreen,
-                    icon = if (isTesting) null else Icons.Outlined.Speed,
-                    wood = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+    // ══════════════ Dark-Fantasy ══════════════
+    FantasyScreenBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            GlossyButton(
+                label = if (isTesting) {
+                    stringResource(R.string.fdroid_mirror_testing)
+                } else {
+                    stringResource(R.string.fdroid_mirror_test_all)
+                },
+                onClick = { if (!isTesting) testAllMirrors() },
+                accent = NeonGreen,
+                icon = if (isTesting) null else Icons.Outlined.Speed,
+                wood = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-                countryOrder.forEach { country ->
-                    val mirrors = grouped[country] ?: return@forEach
+            countryOrder.forEach { country ->
+                val mirrors = grouped[country] ?: return@forEach
 
-                    SectionLabel(country.uppercase(), wood = true)
+                SectionLabel(country.uppercase(), wood = true)
 
-                    mirrors.forEach { mirror ->
-                        FantasyListRow(
-                            title = mirror.name,
-                            icon = null,
-                            onClick = { selectMirror(mirror.url) },
-                            trailing = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    FantasyLatencyBadge(
-                                        url = mirror.url,
-                                        latencyResults = latencyResults,
-                                        latencyErrors = latencyErrors,
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                    SelectionDot(selected = selectedMirrorUrl == mirror.url)
-                                }
-                            },
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(6.dp))
-                SectionLabel(stringResource(R.string.fdroid_mirror_custom).uppercase(), wood = true)
-
-                parsedCustomMirrors.forEach { mirror ->
+                mirrors.forEach { mirror ->
                     FantasyListRow(
                         title = mirror.name,
-                        subtitle = mirror.url,
                         icon = null,
                         onClick = { selectMirror(mirror.url) },
                         trailing = {
@@ -295,303 +239,82 @@ fun FDroidMirrorScreen(navController: NavController) {
                                     latencyResults = latencyResults,
                                     latencyErrors = latencyErrors,
                                 )
-                                Spacer(Modifier.width(6.dp))
-                                IconButton(onClick = { deleteCustomMirror(mirror) }) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Delete,
-                                        contentDescription = stringResource(R.string.fdroid_mirror_delete),
-                                        tint = Color(0xFFE5484D),
-                                    )
-                                }
-                                Spacer(Modifier.width(4.dp))
+                                Spacer(Modifier.width(10.dp))
                                 SelectionDot(selected = selectedMirrorUrl == mirror.url)
                             }
                         },
                     )
                 }
-
-                if (showAddForm) {
-                    FantasyTextField(
-                        value = newMirrorName,
-                        onValueChange = { newMirrorName = it },
-                        placeholder = stringResource(R.string.fdroid_mirror_name_hint),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FantasyTextField(
-                        value = newMirrorUrl,
-                        onValueChange = {
-                            newMirrorUrl = it
-                            urlError = null
-                        },
-                        placeholder = stringResource(R.string.fdroid_mirror_url_hint),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    urlError?.let {
-                        Text(it, color = Color(0xFFE5484D), fontSize = 13.sp)
-                    }
-                    GlossyButton(
-                        label = stringResource(R.string.fdroid_mirror_add_action),
-                        onClick = { addCustomMirror() },
-                        accent = NeonGreen,
-                        wood = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    FantasyListRow(
-                        title = stringResource(R.string.fdroid_mirror_add),
-                        icon = Icons.Outlined.Add,
-                        onClick = { showAddForm = true },
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-    } else {
-        // ══════════════ TV: Material (unchanged) ══════════════
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface)
-                .verticalScroll(rememberScrollState())
-                .padding(vertical = 8.dp),
-        ) {
-            FilledTonalButton(
-                onClick = { testAllMirrors() },
-                enabled = !isTesting,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-            ) {
-                if (isTesting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.fdroid_mirror_testing))
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.Speed,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.fdroid_mirror_test_all))
-                }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
+            SectionLabel(stringResource(R.string.fdroid_mirror_custom).uppercase(), wood = true)
 
-            countryOrder.forEach { country ->
-                val mirrors = grouped[country] ?: return@forEach
-
-                Text(
-                    text = country,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
-                )
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-                ) {
-                    Column {
-                        mirrors.forEachIndexed { index, mirror ->
-                            val shape = when {
-                                mirrors.size == 1 -> RoundedCornerShape(12.dp)
-                                index == 0 -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-                                index == mirrors.lastIndex -> RoundedCornerShape(
-                                    bottomStart = 12.dp,
-                                    bottomEnd = 12.dp,
-                                )
-                                else -> RoundedCornerShape(0.dp)
-                            }
-                            ListItem(
-                                headlineContent = {
-                                    Text(
-                                        mirror.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                    )
-                                },
-                                leadingContent = {
-                                    RadioButton(
-                                        selected = selectedMirrorUrl == mirror.url,
-                                        onClick = { selectMirror(mirror.url) },
-                                    )
-                                },
-                                trailingContent = {
-                                    LatencyBadge(
-                                        url = mirror.url,
-                                        latencyResults = latencyResults,
-                                        latencyErrors = latencyErrors,
-                                    )
-                                },
-                                modifier = Modifier
-                                    .clip(shape)
-                                    .clickable { selectMirror(mirror.url) },
-                                colors = ListItemDefaults.colors(
-                                    containerColor = Color.Transparent,
-                                ),
+            parsedCustomMirrors.forEach { mirror ->
+                FantasyListRow(
+                    title = mirror.name,
+                    subtitle = mirror.url,
+                    icon = null,
+                    onClick = { selectMirror(mirror.url) },
+                    trailing = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FantasyLatencyBadge(
+                                url = mirror.url,
+                                latencyResults = latencyResults,
+                                latencyErrors = latencyErrors,
                             )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            Text(
-                text = stringResource(R.string.fdroid_mirror_custom),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
-            )
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
-            ) {
-                Column {
-                    parsedCustomMirrors.forEachIndexed { index, mirror ->
-                        val isLast = index == parsedCustomMirrors.lastIndex && !showAddForm
-                        val shape = when {
-                            index == 0 && isLast -> RoundedCornerShape(12.dp)
-                            index == 0 -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-                            isLast -> RoundedCornerShape(
-                                bottomStart = 12.dp,
-                                bottomEnd = 12.dp,
-                            )
-                            else -> RoundedCornerShape(0.dp)
-                        }
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    mirror.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
-                            },
-                            supportingContent = {
-                                Text(
-                                    mirror.url,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            },
-                            leadingContent = {
-                                RadioButton(
-                                    selected = selectedMirrorUrl == mirror.url,
-                                    onClick = { selectMirror(mirror.url) },
-                                )
-                            },
-                            trailingContent = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    LatencyBadge(
-                                        url = mirror.url,
-                                        latencyResults = latencyResults,
-                                        latencyErrors = latencyErrors,
-                                    )
-                                    IconButton(onClick = { deleteCustomMirror(mirror) }) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Delete,
-                                            contentDescription = stringResource(R.string.fdroid_mirror_delete),
-                                            tint = MaterialTheme.colorScheme.error,
-                                        )
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .clip(shape)
-                                .clickable { selectMirror(mirror.url) },
-                            colors = ListItemDefaults.colors(
-                                containerColor = Color.Transparent,
-                            ),
-                        )
-                    }
-
-                    if (showAddForm) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            OutlinedTextField(
-                                value = newMirrorName,
-                                onValueChange = { newMirrorName = it },
-                                label = { Text(stringResource(R.string.fdroid_mirror_name_hint)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            OutlinedTextField(
-                                value = newMirrorUrl,
-                                onValueChange = {
-                                    newMirrorUrl = it
-                                    urlError = null
-                                },
-                                label = { Text(stringResource(R.string.fdroid_mirror_url_hint)) },
-                                singleLine = true,
-                                isError = urlError != null,
-                                supportingText = urlError?.let { { Text(it) } },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Button(onClick = { addCustomMirror() }) {
-                                    Text(stringResource(R.string.fdroid_mirror_add_action))
-                                }
-                            }
-                        }
-                    } else {
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    stringResource(R.string.fdroid_mirror_add),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            leadingContent = {
+                            Spacer(Modifier.width(6.dp))
+                            IconButton(onClick = { deleteCustomMirror(mirror) }) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Add,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = stringResource(R.string.fdroid_mirror_delete),
+                                    tint = Color(0xFFE5484D),
                                 )
-                            },
-                            modifier = Modifier
-                                .clip(
-                                    if (parsedCustomMirrors.isEmpty()) {
-                                        RoundedCornerShape(12.dp)
-                                    } else {
-                                        RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
-                                    },
-                                )
-                                .clickable { showAddForm = true },
-                            colors = ListItemDefaults.colors(
-                                containerColor = Color.Transparent,
-                            ),
-                        )
-                    }
-                }
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            SelectionDot(selected = selectedMirrorUrl == mirror.url)
+                        }
+                    },
+                )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            if (showAddForm) {
+                FantasyTextField(
+                    value = newMirrorName,
+                    onValueChange = { newMirrorName = it },
+                    placeholder = stringResource(R.string.fdroid_mirror_name_hint),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FantasyTextField(
+                    value = newMirrorUrl,
+                    onValueChange = {
+                        newMirrorUrl = it
+                        urlError = null
+                    },
+                    placeholder = stringResource(R.string.fdroid_mirror_url_hint),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                urlError?.let {
+                    Text(it, color = Color(0xFFE5484D), fontSize = 13.sp)
+                }
+                GlossyButton(
+                    label = stringResource(R.string.fdroid_mirror_add_action),
+                    onClick = { addCustomMirror() },
+                    accent = NeonGreen,
+                    wood = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                FantasyListRow(
+                    title = stringResource(R.string.fdroid_mirror_add),
+                    icon = Icons.Outlined.Add,
+                    onClick = { showAddForm = true },
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
@@ -644,37 +367,6 @@ private fun FantasyLatencyBadge(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color(0xFFE5484D),
-            )
-        }
-        else -> {}
-    }
-}
-
-@Composable
-private fun LatencyBadge(
-    url: String,
-    latencyResults: Map<String, Int>,
-    latencyErrors: Map<String, Boolean>,
-) {
-    val latency = latencyResults[url]
-    val failed = latencyErrors[url] == true
-    when {
-        latency != null -> {
-            Text(
-                text = stringResource(R.string.fdroid_mirror_latency, latency),
-                style = MaterialTheme.typography.labelMedium,
-                color = when {
-                    latency < 100 -> MaterialTheme.colorScheme.primary
-                    latency < 500 -> MaterialTheme.colorScheme.onSurfaceVariant
-                    else -> MaterialTheme.colorScheme.error
-                },
-            )
-        }
-        failed -> {
-            Text(
-                text = stringResource(R.string.fdroid_mirror_failed),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error,
             )
         }
         else -> {}
