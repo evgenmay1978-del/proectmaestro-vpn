@@ -35,20 +35,25 @@ class InstallResultReceiver : BroadcastReceiver() {
                 }
                 confirmIntent?.let {
                     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    // Background-activity-start restrictions (Android 10+) silently drop this
-                    // when we're not foreground; the waiter's timeout then reports it instead
-                    // of the old behavior — pretending the install succeeded.
+                    // Park the confirm first: background-activity-start restrictions
+                    // (Android 10+) silently DROP the startActivity below when we're not
+                    // foreground (worker-committed installs) — MainActivity re-fires the
+                    // parked Intent on the next resume, so the install completes in place
+                    // the moment the user opens the app instead of looping another cycle.
+                    UpdateState.pendingConfirmIntent.value = it
                     runCatching { context.startActivity(it) }
                         .onFailure { e -> Log.w(TAG, "confirm intent blocked", e) }
                 }
             }
             PackageInstaller.STATUS_SUCCESS -> {
                 Log.d(TAG, "Installation successful")
+                UpdateState.pendingConfirmIntent.value = null
                 UpdateState.setInstallStatus(UpdateState.InstallStatus.Success)
                 SystemPackageInstaller.onInstallResult(sessionId, status, message)
             }
             else -> {
                 Log.e(TAG, "Installation failed: $status - $message")
+                UpdateState.pendingConfirmIntent.value = null
                 UpdateState.setInstallStatus(UpdateState.InstallStatus.Failed(message ?: "Unknown error"))
                 SystemPackageInstaller.onInstallResult(sessionId, status, message)
             }

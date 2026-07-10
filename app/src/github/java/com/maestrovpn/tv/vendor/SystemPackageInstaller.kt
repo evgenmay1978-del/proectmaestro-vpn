@@ -37,6 +37,14 @@ object SystemPackageInstaller {
 
     suspend fun install(context: Context, apkFile: File) {
         val packageInstaller = context.packageManager.packageInstaller
+        // Clients stuck in the old loop piled up committed-but-never-confirmed sessions, and
+        // the framework caps active sessions per app — createSession eventually starts
+        // throwing. This attempt supersedes anything older, so drop our stale sessions first.
+        runCatching {
+            packageInstaller.mySessions.forEach { stale ->
+                runCatching { packageInstaller.abandonSession(stale.sessionId) }
+            }
+        }
         val params = AndroidPackageInstaller.SessionParams(AndroidPackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(context.packageName)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -73,7 +81,10 @@ object SystemPackageInstaller {
             val result = try {
                 withTimeout(RESULT_TIMEOUT_MS) { waiter.await() }
             } catch (e: TimeoutCancellationException) {
-                runCatching { packageInstaller.abandonSession(sessionId) }
+                // Do NOT abandon the session: it is parked on the system confirm dialog
+                // (UpdateState.pendingConfirmIntent) and MainActivity completes it on the
+                // next foreground — abandoning here would throw that work away. Stale
+                // leftovers are swept at the start of the next install() anyway.
                 throw IOException(
                     "Установка не была подтверждена. Откройте приложение и подтвердите обновление.",
                 )

@@ -52,6 +52,32 @@ object ApkInstaller {
     }
 
     /**
+     * The method that can ACTUALLY install right now. The configured silent method is a
+     * preference, not a guarantee — on Android <12 the default was SHIZUKU, which no client
+     * box actually has, so EVERY install (including the manual «Обновить») died on a dead
+     * Shizuku binder while the system package installer sat unused. Never let an unavailable
+     * helper block the universal PACKAGE_INSTALLER path (works on every device, shows the
+     * system confirm when it must).
+     */
+    private suspend fun resolveUsableMethod(): InstallMethod = when (val m = getConfiguredMethod()) {
+        InstallMethod.SHIZUKU ->
+            if (ShizukuInstaller.isAvailable() && ShizukuInstaller.checkPermission()) {
+                m
+            } else {
+                Log.w(TAG, "Shizuku configured but unavailable — falling back to PACKAGE_INSTALLER")
+                InstallMethod.PACKAGE_INSTALLER
+            }
+        InstallMethod.ROOT ->
+            if (RootClient.checkRootAvailable()) {
+                m
+            } else {
+                Log.w(TAG, "ROOT configured but unavailable — falling back to PACKAGE_INSTALLER")
+                InstallMethod.PACKAGE_INSTALLER
+            }
+        InstallMethod.PACKAGE_INSTALLER -> m
+    }
+
+    /**
      * Validate the downloaded archive BEFORE touching the VPN or the package installer.
      * This is the anti-loop gate: if the "update" the channel served is actually the same
      * or an older build (broken manifest, stale mirror, wrong asset), installing it can
@@ -84,7 +110,8 @@ object ApkInstaller {
         }
     }
 
-    suspend fun install(context: Context, apkFile: File, method: InstallMethod = getConfiguredMethod()) {
+    suspend fun install(context: Context, apkFile: File, requestedMethod: InstallMethod? = null) {
+        val method = requestedMethod ?: resolveUsableMethod()
         // The versionCode this attempt is trying to reach, for the failure damper — the
         // manifest's claim, because that is the key the checkers re-offer the update under.
         val targetVersionCode = UpdateState.updateInfo.value?.versionCode ?: 0
