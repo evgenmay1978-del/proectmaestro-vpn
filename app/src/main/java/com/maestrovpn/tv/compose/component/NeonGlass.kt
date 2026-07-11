@@ -13,7 +13,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -22,11 +21,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -115,6 +120,28 @@ internal fun goldBezelBrush(selected: Boolean = false): Brush =
 /** Plate face brush: wood on phone, glass on TV. */
 private fun plateBrush(wood: Boolean) = if (wood) woodBrush() else glassBrush()
 
+/**
+ * Чёткая ТВ-фокус-рамка: тонкий акцентный контур внутри плиты, БЕЗ blur-глоу и вуали
+ * (цветные elevation-тени + state-layer M3-кнопки давали «зелёный засвет» и артефакты
+ * на ТВ — фото владельца 2026-07-11). [alpha] — лямбда, чтобы анимация не трогала композицию.
+ */
+private fun Modifier.focusFrame(alpha: () -> Float, color: Color, cornerRadius: Dp): Modifier =
+    drawWithContent {
+        drawContent()
+        val a = alpha()
+        if (a > 0.01f) {
+            val inset = 4.dp.toPx()
+            val rad = cornerRadius.toPx()
+            drawRoundRect(
+                color = color.copy(alpha = a),
+                topLeft = Offset(inset, inset),
+                size = Size(size.width - 2 * inset, size.height - 2 * inset),
+                cornerRadius = CornerRadius(rad, rad),
+                style = Stroke(width = 2.dp.toPx()),
+            )
+        }
+    }
+
 /** Bezel brush: gold on phone, chrome on TV. */
 private fun bezelBrush(wood: Boolean, selected: Boolean = false) =
     if (wood) goldBezelBrush(selected) else chromeBezelBrush(selected)
@@ -141,34 +168,29 @@ fun NeonChip(
     val focused by interaction.collectIsFocusedAsState()
     val pressed by interaction.collectIsPressedAsState()
     val accent = if (selected) MaestroOrange else NeonGreen
-    // glow: neutral dark at rest (chrome reads clean), accent only on focus / selection
-    val glow = if (selected) MaestroOrange else if (focused) NeonGreen else Color.Black
     val scale by animateFloatAsState(
-        if (pressed) 0.97f else if (focused) 1.06f else 1f,
+        if (pressed) 0.97f else if (focused) 1.04f else 1f,
         tween(140, easing = FastOutSlowInEasing), label = "chipScale",
     )
-    Button(
-        onClick = onClick,
-        shape = shape,
-        interactionSource = interaction,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+    // ТВ-фокус «как в хороших приложениях»: ЧЁТКАЯ тонкая рамка-акцент по форме чипа.
+    // Раньше были цветная blur-тень (зелёный засвет вокруг) + белёсый state-layer
+    // M3-кнопки поверх текста — на ТВ это читалось как артефакты (фото владельца 2026-07-11).
+    val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "chipFocus")
+    Box(
+        contentAlignment = Alignment.CenterStart,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (locked) 0.55f else 1f }
-            .shadow(
-                elevation = if (focused) 16.dp else if (selected) 12.dp else 6.dp,
-                shape = shape,
-                clip = false,
-                ambientColor = glow,
-                spotColor = glow,
-            )
+            .shadow(6.dp, shape, clip = false) // нейтральная глубина, БЕЗ цветного глоу
             .then(
-                // PHONE (wood) → real sliced aged-bronze NinePatch from the эскиз; TV → glass/chrome (unchanged).
+                // wood → настоящий бронзовый NinePatch из эскиза; TV-glass/chrome fallback без изменений.
                 if (wood) Modifier.fantasyFrame(R.drawable.frame_button, selected)
                 else Modifier.background(plateBrush(false), shape)
-                    .border(if (focused) 2.dp else 1.5.dp, bezelBrush(false, selected), shape),
-            ),
+                    .border(1.5.dp, bezelBrush(false, selected), shape),
+            )
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .focusFrame({ focusAlpha }, accent, cornerRadius = 12.dp)
+            .defaultMinSize(minWidth = 58.dp, minHeight = 40.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         // Icon LEFT + text LEFT-aligned across the full width (matches the эскиз — not centered).
         Row(
@@ -241,43 +263,38 @@ fun GlossyButton(
     val focused by interaction.collectIsFocusedAsState()
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed) 0.96f else if (focused) 1.05f else 1f,
+        if (pressed) 0.96f else if (focused) 1.04f else 1f,
         tween(140, easing = FastOutSlowInEasing), label = "glossyScale",
     )
+    val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "glossyFocus")
     val brush = Brush.verticalGradient(
         listOf(lerp(accent, Color.White, 0.42f), accent, lerp(accent, Color.Black, 0.34f)),
     )
     // Эталон owner (телефон/дерево): текст и иконка CTA — кремово-золотые, не белые.
     val content = if (wood) Color(0xFFEFE0B0) else Color.White
-    Button(
-        onClick = onClick,
-        shape = shape,
-        interactionSource = interaction,
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = content),
+    Box(
+        contentAlignment = Alignment.Center,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .shadow(
-                elevation = if (focused) 22.dp else 12.dp,
-                shape = shape,
-                clip = false,
-                ambientColor = accent,
-                spotColor = accent,
-            )
+            .shadow(12.dp, shape, clip = false) // нейтральная глубина, без цветного глоу на фокусе
             .then(
-                // PHONE (wood) → wide bronze plaque frame (accent lives in the glow + text, not a bright dome);
-                // TV → the accent-domed gradient + chrome bezel (unchanged).
+                // PHONE (wood) → wide bronze plaque frame; TV → the accent-domed gradient + chrome bezel.
                 if (wood) Modifier.fantasyFrame(R.drawable.frame_bar)
                 else Modifier.background(brush, shape)
-                    .border(if (focused) 2.5.dp else 1.5.dp, bezelBrush(false), shape),
-            ),
+                    .border(1.5.dp, bezelBrush(false), shape),
+            )
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .focusFrame({ focusAlpha }, if (wood) NeonGreen else content, cornerRadius = 14.dp)
+            .defaultMinSize(minWidth = 58.dp, minHeight = 40.dp)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(label, color = content, fontWeight = FontWeight.Bold, fontSize = 17.sp)
         }
-        Text(label, fontWeight = FontWeight.Bold, fontSize = 17.sp)
     }
 }
 
@@ -299,30 +316,24 @@ fun ChromeTile(
     val focused by interaction.collectIsFocusedAsState()
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed) 0.97f else if (focused) 1.05f else 1f,
+        if (pressed) 0.97f else if (focused) 1.04f else 1f,
         tween(140, easing = FastOutSlowInEasing), label = "tileScale",
     )
-    Button(
-        onClick = onClick,
-        shape = shape,
-        interactionSource = interaction,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+    val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "tileFocus")
+    Box(
+        contentAlignment = Alignment.Center,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .shadow(
-                elevation = if (focused) 16.dp else 6.dp,
-                shape = shape,
-                clip = false,
-                ambientColor = if (focused) NeonGreen else Color.Black,
-                spotColor = if (focused) NeonGreen else Color.Black,
-            )
+            .shadow(6.dp, shape, clip = false) // нейтральная глубина, без цветного глоу
             .then(
                 if (wood) Modifier.fantasyFrame(R.drawable.frame_button)
                 else Modifier.background(plateBrush(false), shape)
-                    .border(if (focused) 2.dp else 1.5.dp, bezelBrush(false), shape),
-            ),
+                    .border(1.5.dp, bezelBrush(false), shape),
+            )
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .focusFrame({ focusAlpha }, NeonGreen, cornerRadius = 10.dp)
+            .defaultMinSize(minWidth = 58.dp, minHeight = 40.dp)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
