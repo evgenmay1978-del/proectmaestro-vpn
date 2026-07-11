@@ -67,6 +67,8 @@ private val CtaEdge = Color(0xFFAFC14E)
  * Резная поверхность: интерьер (кора 1:1 или CTA-градиент) + процедурная бронза.
  * [focus] — лямбда 0..1 (анимируется снаружи), чтобы анимация жила только в draw-фазе.
  * [interiorDim] — доп. затемнение интерьера (поле ввода ставит больше — читаемость текста).
+ * [selected] — постоянно тёплая янтарная бронза + лёгкий тёплый заливок интерьера
+ * (выбранный протокол «Авто» на эскизе подсвечен янтарём; фокус-кольцо живёт отдельно).
  */
 fun Modifier.carvedSurface(
     barkBrush: ShaderBrush?,
@@ -74,14 +76,20 @@ fun Modifier.carvedSurface(
     cornerRadius: Dp = 18.dp,
     style: CarvedStyle = CarvedStyle.Bark,
     interiorDim: Float = 0.10f,
+    selected: Boolean = false,
 ): Modifier = drawWithContent {
     val f = focus().coerceIn(0f, 1f)
+    val warm = maxOf(f, if (selected) 0.9f else 0f)
     val rad = cornerRadius.toPx()
     // 1) интерьер
     if (style == CarvedStyle.Bark && barkBrush != null) {
         drawRoundRect(brush = barkBrush, cornerRadius = CornerRadius(rad, rad))
         if (interiorDim > 0f) {
             drawRoundRect(color = Color.Black.copy(alpha = interiorDim), cornerRadius = CornerRadius(rad, rad))
+        }
+        if (selected) {
+            // тёплый янтарный подсвет выбранной плиты (как амбер-лит «Авто» на эскизе)
+            drawRoundRect(color = Color(0xFFB86A20).copy(alpha = 0.14f), cornerRadius = CornerRadius(rad, rad))
         }
     } else {
         drawRoundRect(
@@ -108,11 +116,11 @@ fun Modifier.carvedSurface(
             )
         }
     }
-    // 2) бронза: тёмный контур → градиент-тело (теплеет при фокусе) → внутренняя тень
+    // 2) бронза: тёмный контур → градиент-тело (теплеет при фокусе/выборе) → внутренняя тень
     strokeRounded(EdgeDark, 1.dp.toPx(), 2.dp.toPx(), rad)
     strokeRounded(
         Brush.verticalGradient(
-            listOf(lerp(BronzeHi, AmberHi, f), lerp(BronzeMid, AmberMid, f), lerp(BronzeLow, AmberLow, f)),
+            listOf(lerp(BronzeHi, AmberHi, warm), lerp(BronzeMid, AmberMid, warm), lerp(BronzeLow, AmberLow, warm)),
         ),
         3.dp.toPx(), 2.2.dp.toPx(), rad,
     )

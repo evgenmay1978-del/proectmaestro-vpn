@@ -191,7 +191,7 @@ fun NeonChip(
             .shadow(6.dp, shape, clip = false) // нейтральная глубина, БЕЗ цветного глоу
             .then(
                 when {
-                    carvedTv -> Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 16.dp)
+                    carvedTv -> Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 16.dp, selected = selected)
                     // wood → настоящий бронзовый NinePatch из эскиза; TV-glass/chrome fallback без изменений.
                     wood -> Modifier.fantasyFrame(R.drawable.frame_button, selected)
                     else -> Modifier.background(plateBrush(false), shape)
