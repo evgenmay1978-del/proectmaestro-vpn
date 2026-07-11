@@ -1,5 +1,7 @@
 package com.maestrovpn.tv.compose.fantasy
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -13,7 +15,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -49,22 +50,13 @@ fun FantasyTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
     var focused by remember { mutableStateOf(false) }
+    // Фокус = чёткая тонкая рамка внутри бронзы (без изумрудного blur-глоу вокруг поля —
+    // на ТВ он читался как «засвет», фото owner 2026-07-11).
+    val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "fieldFocus")
     Box(
         modifier
-            .then(
-                if (focused) {
-                    Modifier.shadow(
-                        elevation = 12.dp,
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                        clip = false,
-                        ambientColor = NeonGreen,
-                        spotColor = NeonGreen,
-                    )
-                } else {
-                    Modifier
-                },
-            )
             .fantasyFrame(R.drawable.frame_bar)
+            .fantasyFocusFrame({ focusAlpha }, NeonGreen)
             .heightIn(min = 60.dp)
             .padding(horizontal = 24.dp, vertical = 16.dp),
         contentAlignment = Alignment.CenterStart,

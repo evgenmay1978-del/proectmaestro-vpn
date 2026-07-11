@@ -71,7 +71,10 @@ fun ClaimScreen(
         runCatching { codeFocus.requestFocus() }
     }
 
-    Surface(modifier = Modifier.fillMaxSize()) {
+    // Transparent: на ТВ под экраном лежит глобальное дерево tv_wood_bg (MainActivity) —
+    // непрозрачный Surface красил поверх него уныло-тёмную заливку темы (фото owner 2026-07-11).
+    // На телефоне фон рисует home_eskiz ниже, так что прозрачность безвредна.
+    Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
       Box(modifier = Modifier.fillMaxSize()) {
         if (!isTv) {
             Image(
@@ -120,9 +123,10 @@ fun ClaimScreen(
                 singleLine = true,
                 placeholder = "Код или логин",
                 focusRequester = codeFocus,
+                // widthIn ДО fillMaxWidth — иначе кап мёртв и поле тянулось на весь ТВ-экран
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 420.dp),
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth(),
             )
             Spacer(Modifier.height(22.dp))
 

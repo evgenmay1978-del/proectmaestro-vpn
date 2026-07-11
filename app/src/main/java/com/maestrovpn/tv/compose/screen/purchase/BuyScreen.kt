@@ -103,7 +103,9 @@ fun BuyScreen(
         )
     }
 
-    Surface(modifier = Modifier.fillMaxSize()) {
+    // Transparent: на ТВ под экраном глобальное дерево tv_wood_bg (MainActivity); непрозрачный
+    // Surface красил поверх него тёмную заливку темы. На телефоне фон рисуется Image ниже.
+    Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
       Box(modifier = Modifier.fillMaxSize()) {
         // PHONE: tiled carved-oak background (same kit as Settings). TV keeps the plain
         // green-glow theme drawn on the Column below.
