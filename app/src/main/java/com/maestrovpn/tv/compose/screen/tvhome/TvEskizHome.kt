@@ -50,15 +50,17 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
@@ -130,22 +132,12 @@ internal fun TvEskizHome(
         fun ay(y: Float) = offY + y * s
 
         // ── (1) фон off→on кроссфейдом ────────────────────────────────────────────────
-        Image(
-            painter = painterResource(R.drawable.tv_bg_off),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-        )
+        ArtImage(R.drawable.tv_bg_off, Modifier.fillMaxSize(), ContentScale.Crop)
         val onAlpha by animateFloatAsState(
             if (connected) 1f else 0f, tween(800, easing = FastOutSlowInEasing), label = "tvbg",
         )
         if (onAlpha > 0.001f) {
-            Image(
-                painter = painterResource(R.drawable.tv_bg_on),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = onAlpha },
-                contentScale = ContentScale.Crop,
-            )
+            ArtImage(R.drawable.tv_bg_on, Modifier.fillMaxSize(), ContentScale.Crop, alpha = onAlpha)
         }
 
         // ── (2) медальон-кнопка Connect (невидимая тап-зона на глазу) ─────────────────
@@ -154,25 +146,36 @@ internal fun TvEskizHome(
             connected = connected,
             onToggle = onToggleConnect,
             focusRequester = connectFocus,
+            s = s,
             modifier = Modifier
                 .offset(x = ax(TvEskizSpec.RING_CX - TvEskizSpec.RING_R).dp, y = ay(TvEskizSpec.RING_CY - TvEskizSpec.RING_R).dp)
                 .size(ringD.dp),
         )
 
         // ── (3) живой статус под медальоном (+ строка аккаунта: логин · дни · до даты) ──
-        EskizStatus(
-            statusText = statusText,
-            connected = connected,
-            activeProtocol = activeProtocol,
-            selected = selected,
-            accountLogin = accountLogin,
-            daysLeft = daysLeft,
-            accountExpires = accountExpires,
-            dotR = (TvEskizSpec.DOT_R * s).dp,
+        // Контейнер 788..936 арт-y: OFF — верхний якорь (позиция эскиза), ON — нижний
+        // (кольцо ON толще, штрих до 830 → компактный блок у низа его не касается).
+        // Низ дополнительно ограничен краем экрана, чтобы текст не резался НИКОГДА.
+        val statusTopDp = ay(TvEskizSpec.STATUS_TOP)
+        val statusBottomDp = minOf(ay(TvEskizSpec.STATUS_BOTTOM), sh - 3f)
+        Box(
             modifier = Modifier
-                .offset(x = ax(60f).dp, y = ay(TvEskizSpec.STATUS_TOP).dp)
-                .width((ax(686f) - ax(60f)).dp),
-        )
+                .offset(x = ax(60f).dp, y = statusTopDp.dp)
+                .size(width = (ax(686f) - ax(60f)).dp, height = (statusBottomDp - statusTopDp).dp),
+            contentAlignment = if (connected) Alignment.BottomCenter else Alignment.TopCenter,
+        ) {
+            EskizStatus(
+                statusText = statusText,
+                connected = connected,
+                activeProtocol = activeProtocol,
+                selected = selected,
+                accountLogin = accountLogin,
+                daysLeft = daysLeft,
+                accountExpires = accountExpires,
+                dotR = (TvEskizSpec.DOT_R * s).dp,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         // ── (4) правая скролл-панель ──────────────────────────────────────────────────
         Box(
@@ -235,36 +238,21 @@ private fun ArtBar(
         .height(h)
     if (!bar.focusable) {
         // заголовок/подпись — не фокусируется, просто картинка
-        Image(
-            painter = painterResource(bar.res),
-            contentDescription = null,
-            modifier = place,
-            contentScale = ContentScale.FillBounds,
-        )
+        ArtImage(bar.res, place, ContentScale.FillBounds)
         return
     }
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    val scale by animateFloatAsState(if (focused) 1.028f else 1f, tween(140, easing = FastOutSlowInEasing), label = "barScale")
+    // ⛔ БЕЗ scale на фокусе: кропы с фезер-полями вклеены в запечённый фон пиксель-в-пиксель,
+    // любое масштабирование двоит края (артефакты). Фокус = только чёткое кольцо.
     Box(
         modifier = place
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clickable(interactionSource = interaction, indication = null) { onClick() }
             .focusRing(focused, pill, s),
     ) {
-        Image(
-            painter = painterResource(bar.res),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds,
-        )
+        ArtImage(bar.res, Modifier.fillMaxSize(), ContentScale.FillBounds)
         if (onRes != null && onAlpha > 0.001f) {
-            Image(
-                painter = painterResource(onRes),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = onAlpha },
-                contentScale = ContentScale.FillBounds,
-            )
+            ArtImage(onRes, Modifier.fillMaxSize(), ContentScale.FillBounds, alpha = onAlpha)
         }
     }
 }
@@ -278,23 +266,31 @@ private fun ArtRow3(row: TvEskizSpec.Row3, s: Float, onClicks: List<() -> Unit>)
         val cellX = (TvEskizSpec.COL_X0 - TvEskizSpec.PANEL_X0 + i * (TvEskizSpec.CELL_W + TvEskizSpec.GUT)) * s
         val interaction = remember { MutableInteractionSource() }
         val focused by interaction.collectIsFocusedAsState()
-        val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(140, easing = FastOutSlowInEasing), label = "cellScale")
+        // без scale (см. ArtBar) — фокус только кольцом, края кропов не двоятся
         Box(
             modifier = Modifier
                 .offset(x = cellX.dp, y = (row.top * s).dp)
                 .size(width = cellW, height = cellH)
-                .graphicsLayer { scaleX = scale; scaleY = scale }
                 .clickable(interactionSource = interaction, indication = null) { onClicks.getOrNull(i)?.invoke() }
                 .focusRing(focused, pill = false, s = s),
         ) {
-            Image(
-                painter = painterResource(res),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.FillBounds,
-            )
+            ArtImage(res, Modifier.fillMaxSize(), ContentScale.FillBounds)
         }
     }
+}
+
+/** Битмап-картинка с High-фильтрацией: арт масштабируется на экран (и вверх на 4K),
+ *  дефолтный Low-фильтр Compose мылит текстуру дерева/металла. */
+@Composable
+private fun ArtImage(res: Int, modifier: Modifier, contentScale: ContentScale, alpha: Float = 1f) {
+    Image(
+        bitmap = ImageBitmap.imageResource(res),
+        contentDescription = null,
+        modifier = modifier,
+        contentScale = contentScale,
+        alpha = alpha,
+        filterQuality = FilterQuality.High,
+    )
 }
 
 /** Зелёное фокус-кольцо ПОВЕРХ арт-кнопки (внутрь запечённой рамки на ширину кроп-марджина). */
@@ -319,6 +315,7 @@ private fun MedallionButton(
     connected: Boolean,
     onToggle: () -> Unit,
     focusRequester: FocusRequester,
+    s: Float,
     modifier: Modifier,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -330,8 +327,20 @@ private fun MedallionButton(
             .clickable(interactionSource = interaction, indication = null) { onToggle() }
             .drawBehind {
                 if (focused) {
-                    val r = size.minDimension / 2f - 3.dp.toPx()
-                    drawCircle(color = ringColor, radius = r, center = center, style = Stroke(width = 3.dp.toPx()))
+                    // обводка по ВИДИМОМУ кольцу текущего состояния (чуть внутрь штриха),
+                    // а не по общей тап-зоне — иначе в ON она висела в воздухе и цепляла статус
+                    val px = s.dp.toPx() // px на один арт-пиксель
+                    val cxArt = if (connected) TvEskizSpec.RING_ON_CX else TvEskizSpec.RING_OFF_CX
+                    val cyArt = if (connected) TvEskizSpec.RING_ON_CY else TvEskizSpec.RING_OFF_CY
+                    val rArt = if (connected) TvEskizSpec.RING_ON_RVIS else TvEskizSpec.RING_OFF_RVIS
+                    val boxArtX = TvEskizSpec.RING_CX - TvEskizSpec.RING_R
+                    val boxArtY = TvEskizSpec.RING_CY - TvEskizSpec.RING_R
+                    drawCircle(
+                        color = ringColor,
+                        radius = rArt * px,
+                        center = Offset((cxArt - boxArtX) * px, (cyArt - boxArtY) * px),
+                        style = Stroke(width = 3.dp.toPx()),
+                    )
                 }
             },
     )
@@ -352,13 +361,15 @@ private fun EskizStatus(
     modifier: Modifier,
 ) {
     val stateColor = if (connected) NeonGreen else Color(0xFF9C9C9C)
+    // Компактные межстрочные (24/17/15) + зазоры 2dp: весь блок ≤ 60dp и гарантированно
+    // помещается в контейнер 788..936 в ОБОИХ состояниях (размеры шрифтов не тронуты).
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(dotR * 2f).drawBehind { drawCircle(stateColor) })
             Spacer(Modifier.width(10.dp))
             Text(
                 statusText.uppercase(),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge.copy(lineHeight = 24.sp),
                 fontWeight = FontWeight.Bold,
                 color = stateColor,
                 textAlign = TextAlign.Center,
@@ -366,12 +377,12 @@ private fun EskizStatus(
         }
         val protoMain = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
         if (!protoMain.isNullOrBlank()) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(2.dp))
             val viaAuto = selected == "auto" && protoMain != "auto"
             val prefix = if (connected) "Подключён" else "Отключён"
             Text(
                 if (viaAuto) "$prefix: ${protocolLabel(protoMain)}  •  авто" else "$prefix: ${protocolLabel(protoMain)}",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(lineHeight = 17.sp),
                 fontWeight = FontWeight.Bold,
                 color = MaestroOrange,
                 textAlign = TextAlign.Center,
@@ -392,10 +403,10 @@ private fun EskizStatus(
             }
         }.joinToString(" · ")
         if (accountLine.isNotBlank()) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(2.dp))
             Text(
                 accountLine,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall.copy(lineHeight = 15.sp),
                 fontWeight = FontWeight.Bold,
                 color = if (expired) Color(0xFFE5484D) else Color(0xFFE8C877), // GoldHi кита
                 textAlign = TextAlign.Center,

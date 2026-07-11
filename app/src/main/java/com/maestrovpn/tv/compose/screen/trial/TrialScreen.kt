@@ -67,7 +67,9 @@ fun TrialScreen(
         runCatching { nickFocus.requestFocus() }
     }
 
-    Surface(modifier = Modifier.fillMaxSize()) {
+    // Transparent: на ТВ под экраном глобальное дерево tv_wood_bg (MainActivity); непрозрачный
+    // Surface красил поверх него тёмную заливку темы. На телефоне фон рисуется Image ниже.
+    Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
       Box(modifier = Modifier.fillMaxSize()) {
         if (!isTv) {
             Image(

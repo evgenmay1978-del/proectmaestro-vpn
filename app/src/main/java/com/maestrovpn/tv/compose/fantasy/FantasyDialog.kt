@@ -1,10 +1,13 @@
 package com.maestrovpn.tv.compose.fantasy
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -14,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -55,11 +59,35 @@ fun FantasyDialog(
         // 0.92×window and its square QR box pushed the buttons off-screen. heightIn + the
         // scrollable body below keep every action reachable on short windows.
         val dialogMaxH = (LocalConfiguration.current.screenHeightDp * 0.92f).dp
+        // Собственный скрим: системный dim за диалогом на части ТВ не применяется (фото owner
+        // 2026-07-11 — фон вокруг «Поделиться» оставался ярким и спорил с модалкой). Тап по
+        // скриму закрывает (если разрешено), тап по самой панели — нет.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.62f))
+                .then(
+                    if (dismissOnClickOutside) {
+                        Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { onDismiss() }
+                    } else {
+                        Modifier
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
         Column(
             modifier
                 .widthIn(max = 460.dp)
                 .fillMaxWidth(0.92f)
                 .heightIn(max = dialogMaxH)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    enabled = false,
+                ) {}
                 .fantasyFrame(R.drawable.frame_panel)
                 .padding(horizontal = 22.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -83,6 +111,7 @@ fun FantasyDialog(
             ) {
                 content()
             }
+        }
         }
     }
 }

@@ -89,6 +89,8 @@ import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.R
 import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import com.maestrovpn.tv.bg.BoxService
@@ -916,11 +918,14 @@ class MainActivity :
                 // портретный oak_bg сам; home full-bleed перекрывает). Даёт всем ТВ-экранам общий
                 // дерево-фон вместо near-black → единый стиль с главным эскизом.
                 if (isTelevision(this@MainActivity)) {
+                    // bitmap-перегрузка ради filterQuality: High-фильтр, чтобы апскейл фона
+                    // на 4K-панель не мылил текстуру дерева (у painter-перегрузки параметра нет).
                     Image(
-                        painter = painterResource(R.drawable.tv_wood_bg),
+                        bitmap = ImageBitmap.imageResource(R.drawable.tv_wood_bg),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                     )
                 }
                 // Service Status Bar (shown when service is running or stopping);

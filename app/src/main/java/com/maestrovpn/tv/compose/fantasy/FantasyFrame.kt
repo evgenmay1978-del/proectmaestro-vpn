@@ -7,11 +7,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import kotlin.math.roundToInt
 
@@ -55,3 +62,26 @@ fun Modifier.fantasyFrame(
 
 /** Warm multiply applied to a selected bronze frame → amber-lit bezel (matches the эскиз). */
 private val SELECTED_WARM = Color(0xFFFFC080)
+
+/**
+ * Чёткая ТВ-фокус-обводка для fantasy-поверхностей (поле ввода, строки настроек):
+ * тонкий акцентный контур внутри бронзовой рамки, БЕЗ blur-глоу и state-layer-вуали
+ * (цветные elevation-тени читались на ТВ как «зелёный засвет», фото owner 2026-07-11).
+ * [alpha] — лямбда, чтобы анимация жила только в draw-фазе.
+ */
+internal fun Modifier.fantasyFocusFrame(alpha: () -> Float, color: Color, cornerRadius: Dp = 14.dp): Modifier =
+    drawWithContent {
+        drawContent()
+        val a = alpha()
+        if (a > 0.01f) {
+            val inset = 4.dp.toPx()
+            val rad = cornerRadius.toPx()
+            drawRoundRect(
+                color = color.copy(alpha = a),
+                topLeft = Offset(inset, inset),
+                size = Size(size.width - 2 * inset, size.height - 2 * inset),
+                cornerRadius = CornerRadius(rad, rad),
+                style = Stroke(width = 2.dp.toPx()),
+            )
+        }
+    }

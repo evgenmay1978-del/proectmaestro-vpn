@@ -139,7 +139,9 @@ for state, path in ART.items():
             bg_arr[ry0:ry1, rx0:rx1] = (Ls[:, None] * (1 - t) + Rs[:, None] * t).astype(np.uint8)
     bg = Image.fromarray(bg_arr)
     bg.save(f"{OUT}/tv_bg_{state}.png")
-    bg.save(f"{OUT}/tv_bg_{state}.webp", quality=90, method=6)
+    # LOSSLESS: герой-фон всего ТВ (дерево/металл/глаз) — lossy-webp съедал зерно
+    # текстуры, на 4K читалось «мылом» (владелец 2026-07-11). ~1.4-1.6MB — осознанно.
+    bg.save(f"{OUT}/tv_bg_{state}.webp", lossless=True, method=6)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SIMULATE the Compose scroll-Column in PIL (state=off) at 1:1 art scale.

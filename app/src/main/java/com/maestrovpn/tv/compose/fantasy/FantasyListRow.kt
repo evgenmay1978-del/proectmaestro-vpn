@@ -1,6 +1,11 @@
 package com.maestrovpn.tv.compose.fantasy
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +21,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -46,11 +55,26 @@ fun FantasyListRow(
     iconTint: Color = NeonGreen,
     trailing: @Composable (() -> Unit)? = null,
 ) {
+    // ТВ-фокус: чёткая рамка-акцент вместо дефолтного ripple/state-layer (белёсая вуаль
+    // поверх дерева при D-pad, фото owner 2026-07-11); на телефоне фидбек = лёгкий пресс-скейл.
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.98f else 1f, tween(120), label = "rowScale")
+    val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "rowFocus")
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button) { onClick() }
+                } else {
+                    Modifier
+                },
+            )
             .fantasyFrame(R.drawable.frame_bar)
+            .fantasyFocusFrame({ focusAlpha }, NeonGreen)
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start,
