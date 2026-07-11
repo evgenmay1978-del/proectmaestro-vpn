@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,8 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -80,22 +77,10 @@ fun TrialScreen(
             )
             Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.45f)) })
         }
+        // Радиал на ТВ убран: banding на 8-битных панелях (фото owner 2026-07-11).
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .drawBehind {
-                    if (isTv) {
-                        val center = Offset(size.width * 0.5f, size.height * 0.30f)
-                        val radius = size.maxDimension * 0.5f
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(NeonGreen.copy(alpha = 0.08f), Color.Transparent),
-                                center = center, radius = radius,
-                            ),
-                            radius = radius, center = center,
-                        )
-                    }
-                }
                 .verticalScroll(rememberScrollState())
                 .padding(screenPadding(isTv)),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -104,8 +89,9 @@ fun TrialScreen(
             Text(
                 text = "Бесплатный пробный период",
                 style = MaterialTheme.typography.headlineSmall,
+                fontFamily = com.maestrovpn.tv.compose.theme.PlayfairFamily,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = Color(0xFFE8C877),
             )
             Spacer(Modifier.height(8.dp))
             Text(
@@ -122,9 +108,10 @@ fun TrialScreen(
                 singleLine = true,
                 placeholder = "Ваш ник",
                 focusRequester = nickFocus,
+                // widthIn ДО fillMaxWidth — иначе кап мёртв и поле тянулось на весь ТВ-экран
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 420.dp),
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth(),
             )
             Spacer(Modifier.height(22.dp))
 

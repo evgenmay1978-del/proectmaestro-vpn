@@ -62,6 +62,10 @@ fun FantasyListRow(
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.98f else 1f, tween(120), label = "rowScale")
     val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "rowFocus")
+    // ТВ: резная строка (кора 1:1 + процедурная бронза). Прежний frame_bar (1042×348)
+    // сплющивался в ~2.7 раза по высоте — орнаменты превращались в кашу (тарифы, фото owner).
+    val carvedTv = com.maestrovpn.tv.compose.rememberIsTv()
+    val bark = if (carvedTv) rememberBarkBrush() else null
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -73,8 +77,15 @@ fun FantasyListRow(
                     Modifier
                 },
             )
-            .fantasyFrame(R.drawable.frame_bar)
-            .fantasyFocusFrame({ focusAlpha }, NeonGreen)
+            .then(
+                if (carvedTv) {
+                    Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 16.dp)
+                } else {
+                    Modifier
+                        .fantasyFrame(R.drawable.frame_bar)
+                        .fantasyFocusFrame({ focusAlpha }, NeonGreen)
+                },
+            )
             .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start,

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,7 +30,6 @@ import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
 import com.maestrovpn.tv.compose.fantasy.FantasySegmented
-import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
@@ -153,6 +151,8 @@ private fun ShareBody(
                         )
                     }.getOrNull()
                 }
+                // Служебную строку-URL под QR больше не печатаем: три строки сырой ссылки
+                // выглядели тех-мусором (фото owner 2026-07-11). Сам QR несёт ту же ссылку.
                 if (qr != null) {
                     // Bronze QR frame — a SQUARE frame scaled uniformly (corners stay proportional,
                     // no 9-patch thinning) around a WHITE quiet-zone; the code itself stays
@@ -187,12 +187,6 @@ private fun ShareBody(
                     }
                     Spacer(Modifier.height(8.dp))
                 }
-                Text(
-                    shareUrl,
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    color = GoldMid,
-                )
             }
         }
     }

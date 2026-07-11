@@ -53,7 +53,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.fantasy.CarvedStyle
+import com.maestrovpn.tv.compose.fantasy.carvedSurface
 import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.fantasy.rememberBarkBrush
+import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.ChromeDark
 import com.maestrovpn.tv.compose.theme.ChromeHi
 import com.maestrovpn.tv.compose.theme.ChromeLight
@@ -176,19 +180,26 @@ fun NeonChip(
     // Раньше были цветная blur-тень (зелёный засвет вокруг) + белёсый state-layer
     // M3-кнопки поверх текста — на ТВ это читалось как артефакты (фото владельца 2026-07-11).
     val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "chipFocus")
+    // ТВ: резная поверхность (кора 1:1 + процедурная бронза) вместо 9-patch, который
+    // растягивался до 6× и пикселил (фото owner 2026-07-11). Телефон — как был.
+    val carvedTv = wood && rememberIsTv()
+    val bark = if (carvedTv) rememberBarkBrush() else null
     Box(
         contentAlignment = Alignment.CenterStart,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (locked) 0.55f else 1f }
             .shadow(6.dp, shape, clip = false) // нейтральная глубина, БЕЗ цветного глоу
             .then(
-                // wood → настоящий бронзовый NinePatch из эскиза; TV-glass/chrome fallback без изменений.
-                if (wood) Modifier.fantasyFrame(R.drawable.frame_button, selected)
-                else Modifier.background(plateBrush(false), shape)
-                    .border(1.5.dp, bezelBrush(false, selected), shape),
+                when {
+                    carvedTv -> Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 16.dp, selected = selected)
+                    // wood → настоящий бронзовый NinePatch из эскиза; TV-glass/chrome fallback без изменений.
+                    wood -> Modifier.fantasyFrame(R.drawable.frame_button, selected)
+                    else -> Modifier.background(plateBrush(false), shape)
+                        .border(1.5.dp, bezelBrush(false, selected), shape)
+                },
             )
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-            .focusFrame({ focusAlpha }, accent, cornerRadius = 12.dp)
+            .then(if (carvedTv) Modifier else Modifier.focusFrame({ focusAlpha }, accent, cornerRadius = 12.dp))
             .defaultMinSize(minWidth = 58.dp, minHeight = 40.dp)
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
@@ -272,19 +283,25 @@ fun GlossyButton(
     )
     // Эталон owner (телефон/дерево): текст и иконка CTA — кремово-золотые, не белые.
     val content = if (wood) Color(0xFFEFE0B0) else Color.White
+    // ТВ: CTA-бар как на эскизе («Купить подписку») — тёмно-зелёный градиент + салатовая
+    // кромка + процедурная бронза. 9-patch, тянувшийся по ширине, пикселил (фото owner).
+    val carvedTv = wood && rememberIsTv()
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(12.dp, shape, clip = false) // нейтральная глубина, без цветного глоу на фокусе
             .then(
-                // PHONE (wood) → wide bronze plaque frame; TV → the accent-domed gradient + chrome bezel.
-                if (wood) Modifier.fantasyFrame(R.drawable.frame_bar)
-                else Modifier.background(brush, shape)
-                    .border(1.5.dp, bezelBrush(false), shape),
+                when {
+                    carvedTv -> Modifier.carvedSurface(null, { focusAlpha }, cornerRadius = 18.dp, style = CarvedStyle.Cta)
+                    // PHONE (wood) → wide bronze plaque frame; TV → the accent-domed gradient + chrome bezel.
+                    wood -> Modifier.fantasyFrame(R.drawable.frame_bar)
+                    else -> Modifier.background(brush, shape)
+                        .border(1.5.dp, bezelBrush(false), shape)
+                },
             )
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-            .focusFrame({ focusAlpha }, if (wood) NeonGreen else content, cornerRadius = 14.dp)
+            .then(if (carvedTv) Modifier else Modifier.focusFrame({ focusAlpha }, if (wood) NeonGreen else content, cornerRadius = 14.dp))
             .defaultMinSize(minWidth = 58.dp, minHeight = 40.dp)
             .padding(horizontal = 24.dp, vertical = 14.dp),
     ) {
@@ -320,18 +337,25 @@ fun ChromeTile(
         tween(140, easing = FastOutSlowInEasing), label = "tileScale",
     )
     val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "tileFocus")
+    // ТВ: резная кора 1:1 + процедурная бронза («Проверить соединение» тянуло 270px-рамку
+    // в 6+ раз по ширине — главный «пиксельный» экспонат с фото owner 2026-07-11).
+    val carvedTv = wood && rememberIsTv()
+    val bark = if (carvedTv) rememberBarkBrush() else null
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(6.dp, shape, clip = false) // нейтральная глубина, без цветного глоу
             .then(
-                if (wood) Modifier.fantasyFrame(R.drawable.frame_button)
-                else Modifier.background(plateBrush(false), shape)
-                    .border(1.5.dp, bezelBrush(false), shape),
+                when {
+                    carvedTv -> Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 14.dp)
+                    wood -> Modifier.fantasyFrame(R.drawable.frame_button)
+                    else -> Modifier.background(plateBrush(false), shape)
+                        .border(1.5.dp, bezelBrush(false), shape)
+                },
             )
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-            .focusFrame({ focusAlpha }, NeonGreen, cornerRadius = 10.dp)
+            .then(if (carvedTv) Modifier else Modifier.focusFrame({ focusAlpha }, NeonGreen, cornerRadius = 10.dp))
             .defaultMinSize(minWidth = 58.dp, minHeight = 40.dp)
             .padding(horizontal = 8.dp, vertical = 12.dp),
     ) {
@@ -393,6 +417,9 @@ fun NeonAccountCard(
     wood: Boolean = false,
 ) {
     val shape = RoundedCornerShape(18.dp)
+    // ТВ: резная панель вместо 9-patch (правило «не растягивать растр», 2026-07-11).
+    val carvedTv = wood && rememberIsTv()
+    val bark = if (carvedTv) rememberBarkBrush() else null
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -400,7 +427,9 @@ fun NeonAccountCard(
             .shadow(10.dp, shape, clip = false, ambientColor = NeonGreen, spotColor = NeonGreen)
             .then(
                 // PHONE (wood) → real sliced aged-bronze panel NinePatch; TV → glass plate + sheen + chrome bezel.
-                if (wood) {
+                if (carvedTv) {
+                    Modifier.carvedSurface(bark, { 0f }, cornerRadius = 18.dp)
+                } else if (wood) {
                     Modifier.fantasyFrame(R.drawable.frame_panel)
                 } else {
                     Modifier

@@ -28,9 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -83,8 +80,9 @@ fun BuyScreen(
         if (state is BuyState.Done) onDone()
     }
 
-    // Carved-oak Playfair top bar (same language as Settings) — now on TV too so every screen
-    // matches the redesigned home.
+    // Carved-oak Playfair top bar (same language as Settings). На ТВ полоса ПРОЗРАЧНАЯ:
+    // сплошная тёмная плашка поверх дерева читалась «чёрной лентой» (фото owner 2026-07-11),
+    // а заголовок отодвинут от края — телевизоры срезают кромку (overscan).
     OverrideTopBar {
         TopAppBar(
             title = {
@@ -94,10 +92,11 @@ fun BuyScreen(
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFE8C877),
                     letterSpacing = 1.sp,
+                    modifier = if (isTv) Modifier.padding(start = 32.dp) else Modifier,
                 )
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color(0xFF17110A),
+                containerColor = if (isTv) Color.Transparent else Color(0xFF17110A),
                 titleContentColor = Color(0xFFE8C877),
             ),
         )
@@ -117,22 +116,11 @@ fun BuyScreen(
                 contentScale = ContentScale.Crop,
             )
         }
+        // Радиальный градиент на ТВ убран: полупрозрачный радиал на 8-битной панели давал
+        // ступенчатые полосы (banding, фото owner 2026-07-11); глубину даёт виньетка самого фона.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .drawBehind {
-                    if (isTv) {
-                        val center = Offset(size.width * 0.5f, size.height * 0.22f)
-                        val radius = size.maxDimension * 0.5f
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(NeonGreen.copy(alpha = 0.07f), Color.Transparent),
-                                center = center, radius = radius,
-                            ),
-                            radius = radius, center = center,
-                        )
-                    }
-                }
                 .verticalScroll(rememberScrollState())
                 .padding(screenPadding(isTv)),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -158,10 +146,12 @@ fun BuyScreen(
                     val firstFocus = remember { FocusRequester() }
                     LaunchedEffect(Unit) { if (isTv) runCatching { firstFocus.requestFocus() } }
                     s.items.forEachIndexed { i, t ->
+                        // widthIn ДО fillMaxWidth — иначе кап мёртв (fillMaxWidth фиксирует
+                        // ширину раньше) и строка тянулась на весь ТВ-экран (фото owner 2026-07-11).
                         val tariffMod = Modifier
+                            .widthIn(max = 560.dp)
                             .fillMaxWidth()
-                            .widthIn(max = 420.dp)
-                            .padding(vertical = 4.dp)
+                            .padding(vertical = 6.dp)
                             .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
                         // Aged-bronze tariff row (price shown as a bold gold trailing) — phone + TV
                         // (D-pad focusable via FantasyListRow's clickable). tariffMod carries the

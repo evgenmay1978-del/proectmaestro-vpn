@@ -78,6 +78,10 @@ fun FantasyDialog(
                 ),
             contentAlignment = Alignment.Center,
         ) {
+        // ТВ: резная панель (кора 1:1 + процедурная бронза) — frame_panel (880×212)
+        // растягивался на диалог в разы и мылил орнаменты (фото owner 2026-07-11).
+        val carvedTv = com.maestrovpn.tv.compose.rememberIsTv()
+        val bark = if (carvedTv) rememberBarkBrush() else null
         Column(
             modifier
                 .widthIn(max = 460.dp)
@@ -88,7 +92,13 @@ fun FantasyDialog(
                     indication = null,
                     enabled = false,
                 ) {}
-                .fantasyFrame(R.drawable.frame_panel)
+                .then(
+                    if (carvedTv) {
+                        Modifier.carvedSurface(bark, { 0f }, cornerRadius = 20.dp, interiorDim = 0.16f)
+                    } else {
+                        Modifier.fantasyFrame(R.drawable.frame_panel)
+                    },
+                )
                 .padding(horizontal = 22.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {

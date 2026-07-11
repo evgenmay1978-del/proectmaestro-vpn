@@ -1,24 +1,77 @@
 {
   "permissions": {
-    "defaultMode": "bypassPermissions",
+    "defaultMode": "auto",
     "allow": [
-      "Bash(journalctl:*)",
-      "Bash(systemctl status:*)",
-      "Bash(systemctl is-active:*)",
-      "Bash(systemctl is-enabled:*)",
-      "Bash(systemctl show:*)",
-      "Bash(systemctl cat:*)",
-      "Bash(systemctl list-units:*)",
-      "Bash(systemctl list-timers:*)",
-      "Bash(graphify query:*)",
-      "Bash(graphify path:*)",
-      "Bash(graphify explain:*)",
-      "mcp__visualize__read_me",
-      "mcp__visualize__show_widget",
-      "mcp__Claude_in_Chrome__read_network_requests"
+      "Read",
+      "Write",
+      "Edit",
+      "Agent",
+      "Artifact",
+      "Skill",
+      "Bash(git status)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(go *)",
+      "Bash(npm *)",
+      "Bash(journalctl *)",
+      "Bash(systemctl status *)",
+      "Bash(systemctl is-active *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(curl *)",
+      "Bash(jq *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(ops/*)",
+      "Bash(python3 *)",
+      "Bash(which *)",
+      "Bash(pwd)",
+      "mcp__visualize__*",
+      "$defaults"
+    ],
+    "deny": [
+      "Bash(git push --force)",
+      "Bash(git reset --hard)",
+      "Bash(git checkout . --)",
+      "Bash(git restore . --)",
+      "Bash(rm -rf *)",
+      "Bash(sudo *)",
+      "Bash(systemctl restart)",
+      "Bash(systemctl stop)",
+      "Bash(systemctl start maestro-panel)",
+      "Read(.env*)",
+      "Read(.secret*)",
+      "Read(*credentials*)",
+      "Read(*password*)"
     ]
   },
+  "autoMemoryEnabled": true,
+  "autoCompactEnabled": true,
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.claude/maestro-orient.sh 2>/dev/null && echo '✅ Oriented' || true"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /root/.claude/maestro-orient.sh 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
