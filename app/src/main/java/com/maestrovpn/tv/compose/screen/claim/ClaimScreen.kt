@@ -28,8 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -85,22 +83,11 @@ fun ClaimScreen(
             )
             Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.45f)) })
         }
+        // Радиал на ТВ убран: давал ступенчатый banding на 8-битных панелях (фото owner
+        // 2026-07-11); глубина — от виньетки самого фона tv_wood_bg.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .drawBehind {
-                    if (isTv) {
-                        val center = Offset(size.width * 0.5f, size.height * 0.30f)
-                        val radius = size.maxDimension * 0.5f
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(NeonGreen.copy(alpha = 0.08f), Color.Transparent),
-                                center = center, radius = radius,
-                            ),
-                            radius = radius, center = center,
-                        )
-                    }
-                }
                 .verticalScroll(rememberScrollState())
                 .padding(screenPadding(isTv)),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -109,8 +96,9 @@ fun ClaimScreen(
             Text(
                 text = "Активация подписки",
                 style = MaterialTheme.typography.headlineSmall,
+                fontFamily = com.maestrovpn.tv.compose.theme.PlayfairFamily,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = Color(0xFFE8C877),
             )
             Spacer(Modifier.height(8.dp))
             Text(text = "Введите код или ваш логин", style = MaterialTheme.typography.bodyMedium, color = MaestroSilver)

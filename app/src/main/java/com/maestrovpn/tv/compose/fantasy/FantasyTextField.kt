@@ -53,10 +53,21 @@ fun FantasyTextField(
     // Фокус = чёткая тонкая рамка внутри бронзы (без изумрудного blur-глоу вокруг поля —
     // на ТВ он читался как «засвет», фото owner 2026-07-11).
     val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "fieldFocus")
+    // ТВ: резное поле — кора 1:1, интерьер притемнён сильнее обычного ради читаемости
+    // текста поверх фактуры; бронза процедурная (9-patch пикселил, фото owner 2026-07-11).
+    val carvedTv = com.maestrovpn.tv.compose.rememberIsTv()
+    val bark = if (carvedTv) rememberBarkBrush() else null
     Box(
         modifier
-            .fantasyFrame(R.drawable.frame_bar)
-            .fantasyFocusFrame({ focusAlpha }, NeonGreen)
+            .then(
+                if (carvedTv) {
+                    Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 18.dp, interiorDim = 0.30f)
+                } else {
+                    Modifier
+                        .fantasyFrame(R.drawable.frame_bar)
+                        .fantasyFocusFrame({ focusAlpha }, NeonGreen)
+                },
+            )
             .heightIn(min = 60.dp)
             .padding(horizontal = 24.dp, vertical = 16.dp),
         contentAlignment = Alignment.CenterStart,
