@@ -31,11 +31,20 @@ if [ "$RUNC" = "$HEAD" ]; then
   echo "✅ panel deployed = HEAD ($RUN)"
   exit 0
 fi
-echo "⚠️  DEPLOY DRIFT — running=$RUN  HEAD=$HEAD"
 if git -C "$REPO" merge-base --is-ancestor "$RUNC" HEAD 2>/dev/null; then
-  echo "   undeployed commits (in HEAD, NOT in the running binary):"
-  git -C "$REPO" log --oneline "${RUNC}..HEAD" 2>/dev/null | sed 's/^/     /'
+  # Дрейф = только коммиты, задевающие ВХОДЫ бинаря панели (backend/, cmd/, go.mod|sum).
+  # app/ops/deploy-коммиты панель не меняют — раньше они давали ЛОЖНЫЙ drift-алярм
+  # каждую ориентацию (2026-07-11), и настоящий дрейф рисковал утонуть в шуме.
+  TOUCH=$(git -C "$REPO" log --oneline "${RUNC}..HEAD" -- backend/ cmd/ go.mod go.sum 2>/dev/null || true)
+  if [ -z "$TOUCH" ]; then
+    echo "✅ panel deployed = HEAD по backend-путям (running=$RUN, HEAD=$HEAD — сверху только app/ops-коммиты)"
+    exit 0
+  fi
+  echo "⚠️  DEPLOY DRIFT — running=$RUN  HEAD=$HEAD"
+  echo "   недеплоенные BACKEND-коммиты (в HEAD, но не в работающем бинаре):"
+  printf '%s\n' "$TOUCH" | sed 's/^/     /'
 else
+  echo "⚠️  DEPLOY DRIFT — running=$RUN  HEAD=$HEAD"
   echo "   (running commit $RUNC is not an ancestor of HEAD — diverged/rebased; redeploy to reconcile)"
 fi
 exit 1
