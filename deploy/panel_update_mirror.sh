@@ -26,7 +26,13 @@ YC_PUBLIC_BASE="${YC_PUBLIC_BASE:-https://storage.yandexcloud.net/${YC_BUCKET}}"
 
 mkdir -p "$DIR"
 
-rel="$(curl -fsSL --max-time 60 -H 'Accept: application/vnd.github+json' "$API")" || {
+# Авторизованный запрос: анонимный лимит api.github.com (60/час на IP) делится со ВСЕМИ
+# процессами этого хоста — 2026-07-11 CI-опросы сожгли квоту и зеркало ловило 403 три цикла
+# подряд. Токен поднимает лимит до 5000/час и изолирует от чужого трафика.
+GH_TOKEN="$(grep -oP 'https://[^:]+:\K[^@]+' /root/.git-credentials 2>/dev/null | head -1 || true)"
+AUTH=()
+[ -n "$GH_TOKEN" ] && AUTH=(-H "Authorization: Bearer $GH_TOKEN")
+rel="$(curl -fsSL --max-time 60 -H 'Accept: application/vnd.github+json' "${AUTH[@]}" "$API")" || {
   echo "mirror: GitHub API unreachable, keeping existing channel" >&2; exit 0; }
 
 vn="$(printf '%s' "$rel" | python3 -c 'import sys,json,re
