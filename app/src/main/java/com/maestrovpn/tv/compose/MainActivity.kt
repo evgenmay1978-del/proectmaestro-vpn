@@ -921,6 +921,8 @@ class MainActivity :
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
+                        // High-фильтр: фон апскейлится на 4K-панель, дефолтный Low мылит текстуру дерева.
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                     )
                 }
                 // Service Status Bar (shown when service is running or stopping);
