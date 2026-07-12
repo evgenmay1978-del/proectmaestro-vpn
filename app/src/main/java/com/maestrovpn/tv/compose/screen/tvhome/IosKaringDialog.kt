@@ -154,35 +154,59 @@ private fun ShareBody(
                 // Служебную строку-URL под QR больше не печатаем: три строки сырой ссылки
                 // выглядели тех-мусором (фото owner 2026-07-11). Сам QR несёт ту же ссылку.
                 if (qr != null) {
-                    // Bronze QR frame — a SQUARE frame scaled uniformly (corners stay proportional,
-                    // no 9-patch thinning) around a WHITE quiet-zone; the code itself stays
-                    // black-on-white & fully scannable. Frame fills the dialog width (matches the
-                    // эскиз quar.png); the white card fills the frame opening, leaving only a thin
-                    // wood reveal. Responsive so it holds on any width. QR stays BLACK-on-WHITE.
+                    // QR «в раме картины» (урок qr-decorative-frame-lesson): белая quiet-zone
+                    // карточка рисуется ПЕРВОЙ (снизу), безель с ПРОЗРАЧНЫМ проёмом — ПОВЕРХ,
+                    // карточка чуть больше проёма и заправлена под бронзу → рамка цельная,
+                    // никакого «белый квадрат поверх рамки» (фото owner 2026-07-12).
+                    // ТВ → новый tvp_qr_bezel (материал эталона, проём 0.847 стороны);
+                    // телефон → прежний frame_qr-композит НЕ тронут (owner телефон одобрил).
+                    val tv = com.maestrovpn.tv.compose.rememberIsTv()
                     Box(
                         Modifier
                             .fillMaxWidth(0.84f)
                             .aspectRatio(1f),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Image(
-                            painter = painterResource(R.drawable.frame_qr),
-                            contentDescription = null,
-                            modifier = Modifier.matchParentSize(),
-                            contentScale = ContentScale.FillBounds,
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize(0.80f)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center,
-                        ) {
+                        if (tv) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize(0.87f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Image(
+                                    bitmap = qr.asImageBitmap(),
+                                    contentDescription = "QR",
+                                    modifier = Modifier.fillMaxSize(0.90f),
+                                )
+                            }
                             Image(
-                                bitmap = qr.asImageBitmap(),
-                                contentDescription = "QR",
-                                modifier = Modifier.fillMaxSize(0.86f),
+                                painter = painterResource(R.drawable.tvp_qr_bezel),
+                                contentDescription = null,
+                                modifier = Modifier.matchParentSize(),
+                                contentScale = ContentScale.FillBounds,
                             )
+                        } else {
+                            Image(
+                                painter = painterResource(R.drawable.frame_qr),
+                                contentDescription = null,
+                                modifier = Modifier.matchParentSize(),
+                                contentScale = ContentScale.FillBounds,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize(0.80f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Image(
+                                    bitmap = qr.asImageBitmap(),
+                                    contentDescription = "QR",
+                                    modifier = Modifier.fillMaxSize(0.86f),
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.height(8.dp))

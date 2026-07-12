@@ -8,8 +8,8 @@ import com.maestrovpn.tv.R
  * ДОЛЖНЫ совпадать со спекой `ops/tv-eskiz-spec.json` (canonical = OFF-эскиз).
  * ⛔ НЕ подгонять на глаз: правим эскиз → прогоняем пайплайн → сверяем sim → переносим сюда.
  *
- * Правая панель собирается пиксель-в-пиксель АБСОЛЮТНЫМИ позициями: каждый кроп-PNG
- * `tv_ek_*` кладётся на свой арт-y (top = верх кропа = верх рамки − M(14) поля) внутри
+ * Правая панель собирается пиксель-в-пиксель АБСОЛЮТНЫМИ позициями: каждая premium-панель
+ * `tvp_*` кладётся на свой арт-y (top = верх канвы = верх рамки − M(14) поля) внутри
  * скролл-зоны. Спейсеры НЕ используются: на эскизе полоса КОНТАКТЫ и кнопка-телефон
  * ПЕРЕКРЫВАЮТСЯ по вертикали (кропы 494..580 и 545..673) — колонка со спейсерами такую
  * геометрию не выложит (кламп до 0 уводил низ на 35-60px вниз и «за экран», 942>941).
@@ -57,22 +57,24 @@ internal object TvEskizSpec {
     const val STATUS_BOTTOM = 936f
     const val DOT_R = 11f
 
-    /** элемент панели: кроп + АБСОЛЮТНЫЙ арт-y верха кропа + арт-высота кропа */
+    /** элемент панели: ассет + АБСОЛЮТНЫЙ арт-y верха канвы + арт-высота канвы (с полями M=14) */
     internal class Bar(val res: Int, val top: Float, val h: Float, val focusable: Boolean = true)
     internal class Row3(val res: IntArray, val top: Float, val h: Float)
 
-    // top = frame_y0 − M, h = (frame_y1 − frame_y0) + 2M — из ops/tv-eskiz-spec.json (OFF)
-    val BUY = Bar(R.drawable.tv_ek_buy_off, 43f, 121f)
+    // top = frame_y0 − M, h = (frame_y1 − frame_y0) + 2M — геометрия эскиза (ops/tv-eskiz-spec.json).
+    // Ассеты v3 = premium-панели ops/tv-premium-kit.py (материал эталона /root/button.png,
+    // те же поля M=14) — кропы эскиза заменены, позиции НЕ менялись.
+    val BUY = Bar(R.drawable.tvp_buy, 43f, 121f)
     val ROW_CODE = Row3(
-        intArrayOf(R.drawable.tv_ek_code_off, R.drawable.tv_ek_apps_off, R.drawable.tv_ek_share_off),
+        intArrayOf(R.drawable.tvp_tile, R.drawable.tvp_tile, R.drawable.tvp_tile),
         178f, 185f,
     )
-    val UPDATE = Bar(R.drawable.tv_ek_update_off, 365f, 116f)
-    val KONTAKTY = Bar(R.drawable.tv_ek_kontakty_off, 494f, 86f, focusable = false)
-    val PHONE = Bar(R.drawable.tv_ek_phone_off, 545f, 128f)
-    val HINT = Bar(R.drawable.tv_ek_hint_off, 676f, 82f, focusable = false)
+    val UPDATE = Bar(R.drawable.tvp_update, 365f, 116f)
+    val KONTAKTY = Bar(0, 494f, 86f, focusable = false)      // заголовок+divider рисуются Compose
+    val PHONE = Bar(R.drawable.tvp_phone, 545f, 128f)
+    val HINT = Bar(0, 676f, 82f, focusable = false)          // текст рисуется Compose
     val ROW_TG = Row3(
-        intArrayOf(R.drawable.tv_ek_tg_off, R.drawable.tv_ek_wa_off, R.drawable.tv_ek_max_off),
+        intArrayOf(R.drawable.tvp_chip, R.drawable.tvp_chip, R.drawable.tvp_chip),
         730f, 152f,
     )
 }
