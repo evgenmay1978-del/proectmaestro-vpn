@@ -87,7 +87,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * ТВ-главный v4 «материал мобильной версии» (owner 2026-07-12, мок одобрен):
+ * ТВ-главный v5 «master quality» (owner 2026-07-12, мок одобрен):
  * один экран 1920×1080 БЕЗ скролла, вся графика — родные пиксели телефонного арта
  * (`ops/tv-mobile-kit.py`). Слои:
  *  1. Фон `tvm_bg_off`→`tvm_bg_on` кроссфейд (дерево+рама+герой: сфера ↔ глаз).
@@ -222,10 +222,14 @@ internal fun TvEskizHome(
         // ── (3.5) аккаунт-бар / триал-CTA (слот под статусом) ─────────────────────────
         if (!hasSubProfile) {
             PanelBox(TvEskizSpec.TRIAL, s, ::ax, ::ay, onClick = onEnterTrial) {
-                Text(
-                    "🎁 Попробовать 2 дня бесплатно",
-                    color = SaladText, fontWeight = FontWeight.Bold, fontSize = (26f * s).sp, maxLines = 1,
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.ShoppingCart, null, tint = NeonIcon, modifier = Modifier.size((44f * s).dp))
+                    Spacer(Modifier.height((10f * s).dp))
+                    Text(
+                        "Попробовать 2 дня бесплатно",
+                        color = SaladText, fontWeight = FontWeight.Bold, fontSize = (28f * s).sp, maxLines = 1,
+                    )
+                }
             }
         } else if (!accountLogin.isNullOrBlank() || daysLeft != null) {
             PanelBox(TvEskizSpec.ACCOUNT, s, ::ax, ::ay, onClick = null) {
@@ -453,7 +457,7 @@ private fun SectionHeader(title: String, yCenter: Float, s: Float, ax: (Float) -
     }
 }
 
-/** Живой контент аккаунт-бара: зелёные квадро-чипы (персона/календарь) + две строки. */
+/** Живая премиальная плашка аккаунта: крупные читаемые данные без растра с текстом. */
 @Composable
 private fun AccountBarContent(login: String?, daysLeft: Int?, expires: String?, s: Float) {
     val expired = daysLeft != null && daysLeft <= 0
@@ -465,30 +469,34 @@ private fun AccountBarContent(login: String?, daysLeft: Int?, expires: String?, 
         daysLeft >= 3650 -> "Безлимит"
         else -> "Осталось $daysLeft ${daysWord(daysLeft)}" + (expires?.let { " · до $it" } ?: "")
     }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(horizontal = (14f * s).dp)) {
-        GreenSquare(Icons.Filled.Person, s)
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(horizontal = (24f * s).dp)) {
+        GreenSquare(Icons.Filled.Person, s, 58f)
+        Spacer(Modifier.width((22f * s).dp))
+        Column(modifier = Modifier.weight(1f)) {
             if (!login.isNullOrBlank()) {
-                Text("Аккаунт: $login", color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (26f * s).sp, maxLines = 1)
+                Text("Аккаунт", color = Color(0xFFB7B9B5), fontWeight = FontWeight.Bold, fontSize = (18f * s).sp, maxLines = 1)
+                Text(login, color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (31f * s).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (daysText != null) {
-                Text(daysText, color = daysColor, fontWeight = FontWeight.Bold, fontSize = (24f * s).sp, maxLines = 1)
+                Spacer(Modifier.height((4f * s).dp))
+                Text(daysText, color = daysColor, fontWeight = FontWeight.Bold, fontSize = (23f * s).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        GreenSquare(Icons.Filled.CalendarMonth, s)
+        Spacer(Modifier.width((18f * s).dp))
+        GreenSquare(Icons.Filled.CalendarMonth, s, 52f)
     }
 }
 
 @Composable
-private fun GreenSquare(icon: ImageVector, s: Float) {
+private fun GreenSquare(icon: ImageVector, s: Float, artSize: Float) {
     Box(
         modifier = Modifier
-            .size((52f * s).dp)
-            .clip(RoundedCornerShape((12f * s).dp))
+            .size((artSize * s).dp)
+            .clip(RoundedCornerShape((16f * s).dp))
             .background(Brush.verticalGradient(listOf(Color(0xFF58C97A), Color(0xFF1E5A33)))),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, null, tint = Color(0xFFF0FAF2), modifier = Modifier.size((34f * s).dp))
+        Icon(icon, null, tint = Color(0xFFF0FAF2), modifier = Modifier.size((artSize * 0.58f * s).dp))
     }
 }
 

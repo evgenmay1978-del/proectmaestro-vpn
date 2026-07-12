@@ -3,7 +3,7 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import com.maestrovpn.tv.R
 
 /**
- * Геометрия ТВ-хоума v4 «материал мобильной версии» (арт-пространство 1920×1080).
+ * Геометрия ТВ-хоума v5 «master quality» (арт-пространство 1920×1080).
  * Один экран, БЕЗ скролла (owner 2026-07-12). Ассеты режет `ops/tv-mobile-kit.py` —
  * все числа здесь ОБЯЗАНЫ совпадать с константами генератора (мок одобрен owner'ом).
  *
@@ -19,21 +19,21 @@ internal object TvEskizSpec {
     /** поля панель-канвы (запечённая тень) — как M в ops/tv-mobile-kit.py */
     const val M = 28f
 
-    // герой-зона = цельный native-кроп телефонного арта (home_backdrop ×0.86 @ 104,26),
+    // герой-зона = цельный native-кроп телефонного арта (home_backdrop ×0.72 @ 122,20),
     // запечён в tvm_bg_off/on. Числа ниже — только для посадки живых элементов.
-    const val HERO_X = 104f
-    const val HERO_W = 642f
+    const val HERO_X = 122f
+    const val HERO_W = 537f
 
     // медальон (сфера↔глаз): тап-зона и видимый обод для фокус-кольца
-    const val RING_CX = 422f
-    const val RING_CY = 600f
-    const val RING_R = 190f     // круглая тап-зона
-    const val RING_RVIS = 176f  // видимый обод (фокус-обводка)
+    const val RING_CX = 388f
+    const val RING_CY = 501f
+    const val RING_R = 160f     // круглая тап-зона
+    const val RING_RVIS = 147f  // видимый обод (фокус-обводка)
 
     // статус под медальоном (центры строк) + аккаунт/триал-бар под ним
-    const val STATUS_CX = 422f
-    const val STATUS_MAIN_Y = 894f
-    const val STATUS_SUB_Y = 940f
+    const val STATUS_CX = 388f
+    const val STATUS_MAIN_Y = 920f
+    const val STATUS_SUB_Y = 966f
     const val DOT_R = 11f
 
     // правая зона
@@ -80,6 +80,6 @@ internal object TvEskizSpec {
     val CHIP_SEL_RES = R.drawable.tvm_chip_sel
 
     // аккаунт-бар (левая зона, под статусом); при отсутствии подписки — триал-CTA в том же слоте
-    val ACCOUNT = P(R.drawable.tvm_account, 112f, 964f, 626f, 66f)
-    val TRIAL = P(R.drawable.tvm_trial, 112f, 964f, 626f, 66f)
+    val ACCOUNT = P(R.drawable.tvm_account, 112f, 734f, 626f, 130f)
+    val TRIAL = P(R.drawable.tvm_trial, 112f, 734f, 626f, 130f)
 }
