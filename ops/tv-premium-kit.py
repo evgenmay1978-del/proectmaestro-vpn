@@ -94,7 +94,8 @@ def extract_gem(arr, which='top'):
     b = GEM_TOP_BOX if which == 'top' else GEM_BOT_BOX
     crop = arr[b[1]:b[3], b[0]:b[2]].copy()
     lum = _lum(crop)
-    alpha = smoothstep(lum, 12, 55)
+    # порог как у лоз: мягкий зелёный underglow эталона под нижним медальоном в альфу не пускаем
+    alpha = smoothstep(lum, 26, 84)
     # центр камня тёмно-зелёный, но внутри контура медальона — заполнить дыры морфологией
     a8 = (alpha * 255).astype(np.uint8)
     am = Image.fromarray(a8).filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.MinFilter(9))
@@ -289,6 +290,60 @@ def build_bar(w_art, h_art, interior='bark', gems=False, pill=False,
 
     return canvas
 
+def build_logo_panel(elems):
+    """Лого-панель «MaestroVPN»: premium-рама эталона (торцы-лозы + gem'ы) + РОДНАЯ надпись
+    из эскиза (пиксели tv_bg_off, identity сохранена). Канва накрывает старую фигурную раму
+    целиком (bbox x89..663, y21..309 арт) → на фоне её не остаётся.
+    Возврат: (img, top_art, x0_art, w_art, h_art) — посадка для Kotlin/сима."""
+    x0_art, top_art = 84, 16
+    frame_w, frame_h = 556, 268          # рамка; канва = +2M полей
+    img = build_bar(frame_w, frame_h, interior='bark', gems=True, elems=elems, tag='logo')
+    # wordmark из эскиза: зона букв (арт 150..610 × 118..232), альфа по яркости золота
+    bg = np.array(Image.open(os.path.join(OUT, 'tv_bg_off.webp')).convert('RGB')).astype(np.float32)
+    wm = bg[118:232, 150:610]
+    lum = _lum(wm)
+    a = smoothstep(lum, 30, 85)
+    wm_img = Image.fromarray(np.dstack([wm, a * 255]).astype(np.uint8), 'RGBA')
+    # эскиз-арт → канва 2×: апскейл + лёгкий unsharp, чтобы буквы не мылились рядом с native-рамой
+    wm2 = wm_img.resize((wm_img.width * 2, wm_img.height * 2), Image.LANCZOS)
+    wm2 = wm2.filter(ImageFilter.UnsharpMask(radius=2, percent=70, threshold=2))
+    W, Hc = img.size
+    img.paste(wm2, (W // 2 - wm2.width // 2, Hc // 2 - wm2.height // 2), wm2)
+
+    # Заплатка под панелью: старая фигурная рама светилась зелёным ВНИЗ (хвост x125..618,
+    # y312..404) — канва накрывает раму только до y312. Гасим самый заметный след дровами
+    # из чистого донора эскиза (x88..160), НО только до y342: с y347 начинается видимое
+    # кольцо медальона (RING_OFF_CY−RVIS) — его не трогаем, ниже зелень читается как glow глаза.
+    patch_y0, patch_y1 = 300, 342      # от-под рельсы (298) до верха видимого кольца (347−5)
+    px0, px1 = 104, 640
+    donor = bg[patch_y0:patch_y1, 88:160]              # чистое дерево той же высоты
+    dw = donor.shape[1]
+    cols = []
+    need = px1 - px0
+    i = 0
+    while sum(c.shape[1] for c in cols) < need:
+        cols.append(donor[:, ::-1] if i % 2 else donor)  # чередуем зеркало — не видно повторов
+        i += 1
+    patch = np.concatenate(cols, axis=1)[:, :need]
+    # швы между блоками мягчим лёгким горизонтальным блюром стыков
+    pimg = Image.fromarray(patch.astype(np.uint8), 'RGB').resize((need * 2, (patch_y1 - patch_y0) * 2), Image.LANCZOS)
+    pa = np.full((pimg.height, pimg.width), 255, np.float32)
+    f = 12  # feather краёв, px канвы
+    ramp = np.linspace(0, 1, f)
+    pa[:, :f] *= ramp[None, :]
+    pa[:, -f:] *= ramp[::-1][None, :]
+    pa[:f, :] *= ramp[:, None]
+    pa[-f:, :] *= ramp[::-1][:, None]
+    pimg = Image.merge('RGBA', (*pimg.split(), Image.fromarray(pa.astype(np.uint8))))
+    # расширяем канву вниз: СНАЧАЛА заплатка, ПОВЕРХ — рама (её мягкая тень ложится на дерево)
+    new_h_art = (patch_y1 + 4) - top_art
+    big = Image.new('RGBA', (W, int(new_h_art * SCALE)), (0, 0, 0, 0))
+    big.paste(pimg, (int((px0 - x0_art) * SCALE), int((patch_y0 - top_art) * SCALE)), pimg)
+    frame_layer = Image.new('RGBA', big.size, (0, 0, 0, 0))
+    frame_layer.paste(img, (0, 0))
+    big = Image.alpha_composite(big, frame_layer)
+    return big, top_art, x0_art, frame_w + 2 * M, new_h_art
+
 def build_divider(w_art, h_art, elems):
     """Орнамент-разделитель секции: рельса-тайл с gem-финиалом слева и растворением справа."""
     capL, capR, capL_h, capR_h, gem_t, gem_b, rail_t, rail_b, bark, prof = elems
@@ -385,5 +440,9 @@ if __name__ == '__main__':
     div.save(f'{SCRATCH}/tvp_divider.png')
     qr = build_qr_bezel(340, elems)
     qr.save(f'{SCRATCH}/tvp_qr_bezel.png')
+    logo, lt, lx, lw, lh = build_logo_panel(elems)
+    logo.save(f'{SCRATCH}/tvp_logo.png')
+    meta['tvp_logo'] = dict(top_art=lt, x0_art=lx, w_art=lw, h_art=lh, scale=SCALE)
+    print('tvp_logo', logo.size, 'at art', lx, lt)
     json.dump(meta, open(f'{SCRATCH}/tvp_meta.json', 'w'), indent=1)
     print('done →', SCRATCH)

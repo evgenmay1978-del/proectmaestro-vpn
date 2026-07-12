@@ -57,6 +57,15 @@ def sim_home():
     bg = bg.convert('RGBA')
     dr = ImageDraw.Draw(bg)
 
+    # лого-панель premium (накрывает старую фигурную раму эскиза; размеры из tvp_meta.json)
+    if os.path.exists(f'{S}/tvp_logo.png'):
+        import json as _json
+        lmeta = _json.load(open(f'{S}/tvp_meta.json'))['tvp_logo']
+        lg = Image.open(f'{S}/tvp_logo.png').convert('RGBA')
+        lw, lh = int(lmeta['w_art'] * s), int(lmeta['h_art'] * s)
+        lg = lg.resize((lw, lh), Image.LANCZOS)
+        bg.paste(lg, (int(lmeta['x0_art'] * s), int(lmeta['top_art'] * s)), lg)
+
     # BUY 43..164 (арт, кроп с полями)
     x, y, w, h = paste_slot(bg, f'{S}/tvp_buy.png', 43, 121)
     fbuy = font(SANS_B, int(34 * s))

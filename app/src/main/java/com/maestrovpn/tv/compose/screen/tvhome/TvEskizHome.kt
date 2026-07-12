@@ -150,6 +150,17 @@ internal fun TvEskizHome(
             ArtImage(R.drawable.tv_bg_on, Modifier.fillMaxSize(), ContentScale.Crop, alpha = onAlpha)
         }
 
+        // ── (1.5) premium лого-панель (рама эталона + родная надпись из эскиза) ──────
+        // Накрывает старую тонкую фигурную раму фона целиком (в ассет запечена и
+        // деревянная заплатка под нижним зелёным свечением старой рамы, до верха кольца).
+        ArtImage(
+            R.drawable.tvp_logo,
+            Modifier
+                .offset(x = ax(84f).dp, y = ay(16f).dp)
+                .size(width = (584f * s).dp, height = (330f * s).dp),
+            ContentScale.FillBounds,
+        )
+
         // ── (2) медальон-кнопка Connect (невидимая тап-зона на глазу) ─────────────────
         val ringD = 2f * TvEskizSpec.RING_R * s
         MedallionButton(
