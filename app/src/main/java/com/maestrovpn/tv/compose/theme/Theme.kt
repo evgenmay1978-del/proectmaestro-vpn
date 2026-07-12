@@ -17,20 +17,32 @@ import androidx.core.view.WindowCompat
 
 private val DarkColorScheme =
     darkColorScheme(
-        primary = MaestroOrange,
-        onPrimary = Color(0xFF231200),
-        primaryContainer = MaestroOrangeDark,
-        onPrimaryContainer = Color(0xFFFFE2CC),
-        secondary = MaestroSilver,
-        onSecondary = Color(0xFF15151A),
-        tertiary = MaestroOrangeLight,
-        background = MaestroBg,
-        onBackground = Color(0xFFECECEE),
-        surface = MaestroSurface,
-        onSurface = Color(0xFFECECEE),
-        surfaceVariant = MaestroSurfaceHi,
-        onSurfaceVariant = Color(0xFFC8C8CE),
-        outline = Color(0xFF55555E),
+        // One material language for remaining Material3 controls and dialogs:
+        // phone-frame gold + warm carved wood, never the old blue/grey donor UI.
+        primary = Color(0xFFE8C877),
+        onPrimary = Color(0xFF241506),
+        primaryContainer = Color(0xFF4A3218),
+        onPrimaryContainer = Color(0xFFFFE6B0),
+        secondary = Color(0xFF73D98A),
+        onSecondary = Color(0xFF071B0C),
+        secondaryContainer = Color(0xFF17351E),
+        onSecondaryContainer = Color(0xFFB9F3C5),
+        tertiary = MaestroOrange,
+        onTertiary = Color(0xFF271300),
+        background = Color(0xFF090603),
+        onBackground = Color(0xFFF1EEE6),
+        surface = Color(0xFF171008),
+        onSurface = Color(0xFFF1EEE6),
+        surfaceVariant = Color(0xFF2B1D10),
+        onSurfaceVariant = Color(0xFFD5C5A8),
+        surfaceContainerLowest = Color(0xFF0D0905),
+        surfaceContainerLow = Color(0xFF171008),
+        surfaceContainer = Color(0xFF21160C),
+        surfaceContainerHigh = Color(0xFF2B1D10),
+        surfaceContainerHighest = Color(0xFF352513),
+        outline = Color(0xFFA87C3A),
+        outlineVariant = Color(0xFF5C3F20),
+        surfaceTint = Color.Transparent,
     )
 
 private val LightColorScheme =

@@ -82,6 +82,25 @@ fun Modifier.carvedSurface(
     val f = focus().coerceIn(0f, 1f)
     val warm = maxOf(f, if (selected) 0.9f else 0f)
     val rad = cornerRadius.toPx()
+    // Two offset, non-blurred shadow layers separate the panel from the wood
+    // without introducing the forbidden TV blur/glow.
+    val shadowX = 2.dp.toPx()
+    val shadowY = 8.dp.toPx()
+    drawRoundRect(
+        color = Color.Black.copy(alpha = 0.48f),
+        topLeft = Offset(shadowX, shadowY),
+        size = Size(
+            (size.width - shadowX * 2f).coerceAtLeast(1f),
+            (size.height - shadowY).coerceAtLeast(1f),
+        ),
+        cornerRadius = CornerRadius(rad, rad),
+    )
+    drawRoundRect(
+        color = Color(0xFF3A1E08).copy(alpha = 0.34f),
+        topLeft = Offset(3.dp.toPx(), 4.dp.toPx()),
+        size = Size((size.width - 6.dp.toPx()).coerceAtLeast(1f), size.height.coerceAtLeast(1f)),
+        cornerRadius = CornerRadius(rad, rad),
+    )
     // 1) интерьер
     if (style == CarvedStyle.Bark && barkBrush != null) {
         drawRoundRect(brush = barkBrush, cornerRadius = CornerRadius(rad, rad))
@@ -131,6 +150,17 @@ fun Modifier.carvedSurface(
         brush = Brush.verticalGradient(
             0.86f to Color.Transparent,
             1f to Color(0xFFD8A860).copy(alpha = 0.10f),
+        ),
+        cornerRadius = CornerRadius(rad, rad),
+    )
+    // Directional key light completes the carved volume. Gradient only: no blur.
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            0f to Color(0xFFFFE2A8).copy(alpha = 0.13f),
+            0.42f to Color.Transparent,
+            1f to Color.Black.copy(alpha = 0.12f),
+            start = Offset.Zero,
+            end = Offset(size.width, size.height),
         ),
         cornerRadius = CornerRadius(rad, rad),
     )

@@ -22,13 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
@@ -48,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.fantasy.FantasyToggle
 import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.fantasy.carvedSurface
+import com.maestrovpn.tv.compose.fantasy.rememberBarkBrush
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -164,8 +162,8 @@ fun AppSelectionCard(
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
     var showCopyMenu by remember { mutableStateOf(false) }
-    val cardShape = MaterialTheme.shapes.medium
     val isTv = rememberIsTv()
+    val bark = if (isTv) rememberBarkBrush() else null
     val clickMod =
         if (enableCopyActions) {
             Modifier.combinedClickable(
@@ -176,9 +174,8 @@ fun AppSelectionCard(
             Modifier.clickable { onToggle(!selected) }
         }
 
-    // Shared row (icon + labels + toggle). Container frame + toggle are form-factor aware:
-    // PHONE = carved-wood card with an aged-bronze frame (эскиз 9-patch), the Dark-Fantasy toggle,
-    // and a soft green glow when active. TV = the original Material card + Switch (untouched).
+    // Shared row: both form factors use the same wood/gold material and fantasy toggle.
+    // TV uses the lossless v4 wood shader; phone keeps its established art frame.
     val rowContent: @Composable () -> Unit = {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -205,22 +202,17 @@ fun AppSelectionCard(
                     softWrap = true,
                 )
             }
-            if (isTv) {
-                Switch(checked = selected, onCheckedChange = { onToggle(it) })
-            } else {
-                FantasyToggle(checked = selected, onCheckedChange = { onToggle(it) })
-            }
+            FantasyToggle(checked = selected, onCheckedChange = { onToggle(it) })
         }
     }
 
     Box {
         if (isTv) {
-            Card(
-                modifier = Modifier.fillMaxWidth().clip(cardShape).then(clickMod),
-                shape = cardShape,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(clickMod)
+                    .carvedSurface(bark, { 0f }, cornerRadius = 16.dp, selected = selected),
             ) { rowContent() }
         } else {
             Box(
