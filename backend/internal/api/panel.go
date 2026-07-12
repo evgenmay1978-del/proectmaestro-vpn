@@ -680,7 +680,7 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Login    string `json:"login"`
 		Room     string `json:"room"`
-		Provider string `json:"provider"` // "wbstream" | "telemost"/"" (default)
+		Provider string `json:"provider"` // "wbstream" | "max" | "telemost"/"" (default)
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -697,8 +697,14 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "room must be an http(s) URL", http.StatusBadRequest)
 		return
 	}
-	if req.Provider != "" && req.Provider != "wbstream" && req.Provider != "telemost" {
-		http.Error(w, "provider must be wbstream or telemost", http.StatusBadRequest)
+	if req.Provider != "" && req.Provider != "wbstream" && req.Provider != "telemost" && req.Provider != "max" {
+		http.Error(w, "provider must be wbstream, telemost or max", http.StatusBadRequest)
+		return
+	}
+	// MAX is staged but not yet functional (the olcrtc binary at OLCRTC_REF has no "max" provider).
+	// Refuse to assign it so an operator can't silently break a login. See docs/olcrtc-max-carrier.md.
+	if req.Provider == "max" && !olcMaxCarrierReady {
+		http.Error(w, olcMaxNotReadyMsg, http.StatusBadRequest)
 		return
 	}
 	if req.Login != "" && !claimCodeRe.MatchString(req.Login) {

@@ -165,6 +165,56 @@ func mergeGlobal(c Config, room, key string) Config {
 	return c
 }
 
+func TestProviderFor(t *testing.T) {
+	// Per-login override wins; falls back to the global provider; then to "telemost".
+	c := Config{
+		Provider: "telemost",
+		Rooms: map[string]RoomKey{
+			"maxguy":  {Room: "https://max.ru/call/abc", Key: "k1", Provider: "max"},
+			"wbguy":   {Room: "room-id-123", Key: "k2", Provider: "wbstream"},
+			"nomatch": {Room: "https://telemost.yandex.ru/j/1", Key: "k3"}, // no override → global
+		},
+	}
+	if got := c.ProviderFor("maxguy"); got != "max" {
+		t.Fatalf("maxguy provider = %q, want max", got)
+	}
+	if got := c.ProviderFor("wbguy"); got != "wbstream" {
+		t.Fatalf("wbguy provider = %q, want wbstream", got)
+	}
+	if got := c.ProviderFor("nomatch"); got != "telemost" {
+		t.Fatalf("nomatch provider = %q, want telemost (global)", got)
+	}
+	if got := (Config{}).ProviderFor("anyone"); got != "telemost" {
+		t.Fatalf("empty-config provider = %q, want telemost (default)", got)
+	}
+}
+
+// SetRoomProviderFor persists a "max" per-login override and keeps it on a room-only re-swap.
+func TestSetMaxProvider(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "olcrtc.json")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := s.SetRoomProviderFor("maxguy", "https://max.ru/call/one", "abcd", "max"); err != nil {
+		t.Fatalf("SetRoomProviderFor: %v", err)
+	}
+	if got := s.Get().ProviderFor("maxguy"); got != "max" {
+		t.Fatalf("after set: provider = %q, want max", got)
+	}
+	// Room-only swap (empty provider) must KEEP the max carrier and the existing key.
+	if err := s.SetRoomFor("maxguy", "https://max.ru/call/two", ""); err != nil {
+		t.Fatalf("SetRoomFor room-only: %v", err)
+	}
+	g := s.Get()
+	if got := g.ProviderFor("maxguy"); got != "max" {
+		t.Fatalf("after room-only swap: provider = %q, want max (kept)", got)
+	}
+	if room, key, ok := g.RoomFor("maxguy"); !ok || room != "https://max.ru/call/two" || key != "abcd" {
+		t.Fatalf("after room-only swap: room=%q key=%q ok=%v", room, key, ok)
+	}
+}
+
 func TestAllowlist(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "olcrtc.json")
 	s, err := Open(path)

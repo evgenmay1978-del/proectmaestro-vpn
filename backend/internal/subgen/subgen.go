@@ -85,7 +85,7 @@ type Customer struct {
 // "auto" urltest pool — a video tunnel is slow, a manual fallback, not an auto pick). See
 // [[olcrtc-integration]].
 type OLCRTCCreds struct {
-	Provider  string // auth provider: "telemost" (RU-domestic, production) | "jitsi"
+	Provider  string // carrier: "telemost" (RU-domestic) | "wbstream" | "jitsi"
 	Room      string // room id/URL (Telemost: the https://telemost.yandex.ru/j/<id> URL)
 	Key       string // 64-hex shared secret (must byte-match the olcrtc srv on S3)
 	Transport string // "vp8channel" (the only RU+mobile transport) | "datachannel" (jitsi)

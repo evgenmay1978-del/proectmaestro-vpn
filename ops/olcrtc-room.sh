@@ -21,9 +21,9 @@
 set -eu
 
 usage() {
-	echo "usage: $0 <login> <room> [telemost|wbstream] [newkey]   # per-login (isolation)"
-	echo "       $0 <telemost-room-url>                           # global fallback room"
-	echo "   telemost/jitsi room = http(s) URL ; wbstream room = bare id (UUID)"
+	echo "usage: $0 <login> <room> [telemost|max|wbstream] [newkey]   # per-login (isolation)"
+	echo "       $0 <telemost-room-url>                              # global fallback room"
+	echo "   telemost/max/jitsi room = http(s) URL ; wbstream room = bare id (UUID)"
 	exit 1
 }
 
@@ -31,21 +31,30 @@ LOGIN=""
 ROOM=""
 NEWKEY=0
 PROVIDER=telemost
+# MAX carrier gate: 0 until the olcrtc binary (OLCRTC_REF) ships a "max" auth provider — the
+# current binary knows only telemost/jitsi/wbstream, so joining a MAX call would fail. Flip to 1
+# in the SAME change that bumps OLCRTC_REF to a build with MAX support. See docs/olcrtc-max-carrier.md.
+MAX_READY=0
 # Positional: <login> <room> [provider] [newkey]  (or <room> for the global telemost swap).
-# provider ∈ {telemost, wbstream}; newkey forces a fresh per-login key.
+# provider ∈ {telemost, max, wbstream}; newkey forces a fresh per-login key.
 if [ $# -eq 1 ]; then
 	ROOM="$1"
 else
 	LOGIN="$1"; ROOM="$2"; shift 2
 	for a in "$@"; do
 		case "$a" in
-			telemost|wbstream) PROVIDER="$a" ;;
+			telemost|max|wbstream) PROVIDER="$a" ;;
 			newkey) NEWKEY=1 ;;
 			*) usage ;;
 		esac
 	done
 fi
 [ -n "$ROOM" ] || usage
+# MAX is staged but not yet functional (see MAX_READY above) — refuse it until the binary supports it.
+if [ "$PROVIDER" = max ] && [ "$MAX_READY" != 1 ]; then
+	echo "carrier MAX ещё не поддерживается бинарником olcrtc (нужен OLCRTC_REF с провайдером max) — см. docs/olcrtc-max-carrier.md"
+	exit 1
+fi
 # Room shape per carrier: wbstream = bare room id (UUID); everything else = http(s) URL.
 if [ "$PROVIDER" = wbstream ]; then
 	case "$ROOM" in
