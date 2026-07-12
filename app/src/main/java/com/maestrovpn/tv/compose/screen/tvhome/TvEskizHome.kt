@@ -26,13 +26,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.MaterialTheme
@@ -188,18 +198,44 @@ internal fun TvEskizHome(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // Арт-зона: кропы на АБСОЛЮТНЫХ позициях эскиза (z-порядок = порядок вызовов;
-                // телефон легально перекрывает фезер-поле КОНТАКТОВ — так в самом арте).
+                // Premium-зона v3: панели из материала эталона (ops/tv-premium-kit.py) на тех же
+                // АБСОЛЮТНЫХ позициях эскиза; контент (иконка+текст) и янтарный фокус — Compose.
                 Box(Modifier.fillMaxWidth().height((TvEskizSpec.ZONE_H * s).dp)) {
-                    ArtBar(TvEskizSpec.BUY, s, onBuy, pill = true, onRes = R.drawable.tv_ek_buy_on, onAlpha = onAlpha)
-                    ArtRow3(TvEskizSpec.ROW_CODE, s, listOf(onEnterCode, onSplitTunnel, onShareIos))
-                    ArtBar(TvEskizSpec.UPDATE, s, onUpdate, pill = true)
-                    ArtBar(TvEskizSpec.KONTAKTY, s, {})
-                    ArtBar(TvEskizSpec.PHONE, s, { open("tel:+79778116564") }, pill = true)
-                    ArtBar(TvEskizSpec.HINT, s, {})
-                    ArtRow3(
+                    PremiumBar(
+                        TvEskizSpec.BUY, s, onBuy, pill = true,
+                        icon = Icons.Filled.ShoppingCart, label = "Купить подписку",
+                        labelColor = SaladText, fontArtPx = 34f,
+                    )
+                    PremiumRow3(
+                        TvEskizSpec.ROW_CODE, s,
+                        listOf(
+                            Triple(Icons.Filled.Search, "Ввести код", onEnterCode),
+                            Triple(Icons.Filled.Public, "Приложения VPN", onSplitTunnel),
+                            Triple(Icons.Filled.Share, "Поделиться", onShareIos),
+                        ),
+                        iconAbove = true,
+                    )
+                    PremiumBar(
+                        TvEskizSpec.UPDATE, s, onUpdate, pill = true,
+                        icon = Icons.Filled.CloudDownload, label = "Обновить приложение",
+                        labelColor = IvoryText, fontArtPx = 30f,
+                    )
+                    SectionHeadline(TvEskizSpec.KONTAKTY, s, "КОНТАКТЫ")
+                    PremiumBar(
+                        TvEskizSpec.PHONE, s, { open("tel:+79778116564") }, pill = true,
+                        icon = Icons.Filled.Call, label = "8 977 811-65-64",
+                        labelColor = SaladText, fontArtPx = 40f,
+                    )
+                    HintLine(TvEskizSpec.HINT, s, "Если я не ответил на звонок — обязательно напишите в любом из мессенджеров 👇")
+                    PremiumRow3(
                         TvEskizSpec.ROW_TG, s,
-                        listOf({ open("https://t.me/wapmixx") }, { open("https://wa.me/79778116564") }, { open("https://max.ru/") }),
+                        listOf(
+                            Triple(Icons.Filled.Send, "Telegram", { open("https://t.me/wapmixx") }),
+                            Triple(Icons.Filled.Chat, "WhatsApp", { open("https://wa.me/79778116564") }),
+                            Triple(Icons.Filled.Forum, "МАКС", { open("https://max.ru/") }),
+                        ),
+                        iconAbove = false,
+                        iconTints = listOf(Color(0xFF2AABEE), Color(0xFF25D366), Color(0xFF2787F5)),
                     )
                 }
 
@@ -220,62 +256,147 @@ internal fun TvEskizHome(
     }
 }
 
-/** Полноширинная арт-кнопка эскиза (кроп-PNG) на АБСОЛЮТНОЙ позиции bar.top (арт-y).
- *  [onRes]/[onAlpha] — кроссфейд «Купить» off→on. */
+// Палитра premium-панелей: салатовый текст CTA/телефона и слоновая кость (пипетки эскиза).
+private val SaladText = Color(0xFFCDE37B)
+private val IvoryText = Color(0xFFEDEDE9)
+private val FocusGoldTv = Color(0xFFFFCE8C)
+private val FocusAmberTv = Color(0xFFFFAD5C)
+
+/** Полноширинная premium-кнопка (панель эталона + иконка + текст) на позиции bar.top (арт-y).
+ *  Фокус — единый янтарно-золотой контур по рамке панели (внутрь поля M), БЕЗ scale/blur. */
 @Composable
-private fun ArtBar(
+private fun PremiumBar(
     bar: TvEskizSpec.Bar,
     s: Float,
     onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    labelColor: Color,
+    fontArtPx: Float,
     pill: Boolean = false,
-    onRes: Int? = null,
-    onAlpha: Float = 0f,
 ) {
-    val h = (bar.h * s).dp
-    val place = Modifier
-        .offset(y = (bar.top * s).dp)
-        .fillMaxWidth()
-        .height(h)
-    if (!bar.focusable) {
-        // заголовок/подпись — не фокусируется, просто картинка
-        ArtImage(bar.res, place, ContentScale.FillBounds)
-        return
-    }
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    // ⛔ БЕЗ scale на фокусе: кропы с фезер-полями вклеены в запечённый фон пиксель-в-пиксель,
-    // любое масштабирование двоит края (артефакты). Фокус = только чёткое кольцо.
     Box(
-        modifier = place
+        modifier = Modifier
+            .offset(y = (bar.top * s).dp)
+            .fillMaxWidth()
+            .height((bar.h * s).dp)
             .clickable(interactionSource = interaction, indication = null) { onClick() }
-            .focusRing(focused, pill, s),
+            .focusGold(focused, pill, s),
+        contentAlignment = Alignment.Center,
     ) {
         ArtImage(bar.res, Modifier.fillMaxSize(), ContentScale.FillBounds)
-        if (onRes != null && onAlpha > 0.001f) {
-            ArtImage(onRes, Modifier.fillMaxSize(), ContentScale.FillBounds, alpha = onAlpha)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Icon(
+                icon, contentDescription = null, tint = labelColor,
+                modifier = Modifier.size((fontArtPx * 1.05f * s).dp),
+            )
+            Spacer(Modifier.width((14f * s).dp))
+            Text(
+                label,
+                color = labelColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = (fontArtPx * s).sp,
+                maxLines = 1,
+            )
         }
     }
 }
 
-/** Ряд из 3 равных арт-кнопок (код/приложения/поделиться, tg/wa/макс) на абсолютных позициях. */
+/** Ряд из 3 равных premium-плит (тайлы действий / чипы мессенджеров) на абсолютных позициях. */
 @Composable
-private fun ArtRow3(row: TvEskizSpec.Row3, s: Float, onClicks: List<() -> Unit>) {
+private fun PremiumRow3(
+    row: TvEskizSpec.Row3,
+    s: Float,
+    items: List<Triple<ImageVector, String, () -> Unit>>,
+    iconAbove: Boolean,
+    iconTints: List<Color>? = null,
+) {
     val cellW = (TvEskizSpec.CELL_W * s).dp
     val cellH = (row.h * s).dp
-    row.res.forEachIndexed { i, res ->
+    items.forEachIndexed { i, (icon, label, click) ->
         val cellX = (TvEskizSpec.COL_X0 - TvEskizSpec.PANEL_X0 + i * (TvEskizSpec.CELL_W + TvEskizSpec.GUT)) * s
         val interaction = remember { MutableInteractionSource() }
         val focused by interaction.collectIsFocusedAsState()
-        // без scale (см. ArtBar) — фокус только кольцом, края кропов не двоятся
+        val tint = iconTints?.getOrNull(i) ?: Color(0xFF6FD65A)
         Box(
             modifier = Modifier
                 .offset(x = cellX.dp, y = (row.top * s).dp)
                 .size(width = cellW, height = cellH)
-                .clickable(interactionSource = interaction, indication = null) { onClicks.getOrNull(i)?.invoke() }
-                .focusRing(focused, pill = false, s = s),
+                .clickable(interactionSource = interaction, indication = null) { click() }
+                .focusGold(focused, pill = false, s = s),
+            contentAlignment = Alignment.Center,
         ) {
-            ArtImage(res, Modifier.fillMaxSize(), ContentScale.FillBounds)
+            ArtImage(row.res[i], Modifier.fillMaxSize(), ContentScale.FillBounds)
+            if (iconAbove) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    androidx.compose.material3.Icon(
+                        icon, contentDescription = null, tint = tint,
+                        modifier = Modifier.size((40f * s).dp),
+                    )
+                    Spacer(Modifier.height((12f * s).dp))
+                    Text(label, color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (23f * s).sp, maxLines = 1)
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Icon(
+                        icon, contentDescription = null, tint = tint,
+                        modifier = Modifier.size((30f * s).dp),
+                    )
+                    Spacer(Modifier.width((12f * s).dp))
+                    Text(label, color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (24f * s).sp, maxLines = 1)
+                }
+            }
         }
+    }
+}
+
+/** Заголовок секции: Playfair-золото слева + бронзовый орнамент-разделитель до правого края. */
+@Composable
+private fun SectionHeadline(bar: TvEskizSpec.Bar, s: Float, title: String) {
+    Row(
+        modifier = Modifier
+            .offset(y = (bar.top * s).dp)
+            .fillMaxWidth()
+            .height((bar.h * s).dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            color = com.maestrovpn.tv.compose.theme.GoldHi,
+            fontFamily = com.maestrovpn.tv.compose.theme.PlayfairFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = (34f * s).sp,
+            letterSpacing = 3.sp,
+            modifier = Modifier.padding(start = (6f * s).dp),
+        )
+        Spacer(Modifier.width((22f * s).dp))
+        ArtImage(
+            R.drawable.tvp_divider,
+            Modifier.weight(1f).height((24f * s).dp),
+            ContentScale.FillBounds,
+        )
+    }
+}
+
+/** Строка-подсказка между телефоном и мессенджерами (нативный текст вместо мыльного кропа). */
+@Composable
+private fun HintLine(bar: TvEskizSpec.Bar, s: Float, text: String) {
+    Box(
+        modifier = Modifier
+            .offset(y = (bar.top * s).dp)
+            .fillMaxWidth()
+            .height((bar.h * s).dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = Color(0xFFCBCDD2),
+            fontSize = (17f * s).sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+        )
     }
 }
 
@@ -293,19 +414,28 @@ private fun ArtImage(res: Int, modifier: Modifier, contentScale: ContentScale, a
     )
 }
 
-/** Зелёное фокус-кольцо ПОВЕРХ арт-кнопки (внутрь запечённой рамки на ширину кроп-марджина). */
-private fun Modifier.focusRing(focused: Boolean, pill: Boolean, s: Float): Modifier = drawWithContent {
+/** Единый ТВ-фокус: янтарно-золотой двойной контур по рамке панели (внутрь поля M канвы).
+ *  Тёплый широкий обод + чёткая золотая линия — сочетается с бронзой, БЕЗ blur/scale. */
+private fun Modifier.focusGold(focused: Boolean, pill: Boolean, s: Float): Modifier = drawWithContent {
     drawContent()
     if (!focused) return@drawWithContent
-    val inset = 12f * s
-    val stroke = 2.6f * s
-    val rad = if (pill) (size.height - 2 * inset) / 2f else 20f * s
+    val inset = 11f * s
+    val rad = if (pill) (size.height - 2 * inset) / 2f else 24f * s
+    // тёплый полупрозрачный обод
     drawRoundRect(
-        color = NeonGreen,
+        color = FocusAmberTv.copy(alpha = 0.55f),
+        topLeft = Offset(inset - 2.5f * s, inset - 2.5f * s),
+        size = Size(size.width - 2 * (inset - 2.5f * s), size.height - 2 * (inset - 2.5f * s)),
+        cornerRadius = CornerRadius(rad + 2.5f * s, rad + 2.5f * s),
+        style = Stroke(width = 5f * s),
+    )
+    // чёткая золотая линия
+    drawRoundRect(
+        color = FocusGoldTv,
         topLeft = Offset(inset, inset),
         size = Size(size.width - 2 * inset, size.height - 2 * inset),
         cornerRadius = CornerRadius(rad, rad),
-        style = Stroke(width = stroke),
+        style = Stroke(width = 2.6f * s),
     )
 }
 
@@ -320,7 +450,8 @@ private fun MedallionButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    val ringColor = if (connected) NeonGreen else MaestroOrange
+    // единый янтарный фокус ТВ (было зелёное/оранжевое кольцо — спорило с бронзовой темой)
+    val ringColor = FocusGoldTv
     Box(
         modifier = modifier
             .focusRequester(focusRequester)

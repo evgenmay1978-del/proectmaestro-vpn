@@ -116,6 +116,23 @@ fun Modifier.carvedSurface(
             )
         }
     }
+    // 1.5) объём интерьера (фото owner 2026-07-12 «нет глубины»): верхняя внутренняя тень
+    // («козырёк» — свет сверху, плита утоплена) + тёплый нижний блик (отражение бронзы).
+    // Градиенты, НЕ blur — дёшево и чисто на ТВ.
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            0f to Color.Black.copy(alpha = 0.30f),
+            0.30f to Color.Transparent,
+        ),
+        cornerRadius = CornerRadius(rad, rad),
+    )
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            0.86f to Color.Transparent,
+            1f to Color(0xFFD8A860).copy(alpha = 0.10f),
+        ),
+        cornerRadius = CornerRadius(rad, rad),
+    )
     // 2) бронза: тёмный контур → градиент-тело (теплеет при фокусе/выборе) → внутренняя тень
     strokeRounded(EdgeDark, 1.dp.toPx(), 2.dp.toPx(), rad)
     strokeRounded(

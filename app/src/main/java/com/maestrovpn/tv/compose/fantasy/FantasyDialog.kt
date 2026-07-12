@@ -60,12 +60,13 @@ fun FantasyDialog(
         // scrollable body below keep every action reachable on short windows.
         val dialogMaxH = (LocalConfiguration.current.screenHeightDp * 0.92f).dp
         // Собственный скрим: системный dim за диалогом на части ТВ не применяется (фото owner
-        // 2026-07-11 — фон вокруг «Поделиться» оставался ярким и спорил с модалкой). Тап по
+        // 2026-07-11). 0.62 было мало — фоновые надписи читались сквозь и «накладывались» на
+        // модалку (фото owner 2026-07-12) → 0.86, фон гаснет почти полностью. Тап по
         // скриму закрывает (если разрешено), тап по самой панели — нет.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.62f))
+                .background(Color.Black.copy(alpha = 0.86f))
                 .then(
                     if (dismissOnClickOutside) {
                         Modifier.clickable(
