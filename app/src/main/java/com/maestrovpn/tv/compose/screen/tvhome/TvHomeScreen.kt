@@ -134,6 +134,7 @@ fun TvHomeScreen(
     onShareIos: () -> Unit = {},
     onScanQr: () -> Unit = {},
     onEnterTrial: () -> Unit = {},
+    onSettings: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -153,8 +154,9 @@ fun TvHomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    // green glow — behind the medallion. On TV the medallion sits on the LEFT,
-                    // so move the glow there; on a phone it stays upper-centre (matches the ref).
+                    // ТВ v4: фон = цельный непрозрачный арт (tvm_bg_*) — рисовать под ним
+                    // glow/паутину бессмысленно (overdraw на 1ГБ-боксах). Только телефон.
+                    if (isTv) return@drawBehind
                     val center = if (isTv) {
                         Offset(size.width * 0.24f, size.height * 0.5f)
                     } else {
@@ -227,6 +229,7 @@ fun TvHomeScreen(
                     onSplitTunnel = onSplitTunnel,
                     onShareIos = onShareIos,
                     onEnterTrial = onEnterTrial,
+                    onSettings = onSettings,
                     connectFocus = connectFocus,
                 )
             } else {
@@ -662,7 +665,7 @@ internal fun protocolLabel(tag: String): String = when (tag) {
 }
 
 /** Short recommendation badge under each protocol chip (unified style). */
-private fun protocolBadge(tag: String): String = when (tag) {
+internal fun protocolBadge(tag: String): String = when (tag) {
     "auto" -> "Рекомендуется"
     "vless", "vless-s3" -> "Оптимальный"
     "hysteria2" -> "Самый быстрый"

@@ -23,33 +23,34 @@ import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
 
 /**
- * Премиум-набор резных ТВ-поверхностей (2026-07-11, фото owner: «малую картинку натянули
- * на большой экран, пикселит»). Прежние 9-patch рамки (270…1042 px) растягивались до 6×
- * на 1080p/4K-панель — пиксельная каша и смазанное дерево. Здесь НИЧЕГО не растягивается:
+ * Резные ТВ-поверхности v4 — «материал мобильной версии» (owner 2026-07-12).
+ * НИЧЕГО не растягивается (урок 2026-07-11 «малую картинку натянули, пикселит»):
  *
- *  • кора — `carved_wood_tile` (эталон-кнопка owner) через [ImageShader] с
- *    [TileMode.Repeated]: родные пиксели 1:1 при любом размере поверхности;
- *  • бронзовая рамка — процедурные градиент-штрихи (чёткие на любой плотности),
- *    цвета сняты пипеткой с бронзы эскиза;
- *  • CTA — тёмно-зелёный градиент + салатовая нижняя кромка, как бар «Купить подписку»
- *    на эскизе vpnoff.png (пипетка).
+ *  • дерево — `tvm_wood_tile` (телефонный home_backdrop, ops/tv-mobile-kit.py) через
+ *    [ImageShader] с [TileMode.Repeated]: родные пиксели 1:1 при любом размере;
+ *  • рамка — процедурные градиент-штрихи в ЗОЛОТЕ телефонных рам (пипетка
+ *    frame_bar/frame_button), чёткие на любой плотности;
+ *  • CTA — тёмно-зелёный градиент + салатовая нижняя кромка (стиль «Купить подписку»).
  *
- * Фокус D-pad: бронза теплеет к янтарю + чёткая золотая рамка внутри — БЕЗ blur-glow
+ * Фокус D-pad: золото теплеет к янтарю + чёткая золотая рамка внутри — БЕЗ blur-glow
  * и state-layer (правило ТВ-фокуса проекта).
  */
 enum class CarvedStyle { Bark, Cta }
 
-/** Плитка коры как повторяющийся шейдер — родной масштаб, никакого растяжения. */
+/** Плитка дерева как повторяющийся шейдер — родной масштаб, никакого растяжения.
+ *  v4: тайл = ТЕЛЕФОННОЕ дерево (tvm_wood_tile из home_backdrop, ops/tv-mobile-kit.py) —
+ *  «универсальный материал» owner 2026-07-12; кора эталона удалена вместе с carved_wood_tile. */
 @Composable
 fun rememberBarkBrush(): ShaderBrush {
-    val bark = ImageBitmap.imageResource(R.drawable.carved_wood_tile)
+    val bark = ImageBitmap.imageResource(R.drawable.tvm_wood_tile)
     return remember(bark) { ShaderBrush(ImageShader(bark, TileMode.Repeated, TileMode.Repeated)) }
 }
 
-// Бронза эскиза (пипетка): лит-кромка → тело → тень; фокус-вариант теплее (янтарь).
-private val BronzeHi = Color(0xFFC89A50)
-private val BronzeMid = Color(0xFF8A5E2A)
-private val BronzeLow = Color(0xFF3A2410)
+// v4: рамка = ЗОЛОТО телефонных рам (пипетка frame_bar/frame_button — материал мобильной
+// версии, ярче и желтее прежней бронзы эскиза); фокус-вариант теплеет к янтарю.
+private val BronzeHi = Color(0xFFF0CD82)
+private val BronzeMid = Color(0xFFA87C3A)
+private val BronzeLow = Color(0xFF422C12)
 private val AmberHi = Color(0xFFFFD9A0)
 private val AmberMid = Color(0xFFC98F4A)
 private val AmberLow = Color(0xFF6B4218)

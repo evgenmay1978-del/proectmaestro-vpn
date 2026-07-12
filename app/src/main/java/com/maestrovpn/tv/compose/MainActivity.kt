@@ -914,14 +914,14 @@ class MainActivity :
                     .fillMaxSize()
                     .padding(paddingValues),
             ) {
-                // Единый ТВ-фон: тёмное резное дерево эскиза ЗА всеми экранами (телефон рисует свой
-                // портретный oak_bg сам; home full-bleed перекрывает). Даёт всем ТВ-экранам общий
-                // дерево-фон вместо near-black → единый стиль с главным эскизом.
+                // Единый ТВ-фон v4: дерево+рама+плющ из МАТЕРИАЛА ТЕЛЕФОНА (tvm_wood_bg,
+                // ops/tv-mobile-kit.py) ЗА всеми экранами — второстепенные экраны в том же
+                // материале, что главный (owner 2026-07-12); home full-bleed перекрывает.
                 if (isTelevision(this@MainActivity)) {
                     // bitmap-перегрузка ради filterQuality: High-фильтр, чтобы апскейл фона
                     // на 4K-панель не мылил текстуру дерева (у painter-перегрузки параметра нет).
                     Image(
-                        bitmap = ImageBitmap.imageResource(R.drawable.tv_wood_bg),
+                        bitmap = ImageBitmap.imageResource(R.drawable.tvm_wood_bg),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,

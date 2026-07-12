@@ -158,7 +158,8 @@ private fun ShareBody(
                     // карточка рисуется ПЕРВОЙ (снизу), безель с ПРОЗРАЧНЫМ проёмом — ПОВЕРХ,
                     // карточка чуть больше проёма и заправлена под бронзу → рамка цельная,
                     // никакого «белый квадрат поверх рамки» (фото owner 2026-07-12).
-                    // ТВ → новый tvp_qr_bezel (материал эталона, проём 0.847 стороны);
+                    // ТВ → tvm_qr_bezel v4 (рама frame_qr ТЕЛЕФОНА, проём 0.8105 стороны,
+                    // золото с 0.834 — карточка 0.82 заправлена под золото);
                     // телефон → прежний frame_qr-композит НЕ тронут (owner телефон одобрил).
                     val tv = com.maestrovpn.tv.compose.rememberIsTv()
                     Box(
@@ -170,7 +171,7 @@ private fun ShareBody(
                         if (tv) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxSize(0.87f)
+                                    .fillMaxSize(0.82f)
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(Color.White),
                                 contentAlignment = Alignment.Center,
@@ -182,7 +183,7 @@ private fun ShareBody(
                                 )
                             }
                             Image(
-                                painter = painterResource(R.drawable.tvp_qr_bezel),
+                                painter = painterResource(R.drawable.tvm_qr_bezel),
                                 contentDescription = null,
                                 modifier = Modifier.matchParentSize(),
                                 contentScale = ContentScale.FillBounds,

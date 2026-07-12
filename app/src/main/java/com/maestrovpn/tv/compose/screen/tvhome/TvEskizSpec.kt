@@ -3,78 +3,83 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import com.maestrovpn.tv.R
 
 /**
- * Геометрия ТВ-эскиза владельца (vpnon.png / vpnoff.png, арт-пространство 1672×941).
- * Значения снимает и ассеты режет `ops/tv-eskiz-pipeline.py` — эти константы
- * ДОЛЖНЫ совпадать со спекой `ops/tv-eskiz-spec.json` (canonical = OFF-эскиз).
- * ⛔ НЕ подгонять на глаз: правим эскиз → прогоняем пайплайн → сверяем sim → переносим сюда.
+ * Геометрия ТВ-хоума v4 «материал мобильной версии» (арт-пространство 1920×1080).
+ * Один экран, БЕЗ скролла (owner 2026-07-12). Ассеты режет `ops/tv-mobile-kit.py` —
+ * все числа здесь ОБЯЗАНЫ совпадать с константами генератора (мок одобрен owner'ом).
  *
- * Правая панель собирается пиксель-в-пиксель АБСОЛЮТНЫМИ позициями: каждая premium-панель
- * `tvp_*` кладётся на свой арт-y (top = верх канвы = верх рамки − M(14) поля) внутри
- * скролл-зоны. Спейсеры НЕ используются: на эскизе полоса КОНТАКТЫ и кнопка-телефон
- * ПЕРЕКРЫВАЮТСЯ по вертикали (кропы 494..580 и 545..673) — колонка со спейсерами такую
- * геометрию не выложит (кламп до 0 уводил низ на 35-60px вниз и «за экран», 942>941).
- * Z-порядок = порядок в стеке: телефон рисуется ПОВЕРХ фезер-поля КОНТАКТОВ — как в арте.
+ * Панели заданы INNER-прямоугольниками (x,y,w,h). Канва ассета шире на поля [M]
+ * с каждой стороны — в них запечена тень; Kotlin кладёт ассет в (x−M, y−M) размером
+ * (w+2M)×(h+2M), контент центрируется в inner-прямоугольнике. Ничего не растягивается:
+ * панели пересобраны генератором из телефонных рам (концы native, рельса тайлом).
  */
 internal object TvEskizSpec {
-    const val ART_W = 1672f
-    const val ART_H = 941f
+    const val ART_W = 1920f
+    const val ART_H = 1080f
 
-    // правая панель (арт-x): полоса на всю ширину кнопок «Купить/Обновить/телефон»
-    const val PANEL_X0 = 706f
-    const val PANEL_X1 = 1600f
-    val PANEL_W get() = PANEL_X1 - PANEL_X0            // 894
+    /** поля панель-канвы (запечённая тень) — как M в ops/tv-mobile-kit.py */
+    const val M = 28f
 
-    // 3-колоночные ряды (код/приложения/поделиться, tg/wa/макс)
-    const val COL_X0 = 712f
-    const val COL_X1 = 1593f
-    const val GUT = 10f
-    val CELL_W get() = (COL_X1 - COL_X0 - 2 * GUT) / 3f // 287
+    // герой-зона = цельный native-кроп телефонного арта (home_backdrop ×0.86 @ 104,26),
+    // запечён в tvm_bg_off/on. Числа ниже — только для посадки живых элементов.
+    const val HERO_X = 104f
+    const val HERO_W = 642f
 
-    /** высота арт-зоны панели (низ ряда tg/wa/макс 882 + воздух до доп-функционала) */
-    const val ZONE_H = 900f
+    // медальон (сфера↔глаз): тап-зона и видимый обод для фокус-кольца
+    const val RING_CX = 422f
+    const val RING_CY = 600f
+    const val RING_R = 190f     // круглая тап-зона
+    const val RING_RVIS = 176f  // видимый обод (фокус-обводка)
 
-    // медальон-кнопка (cx, cy, r) — «off» покрывает и «on» (центр сдвинут слегка)
-    const val RING_CX = 370f
-    const val RING_CY = 576f
-    const val RING_R = 258f
-
-    // ВИДИМОЕ кольцо медальона per-state (замерено по пикселям запечённых фонов:
-    // низ яркого штриха OFF=773, ON=830) — для фокус-обводки, чтобы она обнимала
-    // именно нарисованное кольцо, а не общую тап-зону, и не касалась статуса.
-    const val RING_OFF_CX = 364f
-    const val RING_OFF_CY = 556f
-    const val RING_OFF_RVIS = 209f   // (773−556) − 8 внутрь штриха
-    const val RING_ON_CX = 376f
-    const val RING_ON_CY = 596f
-    const val RING_ON_RVIS = 226f    // (830−596) − 8
-
-    // Статус-блок под медальоном: контейнер 788..936 (арт-y). OFF — верхний якорь
-    // (позиция эскиза, штрих кольца кончается на 773); ON — НИЖНИЙ якорь: кольцо ON
-    // толще (штрих до 830), и прижатый к низу компактный блок гарантированно не
-    // пересекает ни кольцо, ни нижний край экрана.
-    const val STATUS_CX = 373f
-    const val STATUS_TOP = 788f
-    const val STATUS_BOTTOM = 936f
+    // статус под медальоном (центры строк) + аккаунт/триал-бар под ним
+    const val STATUS_CX = 422f
+    const val STATUS_MAIN_Y = 894f
+    const val STATUS_SUB_Y = 940f
     const val DOT_R = 11f
 
-    /** элемент панели: ассет + АБСОЛЮТНЫЙ арт-y верха канвы + арт-высота канвы (с полями M=14) */
-    internal class Bar(val res: Int, val top: Float, val h: Float, val focusable: Boolean = true)
-    internal class Row3(val res: IntArray, val top: Float, val h: Float)
+    // правая зона
+    const val X0 = 856f
+    const val X1 = 1852f
 
-    // top = frame_y0 − M, h = (frame_y1 − frame_y0) + 2M — геометрия эскиза (ops/tv-eskiz-spec.json).
-    // Ассеты v3 = premium-панели ops/tv-premium-kit.py (материал эталона /root/button.png,
-    // те же поля M=14) — кропы эскиза заменены, позиции НЕ менялись.
-    val BUY = Bar(R.drawable.tvp_buy, 43f, 121f)
-    val ROW_CODE = Row3(
-        intArrayOf(R.drawable.tvp_tile, R.drawable.tvp_tile, R.drawable.tvp_tile),
-        178f, 185f,
-    )
-    val UPDATE = Bar(R.drawable.tvp_update, 365f, 116f)
-    val KONTAKTY = Bar(0, 494f, 86f, focusable = false)      // заголовок+divider рисуются Compose
-    val PHONE = Bar(R.drawable.tvp_phone, 545f, 128f)
-    val HINT = Bar(0, 676f, 82f, focusable = false)          // текст рисуется Compose
-    val ROW_TG = Row3(
-        intArrayOf(R.drawable.tvp_chip, R.drawable.tvp_chip, R.drawable.tvp_chip),
-        730f, 152f,
-    )
+    /** панель: ассет + INNER-прямоугольник (арт-px) */
+    internal class P(val res: Int, val x: Float, val y: Float, val w: Float, val h: Float)
+
+    val CTA = P(R.drawable.tvm_cta, X0, 76f, 868f, 100f)
+    val GEAR = P(R.drawable.tvm_sq, 1752f, 76f, 100f, 100f)
+
+    // 3 плитки действий (Ввести код / Приложения VPN / Поделиться)
+    const val TILE_Y = 208f
+    const val TILE_W = 317f
+    const val TILE_H = 142f
+    const val TILE_STEP = 341f
+    val TILE_RES = R.drawable.tvm_tile
+
+    // пара баров (Обновить приложение / Проверить соединение)
+    const val BAR2_Y = 374f
+    const val BAR2_W = 486f
+    const val BAR2_H = 86f
+    const val BAR2_X2 = 1366f
+    val BAR2_RES = R.drawable.tvm_bar2
+
+    // секции
+    const val HDR_CONTACTS_Y = 502f
+    val PHONE = P(R.drawable.tvm_phone, X0, 532f, 996f, 84f)
+    const val HINT_Y = 644f
+    const val MSG_Y = 672f
+    const val MSG_H = 72f
+    val MSG_RES = R.drawable.tvm_msg
+    const val HDR_PROTO_Y = 786f
+
+    // чипы протоколов 4×2 (иконка + титул + подзаголовок; выбранный = tvm_chip_sel)
+    const val CHIP_Y = 818f
+    const val CHIP_W = 236f
+    const val CHIP_H = 80f
+    const val CHIP_STEP_X = 254f
+    const val CHIP_STEP_Y = 96f
+    const val CHIP_COLS = 4
+    val CHIP_RES = R.drawable.tvm_chip
+    val CHIP_SEL_RES = R.drawable.tvm_chip_sel
+
+    // аккаунт-бар (левая зона, под статусом); при отсутствии подписки — триал-CTA в том же слоте
+    val ACCOUNT = P(R.drawable.tvm_account, 112f, 964f, 626f, 66f)
+    val TRIAL = P(R.drawable.tvm_trial, 112f, 964f, 626f, 66f)
 }
