@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -24,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -108,20 +111,51 @@ fun FantasyListRow(
 }
 
 /**
- * Dark-oak page background for the list/settings screens — a tiled carved-wood texture
- * (`oak_bg`, sliced from the эскиз) filling the whole screen. Content is drawn on top.
+ * Shared premium background: phone keeps oak_bg; TV reveals the lossless global v4 wood.
+ * A static key-light and vignette place every route in the same physical scene.
  */
 @Composable
 fun FantasyScreenBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val isTv = com.maestrovpn.tv.compose.rememberIsTv()
     Box(modifier.fillMaxSize()) {
-        androidx.compose.foundation.Image(
-            painter = painterResource(R.drawable.oak_bg),
-            contentDescription = null,
-            modifier = Modifier.matchParentSize(),
-            contentScale = ContentScale.Crop,
+        // MainActivity already paints the lossless v4 TV material behind every
+        // route. Do not cover it with the old low-resolution phone oak_bg.
+        if (!isTv) {
+            androidx.compose.foundation.Image(
+                painter = painterResource(R.drawable.oak_bg),
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        // One physical light scene for every premium route. Gradients are static
+        // and cheap on low-RAM TVs: no blur and no perpetual animation.
+        Box(
+            Modifier
+                .matchParentSize()
+                .drawBehind {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color(0xFFFFD998).copy(alpha = if (isTv) 0.10f else 0.06f),
+                            0.32f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.18f),
+                        ),
+                    )
+                    val center = Offset(size.width * 0.5f, size.height * 0.45f)
+                    val radius = size.maxDimension * 0.72f
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.30f)),
+                            center = center,
+                            radius = radius,
+                        ),
+                        center = center,
+                        radius = radius,
+                    )
+                },
         )
         content()
     }

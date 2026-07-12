@@ -435,7 +435,7 @@ fun AppSettingsScreen(
         modifier =
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(Color.Transparent)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 8.dp),
     ) {

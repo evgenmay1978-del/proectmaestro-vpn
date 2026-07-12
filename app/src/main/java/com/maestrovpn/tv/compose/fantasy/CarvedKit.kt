@@ -23,33 +23,34 @@ import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
 
 /**
- * Премиум-набор резных ТВ-поверхностей (2026-07-11, фото owner: «малую картинку натянули
- * на большой экран, пикселит»). Прежние 9-patch рамки (270…1042 px) растягивались до 6×
- * на 1080p/4K-панель — пиксельная каша и смазанное дерево. Здесь НИЧЕГО не растягивается:
+ * Резные ТВ-поверхности v4 — «материал мобильной версии» (owner 2026-07-12).
+ * НИЧЕГО не растягивается (урок 2026-07-11 «малую картинку натянули, пикселит»):
  *
- *  • кора — `carved_wood_tile` (эталон-кнопка owner) через [ImageShader] с
- *    [TileMode.Repeated]: родные пиксели 1:1 при любом размере поверхности;
- *  • бронзовая рамка — процедурные градиент-штрихи (чёткие на любой плотности),
- *    цвета сняты пипеткой с бронзы эскиза;
- *  • CTA — тёмно-зелёный градиент + салатовая нижняя кромка, как бар «Купить подписку»
- *    на эскизе vpnoff.png (пипетка).
+ *  • дерево — `tvm_wood_tile` (телефонный home_backdrop, ops/tv-mobile-kit.py) через
+ *    [ImageShader] с [TileMode.Repeated]: родные пиксели 1:1 при любом размере;
+ *  • рамка — процедурные градиент-штрихи в ЗОЛОТЕ телефонных рам (пипетка
+ *    frame_bar/frame_button), чёткие на любой плотности;
+ *  • CTA — тёмно-зелёный градиент + салатовая нижняя кромка (стиль «Купить подписку»).
  *
- * Фокус D-pad: бронза теплеет к янтарю + чёткая золотая рамка внутри — БЕЗ blur-glow
+ * Фокус D-pad: золото теплеет к янтарю + чёткая золотая рамка внутри — БЕЗ blur-glow
  * и state-layer (правило ТВ-фокуса проекта).
  */
 enum class CarvedStyle { Bark, Cta }
 
-/** Плитка коры как повторяющийся шейдер — родной масштаб, никакого растяжения. */
+/** Плитка дерева как повторяющийся шейдер — родной масштаб, никакого растяжения.
+ *  v4: тайл = ТЕЛЕФОННОЕ дерево (tvm_wood_tile из home_backdrop, ops/tv-mobile-kit.py) —
+ *  «универсальный материал» owner 2026-07-12; кора эталона удалена вместе с carved_wood_tile. */
 @Composable
 fun rememberBarkBrush(): ShaderBrush {
-    val bark = ImageBitmap.imageResource(R.drawable.carved_wood_tile)
+    val bark = ImageBitmap.imageResource(R.drawable.tvm_wood_tile)
     return remember(bark) { ShaderBrush(ImageShader(bark, TileMode.Repeated, TileMode.Repeated)) }
 }
 
-// Бронза эскиза (пипетка): лит-кромка → тело → тень; фокус-вариант теплее (янтарь).
-private val BronzeHi = Color(0xFFC89A50)
-private val BronzeMid = Color(0xFF8A5E2A)
-private val BronzeLow = Color(0xFF3A2410)
+// v4: рамка = ЗОЛОТО телефонных рам (пипетка frame_bar/frame_button — материал мобильной
+// версии, ярче и желтее прежней бронзы эскиза); фокус-вариант теплеет к янтарю.
+private val BronzeHi = Color(0xFFF0CD82)
+private val BronzeMid = Color(0xFFA87C3A)
+private val BronzeLow = Color(0xFF422C12)
 private val AmberHi = Color(0xFFFFD9A0)
 private val AmberMid = Color(0xFFC98F4A)
 private val AmberLow = Color(0xFF6B4218)
@@ -81,6 +82,25 @@ fun Modifier.carvedSurface(
     val f = focus().coerceIn(0f, 1f)
     val warm = maxOf(f, if (selected) 0.9f else 0f)
     val rad = cornerRadius.toPx()
+    // Two offset, non-blurred shadow layers separate the panel from the wood
+    // without introducing the forbidden TV blur/glow.
+    val shadowX = 2.dp.toPx()
+    val shadowY = 8.dp.toPx()
+    drawRoundRect(
+        color = Color.Black.copy(alpha = 0.48f),
+        topLeft = Offset(shadowX, shadowY),
+        size = Size(
+            (size.width - shadowX * 2f).coerceAtLeast(1f),
+            (size.height - shadowY).coerceAtLeast(1f),
+        ),
+        cornerRadius = CornerRadius(rad, rad),
+    )
+    drawRoundRect(
+        color = Color(0xFF3A1E08).copy(alpha = 0.34f),
+        topLeft = Offset(3.dp.toPx(), 4.dp.toPx()),
+        size = Size((size.width - 6.dp.toPx()).coerceAtLeast(1f), size.height.coerceAtLeast(1f)),
+        cornerRadius = CornerRadius(rad, rad),
+    )
     // 1) интерьер
     if (style == CarvedStyle.Bark && barkBrush != null) {
         drawRoundRect(brush = barkBrush, cornerRadius = CornerRadius(rad, rad))
@@ -130,6 +150,17 @@ fun Modifier.carvedSurface(
         brush = Brush.verticalGradient(
             0.86f to Color.Transparent,
             1f to Color(0xFFD8A860).copy(alpha = 0.10f),
+        ),
+        cornerRadius = CornerRadius(rad, rad),
+    )
+    // Directional key light completes the carved volume. Gradient only: no blur.
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            0f to Color(0xFFFFE2A8).copy(alpha = 0.13f),
+            0.42f to Color.Transparent,
+            1f to Color.Black.copy(alpha = 0.12f),
+            start = Offset.Zero,
+            end = Offset(size.width, size.height),
         ),
         cornerRadius = CornerRadius(rad, rad),
     )
