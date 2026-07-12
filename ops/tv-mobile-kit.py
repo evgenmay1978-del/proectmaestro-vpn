@@ -19,10 +19,10 @@
   tvm_qr_bezel   760×760  — рама QR с ПРОЗРАЧНЫМ проёмом ±308 (урок qr-decorative-frame-lesson)
 
 Геометрия ТВ-хоума (арт 1920×1080, INNER-прямоугольники, M=28) — ДОЛЖНА совпадать с TvEskizSpec:
-  hero crop(54,52,800,1018) ×0.86 @ (104,26) → орб (422, 600.5) r≈176
+  hero crop(54,52,800,1018) ×0.72 @ (122,20) → орб (388, 501) r≈147
   CTA (856,76,868,100) + GEAR (1752,76,100,100) | TILES 3×(317×142) y208 шаг341
   BAR2 2×(486×86) y374 x856/1366 | PHONE (856,532,996,84) | MSG 3×(317×72) y672
-  CHIPS 4×2 (236×80) x шаг254 y818 шаг96 | ACCOUNT/TRIAL (112,964,626,66)
+  CHIPS 4×2 (236×80) x шаг254 y818 шаг96 | ACCOUNT/TRIAL (112,734,626,130)
 Запуск: /root/vpn_bot/venv/bin/python3 ops/tv-mobile-kit.py
 """
 import numpy as np
@@ -208,8 +208,8 @@ def build_bg(with_hero, hero_src=None):
 
     if with_hero:
         hero = hero_src.crop((54, 52, 800, 1018))
-        hero = hero.resize((round(hero.width * 0.86), round(hero.height * 0.86)), Image.LANCZOS)
-        feather_paste(base, hero, (104, 26), 30, "ltrb")
+        hero = hero.resize((round(hero.width * 0.72), round(hero.height * 0.72)), Image.LANCZOS)
+        feather_paste(base, hero, (122, 20), 30, "ltrb")
 
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     key = np.exp(-(((xx - 440) ** 2) / (2 * 700 ** 2) + ((yy - 260) ** 2) / (2 * 560 ** 2))) * 0.14
@@ -263,8 +263,8 @@ if __name__ == "__main__":
     save(build_panel(317, 72, "wood", "btn"), "tvm_msg")
     save(build_panel(236, 80, "wood", "btn"), "tvm_chip")
     save(build_panel(236, 80, "sel", "btn"), "tvm_chip_sel")
-    save(build_panel(626, 66, "wood", "bar"), "tvm_account")
-    save(build_panel(626, 66, "cta", "bar"), "tvm_trial")
+    save(build_panel(626, 130, "ember", "bar"), "tvm_account")
+    save(build_panel(626, 130, "cta", "bar"), "tvm_trial")
     save(build_wood_tile(), "tvm_wood_tile")
     save(build_qr_bezel(), "tvm_qr_bezel")
     print("done")
