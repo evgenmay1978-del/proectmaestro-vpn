@@ -163,7 +163,7 @@ internal fun TvEskizHome(
         val smallButtonHeight = if (compact) 42.dp else 52.dp
         val protocolButtonHeight = 58.dp
         val protocolRowGap = if (compact) 6.dp else 10.dp
-        val phoneWeight = if (compact) 1.85f else 1.55f
+        val phoneWeight = if (compact) 1.65f else 1.55f
 
         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
             TvHeader(
@@ -248,6 +248,7 @@ internal fun TvEskizHome(
                         modifier = Modifier.fillMaxWidth(),
                         buttonHeight = protocolButtonHeight,
                         rowGap = protocolRowGap,
+                        showBadges = !compact,
                     )
                 }
             }
@@ -412,6 +413,7 @@ private fun TvProtocolGrid(
     modifier: Modifier,
     buttonHeight: Dp = 58.dp,
     rowGap: Dp = 10.dp,
+    showBadges: Boolean = true,
 ) {
     val display = (if (protocols.contains("olcrtc")) protocols else protocols + "olcrtc").take(8)
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(rowGap)) {
@@ -428,6 +430,7 @@ private fun TvProtocolGrid(
                         onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
                         modifier = Modifier.weight(1f),
                         height = buttonHeight,
+                        showBadge = showBadges,
                     )
                 }
                 for (index in row.size until 4) {
@@ -447,12 +450,13 @@ private fun TvProtocolButton(
     onClick: () -> Unit,
     modifier: Modifier,
     height: Dp,
+    showBadge: Boolean,
 ) {
     TvSurfaceCard(
         modifier = modifier.height(height),
         selected = selected,
         onClick = onClick,
-        contentPadding = 12.dp,
+        contentPadding = if (showBadge) 10.dp else 8.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -462,18 +466,21 @@ private fun TvProtocolButton(
                 modifier = Modifier.size(23.dp),
             )
             Spacer(Modifier.width(10.dp))
-            Column {
-                Text(tvProtocolLabel(protocol), color = if (selected) MaestroOrange else TvText, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(
-                    when {
-                        locked -> "по запросу"
-                        protocol == "olcrtc" -> if (provider == "wbstream") "через WB" else "через Яндекс"
-                        else -> tvProtocolBadge(protocol)
-                    },
-                    color = if (locked) TvMuted else NeonGreen,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(tvProtocolLabel(protocol), color = if (selected) MaestroOrange else TvText, fontSize = if (showBadge) 15.sp else 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (showBadge) {
+                    Text(
+                        when {
+                            locked -> "по запросу"
+                            protocol == "olcrtc" -> if (provider == "wbstream") "через WB" else "через Яндекс"
+                            else -> tvProtocolBadge(protocol)
+                        },
+                        color = if (locked) TvMuted else NeonGreen,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -494,13 +501,13 @@ private fun TvActionButton(
         modifier = modifier.height(height),
         onClick = onClick,
         selected = accent,
-        contentPadding = if (compact) 10.dp else 14.dp,
+        contentPadding = if (compact) 8.dp else 14.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = if (accent) NeonGreen else NeonGreen, modifier = Modifier.size(if (compact) 24.dp else 27.dp))
-            Spacer(Modifier.width(if (compact) 10.dp else 12.dp))
-            Column {
-                Text(label, color = if (accent) TvText else TvText, fontSize = if (compact) 16.sp else 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(icon, null, tint = if (accent) NeonGreen else NeonGreen, modifier = Modifier.size(if (compact) 22.dp else 27.dp))
+            Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, color = if (accent) TvText else TvText, fontSize = if (compact) 15.sp else 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(supporting, color = TvMuted, fontSize = if (compact) 10.sp else 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -516,11 +523,12 @@ private fun TvSmallButton(
     iconTint: Color = NeonGreen,
     height: Dp = 52.dp,
 ) {
-    TvSurfaceCard(modifier = modifier.height(height), onClick = onClick, contentPadding = 10.dp) {
+    val compact = height < 48.dp
+    TvSurfaceCard(modifier = modifier.height(height), onClick = onClick, contentPadding = if (compact) 8.dp else 10.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Icon(icon, null, tint = iconTint, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(9.dp))
-            Text(label, color = TvText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(icon, null, tint = iconTint, modifier = Modifier.size(if (compact) 18.dp else 20.dp))
+            Spacer(Modifier.width(if (compact) 7.dp else 9.dp))
+            Text(label, color = TvText, fontSize = if (compact) 13.sp else 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
