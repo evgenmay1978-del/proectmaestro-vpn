@@ -485,7 +485,7 @@ fun PerAppProxyScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .then(if (isTv) Modifier.padding(horizontal = 34.dp, top = 18.dp, bottom = 10.dp) else Modifier),
+                .then(if (isTv) Modifier.padding(start = 34.dp, end = 34.dp, top = 18.dp, bottom = 10.dp) else Modifier),
             color = if (isTv) Color(0xFF101B18) else MaterialTheme.colorScheme.surfaceContainerLow,
             shape = if (isTv) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraSmall,
         ) {
