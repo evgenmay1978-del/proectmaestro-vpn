@@ -58,3 +58,18 @@ Local clone: `C:\Users\maest\Documents\Codex\2026-07-13\new-chat\repo`. It has T
 - Split list loads after about six seconds; use `outputs/tv-split-real.png`, not `tv-split.png`.
 - Next, migrate reachable TV routes that still contain direct Material or fixed-width layouts, then compile after each coherent group.
 - Real APK/D-pad QA remains blocked until the official runtime `libbox.aar` is obtained through a trusted route.
+
+## Continuation update — 2026-07-13 TV rebuild after Settings removal
+
+- Owner explicitly removed Settings from app scope: do not redesign settings root/subpages for TV.
+- Current branch: `fix/tv-ui-rebuild-20260713`.
+- Latest TV route commits pushed to GitHub:
+  - `944ea95` removes Settings entry from TV home; GitHub Actions `29271730214` success.
+  - `4226e0f` polishes split tunnel/per-app TV layout; first CI `29272380895` failed on invalid Compose padding.
+  - `a82912c` fixes that padding; GitHub Actions `29273231472` success.
+  - `a59959c` polishes Trial activation screen for TV; GitHub Actions `29273635961` success.
+- Split/per-app now uses the clean dark TV shell, transparent TV topbar, selected count, TV list spacing, and amber focus borders in `AppSelectionCard`. Mobile branch remains on the existing art frame.
+- Trial screen now uses a centered clean dark TV panel, sans heading, wider field, and clean CTA. Mobile branch keeps its existing backdrop/scroll/wood behavior.
+- `ScanQrActivateScreen` is phone-only: TV has no camera and the new TV home has no scan QR entry. Do not include it in the current TV route scope unless owner changes product direction.
+- Graphify was force-updated after the code changes (`graphify update . --force`) and rebuilt 3073 nodes / 5166 edges / 243 communities.
+- Do not merge to `main` / OTA / release without explicit owner approval and real-device KP1 verification.
