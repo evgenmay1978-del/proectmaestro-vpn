@@ -9,6 +9,8 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,8 +36,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
@@ -44,8 +48,6 @@ import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.fantasy.FantasyToggle
 import com.maestrovpn.tv.compose.fantasy.fantasyFrame
-import com.maestrovpn.tv.compose.fantasy.carvedSurface
-import com.maestrovpn.tv.compose.fantasy.rememberBarkBrush
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.GoldMid
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -163,7 +165,8 @@ fun AppSelectionCard(
     var showContextMenu by remember { mutableStateOf(false) }
     var showCopyMenu by remember { mutableStateOf(false) }
     val isTv = rememberIsTv()
-    val bark = if (isTv) rememberBarkBrush() else null
+    var isFocused by remember { mutableStateOf(false) }
+    val tvShape = RoundedCornerShape(8.dp)
     val clickMod =
         if (enableCopyActions) {
             Modifier.combinedClickable(
@@ -174,8 +177,8 @@ fun AppSelectionCard(
             Modifier.clickable { onToggle(!selected) }
         }
 
-    // Shared row: both form factors use the same wood/gold material and fantasy toggle.
-    // TV uses the lossless v4 wood shader; phone keeps its established art frame.
+    // Shared row content. TV wraps it in the clean dark list surface; phone keeps the established art frame
+    // and wood/gold material.
     val rowContent: @Composable () -> Unit = {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -193,12 +196,12 @@ fun AppSelectionCard(
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = if (isTv) Color.Unspecified else Color(0xFFF1EEE6),
+                    color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFF1EEE6),
                 )
                 Text(
                     text = "${packageCache.packageName} (${packageCache.uid})",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (isTv) MaterialTheme.colorScheme.onSurfaceVariant else GoldMid.copy(alpha = 0.8f),
+                    color = if (isTv) Color(0xFFA8B7AF) else GoldMid.copy(alpha = 0.8f),
                     softWrap = true,
                 )
             }
@@ -208,11 +211,20 @@ fun AppSelectionCard(
 
     Box {
         if (isTv) {
+            val borderColor =
+                when {
+                    isFocused -> Color(0xFFFFC857)
+                    selected -> NeonGreen.copy(alpha = 0.72f)
+                    else -> Color(0xFF2B4940)
+                }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(clickMod)
-                    .carvedSurface(bark, { 0f }, cornerRadius = 16.dp, selected = selected),
+                    .onFocusChanged { isFocused = it.isFocused }
+                    .clip(tvShape)
+                    .background(if (selected) Color(0xFF203B2C) else Color(0xFF101B18))
+                    .border(if (isFocused) 2.dp else 1.dp, borderColor, tvShape)
+                    .then(clickMod),
             ) { rowContent() }
         } else {
             Box(

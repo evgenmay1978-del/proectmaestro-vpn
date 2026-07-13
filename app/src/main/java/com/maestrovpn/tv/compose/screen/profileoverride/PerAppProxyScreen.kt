@@ -74,6 +74,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -305,6 +306,8 @@ fun PerAppProxyScreen(
         isLoading = false
     }
 
+    val isTv = rememberIsTv()
+
     OverrideTopBar {
         TopAppBar(
             title = { Text(stringResource(R.string.per_app_proxy)) },
@@ -422,14 +425,22 @@ fun PerAppProxyScreen(
                 )
             },
             colors =
-            TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-            ),
+            if (isTv) {
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = Color(0xFFF4F4EF),
+                    navigationIconContentColor = Color(0xFFA8B7AF),
+                    actionIconContentColor = Color(0xFFA8B7AF),
+                )
+            } else {
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                )
+            },
         )
     }
 
-    val isTv = rememberIsTv()
     Box(modifier = Modifier.fillMaxSize()) {
       // PHONE: carved-wood эскиз backdrop (with a dark scrim) so the split-tunnel screen matches
       // the wood/gold app. TV keeps the plain green-glow.
@@ -447,6 +458,7 @@ fun PerAppProxyScreen(
             .fillMaxSize()
             .drawBehind {
                 if (isTv) {
+                    drawRect(Color(0xFF07100D))
                     // unified "spider" backdrop — a soft green glow on the deep-black theme bg,
                     // so this donor screen reads as part of the same app as the home screen.
                     val center = Offset(size.width * 0.5f, size.height * 0.12f)
@@ -470,19 +482,37 @@ fun PerAppProxyScreen(
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(if (isTv) Modifier.padding(horizontal = 34.dp, top = 18.dp, bottom = 10.dp) else Modifier),
+            color = if (isTv) Color(0xFF101B18) else MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = if (isTv) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraSmall,
         ) {
-            Text(
-                text =
-                if (proxyMode == Settings.PER_APP_PROXY_INCLUDE) {
-                    stringResource(R.string.per_app_proxy_mode_include_description)
-                } else {
-                    stringResource(R.string.per_app_proxy_mode_exclude_description)
-                },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 14.dp else 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text =
+                    if (proxyMode == Settings.PER_APP_PROXY_INCLUDE) {
+                        stringResource(R.string.per_app_proxy_mode_include_description)
+                    } else {
+                        stringResource(R.string.per_app_proxy_mode_exclude_description)
+                    },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isTv) Color(0xFFA8B7AF) else MaterialTheme.colorScheme.onSurface,
+                )
+                if (isTv) {
+                    Text(
+                        text = "${selectedUids.size}/${currentPackages.size}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color(0xFFFFC857),
+                    )
+                }
+            }
         }
 
         AnimatedVisibility(
@@ -507,7 +537,7 @@ fun PerAppProxyScreen(
                 modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = if (isTv) 34.dp else 16.dp, vertical = if (isTv) 10.dp else 8.dp)
                     .focusRequester(focusRequester),
                 placeholder = { Text(stringResource(R.string.search)) },
                 leadingIcon = {
@@ -538,10 +568,10 @@ fun PerAppProxyScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding =
             androidx.compose.foundation.layout.PaddingValues(
-                horizontal = 16.dp,
-                vertical = 12.dp,
+                horizontal = if (isTv) 34.dp else 16.dp,
+                vertical = if (isTv) 14.dp else 12.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 8.dp),
         ) {
             items(currentPackages, key = { it.packageName }) { packageCache ->
                 AppSelectionCard(
