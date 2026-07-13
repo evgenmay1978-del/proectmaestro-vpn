@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -50,9 +51,10 @@ fun FantasyToggle(
 ) {
     val t by animateFloatAsState(if (checked) 1f else 0f, tween(190), label = "toggle")
     val a = if (enabled) 1f else 0.4f
+    val isTv = com.maestrovpn.tv.compose.rememberIsTv()
     Box(
         modifier
-            .size(width = 52.dp, height = 30.dp)
+            .size(width = if (isTv) 56.dp else 52.dp, height = 30.dp)
             .then(
                 if (onCheckedChange != null && enabled) {
                     Modifier.clickable(
@@ -66,6 +68,27 @@ fun FantasyToggle(
             .drawBehind {
                 val r = size.height / 2f
                 val cr = CornerRadius(r, r)
+                if (isTv) {
+                    drawRoundRect(
+                        color = lerpC(Color(0xFF263A33), Color(0xFF247247), t),
+                        cornerRadius = cr,
+                        alpha = a,
+                    )
+                    drawRoundRect(
+                        color = lerpC(Color(0xFF46665A), Color(0xFF49A66E), t),
+                        cornerRadius = cr,
+                        style = Stroke(width = 1.5.dp.toPx()),
+                        alpha = a,
+                    )
+                    val cx = lerp(r, size.width - r, t)
+                    drawCircle(
+                        color = lerpC(Color(0xFFA8B7AF), Color(0xFFF4F4EF), t),
+                        radius = r - 4.dp.toPx(),
+                        center = Offset(cx, r),
+                        alpha = a,
+                    )
+                    return@drawBehind
+                }
                 // track fill — dark wood, warming faintly green when ON
                 drawRoundRect(
                     brush = Brush.verticalGradient(
@@ -129,22 +152,48 @@ fun FantasySegmented(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(14.dp)
+    val isTv = com.maestrovpn.tv.compose.rememberIsTv()
     Row(
         modifier
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF1A120A), Color(0xFF0B0805))))
-            .border(1.5.dp, Brush.verticalGradient(listOf(GoldHi, GoldMid, GoldDark)), shape)
+            .then(
+                if (isTv) {
+                    Modifier
+                        .background(Color(0xFF14241F))
+                        .border(1.dp, Color(0xFF345347), shape)
+                } else {
+                    Modifier
+                        .background(Brush.verticalGradient(listOf(Color(0xFF1A120A), Color(0xFF0B0805))))
+                        .border(1.5.dp, Brush.verticalGradient(listOf(GoldHi, GoldMid, GoldDark)), shape)
+                },
+            )
             .padding(4.dp),
     ) {
         options.forEachIndexed { i, label ->
             val sel = i == selected
             val segShape = RoundedCornerShape(10.dp)
+            val interaction = rememberIS()
+            val focused by interaction.collectIsFocusedAsState()
             Box(
                 Modifier
                     .weight(1f)
                     .clip(segShape)
                     .then(
-                        if (sel) {
+                        if (isTv) {
+                            Modifier
+                                .background(if (sel) Color(0xFF285F40) else Color.Transparent)
+                                .then(
+                                    if (focused || sel) {
+                                        Modifier.border(
+                                            if (focused) 2.dp else 1.dp,
+                                            if (focused) Color(0xFFFFC857) else Color(0xFF4A7964),
+                                            segShape,
+                                        )
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                        } else if (sel) {
                             Modifier.drawBehind {
                                 val cr = CornerRadius(10.dp.toPx(), 10.dp.toPx())
                                 drawRoundRect(NeonGreen.copy(alpha = 0.16f), cornerRadius = cr)
@@ -158,13 +207,13 @@ fun FantasySegmented(
                             Modifier
                         },
                     )
-                    .clickable(interactionSource = rememberIS(), indication = null) { onSelect(i) }
-                    .padding(vertical = 10.dp),
+                    .clickable(interactionSource = interaction, indication = null) { onSelect(i) }
+                    .padding(vertical = if (isTv) 12.dp else 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label,
-                    color = if (sel) Color.White else GoldMid.copy(alpha = 0.75f),
+                    color = if (sel) Color.White else if (isTv) Color(0xFFA8B7AF) else GoldMid.copy(alpha = 0.75f),
                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium,
                     textAlign = TextAlign.Center,
                 )

@@ -2,6 +2,8 @@ package com.maestrovpn.tv.compose.fantasy
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Icon
@@ -67,12 +71,15 @@ fun FantasyListRow(
     val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "rowFocus")
     // ТВ: резная строка (кора 1:1 + процедурная бронза). Прежний frame_bar (1042×348)
     // сплющивался в ~2.7 раза по высоте — орнаменты превращались в кашу (тарифы, фото owner).
-    val carvedTv = com.maestrovpn.tv.compose.rememberIsTv()
-    val bark = if (carvedTv) rememberBarkBrush() else null
+    val isTv = com.maestrovpn.tv.compose.rememberIsTv()
+    val tvShape = RoundedCornerShape(16.dp)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer {
+                scaleX = if (isTv) 1f else scale
+                scaleY = if (isTv) 1f else scale
+            }
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, role = Role.Button) { onClick() }
@@ -81,8 +88,15 @@ fun FantasyListRow(
                 },
             )
             .then(
-                if (carvedTv) {
-                    Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 16.dp)
+                if (isTv) {
+                    Modifier
+                        .clip(tvShape)
+                        .background(if (focused) Color(0xFF203B2C) else Color(0xFF172622))
+                        .border(
+                            width = if (focused) 3.dp else 1.dp,
+                            color = if (focused) Color(0xFFFFC857) else Color(0xFF2B4940),
+                            shape = tvShape,
+                        )
                 } else {
                     Modifier
                         .fantasyFrame(R.drawable.frame_bar)
@@ -98,9 +112,18 @@ fun FantasyListRow(
             Spacer(Modifier.width(14.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, color = Color(0xFFF1EEE6), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(
+                title,
+                color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFF1EEE6),
+                fontWeight = FontWeight.SemiBold,
+                fontSize = if (isTv) 17.sp else 16.sp,
+            )
             if (!subtitle.isNullOrBlank()) {
-                Text(subtitle, color = GoldMid.copy(alpha = 0.8f), fontSize = 12.5.sp)
+                Text(
+                    subtitle,
+                    color = if (isTv) Color(0xFFA8B7AF) else GoldMid.copy(alpha = 0.8f),
+                    fontSize = if (isTv) 13.sp else 12.5.sp,
+                )
             }
         }
         if (trailing != null) {
@@ -121,42 +144,60 @@ fun FantasyScreenBackground(
 ) {
     val isTv = com.maestrovpn.tv.compose.rememberIsTv()
     Box(modifier.fillMaxSize()) {
-        // MainActivity already paints the lossless v4 TV material behind every
-        // route. Do not cover it with the old low-resolution phone oak_bg.
-        if (!isTv) {
+        if (isTv) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(Color(0xFF07100D))
+                    .drawBehind {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(
+                                    Color(0xFF3EE07A).copy(alpha = 0.10f),
+                                    Color(0xFF3EE07A).copy(alpha = 0.02f),
+                                    Color.Transparent,
+                                ),
+                                center = Offset(size.width * 0.18f, size.height * 0.36f),
+                                radius = size.maxDimension * 0.62f,
+                            ),
+                            center = Offset(size.width * 0.18f, size.height * 0.36f),
+                            radius = size.maxDimension * 0.62f,
+                        )
+                    },
+            )
+        } else {
             androidx.compose.foundation.Image(
                 painter = painterResource(R.drawable.oak_bg),
                 contentDescription = null,
                 modifier = Modifier.matchParentSize(),
                 contentScale = ContentScale.Crop,
             )
-        }
-        // One physical light scene for every premium route. Gradients are static
-        // and cheap on low-RAM TVs: no blur and no perpetual animation.
-        Box(
-            Modifier
-                .matchParentSize()
-                .drawBehind {
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color(0xFFFFD998).copy(alpha = if (isTv) 0.10f else 0.06f),
-                            0.32f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.18f),
-                        ),
-                    )
-                    val center = Offset(size.width * 0.5f, size.height * 0.45f)
-                    val radius = size.maxDimension * 0.72f
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.30f)),
+            // Preserve the phone lighting exactly.
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .drawBehind {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to Color(0xFFFFD998).copy(alpha = 0.06f),
+                                0.32f to Color.Transparent,
+                                1f to Color.Black.copy(alpha = 0.18f),
+                            ),
+                        )
+                        val center = Offset(size.width * 0.5f, size.height * 0.45f)
+                        val radius = size.maxDimension * 0.72f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.30f)),
+                                center = center,
+                                radius = radius,
+                            ),
                             center = center,
                             radius = radius,
-                        ),
-                        center = center,
-                        radius = radius,
-                    )
-                },
-        )
+                        )
+                    },
+            )
+        }
         content()
     }
 }

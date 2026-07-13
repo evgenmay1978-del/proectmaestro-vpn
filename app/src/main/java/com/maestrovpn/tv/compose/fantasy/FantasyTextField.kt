@@ -2,6 +2,8 @@ package com.maestrovpn.tv.compose.fantasy
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -15,6 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -55,21 +59,28 @@ fun FantasyTextField(
     val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "fieldFocus")
     // ТВ: резное поле — кора 1:1, интерьер притемнён сильнее обычного ради читаемости
     // текста поверх фактуры; бронза процедурная (9-patch пикселил, фото owner 2026-07-11).
-    val carvedTv = com.maestrovpn.tv.compose.rememberIsTv()
-    val bark = if (carvedTv) rememberBarkBrush() else null
+    val isTv = com.maestrovpn.tv.compose.rememberIsTv()
+    val tvShape = RoundedCornerShape(14.dp)
     Box(
         modifier
             .then(
-                if (carvedTv) {
-                    Modifier.carvedSurface(bark, { focusAlpha }, cornerRadius = 18.dp, interiorDim = 0.30f)
+                if (isTv) {
+                    Modifier
+                        .clip(tvShape)
+                        .background(Color(0xFF14241F))
+                        .border(
+                            width = if (focused) 2.dp else 1.dp,
+                            color = if (focused) Color(0xFFFFC857) else Color(0xFF345347),
+                            shape = tvShape,
+                        )
                 } else {
                     Modifier
                         .fantasyFrame(R.drawable.frame_bar)
                         .fantasyFocusFrame({ focusAlpha }, NeonGreen)
                 },
             )
-            .heightIn(min = 60.dp)
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .heightIn(min = if (isTv) 64.dp else 60.dp)
+            .padding(horizontal = if (isTv) 20.dp else 24.dp, vertical = if (isTv) 15.dp else 16.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicTextField(
@@ -91,7 +102,7 @@ fun FantasyTextField(
                 if (value.isEmpty() && !placeholder.isNullOrBlank()) {
                     androidx.compose.material3.Text(
                         placeholder,
-                        color = GoldMid.copy(alpha = 0.6f),
+                        color = if (isTv) Color(0xFFA8B7AF) else GoldMid.copy(alpha = 0.6f),
                         fontSize = 18.sp,
                     )
                 }
