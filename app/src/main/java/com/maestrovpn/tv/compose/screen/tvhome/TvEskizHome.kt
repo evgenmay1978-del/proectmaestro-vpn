@@ -4,40 +4,36 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -46,6 +42,7 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,28 +53,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.maestrovpn.tv.R
-import com.maestrovpn.tv.compose.theme.GoldHi
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
@@ -86,18 +71,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * ТВ-главный v5 «master quality» (owner 2026-07-12, мок одобрен):
- * один экран 1920×1080 БЕЗ скролла, вся графика — родные пиксели телефонного арта
- * (`ops/tv-mobile-kit.py`). Слои:
- *  1. Фон `tvm_bg_off`→`tvm_bg_on` кроссфейд (дерево+рама+герой: сфера ↔ глаз).
- *  2. Медальон-кнопка Connect (тап-зона на сфере/глазу) + янтарное фокус-кольцо.
- *  3. Статус (красный/зелёный, как на телефоне) + аккаунт-бар (или триал-CTA) слева.
- *  4. Правая зона: CTA+шестерёнка / 3 плитки / обновить+проверить / КОНТАКТЫ /
- *     ПРОТОКОЛ (чипы с подзаголовками, выбранный — оранжевый, как в видео owner).
- * Панели — ассеты с запечёнными тенью/объёмом на АБСОЛЮТНЫХ позициях [TvEskizSpec];
- * контент (иконки/текст) и фокус — Compose. Никаких вечных анимаций (1ГБ-боксы).
- */
+private val TvBackground = Color(0xFF07100D)
+private val TvSurface = Color(0xFF101B18)
+private val TvSurfaceRaised = Color(0xFF172622)
+private val TvSurfaceSelected = Color(0xFF203B2C)
+private val TvText = Color(0xFFF4F4EF)
+private val TvMuted = Color(0xFFA8B7AF)
+private val TvLine = Color(0xFF2B4940)
+private val TvFocus = Color(0xFFFFC857)
+private val TvError = Color(0xFFFF6B6B)
+
+/** Responsive Android TV home. The phone branch stays in TvHomeScreen.kt untouched. */
 @Composable
 internal fun TvEskizHome(
     statusText: String,
@@ -122,430 +106,486 @@ internal fun TvEskizHome(
     onSettings: () -> Unit,
     connectFocus: FocusRequester,
 ) {
-    val ctx = LocalContext.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val open: (String) -> Unit = { url ->
         runCatching {
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
-    val onUpdate: () -> Unit = {
-        (ctx as? Activity)?.let { act -> scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(act, true) } } }
-    }
-    val onCheck: () -> Unit = {
+    val checkConnection: () -> Unit = {
         scope.launch(Dispatchers.IO) {
             val ok = runCatching {
                 (java.net.URL("https://www.google.com/generate_204").openConnection() as java.net.HttpURLConnection).run {
-                    connectTimeout = 5000; readTimeout = 5000
+                    connectTimeout = 5000
+                    readTimeout = 5000
                     try { responseCode in 200..399 } finally { disconnect() }
                 }
             }.getOrDefault(false)
             withContext(Dispatchers.Main) {
-                Toast.makeText(ctx, if (ok) "✅ Соединение работает" else "❌ Нет соединения", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, if (ok) "Соединение работает" else "Нет соединения", Toast.LENGTH_SHORT).show()
             }
         }
     }
-
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val sw = maxWidth.value
-        val sh = maxHeight.value
-        val s = maxOf(sw / TvEskizSpec.ART_W, sh / TvEskizSpec.ART_H) // Crop-scale (dp на арт-px)
-        val offX = (sw - TvEskizSpec.ART_W * s) / 2f
-        val offY = (sh - TvEskizSpec.ART_H * s) / 2f
-        fun ax(x: Float) = offX + x * s
-        fun ay(y: Float) = offY + y * s
-
-        // ── (1) фон: дерево+рама+герой, off→on кроссфейдом (сфера → глаз) ─────────────
-        ArtImage(R.drawable.tvm_bg_off, Modifier.fillMaxSize(), ContentScale.Crop)
-        val onAlpha by animateFloatAsState(
-            if (connected) 1f else 0f, tween(800, easing = FastOutSlowInEasing), label = "tvbg",
-        )
-        if (onAlpha > 0.001f) {
-            ArtImage(R.drawable.tvm_bg_on, Modifier.fillMaxSize(), ContentScale.Crop, alpha = onAlpha)
+    val updateApp: () -> Unit = {
+        (context as? Activity)?.let { activity ->
+            scope.launch(Dispatchers.IO) { runCatching { Vendor.checkUpdate(activity, true) } }
         }
+    }
 
-        // ── (2) медальон-кнопка Connect ───────────────────────────────────────────────
-        MedallionButton(
-            onToggle = onToggleConnect,
-            focusRequester = connectFocus,
-            s = s,
-            modifier = Modifier
-                .offset(x = ax(TvEskizSpec.RING_CX - TvEskizSpec.RING_R).dp, y = ay(TvEskizSpec.RING_CY - TvEskizSpec.RING_R).dp)
-                .size((2f * TvEskizSpec.RING_R * s).dp),
-        )
-
-        // ── (3) статус (красный/зелёный, как на телефоне) + подстрока протокола ──────
-        val stateColor = if (connected) NeonGreen else StateRed
-        Box(
-            modifier = Modifier
-                .offset(x = ax(TvEskizSpec.HERO_X).dp, y = ay(TvEskizSpec.STATUS_MAIN_Y - 28f).dp)
-                .size(width = (TvEskizSpec.HERO_W * s).dp, height = (56f * s).dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size((2f * TvEskizSpec.DOT_R * s).dp)
-                        .drawBehind { drawCircle(stateColor) },
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(TvBackground)
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(
+                            NeonGreen.copy(alpha = if (connected) 0.16f else 0.07f),
+                            NeonGreen.copy(alpha = 0.02f),
+                            Color.Transparent,
+                        ),
+                        center = Offset(size.width * 0.19f, size.height * 0.46f),
+                        radius = size.minDimension * 0.58f,
+                    ),
+                    radius = size.minDimension * 0.58f,
+                    center = Offset(size.width * 0.19f, size.height * 0.46f),
                 )
-                Spacer(Modifier.width((14f * s).dp))
-                Text(
-                    statusText.uppercase(),
-                    color = stateColor,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = (40f * s).sp,
-                    letterSpacing = 2.sp,
-                    maxLines = 1,
+                drawLine(
+                    color = TvLine.copy(alpha = 0.5f),
+                    start = Offset(size.width * 0.37f, 0f),
+                    end = Offset(size.width * 0.37f, size.height),
+                    strokeWidth = 1f,
                 )
             }
-        }
-        val protoMain = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
-        if (!protoMain.isNullOrBlank()) {
-            val viaAuto = selected == "auto" && protoMain != "auto"
-            val prefix = if (connected) "Подключён" else "Отключён"
-            Box(
-                modifier = Modifier
-                    .offset(x = ax(TvEskizSpec.HERO_X).dp, y = ay(TvEskizSpec.STATUS_SUB_Y - 20f).dp)
-                    .size(width = (TvEskizSpec.HERO_W * s).dp, height = (40f * s).dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (viaAuto) "$prefix: ${protocolLabel(protoMain)}  •  авто" else "$prefix: ${protocolLabel(protoMain)}",
-                    color = MaestroOrange,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = (26f * s).sp,
-                    maxLines = 1,
-                )
-            }
-        }
+            .padding(horizontal = 34.dp, vertical = 26.dp),
+    ) {
+        val compact = maxHeight < 560.dp
+        val gap = if (compact) 10.dp else 14.dp
 
-        // ── (3.5) аккаунт-бар / триал-CTA (слот под статусом) ─────────────────────────
-        if (!hasSubProfile) {
-            PanelBox(TvEskizSpec.TRIAL, s, ::ax, ::ay, onClick = onEnterTrial) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.ShoppingCart, null, tint = NeonIcon, modifier = Modifier.size((44f * s).dp))
-                    Spacer(Modifier.height((10f * s).dp))
-                    Text(
-                        "Попробовать 2 дня бесплатно",
-                        color = SaladText, fontWeight = FontWeight.Bold, fontSize = (28f * s).sp, maxLines = 1,
-                    )
-                }
-            }
-        } else if (!accountLogin.isNullOrBlank() || daysLeft != null) {
-            PanelBox(TvEskizSpec.ACCOUNT, s, ::ax, ::ay, onClick = null) {
-                AccountBarContent(accountLogin, daysLeft, accountExpires, s)
-            }
-        }
-
-        // ── (4) правая зона ───────────────────────────────────────────────────────────
-        PanelBox(TvEskizSpec.CTA, s, ::ax, ::ay, onClick = onBuy, radArt = 40f) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.ShoppingCart, null, tint = SaladText, modifier = Modifier.size((50f * s).dp))
-                Spacer(Modifier.width((22f * s).dp))
-                Text("Купить подписку", color = SaladText, fontWeight = FontWeight.Bold, fontSize = (34f * s).sp, maxLines = 1)
-            }
-        }
-        PanelBox(TvEskizSpec.GEAR, s, ::ax, ::ay, onClick = onSettings) {
-            Icon(Icons.Filled.Settings, "Настройки", tint = NeonIcon, modifier = Modifier.size((48f * s).dp))
-        }
-
-        val tiles = listOf(
-            Triple(Icons.Filled.Search, "Ввести код", onEnterCode),
-            Triple(Icons.Filled.Public, "Приложения VPN", onSplitTunnel),
-            Triple(Icons.Filled.Share, "Поделиться", onShareIos),
-        )
-        tiles.forEachIndexed { i, (icon, label, click) ->
-            PanelBox(
-                TvEskizSpec.P(TvEskizSpec.TILE_RES, TvEskizSpec.X0 + i * TvEskizSpec.TILE_STEP, TvEskizSpec.TILE_Y, TvEskizSpec.TILE_W, TvEskizSpec.TILE_H),
-                s, ::ax, ::ay, onClick = click,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(icon, null, tint = NeonIcon, modifier = Modifier.size((48f * s).dp))
-                    Spacer(Modifier.height((14f * s).dp))
-                    Text(label, color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (28f * s).sp, maxLines = 1)
-                }
-            }
-        }
-
-        listOf(
-            Triple(Icons.Filled.CloudDownload, "Обновить приложение", onUpdate) to TvEskizSpec.X0,
-            Triple(Icons.Filled.Wifi, "Проверить соединение", onCheck) to TvEskizSpec.BAR2_X2,
-        ).forEach { (t, x) ->
-            val (icon, label, click) = t
-            PanelBox(TvEskizSpec.P(TvEskizSpec.BAR2_RES, x, TvEskizSpec.BAR2_Y, TvEskizSpec.BAR2_W, TvEskizSpec.BAR2_H), s, ::ax, ::ay, onClick = click) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, tint = NeonIcon, modifier = Modifier.size((44f * s).dp))
-                    Spacer(Modifier.width((16f * s).dp))
-                    Text(label, color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (26f * s).sp, maxLines = 1)
-                }
-            }
-        }
-
-        SectionHeader("КОНТАКТЫ", TvEskizSpec.HDR_CONTACTS_Y, s, ::ax, ::ay)
-        PanelBox(TvEskizSpec.PHONE, s, ::ax, ::ay, onClick = { open("tel:+79778116564") }, radArt = 36f) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Call, null, tint = NeonIcon, modifier = Modifier.size((46f * s).dp))
-                Spacer(Modifier.width((22f * s).dp))
-                Text("8 977 811-65-64", color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (40f * s).sp, letterSpacing = 1.sp, maxLines = 1)
-            }
-        }
-        Box(
-            modifier = Modifier
-                .offset(x = ax(TvEskizSpec.X0).dp, y = ay(TvEskizSpec.HINT_Y - 20f).dp)
-                .size(width = ((TvEskizSpec.X1 - TvEskizSpec.X0) * s).dp, height = (40f * s).dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "Если я не ответил на звонок — напишите в любом из мессенджеров",
-                color = Color(0xFFCBCDD2), fontSize = (22f * s).sp, textAlign = TextAlign.Center, maxLines = 1,
+        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+            TvHeader(
+                connected = connected,
+                statusText = statusText,
+                onSettings = onSettings,
             )
-        }
-        val msgs = listOf(
-            Triple(Icons.Filled.Send, "Telegram", { open("https://t.me/wapmixx") }) to Color(0xFF2AABEE),
-            Triple(Icons.Filled.Chat, "WhatsApp", { open("https://wa.me/79778116564") }) to Color(0xFF25D366),
-            Triple(Icons.Filled.Forum, "МАКС", { open("https://max.ru/") }) to Color(0xFF2787F5),
-        )
-        msgs.forEachIndexed { i, (t, tint) ->
-            val (icon, label, click) = t
-            PanelBox(
-                TvEskizSpec.P(TvEskizSpec.MSG_RES, TvEskizSpec.X0 + i * TvEskizSpec.TILE_STEP, TvEskizSpec.MSG_Y, TvEskizSpec.TILE_W, TvEskizSpec.MSG_H),
-                s, ::ax, ::ay, onClick = click,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, tint = tint, modifier = Modifier.size((38f * s).dp))
-                    Spacer(Modifier.width((16f * s).dp))
-                    Text(label, color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (28f * s).sp, maxLines = 1)
-                }
-            }
-        }
 
-        SectionHeader("ПРОТОКОЛ", TvEskizSpec.HDR_PROTO_Y, s, ::ax, ::ay)
-        val displayProtocols = (if (protocols.contains("olcrtc")) protocols else protocols + "olcrtc").take(8)
-        displayProtocols.forEachIndexed { i, p ->
-            val r = i / TvEskizSpec.CHIP_COLS
-            val c = i % TvEskizSpec.CHIP_COLS
-            val olcLocked = p == "olcrtc" && !hasOlcrtcCreds
-            val sel = p == selected && !olcLocked
-            PanelBox(
-                TvEskizSpec.P(
-                    if (sel) TvEskizSpec.CHIP_SEL_RES else TvEskizSpec.CHIP_RES,
-                    TvEskizSpec.X0 + c * TvEskizSpec.CHIP_STEP_X,
-                    TvEskizSpec.CHIP_Y + r * TvEskizSpec.CHIP_STEP_Y,
-                    TvEskizSpec.CHIP_W, TvEskizSpec.CHIP_H,
-                ),
-                s, ::ax, ::ay,
-                onClick = { if (olcLocked) onSelectOlcrtc() else onSelectProtocol(p) },
-                radArt = 16f,
-                center = false,
+            Row(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
             ) {
-                val titleC = if (sel) MaestroOrange else IvoryText
-                val iconC = if (olcLocked) Color(0xFF8F9288) else if (sel) MaestroOrange else NeonIcon
-                val badgeC = if (sel) MaestroOrange else BadgeGreen
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(start = (18f * s).dp)) {
-                    Icon(
-                        if (olcLocked) Icons.Filled.Lock else protocolIconTv(p), null,
-                        tint = iconC, modifier = Modifier.size((34f * s).dp),
-                    )
-                    Spacer(Modifier.width((12f * s).dp))
-                    Column {
-                        Text(
-                            protocolLabel(p), color = titleC, fontWeight = FontWeight.Bold,
-                            fontSize = (24f * s).sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                TvHeroPane(
+                    connected = connected,
+                    statusText = statusText,
+                    activeProtocol = activeProtocol ?: selected,
+                    accountLogin = accountLogin,
+                    daysLeft = daysLeft,
+                    accountExpires = accountExpires,
+                    hasSubProfile = hasSubProfile,
+                    onToggleConnect = onToggleConnect,
+                    onEnterTrial = onEnterTrial,
+                    connectFocus = connectFocus,
+                    compact = compact,
+                    modifier = Modifier.fillMaxHeight().weight(0.37f),
+                )
+
+                Column(
+                    modifier = Modifier.fillMaxHeight().weight(0.63f),
+                    verticalArrangement = Arrangement.spacedBy(gap),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        TvActionButton(
+                            label = "Купить подписку",
+                            supporting = "Продлить доступ",
+                            icon = Icons.Filled.ShoppingCart,
+                            accent = true,
+                            onClick = onBuy,
+                            modifier = Modifier.weight(1f),
                         )
-                        Text(
-                            when {
-                                olcLocked -> "🔒 по запросу"
-                                p == "olcrtc" -> if (olcrtcProvider == "wbstream") "через WB" else "через Яндекс"
-                                else -> protocolBadge(p)
-                            },
-                            color = badgeC, fontWeight = FontWeight.Bold,
-                            fontSize = (15f * s).sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        TvIconButton(
+                            icon = Icons.Filled.Settings,
+                            label = "Настройки",
+                            onClick = onSettings,
                         )
                     }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f))
+                        TvActionButton("Приложения VPN", "Раздельный туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f))
+                        TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f))
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        TvSmallButton("Обновить приложение", Icons.Filled.CloudDownload, updateApp, Modifier.weight(1f))
+                        TvSmallButton("Проверить соединение", Icons.Filled.Wifi, checkConnection, Modifier.weight(1f))
+                    }
+
+                    TvSectionTitle("ПОДДЕРЖКА")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        TvSmallButton("8 977 811-65-64", Icons.Filled.Call, { open("tel:+79778116564") }, Modifier.weight(1.3f))
+                        TvSmallButton("Telegram", Icons.Filled.Send, { open("https://t.me/wapmixx") }, Modifier.weight(1f), iconTint = Color(0xFF2AABEE))
+                        TvSmallButton("WhatsApp", Icons.Filled.Chat, { open("https://wa.me/79778116564") }, Modifier.weight(1f), iconTint = Color(0xFF25D366))
+                        TvSmallButton("МАКС", Icons.Filled.Forum, { open("https://max.ru/") }, Modifier.weight(0.8f), iconTint = Color(0xFF4C9EFF))
+                    }
+
+                    TvSectionTitle("ПРОТОКОЛЫ")
+                    TvProtocolGrid(
+                        protocols = protocols,
+                        selected = selected,
+                        hasOlcrtcCreds = hasOlcrtcCreds,
+                        olcrtcProvider = olcrtcProvider,
+                        onSelectProtocol = onSelectProtocol,
+                        onSelectOlcrtc = onSelectOlcrtc,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
     }
 }
 
-// Палитра v4 (видео owner: неон-иконки телефона, красный OFF как на телефоне)
-private val SaladText = Color(0xFFCDE37B)
-private val IvoryText = Color(0xFFEDEDE9)
-private val NeonIcon = Color(0xFF3EE07A)
-private val StateRed = Color(0xFFFF4040)
-private val BadgeGreen = Color(0xFF96D896)
-private val FocusGoldTv = Color(0xFFFFCE8C)
-private val FocusAmberTv = Color(0xFFFFAD5C)
-
-/** Панель на абсолютной позиции: ассет (inner + поля M с запечённой тенью) + контент
- *  в inner-зоне + янтарный двойной фокус-контур по кромке рамы (БЕЗ blur/scale). */
 @Composable
-private fun PanelBox(
-    p: TvEskizSpec.P,
-    s: Float,
-    ax: (Float) -> Float,
-    ay: (Float) -> Float,
-    onClick: (() -> Unit)?,
-    radArt: Float = 24f,
-    center: Boolean = true,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val m = TvEskizSpec.M
-    Box(
-        modifier = Modifier
-            .offset(x = ax(p.x - m).dp, y = ay(p.y - m).dp)
-            .size(width = ((p.w + 2 * m) * s).dp, height = ((p.h + 2 * m) * s).dp)
-            .drawWithContent {
-                drawContent()
-                if (!focused) return@drawWithContent
-                val i1 = (m - 7f) * s * density
-                val r1 = (radArt + 8f) * s * density
-                drawRoundRect(
-                    color = FocusGoldTv,
-                    topLeft = Offset(i1, i1),
-                    size = Size(size.width - 2 * i1, size.height - 2 * i1),
-                    cornerRadius = CornerRadius(r1, r1),
-                    style = Stroke(width = 3f * s * density),
-                )
-                val i2 = (m - 13f) * s * density
-                val r2 = (radArt + 13f) * s * density
-                drawRoundRect(
-                    color = FocusAmberTv.copy(alpha = 0.65f),
-                    topLeft = Offset(i2, i2),
-                    size = Size(size.width - 2 * i2, size.height - 2 * i2),
-                    cornerRadius = CornerRadius(r2, r2),
-                    style = Stroke(width = 2.2f * s * density),
-                )
-            },
-    ) {
-        ArtImage(p.res, Modifier.fillMaxSize(), ContentScale.FillBounds)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding((m * s).dp)
-                .then(
-                    if (onClick != null) {
-                        Modifier.clickable(interactionSource = interaction, indication = null) { onClick() }
-                    } else Modifier,
-                ),
-            contentAlignment = if (center) Alignment.Center else Alignment.CenterStart,
-            content = content,
-        )
-    }
-}
-
-/** Заголовок секции слева (Playfair-золото, как на телефоне — без орнамент-línий). */
-@Composable
-private fun SectionHeader(title: String, yCenter: Float, s: Float, ax: (Float) -> Float, ay: (Float) -> Float) {
-    Box(
-        modifier = Modifier
-            .offset(x = ax(TvEskizSpec.X0 + 6f).dp, y = ay(yCenter - 24f).dp)
-            .size(width = ((TvEskizSpec.X1 - TvEskizSpec.X0) * s).dp, height = (48f * s).dp),
-        contentAlignment = Alignment.CenterStart,
+private fun TvHeader(connected: Boolean, statusText: String, onSettings: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(54.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            title,
-            color = GoldHi,
+            "MaestroVPN",
+            color = TvText,
             fontFamily = PlayfairFamily,
+            fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
-            fontSize = (34f * s).sp,
-            letterSpacing = 4.sp,
-            maxLines = 1,
         )
-    }
-}
-
-/** Живая премиальная плашка аккаунта: крупные читаемые данные без растра с текстом. */
-@Composable
-private fun AccountBarContent(login: String?, daysLeft: Int?, expires: String?, s: Float) {
-    val expired = daysLeft != null && daysLeft <= 0
-    val low = daysLeft != null && daysLeft in 1..5
-    val daysColor = if (expired) Color(0xFFE5484D) else if (low) MaestroOrange else NeonGreen
-    val daysText = when {
-        daysLeft == null -> null
-        expired -> "Подписка истекла"
-        daysLeft >= 3650 -> "Безлимит"
-        else -> "Осталось $daysLeft ${daysWord(daysLeft)}" + (expires?.let { " · до $it" } ?: "")
-    }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxSize().padding(horizontal = (24f * s).dp)) {
-        GreenSquare(Icons.Filled.Person, s, 58f)
-        Spacer(Modifier.width((22f * s).dp))
-        Column(modifier = Modifier.weight(1f)) {
-            if (!login.isNullOrBlank()) {
-                Text("Аккаунт", color = Color(0xFFB7B9B5), fontWeight = FontWeight.Bold, fontSize = (18f * s).sp, maxLines = 1)
-                Text(login, color = IvoryText, fontWeight = FontWeight.Bold, fontSize = (31f * s).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (daysText != null) {
-                Spacer(Modifier.height((4f * s).dp))
-                Text(daysText, color = daysColor, fontWeight = FontWeight.Bold, fontSize = (23f * s).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(18.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(if (connected) NeonGreen.copy(alpha = 0.14f) else TvSurface)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (connected) NeonGreen else TvError))
+                Spacer(Modifier.width(8.dp))
+                Text(statusText, color = if (connected) NeonGreen else TvMuted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
-        Spacer(Modifier.width((18f * s).dp))
-        GreenSquare(Icons.Filled.CalendarMonth, s, 52f)
+        Spacer(Modifier.weight(1f))
+        Text("Защищённое подключение", color = TvMuted, fontSize = 15.sp)
+        Spacer(Modifier.width(18.dp))
+        TvIconButton(Icons.Filled.Settings, "Настройки", onSettings)
     }
 }
 
 @Composable
-private fun GreenSquare(icon: ImageVector, s: Float, artSize: Float) {
+private fun TvHeroPane(
+    connected: Boolean,
+    statusText: String,
+    activeProtocol: String?,
+    accountLogin: String?,
+    daysLeft: Int?,
+    accountExpires: String?,
+    hasSubProfile: Boolean,
+    onToggleConnect: () -> Unit,
+    onEnterTrial: () -> Unit,
+    connectFocus: FocusRequester,
+    compact: Boolean,
+    modifier: Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("СТАТУС", color = TvMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (connected) "ПОДКЛЮЧЕНО" else "ОТКЛЮЧЕНО",
+                color = if (connected) NeonGreen else TvError,
+                fontSize = if (compact) 27.sp else 32.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+            )
+            if (!activeProtocol.isNullOrBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (connected) "Активный протокол: ${tvProtocolLabel(activeProtocol)}" else "Готово: ${tvProtocolLabel(activeProtocol)}",
+                    color = MaestroOrange,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        TvConnectButton(connected, onToggleConnect, connectFocus, compact)
+
+        if (hasSubProfile || !accountLogin.isNullOrBlank() || daysLeft != null) {
+            TvAccountCard(accountLogin, daysLeft, accountExpires)
+        } else {
+            TvActionButton(
+                label = "Попробовать бесплатно",
+                supporting = "2 дня без оплаты",
+                icon = Icons.Filled.Info,
+                onClick = onEnterTrial,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvConnectButton(connected: Boolean, onClick: () -> Unit, focusRequester: FocusRequester, compact: Boolean) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val diameter = if (compact) 194.dp else 226.dp
     Box(
         modifier = Modifier
-            .size((artSize * s).dp)
-            .clip(RoundedCornerShape((16f * s).dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF58C97A), Color(0xFF1E5A33)))),
+            .size(diameter + 18.dp)
+            .focusRequester(focusRequester)
+            .clip(CircleShape)
+            .background(if (connected) NeonGreen.copy(alpha = 0.13f) else TvSurface)
+            .border(if (focused) 4.dp else 1.dp, if (focused) TvFocus else TvLine, CircleShape)
+            .padding(9.dp)
+            .clip(CircleShape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, null, tint = Color(0xFFF0FAF2), modifier = Modifier.size((artSize * 0.58f * s).dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Filled.Shield, null, tint = if (connected) NeonGreen else TvMuted, modifier = Modifier.size(42.dp))
+            Spacer(Modifier.height(4.dp))
+            Text("${if (connected) "ОТКЛЮЧИТЬ" else "ПОДКЛЮЧИТЬ"}", color = TvText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
-private fun protocolIconTv(tag: String): ImageVector = when (tag) {
-    "auto" -> Icons.Filled.Speed
-    "hysteria2" -> Icons.Filled.Bolt
-    "vless" -> Icons.Filled.Shield
-    "naive" -> Icons.Filled.Hub
-    "anytls" -> Icons.Filled.Lock
-    "olcrtc" -> Icons.Filled.Videocam
-    else -> Icons.Filled.Layers
+@Composable
+private fun TvAccountCard(login: String?, daysLeft: Int?, expires: String?) {
+    val daysText = when {
+        daysLeft == null -> "Статус подписки неизвестен"
+        daysLeft <= 0 -> "Подписка истекла"
+        daysLeft >= 3650 -> "Безлимит"
+        else -> "Осталось $daysLeft ${tvDaysWord(daysLeft)}" + (expires?.let { " · до $it" } ?: "")
+    }
+    val daysColor = when {
+        daysLeft != null && daysLeft <= 0 -> TvError
+        daysLeft != null && daysLeft <= 5 -> MaestroOrange
+        else -> NeonGreen
+    }
+    TvSurfaceCard(modifier = Modifier.fillMaxWidth(), contentPadding = 16.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(NeonGreen.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Info, null, tint = NeonGreen, modifier = Modifier.size(25.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("АККАУНТ", color = TvMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text(login ?: "Без профиля", color = TvText, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(daysText, color = daysColor, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.Filled.CalendarMonth, null, tint = TvMuted, modifier = Modifier.size(22.dp))
+        }
+    }
 }
 
-/** Битмап с High-фильтрацией (Low мылит дерево/золото при масштабе на 4K). */
 @Composable
-private fun ArtImage(res: Int, modifier: Modifier, contentScale: ContentScale, alpha: Float = 1f) {
-    Image(
-        bitmap = ImageBitmap.imageResource(res),
-        contentDescription = null,
-        modifier = modifier,
-        contentScale = contentScale,
-        alpha = alpha,
-        filterQuality = FilterQuality.High,
-    )
-}
-
-/** Медальон-кнопка: круглая тап-зона на сфере/глазу + янтарное фокус-кольцо по ободу. */
-@Composable
-private fun MedallionButton(
-    onToggle: () -> Unit,
-    focusRequester: FocusRequester,
-    s: Float,
+private fun TvProtocolGrid(
+    protocols: List<String>,
+    selected: String?,
+    hasOlcrtcCreds: Boolean,
+    olcrtcProvider: String?,
+    onSelectProtocol: (String) -> Unit,
+    onSelectOlcrtc: () -> Unit,
     modifier: Modifier,
+) {
+    val display = (if (protocols.contains("olcrtc")) protocols else protocols + "olcrtc").take(8)
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        display.chunked(4).forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { protocol ->
+                    val locked = protocol == "olcrtc" && !hasOlcrtcCreds
+                    val isSelected = protocol == selected && !locked
+                    TvProtocolButton(
+                        protocol = protocol,
+                        selected = isSelected,
+                        locked = locked,
+                        provider = olcrtcProvider,
+                        onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                for (index in row.size until 4) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvProtocolButton(
+    protocol: String,
+    selected: Boolean,
+    locked: Boolean,
+    provider: String?,
+    onClick: () -> Unit,
+    modifier: Modifier,
+) {
+    TvSurfaceCard(
+        modifier = modifier.height(58.dp),
+        selected = selected,
+        onClick = onClick,
+        contentPadding = 12.dp,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (locked) Icons.Filled.Lock else tvProtocolIcon(protocol),
+                null,
+                tint = if (locked) TvMuted else if (selected) MaestroOrange else NeonGreen,
+                modifier = Modifier.size(23.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(tvProtocolLabel(protocol), color = if (selected) MaestroOrange else TvText, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(
+                    when {
+                        locked -> "по запросу"
+                        protocol == "olcrtc" -> if (provider == "wbstream") "через WB" else "через Яндекс"
+                        else -> tvProtocolBadge(protocol)
+                    },
+                    color = if (locked) TvMuted else NeonGreen,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvActionButton(
+    label: String,
+    supporting: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Boolean = false,
+) {
+    TvSurfaceCard(modifier = modifier.heightIn(min = 72.dp), onClick = onClick, selected = accent, contentPadding = 14.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = if (accent) NeonGreen else NeonGreen, modifier = Modifier.size(27.dp))
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(label, color = if (accent) TvText else TvText, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(supporting, color = TvMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvSmallButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconTint: Color = NeonGreen,
+) {
+    TvSurfaceCard(modifier = modifier.height(52.dp), onClick = onClick, contentPadding = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            Icon(icon, null, tint = iconTint, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(9.dp))
+            Text(label, color = TvText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun TvIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    TvSurfaceCard(modifier = Modifier.size(72.dp), onClick = onClick, contentPadding = 10.dp) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(icon, label, tint = NeonGreen, modifier = Modifier.size(24.dp))
+            Text(label, color = TvMuted, fontSize = 9.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun TvSectionTitle(title: String) {
+    Text(title, color = TvMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+}
+
+@Composable
+private fun TvSurfaceCard(
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    contentPadding: Dp = 16.dp,
+    content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Box(
         modifier = modifier
-            .focusRequester(focusRequester)
-            .clickable(interactionSource = interaction, indication = null) { onToggle() }
-            .drawBehind {
-                if (focused) {
-                    drawCircle(
-                        color = FocusGoldTv,
-                        radius = TvEskizSpec.RING_RVIS * s.dp.toPx(),
-                        center = Offset(size.width / 2f, size.height / 2f),
-                        style = Stroke(width = 3.dp.toPx()),
-                    )
-                }
-            },
-    )
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (selected) TvSurfaceSelected else TvSurfaceRaised)
+            .border(if (focused) 3.dp else 1.dp, if (focused) TvFocus else TvLine, RoundedCornerShape(16.dp))
+            .then(if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick) else Modifier)
+            .padding(contentPadding),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        content()
+    }
+}
+
+private fun tvProtocolIcon(protocol: String) = when (protocol) {
+    "auto" -> Icons.Filled.Speed
+    "hysteria2" -> Icons.Filled.Layers
+    "vless" -> Icons.Filled.Shield
+    "naive" -> Icons.Filled.Public
+    "anytls" -> Icons.Filled.Lock
+    "olcrtc" -> Icons.Filled.Videocam
+    else -> Icons.Filled.Wifi
+}
+
+private fun tvProtocolLabel(protocol: String) = when (protocol.lowercase()) {
+    "auto" -> "Авто"
+    "hysteria2" -> "Hysteria2"
+    "vless" -> "VLESS"
+    "naive" -> "Naive"
+    "anytls" -> "AnyTLS"
+    "olcrtc" -> "OLC RTC"
+    else -> protocol
+}
+
+private fun tvProtocolBadge(protocol: String) = when (protocol.lowercase()) {
+    "auto" -> "автовыбор"
+    "hysteria2" -> "быстрый"
+    "vless" -> "универсальный"
+    "naive" -> "маскировка"
+    "anytls" -> "стабильный"
+    else -> "доступен"
+}
+
+private fun tvDaysWord(days: Int): String = when {
+    days % 100 in 11..14 -> "дней"
+    days % 10 == 1 -> "день"
+    days % 10 in 2..4 -> "дня"
+    else -> "дней"
 }
