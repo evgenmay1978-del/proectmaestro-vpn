@@ -158,9 +158,9 @@ internal fun TvEskizHome(
             .padding(horizontal = 34.dp, vertical = 26.dp),
     ) {
         val compact = maxHeight < 560.dp
-        val gap = if (compact) 8.dp else 12.dp
-        val actionHeight = if (compact) 62.dp else 72.dp
-        val smallButtonHeight = if (compact) 44.dp else 52.dp
+        val gap = if (compact) 7.dp else 12.dp
+        val actionHeight = if (compact) 64.dp else 72.dp
+        val smallButtonHeight = if (compact) 42.dp else 52.dp
         val protocolButtonHeight = 58.dp
         val protocolRowGap = if (compact) 6.dp else 10.dp
         val phoneWeight = if (compact) 1.85f else 1.55f
@@ -489,13 +489,19 @@ private fun TvActionButton(
     accent: Boolean = false,
     height: Dp = 72.dp,
 ) {
-    TvSurfaceCard(modifier = modifier.height(height), onClick = onClick, selected = accent, contentPadding = 14.dp) {
+    val compact = height < 70.dp
+    TvSurfaceCard(
+        modifier = modifier.height(height),
+        onClick = onClick,
+        selected = accent,
+        contentPadding = if (compact) 10.dp else 14.dp,
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = if (accent) NeonGreen else NeonGreen, modifier = Modifier.size(27.dp))
-            Spacer(Modifier.width(12.dp))
+            Icon(icon, null, tint = if (accent) NeonGreen else NeonGreen, modifier = Modifier.size(if (compact) 24.dp else 27.dp))
+            Spacer(Modifier.width(if (compact) 10.dp else 12.dp))
             Column {
-                Text(label, color = if (accent) TvText else TvText, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(supporting, color = TvMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, color = if (accent) TvText else TvText, fontSize = if (compact) 16.sp else 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(supporting, color = TvMuted, fontSize = if (compact) 10.sp else 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
