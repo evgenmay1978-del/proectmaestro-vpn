@@ -27,5 +27,5 @@ Secrets and temporary connection codes are intentionally excluded.
 ## Next
 
 - Sync these five source files and this document to the server feature branch, normalize Windows CRLF to LF, check the server diff, and commit without push.
-- Continue reachable settings subpages and split-tunnel route; shared components improve them, but direct Material/top-bar/fixed-width layout still needs an explicit TV audit.
+- Owner update: Settings will not be part of the app, so do not continue settings subpages. Continue the split-tunnel/per-app route and other non-settings reachable TV routes.
 - Real KP1 D-pad/screenshot QA still requires the official runtime `libbox.aar` from a trusted source.

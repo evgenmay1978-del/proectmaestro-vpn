@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -103,7 +102,6 @@ internal fun TvEskizHome(
     onSplitTunnel: () -> Unit,
     onShareIos: () -> Unit,
     onEnterTrial: () -> Unit,
-    onSettings: () -> Unit,
     connectFocus: FocusRequester,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -167,7 +165,6 @@ internal fun TvEskizHome(
             TvHeader(
                 connected = connected,
                 statusText = statusText,
-                onSettings = onSettings,
             )
 
             Row(
@@ -204,11 +201,6 @@ internal fun TvEskizHome(
                             accent = true,
                             onClick = onBuy,
                             modifier = Modifier.weight(1f),
-                        )
-                        TvIconButton(
-                            icon = Icons.Filled.Settings,
-                            label = "Настройки",
-                            onClick = onSettings,
                         )
                     }
 
@@ -257,7 +249,7 @@ internal fun TvEskizHome(
 }
 
 @Composable
-private fun TvHeader(connected: Boolean, statusText: String, onSettings: () -> Unit) {
+private fun TvHeader(connected: Boolean, statusText: String) {
     Row(
         modifier = Modifier.fillMaxWidth().height(54.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -284,8 +276,6 @@ private fun TvHeader(connected: Boolean, statusText: String, onSettings: () -> U
         }
         Spacer(Modifier.weight(1f))
         Text("Защищённое подключение", color = TvMuted, fontSize = 15.sp)
-        Spacer(Modifier.width(18.dp))
-        TvIconButton(Icons.Filled.Settings, "Настройки", onSettings)
     }
 }
 

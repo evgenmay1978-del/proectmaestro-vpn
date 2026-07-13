@@ -134,7 +134,6 @@ fun TvHomeScreen(
     onShareIos: () -> Unit = {},
     onScanQr: () -> Unit = {},
     onEnterTrial: () -> Unit = {},
-    onSettings: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -229,7 +228,6 @@ fun TvHomeScreen(
                     onSplitTunnel = onSplitTunnel,
                     onShareIos = onShareIos,
                     onEnterTrial = onEnterTrial,
-                    onSettings = onSettings,
                     connectFocus = connectFocus,
                 )
             } else {

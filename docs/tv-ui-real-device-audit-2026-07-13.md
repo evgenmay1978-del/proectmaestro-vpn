@@ -6,6 +6,8 @@ Canonical handoff: `/root/.claude/projects/-root-maestrovpn-tv/memory/tv-ui-real
 
 The owner rejects the graphics of **all Android TV screens**: distorted and shifted geometry, overlays, visual overload, inconsistent spacing and styles. A full TV-only redesign is required. The mobile UI must not be changed.
 
+Owner update later on 2026-07-13: Settings is not needed and will not be in the app. Treat settings root and settings subpages as old audit evidence only, not as current redesign targets.
+
 Previous OTA 1.0.143 delivery remains a technical fact, but it is not visual acceptance. PIL simulation is not acceptance either; the real KP1 runtime is the ground truth. Do not merge or release without explicit owner approval and real-device verification of every reachable TV screen.
 
 ## Proven device facts

@@ -54,7 +54,7 @@ Local clone: `C:\Users\maest\Documents\Codex\2026-07-13\new-chat\repo`. It has T
 
 ## Remaining route work
 
-- Reachable route audit includes home, buy, claim, share QR, split tunnel, settings root/app/core/service/profile override/remote.
+- Reachable route audit originally included home, buy, claim, share QR, split tunnel, settings root/app/core/service/profile override/remote. Owner later removed Settings from the app scope, so settings subpages are no longer redesign targets.
 - Split list loads after about six seconds; use `outputs/tv-split-real.png`, not `tv-split.png`.
 - Next, migrate reachable TV routes that still contain direct Material or fixed-width layouts, then compile after each coherent group.
 - Real APK/D-pad QA remains blocked until the official runtime `libbox.aar` is obtained through a trusted route.
