@@ -214,7 +214,7 @@ internal fun TvEskizHome(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f), height = actionHeight)
-                        TvActionButton("Приложения VPN", "Раздельный туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
+                        TvActionButton("VPN приложения", "Раздельный туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
                         TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
                     }
 
