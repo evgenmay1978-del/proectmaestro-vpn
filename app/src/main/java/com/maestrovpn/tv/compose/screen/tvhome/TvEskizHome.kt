@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -159,7 +158,12 @@ internal fun TvEskizHome(
             .padding(horizontal = 34.dp, vertical = 26.dp),
     ) {
         val compact = maxHeight < 560.dp
-        val gap = if (compact) 10.dp else 14.dp
+        val gap = if (compact) 8.dp else 12.dp
+        val actionHeight = if (compact) 62.dp else 72.dp
+        val smallButtonHeight = if (compact) 44.dp else 52.dp
+        val protocolButtonHeight = 58.dp
+        val protocolRowGap = if (compact) 6.dp else 10.dp
+        val phoneWeight = if (compact) 1.85f else 1.55f
 
         Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
             TvHeader(
@@ -201,6 +205,7 @@ internal fun TvEskizHome(
                             accent = true,
                             onClick = onBuy,
                             modifier = Modifier.weight(1f),
+                            height = actionHeight,
                         )
                     }
 
@@ -208,17 +213,17 @@ internal fun TvEskizHome(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f))
-                        TvActionButton("Приложения VPN", "Раздельный туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f))
-                        TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f))
+                        TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f), height = actionHeight)
+                        TvActionButton("Приложения VPN", "Раздельный туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
+                        TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
                     }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        TvSmallButton("Обновить приложение", Icons.Filled.CloudDownload, updateApp, Modifier.weight(1f))
-                        TvSmallButton("Проверить соединение", Icons.Filled.Wifi, checkConnection, Modifier.weight(1f))
+                        TvSmallButton("Обновить приложение", Icons.Filled.CloudDownload, updateApp, Modifier.weight(1f), height = smallButtonHeight)
+                        TvSmallButton("Проверить соединение", Icons.Filled.Wifi, checkConnection, Modifier.weight(1f), height = smallButtonHeight)
                     }
 
                     TvSectionTitle("ПОДДЕРЖКА")
@@ -226,10 +231,10 @@ internal fun TvEskizHome(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        TvSmallButton("8 977 811-65-64", Icons.Filled.Call, { open("tel:+79778116564") }, Modifier.weight(1.3f))
-                        TvSmallButton("Telegram", Icons.Filled.Send, { open("https://t.me/wapmixx") }, Modifier.weight(1f), iconTint = Color(0xFF2AABEE))
-                        TvSmallButton("WhatsApp", Icons.Filled.Chat, { open("https://wa.me/79778116564") }, Modifier.weight(1f), iconTint = Color(0xFF25D366))
-                        TvSmallButton("МАКС", Icons.Filled.Forum, { open("https://max.ru/") }, Modifier.weight(0.8f), iconTint = Color(0xFF4C9EFF))
+                        TvSmallButton("8 977 811-65-64", Icons.Filled.Call, { open("tel:+79778116564") }, Modifier.weight(phoneWeight), height = smallButtonHeight)
+                        TvSmallButton("Telegram", Icons.Filled.Send, { open("https://t.me/wapmixx") }, Modifier.weight(1f), iconTint = Color(0xFF2AABEE), height = smallButtonHeight)
+                        TvSmallButton("WhatsApp", Icons.Filled.Chat, { open("https://wa.me/79778116564") }, Modifier.weight(1f), iconTint = Color(0xFF25D366), height = smallButtonHeight)
+                        TvSmallButton("МАКС", Icons.Filled.Forum, { open("https://max.ru/") }, Modifier.weight(0.75f), iconTint = Color(0xFF4C9EFF), height = smallButtonHeight)
                     }
 
                     TvSectionTitle("ПРОТОКОЛЫ")
@@ -240,7 +245,9 @@ internal fun TvEskizHome(
                         olcrtcProvider = olcrtcProvider,
                         onSelectProtocol = onSelectProtocol,
                         onSelectOlcrtc = onSelectOlcrtc,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
+                        buttonHeight = protocolButtonHeight,
+                        rowGap = protocolRowGap,
                     )
                 }
             }
@@ -403,9 +410,11 @@ private fun TvProtocolGrid(
     onSelectProtocol: (String) -> Unit,
     onSelectOlcrtc: () -> Unit,
     modifier: Modifier,
+    buttonHeight: Dp = 58.dp,
+    rowGap: Dp = 10.dp,
 ) {
     val display = (if (protocols.contains("olcrtc")) protocols else protocols + "olcrtc").take(8)
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(rowGap)) {
         display.chunked(4).forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEach { protocol ->
@@ -418,6 +427,7 @@ private fun TvProtocolGrid(
                         provider = olcrtcProvider,
                         onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
                         modifier = Modifier.weight(1f),
+                        height = buttonHeight,
                     )
                 }
                 for (index in row.size until 4) {
@@ -436,9 +446,10 @@ private fun TvProtocolButton(
     provider: String?,
     onClick: () -> Unit,
     modifier: Modifier,
+    height: Dp,
 ) {
     TvSurfaceCard(
-        modifier = modifier.height(58.dp),
+        modifier = modifier.height(height),
         selected = selected,
         onClick = onClick,
         contentPadding = 12.dp,
@@ -476,8 +487,9 @@ private fun TvActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     accent: Boolean = false,
+    height: Dp = 72.dp,
 ) {
-    TvSurfaceCard(modifier = modifier.heightIn(min = 72.dp), onClick = onClick, selected = accent, contentPadding = 14.dp) {
+    TvSurfaceCard(modifier = modifier.height(height), onClick = onClick, selected = accent, contentPadding = 14.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = if (accent) NeonGreen else NeonGreen, modifier = Modifier.size(27.dp))
             Spacer(Modifier.width(12.dp))
@@ -496,8 +508,9 @@ private fun TvSmallButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     iconTint: Color = NeonGreen,
+    height: Dp = 52.dp,
 ) {
-    TvSurfaceCard(modifier = modifier.height(52.dp), onClick = onClick, contentPadding = 12.dp) {
+    TvSurfaceCard(modifier = modifier.height(height), onClick = onClick, contentPadding = 10.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             Icon(icon, null, tint = iconTint, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(9.dp))
