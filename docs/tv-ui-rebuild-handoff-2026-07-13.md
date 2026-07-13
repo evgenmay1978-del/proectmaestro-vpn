@@ -73,3 +73,10 @@ Local clone: `C:\Users\maest\Documents\Codex\2026-07-13\new-chat\repo`. It has T
 - `ScanQrActivateScreen` is phone-only: TV has no camera and the new TV home has no scan QR entry. Do not include it in the current TV route scope unless owner changes product direction.
 - Graphify was force-updated after the code changes (`graphify update . --force`) and rebuilt 3073 nodes / 5166 edges / 243 communities.
 - Do not merge to `main` / OTA / release without explicit owner approval and real-device KP1 verification.
+## 2026-07-13 release 1.0.144
+- Released main e8f95f9 as tv-v1.0.144, version_code 144.
+- OTA mirror update.json points to MaestroVPN-TV-1.0.144-debug.apk, sha256 49cb4f7f997c6c7d8cb2543e13205e6603a200608557bacbf0745c14e6877fc5.
+- KP1 test path used Yandex; direct S1 :18080 was blocked externally.
+- Health 20:07Z: S1/S2/S3 failed units: none. Reports today are hello launches, not crashes.
+- UI scope today: Settings removed from TV home; phone/protocols fit on KP1. Premium polish deferred.
+
