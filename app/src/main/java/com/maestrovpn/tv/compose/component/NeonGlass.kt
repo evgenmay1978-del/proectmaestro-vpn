@@ -270,11 +270,12 @@ fun GlossyButton(
     wood: Boolean = false,
 ) {
     val shape = RoundedCornerShape(18.dp)
+    val isTv = rememberIsTv()
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        if (pressed) 0.96f else if (focused) 1.04f else 1f,
+        if (pressed) 0.97f else if (focused) (if (isTv) 1.02f else 1.04f) else 1f,
         tween(140, easing = FastOutSlowInEasing), label = "glossyScale",
     )
     val focusAlpha by animateFloatAsState(if (focused) 1f else 0f, tween(120), label = "glossyFocus")
@@ -282,18 +283,21 @@ fun GlossyButton(
         listOf(lerp(accent, Color.White, 0.42f), accent, lerp(accent, Color.Black, 0.34f)),
     )
     // Эталон owner (телефон/дерево): текст и иконка CTA — кремово-золотые, не белые.
-    val content = if (wood) Color(0xFFEFE0B0) else Color.White
-    // ТВ: CTA-бар как на эскизе («Купить подписку») — тёмно-зелёный градиент + салатовая
-    // кромка + процедурная бронза. 9-patch, тянувшийся по ширине, пикселил (фото owner).
-    val carvedTv = wood && rememberIsTv()
+    val content = if (isTv) Color(0xFFF4F4EF) else if (wood) Color(0xFFEFE0B0) else Color.White
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .shadow(12.dp, shape, clip = false) // нейтральная глубина, без цветного глоу на фокусе
+            .shadow(if (isTv) 4.dp else 12.dp, shape, clip = false)
             .then(
                 when {
-                    carvedTv -> Modifier.carvedSurface(null, { focusAlpha }, cornerRadius = 18.dp, style = CarvedStyle.Cta)
+                    isTv -> Modifier
+                        .background(Color(0xFF285F40), shape)
+                        .border(
+                            width = if (focused) 3.dp else 1.dp,
+                            color = if (focused) Color(0xFFFFC857) else Color(0xFF4A7964),
+                            shape = shape,
+                        )
                     // PHONE (wood) → wide bronze plaque frame; TV → the accent-domed gradient + chrome bezel.
                     wood -> Modifier.fantasyFrame(R.drawable.frame_bar)
                     else -> Modifier.background(brush, shape)
@@ -301,7 +305,7 @@ fun GlossyButton(
                 },
             )
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-            .then(if (carvedTv) Modifier else Modifier.focusFrame({ focusAlpha }, if (wood) NeonGreen else content, cornerRadius = 14.dp))
+            .then(if (isTv) Modifier else Modifier.focusFrame({ focusAlpha }, if (wood) NeonGreen else content, cornerRadius = 14.dp))
             .defaultMinSize(minWidth = 58.dp, minHeight = 40.dp)
             .padding(horizontal = 24.dp, vertical = 14.dp),
     ) {

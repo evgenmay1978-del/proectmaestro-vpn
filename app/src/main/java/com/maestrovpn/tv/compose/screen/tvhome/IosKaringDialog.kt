@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -76,6 +77,7 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
         }
     }
     var androidMode by remember { mutableStateOf(true) }
+    val isTv = com.maestrovpn.tv.compose.rememberIsTv()
 
     // ── Dark-Fantasy modal (phone + TV) ──
     FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
@@ -86,7 +88,7 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
             onClick = onDismiss,
             accent = NeonGreen,
             wood = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(if (isTv) 0.42f else 1f),
         )
     }
 }
@@ -163,31 +165,27 @@ private fun ShareBody(
                     // телефон → прежний frame_qr-композит НЕ тронут (owner телефон одобрил).
                     val tv = com.maestrovpn.tv.compose.rememberIsTv()
                     Box(
-                        Modifier
-                            .fillMaxWidth(0.84f)
-                            .aspectRatio(1f),
+                        modifier = if (tv) {
+                            Modifier.size(210.dp)
+                        } else {
+                            Modifier.fillMaxWidth(0.84f).aspectRatio(1f)
+                        },
                         contentAlignment = Alignment.Center,
                     ) {
                         if (tv) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxSize(0.82f)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(16.dp))
                                     .background(Color.White),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Image(
                                     bitmap = qr.asImageBitmap(),
                                     contentDescription = "QR",
-                                    modifier = Modifier.fillMaxSize(0.90f),
+                                    modifier = Modifier.fillMaxSize(0.88f),
                                 )
                             }
-                            Image(
-                                painter = painterResource(R.drawable.tvm_qr_bezel),
-                                contentDescription = null,
-                                modifier = Modifier.matchParentSize(),
-                                contentScale = ContentScale.FillBounds,
-                            )
                         } else {
                             Image(
                                 painter = painterResource(R.drawable.frame_qr),

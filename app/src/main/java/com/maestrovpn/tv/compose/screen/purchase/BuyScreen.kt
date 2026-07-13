@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -88,10 +90,10 @@ fun BuyScreen(
             title = {
                 Text(
                     "Подписка",
-                    fontFamily = PlayfairFamily,
+                    fontFamily = if (isTv) FontFamily.SansSerif else PlayfairFamily,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE8C877),
-                    letterSpacing = 1.sp,
+                    color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFE8C877),
+                    letterSpacing = if (isTv) 0.sp else 1.sp,
                     modifier = if (isTv) Modifier.padding(start = 32.dp) else Modifier,
                 )
             },
@@ -137,42 +139,53 @@ fun BuyScreen(
                     Text(
                         "Выберите подписку",
                         style = MaterialTheme.typography.headlineSmall,
-                        fontFamily = PlayfairFamily,
+                        fontFamily = if (isTv) FontFamily.SansSerif else PlayfairFamily,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE8C877),
+                        color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFE8C877),
                     )
                     Spacer(Modifier.height(18.dp))
                     // On a TV the first tariff grabs focus so the remote starts on a visible item.
                     val firstFocus = remember { FocusRequester() }
                     LaunchedEffect(Unit) { if (isTv) runCatching { firstFocus.requestFocus() } }
-                    s.items.forEachIndexed { i, t ->
-                        // widthIn ДО fillMaxWidth — иначе кап мёртв (fillMaxWidth фиксирует
-                        // ширину раньше) и строка тянулась на весь ТВ-экран (фото owner 2026-07-11).
-                        val tariffMod = Modifier
-                            .widthIn(max = 560.dp)
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp)
-                            .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier)
-                        // Aged-bronze tariff row (price shown as a bold gold trailing) — phone + TV
-                        // (D-pad focusable via FantasyListRow's clickable). tariffMod carries the
-                        // first-item focusRequester so the remote lands on a visible tariff.
-                        FantasyListRow(
-                            title = t.name,
-                            subtitle = "Нажмите, чтобы оплатить",
-                            icon = Icons.Filled.Star,
-                            onClick = { viewModel.buy(t.key) },
-                            iconTint = GoldMid,
-                            trailing = {
-                                Text(
-                                    "${t.rub} ₽",
-                                    fontFamily = PlayfairFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFE8C877),
-                                    fontSize = 20.sp,
-                                )
-                            },
-                            modifier = tariffMod,
-                        )
+                    if (isTv) {
+                        s.items.chunked(2).forEachIndexed { rowIndex, rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                rowItems.forEachIndexed { columnIndex, tariff ->
+                                    TariffCard(
+                                        item = tariff,
+                                        isTv = true,
+                                        onClick = { viewModel.buy(tariff.key) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(vertical = 6.dp)
+                                            .then(
+                                                if (rowIndex == 0 && columnIndex == 0) {
+                                                    Modifier.focusRequester(firstFocus)
+                                                } else {
+                                                    Modifier
+                                                },
+                                            ),
+                                    )
+                                }
+                                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    } else {
+                        s.items.forEachIndexed { i, tariff ->
+                            TariffCard(
+                                item = tariff,
+                                isTv = false,
+                                onClick = { viewModel.buy(tariff.key) },
+                                modifier = Modifier
+                                    .widthIn(max = 560.dp)
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp)
+                                    .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier),
+                            )
+                        }
                     }
                 }
 
@@ -309,4 +322,30 @@ fun BuyScreen(
         }
       }
     }
+}
+
+@Composable
+private fun TariffCard(
+    item: TariffItem,
+    isTv: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FantasyListRow(
+        title = item.name,
+        subtitle = "Нажмите, чтобы оплатить",
+        icon = Icons.Filled.Star,
+        onClick = onClick,
+        iconTint = GoldMid,
+        trailing = {
+            Text(
+                "${item.rub} ₽",
+                fontFamily = if (isTv) FontFamily.SansSerif else PlayfairFamily,
+                fontWeight = FontWeight.Bold,
+                color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFE8C877),
+                fontSize = 20.sp,
+            )
+        },
+        modifier = modifier,
+    )
 }
