@@ -660,7 +660,7 @@ internal fun protocolLabel(tag: String): String = when (tag) {
     "naive" -> "NaiveProxy"
     "anytls" -> "AnyTLS"
     "olcrtc" -> "olcRTC"
-    "vk-turn" -> "VK"
+    "vk-turn" -> "WDTT"
     else -> tag.replaceFirstChar { it.uppercase() }
 }
 
