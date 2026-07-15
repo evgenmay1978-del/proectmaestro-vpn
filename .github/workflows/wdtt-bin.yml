@@ -1,4 +1,4 @@
-name: Build WDTT Android transport binaries
+name: Build WDTT pinned transport binaries
 
 on:
   push:
@@ -49,6 +49,14 @@ jobs:
           done
           sha256sum libwdtt-*.so | tee wdtt-sha256.txt
           printf '%s\n' '${{ steps.pin.outputs.ref }}' > WDTT_UPSTREAM_COMMIT
+      - name: Build isolated Linux canary client artifact
+        working-directory: wdtt/app/src/main/assets/android-client
+        run: |
+          set -euo pipefail
+          go mod download
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags '-s -w' -o ../../../../../wdtt-client-linux-amd64 .
+          (cd ../../../../../ && sha256sum wdtt-client-linux-amd64 >> wdtt-sha256.txt)
       - name: Build isolated Linux WDTT server artifact
         working-directory: wdtt/app/src/main/assets/linux-server
         run: |
@@ -62,6 +70,7 @@ jobs:
           name: wdtt-bin
           path: |
             wdtt/libwdtt-*.so
+            wdtt/wdtt-client-linux-amd64
             wdtt/wdtt-server
             wdtt/wdtt-sha256.txt
             wdtt/WDTT_UPSTREAM_COMMIT
