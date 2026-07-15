@@ -368,6 +368,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             // Runs HERE (off the main thread): stopLocked can block up to ~2s reaping the child,
             // which froze the UI when it ran synchronously on the stop path.
             OlcrtcManager.stop()
+            WdttManager.stop()
             val pfd = fileDescriptor
             if (pfd != null) {
                 runCatching { pfd.close() }

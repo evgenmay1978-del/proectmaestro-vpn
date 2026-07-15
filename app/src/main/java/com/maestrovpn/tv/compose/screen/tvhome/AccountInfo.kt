@@ -4,7 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import com.maestrovpn.tv.bg.OlcrtcManager
+import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.database.ProfileManager
+import com.maestrovpn.tv.utils.MaestroSub
 import com.maestrovpn.tv.utils.httpGetStringTimed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -47,7 +49,7 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                 val profile = ProfileManager.list()
                     .firstOrNull { it.typed.remoteURL.contains("/sub/") }
                     ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
-                val url = profile.typed.remoteURL.trimEnd('/') + "/info"
+                val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
                 val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                 val o = JSONObject(json)
                 // olcRTC WebRTC params (owner-gated server-side) ride in /info, not /sub. Push them
@@ -59,6 +61,20 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                     room = olc?.optString("room"),
                     key = olc?.optString("key"),
                     transport = olc?.optString("transport"),
+                )
+                val wdtt = o.optJSONObject("vk_turn")
+                WdttManager.setCreds(
+                    peer = wdtt?.optString("server"),
+                    vkHashes = wdtt?.optJSONArray("vk_hashes")?.let { a ->
+                        (0 until a.length()).map { a.optString(it) }
+                    },
+                    password = wdtt?.optString("password"),
+                    workers = wdtt?.takeIf { it.has("workers") }?.optInt("workers"),
+                    fingerprint = wdtt?.optString("fingerprint"),
+                    clientIds = wdtt?.optJSONArray("client_ids")?.let { a ->
+                        (0 until a.length()).map { a.optString(it) }
+                    },
+                    obfsMode = wdtt?.optString("obfs_mode"),
                 )
                 AccountInfo(
                     login = o.optString("login").ifBlank { null },

@@ -96,11 +96,53 @@ object MaestroSub {
         return "$androidId|$drm|${Build.MODEL ?: ""}"
     }
 
-    /** Returns subUrl with this install's device id appended (idempotent — no double-add). */
+    /**
+     * Returns [subUrl] with the stable device id and system form factor appended. Each marker is
+     * independently idempotent: old stored URLs that already contain `device` gain `platform`,
+     * while caller-supplied values are never replaced or duplicated.
+     */
     fun withDevice(context: Context, subUrl: String): String {
-        if (subUrl.contains("device=")) return subUrl
-        val sep = if (subUrl.contains('?')) '&' else '?'
-        return subUrl + sep + "device=" + deviceId(context)
+        return withDeviceMetadata(
+            subUrl = subUrl,
+            deviceId = deviceId(context),
+            platform = DeviceFormFactor.subscriptionPlatform(context),
+        )
+    }
+
+    internal fun withDeviceMetadata(subUrl: String, deviceId: String, platform: String): String {
+        var result = subUrl
+        if (!hasQueryParameter(result, "device")) result = appendQueryParameter(result, "device", deviceId)
+        if (!hasQueryParameter(result, "platform")) result = appendQueryParameter(result, "platform", platform)
+        return result
+    }
+
+    private fun hasQueryParameter(url: String, name: String): Boolean {
+        val query = url.substringBefore('#').substringAfter('?', "")
+        return query.split('&').any { it.substringBefore('=') == name }
+    }
+
+    private fun appendQueryParameter(url: String, name: String, value: String): String {
+        val fragmentIndex = url.indexOf('#')
+        val base = if (fragmentIndex >= 0) url.substring(0, fragmentIndex) else url
+        val fragment = if (fragmentIndex >= 0) url.substring(fragmentIndex) else ""
+        val separator = when {
+            !base.contains('?') -> "?"
+            base.endsWith('?') || base.endsWith('&') -> ""
+            else -> "&"
+        }
+        return "$base$separator$name=$value$fragment"
+    }
+
+    /** Adds a /sub endpoint suffix before the query (never into device/platform values). */
+    fun endpoint(remoteURL: String, suffix: String): String {
+        require(suffix.matches(Regex("^[a-z]+$")))
+        val withoutFragment = remoteURL.substringBefore('#')
+        val query = withoutFragment.substringAfter('?', "")
+        val base = withoutFragment.substringBefore('?').trimEnd('/')
+        return buildString {
+            append(base).append('/').append(suffix)
+            if (query.isNotEmpty()) append('?').append(query)
+        }
     }
 
     /** Extracts the sub token from a /sub/<token>[?device=…] URL (empty string if none). */

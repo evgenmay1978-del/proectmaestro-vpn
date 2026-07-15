@@ -1,14 +1,12 @@
 package com.maestrovpn.tv.compose
 
-import android.app.UiModeManager
 import android.content.Context
-import android.content.pm.PackageManager
-import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.maestrovpn.tv.utils.DeviceFormFactor
 
 /**
  * True on Android TV / leanback devices (D-pad navigation), false on touch
@@ -28,11 +26,7 @@ fun rememberIsTv(): Boolean {
  * only where a notification shade with QS tiles exists (phones), never on TV.
  */
 fun isTelevision(context: Context): Boolean {
-    val pm = context.packageManager
-    val uiMode = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
-    return pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-        pm.hasSystemFeature("android.hardware.type.television") ||
-        uiMode?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    return DeviceFormFactor.isTelevision(context)
 }
 
 /**

@@ -648,6 +648,7 @@ private fun protocolIcon(tag: String): ImageVector = when (tag) {
     "naive" -> Icons.Filled.Hub
     "anytls" -> Icons.Filled.Lock
     "olcrtc" -> Icons.Filled.Videocam
+    "vk-turn" -> Icons.Filled.Videocam
     else -> Icons.Filled.Layers
 }
 
@@ -659,6 +660,7 @@ internal fun protocolLabel(tag: String): String = when (tag) {
     "naive" -> "NaiveProxy"
     "anytls" -> "AnyTLS"
     "olcrtc" -> "olcRTC"
+    "vk-turn" -> "VK"
     else -> tag.replaceFirstChar { it.uppercase() }
 }
 
@@ -670,6 +672,7 @@ internal fun protocolBadge(tag: String): String = when (tag) {
     "naive" -> "⚠ нестабильный"
     "anytls" -> "Без TLS-отпечатка"
     "olcrtc" -> "через Яндекс"
+    "vk-turn" -> "через VK"
     "trojan" -> "Макс. защита"
     "shadowsocks" -> "Стабильный"
     else -> "Стабильный"

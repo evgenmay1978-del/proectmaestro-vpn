@@ -237,3 +237,92 @@ func TestGenerateSingboxOLCRTC(t *testing.T) {
 		t.Error("olcrtc leaked into a config without OLC creds")
 	}
 }
+
+func TestGenerateSingboxVKTurn(t *testing.T) {
+	c := sampleCustomer()
+	c.VKTurn = &VKTurnCreds{
+		PrivateKey: "client-private", PeerPublicKey: "server-public", LocalAddress: "10.77.0.2/32",
+	}
+	raw, err := GenerateSingbox(c)
+	if err != nil {
+		t.Fatalf("GenerateSingbox(+vk-turn): %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	var vk, selector, auto map[string]any
+	for _, o := range cfg["outbounds"].([]any) {
+		m := o.(map[string]any)
+		switch m["tag"] {
+		case tagVKTurn:
+			vk = m
+		case tagPick:
+			selector = m
+		case tagAuto:
+			auto = m
+		}
+	}
+	if vk == nil {
+		t.Fatal("vk-turn outbound missing")
+	}
+	if vk["type"] != "wireguard" || vk["server"] != vkTurnRelayHost || int(vk["server_port"].(float64)) != vkTurnRelayPort {
+		t.Fatalf("vk-turn relay wrong: %v", vk)
+	}
+	if vk["private_key"] != "client-private" || vk["peer_public_key"] != "server-public" || int(vk["mtu"].(float64)) != 1280 {
+		t.Fatalf("vk-turn WireGuard identity wrong: %v", vk)
+	}
+	addresses := vk["local_address"].([]any)
+	if len(addresses) != 1 || addresses[0] != "10.77.0.2/32" {
+		t.Fatalf("vk-turn local_address = %v", addresses)
+	}
+
+	contains := func(o map[string]any, tag string) bool {
+		for _, value := range o["outbounds"].([]any) {
+			if value == tag {
+				return true
+			}
+		}
+		return false
+	}
+	if !contains(selector, tagVKTurn) {
+		t.Error("vk-turn missing from selector")
+	}
+	if contains(auto, tagVKTurn) {
+		t.Error("vk-turn must be manual-only, not in urltest")
+	}
+
+	var domainDirect, cidrDirect bool
+	for _, r := range cfg["route"].(map[string]any)["rules"].([]any) {
+		m := r.(map[string]any)
+		if m["outbound"] != "direct" {
+			continue
+		}
+		if domains, ok := m["domain_suffix"].([]any); ok {
+			for _, domain := range domains {
+				if domain == "vk.com" {
+					domainDirect = true
+				}
+			}
+		}
+		if cidrs, ok := m["ip_cidr"].([]any); ok {
+			for _, cidr := range cidrs {
+				if cidr == "87.240.128.0/18" {
+					cidrDirect = true
+				}
+			}
+		}
+	}
+	if !domainDirect || !cidrDirect {
+		t.Fatalf("vk carrier direct rules missing: domain=%v cidr=%v", domainDirect, cidrDirect)
+	}
+
+	rawWithoutVK, err := GenerateSingbox(sampleCustomer())
+	if err != nil {
+		t.Fatalf("GenerateSingbox(without vk-turn): %v", err)
+	}
+	if bytes.Contains(rawWithoutVK, []byte(tagVKTurn)) || bytes.Contains(rawWithoutVK, []byte("vk-calls.com")) {
+		t.Error("vk-turn data leaked into config without VKTurn creds")
+	}
+}

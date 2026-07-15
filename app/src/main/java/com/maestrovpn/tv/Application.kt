@@ -72,7 +72,9 @@ class Application : Application() {
             runCatching {
                 for (p in ProfileManager.list()) {
                     val url = p.typed.remoteURL
-                    if (p.name == "MaestroVPN" && url.contains("/sub/") && !url.contains("device=")) {
+                    if (p.name == "MaestroVPN" && url.contains("/sub/") &&
+                        (!url.contains("device=") || !url.contains("platform="))
+                    ) {
                         p.typed.remoteURL = MaestroSub.withDevice(this@Application, url)
                         ProfileManager.update(p)
                     }

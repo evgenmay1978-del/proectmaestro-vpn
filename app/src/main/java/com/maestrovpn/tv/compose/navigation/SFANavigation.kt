@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.bg.OlcrtcManager
+import com.maestrovpn.tv.bg.WdttManager
+import com.maestrovpn.tv.compose.rememberIsTv
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -121,6 +123,7 @@ fun SFANavHost(
                 IosKaringDialog(onDismiss = { showIosQr = false })
             }
             if (groupsViewModel != null) {
+                val isTv = rememberIsTv()
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
                 // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
@@ -140,7 +143,8 @@ fun SFANavHost(
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
-                    protocols = selectGroup?.items?.map { it.tag } ?: emptyList(),
+                    protocols = selectGroup?.items?.map { it.tag }
+                        ?.filterNot { isTv && it == WdttManager.OUTBOUND_TAG } ?: emptyList(),
                     selected = selectGroup?.selected,
                     activeProtocol = activeProtocol,
                     accountLogin = accountInfo.login,

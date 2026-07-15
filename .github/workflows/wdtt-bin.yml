@@ -1,0 +1,67 @@
+name: Build WDTT Android transport binaries
+
+on:
+  push:
+    paths:
+      - .github/workflows/wdtt-bin.yml
+      - version.properties
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load immutable upstream pins
+        id: pin
+        run: |
+          set -euo pipefail
+          source <(grep -E '^(WDTT_REF|WDTT_GO_VERSION|NDK_VERSION)=' version.properties)
+          echo "ref=$WDTT_REF" >> "$GITHUB_OUTPUT"
+          echo "go_version=${WDTT_GO_VERSION#go}" >> "$GITHUB_OUTPUT"
+          echo "ndk_version=$NDK_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.pin.outputs.go_version }}
+          check-latest: false
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned NDK
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ steps.pin.outputs.ndk_version }}" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.pin.outputs.ndk_version }}" >> "$GITHUB_ENV"
+      - name: Checkout WDTT at the reviewed commit
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/amurcanov/proxy-turn-vk-android.git wdtt
+          git -C wdtt checkout --detach "${{ steps.pin.outputs.ref }}"
+          test "$(git -C wdtt rev-parse HEAD)" = "${{ steps.pin.outputs.ref }}"
+      - name: Build standalone Android PIE executables
+        working-directory: wdtt
+        run: |
+          set -euo pipefail
+          for abi in arm64-v8a armeabi-v7a; do
+            ./scripts/build-go-lib.sh "$abi"
+            test -s "app/src/main/jniLibs/$abi/libclient.so"
+            cp "app/src/main/jniLibs/$abi/libclient.so" "libwdtt-$abi.so"
+          done
+          sha256sum libwdtt-*.so | tee wdtt-sha256.txt
+          printf '%s\n' '${{ steps.pin.outputs.ref }}' > WDTT_UPSTREAM_COMMIT
+      - name: Build isolated Linux WDTT server artifact
+        working-directory: wdtt/app/src/main/assets/linux-server
+        run: |
+          set -euo pipefail
+          go mod download
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags '-s -w' -o ../../../../../wdtt-server .
+          sha256sum ../../../../../wdtt-server >> ../../../../../wdtt-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wdtt-bin
+          path: |
+            wdtt/libwdtt-*.so
+            wdtt/wdtt-server
+            wdtt/wdtt-sha256.txt
+            wdtt/WDTT_UPSTREAM_COMMIT
+          if-no-files-found: error

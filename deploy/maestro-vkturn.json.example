@@ -1,0 +1,32 @@
+{
+  "enabled": false,
+  "min_version_code": 999999,
+  "server": "wdtt-canary.example:56000",
+  "vk_hashes": ["REPLACE_WITH_VK_CALL_HASH"],
+  "clients": {
+    "wapmix": {
+      "password": "REPLACE_WITH_UNIQUE_PASSWORD",
+      "wg": {
+        "private_key": "REPLACE_WITH_32_BYTE_BASE64_PRIVATE_KEY",
+        "peer_public_key": "REPLACE_WITH_32_BYTE_BASE64_SERVER_PUBLIC_KEY",
+        "local_address": "10.66.66.2/32"
+      }
+    },
+    "wapmixx": {
+      "password": "REPLACE_WITH_UNIQUE_PASSWORD",
+      "wg": {
+        "private_key": "REPLACE_WITH_32_BYTE_BASE64_PRIVATE_KEY",
+        "peer_public_key": "REPLACE_WITH_32_BYTE_BASE64_SERVER_PUBLIC_KEY",
+        "local_address": "10.66.66.3/32"
+      }
+    },
+    "wapmix2": {
+      "password": "REPLACE_WITH_UNIQUE_PASSWORD",
+      "wg": {
+        "private_key": "REPLACE_WITH_32_BYTE_BASE64_PRIVATE_KEY",
+        "peer_public_key": "REPLACE_WITH_32_BYTE_BASE64_SERVER_PUBLIC_KEY",
+        "local_address": "10.66.66.4/32"
+      }
+    }
+  }
+}

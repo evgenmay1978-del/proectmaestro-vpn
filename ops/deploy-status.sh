@@ -10,7 +10,12 @@
 #   exit 1 = DRIFT: HEAD has commits the running binary does not (deploy pending)
 #   exit 2 = panel unreachable, or built without the stamp (older binary) → redeploy to enable
 set -eu
-REPO=${MAESTRO_REPO:-/root/maestrovpn-tv}
+# Resolve the repository from this script instead of relying on the historical
+# /root/maestrovpn-tv checkout.  The production assistant checkout lives in
+# /srv/maestrovpn-tv, and a stale hard-coded path turns HEAD into "unknown",
+# producing a false deploy-drift alarm.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO=${MAESTRO_REPO:-$(dirname "$SCRIPT_DIR")}
 PANEL=${MAESTRO_PANEL:-http://127.0.0.1:8910}
 
 HEAD=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)

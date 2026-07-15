@@ -23,6 +23,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
 )
 
@@ -72,6 +73,15 @@ func main() {
 		if err := olc.SetLogins(api.ParseOlcLogins(os.Getenv("MAESTRO_OLC_LOGINS"))); err != nil {
 			log.Printf("seed olcrtc logins: %v", err)
 		}
+	}
+
+	// WDTT/VK TURN secrets are kept in one external root-owned JSON file. No
+	// default path: an unset env keeps the feature completely off. A configured
+	// but invalid/unreadable file aborts startup so credentials can never be
+	// partially advertised.
+	vkTurn, err := vkturnconf.Open(os.Getenv("MAESTRO_VKTURN_FILE"))
+	if err != nil {
+		log.Fatalf("open vkturn config: %v", err)
 	}
 
 	// The provisioner is wired only when its dependencies are configured.
@@ -202,6 +212,7 @@ func main() {
 			TrialDays:    atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
 			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
 			OLC:          olc,
+			VKTurn:       vkTurn,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

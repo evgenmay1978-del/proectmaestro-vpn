@@ -22,6 +22,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/telegram"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
 )
 
 // claimCodeRe bounds a /claim code (a login) to a safe charset before it can
@@ -107,6 +108,9 @@ type Config struct {
 	// OLC is the global olcRTC config (room/key/etc.), hot-swappable at runtime. nil → olcRTC
 	// disabled entirely. Emitted in /sub + /info only for the MAESTRO_OLC_LOGINS allowlist.
 	OLC *olcconf.Store
+	// VKTurn is the validated, external-file-only configuration for the
+	// mobile-only VK TURN transport. nil or disabled means OFF.
+	VKTurn *vkturnconf.Config
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -283,7 +287,7 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	// Account info (login + days left) is served even when EXPIRED, so the app can
 	// always show "Аккаунт: <login> · осталось N дней" (N=0 once expired).
 	if wantInfo {
-		s.writeSubInfo(w, c)
+		s.writeSubInfo(w, r, c)
 		return
 	}
 	if !c.Active() {
@@ -320,6 +324,9 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 			sc.OLC = &subgen.OLCRTCCreds{Provider: oc.Provider, Room: room, Key: key, Transport: oc.Transport}
 		}
 	}
+	if client, ok := s.vkTurnClient(r, c); ok {
+		sc.VKTurn = &client.WG
+	}
 	// Universal share-links subscription for cross-platform clients (Karing on
 	// iPhone, v2rayN, NekoBox, Shadowrocket…), requested via ?app=karing /
 	// ?format=links.
@@ -352,7 +359,7 @@ func (s *Server) writeHelpers(w http.ResponseWriter, c *store.Customer) {
 // writeSubInfo serves GET /sub/<token>/info — the customer's login + days remaining, so
 // the app can show "Аккаунт: <login> · осталось N дней". Served even when expired (then
 // active=false, days_left=0). The token is the per-customer secret, so no extra auth.
-func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
+func (s *Server) writeSubInfo(w http.ResponseWriter, r *http.Request, c *store.Customer) {
 	d := time.Until(c.Expires)
 	daysLeft := int(d / (24 * time.Hour))
 	if d > 0 && d%(24*time.Hour) != 0 {
@@ -368,6 +375,18 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, c *store.Customer) {
 		"expires":   c.Expires,
 		"days_left": daysLeft,
 		"active":    c.Active(),
+	}
+	if client, ok := s.vkTurnClient(r, c); ok {
+		out["features"] = map[string]any{"vk_turn": true}
+		out["vk_turn"] = map[string]any{
+			"server":      s.cfg.VKTurn.Server,
+			"vk_hashes":   s.cfg.VKTurn.VKHashes,
+			"password":    client.Password,
+			"workers":     vkturnconf.DefaultWorkers,
+			"fingerprint": vkturnconf.DefaultFingerprint,
+			"client_ids":  vkturnconf.DefaultClientIDs,
+			"obfs_mode":   vkturnconf.DefaultObfsMode,
+		}
 	}
 	// olcRTC WebRTC params (provider/room/key/transport) — NOT sing-box fields, so they can't
 	// ride in /sub; the app writes them into the child's client.yaml. From the GLOBAL olcconf

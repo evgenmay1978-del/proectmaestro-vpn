@@ -415,7 +415,7 @@ private fun TvProtocolGrid(
     rowGap: Dp = 10.dp,
     showBadges: Boolean = true,
 ) {
-    val baseProtocols = protocols.ifEmpty { listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg") }
+    val baseProtocols = protocols.filterNot { it == "vk-turn" }.ifEmpty { listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg") }
     val display = (if (baseProtocols.contains("olcrtc")) baseProtocols else baseProtocols + "olcrtc").take(8)
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(rowGap)) {
         display.chunked(4).forEach { row ->

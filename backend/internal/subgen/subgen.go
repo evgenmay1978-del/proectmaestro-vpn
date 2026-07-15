@@ -72,6 +72,16 @@ type Customer struct {
 	VLESS3 *VLESSCreds  // VLESS-Reality on the 3rd node (S3)
 	WG     *WGCreds     // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
 	OLC    *OLCRTCCreds // olcRTC (WebRTC video-disguise) — opt-in fallback; ⛔ emitted ONLY for login "wapmix" (creds-gate in the /sub handler), nil otherwise
+	VKTurn *VKTurnCreds // VK TURN/DTLS carrier — mobile-only manual fallback; gated by the /sub handler
+}
+
+// VKTurnCreds is the WireGuard identity carried by the app's local WDTT helper.
+// The helper owns VK signalling/TURN/DTLS and exposes a UDP relay at 127.0.0.1:9000;
+// sing-box only sees a regular WireGuard peer whose packets are handed to that relay.
+type VKTurnCreds struct {
+	PrivateKey    string `json:"private_key"`     // customer's WireGuard private key (base64)
+	PeerPublicKey string `json:"peer_public_key"` // wdtt-server WireGuard public key (base64)
+	LocalAddress  string `json:"local_address"`   // customer's tunnel address, e.g. "10.77.0.2/32"
 }
 
 // OLCRTCCreds is one olcRTC client (WebRTC video-disguise transport, separate-process
@@ -111,10 +121,11 @@ const (
 	tagHy2    = "hysteria2"
 	tagNaive  = "naive"
 	tagAnyTLS = "anytls"
-	tagWG     = "awg"    // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema
-	tagOLC    = "olcrtc" // olcRTC SOCKS5 outbound (app exec's libolcrtc.so → 127.0.0.1:olcrtcSocksPort)
-	tagAuto   = "auto"   // urltest
-	tagPick   = "select" // selector (default outbound the tun routes to)
+	tagWG     = "awg"     // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema
+	tagOLC    = "olcrtc"  // olcRTC SOCKS5 outbound (app exec's libolcrtc.so → 127.0.0.1:olcrtcSocksPort)
+	tagVKTurn = "vk-turn" // WireGuard over the local WDTT VK TURN/DTLS relay
+	tagAuto   = "auto"    // urltest
+	tagPick   = "select"  // selector (default outbound the tun routes to)
 )
 
 // olcRTC local SOCKS5 — the app exec's libolcrtc.so which listens here; subgen's `socks`
@@ -124,6 +135,22 @@ const (
 	olcrtcSocksHost = "127.0.0.1"
 	olcrtcSocksPort = 8808
 )
+
+const (
+	vkTurnRelayHost = "127.0.0.1"
+	vkTurnRelayPort = 9000
+)
+
+// VK carrier traffic must bypass the tun. The WDTT helper is a separate process and
+// cannot call VpnService.protect(), so without these conditional anti-loop rules its
+// signalling and raw-IP TURN/DTLS sockets would be routed back into vk-turn itself.
+var vkTurnDirectDomains = []string{
+	"vk.com", "vk.ru", "vk-calls.com", "userapi.com", "vkuseraudio.net", "vk-cdn.net",
+}
+
+var vkTurnDirectCIDRs = []string{
+	"87.240.128.0/18", "93.186.224.0/20", "95.142.192.0/20", "185.32.248.0/22", "2a00:bdc0::/29",
+}
 
 // olcRTC carrier-DIRECT routing. ⚠️ ANTI-LOOP IS PURELY ROUTE-BASED: the olcRTC child runs as
 // a SEPARATE PROCESS (option-b), so it CANNOT call VpnService.protect() — there is no OS-level
@@ -256,6 +283,10 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		outbounds = append(outbounds, olcrtcOutbound())
 		selOnly = append(selOnly, tagOLC)
 	}
+	if c.VKTurn != nil {
+		outbounds = append(outbounds, vkTurnOutbound(c.VKTurn))
+		selOnly = append(selOnly, tagVKTurn)
+	}
 	if len(protoTags) == 0 {
 		return nil, fmt.Errorf("subgen: customer %q has no protocols", c.Name)
 	}
@@ -326,6 +357,18 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			},
 		)
 	}
+	if c.VKTurn != nil {
+		routeRules = append(routeRules,
+			map[string]any{
+				"domain_suffix": vkTurnDirectDomains,
+				"action":        "route", "outbound": "direct",
+			},
+			map[string]any{
+				"ip_cidr": vkTurnDirectCIDRs,
+				"action":  "route", "outbound": "direct",
+			},
+		)
+	}
 	routeRules = append(routeRules,
 		// Foreign services (Google/Gemini/YouTube) MUST go through the tunnel.
 		// Placed ABOVE the RU-direct rules (belt-and-suspenders for the Google
@@ -372,6 +415,11 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	if c.OLC != nil {
 		dnsRules = append(dnsRules, map[string]any{
 			"domain_suffix": olcrtcDirectDomains, "action": "route", "server": "local",
+		})
+	}
+	if c.VKTurn != nil {
+		dnsRules = append(dnsRules, map[string]any{
+			"domain_suffix": vkTurnDirectDomains, "action": "route", "server": "local",
 		})
 	}
 
@@ -445,6 +493,17 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		cfg["endpoints"] = endpoints
 	}
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+func vkTurnOutbound(v *VKTurnCreds) map[string]any {
+	return map[string]any{
+		"type": "wireguard", "tag": tagVKTurn,
+		"server": vkTurnRelayHost, "server_port": vkTurnRelayPort,
+		"local_address":   []string{v.LocalAddress},
+		"private_key":     v.PrivateKey,
+		"peer_public_key": v.PeerPublicKey,
+		"mtu":             1280,
+	}
 }
 
 // awgEndpoint builds the OFFICIAL AmneziaWG endpoint (sing-box 1.14 "endpoints" entry, type

@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.OutboundGroup
 import com.maestrovpn.tv.bg.OlcrtcManager
+import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
 import com.maestrovpn.tv.compose.model.Group
@@ -16,6 +17,7 @@ import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.AppLifecycleObserver
 import com.maestrovpn.tv.utils.CommandClient
 import com.maestrovpn.tv.utils.CommandTarget
+import com.maestrovpn.tv.utils.MaestroSub
 import com.maestrovpn.tv.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,6 +45,8 @@ private const val PENDING_SELECT_TTL_MS = 60_000L
 // outbound, and how many consecutive failed respawns before giving up + telling the user.
 private const val OLC_WATCHDOG_INTERVAL_MS = 8_000L
 private const val OLC_WATCHDOG_MAX_FAILS = 3
+private const val WDTT_WATCHDOG_INTERVAL_MS = 8_000L
+private const val WDTT_WATCHDOG_MAX_FAILS = 3
 
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
@@ -87,6 +91,8 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     // periodically checks the child process and TRANSPARENTLY respawns it if it died (crash/OOM),
     // instead of silently blackholing traffic through the dead :8808 socks ("подключено, но не работает").
     @Volatile private var olcWatchdog: Job? = null
+    @Volatile private var wdttSelectInFlight = false
+    @Volatile private var wdttWatchdog: Job? = null
 
     init {
         if (sharedCommandClient != null) {
@@ -153,6 +159,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     override fun onCleared() {
         super.onCleared()
         stopOlcWatchdog()
+        stopWdttWatchdog()
         if (isUsingSharedClient) {
             commandClient.removeHandler(this)
         } else {
@@ -240,6 +247,8 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             pendingSelect = null
             pendingGeneration.incrementAndGet()
             stopOlcWatchdog() // tunnel down → nothing to guard (BoxService already stopped the child)
+            stopWdttWatchdog()
+            WdttManager.stop()
         }
         viewModelScope.launch {
             _serviceStatus.emit(status)
@@ -286,12 +295,25 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                         sendError(IllegalStateException("olcRTC: видео-туннель не поднялся (см. логи)"))
                         return@launch
                     }
-                } else if (OlcrtcManager.isRunning) {
+                    WdttManager.stop()
+                    stopWdttWatchdog()
+                } else if (itemTag == WdttManager.OUTBOUND_TAG) {
+                    refreshWdttCreds()
+                    if (!WdttManager.ensureStarted()) {
+                        sendError(IllegalStateException("VK-туннель не поднялся (см. логи)"))
+                        return@launch
+                    }
                     OlcrtcManager.stop()
                     stopOlcWatchdog()
+                } else {
+                    if (OlcrtcManager.isRunning) OlcrtcManager.stop()
+                    if (WdttManager.isRunning) WdttManager.stop()
+                    stopOlcWatchdog()
+                    stopWdttWatchdog()
                 }
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
                 if (itemTag == OlcrtcManager.OUTBOUND_TAG) startOlcWatchdog()
+                if (itemTag == WdttManager.OUTBOUND_TAG) startWdttWatchdog()
                 // Pin the chip to the picked protocol: a live-groups payload racing in right after
                 // the box starts reports the momentary "auto", which would otherwise flick the
                 // highlight off the protocol the user chose until the next payload catches up.
@@ -303,6 +325,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             } catch (e: Exception) {
                 // Same orphan-reap as selectGroupItem: never leave the spawned child behind.
                 if (itemTag == OlcrtcManager.OUTBOUND_TAG) runCatching { OlcrtcManager.stop() }
+                if (itemTag == WdttManager.OUTBOUND_TAG) runCatching { WdttManager.stop() }
                 sendError(e)
             }
         }
@@ -351,11 +374,13 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         // Check if this is actually a different selection
         val currentGroup = uiState.value.groups.find { it.tag == groupTag }
         val isOlc = itemTag == OlcrtcManager.OUTBOUND_TAG
+        val isWdtt = itemTag == WdttManager.OUTBOUND_TAG
         // Re-tapping the ALREADY-selected item is normally a no-op — EXCEPT olcRTC when its child
         // died: traffic then blackholes through the dead :8808 socks and a re-tap is manual recovery
         // (the watchdog usually recovers it first, but keep this as a fallback).
         val olcDeadRetap = isOlc && !OlcrtcManager.isRunning
-        if (currentGroup?.selected == itemTag && !olcDeadRetap) {
+        val wdttDeadRetap = isWdtt && !WdttManager.isRunning
+        if (currentGroup?.selected == itemTag && !olcDeadRetap && !wdttDeadRetap) {
             return
         }
         // Anti-spam: an olcRTC (re)start blocks up to ~25s; drop taps while one is already running so
@@ -363,6 +388,10 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         if (isOlc) {
             if (olcSelectInFlight) return
             olcSelectInFlight = true
+        }
+        if (isWdtt) {
+            if (wdttSelectInFlight) return
+            wdttSelectInFlight = true
         }
 
         // A real manual switch is authoritative — drop any armed "tapped-while-off" pick so a
@@ -383,14 +412,27 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                         sendError(IllegalStateException("olcRTC: видео-туннель не поднялся (см. логи)"))
                         return@launch
                     }
-                } else if (OlcrtcManager.isRunning) {
+                    WdttManager.stop()
+                    stopWdttWatchdog()
+                } else if (isWdtt) {
+                    refreshWdttCreds()
+                    if (!WdttManager.ensureStarted()) {
+                        sendError(IllegalStateException("VK-туннель не поднялся (см. логи)"))
+                        return@launch
+                    }
                     OlcrtcManager.stop()
-                    stopOlcWatchdog() // switched away from olcRTC → stop guarding it
+                    stopOlcWatchdog()
+                } else {
+                    if (OlcrtcManager.isRunning) OlcrtcManager.stop()
+                    if (WdttManager.isRunning) WdttManager.stop()
+                    stopOlcWatchdog()
+                    stopWdttWatchdog()
                 }
 
                 // Select the new outbound immediately
                 CommandTarget.standaloneClient().selectOutbound(groupTag, itemTag)
                 if (isOlc) startOlcWatchdog() // now guard olcRTC liveness (auto-respawn on child death)
+                if (isWdtt) startWdttWatchdog()
 
                 // Update local state and show snackbar
                 withContext(Dispatchers.Main) {
@@ -414,11 +456,60 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                 // selector has no `olcrtc` outbound) — reap it, or a fake-video process keeps
                 // streaming with nothing routed through it.
                 if (isOlc) runCatching { OlcrtcManager.stop() }
+                if (isWdtt) runCatching { WdttManager.stop() }
                 sendError(e)
             } finally {
                 if (isOlc) olcSelectInFlight = false
+                if (isWdtt) wdttSelectInFlight = false
             }
         }
+    }
+
+    private suspend fun refreshWdttCreds() {
+        runCatching {
+            val profile = ProfileManager.list().firstOrNull { it.typed.remoteURL.contains("/sub/") } ?: return
+            val json = httpGetStringTimed(MaestroSub.endpoint(profile.typed.remoteURL, "info"), 6_000) ?: return
+            val wdtt = JSONObject(json).optJSONObject("vk_turn") ?: return
+            WdttManager.setCreds(
+                wdtt.optString("server"),
+                wdtt.optJSONArray("vk_hashes")?.let { a -> (0 until a.length()).map { a.optString(it) } },
+                wdtt.optString("password"),
+                wdtt.takeIf { it.has("workers") }?.optInt("workers"),
+                wdtt.optString("fingerprint"),
+                wdtt.optJSONArray("client_ids")?.let { a -> (0 until a.length()).map { a.optString(it) } },
+                wdtt.optString("obfs_mode"),
+            )
+        }
+    }
+
+    private fun startWdttWatchdog() {
+        wdttWatchdog?.cancel()
+        wdttWatchdog = viewModelScope.launch(Dispatchers.IO) {
+            var fails = 0
+            while (isActive) {
+                delay(WDTT_WATCHDOG_INTERVAL_MS)
+                val guarding = _serviceStatus.value == Status.Started &&
+                    (liveSelectedTag ?: WdttManager.OUTBOUND_TAG) == WdttManager.OUTBOUND_TAG
+                if (!guarding) break
+                if (WdttManager.isRunning) { fails = 0; continue }
+                if (++fails > WDTT_WATCHDOG_MAX_FAILS) {
+                    WdttManager.stop()
+                    sendError(IllegalStateException("VK-туннель упал и не восстанавливается — переключитесь на другой протокол"))
+                    break
+                }
+                Log.w("GroupsVM", "WDTT child died while selected — auto-respawning (attempt $fails)")
+                WdttManager.ensureStarted()
+                if (!isActive || _serviceStatus.value != Status.Started || liveSelectedTag != WdttManager.OUTBOUND_TAG) {
+                    WdttManager.stop()
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopWdttWatchdog() {
+        wdttWatchdog?.cancel()
+        wdttWatchdog = null
     }
 
     /**
@@ -436,7 +527,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     private suspend fun refreshOlcCreds() {
         runCatching {
             val profile = ProfileManager.list().firstOrNull { it.typed.remoteURL.contains("/sub/") } ?: return
-            val url = profile.typed.remoteURL.trimEnd('/') + "/info"
+            val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
             val json = httpGetStringTimed(url, 6_000) ?: return // short timeout; keep cached creds on failure
             val olc = JSONObject(json).optJSONObject("olcrtc")
             OlcrtcManager.setCreds(
