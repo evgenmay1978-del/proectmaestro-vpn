@@ -122,3 +122,18 @@ the marker and checksums before placing `libwdtt.so` into `jniLibs`.
   cannot be committed from this already-running session. Commit/push must be performed from a new
   writable Codex session or the owner's root terminal while executing Git as user `codex` from
   `/srv/maestrovpn-tv`.
+
+## Isolated server placement assessment (2026-07-15)
+
+- Selected S1 for the first WDTT canary: it has 3 CPU cores and about 9.9 GiB disk free, while S3
+  has only one core and S2 carries the denser Hy2/Caddy/AnyTLS/bot stack. The canary must use its
+  own directory, process, UDP ports and strict CPU/RAM limits; no existing service may be edited or
+  restarted.
+- Live S1 snapshot before any change: load `0.40/0.27/0.37`, 722 MiB available RAM, 9.9 GiB free.
+- The mandatory root-request script is prepared at
+  `/home/codex/maestro-context/root-request/draft.sh` (SHA-256
+  `a33c803b95f23a9e7ab191d3faddadae8eadd8b7356d07cd999c8eff56076dc8`). It only installs and
+  statically inspects the pinned artifact; it intentionally creates no service/listener and changes
+  no firewall/backend/subscription state. It has not been approved or executed.
+- No production change occurred. The owner must separately approve the exact broker request before
+  the artifact is staged.
