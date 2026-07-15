@@ -5,10 +5,12 @@ on:
     paths:
       - .github/workflows/wdtt-bin.yml
       - version.properties
+      - ops/wdtt-canary/**
   pull_request:
     paths:
       - .github/workflows/wdtt-bin.yml
       - version.properties
+      - ops/wdtt-canary/**
   workflow_dispatch:
 
 jobs:
@@ -69,6 +71,27 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
             go build -trimpath -ldflags '-s -w' -o ../../../../../wdtt-server .
           (cd ../../../../../ && sha256sum wdtt-server >> wdtt-sha256.txt)
+      - name: Test isolated canary UDP relay
+        working-directory: ops/wdtt-canary
+        run: python -m unittest -v test_udp_relay.py
+      - name: Build offline isolated canary image
+        run: |
+          set -euo pipefail
+          cp wdtt/wdtt-server ops/wdtt-canary/wdtt-server
+          trap 'rm -f ops/wdtt-canary/wdtt-server' EXIT
+          docker build --pull \
+            --label 'org.opencontainers.image.revision=${{ steps.pin.outputs.ref }}' \
+            --tag maestro-wdtt-canary:${{ github.sha }} \
+            ops/wdtt-canary
+          test "$(docker image inspect maestro-wdtt-canary:${{ github.sha }} --format '{{json .Config.ExposedPorts}}')" = "null"
+          docker run --rm --entrypoint /usr/local/bin/wdtt-server \
+            maestro-wdtt-canary:${{ github.sha }} -h >/dev/null
+          {
+            printf 'base=alpine:3.22.1\n'
+            docker image inspect alpine:3.22.1 --format 'base_id={{.Id}}'
+          } > wdtt/WDTT_CANARY_BASE_IMAGE
+          docker save maestro-wdtt-canary:${{ github.sha }} | gzip -9 > wdtt/wdtt-canary-image.tar.gz
+          sha256sum wdtt/wdtt-canary-image.tar.gz >> wdtt/wdtt-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
           name: wdtt-bin
@@ -76,6 +99,8 @@ jobs:
             wdtt/libwdtt-*.so
             wdtt/wdtt-client-linux-amd64
             wdtt/wdtt-server
+            wdtt/wdtt-canary-image.tar.gz
+            wdtt/WDTT_CANARY_BASE_IMAGE
             wdtt/wdtt-sha256.txt
             wdtt/WDTT_UPSTREAM_COMMIT
           if-no-files-found: error
