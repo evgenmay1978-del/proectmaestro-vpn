@@ -104,20 +104,19 @@ jobs:
           done
           ls -lhR app/src/main/jniLibs/ 2>/dev/null || true
 
-      - name: Fetch WDTT mobile transport binaries → jniLibs (closed-gate; NON-FATAL)
+      - name: Fetch WDTT mobile transport binaries → jniLibs (required)
         env:
           GH_TOKEN: ${{ github.token }}
-        continue-on-error: true
         run: |
           set -euo pipefail
           RUN_ID=$(gh run list --workflow=wdtt-bin.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
-          [ -n "$RUN_ID" ] || { echo "::warning::No wdtt-bin.yml artifact — compiling without WDTT." >&2; exit 0; }
+          [ -n "$RUN_ID" ] || { echo "::error::No successful wdtt-bin.yml artifact." >&2; exit 1; }
           gh run download "$RUN_ID" -n wdtt-bin -D wdtt-bin
           source <(grep -E '^WDTT_REF=' version.properties)
           test "$(cat wdtt-bin/WDTT_UPSTREAM_COMMIT)" = "$WDTT_REF"
           (cd wdtt-bin && sha256sum -c wdtt-sha256.txt)
           for abi in arm64-v8a armeabi-v7a; do
-            [ -f "wdtt-bin/libwdtt-${abi}.so" ] || continue
+            test -s "wdtt-bin/libwdtt-${abi}.so"
             mkdir -p "app/src/main/jniLibs/${abi}"
             cp "wdtt-bin/libwdtt-${abi}.so" "app/src/main/jniLibs/${abi}/libwdtt.so"
           done
