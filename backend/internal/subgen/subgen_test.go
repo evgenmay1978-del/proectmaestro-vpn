@@ -293,7 +293,7 @@ func TestGenerateSingboxVKTurn(t *testing.T) {
 		t.Error("vk-turn must be manual-only, not in urltest")
 	}
 
-	var domainDirect, cidrDirect bool
+	var vkDomainDirect, okcdnDomainDirect, vkCIDRDirect, dnsCIDRDirect bool
 	for _, r := range cfg["route"].(map[string]any)["rules"].([]any) {
 		m := r.(map[string]any)
 		if m["outbound"] != "direct" {
@@ -301,21 +301,28 @@ func TestGenerateSingboxVKTurn(t *testing.T) {
 		}
 		if domains, ok := m["domain_suffix"].([]any); ok {
 			for _, domain := range domains {
-				if domain == "vk.com" {
-					domainDirect = true
+				switch domain {
+				case "vk.com":
+					vkDomainDirect = true
+				case "okcdn.ru":
+					okcdnDomainDirect = true
 				}
 			}
 		}
 		if cidrs, ok := m["ip_cidr"].([]any); ok {
 			for _, cidr := range cidrs {
-				if cidr == "87.240.128.0/18" {
-					cidrDirect = true
+				switch cidr {
+				case "87.240.128.0/18":
+					vkCIDRDirect = true
+				case "77.88.8.8/32":
+					dnsCIDRDirect = true
 				}
 			}
 		}
 	}
-	if !domainDirect || !cidrDirect {
-		t.Fatalf("vk carrier direct rules missing: domain=%v cidr=%v", domainDirect, cidrDirect)
+	if !vkDomainDirect || !okcdnDomainDirect || !vkCIDRDirect || !dnsCIDRDirect {
+		t.Fatalf("vk carrier direct rules missing: vk_domain=%v okcdn_domain=%v vk_cidr=%v dns_cidr=%v",
+			vkDomainDirect, okcdnDomainDirect, vkCIDRDirect, dnsCIDRDirect)
 	}
 
 	rawWithoutVK, err := GenerateSingbox(sampleCustomer())

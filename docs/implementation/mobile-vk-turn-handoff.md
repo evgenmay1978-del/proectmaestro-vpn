@@ -49,6 +49,20 @@ Before any canary is called working, verify on a real phone from route logs that
 DNS, and every selected TURN relay IP bypass the `vk-turn` outbound. A routing loop here is the
 primary integration risk.
 
+## Anti-loop hardening (2026-07-15 follow-up)
+
+- `WdttVpnPolicy` detects the structured top-level `vk-turn` outbound instead of matching raw text.
+- When a mobile VPN profile contains `vk-turn`, `BoxService` excludes MaestroVPN's own Android
+  package/UID from the TUN. This lets the standalone WDTT child reach VK signalling, DNS and TURN
+  using the underlying network even though it cannot call `VpnService.protect()` itself.
+- Existing per-app include/exclude semantics are preserved for every profile without `vk-turn`;
+  TV is still hard-gated and never receives this override.
+- Conditional DIRECT rules cover the VK/OK carrier domains, known VK address ranges and bootstrap
+  DNS addresses. Real-phone route logs must still prove every dynamically selected relay bypasses
+  the tunnel before the canary can be called working.
+- Verification after this follow-up: full backend `go test ./...`, Android
+  `testDebugUnitTest`, and `git diff --check` all pass locally.
+
 ## Build/delivery
 
 `version.properties` pins `WDTT_REF` and `WDTT_GO_VERSION`. `.github/workflows/wdtt-bin.yml`
@@ -98,3 +112,13 @@ the marker and checksums before placing `libwdtt.so` into `jniLibs`.
 - Do not treat this as shipped or working: no `wdtt-server`, VK room hash, per-login password/WG
   identity, test APK, phone installation, DTLS handshake, public egress, or whitelist-region proof
   exists yet.
+
+## GitHub authorization update
+
+- Owner completed GitHub CLI device authorization from mobile on 2026-07-15; host-side
+  `sudo -u codex -H gh auth status` showed account `evgenmay1978-del` with `repo` and `workflow`
+  scopes. Never copy the resulting token into chat or project files.
+- The current Telegram Codex sandbox still mounts `.git` read-only, so the anti-loop follow-up
+  cannot be committed from this already-running session. Commit/push must be performed from a new
+  writable Codex session or the owner's root terminal while executing Git as user `codex` from
+  `/srv/maestrovpn-tv`.

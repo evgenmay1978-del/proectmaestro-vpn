@@ -145,10 +145,11 @@ const (
 // cannot call VpnService.protect(), so without these conditional anti-loop rules its
 // signalling and raw-IP TURN/DTLS sockets would be routed back into vk-turn itself.
 var vkTurnDirectDomains = []string{
-	"vk.com", "vk.ru", "vk-calls.com", "userapi.com", "vkuseraudio.net", "vk-cdn.net",
+	"vk.com", "vk.ru", "vk.me", "okcdn.ru", "vk-calls.com", "userapi.com", "vkuseraudio.net", "vk-cdn.net",
 }
 
 var vkTurnDirectCIDRs = []string{
+	"77.88.8.8/32", "77.88.8.1/32",
 	"87.240.128.0/18", "93.186.224.0/20", "95.142.192.0/20", "185.32.248.0/22", "2a00:bdc0::/29",
 }
 

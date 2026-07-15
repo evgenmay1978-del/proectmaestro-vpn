@@ -36,6 +36,7 @@ import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
+import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +119,31 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private var lastProfileName = ""
 
+    private fun buildOverrideOptions(content: String): OverrideOptions =
+        OverrideOptions().apply {
+            autoRedirect = Settings.autoRedirect
+            val appPackage = Application.application.packageName
+            val wdttOwnPackageBypass =
+                service is VPNService &&
+                    !DeviceFormFactor.isTelevision(Application.application) &&
+                    WdttVpnPolicy.hasWdttOutbound(content)
+            val perAppEnabled = Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled
+            val appList = if (perAppEnabled) Settings.getEffectivePerAppProxyList() else emptySet()
+            val packageOverrides = WdttVpnPolicy.resolvePackageOverrides(
+                perAppEnabled = perAppEnabled,
+                includeMode = Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE,
+                appList = appList,
+                appPackage = appPackage,
+                wdttOwnPackageBypass = wdttOwnPackageBypass,
+            )
+            packageOverrides.include?.let {
+                includePackage = PlatformInterfaceWrapper.StringArray(it.iterator())
+            }
+            packageOverrides.exclude?.let {
+                excludePackage = PlatformInterfaceWrapper.StringArray(it.iterator())
+            }
+        }
+
     private suspend fun startService() {
         try {
             withContext(Dispatchers.Main) {
@@ -152,19 +178,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             try {
                 commandServer.startOrReloadService(
                     content,
-                    OverrideOptions().apply {
-                        autoRedirect = Settings.autoRedirect
-                        if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
-                            val appList = Settings.getEffectivePerAppProxyList()
-                            if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                                includePackage =
-                                    PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
-                            } else {
-                                excludePackage =
-                                    PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
-                            }
-                        }
-                    },
+                    buildOverrideOptions(content),
                 )
             } catch (e: Exception) {
                 stopAndAlert(Alert.CreateService, e.message)
@@ -262,17 +276,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         try {
             commandServer.startOrReloadService(
                 content,
-                OverrideOptions().apply {
-                    autoRedirect = Settings.autoRedirect
-                    if (Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled) {
-                        val appList = Settings.getEffectivePerAppProxyList()
-                        if (Settings.getEffectivePerAppProxyMode() == Settings.PER_APP_PROXY_INCLUDE) {
-                            includePackage = PlatformInterfaceWrapper.StringArray((appList + Application.application.packageName).iterator())
-                        } else {
-                            excludePackage = PlatformInterfaceWrapper.StringArray((appList - Application.application.packageName).iterator())
-                        }
-                    }
-                },
+                buildOverrideOptions(content),
             )
         } catch (e: Exception) {
             stopAndAlert(Alert.CreateService, e.message)
