@@ -88,7 +88,7 @@ jobs:
             maestro-wdtt-canary:${{ github.sha }} -h >/dev/null
           {
             printf 'base=alpine:3.22.1\n'
-            docker image inspect alpine:3.22.1 --format 'base_id={{.Id}}'
+            printf 'base_digest=sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1\n'
           } > wdtt/WDTT_CANARY_BASE_IMAGE
           docker save maestro-wdtt-canary:${{ github.sha }} | gzip -9 > wdtt/wdtt-canary-image.tar.gz
           sha256sum wdtt/wdtt-canary-image.tar.gz >> wdtt/wdtt-sha256.txt
