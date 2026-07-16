@@ -73,7 +73,7 @@ function showApp(){document.getElementById('app').innerHTML=
  '<div class="hdr"><b>MaestroVPN</b> <span class="mut">панель</span><span class="sp"></span>'+
  '<button class="btn sm" id="rf">Обновить</button> <button class="btn sm" id="pwb">Пароль</button> <button class="btn sm" id="lo">Выйти</button></div>'+
  '<div class="wrap"><div class="tabs">'+
- '<div class="tab" data-t="dash">Дашборд</div><div class="tab" data-t="cust">Клиенты</div><div class="tab" data-t="olc">olcRTC</div>'+
+ '<div class="tab" data-t="dash">Дашборд</div><div class="tab" data-t="cust">Клиенты</div><div class="tab" data-t="olc">olcRTC</div><div class="tab" data-t="wdtt">WDTT</div>'+
  '</div><div id="body"></div></div>';
  el('lo').onclick=function(){post('api/logout',{}).finally(function(){CSRF=null;showLogin('Вы вышли');});};
  el('rf').onclick=function(){render();};
@@ -82,7 +82,7 @@ function showApp(){document.getElementById('app').innerHTML=
  render();}
 
 function render(){Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(t){t.classList.toggle('on',t.getAttribute('data-t')===TAB);});
- if(TAB==='dash')return renderDash();if(TAB==='cust')return renderCust();if(TAB==='olc')return renderOlc();}
+ if(TAB==='dash')return renderDash();if(TAB==='cust')return renderCust();if(TAB==='olc')return renderOlc();if(TAB==='wdtt')return renderWDTT();}
 
 function renderDash(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/stats').then(function(s){
  function card(n,l){return '<div class="c"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';}
@@ -192,6 +192,33 @@ function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…<
  el('o_set').onclick=function(){var u=el('o_url').value.trim();if(!u)return;toast('Назначаю комнату…');post('api/olcrtc/room',{login:el('o_login').value,room:u,provider:el('o_prov').value}).then(function(){toast('Комната назначена');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};
  el('o_wbtokb').onclick=function(){var t=el('o_wbtok').value.trim();if(!t)return;post('api/olcrtc/wbtoken',{token:t}).then(function(){toast('WbStream токен сохранён');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};
  Array.prototype.forEach.call(document.querySelectorAll('#body button[data-wbnew]'),function(b){b.onclick=function(){var l=b.getAttribute('data-wbnew');if(!confirm('Создать новую WbStream-комнату для '+l+' и назначить?'))return;toast('Создаю комнату…');post('api/olcrtc/wbroom',{login:l}).then(function(r){toast('Новая комната назначена');renderOlc();}).catch(function(e){toast('Ошибка: '+e.message);});};});
+}).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
+
+function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/vkturn').then(function(o){
+ var logins=o.logins||[];var clients=o.clients||{};var configured=!!o.configured;var enabled=!!o.enabled;
+ var badge=!configured?'<span class="badge b-off">не настроен</span>':(enabled?'<span class="badge b-ok">включён</span>':'<span class="badge b-exp">выключен</span>');
+ var h='<div class="toolbar" style="margin:8px 0"><b>WDTT / VK-TURN</b> '+badge+'<span class="sp"></span>'+
+   (configured?'<button class="btn '+(enabled?'dng':'pri')+'" id="w_toggle">'+(enabled?'Выключить':'Включить')+'</button>':'')+'</div>'+
+   '<p class="mut">Мобильный обходной транспорт (WireGuard поверх VK-TURN). Только для '+esc(logins.join(', '))+'. Секреты не показываются — оставь поле пустым, чтобы не менять.</p>'+
+   '<div class="field"><label>Мин. версия</label><input id="w_mvc" type="number" value="'+esc(o.min_version_code||'')+'" style="width:130px" placeholder="напр. 90181"></div>'+
+   '<div class="field"><label>Сервер</label><input id="w_server" value="'+esc(o.server||'')+'" placeholder="host:port (DTLS, напр. 56000)" style="min-width:260px"></div>'+
+   '<div class="field"><label>VK-хеши</label><input id="w_hashes" value="'+esc((o.vk_hashes||[]).join(', '))+'" placeholder="хеш1, хеш2 (1..4, через запятую)" style="flex:1;min-width:280px"></div>';
+ logins.forEach(function(lg){var c=clients[lg]||{};var wg=c.wg||{};
+   h+='<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px"><b>'+esc(lg)+'</b>'+
+     '<div class="field"><label>Пароль</label><input id="w_pw_'+esc(lg)+'" type="password" placeholder="'+(c.password_set?'•••• задан — пусто = не менять':'задать пароль (8..128)')+'" style="min-width:220px"></div>'+
+     '<div class="field"><label>WG приватный</label><input id="w_pk_'+esc(lg)+'" type="password" placeholder="'+(wg.private_key_set?'•••• задан — пусто = не менять':'32-байт base64')+'" style="min-width:220px"></div>'+
+     '<div class="field"><label>WG сервер-ключ</label><input id="w_pub_'+esc(lg)+'" value="'+esc(wg.peer_public_key||'')+'" placeholder="peer public key (base64)" style="min-width:220px"></div>'+
+     '<div class="field"><label>Адрес</label><input id="w_addr_'+esc(lg)+'" value="'+esc(wg.local_address||'')+'" placeholder="10.66.66.2/32" style="width:170px"></div>'+
+   '</div>';
+ });
+ h+='<div class="field" style="margin-top:12px"><label></label><button class="btn pri" id="w_save">Сохранить WDTT</button> <span class="mut">валидируется перед записью; включение — отдельной кнопкой</span></div>';
+ el('body').innerHTML=h;
+ if(el('w_toggle'))el('w_toggle').onclick=function(){post('api/vkturn/enabled',{enabled:!enabled}).then(function(){toast(enabled?'WDTT выключен':'WDTT включён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});};
+ el('w_save').onclick=function(){
+   var hashes=el('w_hashes').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
+   var cl={};logins.forEach(function(lg){cl[lg]={password:el('w_pw_'+lg).value,wg:{private_key:el('w_pk_'+lg).value,peer_public_key:el('w_pub_'+lg).value.trim(),local_address:el('w_addr_'+lg).value.trim()}};});
+   post('api/vkturn',{min_version_code:+el('w_mvc').value||0,server:el('w_server').value.trim(),vk_hashes:hashes,clients:cl}).then(function(){toast('WDTT сохранён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});
+ };
 }).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
 
 function modal(html){closeModal();var m=document.createElement('div');m.className='modal';m.id='modal';m.innerHTML='<div class="box">'+html+'<div style="text-align:right;margin-top:14px"><button class="btn" id="mclose">Закрыть</button></div></div>';document.body.appendChild(m);el('mclose').onclick=closeModal;m.onclick=function(e){if(e.target===m)closeModal();};}

@@ -1,10 +1,10 @@
 package com.maestrovpn.tv.bg
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 internal object WdttVpnPolicy {
     data class PackageOverrides(
@@ -13,11 +13,17 @@ internal object WdttVpnPolicy {
     )
 
     fun hasWdttOutbound(content: String): Boolean = runCatching {
-        val outbounds = Json.parseToJsonElement(content).jsonObject["outbounds"]?.jsonArray
-            ?: return@runCatching false
-        outbounds.any { outbound ->
-            outbound.jsonObject["tag"]?.jsonPrimitive?.contentOrNull == WdttManager.OUTBOUND_TAG
-        }
+        val root = Json.parseToJsonElement(content) as? JsonObject ?: return@runCatching false
+        // `as?` casts (never the throwing jsonArray/jsonObject accessors) so a malformed value
+        // for one key can't abort the scan of the other. vk-turn is emitted as a top-level
+        // "endpoints" entry (sing-box 1.13 removed the legacy `wireguard` OUTBOUND); older/cached
+        // profiles may still carry it under "outbounds", so scan BOTH — the anti-loop TUN bypass
+        // must trigger for either shape, else the WDTT child's VK/TURN/DNS sockets loop through the tun.
+        fun taggedIn(key: String): Boolean =
+            (root[key] as? JsonArray)?.any { node ->
+                ((node as? JsonObject)?.get("tag") as? JsonPrimitive)?.contentOrNull == WdttManager.OUTBOUND_TAG
+            } ?: false
+        taggedIn("endpoints") || taggedIn("outbounds")
     }.getOrDefault(false)
 
     fun resolvePackageOverrides(

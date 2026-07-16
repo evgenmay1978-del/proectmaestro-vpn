@@ -77,9 +77,10 @@ func main() {
 
 	// WDTT/VK TURN secrets are kept in one external root-owned JSON file. No
 	// default path: an unset env keeps the feature completely off. A configured
-	// but invalid/unreadable file aborts startup so credentials can never be
-	// partially advertised.
-	vkTurn, err := vkturnconf.Open(os.Getenv("MAESTRO_VKTURN_FILE"))
+	// but EXISTING invalid/unreadable file aborts startup so credentials can never
+	// be partially advertised; a configured-but-absent file starts OFF and is
+	// populated from the admin panel (which validates+persists atomically).
+	vkTurn, err := vkturnconf.OpenStore(os.Getenv("MAESTRO_VKTURN_FILE"))
 	if err != nil {
 		log.Fatalf("open vkturn config: %v", err)
 	}

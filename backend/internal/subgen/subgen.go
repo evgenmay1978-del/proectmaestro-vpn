@@ -284,8 +284,13 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		outbounds = append(outbounds, olcrtcOutbound())
 		selOnly = append(selOnly, tagOLC)
 	}
+	// vk-turn is a WireGuard tunnel to the local WDTT relay. sing-box 1.13 REMOVED
+	// the legacy `wireguard` OUTBOUND (deprecated 1.11); on the 1.14 fleet libbox a
+	// `wireguard` outbound is a fieldless stub → the whole config fails to decode
+	// ("unknown field \"server\"") and the app rejects the profile. So, like awg, it
+	// MUST be emitted as a top-level "endpoints" entry (verified with sing-box check).
 	if c.VKTurn != nil {
-		outbounds = append(outbounds, vkTurnOutbound(c.VKTurn))
+		endpoints = append(endpoints, vkTurnEndpoint(c.VKTurn))
 		selOnly = append(selOnly, tagVKTurn)
 	}
 	if len(protoTags) == 0 {
@@ -496,14 +501,25 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
-func vkTurnOutbound(v *VKTurnCreds) map[string]any {
+// vkTurnEndpoint builds the WireGuard ENDPOINT (sing-box 1.14 "endpoints" entry, type
+// "wireguard") for the local WDTT VK-TURN relay. The legacy `wireguard` outbound was
+// removed in sing-box 1.13, so — exactly like awgEndpoint — this must live in the
+// top-level "endpoints" array, with the relay as the single peer (127.0.0.1:9000) and
+// allowed_ips catching all traffic. Mirrors the awg schema (address/private_key/mtu +
+// peers[]); a plain WireGuard peer (no awg obfuscation) since the WDTT child provides
+// the outer VK-TURN/DTLS/WRAP disguise. Validated with `sing-box check`.
+func vkTurnEndpoint(v *VKTurnCreds) map[string]any {
 	return map[string]any{
 		"type": "wireguard", "tag": tagVKTurn,
-		"server": vkTurnRelayHost, "server_port": vkTurnRelayPort,
-		"local_address":   []string{v.LocalAddress},
-		"private_key":     v.PrivateKey,
-		"peer_public_key": v.PeerPublicKey,
-		"mtu":             1280,
+		"address":     []string{v.LocalAddress},
+		"private_key": v.PrivateKey,
+		"mtu":         1280,
+		"peers": []map[string]any{{
+			"address": vkTurnRelayHost, "port": vkTurnRelayPort,
+			"public_key":                    v.PeerPublicKey,
+			"allowed_ips":                   []string{"0.0.0.0/0", "::/0"},
+			"persistent_keepalive_interval": 25,
+		}},
 	}
 }
 

@@ -212,20 +212,22 @@ func (s *Server) registerPanel(mux *http.ServeMux) {
 		}
 	}
 	s.panel.startJanitor()
-	mux.HandleFunc(p, s.panelApp)                             // GET the SPA shell
-	mux.HandleFunc(p+"api/login", s.panelLogin)               // POST {password}
-	mux.HandleFunc(p+"api/logout", s.panelLogout)             // POST
-	mux.HandleFunc(p+"api/me", s.panelMe)                     // GET
-	mux.HandleFunc(p+"api/password", s.panelPassword)         // POST {current,new}
-	mux.HandleFunc(p+"api/customers", s.panelCustomers)       // GET
-	mux.HandleFunc(p+"api/customer", s.panelCustomer)         // GET ?login=
-	mux.HandleFunc(p+"api/stats", s.panelStats)               // GET
-	mux.HandleFunc(p+"api/action", s.panelActionH)            // POST
-	mux.HandleFunc(p+"api/olcrtc", s.panelOlcrtc)             // GET
-	mux.HandleFunc(p+"api/olcrtc/room", s.panelOlcRoom)       // POST {login,room,provider}
-	mux.HandleFunc(p+"api/olcrtc/login", s.panelOlcLogin)     // POST {login,action:add|remove}
-	mux.HandleFunc(p+"api/olcrtc/wbtoken", s.panelOlcWBToken) // POST {token} — set wbstream account token
-	mux.HandleFunc(p+"api/olcrtc/wbroom", s.panelOlcWBRoom)   // POST {login} — create+assign a fresh wbstream room
+	mux.HandleFunc(p, s.panelApp)                                // GET the SPA shell
+	mux.HandleFunc(p+"api/login", s.panelLogin)                  // POST {password}
+	mux.HandleFunc(p+"api/logout", s.panelLogout)                // POST
+	mux.HandleFunc(p+"api/me", s.panelMe)                        // GET
+	mux.HandleFunc(p+"api/password", s.panelPassword)            // POST {current,new}
+	mux.HandleFunc(p+"api/customers", s.panelCustomers)          // GET
+	mux.HandleFunc(p+"api/customer", s.panelCustomer)            // GET ?login=
+	mux.HandleFunc(p+"api/stats", s.panelStats)                  // GET
+	mux.HandleFunc(p+"api/action", s.panelActionH)               // POST
+	mux.HandleFunc(p+"api/olcrtc", s.panelOlcrtc)                // GET
+	mux.HandleFunc(p+"api/olcrtc/room", s.panelOlcRoom)          // POST {login,room,provider}
+	mux.HandleFunc(p+"api/olcrtc/login", s.panelOlcLogin)        // POST {login,action:add|remove}
+	mux.HandleFunc(p+"api/olcrtc/wbtoken", s.panelOlcWBToken)    // POST {token} — set wbstream account token
+	mux.HandleFunc(p+"api/olcrtc/wbroom", s.panelOlcWBRoom)      // POST {login} — create+assign a fresh wbstream room
+	mux.HandleFunc(p+"api/vkturn", s.panelVKTurn)                // GET (redacted) / POST (save full WDTT config)
+	mux.HandleFunc(p+"api/vkturn/enabled", s.panelVKTurnEnabled) // POST {enabled} — master switch
 }
 
 // panelErrLog returns a GENERIC message to the browser (an internet-facing surface) while

@@ -108,9 +108,11 @@ type Config struct {
 	// OLC is the global olcRTC config (room/key/etc.), hot-swappable at runtime. nil → olcRTC
 	// disabled entirely. Emitted in /sub + /info only for the MAESTRO_OLC_LOGINS allowlist.
 	OLC *olcconf.Store
-	// VKTurn is the validated, external-file-only configuration for the
-	// mobile-only VK TURN transport. nil or disabled means OFF.
-	VKTurn *vkturnconf.Config
+	// VKTurn is the file-backed, panel-editable configuration store for the
+	// mobile-only VK TURN transport. nil, or a store whose config is unset/disabled,
+	// means OFF. The store validates+persists edits atomically and hands out
+	// consistent snapshots, so /sub reads never see a half-applied edit.
+	VKTurn *vkturnconf.Store
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -122,7 +124,8 @@ type Server struct {
 	trialVel *trialVelocity
 	tg       *telegram.Client
 	olc      *olcconf.Store
-	panel    *panelState // web admin panel session/rate-limit state (nil until registerPanel)
+	vkturn   *vkturnconf.Store // WDTT/VK-TURN config store (nil → feature off); panel-editable
+	panel    *panelState       // web admin panel session/rate-limit state (nil until registerPanel)
 	cfg      Config
 }
 
@@ -131,7 +134,7 @@ func New(st *store.Store, prov Provisioner, orders *order.Store, promos *promo.S
 	return &Server{
 		st: st, prov: prov, orders: orders, promos: promos,
 		trialVel: newTrialVelocity(cfg.TrialIPQuota, 24*time.Hour),
-		tg:       telegram.New(cfg.TGBotToken), olc: cfg.OLC, cfg: cfg,
+		tg:       telegram.New(cfg.TGBotToken), olc: cfg.OLC, vkturn: cfg.VKTurn, cfg: cfg,
 	}
 }
 
@@ -324,7 +327,7 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 			sc.OLC = &subgen.OLCRTCCreds{Provider: oc.Provider, Room: room, Key: key, Transport: oc.Transport}
 		}
 	}
-	if client, ok := s.vkTurnClient(r, c); ok {
+	if client, _, ok := s.vkTurnClient(r, c); ok {
 		sc.VKTurn = &client.WG
 	}
 	// Universal share-links subscription for cross-platform clients (Karing on
@@ -376,11 +379,11 @@ func (s *Server) writeSubInfo(w http.ResponseWriter, r *http.Request, c *store.C
 		"days_left": daysLeft,
 		"active":    c.Active(),
 	}
-	if client, ok := s.vkTurnClient(r, c); ok {
+	if client, vc, ok := s.vkTurnClient(r, c); ok {
 		out["features"] = map[string]any{"vk_turn": true}
 		out["vk_turn"] = map[string]any{
-			"server":      s.cfg.VKTurn.Server,
-			"vk_hashes":   s.cfg.VKTurn.VKHashes,
+			"server":      vc.Server,
+			"vk_hashes":   vc.VKHashes,
 			"password":    client.Password,
 			"workers":     vkturnconf.DefaultWorkers,
 			"fingerprint": vkturnconf.DefaultFingerprint,
@@ -414,6 +417,15 @@ func (s *Server) olcConfig() olcconf.Config {
 		return olcconf.Config{}
 	}
 	return s.olc.Get()
+}
+
+// vkTurnConfig returns a consistent snapshot of the live WDTT config, or nil when
+// the transport is unconfigured. Callers must treat nil (and Enabled==false) as OFF.
+func (s *Server) vkTurnConfig() *vkturnconf.Config {
+	if s.vkturn == nil {
+		return nil
+	}
+	return s.vkturn.Get()
 }
 
 // deviceID extracts the app's per-install device id from a request — query param

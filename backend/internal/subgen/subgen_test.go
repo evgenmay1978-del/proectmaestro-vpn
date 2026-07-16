@@ -252,30 +252,49 @@ func TestGenerateSingboxVKTurn(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
-	var vk, selector, auto map[string]any
+	var selector, auto map[string]any
 	for _, o := range cfg["outbounds"].([]any) {
 		m := o.(map[string]any)
 		switch m["tag"] {
-		case tagVKTurn:
-			vk = m
 		case tagPick:
 			selector = m
 		case tagAuto:
 			auto = m
 		}
 	}
+	// vk-turn is a WireGuard ENDPOINT, not an outbound: sing-box 1.13 removed the
+	// legacy wireguard outbound, so the fleet 1.14 libbox only accepts it under the
+	// top-level "endpoints" array (mirrors awgEndpoint).
+	endpointsRaw, ok := cfg["endpoints"].([]any)
+	if !ok {
+		t.Fatal("endpoints array missing (vk-turn must be a wireguard endpoint, not an outbound)")
+	}
+	var vk map[string]any
+	for _, e := range endpointsRaw {
+		if m := e.(map[string]any); m["tag"] == tagVKTurn {
+			vk = m
+		}
+	}
 	if vk == nil {
-		t.Fatal("vk-turn outbound missing")
+		t.Fatal("vk-turn endpoint missing")
 	}
-	if vk["type"] != "wireguard" || vk["server"] != vkTurnRelayHost || int(vk["server_port"].(float64)) != vkTurnRelayPort {
-		t.Fatalf("vk-turn relay wrong: %v", vk)
+	if vk["type"] != "wireguard" || vk["private_key"] != "client-private" || int(vk["mtu"].(float64)) != 1280 {
+		t.Fatalf("vk-turn endpoint identity wrong: %v", vk)
 	}
-	if vk["private_key"] != "client-private" || vk["peer_public_key"] != "server-public" || int(vk["mtu"].(float64)) != 1280 {
-		t.Fatalf("vk-turn WireGuard identity wrong: %v", vk)
-	}
-	addresses := vk["local_address"].([]any)
+	addresses := vk["address"].([]any)
 	if len(addresses) != 1 || addresses[0] != "10.77.0.2/32" {
-		t.Fatalf("vk-turn local_address = %v", addresses)
+		t.Fatalf("vk-turn address = %v", addresses)
+	}
+	peers := vk["peers"].([]any)
+	if len(peers) != 1 {
+		t.Fatalf("vk-turn peers = %v", peers)
+	}
+	peer := peers[0].(map[string]any)
+	if peer["address"] != vkTurnRelayHost || int(peer["port"].(float64)) != vkTurnRelayPort || peer["public_key"] != "server-public" {
+		t.Fatalf("vk-turn peer wrong: %v", peer)
+	}
+	if allowed := peer["allowed_ips"].([]any); len(allowed) != 2 {
+		t.Fatalf("vk-turn allowed_ips = %v", allowed)
 	}
 
 	contains := func(o map[string]any, tag string) bool {

@@ -40,7 +40,14 @@ func newVKTurnTestServer(t *testing.T, cfg *VKTurnConfig, customers ...*store.Cu
 			t.Fatalf("store.Put(%s): %v", c.Login, err)
 		}
 	}
-	return httptest.NewServer(New(st, nil, nil, nil, Config{VKTurn: cfg}).Handler())
+	vkStore := vkturnconf.NewInMemory()
+	if cfg != nil {
+		// Invalid configs (e.g. the "no minimum" fail-closed case) are rejected by
+		// Set and leave the store OFF — exactly the fail-closed behaviour prod relies
+		// on, so we intentionally ignore the error here.
+		_ = vkStore.Set(cfg)
+	}
+	return httptest.NewServer(New(st, nil, nil, nil, Config{VKTurn: vkStore}).Handler())
 }
 
 func vkTurnCustomer(login, token string) *store.Customer {
