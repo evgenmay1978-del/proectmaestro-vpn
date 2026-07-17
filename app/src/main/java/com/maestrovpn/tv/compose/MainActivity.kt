@@ -88,11 +88,6 @@ import io.nekohasekai.libbox.Libbox
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.R
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.res.imageResource
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.layout.ContentScale
 import com.maestrovpn.tv.bg.BoxService
 import com.maestrovpn.tv.bg.CrashReportManager
 import com.maestrovpn.tv.bg.OOMReportManager
@@ -914,18 +909,15 @@ class MainActivity :
                     .fillMaxSize()
                     .padding(paddingValues),
             ) {
-                // Единый ТВ-фон v4: дерево+рама+плющ из МАТЕРИАЛА ТЕЛЕФОНА (tvm_wood_bg,
-                // ops/tv-mobile-kit.py) ЗА всеми экранами — второстепенные экраны в том же
-                // материале, что главный (owner 2026-07-12); home full-bleed перекрывает.
+                // TV routes share the same graphite base as the premium home. Individual
+                // screens may add their own subtle lighting, but the legacy wood artwork must
+                // never show through while navigating away from home. Phone rendering is
+                // intentionally untouched.
                 if (isTelevision(this@MainActivity)) {
-                    // bitmap-перегрузка ради filterQuality: High-фильтр, чтобы апскейл фона
-                    // на 4K-панель не мылил текстуру дерева (у painter-перегрузки параметра нет).
-                    Image(
-                        bitmap = ImageBitmap.imageResource(R.drawable.tvm_wood_bg),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF070909)),
                     )
                 }
                 // Service Status Bar (shown when service is running or stopping);
@@ -1500,3 +1492,4 @@ class MainActivity :
         )
     }
 }
+
