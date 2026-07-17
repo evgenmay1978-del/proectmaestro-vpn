@@ -292,10 +292,15 @@ fun GlossyButton(
             .then(
                 when {
                     isTv -> Modifier
-                        .background(Color(0xFF285F40), shape)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFF1B1F1E), Color(0xFF14261B)),
+                            ),
+                            shape,
+                        )
                         .border(
                             width = if (focused) 3.dp else 1.dp,
-                            color = if (focused) Color(0xFFFFC857) else Color(0xFF4A7964),
+                            color = if (focused) Color(0xFFE6BE76) else Color(0xFF3E684E),
                             shape = shape,
                         )
                     // PHONE (wood) → wide bronze plaque frame; TV → the accent-domed gradient + chrome bezel.
@@ -500,3 +505,4 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, wood: Boolean = fa
         modifier = modifier,
     )
 }
+
