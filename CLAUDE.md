@@ -21,7 +21,7 @@
 - Даты подписок = «единый организм»: hourly `maestro-dates-reconcile.timer` + прямой синк из S2-бота. Правки дат руками — через `/admin/renew|set-expiry`, не в сторах напрямую.
 
 ## Ориентация и навигация
-- Память: `/root/.claude/projects/-root-maestrovpn-tv/memory/MEMORY.md` (индекс) + state `/root/.claude/maestro-state.md` (in-flight, ДЕРЖАТЬ СВЕЖИМ) + инфра-карта `maestro-infra.md`.
+- Стейт/память: канон в `/home/codex/maestro-context/` — `core/maestro-state.md` (in-flight, ДЕРЖАТЬ СВЕЖИМ) + `core/maestro-infra.md` + `core/maestro-onboarding.md` + `memory/` (индекс codex). Память Claude Code отдельно: `/root/.claude/projects/-root/memory/MEMORY.md`. Живая правда = прямая проверка, не индекс.
 - Код: граф `graphify-out/` (`graphify query "<терм>"`), god-nodes: SFANavHost, DashboardViewModel, BoxService, GenerateSingbox, Provisioner. Не читать 340 файлов подряд.
 - Тяжёлые сборки — на наименее загруженной ноде (карта в ориентации), не рефлекторно на S1.
 - Телеметрия флота: `/var/lib/maestro/reports/*.jsonl` (hello/crash) + nginx-лог. При жалобах — сначала чек-лист memory/fleet-triage-2026-07-10.
