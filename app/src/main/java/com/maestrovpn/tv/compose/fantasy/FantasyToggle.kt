@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +26,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -153,6 +158,12 @@ fun FantasySegmented(
 ) {
     val shape = RoundedCornerShape(14.dp)
     val isTv = com.maestrovpn.tv.compose.rememberIsTv()
+    val focusRequesters = remember(options) { List(options.size) { FocusRequester() } }
+    LaunchedEffect(isTv, selected, options.size) {
+        if (isTv && selected in focusRequesters.indices) {
+            runCatching { focusRequesters[selected].requestFocus() }
+        }
+    }
     Row(
         modifier
             .clip(shape)
@@ -177,6 +188,17 @@ fun FantasySegmented(
             Box(
                 Modifier
                     .weight(1f)
+                    .then(
+                        if (isTv && i in focusRequesters.indices) {
+                            Modifier
+                                .focusRequester(focusRequesters[i])
+                                .onFocusChanged { state ->
+                                    if (state.isFocused && i != selected) onSelect(i)
+                                }
+                        } else {
+                            Modifier
+                        },
+                    )
                     .clip(segShape)
                     .then(
                         if (isTv) {
@@ -234,3 +256,4 @@ private fun lerpC(a: Color, b: Color, t: Float): Color = Color(
     blue = lerp(a.blue, b.blue, t),
     alpha = lerp(a.alpha, b.alpha, t),
 )
+
