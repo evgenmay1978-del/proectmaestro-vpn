@@ -195,30 +195,33 @@ function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…<
 }).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
 
 function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/vkturn').then(function(o){
- var logins=o.logins||[];var clients=o.clients||{};var configured=!!o.configured;var enabled=!!o.enabled;
+ var clients=o.clients||{};var configured=!!o.configured;var enabled=!!o.enabled;var prov=!!o.prov_ready;
+ var names=Object.keys(clients).sort();
  var badge=!configured?'<span class="badge b-off">не настроен</span>':(enabled?'<span class="badge b-ok">включён</span>':'<span class="badge b-exp">выключен</span>');
  var h='<div class="toolbar" style="margin:8px 0"><b>WDTT / VK-TURN</b> '+badge+'<span class="sp"></span>'+
    (configured?'<button class="btn '+(enabled?'dng':'pri')+'" id="w_toggle">'+(enabled?'Выключить':'Включить')+'</button>':'')+'</div>'+
-   '<p class="mut">Мобильный обходной транспорт (WireGuard поверх VK-TURN). Только для '+esc(logins.join(', '))+'. Секреты не показываются — оставь поле пустым, чтобы не менять.</p>'+
-   '<div class="field"><label>Мин. версия</label><input id="w_mvc" type="number" value="'+esc(o.min_version_code||'')+'" style="width:130px" placeholder="напр. 90181"></div>'+
+   '<p class="mut">Мобильный обходной транспорт (WireGuard поверх VK-TURN). Пароль и ключи создаются автоматически при добавлении логина.</p>'+
+   '<div class="field"><label>Мин. версия</label><input id="w_mvc" type="number" value="'+esc(o.min_version_code||'')+'" style="width:130px" placeholder="напр. 146"></div>'+
    '<div class="field"><label>Сервер</label><input id="w_server" value="'+esc(o.server||'')+'" placeholder="host:port (DTLS, напр. 56000)" style="min-width:260px"></div>'+
-   '<div class="field"><label>VK-хеши</label><input id="w_hashes" value="'+esc((o.vk_hashes||[]).join(', '))+'" placeholder="хеш1, хеш2 (1..4, через запятую)" style="flex:1;min-width:280px"></div>';
- logins.forEach(function(lg){var c=clients[lg]||{};var wg=c.wg||{};
-   h+='<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px"><b>'+esc(lg)+'</b>'+
-     '<div class="field"><label>Пароль</label><input id="w_pw_'+esc(lg)+'" type="password" placeholder="'+(c.password_set?'•••• задан — пусто = не менять':'задать пароль (8..128)')+'" style="min-width:220px"></div>'+
-     '<div class="field"><label>WG приватный</label><input id="w_pk_'+esc(lg)+'" type="password" placeholder="'+(wg.private_key_set?'•••• задан — пусто = не менять':'32-байт base64')+'" style="min-width:220px"></div>'+
-     '<div class="field"><label>WG сервер-ключ</label><input id="w_pub_'+esc(lg)+'" value="'+esc(wg.peer_public_key||'')+'" placeholder="peer public key (base64)" style="min-width:220px"></div>'+
-     '<div class="field"><label>Адрес</label><input id="w_addr_'+esc(lg)+'" value="'+esc(wg.local_address||'')+'" placeholder="10.66.66.2/32" style="width:170px"></div>'+
-   '</div>';
+   '<div class="field"><label>VK-хеши</label><input id="w_hashes" value="'+esc((o.vk_hashes||[]).join(', '))+'" placeholder="хеш1, хеш2 (1..4, через запятую)" style="flex:1;min-width:280px"></div>'+
+   '<div class="field"><label></label><button class="btn pri" id="w_save">Сохранить</button> <span class="mut">хеши подхватываются клиентом при следующем старте WDTT — без рестартов</span></div>'+
+   '<div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px"><b>Клиенты</b> <span class="mut">('+names.length+' из '+(o.clients_limit||10)+')</span>';
+ if(!names.length)h+='<div class="mut" style="margin-top:6px">пока никого</div>';
+ names.forEach(function(lg){var wg=(clients[lg]||{}).wg||{};
+   h+='<div class="field" style="margin-top:6px"><label>'+esc(lg)+'</label><span class="mut" style="margin-right:10px">'+esc(wg.local_address||'')+'</span><button class="btn dng" data-rm="'+esc(lg)+'">Убрать</button></div>';
  });
- h+='<div class="field" style="margin-top:12px"><label></label><button class="btn pri" id="w_save">Сохранить WDTT</button> <span class="mut">валидируется перед записью; включение — отдельной кнопкой</span></div>';
+ h+=prov?'<div class="field" style="margin-top:10px"><label>Логин</label><input id="w_addl" placeholder="логин клиента" style="width:180px"><button class="btn pri" id="w_addb">Добавить в WDTT</button></div>'+
+   '<div class="mut">создаст пароль+ключи, провизионирует wdtt-сервер (рестарт ~5с) и включит vk-turn в подписку логина; клиенту — обновить профиль в приложении</div>':
+   '<div class="mut" style="margin-top:8px">добавление недоступно: MAESTRO_WDTT_CANARY_DIR не задан</div>';
+ h+='</div>';
  el('body').innerHTML=h;
  if(el('w_toggle'))el('w_toggle').onclick=function(){post('api/vkturn/enabled',{enabled:!enabled}).then(function(){toast(enabled?'WDTT выключен':'WDTT включён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});};
  el('w_save').onclick=function(){
    var hashes=el('w_hashes').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
-   var cl={};logins.forEach(function(lg){cl[lg]={password:el('w_pw_'+lg).value,wg:{private_key:el('w_pk_'+lg).value,peer_public_key:el('w_pub_'+lg).value.trim(),local_address:el('w_addr_'+lg).value.trim()}};});
-   post('api/vkturn',{min_version_code:+el('w_mvc').value||0,server:el('w_server').value.trim(),vk_hashes:hashes,clients:cl}).then(function(){toast('WDTT сохранён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});
+   post('api/vkturn',{min_version_code:+el('w_mvc').value||0,server:el('w_server').value.trim(),vk_hashes:hashes}).then(function(){toast('WDTT сохранён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});
  };
+ if(el('w_addb'))el('w_addb').onclick=function(){var l=el('w_addl').value.trim();if(!l)return;toast('Провизионирую…');post('api/vkturn/client',{login:l,action:'add'}).then(function(){toast(l+' добавлен — пусть обновит профиль в приложении');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});};
+ Array.prototype.forEach.call(document.querySelectorAll('#body button[data-rm]'),function(b){b.onclick=function(){var l=b.getAttribute('data-rm');if(!confirm('Убрать '+l+' из WDTT? (vk-turn пропадёт из его подписки)'))return;post('api/vkturn/client',{login:l,action:'remove'}).then(function(r){toast(r&&r.warning?('Убран, но: '+r.warning):(l+' убран'));renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});};});
 }).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
 
 function modal(html){closeModal();var m=document.createElement('div');m.className='modal';m.id='modal';m.innerHTML='<div class="box">'+html+'<div style="text-align:right;margin-top:14px"><button class="btn" id="mclose">Закрыть</button></div></div>';document.body.appendChild(m);el('mclose').onclick=closeModal;m.onclick=function(e){if(e.target===m)closeModal();};}

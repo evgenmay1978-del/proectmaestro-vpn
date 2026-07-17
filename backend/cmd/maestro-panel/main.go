@@ -24,6 +24,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnprov"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
 )
 
@@ -84,6 +85,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("open vkturn config: %v", err)
 	}
+
+	// One-click WDTT client provisioning (panel add/remove). Unset dir keeps the
+	// endpoint off; container/relay-IP env are optional overrides of the canary
+	// defaults. Requires the panel to run where the canary's docker lives.
+	wdttProv := vkturnprov.Open(
+		os.Getenv("MAESTRO_WDTT_CANARY_DIR"),
+		os.Getenv("MAESTRO_WDTT_CONTAINER"),
+		os.Getenv("MAESTRO_WDTT_RELAY_IP"),
+	)
 
 	// The provisioner is wired only when its dependencies are configured.
 	var prov api.Provisioner
@@ -214,6 +224,7 @@ func main() {
 			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
 			OLC:          olc,
 			VKTurn:       vkTurn,
+			WDTT:         wdttProv,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

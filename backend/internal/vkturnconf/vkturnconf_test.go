@@ -2,6 +2,7 @@ package vkturnconf
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,7 +14,7 @@ const testKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 func validConfig() Config {
 	clients := make(map[string]Client)
-	for _, login := range allowedLogins {
+	for _, login := range []string{"wapmix", "wapmixx", "wapmix2"} {
 		clients[login] = Client{Password: "secret-" + login, WG: subgen.VKTurnCreds{
 			PeerPublicKey: testKey,
 			PrivateKey:    testKey, LocalAddress: "10.80.0.2/32",
@@ -63,8 +64,12 @@ func TestOpenFailsClosed(t *testing.T) {
 		{"disabled partial", func(c *Config) { c.Enabled = false; c.Server = "" }},
 		{"no minimum", func(c *Config) { c.MinVersionCode = 0 }},
 		{"no hashes", func(c *Config) { c.VKHashes = nil }},
-		{"missing login", func(c *Config) { delete(c.Clients, "wapmix2") }},
-		{"extra login", func(c *Config) { c.Clients["other"] = c.Clients["wapmix"] }},
+		{"bad login charset", func(c *Config) { c.Clients["евг ений"] = c.Clients["wapmix"] }},
+		{"over client limit", func(c *Config) {
+			for i := 0; len(c.Clients) <= MaxClients; i++ {
+				c.Clients[fmt.Sprintf("extra%d", i)] = c.Clients["wapmix"]
+			}
+		}},
 		{"empty password", func(c *Config) { v := c.Clients["wapmix"]; v.Password = ""; c.Clients["wapmix"] = v }},
 		{"bad key", func(c *Config) { v := c.Clients["wapmix"]; v.WG.PrivateKey = "bad"; c.Clients["wapmix"] = v }},
 		{"bad cidr", func(c *Config) { v := c.Clients["wapmix"]; v.WG.LocalAddress = "bad"; c.Clients["wapmix"] = v }},

@@ -228,6 +228,7 @@ func (s *Server) registerPanel(mux *http.ServeMux) {
 	mux.HandleFunc(p+"api/olcrtc/wbroom", s.panelOlcWBRoom)      // POST {login} — create+assign a fresh wbstream room
 	mux.HandleFunc(p+"api/vkturn", s.panelVKTurn)                // GET (redacted) / POST (save full WDTT config)
 	mux.HandleFunc(p+"api/vkturn/enabled", s.panelVKTurnEnabled) // POST {enabled} — master switch
+	mux.HandleFunc(p+"api/vkturn/client", s.panelVKTurnClient)   // POST {login,action:add|remove} — one-click provisioning
 }
 
 // panelErrLog returns a GENERIC message to the browser (an internet-facing surface) while

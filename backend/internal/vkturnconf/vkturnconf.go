@@ -23,11 +23,11 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
-var allowedLogins = [...]string{"wapmix", "wapmixx", "wapmix2"}
-
-// AllowedLogins returns a copy of the three owner-approved logins, so callers
-// (the admin panel) can enumerate them without importing the private array.
-func AllowedLogins() []string { return append([]string(nil), allowedLogins[:]...) }
+// MaxClients caps the WDTT client list. The upstream wdtt-server derives one
+// DTLS wrap key per password and its own tooling assumes at most 10 generated
+// passwords (maxGeneratedPasswords in the pinned linux-server), so the panel
+// refuses to provision beyond that rather than discover the limit in prod.
+const MaxClients = 10
 
 const (
 	DefaultWorkers     = 9
@@ -271,19 +271,33 @@ func (c *Config) Validate() error {
 		}
 		seenHashes[hash] = struct{}{}
 	}
-	if len(c.Clients) != len(allowedLogins) {
-		return fmt.Errorf("clients must contain exactly wapmix, wapmixx and wapmix2")
+	if len(c.Clients) > MaxClients {
+		return fmt.Errorf("clients must contain at most %d logins", MaxClients)
 	}
-	for _, login := range allowedLogins {
-		client, ok := c.Clients[login]
-		if !ok {
-			return fmt.Errorf("client %q is required", login)
+	for login, client := range c.Clients {
+		if !validLogin(login) {
+			return fmt.Errorf("client login %q is invalid", login)
 		}
 		if err := validateClient(login, client); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// validLogin bounds a WDTT client login: the same shape the customer store
+// accepts (short, no spaces, no control characters). An empty clients map is
+// valid — it just means nobody is served the transport.
+func validLogin(login string) bool {
+	if login == "" || len(login) > 64 || strings.TrimSpace(login) != login {
+		return false
+	}
+	for _, r := range login {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && !strings.ContainsRune("._-", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // ClientFor returns a copy of the per-login configuration. Unknown logins fail
