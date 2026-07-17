@@ -80,7 +80,7 @@ fun ClaimScreen(
       Box(
           modifier = Modifier
               .fillMaxSize()
-              .then(if (isTv) Modifier.background(Color(0xFF07100D)) else Modifier),
+              .then(if (isTv) Modifier.background(Color(0xFF070909)) else Modifier),
           contentAlignment = Alignment.Center,
       ) {
         if (!isTv) {
@@ -103,8 +103,8 @@ fun ClaimScreen(
                             .widthIn(max = 720.dp)
                             .fillMaxWidth()
                             .clip(shape)
-                            .background(Color(0xFF0E1B17))
-                            .border(1.dp, Color(0xFF345347), shape)
+                            .background(Color(0xFF101313))
+                            .border(1.dp, Color(0xFF353A37), shape)
                     } else {
                         Modifier.fillMaxSize()
                     },
@@ -119,10 +119,10 @@ fun ClaimScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 fontFamily = if (isTv) FontFamily.SansSerif else com.maestrovpn.tv.compose.theme.PlayfairFamily,
                 fontWeight = FontWeight.Bold,
-                color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFE8C877),
+                color = if (isTv) Color(0xFFF3F0E8) else Color(0xFFE8C877),
             )
             Spacer(Modifier.height(8.dp))
-            Text(text = "Введите код или ваш логин", style = MaterialTheme.typography.bodyMedium, color = if (isTv) Color(0xFFA8B7AF) else MaestroSilver)
+            Text(text = "Введите код или ваш логин", style = MaterialTheme.typography.bodyMedium, color = if (isTv) Color(0xFFA7AAA3) else MaestroSilver)
             Spacer(Modifier.height(22.dp))
 
             FantasyTextField(
@@ -155,3 +155,4 @@ fun ClaimScreen(
       }
     }
 }
+
