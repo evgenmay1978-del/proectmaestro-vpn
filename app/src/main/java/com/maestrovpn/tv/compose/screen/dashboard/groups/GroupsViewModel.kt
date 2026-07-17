@@ -48,6 +48,21 @@ private const val OLC_WATCHDOG_MAX_FAILS = 3
 private const val WDTT_WATCHDOG_INTERVAL_MS = 8_000L
 private const val WDTT_WATCHDOG_MAX_FAILS = 3
 
+// WDTT (vk-turn) cold-start self-warm. On a restricted cellular link — e.g. an emergency/drone
+// whitelist that permits only VK/OK/Yandex — the WDTT child's ANONYMOUS VK-Calls TURN join is
+// captcha-gated until that egress IP has produced trusted VK traffic; that is why users had to
+// "open the VK app first" or bootstrap on wifi before switching to cellular. During vk-turn
+// selection the app's OWN uid is removed from the tun (WdttVpnPolicy anti-loop bypass), so a
+// best-effort HTTPS touch to the same VK/OK hosts the child itself contacts egresses DIRECT with
+// SNI=vk.com — the identical signal, applied automatically. Fire-and-forget: the response is
+// ignored, it exists only to prime the operator's VK zero-rating/DPI classification + DNS and to
+// raise VK anti-abuse reputation for this IP. Does NOT beat a hard persistent captcha wall (that
+// needs the child-side fixes) — it removes the common route/reputation warmup.
+private val WDTT_WARMUP_URLS = listOf("https://vk.com/", "https://api.vk.me/", "https://calls.okcdn.ru/")
+private const val WDTT_WARMUP_TIMEOUT_MS = 4_000L
+private const val WDTT_WARMUP_BACKOFF_MS = 1_500L
+private const val WDTT_START_ATTEMPTS = 2
+
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
     val isLoading: Boolean = false,
@@ -299,7 +314,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     stopWdttWatchdog()
                 } else if (itemTag == WdttManager.OUTBOUND_TAG) {
                     refreshWdttCreds()
-                    if (!WdttManager.ensureStarted()) {
+                    if (!ensureWdttStartedWithWarmup()) {
                         sendError(IllegalStateException("VK-туннель не поднялся (см. логи)"))
                         return@launch
                     }
@@ -416,7 +431,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     stopWdttWatchdog()
                 } else if (isWdtt) {
                     refreshWdttCreds()
-                    if (!WdttManager.ensureStarted()) {
+                    if (!ensureWdttStartedWithWarmup()) {
                         sendError(IllegalStateException("VK-туннель не поднялся (см. логи)"))
                         return@launch
                     }
@@ -465,6 +480,41 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         }
     }
 
+    /**
+     * Bring the WDTT (vk-turn) child up on a possibly-restricted cellular link WITHOUT the user
+     * having to manually warm the VK route (open the VK app / connect on wifi first). Fires
+     * [prewarmVkPath] in PARALLEL with the child start so the cold start gets the operator DPI/DNS
+     * + VK IP-reputation priming for free (zero added latency — the warm's ~1s TLS handshake lands
+     * while the child is still spinning up its worker groups), and retries a small bounded number
+     * of times so a transient captcha / slow-net clears itself instead of forcing the user to
+     * re-tap. Not a cure for a hard persistent captcha wall (see the child-side fixes) — it removes
+     * the common route/reputation warmup. TV never reaches here: WDTT is hard-gated off on TV.
+     */
+    private suspend fun ensureWdttStartedWithWarmup(): Boolean {
+        repeat(WDTT_START_ATTEMPTS) { attempt ->
+            val warm = viewModelScope.launch(Dispatchers.IO) { prewarmVkPath() }
+            if (WdttManager.ensureStarted()) {
+                warm.cancel()
+                return true
+            }
+            warm.join() // let the warm land before the retry so the next attempt benefits from it
+            if (attempt < WDTT_START_ATTEMPTS - 1) delay(WDTT_WARMUP_BACKOFF_MS)
+        }
+        return false
+    }
+
+    /**
+     * Best-effort direct-egress touch of the VK/OK hosts the WDTT child uses for its anonymous
+     * VK-Calls TURN join, to prime the link the same way opening the VK app does. Egresses direct
+     * because the app's own uid is excluded from the tun on the vk-turn path; each request is hard
+     * time-bounded and its result is deliberately ignored.
+     */
+    private suspend fun prewarmVkPath() {
+        WDTT_WARMUP_URLS.forEach { url ->
+            runCatching { httpGetStringTimed(url, WDTT_WARMUP_TIMEOUT_MS) }
+        }
+    }
+
     private suspend fun refreshWdttCreds() {
         runCatching {
             val profile = ProfileManager.list().firstOrNull { it.typed.remoteURL.contains("/sub/") } ?: return
@@ -498,6 +548,9 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     break
                 }
                 Log.w("GroupsVM", "WDTT child died while selected — auto-respawning (attempt $fails)")
+                // Warm the VK route before respawning too: a child that died mid-session on the
+                // restricted link needs the same operator/VK priming to come back.
+                viewModelScope.launch(Dispatchers.IO) { prewarmVkPath() }
                 WdttManager.ensureStarted()
                 if (!isActive || _serviceStatus.value != Status.Started || liveSelectedTag != WdttManager.OUTBOUND_TAG) {
                     WdttManager.stop()
