@@ -383,7 +383,10 @@ func (p *Provisioner) restartAndVerify() error {
 	}
 	var last string
 	for attempt := 0; attempt < 20; attempt++ {
-		out, err := p.run("docker", "inspect", "-f", "{{.State.Running}} {{.NetworkSettings.IPAddress}}", p.container)
+		// range over .Networks: the legacy top-level .NetworkSettings.IPAddress key
+		// is gone on modern Docker (29.x on S1 errors on it), while the per-network
+		// map works everywhere; the canary sits on exactly one bridge network.
+		out, err := p.run("docker", "inspect", "-f", "{{.State.Running}} {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", p.container)
 		if err == nil {
 			fields := strings.Fields(strings.TrimSpace(out))
 			if len(fields) == 2 && fields[0] == "true" && (p.relayIP == "" || fields[1] == p.relayIP) {
