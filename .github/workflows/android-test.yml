@@ -19,6 +19,8 @@ name: Build app APK (test / compile-check)
 # (ci trigger: ota-infinite-loop fix — await install verdict + versionCode compare + failure damper 2026-07-10)
 # (ci trigger: ota-no-reinstall v2 — Shizuku→PACKAGE_INSTALLER fallback + foreground confirm re-fire + stale-session sweep 2026-07-10)
 
+# (ci trigger: premium TV interface 2026-07-17)
+
 on:
   workflow_dispatch:
   push:
