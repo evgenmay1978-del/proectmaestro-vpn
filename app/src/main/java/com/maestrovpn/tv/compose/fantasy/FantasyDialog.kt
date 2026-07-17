@@ -95,8 +95,12 @@ fun FantasyDialog(
                             .widthIn(max = dialogWidth)
                             .fillMaxWidth()
                             .clip(tvShape)
-                            .background(Color(0xFF0E1B17))
-                            .border(1.dp, Color(0xFF345347), tvShape)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF171B1A), Color(0xFF101313)),
+                                ),
+                            )
+                            .border(1.dp, Color(0xFF353A37), tvShape)
                     } else {
                         Modifier
                             .widthIn(max = 460.dp)
@@ -117,7 +121,7 @@ fun FantasyDialog(
         ) {
             Text(
                 text = title,
-                color = if (isTv) Color(0xFFF4F4EF) else GoldHi,
+                color = if (isTv) Color(0xFFF3F0E8) else GoldHi,
                 fontFamily = if (isTv) FontFamily.SansSerif else PlayfairFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = if (isTv) 26.sp else 22.sp,
@@ -139,3 +143,4 @@ fun FantasyDialog(
         }
     }
 }
+
