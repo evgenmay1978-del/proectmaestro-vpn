@@ -84,7 +84,7 @@ fun TrialScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .drawBehind { if (isTv) drawRect(Color(0xFF07100D)) }
+                .drawBehind { if (isTv) drawRect(Color(0xFF070909)) }
                 .padding(screenPadding(isTv)),
             contentAlignment = Alignment.Center,
         ) {
@@ -92,13 +92,13 @@ fun TrialScreen(
                 modifier = Modifier
                     .then(if (isTv) Modifier.widthIn(max = 720.dp) else Modifier.fillMaxWidth())
                     .then(if (isTv) Modifier else Modifier.verticalScroll(rememberScrollState())),
-                color = if (isTv) Color(0xFF101B18) else Color.Transparent,
-                shape = if (isTv) RoundedCornerShape(8.dp) else RoundedCornerShape(0.dp),
+                color = if (isTv) Color(0xFF101313) else Color.Transparent,
+                shape = if (isTv) RoundedCornerShape(20.dp) else RoundedCornerShape(0.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(if (isTv) Color(0xFF101B18) else Color.Transparent)
+                        .background(if (isTv) Color(0xFF101313) else Color.Transparent)
                         .padding(if (isTv) 34.dp else 0.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -108,13 +108,13 @@ fun TrialScreen(
                         style = MaterialTheme.typography.headlineSmall,
                         fontFamily = if (isTv) FontFamily.SansSerif else com.maestrovpn.tv.compose.theme.PlayfairFamily,
                         fontWeight = FontWeight.Bold,
-                        color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFE8C877),
+                        color = if (isTv) Color(0xFFF3F0E8) else Color(0xFFE8C877),
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "Придумайте любой ник и получите 2 дня доступа",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (isTv) Color(0xFFA8B7AF) else MaestroSilver,
+                        color = if (isTv) Color(0xFFA7AAA3) else MaestroSilver,
                     )
                     Spacer(Modifier.height(if (isTv) 26.dp else 22.dp))
 
@@ -150,3 +150,4 @@ fun TrialScreen(
       }
     }
 }
+
