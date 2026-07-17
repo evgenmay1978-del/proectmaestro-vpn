@@ -23,6 +23,10 @@ name: Build app APK (test / compile-check)
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/android-test.yml'
   push:
     paths:
       - .github/workflows/android-test.yml
