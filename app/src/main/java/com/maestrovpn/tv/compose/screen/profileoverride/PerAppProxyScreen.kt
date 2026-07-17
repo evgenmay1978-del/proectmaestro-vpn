@@ -458,14 +458,14 @@ fun PerAppProxyScreen(
             .fillMaxSize()
             .drawBehind {
                 if (isTv) {
-                    drawRect(Color(0xFF07100D))
+                    drawRect(Color(0xFF070909))
                     // unified "spider" backdrop — a soft green glow on the deep-black theme bg,
                     // so this donor screen reads as part of the same app as the home screen.
                     val center = Offset(size.width * 0.5f, size.height * 0.12f)
                     val radius = size.maxDimension * 0.55f
                     drawCircle(
                         brush = Brush.radialGradient(
-                            listOf(NeonGreen.copy(alpha = 0.06f), Color.Transparent),
+                            listOf(Color(0xFF51B56E).copy(alpha = 0.06f), Color.Transparent),
                             center = center, radius = radius,
                         ),
                         radius = radius, center = center,
@@ -486,7 +486,7 @@ fun PerAppProxyScreen(
             Modifier
                 .fillMaxWidth()
                 .then(if (isTv) Modifier.padding(start = 34.dp, end = 34.dp, top = 18.dp, bottom = 10.dp) else Modifier),
-            color = if (isTv) Color(0xFF101B18) else MaterialTheme.colorScheme.surfaceContainerLow,
+            color = if (isTv) Color(0xFF101313) else MaterialTheme.colorScheme.surfaceContainerLow,
             shape = if (isTv) MaterialTheme.shapes.medium else MaterialTheme.shapes.extraSmall,
         ) {
             Row(
@@ -503,13 +503,13 @@ fun PerAppProxyScreen(
                     },
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isTv) Color(0xFFA8B7AF) else MaterialTheme.colorScheme.onSurface,
+                    color = if (isTv) Color(0xFFA7AAA3) else MaterialTheme.colorScheme.onSurface,
                 )
                 if (isTv) {
                     Text(
                         text = "${selectedUids.size}/${currentPackages.size}",
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFFFFC857),
+                        color = Color(0xFFE6BE76),
                     )
                 }
             }
@@ -1470,3 +1470,4 @@ object PerAppProxyScanner {
         return false
     }
 }
+

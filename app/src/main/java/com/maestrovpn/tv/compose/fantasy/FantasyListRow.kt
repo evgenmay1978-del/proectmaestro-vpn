@@ -91,10 +91,10 @@ fun FantasyListRow(
                 if (isTv) {
                     Modifier
                         .clip(tvShape)
-                        .background(if (focused) Color(0xFF203B2C) else Color(0xFF172622))
+                        .background(if (focused) Color(0xFF14261B) else Color(0xFF171B1A))
                         .border(
                             width = if (focused) 3.dp else 1.dp,
-                            color = if (focused) Color(0xFFFFC857) else Color(0xFF2B4940),
+                            color = if (focused) Color(0xFFE6BE76) else Color(0xFF353A37),
                             shape = tvShape,
                         )
                 } else {
@@ -114,14 +114,14 @@ fun FantasyListRow(
         Column(Modifier.weight(1f)) {
             Text(
                 title,
-                color = if (isTv) Color(0xFFF4F4EF) else Color(0xFFF1EEE6),
+                color = if (isTv) Color(0xFFF3F0E8) else Color(0xFFF1EEE6),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = if (isTv) 17.sp else 16.sp,
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
-                    color = if (isTv) Color(0xFFA8B7AF) else GoldMid.copy(alpha = 0.8f),
+                    color = if (isTv) Color(0xFFA7AAA3) else GoldMid.copy(alpha = 0.8f),
                     fontSize = if (isTv) 13.sp else 12.5.sp,
                 )
             }
@@ -134,7 +134,7 @@ fun FantasyListRow(
 }
 
 /**
- * Shared premium background: phone keeps oak_bg; TV reveals the lossless global v4 wood.
+ * Shared premium background: phone keeps oak_bg; TV uses the graphite premium scene.
  * A static key-light and vignette place every route in the same physical scene.
  */
 @Composable
@@ -148,13 +148,13 @@ fun FantasyScreenBackground(
             Box(
                 Modifier
                     .matchParentSize()
-                    .background(Color(0xFF07100D))
+                    .background(Color(0xFF070909))
                     .drawBehind {
                         drawCircle(
                             brush = Brush.radialGradient(
                                 listOf(
-                                    Color(0xFF3EE07A).copy(alpha = 0.10f),
-                                    Color(0xFF3EE07A).copy(alpha = 0.02f),
+                                    Color(0xFF51B56E).copy(alpha = 0.09f),
+                                    Color(0xFFC9A15E).copy(alpha = 0.025f),
                                     Color.Transparent,
                                 ),
                                 center = Offset(size.width * 0.18f, size.height * 0.36f),
@@ -162,6 +162,15 @@ fun FantasyScreenBackground(
                             ),
                             center = Offset(size.width * 0.18f, size.height * 0.36f),
                             radius = size.maxDimension * 0.62f,
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(Color(0xFFC9A15E).copy(alpha = 0.055f), Color.Transparent),
+                                center = Offset(size.width * 0.82f, size.height * 0.42f),
+                                radius = size.maxDimension * 0.58f,
+                            ),
+                            center = Offset(size.width * 0.82f, size.height * 0.42f),
+                            radius = size.maxDimension * 0.58f,
                         )
                     },
             )
@@ -204,3 +213,4 @@ fun FantasyScreenBackground(
 
 /** Re-export of BoxScope so callers of [FantasyScreenBackground] don't need the foundation import. */
 typealias BoxScope = androidx.compose.foundation.layout.BoxScope
+
