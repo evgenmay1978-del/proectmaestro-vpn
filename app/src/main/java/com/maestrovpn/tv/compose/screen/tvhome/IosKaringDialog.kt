@@ -76,10 +76,11 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
             }
         }
     }
-    // The TV home action is explicitly labelled "Подключить iPhone", so open on the
-    // iPhone/Karing QR. The segmented control still allows switching back to Android.
-    var androidMode by remember { mutableStateOf(false) }
+    // On TV the home action is explicitly labelled "Подключить iPhone", so open on the
+    // iPhone/Karing QR; on phone keep the historical Android-first default (the "Поделиться"
+    // tile makes no such iPhone promise). The segmented control still switches either way.
     val isTv = com.maestrovpn.tv.compose.rememberIsTv()
+    var androidMode by remember { mutableStateOf(!isTv) }
 
     // ── Dark-Fantasy modal (phone + TV) ──
     FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
