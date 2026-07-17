@@ -76,7 +76,9 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
             }
         }
     }
-    var androidMode by remember { mutableStateOf(true) }
+    // The TV home action is explicitly labelled "Подключить iPhone", so open on the
+    // iPhone/Karing QR. The segmented control still allows switching back to Android.
+    var androidMode by remember { mutableStateOf(false) }
     val isTv = com.maestrovpn.tv.compose.rememberIsTv()
 
     // ── Dark-Fantasy modal (phone + TV) ──
@@ -214,3 +216,4 @@ private fun ShareBody(
         }
     }
 }
+
