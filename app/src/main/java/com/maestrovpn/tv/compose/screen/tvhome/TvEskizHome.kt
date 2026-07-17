@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
@@ -49,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -56,28 +59,30 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.maestrovpn.tv.compose.theme.MaestroOrange
-import com.maestrovpn.tv.compose.theme.NeonGreen
+import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val TvBackground = Color(0xFF07100D)
-private val TvSurface = Color(0xFF101B18)
-private val TvSurfaceRaised = Color(0xFF172622)
-private val TvSurfaceSelected = Color(0xFF203B2C)
-private val TvText = Color(0xFFF4F4EF)
-private val TvMuted = Color(0xFFA8B7AF)
-private val TvLine = Color(0xFF2B4940)
-private val TvFocus = Color(0xFFFFC857)
-private val TvError = Color(0xFFFF6B6B)
+private val TvBackground = Color(0xFF070909)
+private val TvSurface = Color(0xFF101313)
+private val TvSurfaceRaised = Color(0xFF171B1A)
+private val TvSurfaceSelected = Color(0xFF14261B)
+private val TvText = Color(0xFFF3F0E8)
+private val TvMuted = Color(0xFFA7AAA3)
+private val TvLine = Color(0xFF353A37)
+private val TvFocus = Color(0xFFE6BE76)
+private val TvGold = Color(0xFFC9A15E)
+private val TvGreen = Color(0xFF51B56E)
+private val TvError = Color(0xFFE06B62)
 
 /** Responsive Android TV home. The phone branch stays in TvHomeScreen.kt untouched. */
 @Composable
@@ -138,152 +143,181 @@ internal fun TvEskizHome(
                 drawCircle(
                     brush = Brush.radialGradient(
                         listOf(
-                            NeonGreen.copy(alpha = if (connected) 0.16f else 0.07f),
-                            NeonGreen.copy(alpha = 0.02f),
+                            TvGreen.copy(alpha = if (connected) 0.13f else 0.04f),
+                            TvGold.copy(alpha = 0.025f),
                             Color.Transparent,
                         ),
-                        center = Offset(size.width * 0.19f, size.height * 0.46f),
-                        radius = size.minDimension * 0.58f,
+                        center = Offset(size.width * 0.16f, size.height * 0.48f),
+                        radius = size.minDimension * 0.64f,
                     ),
-                    radius = size.minDimension * 0.58f,
-                    center = Offset(size.width * 0.19f, size.height * 0.46f),
+                    radius = size.minDimension * 0.64f,
+                    center = Offset(size.width * 0.16f, size.height * 0.48f),
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(TvGold.copy(alpha = 0.07f), Color.Transparent),
+                        center = Offset(size.width * 0.79f, size.height * 0.42f),
+                        radius = size.minDimension * 0.72f,
+                    ),
+                    radius = size.minDimension * 0.72f,
+                    center = Offset(size.width * 0.79f, size.height * 0.42f),
                 )
                 drawLine(
-                    color = TvLine.copy(alpha = 0.5f),
-                    start = Offset(size.width * 0.37f, 0f),
-                    end = Offset(size.width * 0.37f, size.height),
+                    color = TvLine.copy(alpha = 0.75f),
+                    start = Offset(size.width * 0.305f, 0f),
+                    end = Offset(size.width * 0.305f, size.height),
                     strokeWidth = 1f,
                 )
+                drawLine(
+                    color = TvLine.copy(alpha = 0.22f),
+                    start = Offset(size.width * 0.61f, size.height * 0.05f),
+                    end = Offset(size.width * 0.96f, size.height * 0.86f),
+                    strokeWidth = 3f,
+                )
+                drawLine(
+                    color = TvGold.copy(alpha = 0.05f),
+                    start = Offset(size.width * 0.72f, size.height * 0.02f),
+                    end = Offset(size.width * 0.98f, size.height * 0.62f),
+                    strokeWidth = 8f,
+                )
             }
-            .padding(horizontal = 34.dp, vertical = 26.dp),
+            .padding(horizontal = 30.dp, vertical = 24.dp),
     ) {
-        val compact = maxHeight < 560.dp
-        val gap = if (compact) 7.dp else 12.dp
+        val compact = maxHeight < 600.dp
+        val gap = if (compact) 7.dp else 10.dp
         val actionHeight = if (compact) 64.dp else 72.dp
-        val smallButtonHeight = if (compact) 42.dp else 52.dp
-        val protocolButtonHeight = 58.dp
-        val protocolRowGap = if (compact) 6.dp else 10.dp
+        val smallButtonHeight = if (compact) 44.dp else 50.dp
+        val protocolButtonHeight = if (compact) 52.dp else 58.dp
+        val protocolRowGap = if (compact) 6.dp else 8.dp
         val phoneWeight = if (compact) 1.65f else 1.55f
 
-        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
-            TvHeader(
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher_foreground),
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(if (compact) 360.dp else 460.dp)
+                .alpha(0.035f),
+        )
+
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            TvHeroPane(
                 connected = connected,
                 statusText = statusText,
+                activeProtocol = activeProtocol ?: selected,
+                accountLogin = accountLogin,
+                daysLeft = daysLeft,
+                accountExpires = accountExpires,
+                hasSubProfile = hasSubProfile,
+                onToggleConnect = onToggleConnect,
+                onEnterTrial = onEnterTrial,
+                connectFocus = connectFocus,
+                compact = compact,
+                modifier = Modifier.fillMaxHeight().weight(0.29f),
             )
 
-            Row(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+            Column(
+                modifier = Modifier.fillMaxHeight().weight(0.71f),
+                verticalArrangement = Arrangement.spacedBy(gap),
             ) {
-                TvHeroPane(
-                    connected = connected,
-                    statusText = statusText,
-                    activeProtocol = activeProtocol ?: selected,
-                    accountLogin = accountLogin,
-                    daysLeft = daysLeft,
-                    accountExpires = accountExpires,
-                    hasSubProfile = hasSubProfile,
-                    onToggleConnect = onToggleConnect,
-                    onEnterTrial = onEnterTrial,
-                    connectFocus = connectFocus,
-                    compact = compact,
-                    modifier = Modifier.fillMaxHeight().weight(0.37f),
+                TvActionButton(
+                    label = "Купить подписку",
+                    supporting = "Продлить защищённый доступ",
+                    icon = Icons.Filled.ShoppingCart,
+                    accent = true,
+                    onClick = onBuy,
+                    modifier = Modifier.fillMaxWidth(),
+                    height = actionHeight,
                 )
 
-                Column(
-                    modifier = Modifier.fillMaxHeight().weight(0.63f),
-                    verticalArrangement = Arrangement.spacedBy(gap),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        TvActionButton(
-                            label = "Купить подписку",
-                            supporting = "Продлить доступ",
-                            icon = Icons.Filled.ShoppingCart,
-                            accent = true,
-                            onClick = onBuy,
-                            modifier = Modifier.weight(1f),
-                            height = actionHeight,
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f), height = actionHeight)
-                        TvActionButton("Приложения", "VPN туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
-                        TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        TvSmallButton("Обновить приложение", Icons.Filled.CloudDownload, updateApp, Modifier.weight(1f), height = smallButtonHeight)
-                        TvSmallButton("Проверить соединение", Icons.Filled.Wifi, checkConnection, Modifier.weight(1f), height = smallButtonHeight)
-                    }
-
-                    TvSectionTitle("ПОДДЕРЖКА")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        TvSmallButton("8 977 811-65-64", Icons.Filled.Call, { open("tel:+79778116564") }, Modifier.weight(phoneWeight), height = smallButtonHeight)
-                        TvSmallButton("Telegram", Icons.Filled.Send, { open("https://t.me/wapmixx") }, Modifier.weight(1f), iconTint = Color(0xFF2AABEE), height = smallButtonHeight)
-                        TvSmallButton("WhatsApp", Icons.Filled.Chat, { open("https://wa.me/79778116564") }, Modifier.weight(1f), iconTint = Color(0xFF25D366), height = smallButtonHeight)
-                        TvSmallButton("МАКС", Icons.Filled.Forum, { open("https://max.ru/") }, Modifier.weight(0.75f), iconTint = Color(0xFF4C9EFF), height = smallButtonHeight)
-                    }
-
-                    TvSectionTitle("ПРОТОКОЛЫ")
-                    TvProtocolGrid(
-                        protocols = protocols,
-                        selected = selected,
-                        hasOlcrtcCreds = hasOlcrtcCreds,
-                        olcrtcProvider = olcrtcProvider,
-                        onSelectProtocol = onSelectProtocol,
-                        onSelectOlcrtc = onSelectOlcrtc,
-                        modifier = Modifier.fillMaxWidth(),
-                        buttonHeight = protocolButtonHeight,
-                        rowGap = protocolRowGap,
-                        showBadges = !compact,
-                    )
+                    TvActionButton("Ввести код", "Активация", Icons.Filled.Code, onClick = onEnterCode, modifier = Modifier.weight(1f), height = actionHeight)
+                    TvActionButton("Приложения", "VPN-туннель", Icons.Filled.Public, onClick = onSplitTunnel, modifier = Modifier.weight(1f), height = actionHeight)
+                    TvActionButton("Поделиться", "Подключить iPhone", Icons.Filled.Share, onClick = onShareIos, modifier = Modifier.weight(1f), height = actionHeight)
                 }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    TvSmallButton("Обновить приложение", Icons.Filled.CloudDownload, updateApp, Modifier.weight(1f), height = smallButtonHeight)
+                    TvSmallButton("Проверить соединение", Icons.Filled.Wifi, checkConnection, Modifier.weight(1f), height = smallButtonHeight)
+                }
+
+                TvSectionTitle("ПОДДЕРЖКА")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    TvSmallButton("8 977 811-65-64", Icons.Filled.Call, { open("tel:+79778116564") }, Modifier.weight(phoneWeight), height = smallButtonHeight)
+                    TvSmallButton("Telegram", Icons.Filled.Send, { open("https://t.me/wapmixx") }, Modifier.weight(1f), iconTint = Color(0xFF2AABEE), height = smallButtonHeight)
+                    TvSmallButton("WhatsApp", Icons.Filled.Chat, { open("https://wa.me/79778116564") }, Modifier.weight(1f), iconTint = Color(0xFF25D366), height = smallButtonHeight)
+                    TvSmallButton("МАКС", Icons.Filled.Forum, { open("https://max.ru/") }, Modifier.weight(0.75f), iconTint = Color(0xFF4C9EFF), height = smallButtonHeight)
+                }
+
+                TvSectionTitle("ПРОТОКОЛЫ")
+                TvProtocolGrid(
+                    protocols = protocols,
+                    selected = selected,
+                    hasOlcrtcCreds = hasOlcrtcCreds,
+                    olcrtcProvider = olcrtcProvider,
+                    onSelectProtocol = onSelectProtocol,
+                    onSelectOlcrtc = onSelectOlcrtc,
+                    modifier = Modifier.fillMaxWidth(),
+                    buttonHeight = protocolButtonHeight,
+                    rowGap = protocolRowGap,
+                    showBadges = !compact,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TvHeader(connected: Boolean, statusText: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().height(54.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun TvHeader(connected: Boolean, statusText: String, compact: Boolean) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher_foreground),
+            contentDescription = "MaestroVPN",
+            modifier = Modifier.size(if (compact) 68.dp else 82.dp),
+        )
         Text(
             "MaestroVPN",
             color = TvText,
             fontFamily = PlayfairFamily,
-            fontSize = 30.sp,
+            fontSize = if (compact) 23.sp else 27.sp,
             fontWeight = FontWeight.Bold,
         )
-        Spacer(Modifier.width(18.dp))
+        Spacer(Modifier.height(if (compact) 5.dp else 8.dp))
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
-                .background(if (connected) NeonGreen.copy(alpha = 0.14f) else TvSurface)
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+                .background(if (connected) TvGreen.copy(alpha = 0.13f) else TvSurface)
+                .border(1.dp, if (connected) TvGreen.copy(alpha = 0.45f) else TvLine, RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(if (connected) NeonGreen else TvError))
+                Box(Modifier.size(7.dp).clip(CircleShape).background(if (connected) TvGreen else TvError))
                 Spacer(Modifier.width(8.dp))
-                Text(statusText, color = if (connected) NeonGreen else TvMuted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    statusText,
+                    color = if (connected) TvGreen else TvMuted,
+                    fontSize = if (compact) 12.sp else 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
-        Spacer(Modifier.weight(1f))
-        Text("Защищённое подключение", color = TvMuted, fontSize = 15.sp)
     }
 }
 
@@ -303,26 +337,33 @@ private fun TvHeroPane(
     modifier: Modifier,
 ) {
     Column(
-        modifier = modifier,
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(TvSurfaceRaised.copy(alpha = 0.94f), TvSurface.copy(alpha = 0.98f)),
+                ),
+            )
+            .border(1.dp, TvLine.copy(alpha = 0.9f), RoundedCornerShape(20.dp))
+            .padding(horizontal = if (compact) 14.dp else 18.dp, vertical = if (compact) 12.dp else 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
+        TvHeader(connected = connected, statusText = statusText, compact = compact)
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("СТАТУС", color = TvMuted, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            Spacer(Modifier.height(6.dp))
             Text(
                 if (connected) "ПОДКЛЮЧЕНО" else "ОТКЛЮЧЕНО",
-                color = if (connected) NeonGreen else TvError,
-                fontSize = if (compact) 27.sp else 32.sp,
+                color = if (connected) TvGreen else TvError,
+                fontSize = if (compact) 20.sp else 24.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp,
             )
             if (!activeProtocol.isNullOrBlank()) {
-                Spacer(Modifier.height(4.dp))
                 Text(
                     if (connected) "Активный протокол: ${tvProtocolLabel(activeProtocol)}" else "Готово: ${tvProtocolLabel(activeProtocol)}",
-                    color = MaestroOrange,
-                    fontSize = 14.sp,
+                    color = TvGold,
+                    fontSize = if (compact) 11.sp else 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -349,23 +390,53 @@ private fun TvHeroPane(
 private fun TvConnectButton(connected: Boolean, onClick: () -> Unit, focusRequester: FocusRequester, compact: Boolean) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    val diameter = if (compact) 194.dp else 226.dp
+    val diameter = if (compact) 128.dp else 164.dp
     Box(
         modifier = Modifier
-            .size(diameter + 18.dp)
+            .size(diameter + 22.dp)
             .focusRequester(focusRequester)
             .clip(CircleShape)
-            .background(if (connected) NeonGreen.copy(alpha = 0.13f) else TvSurface)
-            .border(if (focused) 4.dp else 1.dp, if (focused) TvFocus else TvLine, CircleShape)
-            .padding(9.dp)
-            .clip(CircleShape)
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        if (connected) TvGreen.copy(alpha = 0.28f) else TvGold.copy(alpha = 0.13f),
+                        TvSurface,
+                    ),
+                ),
+            )
+            .border(if (focused) 4.dp else 2.dp, if (focused) TvFocus else TvGold.copy(alpha = 0.42f), CircleShape)
+            .padding(10.dp)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Filled.Shield, null, tint = if (connected) NeonGreen else TvMuted, modifier = Modifier.size(42.dp))
-            Spacer(Modifier.height(4.dp))
-            Text("${if (connected) "ОТКЛЮЧИТЬ" else "ПОДКЛЮЧИТЬ"}", color = TvText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Box(
+            modifier = Modifier
+                .size(diameter)
+                .clip(CircleShape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF242927), Color(0xFF0D1010)),
+                    ),
+                )
+                .border(1.dp, TvLine, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    Icons.Filled.PowerSettingsNew,
+                    null,
+                    tint = if (connected) TvGreen else TvGold,
+                    modifier = Modifier.size(if (compact) 36.dp else 44.dp),
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    if (connected) "ОТКЛЮЧИТЬ" else "ПОДКЛЮЧИТЬ",
+                    color = TvText,
+                    fontSize = if (compact) 12.sp else 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.7.sp,
+                )
+            }
         }
     }
 }
@@ -380,24 +451,24 @@ private fun TvAccountCard(login: String?, daysLeft: Int?, expires: String?) {
     }
     val daysColor = when {
         daysLeft != null && daysLeft <= 0 -> TvError
-        daysLeft != null && daysLeft <= 5 -> MaestroOrange
-        else -> NeonGreen
+        daysLeft != null && daysLeft <= 5 -> TvGold
+        else -> TvGreen
     }
-    TvSurfaceCard(modifier = Modifier.fillMaxWidth(), contentPadding = 16.dp) {
+    TvSurfaceCard(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                modifier = Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(NeonGreen.copy(alpha = 0.16f)),
+                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(TvGold.copy(alpha = 0.13f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Filled.Info, null, tint = NeonGreen, modifier = Modifier.size(25.dp))
+                Icon(Icons.Filled.Info, null, tint = TvGold, modifier = Modifier.size(22.dp))
             }
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(11.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text("АККАУНТ", color = TvMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                Text(login ?: "Без профиля", color = TvText, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(daysText, color = daysColor, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(login ?: "Без профиля", color = TvText, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(daysText, color = daysColor, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Icon(Icons.Filled.CalendarMonth, null, tint = TvMuted, modifier = Modifier.size(22.dp))
+            Icon(Icons.Filled.CalendarMonth, null, tint = TvMuted, modifier = Modifier.size(19.dp))
         }
     }
 }
@@ -415,10 +486,12 @@ private fun TvProtocolGrid(
     rowGap: Dp = 10.dp,
     showBadges: Boolean = true,
 ) {
-    val baseProtocols = protocols.filterNot { it == "vk-turn" }.ifEmpty { listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg") }
+    val baseProtocols = protocols
+        .filterNot { it == "vk-turn" }
+        .ifEmpty { listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg") }
     val display = (if (baseProtocols.contains("olcrtc")) baseProtocols else baseProtocols + "olcrtc").take(8)
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(rowGap)) {
-        display.chunked(4).forEach { row ->
+        listOf(display.take(5), display.drop(5)).filter { it.isNotEmpty() }.forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEach { protocol ->
                     val locked = protocol == "olcrtc" && !hasOlcrtcCreds
@@ -434,7 +507,7 @@ private fun TvProtocolGrid(
                         showBadge = showBadges,
                     )
                 }
-                for (index in row.size until 4) {
+                for (index in row.size until 5) {
                     Spacer(Modifier.weight(1f))
                 }
             }
@@ -463,12 +536,12 @@ private fun TvProtocolButton(
             Icon(
                 if (locked) Icons.Filled.Lock else tvProtocolIcon(protocol),
                 null,
-                tint = if (locked) TvMuted else if (selected) MaestroOrange else NeonGreen,
+                tint = if (locked) TvMuted else TvGreen,
                 modifier = Modifier.size(23.dp),
             )
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(tvProtocolLabel(protocol), color = if (selected) MaestroOrange else TvText, fontSize = if (showBadge) 15.sp else 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(tvProtocolLabel(protocol), color = if (selected) TvGreen else TvText, fontSize = if (showBadge) 15.sp else 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (showBadge) {
                     Text(
                         when {
@@ -476,7 +549,7 @@ private fun TvProtocolButton(
                             protocol == "olcrtc" -> if (provider == "wbstream") "через WB" else "через Яндекс"
                             else -> tvProtocolBadge(protocol)
                         },
-                        color = if (locked) TvMuted else NeonGreen,
+                        color = if (locked) TvMuted else TvGreen,
                         fontSize = 10.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -501,11 +574,11 @@ private fun TvActionButton(
     TvSurfaceCard(
         modifier = modifier.height(height),
         onClick = onClick,
-        selected = accent,
+        selected = false,
         contentPadding = if (compact) 8.dp else 14.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = if (accent) NeonGreen else NeonGreen, modifier = Modifier.size(if (compact) 22.dp else 27.dp))
+            Icon(icon, null, tint = if (accent) TvGold else TvGreen, modifier = Modifier.size(if (compact) 22.dp else 27.dp))
             Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(label, color = if (accent) TvText else TvText, fontSize = if (compact) 15.sp else 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -521,7 +594,7 @@ private fun TvSmallButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    iconTint: Color = NeonGreen,
+    iconTint: Color = TvGreen,
     height: Dp = 52.dp,
 ) {
     val compact = height < 48.dp
@@ -538,7 +611,7 @@ private fun TvSmallButton(
 private fun TvIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     TvSurfaceCard(modifier = Modifier.size(72.dp), onClick = onClick, contentPadding = 10.dp) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(icon, label, tint = NeonGreen, modifier = Modifier.size(24.dp))
+            Icon(icon, label, tint = TvGreen, modifier = Modifier.size(24.dp))
             Text(label, color = TvMuted, fontSize = 9.sp, maxLines = 1)
         }
     }
@@ -562,8 +635,20 @@ private fun TvSurfaceCard(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(if (selected) TvSurfaceSelected else TvSurfaceRaised)
-            .border(if (focused) 3.dp else 1.dp, if (focused) TvFocus else TvLine, RoundedCornerShape(16.dp))
+            .background(
+                Brush.verticalGradient(
+                    if (selected) {
+                        listOf(TvSurfaceSelected, TvGreen.copy(alpha = 0.09f))
+                    } else {
+                        listOf(Color(0xFF1B1F1E), TvSurfaceRaised)
+                    },
+                ),
+            )
+            .border(
+                if (focused) 3.dp else if (selected) 2.dp else 1.dp,
+                if (focused) TvFocus else if (selected) TvGreen.copy(alpha = 0.72f) else TvLine,
+                RoundedCornerShape(16.dp),
+            )
             .then(if (onClick != null) Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick) else Modifier)
             .padding(contentPadding),
         contentAlignment = Alignment.CenterStart,
@@ -607,3 +692,4 @@ private fun tvDaysWord(days: Int): String = when {
     days % 10 in 2..4 -> "дня"
     else -> "дней"
 }
+
