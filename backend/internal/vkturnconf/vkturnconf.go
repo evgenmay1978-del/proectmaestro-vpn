@@ -30,9 +30,16 @@ import (
 const MaxClients = 10
 
 const (
-	DefaultWorkers     = 9
+	// DefaultWorkers=18 (2 VK-call groups, was 9=1) to aggregate more parallel TURN
+	// relays for throughput. Trade-off: each group of 9 is one extra anonymous VK join
+	// at cold start (captcha exposure) — 18 is the moderate step chosen over 27, kept
+	// safe by the client self-warm. Client validateCreds accepts 9..108 in steps of 9.
+	DefaultWorkers     = 18
 	DefaultFingerprint = "chrome"
-	DefaultObfsMode    = "audio"
+	// DefaultObfsMode="video" (was "audio"): audio disguises as a voice call whose
+	// media the carrier may bitrate-shape; video disguises as a video call (higher
+	// allowed bitrate). One RTP payload-type byte on the wire; reversible instantly.
+	DefaultObfsMode = "video"
 )
 
 var DefaultClientIDs = []string{"6287487", "8202606"}
