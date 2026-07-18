@@ -10,7 +10,11 @@
 #   ops/deploy-panel.sh --dry-run  # build + vet ONLY (no install, no restart) — safe pre-check
 set -eu
 
-REPO=/root/maestrovpn-tv/backend
+# Resolve the repo from THIS script's location (not a hard-coded /root) so the deploy
+# builds the tree it lives in. The live panel is built from /srv (the WDTT/one-click
+# code), and a stale /root path would silently DOWNGRADE it. Override with MAESTRO_REPO.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO=${MAESTRO_REPO:-$(dirname "$SCRIPT_DIR")/backend}
 BIN=/usr/local/bin/maestro-panel
 PANEL=http://127.0.0.1:8910
 DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
