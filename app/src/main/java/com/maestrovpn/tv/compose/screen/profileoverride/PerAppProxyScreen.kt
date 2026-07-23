@@ -442,16 +442,15 @@ fun PerAppProxyScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-      // PHONE: carved-wood эскиз backdrop (with a dark scrim) so the split-tunnel screen matches
-      // the wood/gold app. TV keeps the plain green-glow.
+      // PHONE: shared mobile wood surface with a readability scrim. TV keeps its graphite scene.
       if (!isTv) {
           Image(
-              painter = painterResource(R.drawable.home_eskiz),
+              painter = painterResource(R.drawable.mobile_surface),
               contentDescription = null,
               modifier = Modifier.fillMaxSize(),
               contentScale = ContentScale.Crop,
           )
-          Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.62f)) })
+          Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.50f)) })
       }
       Column(
         modifier = Modifier

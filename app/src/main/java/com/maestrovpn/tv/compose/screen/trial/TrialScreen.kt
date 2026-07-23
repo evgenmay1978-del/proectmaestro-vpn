@@ -67,18 +67,18 @@ fun TrialScreen(
         runCatching { nickFocus.requestFocus() }
     }
 
-    // Transparent: на ТВ под экраном глобальное дерево tv_wood_bg (MainActivity); непрозрачный
-    // Surface красил поверх него тёмную заливку темы. На телефоне фон рисуется Image ниже.
+    // Keep the surface transparent: TV supplies its own scene, while phone draws the shared
+    // mobile wood surface below the form.
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
       Box(modifier = Modifier.fillMaxSize()) {
         if (!isTv) {
             Image(
-                painter = painterResource(R.drawable.home_eskiz),
+                painter = painterResource(R.drawable.mobile_surface),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.45f)) })
+            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.28f)) })
         }
         // Радиал на ТВ убран: banding на 8-битных панелях (фото owner 2026-07-11).
         Box(

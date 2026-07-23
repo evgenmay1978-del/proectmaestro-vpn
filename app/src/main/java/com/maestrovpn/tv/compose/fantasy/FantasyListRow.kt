@@ -134,7 +134,8 @@ fun FantasyListRow(
 }
 
 /**
- * Shared premium background: phone keeps oak_bg; TV uses the graphite premium scene.
+ * Shared premium background: phone uses the unified mobile wood surface; TV uses the graphite
+ * premium scene.
  * A static key-light and vignette place every route in the same physical scene.
  */
 @Composable
@@ -176,7 +177,7 @@ fun FantasyScreenBackground(
             )
         } else {
             androidx.compose.foundation.Image(
-                painter = painterResource(R.drawable.oak_bg),
+                painter = painterResource(R.drawable.mobile_surface),
                 contentDescription = null,
                 modifier = Modifier.matchParentSize(),
                 contentScale = ContentScale.Crop,

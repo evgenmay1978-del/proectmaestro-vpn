@@ -73,9 +73,8 @@ fun ClaimScreen(
         runCatching { codeFocus.requestFocus() }
     }
 
-    // Transparent: на ТВ под экраном лежит глобальное дерево tv_wood_bg (MainActivity) —
-    // непрозрачный Surface красил поверх него уныло-тёмную заливку темы (фото owner 2026-07-11).
-    // На телефоне фон рисует home_eskiz ниже, так что прозрачность безвредна.
+    // Keep the surface transparent: TV supplies its own graphite scene, while phone draws the
+    // shared mobile wood surface below the form.
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
       Box(
           modifier = Modifier
@@ -85,15 +84,14 @@ fun ClaimScreen(
       ) {
         if (!isTv) {
             Image(
-                painter = painterResource(R.drawable.home_eskiz),
+                painter = painterResource(R.drawable.mobile_surface),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.45f)) })
+            Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.28f)) })
         }
-        // Радиал на ТВ убран: давал ступенчатый banding на 8-битных панелях (фото owner
-        // 2026-07-11); глубина — от виньетки самого фона tv_wood_bg.
+        // No radial overlay on TV: it caused visible banding on 8-bit panels.
         Column(
             modifier = Modifier
                 .then(

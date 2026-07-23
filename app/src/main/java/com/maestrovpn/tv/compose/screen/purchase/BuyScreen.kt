@@ -104,15 +104,14 @@ fun BuyScreen(
         )
     }
 
-    // Transparent: на ТВ под экраном глобальное дерево tv_wood_bg (MainActivity); непрозрачный
-    // Surface красил поверх него тёмную заливку темы. На телефоне фон рисуется Image ниже.
+    // Keep the surface transparent: TV supplies its own scene, while phone draws the shared
+    // mobile wood surface below the purchase flow.
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
       Box(modifier = Modifier.fillMaxSize()) {
-        // PHONE: tiled carved-oak background (same kit as Settings). TV keeps the plain
-        // green-glow theme drawn on the Column below.
+        // PHONE: shared mobile wood surface. TV keeps the graphite theme drawn below.
         if (!isTv) {
             Image(
-                painter = painterResource(R.drawable.oak_bg),
+                painter = painterResource(R.drawable.mobile_surface),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
