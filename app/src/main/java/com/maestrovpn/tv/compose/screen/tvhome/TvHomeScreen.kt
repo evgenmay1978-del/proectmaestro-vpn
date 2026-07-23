@@ -5,13 +5,18 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -52,10 +57,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.NeonAccountCard
@@ -256,17 +263,46 @@ fun TvHomeScreen(
 
                     // Fixed full-size eye + connect target. The open image is clipped to the inner
                     // aperture, so the base ring remains pixel-identical throughout the transition.
+                    var touchGaze by remember { mutableStateOf<Offset?>(null) }
                     Box(
                         modifier = Modifier
                             .offset(
                                 x = (medallionCenterDpX - medallionRadiusDp).dp,
                                 y = (medallionCenterDpY - medallionRadiusDp).dp,
                             )
-                            .size((2f * medallionRadiusDp).dp),
+                            .size((2f * medallionRadiusDp).dp)
+                            .pointerInput(Unit) {
+                                try {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        fun track(position: Offset) {
+                                            val width = size.width.toFloat().coerceAtLeast(1f)
+                                            val height = size.height.toFloat().coerceAtLeast(1f)
+                                            touchGaze = Offset(
+                                                x = (position.x / width - 0.5f) * 2f,
+                                                y = (position.y / height - 0.5f) * 2f,
+                                            )
+                                        }
+                                        track(down.position)
+
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val pressed = event.changes
+                                                .firstOrNull { it.pressed }
+                                                ?: break
+                                            track(pressed.position)
+                                        }
+                                        touchGaze = null
+                                    }
+                                } finally {
+                                    touchGaze = null
+                                }
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         LivingEyeMedallion(
                             connected = connected,
+                            touchGaze = touchGaze,
                             modifier = Modifier.fillMaxSize(),
                         )
                         Button(
@@ -326,31 +362,42 @@ internal fun PhoneStatusRow(
     activeProtocol: String?,
     selected: String?,
 ) {
-    Spacer(Modifier.height(6.dp))
     // 1:1 к эталону owner: ОТКЛЮЧЕНО = красная точка + красный текст (было серебро/белый),
     // и строка протокола видна в ОБОИХ состояниях («Отключён: Vless-s3 • авто»).
     val stateRed = Color(0xFFFF4040)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else stateRed))
-        Spacer(Modifier.width(9.dp))
-        Text(
-            statusText.uppercase(),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = if (connected) NeonGreen else stateRed,
-        )
-    }
     val protoMain = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
-    if (!protoMain.isNullOrBlank()) {
-        Spacer(Modifier.height(8.dp))
-        val viaAuto = selected == "auto" && protoMain != "auto"
-        val prefix = if (connected) "Подключён" else "Отключён"
-        Text(
-            if (viaAuto) "$prefix: ${protocolLabel(protoMain)}  •  авто" else "$prefix: ${protocolLabel(protoMain)}",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaestroOrange,
-        )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else stateRed))
+            Spacer(Modifier.width(9.dp))
+            Text(
+                statusText.uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (connected) NeonGreen else stateRed,
+            )
+        }
+        if (!protoMain.isNullOrBlank()) {
+            val viaAuto = selected == "auto" && protoMain != "auto"
+            val prefix = if (connected) "Подключён" else "Отключён"
+            Text(
+                if (viaAuto) "$prefix: ${protocolLabel(protoMain)}  •  авто" else "$prefix: ${protocolLabel(protoMain)}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaestroOrange,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+            )
+        }
     }
 }
 

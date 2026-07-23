@@ -1,0 +1,324 @@
+{
+  "version": 2,
+  "source_policy": "Only the three supplied images are used; no generated imagery.",
+  "canvas": {
+    "width": 1349,
+    "height": 1536
+  },
+  "fixed_background": {
+    "source": "01-1000047772.png",
+    "files": [
+      "background_fixed.png",
+      "background_fixed.webp"
+    ]
+  },
+  "eye_layer_crop": {
+    "offset_x_px": 230,
+    "offset_y_px": 745,
+    "width_px": 890,
+    "height_px": 635,
+    "offset_x_fraction": 0.17049666,
+    "offset_y_fraction": 0.48502604,
+    "width_fraction": 0.65974796,
+    "height_fraction": 0.41341146
+  },
+  "shared_mask": {
+    "ellipse_full_canvas_px": {
+      "left": 300,
+      "top": 810,
+      "right": 1049,
+      "bottom": 1310
+    },
+    "feather_radius_px": 18,
+    "files": [
+      "eye_shared_mask.png",
+      "eye_shared_mask.webp"
+    ]
+  },
+  "source_alignment": {
+    "open": {
+      "source": "01-1000047772.png",
+      "translate_x_px": 0,
+      "translate_y_px": 0,
+      "normalization": "none"
+    },
+    "squint": {
+      "source": "03-1000047774.png",
+      "translate_x_px": -8,
+      "translate_y_px": -15,
+      "normalization": "center-crop 1 px from each side"
+    },
+    "closed": {
+      "source": "02-1000047773.png",
+      "translate_x_px": -12,
+      "translate_y_px": -15,
+      "normalization": "none"
+    }
+  },
+  "state_layers": {
+    "open": {
+      "cropped_png": "eye_open_layer.png",
+      "cropped_webp": "eye_open_layer.webp",
+      "full_canvas_png": "eye_open_layer_full.png",
+      "full_canvas_webp": "eye_open_layer_full.webp",
+      "preview": "preview_open.png"
+    },
+    "squint": {
+      "cropped_png": "eye_squint_layer.png",
+      "cropped_webp": "eye_squint_layer.webp",
+      "full_canvas_png": "eye_squint_layer_full.png",
+      "full_canvas_webp": "eye_squint_layer_full.webp",
+      "preview": "preview_squint.png"
+    },
+    "closed": {
+      "cropped_png": "eye_closed_layer.png",
+      "cropped_webp": "eye_closed_layer.webp",
+      "full_canvas_png": "eye_closed_layer_full.png",
+      "full_canvas_webp": "eye_closed_layer_full.webp",
+      "preview": "preview_closed.png"
+    }
+  },
+  "compose_note": "Render background_fixed once with ContentScale.Fit. Place every cropped eye layer at the same normalized offset/size above it. Do not animate the background or recalculate offsets per state.",
+  "anatomy": {
+    "coordinate_space": "full source canvas, pixels",
+    "eye_aperture": {
+      "crop": {
+        "offset_x_px": 350,
+        "offset_y_px": 930,
+        "width_px": 660,
+        "height_px": 280
+      },
+      "upper_control_points": [
+        [
+          388,
+          1083
+        ],
+        [
+          405,
+          1061
+        ],
+        [
+          430,
+          1037
+        ],
+        [
+          460,
+          1014
+        ],
+        [
+          500,
+          993
+        ],
+        [
+          540,
+          978
+        ],
+        [
+          580,
+          968
+        ],
+        [
+          620,
+          961
+        ],
+        [
+          660,
+          957
+        ],
+        [
+          700,
+          957
+        ],
+        [
+          740,
+          962
+        ],
+        [
+          780,
+          973
+        ],
+        [
+          820,
+          990
+        ],
+        [
+          860,
+          1011
+        ],
+        [
+          900,
+          1036
+        ],
+        [
+          932,
+          1061
+        ],
+        [
+          957,
+          1083
+        ]
+      ],
+      "lower_control_points": [
+        [
+          388,
+          1083
+        ],
+        [
+          420,
+          1104
+        ],
+        [
+          460,
+          1123
+        ],
+        [
+          500,
+          1139
+        ],
+        [
+          540,
+          1152
+        ],
+        [
+          580,
+          1162
+        ],
+        [
+          620,
+          1170
+        ],
+        [
+          660,
+          1174
+        ],
+        [
+          700,
+          1172
+        ],
+        [
+          740,
+          1167
+        ],
+        [
+          780,
+          1159
+        ],
+        [
+          820,
+          1148
+        ],
+        [
+          860,
+          1133
+        ],
+        [
+          900,
+          1115
+        ],
+        [
+          932,
+          1098
+        ],
+        [
+          957,
+          1083
+        ]
+      ],
+      "mask": "eye_aperture_mask.png"
+    },
+    "iris": {
+      "center_x_px": 681.0,
+      "center_y_px": 1048.0,
+      "radius_px": 136.0,
+      "crop": {
+        "offset_x_px": 535,
+        "offset_y_px": 900,
+        "width_px": 292,
+        "height_px": 292
+      },
+      "center_in_crop_x_px": 146.0,
+      "center_in_crop_y_px": 148.0
+    },
+    "pupil": {
+      "source_center_x_px": 681.0,
+      "source_center_y_px": 1045.0,
+      "source_radius_px": 62.0,
+      "recommended_procedural_radius_px": {
+        "bright_scene_min": 43.0,
+        "neutral": 54.0,
+        "dark_scene_max": 66.0
+      },
+      "crop": {
+        "offset_x_px": 595,
+        "offset_y_px": 960,
+        "width_px": 172,
+        "height_px": 172
+      },
+      "center_in_crop_x_px": 86.0,
+      "center_in_crop_y_px": 85.0
+    },
+    "catchlight": {
+      "anchor_x_px": 680.0,
+      "anchor_y_px": 986.0,
+      "crop": {
+        "offset_x_px": 635,
+        "offset_y_px": 945,
+        "width_px": 90,
+        "height_px": 90
+      },
+      "anchor_in_crop_x_px": 45.0,
+      "anchor_in_crop_y_px": 41.0
+    },
+    "layers": {
+      "eyeball_visible_layer": {
+        "png": "eyeball_visible_layer.png",
+        "webp": "eyeball_visible_layer.webp",
+        "classification": "exact source extraction"
+      },
+      "eyeball_no_pupil_layer": {
+        "png": "eyeball_no_pupil_layer.png",
+        "webp": "eyeball_no_pupil_layer.webp",
+        "classification": "deterministic reconstruction from source pixels"
+      },
+      "sclera_base_inpainted_layer": {
+        "png": "sclera_base_inpainted_layer.png",
+        "webp": "sclera_base_inpainted_layer.webp",
+        "classification": "deterministic reconstruction from source pixels"
+      },
+      "iris_visible_layer": {
+        "png": "iris_visible_layer.png",
+        "webp": "iris_visible_layer.webp",
+        "classification": "exact source extraction"
+      },
+      "iris_visible_no_pupil_layer": {
+        "png": "iris_visible_no_pupil_layer.png",
+        "webp": "iris_visible_no_pupil_layer.webp",
+        "classification": "deterministic reconstruction from source pixels"
+      },
+      "iris_full_reconstructed_no_pupil_layer": {
+        "png": "iris_full_reconstructed_no_pupil_layer.png",
+        "webp": "iris_full_reconstructed_no_pupil_layer.webp",
+        "classification": "deterministic reconstruction from source pixels"
+      },
+      "pupil_source_layer": {
+        "png": "pupil_source_layer.png",
+        "webp": "pupil_source_layer.webp",
+        "classification": "exact source extraction"
+      },
+      "catchlight_layer": {
+        "png": "catchlight_layer.png",
+        "webp": "catchlight_layer.webp",
+        "classification": "exact source extraction"
+      }
+    },
+    "quality_and_safe_fallback": {
+      "exact_separation_possible": false,
+      "reason": "The supplied open state is a flattened JPEG: the iris is partly occluded by the upper lid and the sclera behind the iris does not exist in the file. Exact visible masks are clean, but a complete movable iris and hidden sclera necessarily require reconstruction.",
+      "safe_gaze_translation_px": {
+        "x": 7.0,
+        "y": 4.0
+      },
+      "recommended_runtime": "Use eyeball_no_pupil_layer as the exact-looking base, draw a procedural circular pupil at the recorded center, and keep the catchlight anchored to the cornea. For gaze, prefer a local shader warp limited to ±7 px horizontally and ±4 px vertically. Do not translate iris_visible_layer by itself because its upper edge is clipped by the source eyelid. Use the full reconstructed iris only behind the aperture mask and keep the same small range."
+    }
+  }
+}
