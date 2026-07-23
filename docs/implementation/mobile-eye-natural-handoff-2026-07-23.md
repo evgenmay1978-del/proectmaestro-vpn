@@ -107,3 +107,31 @@ Compile and package through the manually dispatched
 `.github/workflows/android-test.yml` on the test branch only. Do not merge to
 `main`, run `android.yml`, publish a release, change OTA or deploy to users
 without a separate explicit owner instruction.
+
+## Verified test build
+
+The natural-eye implementation was compiled successfully on the test branch:
+
+- branch: `codex/mobile-eye-revolver-preview`;
+- source commit: `5666224e3a96c9be399670532d23c85b31177a8c`;
+- workflow run: `#200`, ID `30032956940`;
+- run URL:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30032956940`;
+- artifact: `maestrovpn-tv-test-apk`, ID `8574127969`;
+- artifact ZIP SHA-256:
+  `1b4b49355046364a8726d34a13652025c87e12833130003b6038befe81a4a3b7`;
+- APK SHA-256:
+  `bd85b12f356a55f5b99b50cea9fc9d1607143e0b541ffc61d7eb310e9dcce151`;
+- signing certificate SHA-256:
+  `17:B9:58:45:8A:6C:52:D9:06:2B:33:36:25:50:3B:01:25:66:38:44:54:0A:C2:4E:0D:E4:86:25:92:D5:9F:F7`.
+
+All build and upload steps completed successfully. The APK ZIP integrity check
+passed and the package contains all six new runtime resources:
+`mobile_eye_open`, `mobile_eye_squint`, `mobile_eye_closed`,
+`mobile_eye_sclera`, `mobile_eye_iris` and `mobile_eye_catchlight`.
+
+Do not poll the public workflow HTML page to determine the result: it was
+several runs behind because of caching. Query the Actions API/connector first,
+then inspect the run jobs and artifact by ID. For a future build, prefer
+`workflow_dispatch` with ref `codex/mobile-eye-revolver-preview`; use a
+test-workflow marker commit only when dispatch is unavailable.
