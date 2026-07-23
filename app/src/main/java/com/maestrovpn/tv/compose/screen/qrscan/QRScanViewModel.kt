@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LifecycleOwner
 import io.nekohasekai.libbox.Libbox
+import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.qrs.QRSDecoder
 import com.maestrovpn.tv.qrs.readIntLE
 import com.maestrovpn.tv.vendor.Vendor
@@ -107,7 +108,11 @@ class QRScanViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun handleScanSuccess(rawValue: String) {
-        Log.d(TAG, "Scanned: ${rawValue.take(100)}...")
+        // SECURITY: never log the raw QR content — a MaestroVPN /sub/<token> URL would leak the
+        // subscription token into logcat (readable over ADB and bundled into the debug-info zip).
+        // Log only the de-identified shape (scheme + length) needed to debug a scan.
+        val scheme = runCatching { Uri.parse(rawValue).scheme }.getOrNull() ?: "raw"
+        Log.d(TAG, "Scanned QR: scheme=$scheme len=${rawValue.length}")
         val qrsPayload = extractQRSPayload(rawValue)
         Log.d(TAG, "extractQRSPayload result: ${qrsPayload?.size ?: "null"}")
         if (qrsPayload != null) {
@@ -380,14 +385,27 @@ class QRScanViewModel(application: Application) : AndroidViewModel(application) 
     private fun processQRCode(value: String): Boolean {
         try {
             val uri = Uri.parse(value)
-            if (uri.scheme != "sing-box" || uri.host != "import-remote-profile") {
-                _uiState.update { it.copy(errorMessage = "Not a valid sing-box remote profile URI") }
-                imageAnalysis?.setAnalyzer(analysisExecutor, imageAnalyzer!!)
-                return false
+            // 1) Standard sing-box remote-profile import link (bots / generic apps).
+            if (uri.scheme == "sing-box" && uri.host == "import-remote-profile") {
+                Libbox.parseRemoteProfileImportLink(uri.toString())
+                _uiState.update { it.copy(result = QRScanResult.RemoteProfile(uri)) }
+                return true
             }
-            Libbox.parseRemoteProfileImportLink(uri.toString())
-            _uiState.update { it.copy(result = QRScanResult.RemoteProfile(uri)) }
-            return true
+            // 2) MaestroVPN's OWN subscription QR (IosKaringDialog "Android" mode) is a plain
+            //    HTTPS /sub/<token> link. Accept it ONLY when the host is our trusted panel —
+            //    the SAME SSRF boundary as the silent auto-updater — so a hostile QR can't
+            //    register an attacker-controlled auto-updating profile. ScanQrActivateScreen
+            //    then feeds the URL to ClaimViewModel.importSubUrl (fetch + checkConfig + dedupe).
+            if (uri.scheme == "https" &&
+                UpdateProfileWork.isTrustedSubHost(uri.host) &&
+                uri.path?.contains("/sub/") == true
+            ) {
+                _uiState.update { it.copy(result = QRScanResult.RemoteProfile(uri)) }
+                return true
+            }
+            _uiState.update { it.copy(errorMessage = "Not a valid sing-box remote profile URI") }
+            imageAnalysis?.setAnalyzer(analysisExecutor, imageAnalyzer!!)
+            return false
         } catch (e: Exception) {
             if (showingError.compareAndSet(false, true)) {
                 _uiState.update { it.copy(errorMessage = e.message) }

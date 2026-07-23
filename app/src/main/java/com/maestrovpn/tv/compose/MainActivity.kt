@@ -794,7 +794,8 @@ class MainActivity :
         // a TV (rail branch) and a phone (Scaffold branch).
         val isCleanHome = currentRootRoute == Screen.TvHome.route ||
             currentRootRoute == "buy" || currentRootRoute == "claim" ||
-            currentRootRoute == "split"
+            currentRootRoute == "split" ||
+            currentRootRoute == "scanqr" || currentRootRoute == "trial"
         // Get LogViewModel instance if we're on the Log screen
         val logViewModel: LogViewModel? =
             if (isLogRoute) {
@@ -834,6 +835,11 @@ class MainActivity :
                 add("buy")
                 add("claim")
                 add("split")
+                // Self-contained activation flows reached from the home actions. Without
+                // these the launch redirect below bounced the user straight back to home
+                // the instant they opened "Сканировать QR" or "Попробовать бесплатно".
+                add("scanqr")
+                add("trial")
                 add(Screen.Log.route)
                 add(Screen.Settings.route)
                 if (useNavigationRail && showGroupsInNav) {

@@ -27,6 +27,15 @@ class UpdateProfileWork {
         // Trusted panel origin for the SILENT background auto-updater (SSRF guard).
         private const val TRUSTED_HOST = "wapmixx.ru"
 
+        /**
+         * SSRF trust boundary — is [host] the MaestroVPN subscription panel (or a subdomain)?
+         * SINGLE source of truth: both the silent auto-updater below AND the QR-scanner import
+         * whitelist (QRScanViewModel.processQRCode) gate on this, so a scanned or stored profile
+         * can only ever auto-fetch from our own panel — never an attacker-controlled origin.
+         */
+        fun isTrustedSubHost(host: String?): Boolean =
+            host != null && (host == TRUSTED_HOST || host.endsWith(".$TRUSTED_HOST"))
+
         suspend fun reconfigureUpdater() {
             runCatching {
                 reconfigureUpdater0()
@@ -69,7 +78,7 @@ class UpdateProfileWork {
                 var selectedUpdated = false
                 for (profile in remoteProfiles) {
                     val host = runCatching { java.net.URI(profile.typed.remoteURL).host }.getOrNull()
-                    if (host == null || !(host == TRUSTED_HOST || host.endsWith(".$TRUSTED_HOST"))) continue
+                    if (!isTrustedSubHost(host)) continue
                     val content = httpGetStringTimed(profile.typed.remoteURL, 6_000) ?: continue
                     try {
                         Libbox.checkConfig(content)
@@ -142,7 +151,7 @@ class UpdateProfileWork {
                 // (the explicit QR-import / buy path stays as-is). Never disturb the live tunnel
                 // by talking to an untrusted origin on a timer.
                 val host = runCatching { java.net.URI(profile.typed.remoteURL).host }.getOrNull()
-                if (host == null || !(host == TRUSTED_HOST || host.endsWith(".$TRUSTED_HOST"))) {
+                if (!isTrustedSubHost(host)) {
                     Log.w(TAG, "skip auto-update for untrusted origin host=$host profile=${profile.name}")
                     continue
                 }

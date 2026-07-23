@@ -109,6 +109,16 @@ object MaestroSub {
         )
     }
 
+    /**
+     * Strips the device/platform markers from a /sub URL so a following [withDevice] re-stamps
+     * the CURRENT device's identity. A shared "Поделиться подпиской" QR carries the SHARER's
+     * ?device=…; importing it verbatim would make every device that scans it inherit one id and
+     * silently bypass the account's server-side device cap (counted by distinct device id).
+     * Idempotent on URLs that carry neither marker. Preserves the /sub token and any fragment.
+     */
+    fun stripDeviceMetadata(subUrl: String): String =
+        removeQueryParameter(removeQueryParameter(subUrl, "device"), "platform")
+
     internal fun withDeviceMetadata(subUrl: String, deviceId: String, platform: String): String {
         var result = subUrl
         if (!hasQueryParameter(result, "device")) result = appendQueryParameter(result, "device", deviceId)
@@ -131,6 +141,21 @@ object MaestroSub {
             else -> "&"
         }
         return "$base$separator$name=$value$fragment"
+    }
+
+    /** Removes every `name=…` query parameter, preserving the path, the other params, and the
+     *  fragment. Drops the leading `?` when no parameters remain. */
+    private fun removeQueryParameter(url: String, name: String): String {
+        val fragmentIndex = url.indexOf('#')
+        val fragment = if (fragmentIndex >= 0) url.substring(fragmentIndex) else ""
+        val base = if (fragmentIndex >= 0) url.substring(0, fragmentIndex) else url
+        val queryIndex = base.indexOf('?')
+        if (queryIndex < 0) return url
+        val path = base.substring(0, queryIndex)
+        val kept = base.substring(queryIndex + 1)
+            .split('&')
+            .filter { it.isNotEmpty() && it.substringBefore('=') != name }
+        return if (kept.isEmpty()) "$path$fragment" else "$path?${kept.joinToString("&")}$fragment"
     }
 
     /** Adds a /sub endpoint suffix before the query (never into device/platform values). */

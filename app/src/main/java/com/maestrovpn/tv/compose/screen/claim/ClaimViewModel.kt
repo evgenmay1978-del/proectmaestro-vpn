@@ -65,7 +65,11 @@ class ClaimViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = ClaimState.Busy
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                createRemoteProfile(MaestroSub.withDevice(getApplication<Application>(), subUrl.trim()))
+                // A shared /sub QR carries the SHARER's ?device=/?platform=; strip them so
+                // withDevice re-stamps THIS device — otherwise the scanning device inherits the
+                // sharer's id and the account's device cap is silently bypassed.
+                val cleaned = MaestroSub.stripDeviceMetadata(subUrl.trim())
+                createRemoteProfile(MaestroSub.withDevice(getApplication<Application>(), cleaned))
                 _state.value = ClaimState.Done
             } catch (e: Exception) {
                 _state.value = ClaimState.Error(e.message ?: "ошибка")
