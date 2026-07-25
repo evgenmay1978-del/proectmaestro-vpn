@@ -164,10 +164,9 @@ jobs:
       # assembleOtherDebug, so they were dead weight. Run them AFTER the APK upload so a test
       # failure can never cost us the artifact we came here for.
       #
-      # continue-on-error while we find out whether they pass on a machine that has the SDK
-      # (they may never have been executed anywhere). Flip it to gating once a run shows green.
-      - name: Unit tests (informational for now)
-        continue-on-error: true
+      # Gating: run 30167294888 (2026-07-25) was the first time these ever executed anywhere and
+      # all of them passed, so a failure from here on is a real regression, not unknown ground.
+      - name: Unit tests
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: ./gradlew :app:testOtherDebugUnitTest --stacktrace --no-daemon
