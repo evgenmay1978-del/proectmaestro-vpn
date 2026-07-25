@@ -111,7 +111,11 @@ jobs:
             [ -n "$RUN_ID" ] || { echo "::error::timed out waiting for same-commit libbox build" >&2; exit 1; }
           fi
           if [ -z "$RUN_ID" ]; then
-            RUN_ID=$(gh run list --workflow=libbox.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
+            # -b main: without it this takes the newest successful run from ANY branch, so a
+            # libbox build on an experimental branch would become the engine the whole fleet
+            # gets on the next release. This workflow only ever runs on main, so the fallback
+            # must come from main too.
+            RUN_ID=$(gh run list --workflow=libbox.yml --status=success -b main -L1 --json databaseId -q '.[0].databaseId // empty')
           fi
           [ -n "$RUN_ID" ] || { echo "::error::No successful libbox build found — run libbox.yml first." >&2; exit 1; }
           echo "Downloading $ART from run $RUN_ID (commit $SHA)"
@@ -129,9 +133,14 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -L1 --json databaseId -q '.[0].databaseId // empty')
+          # -b main, same reason as the libbox fetch above: unrestricted, this picks the newest
+          # successful run from ANY branch. It nearly bit us — on 2026-07-16 the newest olcrtc
+          # build was main's, but the one right before it (2026-07-15) was from
+          # feat/mobile-vk-turn-wdtt, and had the order been reversed the fleet would have
+          # shipped a feature-branch binary with nothing flagging it.
+          RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -b main -L1 --json databaseId -q '.[0].databaseId // empty')
           if [ -z "$RUN_ID" ]; then
-            echo "::warning::No successful olcrtc-bin.yml run — shipping WITHOUT the olcRTC binary (wapmix-only fallback inert)." >&2
+            echo "::warning::No successful olcrtc-bin.yml run on main — shipping WITHOUT the olcRTC binary (wapmix-only fallback inert)." >&2
             exit 0
           fi
           echo "Downloading olcrtc-bin from run $RUN_ID"
