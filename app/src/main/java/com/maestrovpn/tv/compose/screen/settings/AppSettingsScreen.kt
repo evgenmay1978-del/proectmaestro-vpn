@@ -365,20 +365,27 @@ fun AppSettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showDisableNotificationDialog = false
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startActivity(
-                            Intent(AndroidSettings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
-                                putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
-                                putExtra(AndroidSettings.EXTRA_CHANNEL_ID, "service")
-                            },
-                        )
-                    } else {
-                        context.startActivity(
-                            Intent(
-                                AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.parse("package:${context.packageName}"),
-                            ),
-                        )
+                    // Экран настроек канала уведомлений есть не на каждой прошивке ТВ-приставки —
+                    // на урезанной AOSP-сборке startActivity бросает ActivityNotFoundException
+                    // прямо из обработчика кнопки диалога и роняет приложение.
+                    runCatching {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startActivity(
+                                Intent(AndroidSettings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                                    putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
+                                    putExtra(AndroidSettings.EXTRA_CHANNEL_ID, "service")
+                                },
+                            )
+                        } else {
+                            context.startActivity(
+                                Intent(
+                                    AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:${context.packageName}"),
+                                ),
+                            )
+                        }
+                    }.onFailure {
+                        Toast.makeText(context, "Настройки уведомлений недоступны на этом устройстве", Toast.LENGTH_LONG).show()
                     }
                 }) {
                     Text(stringResource(R.string.ok))
@@ -1207,26 +1214,34 @@ fun AppSettingsScreen(
                         )
                         .clickable(enabled = !isChecking) {
                             scope.launch {
+                                // try/finally: scope здесь — rememberCoroutineScope(), то есть он
+                                // умирает вместе с экраном. Уход с экрана во время сетевой проверки
+                                // отменял корутину ДО сброса флага, а UpdateState глобальный —
+                                // строка «Проверить обновления» оставалась навсегда заблокированной
+                                // (clickable(enabled = !isChecking)) до перезапуска приложения.
                                 UpdateState.isChecking.value = true
-                                withContext(Dispatchers.IO) {
-                                    try {
-                                        val result = Vendor.checkUpdateAsync()
-                                        UpdateState.setUpdate(result)
-                                        if (result == null) {
-                                            showErrorDialog = context.getString(R.string.no_updates_available)
-                                        } else {
-                                            showUpdateAvailableDialog = true
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        try {
+                                            val result = Vendor.checkUpdateAsync()
+                                            UpdateState.setUpdate(result)
+                                            if (result == null) {
+                                                showErrorDialog = context.getString(R.string.no_updates_available)
+                                            } else {
+                                                showUpdateAvailableDialog = true
+                                            }
+                                        } catch (_: UpdateCheckException.TrackNotSupported) {
+                                            UpdateState.setUpdate(null)
+                                            showErrorDialog = context.getString(R.string.update_track_not_supported)
+                                        } catch (e: Exception) {
+                                            Log.e("AppSettingsScreen", "checkUpdateAsync failed", e)
+                                            UpdateState.setUpdate(null)
+                                            showErrorDialog = e.message
                                         }
-                                    } catch (_: UpdateCheckException.TrackNotSupported) {
-                                        UpdateState.setUpdate(null)
-                                        showErrorDialog = context.getString(R.string.update_track_not_supported)
-                                    } catch (e: Exception) {
-                                        Log.e("AppSettingsScreen", "checkUpdateAsync failed", e)
-                                        UpdateState.setUpdate(null)
-                                        showErrorDialog = e.message
                                     }
+                                } finally {
+                                    UpdateState.isChecking.value = false
                                 }
-                                UpdateState.isChecking.value = false
                             }
                         },
                     colors =

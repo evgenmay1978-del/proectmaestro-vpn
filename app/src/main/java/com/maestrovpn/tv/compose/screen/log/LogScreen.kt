@@ -734,7 +734,12 @@ fun LogScreen(
                                     "yyyyMMdd_HHmmss",
                                     Locale.getDefault(),
                                 ).format(Date())
-                            saveFileLauncher.launch("${saveFilePrefix}_$timestamp.txt")
+                            // ТВ-бокс может не иметь DocumentsUI: launch() бросает
+                            // ActivityNotFoundException прямо из обработчика клика.
+                            runCatching { saveFileLauncher.launch("${saveFilePrefix}_$timestamp.txt") }
+                                .onFailure {
+                                    Toast.makeText(context, "Сохранение недоступно: на устройстве нет файлового менеджера", Toast.LENGTH_LONG).show()
+                                }
                             resolvedViewModel.toggleOptionsMenu()
                             expandedSave = false
                         },

@@ -128,9 +128,17 @@ class LogViewModel :
         viewModelScope.launch(Dispatchers.Main) {
             if (_uiState.value.isPaused) {
                 bufferedLogs.addAll(processedLogs)
+                // Буфер паузы не был ограничен ничем: на подробном логе туннеля он рос без предела,
+                // пока экран стоит на паузе. Держим не больше maxLines — показать всё равно можно
+                // только столько, а неограниченный рост ещё и ел память.
+                while (bufferedLogs.size > maxLines) {
+                    bufferedLogs.removeFirst()
+                }
             } else {
                 val totalSize = allLogs.size + processedLogs.size
-                val removeCount = (totalSize - maxLines).coerceAtLeast(0)
+                // Тот же предохранитель, что и в togglePause: одна пачка логов теоретически может
+                // оказаться больше maxLines, и тогда счётчик превысил бы размер allLogs.
+                val removeCount = (totalSize - maxLines).coerceAtLeast(0).coerceAtMost(allLogs.size)
 
                 if (removeCount > 0) {
                     repeat(removeCount) {
@@ -152,7 +160,11 @@ class LogViewModel :
         val currentState = _uiState.value
         if (currentState.isPaused && bufferedLogs.isNotEmpty()) {
             val totalSize = allLogs.size + bufferedLogs.size
-            val removeCount = (totalSize - maxLines).coerceAtLeast(0)
+            // coerceAtMost(allLogs.size) — обязателен: removeCount считается от СУММЫ обоих
+            // списков, а удаляется только из allLogs. Если за паузу набралось больше maxLines
+            // строк, счётчик превышал размер allLogs и removeFirst() падал с
+            // NoSuchElementException в главном потоке — то есть снятие паузы роняло приложение.
+            val removeCount = (totalSize - maxLines).coerceAtLeast(0).coerceAtMost(allLogs.size)
 
             if (removeCount > 0) {
                 repeat(removeCount) {

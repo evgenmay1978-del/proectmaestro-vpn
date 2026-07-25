@@ -1,6 +1,7 @@
 package com.maestrovpn.tv.compose.screen.configuration
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -405,7 +406,13 @@ fun NewProfileScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 OutlinedCard(
-                                    onClick = { filePickerLauncher.launch("*/*") },
+                                    // На ТВ-приставке без документ-пикера launch() бросает
+                                    // ActivityNotFoundException и роняет экран.
+                                    onClick = {
+                                        runCatching { filePickerLauncher.launch("*/*") }.onFailure {
+                                            Toast.makeText(context, "Выбор файла недоступен: на устройстве нет файлового менеджера", Toast.LENGTH_LONG).show()
+                                        }
+                                    },
                                     modifier = Modifier.fillMaxWidth(),
                                     border =
                                     BorderStroke(
