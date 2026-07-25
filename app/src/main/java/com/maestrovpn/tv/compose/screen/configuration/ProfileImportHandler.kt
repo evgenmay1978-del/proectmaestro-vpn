@@ -16,6 +16,14 @@ import java.io.File
 import java.util.Date
 
 class ProfileImportHandler(private val context: Context) {
+    private companion object {
+        // Потолок на импортируемый файл. Конфиг sing-box — десятки килобайт; 8 МБ с запасом,
+        // но не даёт «Открыть с помощью» на произвольном большом файле съесть всю память.
+        // Читаем циклом, а не readBytes()/readNBytes(): первый не ограничен, второй требует
+        // API 33, а minSdk здесь 23.
+        const val MAX_IMPORT_BYTES = 8 * 1024 * 1024
+    }
+
     sealed class ImportResult {
         data class Success(val profile: Profile) : ImportResult()
 
@@ -80,9 +88,29 @@ class ProfileImportHandler(private val context: Context) {
 
     suspend fun parseUri(uri: Uri): UriParseResult = withContext(Dispatchers.IO) {
         try {
+            // Читаем с ПОТОЛКОМ, а не целиком. Приложение объявлено обработчиком ACTION_VIEW для
+            // text/* и application/octet-stream с высоким приоритетом, то есть «Открыть с помощью»
+            // может принести файл любого размера. readBytes() на нём давал OutOfMemoryError, а он
+            // Error, а не Exception — внешний catch его НЕ ловил, и падал весь процесс.
+            // Конфиг sing-box — десятки килобайт, MAX_IMPORT_BYTES с огромным запасом.
             val data =
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: return@withContext UriParseResult.Error(context.getString(R.string.error_empty_file))
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val chunk = ByteArray(64 * 1024)
+                    var total = 0
+                    while (true) {
+                        val n = stream.read(chunk)
+                        if (n < 0) break
+                        total += n
+                        if (total > MAX_IMPORT_BYTES) {
+                            return@withContext UriParseResult.Error(
+                                context.getString(R.string.error_invalid_configuration, "file too large"),
+                            )
+                        }
+                        out.write(chunk, 0, n)
+                    }
+                    out.toByteArray()
+                } ?: return@withContext UriParseResult.Error(context.getString(R.string.error_empty_file))
 
             val filename = getFileNameFromUri(uri)
             val dataString = String(data)

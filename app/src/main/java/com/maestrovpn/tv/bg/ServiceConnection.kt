@@ -34,7 +34,27 @@ class ServiceConnection(private val context: Context, callback: Callback, privat
         Log.d(TAG, "request connect")
     }
 
+    /**
+     * Снять колбэк перед отвязкой.
+     *
+     * Раньше это делалось ТОЛЬКО в onServiceDisconnected — а Android вызывает его лишь когда
+     * сервис умирает, но НЕ при обычном unbindService. Колбэк у каждого экземпляра свой
+     * (см. поле callback выше), сервис живёт сутками, и в RemoteCallbackList внутри
+     * ServiceBinder накапливался по одному мёртвому колбэку на каждое пересоздание Activity
+     * и каждое открытие шторки с плиткой. Список рос без предела: лишняя работа на каждом
+     * изменении статуса плюс удержание ссылок на уже уничтоженные экраны.
+     */
+    private fun unregisterQuietly() {
+        try {
+            if (register) service?.unregisterCallback(callback)
+        } catch (e: RemoteException) {
+            Log.e(TAG, "unregister callback", e)
+        }
+        service = null
+    }
+
     fun disconnect() {
+        unregisterQuietly()
         try {
             context.unbindService(this)
         } catch (_: IllegalArgumentException) {
@@ -43,6 +63,7 @@ class ServiceConnection(private val context: Context, callback: Callback, privat
     }
 
     fun reconnect() {
+        unregisterQuietly()
         try {
             context.unbindService(this)
         } catch (_: IllegalArgumentException) {

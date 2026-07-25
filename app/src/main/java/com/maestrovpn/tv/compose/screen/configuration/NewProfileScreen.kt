@@ -97,12 +97,22 @@ fun NewProfileScreen(
             contract = ActivityResultContracts.GetContent(),
         ) { uri: Uri? ->
             uri?.let {
-                val fileName =
+                // Имя файла — украшение, а не необходимость, поэтому ни одна проблема с ним не
+                // должна ронять экран. Раньше здесь было три способа упасть прямо в колбэке на
+                // главном потоке: getColumnIndexOrThrow бросает, если провайдер не отдаёт
+                // _display_name (а многие file:// и урезанные провайдеры не отдают); результат
+                // moveToFirst() игнорировался, так что на пустом курсоре getString падал с
+                // CursorIndexOutOfBounds; и сам query может бросить у стороннего провайдера.
+                val fileName = runCatching {
                     context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
-                        val nameIndex = cursor.getColumnIndexOrThrow("_display_name")
-                        cursor.moveToFirst()
-                        cursor.getString(nameIndex)
+                        val nameIndex = cursor.getColumnIndex("_display_name")
+                        if (nameIndex >= 0 && cursor.moveToFirst()) {
+                            cursor.getString(nameIndex)
+                        } else {
+                            null
+                        }
                     }
+                }.getOrNull()
                 viewModel.setImportUri(it, fileName)
             }
         }

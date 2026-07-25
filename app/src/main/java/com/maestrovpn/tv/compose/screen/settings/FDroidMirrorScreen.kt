@@ -183,7 +183,11 @@ fun FDroidMirrorScreen(navController: NavController) {
             urlError = invalidUrlMessage
             return
         }
-        val name = newMirrorName.trim().ifEmpty { url }
+        // Имя и адрес склеиваются через '|' и разбираются split("|", limit = 2). Символ '|' в
+        // имени уезжал во вторую часть и ЛОМАЛ сохранённый адрес зеркала (имя «A|B» + адрес
+        // «https://x» читались обратно как имя «A» и адрес «B|https://x»). Убираем разделитель
+        // из имени — адрес важнее, чем возможность назвать зеркало с палкой.
+        val name = newMirrorName.trim().replace("|", " ").trim().ifEmpty { url }
         val encoded = "$name|$url"
         val newSet = customMirrors.toMutableSet()
         newSet.add(encoded)
