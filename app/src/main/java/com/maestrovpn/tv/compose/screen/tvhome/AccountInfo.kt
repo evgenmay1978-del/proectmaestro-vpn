@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
 import com.maestrovpn.tv.bg.OlcrtcManager
+import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.utils.MaestroSub
@@ -46,8 +47,18 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                 // the panel is unreachable below — so a transient timeout never makes a payer "look
                 // keyless" (drives the Trial-CTA gating in TvHomeScreen).
                 val hasSubProfile = ProfileManager.list().any { it.typed.remoteURL.contains("/sub/") }
+                // Fetch /info from a TRUSTED origin only. This response is not just displayed —
+                // it sets the olcRTC room/key and the WDTT peer/password below, and the request
+                // carries this install's device id. Selecting the profile by "contains /sub/"
+                // alone let any imported profile (a sing-box:// deep link only asks for a
+                // confirmation) become the source of both. Same boundary as the silent updater.
+                // hasSubProfile stays permissive on purpose: it only gates the Trial CTA, and a
+                // payer must never look keyless because of it.
                 val profile = ProfileManager.list()
-                    .firstOrNull { it.typed.remoteURL.contains("/sub/") }
+                    .firstOrNull {
+                        it.typed.remoteURL.contains("/sub/") &&
+                            UpdateProfileWork.isTrustedSubUrl(it.typed.remoteURL)
+                    }
                     ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                 val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
                 val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)

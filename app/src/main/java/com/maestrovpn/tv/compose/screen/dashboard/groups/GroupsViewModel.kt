@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.viewModelScope
 import io.nekohasekai.libbox.OutboundGroup
 import com.maestrovpn.tv.bg.OlcrtcManager
+import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
@@ -517,7 +518,15 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
 
     private suspend fun refreshWdttCreds() {
         runCatching {
-            val profile = ProfileManager.list().firstOrNull { it.typed.remoteURL.contains("/sub/") } ?: return
+            // Trusted origin only. The response of this /info call becomes the WDTT child's peer
+            // address, password and client ids — so an untrusted origin here would point the
+            // tunnel at an attacker's server. Picking a profile by "contains /sub/" alone was
+            // enough: any imported profile (sing-box:// deep link asks only for a confirmation)
+            // whose URL contains that substring could win the firstOrNull. Same boundary the
+            // silent updater uses. No trusted profile → keep the cached creds.
+            val profile = ProfileManager.list().firstOrNull {
+                it.typed.remoteURL.contains("/sub/") && UpdateProfileWork.isTrustedSubUrl(it.typed.remoteURL)
+            } ?: return
             val json = httpGetStringTimed(MaestroSub.endpoint(profile.typed.remoteURL, "info"), 6_000) ?: return
             val wdtt = JSONObject(json).optJSONObject("vk_turn") ?: return
             WdttManager.setCreds(
@@ -579,7 +588,10 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      */
     private suspend fun refreshOlcCreds() {
         runCatching {
-            val profile = ProfileManager.list().firstOrNull { it.typed.remoteURL.contains("/sub/") } ?: return
+            // Trusted origin only — see refreshWdttCreds; this one sets the olcRTC room and key.
+            val profile = ProfileManager.list().firstOrNull {
+                it.typed.remoteURL.contains("/sub/") && UpdateProfileWork.isTrustedSubUrl(it.typed.remoteURL)
+            } ?: return
             val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
             val json = httpGetStringTimed(url, 6_000) ?: return // short timeout; keep cached creds on failure
             val olc = JSONObject(json).optJSONObject("olcrtc")
