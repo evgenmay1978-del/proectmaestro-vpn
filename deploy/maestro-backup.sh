@@ -23,8 +23,21 @@ HOST=$(hostname)
 tar="$WORK/maestro-cp-$TS.tar.gz"
 
 # 1) Collect control-plane state (skip a missing file rather than fail the whole run).
+#
+# Keep this list in step with cmd/maestro-panel/main.go: every /var/lib/maestro file the panel
+# OPENS as state belongs here. It drifted once already — trials.json, panel-pw.hash, wb.token
+# and olcrtc.json were added to the panel long after this script was written and were silently
+# missing from every backup, so an S1 rebuild would have restored customers but:
+#   trials.json    — the free-trial anti-abuse ledger; losing it lets every device claim a
+#                    fresh trial (straight revenue loss), and it cannot be reconstructed
+#   panel-pw.hash  — bcrypt hash guarding the web admin panel
+#   wb.token       — wbstream account token for the olcRTC carrier
+#   olcrtc.json    — olcRTC carrier room/key
+# olcrtc-health.json is deliberately NOT here: the exit-liveness probe rewrites it by itself.
 files=()
 for f in /var/lib/maestro/customers.json /var/lib/maestro/orders.json \
+         /var/lib/maestro/trials.json /var/lib/maestro/panel-pw.hash \
+         /var/lib/maestro/wb.token /var/lib/maestro/olcrtc.json \
          /etc/maestro-panel.env /etc/x-ui/x-ui.db; do
   [ -f "$f" ] && files+=("$f")
 done
