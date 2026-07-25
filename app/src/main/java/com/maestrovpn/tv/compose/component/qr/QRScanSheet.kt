@@ -2,6 +2,7 @@ package com.maestrovpn.tv.compose.component.qr
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
@@ -89,6 +90,16 @@ fun QRScanSheet(onDismiss: () -> Unit, onScanResult: (QRScanResult) -> Unit, vie
         if (isGranted) {
             hasPermission = true
         } else {
+            // Denying the camera used to close the sheet with no explanation at all — and on a
+            // second (permanent) denial the system dialog never appears, so tapping «Сканировать»
+            // just made the screen blink shut with no way to guess why. Say what happened and
+            // where to fix it before closing.
+            Toast.makeText(
+                context,
+                "Нет доступа к камере. Разрешите его в настройках телефона: " +
+                    "Приложения → MaestroVPN → Разрешения → Камера",
+                Toast.LENGTH_LONG,
+            ).show()
             onDismiss()
         }
     }

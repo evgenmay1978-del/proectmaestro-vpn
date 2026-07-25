@@ -99,6 +99,12 @@ android {
             // debuggable=true: that flag lets anyone with adb `run-as` the app and read its private
             // data — profiles.db (sub tokens = full subscription access) and configs/*.json (server
             // creds) — with no root. Verified present in shipped 1.0.149 via `aapt dump badging`.
+            //
+            // SIDE EFFECT, by design: a non-debuggable variant counts as a "release target", so
+            // AGP now also runs lintVitalOtherDebug on every build and release. It immediately
+            // caught a long-standing invalid <exclude> in backup_rules.xml that had never been
+            // checked. Keep it — it is the only automated gate this pipeline has — but expect a
+            // release to fail if lint finds a new FATAL issue; fix the issue, don't silence it.
             isDebuggable = false
             if (getProps("KEYSTORE_PASS").isNotEmpty()) {
                 signingConfig = signingConfigs.getByName("release")

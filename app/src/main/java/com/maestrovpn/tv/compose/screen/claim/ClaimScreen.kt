@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +62,9 @@ fun ClaimScreen(
     viewModel: ClaimViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    var code by remember { mutableStateOf("") }
+    // rememberSaveable: the Activity is recreated on rotation (no configChanges/orientation
+    // lock in the manifest), and plain remember dropped the code the user had typed.
+    var code by rememberSaveable { mutableStateOf("") }
     val busy = state is ClaimState.Busy
     val isTv = rememberIsTv()
     val codeFocus = remember { FocusRequester() }

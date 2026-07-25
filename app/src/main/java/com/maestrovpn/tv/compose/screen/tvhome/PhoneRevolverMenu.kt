@@ -65,6 +65,7 @@ import com.maestrovpn.tv.compose.component.NeonChip
 import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.NeonGreen
+import com.maestrovpn.tv.utils.ConnectivityCheck
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -142,18 +143,7 @@ internal fun PhoneRevolverMenu(
     }
     val onCheckConnection: () -> Unit = {
         scope.launch(Dispatchers.IO) {
-            val ok = runCatching {
-                (java.net.URL("https://www.google.com/generate_204").openConnection()
-                    as java.net.HttpURLConnection).run {
-                    connectTimeout = 5_000
-                    readTimeout = 5_000
-                    try {
-                        responseCode in 200..399
-                    } finally {
-                        disconnect()
-                    }
-                }
-            }.getOrDefault(false)
+            val ok = ConnectivityCheck.isOnline()
             withContext(Dispatchers.Main) {
                 Toast.makeText(
                     context,

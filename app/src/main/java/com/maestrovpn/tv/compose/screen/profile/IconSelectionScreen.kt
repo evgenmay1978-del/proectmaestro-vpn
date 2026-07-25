@@ -54,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +76,7 @@ import com.maestrovpn.tv.compose.util.icons.MaterialIconsLibrary
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IconSelectionScreen(currentIconId: String?, onIconSelected: (String?) -> Unit, onNavigateBack: () -> Unit) {
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var viewMode by remember { mutableStateOf(IconViewMode.CATEGORIES) }
     var isSearchActive by remember { mutableStateOf(false) }

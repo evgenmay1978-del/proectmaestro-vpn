@@ -8,13 +8,14 @@
         domain="file"
         path="configs" />
     <!--
-        Deliberately do NOT back up profiles.db: it holds the per-install device-id (in
-        remoteURL) and the remote_servers secret. Cloud-restoring it onto another device would
-        leak/clone those credentials. The exclude is explicit (belt-and-suspenders) on top of
-        simply not including it.
+        profiles.db is deliberately ABSENT from the include list above: it holds the per-install
+        device-id (in remoteURL) and the remote_servers secret, and cloud-restoring it onto
+        another device would leak/clone those credentials and defeat the server-side device cap.
+
+        Do NOT "reinforce" that with an explicit <exclude path="profiles.db">. Once any <include>
+        is present everything unlisted is already excluded, so the exclude is not belt-and-
+        suspenders — it is a lint error (FullBackupContent: "profiles.db is not in an included
+        path") that fails lintVital on any release-target build. Omission IS the exclusion.
     -->
-    <exclude
-        domain="database"
-        path="profiles.db" />
 
 </full-backup-content>

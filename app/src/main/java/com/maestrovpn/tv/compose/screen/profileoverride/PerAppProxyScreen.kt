@@ -74,6 +74,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,8 +143,11 @@ fun PerAppProxyScreen(
     var selectedUids by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    var isSearchActive by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    // Saveable: rotation recreates the Activity, and losing the typed filter mid-search on a list
+    // of hundreds of apps is the worst place to lose it. The reload LaunchedEffect re-applies
+    // searchQuery via updateCurrentPackages, so a restored query shows the right list.
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     var scanProgress by remember { mutableStateOf<ScanProgress?>(null) }
     var scanResult by remember { mutableStateOf<ScanResult?>(null) }

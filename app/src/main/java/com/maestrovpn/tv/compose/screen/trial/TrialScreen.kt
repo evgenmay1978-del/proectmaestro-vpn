@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +56,8 @@ fun TrialScreen(
     viewModel: TrialViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    var nick by remember { mutableStateOf("") }
+    // rememberSaveable: survives the rotation-triggered Activity recreation (see ClaimScreen).
+    var nick by rememberSaveable { mutableStateOf("") }
     val busy = state is TrialState.Busy
     val isTv = rememberIsTv()
     val nickFocus = remember { FocusRequester() }

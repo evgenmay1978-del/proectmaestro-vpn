@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
+import com.maestrovpn.tv.utils.ConnectivityCheck
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -117,13 +118,7 @@ internal fun TvEskizHome(
     }
     val checkConnection: () -> Unit = {
         scope.launch(Dispatchers.IO) {
-            val ok = runCatching {
-                (java.net.URL("https://www.google.com/generate_204").openConnection() as java.net.HttpURLConnection).run {
-                    connectTimeout = 5000
-                    readTimeout = 5000
-                    try { responseCode in 200..399 } finally { disconnect() }
-                }
-            }.getOrDefault(false)
+            val ok = ConnectivityCheck.isOnline()
             withContext(Dispatchers.Main) {
                 Toast.makeText(context, if (ok) "Соединение работает" else "Нет соединения", Toast.LENGTH_SHORT).show()
             }

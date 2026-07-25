@@ -5,6 +5,10 @@
     whole fleet. profiles.db holds the per-install device-id (in remoteURL) and the
     remote_servers secret: restoring it onto another device — via cloud OR direct transfer —
     clones those credentials and silently defeats the server-side device cap.
+
+    It is excluded by OMISSION from the include lists below. Adding an explicit
+    <exclude path="profiles.db"> looks safer but is a lint error (FullBackupContent) that fails
+    lintVital — with <include> present, anything unlisted is already excluded.
 -->
 <data-extraction-rules>
     <cloud-backup>
@@ -14,9 +18,6 @@
         <include
             domain="file"
             path="configs" />
-        <exclude
-            domain="database"
-            path="profiles.db" />
     </cloud-backup>
     <device-transfer>
         <include
@@ -25,8 +26,5 @@
         <include
             domain="file"
             path="configs" />
-        <exclude
-            domain="database"
-            path="profiles.db" />
     </device-transfer>
 </data-extraction-rules>

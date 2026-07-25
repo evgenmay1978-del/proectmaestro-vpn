@@ -159,6 +159,27 @@ jobs:
           path: app/build/outputs/apk/other/debug/*.apk
           if-no-files-found: error
 
+      # The repo has unit tests (MaestroSubTest, WdttManagerTest, WdttVpnPolicyTest,
+      # ProtocolLabelTest) that no workflow has ever executed — this job only ever ran
+      # assembleOtherDebug, so they were dead weight. Run them AFTER the APK upload so a test
+      # failure can never cost us the artifact we came here for.
+      #
+      # continue-on-error while we find out whether they pass on a machine that has the SDK
+      # (they may never have been executed anywhere). Flip it to gating once a run shows green.
+      - name: Unit tests (informational for now)
+        continue-on-error: true
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: ./gradlew :app:testOtherDebugUnitTest --stacktrace --no-daemon
+
+      - name: Upload unit-test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testOtherDebugUnitTest/
+          if-no-files-found: ignore
+
 # (ci trigger: brand-icon — новая VM-иконка (launcher/round/adaptive/tv-banner/трей/шторка) 2026-07-08)
 # (ci trigger: brand+tv v2 — ТВ Dark-Fantasy без анимаций: wood-kit, StaticTvMedallion(VM), Particles/breath/gait/wave заморожены 2026-07-08)
 # (ci trigger: brand v3 — релизный скоуп owner: телефон=иконки+без засвета, ТВ=старый вид статично, баннер полный 3 плотности 2026-07-08)
