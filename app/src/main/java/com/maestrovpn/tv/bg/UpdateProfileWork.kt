@@ -36,6 +36,23 @@ class UpdateProfileWork {
         fun isTrustedSubHost(host: String?): Boolean =
             host != null && (host == TRUSTED_HOST || host.endsWith(".$TRUSTED_HOST"))
 
+        /**
+         * Full trust check for a URL the SILENT updater will poll: trusted host AND https.
+         *
+         * The host alone is not enough. `http://wapmixx.ru/sub/<token>` passes [isTrustedSubHost],
+         * and the fetch runs through libbox's Go HTTP client — which does NOT honour Android's
+         * cleartext-traffic policy the way the Java stack does — so the subscription token would go
+         * out in the clear every ~15 min and a network attacker could swap the config wholesale
+         * (checkConfig validates syntax, never origin). Such a URL is reachable today: manual
+         * profile creation accepts an http:// source.
+         */
+        fun isTrustedSubUrl(url: String?): Boolean {
+            if (url == null) return false
+            val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return false
+            if (!uri.scheme.equals("https", ignoreCase = true)) return false
+            return isTrustedSubHost(uri.host)
+        }
+
         suspend fun reconfigureUpdater() {
             runCatching {
                 reconfigureUpdater0()
@@ -77,8 +94,7 @@ class UpdateProfileWork {
                 val selectedProfile = Settings.selectedProfile
                 var selectedUpdated = false
                 for (profile in remoteProfiles) {
-                    val host = runCatching { java.net.URI(profile.typed.remoteURL).host }.getOrNull()
-                    if (!isTrustedSubHost(host)) continue
+                    if (!isTrustedSubUrl(profile.typed.remoteURL)) continue
                     val content = httpGetStringTimed(profile.typed.remoteURL, 6_000) ?: continue
                     try {
                         Libbox.checkConfig(content)
@@ -147,11 +163,12 @@ class UpdateProfileWork {
                     continue
                 }
                 // SSRF guard: the SILENT background updater only fetches from our trusted
-                // panel host. A profile whose remoteURL points anywhere else is skipped here
-                // (the explicit QR-import / buy path stays as-is). Never disturb the live tunnel
-                // by talking to an untrusted origin on a timer.
-                val host = runCatching { java.net.URI(profile.typed.remoteURL).host }.getOrNull()
-                if (!isTrustedSubHost(host)) {
+                // panel host over https. A profile whose remoteURL points anywhere else — or
+                // reaches us in cleartext — is skipped here (the explicit QR-import / buy path
+                // stays as-is). Never disturb the live tunnel by talking to an untrusted origin
+                // on a timer.
+                if (!isTrustedSubUrl(profile.typed.remoteURL)) {
+                    val host = runCatching { java.net.URI(profile.typed.remoteURL).host }.getOrNull()
                     Log.w(TAG, "skip auto-update for untrusted origin host=$host profile=${profile.name}")
                     continue
                 }

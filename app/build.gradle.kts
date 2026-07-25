@@ -94,6 +94,12 @@ android {
 
     buildTypes {
         debug {
+            // The FLEET ships this build type (CI runs :app:assembleOtherDebug and publishes the
+            // result as the OTA release), so it must not carry AGP's debug default of
+            // debuggable=true: that flag lets anyone with adb `run-as` the app and read its private
+            // data — profiles.db (sub tokens = full subscription access) and configs/*.json (server
+            // creds) — with no root. Verified present in shipped 1.0.149 via `aapt dump badging`.
+            isDebuggable = false
             if (getProps("KEYSTORE_PASS").isNotEmpty()) {
                 signingConfig = signingConfigs.getByName("release")
             }

@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -304,6 +305,23 @@ fun PerAppProxyScreen(
         applyFilter()
         updateCurrentPackages(searchQuery)
         isLoading = false
+    }
+
+    // The caller's onBack lambda is not decoration: on the "split" route it is the ONLY place
+    // Settings.perAppProxyEnabled is written (SFANavigation), so leaving via the system back
+    // button/gesture used to save the app list and reload the service while the enable flag kept
+    // its old value — the user picked apps and split tunnelling silently stayed off (or stayed on
+    // with an emptied list). Route system back through the same lambda. Search is a nested state,
+    // so close that first, exactly like the toolbar's close action does.
+    BackHandler {
+        if (isSearchActive) {
+            isSearchActive = false
+            searchQuery = ""
+            updateCurrentPackages("")
+            focusManager.clearFocus()
+        } else {
+            onBack()
+        }
     }
 
     val isTv = rememberIsTv()

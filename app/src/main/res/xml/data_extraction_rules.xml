@@ -1,25 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ (targetSdk 35) honours THIS file, not backup_rules.xml — so the deliberate
+    profiles.db exclusion documented there has to be repeated here or it is inert on almost the
+    whole fleet. profiles.db holds the per-install device-id (in remoteURL) and the
+    remote_servers secret: restoring it onto another device — via cloud OR direct transfer —
+    clones those credentials and silently defeats the server-side device cap.
+-->
 <data-extraction-rules>
     <cloud-backup>
         <include
             domain="database"
-            path="profiles.db" />
-        <include
-            domain="database"
             path="settings.db" />
         <include
             domain="file"
             path="configs" />
+        <exclude
+            domain="database"
+            path="profiles.db" />
     </cloud-backup>
     <device-transfer>
         <include
             domain="database"
-            path="profiles.db" />
-        <include
-            domain="database"
             path="settings.db" />
         <include
             domain="file"
             path="configs" />
+        <exclude
+            domain="database"
+            path="profiles.db" />
     </device-transfer>
 </data-extraction-rules>

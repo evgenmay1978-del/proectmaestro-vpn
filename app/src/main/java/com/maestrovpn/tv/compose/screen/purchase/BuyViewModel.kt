@@ -73,6 +73,15 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
     private var orderId: String? = null
 
     fun buy(tariffKey: String) {
+        // One order per tap. Without this the state stayed on Tariffs for the whole round trip, so
+        // the list kept rendering and every extra tap POSTed another /order — N taps left N-1
+        // orphan unpaid orders on the backend, and two in-flight responses could interleave into
+        // "orderId from order A, payment code from order B" (iPaid() would then claim the wrong
+        // one). Switching to Loading blocks the re-tap AND gives the user feedback that something
+        // is happening. Same guard shape as ClaimViewModel/TrialViewModel; onClick runs on the
+        // main thread, so this check-then-set is atomic against other taps.
+        if (_state.value is BuyState.Loading) return
+        _state.value = BuyState.Loading
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val body = JSONObject().put("tariff", tariffKey)
