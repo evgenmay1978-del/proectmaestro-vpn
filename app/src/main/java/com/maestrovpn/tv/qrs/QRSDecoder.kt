@@ -5,6 +5,12 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.Inflater
 
 class QRSDecoder {
+    private companion object {
+        // Потолок для распаковки одного набора QR-кадров. Реальный конфиг sing-box — десятки
+        // килобайт; 8 МБ с огромным запасом, но не даёт битому/зловредному потоку раздуть буфер.
+        const val MAX_DECOMPRESSED_BYTES = 8 * 1024 * 1024
+    }
+
     private var codec: LubyCodec? = null
     private var state: LubyCodec.DecodingState? = null
     private val processedHashes = mutableSetOf<Int>()
@@ -78,7 +84,19 @@ class QRSDecoder {
 
         return if (complete) {
             val assembledData = codec!!.assembleData(currentState)
-            val compressedData = assembledData.copyOf(currentState.compressedSize)
+            // compressedSize приходит СЫРЫМ из отсканированного кадра (parsePayload) и до этой
+            // проверки нигде не ограничивался — в отличие от соседнего degree. Подделанный или
+            // просто битый QR с полем 2 ГБ приводил к OutOfMemoryError на copyOf, а отрицательное
+            // значение — к NegativeArraySizeException. Ни то ни другое не ловилось: copyOf стоит
+            // СНАРУЖИ try ниже, а OOM в Kotlin вообще не Exception. Итог — смерть процесса на
+            // потоке анализа камеры, то есть достаточно навести сканер на чужой QR.
+            // Размер не может превышать собранные данные: больше просто неоткуда взяться.
+            val declared = currentState.compressedSize
+            if (declared <= 0 || declared > assembledData.size) {
+                reset()
+                return null
+            }
+            val compressedData = assembledData.copyOf(declared)
 
             val decompressedData = try {
                 decompress(compressedData)
@@ -165,15 +183,24 @@ class QRSDecoder {
         return LubyCodec.EncodedBlock(degree, indices, totalBlocks, compressedSize, checksum, data)
     }
 
-    private fun decompress(data: ByteArray): ByteArray {
+    private fun decompress(data: ByteArray): ByteArray? {
         inflater.reset()
         inflater.setInput(data)
         outputBuffer.reset()
 
+        // Выход был только по finished() либо (count==0 && needsInput()). Если zlib-поток объявляет
+        // флаг FDICT (нужен предустановленный словарь), то inflate() возвращает 0, needsDictionary()
+        // истинно, а needsInput() ЛОЖНО и finished() ложно — цикл крутился ВЕЧНО на 100% CPU.
+        // Исключения при этом нет, поэтому catch у вызывающего бесполезен, а сам цикл выполняется
+        // внутри synchronized(qrsLock) на потоке анализа камеры: сканер умирал насовсем до
+        // перезапуска приложения. Достаточно навести камеру на подделанный QR.
+        // Плюс жёсткий предел на объём: испорченный поток не должен раздувать буфер без границ.
         while (!inflater.finished()) {
+            if (inflater.needsDictionary()) return null
             val count = inflater.inflate(decompressBuffer)
-            if (count == 0 && inflater.needsInput()) break
+            if (count == 0 && (inflater.needsInput() || inflater.needsDictionary())) break
             outputBuffer.write(decompressBuffer, 0, count)
+            if (outputBuffer.size() > MAX_DECOMPRESSED_BYTES) return null
         }
 
         return outputBuffer.toByteArray()

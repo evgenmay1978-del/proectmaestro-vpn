@@ -86,6 +86,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.navigation.NavController
 import io.nekohasekai.libbox.Libbox
+import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.R
@@ -1055,8 +1056,8 @@ fun AppSettingsScreen(
                                 modifier =
                                 updateItemModifier()
                                     .clickable {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/"))
-                                        context.startActivity(intent)
+                                        // ТВ-бокс без браузера: голый ACTION_VIEW роняет приложение.
+                                        context.launchCustomTab("https://shizuku.rikka.app/")
                                     },
                                 colors =
                                 ListItemDefaults.colors(
@@ -1094,7 +1095,10 @@ fun AppSettingsScreen(
                                             AndroidSettings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                                             Uri.parse("package:${context.packageName}"),
                                         )
-                                        context.startActivity(intent)
+                                        // Экран «источники установки» есть не на всех прошивках ТВ.
+                                        runCatching { context.startActivity(intent) }.onFailure {
+                                            Toast.makeText(context, "Этот экран недоступен на устройстве", Toast.LENGTH_LONG).show()
+                                        }
                                     },
                                 colors =
                                 ListItemDefaults.colors(

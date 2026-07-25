@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.jeziellago.compose.markdowntext.MarkdownText
+import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
 import com.maestrovpn.tv.compose.theme.GoldMid
@@ -41,7 +42,8 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
         updateInfo.releaseNotes?.takeIf { it.isNotBlank() }?.let { emojiCatalog.replaceShortcodes(it) }
     }
     val viewRelease: () -> Unit = {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateInfo.releaseUrl)))
+        // ТВ-бокс без браузера: голый ACTION_VIEW роняет приложение прямо из диалога обновления.
+        context.launchCustomTab(updateInfo.releaseUrl)
         onDismiss()
     }
 

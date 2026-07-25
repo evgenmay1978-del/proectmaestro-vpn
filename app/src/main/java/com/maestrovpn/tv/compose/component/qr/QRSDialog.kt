@@ -38,6 +38,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
@@ -107,8 +108,8 @@ fun QRSDialog(profileData: ByteArray, profileName: String, onDismiss: () -> Unit
     }
 
     val openQrsInfo: () -> Unit = {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/qifi-dev/qrs"))
-        context.startActivity(intent)
+        // ТВ-бокс без браузера: голый ACTION_VIEW роняет приложение.
+        context.launchCustomTab("https://github.com/qifi-dev/qrs")
     }
 
     // ── Dark-Fantasy modal (phone + TV) ──

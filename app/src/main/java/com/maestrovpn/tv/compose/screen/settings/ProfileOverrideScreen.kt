@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
+import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.bg.RootClient
 import com.maestrovpn.tv.compose.base.UiEvent
@@ -566,9 +567,11 @@ fun ProfileOverrideScreen(
                             TextButton(
                                 onClick = {
                                     showShizukuDialog = false
+                                    // Пакет может быть установлен, но без запускаемой активности
+                                    // (или отключён) — тогда startActivity бросает и роняет диалог.
                                     val intent = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
                                     if (intent != null) {
-                                        context.startActivity(intent)
+                                        runCatching { context.startActivity(intent) }
                                     }
                                 },
                             ) {
@@ -579,8 +582,8 @@ fun ProfileOverrideScreen(
                             TextButton(
                                 onClick = {
                                     showShizukuDialog = false
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/"))
-                                    context.startActivity(intent)
+                                    // ТВ-бокс без браузера: голый ACTION_VIEW роняет приложение.
+                                    context.launchCustomTab("https://shizuku.rikka.app/")
                                 },
                             ) {
                                 Text(stringResource(R.string.get_shizuku))

@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.SectionLabel
 import com.maestrovpn.tv.compose.fantasy.FantasyListRow
@@ -82,10 +83,11 @@ fun SettingsScreen(navController: NavController) {
     val context = LocalContext.current
     val hasUpdate by UpdateState.hasUpdate
 
+    // Через launchCustomTab, а не голый startActivity: на ТВ-боксе без браузера ACTION_VIEW не
+    // находит активность и ActivityNotFoundException роняет приложение прямо из обработчика клика.
+    // Помощник ловит это и показывает пользователю причину. Задеты все три плитки «О программе».
     val openUrl: (String) -> Unit = { url ->
-        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-        intent.data = android.net.Uri.parse(url)
-        context.startActivity(intent)
+        context.launchCustomTab(url)
     }
     val openInNew: @Composable () -> Unit = {
         Icon(
