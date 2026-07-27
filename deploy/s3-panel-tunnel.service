@@ -1,0 +1,30 @@
+[Unit]
+# Why this exists (2026-07-27): the S3 node's 3x-ui panel speaks PLAIN HTTP on 46.30.42.151:47989 —
+# the admin password and session cookie crossed the open internet in clear text. S3 has no domain of its
+# own, and a Let's Encrypt certificate for a bare IP is only issued under the "shortlived" profile
+# (160 h validity ⇒ renewal every 2-3 days), which is a fragile thing to hang an admin panel on.
+#
+# So instead of minting a new certificate with a new renewal path that can rot, we reuse the one that is
+# already automated: S1's wapmixx.ru cert (certbot + deploy hook). nginx terminates TLS here and reaches
+# the panel through this SSH tunnel, so the S1→S3 leg is encrypted too. Nothing on S3 changes.
+#
+# The direct http://46.30.42.151:47989/... URL is deliberately left working as a fallback for when S1 is
+# down; close it only after the owner confirms he uses the HTTPS route.
+Description=SSH tunnel to the S3 3x-ui panel (lets S1 nginx serve it over the fleet's TLS certificate)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ExitOnForwardFailure: fail loudly instead of sitting there with no forwarding.
+# ServerAlive*: S1's uplink is known to flap in windows (see memory s1-uplink-flapping-2026-07-27),
+# so detect a dead tunnel in ~60 s and let Restart=always rebuild it.
+ExecStart=/usr/bin/ssh -NT \
+  -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=20 -o ServerAliveCountMax=3 -o ConnectTimeout=15 \
+  -L 127.0.0.1:14798:127.0.0.1:47989 root@46.30.42.151
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

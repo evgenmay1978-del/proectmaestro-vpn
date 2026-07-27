@@ -58,3 +58,55 @@ curl -s -X POST http://127.0.0.1:8910/admin/provision \
 Note: provisioning calls 3x-ui (Bearer) + server-2 (SSH) — verify both reachable from
 server 1 first. Existing 3x-ui/naive customers are never touched (the app uses its own
 inbound clients + the `mtv_` naive prefix).
+
+---
+
+# Инфраструктурная автоматика флота (добавлено 2026-07-27)
+
+Файлы ниже были заведены после аудита серверов и **уже стоят в бою**. Здесь они лежат, чтобы
+пережить потерю машины: до этого они существовали ровно в одном экземпляре — на самом сервере.
+Копии сверены с боевыми побайтно в день добавления.
+
+## Что где стоит
+
+| файл в репо | куда ставится | сервер | что делает |
+|---|---|---|---|
+| `deploy/certbot-deploy-reload-cert-consumers.sh` | `/etc/letsencrypt/renewal-hooks/deploy/10-reload-cert-consumers.sh` | S1 | после обновления серта перечитывает его nginx'ом и панелью x-ui |
+| `deploy/s3-panel-tunnel.service` | `/etc/systemd/system/` | S1 | ssh-туннель `127.0.0.1:14798 → S3:47989`, чтобы nginx отдавал панель S3 по TLS |
+| `deploy/nginx-olcbox-api.conf` | `/etc/nginx/sites-available/olcbox-api` | S1 | сайт на :9443 — olcbox API + проксирование панели S3 |
+| `deploy/sync-anytls-cert.sh` + `.service` + `.timer` | `/usr/local/bin/` и `/etc/systemd/system/` | **S2** | ежедневно переносит обновлённый caddy'ем серт в sing-box-anytls |
+| `deploy/maestro-backup.sh` | `/usr/local/bin/` | S1 | часовой бэкап control-plane; с 27.07 забирает и базу панели **S3** |
+| `ops/disable-xui-sub.sh` | запускается с S1 | S1+S3 | выключает неиспользуемую подписку x-ui на :2096 (есть `--dry-run`) |
+
+## ⛔ Ловушки, стоившие времени — не «чинить» обратно
+
+1. **Перезагружать x-ui только `kill -HUP <MainPID>`.** В юните стоит `ExecReload=kill -USR1`, а USR1
+   у этого бинаря означает «restarting xray-core», то есть обрыв ВСЕХ клиентских соединений
+   (в момент проверки их было 206). SIGHUP перезапускает только веб-часть панели.
+   `systemctl kill` без `--kill-whom=main` тоже заденет xray.
+2. **Обновление серта ≠ его применение.** certbot исправно продлевал `wapmixx.ru`, а панель три месяца
+   отдавала майский серт, потому что читает файлы один раз при старте. Отсюда deploy-хук.
+3. **Серт для AnyTLS брать НОВЕЙШИЙ из хранилища caddy.** Там лежит и мёртвая копия ZeroSSL —
+   «первый попавшийся» установит именно её.
+4. **Сертификат Let's Encrypt на голый IP** выдаётся только профилем `shortlived` — 160 часов.
+   Поэтому панель S3 отдаётся через туннель под сертом `wapmixx.ru`, а не своим.
+5. **Первый запрос после `systemctl reload nginx` может вернуть 404** — старый воркер ещё дослуживает.
+   Не диагностировать по одному запросу.
+
+## Проверка, что всё живо
+
+```bash
+# сертификаты: что реально отдаётся клиентам (а не что лежит на диске)
+echo | openssl s_client -connect wapmixx.ru:2053 -servername wapmixx.ru 2>/dev/null | openssl x509 -noout -enddate
+echo | openssl s_client -connect 85.137.166.237:8443 -servername wapmix.duckdns.org 2>/dev/null | openssl x509 -noout -enddate
+
+# панель S3 через TLS S1 + туннель
+curl -sk -o /dev/null -w '%{http_code}\n' https://wapmixx.ru:9443/<webBasePath>/
+
+# бэкап: в архиве должно быть 9 файлов, включая базу панели S3
+journalctl -u maestro-backup --since -2h | grep -E 'S3 panel|uploaded'
+
+# синк серта AnyTLS (на S2): штатный ответ — «cert unchanged»
+ssh root@85.137.166.237 systemctl start sync-anytls-cert.service && \
+ssh root@85.137.166.237 journalctl -u sync-anytls-cert -n 3 --no-pager
+```

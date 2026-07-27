@@ -34,11 +34,41 @@ tar="$WORK/maestro-cp-$TS.tar.gz"
 #   wb.token       — wbstream account token for the olcRTC carrier
 #   olcrtc.json    — olcRTC carrier room/key
 # olcrtc-health.json is deliberately NOT here: the exit-liveness probe rewrites it by itself.
+# 1a) Pull the S3 node's 3x-ui database (added 2026-07-27 after an audit found it backed up NOWHERE).
+#
+# /etc/x-ui/x-ui.db in the list below is THIS box's (S1) panel db. S3 (46.30.42.151) runs its own 3x-ui
+# holding ~89 paying clients of the VLESS-Reality inbound, and nothing was copying it anywhere: no cron on
+# S3, no entry here. One corrupt file = the client base is gone.
+#
+# Two traps this code exists to avoid:
+#  * NEVER `scp` a live SQLite file — a copy taken mid-write is torn and may not open. `.backup` takes a
+#    consistent hot snapshot through SQLite itself, which is safe while the panel keeps writing traffic stats.
+#  * NEVER let an unreachable S3 kill the whole run — S1's own state must keep being backed up regardless.
+#    So the pull is best-effort, BUT it must not fail silently: on failure we shout to stderr (journal) and
+#    report the age of the stale snapshot we're falling back on.
+S3_HOST="${S3_HOST:-46.30.42.151}"
+S3_SNAP=/var/lib/maestro/s3-x-ui.db          # stable path ⇒ lands in the archive next to the other state
+_ssh=(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+      -o LogLevel=ERROR -o ConnectTimeout=15)
+if "${_ssh[@]}" "root@$S3_HOST" \
+     'rm -f /tmp/.x-ui-hot.db && sqlite3 /etc/x-ui/x-ui.db ".backup /tmp/.x-ui-hot.db" && cat /tmp/.x-ui-hot.db && rm -f /tmp/.x-ui-hot.db' \
+     > "$WORK/s3-x-ui.db" 2>/dev/null && [ -s "$WORK/s3-x-ui.db" ] \
+   && sqlite3 "$WORK/s3-x-ui.db" 'pragma quick_check;' 2>/dev/null | grep -q '^ok$'; then
+  install -m 600 "$WORK/s3-x-ui.db" "$S3_SNAP"
+  echo "maestro-backup: S3 panel db snapshot OK ($(stat -c%s "$S3_SNAP") bytes, $(sqlite3 "$S3_SNAP" 'select count(*) from client_traffics;' 2>/dev/null) clients)"
+else
+  if [ -f "$S3_SNAP" ]; then
+    echo "maestro-backup: WARNING S3 panel db pull FAILED — falling back on the stale snapshot from $(date -r "$S3_SNAP" -u +%Y-%m-%dT%H:%M:%SZ)" >&2
+  else
+    echo "maestro-backup: WARNING S3 panel db pull FAILED and there is NO previous snapshot — the S3 client base is UNPROTECTED this run" >&2
+  fi
+fi
+
 files=()
 for f in /var/lib/maestro/customers.json /var/lib/maestro/orders.json \
          /var/lib/maestro/trials.json /var/lib/maestro/panel-pw.hash \
          /var/lib/maestro/wb.token /var/lib/maestro/olcrtc.json \
-         /etc/maestro-panel.env /etc/x-ui/x-ui.db; do
+         /etc/maestro-panel.env /etc/x-ui/x-ui.db "$S3_SNAP"; do
   [ -f "$f" ] && files+=("$f")
 done
 if [ ${#files[@]} -eq 0 ]; then

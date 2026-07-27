@@ -1,0 +1,9 @@
+[Unit]
+Description=Carry caddy's renewed certificate over to sing-box-anytls (restarts it only if the cert really changed)
+Documentation=file:/usr/local/bin/sync-anytls-cert.sh
+After=network-online.target caddy.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/sync-anytls-cert.sh
