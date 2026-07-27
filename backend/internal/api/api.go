@@ -339,6 +339,21 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(subgen.ShareLinks(sc)))
 		return
 	}
+	// ⛔ naive cronet-gate — SAME failure shape as the AWG gate above, found 2026-07-27.
+	// sing-box's `naive` outbound is backed by the Cronet library; a core built without it aborts
+	// the ENTIRE config with "cronet: library not found", not just this one outbound. Verified on
+	// stock sing-box 1.14: the full /sub JSON exits 1, the same JSON minus naive exits 0. Our fleet
+	// libbox ships cronet, stock cores (Karing, v2rayN, curl → versionCode 0) do not — so a
+	// third-party client pasting the plain /sub URL got a profile that loads NOTHING AT ALL, which
+	// reads to the owner as "naive is missing from the subscription" when in fact everything is.
+	// Strip it for non-SFA clients: they keep the other four protocols and a config that loads.
+	//
+	// ⚠️ POSITION MATTERS: this MUST stay below the ?app=karing branch. Placed above it, the gate
+	// also emptied the share-links output (verified: 5 links → 4) — and there naive belongs, because
+	// each link is a standalone node that a client can simply ignore without losing the others.
+	if sc.Naive != nil && appVersionCode(r.UserAgent()) == 0 {
+		sc.Naive = nil
+	}
 	cfg, err := subgen.GenerateSingbox(sc)
 	if err != nil {
 		http.Error(w, "config error", http.StatusInternalServerError)
