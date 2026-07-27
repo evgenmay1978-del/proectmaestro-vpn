@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -156,10 +157,28 @@ func (s *Server) handleOrderConfirm(w http.ResponseWriter, r *http.Request) {
 	// membership); otherwise provision a fresh account. This is what makes an in-app
 	// renewal keep the customer's existing subscription instead of orphaning it.
 	var cust *store.Customer
-	if existing, e := s.st.ByLogin(o.Login); e == nil && existing != nil {
+	existing, e := s.st.ByLogin(o.Login)
+	hasExisting := e == nil && existing != nil
+	switch {
+	case o.Credited && hasExisting:
+		// Дни по ЭТОМУ заказу уже начислены прошлой попыткой: она дошла до хранилища, но упала
+		// на раскатке по узлам и оставила заказ в статусе pending. Второй Extend прибавил бы
+		// срок ЕЩЁ РАЗ (он складывает от max(now, текущая дата)) — клиент получил бы двойной
+		// период за один платёж. Поэтому здесь только ДОБИВАЕМ раскатку: SetExpiry ставит
+		// АБСОЛЮТНУЮ дату, уже лежащую в хранилище, и ничего не прибавляет.
+		cust, err = s.prov.SetExpiry(o.Login, existing.Expires)
+	case hasExisting:
 		cust, err = s.prov.Extend(o.Login, dur)
-	} else {
+	default:
 		cust, err = s.prov.Provision(o.Login, dur)
+	}
+	// Признак «начислено» ставится по факту появления клиента и ДО проверки ошибки: провижининг
+	// возвращает клиента вместе с ошибкой именно в том случае, когда дни уже легли в хранилище,
+	// а сорвалась только раскатка. Без этой отметки повтор подтверждения начислил бы второй раз.
+	if cust != nil && !o.Credited {
+		if _, cerr := s.orders.MarkCredited(o.ID); cerr != nil {
+			log.Printf("order %s: не удалось записать признак начисления: %v", o.ID, cerr)
+		}
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

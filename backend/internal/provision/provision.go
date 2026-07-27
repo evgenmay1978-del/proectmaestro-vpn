@@ -242,7 +242,11 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 
 	// Server 2: re-sync the Hysteria user set to include this customer.
 	if err := p.syncHy2(); err != nil {
-		return nil, fmt.Errorf("provision: hy2 sync: %w", err)
+		// Клиент возвращается вместе с ошибкой — он УЖЕ в хранилище (Put выше). Для Provision
+		// повторное выполнение не страшно (дата абсолютная, now+dur, накопления нет), но
+		// вызывающий должен видеть, что запись создана, и пометить заказ как начисленный
+		// единообразно с веткой Extend.
+		return cust, fmt.Errorf("provision: hy2 sync: %w", err)
 	}
 
 	// Extra protocols — best-effort: never fail the provision (VLESS+Hy2 are
@@ -437,7 +441,11 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 		return nil, fmt.Errorf("provision: extend store: %w", err)
 	}
 	if err := p.fanOutExpiry(cust); err != nil {
-		return nil, err
+		// ВАЖНО: клиент возвращается ВМЕСТЕ с ошибкой. Дни уже в хранилище (Extend складывает
+		// их от max(now, текущая дата)), и вызывающий обязан это знать: иначе он посчитает
+		// попытку неудачной целиком и при повторе начислит дни ВТОРОЙ раз.
+		// Ошибка сохраняется, чтобы владелец повторил подтверждение и раскатка всё-таки дошла.
+		return cust, err
 	}
 	return cust, nil
 }

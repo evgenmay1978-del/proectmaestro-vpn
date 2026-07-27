@@ -135,3 +135,107 @@ func TestOrderUnknownTariff(t *testing.T) {
 		t.Fatalf("unknown tariff status = %d, want 400", resp.StatusCode)
 	}
 }
+
+// flakyProv воспроизводит реальный сбой: дни ложатся в хранилище, а раскатка по узлам падает.
+// Именно этот случай раньше приводил к двойному начислению — заказ оставался pending, и повтор
+// подтверждения складывал срок ещё раз.
+type flakyProv struct {
+	*fakeProv
+	failFanOut bool
+	extends    int
+	setExpiry  int
+}
+
+func (f *flakyProv) Extend(login string, dur time.Duration) (*store.Customer, error) {
+	f.extends++
+	c, err := f.st.Extend(login, dur) // дни УЖЕ начислены
+	if err != nil {
+		return nil, err
+	}
+	if f.failFanOut {
+		return c, errAssertFanOut // клиент возвращается вместе с ошибкой, как в бою
+	}
+	return c, nil
+}
+
+func (f *flakyProv) SetExpiry(login string, t time.Time) (*store.Customer, error) {
+	f.setExpiry++
+	return f.st.SetExpiry(login, t)
+}
+
+var errAssertFanOut = errAssert("fan-out failed")
+
+type errAssert string
+
+func (e errAssert) Error() string { return string(e) }
+
+// Повторное подтверждение после сорвавшейся раскатки НЕ должно начислять дни второй раз.
+func TestOrderConfirmRetryDoesNotDoubleCredit(t *testing.T) {
+	st, _ := store.Open(filepath.Join(t.TempDir(), "c.json"))
+	ost, _ := order.Open(filepath.Join(t.TempDir(), "o.json"))
+	prov := &flakyProv{fakeProv: &fakeProv{st: st}, failFanOut: true}
+	srv := httptest.NewServer(New(st, prov, ost, nil, Config{
+		AdminToken: "sek", SubBaseURL: "https://x", SBPPhone: "+7",
+	}).Handler())
+	defer srv.Close()
+
+	// Уже существующий клиент — ветка продления, где Extend СКЛАДЫВАЕТ дни.
+	base := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	if err := st.Put(&store.Customer{Login: "renewme", SubToken: "tok", Expires: base}); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	o, err := ost.CreateFor(order.DefaultTariffs[0], "renewme")
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	days := o.Days
+
+	confirm := func() int {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/admin/order/confirm",
+			strings.NewReader(`{"order_id":"`+o.ID+`"}`))
+		req.Header.Set("Authorization", "Bearer sek")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("confirm: %v", err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// Первая попытка: дни начислены, раскатка упала → 502, заказ остаётся неоплаченным.
+	if code := confirm(); code != http.StatusBadGateway {
+		t.Fatalf("первая попытка: ожидался 502, получен %d", code)
+	}
+	afterFirst, err := st.ByLogin("renewme")
+	if err != nil {
+		t.Fatalf("by login: %v", err)
+	}
+	wantFirst := base.Add(time.Duration(days) * 24 * time.Hour)
+	if afterFirst.Expires.Sub(wantFirst).Abs() > time.Minute {
+		t.Fatalf("после первой попытки дата %v, ожидалась ~%v", afterFirst.Expires, wantFirst)
+	}
+	if got, _ := ost.ByID(o.ID); !got.Credited {
+		t.Fatal("признак «начислено» не сохранён — повтор начислит второй раз")
+	}
+
+	// Раскатка починилась; владелец повторяет подтверждение.
+	prov.failFanOut = false
+	if code := confirm(); code != http.StatusOK {
+		t.Fatalf("вторая попытка: ожидался 200, получен %d", code)
+	}
+	afterSecond, err := st.ByLogin("renewme")
+	if err != nil {
+		t.Fatalf("by login 2: %v", err)
+	}
+	// Ключевая проверка: дата НЕ уехала ещё на один период.
+	if afterSecond.Expires.Sub(wantFirst).Abs() > time.Minute {
+		t.Fatalf("ДВОЙНОЕ НАЧИСЛЕНИЕ: дата %v, ожидалась ~%v (%d дней за один платёж)",
+			afterSecond.Expires, wantFirst, days)
+	}
+	if prov.extends != 1 {
+		t.Fatalf("Extend вызван %d раз, ожидался ровно 1", prov.extends)
+	}
+	if prov.setExpiry != 1 {
+		t.Fatalf("SetExpiry (добивание раскатки) вызван %d раз, ожидался 1", prov.setExpiry)
+	}
+}
