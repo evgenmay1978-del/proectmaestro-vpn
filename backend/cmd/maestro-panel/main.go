@@ -185,12 +185,20 @@ func main() {
 		// VLESS and/or the s2 naive panel) into the unified store, advance-only, every
 		// 15 min — so a renewal in ANY of the 3 panels propagates to the app + the
 		// customer's other protocols. No admin endpoint exposed, no bot change.
+		// ReconcileServer2 runs right after, in this order on purpose: the pull above
+		// refreshes expiries in the store, and this pushes the store's ACTIVE set back to the
+		// server-2 protocols. Without it an expired customer kept working Hy2/Naive/AnyTLS
+		// access — those are a static set with no per-user expiry, unlike VLESS, whose date
+		// 3x-ui enforces itself. Nothing re-pushed that set on a schedule. Free when nothing
+		// changed: the Hy2/AnyTLS syncs skip the restart unless the rendered config differs.
 		go func() {
 			pc.ReconcileExpiries()
+			pc.ReconcileServer2()
 			tk := time.NewTicker(15 * time.Minute)
 			defer tk.Stop()
 			for range tk.C {
 				pc.ReconcileExpiries()
+				pc.ReconcileServer2()
 			}
 		}()
 	} else {

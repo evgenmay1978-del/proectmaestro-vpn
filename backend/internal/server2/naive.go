@@ -3,6 +3,7 @@ package server2
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -39,6 +40,10 @@ const caddyfilePath = "/etc/caddy/Caddyfile"
 // Hysteria), so an expired/disabled customer dropped from `users` can no
 // longer connect after the next sync.
 func (c *Client) SyncNaiveUsers(users []NaiveUser) error {
+	// Deterministic order (see renderHy2): the users come from store.List(), which ranges a Go
+	// map, so without sorting the generated block churns on every call and Caddy gets reloaded
+	// for nothing.
+	sort.Slice(users, func(i, j int) bool { return users[i].User < users[j].User })
 	var b strings.Builder
 	b.WriteString("    # MTV-MANAGED-START\n")
 	for _, u := range users {

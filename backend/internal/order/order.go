@@ -54,6 +54,13 @@ type Order struct {
 	Status    string    `json:"status"` // "pending" | "paid"
 	SubToken  string    `json:"sub_token"`
 	CreatedAt time.Time `json:"created_at"`
+	// Credited — дни УЖЕ добавлены клиенту в хранилище, независимо от того, удалось ли
+	// раскатать новую дату по узлам. Разделение нужно из-за порядка операций в подтверждении
+	// заказа: сначала начисление (Extend складывает дни от max(now, текущая дата)), потом
+	// раскатка, и только потом MarkPaid. Когда раскатка падала (x-ui недоступен, сбой синка
+	// Hy2), заказ оставался pending — и повторное подтверждение начисляло дни ВТОРОЙ раз.
+	// omitempty: в уже существующих orders.json поля нет, отсутствие читается как false.
+	Credited bool `json:"credited,omitempty"`
 }
 
 // Store is a JSON-file-backed order registry, safe for concurrent use.
@@ -142,6 +149,23 @@ func (s *Store) ByID(id string) (*Order, error) {
 		return o, nil
 	}
 	return nil, ErrNotFound
+}
+
+// MarkCredited фиксирует на диске, что дни по этому заказу УЖЕ добавлены клиенту.
+// Вызывается сразу после успешного начисления, ДО раскатки по узлам, — чтобы упавшая
+// раскатка не привела к повторному начислению при следующей попытке подтверждения.
+func (s *Store) MarkCredited(id string) (*Order, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, ok := s.byID[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if o.Credited {
+		return o, nil
+	}
+	o.Credited = true
+	return o, s.flush()
 }
 
 // MarkPaid records the provisioned customer's sub token and flips status.

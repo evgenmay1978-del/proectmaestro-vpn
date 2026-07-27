@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -164,6 +165,13 @@ func (c *Client) renderHy2(users []Hy2User) (string, error) {
 		safe = append(safe, u)
 	}
 	users = safe
+	// Deterministic order, or the rendered config differs on every call even when the user set
+	// is identical: the users come from store.List(), which ranges a Go map, and Go deliberately
+	// randomizes map iteration. Without this sort the "config unchanged → skip the restart" guard
+	// below can NEVER match, so every sync restarts Hysteria and drops every live session —
+	// which is exactly what happened on the first periodic run (19:56, restart despite an
+	// unchanged set of 49 users).
+	sort.Slice(users, func(i, j int) bool { return users[i].User < users[j].User })
 	var b bytes.Buffer
 	err := hy2Tmpl.Execute(&b, map[string]any{"Port": port, "Cert": cert, "Key": key, "Users": users})
 	if err != nil {
@@ -193,9 +201,20 @@ func (c *Client) SyncHy2Users(users []Hy2User) error {
 	// enters a Restart=always crash-loop (a bad config = FATAL-on-parse). So checking the restart
 	// exit code alone misses crash-loops. Instead: restart, wait, and if it isn't genuinely `active`
 	// afterwards, roll the previous config back — so a bad write never leaves Hysteria down.
+	// No-op when nothing changed: a restart drops EVERY connected Hysteria session, and this
+	// function is called on every provision/extend/expiry-sync — so an unchanged user set used
+	// to cost all Hy2 customers a reconnect for nothing. It also makes periodic reconciliation
+	// affordable (that is what actually evicts expired/deleted users from the set).
+	// The `is-active` half of the condition keeps the old self-healing property: if the config
+	// matches but the service is down, fall through and restart it anyway.
 	script := fmt.Sprintf(`set -e
-cp -a %[1]s %[1]s.bak 2>/dev/null || true
 cat > %[1]s.new
+if cmp -s %[1]s.new %[1]s && [ "$(systemctl is-active hysteria-server)" = active ]; then
+  rm -f %[1]s.new
+  echo active
+  exit 0
+fi
+cp -a %[1]s %[1]s.bak 2>/dev/null || true
 mv %[1]s.new %[1]s
 systemctl restart hysteria-server || true
 sleep 2
@@ -240,6 +259,9 @@ func renderAnyTLS(port int, cert, key string, users []AnyTLSUser) (string, error
 	if key == "" {
 		key = "/etc/sing-box-anytls/key.pem"
 	}
+	// Same determinism requirement as renderHy2: unsorted (map-ordered) input would make the
+	// rendered config differ on every call, defeating the skip-the-restart guard.
+	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })
 	us := make([]map[string]string, 0, len(users))
 	for _, u := range users {
 		us = append(us, map[string]string{"name": u.Name, "password": u.Pass})
@@ -288,10 +310,18 @@ func (c *Client) SyncAnyTLSUsers(users []AnyTLSUser) error {
 	}
 	// Atomic write via stdin (umask 077 → the password-bearing config stays 0600),
 	// back up the old one, restart, verify, rollback on failure.
+	// Same no-op-when-unchanged guard as SyncHy2Users: skip the restart (which drops every
+	// live AnyTLS session) unless the rendered config actually differs, while still restarting
+	// a config-identical but dead service.
 	script := fmt.Sprintf(`set -e
-cp -a %[1]s %[1]s.bak 2>/dev/null || true
 umask 077
 cat > %[1]s.new
+if cmp -s %[1]s.new %[1]s && [ "$(systemctl is-active %[2]s)" = active ]; then
+  rm -f %[1]s.new
+  echo active
+  exit 0
+fi
+cp -a %[1]s %[1]s.bak 2>/dev/null || true
 mv %[1]s.new %[1]s
 if ! systemctl restart %[2]s; then
   echo "restart failed, rolling back" >&2

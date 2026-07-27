@@ -131,3 +131,43 @@ func TestNaiveLive(t *testing.T) {
 		t.Fatalf("caddy down after clear: %s", final)
 	}
 }
+
+// The rendered config must depend ONLY on the SET of users, never on their order. The users come
+// from store.List(), which ranges a Go map, and Go deliberately randomizes map iteration — so
+// without an explicit sort the same 49 customers render to a different file on every call. That
+// defeats the "config unchanged → skip the restart" guard in SyncHy2Users, and the periodic
+// reconciler then restarts Hysteria every 15 minutes, dropping every live session.
+// Regression guard for exactly that: observed live 2026-07-25 19:56.
+func TestRenderHy2OrderIndependent(t *testing.T) {
+	c := New(Config{Hy2Port: 8443})
+	a := []Hy2User{{User: "bob", Pass: "p2"}, {User: "alice", Pass: "p1"}, {User: "zed", Pass: "p3"}}
+	b := []Hy2User{{User: "zed", Pass: "p3"}, {User: "alice", Pass: "p1"}, {User: "bob", Pass: "p2"}}
+	outA, err := c.renderHy2(a)
+	if err != nil {
+		t.Fatalf("renderHy2 a: %v", err)
+	}
+	outB, err := c.renderHy2(b)
+	if err != nil {
+		t.Fatalf("renderHy2 b: %v", err)
+	}
+	if outA != outB {
+		t.Errorf("same user set rendered differently depending on input order\n--- A ---\n%s\n--- B ---\n%s", outA, outB)
+	}
+}
+
+// Same requirement for AnyTLS: an order-dependent render restarts sing-box-anytls on every sync.
+func TestRenderAnyTLSOrderIndependent(t *testing.T) {
+	a := []AnyTLSUser{{Name: "bob", Pass: "p2"}, {Name: "alice", Pass: "p1"}}
+	b := []AnyTLSUser{{Name: "alice", Pass: "p1"}, {Name: "bob", Pass: "p2"}}
+	outA, err := renderAnyTLS(8443, "", "", a)
+	if err != nil {
+		t.Fatalf("renderAnyTLS a: %v", err)
+	}
+	outB, err := renderAnyTLS(8443, "", "", b)
+	if err != nil {
+		t.Fatalf("renderAnyTLS b: %v", err)
+	}
+	if outA != outB {
+		t.Errorf("same AnyTLS user set rendered differently depending on input order\n--- A ---\n%s\n--- B ---\n%s", outA, outB)
+	}
+}

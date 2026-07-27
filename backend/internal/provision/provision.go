@@ -242,7 +242,11 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 
 	// Server 2: re-sync the Hysteria user set to include this customer.
 	if err := p.syncHy2(); err != nil {
-		return nil, fmt.Errorf("provision: hy2 sync: %w", err)
+		// Клиент возвращается вместе с ошибкой — он УЖЕ в хранилище (Put выше). Для Provision
+		// повторное выполнение не страшно (дата абсолютная, now+dur, накопления нет), но
+		// вызывающий должен видеть, что запись создана, и пометить заказ как начисленный
+		// единообразно с веткой Extend.
+		return cust, fmt.Errorf("provision: hy2 sync: %w", err)
 	}
 
 	// Extra protocols — best-effort: never fail the provision (VLESS+Hy2 are
@@ -437,7 +441,11 @@ func (p *Provisioner) Extend(login string, dur time.Duration) (*store.Customer, 
 		return nil, fmt.Errorf("provision: extend store: %w", err)
 	}
 	if err := p.fanOutExpiry(cust); err != nil {
-		return nil, err
+		// ВАЖНО: клиент возвращается ВМЕСТЕ с ошибкой. Дни уже в хранилище (Extend складывает
+		// их от max(now, текущая дата)), и вызывающий обязан это знать: иначе он посчитает
+		// попытку неудачной целиком и при повторе начислит дни ВТОРОЙ раз.
+		// Ошибка сохраняется, чтобы владелец повторил подтверждение и раскатка всё-таки дошла.
+		return cust, err
 	}
 	return cust, nil
 }
@@ -478,7 +486,44 @@ func (p *Provisioner) DeleteCustomer(login string) error {
 			log.Printf("delete: s3 vless %q: %v", login, err)
 		}
 	}
-	return p.st.Delete(login)
+	if err := p.st.Delete(login); err != nil {
+		return err
+	}
+	// The S2 protocols are a SET pushed from the store, not per-client records: dropping the
+	// customer here does nothing on server 2 until something re-pushes it. Without these calls
+	// a deleted customer kept working Hy2/Naive/AnyTLS access indefinitely — verified on live
+	// data 2026-07-25: two logins present in /etc/hysteria/config.yaml existed in no store.
+	// Best-effort by design: the customer is already gone from the store and from VLESS, so a
+	// server-2 hiccup must not turn the deletion into an error the owner has to retry.
+	p.resyncServer2("delete " + login)
+	return nil
+}
+
+// resyncServer2 re-pushes every server-2 protocol user set from the store. Each sync is a full
+// regeneration filtered by Active(), so this is what actually evicts deleted AND expired
+// customers. Cheap to call: the Hy2/AnyTLS syncs no-op when the rendered config is unchanged.
+// Caller must hold p.mu.
+func (p *Provisioner) resyncServer2(reason string) {
+	if err := p.syncHy2(); err != nil {
+		log.Printf("resync s2 (%s): hy2: %v", reason, err)
+	}
+	if err := p.syncNaive(); err != nil {
+		log.Printf("resync s2 (%s): naive: %v", reason, err)
+	}
+	if err := p.syncAnyTLS(); err != nil {
+		log.Printf("resync s2 (%s): anytls: %v", reason, err)
+	}
+}
+
+// ReconcileServer2 is the periodic safety net for EXPIRY. A VLESS client carries its expiry
+// inside 3x-ui, which enforces it on its own; the server-2 protocols do not — they are a static
+// set, so an expired customer keeps connecting until the set is re-pushed. Nothing re-pushed it
+// on a schedule: the hourly dates reconciler only touches the panel when a date has DRIFTED, and
+// in steady state it reports "0 drifted". Called from a ticker in main.
+func (p *Provisioner) ReconcileServer2() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.resyncServer2("periodic")
 }
 
 // TrafficFor returns the customer's total used traffic in bytes (S1 VLESS + S3 VLESS), best-effort
@@ -609,6 +654,13 @@ func (p *Provisioner) addNaive(cust *store.Customer, login string) {
 // Caddyfile MTV block. Customers reusing their OWN pre-existing Caddy credential
 // are skipped — they already live in the Caddyfile, outside the MTV block.
 func (p *Provisioner) syncNaive() error {
+	// Mirror of the syncAnyTLS guard. It was safe to omit while every caller checked
+	// cust.Naive != nil first, but resyncServer2 calls this unconditionally — and on a
+	// deployment without Naive that would rewrite server 2's Caddyfile from a store that
+	// still carries stale naive creds.
+	if p.cfg.Naive.Server == "" {
+		return nil
+	}
 	var users []server2.NaiveUser
 	for _, c := range p.st.List() {
 		if c.Active() && c.Naive != nil && strings.HasPrefix(c.Naive.Username, server2.NaivePrefix) {
