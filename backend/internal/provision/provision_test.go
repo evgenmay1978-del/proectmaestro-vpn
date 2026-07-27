@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ type fakeXUI struct {
 	lastSub                     string // last subId passed to UpdateClient (assert subId preservation)
 	lastAddLimitIP              int    // last limitIp passed to AddClient (assert the device cap)
 	traffic                     int64  // UsedTraffic returns this
+	updateErr                   error  // if set, UpdateClient fails — simulates x-ui being down mid-fan-out
 }
 
 func (f *fakeXUI) Login() error { f.logins++; return nil }
@@ -28,7 +30,7 @@ func (f *fakeXUI) AddClient(_ int, c xui.VLESSClient) error {
 func (f *fakeXUI) UpdateClient(_ int, _ string, c xui.VLESSClient) error {
 	f.updates++
 	f.lastSub = c.SubID
-	return nil
+	return f.updateErr
 }
 func (f *fakeXUI) GetClient(string) (*xui.ExistingClient, error) {
 	if f.getSub == "" && f.getExpiry == 0 {
@@ -221,6 +223,45 @@ func TestExtendRenewsEverywhere(t *testing.T) {
 	// now active → present in the hy2 sync
 	if len(fh.lastHy2) != 1 {
 		t.Fatalf("renewed customer not in hy2 sync: %+v", fh.lastHy2)
+	}
+}
+
+// TestExtendReturnsCustomerWhenFanOutFails закрывает ВТОРУЮ половину фикса двойного начисления.
+// Первую (ветку Credited в обработчике) проверяет TestOrderConfirmRetryDoesNotDoubleCredit, но он
+// работает на подставном провижинере — и остаётся зелёным, даже если здесь вернуть `nil, err`.
+// Это ровно тот случай «молчаливый сторож хуже отсутствующего»: реальный Extend складывает дни в
+// хранилище ДО раскатки, поэтому при падении раскатки он ОБЯЗАН вернуть клиента вместе с ошибкой —
+// иначе обработчик не пометит заказ начисленным и повтор подтверждения начислит дни второй раз.
+// Проверено падением: с `return nil, err` в Extend этот тест краснеет.
+func TestExtendReturnsCustomerWhenFanOutFails(t *testing.T) {
+	p, fx, _, st := newProv(t)
+	if _, err := p.Provision("dave", 30*24*time.Hour); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	before, err := st.ByLogin("dave")
+	if err != nil {
+		t.Fatalf("ByLogin: %v", err)
+	}
+	wasExpires := before.Expires
+
+	fx.updateErr = errors.New("x-ui недоступен")
+	cust, err := p.Extend("dave", 30*24*time.Hour)
+
+	if err == nil {
+		t.Fatal("ожидалась ошибка раскатки, её нет")
+	}
+	if cust == nil {
+		t.Fatal("Extend вернул nil вместе с ошибкой: вызывающий не узнает, что дни УЖЕ начислены → повтор подтверждения начислит второй раз")
+	}
+	after, err := st.ByLogin("dave")
+	if err != nil {
+		t.Fatalf("ByLogin после Extend: %v", err)
+	}
+	if !after.Expires.After(wasExpires) {
+		t.Fatalf("дни не легли в хранилище (было %v, стало %v) — тест проверяет не тот сценарий", wasExpires, after.Expires)
+	}
+	if !cust.Expires.Equal(after.Expires) {
+		t.Fatalf("вернулся клиент с датой %v, в хранилище %v — вызывающий увидит не то состояние", cust.Expires, after.Expires)
 	}
 }
 
