@@ -74,15 +74,15 @@ type Customer struct {
 	OLC    *OLCRTCCreds // olcRTC (WebRTC video-disguise) — opt-in fallback; ⛔ emitted ONLY for login "wapmix" (creds-gate in the /sub handler), nil otherwise
 	VKTurn *VKTurnCreds // VK TURN/DTLS carrier — mobile-only manual fallback; gated by the /sub handler
 
-	// DNSAuto — КАНАРЕЕЧНЫЙ флаг новой схемы DNS (2026-07-28). Ставится в /sub-хендлере из
-	// allowlist'а MAESTRO_DNS_AUTO_LOGINS. Пока флага нет, конфиг клиента остаётся БАЙТ-В-БАЙТ
+	// DNSFakeIP — КАНАРЕЕЧНЫЙ флаг схемы fakeip (2026-07-28). Ставится в /sub-хендлере из
+	// allowlist'а MAESTRO_DNS_FAKEIP_LOGINS. Пока флага нет, конфиг клиента остаётся БАЙТ-В-БАЙТ
 	// прежним — это и есть гарантия «после обновления никто не пострадал».
 	//
 	// В приложении НЕЛЬЗЯ добавить профиль руками (экран new-profile открывается только по
 	// внешнему импорт-интенту, MainActivity.kt:547), поэтому канарейка возможна только так:
 	// сервер отдаёт новый блок ОДНОМУ логину, его устройство подхватывает при очередном опросе.
 	// После успешной канарейки: сделать новую схему безусловной и удалить и флаг, и allowlist.
-	DNSAuto bool
+	DNSFakeIP bool
 }
 
 // VKTurnCreds is the WireGuard identity carried by the app's local WDTT helper.
@@ -135,7 +135,13 @@ const (
 	tagOLC    = "olcrtc"  // olcRTC SOCKS5 outbound (app exec's libolcrtc.so → 127.0.0.1:olcrtcSocksPort)
 	tagVKTurn = "vk-turn" // WireGuard over the local WDTT VK TURN/DTLS relay
 	tagAuto   = "auto"    // urltest
-	tagPick   = "select"  // selector (default outbound the tun routes to)
+	tagFakeIP = "fakeip"
+	// Список заблокированного в РФ (runetfreedom, ~79.5k доменов). Качается НАПРЯМУЮ с нашего
+	// зеркала: правила тянутся ДО поднятия туннеля, с GitHub из РФ это не выйдет.
+	// Обновляется deploy/rules_mirror.sh каждые 6 ч (с проверкой парсабельности перед заливкой).
+	tagRUBlocked = "ru-blocked"
+	ruBlockedURL = "https://storage.yandexcloud.net/maestro-apk/rules/geosite-ru-blocked.srs"
+	tagPick      = "select" // selector (default outbound the tun routes to)
 )
 
 // olcRTC local SOCKS5 — the app exec's libolcrtc.so which listens here; subgen's `socks`
@@ -263,23 +269,12 @@ var panelDomains = []string{
 	"wapmixx.ru",
 }
 
-// dnsDetour выбирает, через что ходит DoT-резолвер.
-//
-// tagPick (селектор) = узел, выбранный пользователем ВРУЧНУЮ. Доказано запуском 2026-07-27:
-// при ручном выборе anytls резолв уходил в `outbound/anytls[anytls]`, при tagAuto — в живой
-// узел пула. naive намеренно вне auto-пула (душится ТСПУ), поэтому выбравший naive гнал через
-// задушенный канал КАЖДЫЙ резолв — отсюда зависания 10–20 с.
-//
-// Пока идёт канарейка, старое поведение остаётся у всех, кроме логинов из allowlist'а.
-// ⚠️ Известный размен у tagAuto: если ВЕСЬ auto-пул мёртв, а ручной узел жив — ответа не будет
-// вовсе (измерено). Поэтому и канарейка: проверяем на одном аккаунте, потом делаем безусловным.
-func dnsDetour(c Customer) string {
-	if c.DNSAuto {
-		return tagAuto
-	}
-	return tagPick
-}
-
+// ⭐ Требование owner'а (2026-07-28): «выбрал протокол в ручном режиме — работает ИМЕННО
+// этот протокол». Поэтому DoT-резолвер ходит через tagPick (селектор), а НЕ через auto:
+// иначе трафик идёт в выбранный узел, а резолв — в другой, и это рассогласование.
+// Прежняя попытка лечить зависания через tagAuto отменена и откачена — она нарушала это
+// требование. Зависания лечит fakeip (см. fakeIPRuleSetURL): заблокированные домены вообще
+// не резолвятся на устройстве, имя уезжает в туннель, и ждать нечего.
 // GenerateSingbox renders the customer's sing-box configuration as JSON.
 func GenerateSingbox(c Customer) ([]byte, error) {
 	outbounds := []map[string]any{}
@@ -448,6 +443,28 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			"action":   "route", "outbound": "direct",
 		},
 	)
+	if c.DNSFakeIP {
+		// ⛔ Соединение, пришедшее на fakeip-адрес, ОБЯЗАНО уйти в туннель ДО правила resolve —
+		// иначе resolve разрешит имя через default_domain_resolver=local (резолвер российского
+		// провайдера), и весь смысл fakeip пропадёт: в туннель уедет IP вместо имени. Проверено
+		// запуском: в логе было `outbound connection to 172.66.0.227:443` вместо `x.com:443`.
+		// ⛔ Ловить по ip_cidr 198.18.0.0/15 БЕСПОЛЕЗНО: ядро уже подменило fakeip-адрес на домен
+		// (`router: found fakeip domain`), ip_cidr не матчится и цепочка доходит до resolve.
+		// Ловим по ТОМУ ЖЕ списку, по которому fakeip и выдавался.
+		at := len(routeRules)
+		for i, r := range routeRules {
+			if r["action"] == "resolve" {
+				at = i
+				break
+			}
+		}
+		ins := map[string]any{"rule_set": []string{tagRUBlocked}, "action": "route", "outbound": tagPick}
+		routeRules = append(routeRules[:at:at], append([]map[string]any{ins}, routeRules[at:]...)...)
+		// Хост подписки — всегда мимо туннеля: больной туннель не должен забирать с собой
+		// возможность получить новый конфиг (проверено: без правила уходил в vless).
+		panelDirect := map[string]any{"domain_suffix": panelDomains, "action": "route", "outbound": "direct"}
+		routeRules = append(routeRules[:2:2], append([]map[string]any{panelDirect}, routeRules[2:]...)...)
+	}
 
 	// DNS rules: RU domains resolve via the local (direct) resolver. When olcRTC is on, the
 	// carrier domains MUST also resolve via local — otherwise the child's SFU lookup (hijacked
@@ -455,7 +472,7 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	// the SELECTOR = the olcRTC outbound itself = a DNS bootstrap loop (the tunnel can't come
 	// up because its own SFU can't be resolved). Fleet-inert (only when c.OLC != nil).
 	dnsRules := []map[string]any{}
-	if c.DNSAuto {
+	if c.DNSFakeIP {
 		// HTTPS/SVCB (браузерный ECH-запрос) отбиваем сразу: ответ нам не нужен, а каждый такой
 		// запрос — ещё один резолв в очередь через туннель. Первым правилом, чтобы не доходил
 		// до "google". Парсится на 1.12/1.13/1.14 (проверено check'ом на всех трёх).
@@ -468,7 +485,7 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		// Resolve the OTA host via the direct RU resolver so it maps to the fast RU-domestic IP.
 		map[string]any{"domain_suffix": otaDirectDomains, "action": "route", "server": "local"},
 	)
-	if c.DNSAuto {
+	if c.DNSFakeIP {
 		// Хост подписки — локально: иначе сломанный туннель забирает с собой и путь к починке.
 		dnsRules = append(dnsRules, map[string]any{
 			"domain_suffix": panelDomains, "action": "route", "server": "local",
@@ -485,6 +502,30 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 		})
 	}
 
+	dnsServers := []map[string]any{
+		{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": tagPick},
+		{"type": "local", "tag": "local"},
+	}
+	if c.DNSFakeIP {
+		// fakeip отдаёт синтетический адрес за микросекунды, а внутрь туннеля уезжает ИМЯ —
+		// резолвит уже сервер на выходе. Значит для заблокированного домена (а) подменить
+		// ответ на стороне РФ нечем, (б) резолву негде виснуть, (в) весь поток идёт ровно
+		// через выбранный пользователем узел. Диапазон 198.18.0.0/15 — тот же, что на роутерах.
+		dnsServers = append([]map[string]any{
+			{"type": "fakeip", "tag": tagFakeIP, "inet4_range": "198.18.0.0/15"},
+		}, dnsServers...)
+	}
+
+	if c.DNSFakeIP {
+		// Последним правилом: всё, что выше (RU-домены, OTA-хост, панель, olcRTC/vk-turn),
+		// уже ушло в local и резолвится по-настоящему. Сюда доходит только заблокированное.
+		// query_type A/AAAA — fakeip другие типы не отвечает (HTTPS/SVCB отбиты первым правилом).
+		dnsRules = append(dnsRules, map[string]any{
+			"rule_set": []string{tagRUBlocked}, "query_type": []string{"A", "AAAA"},
+			"action": "route", "server": tagFakeIP,
+		})
+	}
+
 	cfg := map[string]any{
 		"log": map[string]any{"level": "warn"},
 		// Persist downloaded rule-sets (and DNS rdrc) so the RU-direct lists
@@ -497,17 +538,15 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			// sing-box 1.12+ DNS server format. "google" (DoT through the proxy)
 			// resolves user traffic; "local" (the system resolver, direct) is used
 			// only to bootstrap the proxy server domains (see default_domain_resolver).
-			"servers": []map[string]any{
-				// ⛔ detour = tagAuto (urltest), НЕ tagPick (selector). Найдено 2026-07-27,
-				// доказано ЗАПУСКОМ: с "select" DNS уходил в узел, выбранный пользователем
-				// ВРУЧНУЮ (в логе `outbound/anytls[anytls]: connection to 8.8.8.8:853`), а naive
-				// намеренно исключён из auto-пула как душимый ТСПУ — значит выбравший naive гнал
-				// через задушенный канал КАЖДЫЙ резолв: отсюда зависания на 10–20 с. С "auto" тот
-				// же запрос уходит в живой узел пула (`outbound/vless[vless]`).
-				// Не возвращать tagPick: цена — весь DNS на здоровье одного ручного узла.
-				{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": dnsDetour(c)},
-				{"type": "local", "tag": "local"},
-			},
+			"servers": dnsServers,
+			// ⛔ detour = tagAuto (urltest), НЕ tagPick (selector). Найдено 2026-07-27,
+			// доказано ЗАПУСКОМ: с "select" DNS уходил в узел, выбранный пользователем
+			// ВРУЧНУЮ (в логе `outbound/anytls[anytls]: connection to 8.8.8.8:853`), а naive
+			// намеренно исключён из auto-пула как душимый ТСПУ — значит выбравший naive гнал
+			// через задушенный канал КАЖДЫЙ резолв: отсюда зависания на 10–20 с. С "auto" тот
+			// же запрос уходит в живой узел пула (`outbound/vless[vless]`).
+			// Не возвращать tagPick: цена — весь DNS на здоровье одного ручного узла.
+
 			// RU service domains (and, when olcRTC is on, the carrier domains) resolve via
 			// the system resolver (direct) — so the A/AAAA lookup isn't proxied, geoip-ru
 			// matches the REAL RU IP, and the olcRTC SFU lookup never bootstraps through the
@@ -558,7 +597,19 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			"rules": routeRules,
 		},
 	}
-	if c.DNSAuto {
+	if c.DNSFakeIP {
+		rs := cfg["route"].(map[string]any)["rule_set"].([]map[string]any)
+		cfg["route"].(map[string]any)["rule_set"] = append(rs, map[string]any{
+			"type": "remote", "tag": tagRUBlocked, "format": "binary",
+			"url": ruBlockedURL, "download_detour": "direct", "update_interval": "24h",
+		})
+		// fakeip-карта переживает перезапуск — иначе после рестарта уже выданные приложениям
+		// синтетические адреса перестают соответствовать доменам.
+		cfg["experimental"].(map[string]any)["cache_file"] = map[string]any{
+			"enabled": true, "store_rdrc": true, "store_fakeip": true,
+		}
+	}
+	if c.DNSFakeIP {
 		// Дефолт ядра — max(cache_capacity, 1024). Через туннель резолвится заметно больше, чем
 		// «только заблокированное» (VK/WB/Avito/Сбера в ru-списке НЕТ), 1024 записи вымываются
 		// быстро, и каждый промах снова идёт в туннель. Только под канареечным флагом.

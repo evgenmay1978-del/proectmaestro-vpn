@@ -353,16 +353,16 @@ func TestGenerateSingboxVKTurn(t *testing.T) {
 	}
 }
 
-// TestDNSGoesThroughAutoNotSelector фиксирует правку 2026-07-27.
-//
-// Зачем тест: DNS-сервер "google" раньше ходил через tagPick (селектор), то есть через узел,
-// выбранный пользователем ВРУЧНУЮ. naive намеренно вне auto-пула (душится ТСПУ), поэтому
-// выбравший naive гнал через задушенный канал каждый резолв — зависания 10–20 с. Проверено
-// запуском: с "select" резолв уходил в outbound/anytls, с "auto" — в outbound/vless.
-// Если кто-то вернёт tagPick «для консистентности» — тест обязан покраснеть.
-func TestDNSGoesThroughAutoNotSelector(t *testing.T) {
+// Тесты схемы fakeip (2026-07-28). Прежний TestDNSGoesThroughAutoNotSelector удалён вместе с
+// решением, которое он охранял: он требовал detour=tagAuto, а это ПРОТИВОРЕЧИТ требованию
+// owner'а «выбрал протокол вручную — работает именно этот протокол». Зависания резолва лечит
+// не обход выбранного узла, а fakeip: заблокированный домен на устройстве не резолвится вовсе.
+
+// TestDNSResolverFollowsManualPick — резолвер обязан ходить через ВЫБРАННЫЙ узел.
+// Если кто-то снова уведёт DNS на auto «чтобы не висло», тест покраснеет.
+func TestDNSResolverFollowsManualPick(t *testing.T) {
 	c := sampleCustomer()
-	c.DNSAuto = true // канареечный флаг: новая схема
+	c.DNSFakeIP = true
 	raw, err := GenerateSingbox(c)
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
@@ -371,59 +371,142 @@ func TestDNSGoesThroughAutoNotSelector(t *testing.T) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
-	dns, ok := cfg["dns"].(map[string]any)
-	if !ok {
-		t.Fatal("нет блока dns")
-	}
-
-	servers, _ := dns["servers"].([]any)
+	dns := cfg["dns"].(map[string]any)
 	var found bool
-	for _, s := range servers {
-		m := s.(map[string]any)
+	for _, srv := range dns["servers"].([]any) {
+		m := srv.(map[string]any)
 		if m["tag"] != "google" {
 			continue
 		}
 		found = true
-		if got := m["detour"]; got != tagAuto {
-			t.Errorf("DNS detour = %v, ожидался %q (urltest). Через селектор DNS уходит в "+
-				"вручную выбранный узел — это возвращает зависания резолва", got, tagAuto)
+		if got := m["detour"]; got != tagPick {
+			t.Errorf("DNS detour = %v, ожидался %q: при ручном выборе протокола резолв обязан "+
+				"идти через ТОТ ЖЕ узел, иначе трафик и резолв разъезжаются", got, tagPick)
 		}
 	}
 	if !found {
 		t.Fatal("не нашёл DNS-сервер с тегом google")
 	}
+}
 
-	rules, _ := dns["rules"].([]any)
-	if len(rules) == 0 {
-		t.Fatal("dns.rules пуст")
+// TestFakeIPOnlyForBlocked — fakeip обязан выдаваться ТОЛЬКО по списку заблокированного.
+// Если сделать его безусловным (final или правило без rule_set), geoip перестанет видеть
+// настоящие адреса и российские сайты (wildberries, avito) уедут в туннель — измерено запуском.
+func TestFakeIPOnlyForBlocked(t *testing.T) {
+	c := sampleCustomer()
+	c.DNSFakeIP = true
+	raw, err := GenerateSingbox(c)
+	if err != nil {
+		t.Fatalf("GenerateSingbox: %v", err)
 	}
-	first, _ := rules[0].(map[string]any)
-	if first["action"] != "reject" {
-		t.Errorf("первое dns-правило = %v, ожидался reject HTTPS/SVCB: иначе браузерные "+
-			"ECH-запросы уходят резолвиться через туннель", first["action"])
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
 	}
-
-	var panelDirect bool
-	for _, r := range rules {
+	dns := cfg["dns"].(map[string]any)
+	if dns["final"] != "google" {
+		t.Errorf("dns.final = %v, ожидался google: fakeip не должен быть резолвером по умолчанию",
+			dns["final"])
+	}
+	var fakeipSrv bool
+	for _, srv := range dns["servers"].([]any) {
+		if srv.(map[string]any)["tag"] == tagFakeIP {
+			fakeipSrv = true
+		}
+	}
+	if !fakeipSrv {
+		t.Fatalf("под канареечным флагом нет DNS-сервера %q", tagFakeIP)
+	}
+	var ok bool
+	for _, r := range dns["rules"].([]any) {
 		m := r.(map[string]any)
-		if m["server"] != "local" {
+		if m["server"] != tagFakeIP {
 			continue
 		}
-		if ds, ok := m["domain_suffix"].([]any); ok {
-			for _, d := range ds {
-				if d == "wapmixx.ru" {
-					panelDirect = true
+		rs, _ := m["rule_set"].([]any)
+		if len(rs) != 1 || rs[0] != tagRUBlocked {
+			t.Errorf("правило fakeip привязано к %v, ожидался ровно [%s]", m["rule_set"], tagRUBlocked)
+		}
+		qt, _ := m["query_type"].([]any)
+		if len(qt) != 2 {
+			t.Errorf("query_type у fakeip = %v, ожидались A и AAAA", m["query_type"])
+		}
+		ok = true
+	}
+	if !ok {
+		t.Error("нет dns-правила, отправляющего заблокированные домены в fakeip")
+	}
+}
+
+// TestBlockedBypassesResolve — перехват обязан стоять ДО правила resolve.
+// Иначе resolve разрешит имя локальным (российским) резолвером и в туннель уедет IP вместо
+// имени: проверено запуском, в логе было "connection to 172.66.0.227:443" вместо "x.com:443".
+func TestBlockedBypassesResolve(t *testing.T) {
+	c := sampleCustomer()
+	c.DNSFakeIP = true
+	raw, err := GenerateSingbox(c)
+	if err != nil {
+		t.Fatalf("GenerateSingbox: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	rules := cfg["route"].(map[string]any)["rules"].([]any)
+	blockedAt, resolveAt := -1, -1
+	for i, r := range rules {
+		m := r.(map[string]any)
+		if m["action"] == "resolve" && resolveAt < 0 {
+			resolveAt = i
+		}
+		if rs, okk := m["rule_set"].([]any); okk && len(rs) == 1 && rs[0] == tagRUBlocked && blockedAt < 0 {
+			blockedAt = i
+		}
+	}
+	if blockedAt < 0 {
+		t.Fatalf("в route.rules нет перехвата по списку %q", tagRUBlocked)
+	}
+	if resolveAt >= 0 && blockedAt > resolveAt {
+		t.Errorf("перехват %q стоит на позиции %d, ПОСЛЕ resolve (%d) — имя успеет разрешиться "+
+			"локально, и fakeip потеряет смысл", tagRUBlocked, blockedAt, resolveAt)
+	}
+}
+
+// TestPanelHostAlwaysDirect — хост подписки обязан идти мимо туннеля и резолвиться локально,
+// иначе больной туннель забирает с собой возможность получить новый конфиг.
+func TestPanelHostAlwaysDirect(t *testing.T) {
+	c := sampleCustomer()
+	c.DNSFakeIP = true
+	raw, err := GenerateSingbox(c)
+	if err != nil {
+		t.Fatalf("GenerateSingbox: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	has := func(rules []any, key, want string) bool {
+		for _, r := range rules {
+			m := r.(map[string]any)
+			if m[key] != want {
+				continue
+			}
+			if ds, okk := m["domain_suffix"].([]any); okk {
+				for _, d := range ds {
+					if d == "wapmixx.ru" {
+						return true
+					}
 				}
 			}
 		}
+		return false
 	}
-	if !panelDirect {
-		t.Error("нет правила «wapmixx.ru → local»: хост подписки будет резолвиться сквозь " +
-			"туннель, и сломанный туннель заберёт с собой путь к починке")
+	if !has(cfg["dns"].(map[string]any)["rules"].([]any), "server", "local") {
+		t.Error("нет dns-правила «wapmixx.ru → local»: хост подписки получит фейковый адрес")
 	}
-
-	if cap, ok := dns["cache_capacity"]; !ok || cap == nil {
-		t.Error("нет dns.cache_capacity: дефолт 1024 вымывается, каждый промах идёт в туннель")
+	if !has(cfg["route"].(map[string]any)["rules"].([]any), "outbound", "direct") {
+		t.Error("нет route-правила «wapmixx.ru → direct»: проверено запуском — без него хост " +
+			"подписки уходит в туннель")
 	}
 }
 
@@ -432,7 +515,7 @@ func TestDNSGoesThroughAutoNotSelector(t *testing.T) {
 // новую схему безусловной, не убрав флаг из кода, этот тест покраснеет и напомнит,
 // что промоушен — отдельное осознанное решение, а не побочный эффект правки.
 func TestDNSCanaryIsOptIn(t *testing.T) {
-	raw, err := GenerateSingbox(sampleCustomer()) // DNSAuto не выставлен
+	raw, err := GenerateSingbox(sampleCustomer()) // DNSFakeIP не выставлен
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
 	}
