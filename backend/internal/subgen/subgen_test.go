@@ -361,7 +361,9 @@ func TestGenerateSingboxVKTurn(t *testing.T) {
 // запуском: с "select" резолв уходил в outbound/anytls, с "auto" — в outbound/vless.
 // Если кто-то вернёт tagPick «для консистентности» — тест обязан покраснеть.
 func TestDNSGoesThroughAutoNotSelector(t *testing.T) {
-	raw, err := GenerateSingbox(sampleCustomer())
+	c := sampleCustomer()
+	c.DNSAuto = true // канареечный флаг: новая схема
+	raw, err := GenerateSingbox(c)
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
 	}
@@ -422,5 +424,47 @@ func TestDNSGoesThroughAutoNotSelector(t *testing.T) {
 
 	if cap, ok := dns["cache_capacity"]; !ok || cap == nil {
 		t.Error("нет dns.cache_capacity: дефолт 1024 вымывается, каждый промах идёт в туннель")
+	}
+}
+
+// TestDNSCanaryIsOptIn — главная гарантия «после обновления никто не пострадал»:
+// БЕЗ канареечного флага конфиг клиента обязан остаться ровно прежним. Если кто-то сделает
+// новую схему безусловной, не убрав флаг из кода, этот тест покраснеет и напомнит,
+// что промоушен — отдельное осознанное решение, а не побочный эффект правки.
+func TestDNSCanaryIsOptIn(t *testing.T) {
+	raw, err := GenerateSingbox(sampleCustomer()) // DNSAuto не выставлен
+	if err != nil {
+		t.Fatalf("GenerateSingbox: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	dns := cfg["dns"].(map[string]any)
+
+	for _, s := range dns["servers"].([]any) {
+		m := s.(map[string]any)
+		if m["tag"] == "google" && m["detour"] != tagPick {
+			t.Errorf("без канареечного флага detour = %v, должен остаться %q: "+
+				"иначе новая схема уедет всему флоту без канарейки", m["detour"], tagPick)
+		}
+	}
+	rules := dns["rules"].([]any)
+	first := rules[0].(map[string]any)
+	if first["action"] == "reject" {
+		t.Error("без флага первым правилом стоит reject — конфиг клиентов изменился")
+	}
+	for _, r := range rules {
+		m := r.(map[string]any)
+		if ds, ok := m["domain_suffix"].([]any); ok {
+			for _, d := range ds {
+				if d == "wapmixx.ru" {
+					t.Error("без флага появилось правило wapmixx.ru → local: конфиг изменился")
+				}
+			}
+		}
+	}
+	if _, ok := dns["cache_capacity"]; ok {
+		t.Error("без флага появился cache_capacity: конфиг клиентов изменился")
 	}
 }

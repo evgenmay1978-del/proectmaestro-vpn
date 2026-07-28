@@ -203,6 +203,22 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// dnsAutoLogins — КАНАРЕЕЧНЫЙ allowlist новой схемы DNS (2026-07-28), логины через запятую в
+// MAESTRO_DNS_AUTO_LOGINS. Пусто = НИКТО, то есть по умолчанию конфиг всех клиентов остаётся
+// байт-в-байт прежним. Так устроено намеренно: в приложении нельзя добавить профиль руками
+// (экран new-profile открывается только по внешнему импорт-интенту, MainActivity.kt:547), значит
+// канарейка возможна только со стороны сервера — одному логину новый блок, остальным старый.
+// После успешной канарейки: сделать новую схему безусловной в subgen и удалить этот allowlist.
+var dnsAutoLogins = func() map[string]bool {
+	m := map[string]bool{}
+	for _, l := range strings.Split(os.Getenv("MAESTRO_DNS_AUTO_LOGINS"), ",") {
+		if l = strings.ToLower(strings.TrimSpace(l)); l != "" {
+			m[l] = true
+		}
+	}
+	return m
+}()
+
 // awgMinVC is the minimum app versionCode that may receive an "awg" endpoint in its /sub
 // (= the version that ships the with_awg libbox). Default 999999 = OFF: until
 // MAESTRO_AWG_MIN_VC is set to the shipped AWG version, NO client qualifies, so an awg
@@ -311,6 +327,9 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	// awg endpoint → strip WG for any client older than that (or non-SFA, e.g. Karing/curl,
 	// which return 0) so it NEVER reaches a device that can't handle it.
 	sc := c.ToSubgen()
+	// Канарейка новой схемы DNS: только логины из MAESTRO_DNS_AUTO_LOGINS. Остальные получают
+	// прежний конфиг без единого изменённого байта — проверяется тестом TestDNSCanaryIsOptIn.
+	sc.DNSAuto = dnsAutoLogins[strings.ToLower(c.Login)]
 	if sc.WG != nil && appVersionCode(r.UserAgent()) < awgMinVC {
 		sc.WG = nil
 	}

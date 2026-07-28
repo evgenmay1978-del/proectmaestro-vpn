@@ -73,6 +73,16 @@ type Customer struct {
 	WG     *WGCreds     // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
 	OLC    *OLCRTCCreds // olcRTC (WebRTC video-disguise) — opt-in fallback; ⛔ emitted ONLY for login "wapmix" (creds-gate in the /sub handler), nil otherwise
 	VKTurn *VKTurnCreds // VK TURN/DTLS carrier — mobile-only manual fallback; gated by the /sub handler
+
+	// DNSAuto — КАНАРЕЕЧНЫЙ флаг новой схемы DNS (2026-07-28). Ставится в /sub-хендлере из
+	// allowlist'а MAESTRO_DNS_AUTO_LOGINS. Пока флага нет, конфиг клиента остаётся БАЙТ-В-БАЙТ
+	// прежним — это и есть гарантия «после обновления никто не пострадал».
+	//
+	// В приложении НЕЛЬЗЯ добавить профиль руками (экран new-profile открывается только по
+	// внешнему импорт-интенту, MainActivity.kt:547), поэтому канарейка возможна только так:
+	// сервер отдаёт новый блок ОДНОМУ логину, его устройство подхватывает при очередном опросе.
+	// После успешной канарейки: сделать новую схему безусловной и удалить и флаг, и allowlist.
+	DNSAuto bool
 }
 
 // VKTurnCreds is the WireGuard identity carried by the app's local WDTT helper.
@@ -253,6 +263,23 @@ var panelDomains = []string{
 	"wapmixx.ru",
 }
 
+// dnsDetour выбирает, через что ходит DoT-резолвер.
+//
+// tagPick (селектор) = узел, выбранный пользователем ВРУЧНУЮ. Доказано запуском 2026-07-27:
+// при ручном выборе anytls резолв уходил в `outbound/anytls[anytls]`, при tagAuto — в живой
+// узел пула. naive намеренно вне auto-пула (душится ТСПУ), поэтому выбравший naive гнал через
+// задушенный канал КАЖДЫЙ резолв — отсюда зависания 10–20 с.
+//
+// Пока идёт канарейка, старое поведение остаётся у всех, кроме логинов из allowlist'а.
+// ⚠️ Известный размен у tagAuto: если ВЕСЬ auto-пул мёртв, а ручной узел жив — ответа не будет
+// вовсе (измерено). Поэтому и канарейка: проверяем на одном аккаунте, потом делаем безусловным.
+func dnsDetour(c Customer) string {
+	if c.DNSAuto {
+		return tagAuto
+	}
+	return tagPick
+}
+
 // GenerateSingbox renders the customer's sing-box configuration as JSON.
 func GenerateSingbox(c Customer) ([]byte, error) {
 	outbounds := []map[string]any{}
@@ -427,16 +454,25 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	// into sing-box's resolver) would fall to the "google" DoT server, which detours through
 	// the SELECTOR = the olcRTC outbound itself = a DNS bootstrap loop (the tunnel can't come
 	// up because its own SFU can't be resolved). Fleet-inert (only when c.OLC != nil).
-	dnsRules := []map[string]any{
+	dnsRules := []map[string]any{}
+	if c.DNSAuto {
 		// HTTPS/SVCB (браузерный ECH-запрос) отбиваем сразу: ответ нам не нужен, а каждый такой
 		// запрос — ещё один резолв в очередь через туннель. Первым правилом, чтобы не доходил
 		// до "google". Парсится на 1.12/1.13/1.14 (проверено check'ом на всех трёх).
-		{"query_type": []string{"HTTPS", "SVCB"}, "action": "reject"},
-		{"rule_set": []string{tagRUDomains}, "action": "route", "server": "local"},
+		dnsRules = append(dnsRules, map[string]any{
+			"query_type": []string{"HTTPS", "SVCB"}, "action": "reject",
+		})
+	}
+	dnsRules = append(dnsRules,
+		map[string]any{"rule_set": []string{tagRUDomains}, "action": "route", "server": "local"},
 		// Resolve the OTA host via the direct RU resolver so it maps to the fast RU-domestic IP.
-		{"domain_suffix": otaDirectDomains, "action": "route", "server": "local"},
-		// Хост подписки — тоже локально: иначе сломанный туннель забирает с собой и путь к починке.
-		{"domain_suffix": panelDomains, "action": "route", "server": "local"},
+		map[string]any{"domain_suffix": otaDirectDomains, "action": "route", "server": "local"},
+	)
+	if c.DNSAuto {
+		// Хост подписки — локально: иначе сломанный туннель забирает с собой и путь к починке.
+		dnsRules = append(dnsRules, map[string]any{
+			"domain_suffix": panelDomains, "action": "route", "server": "local",
+		})
 	}
 	if c.OLC != nil {
 		dnsRules = append(dnsRules, map[string]any{
@@ -469,7 +505,7 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 				// через задушенный канал КАЖДЫЙ резолв: отсюда зависания на 10–20 с. С "auto" тот
 				// же запрос уходит в живой узел пула (`outbound/vless[vless]`).
 				// Не возвращать tagPick: цена — весь DNS на здоровье одного ручного узла.
-				{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": tagAuto},
+				{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": dnsDetour(c)},
 				{"type": "local", "tag": "local"},
 			},
 			// RU service domains (and, when olcRTC is on, the carrier domains) resolve via
@@ -478,10 +514,6 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			// tunnel. geoip can't match a domain pre-resolution, so only DOMAIN sets go here.
 			"rules": dnsRules,
 			"final": "google",
-			// Дефолт ядра — max(cache_capacity, 1024). При том, что через туннель резолвится
-			// заметно больше, чем «только заблокированное» (VK/WB/Avito/Сбер в ru-списке НЕТ),
-			// 1024 записи вымываются быстро и каждый промах снова идёт в туннель.
-			"cache_capacity": 4096,
 		},
 		"inbounds": []map[string]any{{
 			"type": "tun", "tag": "tun-in",
@@ -525,6 +557,12 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			},
 			"rules": routeRules,
 		},
+	}
+	if c.DNSAuto {
+		// Дефолт ядра — max(cache_capacity, 1024). Через туннель резолвится заметно больше, чем
+		// «только заблокированное» (VK/WB/Avito/Сбера в ru-списке НЕТ), 1024 записи вымываются
+		// быстро, и каждый промах снова идёт в туннель. Только под канареечным флагом.
+		cfg["dns"].(map[string]any)["cache_capacity"] = 4096
 	}
 	if len(endpoints) > 0 {
 		cfg["endpoints"] = endpoints
