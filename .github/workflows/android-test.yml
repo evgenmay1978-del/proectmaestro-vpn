@@ -159,7 +159,11 @@ jobs:
           echo "::error::gradle build failed after retries" >&2
           exit 1
 
+      # Та же причина, что в android.yml: выгрузка — удобство, а не результат гейта. Пока квота
+      # артефактов выбрана, её падение уводило ИДУЩИЕ ПОСЛЕ unit-тесты в skipped, и гейт переставал
+      # проверять то, ради чего существует. Сборка и тесты остаются блокирующими.
       - name: Upload test APK (artifact only — NO Release, NO OTA)
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: maestrovpn-tv-test-apk
@@ -180,6 +184,7 @@ jobs:
 
       - name: Upload unit-test report
         if: always()
+        continue-on-error: true # тоже выгрузка: не должна ронять гейт из-за квоты артефактов
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
