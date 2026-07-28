@@ -203,21 +203,23 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// dnsFakeIPLogins — КАНАРЕЕЧНЫЙ allowlist схемы fakeip (2026-07-28), логины через запятую в
-// MAESTRO_DNS_FAKEIP_LOGINS. Пусто = НИКТО, то есть по умолчанию конфиг всех клиентов остаётся
-// байт-в-байт прежним. Так устроено намеренно: в приложении нельзя добавить профиль руками
-// (экран new-profile открывается только по внешнему импорт-интенту, MainActivity.kt:547), значит
-// канарейка возможна только со стороны сервера — одному логину новый блок, остальным старый.
-// После успешной канарейки: сделать новую схему безусловной в subgen и удалить этот allowlist.
-var dnsFakeIPLogins = func() map[string]bool {
-	m := map[string]bool{}
-	for _, l := range strings.Split(os.Getenv("MAESTRO_DNS_FAKEIP_LOGINS"), ",") {
-		if l = strings.ToLower(strings.TrimSpace(l)); l != "" {
-			m[l] = true
-		}
+// dnsFakeIPOff — АВАРИЙНЫЙ ВЫКЛЮЧАТЕЛЬ схемы fakeip. По умолчанию схема ВКЛЮЧЕНА у всех
+// (промоушен 2026-07-28 после канарейки на телефоне owner'а). Выключается без пересборки:
+// MAESTRO_DNS_FAKEIP=0 (или off/false/no) в /etc/maestro-panel.env + рестарт панели — флот
+// вернётся к прежнему конфигу в пределах 15 минут (интервал автообновления подписки).
+// Существует именно для того, чтобы откат не требовал ни сборки, ни отката бинаря.
+// Переменная, а не константа-из-env: тест обязан уметь дёрнуть рубильник в обе стороны,
+// иначе инверсию логики (`= dnsFakeIPOff` вместо `= !dnsFakeIPOff`) не поймает НИЧТО —
+// проверено: без этого теста поломка проходила зелёной.
+var dnsFakeIPOff = fakeIPDisabledByEnv()
+
+func fakeIPDisabledByEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAESTRO_DNS_FAKEIP"))) {
+	case "0", "off", "false", "no":
+		return true
 	}
-	return m
-}()
+	return false
+}
 
 // awgMinVC is the minimum app versionCode that may receive an "awg" endpoint in its /sub
 // (= the version that ships the with_awg libbox). Default 999999 = OFF: until
@@ -327,9 +329,8 @@ func (s *Server) handleSub(w http.ResponseWriter, r *http.Request) {
 	// awg endpoint → strip WG for any client older than that (or non-SFA, e.g. Karing/curl,
 	// which return 0) so it NEVER reaches a device that can't handle it.
 	sc := c.ToSubgen()
-	// Канарейка схемы fakeip: только логины из MAESTRO_DNS_FAKEIP_LOGINS. Остальные получают
-	// прежний конфиг без единого изменённого байта — проверяется тестом TestDNSCanaryIsOptIn.
-	sc.DNSFakeIP = dnsFakeIPLogins[strings.ToLower(c.Login)]
+	// Схема fakeip — поведение ПО УМОЛЧАНИЮ. Выключается только аварийным рубильником.
+	sc.DNSFakeIP = !dnsFakeIPOff
 	if sc.WG != nil && appVersionCode(r.UserAgent()) < awgMinVC {
 		sc.WG = nil
 	}

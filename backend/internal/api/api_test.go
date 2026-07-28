@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -226,5 +227,38 @@ func TestRenewExtendsThenServes(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("after renew status = %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestSubServesFakeIPByDefault — /sub обязан отдавать схему fakeip БЕЗ каких-либо настроек
+// (промоушен 2026-07-28), а аварийный рубильник — возвращать прежний конфиг. Тест закрывает
+// дыру, найденную поломкой: инверсия `sc.DNSFakeIP = dnsFakeIPOff` не роняла ни один тест.
+func TestSubServesFakeIPByDefault(t *testing.T) {
+	srv, st := newTestServer(t)
+	defer srv.Close()
+	_ = st.Put(&store.Customer{
+		Login: "bob", SubToken: "tok-bob", Expires: time.Now().Add(24 * time.Hour),
+		VLESS: &subgen.VLESSCreds{Server: "wapmixx.ru", Port: 443, UUID: "u"},
+	})
+	body := func() string {
+		resp, err := http.Get(srv.URL + "/sub/tok-bob")
+		if err != nil {
+			t.Fatalf("GET: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+
+	saved := dnsFakeIPOff
+	defer func() { dnsFakeIPOff = saved }()
+
+	dnsFakeIPOff = false
+	if got := body(); !strings.Contains(got, `"fakeip"`) {
+		t.Error("по умолчанию /sub отдал конфиг БЕЗ fakeip — схема не выкачена на флот")
+	}
+	dnsFakeIPOff = true
+	if got := body(); strings.Contains(got, `"fakeip"`) {
+		t.Error("аварийный рубильник не сработал: fakeip остался — откатить флот будет нечем")
 	}
 }

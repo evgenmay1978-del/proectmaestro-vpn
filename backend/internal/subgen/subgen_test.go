@@ -361,9 +361,7 @@ func TestGenerateSingboxVKTurn(t *testing.T) {
 // TestDNSResolverFollowsManualPick — резолвер обязан ходить через ВЫБРАННЫЙ узел.
 // Если кто-то снова уведёт DNS на auto «чтобы не висло», тест покраснеет.
 func TestDNSResolverFollowsManualPick(t *testing.T) {
-	c := sampleCustomer()
-	c.DNSFakeIP = true
-	raw, err := GenerateSingbox(c)
+	raw, err := GenerateSingbox(withFakeIP(sampleCustomer()))
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
 	}
@@ -393,9 +391,7 @@ func TestDNSResolverFollowsManualPick(t *testing.T) {
 // Если сделать его безусловным (final или правило без rule_set), geoip перестанет видеть
 // настоящие адреса и российские сайты (wildberries, avito) уедут в туннель — измерено запуском.
 func TestFakeIPOnlyForBlocked(t *testing.T) {
-	c := sampleCustomer()
-	c.DNSFakeIP = true
-	raw, err := GenerateSingbox(c)
+	raw, err := GenerateSingbox(withFakeIP(sampleCustomer()))
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
 	}
@@ -442,9 +438,7 @@ func TestFakeIPOnlyForBlocked(t *testing.T) {
 // Иначе resolve разрешит имя локальным (российским) резолвером и в туннель уедет IP вместо
 // имени: проверено запуском, в логе было "connection to 172.66.0.227:443" вместо "x.com:443".
 func TestBlockedBypassesResolve(t *testing.T) {
-	c := sampleCustomer()
-	c.DNSFakeIP = true
-	raw, err := GenerateSingbox(c)
+	raw, err := GenerateSingbox(withFakeIP(sampleCustomer()))
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
 	}
@@ -475,9 +469,7 @@ func TestBlockedBypassesResolve(t *testing.T) {
 // TestPanelHostAlwaysDirect — хост подписки обязан идти мимо туннеля и резолвиться локально,
 // иначе больной туннель забирает с собой возможность получить новый конфиг.
 func TestPanelHostAlwaysDirect(t *testing.T) {
-	c := sampleCustomer()
-	c.DNSFakeIP = true
-	raw, err := GenerateSingbox(c)
+	raw, err := GenerateSingbox(withFakeIP(sampleCustomer()))
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
 	}
@@ -510,12 +502,13 @@ func TestPanelHostAlwaysDirect(t *testing.T) {
 	}
 }
 
-// TestDNSCanaryIsOptIn — главная гарантия «после обновления никто не пострадал»:
-// БЕЗ канареечного флага конфиг клиента обязан остаться ровно прежним. Если кто-то сделает
-// новую схему безусловной, не убрав флаг из кода, этот тест покраснеет и напомнит,
-// что промоушен — отдельное осознанное решение, а не побочный эффект правки.
-func TestDNSCanaryIsOptIn(t *testing.T) {
-	raw, err := GenerateSingbox(sampleCustomer()) // DNSFakeIP не выставлен
+// TestFakeIPSchemeShape — форма схемы, выкаченной на весь флот 2026-07-28 (промоушен после
+// канарейки: owner подтвердил, что заблокированное открывается на любом протоколе, а Госуслуги
+// перестали видеть VPN). Сторожит ровно то, что доказано запуском и что легко сломать правкой:
+// fakeip есть, но НЕ резолвер по умолчанию; заблокированное перехватывается ДО resolve;
+// хост подписки идёт мимо туннеля; резолвер следует ручному выбору.
+func TestFakeIPSchemeShape(t *testing.T) {
+	raw, err := GenerateSingbox(withFakeIP(sampleCustomer()))
 	if err != nil {
 		t.Fatalf("GenerateSingbox: %v", err)
 	}
@@ -524,30 +517,62 @@ func TestDNSCanaryIsOptIn(t *testing.T) {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
 	dns := cfg["dns"].(map[string]any)
+	if dns["final"] == tagFakeIP {
+		t.Error("fakeip стал резолвером по умолчанию: geoip перестанет видеть настоящие адреса " +
+			"и российские сайты уедут в туннель")
+	}
+	var hasFakeIP bool
+	for _, srv := range dns["servers"].([]any) {
+		if srv.(map[string]any)["tag"] == tagFakeIP {
+			hasFakeIP = true
+		}
+	}
+	if !hasFakeIP {
+		t.Fatal("нет DNS-сервера fakeip — схема потеряна")
+	}
+	var hasRuleSet bool
+	for _, rs := range cfg["route"].(map[string]any)["rule_set"].([]any) {
+		if rs.(map[string]any)["tag"] == tagRUBlocked {
+			hasRuleSet = true
+		}
+	}
+	if !hasRuleSet {
+		t.Errorf("не подключён rule_set %q — fakeip не на что опереться", tagRUBlocked)
+	}
+}
 
-	for _, s := range dns["servers"].([]any) {
-		m := s.(map[string]any)
+// TestFakeIPCanBeSwitchedOff — аварийный выключатель обязан возвращать ПРЕЖНИЙ конфиг:
+// без fakeip-сервера, без ru-blocked. Это единственный способ откатить флот без пересборки,
+// поэтому он должен продолжать работать даже после того, как схема стала поведением по умолчанию.
+func TestFakeIPCanBeSwitchedOff(t *testing.T) {
+	raw, err := GenerateSingbox(sampleCustomer()) // DNSFakeIP=false — рубильник выключил схему
+	if err != nil {
+		t.Fatalf("GenerateSingbox: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	dns := cfg["dns"].(map[string]any)
+	for _, srv := range dns["servers"].([]any) {
+		m := srv.(map[string]any)
+		if m["tag"] == tagFakeIP {
+			t.Error("выключатель не убрал fakeip-сервер — откатить флот будет нечем")
+		}
 		if m["tag"] == "google" && m["detour"] != tagPick {
-			t.Errorf("без канареечного флага detour = %v, должен остаться %q: "+
-				"иначе новая схема уедет всему флоту без канарейки", m["detour"], tagPick)
+			t.Errorf("detour = %v, ожидался %q", m["detour"], tagPick)
 		}
 	}
-	rules := dns["rules"].([]any)
-	first := rules[0].(map[string]any)
-	if first["action"] == "reject" {
-		t.Error("без флага первым правилом стоит reject — конфиг клиентов изменился")
-	}
-	for _, r := range rules {
-		m := r.(map[string]any)
-		if ds, ok := m["domain_suffix"].([]any); ok {
-			for _, d := range ds {
-				if d == "wapmixx.ru" {
-					t.Error("без флага появилось правило wapmixx.ru → local: конфиг изменился")
-				}
-			}
+	for _, rs := range cfg["route"].(map[string]any)["rule_set"].([]any) {
+		if rs.(map[string]any)["tag"] == tagRUBlocked {
+			t.Error("выключатель не убрал rule_set ru-blocked")
 		}
 	}
-	if _, ok := dns["cache_capacity"]; ok {
-		t.Error("без флага появился cache_capacity: конфиг клиентов изменился")
-	}
+}
+
+// withFakeIP — схема fakeip как поведение по умолчанию (в бою флаг ставит /sub-хендлер из
+// аварийного рубильника MAESTRO_DNS_FAKEIP; в тестах ставим явно, чтобы не зависеть от env).
+func withFakeIP(c Customer) Customer {
+	c.DNSFakeIP = true
+	return c
 }
