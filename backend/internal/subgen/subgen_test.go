@@ -352,3 +352,75 @@ func TestGenerateSingboxVKTurn(t *testing.T) {
 		t.Error("vk-turn data leaked into config without VKTurn creds")
 	}
 }
+
+// TestDNSGoesThroughAutoNotSelector фиксирует правку 2026-07-27.
+//
+// Зачем тест: DNS-сервер "google" раньше ходил через tagPick (селектор), то есть через узел,
+// выбранный пользователем ВРУЧНУЮ. naive намеренно вне auto-пула (душится ТСПУ), поэтому
+// выбравший naive гнал через задушенный канал каждый резолв — зависания 10–20 с. Проверено
+// запуском: с "select" резолв уходил в outbound/anytls, с "auto" — в outbound/vless.
+// Если кто-то вернёт tagPick «для консистентности» — тест обязан покраснеть.
+func TestDNSGoesThroughAutoNotSelector(t *testing.T) {
+	raw, err := GenerateSingbox(sampleCustomer())
+	if err != nil {
+		t.Fatalf("GenerateSingbox: %v", err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	dns, ok := cfg["dns"].(map[string]any)
+	if !ok {
+		t.Fatal("нет блока dns")
+	}
+
+	servers, _ := dns["servers"].([]any)
+	var found bool
+	for _, s := range servers {
+		m := s.(map[string]any)
+		if m["tag"] != "google" {
+			continue
+		}
+		found = true
+		if got := m["detour"]; got != tagAuto {
+			t.Errorf("DNS detour = %v, ожидался %q (urltest). Через селектор DNS уходит в "+
+				"вручную выбранный узел — это возвращает зависания резолва", got, tagAuto)
+		}
+	}
+	if !found {
+		t.Fatal("не нашёл DNS-сервер с тегом google")
+	}
+
+	rules, _ := dns["rules"].([]any)
+	if len(rules) == 0 {
+		t.Fatal("dns.rules пуст")
+	}
+	first, _ := rules[0].(map[string]any)
+	if first["action"] != "reject" {
+		t.Errorf("первое dns-правило = %v, ожидался reject HTTPS/SVCB: иначе браузерные "+
+			"ECH-запросы уходят резолвиться через туннель", first["action"])
+	}
+
+	var panelDirect bool
+	for _, r := range rules {
+		m := r.(map[string]any)
+		if m["server"] != "local" {
+			continue
+		}
+		if ds, ok := m["domain_suffix"].([]any); ok {
+			for _, d := range ds {
+				if d == "wapmixx.ru" {
+					panelDirect = true
+				}
+			}
+		}
+	}
+	if !panelDirect {
+		t.Error("нет правила «wapmixx.ru → local»: хост подписки будет резолвиться сквозь " +
+			"туннель, и сломанный туннель заберёт с собой путь к починке")
+	}
+
+	if cap, ok := dns["cache_capacity"]; !ok || cap == nil {
+		t.Error("нет dns.cache_capacity: дефолт 1024 вымывается, каждый промах идёт в туннель")
+	}
+}

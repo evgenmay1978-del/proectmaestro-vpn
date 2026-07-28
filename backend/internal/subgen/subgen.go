@@ -239,6 +239,20 @@ var otaDirectDomains = []string{
 	"storage.yandexcloud.net",
 }
 
+// panelDomains — хост control-plane (/sub, /claim, /report). Резолвится ЛОКАЛЬНЫМ резолвером,
+// а не DoT-сервером через туннель.
+//
+// Почему (найдено 2026-07-27): rule-set ru-direct-domains — это 152 ГЕО-домена (.spb.ru, gov.ru,
+// nalog.ru…), и wapmixx.ru в него НЕ входит. Значит имя панели резолвилось сквозь туннель — в живом
+// логе `dns: lookup succeed for wapmixx.ru` шёл сразу после `outbound connection to 8.8.8.8:853`.
+// На ТВ приложение не исключает свой трафик из tun (WdttVpnPolicy.kt: wdttOwnPackageBypass требует
+// !isTelevision), поэтому при больном туннеле терялась и возможность обновить подписку, то есть
+// починиться. ⚠️ Плата честная: ответ отдаёт провайдерский резолвер, его можно подменить. Выбор
+// осознанный: подменённый адрес панели виден по TLS-ошибке, а зависший резолв не виден никак.
+var panelDomains = []string{
+	"wapmixx.ru",
+}
+
 // GenerateSingbox renders the customer's sing-box configuration as JSON.
 func GenerateSingbox(c Customer) ([]byte, error) {
 	outbounds := []map[string]any{}
@@ -414,9 +428,15 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	// the SELECTOR = the olcRTC outbound itself = a DNS bootstrap loop (the tunnel can't come
 	// up because its own SFU can't be resolved). Fleet-inert (only when c.OLC != nil).
 	dnsRules := []map[string]any{
+		// HTTPS/SVCB (браузерный ECH-запрос) отбиваем сразу: ответ нам не нужен, а каждый такой
+		// запрос — ещё один резолв в очередь через туннель. Первым правилом, чтобы не доходил
+		// до "google". Парсится на 1.12/1.13/1.14 (проверено check'ом на всех трёх).
+		{"query_type": []string{"HTTPS", "SVCB"}, "action": "reject"},
 		{"rule_set": []string{tagRUDomains}, "action": "route", "server": "local"},
 		// Resolve the OTA host via the direct RU resolver so it maps to the fast RU-domestic IP.
 		{"domain_suffix": otaDirectDomains, "action": "route", "server": "local"},
+		// Хост подписки — тоже локально: иначе сломанный туннель забирает с собой и путь к починке.
+		{"domain_suffix": panelDomains, "action": "route", "server": "local"},
 	}
 	if c.OLC != nil {
 		dnsRules = append(dnsRules, map[string]any{
@@ -442,7 +462,14 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			// resolves user traffic; "local" (the system resolver, direct) is used
 			// only to bootstrap the proxy server domains (see default_domain_resolver).
 			"servers": []map[string]any{
-				{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": tagPick},
+				// ⛔ detour = tagAuto (urltest), НЕ tagPick (selector). Найдено 2026-07-27,
+				// доказано ЗАПУСКОМ: с "select" DNS уходил в узел, выбранный пользователем
+				// ВРУЧНУЮ (в логе `outbound/anytls[anytls]: connection to 8.8.8.8:853`), а naive
+				// намеренно исключён из auto-пула как душимый ТСПУ — значит выбравший naive гнал
+				// через задушенный канал КАЖДЫЙ резолв: отсюда зависания на 10–20 с. С "auto" тот
+				// же запрос уходит в живой узел пула (`outbound/vless[vless]`).
+				// Не возвращать tagPick: цена — весь DNS на здоровье одного ручного узла.
+				{"type": "tls", "tag": "google", "server": "8.8.8.8", "detour": tagAuto},
 				{"type": "local", "tag": "local"},
 			},
 			// RU service domains (and, when olcRTC is on, the carrier domains) resolve via
@@ -451,6 +478,10 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 			// tunnel. geoip can't match a domain pre-resolution, so only DOMAIN sets go here.
 			"rules": dnsRules,
 			"final": "google",
+			// Дефолт ядра — max(cache_capacity, 1024). При том, что через туннель резолвится
+			// заметно больше, чем «только заблокированное» (VK/WB/Avito/Сбер в ru-списке НЕТ),
+			// 1024 записи вымываются быстро и каждый промах снова идёт в туннель.
+			"cache_capacity": 4096,
 		},
 		"inbounds": []map[string]any{{
 			"type": "tun", "tag": "tun-in",
