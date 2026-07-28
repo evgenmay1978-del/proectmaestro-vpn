@@ -34,6 +34,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The repo default token permission is "read", which does NOT include actions:read — so
+    # `gh run list --workflow=libbox.yml` (the libbox.aar fetch below) failed with
+    # "HTTP 403: Resource not accessible by integration" and the job died before compiling
+    # anything (run 30406565486, 2026-07-28). Grant it explicitly.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
