@@ -27,6 +27,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Declaring a permissions block sets every UNLISTED scope to none, and the repo default is
+      # only "read" anyway — so without actions:read the libbox fetch below dies on
+      # `gh run list --workflow=libbox.yml` with "HTTP 403: Resource not accessible by
+      # integration", before a single line is compiled. Caught on android-test.yml
+      # (run 30406565486, 2026-07-28); this workflow has the identical fetch step.
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
