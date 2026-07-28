@@ -29,7 +29,9 @@ mkdir -p "$DIR"
 # Авторизованный запрос: анонимный лимит api.github.com (60/час на IP) делится со ВСЕМИ
 # процессами этого хоста — 2026-07-11 CI-опросы сожгли квоту и зеркало ловило 403 три цикла
 # подряд. Токен поднимает лимит до 5000/час и изолирует от чужого трафика.
-GH_TOKEN="$(grep -oP 'https://[^:]+:\K[^@]+' /root/.git-credentials 2>/dev/null | head -1 || true)"
+# export: токен читает не только curl, но и python-вставка ниже (version-metadata.json
+# приватного релиза тоже качается только с авторизацией).
+export GH_TOKEN="$(grep -oP 'https://[^:]+:\K[^@]+' /root/.git-credentials 2>/dev/null | head -1 || true)"
 AUTH=()
 [ -n "$GH_TOKEN" ] && AUTH=(-H "Authorization: Bearer $GH_TOKEN")
 rel="$(curl -fsSL --max-time 60 -H 'Accept: application/vnd.github+json' "${AUTH[@]}" "$API")" || {
@@ -50,26 +52,38 @@ if [ "$cur" = "$vn" ]; then
 fi
 
 # Resolve assets: the non-play, non-legacy .apk + the version-metadata.json.
+#
+# ⛔ Берём API-адрес ассета (a["url"]), а НЕ a["browser_download_url"]. Репозиторий приватный
+# (стал таким 2026-07-27), и browser_download_url для приватного репо отдаёт 404 ДАЖЕ с
+# токеном — проверено на релизе 1.0.151: browser_download_url без токена 404, с токеном 404,
+# а API-адрес + `Accept: application/octet-stream` + токен = 200. Скачивать ассеты приватного
+# релиза можно ТОЛЬКО так. Симптом при поломке: «mirror: apk download failed» и зеркало
+# молча остаётся на прежней версии — релиз опубликован, а флот его не видит.
 apk_url="$(printf '%s' "$rel" | python3 -c 'import sys,json
 d=json.load(sys.stdin)
 for a in d.get("assets",[]):
     n=a["name"]
     if n.endswith(".apk") and "play" not in n and "legacy-android-5" not in n:
-        print(a["browser_download_url"]); break')"
-vc="$(printf '%s' "$rel" | python3 -c 'import sys,json,urllib.request
+        print(a["url"]); break')"
+vc="$(printf '%s' "$rel" | python3 -c 'import sys,json,urllib.request,os
 d=json.load(sys.stdin); url=""
 for a in d.get("assets",[]):
-    if a["name"]=="version-metadata.json": url=a["browser_download_url"]
+    if a["name"]=="version-metadata.json": url=a["url"]
 if url:
     try:
-        m=json.load(urllib.request.urlopen(url,timeout=60)); print(m.get("version_code",0))
+        req=urllib.request.Request(url, headers={"Accept":"application/octet-stream"})
+        tok=os.environ.get("GH_TOKEN","")
+        if tok: req.add_header("Authorization","Bearer "+tok)
+        m=json.load(urllib.request.urlopen(req,timeout=60)); print(m.get("version_code",0))
     except Exception: print(0)
 else: print(0)')"
 [ -n "$apk_url" ] || { echo "mirror: no apk asset in $vn" >&2; exit 0; }
 
 apk_name="MaestroVPN-TV-${vn}-debug.apk"
 tmp="$DIR/.${apk_name}.tmp"
-curl -fsSL --max-time 600 "$apk_url" -o "$tmp" || { echo "mirror: apk download failed" >&2; rm -f "$tmp"; exit 0; }
+# Токен и Accept обязательны: ассет приватного релиза иначе отдаёт 404 (см. комментарий выше).
+curl -fsSL --max-time 600 "${AUTH[@]}" -H 'Accept: application/octet-stream' "$apk_url" -o "$tmp" \
+  || { echo "mirror: apk download failed" >&2; rm -f "$tmp"; exit 0; }
 sz="$(stat -c %s "$tmp")"
 sha="$(sha256sum "$tmp" | cut -d' ' -f1)"
 mv -f "$tmp" "$DIR/$apk_name"
