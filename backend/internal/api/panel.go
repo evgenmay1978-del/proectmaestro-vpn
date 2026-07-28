@@ -545,16 +545,16 @@ func (s *Server) panelActionH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// delete_expired operates over the whole store (no single login) — handle it up front.
+	// The loop lives in the provisioner (DeleteExpired), NOT here: deleting N customers must
+	// re-sync the S2 backends ONCE at the end, because hy2/anytls apply their config with
+	// `systemctl restart` — one sync per login would restart them N times and drop every live
+	// connection each time.
 	if req.Action == "delete_expired" {
-		n := 0
-		for _, c := range s.st.List() {
-			if !c.Active() && !c.Disabled { // expired (not merely disabled)
-				if err := s.prov.DeleteCustomer(c.Login); err != nil {
-					log.Printf("panel: delete_expired %q: %v", c.Login, err)
-					continue
-				}
-				n++
-			}
+		n, err := s.prov.DeleteExpired()
+		if err != nil {
+			log.Printf("panel: delete_expired: %v", err)
+			http.Error(w, "delete failed", http.StatusBadGateway)
+			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": n})
 		return

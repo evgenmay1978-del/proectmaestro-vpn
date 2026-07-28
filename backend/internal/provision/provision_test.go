@@ -3,6 +3,7 @@ package provision
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,11 +47,22 @@ type fakeS2 struct {
 	lastNaive   []server2.NaiveUser
 	lastAnyTLS  []server2.AnyTLSUser
 	anytlsSyncs int
+	hy2Syncs    int
+	naiveSyncs  int
 	naiveUser   string // if set, ReadNaiveUser returns this password (customer exists on naive)
 }
 
-func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error     { f.lastHy2 = u; return nil }
-func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error { f.lastNaive = u; return nil }
+func (f *fakeS2) SyncHy2Users(u []server2.Hy2User) error {
+	f.lastHy2 = u
+	f.hy2Syncs++
+	return nil
+}
+
+func (f *fakeS2) SyncNaiveUsers(u []server2.NaiveUser) error {
+	f.lastNaive = u
+	f.naiveSyncs++
+	return nil
+}
 func (f *fakeS2) SyncAnyTLSUsers(u []server2.AnyTLSUser) error {
 	f.lastAnyTLS = u
 	f.anytlsSyncs++
@@ -362,5 +374,83 @@ func TestMigrateAnyTLSEndpoint(t *testing.T) {
 	}
 	if fh.anytlsSyncs != syncsBefore+1 {
 		t.Fatalf("idempotent migrate re-synced: syncs=%d", fh.anytlsSyncs)
+	}
+}
+
+// TestDeleteCustomerRevokesOnServer2 guards the hole found on 2026-07-28: deleting a customer
+// wiped them from S1/S3 VLESS and from the store, but left working hy2/naive/anytls creds on S2 —
+// free access the panel could no longer revoke, because it had already forgotten the login.
+// (Live case: `serbia` kept working creds in hysteria/anytls/Caddyfile and had to be cleaned by
+// hand.) The old code relied on ReconcileExpiries to rebuild the S2 sets, but that function only
+// pulls expiry dates — it never touches a login that is already gone from the store.
+func TestDeleteCustomerRevokesOnServer2(t *testing.T) {
+	p, _, fh, _ := newProv(t)
+	for _, l := range []string{"alice", "bob"} {
+		if _, err := p.Provision(l, 30*24*time.Hour); err != nil {
+			t.Fatalf("provision %s: %v", l, err)
+		}
+	}
+	if err := p.DeleteCustomer("alice"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	for _, u := range fh.lastHy2 {
+		if u.User == "alice" {
+			t.Fatalf("hy2 still carries the deleted login: %+v", fh.lastHy2)
+		}
+	}
+	if len(fh.lastHy2) != 1 || fh.lastHy2[0].User != "bob" {
+		t.Fatalf("hy2 set should be exactly the remaining customer, got %+v", fh.lastHy2)
+	}
+	for _, u := range fh.lastNaive {
+		if strings.Contains(u.User, "alice") {
+			t.Fatalf("naive still carries the deleted login: %+v", fh.lastNaive)
+		}
+	}
+}
+
+// TestDeleteExpiredSyncsServer2Once: hy2 and anytls apply a new user set with `systemctl restart`,
+// which drops every live connection on that protocol. So a bulk purge must sync ONCE at the end,
+// not once per login — otherwise purging 14 expired accounts restarts hysteria 14 times in a row
+// and every paying customer on it sees the connection drop each time.
+func TestDeleteExpiredSyncsServer2Once(t *testing.T) {
+	p, _, fh, st := newProv(t)
+	for _, l := range []string{"gone1", "gone2", "gone3", "keeper"} {
+		if _, err := p.Provision(l, 30*24*time.Hour); err != nil {
+			t.Fatalf("provision %s: %v", l, err)
+		}
+	}
+	// Expire three of them directly in the store (SetExpiry would fan out and sync, which is
+	// exactly what we're counting).
+	for _, l := range []string{"gone1", "gone2", "gone3"} {
+		c, err := st.ByLogin(l)
+		if err != nil {
+			t.Fatalf("lookup %s: %v", l, err)
+		}
+		c.Expires = time.Now().Add(-time.Hour)
+		if err := st.Put(c); err != nil {
+			t.Fatalf("put %s: %v", l, err)
+		}
+	}
+	fh.hy2Syncs, fh.naiveSyncs = 0, 0
+
+	n, err := p.DeleteExpired()
+	if err != nil {
+		t.Fatalf("DeleteExpired: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("deleted %d, want 3", n)
+	}
+	if fh.hy2Syncs != 1 {
+		t.Fatalf("hy2 synced %d times, want exactly 1 (one restart, not one per login)", fh.hy2Syncs)
+	}
+	if fh.naiveSyncs != 1 {
+		t.Fatalf("naive synced %d times, want exactly 1", fh.naiveSyncs)
+	}
+	// And the surviving customer must still be there afterwards.
+	if len(fh.lastHy2) != 1 || fh.lastHy2[0].User != "keeper" {
+		t.Fatalf("hy2 set after purge = %+v, want only keeper", fh.lastHy2)
+	}
+	if _, err := st.ByLogin("keeper"); err != nil {
+		t.Fatalf("keeper was purged: %v", err)
 	}
 }

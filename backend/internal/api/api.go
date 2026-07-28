@@ -55,9 +55,14 @@ type Provisioner interface {
 	// DeviceLimitFor returns the per-login device cap (0 = unlimited) so the sub
 	// endpoint enforces the same cap + exemption as 3x-ui's limitIp.
 	DeviceLimitFor(login string) int
-	// DeleteCustomer removes a customer from the store and deletes their VLESS clients on the
-	// nodes (best-effort). Used by the web panel to purge inactive users.
+	// DeleteCustomer removes a customer from the store, deletes their VLESS clients on the
+	// nodes (best-effort) and re-syncs the S2 backends so hy2/naive/anytls creds die with it.
+	// Used by the web panel to purge inactive users.
 	DeleteCustomer(login string) error
+	// DeleteExpired purges every expired-not-disabled customer and re-syncs S2 once at the end
+	// (hy2/anytls apply config by restarting, so a per-login sync would blip the fleet N times).
+	// Returns how many were deleted.
+	DeleteExpired() (int, error)
 	// TrafficFor returns the customer's total used traffic in bytes (VLESS; 0 on error).
 	TrafficFor(login string) int64
 }

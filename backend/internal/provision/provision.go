@@ -467,13 +467,60 @@ func (p *Provisioner) SetExpiry(login string, t time.Time) (*store.Customer, err
 }
 
 // DeleteCustomer removes a customer from the panel store AND deletes their VLESS clients on S1
-// and S3 (best-effort — a node error is logged, not fatal, so a dead node can't block cleanup).
-// S2 protocols (hy2/naive/anytls) are rebuilt from store.List() on the next ReconcileExpiries
-// tick (≤15 min), so a deleted customer drops off S2 automatically — no per-delete S2 restart.
-// Returns the store error if any.
+// and S3 (best-effort — a node error is logged, not fatal, so a dead node can't block cleanup),
+// then re-syncs the S2 backends so the deleted login loses hy2/naive/anytls too.
+//
+// ⛔ The S2 re-sync is NOT optional. An older comment here claimed the S2 sets are "rebuilt on the
+// next ReconcileExpiries tick (≤15 min)" — they are not: ReconcileExpiries only pulls expiry dates
+// and calls SetExpiry for customers whose date grew, so it never touches a login that is already
+// gone from the store. Real consequence (2026-07-28): login `serbia` was deleted from the panel and
+// kept working creds in /etc/hysteria/config.yaml, /etc/sing-box-anytls/config.json and the
+// Caddyfile — free access the panel could no longer revoke, because it had already forgotten the
+// login. It had to be cleaned by hand.
+//
+// Returns the store error if any; S2 errors are logged, never fatal (the customer is already gone
+// from the store, and failing here would leave the caller thinking nothing was deleted).
 func (p *Provisioner) DeleteCustomer(login string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if err := p.deleteCustomerLocked(login); err != nil {
+		return err
+	}
+	p.syncServer2Locked("delete " + login)
+	return nil
+}
+
+// DeleteExpired deletes every EXPIRED (not merely disabled) customer and re-syncs S2 exactly ONCE
+// at the end.
+//
+// ⛔ Why a batch method instead of calling DeleteCustomer in a loop: SyncHy2Users and
+// SyncAnyTLSUsers apply their new config with `systemctl restart` (server2.go), which drops every
+// live connection on that protocol. Per-customer syncing would restart hysteria and sing-box once
+// per deleted login — 14 expired accounts would mean 28 restarts back to back, i.e. a visible
+// outage for paying customers. One sync at the end produces the same final state with one blip.
+func (p *Provisioner) DeleteExpired() (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, c := range p.st.List() {
+		if c.Active() || c.Disabled { // only expired-and-not-disabled
+			continue
+		}
+		if err := p.deleteCustomerLocked(c.Login); err != nil {
+			log.Printf("delete_expired %q: %v", c.Login, err)
+			continue
+		}
+		n++
+	}
+	if n > 0 {
+		p.syncServer2Locked(fmt.Sprintf("delete_expired (%d)", n))
+	}
+	return n, nil
+}
+
+// deleteCustomerLocked drops the login from S1/S3 VLESS and the store. Caller must hold p.mu and
+// is responsible for the S2 re-sync (so a batch delete can sync once instead of N times).
+func (p *Provisioner) deleteCustomerLocked(login string) error {
 	if p.xui != nil {
 		if err := p.xui.Login(); err != nil {
 			log.Printf("delete: s1 xui login for %q: %v", login, err)
@@ -487,6 +534,27 @@ func (p *Provisioner) DeleteCustomer(login string) error {
 		}
 	}
 	return p.st.Delete(login)
+}
+
+// syncServer2Locked rebuilds all three S2 user sets from the CURRENT store (which no longer holds
+// the deleted logins). Caller must hold p.mu. Best-effort: every backend is attempted even if an
+// earlier one failed, so one dead service can't leave the other two stale.
+func (p *Provisioner) syncServer2Locked(reason string) {
+	if p.s2 == nil {
+		return
+	}
+	if err := p.syncHy2(); err != nil {
+		log.Printf("%s: s2 hy2 sync: %v", reason, err)
+	}
+	// Guarded like syncAnyTLS: with Naive unconfigured we must not push a user set at all.
+	if p.cfg.Naive.Server != "" {
+		if err := p.syncNaive(); err != nil {
+			log.Printf("%s: s2 naive sync: %v", reason, err)
+		}
+	}
+	if err := p.syncAnyTLS(); err != nil {
+		log.Printf("%s: s2 anytls sync: %v", reason, err)
+	}
 }
 
 // TrafficFor returns the customer's total used traffic in bytes (S1 VLESS + S3 VLESS), best-effort

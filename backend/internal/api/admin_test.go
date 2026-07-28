@@ -50,6 +50,20 @@ func (f *fakeProv) MigrateAnyTLSEndpoint() (int, error)                    { ret
 func (f *fakeProv) DeleteCustomer(login string) error                      { return f.st.Delete(login) }
 func (f *fakeProv) TrafficFor(string) int64                                { return 0 }
 
+func (f *fakeProv) DeleteExpired() (int, error) {
+	n := 0
+	for _, c := range f.st.List() {
+		if c.Active() || c.Disabled {
+			continue
+		}
+		if err := f.st.Delete(c.Login); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 func adminServer(t *testing.T) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, _ := store.Open(filepath.Join(t.TempDir(), "s.json"))
