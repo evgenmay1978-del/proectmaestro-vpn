@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -205,7 +206,11 @@ fun TvHomeScreen(
                 // ── PHONE: the carved frame, logo and closed-eye medallion are one fixed scene.
                 // Only the content below the eye moves. Connected state reveals the matching open
                 // eye inside the same socket, so neither the ring nor the full background crossfades.
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("premium-phone-home"),
+                ) {
                     Image(
                         painter = painterResource(R.drawable.mobile_home_scene),
                         contentDescription = null,
@@ -371,7 +376,8 @@ internal fun PhoneStatusRow(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp),
+            .padding(top = 6.dp)
+            .testTag("premium-status"),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else stateRed))

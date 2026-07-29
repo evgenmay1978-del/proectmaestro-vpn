@@ -34,6 +34,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -42,6 +43,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyTextField
+import com.maestrovpn.tv.compose.premium.MobilePremiumButton
+import com.maestrovpn.tv.compose.premium.MobilePremiumError
+import com.maestrovpn.tv.compose.premium.MobilePremiumPanel
+import com.maestrovpn.tv.compose.premium.MobilePremiumScreen
+import com.maestrovpn.tv.compose.premium.MobilePremiumTextField
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroSilver
@@ -76,6 +82,16 @@ fun ClaimScreen(
         runCatching { codeFocus.requestFocus() }
     }
 
+    if (!isTv) {
+        ClaimPhoneForm(
+            code = code,
+            onCodeChange = { code = it },
+            state = state,
+            onClaim = { if (code.isNotBlank() && !busy) viewModel.claim(code) },
+            onBack = onDone,
+            codeFocus = codeFocus,
+        )
+    } else {
     // Keep the surface transparent: TV supplies its own graphite scene, while phone draws the
     // shared mobile wood surface below the form.
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
@@ -154,6 +170,58 @@ fun ClaimScreen(
             }
         }
       }
+    }
+    }
+}
+
+@Composable
+internal fun ClaimPhoneForm(
+    code: String,
+    onCodeChange: (String) -> Unit,
+    state: ClaimState,
+    onClaim: () -> Unit,
+    onBack: () -> Unit,
+    codeFocus: FocusRequester? = null,
+) {
+    val busy = state is ClaimState.Busy
+
+    MobilePremiumScreen(
+        title = "Активация подписки",
+        onBack = onBack,
+        modifier = Modifier.testTag("premium-claim"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 32.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            MobilePremiumPanel {
+                MobilePremiumTextField(
+                    value = code,
+                    onValueChange = onCodeChange,
+                    placeholder = "Код или логин",
+                    enabled = !busy,
+                    focusRequester = codeFocus,
+                )
+                Spacer(Modifier.height(20.dp))
+                MobilePremiumButton(
+                    label = if (busy) "Проверяем…" else "Активировать",
+                    onClick = onClaim,
+                    enabled = code.isNotBlank() && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            (state as? ClaimState.Error)?.let { err ->
+                Spacer(Modifier.height(16.dp))
+                MobilePremiumError(
+                    message = err.message,
+                    onRetry = onClaim,
+                )
+            }
+        }
     }
 }
 
