@@ -5,11 +5,13 @@
 ## ⛔ Жёсткие правила
 1. **Живые платящие клиенты на S1/S2/S3 (+ LAN роутера владельца) — никогда не вредить.** Перед любым рестартом/правкой прода — подумай, кого заденет.
 2. **«Готово/LIVE» только после USER-FACING проверки end-to-end** (публичный edge, реальный OTA-манифест+зеркало, живой трафик) — «скомпилилось/задеплоилось» не считается.
-3. **UI = пиксель-в-пиксель из материала владельца.** Ничего не выдумывать. ТВ v4 = материал мобильной версии (`ops/tv-mobile-kit.py`, скилл tv-sim); телефон — скилл app-screen-render. PIL-сим по числам из Kotlin, смотреть глазами ДО кода.
+3. **UI = пиксель-в-пиксель из материала владельца.** Ничего не выдумывать. ТВ v4 = материал мобильной версии (`ops/tv-mobile-kit.py` — ассеты, `ops/tv-master-sim.py` — визуальный смоук 1920×1080); **телефон — `ops/phone-screen-sim.py`** (390×844@2x, три экрана в `build/phone-screen-sim/`). PIL-сим по числам из Kotlin, смотреть глазами ДО кода. ⛔ Скилла `app-screen-render` в системе нет (проверено 2026-07-29) — раньше здесь стояла ссылка на него.
 4. **Не частить OTA-релизами** — churn стирает прогресс загрузок у медленных клиентов. Копи правки, выкатывай одним релизом.
 
 ## Сборка и релиз (НЕТ локального Android SDK!)
-- Компайл-гейт: workflow `android-test.yml` — только ручной dispatch: `POST /actions/workflows/android-test.yml/dispatches {"ref":"<ветка>"}` с токеном из `/root/.git-credentials`.
+- Компайл-гейт: workflow `android-test.yml`. Ручной запуск: `POST /actions/workflows/android-test.yml/dispatches {"ref":"<ветка>"}` с токеном из `/root/.git-credentials`. ⚠️ Проверено 2026-07-29: он идёт **не только** по dispatch — есть триггер `pull_request` с путями `app/**`, поэтому пуш в ветку с ОТКРЫТЫМ PR запускает гейт САМ (мои прогоны 30490347128 и 30493821817 пришли событием `pull_request`). Прогон ~13 минут; собирает `assembleOtherDebug` + `testOtherDebugUnitTest`.
+- ⛔ **`androidTest` в CI не компилируется и не гоняется НИГДЕ** — ни один workflow не вызывает `connectedAndroidTest`/`assembleAndroidTest`. Compile-ошибки в instrumentation-тестах невидимы (2026-07-29 нашлись две), тесты доступности не выполнялись ни разу.
+- ⛔ **Шаг `Upload test APK` показывает `success` без артефакта:** он стоит с `continue-on-error`, и при переполненной квоте job остаётся зелёным, а APK нет. Проверять `gh api repos/<repo>/actions/runs/<id>/artifacts` (пустой массив = нет APK) или аннотации check-run, НЕ поле статуса шага. Чистка квоты — `ops/gh-artifacts-prune.sh [--deps]`.
 - ⚠️ **Push в `main` с изменениями `app/**` = АВТОРЕЛИЗ**: `android.yml` собирает APK, публикует release `--latest`, зеркало (таймер ~15 мин) раскатывает OTA на флот. Мержи в main = решение выкатить.
 - OTA-цепочка после релиза проверяется `ops/verify-ota.sh` (манифест vc / sha / размер / waypoint UA105→107 / latest.apk).
 - Версия = номер CI-рана. Подпись флота фикс. — см. memory/update-delivery-ru.
@@ -21,7 +23,11 @@
 - Даты подписок = «единый организм»: hourly `maestro-dates-reconcile.timer` + прямой синк из S2-бота. Правки дат руками — через `/admin/renew|set-expiry`, не в сторах напрямую.
 
 ## Ориентация и навигация
-- Память: `/root/.claude/projects/-root-maestrovpn-tv/memory/MEMORY.md` (индекс) + state `/root/.claude/maestro-state.md` (in-flight, ДЕРЖАТЬ СВЕЖИМ) + инфра-карта `maestro-infra.md`.
+- Память: **`/root/.claude/projects/-root/memory/MEMORY.md`** (индекс, автозагружается) +
+  `state-handoff-<дата>.md` в том же каталоге — снимок незакрытого, ДЕРЖАТЬ СВЕЖИМ, читать первым.
+  ⛔ Проверено 2026-07-29: путей `/root/.claude/projects/-root-maestrovpn-tv/memory/`,
+  `maestro-state.md` и `maestro-infra.md` НЕ СУЩЕСТВУЕТ — это были мёртвые указатели, они
+  отправляли новую сессию искать несуществующие файлы. Каталог памяти в системе ровно один.
 - Код: граф `graphify-out/` (`graphify query "<терм>"`), god-nodes: SFANavHost, DashboardViewModel, BoxService, GenerateSingbox, Provisioner. Не читать 340 файлов подряд.
 - Тяжёлые сборки — на наименее загруженной ноде (карта в ориентации), не рефлекторно на S1.
 - Телеметрия флота: `/var/lib/maestro/reports/*.jsonl` (hello/crash) + nginx-лог. При жалобах — сначала чек-лист memory/fleet-triage-2026-07-10.
