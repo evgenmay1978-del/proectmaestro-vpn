@@ -34,7 +34,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -170,7 +169,13 @@ fun MobilePremiumError(
     message: String,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
-    retryLabel: String = stringResource(R.string.menu_redo),
+    // ⛔ ЛОВУШКА: здесь стоял stringResource(R.string.menu_redo) — это строка undo/redo из
+    // апстримного редактора конфигов. По-русски она случайно читается «Повторить», а в
+    // дефолтных ресурсах это «Redo» (values/strings.xml:345), в zh — «重做». То есть на любом
+    // телефоне с нерусской локалью кнопка повтора на экранах триала и активации подписки
+    // предлагала «отменить отмену». Локаль ничем не форсируется (только вручную в настройках),
+    // так что дефолт задаём явным литералом — как это уже делает BuyScreen.kt:562.
+    retryLabel: String = "Повторить",
 ) {
     MobilePremiumPanel(modifier) {
         Column(
