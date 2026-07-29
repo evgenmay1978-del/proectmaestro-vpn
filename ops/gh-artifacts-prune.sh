@@ -24,9 +24,47 @@ set -euo pipefail
 REPO=evgenmay1978-del/proectmaestro-vpn
 KEEP=3
 # Только сборочные APK. Всё, чего нет в этом списке, скрипт не трогает.
-PRUNE_NAMES="maestrovpn-tv-test-apk maestrovpn-tv-debug-apk maestrovpn-tv-olcrtc-canary maestrovpn-tv-awg-canary maestrovpn-tv-stopfix-apk unit-test-report"
+PRUNE_NAMES="maestrovpn-tv-test-apk maestrovpn-tv-debug-apk maestrovpn-tv-olcrtc-canary maestrovpn-tv-awg-canary-apk maestrovpn-tv-stopfix-apk unit-test-report"
 
-DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1
+# ─── режим --deps (добавлен 2026-07-29) ────────────────────────────────────────
+# Зачем: чистка ОДНИХ APK не спасает. 2026-07-29 после полного прогона скрипта
+# осталось 3.43 ГБ, из них 2.2 ГБ — СТАРЫЕ КОПИИ зависимостей: libbox-aar лежал в
+# 11 экземплярах (1.03 ГБ), wdtt-bin в 17 (353 МБ). Лимит артефактов на приватных
+# репо бесплатного плана — 500 МБ, поэтому выгрузка APK падала «quota has been hit»,
+# а шаг стоит с continue-on-error и показывал success. Симптом: сборка зелёная,
+# артефакта нет.
+#
+# ⛔ ЛОВУШКИ (почему нельзя просто добавить эти имена в PRUNE_NAMES):
+#  1. Сборки СКАЧИВАЮТ зависимости из ПОСЛЕДНЕГО УСПЕШНОГО прогона своего workflow
+#     (`gh run download -n libbox-aar` в android.yml/android-test.yml, шаг «Fetch the
+#     NORMAL libbox.aar»). Удалишь артефакт ИМЕННО того прогона — сборка умрёт на
+#     шаге 9, до единой скомпилированной строки. Поэтому ниже прогон-источник
+#     вычисляется через API и защищается ПОИМЕННО, а не «по свежести даты»:
+#     самый новый артефакт может принадлежать неуспешному прогону.
+#  2. KEEP_DEPS=2 — источник плюс один запас на откат. Меньше ставить нельзя:
+#     останешься без пути назад, если новый libbox окажется битым.
+#  3. libbox-mieru-aar / libbox-awg-aar / olcrtc-aar — экспериментальные ветки
+#     движка, их прогоны-источники ищутся так же, по своим workflow.
+DEPS_NAMES="libbox-aar libbox-mieru-aar libbox-awg-aar wdtt-bin olcrtc-bin olcrtc-aar"
+KEEP_DEPS=2
+# имя артефакта -> workflow, чей последний успешный прогон является источником
+dep_workflow() {
+  case "$1" in
+    libbox-aar|libbox-mieru-aar|libbox-awg-aar) echo libbox.yml ;;
+    wdtt-bin) echo wdtt-bin.yml ;;
+    olcrtc-bin|olcrtc-aar) echo olcrtc-bin.yml ;;
+    *) echo '' ;;
+  esac
+}
+
+DRY=0; DEPS=0
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY=1 ;;
+    --deps) DEPS=1 ;;
+    *) echo "неизвестный аргумент: $a" >&2; exit 2 ;;
+  esac
+done
 
 echo "== чистка артефактов $REPO (оставляем $KEEP последних каждого имени) =="
 
@@ -49,6 +87,37 @@ for name in $PRUNE_NAMES; do
     gh api -X DELETE "repos/$REPO/actions/artifacts/$id" >/dev/null 2>&1 || echo "    не удалось удалить $id"
   done
 done
+if [ "$DEPS" = "1" ]; then
+  echo "-- режим --deps: старые копии зависимостей (оставляем $KEEP_DEPS + прогон-источник) --"
+  for name in $DEPS_NAMES; do
+    wf=$(dep_workflow "$name")
+    # Прогон-источник: последний УСПЕШНЫЙ прогон нужного workflow. Именно его
+    # артефакт качают сборки, и он защищён независимо от даты.
+    src=$(gh run list --workflow="$wf" --status=success --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || echo '')
+    keep_ids=''
+    if [ -n "$src" ]; then
+      keep_ids=$(gh api "repos/$REPO/actions/runs/$src/artifacts" \
+        -q ".artifacts[] | select(.name==\"$name\") | .id" 2>/dev/null | tr '\n' ' ')
+    fi
+    rows=$(awk -F'\t' -v n="$name" '$1==n {print $3"\t"$2"\t"$4}' /tmp/gh-artifacts.$$ | sort -r)
+    [ -z "$rows" ] && continue
+    victims=$(printf '%s\n' "$rows" | tail -n +$((KEEP_DEPS+1)))
+    # выкидываем из списка на удаление всё, что принадлежит прогону-источнику
+    for kid in $keep_ids; do
+      victims=$(printf '%s\n' "$victims" | awk -F'\t' -v k="$kid" '$2!=k')
+    done
+    victims=$(printf '%s\n' "$victims" | awk 'NF')
+    [ -z "$victims" ] && { echo "  $name: чистить нечего (источник run $src)"; continue; }
+    cnt=$(printf '%s\n' "$victims" | wc -l)
+    bytes=$(printf '%s\n' "$victims" | awk -F'\t' '{s+=$3} END {print s+0}')
+    echo "  $name: под удаление $cnt шт, $(awk -v b="$bytes" 'BEGIN{printf "%.0f", b/1048576}') МБ (источник run $src защищён)"
+    total_del=$((total_del+cnt)); total_freed=$((total_freed+bytes))
+    [ "$DRY" = "1" ] && continue
+    printf '%s\n' "$victims" | while IFS=$'\t' read -r _created id _size; do
+      gh api -X DELETE "repos/$REPO/actions/artifacts/$id" >/dev/null 2>&1 || echo "    не удалось удалить $id"
+    done
+  done
+fi
 rm -f /tmp/gh-artifacts.$$
 
 echo "  ИТОГО: $total_del артефактов, $(awk -v b="$total_freed" 'BEGIN{printf "%.2f", b/1073741824}') ГБ"
