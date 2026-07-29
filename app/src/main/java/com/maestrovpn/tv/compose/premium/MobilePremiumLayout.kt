@@ -10,7 +10,12 @@ internal fun mobilePremiumLayoutMode(
     widthDp: Int,
     heightDp: Int,
 ): MobilePremiumLayoutMode = when {
-    widthDp >= 600 -> MobilePremiumLayoutMode.Expanded
+    // ⛔ ЛОВУШКА: гейт Expanded обязан смотреть на КОРОТКУЮ сторону, а не на ширину.
+    // Любой современный телефон в ландшафте шире 600dp (Pixel 8 = 852x393), поэтому
+    // при проверке `widthDp >= 600` он получал планшетные 32dp и 30sp заголовок на
+    // виджете высотой 393dp, а ветка Compact становилась недостижимой — ровно то,
+    // что ловил тест landscapePhoneUsesCompactLayout.
+    minOf(widthDp, heightDp) >= 600 -> MobilePremiumLayoutMode.Expanded
     widthDp > heightDp -> MobilePremiumLayoutMode.Compact
     else -> MobilePremiumLayoutMode.Regular
 }

@@ -33,21 +33,19 @@ class LivingEyeLayerGeometryTest {
             right = 957f,
             bottom = 1174f,
         )
-        val staticApertureBounds = LivingEyeLayerBounds(
-            left = 75.36049f,
-            top = 202.12036f,
-            right = 435.09302f,
-            bottom = 339.31186f,
-            scale = 520f / 822.5f,
-        )
-
         assertEquals(109.083145f, transformedApertureBounds.left, 0.001f)
         assertEquals(204.52359f, transformedApertureBounds.top, 0.001f)
         assertEquals(408.28763f, transformedApertureBounds.right, 0.001f)
         assertEquals(318.63147f, transformedApertureBounds.bottom, 0.001f)
-        assertTrue(fit.stateBounds.left <= staticApertureBounds.left)
-        assertTrue(fit.stateBounds.top <= staticApertureBounds.top)
-        assertTrue(fit.stateBounds.right >= staticApertureBounds.right)
-        assertTrue(fit.stateBounds.bottom >= staticApertureBounds.bottom)
+
+        // ⛔ ЛОВУШКА: здесь стояли литералы, посчитанные по СТАРОМУ масштабу 520/822.5,
+        // которого ни один путь кода больше не даёт. Сторож сравнивал новые границы с
+        // мёртвой константой и потому был зелёным всегда. Сравниваем с апертурой,
+        // выведенной из того же fit — тогда проверка означает то, что называет:
+        // прямоугольник состояния накрывает прорезь, и фон-основа не светится по краям.
+        assertTrue(fit.stateBounds.left <= transformedApertureBounds.left)
+        assertTrue(fit.stateBounds.top <= transformedApertureBounds.top)
+        assertTrue(fit.stateBounds.right >= transformedApertureBounds.right)
+        assertTrue(fit.stateBounds.bottom >= transformedApertureBounds.bottom)
     }
 }

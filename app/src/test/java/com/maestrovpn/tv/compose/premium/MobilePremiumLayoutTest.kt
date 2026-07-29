@@ -36,6 +36,25 @@ class MobilePremiumLayoutTest {
         )
     }
 
+    // Гейт Expanded смотрит на КОРОТКУЮ сторону. Эти два случая держат правило с обеих
+    // сторон: планшет в ландшафте обязан остаться Expanded, а узкое ландшафтное окно —
+    // Compact. Если кто-то поставит `widthDp > heightDp` первой ветвью, упадёт первый.
+    @Test
+    fun landscapeTabletStaysExpanded() {
+        assertEquals(
+            MobilePremiumLayoutMode.Expanded,
+            mobilePremiumLayoutMode(widthDp = 1280, heightDp = 800),
+        )
+    }
+
+    @Test
+    fun shortLandscapeWindowUsesCompactLayout() {
+        assertEquals(
+            MobilePremiumLayoutMode.Compact,
+            mobilePremiumLayoutMode(widthDp = 480, heightDp = 320),
+        )
+    }
+
     @Test
     fun paymentQrShrinksToRemainSquareInsideNarrowPanel() {
         assertEquals(216, mobilePremiumPaymentQrSize(maxContentWidthDp = 240))
