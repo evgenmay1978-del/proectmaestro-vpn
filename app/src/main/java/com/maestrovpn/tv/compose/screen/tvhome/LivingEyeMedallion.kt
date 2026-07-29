@@ -184,7 +184,11 @@ internal fun LivingEyeMedallion(
         val openToSquint = (phase / 0.5f).coerceIn(0f, 1f)
         val squintToClosed = ((phase - 0.5f) / 0.5f).coerceIn(0f, 1f)
 
-        // Foundation is the exact owner-supplied open frame. It matches the fixed scene.
+        // Основа — открытый кадр владельца. ⛔ Здесь стояло «It matches the fixed scene»: слой
+        // БОЛЬШЕ не совпадает пиксель-в-пиксель с глазом, запечённым в mobile_home_scene, и это
+        // намеренно. Совпадение и было дефектом 1.0.151 — зелень вылезала на бронзовое кольцо.
+        // Все слои проходят через один fitLivingEyeLayer, поэтому между собой они по-прежнему
+        // сведены; расходятся они только с фоном, и именно этого добивался владелец.
         drawSourceLayer(
             image = openState,
             sourceX = LIVING_EYE_STATE_X,

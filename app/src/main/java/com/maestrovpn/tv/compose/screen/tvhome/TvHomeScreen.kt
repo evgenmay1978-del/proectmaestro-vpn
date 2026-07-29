@@ -218,8 +218,13 @@ fun TvHomeScreen(
                         contentScale = ContentScale.Crop,
                     )
 
-                    // Exact ContentScale.Crop mapping for the fixed 853×1844 scene. Both states use
-                    // the same full-size 520px medallion (owner correction: never shrink the closed eye).
+                    // Exact ContentScale.Crop mapping for the fixed 853×1844 scene. Оба состояния
+                    // занимают один и тот же бокс 520px — но САМИ СЛОИ глаза внутри него вписаны в
+                    // бронзовый отступ, см. fitLivingEyeLayer в LivingEyeLayerGeometry.kt.
+                    // ⛔ Здесь стояло «never shrink the closed eye» — это ПРОТИВОПОЛОЖНО текущему
+                    // заданию владельца. В версии 1.0.151 зелень глаза перекрывала бронзовое кольцо
+                    // (старый маппинг выходил за канву на 24.5px с каждой стороны), и владелец
+                    // поручил вписать глаз внутрь кольца. Не «починить» обратно по старому комментарию.
                     val imageWidth = 853f
                     val imageHeight = 1844f
                     val medallionCenterX = 430f
