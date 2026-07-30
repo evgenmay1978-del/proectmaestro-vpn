@@ -222,6 +222,38 @@ object CrashReportManager {
         Unit
     }
 
+    /**
+     * Ship a non-crash diagnostic event (currently: update download/install outcomes) to the
+     * SAME /report sink, reusing the crash schema unchanged — so the panel needs no new
+     * endpoint and the record lands in the same reports-<day>.jsonl next to hello/crash.
+     *
+     * Why this exists: the APK bytes come from the Yandex mirror, not our nginx, and nothing
+     * ever reported an install verdict. From S1 «качается медленно», «не хватило места» and
+     * «пользователь не нажал Установить» were literally indistinguishable — every fix for
+     * «постоянно загрузка» was therefore a guess. See memory/tv-update-stuck-loading-2026-07-30.
+     *
+     * Strictly best-effort and NEVER retried: an update must never be delayed or failed by
+     * telemetry. Callers use [com.maestrovpn.tv.vendor.UpdateTelemetry], which is fire-and-forget.
+     */
+    suspend fun sendEvent(kind: String, msg: String, details: String = "") = withContext(Dispatchers.IO) {
+        runCatching {
+            postReport(
+                JSONObject().apply {
+                    put("kind", kind)
+                    put("v", BuildConfig.VERSION_NAME)
+                    put("vc", BuildConfig.VERSION_CODE)
+                    put("device", Build.MANUFACTURER + " " + Build.MODEL)
+                    put("api", Build.VERSION.SDK_INT)
+                    put("id", runCatching { MaestroSub.deviceId(Application.application) }.getOrDefault(""))
+                    put("ts", System.currentTimeMillis())
+                    put("msg", msg)
+                    put("stack", details)
+                },
+            )
+        }
+        Unit
+    }
+
     private fun archivePendingJvmCrashReport() {
         val crashFile = File(workingDir, PENDING_JVM_CRASH_FILE_NAME)
         val metadataFile = File(workingDir, PENDING_JVM_METADATA_FILE_NAME)

@@ -41,8 +41,14 @@ class InstallResultReceiver : BroadcastReceiver() {
                     // parked Intent on the next resume, so the install completes in place
                     // the moment the user opens the app instead of looping another cycle.
                     UpdateState.pendingConfirmIntent.value = it
-                    runCatching { context.startActivity(it) }
+                    val started = runCatching { context.startActivity(it) }
                         .onFailure { e -> Log.w(TAG, "confirm intent blocked", e) }
+                        .isSuccess
+                    // THE event that explains «постоянно загрузка»: from here the app sits in
+                    // SystemPackageInstaller's 4-minute wait while the UI still says «Загрузка».
+                    // started=false additionally means the system swallowed the dialog (background
+                    // activity start), i.e. the user was never even asked.
+                    UpdateTelemetry.emit("confirm_required", "session=$sessionId started=$started")
                 }
             }
             PackageInstaller.STATUS_SUCCESS -> {
@@ -53,6 +59,9 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
             else -> {
                 Log.e(TAG, "Installation failed: $status - $message")
+                // Raw PackageInstaller.STATUS_* — the only place it survives; ApkInstaller's
+                // install_failed carries the human-readable mapping, this carries the code.
+                UpdateTelemetry.emit("install_verdict", "session=$sessionId status=$status msg=$message")
                 UpdateState.pendingConfirmIntent.value = null
                 UpdateState.setInstallStatus(UpdateState.InstallStatus.Failed(message ?: "Unknown error"))
                 SystemPackageInstaller.onInstallResult(sessionId, status, message)
