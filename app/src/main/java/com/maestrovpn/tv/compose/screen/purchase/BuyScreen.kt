@@ -2,8 +2,9 @@ package com.maestrovpn.tv.compose.screen.purchase
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,10 +48,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyListRow
+import com.maestrovpn.tv.compose.premium.MobilePremiumButton
+import com.maestrovpn.tv.compose.premium.MobilePremiumError
+import com.maestrovpn.tv.compose.premium.MobilePremiumLoading
+import com.maestrovpn.tv.compose.premium.MobilePremiumPanel
+import com.maestrovpn.tv.compose.premium.PremiumEmerald
+import com.maestrovpn.tv.compose.premium.PremiumGold
+import com.maestrovpn.tv.compose.premium.PremiumText
+import com.maestrovpn.tv.compose.premium.PremiumTextMuted
+import com.maestrovpn.tv.compose.premium.mobilePremiumHorizontalPadding
+import com.maestrovpn.tv.compose.premium.mobilePremiumPaymentQrSize
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.GoldMid
@@ -58,6 +70,7 @@ import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
+import kotlin.math.roundToInt
 
 /**
  * In-app purchase screen (works on touch + D-pad): pick a tariff → see СБП payment
@@ -107,7 +120,7 @@ fun BuyScreen(
     // Keep the surface transparent: TV supplies its own scene, while phone draws the shared
     // mobile wood surface below the purchase flow.
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-      Box(modifier = Modifier.fillMaxSize()) {
+      BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         // PHONE: shared mobile wood surface. TV keeps the graphite theme drawn below.
         if (!isTv) {
             Image(
@@ -119,11 +132,22 @@ fun BuyScreen(
         }
         // Радиальный градиент на ТВ убран: полупрозрачный радиал на 8-битной панели давал
         // ступенчатые полосы (banding, фото owner 2026-07-11); глубину даёт виньетка самого фона.
+        val contentPadding = if (isTv) {
+            PaddingValues(screenPadding(true))
+        } else {
+            PaddingValues(
+                horizontal = mobilePremiumHorizontalPadding(
+                    widthDp = maxWidth.value.roundToInt(),
+                    heightDp = maxHeight.value.roundToInt(),
+                ).dp,
+                vertical = screenPadding(false),
+            )
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(screenPadding(isTv)),
+                .padding(contentPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
             // Top (not Center): with verticalScroll, Arrangement.Center pushes the top of
             // tall content (the "Сумма: X ₽" line on the payment screen) ABOVE the viewport
@@ -132,7 +156,16 @@ fun BuyScreen(
             verticalArrangement = Arrangement.Top,
         ) {
             when (val s = state) {
-                is BuyState.Loading -> Text("Загрузка тарифов…", style = MaterialTheme.typography.titleMedium)
+                is BuyState.Loading -> {
+                    if (isTv) {
+                        Text("Загрузка тарифов…", style = MaterialTheme.typography.titleMedium)
+                    } else {
+                        MobilePremiumLoading(
+                            message = "Загрузка тарифов…",
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+                }
 
                 is BuyState.Tariffs -> {
                     Text(
@@ -173,22 +206,37 @@ fun BuyScreen(
                             }
                         }
                     } else {
-                        s.items.forEachIndexed { i, tariff ->
-                            TariffCard(
-                                item = tariff,
-                                isTv = false,
-                                onClick = { viewModel.buy(tariff.key) },
-                                modifier = Modifier
-                                    .widthIn(max = 560.dp)
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp)
-                                    .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier),
-                            )
-                        }
+                        PhoneTariffSelection(
+                            items = s.items,
+                            onBuy = { tariffKey -> viewModel.buy(tariffKey) },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
                     }
                 }
 
                 is BuyState.AwaitingPayment -> {
+                    if (!isTv) {
+                        val payCtx = LocalContext.current
+                        PhonePaymentContent(
+                            state = s,
+                            onOpenPayment = { payUrl ->
+                                runCatching {
+                                    payCtx.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(payUrl))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }.onFailure {
+                                    Toast.makeText(
+                                        payCtx,
+                                        "Браузер не найден — отсканируйте QR телефоном",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            },
+                            onPaid = { viewModel.iPaid() },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    } else {
                     // On TV the viewport is SHORT (landscape). The "Оплата" header is redundant
                     // (you reached this screen by buying) and its height was part of what pushed
                     // the amount off the top: the focusable "Я оплатил" button auto-scrolls into
@@ -300,26 +348,240 @@ fun BuyScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                     )
+                    }
                 }
 
-                is BuyState.AwaitingConfirm -> Text(
-                    "Ожидаем подтверждение оплаты…",
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
-                )
+                is BuyState.AwaitingConfirm -> {
+                    if (isTv) {
+                        Text(
+                            "Ожидаем подтверждение оплаты…",
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    } else {
+                        PhonePaymentResultContent(
+                            state = s,
+                            onRetry = { viewModel.loadTariffs() },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+                }
 
-                is BuyState.Activating -> Text("Активируем подписку…", style = MaterialTheme.typography.titleMedium)
+                is BuyState.Activating -> {
+                    if (isTv) {
+                        Text("Активируем подписку…", style = MaterialTheme.typography.titleMedium)
+                    } else {
+                        PhonePaymentResultContent(
+                            state = s,
+                            onRetry = { viewModel.loadTariffs() },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+                }
 
-                is BuyState.Done -> Text("Готово!", style = MaterialTheme.typography.titleMedium, color = NeonGreen)
+                is BuyState.Done -> {
+                    if (isTv) {
+                        Text("Готово!", style = MaterialTheme.typography.titleMedium, color = NeonGreen)
+                    } else {
+                        PhonePaymentResultContent(
+                            state = s,
+                            onRetry = { viewModel.loadTariffs() },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+                }
 
                 is BuyState.Error -> {
-                    Text("Ошибка: ${s.message}", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(20.dp))
-                    GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen, wood = true)
+                    if (isTv) {
+                        Text("Ошибка: ${s.message}", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(20.dp))
+                        GlossyButton(label = "Повторить", onClick = { viewModel.loadTariffs() }, accent = NeonGreen, wood = true)
+                    } else {
+                        PhonePaymentResultContent(
+                            state = s,
+                            onRetry = { viewModel.loadTariffs() },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
                 }
             }
         }
       }
+    }
+}
+
+@Composable
+internal fun PhonePaymentContent(
+    state: BuyState.AwaitingPayment,
+    onOpenPayment: (String) -> Unit,
+    onPaid: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    MobilePremiumPanel(
+        modifier = modifier.testTag("premium-payment"),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                "Оплата",
+                style = MaterialTheme.typography.headlineSmall,
+                fontFamily = PlayfairFamily,
+                fontWeight = FontWeight.Bold,
+                color = PremiumGold,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Сумма: ${state.rub} ₽",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = PremiumEmerald,
+                textAlign = TextAlign.Center,
+            )
+
+            // Keep pay_url as the preferred QR payload, with the existing phone fallback.
+            val payContent = if (state.payUrl.isNotBlank()) state.payUrl else state.phone
+            if (payContent.isNotBlank()) {
+                val payQr = remember(payContent) { QRCodeGenerator.generate(payContent) }
+                Spacer(Modifier.height(16.dp))
+                // The white scan field is an explicit payment invariant.
+                BoxWithConstraints {
+                    val qrSize = mobilePremiumPaymentQrSize(
+                        maxContentWidthDp = maxWidth.value.roundToInt(),
+                    ).dp
+                    Surface(color = Color.White, shape = RoundedCornerShape(16.dp)) {
+                        Image(
+                            bitmap = payQr.asImageBitmap(),
+                            contentDescription = "QR для оплаты",
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .size(qrSize),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (state.payUrl.isNotBlank()) {
+                        "Отсканируйте телефоном — откроется оплата (СБП или картой, из любого банка)"
+                    } else {
+                        "Отсканируйте телефоном — номер вводить не нужно"
+                    },
+                    color = PremiumText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            if (state.payUrl.isNotBlank()) {
+                Spacer(Modifier.height(14.dp))
+                MobilePremiumButton(
+                    label = "Открыть страницу оплаты",
+                    onClick = { onOpenPayment(state.payUrl) },
+                    modifier = Modifier.widthIn(min = 260.dp),
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Код заказа (укажите в сообщении к переводу, если есть поле):",
+                color = PremiumText,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                state.code,
+                style = MaterialTheme.typography.headlineMedium,
+                color = PremiumEmerald,
+            )
+            if (state.phone.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Или вручную по СБП на номер: ${state.phone}",
+                    color = PremiumText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+            MobilePremiumButton(
+                label = "Я оплатил",
+                onClick = onPaid,
+                modifier = Modifier.widthIn(min = 220.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "После нажатия заявка уйдёт владельцу. Подписка активируется после подтверждения — оставьте экран открытым.",
+                color = PremiumTextMuted,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun PhonePaymentResultContent(
+    state: BuyState,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (state) {
+        BuyState.AwaitingConfirm -> {
+            MobilePremiumPanel(modifier.testTag("premium-payment")) {
+                MobilePremiumLoading(message = "Ожидаем подтверждение оплаты…")
+            }
+        }
+
+        BuyState.Activating -> {
+            MobilePremiumPanel(modifier.testTag("premium-payment")) {
+                MobilePremiumLoading(message = "Активируем подписку…")
+            }
+        }
+
+        BuyState.Done -> {
+            MobilePremiumPanel(modifier.testTag("premium-payment")) {
+                Text(
+                    text = "Готово!",
+                    modifier = Modifier.fillMaxWidth(),
+                    color = PremiumEmerald,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+
+        is BuyState.Error -> {
+            MobilePremiumError(
+                message = "Ошибка: ${state.message}",
+                onRetry = onRetry,
+                modifier = modifier.testTag("premium-payment"),
+                retryLabel = "Повторить",
+            )
+        }
+
+        else -> Unit
+    }
+}
+
+@Composable
+internal fun PhoneTariffSelection(
+    items: List<TariffItem>,
+    onBuy: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    MobilePremiumPanel(modifier = modifier.testTag("premium-tariffs")) {
+        items.forEach { tariff ->
+            TariffCard(
+                item = tariff,
+                isTv = false,
+                onClick = { onBuy(tariff.key) },
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+        }
     }
 }
 

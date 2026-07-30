@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyTextField
+import com.maestrovpn.tv.compose.premium.MobilePremiumButton
+import com.maestrovpn.tv.compose.premium.MobilePremiumError
+import com.maestrovpn.tv.compose.premium.MobilePremiumPanel
+import com.maestrovpn.tv.compose.premium.MobilePremiumScreen
+import com.maestrovpn.tv.compose.premium.MobilePremiumTextField
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.screenPadding
 import com.maestrovpn.tv.compose.theme.MaestroSilver
@@ -69,6 +75,16 @@ fun TrialScreen(
         runCatching { nickFocus.requestFocus() }
     }
 
+    if (!isTv) {
+        TrialPhoneForm(
+            nick = nick,
+            onNickChange = { nick = it },
+            state = state,
+            onActivate = { if (nick.isNotBlank() && !busy) viewModel.activate(nick) },
+            onBack = onDone,
+            nickFocus = nickFocus,
+        )
+    } else {
     // Keep the surface transparent: TV supplies its own scene, while phone draws the shared
     // mobile wood surface below the form.
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
@@ -150,6 +166,58 @@ fun TrialScreen(
             }
         }
       }
+    }
+    }
+}
+
+@Composable
+internal fun TrialPhoneForm(
+    nick: String,
+    onNickChange: (String) -> Unit,
+    state: TrialState,
+    onActivate: () -> Unit,
+    onBack: () -> Unit,
+    nickFocus: FocusRequester? = null,
+) {
+    val busy = state is TrialState.Busy
+
+    MobilePremiumScreen(
+        title = "Бесплатный пробный период",
+        onBack = onBack,
+        modifier = Modifier.testTag("premium-trial"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 32.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            MobilePremiumPanel {
+                MobilePremiumTextField(
+                    value = nick,
+                    onValueChange = onNickChange,
+                    placeholder = "Ваш ник",
+                    enabled = !busy,
+                    focusRequester = nickFocus,
+                )
+                Spacer(Modifier.height(20.dp))
+                MobilePremiumButton(
+                    label = if (busy) "Активируем…" else "Получить 2 дня",
+                    onClick = onActivate,
+                    enabled = nick.isNotBlank() && !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            (state as? TrialState.Error)?.let { err ->
+                Spacer(Modifier.height(16.dp))
+                MobilePremiumError(
+                    message = err.message,
+                    onRetry = onActivate,
+                )
+            }
+        }
     }
 }
 

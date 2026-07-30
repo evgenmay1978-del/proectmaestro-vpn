@@ -8,40 +8,51 @@ import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -57,17 +69,31 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.maestrovpn.tv.compose.component.ChromeTile
-import com.maestrovpn.tv.compose.component.GlossyButton
-import com.maestrovpn.tv.compose.component.NeonChip
-import com.maestrovpn.tv.compose.component.SectionLabel
-import com.maestrovpn.tv.compose.theme.MaestroOrange
-import com.maestrovpn.tv.compose.theme.NeonGreen
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.premium.MobilePremiumButton
+import com.maestrovpn.tv.compose.premium.PremiumEmerald
+import com.maestrovpn.tv.compose.premium.PremiumGold
+import com.maestrovpn.tv.compose.premium.PremiumGoldMuted
+import com.maestrovpn.tv.compose.premium.PremiumLeather
+import com.maestrovpn.tv.compose.premium.PremiumText
+import com.maestrovpn.tv.compose.premium.PremiumTextMuted
+import com.maestrovpn.tv.compose.premium.PremiumTouchTarget
+import com.maestrovpn.tv.compose.premium.PremiumWalnut
 import com.maestrovpn.tv.utils.ConnectivityCheck
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -123,6 +149,28 @@ internal fun PhoneRevolverMenu(
     }
     val snapFling = rememberSnapFlingBehavior(lazyListState = state)
     val flatFling = ScrollableDefaults.flingBehavior()
+    val haptic = LocalHapticFeedback.current
+    var touchGestureActive by remember { mutableStateOf(false) }
+    LaunchedEffect(state, touchExploration, haptic) {
+        var previousCenteredKey: Any? = null
+        androidx.compose.runtime.snapshotFlow {
+            if (touchExploration || !touchGestureActive || !state.isScrollInProgress) {
+                null
+            } else {
+                centeredRevolverKey(state)
+            }
+        }.collect { centeredKey ->
+            when {
+                centeredKey == null -> previousCenteredKey = null
+                centeredKey != previousCenteredKey -> {
+                    if (previousCenteredKey != null) {
+                        haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                    }
+                    previousCenteredKey = centeredKey
+                }
+            }
+        }
+    }
 
     val open: (String) -> Unit = remember(context) {
         { url ->
@@ -182,76 +230,184 @@ internal fun PhoneRevolverMenu(
         )
     }
 
-    Box(modifier = modifier) {
-        LazyColumn(
-            state = state,
-            flingBehavior = if (touchExploration) flatFling else snapFling,
-            contentPadding = PaddingValues(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(key = "status") {
-                RevolverItem("status", state, !touchExploration) {
-                    PhoneStatusRow(
-                        statusText = statusText,
-                        connected = connected,
-                        activeProtocol = activeProtocol,
-                        selected = selected,
-                    )
+    // ⛔ ЛОВУШКА: статус был ПЕРВЫМ элементом LazyColumn, а маска-градиент (ниже) лежит ПОВЕРХ
+    // списка и в первых 13% высоты окна доходит до alpha 0.88. На скролле 0 — то есть при каждом
+    // открытии экрана — главный индикатор «работает ли VPN» и цветная точка оказывались затемнены
+    // на 20–60%, и прокрутить выше было нельзя. Теперь статус — фиксированная шапка ВНЕ барабана
+    // и вне маски: он всегда читается в полную яркость, не наклоняется и не участвует в снэпе.
+    // Маска при этом сохраняет своё назначение — прятать уезжающие ряды за резной рамой.
+    Column(modifier = modifier.testTag("premium-revolver")) {
+        PhoneStatusRow(
+            statusText = statusText,
+            connected = connected,
+            activeProtocol = activeProtocol,
+            selected = selected,
+        )
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                state = state,
+                flingBehavior = if (touchExploration) flatFling else snapFling,
+                contentPadding = PaddingValues(start = 18.dp, top = 8.dp, end = 18.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(touchExploration) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            touchGestureActive = true
+                            do {
+                                val event = awaitPointerEvent()
+                            } while (event.changes.any { it.pressed })
+                            touchGestureActive = false
+                        }
+                    },
+            ) {
+                if (!accountLogin.isNullOrBlank() || daysLeft != null) {
+                    item(key = "account") {
+                        RevolverItem("account", state, !touchExploration) {
+                            AccountCard(
+                                login = accountLogin,
+                                daysLeft = daysLeft,
+                                expires = accountExpires,
+                                wood = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .widthIn(max = 460.dp)
+                                    .testTag("premium-account"),
+                            )
+                        }
+                    }
                 }
-            }
 
-            if (!accountLogin.isNullOrBlank() || daysLeft != null) {
-                item(key = "account") {
-                    RevolverItem("account", state, !touchExploration) {
-                        AccountCard(
-                            login = accountLogin,
-                            daysLeft = daysLeft,
-                            expires = accountExpires,
-                            wood = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .widthIn(max = 460.dp),
+                if (protocolRows.isNotEmpty()) {
+                    item(key = "protocol-title") {
+                        RevolverItem("protocol-title", state, !touchExploration) {
+                            PremiumMenuSectionLabel("ПРОТОКОЛ")
+                        }
+                    }
+                    items(
+                        items = protocolRows,
+                        key = { row -> "protocol-${row.joinToString("-")}" },
+                    ) { row ->
+                        val key = "protocol-${row.joinToString("-")}"
+                        RevolverItem(key, state, !touchExploration) {
+                            TwoColumnRow {
+                                row.forEach { protocol ->
+                                    val locked = protocol == "olcrtc" && !hasOlcrtcCreds
+                                    PremiumProtocolTile(
+                                        label = protocolLabel(protocol),
+                                        onClick = {
+                                            if (locked) onSelectOlcrtc() else onSelectProtocol(protocol)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        icon = if (locked) Icons.Filled.Lock else protocolIcon(protocol),
+                                        selected = protocol == selected && !locked,
+                                        subtitle = when {
+                                            locked -> "по запросу"
+                                            protocol == "olcrtc" -> {
+                                                if (olcrtcProvider == "wbstream") "через WB" else "через Яндекс"
+                                            }
+                                            else -> protocolBadge(protocol)
+                                        },
+                                        locked = locked,
+                                    )
+                                }
+                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+
+                if (!hasSubProfile) {
+                    item(key = "trial") {
+                        RevolverItem("trial", state, !touchExploration) {
+                            MobilePremiumButton(
+                                label = "Попробовать 2 дня бесплатно",
+                                onClick = onEnterTrial,
+                                modifier = Modifier.fillMaxWidth(),
+                                leadingIcon = { Icon(Icons.Filled.Bolt, null, tint = PremiumEmerald) },
+                            )
+                        }
+                    }
+                }
+
+                item(key = "buy") {
+                    RevolverItem("buy", state, !touchExploration) {
+                        MobilePremiumButton(
+                            label = "Купить подписку",
+                            onClick = onBuy,
+                            modifier = Modifier.fillMaxWidth(),
+                            leadingIcon = { Icon(Icons.Filled.ShoppingCart, null, tint = PremiumGold) },
                         )
                     }
                 }
-            }
 
-            if (protocolRows.isNotEmpty()) {
-                item(key = "protocol-title") {
-                    RevolverItem("protocol-title", state, !touchExploration) {
-                        SectionLabel("ПРОТОКОЛ", wood = true)
-                    }
-                }
                 items(
-                    items = protocolRows,
-                    key = { row -> "protocol-${row.joinToString("-")}" },
+                    items = actionRows,
+                    key = { row -> "action-${row.joinToString("-") { it.label }}" },
                 ) { row ->
-                    val key = "protocol-${row.joinToString("-")}"
+                    val key = "action-${row.joinToString("-") { it.label }}"
                     RevolverItem(key, state, !touchExploration) {
                         TwoColumnRow {
-                            row.forEach { protocol ->
-                                val locked = protocol == "olcrtc" && !hasOlcrtcCreds
-                                NeonChip(
-                                    label = protocolLabel(protocol),
-                                    onClick = {
-                                        if (locked) onSelectOlcrtc() else onSelectProtocol(protocol)
-                                    },
+                            row.forEach { action ->
+                                PremiumMenuActionTile(
+                                    label = action.label,
+                                    icon = action.icon,
+                                    onClick = action.onClick,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+
+                item(key = "contacts-title") {
+                        RevolverItem("contacts-title", state, !touchExploration) {
+                        PremiumMenuSectionLabel("КОНТАКТЫ")
+                    }
+                }
+
+                item(key = "phone") {
+                    RevolverItem("phone", state, !touchExploration) {
+                        MobilePremiumButton(
+                            label = "8 977 811-65-64",
+                            onClick = { open("tel:+79778116564") },
+                            modifier = Modifier.fillMaxWidth(),
+                            leadingIcon = { Icon(Icons.Filled.Call, null, tint = PremiumEmerald) },
+                        )
+                    }
+                }
+
+                item(key = "contact-note") {
+                    RevolverItem("contact-note", state, !touchExploration) {
+                        Text(
+                            "Если я не ответил на звонок — напишите в любом из мессенджеров.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+
+                items(
+                    items = contacts.chunked(2),
+                    key = { row -> "contact-${row.joinToString("-") { it.label }}" },
+                ) { row ->
+                    val key = "contact-${row.joinToString("-") { it.label }}"
+                    RevolverItem(key, state, !touchExploration) {
+                        TwoColumnRow {
+                            row.forEach { contact ->
+                                PremiumMenuActionTile(
+                                    label = contact.label,
+                                    onClick = contact.onClick,
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .heightIn(min = 68.dp),
-                                    icon = if (locked) Icons.Filled.Lock else protocolIcon(protocol),
-                                    selected = protocol == selected && !locked,
-                                    subtitle = when {
-                                        locked -> "по запросу"
-                                        protocol == "olcrtc" -> {
-                                            if (olcrtcProvider == "wbstream") "через WB" else "через Яндекс"
-                                        }
-                                        else -> protocolBadge(protocol)
-                                    },
-                                    locked = locked,
-                                    wood = true,
+                                        .weight(1f),
+                                    icon = contact.icon,
                                 )
                             }
                             if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -260,182 +416,222 @@ internal fun PhoneRevolverMenu(
                 }
             }
 
-            if (!hasSubProfile) {
-                item(key = "trial") {
-                    RevolverItem("trial", state, !touchExploration) {
-                        GlossyButton(
-                            label = "Попробовать 2 дня бесплатно",
-                            onClick = onEnterTrial,
-                            accent = NeonGreen,
-                            icon = Icons.Filled.Bolt,
-                            wood = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-
-            item(key = "buy") {
-                RevolverItem("buy", state, !touchExploration) {
-                    GlossyButton(
-                        label = "Купить подписку",
-                        onClick = onBuy,
-                        accent = MaestroOrange,
-                        icon = Icons.Filled.ShoppingCart,
-                        wood = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-
-            items(
-                items = actionRows,
-                key = { row -> "action-${row.joinToString("-") { it.label }}" },
-            ) { row ->
-                val key = "action-${row.joinToString("-") { it.label }}"
-                RevolverItem(key, state, !touchExploration) {
-                    TwoColumnRow {
-                        row.forEach { action ->
-                            ChromeTile(
-                                label = action.label,
-                                icon = action.icon,
-                                onClick = action.onClick,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 102.dp),
-                                wood = true,
-                            )
-                        }
-                        if (row.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
-
-            item(key = "contacts-title") {
-                RevolverItem("contacts-title", state, !touchExploration) {
-                    SectionLabel("КОНТАКТЫ", wood = true)
-                }
-            }
-
-            item(key = "phone") {
-                RevolverItem("phone", state, !touchExploration) {
-                    GlossyButton(
-                        label = "8 977 811-65-64",
-                        onClick = { open("tel:+79778116564") },
-                        accent = NeonGreen,
-                        icon = Icons.Filled.Call,
-                        wood = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-
-            item(key = "contact-note") {
-                RevolverItem("contact-note", state, !touchExploration) {
-                    Text(
-                        "Если я не ответил на звонок — напишите в любом из мессенджеров.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 4.dp),
-                    )
-                }
-            }
-
-            items(
-                items = contacts.chunked(2),
-                key = { row -> "contact-${row.joinToString("-") { it.label }}" },
-            ) { row ->
-                val key = "contact-${row.joinToString("-") { it.label }}"
-                RevolverItem(key, state, !touchExploration) {
-                    TwoColumnRow {
-                        row.forEach { contact ->
-                            NeonChip(
-                                label = contact.label,
-                                onClick = contact.onClick,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 54.dp),
-                                icon = contact.icon,
-                                iconTint = contactTint(contact.label),
-                                wood = true,
-                            )
-                        }
-                        if (row.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
+            // Fixed masks hide the outgoing rows behind the carved frame instead of cutting
+            // them off on a hard horizontal line. Накрывает ТОЛЬКО прокручиваемую часть —
+            // статусная шапка выше и намеренно остаётся вне затемнения.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0.00f to PremiumWalnut.copy(alpha = 0.88f),
+                            0.13f to Color.Transparent,
+                            0.84f to Color.Transparent,
+                            1.00f to PremiumLeather.copy(alpha = 0.92f),
+                        ),
+                    ),
+            )
             }
         }
+    }
 
-        // Fixed masks hide the outgoing rows behind the carved frame instead of cutting
-        // them off on a hard horizontal line.
+    @Composable
+    private fun RevolverItem(
+        key: String,
+        state: LazyListState,
+        enabled: Boolean,
+        content: @Composable () -> Unit,
+    ) {
         Box(
+            contentAlignment = Alignment.Center,
             modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0.00f to Color.Black.copy(alpha = 0.76f),
-                        0.13f to Color.Transparent,
-                        0.84f to Color.Transparent,
-                        1.00f to Color.Black.copy(alpha = 0.82f),
+                .fillMaxWidth()
+                .revolverTransform(state, key, enabled),
+        ) {
+            content()
+        }
+    }
+
+    private fun Modifier.revolverTransform(
+        state: LazyListState,
+        key: String,
+        enabled: Boolean,
+    ): Modifier = composed {
+        if (!enabled) return@composed this
+
+        val density = LocalDensity.current.density
+        graphicsLayer {
+            val item = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }
+            if (item == null) {
+                rotationX = 0f
+                scaleX = 1f
+                scaleY = 1f
+                alpha = 1f
+                return@graphicsLayer
+            }
+
+            val viewportStart = state.layoutInfo.viewportStartOffset
+            val viewportEnd = state.layoutInfo.viewportEndOffset
+            val viewportCenter = (viewportStart + viewportEnd) / 2f
+            val viewportHalf = ((viewportEnd - viewportStart) / 2f).coerceAtLeast(1f)
+            val itemCenter = item.offset + item.size / 2f
+            val distance = ((itemCenter - viewportCenter) / viewportHalf).coerceIn(-1f, 1f)
+            val visualState = revolverVisualState(distance)
+            rotationX = visualState.rotationX
+            scaleX = visualState.scale
+            scaleY = visualState.scale
+            alpha = visualState.alpha
+            translationY = visualState.translationY
+            cameraDistance = density * 18f
+            transformOrigin = TransformOrigin.Center
+            clip = false
+        }
+    }
+
+    /** A pure, nonlinear drum state. Positive distance is below the viewport centre. */
+    internal data class RevolverVisualState(
+        val rotationX: Float,
+        val scale: Float,
+        val alpha: Float,
+        val translationY: Float,
+    )
+
+    internal fun revolverVisualState(normalizedDistance: Float): RevolverVisualState {
+        val distance = normalizedDistance.coerceIn(-1f, 1f)
+        val edge = abs(distance)
+        // Smoothstep eases the centre flat while tightening the edge of the cylinder.
+        val curve = edge * edge * (3f - 2f * edge)
+        val direction = if (distance < 0f) -1f else if (distance > 0f) 1f else 0f
+        return RevolverVisualState(
+            rotationX = direction * curve * 32f,
+            scale = 1f - curve * 0.09f,
+            alpha = 1f - curve * 0.26f,
+            translationY = direction * curve * 14f,
+        )
+    }
+
+    private fun centeredRevolverKey(state: LazyListState): Any? {
+        val layout = state.layoutInfo
+        val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2f
+        return layout.visibleItemsInfo.minByOrNull { item ->
+            abs(item.offset + item.size / 2f - viewportCenter)
+        }?.key
+    }
+
+    @Composable
+    private fun PremiumMenuSectionLabel(label: String) {
+        Text(
+            text = label,
+            color = PremiumGold,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+        )
+    }
+
+    @Composable
+    internal fun PremiumProtocolTile(
+        label: String,
+        subtitle: String,
+        icon: ImageVector,
+        selected: Boolean,
+        locked: Boolean,
+        onClick: () -> Unit,
+        modifier: Modifier = Modifier,
+    ) {
+        Row(
+            modifier = modifier
+                .defaultMinSize(minHeight = 76.dp)
+                .fantasyFrame(R.drawable.frame_button, selected)
+                .background(if (selected) PremiumEmerald.copy(alpha = 0.18f) else PremiumLeather.copy(alpha = 0.62f))
+                .alpha(if (locked) 0.72f else 1f)
+                .selectable(
+                    selected = selected,
+                    role = Role.RadioButton,
+                    onClick = onClick,
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) PremiumEmerald else PremiumGoldMuted,
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 10.dp),
+            ) {
+                // ⛔ ЛОВУШКА: здесь стоял обычный Text с maxLines=1 и БЕЗ overflow, а дефолт в
+                // Compose — TextOverflow.Clip, то есть обрез посреди глифа даже без «…».
+                // В плитке 2-в-ряд на экране 360dp под текст остаётся ~61dp: «NaiveProxy» и бейдж
+                // «⚠ нестабильный» превращались в «NaivePro»/«⚠ нестаб» — единственное в интерфейсе
+                // предупреждение о задушенном протоколе пропадало. Возвращаем приём старого чипа
+                // (component/NeonGlass.kt:228): autoSize сжимает длинные RU-названия под ячейку.
+                BasicText(
+                    text = label,
+                    style = TextStyle(
+                        color = if (selected) PremiumText else PremiumTextMuted,
+                        fontWeight = FontWeight.Bold,
                     ),
-                ),
+                    maxLines = 1,
+                    autoSize = TextAutoSize.StepBased(
+                        minFontSize = 10.sp,
+                        maxFontSize = 16.sp,
+                        stepSize = 0.5.sp,
+                    ),
+                )
+                BasicText(
+                    text = subtitle,
+                    style = TextStyle(
+                        color = if (selected) PremiumEmerald else PremiumGoldMuted,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                    maxLines = 1,
+                    autoSize = TextAutoSize.StepBased(
+                        minFontSize = 7.sp,
+                        maxFontSize = 11.sp,
+                        stepSize = 0.5.sp,
+                    ),
+                )
+        }
+        Icon(
+            imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+            contentDescription = if (selected) "Выбран" else null,
+            tint = if (selected) PremiumEmerald else PremiumGoldMuted,
         )
     }
 }
 
 @Composable
-private fun RevolverItem(
-    key: String,
-    state: LazyListState,
-    enabled: Boolean,
-    content: @Composable () -> Unit,
+internal fun PremiumMenuActionTile(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .revolverTransform(state, key, enabled),
+    Column(
+        modifier = modifier
+            .defaultMinSize(minHeight = PremiumTouchTarget)
+            .fantasyFrame(R.drawable.frame_button)
+            .background(PremiumLeather.copy(alpha = 0.64f))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        content()
-    }
-}
-
-private fun Modifier.revolverTransform(
-    state: LazyListState,
-    key: String,
-    enabled: Boolean,
-): Modifier = composed {
-    if (!enabled) return@composed this
-
-    val density = LocalDensity.current.density
-    graphicsLayer {
-        val item = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }
-        if (item == null) {
-            rotationX = 0f
-            scaleX = 1f
-            scaleY = 1f
-            alpha = 1f
-            return@graphicsLayer
-        }
-
-        val viewportStart = state.layoutInfo.viewportStartOffset
-        val viewportEnd = state.layoutInfo.viewportEndOffset
-        val viewportCenter = (viewportStart + viewportEnd) / 2f
-        val viewportHalf = ((viewportEnd - viewportStart) / 2f).coerceAtLeast(1f)
-        val itemCenter = item.offset + item.size / 2f
-        val distance = ((itemCenter - viewportCenter) / viewportHalf).coerceIn(-1f, 1f)
-        val edge = abs(distance)
-
-        rotationX = distance * 31f
-        scaleX = 1f - edge * 0.10f
-        scaleY = 1f - edge * 0.10f
-        alpha = 1f - edge * 0.30f
-        cameraDistance = density * 18f
-        transformOrigin = TransformOrigin.Center
-        clip = false
+        Icon(icon, contentDescription = null, tint = PremiumGold)
+        Text(
+            text = label,
+            color = PremiumText,
+            style = MaterialTheme.typography.labelLarge,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+        )
     }
 }
 
@@ -454,9 +650,3 @@ private data class MenuAction(
     val icon: ImageVector,
     val onClick: () -> Unit,
 )
-
-private fun contactTint(label: String): Color = when (label) {
-    "Telegram" -> Color(0xFF2AABEE)
-    "WhatsApp" -> Color(0xFF25D366)
-    else -> Color(0xFF2787F5)
-}

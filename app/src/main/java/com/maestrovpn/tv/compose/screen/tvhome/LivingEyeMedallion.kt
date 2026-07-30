@@ -179,21 +179,27 @@ internal fun LivingEyeMedallion(
     }
 
     Canvas(modifier = modifier) {
+        val layerFit = fitLivingEyeLayer(width = size.width, height = size.height)
         val phase = lidPhase.value.coerceIn(0f, 1f)
         val openToSquint = (phase / 0.5f).coerceIn(0f, 1f)
         val squintToClosed = ((phase - 0.5f) / 0.5f).coerceIn(0f, 1f)
 
-        // Foundation is the exact owner-supplied open frame. It matches the fixed scene.
+        // Основа — открытый кадр владельца. ⛔ Здесь стояло «It matches the fixed scene»: слой
+        // БОЛЬШЕ не совпадает пиксель-в-пиксель с глазом, запечённым в mobile_home_scene, и это
+        // намеренно. Совпадение и было дефектом 1.0.151 — зелень вылезала на бронзовое кольцо.
+        // Все слои проходят через один fitLivingEyeLayer, поэтому между собой они по-прежнему
+        // сведены; расходятся они только с фоном, и именно этого добивался владелец.
         drawSourceLayer(
             image = openState,
-            sourceX = STATE_X,
-            sourceY = STATE_Y,
-            sourceWidth = STATE_WIDTH,
-            sourceHeight = STATE_HEIGHT,
+            sourceX = LIVING_EYE_STATE_X,
+            sourceY = LIVING_EYE_STATE_Y,
+            sourceWidth = LIVING_EYE_STATE_WIDTH,
+            sourceHeight = LIVING_EYE_STATE_HEIGHT,
+            layerFit = layerFit,
         )
 
         if (phase <= 0.5f) {
-            val aperture = eyeAperturePath()
+            val aperture = eyeAperturePath(layerFit)
             clipPath(aperture) {
                 drawSourceLayer(
                     image = sclera,
@@ -201,6 +207,7 @@ internal fun LivingEyeMedallion(
                     sourceY = SCLERA_Y,
                     sourceWidth = SCLERA_WIDTH,
                     sourceHeight = SCLERA_HEIGHT,
+                    layerFit = layerFit,
                 )
 
                 // During a routine blink the globe moves a trace down and medially.
@@ -212,18 +219,20 @@ internal fun LivingEyeMedallion(
                     sourceY = IRIS_Y + irisY,
                     sourceWidth = IRIS_SIZE,
                     sourceHeight = IRIS_SIZE,
+                    layerFit = layerFit,
                 )
 
                 val pupilCenter = sourcePoint(
-                    PUPIL_CENTER_X + irisX,
-                    PUPIL_CENTER_Y + irisY,
+                    layerFit = layerFit,
+                    x = PUPIL_CENTER_X + irisX,
+                    y = PUPIL_CENTER_Y + irisY,
                 )
-                val pupilRadius = sourceLength(
+                val pupilRadius = layerFit.mapSourceLength(
                     PUPIL_NEUTRAL_RADIUS * pupilScale.value,
                 )
                 drawCircle(
                     color = Color(0xFF0A2414),
-                    radius = pupilRadius + sourceLength(3f),
+                    radius = pupilRadius + layerFit.mapSourceLength(3f),
                     center = pupilCenter,
                 )
                 drawCircle(
@@ -247,6 +256,7 @@ internal fun LivingEyeMedallion(
                     sourceY = CATCHLIGHT_Y + irisY * CATCHLIGHT_GAZE_FRACTION,
                     sourceWidth = CATCHLIGHT_SIZE,
                     sourceHeight = CATCHLIGHT_SIZE,
+                    layerFit = layerFit,
                 )
             }
 
@@ -255,10 +265,11 @@ internal fun LivingEyeMedallion(
             if (openToSquint > 0.001f) {
                 drawSourceLayer(
                     image = squintState,
-                    sourceX = STATE_X,
-                    sourceY = STATE_Y,
-                    sourceWidth = STATE_WIDTH,
-                    sourceHeight = STATE_HEIGHT,
+                    sourceX = LIVING_EYE_STATE_X,
+                    sourceY = LIVING_EYE_STATE_Y,
+                    sourceWidth = LIVING_EYE_STATE_WIDTH,
+                    sourceHeight = LIVING_EYE_STATE_HEIGHT,
+                    layerFit = layerFit,
                     alpha = openToSquint,
                 )
             }
@@ -267,17 +278,19 @@ internal fun LivingEyeMedallion(
             // so the permanently open foundation cannot shine through the eyelids.
             drawSourceLayer(
                 image = squintState,
-                sourceX = STATE_X,
-                sourceY = STATE_Y,
-                sourceWidth = STATE_WIDTH,
-                sourceHeight = STATE_HEIGHT,
+                sourceX = LIVING_EYE_STATE_X,
+                sourceY = LIVING_EYE_STATE_Y,
+                sourceWidth = LIVING_EYE_STATE_WIDTH,
+                sourceHeight = LIVING_EYE_STATE_HEIGHT,
+                layerFit = layerFit,
             )
             drawSourceLayer(
                 image = closedState,
-                sourceX = STATE_X,
-                sourceY = STATE_Y,
-                sourceWidth = STATE_WIDTH,
-                sourceHeight = STATE_HEIGHT,
+                sourceX = LIVING_EYE_STATE_X,
+                sourceY = LIVING_EYE_STATE_Y,
+                sourceWidth = LIVING_EYE_STATE_WIDTH,
+                sourceHeight = LIVING_EYE_STATE_HEIGHT,
+                layerFit = layerFit,
                 alpha = squintToClosed,
             )
         }
@@ -391,12 +404,13 @@ private fun DrawScope.drawSourceLayer(
     sourceY: Float,
     sourceWidth: Float,
     sourceHeight: Float,
+    layerFit: LivingEyeLayerFit,
     alpha: Float = 1f,
 ) {
-    val left = this.sourceX(sourceX)
-    val top = this.sourceY(sourceY)
-    val width = sourceLengthX(sourceWidth)
-    val height = sourceLengthY(sourceHeight)
+    val left = layerFit.mapSourceX(sourceX)
+    val top = layerFit.mapSourceY(sourceY)
+    val width = layerFit.mapSourceLengthX(sourceWidth)
+    val height = layerFit.mapSourceLengthY(sourceHeight)
     drawImage(
         image = image,
         srcOffset = IntOffset.Zero,
@@ -411,53 +425,24 @@ private fun DrawScope.drawSourceLayer(
     )
 }
 
-private fun DrawScope.eyeAperturePath(): Path = Path().apply {
+private fun eyeAperturePath(layerFit: LivingEyeLayerFit): Path = Path().apply {
     APERTURE_UPPER.forEachIndexed { index, point ->
-        val mapped = sourcePoint(point.x, point.y)
+        val mapped = sourcePoint(layerFit, point.x, point.y)
         if (index == 0) moveTo(mapped.x, mapped.y) else lineTo(mapped.x, mapped.y)
     }
     APERTURE_LOWER.asReversed().forEach { point ->
-        val mapped = sourcePoint(point.x, point.y)
+        val mapped = sourcePoint(layerFit, point.x, point.y)
         lineTo(mapped.x, mapped.y)
     }
     close()
 }
 
-private fun DrawScope.sourcePoint(x: Float, y: Float): Offset = Offset(
-    sourceX(x),
-    sourceY(y),
+private fun sourcePoint(layerFit: LivingEyeLayerFit, x: Float, y: Float): Offset = Offset(
+    layerFit.mapSourceX(x),
+    layerFit.mapSourceY(y),
 )
 
-private fun DrawScope.sourceX(x: Float): Float =
-    (x - VIRTUAL_ORIGIN_X) / VIRTUAL_SIZE * size.width
-
-private fun DrawScope.sourceY(y: Float): Float =
-    (y - VIRTUAL_ORIGIN_Y) / VIRTUAL_SIZE * size.height
-
-private fun DrawScope.sourceLength(length: Float): Float =
-    length / VIRTUAL_SIZE * minOf(size.width, size.height)
-
-private fun DrawScope.sourceLengthX(length: Float): Float =
-    length / VIRTUAL_SIZE * size.width
-
-private fun DrawScope.sourceLengthY(length: Float): Float =
-    length / VIRTUAL_SIZE * size.height
-
 private data class SourcePoint(val x: Float, val y: Float)
-
-/*
- * The 520 px medallion in mobile_home_scene maps to this square in the original
- * 1349 x 1536 owner frame.  Keeping all layers in source coordinates prevents
- * device aspect ratio and ContentScale.Crop from introducing state drift.
- */
-private const val VIRTUAL_ORIGIN_X = 268.8f
-private const val VIRTUAL_ORIGIN_Y = 637.3f
-private const val VIRTUAL_SIZE = 822.5f
-
-private const val STATE_X = 230f
-private const val STATE_Y = 745f
-private const val STATE_WIDTH = 890f
-private const val STATE_HEIGHT = 635f
 
 private const val SCLERA_X = 350f
 private const val SCLERA_Y = 930f

@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -205,7 +206,11 @@ fun TvHomeScreen(
                 // ── PHONE: the carved frame, logo and closed-eye medallion are one fixed scene.
                 // Only the content below the eye moves. Connected state reveals the matching open
                 // eye inside the same socket, so neither the ring nor the full background crossfades.
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("premium-phone-home"),
+                ) {
                     Image(
                         painter = painterResource(R.drawable.mobile_home_scene),
                         contentDescription = null,
@@ -213,8 +218,13 @@ fun TvHomeScreen(
                         contentScale = ContentScale.Crop,
                     )
 
-                    // Exact ContentScale.Crop mapping for the fixed 853×1844 scene. Both states use
-                    // the same full-size 520px medallion (owner correction: never shrink the closed eye).
+                    // Exact ContentScale.Crop mapping for the fixed 853×1844 scene. Оба состояния
+                    // занимают один и тот же бокс 520px — но САМИ СЛОИ глаза внутри него вписаны в
+                    // бронзовый отступ, см. fitLivingEyeLayer в LivingEyeLayerGeometry.kt.
+                    // ⛔ Здесь стояло «never shrink the closed eye» — это ПРОТИВОПОЛОЖНО текущему
+                    // заданию владельца. В версии 1.0.151 зелень глаза перекрывала бронзовое кольцо
+                    // (старый маппинг выходил за канву на 24.5px с каждой стороны), и владелец
+                    // поручил вписать глаз внутрь кольца. Не «починить» обратно по старому комментарию.
                     val imageWidth = 853f
                     val imageHeight = 1844f
                     val medallionCenterX = 430f
@@ -371,7 +381,8 @@ internal fun PhoneStatusRow(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp),
+            .padding(top = 6.dp)
+            .testTag("premium-status"),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(11.dp).clip(CircleShape).background(if (connected) NeonGreen else stateRed))
