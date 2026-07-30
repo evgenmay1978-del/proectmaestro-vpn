@@ -41,6 +41,9 @@ class InstallResultReceiver : BroadcastReceiver() {
                     // parked Intent on the next resume, so the install completes in place
                     // the moment the user opens the app instead of looping another cycle.
                     UpdateState.pendingConfirmIntent.value = it
+                    // The dialog is (or should be) on screen now — tell the user that, instead of
+                    // leaving «Загрузка» up while the installer silently waits for their answer.
+                    UpdateState.phase.value = UpdateState.Phase.AwaitingConfirm
                     val started = runCatching { context.startActivity(it) }
                         .onFailure { e -> Log.w(TAG, "confirm intent blocked", e) }
                         .isSuccess
@@ -62,6 +65,7 @@ class InstallResultReceiver : BroadcastReceiver() {
                 // Raw PackageInstaller.STATUS_* — the only place it survives; ApkInstaller's
                 // install_failed carries the human-readable mapping, this carries the code.
                 UpdateTelemetry.emit("install_verdict", "session=$sessionId status=$status msg=$message")
+                UpdateState.phase.value = UpdateState.Phase.Idle
                 UpdateState.pendingConfirmIntent.value = null
                 UpdateState.setInstallStatus(UpdateState.InstallStatus.Failed(message ?: "Unknown error"))
                 SystemPackageInstaller.onInstallResult(sessionId, status, message)

@@ -48,6 +48,7 @@ class ApkDownloader : Closeable {
         val expectedSha = info?.sha256?.lowercase().orEmpty()
         val startedAt = System.currentTimeMillis()
         val target = info?.versionCode ?: 0
+        UpdateState.phase.value = UpdateState.Phase.Downloading
 
         // Refuse to download (and install) an APK we cannot validate at all. With neither a size nor a
         // sha256 the size/sha checks below are both skipped and the installer would receive an

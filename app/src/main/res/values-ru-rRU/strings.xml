@@ -278,6 +278,8 @@
     <string name="update_track_not_supported">Этот канал пока не поддерживает проверку обновлений</string>
     <string name="view_release">Посмотреть релиз</string>
     <string name="downloading">Загрузка...</string>
+    <string name="update_installing">Установка…</string>
+    <string name="update_awaiting_confirm">Подтвердите установку на экране телевизора</string>
     <string name="exporting">Экспорт...</string>
     <string name="no_updates_available">Обновлений нет</string>
     <string name="new_version_available">Доступна новая версия: %s</string>

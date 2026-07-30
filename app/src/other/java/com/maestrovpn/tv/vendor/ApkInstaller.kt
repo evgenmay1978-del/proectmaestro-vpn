@@ -115,6 +115,10 @@ object ApkInstaller {
         // The versionCode this attempt is trying to reach, for the failure damper — the
         // manifest's claim, because that is the key the checkers re-offer the update under.
         val targetVersionCode = UpdateState.updateInfo.value?.versionCode ?: 0
+        // From here the UI must stop saying «Загрузка»: the bytes are on disk, what follows is
+        // the archive check, the VPN teardown and the PackageInstaller session — none of which
+        // is a download, and together they are most of the wait the owner saw as an endless one.
+        UpdateState.phase.value = UpdateState.Phase.Installing
         try {
             validateArchive(context, apkFile)
             if (!stopServiceIfRunning()) {
@@ -143,6 +147,7 @@ object ApkInstaller {
                 "target=$targetVersionCode method=$method free=${UpdateTelemetry.freeMb()}MB " +
                     "strikes=${Settings.updateFailedCount} err=${e.message}",
             )
+            UpdateState.phase.value = UpdateState.Phase.Idle
             throw e
         }
     }

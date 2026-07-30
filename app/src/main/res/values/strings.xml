@@ -281,6 +281,10 @@
     <string name="update_track_not_supported">Current track does not support update checking yet</string>
     <string name="view_release">View Release</string>
     <string name="downloading">Downloading…</string>
+    <!-- Update progress states. Kept distinct on purpose: one "Downloading…" label used to
+         cover the install and the up-to-4-minute wait for the system confirm dialog too. -->
+    <string name="update_installing">Installing…</string>
+    <string name="update_awaiting_confirm">Confirm the installation on your TV screen</string>
     <string name="exporting">Exporting…</string>
     <string name="no_updates_available">No updates available</string>
     <string name="new_version_available">New version available: %s</string>
