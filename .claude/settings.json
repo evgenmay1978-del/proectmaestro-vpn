@@ -52,26 +52,6 @@
   "autoMemoryEnabled": true,
   "autoCompactEnabled": true,
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash /root/.claude/maestro-orient.sh 2>/dev/null && echo '✅ Oriented' || true"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash /root/.claude/maestro-orient.sh 2>/dev/null || true"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
