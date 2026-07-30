@@ -15,6 +15,14 @@
 #  2. Оставляем KEEP последних артефактов каждого имени — на случай отката/сравнения.
 #  3. APK релизов лежат в GitHub Releases, а не в артефактах: удаление сборочных APK
 #     НЕ трогает то, что раздаётся флоту по OTA.
+#     ⭐ Проверено 2026-07-30 отдельно, потому что owner прямо сказал «107 версию не трожь»:
+#     APK waypoint'а для старых клиентов — это ассет РЕЛИЗА `tv-v1.0.107`
+#     (MaestroVPN-TV-1.0.107-debug.apk, 82 МБ, релиз от 27.06.2026), а среди артефактов
+#     Actions совпадений со «107» РОВНО НОЛЬ. Этот скрипт работает только с артефактами,
+#     до релизов не дотягивается ни при каких флагах. Сам waypoint включён через
+#     MAESTRO_UPDATE_WAYPOINTS в /etc/maestro-panel.env.
+#     ⛔ НИКОГДА не удалять релиз tv-v1.0.107 и его ассеты — это единственный мост, по
+#     которому клиенты с versionCode < 107 вообще способны обновиться.
 #
 # Использование:
 #   ops/gh-artifacts-prune.sh --dry-run   # показать, что было бы удалено
@@ -22,7 +30,11 @@
 set -euo pipefail
 
 REPO=evgenmay1978-del/proectmaestro-vpn
-KEEP=3
+# Сколько последних артефактов каждого имени оставлять. Переопределяется переменной:
+#   KEEP=0 ops/gh-artifacts-prune.sh   # снести ВСЕ сборочные APK
+# KEEP=0 безопасен: откат живёт в GitHub Releases (у 1.0.150/151/152 есть ассеты-APK),
+# а сборочные артефакты — лишь снимки прогонов.
+KEEP="${KEEP:-3}"
 # Только сборочные APK. Всё, чего нет в этом списке, скрипт не трогает.
 PRUNE_NAMES="maestrovpn-tv-test-apk maestrovpn-tv-debug-apk maestrovpn-tv-olcrtc-canary maestrovpn-tv-awg-canary-apk maestrovpn-tv-stopfix-apk unit-test-report"
 
@@ -46,7 +58,7 @@ PRUNE_NAMES="maestrovpn-tv-test-apk maestrovpn-tv-debug-apk maestrovpn-tv-olcrtc
 #  3. libbox-mieru-aar / libbox-awg-aar / olcrtc-aar — экспериментальные ветки
 #     движка, их прогоны-источники ищутся так же, по своим workflow.
 DEPS_NAMES="libbox-aar libbox-mieru-aar libbox-awg-aar wdtt-bin olcrtc-bin olcrtc-aar"
-KEEP_DEPS=2
+KEEP_DEPS="${KEEP_DEPS:-2}"
 # имя артефакта -> workflow, чей последний успешный прогон является источником
 dep_workflow() {
   case "$1" in
