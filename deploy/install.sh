@@ -16,8 +16,12 @@ XURL=$(grep -oP '^PANEL_URL=\K.*' "$VPN_BOT_ENV" || true)
 [ -n "$XTOKEN" ] || { echo "ERROR: PANEL_API_TOKEN not found in $VPN_BOT_ENV" >&2; exit 1; }
 [ -n "$XURL" ]   || { echo "ERROR: PANEL_URL not found in $VPN_BOT_ENV" >&2; exit 1; }
 if [ -f "$S2_PASS_FILE" ]; then S2PASS=$(cat "$S2_PASS_FILE"); else read -rsp "server-2 root password: " S2PASS; echo; fi
-# СБП number for in-app purchase (Тинькофф / Сбер), per the owner.
-SBPPHONE="8 977 811 65 64"
+# СБП number for in-app purchase (Тинькофф / Сбер), per the owner. Deliberately NOT hard-coded:
+# this repository is public, and a payment number sitting in a public tree is free food for
+# scrapers and payment fraud. Sources, in order: $MAESTRO_SBP_PHONE → whatever is already live in
+# /etc/maestro-panel.env (the re-run case) → an interactive prompt. Empty is refused below: the
+# panel would otherwise serve customers a purchase screen with nothing to pay to.
+SBPPHONE="${MAESTRO_SBP_PHONE:-}"
 # СБП pay link (T-Bank «Сбор денег» — cross-bank, no acquiring) shown as a scannable QR.
 SBPPAYURL="https://tbank.ru/cf/AL6tPKPozJo"
 # owner Telegram notify (reuse the vpn_bot's token + admin id; send-only, no poll conflict)
@@ -32,7 +36,15 @@ if [ -f /etc/maestro-panel.env ]; then
     [ -n "$EXIST_SUB" ] && SUBBASE="$EXIST_SUB"
     EXIST_PAY=$(grep -oP '^MAESTRO_SBP_PAY_URL=\K.*' /etc/maestro-panel.env || true)
     [ -n "$EXIST_PAY" ] && SBPPAYURL="$EXIST_PAY"
+    EXIST_PHONE=$(grep -oP '^MAESTRO_SBP_PHONE=\K.*' /etc/maestro-panel.env || true)
+    [ -n "$EXIST_PHONE" ] && SBPPHONE="$EXIST_PHONE"
 fi
+# Last resort on a FIRST install: ask. Refusing empty is the point — writing an empty
+# MAESTRO_SBP_PHONE would silently ship a purchase screen customers cannot pay from.
+if [ -z "$SBPPHONE" ]; then
+    read -rp "СБП phone for in-app purchase (e.g. +79991234567): " SBPPHONE || true
+fi
+[ -n "$SBPPHONE" ] || { echo "ERROR: СБП phone is empty — set MAESTRO_SBP_PHONE or answer the prompt" >&2; exit 1; }
 [ -n "$ADMIN" ] || ADMIN=$(openssl rand -hex 24)
 
 install -d -m 700 /var/lib/maestro
