@@ -21,6 +21,12 @@ import kotlinx.coroutines.launch
  *
  * ⛔ Fire-and-forget BY DESIGN: emit() never suspends the caller, never retries, never throws.
  * An update must not be delayed — let alone failed — because a diagnostic POST did not land.
+ *
+ * ⛔ ЛОВУШКА ПРИ ЧТЕНИИ СТАТИСТИКИ: `download_ok` НЕДОСЧИТЫВАЕТСЯ. It is emitted moments before
+ * the install, and a SUCCESSFUL install has the system kill this process — often before the POST
+ * leaves the box. So «download_ok меньше, чем обновившихся приборов» is expected and does NOT
+ * mean downloads are failing; success is proven by the `hello` from the NEW versionCode. The
+ * failure stages have no such race (nothing kills us), which is what makes them trustworthy.
  */
 object UpdateTelemetry {
 
