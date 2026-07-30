@@ -719,14 +719,19 @@ class MainActivity :
                             // firing, `!!` threw NPE (fleet crash on the update screen). The local
                             // `p` is a stable non-null value captured per-recomposition.
                             val p = progress
+                            // Say what is actually happening. The percentage belongs to the
+                            // DOWNLOAD only — during the install and the confirm wait a frozen
+                            // «…100%» is precisely what read as «постоянно загрузка».
+                            val ph by UpdateState.phase
                             Column {
-                                if (p != null) {
-                                    Text("${stringResource(R.string.downloading)} ${(p * 100).toInt()}%")
+                                val label = stringResource(UpdateState.phaseLabelRes(ph))
+                                if (ph == UpdateState.Phase.Downloading && p != null) {
+                                    Text("$label ${(p * 100).toInt()}%")
                                 } else {
-                                    Text(stringResource(R.string.downloading))
+                                    Text(label)
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                if (p != null) {
+                                if (ph == UpdateState.Phase.Downloading && p != null) {
                                     LinearProgressIndicator(
                                         progress = { p },
                                         modifier = Modifier.fillMaxWidth(),
@@ -745,7 +750,7 @@ class MainActivity :
                             downloadJob = null
                             showDownloadDialog = false
                             downloadError = null
-                            UpdateState.downloadProgress.value = null
+                            UpdateState.resetDownload()
                         },
                     ) {
                         Text(stringResource(if (downloadError != null) R.string.ok else android.R.string.cancel))

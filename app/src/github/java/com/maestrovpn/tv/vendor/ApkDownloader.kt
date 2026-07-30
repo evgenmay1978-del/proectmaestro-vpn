@@ -46,6 +46,9 @@ class ApkDownloader : Closeable {
         val info = UpdateState.updateInfo.value
         val expectedSize = info?.fileSize ?: 0L
         val expectedSha = info?.sha256?.lowercase().orEmpty()
+        val startedAt = System.currentTimeMillis()
+        val target = info?.versionCode ?: 0
+        UpdateState.phase.value = UpdateState.Phase.Downloading
 
         // Refuse to download (and install) an APK we cannot validate at all. With neither a size nor a
         // sha256 the size/sha checks below are both skipped and the installer would receive an
@@ -58,6 +61,10 @@ class ApkDownloader : Closeable {
         if (apkFile.exists() && verifies(apkFile, expectedSize, expectedSha)) {
             UpdateState.downloadProgress.value = 1f
             UpdateState.saveApkPath(apkFile)
+            UpdateTelemetry.emit(
+                "download_cached",
+                "target=$target bytes=${apkFile.length()} free=${UpdateTelemetry.freeMb()}MB",
+            )
             return@withContext apkFile
         }
         if (apkFile.exists()) apkFile.delete()
@@ -101,6 +108,11 @@ class ApkDownloader : Closeable {
                 }
                 UpdateState.downloadProgress.value = 1f
                 UpdateState.saveApkPath(apkFile)
+                UpdateTelemetry.emit(
+                    "download_ok",
+                    "target=$target bytes=${apkFile.length()} attempts=${attempt + 1} " +
+                        "ms=${System.currentTimeMillis() - startedAt} free=${UpdateTelemetry.freeMb()}MB",
+                )
                 return@withContext apkFile
             } catch (e: CancellationException) {
                 throw e
@@ -111,6 +123,14 @@ class ApkDownloader : Closeable {
                 delay(backoff)
             }
         }
+        // Every attempt burned. This is the event that separates «медленно качается» from
+        // «не докачивается никогда»: have= vs want= shows how far it got before giving up.
+        UpdateTelemetry.emit(
+            "download_failed",
+            "target=$target have=${partFile.length()} want=$expectedSize " +
+                "attempts=$MAX_ATTEMPTS ms=${System.currentTimeMillis() - startedAt} " +
+                "free=${UpdateTelemetry.freeMb()}MB err=${lastError?.message}",
+        )
         throw lastError ?: IOException("Не удалось загрузить обновление")
     }
 

@@ -63,13 +63,14 @@ object Settings {
     // gated by ApkInstaller.canSilentInstall()) the background worker updates hands-free;
     // elsewhere it harmlessly falls back to the in-app "Обновить?" prompt.
     var silentInstallEnabled by dataStore.boolean(SettingsKey.SILENT_INSTALL_ENABLED) { true }
-    var silentInstallMethod by dataStore.string(SettingsKey.SILENT_INSTALL_METHOD) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            "PACKAGE_INSTALLER"
-        } else {
-            "SHIZUKU"
-        }
-    }
+    // PACKAGE_INSTALLER on EVERY api level. The old default below Android 12 was SHIZUKU — a
+    // helper no client TV box has ever had — so canSilentInstall() answered "no" for a reason
+    // that had nothing to do with the device, and UpdateWorker refused to even pre-download.
+    // ApkInstaller.resolveUsableMethod() already fell back to PACKAGE_INSTALLER at install time,
+    // so the configured SHIZUKU was pure phantom: it changed nothing except closing that gate.
+    // Anyone who deliberately picked Shizuku/root keeps their stored choice — this is the
+    // default for those who never touched it, which is every client.
+    var silentInstallMethod by dataStore.string(SettingsKey.SILENT_INSTALL_METHOD) { "PACKAGE_INSTALLER" }
     var fdroidMirrorUrl by dataStore.string(SettingsKey.FDROID_MIRROR_URL) { "https://f-droid.org/repo" }
     var fdroidCustomMirrors by dataStore.stringSet(SettingsKey.FDROID_CUSTOM_MIRRORS) { emptySet() }
     // Our own app — auto-update ON by default so the fleet actually converges to the latest

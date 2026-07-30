@@ -98,7 +98,7 @@ object Vendor : VendorInterface {
     private fun startInPlaceInstall(activity: Activity, updateInfo: UpdateInfo) {
         val progress = MaterialAlertDialogBuilder(activity)
             .setTitle(R.string.update)
-            .setMessage("Загрузка обновления…")
+            .setMessage(activity.getString(R.string.downloading))
             .setCancelable(false)
             .create()
         runCatching { progress.show() }
@@ -106,9 +106,19 @@ object Vendor : VendorInterface {
         scope.launch {
             val ticker = launch {
                 while (isActive) {
-                    UpdateState.downloadProgress.value?.let { p ->
-                        runCatching { progress.setMessage("Загрузка обновления… ${(p * 100).toInt()}%") }
+                    // Non-Compose twin of MainActivity's progress dialog — same three honest
+                    // states (see UpdateState.Phase). The old text said «Загрузка обновления…»
+                    // right through the install and the 4-minute confirm wait; the percentage
+                    // belongs to the download alone.
+                    val ph = UpdateState.phase.value
+                    val base = activity.getString(UpdateState.phaseLabelRes(ph))
+                    val pct = UpdateState.downloadProgress.value
+                    val msg = if (ph == UpdateState.Phase.Downloading && pct != null) {
+                        "$base ${(pct * 100).toInt()}%"
+                    } else {
+                        base
                     }
+                    runCatching { progress.setMessage(msg) }
                     delay(400)
                 }
             }
