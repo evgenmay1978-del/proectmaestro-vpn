@@ -37,7 +37,7 @@ class MobilePremiumFlowsTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun phoneHomeShowsPremiumStatusProtocolAndRevolver() {
+    fun phoneHomeShowsPremiumStatusProtocolAndControlDeck() {
         composeRule.setContent {
             Mobile4DHome(
                 statusText = "Подключено",
@@ -61,7 +61,7 @@ class MobilePremiumFlowsTest {
         composeRule.onNodeWithTag("premium-status").assertExists()
         composeRule.onNodeWithTag("premium-account").assertExists()
         composeRule.onNodeWithText("VLESS").assertExists()
-        composeRule.onNodeWithTag("premium-revolver").assertExists()
+        composeRule.onNodeWithTag("home-control-deck").assertExists()
     }
 
     @Test

@@ -9,12 +9,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,8 +93,10 @@ internal fun Mobile4DHome(
         val layout = remember(viewportWidthPx, viewportHeightPx) {
             mobile4DSceneLayout(viewportWidthPx.toFloat(), viewportHeightPx.toFloat())
         }
+        val reference = phoneHomeReferenceLayout(maxWidth.value, maxHeight.value)
         Mobile4DSceneAndHero(
             layout = layout,
+            reference = reference,
             viewportWidthPx = viewportWidthPx,
             connected = connected,
             connecting = connecting,
@@ -102,10 +104,13 @@ internal fun Mobile4DHome(
             modifier = Modifier.fillMaxSize(),
         )
 
-        val menuTopPx = layout.medallionCenterY + layout.medallionRadiusY + with(density) { 12.dp.toPx() }
-        PhoneRevolverMenu(
+        // Дека сама знает свои границы по эталону владельца (phoneHomeReferenceLayout) и
+        // сама держит верхний отступ, поэтому здесь нет ни padding от медальона, ни
+        // «нижней доли экрана»: одна область — один владелец отрисовки.
+        PhoneHomeControlDeck(
             statusText = statusText,
             connected = connected,
+            connecting = connecting,
             activeProtocol = activeProtocol,
             accountLogin = accountLogin,
             daysLeft = daysLeft,
@@ -125,11 +130,7 @@ internal fun Mobile4DHome(
             onEnterTrial = onEnterTrial,
             modifier = Modifier
                 .zIndex(3f)
-                .fillMaxSize()
-                .padding(
-                    top = with(density) { menuTopPx.toDp() },
-                    bottom = maxHeight * MENU_BOTTOM_FRACTION,
-                ),
+                .fillMaxSize(),
         )
     }
 }
@@ -137,6 +138,7 @@ internal fun Mobile4DHome(
 @Composable
 private fun Mobile4DSceneAndHero(
     layout: Mobile4DSceneLayout,
+    reference: PhoneHomeReferenceLayout,
     viewportWidthPx: Int,
     connected: Boolean,
     connecting: Boolean,
@@ -159,6 +161,12 @@ private fun Mobile4DSceneAndHero(
         Mobile4DLightMix(requestedSide, centerWeight = 1f, sideWeight = 0f)
     }
 
+    // Медальон эталона стоит выше, чем кольцо на мастер-холсте, поэтому кольцо и глаз
+    // получают ОДИН общий статический перенос и остаются совмещёнными. Дерево, рама,
+    // картуш и лозы остаются на исходном кропе: лозы — полноэкранный слой, и сдвиг с
+    // медальоном оголил бы низ и обрезал бока.
+    val heroShift = Offset(0f, with(density) { reference.heroTranslationY.dp.toPx() })
+
     Box(modifier = modifier) {
         Canvas(Modifier.fillMaxSize()) {
             drawRect(PremiumWalnut)
@@ -174,7 +182,15 @@ private fun Mobile4DSceneAndHero(
             drawReliefWithShadow("frame", Mobile4DParallaxLayer.Frame, layout, tilt, lightMix, pages)
             drawReliefWithShadow("cartouche", Mobile4DParallaxLayer.Cartouche, layout, tilt, lightMix, pages)
             drawReliefWithShadow("vines", Mobile4DParallaxLayer.Vines, layout, tilt, lightMix, pages)
-            drawReliefWithShadow("ring", Mobile4DParallaxLayer.RingAndEye, layout, tilt, lightMix, pages)
+            drawReliefWithShadow(
+                "ring",
+                Mobile4DParallaxLayer.RingAndEye,
+                layout,
+                tilt,
+                lightMix,
+                pages,
+                heroShift,
+            )
         }
 
         val ringEyeOffset = mobile4DParallaxOffset(
@@ -182,8 +198,8 @@ private fun Mobile4DSceneAndHero(
             tilt.x,
             tilt.y,
         )
-        val eyeOffsetXPx = with(density) { ringEyeOffset.xDp.dp.toPx() }
-        val eyeOffsetYPx = with(density) { ringEyeOffset.yDp.dp.toPx() }
+        val eyeOffsetXPx = with(density) { ringEyeOffset.xDp.dp.toPx() } + heroShift.x
+        val eyeOffsetYPx = with(density) { ringEyeOffset.yDp.dp.toPx() } + heroShift.y
         val eyeLeftPx = (layout.medallionCenterX - layout.medallionRadiusX + eyeOffsetXPx).roundToInt()
         val eyeTopPx = (layout.medallionCenterY - layout.medallionRadiusY + eyeOffsetYPx).roundToInt()
         val eyeRightPx = (layout.medallionCenterX + layout.medallionRadiusX + eyeOffsetXPx).roundToInt()
@@ -268,10 +284,13 @@ private fun Mobile4DSceneAndHero(
             tilt.x,
             tilt.y,
         )
-        val titleLeftPx = layout.mapMasterX(TITLE_LEFT_MASTER) + with(density) { cartoucheOffset.xDp.dp.toPx() }
-        val titleTopPx = layout.mapMasterY(TITLE_TOP_MASTER) + with(density) { cartoucheOffset.yDp.dp.toPx() }
-        val titleRightPx = layout.mapMasterX(TITLE_RIGHT_MASTER) + with(density) { cartoucheOffset.xDp.dp.toPx() }
-        val titleBottomPx = layout.mapMasterY(TITLE_BOTTOM_MASTER) + with(density) { cartoucheOffset.yDp.dp.toPx() }
+        // Титул стоит по измеренным границам эталона, а не по прямоугольнику мастер-холста:
+        // на мастере картуш шире и выше, и «MaestroVPN» уезжал вверх от резной таблички.
+        // Параллакс картуша сохранён — надпись должна ехать вместе со своей табличкой.
+        val titleLeftPx = with(density) { (reference.title.left.dp + cartoucheOffset.xDp.dp).toPx() }
+        val titleTopPx = with(density) { (reference.title.top.dp + cartoucheOffset.yDp.dp).toPx() }
+        val titleRightPx = with(density) { (reference.title.right.dp + cartoucheOffset.xDp.dp).toPx() }
+        val titleBottomPx = with(density) { (reference.title.bottom.dp + cartoucheOffset.yDp.dp).toPx() }
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -282,16 +301,23 @@ private fun Mobile4DSceneAndHero(
                     height = with(density) { (titleBottomPx - titleTopPx).toDp() },
                 ),
         ) {
-            Text(
+            // ⛔ Было 31.sp — надпись занимала 170 dp в табличке шириной 254 dp эталона
+            // (замерено Playfair: 46 sp = 253 dp, высота глифов 33 dp против 34 dp
+            // эталонных). autoSize вместо фиксированного кегля потому, что при системном
+            // увеличении шрифта `maxLines=1, softWrap=false` обрезал титул на полуглифе.
+            BasicText(
                 text = "MaestroVPN",
-                color = PremiumGold,
-                fontFamily = PlayfairFamily,
-                fontWeight = FontWeight.Medium,
-                fontSize = 31.sp,
                 maxLines = 1,
-                softWrap = false,
-                textAlign = TextAlign.Center,
+                autoSize = TextAutoSize.StepBased(
+                    minFontSize = 24.sp,
+                    maxFontSize = TITLE_MAX_FONT_SIZE,
+                    stepSize = 0.5.sp,
+                ),
                 style = androidx.compose.ui.text.TextStyle(
+                    color = PremiumGold,
+                    fontFamily = PlayfairFamily,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
                     shadow = Shadow(
                         color = Color(0xB0000000),
                         offset = Offset(0f, with(density) { 1.dp.toPx() }),
@@ -311,9 +337,10 @@ private fun DrawScope.drawReliefWithShadow(
     tilt: Mobile4DTiltVector,
     lightMix: Mobile4DLightMix,
     pages: LoadedAtlasPages,
+    heroShift: Offset = Offset.Zero,
 ) {
     val parallax = mobile4DParallaxOffset(parallaxLayer, tilt.x, tilt.y)
-    val parallaxPx = Offset(parallax.xDp * density, parallax.yDp * density)
+    val parallaxPx = Offset(parallax.xDp * density, parallax.yDp * density) + heroShift
     val shadowTint = ColorFilter.tint(Color(0xFF110906), BlendMode.SrcIn)
     SHADOW_PASSES.forEach { pass ->
         drawAtlasFragments(
@@ -326,7 +353,7 @@ private fun DrawScope.drawReliefWithShadow(
             colorFilter = shadowTint,
         )
     }
-    drawAtlasLayer(layer, parallaxLayer, layout, tilt, lightMix, pages, opaque = false)
+    drawAtlasLayer(layer, parallaxLayer, layout, tilt, lightMix, pages, opaque = false, heroShift = heroShift)
 }
 
 private fun DrawScope.drawAtlasLayer(
@@ -337,9 +364,10 @@ private fun DrawScope.drawAtlasLayer(
     lightMix: Mobile4DLightMix,
     pages: LoadedAtlasPages,
     opaque: Boolean,
+    heroShift: Offset = Offset.Zero,
 ) {
     val parallax = mobile4DParallaxOffset(parallaxLayer, tilt.x, tilt.y)
-    val offset = Offset(parallax.xDp * density, parallax.yDp * density)
+    val offset = Offset(parallax.xDp * density, parallax.yDp * density) + heroShift
     val sideLight = lightMix.activeSide.toAssetLight()
     val sideAvailable = lightMix.sideWeight > 0f && pages.has(sideLight)
     if (opaque) {
@@ -501,12 +529,8 @@ private fun Mobile4DLightSide.toAssetLight(): Mobile4DAssetLight = when (this) {
     Mobile4DLightSide.Right -> Mobile4DAssetLight.Right
 }
 
-private const val TITLE_LEFT_MASTER = 300f
-private const val TITLE_TOP_MASTER = 250f
-private const val TITLE_RIGHT_MASTER = 1860f
-private const val TITLE_BOTTOM_MASTER = 700f
-private const val MENU_BOTTOM_FRACTION = 0.07f
 private val ADDITIVE_RELIEF_SUPPORTED = BlendMode.Plus.isSupported()
+private val TITLE_MAX_FONT_SIZE = 46.sp
 private val SHADOW_PASSES = listOf(
     ShadowPass(0.6f, 1.0f, 0.16f),
     ShadowPass(1.2f, 2.1f, 0.10f),
