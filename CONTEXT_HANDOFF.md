@@ -11,9 +11,13 @@
 - Ветка реализации: `codex/mobile-4d-interface`.
 - База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
   (`codex/mobile-4d-reference-pack`).
-- Реализация ещё не закоммичена и не отправлена. На момент записи добавлен только новый
-  незакоммиченный план:
-  `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
+- Текущий HEAD реализации: `ac5defe1021966a0055208123099fc81aad1efca`.
+- Уже созданы локальные коммиты:
+  - `ba11ff8` — исправленный scope/план: ровно 6 экранов + 1 dialog;
+  - `3d0902d` — чистая модель scene/crop/light/parallax/eye + JVM tests;
+  - `a1b1bbf` — deterministic memory-safe atlas generator, manifest, tests и 24 WebP;
+  - `ac5defe` — path-safe, interruption-recoverable asset transaction + focused tests.
+- Ветка ещё не отправлена; draft PR ещё не создан.
 - Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
   `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
   для чистой работы.
@@ -29,6 +33,15 @@
 фактическими переходами из обычного мобильного запуска. Это **6 экранов + 1 dialog**.
 Android TV остаётся строго вне scope. Нельзя менять поведение `TvEskizHome`, TV focus/D-pad/Back,
 `tvm_*`, TV-геометрию или TV-симуляторы.
+
+Новое прямое решение владельца по сборке:
+
+> «На компьютере ты не соберешь у меня слабый комп. на гитхаб собери тестовый апк я посмотрю».
+
+Поэтому не выполнять локальную Android APK-сборку на компьютере владельца. После появления
+визуально рабочего 6-screen flow отправить implementation branch на GitHub и запускать
+`.github/workflows/android-test.yml`. Результат — только test APK artifact для ручного просмотра
+владельцем. Запрещены GitHub Release, production signing, merge, OTA и обновление пользователей.
 
 ### Инвентарь реальных mobile-экранов
 
@@ -105,6 +118,41 @@ Wood можно смешивать обычным centre + active-side crossfade
 Глубина: wood ≈0.5 dp, frame 1.5 dp, cartouche 2.5 dp, vines 3.5 dp,
 ring/eye 5 dp. Тени рисуются кодом повторным tinted alpha draw; fullscreen blur запрещён.
 
+### LIVE checkpoint реализации — после Task 2
+
+Task 1 принят отдельным review без замечаний:
+
+- commit `3d0902d`;
+- `Mobile4DSceneModel.kt` остаётся Android/Compose-free;
+- тестами зафиксированы 2160×4670, ContentScale.Crop, L/C/R weights, hysteresis,
+  глубины parallax и три состояния глаза;
+- локальный Gradle не дошёл до компиляции: wrapper 9.3.1 не скачивается из sandbox.
+  Это остаётся CI-gate, а не локальный PASS.
+
+Task 2 завершён коммитами `a1b1bbf..ac5defe` и принят scoped re-review:
+
+- 77 logical fragments;
+- 8 одинаковых layouts для каждого направления света;
+- 24 lossless WebP, всего 41 749 476 bytes;
+- все pages ≤2048×2048;
+- source→atlas→source reconstruction exact для всех 15 layers;
+- `python ops/mobile-4d-assets.py` — PASS;
+- `python ops/mobile-4d-assets.py --check` — PASS, output byte-stable;
+- Pillow 11.3.0 и libwebp 1.5.0 закреплены как deterministic toolchain;
+- WebP method 0 выбран из-за стабильности на слабом компьютере; это увеличило payload
+  на 6 896 538 bytes (≈19,8%), но не decoded RAM и не точность;
+- eye assets, old flatten, UI, TV не менялись.
+
+Scoped re-review подтвердил `ADDRESSED` для обоих прежних Important findings:
+
+1. Atlas, manifest и все их ancestors проходят lexical/resolved-path и symlink/reparse check
+   до создания каталогов или замены файлов.
+2. Persistent fsynced transaction journal восстанавливает согласованные atlas + manifest после
+   `KeyboardInterrupt`, kill/process crash и проверяет committed inventory по SHA-256.
+
+Focused safety tests: **7/7 PASS**. Независимый `--check`: **PASS**, reconstruction exact,
+output stable. Task 3 теперь является активной следующей задачей.
+
 ### Состояния глаза
 
 - `Stopped`/`Stopping`/«Отключено» — глаз полностью закрыт.
@@ -164,11 +212,16 @@ app-owned pre-permission explanation.
 - материализованы sparse paths `design`, `docs`, `gradle`, `.github`;
 - подробный TDD-план исправлен после замечания владельца: scope = 6 normal-flow screens +
   `IosKaringDialog`, а не все зарегистрированные routes;
-- Android-код и runtime assets ещё не менялись.
+- Task 1 реализован и принят review (`3d0902d`);
+- Task 2 реализован и принят (`a1b1bbf..ac5defe`): generation/`--check` PASS, оба safety finding
+  закрыты scoped re-review;
+- Compose UI, sensors, navigation и старый flatten ещё не менялись.
 
 ### Локальные ограничения проверки
 
 - `adb devices -l` не показывает подключённого устройства.
+- Владелец отдельно запретил нагружать слабый компьютер локальной APK-сборкой; Android build
+  переносится в GitHub Actions `android-test.yml`.
 - Локально отсутствует `app/libs/libbox.aar`; CI скачивает normal libbox из успешного
   `libbox.yml`.
 - `.github/workflows/android-test.yml` запускает `assembleOtherDebug` и
@@ -182,13 +235,15 @@ app-owned pre-permission explanation.
    `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
 2. `subagent-driven-development/SKILL.md` уже прочитан; plan-scoped SDD ledger создан в
    `.superpowers/sdd/2026-07-31-mobile-premium-4d-interface/progress.md` и игнорируется Git.
-3. Начать TDD: сначала failing tests для scene math, memory budget и generated atlas manifest.
-4. Написать deterministic atlas generator и выполнить source→atlas→source pixel reconstruction.
-5. Реализовать phone-only 4D home и лёгкий shell.
+3. Выполнить Task 3: lifecycle-safe tilt + bitmap loader, затем получить отдельный review.
+4. Реализовать phone-only 4D Home; отключённое состояние обязано показывать полностью закрытый глаз.
+5. Построить лёгкий общий premium shell.
 6. Перенести только `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
 7. Удалить `mobile_home_scene.webp` только после `rg` без потребителей и ремонта двух mobile tools.
-8. Запустить asset check, JVM tests, Android compile/build, visual QA по шести экранам и dialog,
-   доказать отсутствие TV-regression, затем commit/push/draft PR. Не merge/release/OTA.
+8. Локально запускать только лёгкие Python/статические проверки. Android compile/test APK выполнить
+   через GitHub Actions `android-test.yml`, скачать/передать владельцу artifact для просмотра.
+9. Провести visual QA по шести экранам и dialog, доказать отсутствие TV-regression, затем
+   обновить draft PR. Не merge/release/OTA.
 
 Обновлено: **31.07.2026**. Этот документ — первая точка входа для нового окна
 Codex/Claude. Сначала проверить volatile-факты командами Git и на GitHub, затем
