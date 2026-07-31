@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
+import stat
 import struct
 import sys
 import tempfile
@@ -26,6 +28,14 @@ GUTTER = 2
 MAX_PAGE_SIZE = 2048
 EXPECTED_PILLOW_VERSION = "11.3.0"
 EXPECTED_WEBP_VERSION = "1.5.0"
+WEBP_METHOD = 0
+COMPARISON_BAND_HEIGHT = 256
+TRANSACTION_STATE_NAME = ".mobile_4d-transaction.json"
+TRANSACTION_STATE_TEMP_NAME = ".mobile_4d-transaction.json.tmp"
+TRANSACTION_NEXT_NAME = ".mobile_4d-next"
+TRANSACTION_BACKUP_NAME = ".mobile_4d-backup"
+MANIFEST_NEXT_NAME = ".Mobile4DGeneratedAssets.kt.next"
+MANIFEST_BACKUP_NAME = ".Mobile4DGeneratedAssets.kt.backup"
 LAYERS = ("wood", "frame", "cartouche", "vines", "ring")
 LIGHTS = ("l", "c", "r")
 LIGHT_ENUM = {"l": "Left", "c": "Centre", "r": "Right"}
@@ -398,38 +408,59 @@ def generate_atlases(repo: Path, destination: Path, pages: list[PageLayout]) -> 
                 "WEBP",
                 lossless=True,
                 quality=100,
-                method=4,
+                method=WEBP_METHOD,
                 exact=True,
             )
             atlas.close()
 
 
 def visible_rgba_equal(expected: Image.Image, actual: Image.Image) -> bool:
-    expected_alpha = expected.getchannel("A")
-    actual_alpha = actual.getchannel("A")
-    try:
-        if ImageChops.difference(expected_alpha, actual_alpha).getbbox() is not None:
-            return False
-        visible = expected_alpha.point(lambda value: 255 if value else 0)
-        visible_rgb = Image.merge("RGB", (visible, visible, visible))
-        expected_rgb = expected.convert("RGB")
-        actual_rgb = actual.convert("RGB")
+    if expected.size != actual.size:
+        return False
+    width, height = expected.size
+    for top in range(0, height, COMPARISON_BAND_HEIGHT):
+        bottom = min(top + COMPARISON_BAND_HEIGHT, height)
+        expected_band = expected.crop((0, top, width, bottom))
+        actual_band = actual.crop((0, top, width, bottom))
         try:
-            difference = ImageChops.difference(expected_rgb, actual_rgb)
-            masked = ImageChops.multiply(difference, visible_rgb)
+            expected_alpha = expected_band.getchannel("A")
+            actual_alpha = actual_band.getchannel("A")
             try:
-                return masked.getbbox() is None
+                alpha_difference = ImageChops.difference(
+                    expected_alpha,
+                    actual_alpha,
+                )
+                try:
+                    if alpha_difference.getbbox() is not None:
+                        return False
+                finally:
+                    alpha_difference.close()
+
+                visible = expected_alpha.point(lambda value: 255 if value else 0)
+                visible_rgb = Image.merge("RGB", (visible, visible, visible))
+                expected_rgb = expected_band.convert("RGB")
+                actual_rgb = actual_band.convert("RGB")
+                try:
+                    difference = ImageChops.difference(expected_rgb, actual_rgb)
+                    masked = ImageChops.multiply(difference, visible_rgb)
+                    try:
+                        if masked.getbbox() is not None:
+                            return False
+                    finally:
+                        masked.close()
+                        difference.close()
+                finally:
+                    actual_rgb.close()
+                    expected_rgb.close()
+                    visible_rgb.close()
+                    visible.close()
             finally:
-                masked.close()
-                difference.close()
+                actual_alpha.close()
+                expected_alpha.close()
         finally:
-            actual_rgb.close()
-            expected_rgb.close()
-            visible_rgb.close()
-            visible.close()
-    finally:
-        actual_alpha.close()
-        expected_alpha.close()
+            actual_band.close()
+            expected_band.close()
+    return True
 
 
 def validate_reconstruction(
@@ -565,80 +596,366 @@ def generate_manifest(pages: list[PageLayout]) -> str:
     return "\n".join(lines)
 
 
-def assert_safe_asset_target(repo: Path, target: Path) -> None:
-    expected = repo / "app" / "src" / "main" / "assets" / "mobile_4d"
-    if target.is_symlink():
-        raise ValueError(f"refusing symlinked asset target: {target}")
-    if target.resolve(strict=False) != expected.resolve(strict=False):
-        raise ValueError(f"refusing unexpected asset target: {target}")
+@dataclass(frozen=True)
+class InstallTransactionPaths:
+    target: Path
+    replacement: Path
+    backup: Path
+    state: Path
+    state_temporary: Path
+    manifest: Path
+    manifest_next: Path
+    manifest_backup: Path
+
+
+def _lexical_absolute(path: Path) -> Path:
+    return Path(os.path.abspath(path))
+
+
+def _path_redirects(path: Path) -> bool:
+    if path.is_symlink():
+        return True
     try:
-        target.resolve(strict=False).relative_to(repo.resolve())
+        attributes = path.lstat().st_file_attributes
+    except (AttributeError, FileNotFoundError):
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(attributes & reparse_flag)
+
+
+def assert_safe_exact_output_path(
+    repo: Path,
+    path: Path,
+    expected: Path,
+    label: str,
+) -> None:
+    repo_absolute = _lexical_absolute(repo)
+    path_absolute = _lexical_absolute(path)
+    expected_absolute = _lexical_absolute(expected)
+    if os.path.normcase(str(path_absolute)) != os.path.normcase(str(expected_absolute)):
+        raise ValueError(f"refusing unexpected {label}: {path}")
+    try:
+        relative = path_absolute.relative_to(repo_absolute)
     except ValueError as error:
-        raise ValueError(f"asset target escapes repository: {target}") from error
+        raise ValueError(f"{label} escapes repository: {path}") from error
+
+    current = repo_absolute
+    for component in relative.parts:
+        current /= component
+        if (current.exists() or current.is_symlink()) and _path_redirects(current):
+            raise ValueError(
+                f"{label} redirects through symlink/reparse component: {current}"
+            )
+
+    canonical_expected = repo_absolute.resolve() / relative
+    if path_absolute.resolve(strict=False) != canonical_expected:
+        raise ValueError(f"{label} resolves away from exact generated target: {path}")
+
+
+def assert_safe_asset_target(repo: Path, target: Path) -> None:
+    assert_safe_exact_output_path(
+        repo,
+        target,
+        asset_output_root(repo),
+        "asset target",
+    )
+
+
+def assert_safe_manifest_target(repo: Path, target: Path) -> None:
+    assert_safe_exact_output_path(
+        repo,
+        target,
+        manifest_output_path(repo),
+        "manifest target",
+    )
+
+
+def install_transaction_paths(repo: Path) -> InstallTransactionPaths:
+    target = asset_output_root(repo)
+    manifest = manifest_output_path(repo)
+    return InstallTransactionPaths(
+        target=target,
+        replacement=target / TRANSACTION_NEXT_NAME,
+        backup=target / TRANSACTION_BACKUP_NAME,
+        state=target / TRANSACTION_STATE_NAME,
+        state_temporary=target / TRANSACTION_STATE_TEMP_NAME,
+        manifest=manifest,
+        manifest_next=manifest.parent / MANIFEST_NEXT_NAME,
+        manifest_backup=manifest.parent / MANIFEST_BACKUP_NAME,
+    )
+
+
+def validate_install_paths(repo: Path, paths: InstallTransactionPaths) -> None:
+    assert_safe_asset_target(repo, paths.target)
+    assert_safe_manifest_target(repo, paths.manifest)
+    for path in (
+        paths.replacement,
+        paths.backup,
+        paths.state,
+        paths.state_temporary,
+    ):
+        assert_safe_exact_output_path(repo, path, path, "asset transaction path")
+    for path in (paths.manifest_next, paths.manifest_backup):
+        assert_safe_exact_output_path(repo, path, path, "manifest transaction path")
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _fsync_file(path: Path) -> None:
+    with path.open("r+b") as file:
+        os.fsync(file.fileno())
+
+
+def _write_bytes_durable(path: Path, contents: bytes) -> None:
+    with path.open("wb") as destination:
+        destination.write(contents)
+        destination.flush()
+        os.fsync(destination.fileno())
+
+
+def _write_transaction_state(
+    paths: InstallTransactionPaths,
+    state: dict[str, object],
+) -> None:
+    payload = (json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n").encode(
+        "utf-8"
+    )
+    _write_bytes_durable(paths.state_temporary, payload)
+    os.replace(paths.state_temporary, paths.state)
+
+
+def _safe_transaction_name(name: object) -> str:
+    if not isinstance(name, str) or not name or Path(name).name != name:
+        raise ValueError(f"invalid install transaction entry name: {name!r}")
+    reserved = {
+        TRANSACTION_STATE_NAME,
+        TRANSACTION_STATE_TEMP_NAME,
+        TRANSACTION_NEXT_NAME,
+        TRANSACTION_BACKUP_NAME,
+    }
+    if name in reserved:
+        raise ValueError(f"reserved install transaction entry name: {name}")
+    return name
+
+
+def _read_transaction_state(paths: InstallTransactionPaths) -> dict[str, object]:
+    try:
+        state = json.loads(paths.state.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as error:
+        raise ValueError(f"invalid durable install transaction: {paths.state}") from error
+    if not isinstance(state, dict) or state.get("version") != 1:
+        raise ValueError(f"unsupported durable install transaction: {paths.state}")
+    if state.get("phase") not in ("installing", "committed"):
+        raise ValueError(f"invalid durable install phase: {state.get('phase')!r}")
+
+    old_names = state.get("old_names")
+    new_hashes = state.get("new_hashes")
+    if not isinstance(old_names, list) or not isinstance(new_hashes, dict):
+        raise ValueError("invalid durable install inventory")
+    state["old_names"] = [_safe_transaction_name(name) for name in old_names]
+    checked_hashes: dict[str, str] = {}
+    for name, digest in new_hashes.items():
+        checked_name = _safe_transaction_name(name)
+        if not isinstance(digest, str) or len(digest) != 64:
+            raise ValueError(f"invalid durable install digest for {checked_name}")
+        checked_hashes[checked_name] = digest
+    state["new_hashes"] = checked_hashes
+    if not isinstance(state.get("manifest_existed"), bool):
+        raise ValueError("invalid durable manifest presence flag")
+    for key in ("old_manifest_sha256", "new_manifest_sha256"):
+        value = state.get(key)
+        if value is not None and (not isinstance(value, str) or len(value) != 64):
+            raise ValueError(f"invalid durable manifest digest: {key}")
+    return state
+
+
+def _transaction_inventory(paths: InstallTransactionPaths) -> set[str]:
+    reserved = {
+        paths.replacement.name,
+        paths.backup.name,
+        paths.state.name,
+        paths.state_temporary.name,
+    }
+    return {child.name for child in paths.target.iterdir() if child.name not in reserved}
+
+
+def _cleanup_transaction(paths: InstallTransactionPaths) -> None:
+    _remove_path(paths.replacement)
+    _remove_path(paths.backup)
+    _remove_path(paths.manifest_next)
+    _remove_path(paths.manifest_backup)
+    _remove_path(paths.state_temporary)
+    _remove_path(paths.state)
+
+
+def _rollback_transaction(
+    paths: InstallTransactionPaths,
+    state: dict[str, object],
+) -> None:
+    old_names = set(state["old_names"])
+    new_names = set(state["new_hashes"])
+    for name in sorted(new_names):
+        installed = paths.target / name
+        backed_up = paths.backup / name
+        if (installed.exists() or installed.is_symlink()) and (
+            name not in old_names or backed_up.exists() or backed_up.is_symlink()
+        ):
+            _remove_path(installed)
+
+    if paths.backup.is_dir():
+        for previous in sorted(paths.backup.iterdir()):
+            destination = paths.target / _safe_transaction_name(previous.name)
+            os.replace(previous, destination)
+
+    if state["manifest_existed"]:
+        old_digest = state["old_manifest_sha256"]
+        if paths.manifest_backup.is_file():
+            os.replace(paths.manifest_backup, paths.manifest)
+        elif not paths.manifest.is_file() or _sha256_file(paths.manifest) != old_digest:
+            raise ValueError("cannot restore interrupted manifest transaction")
+    else:
+        _remove_path(paths.manifest)
+
+    _cleanup_transaction(paths)
+
+
+def _committed_transaction_is_complete(
+    paths: InstallTransactionPaths,
+    state: dict[str, object],
+) -> bool:
+    new_hashes = state["new_hashes"]
+    if _transaction_inventory(paths) != set(new_hashes):
+        return False
+    for name, expected_digest in new_hashes.items():
+        path = paths.target / name
+        if not path.is_file() or _sha256_file(path) != expected_digest:
+            return False
+    return (
+        paths.manifest.is_file()
+        and _sha256_file(paths.manifest) == state["new_manifest_sha256"]
+    )
+
+
+def _clean_unjournaled_transaction(paths: InstallTransactionPaths) -> None:
+    if paths.backup.is_dir() and any(paths.backup.iterdir()):
+        raise ValueError(
+            f"non-empty install backup has no durable transaction: {paths.backup}"
+        )
+    if paths.manifest_backup.exists() and not paths.manifest.exists():
+        raise ValueError(
+            "manifest backup exists without durable transaction or live manifest"
+        )
+    _cleanup_transaction(paths)
+
+
+def recover_interrupted_install(repo: Path) -> None:
+    paths = install_transaction_paths(repo)
+    validate_install_paths(repo, paths)
+    if not paths.state.is_file():
+        _clean_unjournaled_transaction(paths)
+        return
+
+    state = _read_transaction_state(paths)
+    if state["phase"] == "committed":
+        if not _committed_transaction_is_complete(paths, state):
+            raise ValueError("committed mobile 4D install transaction is incomplete")
+        _cleanup_transaction(paths)
+        return
+    _rollback_transaction(paths, state)
 
 
 def install_outputs(
     repo: Path, staging_assets: Path, manifest: str
 ) -> None:
-    target = asset_output_root(repo)
-    assert_safe_asset_target(repo, target)
-    target.mkdir(parents=True, exist_ok=True)
-    manifest_path = manifest_output_path(repo)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    paths = install_transaction_paths(repo)
+    validate_install_paths(repo, paths)
+    paths.target.mkdir(parents=True, exist_ok=True)
+    paths.manifest.parent.mkdir(parents=True, exist_ok=True)
+    validate_install_paths(repo, paths)
+    recover_interrupted_install(repo)
 
-    replacement = Path(tempfile.mkdtemp(prefix=".mobile_4d-next-", dir=target))
-    backup = Path(tempfile.mkdtemp(prefix=".mobile_4d-backup-", dir=target))
-    manifest_descriptor, manifest_temporary_name = tempfile.mkstemp(
-        prefix=".Mobile4DGeneratedAssets-",
-        suffix=".kt",
-        dir=manifest_path.parent,
-    )
-    os.close(manifest_descriptor)
-    manifest_temporary = Path(manifest_temporary_name)
-    installed_names: list[str] = []
-    committed = False
+    generated = sorted(staging_assets.iterdir())
+    new_names = [_safe_transaction_name(path.name) for path in generated]
+    if len(new_names) != len(set(new_names)) or any(not path.is_file() for path in generated):
+        raise ValueError("staged atlas inventory must contain distinct regular files")
 
     try:
-        for generated in sorted(staging_assets.iterdir()):
-            shutil.copyfile(generated, replacement / generated.name)
-        manifest_temporary.write_text(manifest, encoding="utf-8", newline="\n")
+        paths.replacement.mkdir()
+        paths.backup.mkdir()
+        for source in generated:
+            destination = paths.replacement / source.name
+            shutil.copyfile(source, destination)
+            _fsync_file(destination)
+        _write_bytes_durable(paths.manifest_next, manifest.encode("utf-8"))
 
-        existing = [
+        existing = sorted(
             child
-            for child in target.iterdir()
-            if child not in (replacement, backup)
-        ]
+            for child in paths.target.iterdir()
+            if child.name
+            not in {
+                TRANSACTION_STATE_NAME,
+                TRANSACTION_STATE_TEMP_NAME,
+                TRANSACTION_NEXT_NAME,
+                TRANSACTION_BACKUP_NAME,
+            }
+        )
+        old_names = [_safe_transaction_name(child.name) for child in existing]
+        manifest_existed = paths.manifest.is_file()
+        old_manifest_digest: str | None = None
+        if manifest_existed:
+            shutil.copyfile(paths.manifest, paths.manifest_backup)
+            _fsync_file(paths.manifest_backup)
+            old_manifest_digest = _sha256_file(paths.manifest_backup)
+
+        state: dict[str, object] = {
+            "version": 1,
+            "phase": "installing",
+            "old_names": old_names,
+            "new_hashes": {
+                name: _sha256_file(paths.replacement / name) for name in new_names
+            },
+            "manifest_existed": manifest_existed,
+            "old_manifest_sha256": old_manifest_digest,
+            "new_manifest_sha256": _sha256_file(paths.manifest_next),
+        }
+        _write_transaction_state(paths, state)
+
+        for child in existing:
+            os.replace(child, paths.backup / child.name)
+        for name in new_names:
+            os.replace(paths.replacement / name, paths.target / name)
+        validate_install_paths(repo, paths)
+        os.replace(paths.manifest_next, paths.manifest)
+        state["phase"] = "committed"
+        _write_transaction_state(paths, state)
+        _cleanup_transaction(paths)
+    except BaseException as install_error:
         try:
-            for child in existing:
-                os.replace(child, backup / child.name)
-            for generated in sorted(replacement.iterdir()):
-                os.replace(generated, target / generated.name)
-                installed_names.append(generated.name)
-            os.replace(manifest_temporary, manifest_path)
-            committed = True
-        except OSError:
-            for name in installed_names:
-                installed = target / name
-                if installed.is_dir() and not installed.is_symlink():
-                    shutil.rmtree(installed)
-                elif installed.exists() or installed.is_symlink():
-                    installed.unlink()
-            for previous in sorted(backup.iterdir()):
-                os.replace(previous, target / previous.name)
-            raise
-    finally:
-        if manifest_temporary.exists():
-            manifest_temporary.unlink()
-        if replacement.exists():
-            shutil.rmtree(replacement)
-        if committed:
-            shutil.rmtree(backup)
-        elif backup.exists() and not any(backup.iterdir()):
-            backup.rmdir()
+            recover_interrupted_install(repo)
+        except BaseException as recovery_error:
+            raise RuntimeError(
+                "mobile 4D install interrupted and durable recovery failed; "
+                f"transaction retained at {paths.state}"
+            ) from recovery_error
+        raise install_error
 
 
 def compare_outputs(repo: Path, staging_assets: Path, manifest: str) -> None:
     target = asset_output_root(repo)
+    assert_safe_asset_target(repo, target)
     expected_names = {path.name for path in staging_assets.iterdir()}
     actual_names = {path.name for path in target.iterdir()} if target.is_dir() else set()
     drift: list[str] = []
@@ -651,6 +968,7 @@ def compare_outputs(repo: Path, staging_assets: Path, manifest: str) -> None:
             drift.append(f"asset bytes differ: {name}")
 
     manifest_path = manifest_output_path(repo)
+    assert_safe_manifest_target(repo, manifest_path)
     if not manifest_path.is_file():
         drift.append("generated Kotlin manifest is missing")
     elif manifest_path.read_text(encoding="utf-8") != manifest:
