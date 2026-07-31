@@ -19,7 +19,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -41,16 +40,16 @@ internal data class Mobile4DLoadedPage(
 internal class Mobile4DBitmapLease private constructor(
     private val pageReferences: Map<Mobile4DAssetLight, List<Mobile4DBitmapReference>>,
 ) : AutoCloseable, RememberObserver {
-    private val closed = AtomicBoolean(false)
+    private var closed = false
+    private val allReferences = pageReferences.values.flatten()
 
-    init {
-        pageReferences.values.flatten().forEach(Mobile4DBitmapReference::retain)
+    val decodedByteCount: Long = mobile4DWithRetainedReferences(
+        references = allReferences,
+        retain = Mobile4DBitmapReference::retain,
+        release = Mobile4DBitmapReference::release,
+    ) {
+        allReferences.distinct().sumOf { it.bitmap.allocationByteCount.toLong() }
     }
-
-    val decodedByteCount: Long = pageReferences.values
-        .flatten()
-        .distinct()
-        .sumOf { it.bitmap.allocationByteCount.toLong() }
 
     fun pages(light: Mobile4DAssetLight): List<Mobile4DLoadedPage> =
         pageReferences[light].orEmpty().map { Mobile4DLoadedPage(it.descriptor, it.bitmap) }
@@ -59,9 +58,11 @@ internal class Mobile4DBitmapLease private constructor(
 
     internal fun fork(): Mobile4DBitmapLease = Mobile4DBitmapLease(pageReferences)
 
+    @Synchronized
     override fun close() {
-        if (!closed.compareAndSet(false, true)) return
-        pageReferences.values.flatten().forEach(Mobile4DBitmapReference::release)
+        if (closed) return
+        closed = true
+        for (index in allReferences.indices.reversed()) allReferences[index].release()
     }
 
     override fun onRemembered() = Unit
@@ -148,10 +149,31 @@ internal class Mobile4DBitmapStore(
     }
 
     private suspend fun ensureForTiltInternal(tiltX: Float): Boolean {
+        if (effectiveRetention == Mobile4DAssetRetention.None) return true
         val requestedSide = mobile4DActiveLightSide(tiltX, activeSide)
         if (centrePages == null) {
-            centrePages = decodeLight(Mobile4DAssetLight.Centre)
-            publish(mapOf(Mobile4DAssetLight.Centre to requireNotNull(centrePages)))
+            val decodedCentre = decodeLight(Mobile4DAssetLight.Centre)
+            var centrePublished = false
+            try {
+                if (
+                    !mobile4DAllocationsFitBudget(
+                        allocations = decodedCentre,
+                        budgetBytes = policy.decodedArtBudgetBytes,
+                        allocationByteCount = { it.bitmap.allocationByteCount.toLong() },
+                    )
+                ) {
+                    effectiveRetention = Mobile4DAssetRetention.None
+                    return true
+                }
+                centrePages = decodedCentre
+                publish(mapOf(Mobile4DAssetLight.Centre to decodedCentre))
+                centrePublished = true
+            } finally {
+                if (!centrePublished) {
+                    if (centrePages === decodedCentre) centrePages = null
+                    decodedCentre.recycleUnowned()
+                }
+            }
         }
         if (effectiveRetention == Mobile4DAssetRetention.CentreOnly) return true
 
@@ -251,10 +273,10 @@ internal class Mobile4DBitmapStore(
         return true
     }
 
-    private suspend fun decodeLight(light: Mobile4DAssetLight): List<Mobile4DBitmapReference> =
-        withContext(Dispatchers.IO) {
-            val decoded = mutableListOf<Mobile4DBitmapReference>()
-            try {
+    private suspend fun decodeLight(light: Mobile4DAssetLight): List<Mobile4DBitmapReference> {
+        val owned = Mobile4DOwnedBatch<Mobile4DBitmapReference> { it.recycleIfUnowned() }
+        try {
+            withContext(Dispatchers.IO) {
                 Mobile4DGeneratedAssets.pages
                     .asSequence()
                     .filter { it.light == light }
@@ -270,14 +292,23 @@ internal class Mobile4DBitmapStore(
                         val bitmap = context.assets.open(descriptor.path).use { input ->
                             BitmapFactory.decodeStream(input, null, options)
                         } ?: throw IOException("Cannot decode mobile 4D atlas page ${descriptor.path}")
-                        decoded += Mobile4DBitmapReference(descriptor, bitmap)
+                        var added = false
+                        try {
+                            owned.add(Mobile4DBitmapReference(descriptor, bitmap))
+                            added = true
+                        } finally {
+                            if (!added && !bitmap.isRecycled) bitmap.recycle()
+                        }
                     }
-                decoded
-            } catch (error: Throwable) {
-                decoded.recycleUnowned()
-                throw error
             }
+            // withContext has prompt-cancellation semantics. This explicit check plus the outer
+            // finally keeps ownership local if cancellation wins during the IO-to-main handoff.
+            coroutineContext.ensureActive()
+            return owned.handOff()
+        } finally {
+            owned.releaseUnlessHandedOff()
         }
+    }
 
     private fun publish(pages: Map<Mobile4DAssetLight, List<Mobile4DBitmapReference>>) {
         if (closed) {

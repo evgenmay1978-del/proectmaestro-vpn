@@ -1,7 +1,9 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class Mobile4DSceneModelTest {
@@ -285,5 +287,66 @@ class Mobile4DSceneModelTest {
         assertEquals(0, noArtBudget.targetWidthPx)
         assertEquals(0L, noArtBudget.estimatedResidentBytes)
         assertTrue(noArtBudget.estimatedResidentBytes <= noArtBudget.decodedArtBudgetBytes)
+    }
+
+    @Test
+    fun ownedBatchReleasesPromptlyCancelledDecodeButNotSuccessfulHandoff() {
+        val released = mutableListOf<Int>()
+        val cancelled = Mobile4DOwnedBatch<Int>(released::add)
+        cancelled.add(1)
+        cancelled.add(2)
+
+        cancelled.releaseUnlessHandedOff()
+
+        assertEquals(listOf(2, 1), released)
+
+        val successful = Mobile4DOwnedBatch<Int>(released::add)
+        successful.add(3)
+        assertEquals(listOf(3), successful.handOff())
+        successful.releaseUnlessHandedOff()
+        assertEquals(listOf(2, 1), released)
+    }
+
+    @Test
+    fun actualAllocationsMustFitBudgetBeforeCentreIsPublished() {
+        assertTrue(mobile4DAllocationsFitBudget(listOf(4L, 6L), budgetBytes = 10L))
+        assertFalse(mobile4DAllocationsFitBudget(listOf(4L, 7L), budgetBytes = 10L))
+        assertFalse(mobile4DAllocationsFitBudget(listOf(1L), budgetBytes = -1L))
+    }
+
+    @Test
+    fun transactionalRetainRollsBackEverySuccessfulRetainOnFailure() {
+        val retained = mutableListOf<Int>()
+        val released = mutableListOf<Int>()
+
+        assertThrows(OutOfMemoryError::class.java) {
+            mobile4DWithRetainedReferences(
+                references = listOf(1, 2, 3),
+                retain = retained::add,
+                release = released::add,
+            ) {
+                throw OutOfMemoryError("simulated allocation failure")
+            }
+        }
+
+        assertEquals(listOf(1, 2, 3), retained)
+        assertEquals(listOf(3, 2, 1), released)
+    }
+
+    @Test
+    fun transactionalRetainRollsBackOnlyItemsRetainedBeforeRetainFailure() {
+        val released = mutableListOf<Int>()
+
+        assertThrows(IllegalStateException::class.java) {
+            mobile4DWithRetainedReferences(
+                references = listOf(1, 2, 3),
+                retain = { value -> if (value == 3) error("retain failed") },
+                release = released::add,
+            ) {
+                Unit
+            }
+        }
+
+        assertEquals(listOf(2, 1), released)
     }
 }

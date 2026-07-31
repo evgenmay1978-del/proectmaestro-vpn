@@ -89,6 +89,96 @@ internal data class Mobile4DAssetMemoryPolicy(
     val estimatedResidentBytes: Long,
 )
 
+/** Owns decoded items until the caller explicitly completes a successful handoff. */
+internal class Mobile4DOwnedBatch<T>(
+    private val release: (T) -> Unit,
+) {
+    private val items = mutableListOf<T>()
+    private var handedOff = false
+    private var released = false
+
+    fun add(item: T) {
+        check(!handedOff && !released) { "Cannot add to a completed mobile 4D batch" }
+        try {
+            items.add(item)
+        } catch (error: Throwable) {
+            try {
+                release(item)
+            } catch (releaseError: Throwable) {
+                error.addSuppressed(releaseError)
+            }
+            throw error
+        }
+    }
+
+    fun handOff(): List<T> {
+        check(!handedOff && !released) { "Mobile 4D batch is already completed" }
+        handedOff = true
+        return items
+    }
+
+    fun releaseUnlessHandedOff() {
+        if (handedOff || released) return
+        released = true
+        var firstError: Throwable? = null
+        for (index in items.indices.reversed()) {
+            try {
+                release(items[index])
+            } catch (error: Throwable) {
+                val recordedError = firstError
+                if (recordedError == null) firstError = error else recordedError.addSuppressed(error)
+            }
+        }
+        items.clear()
+        firstError?.let { throw it }
+    }
+}
+
+internal fun mobile4DAllocationsFitBudget(
+    allocationByteCounts: Iterable<Long>,
+    budgetBytes: Long,
+): Boolean = mobile4DAllocationsFitBudget(allocationByteCounts, budgetBytes) { it }
+
+internal fun <T> mobile4DAllocationsFitBudget(
+    allocations: Iterable<T>,
+    budgetBytes: Long,
+    allocationByteCount: (T) -> Long,
+): Boolean {
+    if (budgetBytes < 0L) return false
+    var total = 0L
+    for (allocation in allocations) {
+        val allocationBytes = allocationByteCount(allocation)
+        if (allocationBytes < 0L || allocationBytes > budgetBytes - total) return false
+        total += allocationBytes
+    }
+    return true
+}
+
+internal fun <T, R> mobile4DWithRetainedReferences(
+    references: List<T>,
+    retain: (T) -> Unit,
+    release: (T) -> Unit,
+    block: () -> R,
+): R {
+    var retainedCount = 0
+    try {
+        while (retainedCount < references.size) {
+            retain(references[retainedCount])
+            retainedCount += 1
+        }
+        return block()
+    } catch (error: Throwable) {
+        for (index in retainedCount - 1 downTo 0) {
+            try {
+                release(references[index])
+            } catch (rollbackError: Throwable) {
+                error.addSuppressed(rollbackError)
+            }
+        }
+        throw error
+    }
+}
+
 internal fun mobile4DSceneLayout(width: Float, height: Float): Mobile4DSceneLayout {
     val scale = maxOf(width / MOBILE_4D_MASTER_WIDTH, height / MOBILE_4D_MASTER_HEIGHT)
     val translationX = (width - MOBILE_4D_MASTER_WIDTH * scale) / 2f
