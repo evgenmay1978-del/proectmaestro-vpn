@@ -8,7 +8,8 @@
 Поэтому экран воспроизводится из ПОДЛИННЫХ ассетов репозитория и чисел из Kotlin.
 
 Что берётся из репо (воспроизводимо, ничего не выдумано):
-  mobile_home_scene.webp 853x1844 — сцена с медальоном и живым глазом
+  mobile_4d/atlas_c_*.webp      — центральное освещение пятислойной 4D-сцены
+  mobile_eye_closed.webp        — закрытый глаз для отключённого состояния
   mobile_surface.webp            — фон внутренних экранов
   frame_button.9.png / frame_bar.9.png / frame_panel.9.png — nine-patch рамы
   font/playfair_display.ttf      — титульный шрифт
@@ -33,11 +34,14 @@
 Использование:  ops/phone-screen-sim.py   ->  build/phone-screen-sim/phone-screens.png
 """
 import os
+import re
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / 'app/src/main/res/drawable-nodpi'
+ASSETS = ROOT / 'app/src/main/assets'
+MOBILE_4D_MANIFEST = ROOT / 'app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DGeneratedAssets.kt'
 OUTDIR = ROOT / 'build/phone-screen-sim'
 OUTDIR.mkdir(parents=True, exist_ok=True)
 OUT = str(OUTDIR / 'phone-screens.png')
@@ -48,6 +52,13 @@ SANS = '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'
 SANSB = '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf'
 DEJA = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 DEJAB = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+MASTER_4D_SIZE = (2160, 4670)
+FRAGMENT_RE = re.compile(
+    r'Mobile4DAssetFragment\("[^"]+", "([^"]+)", (\d+), \d+, \d+, '
+    r'Mobile4DAssetLight\.Centre, (\d+), "([^"]+)", '
+    r'Mobile4DAssetRect\((\d+), (\d+), (\d+), (\d+)\), '
+    r'Mobile4DAssetRect\((\d+), (\d+), (\d+), (\d+)\), \d+\),'
+)
 # ⛔ ЛОВУШКА: в Liberation Sans НЕТ глифов ₽ и ⚠ (проверено fontTools cmap) — рисуется
 # .notdef-квадрат. Для строк с ними берём DejaVu. Ярлыки плиток оставлены на Liberation:
 # он по ширине близок к Roboto, поэтому обрезка на макете не преувеличена против реальности.
@@ -90,6 +101,49 @@ def cover(path, w, h):
     im = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
     return im.crop(((im.width - w) // 2, (im.height - h) // 2,
                     (im.width - w) // 2 + w, (im.height - h) // 2 + h))
+
+def centre_4d_scene():
+    """Reconstruct the committed centre-light scene from generated atlas geometry."""
+    fragments = []
+    for match in FRAGMENT_RE.finditer(MOBILE_4D_MANIFEST.read_text(encoding='utf-8')):
+        layer, z_order, page_index, page_path, *coords = match.groups()
+        fragments.append((int(z_order), int(page_index), page_path, layer, *map(int, coords)))
+    if len(fragments) != 77:
+        raise ValueError(f'Expected 77 centre-light 4D fragments, found {len(fragments)}')
+
+    scene = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
+    current_path = None
+    atlas = None
+    for fragment in fragments:
+        _, _, page_path, _, sx, sy, sw, sh, dx, dy, dw, dh = fragment
+        if (sw, sh) != (dw, dh):
+            raise ValueError(f'Atlas/scene rectangle mismatch in {page_path}')
+        if page_path != current_path:
+            if atlas is not None:
+                atlas.close()
+            atlas_path = ASSETS / page_path
+            if not atlas_path.is_file():
+                raise FileNotFoundError(f'Missing committed 4D atlas: {atlas_path}')
+            atlas = Image.open(atlas_path).convert('RGBA')
+            current_path = page_path
+        if sx + sw > atlas.width or sy + sh > atlas.height:
+            raise ValueError(f'Fragment outside atlas bounds in {page_path}')
+        if dx + dw > MASTER_4D_SIZE[0] or dy + dh > MASTER_4D_SIZE[1]:
+            raise ValueError(f'Fragment outside 4D master canvas in {page_path}')
+        scene.alpha_composite(atlas.crop((sx, sy, sx + sw, sy + sh)), (dx, dy))
+    if atlas is not None:
+        atlas.close()
+    return scene
+
+def home_4d_viewport(w, h):
+    scene = centre_4d_scene()
+    k = max(w / scene.width, h / scene.height)
+    scaled = scene.resize((round(scene.width * k), round(scene.height * k)), Image.Resampling.LANCZOS)
+    scene.close()
+    viewport = scaled.crop(((scaled.width - w) // 2, (scaled.height - h) // 2,
+                            (scaled.width - w) // 2 + w, (scaled.height - h) // 2 + h))
+    scaled.close()
+    return viewport
 
 def vgrad(w, h, stops):
     """Вертикальный градиент по стопам [(pos, (r,g,b), alpha)] — как Brush.verticalGradient."""
@@ -188,10 +242,30 @@ def ic_qr(d, x, y, s, c):
 # ═════════ ЭКРАН 1: главный (револьвер) ═════════
 W, H = 390 * S, 844 * S
 def screen_home():
-    ph = cover(f'{str(RES)}/mobile_home_scene.webp', W, H).convert('RGBA')
+    ph = home_4d_viewport(W, H)
     # геометрия TvHomeScreen.kt:224-240 для 390x844dp
-    sc = max(390 / 853, 844 / 1844)
-    cy = ((844 - 1844 * sc) / 2 + 711 * sc); r = 260 * sc
+    sc = max(W / MASTER_4D_SIZE[0], H / MASTER_4D_SIZE[1])
+    tx = (W - MASTER_4D_SIZE[0] * sc) / 2
+    ty = (H - MASTER_4D_SIZE[1] * sc) / 2
+    cx = MASTER_4D_SIZE[0] * 430 / 853 * sc + tx
+    cy_px = MASTER_4D_SIZE[1] * 711 / 1844 * sc + ty
+    rx = MASTER_4D_SIZE[0] * 260 / 853 * sc
+    ry = MASTER_4D_SIZE[1] * 260 / 1844 * sc
+    cy = cy_px / S; r = ry / S
+
+    # Disconnected is always the owner's fully CLOSED eye inside the empty ring.
+    closed = Image.open(RES / 'mobile_eye_closed.webp').convert('RGBA')
+    eye_w = round(min(rx * 2, ry * 2) * .9)
+    eye_h = round(eye_w * closed.height / closed.width)
+    closed = closed.resize((eye_w, eye_h), Image.Resampling.LANCZOS)
+    ph.alpha_composite(closed, (round(cx - eye_w / 2), round(cy_px - eye_h / 2)))
+    closed.close()
+
+    # Cartouche text remains code-rendered, never baked into an asset.
+    title_left = 300 * sc + tx; title_top = 250 * sc + ty
+    title_right = 1860 * sc + tx; title_bottom = 700 * sc + ty
+    txt(ImageDraw.Draw(ph), ((title_left + title_right) / 2, (title_top + title_bottom) / 2),
+        'MaestroVPN', F(PLAY, 31), GOLD, anchor='mm')
     win_t = round((cy + r + 12) * S); win_b = round((844 - 844 * .070) * S)
     lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)

@@ -6,6 +6,14 @@ code, do it with code"* → run a tested script instead of re-deriving the comma
 
 All run **on S1** (where the panel, telemetry, mirror and repo live).
 
+## Mobile 4D assets and phone preview
+
+- `mobile-4d-assets.py` validates the 15 source PNGs, builds the committed three-light atlas set and generated Kotlin geometry.
+- `phone-screen-sim.py` reconstructs Home from the committed centre-light atlas geometry, then draws the closed disconnected eye and runtime text/menu. It does not depend on a legacy flat Home image.
+- `mobile-eye-natural-assets.py` rebuilds only the aligned `mobile_eye_open`, `mobile_eye_squint` and `mobile_eye_closed` resources and validates the existing anatomy layers. It never recreates a Home scene.
+
+The mobile 4D atlas is the single Home-art pipeline. Keep text and the eye separate; do not add a flattened Home drawable back. TV assets and TV tools are outside this pipeline.
+
 | script | when to use | safety |
 |--------|-------------|--------|
 | `deploy-panel.sh [--dry-run]` | after editing the Go backend — build + deploy maestro-panel | verifies /healthz + /order/tariffs + service active; **rolls back** the binary on failure. `--dry-run` = build+vet only. |
