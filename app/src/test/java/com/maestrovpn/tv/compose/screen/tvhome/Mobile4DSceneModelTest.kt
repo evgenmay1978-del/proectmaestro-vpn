@@ -144,4 +144,146 @@ class Mobile4DSceneModelTest {
         assertEquals(Mobile4DEyeState.Connected, mobile4DEyeState(connected = true, connecting = false))
         assertEquals(Mobile4DEyeState.Connecting, mobile4DEyeState(connected = true, connecting = true))
     }
+
+    @Test
+    fun displayRotationRemapsTiltAxesExactlyOnce() {
+        val portrait = Mobile4DTiltVector(x = 0.25f, y = -0.75f)
+
+        assertEquals(portrait, mobile4DRemapForDisplayRotation(portrait, Mobile4DDisplayRotation.Rotation0))
+        assertEquals(
+            Mobile4DTiltVector(x = 0.75f, y = 0.25f),
+            mobile4DRemapForDisplayRotation(portrait, Mobile4DDisplayRotation.Rotation90),
+        )
+        assertEquals(
+            Mobile4DTiltVector(x = -0.25f, y = 0.75f),
+            mobile4DRemapForDisplayRotation(portrait, Mobile4DDisplayRotation.Rotation180),
+        )
+        assertEquals(
+            Mobile4DTiltVector(x = -0.75f, y = -0.25f),
+            mobile4DRemapForDisplayRotation(portrait, Mobile4DDisplayRotation.Rotation270),
+        )
+    }
+
+    @Test
+    fun physicalTiltClampsAtTwelveDegreesAndNormalizes() {
+        assertEquals(-1f, mobile4DNormalizeTiltDegrees(-40f), 0.0001f)
+        assertEquals(-1f, mobile4DNormalizeTiltDegrees(-12f), 0.0001f)
+        assertEquals(1f, mobile4DNormalizeTiltDegrees(12f), 0.0001f)
+        assertEquals(1f, mobile4DNormalizeTiltDegrees(40f), 0.0001f)
+        assertEquals(5.5f / 11.5f, mobile4DNormalizeTiltDegrees(6f), 0.0001f)
+    }
+
+    @Test
+    fun physicalTiltDeadZoneRemovesNeutralSensorJitter() {
+        assertEquals(0f, mobile4DNormalizeTiltDegrees(-0.5f), 0.0001f)
+        assertEquals(0f, mobile4DNormalizeTiltDegrees(0f), 0.0001f)
+        assertEquals(0f, mobile4DNormalizeTiltDegrees(0.5f), 0.0001f)
+        assertTrue(mobile4DNormalizeTiltDegrees(0.6f) > 0f)
+    }
+
+    @Test
+    fun lowPassUsesElapsedTimeInsteadOfSensorEventCount() {
+        val oneHundredMilliseconds = mobile4DLowPass(
+            previous = Mobile4DTiltVector.Zero,
+            target = Mobile4DTiltVector(1f, -1f),
+            elapsedMillis = 100L,
+        )
+        val firstHalf = mobile4DLowPass(
+            previous = Mobile4DTiltVector.Zero,
+            target = Mobile4DTiltVector(1f, -1f),
+            elapsedMillis = 50L,
+        )
+        val twoFiftyMillisecondSteps = mobile4DLowPass(
+            previous = firstHalf,
+            target = Mobile4DTiltVector(1f, -1f),
+            elapsedMillis = 50L,
+        )
+
+        assertEquals(oneHundredMilliseconds.x, twoFiftyMillisecondSteps.x, 0.0001f)
+        assertEquals(oneHundredMilliseconds.y, twoFiftyMillisecondSteps.y, 0.0001f)
+        assertEquals(
+            oneHundredMilliseconds,
+            mobile4DLowPass(oneHundredMilliseconds, Mobile4DTiltVector.Zero, 0L),
+        )
+    }
+
+    @Test
+    fun targetWidthUsesManifestBucketAndCaps() {
+        assertEquals(1088, mobile4DTargetWidthBucket(viewportWidthPx = 1081, isLowRamDevice = false))
+        assertEquals(1620, mobile4DTargetWidthBucket(viewportWidthPx = 2200, isLowRamDevice = false))
+        assertEquals(1080, mobile4DTargetWidthBucket(viewportWidthPx = 2200, isLowRamDevice = true))
+    }
+
+    @Test
+    fun memoryPolicyKeepsThreeLightsOnlyInsideManifestBudget() {
+        val roomy = mobile4DAssetMemoryPolicy(
+            viewportWidthPx = 1620,
+            memoryClassMiB = 512,
+            isLowRamDevice = false,
+            relightingEnabled = true,
+            sceneMode = Mobile4DSceneMode.Home,
+        )
+        val constrained = mobile4DAssetMemoryPolicy(
+            viewportWidthPx = 1620,
+            memoryClassMiB = 256,
+            isLowRamDevice = false,
+            relightingEnabled = true,
+            sceneMode = Mobile4DSceneMode.Home,
+        )
+
+        assertEquals(Mobile4DAssetRetention.AllLights, roomy.retention)
+        assertEquals(1620, roomy.targetWidthPx)
+        assertTrue(roomy.estimatedResidentBytes <= roomy.decodedArtBudgetBytes)
+        assertEquals(Mobile4DAssetRetention.CentreAndActiveSide, constrained.retention)
+        assertEquals(1536, constrained.targetWidthPx)
+        assertTrue(constrained.estimatedResidentBytes <= constrained.decodedArtBudgetBytes)
+    }
+
+    @Test
+    fun lowRamReducedMotionAndInternalScreensUseLightweightPolicies() {
+        val lowRam = mobile4DAssetMemoryPolicy(
+            viewportWidthPx = 1620,
+            memoryClassMiB = 128,
+            isLowRamDevice = true,
+            relightingEnabled = true,
+            sceneMode = Mobile4DSceneMode.Home,
+        )
+        val reducedMotion = mobile4DAssetMemoryPolicy(
+            viewportWidthPx = 1620,
+            memoryClassMiB = 256,
+            isLowRamDevice = false,
+            relightingEnabled = false,
+            sceneMode = Mobile4DSceneMode.Home,
+        )
+        val internal = mobile4DAssetMemoryPolicy(
+            viewportWidthPx = 1620,
+            memoryClassMiB = 512,
+            isLowRamDevice = false,
+            relightingEnabled = true,
+            sceneMode = Mobile4DSceneMode.Internal,
+        )
+
+        assertEquals(Mobile4DAssetRetention.CentreOnly, lowRam.retention)
+        assertTrue(lowRam.targetWidthPx <= Mobile4DGeneratedAssets.lowRamMaximumTargetWidthPx)
+        assertEquals(Mobile4DAssetRetention.CentreOnly, reducedMotion.retention)
+        assertEquals(Mobile4DAssetRetention.None, internal.retention)
+        assertEquals(0, internal.targetWidthPx)
+        assertEquals(0L, internal.estimatedResidentBytes)
+    }
+
+    @Test
+    fun memoryPolicyDisablesHomeArtWhenEvenMinimumBucketExceedsBudget() {
+        val noArtBudget = mobile4DAssetMemoryPolicy(
+            viewportWidthPx = 1620,
+            memoryClassMiB = 8,
+            isLowRamDevice = false,
+            relightingEnabled = true,
+            sceneMode = Mobile4DSceneMode.Home,
+        )
+
+        assertEquals(Mobile4DAssetRetention.None, noArtBudget.retention)
+        assertEquals(0, noArtBudget.targetWidthPx)
+        assertEquals(0L, noArtBudget.estimatedResidentBytes)
+        assertTrue(noArtBudget.estimatedResidentBytes <= noArtBudget.decodedArtBudgetBytes)
+    }
 }
