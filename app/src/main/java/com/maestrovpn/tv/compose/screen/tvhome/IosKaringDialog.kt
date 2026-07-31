@@ -2,6 +2,7 @@ package com.maestrovpn.tv.compose.screen.tvhome
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
@@ -133,12 +135,17 @@ private fun PhoneShareDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .pointerInput(onDismiss) {
+                    detectTapGestures { onDismiss() }
+                }
                 .padding(horizontal = 18.dp, vertical = 24.dp),
             contentAlignment = Alignment.Center,
         ) {
             MobilePremiumDialogSurface(
                 title = "Поделиться подпиской",
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.pointerInput(Unit) {
+                        detectTapGestures { /* Consume taps inside the panel. */ }
+                    },
             ) {
                 Column(
                     modifier = Modifier

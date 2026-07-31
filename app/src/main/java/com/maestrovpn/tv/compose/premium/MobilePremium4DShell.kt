@@ -153,8 +153,8 @@ fun MobilePremiumDialogSurface(
 ) {
     Column(
         modifier = modifier
-            .fillMaxWidth()
             .widthIn(max = PremiumDialogMaximumWidth)
+            .fillMaxWidth()
             .testTag("premium-dialog-surface")
             .fantasyFrame(R.drawable.frame_panel)
             .padding(PremiumDialogContentPadding),
