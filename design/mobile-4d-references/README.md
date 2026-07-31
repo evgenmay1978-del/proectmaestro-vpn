@@ -4,6 +4,9 @@
 интерфейса MaestroVPN. Перед любой работой с телефонным UI сначала прочитать
 [`CLAUDE_INSTRUCTIONS.md`](CLAUDE_INSTRUCTIONS.md).
 
+Технические требования к новым исходным слоям находятся в
+[`../mobile-asset-redraw/SPEC.md`](../mobile-asset-redraw/SPEC.md).
+
 ## Файлы
 
 - `00-current-mobile-ui.png` — текущий интерфейс из

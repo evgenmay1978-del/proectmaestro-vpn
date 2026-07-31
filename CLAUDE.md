@@ -6,8 +6,9 @@
 
 Перед любой правкой телефонного интерфейса обязательно прочитать
 `design/mobile-4d-references/README.md` и
-`design/mobile-4d-references/CLAUDE_INSTRUCTIONS.md`, затем использовать PNG из
-этой папки как визуальные референсы.
+`design/mobile-4d-references/CLAUDE_INSTRUCTIONS.md`, затем
+`design/mobile-asset-redraw/SPEC.md`. Готовые 15 PNG-слоёв главного экрана лежат
+в `design/mobile-asset-redraw/source/`.
 
 Новый мобильный UI нужно собрать начисто. Запрещено накладывать его поверх
 существующих экранов, держать старые полноэкранные слои под новыми или прятать
