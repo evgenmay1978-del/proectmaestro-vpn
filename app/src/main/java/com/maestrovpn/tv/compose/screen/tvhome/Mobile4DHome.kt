@@ -421,7 +421,7 @@ private fun DrawScope.drawAtlasFragments(
             alpha = alpha.coerceIn(0f, 1f),
             colorFilter = colorFilter,
             blendMode = blendMode,
-            filterQuality = FilterQuality.Medium,
+            filterQuality = FilterQuality.High,
         )
     }
 }
