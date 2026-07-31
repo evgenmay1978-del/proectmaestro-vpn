@@ -20,3 +20,9 @@ internal val PremiumPanelContentPadding = PaddingValues(horizontal = 22.dp, vert
 internal val PremiumButtonContentPadding = PaddingValues(horizontal = 22.dp, vertical = 13.dp)
 internal val PremiumTextFieldContentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
 internal val PremiumSegmentedContentPadding = PaddingValues(7.dp)
+internal val PremiumDialogContentPadding = PaddingValues(horizontal = 24.dp, vertical = 22.dp)
+internal val PremiumSheetContentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp)
+internal val PremiumDialogMaximumWidth = 560.dp
+internal val PremiumShellShadow = Color(0xFF090604)
+internal const val PremiumShellFrameAlpha = 0.78f
+internal const val PremiumShellReadabilityScrimAlpha = 0.18f

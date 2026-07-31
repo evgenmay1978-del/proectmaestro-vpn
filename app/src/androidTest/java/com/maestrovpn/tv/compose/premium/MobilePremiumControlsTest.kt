@@ -2,6 +2,7 @@ package com.maestrovpn.tv.compose.premium
 
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
@@ -126,5 +127,56 @@ class MobilePremiumControlsTest {
             .performClick()
 
         assertTrue(selected)
+    }
+
+    @Test
+    fun settingRowExposesOneAccessibleButtonTarget() {
+        var clicked = false
+        composeRule.setContent {
+            MobilePremiumSettingRow(
+                title = "Split tunneling",
+                supportingText = "Choose applications",
+                onClick = { clicked = true },
+            )
+        }
+
+        val row = composeRule.onNodeWithText("Split tunneling")
+            .assertHasClickAction()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        row.performClick()
+
+        assertTrue(clicked)
+        val heightPx = row.fetchSemanticsNode().boundsInRoot.height
+        val minPx = with(composeRule.density) { 48.dp.toPx() }
+        assertTrue(heightPx >= minPx)
+    }
+
+    @Test
+    fun premiumSwitchExposesStateRoleAndMinimumTarget() {
+        var checked = false
+        composeRule.setContent {
+            MobilePremiumSwitch(
+                checked = checked,
+                onCheckedChange = { checked = it },
+                contentDescription = "Use split tunneling",
+            )
+        }
+
+        val toggle = composeRule.onNodeWithContentDescription("Use split tunneling")
+            .assertHasClickAction()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Switch))
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.ToggleableState,
+                    ToggleableState.Off,
+                ),
+            )
+        toggle.performClick()
+
+        assertTrue(checked)
+        val bounds = toggle.fetchSemanticsNode().boundsInRoot
+        val minPx = with(composeRule.density) { 48.dp.toPx() }
+        assertTrue(bounds.width >= minPx)
+        assertTrue(bounds.height >= minPx)
     }
 }

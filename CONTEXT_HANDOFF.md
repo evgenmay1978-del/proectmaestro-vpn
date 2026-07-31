@@ -11,7 +11,7 @@
 - Ветка реализации: `codex/mobile-4d-interface`.
 - База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
   (`codex/mobile-4d-reference-pack`).
-- Текущий HEAD реализации: `ba87356d822569cc382d0e0d55bf3ce945539c53`.
+- Текущая база незакоммиченного Task 6: `1d423f7`.
 - Уже созданы локальные коммиты:
   - `ba11ff8` — исправленный scope/план: ровно 6 экранов + 1 dialog;
   - `3d0902d` — чистая модель scene/crop/light/parallax/eye + JVM tests;
@@ -23,7 +23,8 @@
   - `e34335e` — durable runtime checkpoint этого handoff;
   - `ad7f60d` — чистый mobile 4D Home compositor и eye-state tests;
   - `d5228d9` — hero atlas переведён на обязательный `FilterQuality.High`;
-  - `ba87356` — новый Home подключён в phone seam, старое phone-дерево удалено.
+  - `ba87356` — новый Home подключён в phone seam, старое phone-дерево удалено;
+  - `1d423f7` — durable checkpoint подключённого mobile 4D Home.
 - Ветка ещё не отправлена; draft PR ещё не создан.
 - Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
   `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
@@ -200,8 +201,23 @@ Task 5 завершён коммитом `ba87356` и принят review:
 - `connected = Started || Starting` и все callbacks сохранены;
 - diff `TvEskizHome`, `TvEskizSpec`, `tvm_*`, ресурсов и tools пуст.
 
-Следующая активная задача — Task 6: лёгкий общий premium shell без home atlas, затем Task 7 —
-ровно `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
+### LIVE checkpoint реализации — Task 6 готов к review
+
+Task 6 реализован в коммите, содержащем этот checkpoint (`feat: add shared mobile premium 4D shell`):
+
+- `MobilePremiumScreen` обратно совместимо делегирует новому phone-only `MobilePremium4DShell`;
+- shell учитывает safe-drawing/IME insets, compact/regular/expanded layout и сохраняет 48 dp Back;
+- фон не использует `mobile_surface.webp`, home atlas, cartouche, ring или eye: только сдержанный
+  walnut/light draw и существующая настоящая nine-patch `frame_panel`;
+- добавлены общие Playfair top bar, dialog/sheet surfaces, setting row и switch;
+- shell возвращает нейтральный content-only fallback, если его ошибочно вызвали на TV; нормальные
+  TV-ветки и TV-файлы не менялись;
+- тесты добавлены до production API; Android/Gradle по прямому запрету владельца локально не
+  запускались, поэтому compile/GREEN остаётся GitHub CI gate;
+- статические scope-проверки и `git diff --check` прошли.
+
+Следующая активная задача — review Task 6, затем Task 7: ровно `claim`, `trial`, `buy`, `scanqr`,
+`split` и `IosKaringDialog`.
 
 ### Состояния глаза
 
@@ -269,7 +285,8 @@ app-owned pre-permission explanation.
   закрыты;
 - Task 4 Home реализован и принят (`ad7f60d..d5228d9`);
 - Task 5 phone seam реализован и принят (`ba87356`): новый Home подключён, старое phone-дерево удалено;
-- пять дочерних экранов и dialog ещё не перенесены на общий shell; старый flatten-ресурс пока не
+- Task 6 shared phone-only shell реализован и ожидает review; пять дочерних экранов и dialog ещё
+  не перенесены на него; старый flatten-ресурс пока не
   удалён, потому что его ещё используют два mobile tool.
 
 ### Локальные ограничения проверки
@@ -290,7 +307,7 @@ app-owned pre-permission explanation.
    `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
 2. `subagent-driven-development/SKILL.md` уже прочитан; plan-scoped SDD ledger создан в
    `.superpowers/sdd/2026-07-31-mobile-premium-4d-interface/progress.md` и игнорируется Git.
-3. Выполнить Task 6: лёгкий общий premium shell без удержания home atlas.
+3. Провести review Task 6 и закрыть только подтверждённые замечания.
 4. Выполнить Task 7: перенести только `claim`, `trial`, `buy`, `scanqr`, `split` и
    `IosKaringDialog`, сохранив поведение и явный TV seam.
 5. Удалить `mobile_home_scene.webp` только после `rg` без потребителей и ремонта двух mobile tools.

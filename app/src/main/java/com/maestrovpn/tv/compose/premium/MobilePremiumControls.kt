@@ -317,3 +317,114 @@ fun MobilePremiumAppRow(
         )
     }
 }
+
+@Composable
+fun MobilePremiumSettingRow(
+    title: String,
+    supportingText: String? = null,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    selected: Boolean = false,
+    leadingContent: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
+) {
+    val clickModifier = if (onClick != null) {
+        Modifier.clickable(
+            enabled = enabled,
+            role = Role.Button,
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick,
+        )
+    } else {
+        Modifier
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = PremiumTouchTarget)
+            .background(
+                color = if (selected) {
+                    PremiumEmerald.copy(alpha = 0.13f)
+                } else {
+                    PremiumLeather.copy(alpha = 0.72f)
+                },
+                shape = RoundedCornerShape(PremiumPanelCorner),
+            )
+            .then(clickModifier)
+            .alpha(if (enabled) 1f else 0.46f)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (leadingContent != null) {
+            leadingContent()
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = PremiumText,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!supportingText.isNullOrBlank()) {
+                Text(
+                    text = supportingText,
+                    color = PremiumTextMuted,
+                    fontSize = 13.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (trailingContent != null) {
+            Spacer(Modifier.width(12.dp))
+            trailingContent()
+        }
+    }
+}
+
+@Composable
+fun MobilePremiumSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Box(
+        modifier = modifier
+            .defaultMinSize(
+                minWidth = PremiumTouchTarget,
+                minHeight = PremiumTouchTarget,
+            )
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .semantics { this.contentDescription = contentDescription }
+            .alpha(if (enabled) 1f else 0.46f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 42.dp, height = 24.dp)
+                .background(
+                    color = if (checked) PremiumEmerald else PremiumGoldMuted.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(12.dp),
+                ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
+                    .padding(2.dp)
+                    .size(20.dp)
+                    .background(PremiumText, RoundedCornerShape(10.dp)),
+            )
+        }
+    }
+}
