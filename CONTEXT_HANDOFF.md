@@ -11,7 +11,7 @@
 - Ветка реализации: `codex/mobile-4d-interface`.
 - База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
   (`codex/mobile-4d-reference-pack`).
-- Текущий HEAD реализации: `5acc6db44f4bcd0774baabbb82c6b0352375cad1`.
+- Текущий HEAD реализации: `ba87356d822569cc382d0e0d55bf3ce945539c53`.
 - Уже созданы локальные коммиты:
   - `ba11ff8` — исправленный scope/план: ровно 6 экранов + 1 dialog;
   - `3d0902d` — чистая модель scene/crop/light/parallax/eye + JVM tests;
@@ -19,7 +19,11 @@
   - `ac5defe` — path-safe, interruption-recoverable asset transaction + focused tests;
   - `a3b9cfc` — durable checkpoint этого handoff;
   - `f54c0fe` — lifecycle-safe tilt и memory-budgeted bitmap loader;
-  - `5acc6db` — cancellation/OOM-safe bitmap ownership и actual allocation gate.
+  - `5acc6db` — cancellation/OOM-safe bitmap ownership и actual allocation gate;
+  - `e34335e` — durable runtime checkpoint этого handoff;
+  - `ad7f60d` — чистый mobile 4D Home compositor и eye-state tests;
+  - `d5228d9` — hero atlas переведён на обязательный `FilterQuality.High`;
+  - `ba87356` — новый Home подключён в phone seam, старое phone-дерево удалено.
 - Ветка ещё не отправлена; draft PR ещё не создан.
 - Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
   `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
@@ -174,7 +178,30 @@ Task 3 завершён коммитами `f54c0fe..5acc6db` и принят sc
 В первом review было 3 Important finding; fix round 1/5 закрыл все 3 (`ADDRESSED`), новых
 регрессий scoped review не нашёл. Добавлены pure tests для cancellation handoff, actual budget,
 OOM rollback и partial-retain rollback. Локальный Gradle/APK не запускался; compile/GREEN остаётся
-GitHub CI gate. Следующая активная задача — Task 4, чистый `Mobile4DHome` compositor.
+GitHub CI gate. Состояние Task 4/5 зафиксировано в следующем checkpoint.
+
+### LIVE checkpoint реализации — после Task 5
+
+Task 4 завершён коммитами `ad7f60d..d5228d9` и принят review:
+
+- чистый `Mobile4DHome` без `mobile_home_scene.webp` fallback;
+- wood → frame → cartouche → vines → ring → existing eye → Playfair title → revolver;
+- L/C/R relighting, bounded additive relief, runtime shadows и parallax;
+- atlas fragments рисуются с `FilterQuality.High`;
+- disconnected eye = `opennessOverride=0f`, connecting = `0.5f`, connected = living/null;
+- sensor-rate updates изолированы от `PhoneRevolverMenu`;
+- instrumentation tests фиксируют eye semantics/click и старые premium tags.
+
+Task 5 завершён коммитом `ba87356` и принят review:
+
+- phone-ветка `TvHomeScreen` теперь содержит один `Mobile4DHome`;
+- старые flat scene/glow/eye/menu layers удалены из phone Compose tree, а не скрыты;
+- оба call site передают `serviceStatus == Status.Starting` как `connecting`;
+- `connected = Started || Starting` и все callbacks сохранены;
+- diff `TvEskizHome`, `TvEskizSpec`, `tvm_*`, ресурсов и tools пуст.
+
+Следующая активная задача — Task 6: лёгкий общий premium shell без home atlas, затем Task 7 —
+ровно `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
 
 ### Состояния глаза
 
@@ -240,7 +267,10 @@ app-owned pre-permission explanation.
   закрыты scoped re-review;
 - Task 3 реализован и принят (`f54c0fe..5acc6db`): tilt/loader/ownership готовы, 3 review finding
   закрыты;
-- Compose Home/UI, navigation и старый flatten ещё не менялись.
+- Task 4 Home реализован и принят (`ad7f60d..d5228d9`);
+- Task 5 phone seam реализован и принят (`ba87356`): новый Home подключён, старое phone-дерево удалено;
+- пять дочерних экранов и dialog ещё не перенесены на общий shell; старый flatten-ресурс пока не
+  удалён, потому что его ещё используют два mobile tool.
 
 ### Локальные ограничения проверки
 
@@ -260,15 +290,13 @@ app-owned pre-permission explanation.
    `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
 2. `subagent-driven-development/SKILL.md` уже прочитан; plan-scoped SDD ledger создан в
    `.superpowers/sdd/2026-07-31-mobile-premium-4d-interface/progress.md` и игнорируется Git.
-3. Выполнить Task 4: чистый phone-only `Mobile4DHome` compositor; отключённое состояние обязано
-   показывать полностью закрытый глаз.
-4. Подключить Home только в phone seam, не меняя TV.
-5. Построить лёгкий общий premium shell.
-6. Перенести только `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
-7. Удалить `mobile_home_scene.webp` только после `rg` без потребителей и ремонта двух mobile tools.
-8. Локально запускать только лёгкие Python/статические проверки. Android compile/test APK выполнить
+3. Выполнить Task 6: лёгкий общий premium shell без удержания home atlas.
+4. Выполнить Task 7: перенести только `claim`, `trial`, `buy`, `scanqr`, `split` и
+   `IosKaringDialog`, сохранив поведение и явный TV seam.
+5. Удалить `mobile_home_scene.webp` только после `rg` без потребителей и ремонта двух mobile tools.
+6. Локально запускать только лёгкие Python/статические проверки. Android compile/test APK выполнить
    через GitHub Actions `android-test.yml`, скачать/передать владельцу artifact для просмотра.
-9. Провести visual QA по шести экранам и dialog, доказать отсутствие TV-regression, затем
+7. Провести visual QA по шести экранам и dialog, доказать отсутствие TV-regression, затем
    обновить draft PR. Не merge/release/OTA.
 
 Обновлено: **31.07.2026**. Этот документ — первая точка входа для нового окна
