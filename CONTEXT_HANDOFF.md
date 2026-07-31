@@ -11,12 +11,15 @@
 - Ветка реализации: `codex/mobile-4d-interface`.
 - База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
   (`codex/mobile-4d-reference-pack`).
-- Текущий HEAD реализации: `ac5defe1021966a0055208123099fc81aad1efca`.
+- Текущий HEAD реализации: `5acc6db44f4bcd0774baabbb82c6b0352375cad1`.
 - Уже созданы локальные коммиты:
   - `ba11ff8` — исправленный scope/план: ровно 6 экранов + 1 dialog;
   - `3d0902d` — чистая модель scene/crop/light/parallax/eye + JVM tests;
   - `a1b1bbf` — deterministic memory-safe atlas generator, manifest, tests и 24 WebP;
-  - `ac5defe` — path-safe, interruption-recoverable asset transaction + focused tests.
+  - `ac5defe` — path-safe, interruption-recoverable asset transaction + focused tests;
+  - `a3b9cfc` — durable checkpoint этого handoff;
+  - `f54c0fe` — lifecycle-safe tilt и memory-budgeted bitmap loader;
+  - `5acc6db` — cancellation/OOM-safe bitmap ownership и actual allocation gate.
 - Ветка ещё не отправлена; draft PR ещё не создан.
 - Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
   `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
@@ -151,7 +154,27 @@ Scoped re-review подтвердил `ADDRESSED` для обоих прежни
    `KeyboardInterrupt`, kill/process crash и проверяет committed inventory по SHA-256.
 
 Focused safety tests: **7/7 PASS**. Независимый `--check`: **PASS**, reconstruction exact,
-output stable. Task 3 теперь является активной следующей задачей.
+output stable. Состояние Task 3 зафиксировано в следующем checkpoint.
+
+### LIVE checkpoint реализации — после Task 3
+
+Task 3 завершён коммитами `f54c0fe..5acc6db` и принят scoped re-review:
+
+- `TYPE_GAME_ROTATION_VECTOR` с fallback на `TYPE_ROTATION_VECTOR`;
+- lifecycle registration только в `RESUMED`, neutral state при pause/dispose/no sensor/reduced motion;
+- калибровка стабильной нейтрали, display rotation remap, dead zone, ±12° clamp и elapsed-time low-pass;
+- target buckets 64 px, caps 1620/1080, 40% memory-class budget и ≈8 MiB reserve под глаз;
+- internal-screen mode не удерживает home atlas;
+- centre/active-side/all-lights retention выбирается по памяти и проверяется повторно по
+  фактическому `Bitmap.allocationByteCount`;
+- sequential IO decode, centre fallback, hysteresis и bounded retry при смене стороны;
+- reference-counted leases не recycle bitmap, пока предыдущий Compose draw может его видеть;
+- prompt cancellation, OOM и partial retain проходят transactional cleanup/rollback.
+
+В первом review было 3 Important finding; fix round 1/5 закрыл все 3 (`ADDRESSED`), новых
+регрессий scoped review не нашёл. Добавлены pure tests для cancellation handoff, actual budget,
+OOM rollback и partial-retain rollback. Локальный Gradle/APK не запускался; compile/GREEN остаётся
+GitHub CI gate. Следующая активная задача — Task 4, чистый `Mobile4DHome` compositor.
 
 ### Состояния глаза
 
@@ -215,7 +238,9 @@ app-owned pre-permission explanation.
 - Task 1 реализован и принят review (`3d0902d`);
 - Task 2 реализован и принят (`a1b1bbf..ac5defe`): generation/`--check` PASS, оба safety finding
   закрыты scoped re-review;
-- Compose UI, sensors, navigation и старый flatten ещё не менялись.
+- Task 3 реализован и принят (`f54c0fe..5acc6db`): tilt/loader/ownership готовы, 3 review finding
+  закрыты;
+- Compose Home/UI, navigation и старый flatten ещё не менялись.
 
 ### Локальные ограничения проверки
 
@@ -235,8 +260,9 @@ app-owned pre-permission explanation.
    `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
 2. `subagent-driven-development/SKILL.md` уже прочитан; plan-scoped SDD ledger создан в
    `.superpowers/sdd/2026-07-31-mobile-premium-4d-interface/progress.md` и игнорируется Git.
-3. Выполнить Task 3: lifecycle-safe tilt + bitmap loader, затем получить отдельный review.
-4. Реализовать phone-only 4D Home; отключённое состояние обязано показывать полностью закрытый глаз.
+3. Выполнить Task 4: чистый phone-only `Mobile4DHome` compositor; отключённое состояние обязано
+   показывать полностью закрытый глаз.
+4. Подключить Home только в phone seam, не меняя TV.
 5. Построить лёгкий общий premium shell.
 6. Перенести только `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
 7. Удалить `mobile_home_scene.webp` только после `rg` без потребителей и ремонта двух mobile tools.
