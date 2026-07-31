@@ -53,6 +53,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyListRow
+import com.maestrovpn.tv.compose.premium.MobilePremium4DShell
 import com.maestrovpn.tv.compose.premium.MobilePremiumButton
 import com.maestrovpn.tv.compose.premium.MobilePremiumError
 import com.maestrovpn.tv.compose.premium.MobilePremiumLoading
@@ -93,6 +94,82 @@ fun BuyScreen(
 
     LaunchedEffect(state) {
         if (state is BuyState.Done) onDone()
+    }
+
+    if (!isTv) {
+        MobilePremium4DShell(
+            title = "Подписка",
+            onBack = onDone,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = screenPadding(false)),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Top,
+            ) {
+                when (val phoneState = state) {
+                    is BuyState.Loading -> {
+                        MobilePremiumLoading(
+                            message = "Загрузка тарифов…",
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+
+                    is BuyState.Tariffs -> {
+                        Text(
+                            "Выберите подписку",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontFamily = PlayfairFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = PremiumGold,
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        PhoneTariffSelection(
+                            items = phoneState.items,
+                            onBuy = { tariffKey -> viewModel.buy(tariffKey) },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+
+                    is BuyState.AwaitingPayment -> {
+                        val payContext = LocalContext.current
+                        PhonePaymentContent(
+                            state = phoneState,
+                            onOpenPayment = { payUrl ->
+                                runCatching {
+                                    payContext.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(payUrl))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }.onFailure {
+                                    Toast.makeText(
+                                        payContext,
+                                        "Браузер не найден — отсканируйте QR телефоном",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            },
+                            onPaid = { viewModel.iPaid() },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+
+                    BuyState.AwaitingConfirm,
+                    BuyState.Activating,
+                    BuyState.Done,
+                    is BuyState.Error -> {
+                        PhonePaymentResultContent(
+                            state = phoneState,
+                            onRetry = { viewModel.loadTariffs() },
+                            modifier = Modifier.widthIn(max = 560.dp),
+                        )
+                    }
+                }
+            }
+        }
+        return
     }
 
     // Carved-oak Playfair top bar (same language as Settings). На ТВ полоса ПРОЗРАЧНАЯ:
