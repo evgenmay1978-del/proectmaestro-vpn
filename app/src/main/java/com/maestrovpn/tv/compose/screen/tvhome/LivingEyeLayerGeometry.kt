@@ -67,9 +67,15 @@ internal fun fitLivingEyeLayer(width: Float, height: Float): LivingEyeLayerFit {
             (LIVING_EYE_STATE_Y + LIVING_EYE_STATE_HEIGHT - LIVING_EYE_VIRTUAL_ORIGIN_Y) *
             virtualScale
 
-    val targetInset = medallionSize * LIVING_EYE_BRONZE_INSET_FRACTION
-    val targetWidth = medallionSize - targetInset * 2f
-    val layerScale = targetWidth / (rawStateRight - rawStateLeft)
+    // ⛔ БОЛЬШЕ НЕ УЖИМАЕМ СЛОЙ. Здесь стояло
+    //     layerScale = (medallionSize - inset * 2) / (rawStateRight - rawStateLeft)
+    // — оно вписывало в бронзовый отступ ВЕСЬ слой целиком. Внешняя граница арта и есть зелень,
+    // поэтому убрать её с кольца масштабированием можно было только утащив за собой радужку,
+    // зрачок и блик: глаз терял 16.8% стороны и 30.8% площади (0.632219 → 0.525843), и владелец
+    // 31.07.2026 это увидел — «глаз сам стал меньше, можно было оставить как был».
+    // Зелень вылезала всего на 21.3 px с каждой стороны при канве 520 — это подрезается клипом по
+    // кольцу (livingEyeBronzeInset + clipPath в LivingEyeMedallion), а не уменьшением всего глаза.
+    val layerScale = 1f
     val layerTranslationX = width / 2f - (rawStateLeft + rawStateRight) / 2f * layerScale
     val layerTranslationY = height / 2f - (rawStateTop + rawStateBottom) / 2f * layerScale
     val scale = virtualScale * layerScale
@@ -93,6 +99,14 @@ internal fun fitLivingEyeLayer(width: Float, height: Float): LivingEyeLayerFit {
         translationY = translationY,
     )
 }
+
+/**
+ * Отступ бронзового кольца от края медальона, в пикселях холста. Слой глаза подрезается по этому
+ * кругу: лишняя зелень уходит ПОД кольцо вместо того, чтобы тащить за собой весь глаз вниз по
+ * размеру. Единственный источник числа — [LIVING_EYE_BRONZE_INSET_FRACTION].
+ */
+internal fun livingEyeBronzeInset(width: Float, height: Float): Float =
+    minOf(width, height) * LIVING_EYE_BRONZE_INSET_FRACTION
 
 internal const val LIVING_EYE_STATE_X = 230f
 internal const val LIVING_EYE_STATE_Y = 745f

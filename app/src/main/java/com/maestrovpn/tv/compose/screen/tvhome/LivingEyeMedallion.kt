@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -179,90 +180,121 @@ internal fun LivingEyeMedallion(
     }
 
     Canvas(modifier = modifier) {
-        val layerFit = fitLivingEyeLayer(width = size.width, height = size.height)
-        val phase = lidPhase.value.coerceIn(0f, 1f)
-        val openToSquint = (phase / 0.5f).coerceIn(0f, 1f)
-        val squintToClosed = ((phase - 0.5f) / 0.5f).coerceIn(0f, 1f)
+        // Клип по бронзовому кольцу. Заменил прежнее ужимание всего слоя: зелень, что выходит
+        // за кольцо, теперь прячется ПОД него, а радужка, зрачок и блик сохраняют исходный
+        // размер. Клип охватывает ВСЕ состояния (открыт/прищур/закрыт) — иначе подрезанным
+        // оказался бы только один кадр и моргание «прыгало» бы по границе.
+        val bronzeInset = livingEyeBronzeInset(size.width, size.height)
+        val medallion = minOf(size.width, size.height)
+        val bronzeClip = Path().apply {
+            addOval(
+                Rect(
+                    left = (size.width - medallion) / 2f + bronzeInset,
+                    top = (size.height - medallion) / 2f + bronzeInset,
+                    right = (size.width + medallion) / 2f - bronzeInset,
+                    bottom = (size.height + medallion) / 2f - bronzeInset,
+                ),
+            )
+        }
+        clipPath(bronzeClip) {
+            val layerFit = fitLivingEyeLayer(width = size.width, height = size.height)
+            val phase = lidPhase.value.coerceIn(0f, 1f)
+            val openToSquint = (phase / 0.5f).coerceIn(0f, 1f)
+            val squintToClosed = ((phase - 0.5f) / 0.5f).coerceIn(0f, 1f)
 
-        // Основа — открытый кадр владельца. ⛔ Здесь стояло «It matches the fixed scene»: слой
-        // БОЛЬШЕ не совпадает пиксель-в-пиксель с глазом из старого плоского фона, и это
-        // намеренно. Совпадение и было дефектом 1.0.151 — зелень вылезала на бронзовое кольцо.
-        // Все слои проходят через один fitLivingEyeLayer, поэтому между собой они по-прежнему
-        // сведены; расходятся они только с фоном, и именно этого добивался владелец.
-        drawSourceLayer(
-            image = openState,
-            sourceX = LIVING_EYE_STATE_X,
-            sourceY = LIVING_EYE_STATE_Y,
-            sourceWidth = LIVING_EYE_STATE_WIDTH,
-            sourceHeight = LIVING_EYE_STATE_HEIGHT,
-            layerFit = layerFit,
-        )
+            // Основа — открытый кадр владельца. Маппинг снова прямой (virtualScale), то есть слой
+            // опять сведён с глазом, запечённым в mobile_home_scene, — как и было до PR #72.
+            // ⛔ Комментарий, стоявший здесь до 31.07.2026, утверждал обратное («слой БОЛЬШЕ не
+            // совпадает с фоном, и это намеренно») и описывал промежуточное решение, при котором
+            // весь слой ужимался в кольцо. Владелец его отверг: глаз терял треть площади. Зелень
+            // с кольца убирает клип выше, а не масштаб.
+            drawSourceLayer(
+                image = openState,
+                sourceX = LIVING_EYE_STATE_X,
+                sourceY = LIVING_EYE_STATE_Y,
+                sourceWidth = LIVING_EYE_STATE_WIDTH,
+                sourceHeight = LIVING_EYE_STATE_HEIGHT,
+                layerFit = layerFit,
+            )
 
-        if (phase <= 0.5f) {
-            val aperture = eyeAperturePath(layerFit)
-            clipPath(aperture) {
-                drawSourceLayer(
-                    image = sclera,
-                    sourceX = SCLERA_X,
-                    sourceY = SCLERA_Y,
-                    sourceWidth = SCLERA_WIDTH,
-                    sourceHeight = SCLERA_HEIGHT,
-                    layerFit = layerFit,
-                )
+            if (phase <= 0.5f) {
+                val aperture = eyeAperturePath(layerFit)
+                clipPath(aperture) {
+                    drawSourceLayer(
+                        image = sclera,
+                        sourceX = SCLERA_X,
+                        sourceY = SCLERA_Y,
+                        sourceWidth = SCLERA_WIDTH,
+                        sourceHeight = SCLERA_HEIGHT,
+                        layerFit = layerFit,
+                    )
 
-                // During a routine blink the globe moves a trace down and medially.
-                val irisX = gazeX.value - BLINK_NASAL_SHIFT * blinkEyeShift.value
-                val irisY = gazeY.value + BLINK_DOWN_SHIFT * blinkEyeShift.value
-                drawSourceLayer(
-                    image = iris,
-                    sourceX = IRIS_X + irisX,
-                    sourceY = IRIS_Y + irisY,
-                    sourceWidth = IRIS_SIZE,
-                    sourceHeight = IRIS_SIZE,
-                    layerFit = layerFit,
-                )
+                    // During a routine blink the globe moves a trace down and medially.
+                    val irisX = gazeX.value - BLINK_NASAL_SHIFT * blinkEyeShift.value
+                    val irisY = gazeY.value + BLINK_DOWN_SHIFT * blinkEyeShift.value
+                    drawSourceLayer(
+                        image = iris,
+                        sourceX = IRIS_X + irisX,
+                        sourceY = IRIS_Y + irisY,
+                        sourceWidth = IRIS_SIZE,
+                        sourceHeight = IRIS_SIZE,
+                        layerFit = layerFit,
+                    )
 
-                val pupilCenter = sourcePoint(
-                    layerFit = layerFit,
-                    x = PUPIL_CENTER_X + irisX,
-                    y = PUPIL_CENTER_Y + irisY,
-                )
-                val pupilRadius = layerFit.mapSourceLength(
-                    PUPIL_NEUTRAL_RADIUS * pupilScale.value,
-                )
-                drawCircle(
-                    color = Color(0xFF0A2414),
-                    radius = pupilRadius + layerFit.mapSourceLength(3f),
-                    center = pupilCenter,
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF000100),
-                            Color(0xFF010302),
-                            Color(0xFF07150C),
-                        ),
+                    val pupilCenter = sourcePoint(
+                        layerFit = layerFit,
+                        x = PUPIL_CENTER_X + irisX,
+                        y = PUPIL_CENTER_Y + irisY,
+                    )
+                    val pupilRadius = layerFit.mapSourceLength(
+                        PUPIL_NEUTRAL_RADIUS * pupilScale.value,
+                    )
+                    drawCircle(
+                        color = Color(0xFF0A2414),
+                        radius = pupilRadius + layerFit.mapSourceLength(3f),
                         center = pupilCenter,
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF000100),
+                                Color(0xFF010302),
+                                Color(0xFF07150C),
+                            ),
+                            center = pupilCenter,
+                            radius = pupilRadius,
+                        ),
                         radius = pupilRadius,
-                    ),
-                    radius = pupilRadius,
-                    center = pupilCenter,
-                )
+                        center = pupilCenter,
+                    )
 
-                // The first Purkinje image belongs to the cornea/light, not to the iris.
-                drawSourceLayer(
-                    image = catchlight,
-                    sourceX = CATCHLIGHT_X + irisX * CATCHLIGHT_GAZE_FRACTION,
-                    sourceY = CATCHLIGHT_Y + irisY * CATCHLIGHT_GAZE_FRACTION,
-                    sourceWidth = CATCHLIGHT_SIZE,
-                    sourceHeight = CATCHLIGHT_SIZE,
-                    layerFit = layerFit,
-                )
-            }
+                    // The first Purkinje image belongs to the cornea/light, not to the iris.
+                    drawSourceLayer(
+                        image = catchlight,
+                        sourceX = CATCHLIGHT_X + irisX * CATCHLIGHT_GAZE_FRACTION,
+                        sourceY = CATCHLIGHT_Y + irisY * CATCHLIGHT_GAZE_FRACTION,
+                        sourceWidth = CATCHLIGHT_SIZE,
+                        sourceHeight = CATCHLIGHT_SIZE,
+                        layerFit = layerFit,
+                    )
+                }
 
-            // A single supplied intermediate frame covers the complete anatomy, avoiding
-            // separate translucent iris/lid ghosts during the fast closing half.
-            if (openToSquint > 0.001f) {
+                // A single supplied intermediate frame covers the complete anatomy, avoiding
+                // separate translucent iris/lid ghosts during the fast closing half.
+                if (openToSquint > 0.001f) {
+                    drawSourceLayer(
+                        image = squintState,
+                        sourceX = LIVING_EYE_STATE_X,
+                        sourceY = LIVING_EYE_STATE_Y,
+                        sourceWidth = LIVING_EYE_STATE_WIDTH,
+                        sourceHeight = LIVING_EYE_STATE_HEIGHT,
+                        layerFit = layerFit,
+                        alpha = openToSquint,
+                    )
+                }
+            } else {
+                // Keep squint opaque as the base of the second half. Closed then replaces it,
+                // so the permanently open foundation cannot shine through the eyelids.
                 drawSourceLayer(
                     image = squintState,
                     sourceX = LIVING_EYE_STATE_X,
@@ -270,29 +302,17 @@ internal fun LivingEyeMedallion(
                     sourceWidth = LIVING_EYE_STATE_WIDTH,
                     sourceHeight = LIVING_EYE_STATE_HEIGHT,
                     layerFit = layerFit,
-                    alpha = openToSquint,
+                )
+                drawSourceLayer(
+                    image = closedState,
+                    sourceX = LIVING_EYE_STATE_X,
+                    sourceY = LIVING_EYE_STATE_Y,
+                    sourceWidth = LIVING_EYE_STATE_WIDTH,
+                    sourceHeight = LIVING_EYE_STATE_HEIGHT,
+                    layerFit = layerFit,
+                    alpha = squintToClosed,
                 )
             }
-        } else {
-            // Keep squint opaque as the base of the second half. Closed then replaces it,
-            // so the permanently open foundation cannot shine through the eyelids.
-            drawSourceLayer(
-                image = squintState,
-                sourceX = LIVING_EYE_STATE_X,
-                sourceY = LIVING_EYE_STATE_Y,
-                sourceWidth = LIVING_EYE_STATE_WIDTH,
-                sourceHeight = LIVING_EYE_STATE_HEIGHT,
-                layerFit = layerFit,
-            )
-            drawSourceLayer(
-                image = closedState,
-                sourceX = LIVING_EYE_STATE_X,
-                sourceY = LIVING_EYE_STATE_Y,
-                sourceWidth = LIVING_EYE_STATE_WIDTH,
-                sourceHeight = LIVING_EYE_STATE_HEIGHT,
-                layerFit = layerFit,
-                alpha = squintToClosed,
-            )
         }
     }
 }
