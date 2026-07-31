@@ -182,8 +182,8 @@ def clip_txt(layer, x, y, s, font, fill, maxw, ellipsis=False):
 def autosize_txt(layer, x, y, s, fill, maxw, path, min_sp, max_sp, step_sp=0.5, bold=True):
     """Воспроизводит BasicText + TextAutoSize.StepBased: уменьшает кегль с max_sp до
     min_sp шагом step_sp, пока строка не влезет в maxw. Именно так теперь устроены
-    ярлыки плиток протоколов (PhoneRevolverMenu.kt, PremiumProtocolTile) — приём взят
-    из component/NeonGlass.kt:228. Если строка не влезает даже на min_sp, Compose
+    ярлыки секторов и плиток (PhoneHomeControlDeck.kt, ProtocolSector/HomeTile) — приём
+    взят из component/NeonGlass.kt:228. Если строка не влезает даже на min_sp, Compose
     оставляет min_sp и обрезает — здесь то же самое."""
     sp = max_sp
     while sp > min_sp:
@@ -239,121 +239,343 @@ def ic_qr(d, x, y, s, c):
     for (a,b) in [(.46,.46),(.62,.62),(.84,.5),(.5,.84)]:
         d.rectangle((x+s*a,y+s*b,x+s*(a+.1),y+s*(b+.1)), fill=c)
 
-# ═════════ ЭКРАН 1: главный (револьвер) ═════════
+# ═════════ дополнительные иконки под новую деку ═════════
+def ic_phone(d, x, y, s, c):
+    d.rounded_rectangle((x+s*.06,y+s*.06,x+s*.42,y+s*.42), radius=s*.1, fill=c)
+    d.rounded_rectangle((x+s*.58,y+s*.58,x+s*.94,y+s*.94), radius=s*.1, fill=c)
+    d.arc((x+s*.02,y+s*.02,x+s*1.5,y+s*1.5), 0, 90, fill=c, width=max(2,round(s*.14)))
+def ic_send(d, x, y, s, c):
+    d.polygon([(x,y+s*.5),(x+s,y),(x+s*.42,y+s),(x+s*.34,y+s*.66)], fill=c)
+def ic_forum(d, x, y, s, c):
+    d.rounded_rectangle((x,y+s*.1,x+s*.74,y+s*.66), radius=s*.12, outline=c, width=max(2,round(s*.09)))
+    d.rounded_rectangle((x+s*.26,y+s*.36,x+s,y+s*.92), radius=s*.12, fill=c)
+def ic_chat(d, x, y, s, c):
+    d.rounded_rectangle((x,y+s*.1,x+s,y+s*.76), radius=s*.14, fill=c)
+    d.polygon([(x+s*.2,y+s*.72),(x+s*.46,y+s*.72),(x+s*.2,y+s)], fill=c)
+def ic_auto(d, x, y, s, c):
+    w = max(2, round(s*.12))
+    d.arc((x+s*.08,y+s*.08,x+s*.92,y+s*.92), 40, 320, fill=c, width=w)
+    d.polygon([(x+s*.62,y),(x+s*.98,y+s*.2),(x+s*.6,y+s*.34)], fill=c)
+def ic_shield(d, x, y, s, c):
+    d.polygon([(x+s*.5,y),(x+s*.96,y+s*.2),(x+s*.86,y+s*.72),(x+s*.5,y+s),
+               (x+s*.14,y+s*.72),(x+s*.04,y+s*.2)], fill=c)
+def ic_hub(d, x, y, s, c):
+    circle(d, x+s*.5, y+s*.5, s*.17, c)
+    for a in (0, 60, 120, 180, 240, 300):
+        import math
+        rad = math.radians(a)
+        px, py = x+s*.5+math.cos(rad)*s*.36, y+s*.5+math.sin(rad)*s*.36
+        d.line((x+s*.5, y+s*.5, px, py), fill=c, width=max(2, round(s*.07)))
+        circle(d, px, py, s*.1, c)
+def ic_video(d, x, y, s, c):
+    d.rounded_rectangle((x,y+s*.24,x+s*.68,y+s*.78), radius=s*.1, fill=c)
+    d.polygon([(x+s*.72,y+s*.44),(x+s,y+s*.26),(x+s,y+s*.76),(x+s*.72,y+s*.58)], fill=c)
+def ic_gear(d, x, y, s, c):
+    import math
+    w = max(2, round(s*.13))
+    d.ellipse((x+s*.14,y+s*.14,x+s*.86,y+s*.86), outline=c, width=w)
+    d.ellipse((x+s*.38,y+s*.38,x+s*.62,y+s*.62), outline=c, width=max(2, round(s*.1)))
+    for a in range(0, 360, 45):
+        rad = math.radians(a)
+        d.line((x+s*.5+math.cos(rad)*s*.34, y+s*.5+math.sin(rad)*s*.34,
+                x+s*.5+math.cos(rad)*s*.5, y+s*.5+math.sin(rad)*s*.5), fill=c, width=w)
+def ic_smartphone(d, x, y, s, c):
+    d.rounded_rectangle((x+s*.24,y,x+s*.76,y+s), radius=s*.1, outline=c, width=max(2,round(s*.1)))
+    d.line((x+s*.42,y+s*.86,x+s*.58,y+s*.86), fill=c, width=max(2,round(s*.08)))
+
+# ═════════ ЭКРАН 1: главный — дека по эталону владельца ═════════
+# ⛔ Числа НЕ выдуманы: 1:1 из PhoneHomeReferenceLayout.kt (границы, измеренные по
+# design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg) и из констант
+# PhoneHomeControlDeck.kt. Меняешь Kotlin — меняй здесь, иначе симуляция начнёт врать.
 W, H = 390 * S, 844 * S
-def screen_home():
-    ph = home_4d_viewport(W, H)
-    # геометрия TvHomeScreen.kt:224-240 для 390x844dp
-    sc = max(W / MASTER_4D_SIZE[0], H / MASTER_4D_SIZE[1])
-    tx = (W - MASTER_4D_SIZE[0] * sc) / 2
-    ty = (H - MASTER_4D_SIZE[1] * sc) / 2
-    cx = MASTER_4D_SIZE[0] * 430 / 853 * sc + tx
-    cy_px = MASTER_4D_SIZE[1] * 711 / 1844 * sc + ty
-    rx = MASTER_4D_SIZE[0] * 260 / 853 * sc
-    ry = MASTER_4D_SIZE[1] * 260 / 1844 * sc
-    cy = cy_px / S; r = ry / S
+REF_JPG = ROOT / 'design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg'
 
-    # Disconnected is always the owner's fully CLOSED eye inside the empty ring.
-    closed = Image.open(RES / 'mobile_eye_closed.webp').convert('RGBA')
-    eye_w = round(min(rx * 2, ry * 2) * .9)
-    eye_h = round(eye_w * closed.height / closed.width)
-    closed = closed.resize((eye_w, eye_h), Image.Resampling.LANCZOS)
-    ph.alpha_composite(closed, (round(cx - eye_w / 2), round(cy_px - eye_h / 2)))
-    closed.close()
+HERO_TRANSLATION_Y = -58.0          # PhoneHomeReferenceLayout.HeroTranslationY
+DECK_TOP = 363.0                    # PhoneHomeReferenceLayout.DeckTop
+MIN_TOUCH = 48.0                    # PremiumTouchTarget
+B = {                               # PhoneHomeReferenceLayout: границы эталона в dp
+    'title':        (69.0,  54.0, 323.0,  88.0),
+    'medallion':    (26.0, 104.0, 364.0, 413.0),
+    'status':       (128.0, 363.0, 265.0, 386.0),
+    'phone':        (81.0, 407.0, 310.0, 445.0),
+    'supportNote':  (84.0, 446.0, 306.0, 484.0),
+    'contacts':     (34.0, 486.0, 356.0, 569.0),
+    'protocolArc':  (0.0,  570.0, 390.0, 705.0),
+    'buy':          (81.0, 699.0, 309.0, 744.0),
+    'bottomConsole': (8.0, 735.0, 382.0, 839.0),
+}
+CONTACT_GAP = 10.0                  # PhoneHomeControlDeck.CONTACT_GAP
+ARC_SIDE_INSET, ARC_TILE_GAP = 15.0, 4.0
+ARC_TOP_INSET, ARC_TILE_HEIGHT, ARC_DROP = 21.0, 62.0, 33.0
+CONSOLE_SIDE_FRACTION, CONSOLE_SIDE_HEIGHT_FRACTION = 0.27, 0.77
+CONSOLE_DIAL_HEIGHT_FRACTION, CONSOLE_DIAL_WIDTH_FRACTION = 0.9, 0.21
+SELECTION_BAR_WIDTH = 22.0
+TITLE_SP = 46          # Mobile4DHome.TITLE_MAX_FONT_SIZE (46 sp = 253 dp в табличке 254 dp)
 
-    # Cartouche text remains code-rendered, never baked into an asset.
-    title_left = 300 * sc + tx; title_top = 250 * sc + ty
-    title_right = 1860 * sc + tx; title_bottom = 700 * sc + ty
-    txt(ImageDraw.Draw(ph), ((title_left + title_right) / 2, (title_top + title_bottom) / 2),
-        'MaestroVPN', F(PLAY, 31), GOLD, anchor='mm')
-    win_t = round((cy + r + 12) * S); win_b = round((844 - 844 * .070) * S)
+# Сектора дуги: тег → (подпись эталона, иконка). WDTT (`vk-turn`) на эталоне не нарисован,
+# но на телефоне это живой протокол (прячет его только ТВ), поэтому сектор ему выделен.
+ARC_PROTOCOLS = [
+    ('auto', 'АВТО', ic_auto),
+    ('vless', 'VLESS', ic_shield),
+    ('hysteria2', 'HYSTERIA2', ic_bolt),
+    ('anytls', 'ANYTLS', ic_lock),
+    ('naive', 'NAIVE\nPROXY', ic_hub),
+    ('vk-turn', 'WDTT', ic_video),
+    ('olcrtc', 'WEBRTC', ic_globe),
+]
+
+def centre_4d_layers():
+    """Тот же реконструктор, что и centre_4d_scene, но послойно: кольцо надо двигать
+    отдельно от дерева/рамы/картуша/лоз (heroTranslationY применяется только к нему)."""
+    fragments = []
+    for match in FRAGMENT_RE.finditer(MOBILE_4D_MANIFEST.read_text(encoding='utf-8')):
+        layer, z_order, page_index, page_path, *coords = match.groups()
+        fragments.append((int(z_order), int(page_index), page_path, layer, *map(int, coords)))
+    if len(fragments) != 77:
+        raise ValueError(f'Expected 77 centre-light 4D fragments, found {len(fragments)}')
+
+    base = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
+    ring = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
+    current_path, atlas = None, None
+    for fragment in fragments:
+        _, _, page_path, layer, sx, sy, sw, sh, dx, dy, dw, dh = fragment
+        if (sw, sh) != (dw, dh):
+            raise ValueError(f'Atlas/scene rectangle mismatch in {page_path}')
+        if page_path != current_path:
+            if atlas is not None:
+                atlas.close()
+            atlas_path = ASSETS / page_path
+            if not atlas_path.is_file():
+                raise FileNotFoundError(f'Missing committed 4D atlas: {atlas_path}')
+            atlas = Image.open(atlas_path).convert('RGBA')
+            current_path = page_path
+        target = ring if layer == 'ring' else base
+        target.alpha_composite(atlas.crop((sx, sy, sx + sw, sy + sh)), (dx, dy))
+    if atlas is not None:
+        atlas.close()
+    return base, ring
+
+def _fit(master, w, h):
+    k = max(w / master.width, h / master.height)
+    scaled = master.resize((round(master.width * k), round(master.height * k)), Image.Resampling.LANCZOS)
+    left, top = (scaled.width - w) // 2, (scaled.height - h) // 2
+    out = scaled.crop((left, top, left + w, top + h))
+    scaled.close()
+    return out
+
+def home_scene(w, h):
+    """Сцена = wood+frame+cartouche+vines на исходном кропе, ring — со сдвигом героя."""
+    base_master, ring_master = centre_4d_layers()
+    base = _fit(base_master, w, h)
+    ring = _fit(ring_master, w, h)
+    base_master.close(); ring_master.close()
+    shifted = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    shifted.alpha_composite(ring, (0, round(HERO_TRANSLATION_Y * S)))
+    ring.close()
+    base.alpha_composite(shifted)
+    shifted.close()
+    return base
+
+LIVING_EYE_BRONZE_INSET_FRACTION = 26.0 / 520.0   # LivingEyeLayerGeometry.kt
+LIVING_EYE_STATE_W, LIVING_EYE_STATE_H = 890.0, 635.0
+
+def eye_box():
+    """Коробка живого глаза = medallion* из Mobile4DSceneModel.kt + общий сдвиг героя.
+
+    ⛔ ЛОВУШКА: это НЕ `B['medallion']`. Границы эталона описывают ВНЕШНЕЕ бронзовое
+    кольцо (338 dp), а LivingEyeMedallion вписывает ассет 890×635 в квадрат
+    2*radius (238 dp) минус бронзовый инсет. Если взять эталонные — глаз вылезет
+    из кольца на 42%."""
+    sc = max(390.0 / MASTER_4D_SIZE[0], 844.0 / MASTER_4D_SIZE[1])
+    tx = (390.0 - MASTER_4D_SIZE[0] * sc) / 2
+    ty = (844.0 - MASTER_4D_SIZE[1] * sc) / 2
+    cx = (MASTER_4D_SIZE[0] * 430 / 853) * sc + tx
+    cy = (MASTER_4D_SIZE[1] * 711 / 1844) * sc + ty + HERO_TRANSLATION_Y
+    size = min((MASTER_4D_SIZE[0] * 260 / 853) * sc, (MASTER_4D_SIZE[1] * 260 / 1844) * sc) * 2
+    state_w = size * (1 - LIVING_EYE_BRONZE_INSET_FRACTION * 2)
+    return cx, cy, state_w, state_w * LIVING_EYE_STATE_H / LIVING_EYE_STATE_W
+
+def tile(layer, x, y, w, h, label, icf, *, selected=False, locked=False,
+         icon_sp=22, label_min=8, label_max=12, gap=6, bar=False):
+    """Резная плитка: nine-patch frame_button + иконка сверху + подпись снизу.
+    Это ровно HomeTile/ProtocolSector из PhoneHomeControlDeck.kt."""
+    w, h = round(w), round(h)
+    cell = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    cell.alpha_composite(nine(BTN, w, h))
+    cd = ImageDraw.Draw(cell)
+    icon = round(icon_sp * S)
+    bar_h = round(5 * S) if bar else 0
+    block = icon + round(gap * S) + round(label_max * S) + bar_h
+    iy = (h - block) / 2
+    tint = EMER if selected else GOLD
+    icf(cd, (w - icon) / 2, iy, icon, tint)
+    ly = iy + icon + gap * S
+    col = TXT
+    if bar:
+        col = TXT if selected else GOLDM
+    lines = label.split('\n')
+    sp = label_max
+    for line in lines:
+        sp = min(sp, autosize_probe(line, w - 8 * S, SANSB, label_min, label_max))
+    for i, line in enumerate(lines):
+        clip_txt_centered(cell, w / 2, ly + i * sp * 1.15 * S, line, F(SANSB, sp), col, round(w - 8 * S))
+    if bar and selected:
+        by = ly + len(lines) * sp * 1.15 * S + 3 * S
+        bw = SELECTION_BAR_WIDTH * S
+        cd.rounded_rectangle(((w - bw) / 2, by, (w + bw) / 2, by + 2 * S), radius=S, fill=EMER)
+    if locked:
+        cell.putalpha(cell.getchannel('A').point(lambda a: round(a * .72)))
+    layer.alpha_composite(cell, (round(x), round(y)))
+
+def autosize_probe(s, maxw, path, min_sp, max_sp, step_sp=0.5):
+    """Кегль, при котором строка влезает в maxw — TextAutoSize.StepBased."""
+    sp = max_sp
+    while sp > min_sp:
+        if F(path, sp).getlength(s) <= maxw:
+            break
+        sp -= step_sp
+    return sp
+
+def clip_txt_centered(layer, cx, y, s, font, fill, maxw):
+    clip_txt(layer, cx - min(font.getlength(s), maxw) / 2, y, s, font, fill, maxw, ellipsis=False)
+
+def autosize_centered(layer, cx, y, s, fill, maxw, path, min_sp, max_sp, step_sp=0.5):
+    """autosize_txt, но по центру — TextAlign.Center у BasicText в деке."""
+    sp = autosize_probe(s, maxw, path, min_sp, max_sp, step_sp)
+    clip_txt_centered(layer, cx, y, s, F(path, sp), fill, round(maxw))
+    return sp
+
+def pill(layer, x, y, w, h, label, icf, icon_tint):
+    """MobilePremiumButton: рама frame_button, иконка + подпись в строку по центру."""
+    w, h = round(w), round(h)
+    cell = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    cell.alpha_composite(nine(BTN, w, h))
+    cd = ImageDraw.Draw(cell)
+    f = F(SANSB, 16)
+    icon = round(22 * S)
+    total = f.getlength(label) + icon + 10 * S
+    bx = (w - total) / 2
+    icf(cd, bx, (h - icon) / 2, icon, icon_tint)
+    txt(cd, (bx + icon + 10 * S, (h - 20 * S) / 2), label, f, TXT)
+    layer.alpha_composite(cell, (round(x), round(y)))
+
+def screen_home(state='connected'):
+    """state: connected | connecting | disconnected."""
+    ph = home_scene(W, H).convert('RGBA')
+
+    # ── глаз: вписан в медальон эталона, состояние задаёт ассет (в приложении это
+    # opennessOverride 0f / 0.5f / null на живом LivingEyeMedallion).
+    asset = {'connected': 'mobile_eye_open.webp',
+             'connecting': 'mobile_eye_squint.webp',
+             'disconnected': 'mobile_eye_closed.webp'}[state]
+    ecx, ecy, ew, eh = eye_box()
+    eye = Image.open(RES / asset).convert('RGBA')
+    eye = eye.resize((round(ew * S), round(eh * S)), Image.Resampling.LANCZOS)
+    ph.alpha_composite(eye, (round(ecx * S - eye.width / 2), round(ecy * S - eye.height / 2)))
+    eye.close()
+
     lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
-    pad = 18 * S; x0, x1 = pad, W - pad
 
-    # ── статус: ФИКСИРОВАННАЯ ШАПКА вне барабана и вне маски.
-    # Column { PhoneStatusRow(); Box(weight(1f)) { LazyColumn + маска } } в
-    # PhoneRevolverMenu. Рисуем на отдельном слое, который НЕ накрывается градиентом:
-    # раньше статус был первым элементом списка и на скролле 0 тонул в затемнении.
-    head = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    hd = ImageDraw.Draw(head)
-    hy = win_t + 6 * S
-    f_st = F(SANSB, 16); f_pr = F(SANSB, 14)
-    tw = f_st.getlength('ОТКЛЮЧЕНО')
+    # ── титул: кодовый Playfair по измеренным границам эталона
+    tl, tt, tr, tb = B['title']
+    txt(d, (((tl + tr) / 2) * S, ((tt + tb) / 2) * S), 'MaestroVPN',
+        F(PLAY, TITLE_SP), GOLD, anchor='mm')
+
+    # ── статус + активный протокол (PhoneStatusRow, вне маски — маски больше нет вовсе)
+    connected = state == 'connected'
+    label = {'connected': 'ПОДКЛЮЧЕНО', 'connecting': 'ПОДКЛЮЧЕНИЕ',
+             'disconnected': 'ОТКЛЮЧЕНО'}[state]
+    # Промежуточное состояние — свой цвет, не цвет отказа (см. PhoneHomeControlDeck).
+    col = {'connected': NEONG, 'connecting': ORANGE, 'disconnected': STATERED}[state]
+    # ⛔ Полосы статуса и протокола стоят по СВОИМ границам эталона (363–386 и 386–406).
+    # У прежнего PhoneStatusRow была своя вертикаль (padding 6 + spacer 8), и строка
+    # протокола уезжала на 398–418 — под телефонную пилюлю, начинающуюся с 402.
+    f_st, f_pr = F(SANSB, 16), F(SANSB, 14)
+    sl, st_, sr, sb = B['status']
+    tw = f_st.getlength(label)
     dot_x = (W - (tw + 11 * S + 9 * S)) / 2
-    circle(hd, dot_x + 5.5 * S, hy + 9 * S, 5.5 * S, STATERED)
-    txt(hd, (dot_x + 20 * S, hy), 'ОТКЛЮЧЕНО', f_st, STATERED)
-    hy += 22 * S + 8 * S
-    txt(hd, (W / 2, hy), 'Отключён: VLESS  •  авто', f_pr, ORANGE, anchor='ma')
-    hy += 20 * S
-    drum_t = round(hy + 6 * S)          # верх прокручиваемой части
+    scy = (st_ + sb) / 2 * S
+    circle(d, dot_x + 5.5 * S, scy, 5.5 * S, col)
+    txt(d, (dot_x + 20 * S, scy), label, f_st, col, anchor='lm')
+    proto = 'Подключён: VLESS' if connected else 'Отключён: VLESS'
+    txt(d, (W / 2, 396 * S), proto, f_pr, ORANGE, anchor='mm')
 
-    y = drum_t + 8 * S                  # contentPadding top = 8.dp
+    # ── телефон поддержки (орнамент 38 dp, цель нажатия 48 dp)
+    pl, pt, pr_, pb = B['phone']
+    ph_h = max(pb - pt, MIN_TOUCH)
+    pill(lay, pl * S, ((pt + pb) / 2 - ph_h / 2) * S, (pr_ - pl) * S, ph_h * S,
+         '8 977 811-65-64', ic_phone, EMER)
 
-    # ── ПРОТОКОЛ (PremiumMenuSectionLabel:514)
-    f_sec = F(PLAY, 16)
-    y += 6 * S
-    txt(d, (W / 2, y), 'П Р О Т О К О Л', f_sec, GOLD, anchor='ma')
-    y += 20 * S + 6 * S + 10 * S
+    # ── пояснение поддержки
+    nl, nt, nr, nb = B['supportNote']
+    f_note = F(SANS, 14)
+    for i, line in enumerate(['Если я не ответил на звонок —',
+                              'напишите в любом из мессенджеров.']):
+        txt(d, (W / 2, (nt + 2 + i * 19) * S), line, f_note, TXTM, anchor='ma')
 
-    # ── плитки протоколов (PremiumProtocolTile:528-580)
-    f_lbl = F(SANSB, 16); f_bdg = F(DEJA, 11)
-    tile_h = 76 * S; gap = 10 * S
-    tw_tile = (x1 - x0 - gap) // 2
-    def tile(px, py, label, badge, icf, selected=False, locked=False):
-        bg = (41,201,101,46) if selected else (29,21,16,158)
-        fr = nine(BTN, tw_tile, tile_h)
-        cell = Image.new('RGBA', (tw_tile, tile_h), bg)
-        cell.alpha_composite(fr)
-        cd = ImageDraw.Draw(cell)
-        tint = EMER if selected else GOLDM
-        icf(cd, 14 * S, (tile_h - 22 * S) / 2, 22 * S, tint)
-        # текстовая колонка: padding 14dp рамки + иконка 22 + padding 10dp с двух сторон + трейлинг 22
-        tx = 14 * S + 22 * S + 10 * S
-        avail = tw_tile - tx - 10 * S - 22 * S - 14 * S
-        lcol = TXT if selected else TXTM
-        bcol = EMER if selected else GOLDM
-        # ⚠ ДЕФЕКТ №1: maxLines=1 без overflow → Clip (обрубание, без «…»)
-        # autoSize: 10–16sp ярлык, 7–11sp бейдж — как в PremiumProtocolTile после правки.
-        autosize_txt(cell, tx, (tile_h - 40 * S) / 2, label, lcol, avail, SANSB, 10, 16)
-        autosize_txt(cell, tx, (tile_h - 40 * S) / 2 + 21 * S, badge, bcol, avail, DEJA, 7, 11)
-        (ic_check if selected else ic_radio)(cd, tw_tile - 14 * S - 22 * S,
-                                            (tile_h - 22 * S) / 2, 22 * S, tint)
-        if locked:
-            cell.putalpha(cell.getchannel('A').point(lambda a: round(a * .72)))
-        lay.alpha_composite(cell, (round(px), round(py)))
-    tile(x0, y, 'Авто', 'Рекомендуется', ic_bolt)
-    tile(x0 + tw_tile + gap, y, 'VLESS', 'Оптимальный', ic_globe, selected=True)
-    y += tile_h + gap
-    tile(x0, y, 'Hysteria2', 'Самый быстрый', ic_bolt)
-    tile(x0 + tw_tile + gap, y, 'NaiveProxy', '⚠ нестабильный', ic_globe)
-    row2_y = y
-    y += tile_h + gap
+    # ── три контакта
+    cl, ct, cr, cb = B['contacts']
+    cw = ((cr - cl) - CONTACT_GAP * 2) / 3
+    for i, (name, icf) in enumerate([('Telegram', ic_send), ('МАКС', ic_forum),
+                                     ('WhatsApp', ic_chat)]):
+        tile(lay, (cl + i * (cw + CONTACT_GAP)) * S, ct * S, cw * S, (cb - ct) * S,
+             name, icf, icon_sp=22, label_min=8, label_max=12)
 
-    # ── кнопка триала (MobilePremiumButton, PhoneRevolverMenu.kt:319)
-    bh = 50 * S
-    fr = nine(BTN, x1 - x0, bh)
-    cell = Image.new('RGBA', (x1 - x0, bh), (0, 0, 0, 0)); cell.alpha_composite(fr)
-    cd = ImageDraw.Draw(cell)
-    f_btn = F(SANSB, 16)
-    lw = f_btn.getlength('Попробовать 2 дня бесплатно')
-    bx = (cell.width - (lw + 22 * S + 10 * S)) / 2
-    ic_bolt(cd, bx, (bh - 22 * S) / 2, 22 * S, EMER)
-    txt(cd, (bx + 32 * S, (bh - 20 * S) / 2), 'Попробовать 2 дня бесплатно', f_btn, TXT)
-    lay.alpha_composite(cell, (round(x0), round(y)))
+    # ── дуга протоколов: статический сдвиг по параболе, без вращения и снэпа
+    al, at, ar, ab = B['protocolArc']
+    n = len(ARC_PROTOCOLS)
+    full = ar - al
+    inset = max(min(ARC_SIDE_INSET, (full - n * (MIN_TOUCH + ARC_TILE_GAP)) / 2), 0.0)
+    slot = (full - inset * 2) / n
+    tile_w = max(slot - ARC_TILE_GAP, 40.0)
+    middle = (n - 1) / 2
+    for i, (tag, name, icf) in enumerate(ARC_PROTOCOLS):
+        dist = abs(i - middle) / max(middle, 0.5)
+        drop = ARC_DROP * dist * dist
+        x = al + inset + slot * i + (slot - tile_w) / 2
+        y = at + ARC_TOP_INSET + drop
+        tile(lay, x * S, y * S, tile_w * S, ARC_TILE_HEIGHT * S, name, icf,
+             selected=(tag == 'vless'), locked=(tag == 'olcrtc'),
+             icon_sp=20, label_min=7, label_max=11, gap=4, bar=True)
 
-    # окно барабана: обрезаем всё за его границами (clipToBounds в TvHomeScreen)
-    win = lay.crop((0, drum_t, W, win_b))
-    lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    lay.paste(win, (0, drum_t))
-    # ── маска-градиент ПОВЕРХ списка (PhoneRevolverMenu.kt) — накрывает ТОЛЬКО
-    # прокручиваемую часть; статусная шапка выше и остаётся в полную яркость.
-    g = vgrad(W, win_b - drum_t, [(0.0, WALNUT, 224), (0.13, WALNUT, 0),
-                                  (0.84, LEATHER, 0), (1.0, LEATHER, 235)])
-    lay.alpha_composite(g, (0, drum_t))
+    # ── купить подписку
+    bl, bt, br, bb = B['buy']
+    bh = max(bb - bt, MIN_TOUCH)
+    pill(lay, bl * S, ((bt + bb) / 2 - bh / 2) * S, (br - bl) * S, bh * S,
+         'Купить подписку', ic_cart, GOLD)
+
+    # ── нижняя консоль
+    kl, kt, kr, kb = B['bottomConsole']
+    kw, kh = kr - kl, kb - kt
+    side_w = kw * CONSOLE_SIDE_FRACTION
+    side_h = max(kh * CONSOLE_SIDE_HEIGHT_FRACTION, MIN_TOUCH)
+    dial = max(min(kh * CONSOLE_DIAL_HEIGHT_FRACTION, kw * CONSOLE_DIAL_WIDTH_FRACTION), MIN_TOUCH)
+    tile(lay, kl * S, (kt + (kh - side_h) / 2) * S, side_w * S, side_h * S,
+         'Ввести логин', ic_person, icon_sp=22, label_min=8, label_max=12)
+    tile(lay, (kr - side_w) * S, (kt + (kh - side_h) / 2) * S, side_w * S, side_h * S,
+         'Подключить\nтелефон', ic_smartphone, icon_sp=22, label_min=8, label_max=12)
+    # круглый «Тест сети»: резная nine-patch после клипа в круг теряет углы, поэтому
+    # кромка рисуется кодом — ровно как в HomeDial.
+    dx = kl + (kw - dial) / 2
+    dy = kt + (kh - dial) / 2
+    dl = Image.new('RGBA', (round(dial * S), round(dial * S)), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(dl)
+    dd.ellipse((0, 0, dial * S - 1, dial * S - 1), fill=LEATHER + (255,),
+               outline=GOLDM, width=round(2 * S))
+    icon = round(24 * S)
+    block = icon + 4 * S + 12 * S
+    iy = (dial * S - block) / 2
+    ic_gear(dd, (dial * S - icon) / 2, iy, icon, GOLD)
+    autosize_centered(dl, dial * S / 2, iy + icon + 4 * S, 'Тест сети', TXT,
+                      dial * S - 16 * S, SANSB, 8, 12)
+    lay.alpha_composite(dl, (round(dx * S), round(dy * S)))
+    dl.close()
+
     ph.alpha_composite(lay)
-    ph.alpha_composite(head)
-    return ph, row2_y, win_t
+    lay.close()
+    return ph
+
 
 # ═════════ ЭКРАН 2: оплата (BuyScreen.PhonePaymentContent) ═════════
 def fake_qr(px=216):
@@ -448,68 +670,77 @@ def screen_err():
     ph.alpha_composite(pan, (round(pad), round(y)))
     return ph, y + 200 * S
 
-# ═════════ сборка листа ═════════
+# ═════════ сборка листов ═════════
 def rounded(im, rad):
     m = Image.new('L', im.size, 0)
     ImageDraw.Draw(m).rounded_rectangle((0, 0, im.width - 1, im.height - 1), radius=rad, fill=255)
     o = im.copy(); o.putalpha(m); return o
 
-home, row2_y, win_t = screen_home()
-pay = screen_pay()
-err, err_btn_y = screen_err()
+STATES = ('connected', 'connecting', 'disconnected')
+STATE_RU = {'connected': 'ПОДКЛЮЧЕНО — глаз открыт',
+            'connecting': 'ПОДКЛЮЧЕНИЕ — глаз полуоткрыт',
+            'disconnected': 'ОТКЛЮЧЕНО — глаз полностью закрыт'}
 
+homes = {}
+for st in STATES:
+    im = screen_home(st)
+    homes[st] = im
+    im.convert('RGB').save(OUTDIR / f'owner-home-{st}.png', 'PNG', optimize=True)
+
+# ── доска сравнения: эталон владельца слева, симуляция того же вьюпорта справа
+ref = Image.open(REF_JPG).convert('RGB').resize((W, H), Image.LANCZOS)
+CGAP = 46 * S; CMARG = 40 * S; CTOP = 168 * S; CCAP = 96 * S
+cb_w = CMARG * 2 + W * 2 + CGAP
+cb_h = CTOP + H + CCAP
+board = Image.new('RGB', (cb_w, cb_h), (13, 9, 6))
+bd = ImageDraw.Draw(board)
+txt(bd, (cb_w / 2, 34 * S), 'MaestroVPN Home — эталон владельца против симуляции',
+    F(PLAY, 30), GOLD, anchor='ma')
+for i, line in enumerate([
+        'Слева — 04-owner-selected-home-2026-07-31.jpg, приведённый к 390×844. Справа — симуляция по числам',
+        'PhoneHomeReferenceLayout.kt и PhoneHomeControlDeck.kt на ПОДЛИННЫХ ассетах репозитория (центральный',
+        'свет 4D-атласа, nine-patch frame_button, Playfair). Это НЕ скриншот: глаз статичен, наклона нет.',
+        'Резной консоли и дуги эталона в 15 слоях атласа НЕТ — они нарисованы кодом, см. design-qa.md.']):
+    txt(bd, (cb_w / 2, (80 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
+for x, im, cap in ((CMARG, ref, 'Эталон владельца'),
+                   (CMARG + W + CGAP, homes['connected'].convert('RGB'), 'Симуляция ПОДКЛЮЧЕНО')):
+    card = rounded(im, 38 * S)
+    bd.rounded_rectangle((x - 3 * S, CTOP - 3 * S, x + W + 3 * S, CTOP + H + 3 * S),
+                         radius=41 * S, fill=(58, 44, 28))
+    board.paste(card, (round(x), round(CTOP)), card)
+    txt(bd, (x + W / 2, CTOP + H + 24 * S), cap, F(PLAY, 20), GOLD, anchor='ma')
+board = board.resize((cb_w // 2, cb_h // 2), Image.LANCZOS)
+BOARD = str(OUTDIR / 'owner-home-comparison.png')
+board.save(BOARD, 'PNG', optimize=True)
+
+# ── лист трёх состояний глаза
 GAP = 46 * S; MARG = 40 * S; TOPH = 150 * S; CAPH = 118 * S
 sheet_w = MARG * 2 + W * 3 + GAP * 2
 sheet_h = TOPH + H + CAPH + 30 * S
 sheet = Image.new('RGB', (sheet_w, sheet_h), (13, 9, 6))
-sd = ImageDraw.Draw(sheet)
-# фон-подсветка
 glow = Image.new('RGB', (sheet_w, sheet_h), (13, 9, 6))
 ImageDraw.Draw(glow).ellipse((sheet_w * .15, -sheet_h * .35, sheet_w * .85, sheet_h * .45),
                              fill=(38, 27, 18))
 sheet = Image.blend(sheet, glow.filter(ImageFilter.GaussianBlur(160)), .85)
 sd = ImageDraw.Draw(sheet)
-
-txt(sd, (sheet_w / 2, 34 * S), 'MaestroVPN — экраны телефона (симуляция)', F(PLAY, 30), GOLD, anchor='ma')
-sub = [
- 'Симуляция по числам из Kotlin. Фон, резные рамки и шрифт Playfair — подлинные ассеты',
- 'репозитория; раскладка, цвета, тексты и геометрия — из TvHomeScreen.kt / PhoneRevolverMenu.kt /',
- 'BuyScreen.kt / MobilePremium*.kt. Это НЕ скриншот: глаз статичен (в приложении моргает и следит',
- 'за пальцем), барабан не крутится, суммы и QR условные. Доказательства поведения — только CI и устройство.']
-yy = 78 * S
-for line in sub:
-    txt(sd, (sheet_w / 2, yy), line, F(SANS, 13), TXTM, anchor='ma'); yy += 19 * S
-
+txt(sd, (sheet_w / 2, 34 * S), 'MaestroVPN — Home, три состояния глаза (симуляция)',
+    F(PLAY, 30), GOLD, anchor='ma')
+for i, line in enumerate([
+        'Порядок секций — из эталона владельца: титул и медальон, статус, телефон и пояснение,',
+        'Telegram / МАКС / WhatsApp, дуга протоколов, «Купить подписку», нижняя консоль.',
+        'Старого барабана, снэпа, наклона рядов и градиентной маски больше нет ни одного пикселя:',
+        'ниже героя рисует только PhoneHomeControlDeck.']):
+    txt(sd, (sheet_w / 2, (78 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
 xs = [MARG, MARG + W + GAP, MARG + (W + GAP) * 2]
-for x, im in zip(xs, [home, pay, err]):
+for x, st in zip(xs, STATES):
+    im = homes[st].convert('RGB')
     card = rounded(im, 38 * S)
     sd.rounded_rectangle((x - 3 * S, TOPH - 3 * S, x + W + 3 * S, TOPH + H + 3 * S),
                          radius=41 * S, fill=(58, 44, 28))
     sheet.paste(card, (round(x), round(TOPH)), card)
-
-caps = [
- ('Главный экран', ['Сцена с живым глазом — подлинный арт: глаз моргает,',
-                    'зрачок следит за пальцем, тап = подключение.',
-                    'Ниже барабан-«револьвер»: центральный ряд плоский,',
-                    'дальние наклоняются и гаснут; снэп к центру + хаптик,',
-                    'при TalkBack — плоский список без наклонов.']),
- ('Оплата', ['BuyScreen, телефонная ветка. Панель на резной раме,',
-             'белое поле сканирования — платёжный инвариант,',
-             'QR 216dp считается от ширины панели.',
-             'Данные, колбэки и опрос статуса не менялись —',
-             'изменилось только оформление.']),
- ('Ошибка активации', ['ClaimScreen + MobilePremiumError: рубиновая иконка,',
-                       'сообщение и кнопка повтора на резной раме.',
-                       'retryLabel задан литералом «Повторить» — раньше брался',
-                       'R.string.menu_redo и на нерусских локалях читался',
-                       '«Redo» (строка undo/redo из редактора конфигов).'])]
-cy0 = TOPH + H + 26 * S
-for x, (title, lines) in zip(xs, caps):
-    txt(sd, (x + W / 2, cy0), title, F(PLAY, 19), GOLD, anchor='ma')
-    ly = cy0 + 30 * S
-    for l in lines:
-        txt(sd, (x + W / 2, ly), l, F(SANS, 12), TXTM, anchor='ma'); ly += 17 * S
-
+    txt(sd, (x + W / 2, TOPH + H + 26 * S), STATE_RU[st], F(PLAY, 18), GOLD, anchor='ma')
 sheet = sheet.resize((sheet_w // 2, sheet_h // 2), Image.LANCZOS)
 sheet.save(OUT, 'PNG', optimize=True)
-print('OK', OUT, f'{os.path.getsize(OUT)/1024:.0f} KB', sheet.size)
+
+for name in [OUT, BOARD] + [str(OUTDIR / f'owner-home-{st}.png') for st in STATES]:
+    print('OK', name, f'{os.path.getsize(name)/1024:.0f} KB')

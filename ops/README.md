@@ -9,7 +9,11 @@ All run **on S1** (where the panel, telemetry, mirror and repo live).
 ## Mobile 4D assets and phone preview
 
 - `mobile-4d-assets.py` validates the 15 source PNGs, builds the committed three-light atlas set and generated Kotlin geometry.
-- `phone-screen-sim.py` reconstructs Home from the committed centre-light atlas geometry, then draws the closed disconnected eye and runtime text/menu. It does not depend on a legacy flat Home image.
+- `phone-screen-sim.py` reconstructs Home from the committed centre-light atlas geometry, then draws the owner-reference control deck over it. It does not depend on a legacy flat Home image.
+  - The `ring` layer is composited separately so it can carry the same `heroTranslationY` as the eye; wood/frame/cartouche/vines stay on the original crop.
+  - Deck geometry is copied 1:1 from `PhoneHomeReferenceLayout.kt` and the constants of `PhoneHomeControlDeck.kt`. **Change the Kotlin, change this file — otherwise the simulation lies.**
+  - Outputs into `build/phone-screen-sim/`: `owner-home-connected.png`, `owner-home-connecting.png`, `owner-home-disconnected.png` (780×1688 = 390×844@2x), `owner-home-comparison.png` (owner reference beside the connected preview) and `phone-screens.png` (all three eye states).
+  - Measured deltas against the reference and the blocking asset gap live in `design-qa.md`.
 - `mobile-eye-natural-assets.py` rebuilds only the aligned `mobile_eye_open`, `mobile_eye_squint` and `mobile_eye_closed` resources and validates the existing anatomy layers. It never recreates a Home scene.
 
 The mobile 4D atlas is the single Home-art pipeline. Keep text and the eye separate; do not add a flattened Home drawable back. TV assets and TV tools are outside this pipeline.
