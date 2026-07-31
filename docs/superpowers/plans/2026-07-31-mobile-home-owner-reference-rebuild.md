@@ -63,16 +63,16 @@ git commit -m "design: record owner-selected mobile home target"
 
 **Interfaces:**
 - Consumes: raw `Mobile4DSceneLayout` and viewport width/height.
-- Produces: `phoneHomeReferenceLayout(width: Float, height: Float): PhoneHomeReferenceLayout` with `heroScale`, `heroTranslationY`, `titleTranslationY`, `deckTop`, `deckBottom`, and `primaryDeckContentHeight`.
+- Produces: `phoneHomeReferenceLayout(width: Float, height: Float): PhoneHomeReferenceLayout` with owner-derived bounds, `heroScale`, `heroTranslationY`, `deckTop`, `primaryDeckBottom`, and `minimumInteractiveHeight`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```kotlin
 @Test fun portrait390x844MatchesOwnerLandmarks() {
     val layout = phoneHomeReferenceLayout(390f, 844f)
-    assertEquals(1.42f, layout.heroScale, 0.03f)
-    assertEquals(-66f, layout.heroTranslationY, 2f)
-    assertEquals(-17f, layout.titleTranslationY, 2f)
+    assertEquals(1.0f, layout.heroScale, 0.03f)
+    assertEquals(-58f, layout.heroTranslationY, 10f)
+    assertEquals(PhoneHomeBounds(69f, 54f, 323f, 88f), layout.titleBounds)
     assertEquals(363f, layout.deckTop, 3f)
     assertTrue(layout.primaryDeckBottom <= 839f)
 }
@@ -84,7 +84,7 @@ git commit -m "design: record owner-selected mobile home target"
 }
 ```
 
-Production mutation caught: restoring the old centre `(196.6,325.3)` or squeezing the deck will fail literal owner-derived bounds.
+Production mutation caught: restoring the old hero centre near `y=325.3`, scaling the whole ring to `1.42`, or squeezing the deck will fail owner-derived bounds.
 
 - [ ] **Step 2: Record RED limitation honestly**
 
@@ -96,7 +96,7 @@ The owner forbids local Gradle on this computer, so author the test before produ
 
 - [ ] **Step 3: Implement the smallest pure layout policy**
 
-Use only Android/Compose-free data classes and arithmetic. Primary reference section heights are: status 42, phone 48, note 34, contacts 72, protocols 86, buy 48, bottom actions 72 dp, with 4 dp section gaps. Extra trial/QR/split/update actions are appended below the primary deck and therefore scroll without changing the first 844 dp.
+Use only Android/Compose-free data classes and arithmetic. Record the exact target rectangles for title, medallion visual region, status, phone, contacts, protocol arc, buy, and bottom console. Keep touch targets at least 48 dp even where the visible ornament is shorter. Extra trial/QR/split/update actions are appended below the primary deck and therefore scroll without changing the first 844 dp.
 
 - [ ] **Step 4: Commit**
 
@@ -162,7 +162,7 @@ git add app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome app/src/test a
 git commit -m "feat: rebuild mobile home controls from owner reference"
 ```
 
-### Task 4: Re-anchor and scale the 4D hero without touching TV
+### Task 4: Re-anchor the 4D hero without touching TV
 
 **Files:**
 - Modify: `app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DHome.kt`
@@ -171,7 +171,7 @@ git commit -m "feat: rebuild mobile home controls from owner reference"
 
 **Interfaces:**
 - Consumes: `PhoneHomeReferenceLayout` from Task 2.
-- Produces: a phone-only hero group with the selected target anchor and a connected initial resting eye that is open.
+- Produces: a phone-only ring/eye group with the selected target anchor and a connected initial resting eye that is open.
 
 - [ ] **Step 1: Add failing resting-state tests**
 
@@ -181,9 +181,9 @@ git commit -m "feat: rebuild mobile home controls from owner reference"
 @Test fun connectingOverrideIsHalfOpen() = assertEquals(0.5f, initialLidPhase(false, 0.5f), 0f)
 ```
 
-- [ ] **Step 2: Apply one hero transform to vines, ring, and eye**
+- [ ] **Step 2: Apply one hero transform to ring and eye**
 
-Use the same `heroScale` and `heroTranslationY` for `home_vines`, `home_ring`, and the eye hit target so they remain registered. Apply `titleTranslationY` to cartouche/title only. Keep wood and perimeter frame on the original crop.
+Use the same `heroScale` (approximately `1.0`, not `1.42`) and `heroTranslationY` (approximately `-58` at 390x844) for `home_ring` and the eye hit target so they remain registered. Keep `home_vines` on the master scene crop with its existing parallax; it is a full-height layer and translating/scaling it with the medallion would expose the bottom and clip the sides. Position the title from its exact target bounds. Keep wood, cartouche, and perimeter frame on the original crop.
 
 - [ ] **Step 3: Keep the living-eye state machine**
 
