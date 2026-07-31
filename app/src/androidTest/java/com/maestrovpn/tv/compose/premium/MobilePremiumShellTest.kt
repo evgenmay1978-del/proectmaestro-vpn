@@ -1,5 +1,9 @@
 package com.maestrovpn.tv.compose.premium
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertHasClickAction
@@ -56,5 +60,29 @@ class MobilePremiumShellTest {
         composeRule.onNodeWithText("Permission").assertExists()
         composeRule.onNodeWithText("Camera is required").assertExists()
         composeRule.onNodeWithText("Scanner").assertExists()
+    }
+
+    @Test
+    fun shellTopBarKeepsPhoneActionsAccessible() {
+        var searchClicked = false
+        composeRule.setContent {
+            MobilePremium4DShell(
+                title = "Applications",
+                onBack = {},
+                actions = {
+                    IconButton(onClick = { searchClicked = true }) {
+                        Icon(Icons.Default.Search, contentDescription = "Search applications")
+                    }
+                },
+            ) {
+                Text("Application list")
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Search applications")
+            .assertHasClickAction()
+            .performClick()
+
+        assertTrue(searchClicked)
     }
 }

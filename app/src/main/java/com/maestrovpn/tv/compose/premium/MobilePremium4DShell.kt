@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
@@ -49,6 +50,7 @@ fun MobilePremium4DShell(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     backContentDescription: String = stringResource(R.string.content_description_back),
+    actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     if (!mobilePremiumShellEnabled(rememberIsTv())) {
@@ -79,6 +81,7 @@ fun MobilePremium4DShell(
                 onBack = onBack,
                 backContentDescription = backContentDescription,
                 compact = layoutMode == MobilePremiumLayoutMode.Compact,
+                actions = actions,
                 modifier = Modifier
                     .widthIn(max = maximumContentWidth)
                     .fillMaxWidth()
@@ -103,6 +106,7 @@ fun MobilePremiumTopBar(
     modifier: Modifier = Modifier,
     backContentDescription: String = stringResource(R.string.content_description_back),
     compact: Boolean = false,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     val titleSize = if (compact) 25.sp else 30.sp
     Row(
@@ -137,6 +141,7 @@ fun MobilePremiumTopBar(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        actions()
     }
 }
 
