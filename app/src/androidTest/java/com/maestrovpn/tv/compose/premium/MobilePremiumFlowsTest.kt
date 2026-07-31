@@ -3,16 +3,19 @@ package com.maestrovpn.tv.compose.premium
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.compose.screen.claim.ClaimPhoneForm
 import com.maestrovpn.tv.compose.screen.claim.ClaimState
@@ -23,7 +26,7 @@ import com.maestrovpn.tv.compose.screen.purchase.PhoneTariffSelection
 import com.maestrovpn.tv.compose.screen.purchase.TariffItem
 import com.maestrovpn.tv.compose.screen.trial.TrialPhoneForm
 import com.maestrovpn.tv.compose.screen.trial.TrialState
-import com.maestrovpn.tv.compose.screen.tvhome.TvHomeScreen
+import com.maestrovpn.tv.compose.screen.tvhome.Mobile4DHome
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -36,9 +39,10 @@ class MobilePremiumFlowsTest {
     @Test
     fun phoneHomeShowsPremiumStatusProtocolAndRevolver() {
         composeRule.setContent {
-            TvHomeScreen(
+            Mobile4DHome(
                 statusText = "Подключено",
                 connected = true,
+                connecting = false,
                 protocols = listOf("auto", "vless", "hysteria2"),
                 selected = "auto",
                 activeProtocol = "vless",
@@ -54,9 +58,51 @@ class MobilePremiumFlowsTest {
         }
 
         composeRule.onNodeWithTag("premium-phone-home").assertExists()
-        composeRule.onNodeWithText("ПОДКЛЮЧЕНО", substring = true).assertExists()
+        composeRule.onNodeWithTag("premium-status").assertExists()
+        composeRule.onNodeWithTag("premium-account").assertExists()
         composeRule.onNodeWithText("VLESS").assertExists()
         composeRule.onNodeWithTag("premium-revolver").assertExists()
+    }
+
+    @Test
+    fun disconnectedHomeHasClosedEyeAndPreservesConnectClick() {
+        var clicks = 0
+        composeRule.setContent {
+            TestMobile4DHome(
+                connected = false,
+                connecting = false,
+                onToggleConnect = { clicks += 1 },
+            )
+        }
+
+        composeRule.onNodeWithTag("premium-eye")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Глаз закрыт"))
+            .performClick()
+
+        assertEquals(1, clicks)
+        composeRule.onNodeWithContentDescription("Подключить VPN").assertExists()
+    }
+
+    @Test
+    fun connectingHomeHasHalfOpenEye() {
+        composeRule.setContent {
+            TestMobile4DHome(connected = false, connecting = true)
+        }
+
+        composeRule.onNodeWithTag("premium-eye")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Глаз полуоткрыт"))
+        composeRule.onNodeWithContentDescription("Подключить VPN").assertExists()
+    }
+
+    @Test
+    fun connectedHomeHasOpenEyeAndDisconnectAction() {
+        composeRule.setContent {
+            TestMobile4DHome(connected = true, connecting = false)
+        }
+
+        composeRule.onNodeWithTag("premium-eye")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Глаз открыт"))
+        composeRule.onNodeWithContentDescription("Отключить VPN").assertExists()
     }
 
     @Test
@@ -251,4 +297,39 @@ class MobilePremiumFlowsTest {
         composeRule.onNodeWithText("Ник уже занят").assertExists()
         composeRule.onNodeWithText("Повторить").assertExists()
     }
+}
+
+@Composable
+private fun TestMobile4DHome(
+    connected: Boolean,
+    connecting: Boolean,
+    onToggleConnect: () -> Unit = {},
+) {
+    Mobile4DHome(
+        statusText = when {
+            connecting -> "Подключение"
+            connected -> "Подключено"
+            else -> "Отключено"
+        },
+        connected = connected,
+        connecting = connecting,
+        protocols = listOf("auto", "vless"),
+        selected = "auto",
+        activeProtocol = "vless",
+        accountLogin = "demo",
+        daysLeft = 30,
+        accountExpires = null,
+        hasSubProfile = true,
+        hasOlcrtcCreds = false,
+        olcrtcProvider = null,
+        onToggleConnect = onToggleConnect,
+        onSelectProtocol = {},
+        onSelectOlcrtc = {},
+        onBuy = {},
+        onEnterCode = {},
+        onSplitTunnel = {},
+        onShareIos = {},
+        onScanQr = {},
+        onEnterTrial = {},
+    )
 }
