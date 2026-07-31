@@ -143,6 +143,7 @@ fun SFANavHost(
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
+                    connecting = serviceStatus == Status.Starting,
                     protocols = selectGroup?.items?.map { it.tag }
                         ?.filterNot { isTv && it == WdttManager.OUTBOUND_TAG } ?: emptyList(),
                     selected = selectGroup?.selected,
@@ -185,6 +186,7 @@ fun SFANavHost(
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
+                    connecting = serviceStatus == Status.Starting,
                     protocols = emptyList(),
                     selected = null,
                     accountLogin = accountInfo.login,
