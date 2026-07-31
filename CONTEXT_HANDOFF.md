@@ -1,20 +1,21 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. LIVE: mobile 4D реализация и cleanup завершены, GitHub CI pending
+## 0. LIVE: mobile 4D реализация завершена, GitHub CI и test APK готовы
 
 Этот раздел новее остальных и имеет приоритет, если ниже встречается устаревшая формулировка.
 
 ### НОВЕЙШИЙ implementation checkpoint — АВТОРИТЕТНЫЙ
 
 - Ветка: `codex/mobile-4d-interface`.
-- Последний implementation HEAD перед этим docs-checkpoint: `c15b4e3`.
+- Последний implementation HEAD перед этим docs-checkpoint: `8d1a431`.
 - Последовательность UI-коммитов:
   - `1ec8bb9` — общий phone-only `MobilePremium4DShell` и premium component kit;
   - `77dec2b` — phone purchase flow перенесён на 4D shell;
   - `7b09aa2` — phone QR scanner/error surfaces и share dialog перенесены на premium kit;
   - `67e567a` — phone split-tunnel presentation перенесён на premium shell;
   - `e197617` — исправлены dismissal и адаптивная ширина phone share dialog;
-  - `c15b4e3` — удалён старый flat Home, mobile tooling переведён на 4D atlas.
+  - `c15b4e3` — удалён старый flat Home, mobile tooling переведён на 4D atlas;
+  - `8d1a431` — исправлен пакет импорта Compose `zIndex`, обнаруженный первой CI-сборкой.
 - Task 7 завершает визуальную миграцию ровно **6 достижимых phone-экранов + 1 dialog**:
   `tvhome`, `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
 - Полная матрица source composables, состояний и исключений находится в
@@ -24,13 +25,14 @@
 - TV остаётся отдельной неизменённой presentation-веткой universal APK: `TvEskizHome`,
   `TvEskizSpec`, D-pad/focus/Back, TV geometry, `tvm_*` и TV tooling не переносились на phone kit.
 - Локальная Android/Gradle/APK-сборка не выполнялась по прямому запрету владельца о слабом ПК.
-  Compile, unit tests, instrumentation compilation и test APK остаются GitHub CI gate.
+  GitHub Actions run `30645395284` (№239) успешно выполнил `assembleOtherDebug`, загрузил
+  test APK и завершил `testOtherDebugUnitTest` без ошибок.
 - Cleanup и combined review завершены: старый `mobile_home_scene.webp` удалён, app/ops больше
   не содержат его потребителей, два найденных замечания share dialog закрыты повторным review.
-- Следующий внешний шаг: выполнить финальные статические gates, push implementation branch, открыть отдельный
-  draft PR и запустить `.github/workflows/android-test.yml` ради test APK artifact. Не делать
-  merge, GitHub Release, production signing или OTA; APK предназначен только для просмотра
-  владельцем на телефоне.
+- Test APK artifact `8799326567` (`maestrovpn-tv-test-apk`) имеет размер `153712227` байт,
+  SHA-256 `1044d64e805fb2ac72f9c430e74ba4973ae2eaedebe24a0dbff6580d19894fda`
+  и не истёк. Следующий внешний шаг — ручной просмотр владельцем на телефоне. Не делать merge,
+  GitHub Release, production signing или OTA.
 
 ### Текущее Git-состояние
 
@@ -39,7 +41,7 @@
 - Ветка реализации: `codex/mobile-4d-interface`.
 - База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
   (`codex/mobile-4d-reference-pack`).
-- Последний implementation HEAD перед docs-checkpoint: `c15b4e3`.
+- Последний implementation HEAD перед docs-checkpoint: `8d1a431`.
 - Уже созданы локальные коммиты:
   - `ba11ff8` — исправленный scope/план: ровно 6 экранов + 1 dialog;
   - `3d0902d` — чистая модель scene/crop/light/parallax/eye + JVM tests;
@@ -58,8 +60,11 @@
   - `7b09aa2` — QR/share phone presentation на premium surfaces;
   - `67e567a` — split phone presentation на premium shell;
   - `e197617` — исправления premium phone dialog после review;
-  - `c15b4e3` — удаление obsolete mobile flatten и ремонт phone tooling.
-- Ветка ещё не отправлена; draft PR ещё не создан.
+  - `c15b4e3` — удаление obsolete mobile flatten и ремонт phone tooling;
+  - `6608f0d` — durable docs handoff перед CI;
+  - `8d1a431` — исправление импорта Compose `zIndex` после CI run №238.
+- Ветка отправлена в `origin/codex/mobile-4d-interface`; открыт draft PR
+  [№74](https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/74).
 - Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
   `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
   для чистой работы.
