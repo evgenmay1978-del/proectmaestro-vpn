@@ -41,9 +41,10 @@ internal fun phoneHomeReferenceLayout(width: Float, height: Float): PhoneHomeRef
         bottom = bottom * scale,
     )
 
+    val bottomConsole = bounds(8f, 735f, 382f, 839f)
     val deckTop = DeckTop * scale
-    val primaryDeckContentHeight = PrimaryDeckContentHeight
-    val primaryDeckBottom = deckTop + primaryDeckContentHeight
+    val primaryDeckBottom = bottomConsole.bottom
+    val primaryDeckContentHeight = primaryDeckBottom - deckTop
     return PhoneHomeReferenceLayout(
         heroScale = 1f,
         heroTranslationY = HeroTranslationY * scale,
@@ -61,12 +62,11 @@ internal fun phoneHomeReferenceLayout(width: Float, height: Float): PhoneHomeRef
         contacts = bounds(34f, 486f, 356f, 569f),
         protocolArc = bounds(0f, 570f, 390f, 705f),
         buy = bounds(81f, 699f, 309f, 744f),
-        bottomConsole = bounds(8f, 735f, 382f, 839f),
+        bottomConsole = bottomConsole,
     )
 }
 
 private const val ReferenceWidth = 390f
 private const val HeroTranslationY = -58f
 private const val DeckTop = 363f
-private const val PrimaryDeckContentHeight = 476f
 private const val MinimumInteractiveHeight = 48f

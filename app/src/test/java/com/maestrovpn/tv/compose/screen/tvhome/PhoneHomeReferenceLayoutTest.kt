@@ -62,6 +62,12 @@ class PhoneHomeReferenceLayoutTest {
 
         assertTrue(layout.requiresScroll)
         assertTrue(layout.minimumInteractiveHeight >= 48f)
+        assertEquals(layout.bottomConsole.bottom, layout.primaryDeckBottom, 0f)
+        assertEquals(
+            layout.primaryDeckBottom - layout.deckTop,
+            layout.primaryDeckContentHeight,
+            0f,
+        )
     }
 
     @Test(expected = IllegalArgumentException::class)
