@@ -1,5 +1,195 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. LIVE: реализация premium 4D начата
+
+Этот раздел новее остальных и имеет приоритет, если ниже встречается устаревшая формулировка.
+
+### Текущее Git-состояние
+
+- Изолированный worktree:
+  `C:\Users\User\Documents\Codex\2026-07-30\github-plugin-github-openai-curated-remote\work\proectmaestro-vpn-mobile-4d`.
+- Ветка реализации: `codex/mobile-4d-interface`.
+- База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
+  (`codex/mobile-4d-reference-pack`).
+- Реализация ещё не закоммичена и не отправлена. На момент записи добавлен только новый
+  незакоммиченный план:
+  `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
+- Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
+  `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
+  для чистой работы.
+
+### Последнее решение владельца — ОБЯЗАТЕЛЬНО
+
+Владелец сначала потребовал все реально существующие mobile-экраны, а затем отдельно
+исправил завышенный подсчёт:
+
+> «У меня нет столько экранов в приложении моем».
+
+Следовательно, scope определяется не количеством зарегистрированных внутренних routes, а
+фактическими переходами из обычного мобильного запуска. Это **6 экранов + 1 dialog**.
+Android TV остаётся строго вне scope. Нельзя менять поведение `TvEskizHome`, TV focus/D-pad/Back,
+`tvm_*`, TV-геометрию или TV-симуляторы.
+
+### Инвентарь реальных mobile-экранов
+
+Из обычного запуска пользователь реально достигает:
+
+- `tvhome` — главный экран, встроенный выбор протокола и account card;
+- `claim` — ввод логина/кода;
+- `trial` — пробный период;
+- `buy` — тарифы, оплата и все состояния оплаты;
+- `scanqr` — камера, ручной ввод, permission/error states;
+- `split` — выбор приложений для VPN;
+- `IosKaringDialog` — dialog подключения/передачи на другой телефон, не отдельный экран.
+
+Итого: ровно **6 экранов + 1 dialog**.
+
+Не считать отдельными экранами:
+
+- выбор протокола и account card — секции `tvhome`;
+- «отключено / подключение / подключено» — состояния `tvhome`;
+- тарифы / ожидание оплаты / подтверждение / активация / done / error — состояния `buy`;
+- permission/error — состояния `scanqr`;
+- поиск/выбор/предупреждение — состояния `split`.
+
+Внешний OS-intent import/profile flow (`profile/new`, `profile/edit/{id}` и вложенные editor
+routes) не входит в обычный MaestroVPN mobile flow и исключён из текущей визуальной работы.
+`Dashboard`, `Connections` и `Tools` не зарегистрированы в активном `SFANavHost`.
+
+### Обнаруженная проблема reachability
+
+`Settings`, `Log`, `Groups` и их дочерние routes зарегистрированы, но фактически скрыты:
+`bottomNavigationScreens` и `railScreens` пусты, переходов с Home нет,
+`pendingNavigationRoute` нигде не получает значение. По последнему уточнению владельца они
+**не считаются экранами его текущего приложения и исключены из scope**. Не рестайлить их и не
+возвращать в навигацию без отдельного прямого запроса.
+
+### Утверждённая техническая архитектура 4D
+
+Нельзя загружать 15 исходных PNG обычным `painterResource`/`ImageBitmap.imageResource`:
+15 × 2160×4670 ARGB требуют примерно **577 MiB decoded RAM**.
+
+Безопасная схема:
+
+1. Сохранить master PNG 2160×4670 в `design/mobile-asset-redraw/source`.
+2. Детерминированный generator режет **все пять слоёв** сеткой 3×8.
+3. У RGBA убираются прозрачные поля; для каждого fragment сохраняется одинаковая геометрия
+   `_l/_c/_r`.
+4. Добавляется 2 px edge-extruded gutter.
+5. Fragments пакуются в одинаковые для L/C/R atlas pages не больше 2048×2048, чтобы не упереться
+   в texture limit старых API 23 GPU.
+6. Generator реконструирует atlas обратно в canvas и попиксельно сравнивает с source.
+7. Runtime декодирует страницы сразу под физическую ширину viewport, шаг 64 px, максимум 1620.
+8. На нормальном устройстве все три направления могут оставаться resident; за кадр рисуются
+   только два ненулевых света. На low-RAM — только `_c`, максимум 1080, tilt-light выключен.
+9. Бюджет decoded-art — не более 35–40% `ActivityManager.memoryClass`.
+
+Ориентир полной трёхсветовой памяти atlas-комплекта: около 62 MiB при scene width 1110,
+111 MiB при 1480, 133 MiB при 1620; существующий eye добавляет около 7.5 MiB.
+
+Прозрачные relief-слои смешиваются внутри изолированного `saveLayer` через
+premultiplied `BlendMode.Plus`; обычный последовательный `SrcOver` создаёт alpha dip/кайму.
+Wood можно смешивать обычным centre + active-side crossfade.
+
+Предлагаемые runtime-файлы:
+
+- `Mobile4DSceneModel.kt` — чистая математика света/crop/parallax/memory profile;
+- `Mobile4DTilt.kt` — lifecycle-safe `TYPE_GAME_ROTATION_VECTOR`, fallback
+  `TYPE_ROTATION_VECTOR`, калибровка, display remap, ±12°, low-pass;
+- сгенерированный atlas manifest;
+- `Mobile4DBitmapStore.kt` — последовательный IO decode и lifecycle;
+- `Mobile4DScene.kt` — единый Canvas;
+- `Mobile4DHome.kt` — eye/title/connect/revolver;
+- общий phone-only `MobilePremium4DShell`/background/dialog для пяти дочерних экранов normal flow.
+
+Глубина: wood ≈0.5 dp, frame 1.5 dp, cartouche 2.5 dp, vines 3.5 dp,
+ring/eye 5 dp. Тени рисуются кодом повторным tinted alpha draw; fullscreen blur запрещён.
+
+### Состояния глаза
+
+- `Stopped`/`Stopping`/«Отключено» — глаз полностью закрыт.
+- `Starting`/«Подключение…» — отдельное полуоткрытое состояние.
+- `Started`/«Подключено» — открыт, моргает, смотрит и реагирует на touch как сейчас.
+
+Для этого добавить `connecting: Boolean = false` в `TvHomeScreen`, передавать
+`serviceStatus == Status.Starting` из обоих call sites `SFANavigation`. TV этот параметр
+игнорирует.
+
+### Повторно используемый premium-кит
+
+Не переписывать без причины:
+
+- `premium/MobilePremiumSurface.kt`;
+- `premium/MobilePremiumControls.kt`;
+- `premium/MobilePremiumLayout.kt`;
+- `premium/MobilePremiumTokens.kt`;
+- `fantasy/FantasyDialog.kt`;
+- `fantasy/FantasyFrame.kt`;
+- `fantasy/FantasyListRow.kt`;
+- `fantasy/FantasyToggle.kt`;
+- `fantasy/CarvedKit.kt`.
+
+`Claim`, `Trial` и большая часть `Buy` уже используют premium controls. Основная задача пяти
+дочерних экранов normal flow — заменить плоский `mobile_surface` единым лёгким 4D shell и
+хирургически убрать donor Material UI только в `scanqr`/`split`, не меняя callbacks/данные.
+Скрытые Settings/Log/Groups/profile composables не трогать.
+
+### Глобальные overlays, входящие в scope
+
+Premium shell нужен также для app-owned dialogs/sheets:
+
+- `IosKaringDialog`;
+- `SelectableMessageDialog`;
+- `UpdateDialog`;
+- QR permission/error states;
+- dialogs в normal-flow `PerAppProxyScreen`;
+- service/update/download dialogs, реально показываемые поверх normal flow в `MainActivity`.
+
+OS-intent-only import/profile dialogs и скрытый groups `ModalBottomSheet` исключены.
+
+Системный Android permission dialog стилизовать невозможно и не требуется; стилизуется только
+app-owned pre-permission explanation.
+
+### Что уже сделано в этой implementation-сессии
+
+- полностью прочитаны project handoff/spec/reference docs;
+- визуально открыт `PREVIEW_c.png` и boards `01`, `02`, `03`;
+- подтверждён безопасный seam: TV остаётся в `if (isTv) { TvEskizHome(...) }`, phone `else`
+  заменяется clean mobile composable;
+- подтверждено, что старый phone glow/web находится вне `else` в `TvHomeScreen` и должен быть
+  удалён, а не остаться под новой сценой;
+- подтверждено, что `mobile_home_scene.webp` имеет один runtime call site, но ещё используется
+  `ops/phone-screen-sim.py` и `ops/mobile-eye-natural-assets.py`;
+- создан isolated worktree/branch;
+- материализованы sparse paths `design`, `docs`, `gradle`, `.github`;
+- подробный TDD-план исправлен после замечания владельца: scope = 6 normal-flow screens +
+  `IosKaringDialog`, а не все зарегистрированные routes;
+- Android-код и runtime assets ещё не менялись.
+
+### Локальные ограничения проверки
+
+- `adb devices -l` не показывает подключённого устройства.
+- Локально отсутствует `app/libs/libbox.aar`; CI скачивает normal libbox из успешного
+  `libbox.yml`.
+- `.github/workflows/android-test.yml` запускает `assembleOtherDebug` и
+  `testOtherDebugUnitTest`, но существующие instrumentation tests не компилирует и не запускает.
+- Для полной mobile-проверки нужно минимум добавить/запустить
+  `assembleOtherDebugAndroidTest`; реальный `connectedOtherDebugAndroidTest` требует устройство.
+
+### Точная следующая точка продолжения
+
+1. Использовать исправленный план
+   `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
+2. `subagent-driven-development/SKILL.md` уже прочитан; plan-scoped SDD ledger создан в
+   `.superpowers/sdd/2026-07-31-mobile-premium-4d-interface/progress.md` и игнорируется Git.
+3. Начать TDD: сначала failing tests для scene math, memory budget и generated atlas manifest.
+4. Написать deterministic atlas generator и выполнить source→atlas→source pixel reconstruction.
+5. Реализовать phone-only 4D home и лёгкий shell.
+6. Перенести только `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
+7. Удалить `mobile_home_scene.webp` только после `rg` без потребителей и ремонта двух mobile tools.
+8. Запустить asset check, JVM tests, Android compile/build, visual QA по шести экранам и dialog,
+   доказать отсутствие TV-regression, затем commit/push/draft PR. Не merge/release/OTA.
+
 Обновлено: **31.07.2026**. Этот документ — первая точка входа для нового окна
 Codex/Claude. Сначала проверить volatile-факты командами Git и на GitHub, затем
 продолжать с раздела «Следующий безопасный шаг».
