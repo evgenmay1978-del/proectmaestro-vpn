@@ -1,8 +1,36 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. LIVE: реализация premium 4D начата
+## 0. LIVE: mobile 4D реализация и cleanup завершены, GitHub CI pending
 
 Этот раздел новее остальных и имеет приоритет, если ниже встречается устаревшая формулировка.
+
+### НОВЕЙШИЙ implementation checkpoint — АВТОРИТЕТНЫЙ
+
+- Ветка: `codex/mobile-4d-interface`.
+- Последний implementation HEAD перед этим docs-checkpoint: `c15b4e3`.
+- Последовательность UI-коммитов:
+  - `1ec8bb9` — общий phone-only `MobilePremium4DShell` и premium component kit;
+  - `77dec2b` — phone purchase flow перенесён на 4D shell;
+  - `7b09aa2` — phone QR scanner/error surfaces и share dialog перенесены на premium kit;
+  - `67e567a` — phone split-tunnel presentation перенесён на premium shell;
+  - `e197617` — исправлены dismissal и адаптивная ширина phone share dialog;
+  - `c15b4e3` — удалён старый flat Home, mobile tooling переведён на 4D atlas.
+- Task 7 завершает визуальную миграцию ровно **6 достижимых phone-экранов + 1 dialog**:
+  `tvhome`, `claim`, `trial`, `buy`, `scanqr`, `split` и `IosKaringDialog`.
+- Полная матрица source composables, состояний и исключений находится в
+  `docs/mobile-screen-coverage.md`.
+- Phone Home использует полный многослойный `Mobile4DHome`; пять внутренних экранов используют
+  лёгкий `MobilePremium4DShell` без удержания Home atlas; share остаётся dialog поверх Home.
+- TV остаётся отдельной неизменённой presentation-веткой universal APK: `TvEskizHome`,
+  `TvEskizSpec`, D-pad/focus/Back, TV geometry, `tvm_*` и TV tooling не переносились на phone kit.
+- Локальная Android/Gradle/APK-сборка не выполнялась по прямому запрету владельца о слабом ПК.
+  Compile, unit tests, instrumentation compilation и test APK остаются GitHub CI gate.
+- Cleanup и combined review завершены: старый `mobile_home_scene.webp` удалён, app/ops больше
+  не содержат его потребителей, два найденных замечания share dialog закрыты повторным review.
+- Следующий внешний шаг: выполнить финальные статические gates, push implementation branch, открыть отдельный
+  draft PR и запустить `.github/workflows/android-test.yml` ради test APK artifact. Не делать
+  merge, GitHub Release, production signing или OTA; APK предназначен только для просмотра
+  владельцем на телефоне.
 
 ### Текущее Git-состояние
 
@@ -11,7 +39,7 @@
 - Ветка реализации: `codex/mobile-4d-interface`.
 - База ветки: `1019339ac29135e79c9901b8e562a2cbe240c06a`
   (`codex/mobile-4d-reference-pack`).
-- Текущая база незакоммиченного Task 6: `1d423f7`.
+- Последний implementation HEAD перед docs-checkpoint: `c15b4e3`.
 - Уже созданы локальные коммиты:
   - `ba11ff8` — исправленный scope/план: ровно 6 экранов + 1 dialog;
   - `3d0902d` — чистая модель scene/crop/light/parallax/eye + JVM tests;
@@ -24,7 +52,13 @@
   - `ad7f60d` — чистый mobile 4D Home compositor и eye-state tests;
   - `d5228d9` — hero atlas переведён на обязательный `FilterQuality.High`;
   - `ba87356` — новый Home подключён в phone seam, старое phone-дерево удалено;
-  - `1d423f7` — durable checkpoint подключённого mobile 4D Home.
+  - `1d423f7` — durable checkpoint подключённого mobile 4D Home;
+  - `1ec8bb9` — общий lightweight phone-only premium shell;
+  - `77dec2b` — purchase phone presentation на premium 4D shell;
+  - `7b09aa2` — QR/share phone presentation на premium surfaces;
+  - `67e567a` — split phone presentation на premium shell;
+  - `e197617` — исправления premium phone dialog после review;
+  - `c15b4e3` — удаление obsolete mobile flatten и ремонт phone tooling.
 - Ветка ещё не отправлена; draft PR ещё не создан.
 - Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
   `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
@@ -201,7 +235,7 @@ Task 5 завершён коммитом `ba87356` и принят review:
 - `connected = Started || Starting` и все callbacks сохранены;
 - diff `TvEskizHome`, `TvEskizSpec`, `tvm_*`, ресурсов и tools пуст.
 
-### LIVE checkpoint реализации — Task 6 готов к review
+### Исторический checkpoint реализации — Task 6
 
 Task 6 реализован в коммите, содержащем этот checkpoint (`feat: add shared mobile premium 4D shell`):
 
@@ -216,8 +250,8 @@ Task 6 реализован в коммите, содержащем этот che
   запускались, поэтому compile/GREEN остаётся GitHub CI gate;
 - статические scope-проверки и `git diff --check` прошли.
 
-Следующая активная задача — review Task 6, затем Task 7: ровно `claim`, `trial`, `buy`, `scanqr`,
-`split` и `IosKaringDialog`.
+На момент этого checkpoint следующей была Task 7; её актуальный результат зафиксирован в
+новейшем checkpoint в начале раздела 0.
 
 ### Состояния глаза
 
@@ -272,8 +306,8 @@ app-owned pre-permission explanation.
   заменяется clean mobile composable;
 - подтверждено, что старый phone glow/web находится вне `else` в `TvHomeScreen` и должен быть
   удалён, а не остаться под новой сценой;
-- подтверждено, что `mobile_home_scene.webp` имеет один runtime call site, но ещё используется
-  `ops/phone-screen-sim.py` и `ops/mobile-eye-natural-assets.py`;
+- старый `mobile_home_scene.webp` удалён; simulator реконструирует Home из centre-light 4D atlas,
+  а eye generator больше не создаёт плоскую сцену;
 - создан isolated worktree/branch;
 - материализованы sparse paths `design`, `docs`, `gradle`, `.github`;
 - подробный TDD-план исправлен после замечания владельца: scope = 6 normal-flow screens +
@@ -285,9 +319,10 @@ app-owned pre-permission explanation.
   закрыты;
 - Task 4 Home реализован и принят (`ad7f60d..d5228d9`);
 - Task 5 phone seam реализован и принят (`ba87356`): новый Home подключён, старое phone-дерево удалено;
-- Task 6 shared phone-only shell реализован и ожидает review; пять дочерних экранов и dialog ещё
-  не перенесены на него; старый flatten-ресурс пока не
-  удалён, потому что его ещё используют два mobile tool.
+- Task 6 shared phone-only shell реализован (`1ec8bb9`);
+- Task 7 завершён (`77dec2b`, `7b09aa2`, `67e567a`): purchase, QR/share и split перенесены,
+  а Claim/Trial получают тот же shell через обратно совместимый `MobilePremiumScreen`;
+- cleanup завершён (`c15b4e3`), combined review закрыт (`e197617`).
 
 ### Локальные ограничения проверки
 
@@ -307,14 +342,11 @@ app-owned pre-permission explanation.
    `docs/superpowers/plans/2026-07-31-mobile-premium-4d-interface.md`.
 2. `subagent-driven-development/SKILL.md` уже прочитан; plan-scoped SDD ledger создан в
    `.superpowers/sdd/2026-07-31-mobile-premium-4d-interface/progress.md` и игнорируется Git.
-3. Провести review Task 6 и закрыть только подтверждённые замечания.
-4. Выполнить Task 7: перенести только `claim`, `trial`, `buy`, `scanqr`, `split` и
-   `IosKaringDialog`, сохранив поведение и явный TV seam.
-5. Удалить `mobile_home_scene.webp` только после `rg` без потребителей и ремонта двух mobile tools.
-6. Локально запускать только лёгкие Python/статические проверки. Android compile/test APK выполнить
+3. Проверить чистый worktree, отсутствие runtime-потребителей старого flatten и пустой TV/tvm diff.
+4. Локально запускать только лёгкие Python/статические проверки. Android compile/test APK выполнить
    через GitHub Actions `android-test.yml`, скачать/передать владельцу artifact для просмотра.
-7. Провести visual QA по шести экранам и dialog, доказать отсутствие TV-regression, затем
-   обновить draft PR. Не merge/release/OTA.
+5. Push ветку, открыть draft PR, дождаться test APK, затем провести visual QA по шести экранам и
+   dialog. Не merge/release/OTA.
 
 Обновлено: **31.07.2026**. Этот документ — первая точка входа для нового окна
 Codex/Claude. Сначала проверить volatile-факты командами Git и на GitHub, затем
