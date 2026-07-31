@@ -52,14 +52,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.R
-import com.maestrovpn.tv.compose.component.GlossyButton
-import com.maestrovpn.tv.compose.fantasy.FantasyDialog
-import com.maestrovpn.tv.compose.fantasy.FantasyScreenBackground
 import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.premium.MobilePremiumButton
+import com.maestrovpn.tv.compose.premium.MobilePremiumDialogSurface
+import com.maestrovpn.tv.compose.premium.MobilePremiumSheetSurface
+import com.maestrovpn.tv.compose.premium.PremiumText
 import com.maestrovpn.tv.compose.screen.qrscan.QRCodeCropArea
 import com.maestrovpn.tv.compose.screen.qrscan.QRScanResult
 import com.maestrovpn.tv.compose.screen.qrscan.QRScanViewModel
@@ -126,186 +128,172 @@ fun QRScanSheet(onDismiss: () -> Unit, onScanResult: (QRScanResult) -> Unit, vie
         containerColor = Color(0xFF1B1206),
         contentColor = Color(0xFFECE2CC),
     ) {
-        // Carved-oak texture behind the sheet content (phone + TV).
-        SheetSurface {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.9f),
-        ) {
-            Row(
+        MobilePremiumSheetSurface {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(top = 4.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxHeight(0.9f),
             ) {
-                Text(
-                    text = stringResource(R.string.profile_add_scan_qr_code),
-                    color = GoldHi,
-                    fontFamily = PlayfairFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    letterSpacing = 0.5.sp,
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(top = 4.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.profile_add_scan_qr_code),
+                        color = GoldHi,
+                        fontFamily = PlayfairFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        letterSpacing = 0.5.sp,
+                    )
 
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = stringResource(R.string.more_options),
-                            tint = GoldMid,
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    (if (uiState.useFrontCamera) "✓ " else "   ") +
-                                        stringResource(R.string.profile_add_scan_use_front_camera),
-                                )
-                            },
-                            onClick = {
-                                viewModel.toggleFrontCamera(lifecycleOwner)
-                                showMenu = false
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    (if (uiState.torchEnabled) "✓ " else "   ") +
-                                        stringResource(R.string.profile_add_scan_enable_torch),
-                                )
-                            },
-                            onClick = {
-                                viewModel.toggleTorch()
-                                showMenu = false
-                            },
-                        )
-                        if (uiState.vendorAnalyzerAvailable) {
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = stringResource(R.string.more_options),
+                                tint = GoldMid,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                        ) {
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        (if (uiState.useVendorAnalyzer) "✓ " else "   ") +
-                                            stringResource(R.string.profile_add_scan_use_vendor_analyzer),
+                                        (if (uiState.useFrontCamera) "✓ " else "   ") +
+                                            stringResource(R.string.profile_add_scan_use_front_camera),
                                     )
                                 },
                                 onClick = {
-                                    viewModel.toggleVendorAnalyzer()
+                                    viewModel.toggleFrontCamera(lifecycleOwner)
                                     showMenu = false
                                 },
                             )
-                        }
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    // Seat the live preview inside a carved bronze frame (phone + TV).
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .fantasyFrame(R.drawable.frame_panel)
-                    .padding(10.dp),
-            ) {
-                if (hasPermission) {
-                    CameraPreview(
-                        modifier = Modifier.fillMaxSize(),
-                        viewModel = viewModel,
-                        lifecycleOwner = lifecycleOwner,
-                        cropArea = uiState.cropArea,
-                    )
-                }
-
-                if (uiState.isLoading) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF1B1206)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(color = NeonGreen)
-                    }
-                }
-
-                if (uiState.qrsMode && uiState.qrsProgress != null) {
-                    val (decoded, total) = uiState.qrsProgress!!
-                    val progress = if (total > 0) decoded.toFloat() / total.toFloat() / 1.2f else 0f
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.5f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(
-                                progress = { progress.coerceIn(0f, 1f) },
-                                modifier = Modifier.size(96.dp),
-                                color = Color.White,
-                                strokeWidth = 8.dp,
-                                trackColor = Color.White.copy(alpha = 0.3f),
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        (if (uiState.torchEnabled) "✓ " else "   ") +
+                                            stringResource(R.string.profile_add_scan_enable_torch),
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.toggleTorch()
+                                    showMenu = false
+                                },
                             )
-                            if (total > 0) {
-                                Text(
-                                    text = "${minOf(99, (progress * 100).toInt())}%",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                    ),
-                                    color = Color.White,
+                            if (uiState.vendorAnalyzerAvailable) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            (if (uiState.useVendorAnalyzer) "✓ " else "   ") +
+                                                stringResource(R.string.profile_add_scan_use_vendor_analyzer),
+                                        )
+                                    },
+                                    onClick = {
+                                        viewModel.toggleVendorAnalyzer()
+                                        showMenu = false
+                                    },
                                 )
                             }
-                            Text(
-                                text = "QRS",
-                                style = MaterialTheme.typography.headlineLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                                color = Color.White,
-                                modifier = Modifier.offset(y = (-88).dp),
-                            )
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        // Seat the live preview inside a carved bronze frame.
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .fantasyFrame(R.drawable.frame_panel)
+                        .padding(10.dp),
+                ) {
+                    if (hasPermission) {
+                        CameraPreview(
+                            modifier = Modifier.fillMaxSize(),
+                            viewModel = viewModel,
+                            lifecycleOwner = lifecycleOwner,
+                            cropArea = uiState.cropArea,
+                        )
+                    }
+
+                    if (uiState.isLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF1B1206)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = NeonGreen)
+                        }
+                    }
+
+                    if (uiState.qrsMode && uiState.qrsProgress != null) {
+                        val (decoded, total) = uiState.qrsProgress!!
+                        val progress = if (total > 0) decoded.toFloat() / total.toFloat() / 1.2f else 0f
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.5f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    progress = { progress.coerceIn(0f, 1f) },
+                                    modifier = Modifier.size(96.dp),
+                                    color = Color.White,
+                                    strokeWidth = 8.dp,
+                                    trackColor = Color.White.copy(alpha = 0.3f),
+                                )
+                                if (total > 0) {
+                                    Text(
+                                        text = "${minOf(99, (progress * 100).toInt())}%",
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                        ),
+                                        color = Color.White,
+                                    )
+                                }
+                                Text(
+                                    text = "QRS",
+                                    style = MaterialTheme.typography.headlineLarge.copy(
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                    color = Color.White,
+                                    modifier = Modifier.offset(y = (-88).dp),
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-        } // SheetSurface
-    }
+        }
 
     if (uiState.errorMessage != null) {
-        // ── Dark-Fantasy modal (phone + TV) ──
-        FantasyDialog(
-            onDismiss = { viewModel.dismissError() },
-            title = stringResource(android.R.string.dialog_alert_title),
-        ) {
-            Text(
-                text = uiState.errorMessage ?: "",
-                color = Color(0xFFECE2CC),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(18.dp))
-            GlossyButton(
-                label = stringResource(android.R.string.ok),
-                onClick = { viewModel.dismissError() },
-                accent = NeonGreen,
-                wood = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        Dialog(onDismissRequest = { viewModel.dismissError() }) {
+            MobilePremiumDialogSurface(
+                title = stringResource(android.R.string.dialog_alert_title),
+            ) {
+                Text(
+                    text = uiState.errorMessage ?: "",
+                    color = PremiumText,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(6.dp))
+                MobilePremiumButton(
+                    label = stringResource(android.R.string.ok),
+                    onClick = { viewModel.dismissError() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
-    }
-}
-
-/**
- * Sheet-content wrapper — lays the carved-oak texture (via [FantasyScreenBackground]) behind the
- * sheet's Column so the header + preview frame sit on wood (phone + TV).
- */
-@Composable
-private fun SheetSurface(content: @Composable () -> Unit) {
-    FantasyScreenBackground {
-        content()
     }
 }
 
