@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -72,6 +73,7 @@ internal fun LivingEyeMedallion(
     val gazeX = remember { Animatable(0f) } // source-frame pixels
     val gazeY = remember { Animatable(0f) }
     val pupilScale = remember { Animatable(PUPIL_DARK_SCALE) }
+    val glow = remember { Animatable(0f) }
 
     val blinkRandom = remember { Random(System.nanoTime().toInt()) }
     val gazeRandom = remember { Random(System.nanoTime().toInt() xor 0x4D414553) }
@@ -176,6 +178,39 @@ internal fun LivingEyeMedallion(
                     easing = FastOutSlowInEasing,
                 ),
             )
+        }
+    }
+
+    // Свет следует состоянию туннеля, а не таймеру: гаснет на отключении, РАЗГОРАЕТСЯ пока идёт
+    // подключение (с лёгким пульсом, чтобы читалось «работает, а не завис»), и держится ровно,
+    // когда связь есть.
+    //
+    // ⛔ На ветке `feat/mobile-4d-redesign` этот блок читал отдельный `EyeState`, но тот коммит
+    // правит `SFANavigation.kt` и `TvHomeScreen.kt` — файлы под нулевым TV-диффом. Здесь тот же
+    // сигнал уже приходит через `opennessOverride` (0f / 0.5f / null), который выставляет
+    // телефонный `Mobile4DHome`. Вид тот же, ТВ не задет.
+    LaunchedEffect(connected, opennessOverride) {
+        when {
+            opennessOverride != null && opennessOverride <= 0.01f ->
+                glow.animateTo(0f, tween(durationMillis = 220))
+
+            opennessOverride != null -> {
+                glow.animateTo(
+                    GLOW_CONNECTING_MIN,
+                    tween(durationMillis = 420, easing = LinearOutSlowInEasing),
+                )
+                while (true) {
+                    glow.animateTo(GLOW_CONNECTING_MAX, tween(durationMillis = 780, easing = LinearEasing))
+                    glow.animateTo(GLOW_CONNECTING_MIN, tween(durationMillis = 780, easing = LinearEasing))
+                }
+            }
+
+            connected -> glow.animateTo(
+                GLOW_CONNECTED,
+                tween(durationMillis = 620, easing = LinearOutSlowInEasing),
+            )
+
+            else -> glow.animateTo(0f, tween(durationMillis = 220))
         }
     }
 
@@ -313,6 +348,32 @@ internal fun LivingEyeMedallion(
                     alpha = squintToClosed,
                 )
             }
+        }
+
+        // Свет по внутренней кромке кольца — СНАРУЖИ клипа: он должен ложиться на бронзу, а не
+        // подрезаться ею. Центр НАМЕРЕННО прозрачный: заливая середину, мы засветили бы радужку
+        // и зрачок — самое ценное в кадре. Читается как свет из-под бронзы, а не как пятно сверху.
+        val glowValue = glow.value
+        if (glowValue > 0.01f) {
+            val centre = Offset(size.width / 2f, size.height / 2f)
+            val glowRadius = medallion / 2f - bronzeInset
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0f to Color.Transparent,
+                        GLOW_INNER_EDGE to Color.Transparent,
+                        // Промежуточная точка делает набор квадратичным: у кромки свет есть, а к
+                        // радужке спадает быстро. Один линейный переход давал ореол поверх глаза.
+                        (GLOW_INNER_EDGE + (1f - GLOW_INNER_EDGE) * 0.5f) to
+                            GLOW_TINT.copy(alpha = GLOW_MAX_ALPHA * glowValue * 0.25f),
+                        1f to GLOW_TINT.copy(alpha = GLOW_MAX_ALPHA * glowValue),
+                    ),
+                    center = centre,
+                    radius = glowRadius,
+                ),
+                radius = glowRadius,
+                center = centre,
+            )
         }
     }
 }
@@ -526,3 +587,13 @@ private val APERTURE_LOWER = listOf(
     SourcePoint(932f, 1098f),
     SourcePoint(957f, 1083f),
 )
+
+// Свечение: на подключении пульсирует между MIN и MAX, на «подключено» держится ровно.
+private const val GLOW_CONNECTING_MIN = 0.45f
+private const val GLOW_CONNECTING_MAX = 1f
+private const val GLOW_CONNECTED = 0.7f
+// Доля радиуса, до которой свет полностью прозрачен: центр не засвечиваем. 0.82 и alpha 0.22
+// вместо прежних 0.55 и 0.5 — при них свет ложился пеленой поверх глаза (владелец 31.07).
+private const val GLOW_INNER_EDGE = 0.82f
+private const val GLOW_MAX_ALPHA = 0.22f
+private val GLOW_TINT = Color(0xFF54FF8F)
