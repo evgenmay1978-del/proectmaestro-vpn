@@ -27,6 +27,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
@@ -46,6 +47,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -303,31 +305,54 @@ private fun Mobile4DSceneAndHero(
                     height = with(density) { (titleBottomPx - titleTopPx).toDp() },
                 ),
         ) {
-            // ⛔ Было 31.sp — надпись занимала 170 dp в табличке шириной 254 dp эталона
-            // (замерено Playfair: 46 sp = 253 dp, высота глифов 33 dp против 34 dp
-            // эталонных). autoSize вместо фиксированного кегля потому, что при системном
-            // увеличении шрифта `maxLines=1, softWrap=false` обрезал титул на полуглифе.
-            BasicText(
-                text = "MaestroVPN",
-                maxLines = 1,
-                autoSize = TextAutoSize.StepBased(
-                    minFontSize = 20.sp,
-                    maxFontSize = TITLE_MAX_FONT_SIZE,
-                    stepSize = 0.5.sp,
-                ),
-                style = androidx.compose.ui.text.TextStyle(
-                    color = TITLE_GOLD,
-                    letterSpacing = TITLE_LETTER_SPACING,
-                    fontFamily = PlayfairFamily,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center,
+            // ⛔ Было 31 sp, потом 46 sp плоской заливкой — владелец: «надпись должна быть
+            // объёмная, а не плоская». Замер эталона: строка ~242 dp при высоте глифов ~20 dp,
+            // то есть средний кегль с большой разрядкой, а буквы вырезаны в металле: тёмная
+            // прорезь снизу, светлая кромка сверху, градиент по грани.
+            //
+            // Три слоя одного и того же текста с ОДИНАКОВЫМИ constraints: `StepBased` —
+            // детерминированная функция от текста, стиля-метрик и ширины, поэтому кегль у
+            // всех трёх совпадает и буквы не разъезжаются. Цвет и кисть на метрики не влияют.
+            val titleAutoSize = TextAutoSize.StepBased(
+                minFontSize = 20.sp,
+                maxFontSize = TITLE_MAX_FONT_SIZE,
+                stepSize = 0.5.sp,
+            )
+            val titleBase = androidx.compose.ui.text.TextStyle(
+                letterSpacing = TITLE_LETTER_SPACING,
+                fontFamily = PlayfairFamily,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+            )
+
+            @Composable
+            fun titleLayer(style: androidx.compose.ui.text.TextStyle, dy: Dp) {
+                BasicText(
+                    text = "MaestroVPN",
+                    maxLines = 1,
+                    autoSize = titleAutoSize,
+                    style = style,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset(y = dy),
+                )
+            }
+
+            // прорезь: тёмный оттиск на дно, ниже лицевой грани
+            titleLayer(titleBase.copy(color = TITLE_CARVE), TITLE_CARVE_DEPTH)
+            // кромка: слабый свет по верхнему краю буквы
+            titleLayer(titleBase.copy(color = TITLE_RIM), -TITLE_RIM_LIFT)
+            // лицевая грань: металл светлее сверху, темнее снизу
+            titleLayer(
+                titleBase.copy(
+                    brush = Brush.verticalGradient(TITLE_FACE),
                     shadow = Shadow(
-                        color = Color(0xB0000000),
+                        color = Color(0xC0000000),
                         offset = Offset(0f, with(density) { 1.dp.toPx() }),
-                        blurRadius = with(density) { 1.5.dp.toPx() },
+                        blurRadius = with(density) { 2.dp.toPx() },
                     ),
                 ),
-                modifier = Modifier.fillMaxWidth(),
+                0.dp,
             )
         }
     }
@@ -541,8 +566,17 @@ private val ADDITIVE_RELIEF_SUPPORTED = BlendMode.Plus.isSupported()
  */
 private val TITLE_MAX_FONT_SIZE = 30.sp
 private val TITLE_LETTER_SPACING = 8.sp
-/** Цвет титула эталона (186,170,137): мягче и теплее, чем `PremiumGold` (224,189,112). */
-private val TITLE_GOLD = Color(0xFFBAAA89)
+/**
+ * Грань буквы: светлее сверху, темнее снизу — так металл читается объёмным. Средний тон набора
+ * держится около замеренного на эталоне (186,170,137), крайние точки разведены от него.
+ */
+private val TITLE_FACE = listOf(Color(0xFFE4D6B4), Color(0xFF8C7A55))
+/** Тёмная прорезь под гранью — дно вырезанной буквы. */
+private val TITLE_CARVE = Color(0xFF241A10)
+/** Слабая светлая кромка по верхнему краю. */
+private val TITLE_RIM = Color(0x66FFF0C8)
+private val TITLE_CARVE_DEPTH = 1.6.dp
+private val TITLE_RIM_LIFT = 0.9.dp
 private val SHADOW_PASSES = listOf(
     ShadowPass(0.6f, 1.0f, 0.16f),
     ShadowPass(1.2f, 2.1f, 0.10f),

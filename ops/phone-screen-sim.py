@@ -328,7 +328,10 @@ CONSOLE_DIAL_HEIGHT_FRACTION, CONSOLE_DIAL_WIDTH_FRACTION = 0.9, 0.21
 SELECTION_BAR_WIDTH = 22.0
 TITLE_SP = 30          # Mobile4DHome.TITLE_MAX_FONT_SIZE
 TITLE_TRACK = 8.0      # Mobile4DHome.TITLE_LETTER_SPACING
-TITLE_COL = (186,170,137)  # Mobile4DHome.TITLE_GOLD — замер по эталону
+TITLE_FACE_TOP, TITLE_FACE_BOT = (228,214,180), (140,122,85)   # Mobile4DHome.TITLE_FACE
+TITLE_CARVE = (36,26,16)      # Mobile4DHome.TITLE_CARVE
+TITLE_RIM = (255,240,200)     # Mobile4DHome.TITLE_RIM (alpha 0x66)
+TITLE_CARVE_DEPTH, TITLE_RIM_LIFT = 1.6, 0.9
 
 # Сектора дуги: тег → (подпись эталона, иконка). WDTT (`vk-turn`) на эталоне не нарисован,
 # но на телефоне это живой протокол (прячет его только ТВ), поэтому сектор ему выделен.
@@ -500,16 +503,38 @@ def screen_home(state='connected'):
 
     # ── титул: кодовый Playfair по измеренным границам эталона
     tl, tt, tr, tb = B['title']
-    # разрядка: PIL не умеет letterSpacing, рисуем по глифам с тем же шагом, что в Compose
+    # Объёмный титул: прорезь снизу, светлая кромка сверху, градиент по грани — те же три
+    # слоя, что и в Mobile4DHome. PIL не умеет letterSpacing, поэтому шаг задаём вручную.
     tf = F(PLAY, TITLE_SP)
     text = 'MaestroVPN'
     adv = [tf.getlength(ch) for ch in text]
     total = sum(adv) + TITLE_TRACK * S * (len(text) - 1)
-    tx = ((tl + tr) / 2) * S - total / 2
-    ty = ((tt + tb) / 2) * S
-    for ch, w in zip(text, adv):
-        d.text((tx, ty), ch, font=tf, fill=TITLE_COL, anchor='lm')
-        tx += w + TITLE_TRACK * S
+    tx0 = ((tl + tr) / 2) * S - total / 2
+    ty0 = ((tt + tb) / 2) * S
+
+    def draw_title(layer_d, dy, fill):
+        x = tx0
+        for ch, w in zip(text, adv):
+            layer_d.text((x, ty0 + dy), ch, font=tf, fill=fill, anchor='lm')
+            x += w + TITLE_TRACK * S
+
+    draw_title(d, TITLE_CARVE_DEPTH * S, TITLE_CARVE)
+    rim = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    draw_title(ImageDraw.Draw(rim), -TITLE_RIM_LIFT * S, TITLE_RIM + (0x66,))
+    lay.alpha_composite(rim); rim.close()
+    face_mask = Image.new('L', (W, H), 0)
+    draw_title(ImageDraw.Draw(face_mask), 0, 255)
+    bb = face_mask.getbbox()
+    if bb:
+        grad = Image.new('RGB', (1, max(1, bb[3] - bb[1])))
+        gp = grad.load()
+        for i in range(grad.height):
+            t = i / max(1, grad.height - 1)
+            gp[0, i] = tuple(round(a + (b - a) * t) for a, b in zip(TITLE_FACE_TOP, TITLE_FACE_BOT))
+        face = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        face.paste(grad.resize((bb[2] - bb[0], bb[3] - bb[1])), (bb[0], bb[1]))
+        face.putalpha(face_mask)
+        lay.alpha_composite(face); face.close()
 
     # ── статус + активный протокол (PhoneStatusRow, вне маски — маски больше нет вовсе)
     connected = state == 'connected'
