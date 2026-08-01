@@ -165,6 +165,7 @@ internal fun PhoneHomeControlDeck(
         val layout = phoneHomeReferenceLayout(maxWidth.value, maxHeight.value)
         val deckTop = layout.deckTop
         val deckWidth = maxWidth.value
+        val contactScale = deckWidth / REFERENCE_WIDTH
         val arcProtocols = remember(protocols) { orderedHomeProtocols(protocols) }
 
         Column(
@@ -253,38 +254,31 @@ internal fun PhoneHomeControlDeck(
                     )
                 }
 
-                DeckSection(layout.contacts, deckTop) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(CONTACT_GAP.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxSize(),
+                // Резьба плит теперь приходит слоем `contacts` атласа, поэтому плитки идут без
+                // своей рамки, а границы взяты ЗАМЕРОМ по `home_contacts_c.png`, а не делением
+                // ряда на три равные части: интерьеры 91.2 / 89.6 / 89.6 dp и зазоры неравные.
+                CONTACT_PLATES.forEachIndexed { index, plate ->
+                    val contact = CONTACTS[index]
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .absoluteOffset(
+                                x = (plate[0] * contactScale).dp,
+                                y = (CONTACT_TOP * contactScale - deckTop).dp,
+                            )
+                            .size(
+                                width = (plate[1] - plate[0]) * contactScale,
+                                height = (CONTACT_BOTTOM - CONTACT_TOP) * contactScale,
+                            ),
                     ) {
                         HomeTile(
-                            label = "Telegram",
-                            icon = Icons.Filled.Send,
-                            onClick = { open("https://t.me/wapmixx") },
+                            label = contact.first,
+                            icon = contact.second,
+                            onClick = { open(contact.third) },
+                            framed = false,
                             modifier = Modifier
-                                .weight(1f)
                                 .fillMaxSize()
-                                .testTag("home-contact-telegram"),
-                        )
-                        HomeTile(
-                            label = "МАКС",
-                            icon = Icons.Filled.Forum,
-                            onClick = { open("https://max.ru/") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxSize()
-                                .testTag("home-contact-max"),
-                        )
-                        HomeTile(
-                            label = "WhatsApp",
-                            icon = Icons.Filled.Chat,
-                            onClick = { open("https://wa.me/79778116564") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxSize()
-                                .testTag("home-contact-whatsapp"),
+                                .testTag("home-contact-${CONTACT_TAGS[index]}"),
                         )
                     }
                 }
@@ -744,7 +738,23 @@ private const val SUPPORT_PHONE_URI = "+79778116564"
 private const val SUPPORT_NOTE = "Если я не ответил на звонок — напишите в любом из мессенджеров."
 /** 1:1 к прежней строке статуса: ОТКЛЮЧЕНО = красная точка и красный текст. */
 private val StatusRed = Color(0xFFFF4040)
-private const val CONTACT_GAP = 10f
+/**
+ * Интерьеры трёх резных плит контактов, dp при ширине 390 — ЗАМЕРЕНО по `home_contacts_c.png`
+ * (01.08). ⛔ Ряд НЕ делится на три равные части: плиты 91.2 / 89.6 / 89.6 dp, зазоры неравные.
+ */
+private val CONTACT_PLATES = listOf(
+    listOf(37.6f, 128.7f),
+    listOf(150.0f, 239.6f),
+    listOf(260.7f, 350.3f),
+)
+private const val CONTACT_TOP = 496f
+private const val CONTACT_BOTTOM = 560f
+private val CONTACT_TAGS = listOf("telegram", "max", "whatsapp")
+private val CONTACTS = listOf(
+    Triple("Telegram", Icons.Filled.Send, "https://t.me/wapmixx"),
+    Triple("МАКС", Icons.Filled.Forum, "https://max.ru/"),
+    Triple("WhatsApp", Icons.Filled.Chat, "https://wa.me/79778116564"),
+)
 private const val REFERENCE_WIDTH = 390f
 /** Центры ячеек резного веера, dp при ширине 390 (решение владельца 2026-08-01). */
 private val ARC_SECTOR_CENTERS = listOf(37.8f, 88.3f, 141.7f, 195.6f, 248.2f, 301.4f, 352.4f)

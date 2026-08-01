@@ -44,7 +44,7 @@ MANIFEST_BACKUP_NAME = ".Mobile4DGeneratedAssets.kt.backup"
 # wood → console → frame → cartouche → vines → arc → ring → живой глаз/текст/контролы.
 # Консоль идёт сразу за деревом: она смонтирована на доски, а рама и лоза проходят
 # поверх её краёв, как на эталоне.
-LAYERS = ("wood", "console", "frame", "cartouche", "vines", "arc", "ring")
+LAYERS = ("wood", "console", "contacts", "frame", "cartouche", "vines", "arc", "ring")
 LIGHTS = ("l", "c", "r")
 LIGHT_ENUM = {"l": "Left", "c": "Centre", "r": "Right"}
 

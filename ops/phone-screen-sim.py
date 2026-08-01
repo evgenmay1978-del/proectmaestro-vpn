@@ -111,8 +111,9 @@ def centre_4d_scene():
     # 83 = 77 прежних + 6 фрагментов слоя `arc`, добавленного 2026-08-01. Число сверяется
     # намеренно: молчаливое расхождение манифеста и симуляции = симуляция начнёт врать.
     # 84 = 83 + фрагмент слоя `console`, подключённого 01.08.
-    if len(fragments) != 84:
-        raise ValueError(f'Expected 84 centre-light 4D fragments, found {len(fragments)}')
+    # 90 = 84 + фрагменты слоя `contacts`, подключённого 01.08.
+    if len(fragments) != 90:
+        raise ValueError(f'Expected 90 centre-light 4D fragments, found {len(fragments)}')
 
     scene = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
     current_path = None
@@ -355,8 +356,9 @@ def centre_4d_layers():
     # 83 = 77 прежних + 6 фрагментов слоя `arc`, добавленного 2026-08-01. Число сверяется
     # намеренно: молчаливое расхождение манифеста и симуляции = симуляция начнёт врать.
     # 84 = 83 + фрагмент слоя `console`, подключённого 01.08.
-    if len(fragments) != 84:
-        raise ValueError(f'Expected 84 centre-light 4D fragments, found {len(fragments)}')
+    # 90 = 84 + фрагменты слоя `contacts`, подключённого 01.08.
+    if len(fragments) != 90:
+        raise ValueError(f'Expected 90 centre-light 4D fragments, found {len(fragments)}')
 
     base = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
     ring = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
@@ -568,13 +570,22 @@ def screen_home(state='connected'):
                               'напишите в любом из мессенджеров.']):
         txt(d, (W / 2, (nt + 2 + i * 19) * S), line, f_note, TXTM, anchor='ma')
 
-    # ── три контакта
-    cl, ct, cr, cb = B['contacts']
-    cw = ((cr - cl) - CONTACT_GAP * 2) / 3
-    for i, (name, icf) in enumerate([('Telegram', ic_send), ('МАКС', ic_forum),
-                                     ('WhatsApp', ic_chat)]):
-        tile(lay, (cl + i * (cw + CONTACT_GAP)) * S, ct * S, cw * S, (cb - ct) * S,
-             name, icf, icon_sp=22, label_min=8, label_max=12)
+    # ── три контакта: резьбу даёт слой `contacts` атласа, плитки идут без своей рамки,
+    # границы плит — замер по home_contacts_c.png (ряд НЕ делится на три равные части).
+    CONTACT_PLATES = [(37.6, 128.7), (150.0, 239.6), (260.7, 350.3)]
+    CONTACT_TOP, CONTACT_BOTTOM = 496.0, 560.0
+    for (px0, px1), (name, icf) in zip(CONTACT_PLATES,
+                                       [('Telegram', ic_send), ('МАКС', ic_forum), ('WhatsApp', ic_chat)]):
+        pw, ph_ = px1 - px0, CONTACT_BOTTOM - CONTACT_TOP
+        cell = Image.new('RGBA', (round(pw * S), round(ph_ * S)), (0, 0, 0, 0))
+        cd = ImageDraw.Draw(cell)
+        icon = round(22 * S)
+        block = icon + round(6 * S) + round(12 * S)
+        iy = (cell.height - block) / 2
+        icf(cd, (cell.width - icon) / 2, iy, icon, GOLD)
+        autosize_centered(cell, cell.width / 2, iy + icon + 6 * S, name, TXT,
+                          cell.width - 8 * S, SANSB, 8, 12)
+        lay.alpha_composite(cell, (round(px0 * S), round(CONTACT_TOP * S)))
 
     # ── сектора протоколов: резьбу рисует АРТ (слой `arc` атласа), сюда идут только
     # подпись, иконка и отметка выбора. Своей рамки у сектора больше нет — два канта
