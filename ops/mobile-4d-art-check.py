@@ -193,6 +193,29 @@ def top_edge(image: Image.Image, box: tuple[int, int, int, int], x: int) -> int 
     return None
 
 
+def crown_excluded_rail_centre(
+    image: Image.Image,
+    box: tuple[int, int, int, int],
+) -> float | None:
+    """Fit the main rail while excluding the permitted central crown."""
+    samples: list[tuple[float, float]] = []
+    for start, stop in ((400, 840), (1320, 1760)):
+        for x in range(start, stop + 1, 8):
+            y = top_edge(image, box, x)
+            if y is None:
+                return None
+            samples.append((float((x - MASTER_WIDTH // 2) ** 2), float(y)))
+    count = float(len(samples))
+    sum_q = sum(q for q, _ in samples)
+    sum_y = sum(y for _, y in samples)
+    sum_qq = sum(q * q for q, _ in samples)
+    sum_qy = sum(q * y for q, y in samples)
+    denominator = count * sum_qq - sum_q * sum_q
+    if denominator == 0:
+        return None
+    return (sum_y * sum_qq - sum_q * sum_qy) / denominator
+
+
 def check_group(name: str, spec: GroupSpec, report: Report) -> None:
     paths = {light: KIT / f"home_{name}_{light}.png" for light in LIGHTS}
     missing = [p.name for p in paths.values() if not p.is_file()]
@@ -243,13 +266,13 @@ def check_group(name: str, spec: GroupSpec, report: Report) -> None:
             report.check(axis_free, f"{name}: на оси x=1080 стоит ячейка, а не разделитель")
 
     if spec.dome_rise:
-        centre = top_edge(images["c"], spec.alpha_bbox, MASTER_WIDTH // 2)
+        centre = crown_excluded_rail_centre(images["c"], spec.alpha_bbox)
         left = top_edge(images["c"], spec.alpha_bbox, 160)
         right = top_edge(images["c"], spec.alpha_bbox, MASTER_WIDTH - 160)
         if None in (centre, left, right):
             report.check(False, f"{name}: не удалось снять профиль верхней кромки")
         else:
-            rise = (left + right) // 2 - centre
+            rise = (left + right) / 2.0 - centre
             lo, hi = spec.dome_rise
             report.check(lo <= rise <= hi,
                          f"{name}: подъём купола {rise} px, нужен {lo}…{hi} "
@@ -312,6 +335,28 @@ def selftest() -> int:
         print(f"  {'PASS' if caught else 'FAIL'}  сторож ловит дефект «{label}»")
         if not caught:
             failures += 1
+
+    dome = Image.new("RGBA", (MASTER_WIDTH, MASTER_HEIGHT), (0, 0, 0, 0))
+    dome_draw = ImageDraw.Draw(dome)
+    rail = [
+        (x, round(3335 + 181 * ((x - MASTER_WIDTH // 2) / 920.0) ** 2))
+        for x in range(MASTER_WIDTH)
+    ]
+    dome_draw.polygon(rail + [(MASTER_WIDTH - 1, 3904), (0, 3904)], fill=(90, 78, 48, 255))
+    # Permitted crown deliberately reaches bbox top at x=1080.
+    dome_draw.rectangle((1070, 3150, 1090, 3334), fill=(90, 78, 48, 255))
+    fitted = crown_excluded_rail_centre(dome, GROUPS["arc"].alpha_bbox)
+    left = top_edge(dome, GROUPS["arc"].alpha_bbox, 160)
+    right = top_edge(dome, GROUPS["arc"].alpha_bbox, 2000)
+    rise = None if fitted is None or left is None or right is None else (left + right) / 2.0 - fitted
+    crown_excluded = (
+        top_edge(dome, GROUPS["arc"].alpha_bbox, 1080) == 3150
+        and rise is not None
+        and 173 <= rise <= 189
+    )
+    print(f"  {'PASS' if crown_excluded else 'FAIL'}  guard excludes permitted crown from dome measurement")
+    if not crown_excluded:
+        failures += 1
 
     print()
     if failures:
