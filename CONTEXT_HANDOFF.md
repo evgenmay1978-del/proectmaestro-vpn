@@ -1,5 +1,25 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0D. LIVE: перерисовка всех семи слоёв завершена и проверена
+
+Этот раздел новее 0C. Claude работает только с GitHub и должен начинать с ветки
+`codex/mobile-4d-deck`.
+
+- Финальная инструкция: `docs/superpowers/plans/2026-08-01-mobile-4d-assets-final-handoff.md`.
+- Все 18 runtime-source PNG уже заменены в `design/mobile-asset-redraw/source/`:
+  `wood`, `frame`, `cartouche`, `vines`, семисекторная `arc`, круглый `ring` с мозаикой;
+  для каждого есть `_l/_c/_r`.
+- Новая нижняя консоль лежит отдельно в `design/mobile-asset-redraw/kit/home_console_{l,c,r}.png`:
+  её нужно добавить в генератор и runtime как новый слой, а не накладывать поверх старого UI.
+- Утверждённые `arc` и `ring` в `source/` байт-в-байт совпадают с копиями в `kit/`.
+- Контрольные art-only превью: `design/mobile-4d-references/05-mobile-4d-art-only-{l,c,r}-2026-08-01.png`
+  и `06-mobile-4d-art-only-lcr-2026-08-01.jpg`. Глаз и заголовок там намеренно отсутствуют —
+  их рисует код.
+- Проверки: контракт 18 runtime PNG — PASS; unit tests `7/7` — PASS; arc/console/selftest — PASS;
+  полный аудит 21 PNG — PASS. APK/Gradle локально не запускались.
+- Старый мобильный интерфейс нельзя оставлять под новым. При подключении удалить старую сцену и
+  revolver-реализацию после проверки ссылок. ТВ-код и `tvm_*` не трогать.
+
 ## 0C. LIVE: утверждена очередь оставшихся слоёв Home — кольцо первое
 
 Этот раздел новее 0B и является обязательной отправной точкой для Claude/Codex.
