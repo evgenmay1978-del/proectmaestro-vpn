@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,7 +71,6 @@ import com.maestrovpn.tv.compose.premium.MobilePremiumButton
 import com.maestrovpn.tv.compose.premium.PremiumEmerald
 import com.maestrovpn.tv.compose.premium.PremiumGold
 import com.maestrovpn.tv.compose.premium.PremiumGoldMuted
-import com.maestrovpn.tv.compose.premium.PremiumLeather
 import com.maestrovpn.tv.compose.premium.PremiumText
 import com.maestrovpn.tv.compose.premium.PremiumTextMuted
 import com.maestrovpn.tv.compose.premium.PremiumTouchTarget
@@ -85,7 +83,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Phone-only control deck — единственный владелец всего, что ниже 4D-героя.
@@ -465,9 +462,8 @@ internal data class ArcSectorCell(val centerDp: Float, val sagDp: Float)
  */
 internal fun arcSectorCells(count: Int): List<ArcSectorCell> {
     if (count <= 0) return emptyList()
-    val all = ARC_SECTOR_CENTERS.map { center ->
-        val distance = center - REFERENCE_WIDTH / 2f
-        ArcSectorCell(center, ARC_CELL_SAG_K * distance * distance)
+    val all = ARC_SECTOR_CENTERS.indices.map { i ->
+        ArcSectorCell(ARC_SECTOR_CENTERS[i], ARC_CELL_TOPS[i] - ARC_CELL_TOP_MIN)
     }
     if (count >= all.size) return all
     val first = (all.size - count) / 2
@@ -548,46 +544,43 @@ private fun BottomConsole(
     onCheckConnection: () -> Unit,
     onShareIos: () -> Unit,
 ) {
-    val width = bounds.right - bounds.left
-    val height = bounds.bottom - bounds.top
-    val sideWidth = width * CONSOLE_SIDE_FRACTION
-    val sideHeight = max(height * CONSOLE_SIDE_HEIGHT_FRACTION, PremiumTouchTarget.value)
-    val dialSize = max(
-        min(height * CONSOLE_DIAL_HEIGHT_FRACTION, width * CONSOLE_DIAL_WIDTH_FRACTION),
-        PremiumTouchTarget.value,
-    )
+    val scale = (bounds.right - bounds.left) / CONSOLE_REFERENCE_WIDTH
 
-    Box(
-        modifier = Modifier
-            .absoluteOffset(x = bounds.left.dp, y = (bounds.top - deckTop).dp)
-            .size(width = width, height = height),
-    ) {
+    @Composable
+    fun zone(left: Float, top: Float, right: Float, bottom: Float, content: @Composable () -> Unit) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .absoluteOffset(x = (left * scale).dp, y = (top * scale - deckTop).dp)
+                .size(width = (right - left) * scale, height = (bottom - top) * scale),
+        ) { content() }
+    }
+
+    zone(CONSOLE_LEFT[0], CONSOLE_LEFT[1], CONSOLE_LEFT[2], CONSOLE_LEFT[3]) {
         HomeTile(
             label = "Ввести логин",
             icon = Icons.Filled.Person,
             onClick = onEnterCode,
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .size(width = sideWidth, height = sideHeight)
-                .testTag("home-action-login"),
+            framed = false,
+            modifier = Modifier.fillMaxSize().testTag("home-action-login"),
         )
-        HomeDial(
+    }
+    zone(CONSOLE_DIAL[0], CONSOLE_DIAL[1], CONSOLE_DIAL[2], CONSOLE_DIAL[3]) {
+        HomeTile(
             label = "Тест сети",
             icon = Icons.Filled.Settings,
             onClick = onCheckConnection,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(dialSize.dp)
-                .testTag("home-action-network-test"),
+            framed = false,
+            modifier = Modifier.fillMaxSize().testTag("home-action-network-test"),
         )
+    }
+    zone(CONSOLE_RIGHT[0], CONSOLE_RIGHT[1], CONSOLE_RIGHT[2], CONSOLE_RIGHT[3]) {
         HomeTile(
             label = "Подключить телефон",
             icon = Icons.Filled.Smartphone,
             onClick = onShareIos,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(width = sideWidth, height = sideHeight)
-                .testTag("home-action-share"),
+            framed = false,
+            modifier = Modifier.fillMaxSize().testTag("home-action-share"),
         )
     }
 }
@@ -599,13 +592,17 @@ private fun HomeTile(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    framed: Boolean = true,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = modifier
             .defaultMinSize(minWidth = PremiumTouchTarget, minHeight = PremiumTouchTarget)
-            .fantasyFrame(R.drawable.frame_button)
+            // ⛔ `framed = false` для зон нижней консоли: там резьбу даёт слой `console` атласа,
+            // и своя рамка легла бы вторым кантом поверх первого. Ряд контактов рамку пока
+            // сохраняет — своего арта под ним ещё нет.
+            .then(if (framed) Modifier.fantasyFrame(R.drawable.frame_button) else Modifier)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 8.dp),
     ) {
@@ -619,47 +616,6 @@ private fun HomeTile(
                 textAlign = TextAlign.Center,
             ),
             maxLines = 2,
-            autoSize = TextAutoSize.StepBased(
-                minFontSize = 8.sp,
-                maxFontSize = 12.sp,
-                stepSize = 0.5.sp,
-            ),
-        )
-    }
-}
-
-/**
- * Круглая центральная кнопка консоли. Резная nine-patch здесь НЕ используется: её
- * орнаментальные углы после клипа в круг просто исчезают, поэтому кромка рисуется кодом.
- */
-@Composable
-private fun HomeDial(
-    label: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = modifier
-            .defaultMinSize(minWidth = PremiumTouchTarget, minHeight = PremiumTouchTarget)
-            .clip(CircleShape)
-            .background(PremiumLeather)
-            .border(2.dp, PremiumGoldMuted, CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(8.dp),
-    ) {
-        Icon(icon, contentDescription = null, tint = PremiumGold, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.height(4.dp))
-        BasicText(
-            text = label,
-            style = TextStyle(
-                color = PremiumText,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-            ),
-            maxLines = 1,
             autoSize = TextAutoSize.StepBased(
                 minFontSize = 8.sp,
                 maxFontSize = 12.sp,
@@ -787,12 +743,25 @@ private const val CONTACT_GAP = 10f
 private const val REFERENCE_WIDTH = 390f
 /** Центры ячеек резного веера, dp при ширине 390 (решение владельца 2026-08-01). */
 private val ARC_SECTOR_CENTERS = listOf(39f, 91f, 143f, 195f, 247f, 299f, 351f)
-private const val ARC_CELL_TOP = 600.9f
+/**
+ * Верх интерьера каждой ячейки, dp при ширине 390 — ЗАМЕРЕНО по `home_arc_c.png` от 01.08
+ * (alpha>200, luma<200 в колонке центра ячейки), а не посчитано параболой.
+ *
+ * ⛔ Параболой не описывается: центральная ячейка (195 dp) на 9 dp НИЖЕ соседних, потому что над
+ * ней сидит замок. Формула увела бы подпись центрального сектора на резьбу.
+ */
+private val ARC_CELL_TOPS = listOf(619.4f, 603.1f, 593.5f, 602.0f, 593.1f, 602.5f, 618.8f)
+private val ARC_CELL_TOP_MIN = ARC_CELL_TOPS.min()
+private val ARC_CELL_TOP = ARC_CELL_TOP_MIN
 private const val ARC_CELL_WIDTH = 52f
-private const val ARC_CELL_HEIGHT = 52f
-private const val ARC_CELL_SAG_K = 0.00048f
+private const val ARC_CELL_HEIGHT = 66f
 private const val SELECTION_BAR_WIDTH = 22f
-private const val CONSOLE_SIDE_FRACTION = 0.27f
-private const val CONSOLE_SIDE_HEIGHT_FRACTION = 0.77f
-private const val CONSOLE_DIAL_HEIGHT_FRACTION = 0.9f
-private const val CONSOLE_DIAL_WIDTH_FRACTION = 0.21f
+/**
+ * Три зоны действий нижней консоли, dp при ширине 390 — ЗАМЕРЕНО по `home_console_c.png` от 01.08
+ * (тёмные интерьеры внутри резьбы). Круглая центральная зона выше боковых, как на эталоне.
+ * Все три крупнее 48 dp: 107×60, 68×73, 107×60.
+ */
+private val CONSOLE_LEFT = listOf(32f, 757.4f, 139f, 817.4f)
+private val CONSOLE_DIAL = listOf(160f, 749.7f, 228f, 823f)
+private val CONSOLE_RIGHT = listOf(250f, 757.6f, 357f, 817.4f)
+private const val CONSOLE_REFERENCE_WIDTH = 390f

@@ -36,6 +36,8 @@ internal data class Mobile4DSceneLayout(
 
 internal enum class Mobile4DParallaxLayer(val maximumDepthDp: Float) {
     Wood(0.5f),
+    // Консоль смонтирована на доски: глубже рамы, но не заподлицо с деревом.
+    Console(1f),
     Frame(1.5f),
     Cartouche(2.5f),
     Vines(3.5f),
@@ -402,8 +404,14 @@ private fun mobile4DNextLowerTargetWidthBucket(currentWidthPx: Int): Int {
 
 private const val MOBILE_4D_MASTER_WIDTH = 2160f
 private const val MOBILE_4D_MASTER_HEIGHT = 4670f
-private const val MOBILE_4D_MEDALLION_CENTER_X = MOBILE_4D_MASTER_WIDTH * 430f / 853f
-private const val MOBILE_4D_MEDALLION_CENTER_Y = MOBILE_4D_MASTER_HEIGHT * 711f / 1844f
+// Центр медальона привязан к НОВОМУ кольцу с мозаикой (`home_ring_*`, 01.08): его alpha bbox
+// [156,827,2005,2676) даёт центр (1080,1751) и Ø1849 на мастер-холсте. Прежние 430/853 и 711/1844
+// указывали на старое пустое кольцо и уводили глаз на 9 dp вниз от резьбы.
+// ⛔ Радиус НЕ трогаю: он задаёт размер глаза, а его владелец защитил отдельно (`00e47a3`,
+// «глаз сам стал меньше»). Мозаика теперь заполняет диск, поэтому глаз больше не висит в пустоте
+// и без изменения размера. Менять размер — только по прямому решению владельца.
+private const val MOBILE_4D_MEDALLION_CENTER_X = 1080f
+private const val MOBILE_4D_MEDALLION_CENTER_Y = 1751f
 private const val MOBILE_4D_MEDALLION_RADIUS_X = MOBILE_4D_MASTER_WIDTH * 260f / 853f
 private const val MOBILE_4D_MEDALLION_RADIUS_Y = MOBILE_4D_MASTER_HEIGHT * 260f / 1844f
 private const val MOBILE_4D_LIGHT_SIDE_SWITCH_THRESHOLD = 0.15f

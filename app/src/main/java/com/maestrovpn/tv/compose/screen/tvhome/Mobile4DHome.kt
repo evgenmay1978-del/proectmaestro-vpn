@@ -179,6 +179,7 @@ private fun Mobile4DSceneAndHero(
                 pages = pages,
                 opaque = true,
             )
+            drawReliefWithShadow("console", Mobile4DParallaxLayer.Console, layout, tilt, lightMix, pages)
             drawReliefWithShadow("frame", Mobile4DParallaxLayer.Frame, layout, tilt, lightMix, pages)
             drawReliefWithShadow("cartouche", Mobile4DParallaxLayer.Cartouche, layout, tilt, lightMix, pages)
             drawReliefWithShadow("vines", Mobile4DParallaxLayer.Vines, layout, tilt, lightMix, pages)

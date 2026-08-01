@@ -110,8 +110,9 @@ def centre_4d_scene():
         fragments.append((int(z_order), int(page_index), page_path, layer, *map(int, coords)))
     # 83 = 77 прежних + 6 фрагментов слоя `arc`, добавленного 2026-08-01. Число сверяется
     # намеренно: молчаливое расхождение манифеста и симуляции = симуляция начнёт врать.
-    if len(fragments) != 83:
-        raise ValueError(f'Expected 83 centre-light 4D fragments, found {len(fragments)}')
+    # 84 = 83 + фрагмент слоя `console`, подключённого 01.08.
+    if len(fragments) != 84:
+        raise ValueError(f'Expected 84 centre-light 4D fragments, found {len(fragments)}')
 
     scene = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
     current_path = None
@@ -243,9 +244,17 @@ def ic_qr(d, x, y, s, c):
 
 # ═════════ дополнительные иконки под новую деку ═════════
 def ic_phone(d, x, y, s, c):
-    d.rounded_rectangle((x+s*.06,y+s*.06,x+s*.42,y+s*.42), radius=s*.1, fill=c)
-    d.rounded_rectangle((x+s*.58,y+s*.58,x+s*.94,y+s*.94), radius=s*.1, fill=c)
-    d.arc((x+s*.02,y+s*.02,x+s*1.5,y+s*1.5), 0, 90, fill=c, width=max(2,round(s*.14)))
+    # ⛔ Здесь были два квадратика и дуга «трубки», которые на 22 dp рисовались как зелёная
+    # точка и зелёная закорючка рядом с номером — владелец справедливо спросил, что это.
+    # В приложении в этом месте стоит Material `Icons.Filled.Call`; рисуем узнаваемую трубку.
+    w = max(2, round(s * .16))
+    d.line((x+s*.20, y+s*.16, x+s*.34, y+s*.34), fill=c, width=w)
+    d.line((x+s*.34, y+s*.34, x+s*.26, y+s*.50), fill=c, width=w)
+    d.line((x+s*.26, y+s*.50, x+s*.50, y+s*.74), fill=c, width=w)
+    d.line((x+s*.50, y+s*.74, x+s*.66, y+s*.66), fill=c, width=w)
+    d.line((x+s*.66, y+s*.66, x+s*.84, y+s*.80), fill=c, width=w)
+    d.line((x+s*.84, y+s*.80, x+s*.66, y+s*.94), fill=c, width=w)
+    d.line((x+s*.66, y+s*.94, x+s*.20, y+s*.16), fill=None, width=1)
 def ic_send(d, x, y, s, c):
     d.polygon([(x,y+s*.5),(x+s,y),(x+s*.42,y+s),(x+s*.34,y+s*.66)], fill=c)
 def ic_forum(d, x, y, s, c):
@@ -337,8 +346,9 @@ def centre_4d_layers():
         fragments.append((int(z_order), int(page_index), page_path, layer, *map(int, coords)))
     # 83 = 77 прежних + 6 фрагментов слоя `arc`, добавленного 2026-08-01. Число сверяется
     # намеренно: молчаливое расхождение манифеста и симуляции = симуляция начнёт врать.
-    if len(fragments) != 83:
-        raise ValueError(f'Expected 83 centre-light 4D fragments, found {len(fragments)}')
+    # 84 = 83 + фрагмент слоя `console`, подключённого 01.08.
+    if len(fragments) != 84:
+        raise ValueError(f'Expected 84 centre-light 4D fragments, found {len(fragments)}')
 
     base = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
     ring = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
@@ -395,8 +405,8 @@ def eye_box():
     sc = max(390.0 / MASTER_4D_SIZE[0], 844.0 / MASTER_4D_SIZE[1])
     tx = (390.0 - MASTER_4D_SIZE[0] * sc) / 2
     ty = (844.0 - MASTER_4D_SIZE[1] * sc) / 2
-    cx = (MASTER_4D_SIZE[0] * 430 / 853) * sc + tx
-    cy = (MASTER_4D_SIZE[1] * 711 / 1844) * sc + ty + HERO_TRANSLATION_Y
+    cx = 1080.0 * sc + tx
+    cy = 1751.0 * sc + ty + HERO_TRANSLATION_Y
     size = min((MASTER_4D_SIZE[0] * 260 / 853) * sc, (MASTER_4D_SIZE[1] * 260 / 1844) * sc) * 2
     state_w = size * (1 - LIVING_EYE_BRONZE_INSET_FRACTION * 2)
     return cx, cy, state_w, state_w * LIVING_EYE_STATE_H / LIVING_EYE_STATE_W
