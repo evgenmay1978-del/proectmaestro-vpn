@@ -62,6 +62,11 @@ class GroupSpec:
     cell_min_height: int = 0
     #: подъём верхней кромки в центре относительно краёв, px
     dome_rise: tuple[int, int] | None = None
+    #: область, которая обязана остаться тёмной (без зелени) — master x0,y0,x1,y1
+    dark_zone: tuple[int, int, int, int] | None = None
+    #: мерить ли тёплую бронзу. ⛔ У кольца НЕТ: его диск — изумрудная мозаика, и критерий
+    #: «R−G = +8…+12» там обязан не выполняться. Сторож, который кричит всегда, перестают читать.
+    bronze_material: bool = True
 
 
 GROUPS = {
@@ -73,6 +78,21 @@ GROUPS = {
         cell_min_width=244,   # 44 dp
         cell_min_height=255,  # 46 dp
         dome_rise=(173, 189),  # 181 ± 8
+    ),
+    "ring": GroupSpec(
+        name="ring",
+        alpha_bbox=(156, 827, 2005, 2676),
+        bronze_material=False,
+        # ⛔ Мозаика не должна доходить до низа диска: туда встаёт статус «ПОДКЛЮЧЕНО».
+        # На эталоне зелень кончается на 350 dp, ниже тёмное дерево.
+        dark_zone=(698, 2329, 1473, 2567),
+    ),
+    "contacts": GroupSpec(
+        name="contacts",
+        alpha_bbox=(188, 2689, 1972, 3148),
+        cells=3,
+        cell_min_width=244,
+        cell_min_height=255,
     ),
     "console": GroupSpec(
         name="console",
@@ -278,7 +298,27 @@ def check_group(name: str, spec: GroupSpec, report: Report) -> None:
                          f"{name}: подъём купола {rise} px, нужен {lo}…{hi} "
                          f"({'ЧАША' if rise < 0 else 'купол'})")
 
-    check_material(name, images["c"], spec, report)
+    if spec.dark_zone:
+        check_dark_zone(name, images["c"], spec.dark_zone, report)
+
+    if spec.bronze_material:
+        check_material(name, images["c"], spec, report)
+
+
+def check_dark_zone(name: str, image: Image.Image,
+                    zone: tuple[int, int, int, int], report: Report) -> None:
+    """В зоне, куда ложится текст статуса, зелени быть не должно — иначе надпись не читается."""
+    rgba = image.convert("RGBA").crop(zone)
+    r, g, b, a = (band.tobytes() for band in rgba.split())
+    idx = [i for i in range(len(a)) if a[i] > 200]
+    if not idx:
+        report.check(True, f"{name}: зона статуса прозрачна — зелени нет")
+        return
+    green = sum(1 for i in idx if g[i] - r[i] > 18 and g[i] - b[i] > 18)
+    pct = 100.0 * green / len(idx)
+    report.check(pct <= 1.0,
+                 f"{name}: зелени под статусом {pct:.1f}% (допустимо ≤1%) — "
+                 f"«ПОДКЛЮЧЕНО» ложится на мозаику")
 
 
 def check_material(name: str, image: Image.Image, spec: GroupSpec, report: Report) -> None:
