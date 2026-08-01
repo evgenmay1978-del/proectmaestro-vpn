@@ -9,6 +9,13 @@ All run **on S1** (where the panel, telemetry, mirror and repo live).
 ## Mobile 4D assets and phone preview
 
 - `mobile-4d-assets.py` validates the 15 source PNGs, builds the committed three-light atlas set and generated Kotlin geometry.
+- `mobile-4d-art-check.py` — приёмка арт-чекпойнтов кита ДО переноса в `source/` и сборки атласа. Не рантайм: только читает PNG и печатает PASS/FAIL.
+  ```bash
+  python3 ops/mobile-4d-art-check.py --group arc
+  python3 ops/mobile-4d-art-check.py --selftest
+  ```
+  Валит приёмку по числу: холст, RGBA8, ICC/APNG, alpha bbox, совпадение альфы между `_l/_c/_r`, реальная разница света, остаток magenta-кея, подъём купола, тепло материала (R−G) и доля тёплого рельефа. ⛔ Подсчёт секторов — СПРАВОЧНЫЙ (строка `ИНФО`): у резьбы полупрозрачные края, и один файл при разных порогах даёт от 0 до 14 «интерьеров» там, где глазом видно шесть. Количество секторов проверяется глазами.
+  `--selftest` ломает картинки нарочно и требует, чтобы сторож это поймал — гейт, который ни разу не срабатывал, считается неработающим.
 - `mobile-4d-assets.py` refuses to run unless the toolchain is exactly Pillow 11.3.0 + libwebp 1.5.0 — the atlas is committed and `--check` has to be byte-stable. S1 ships Pillow 12.3.0, so run it from the pinned venv:
   ```bash
   /root/.venvs/maestro-mobile4d/bin/python ops/mobile-4d-assets.py
