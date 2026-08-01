@@ -72,25 +72,30 @@ class PhoneHomeProtocolOrderTest {
     fun sevenSectorsSitOnTheOwnerApprovedCentres() {
         val cells = arcSectorCells(7)
 
-        assertEquals(
-            listOf(39f, 91f, 143f, 195f, 247f, 299f, 351f),
-            cells.map { it.centerDp },
-        )
-        // Провис верха ячейки — парабола, снятая с самого арта: центр не проседает,
-        // край уходит вниз примерно на 12 dp. ⛔ Не путать с силуэтом дуги: он провисает
-        // на 39.8 dp, и по нему сектор уехал бы с резьбы на бортик.
-        assertEquals(0f, cells[3].sagDp, 0.01f)
-        assertEquals(11.7f, cells[0].sagDp, 0.3f)
-        assertEquals(cells[0].sagDp, cells[6].sagDp, 0.001f)
-        assertEquals(cells[1].sagDp, cells[5].sagDp, 0.001f)
+        // Центры совпадают со спекой владельца с точностью до 2 dp — это фактический замер арта.
+        val nominal = listOf(39f, 91f, 143f, 195f, 247f, 299f, 351f)
+        cells.forEachIndexed { i, cell ->
+            assertEquals(nominal[i], cell.centerDp, 2.5f)
+        }
+        // ⛔ А вот ШИРИНА со спекой не совпадает, и это ловушка: шаг 52 dp обещан, но реальные
+        // интерьеры 40…47 dp. Коробка 52 dp выезжала на резной разделитель, и «HYSTERIA2»,
+        // «NAIVEPROXY» и «АВТО» стояли криво. Проверяем, что берём замер, а не номинал.
+        cells.forEach { assertTrue("ячейка шире реального интерьера", it.widthDp <= 48f) }
+        assertEquals(40.1f, cells[0].widthDp, 0.2f)
+        assertEquals(40.7f, cells[6].widthDp, 0.2f)
+        assertTrue("крайние ячейки уже средних", cells[0].widthDp < cells[3].widthDp - 5f)
+        // Центральная ячейка ниже соседних: над ней замок.
+        assertTrue("центр ниже соседей", cells[3].topDp > cells[2].topDp)
+        assertTrue("центр ниже соседей", cells[3].topDp > cells[4].topDp)
     }
 
     @Test
     fun fewerProtocolsFillTheCentralCellsNotTheLeftEdge() {
         // Веер симметричен: сдвиг ряда влево оставил бы пустую резьбу сбоку, и это
         // читается как брак сборки, а не как «протоколов меньше».
-        assertEquals(listOf(143f, 195f, 247f), arcSectorCells(3).map { it.centerDp })
-        assertEquals(listOf(91f, 143f, 195f, 247f, 299f), arcSectorCells(5).map { it.centerDp })
+        assertEquals(listOf(141.7f, 195.6f, 248.2f), arcSectorCells(3).map { it.centerDp })
+        assertEquals(5, arcSectorCells(5).size)
+        assertEquals(88.3f, arcSectorCells(5).first().centerDp, 0.01f)
         assertEquals(emptyList<Float>(), arcSectorCells(0).map { it.centerDp })
         assertEquals(7, arcSectorCells(9).size)
     }

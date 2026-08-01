@@ -311,12 +311,13 @@ private fun Mobile4DSceneAndHero(
                 text = "MaestroVPN",
                 maxLines = 1,
                 autoSize = TextAutoSize.StepBased(
-                    minFontSize = 24.sp,
+                    minFontSize = 20.sp,
                     maxFontSize = TITLE_MAX_FONT_SIZE,
                     stepSize = 0.5.sp,
                 ),
                 style = androidx.compose.ui.text.TextStyle(
-                    color = PremiumGold,
+                    color = TITLE_GOLD,
+                    letterSpacing = TITLE_LETTER_SPACING,
                     fontFamily = PlayfairFamily,
                     fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.Center,
@@ -532,7 +533,16 @@ private fun Mobile4DLightSide.toAssetLight(): Mobile4DAssetLight = when (this) {
 }
 
 private val ADDITIVE_RELIEF_SUPPORTED = BlendMode.Plus.isSupported()
-private val TITLE_MAX_FONT_SIZE = 46.sp
+/**
+ * ⛔ Было 46 sp без разрядки — буквы получались на треть выше эталонных и почти касались краёв
+ * таблички. Замер по эталону: строка занимает ~242 dp при высоте глифов ~20 dp, то есть набрана
+ * НЕ крупным кеглем, а средним с большой разрядкой. Playfair 30 sp даёт 165 dp, недостающие
+ * ~77 dp добираются трекингом по девяти промежуткам.
+ */
+private val TITLE_MAX_FONT_SIZE = 30.sp
+private val TITLE_LETTER_SPACING = 8.sp
+/** Цвет титула эталона (186,170,137): мягче и теплее, чем `PremiumGold` (224,189,112). */
+private val TITLE_GOLD = Color(0xFFBAAA89)
 private val SHADOW_PASSES = listOf(
     ShadowPass(0.6f, 1.0f, 0.16f),
     ShadowPass(1.2f, 2.1f, 0.10f),

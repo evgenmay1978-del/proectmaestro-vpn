@@ -423,10 +423,10 @@ private fun ProtocolArc(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .absoluteOffset(
-                    x = (bounds.left + (cell.centerDp - ARC_CELL_WIDTH / 2f) * scale).dp,
-                    y = ((ARC_CELL_TOP + cell.sagDp) * scale - deckTop).dp,
+                    x = (bounds.left + (cell.centerDp - cell.widthDp / 2f) * scale).dp,
+                    y = (cell.topDp * scale - deckTop).dp,
                 )
-                .size(width = ARC_CELL_WIDTH * scale, height = ARC_CELL_HEIGHT * scale),
+                .size(width = cell.widthDp * scale, height = cell.heightDp * scale),
         ) {
             ProtocolSector(
                 label = homeProtocolSectorLabel(protocol),
@@ -448,8 +448,13 @@ private fun ProtocolArc(
     }
 }
 
-/** Одна ячейка резного веера: центр по горизонтали и провис верхней кромки. */
-internal data class ArcSectorCell(val centerDp: Float, val sagDp: Float)
+/** Одна ячейка резного веера: полностью измеренный интерьер, а не номинал из спеки. */
+internal data class ArcSectorCell(
+    val centerDp: Float,
+    val widthDp: Float,
+    val topDp: Float,
+    val heightDp: Float,
+)
 
 /**
  * Центры семи ячеек заданы владельцем 2026-08-01: 39, 91, 143, 195, 247, 299, 351 dp — шаг 52,
@@ -463,7 +468,7 @@ internal data class ArcSectorCell(val centerDp: Float, val sagDp: Float)
 internal fun arcSectorCells(count: Int): List<ArcSectorCell> {
     if (count <= 0) return emptyList()
     val all = ARC_SECTOR_CENTERS.indices.map { i ->
-        ArcSectorCell(ARC_SECTOR_CENTERS[i], ARC_CELL_TOPS[i] - ARC_CELL_TOP_MIN)
+        ArcSectorCell(ARC_SECTOR_CENTERS[i], ARC_CELL_WIDTHS[i], ARC_CELL_TOPS[i], ARC_CELL_HEIGHTS[i])
     }
     if (count >= all.size) return all
     val first = (all.size - count) / 2
@@ -742,19 +747,22 @@ private val StatusRed = Color(0xFFFF4040)
 private const val CONTACT_GAP = 10f
 private const val REFERENCE_WIDTH = 390f
 /** Центры ячеек резного веера, dp при ширине 390 (решение владельца 2026-08-01). */
-private val ARC_SECTOR_CENTERS = listOf(39f, 91f, 143f, 195f, 247f, 299f, 351f)
+private val ARC_SECTOR_CENTERS = listOf(37.8f, 88.3f, 141.7f, 195.6f, 248.2f, 301.4f, 352.4f)
 /**
- * Верх интерьера каждой ячейки, dp при ширине 390 — ЗАМЕРЕНО по `home_arc_c.png` от 01.08
- * (alpha>200, luma<200 в колонке центра ячейки), а не посчитано параболой.
+ * Интерьеры семи ячеек резного веера, dp при ширине 390 — ЗАМЕРЕНО по `home_arc_c.png` от 01.08
+ * (alpha>200, luma<210), а не взято из спеки и не посчитано формулой.
  *
- * ⛔ Параболой не описывается: центральная ячейка (195 dp) на 9 dp НИЖЕ соседних, потому что над
- * ней сидит замок. Формула увела бы подпись центрального сектора на резьбу.
+ * ⛔ ЛОВУШКА, из-за которой подписи «вылезали на дугу»: ячейки НЕ одинаковые и НЕ равны номиналу.
+ * Спека обещала шаг 52 dp, и я ставил коробку 52 dp — а настоящие интерьеры от 40.1 до 47.3 dp,
+ * то есть коробка была шире ячейки на 5…12 dp, и «HYSTERIA2», «NAIVEPROXY» и «АВТО» с иконкой
+ * заезжали на резной разделитель. Крайние ячейки уже средних на 7 dp, центральная ниже соседних
+ * на 9 dp (над ней замок), высота гуляет 67…84 dp.
+ *
+ * Центры при этом спеке соответствуют: расхождение не больше 2 dp.
  */
-private val ARC_CELL_TOPS = listOf(619.4f, 603.1f, 593.5f, 602.0f, 593.1f, 602.5f, 618.8f)
-private val ARC_CELL_TOP_MIN = ARC_CELL_TOPS.min()
-private val ARC_CELL_TOP = ARC_CELL_TOP_MIN
-private const val ARC_CELL_WIDTH = 52f
-private const val ARC_CELL_HEIGHT = 66f
+private val ARC_CELL_WIDTHS = listOf(40.1f, 47.0f, 45.7f, 47.3f, 45.7f, 46.4f, 40.7f)
+private val ARC_CELL_TOPS = listOf(619.7f, 603.6f, 593.7f, 602.0f, 593.1f, 602.9f, 619.4f)
+private val ARC_CELL_HEIGHTS = listOf(67.2f, 77.2f, 83.1f, 73.6f, 83.7f, 77.7f, 67.4f)
 private const val SELECTION_BAR_WIDTH = 22f
 /**
  * Три зоны действий нижней консоли, dp при ширине 390 — ЗАМЕРЕНО по `home_console_c.png` от 01.08

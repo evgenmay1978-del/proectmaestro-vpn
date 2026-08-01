@@ -318,12 +318,17 @@ B = {                               # PhoneHomeReferenceLayout: границы �
 CONTACT_GAP = 10.0                  # PhoneHomeControlDeck.CONTACT_GAP
 # Ячейки резного веера: центры заданы владельцем, провис снят с самого home_arc_c.png.
 # ⛔ Не путать с силуэтом дуги — он провисает на 39.8 dp, ячейки только на ~12.
-ARC_SECTOR_CENTERS = [39.0, 91.0, 143.0, 195.0, 247.0, 299.0, 351.0]
-ARC_CELL_TOP, ARC_CELL_W, ARC_CELL_H, ARC_SAG_K = 600.9, 52.0, 52.0, 0.00048
+# ⛔ Замер, а не номинал: интерьеры ячеек 40…47 dp, коробка 52 выезжала на разделитель.
+ARC_SECTOR_CENTERS = [37.8, 88.3, 141.7, 195.6, 248.2, 301.4, 352.4]
+ARC_CELL_WIDTHS = [40.1, 47.0, 45.7, 47.3, 45.7, 46.4, 40.7]
+ARC_CELL_TOPS = [619.7, 603.6, 593.7, 602.0, 593.1, 602.9, 619.4]
+ARC_CELL_HEIGHTS = [67.2, 77.2, 83.1, 73.6, 83.7, 77.7, 67.4]
 CONSOLE_SIDE_FRACTION, CONSOLE_SIDE_HEIGHT_FRACTION = 0.27, 0.77
 CONSOLE_DIAL_HEIGHT_FRACTION, CONSOLE_DIAL_WIDTH_FRACTION = 0.9, 0.21
 SELECTION_BAR_WIDTH = 22.0
-TITLE_SP = 46          # Mobile4DHome.TITLE_MAX_FONT_SIZE (46 sp = 253 dp в табличке 254 dp)
+TITLE_SP = 30          # Mobile4DHome.TITLE_MAX_FONT_SIZE
+TITLE_TRACK = 8.0      # Mobile4DHome.TITLE_LETTER_SPACING
+TITLE_COL = (186,170,137)  # Mobile4DHome.TITLE_GOLD — замер по эталону
 
 # Сектора дуги: тег → (подпись эталона, иконка). WDTT (`vk-turn`) на эталоне не нарисован,
 # но на телефоне это живой протокол (прячет его только ТВ), поэтому сектор ему выделен.
@@ -495,8 +500,16 @@ def screen_home(state='connected'):
 
     # ── титул: кодовый Playfair по измеренным границам эталона
     tl, tt, tr, tb = B['title']
-    txt(d, (((tl + tr) / 2) * S, ((tt + tb) / 2) * S), 'MaestroVPN',
-        F(PLAY, TITLE_SP), GOLD, anchor='mm')
+    # разрядка: PIL не умеет letterSpacing, рисуем по глифам с тем же шагом, что в Compose
+    tf = F(PLAY, TITLE_SP)
+    text = 'MaestroVPN'
+    adv = [tf.getlength(ch) for ch in text]
+    total = sum(adv) + TITLE_TRACK * S * (len(text) - 1)
+    tx = ((tl + tr) / 2) * S - total / 2
+    ty = ((tt + tb) / 2) * S
+    for ch, w in zip(text, adv):
+        d.text((tx, ty), ch, font=tf, fill=TITLE_COL, anchor='lm')
+        tx += w + TITLE_TRACK * S
 
     # ── статус + активный протокол (PhoneStatusRow, вне маски — маски больше нет вовсе)
     connected = state == 'connected'
@@ -541,19 +554,23 @@ def screen_home(state='connected'):
     # ── сектора протоколов: резьбу рисует АРТ (слой `arc` атласа), сюда идут только
     # подпись, иконка и отметка выбора. Своей рамки у сектора больше нет — два канта
     # друг на друге и были «двойным хозяином» зоны.
-    for (tag, name, icf), cx in zip(ARC_PROTOCOLS, ARC_SECTOR_CENTERS):
-        sag = ARC_SAG_K * (cx - 195.0) ** 2
-        x, y = cx - ARC_CELL_W / 2, ARC_CELL_TOP + sag
+    for i, (tag, name, icf) in enumerate(ARC_PROTOCOLS):
+        cx, cw = ARC_SECTOR_CENTERS[i], ARC_CELL_WIDTHS[i]
+        y, ch = ARC_CELL_TOPS[i], ARC_CELL_HEIGHTS[i]
+        x = cx - cw / 2
         sel = tag == 'vless'
-        cell = Image.new('RGBA', (round(ARC_CELL_W * S), round(ARC_CELL_H * S)), (0, 0, 0, 0))
+        cell = Image.new('RGBA', (round(cw * S), round(ch * S)), (0, 0, 0, 0))
         cd = ImageDraw.Draw(cell)
         tint = EMER if sel else GOLD
         icon = round(20 * S)
-        icf(cd, (cell.width - icon) / 2, 6 * S, icon, tint)
-        sp = autosize_centered(cell, cell.width / 2, 6 * S + icon + 4 * S, name,
+        # содержимое центрируется в ИЗМЕРЕННОМ интерьере, а не прижимается к верху коробки
+        block = icon + round(4 * S) + round(11 * S) + (round(5 * S) if sel else 0)
+        iy = (cell.height - block) / 2
+        icf(cd, (cell.width - icon) / 2, iy, icon, tint)
+        sp = autosize_centered(cell, cell.width / 2, iy + icon + 4 * S, name,
                                TXT if sel else GOLDM, cell.width - 6 * S, SANSB, 7, 11)
         if sel:
-            by = 6 * S + icon + 4 * S + sp * 1.15 * S + 3 * S
+            by = iy + icon + 4 * S + sp * 1.15 * S + 3 * S
             bw = SELECTION_BAR_WIDTH * S
             cd.rounded_rectangle(((cell.width - bw) / 2, by, (cell.width + bw) / 2, by + 2 * S),
                                  radius=S, fill=EMER)
@@ -721,8 +738,8 @@ txt(bd, (cb_w / 2, 34 * S), 'MaestroVPN Home — эталон владельца
 for i, line in enumerate([
         'Слева — 04-owner-selected-home-2026-07-31.jpg, приведённый к 390×844. Справа — симуляция по числам',
         'PhoneHomeReferenceLayout.kt и PhoneHomeControlDeck.kt на ПОДЛИННЫХ ассетах репозитория (центральный',
-        'свет 4D-атласа, nine-patch frame_button, Playfair). Это НЕ скриншот: глаз статичен, наклона нет.',
-        'Резной консоли и дуги эталона в 15 слоях атласа НЕТ — они нарисованы кодом, см. design-qa.md.']):
+        'свет 4D-атласа из 7 слоёв, Playfair). Это НЕ скриншот: глаз статичен, наклона и параллакса нет.',
+        'Резьба дуги и консоли — настоящий арт из атласа; код рисует только подписи, иконки и выбор.']):
     txt(bd, (cb_w / 2, (80 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
 for x, im, cap in ((CMARG, ref, 'Эталон владельца'),
                    (CMARG + W + CGAP, homes['connected'].convert('RGB'), 'Симуляция ПОДКЛЮЧЕНО')):
