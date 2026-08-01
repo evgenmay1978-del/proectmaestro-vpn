@@ -572,7 +572,7 @@ def screen_home(state='connected'):
 
     # ── три контакта: резьбу даёт слой `contacts` атласа, плитки идут без своей рамки,
     # границы плит — замер по home_contacts_c.png (ряд НЕ делится на три равные части).
-    CONTACT_PLATES = [(37.6, 128.7), (150.0, 239.6), (260.7, 350.3)]
+    CONTACT_PLATES = [(34.1, 134.5), (144.8, 245.2), (255.5, 355.7)]  # по альфе слоя
     CONTACT_TOP, CONTACT_BOTTOM = 496.0, 560.0
     CONTACT_ICONS = ['contact_telegram', 'contact_max', 'contact_whatsapp']
     for (px0, px1), name, icon_name in zip(CONTACT_PLATES,
