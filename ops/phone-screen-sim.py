@@ -574,17 +574,22 @@ def screen_home(state='connected'):
     # границы плит — замер по home_contacts_c.png (ряд НЕ делится на три равные части).
     CONTACT_PLATES = [(37.6, 128.7), (150.0, 239.6), (260.7, 350.3)]
     CONTACT_TOP, CONTACT_BOTTOM = 496.0, 560.0
-    for (px0, px1), (name, icf) in zip(CONTACT_PLATES,
-                                       [('Telegram', ic_send), ('МАКС', ic_forum), ('WhatsApp', ic_chat)]):
+    CONTACT_ICONS = ['contact_telegram', 'contact_max', 'contact_whatsapp']
+    for (px0, px1), name, icon_name in zip(CONTACT_PLATES,
+                                           ['Telegram', 'МАКС', 'WhatsApp'], CONTACT_ICONS):
         pw, ph_ = px1 - px0, CONTACT_BOTTOM - CONTACT_TOP
         cell = Image.new('RGBA', (round(pw * S), round(ph_ * S)), (0, 0, 0, 0))
-        cd = ImageDraw.Draw(cell)
-        icon = round(22 * S)
-        block = icon + round(6 * S) + round(12 * S)
-        iy = (cell.height - block) / 2
-        icf(cd, (cell.width - icon) / 2, iy, icon, GOLD)
-        autosize_centered(cell, cell.width / 2, iy + icon + 6 * S, name, TXT,
-                          cell.width - 8 * S, SANSB, 8, 12)
+        # ⛔ Фирменные иконки из кита владельца, а не Material-глифы: те давали плоский
+        # треугольник вместо самолётика и два квадратика вместо WhatsApp.
+        ic = Image.open(RES / f'{icon_name}.webp').convert('RGBA')
+        isz = round(26 * S)
+        ic = ic.resize((isz, isz), Image.LANCZOS)
+        block = isz + round(6 * S) + round(10.5 * S)
+        iy = round((cell.height - block) / 2)
+        cell.alpha_composite(ic, ((cell.width - isz) // 2, iy))
+        ic.close()
+        autosize_centered(cell, cell.width / 2, iy + isz + 6 * S, name, TXT,
+                          cell.width - 8 * S, SANSB, 8, 10.5)
         lay.alpha_composite(cell, (round(px0 * S), round(CONTACT_TOP * S)))
 
     # ── сектора протоколов: резьбу рисует АРТ (слой `arc` атласа), сюда идут только

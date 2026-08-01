@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,14 +33,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode2
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Smartphone
@@ -55,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -273,7 +273,9 @@ internal fun PhoneHomeControlDeck(
                     ) {
                         HomeTile(
                             label = contact.first,
-                            icon = contact.second,
+                            icon = null,
+                            iconRes = contact.second,
+                            labelMaxSp = CONTACT_LABEL_SP,
                             onClick = { open(contact.third) },
                             framed = false,
                             modifier = Modifier
@@ -588,10 +590,12 @@ private fun BottomConsole(
 @Composable
 private fun HomeTile(
     label: String,
-    icon: ImageVector,
+    icon: ImageVector?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     framed: Boolean = true,
+    @DrawableRes iconRes: Int? = null,
+    labelMaxSp: Float = 12f,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -605,7 +609,18 @@ private fun HomeTile(
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 8.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = PremiumGold, modifier = Modifier.size(22.dp))
+        // ⛔ Иконки контактов — НЕ Material-глифы. В ките владельца лежат фирменные
+        // `telegram/whatsapp/max`, а Material давал плоский треугольник вместо самолётика и
+        // два квадратика вместо WhatsApp: на резной плите это читалось как чужой набор.
+        if (iconRes != null) {
+            Image(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(26.dp),
+            )
+        } else if (icon != null) {
+            Icon(icon, contentDescription = null, tint = PremiumGold, modifier = Modifier.size(22.dp))
+        }
         Spacer(Modifier.height(6.dp))
         BasicText(
             text = label,
@@ -617,7 +632,7 @@ private fun HomeTile(
             maxLines = 2,
             autoSize = TextAutoSize.StepBased(
                 minFontSize = 8.sp,
-                maxFontSize = 12.sp,
+                maxFontSize = labelMaxSp.sp,
                 stepSize = 0.5.sp,
             ),
         )
@@ -751,10 +766,12 @@ private const val CONTACT_TOP = 496f
 private const val CONTACT_BOTTOM = 560f
 private val CONTACT_TAGS = listOf("telegram", "max", "whatsapp")
 private val CONTACTS = listOf(
-    Triple("Telegram", Icons.Filled.Send, "https://t.me/wapmixx"),
-    Triple("МАКС", Icons.Filled.Forum, "https://max.ru/"),
-    Triple("WhatsApp", Icons.Filled.Chat, "https://wa.me/79778116564"),
+    Triple("Telegram", R.drawable.contact_telegram, "https://t.me/wapmixx"),
+    Triple("МАКС", R.drawable.contact_max, "https://max.ru/"),
+    Triple("WhatsApp", R.drawable.contact_whatsapp, "https://wa.me/79778116564"),
 )
+/** Подпись контакта у эталона мельче остальных плиток. */
+private const val CONTACT_LABEL_SP = 10.5f
 private const val REFERENCE_WIDTH = 390f
 /** Центры ячеек резного веера, dp при ширине 390 (решение владельца 2026-08-01). */
 private val ARC_SECTOR_CENTERS = listOf(37.8f, 88.3f, 141.7f, 195.6f, 248.2f, 301.4f, 352.4f)
