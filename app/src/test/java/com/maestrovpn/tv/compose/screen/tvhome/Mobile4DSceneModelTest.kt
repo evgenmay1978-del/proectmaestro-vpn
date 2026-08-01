@@ -126,6 +126,10 @@ class Mobile4DSceneModelTest {
             mobile4DParallaxOffset(Mobile4DParallaxLayer.Vines, 1f, -1f),
         )
         assertEquals(
+            Mobile4DParallaxOffset(4f, -4f),
+            mobile4DParallaxOffset(Mobile4DParallaxLayer.Arc, 1f, -1f),
+        )
+        assertEquals(
             Mobile4DParallaxOffset(5f, -5f),
             mobile4DParallaxOffset(Mobile4DParallaxLayer.RingAndEye, 1f, -1f),
         )

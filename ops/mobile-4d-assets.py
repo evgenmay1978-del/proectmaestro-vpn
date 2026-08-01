@@ -36,7 +36,11 @@ TRANSACTION_NEXT_NAME = ".mobile_4d-next"
 TRANSACTION_BACKUP_NAME = ".mobile_4d-backup"
 MANIFEST_NEXT_NAME = ".Mobile4DGeneratedAssets.kt.next"
 MANIFEST_BACKUP_NAME = ".Mobile4DGeneratedAssets.kt.backup"
-LAYERS = ("wood", "frame", "cartouche", "vines", "ring")
+# ⛔ Порядок = z-order. `arc` добавлен 2026-08-01 ПОСЛЕ vines и ДО ring: резной веер
+# протоколов смонтирован на дерево поверх лоз, но с кольцом медальона по площади не
+# пересекается. Файлы приходят из `kit/` уже на мастер-холсте 2160×4670, поэтому идут
+# через тот же генератор, а не отдельным механизмом.
+LAYERS = ("wood", "frame", "cartouche", "vines", "arc", "ring")
 LIGHTS = ("l", "c", "r")
 LIGHT_ENUM = {"l": "Left", "c": "Centre", "r": "Right"}
 

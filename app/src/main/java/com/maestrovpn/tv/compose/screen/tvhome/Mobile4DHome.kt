@@ -182,6 +182,7 @@ private fun Mobile4DSceneAndHero(
             drawReliefWithShadow("frame", Mobile4DParallaxLayer.Frame, layout, tilt, lightMix, pages)
             drawReliefWithShadow("cartouche", Mobile4DParallaxLayer.Cartouche, layout, tilt, lightMix, pages)
             drawReliefWithShadow("vines", Mobile4DParallaxLayer.Vines, layout, tilt, lightMix, pages)
+            drawReliefWithShadow("arc", Mobile4DParallaxLayer.Arc, layout, tilt, lightMix, pages)
             drawReliefWithShadow(
                 "ring",
                 Mobile4DParallaxLayer.RingAndEye,

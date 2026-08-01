@@ -39,6 +39,9 @@ internal enum class Mobile4DParallaxLayer(val maximumDepthDp: Float) {
     Frame(1.5f),
     Cartouche(2.5f),
     Vines(3.5f),
+    // Резной веер протоколов смонтирован на дерево поверх лоз, но ближе к зрителю их
+    // и дальше медальона: он не должен «плавать» сильнее кольца при наклоне.
+    Arc(4f),
     RingAndEye(5f),
 }
 

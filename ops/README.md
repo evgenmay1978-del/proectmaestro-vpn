@@ -9,6 +9,11 @@ All run **on S1** (where the panel, telemetry, mirror and repo live).
 ## Mobile 4D assets and phone preview
 
 - `mobile-4d-assets.py` validates the 15 source PNGs, builds the committed three-light atlas set and generated Kotlin geometry.
+- `mobile-4d-assets.py` refuses to run unless the toolchain is exactly Pillow 11.3.0 + libwebp 1.5.0 — the atlas is committed and `--check` has to be byte-stable. S1 ships Pillow 12.3.0, so run it from the pinned venv:
+  ```bash
+  /root/.venvs/maestro-mobile4d/bin/python ops/mobile-4d-assets.py
+  ```
+  Create it once with `python3 -m venv /root/.venvs/maestro-mobile4d && /root/.venvs/maestro-mobile4d/bin/pip install pillow==11.3.0` (that wheel bundles libwebp 1.5.0 — verified 2026-08-01).
 - `phone-screen-sim.py` reconstructs Home from the committed centre-light atlas geometry, then draws the owner-reference control deck over it. It does not depend on a legacy flat Home image.
   - The `ring` layer is composited separately so it can carry the same `heroTranslationY` as the eye; wood/frame/cartouche/vines stay on the original crop.
   - Deck geometry is copied 1:1 from `PhoneHomeReferenceLayout.kt` and the constants of `PhoneHomeControlDeck.kt`. **Change the Kotlin, change this file — otherwise the simulation lies.**
