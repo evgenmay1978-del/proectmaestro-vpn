@@ -69,6 +69,33 @@ class PhoneHomeProtocolOrderTest {
     }
 
     @Test
+    fun sevenSectorsSitOnTheOwnerApprovedCentres() {
+        val cells = arcSectorCells(7)
+
+        assertEquals(
+            listOf(39f, 91f, 143f, 195f, 247f, 299f, 351f),
+            cells.map { it.centerDp },
+        )
+        // Провис верха ячейки — парабола, снятая с самого арта: центр не проседает,
+        // край уходит вниз примерно на 12 dp. ⛔ Не путать с силуэтом дуги: он провисает
+        // на 39.8 dp, и по нему сектор уехал бы с резьбы на бортик.
+        assertEquals(0f, cells[3].sagDp, 0.01f)
+        assertEquals(11.7f, cells[0].sagDp, 0.3f)
+        assertEquals(cells[0].sagDp, cells[6].sagDp, 0.001f)
+        assertEquals(cells[1].sagDp, cells[5].sagDp, 0.001f)
+    }
+
+    @Test
+    fun fewerProtocolsFillTheCentralCellsNotTheLeftEdge() {
+        // Веер симметричен: сдвиг ряда влево оставил бы пустую резьбу сбоку, и это
+        // читается как брак сборки, а не как «протоколов меньше».
+        assertEquals(listOf(143f, 195f, 247f), arcSectorCells(3).map { it.centerDp })
+        assertEquals(listOf(91f, 143f, 195f, 247f, 299f), arcSectorCells(5).map { it.centerDp })
+        assertEquals(emptyList<Float>(), arcSectorCells(0).map { it.centerDp })
+        assertEquals(7, arcSectorCells(9).size)
+    }
+
+    @Test
     fun webrtcIsOnlyALabelAndNeverReplacesTheRuntimeTag() {
         // Владелец подписал сектор `WEBRTC`, но рантайм-тег обязан остаться `olcrtc`:
         // по нему выбирается outbound и по нему же считается замок без кредов.

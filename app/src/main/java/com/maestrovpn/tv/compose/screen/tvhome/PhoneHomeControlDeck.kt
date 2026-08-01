@@ -406,24 +406,15 @@ private fun ProtocolArc(
     onSelectOlcrtc: () -> Unit,
 ) {
     if (protocols.isEmpty()) return
-    val full = bounds.right - bounds.left
-    // Эталон нарисован на шесть секторов, но WDTT (`vk-turn`) на телефоне тоже живой
-    // протокол — на ТВ он скрыт (TvEskizHome.kt filterNot), на телефоне нет. Поэтому
-    // боковой отступ дуги ужимается ровно настолько, чтобы седьмой сектор не увёл
-    // ширину плитки ниже 48 dp.
-    val inset = max(
-        min(ARC_SIDE_INSET, (full - protocols.size * (PremiumTouchTarget.value + ARC_TILE_GAP)) / 2f),
-        0f,
-    )
-    val usable = full - inset * 2f
-    val slot = usable / protocols.size
-    val tileWidth = max(slot - ARC_TILE_GAP, ARC_MIN_TILE_WIDTH)
-    val middle = (protocols.size - 1) / 2f
-    val span = max(middle, 0.5f)
+    val width = bounds.right - bounds.left
+    val scale = width / REFERENCE_WIDTH
+    // Ячейки резного веера НЕ равномерны и НЕ повторяют силуэт дуги: сам силуэт провисает
+    // к краям на 39.8 dp, а верх САМИХ ячеек — только на ~12 (замерено по home_arc_c.png).
+    // Ставить сектор по силуэту нельзя: подпись уедет с резьбы на бортик.
+    val cells = arcSectorCells(protocols.size)
 
     protocols.forEachIndexed { index, protocol ->
-        val distance = abs(index - middle) / span
-        val drop = ARC_DROP * distance * distance
+        val cell = cells.getOrNull(index) ?: return@forEachIndexed
         val locked = protocol == "olcrtc" && !hasOlcrtcCreds
         val isSelected = protocol == selected && !locked
         val provider = when {
@@ -435,10 +426,10 @@ private fun ProtocolArc(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .absoluteOffset(
-                    x = (bounds.left + inset + slot * index + (slot - tileWidth) / 2f).dp,
-                    y = (bounds.top - deckTop + ARC_TOP_INSET + drop).dp,
+                    x = (bounds.left + (cell.centerDp - ARC_CELL_WIDTH / 2f) * scale).dp,
+                    y = ((ARC_CELL_TOP + cell.sagDp) * scale - deckTop).dp,
                 )
-                .size(width = tileWidth, height = ARC_TILE_HEIGHT),
+                .size(width = ARC_CELL_WIDTH * scale, height = ARC_CELL_HEIGHT * scale),
         ) {
             ProtocolSector(
                 label = homeProtocolSectorLabel(protocol),
@@ -460,6 +451,29 @@ private fun ProtocolArc(
     }
 }
 
+/** Одна ячейка резного веера: центр по горизонтали и провис верхней кромки. */
+internal data class ArcSectorCell(val centerDp: Float, val sagDp: Float)
+
+/**
+ * Центры семи ячеек заданы владельцем 2026-08-01: 39, 91, 143, 195, 247, 299, 351 dp — шаг 52,
+ * симметрично относительно 195. Провис верха ячейки к краям — парабола с коэффициентом,
+ * снятым с самого арта (`k=0.00048`, край d=156 → 11.7 dp).
+ *
+ * Если бэкенд вернул меньше семи протоколов, занимаются ЦЕНТРАЛЬНЫЕ ячейки, а крайние остаются
+ * пустой резьбой: сдвигать ряд к левому краю нельзя — веер симметричен, и дыра сбоку читается
+ * как брак сборки.
+ */
+internal fun arcSectorCells(count: Int): List<ArcSectorCell> {
+    if (count <= 0) return emptyList()
+    val all = ARC_SECTOR_CENTERS.map { center ->
+        val distance = center - REFERENCE_WIDTH / 2f
+        ArcSectorCell(center, ARC_CELL_SAG_K * distance * distance)
+    }
+    if (count >= all.size) return all
+    val first = (all.size - count) / 2
+    return all.subList(first, first + count)
+}
+
 @Composable
 private fun ProtocolSector(
     label: String,
@@ -475,7 +489,10 @@ private fun ProtocolSector(
         verticalArrangement = Arrangement.Center,
         modifier = modifier
             .defaultMinSize(minWidth = PremiumTouchTarget, minHeight = PremiumTouchTarget)
-            .fantasyFrame(R.drawable.frame_button, selected)
+            // ⛔ Здесь стояла `fantasyFrame(frame_button)` — гладкий бронзовый кант ПОВЕРХ
+            // резной ячейки веера. Это второй хозяин одной области: два канта друг на друге.
+            // Рамку теперь рисует арт (`home_arc_*` в атласе), сектор даёт только подпись,
+            // иконку, отметку выбора и зону нажатия.
             .alpha(if (locked) 0.72f else 1f)
             .selectable(
                 selected = selected,
@@ -767,12 +784,13 @@ private const val SUPPORT_NOTE = "Если я не ответил на звон�
 /** 1:1 к прежней строке статуса: ОТКЛЮЧЕНО = красная точка и красный текст. */
 private val StatusRed = Color(0xFFFF4040)
 private const val CONTACT_GAP = 10f
-private const val ARC_SIDE_INSET = 15f
-private const val ARC_TILE_GAP = 4f
-private const val ARC_MIN_TILE_WIDTH = 40f
-private const val ARC_TOP_INSET = 21f
-private const val ARC_TILE_HEIGHT = 62f
-private const val ARC_DROP = 33f
+private const val REFERENCE_WIDTH = 390f
+/** Центры ячеек резного веера, dp при ширине 390 (решение владельца 2026-08-01). */
+private val ARC_SECTOR_CENTERS = listOf(39f, 91f, 143f, 195f, 247f, 299f, 351f)
+private const val ARC_CELL_TOP = 600.9f
+private const val ARC_CELL_WIDTH = 52f
+private const val ARC_CELL_HEIGHT = 52f
+private const val ARC_CELL_SAG_K = 0.00048f
 private const val SELECTION_BAR_WIDTH = 22f
 private const val CONSOLE_SIDE_FRACTION = 0.27f
 private const val CONSOLE_SIDE_HEIGHT_FRACTION = 0.77f

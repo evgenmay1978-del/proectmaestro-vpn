@@ -108,8 +108,10 @@ def centre_4d_scene():
     for match in FRAGMENT_RE.finditer(MOBILE_4D_MANIFEST.read_text(encoding='utf-8')):
         layer, z_order, page_index, page_path, *coords = match.groups()
         fragments.append((int(z_order), int(page_index), page_path, layer, *map(int, coords)))
-    if len(fragments) != 77:
-        raise ValueError(f'Expected 77 centre-light 4D fragments, found {len(fragments)}')
+    # 83 = 77 прежних + 6 фрагментов слоя `arc`, добавленного 2026-08-01. Число сверяется
+    # намеренно: молчаливое расхождение манифеста и симуляции = симуляция начнёт врать.
+    if len(fragments) != 83:
+        raise ValueError(f'Expected 83 centre-light 4D fragments, found {len(fragments)}')
 
     scene = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
     current_path = None
@@ -305,8 +307,10 @@ B = {                               # PhoneHomeReferenceLayout: границы �
     'bottomConsole': (8.0, 735.0, 382.0, 839.0),
 }
 CONTACT_GAP = 10.0                  # PhoneHomeControlDeck.CONTACT_GAP
-ARC_SIDE_INSET, ARC_TILE_GAP = 15.0, 4.0
-ARC_TOP_INSET, ARC_TILE_HEIGHT, ARC_DROP = 21.0, 62.0, 33.0
+# Ячейки резного веера: центры заданы владельцем, провис снят с самого home_arc_c.png.
+# ⛔ Не путать с силуэтом дуги — он провисает на 39.8 dp, ячейки только на ~12.
+ARC_SECTOR_CENTERS = [39.0, 91.0, 143.0, 195.0, 247.0, 299.0, 351.0]
+ARC_CELL_TOP, ARC_CELL_W, ARC_CELL_H, ARC_SAG_K = 600.9, 52.0, 52.0, 0.00048
 CONSOLE_SIDE_FRACTION, CONSOLE_SIDE_HEIGHT_FRACTION = 0.27, 0.77
 CONSOLE_DIAL_HEIGHT_FRACTION, CONSOLE_DIAL_WIDTH_FRACTION = 0.9, 0.21
 SELECTION_BAR_WIDTH = 22.0
@@ -331,8 +335,10 @@ def centre_4d_layers():
     for match in FRAGMENT_RE.finditer(MOBILE_4D_MANIFEST.read_text(encoding='utf-8')):
         layer, z_order, page_index, page_path, *coords = match.groups()
         fragments.append((int(z_order), int(page_index), page_path, layer, *map(int, coords)))
-    if len(fragments) != 77:
-        raise ValueError(f'Expected 77 centre-light 4D fragments, found {len(fragments)}')
+    # 83 = 77 прежних + 6 фрагментов слоя `arc`, добавленного 2026-08-01. Число сверяется
+    # намеренно: молчаливое расхождение манифеста и симуляции = симуляция начнёт врать.
+    if len(fragments) != 83:
+        raise ValueError(f'Expected 83 centre-light 4D fragments, found {len(fragments)}')
 
     base = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
     ring = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
@@ -522,22 +528,28 @@ def screen_home(state='connected'):
         tile(lay, (cl + i * (cw + CONTACT_GAP)) * S, ct * S, cw * S, (cb - ct) * S,
              name, icf, icon_sp=22, label_min=8, label_max=12)
 
-    # ── дуга протоколов: статический сдвиг по параболе, без вращения и снэпа
-    al, at, ar, ab = B['protocolArc']
-    n = len(ARC_PROTOCOLS)
-    full = ar - al
-    inset = max(min(ARC_SIDE_INSET, (full - n * (MIN_TOUCH + ARC_TILE_GAP)) / 2), 0.0)
-    slot = (full - inset * 2) / n
-    tile_w = max(slot - ARC_TILE_GAP, 40.0)
-    middle = (n - 1) / 2
-    for i, (tag, name, icf) in enumerate(ARC_PROTOCOLS):
-        dist = abs(i - middle) / max(middle, 0.5)
-        drop = ARC_DROP * dist * dist
-        x = al + inset + slot * i + (slot - tile_w) / 2
-        y = at + ARC_TOP_INSET + drop
-        tile(lay, x * S, y * S, tile_w * S, ARC_TILE_HEIGHT * S, name, icf,
-             selected=(tag == 'vless'), locked=(tag == 'olcrtc'),
-             icon_sp=20, label_min=7, label_max=11, gap=4, bar=True)
+    # ── сектора протоколов: резьбу рисует АРТ (слой `arc` атласа), сюда идут только
+    # подпись, иконка и отметка выбора. Своей рамки у сектора больше нет — два канта
+    # друг на друге и были «двойным хозяином» зоны.
+    for (tag, name, icf), cx in zip(ARC_PROTOCOLS, ARC_SECTOR_CENTERS):
+        sag = ARC_SAG_K * (cx - 195.0) ** 2
+        x, y = cx - ARC_CELL_W / 2, ARC_CELL_TOP + sag
+        sel = tag == 'vless'
+        cell = Image.new('RGBA', (round(ARC_CELL_W * S), round(ARC_CELL_H * S)), (0, 0, 0, 0))
+        cd = ImageDraw.Draw(cell)
+        tint = EMER if sel else GOLD
+        icon = round(20 * S)
+        icf(cd, (cell.width - icon) / 2, 6 * S, icon, tint)
+        sp = autosize_centered(cell, cell.width / 2, 6 * S + icon + 4 * S, name,
+                               TXT if sel else GOLDM, cell.width - 6 * S, SANSB, 7, 11)
+        if sel:
+            by = 6 * S + icon + 4 * S + sp * 1.15 * S + 3 * S
+            bw = SELECTION_BAR_WIDTH * S
+            cd.rounded_rectangle(((cell.width - bw) / 2, by, (cell.width + bw) / 2, by + 2 * S),
+                                 radius=S, fill=EMER)
+        if tag == 'olcrtc':
+            cell.putalpha(cell.getchannel('A').point(lambda a: round(a * .72)))
+        lay.alpha_composite(cell, (round(x * S), round(y * S)))
 
     # ── купить подписку
     bl, bt, br, bb = B['buy']
