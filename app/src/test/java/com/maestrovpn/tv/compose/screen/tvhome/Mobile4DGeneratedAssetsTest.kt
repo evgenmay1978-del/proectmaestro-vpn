@@ -10,8 +10,13 @@ class Mobile4DGeneratedAssetsTest {
         assertEquals(2160, Mobile4DGeneratedAssets.masterWidth)
         assertEquals(4670, Mobile4DGeneratedAssets.masterHeight)
         assertEquals(
-            listOf("wood", "frame", "cartouche", "vines", "ring"),
+            listOf("wood", "console", "contacts", "frame", "cartouche", "vines", "arc", "ring"),
             Mobile4DGeneratedAssets.layerZOrder,
+        )
+        assertEquals(
+            "runtime Home compositor must draw every generated layer exactly once",
+            Mobile4DGeneratedAssets.layerZOrder,
+            mobile4DHomeLayerOrder,
         )
         assertEquals(
             Mobile4DGeneratedAssets.layerZOrder.toSet(),

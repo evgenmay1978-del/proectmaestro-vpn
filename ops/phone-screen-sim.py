@@ -48,10 +48,32 @@ OUT = str(OUTDIR / 'phone-screens.png')
 S = 2  # супер-семплинг: работаем в 2x от dp
 
 PLAY = str(ROOT / 'app/src/main/res/font/playfair_display.ttf')
-SANS = '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'
-SANSB = '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf'
-DEJA = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-DEJAB = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+
+def existing_font(*candidates):
+    """Keep S1 output unchanged, but allow the same smoke test to run on Windows Codex."""
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+    raise OSError(f'none of the required fonts exists: {candidates!r}')
+
+
+windows_fonts = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts'
+SANS = existing_font(
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+    windows_fonts / 'arial.ttf',
+)
+SANSB = existing_font(
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    windows_fonts / 'arialbd.ttf',
+)
+DEJA = existing_font(
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    windows_fonts / 'segoeui.ttf',
+)
+DEJAB = existing_font(
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    windows_fonts / 'segoeuib.ttf',
+)
 MASTER_4D_SIZE = (2160, 4670)
 FRAGMENT_RE = re.compile(
     r'Mobile4DAssetFragment\("[^"]+", "([^"]+)", (\d+), \d+, \d+, '
@@ -554,13 +576,17 @@ def screen_home(state='connected'):
     scy = (st_ + sb) / 2 * S
     circle(d, dot_x + 5.5 * S, scy, 5.5 * S, col)
     txt(d, (dot_x + 20 * S, scy), label, f_st, col, anchor='lm')
-    proto = 'Подключён: VLESS' if connected else 'Отключён: VLESS'
+    proto = {
+        'connected': 'Подключён: VLESS',
+        'connecting': 'Подключение: VLESS',
+        'disconnected': 'Отключён: VLESS',
+    }[state]
     txt(d, (W / 2, 396 * S), proto, f_pr, ORANGE, anchor='mm')
 
     # ── телефон поддержки (орнамент 38 dp, цель нажатия 48 dp)
     pl, pt, pr_, pb = B['phone']
-    ph_h = max(pb - pt, MIN_TOUCH)
-    pill(lay, pl * S, ((pt + pb) / 2 - ph_h / 2) * S, (pr_ - pl) * S, ph_h * S,
+    ph_h = pb - pt
+    pill(lay, pl * S, pt * S, (pr_ - pl) * S, ph_h * S,
          '8 977 811-65-64', ic_phone, EMER)
 
     # ── пояснение поддержки
@@ -621,8 +647,8 @@ def screen_home(state='connected'):
 
     # ── купить подписку
     bl, bt, br, bb = B['buy']
-    bh = max(bb - bt, MIN_TOUCH)
-    pill(lay, bl * S, ((bt + bb) / 2 - bh / 2) * S, (br - bl) * S, bh * S,
+    bh = bb - bt
+    pill(lay, bl * S, bt * S, (br - bl) * S, bh * S,
          'Купить подписку', ic_cart, GOLD)
 
     # ── нижняя консоль

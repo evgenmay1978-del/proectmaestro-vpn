@@ -57,6 +57,23 @@ import com.maestrovpn.tv.compose.premium.PremiumWalnut
 import com.maestrovpn.tv.compose.theme.PlayfairFamily
 import kotlin.math.roundToInt
 
+internal data class Mobile4DHomeReliefLayer(
+    val name: String,
+    val parallax: Mobile4DParallaxLayer,
+)
+
+/** Единственный runtime-план слоёв Home; тест сверяет его с generated manifest. */
+internal val mobile4DHomeReliefLayers = listOf(
+    Mobile4DHomeReliefLayer("console", Mobile4DParallaxLayer.Console),
+    Mobile4DHomeReliefLayer("contacts", Mobile4DParallaxLayer.Console),
+    Mobile4DHomeReliefLayer("frame", Mobile4DParallaxLayer.Frame),
+    Mobile4DHomeReliefLayer("cartouche", Mobile4DParallaxLayer.Cartouche),
+    Mobile4DHomeReliefLayer("vines", Mobile4DParallaxLayer.Vines),
+    Mobile4DHomeReliefLayer("arc", Mobile4DParallaxLayer.Arc),
+)
+internal val mobile4DHomeLayerOrder =
+    listOf("wood") + mobile4DHomeReliefLayers.map(Mobile4DHomeReliefLayer::name) + "ring"
+
 /** Clean phone-only compositor. It never draws the obsolete flattened mobile scene. */
 @Composable
 internal fun Mobile4DHome(
@@ -181,11 +198,9 @@ private fun Mobile4DSceneAndHero(
                 pages = pages,
                 opaque = true,
             )
-            drawReliefWithShadow("console", Mobile4DParallaxLayer.Console, layout, tilt, lightMix, pages)
-            drawReliefWithShadow("frame", Mobile4DParallaxLayer.Frame, layout, tilt, lightMix, pages)
-            drawReliefWithShadow("cartouche", Mobile4DParallaxLayer.Cartouche, layout, tilt, lightMix, pages)
-            drawReliefWithShadow("vines", Mobile4DParallaxLayer.Vines, layout, tilt, lightMix, pages)
-            drawReliefWithShadow("arc", Mobile4DParallaxLayer.Arc, layout, tilt, lightMix, pages)
+            mobile4DHomeReliefLayers.forEach { layer ->
+                drawReliefWithShadow(layer.name, layer.parallax, layout, tilt, lightMix, pages)
+            }
             drawReliefWithShadow(
                 "ring",
                 Mobile4DParallaxLayer.RingAndEye,

@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
+import statistics
 import sys
 from collections import deque
 from dataclasses import dataclass
@@ -62,8 +64,12 @@ class GroupSpec:
     cell_min_height: int = 0
     #: подъём верхней кромки в центре относительно краёв, px
     dome_rise: tuple[int, int] | None = None
-    #: область, которая обязана остаться тёмной (без зелени) — master x0,y0,x1,y1
-    dark_zone: tuple[int, int, int, int] | None = None
+    #: контрольные строки непрерывной мозаики: (master y, min green px, min x-span)
+    mosaic_rows: tuple[tuple[int, int, int], ...] = ()
+    #: нижняя и соседняя зоны для сравнения weighted luma только зелёных пикселей
+    mosaic_luma_zones: tuple[tuple[int, int, int, int], tuple[int, int, int, int]] | None = None
+    mosaic_luma_radius: tuple[float, float] | None = None
+    mosaic_luma_ratio: tuple[float, float] | None = None
     #: мерить ли тёплую бронзу. ⛔ У кольца НЕТ: его диск — изумрудная мозаика, и критерий
     #: «R−G = +8…+12» там обязан не выполняться. Сторож, который кричит всегда, перестают читать.
     bronze_material: bool = True
@@ -83,9 +89,13 @@ GROUPS = {
         name="ring",
         alpha_bbox=(156, 827, 2005, 2676),
         bronze_material=False,
-        # ⛔ Мозаика не должна доходить до низа диска: туда встаёт статус «ПОДКЛЮЧЕНО».
-        # На эталоне зелень кончается на 350 dp, ниже тёмное дерево.
-        dark_zone=(698, 2329, 1473, 2567),
+        # Решение владельца 01.08: деревянная хорда выглядит наложенной плашкой. Мозаика снова
+        # идёт до нижней бронзы. Донор 03a672a даёт 417/369 зелёных px на этих срезах,
+        # дефектный 6447a9a — 0/0.
+        mosaic_rows=((2250, 350, 700), (2300, 300, 550)),
+        mosaic_luma_zones=((584, 2163, 1578, 2360), (584, 2030, 1578, 2163)),
+        mosaic_luma_radius=(490.0, 815.0),
+        mosaic_luma_ratio=(0.95, 1.10),
     ),
     "contacts": GroupSpec(
         name="contacts",
@@ -298,27 +308,60 @@ def check_group(name: str, spec: GroupSpec, report: Report) -> None:
                          f"{name}: подъём купола {rise} px, нужен {lo}…{hi} "
                          f"({'ЧАША' if rise < 0 else 'купол'})")
 
-    if spec.dark_zone:
-        check_dark_zone(name, images["c"], spec.dark_zone, report)
+    if spec.mosaic_rows:
+        check_mosaic_continuity(name, images["c"], spec, report)
 
     if spec.bronze_material:
         check_material(name, images["c"], spec, report)
 
 
-def check_dark_zone(name: str, image: Image.Image,
-                    zone: tuple[int, int, int, int], report: Report) -> None:
-    """В зоне, куда ложится текст статуса, зелени быть не должно — иначе надпись не читается."""
-    rgba = image.convert("RGBA").crop(zone)
-    r, g, b, a = (band.tobytes() for band in rgba.split())
-    idx = [i for i in range(len(a)) if a[i] > 200]
-    if not idx:
-        report.check(True, f"{name}: зона статуса прозрачна — зелени нет")
-        return
-    green = sum(1 for i in idx if g[i] - r[i] > 18 and g[i] - b[i] > 18)
-    pct = 100.0 * green / len(idx)
-    report.check(pct <= 1.0,
-                 f"{name}: зелени под статусом {pct:.1f}% (допустимо ≤1%) — "
-                 f"«ПОДКЛЮЧЕНО» ложится на мозаику")
+def _is_strong_green(pixel: tuple[int, int, int, int]) -> bool:
+    r, g, b, a = pixel
+    return a > 200 and g - r > 18 and g - b > 18
+
+
+def check_mosaic_continuity(name: str, image: Image.Image,
+                            spec: GroupSpec, report: Report) -> None:
+    """Деревянная хорда не должна обрывать мозаику до нижней бронзы."""
+    rgba = image.convert("RGBA")
+    x0, _, x1, _ = spec.alpha_bbox
+    for y, minimum_green, minimum_span in spec.mosaic_rows:
+        green_x = [x for x in range(x0, x1) if _is_strong_green(rgba.getpixel((x, y)))]
+        span = 0 if not green_x else green_x[-1] - green_x[0] + 1
+        report.check(
+            len(green_x) >= minimum_green and span >= minimum_span,
+            f"{name}: мозаика на y={y}: {len(green_x)} зелёных px, span {span}; "
+            f"нужно ≥{minimum_green} и ≥{minimum_span} — деревянная хорда запрещена",
+        )
+
+    if spec.mosaic_luma_zones and spec.mosaic_luma_radius and spec.mosaic_luma_ratio:
+        def zone_luma(zone: tuple[int, int, int, int]) -> list[float]:
+            values: list[float] = []
+            x0, y0, x1, y1 = zone
+            radius_min, radius_max = spec.mosaic_luma_radius
+            for y in range(y0, y1):
+                for x in range(x0, x1):
+                    pixel = rgba.getpixel((x, y))
+                    radius = math.hypot(x - 1080.0, y - 1751.0)
+                    if radius_min <= radius <= radius_max and _is_strong_green(pixel):
+                        r, g, b, _ = pixel
+                        values.append(0.2126 * r + 0.7152 * g + 0.0722 * b)
+            return values
+
+        lower = zone_luma(spec.mosaic_luma_zones[0])
+        adjacent = zone_luma(spec.mosaic_luma_zones[1])
+        if not lower or not adjacent:
+            report.check(False, f"{name}: не удалось измерить яркость нижней мозаики")
+        else:
+            lower_median = statistics.median(lower)
+            adjacent_median = statistics.median(adjacent)
+            ratio = lower_median / adjacent_median
+            lo, hi = spec.mosaic_luma_ratio
+            report.check(
+                lo <= ratio <= hi,
+                f"{name}: яркость нижней/соседней мозаики {ratio:.3f} "
+                f"({lower_median:.2f}/{adjacent_median:.2f}), нужно {lo:.2f}…{hi:.2f}",
+            )
 
 
 def check_material(name: str, image: Image.Image, spec: GroupSpec, report: Report) -> None:
@@ -396,6 +439,18 @@ def selftest() -> int:
     )
     print(f"  {'PASS' if crown_excluded else 'FAIL'}  guard excludes permitted crown from dome measurement")
     if not crown_excluded:
+        failures += 1
+
+    ring_cap = Image.new("RGBA", (MASTER_WIDTH, MASTER_HEIGHT), (0, 0, 0, 0))
+    ring_draw = ImageDraw.Draw(ring_cap)
+    ring_draw.rectangle((156, 827, 2004, 2675), fill=(12, 54, 20, 255))
+    # Заведомый старый дефект: тёмное дерево отсекает низ мозаики.
+    ring_draw.rectangle((156, 2230, 2004, 2566), fill=(22, 15, 10, 255))
+    ring_report = Report()
+    check_mosaic_continuity("ring", ring_cap, GROUPS["ring"], ring_report)
+    cap_caught = any(not ok and "деревянная хорда" in text for ok, text in ring_report.rows)
+    print(f"  {'PASS' if cap_caught else 'FAIL'}  сторож ловит деревянную хорду кольца")
+    if not cap_caught:
         failures += 1
 
     print()

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -213,7 +214,7 @@ internal fun PhoneHomeControlDeck(
                     }
                 }
 
-                val protocolLine = homeActiveProtocolLine(connected, activeProtocol, selected)
+                val protocolLine = homeActiveProtocolLine(connected, connecting, activeProtocol, selected)
                 if (protocolLine != null) {
                     DeckSection(layout.activeProtocol.acrossViewport(deckWidth), deckTop) {
                         Text(
@@ -232,9 +233,10 @@ internal fun PhoneHomeControlDeck(
                 }
 
                 DeckSection(layout.phone, deckTop, layout.minimumInteractiveHeight) {
-                    MobilePremiumButton(
+                    ReferenceHomeButton(
                         label = SUPPORT_PHONE_LABEL,
                         onClick = { open("tel:$SUPPORT_PHONE_URI") },
+                        visualHeight = homeButtonVisualHeight(layout.phone),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("home-action-phone"),
@@ -255,32 +257,31 @@ internal fun PhoneHomeControlDeck(
                 }
 
                 // Резьба плит теперь приходит слоем `contacts` атласа, поэтому плитки идут без
-                // своей рамки, а границы взяты ЗАМЕРОМ по `home_contacts_c.png`, а не делением
-                // ряда на три равные части: интерьеры 91.2 / 89.6 / 89.6 dp и зазоры неравные.
-                CONTACT_PLATES.forEachIndexed { index, plate ->
-                    val contact = CONTACTS[index]
+                // своей рамки, а границы взяты по АЛЬФЕ `home_contacts_c.png`, а не делением
+                // ряда на три равные части: плиты 100.4 / 100.4 / 100.2 dp и зазоры неравные.
+                homeContactSpecs.forEach { contact ->
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .absoluteOffset(
-                                x = (plate[0] * contactScale).dp,
-                                y = (CONTACT_TOP * contactScale - deckTop).dp,
+                                x = (contact.leftDp * contactScale).dp,
+                                y = (HOME_CONTACT_TOP_DP * contactScale - deckTop).dp,
                             )
                             .size(
-                                width = (plate[1] - plate[0]) * contactScale,
-                                height = (CONTACT_BOTTOM - CONTACT_TOP) * contactScale,
+                                width = (contact.rightDp - contact.leftDp) * contactScale,
+                                height = (HOME_CONTACT_BOTTOM_DP - HOME_CONTACT_TOP_DP) * contactScale,
                             ),
                     ) {
                         HomeTile(
-                            label = contact.first,
+                            label = contact.label,
                             icon = null,
-                            iconRes = contact.second,
-                            labelMaxSp = CONTACT_LABEL_SP,
-                            onClick = { open(contact.third) },
+                            iconRes = contact.iconRes,
+                            labelMaxSp = HOME_CONTACT_LABEL_SP,
+                            onClick = { open(contact.uri) },
                             framed = false,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .testTag("home-contact-${CONTACT_TAGS[index]}"),
+                                .testTag("home-contact-${contact.tag}"),
                         )
                     }
                 }
@@ -297,9 +298,10 @@ internal fun PhoneHomeControlDeck(
                 )
 
                 DeckSection(layout.buy, deckTop, layout.minimumInteractiveHeight) {
-                    MobilePremiumButton(
+                    ReferenceHomeButton(
                         label = "Купить подписку",
                         onClick = onBuy,
+                        visualHeight = homeButtonVisualHeight(layout.buy),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("home-action-buy"),
@@ -357,6 +359,54 @@ private fun DeckSection(
 private fun Modifier.size(width: Float, height: Float): Modifier = size(width.dp, height.dp)
 
 /**
+ * Кнопка первого экрана: hit target остаётся 48 dp, но резная рамка рисуется строго в
+ * измеренной высоте эталона и не наезжает на соседние строки.
+ */
+@Composable
+private fun ReferenceHomeButton(
+    label: String,
+    onClick: () -> Unit,
+    visualHeight: Float,
+    modifier: Modifier = Modifier,
+    leadingIcon: (@Composable () -> Unit)? = null,
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .defaultMinSize(minWidth = PremiumTouchTarget, minHeight = PremiumTouchTarget)
+            .clickable(
+                role = Role.Button,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(visualHeight.dp)
+                .fantasyFrame(R.drawable.frame_button)
+                .padding(horizontal = 18.dp, vertical = 4.dp),
+        ) {
+            if (leadingIcon != null) {
+                leadingIcon()
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(
+                text = label,
+                color = PremiumText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
  * Тот же вертикальный диапазон, но на всю ширину вьюпорта. Прямоугольники статуса и
  * активного протокола в эталоне описывают ЭКСТЕНТ ТЕКСТА (137 и 140 dp), а не колонку:
  * если положить текст ровно в них, «Отключён: NaiveProxy • авто» перенесётся.
@@ -371,15 +421,23 @@ private fun PhoneHomeReferenceBounds.acrossViewport(width: Float): PhoneHomeRefe
  */
 internal fun homeActiveProtocolLine(
     connected: Boolean,
+    connecting: Boolean,
     activeProtocol: String?,
     selected: String?,
 ): String? {
     val main = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
     if (main.isNullOrBlank()) return null
-    val prefix = if (connected) "Подключён" else "Отключён"
+    val prefix = when {
+        connected -> "Подключён"
+        connecting -> "Подключение"
+        else -> "Отключён"
+    }
     val viaAuto = selected == "auto" && main != "auto"
     return if (viaAuto) "$prefix: ${protocolLabel(main)}  •  авто" else "$prefix: ${protocolLabel(main)}"
 }
+
+internal fun homeButtonVisualHeight(bounds: PhoneHomeReferenceBounds): Float =
+    bounds.bottom - bounds.top
 
 /**
  * Шесть протоколов по дуге. Дуга — СТАТИЧЕСКИЙ вертикальный сдвиг сектора по параболе от
@@ -602,9 +660,8 @@ private fun HomeTile(
         verticalArrangement = Arrangement.Center,
         modifier = modifier
             .defaultMinSize(minWidth = PremiumTouchTarget, minHeight = PremiumTouchTarget)
-            // ⛔ `framed = false` для зон нижней консоли: там резьбу даёт слой `console` атласа,
-            // и своя рамка легла бы вторым кантом поверх первого. Ряд контактов рамку пока
-            // сохраняет — своего арта под ним ещё нет.
+            // ⛔ `framed = false` для нижней консоли и контактов: резьбу дают atlas-слои
+            // `console`/`contacts`, и своя рамка легла бы вторым кантом поверх первой.
             .then(if (framed) Modifier.fantasyFrame(R.drawable.frame_button) else Modifier)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 8.dp),
@@ -616,7 +673,7 @@ private fun HomeTile(
             Image(
                 painter = painterResource(iconRes),
                 contentDescription = null,
-                modifier = Modifier.size(26.dp),
+                modifier = Modifier.size(HOME_CONTACT_ICON_DP.dp),
             )
         } else if (icon != null) {
             Icon(icon, contentDescription = null, tint = PremiumGold, modifier = Modifier.size(22.dp))
@@ -759,21 +816,39 @@ private val StatusRed = Color(0xFFFF4040)
  * правее её настоящего левого края, и подпись «Telegram» уходила на 1.1 dp влево от центра плиты.
  * ⛔ Ряд НЕ делится на три равные части: плиты 100.4 / 100.4 / 100.2 dp, зазоры неравные.
  */
-private val CONTACT_PLATES = listOf(
-    listOf(34.1f, 134.5f),
-    listOf(144.8f, 245.2f),
-    listOf(255.5f, 355.7f),
+internal data class HomeContactSpec(
+    val label: String,
+    @DrawableRes val iconRes: Int,
+    val uri: String,
+    val tag: String,
+    val leftDp: Float,
+    val rightDp: Float,
 )
-private const val CONTACT_TOP = 496f
-private const val CONTACT_BOTTOM = 560f
-private val CONTACT_TAGS = listOf("telegram", "max", "whatsapp")
-private val CONTACTS = listOf(
-    Triple("Telegram", R.drawable.contact_telegram, "https://t.me/wapmixx"),
-    Triple("МАКС", R.drawable.contact_max, "https://max.ru/"),
-    Triple("WhatsApp", R.drawable.contact_whatsapp, "https://wa.me/79778116564"),
+
+internal val homeContactSpecs = listOf(
+    HomeContactSpec(
+        "Telegram",
+        R.drawable.contact_telegram,
+        "https://t.me/wapmixx",
+        "telegram",
+        34.1f,
+        134.5f,
+    ),
+    HomeContactSpec("МАКС", R.drawable.contact_max, "https://max.ru/", "max", 144.8f, 245.2f),
+    HomeContactSpec(
+        "WhatsApp",
+        R.drawable.contact_whatsapp,
+        "https://wa.me/79778116564",
+        "whatsapp",
+        255.5f,
+        355.7f,
+    ),
 )
+internal const val HOME_CONTACT_TOP_DP = 496f
+internal const val HOME_CONTACT_BOTTOM_DP = 560f
+internal const val HOME_CONTACT_ICON_DP = 26f
 /** Подпись контакта у эталона мельче остальных плиток. */
-private const val CONTACT_LABEL_SP = 10.5f
+internal const val HOME_CONTACT_LABEL_SP = 10.5f
 private const val REFERENCE_WIDTH = 390f
 /** Центры ячеек резного веера, dp при ширине 390 (решение владельца 2026-08-01). */
 private val ARC_SECTOR_CENTERS = listOf(37.8f, 88.3f, 141.7f, 195.6f, 248.2f, 301.4f, 352.4f)
