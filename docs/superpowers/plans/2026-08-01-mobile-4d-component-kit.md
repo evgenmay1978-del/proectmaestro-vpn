@@ -1,4 +1,11 @@
-# Mobile 4D Component Kit Implementation Plan
+﻿# Mobile 4D Component Kit Implementation Plan
+
+> **Исправление 01.08.2026:** шаги Task 2 для `home_arc_l/c/r` как трёх
+> позиционных частей отменены. Эти имена обозначают три направления света одной
+> полноширинной дуги; актуальный план —
+> `docs/superpowers/plans/2026-08-01-mobile-4d-arc-rerender.md`.
+> Также отменено утверждение ниже о том, что asset-only push в ветку открытого
+> PR #74 не запускает APK workflow: run `30672441581` доказал обратное.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -362,4 +369,7 @@ Run:
 git push origin codex/mobile-4d-interface
 ```
 
-Expected: remote branch advances; draft PR #74 receives docs and asset kit. No APK workflow is required for files under `design/`.
+Исторический шаг не повторять. Пока PR #74 открыт и его three-dot diff содержит
+`app/**`, любой push в `codex/mobile-4d-interface` запускает `pull_request`
+workflow. Промежуточные asset/doc-коммиты сохранять в
+`codex/mobile-4d-deck`.
