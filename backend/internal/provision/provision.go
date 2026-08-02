@@ -93,6 +93,7 @@ type Config struct {
 	Naive  NaiveTmpl
 	AnyTLS AnyTLSTmpl
 	VLESS3 VLESSTmpl // VLESS-Reality on the 3rd node (S3); empty Server = off
+	VLESS4 VLESSTmpl // VLESS-Reality on the 4th node (S4); empty Server = off
 }
 
 // Provisioner orchestrates the store + the per-server clients.
@@ -105,6 +106,7 @@ type Provisioner struct {
 	xui  VLESSClienter
 	s2   Server2
 	xui3 NodeClienter // 3rd node (S3) 3x-ui panel; nil = S3 not configured
+	xui4 NodeClienter // 4th node (S4) 3x-ui panel; nil = S4 not configured
 	cfg  Config
 }
 
@@ -117,6 +119,11 @@ func New(st *store.Store, x VLESSClienter, s2 Server2, cfg Config) *Provisioner 
 // configured; left nil otherwise so all S3 code paths are no-ops. Kept separate from
 // New() so existing callers/tests don't change.
 func (p *Provisioner) SetS3Node(x NodeClienter) { p.xui3 = x }
+
+// SetS4Node wires the 4th-node (S4) 3x-ui client. Same contract as SetS3Node: left nil
+// when S4_* env is absent, and then every S4 path below is a no-op — an un-configured S4
+// cannot change a single byte of what existing customers receive.
+func (p *Provisioner) SetS4Node(x NodeClienter) { p.xui4 = x }
 
 func randHex(n int) string {
 	b := make([]byte, n)
@@ -254,6 +261,7 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	p.addNaive(cust, login)
 	p.addAnyTLS(cust, login)
 	p.provisionS3(cust, login) // 3rd node (S3): VLESS-Reality, best-effort
+	p.provisionS4(cust, login) // 4th node (S4): VLESS-Reality, best-effort
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store extras: %w", err)
 	}
@@ -380,9 +388,10 @@ func (p *Provisioner) activateExistingLocked(login string) (*store.Customer, err
 		p.addNaive(cust, login)
 	}
 
-	// AnyTLS (native sing-box outbound) + 3rd node (S3): VLESS-Reality.
+	// AnyTLS (native sing-box outbound) + 3rd node (S3) + 4th node (S4): VLESS-Reality.
 	p.addAnyTLS(cust, login)
 	p.provisionS3(cust, login)
+	p.provisionS4(cust, login)
 
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store: %w", err)
@@ -533,6 +542,13 @@ func (p *Provisioner) deleteCustomerLocked(login string) error {
 			log.Printf("delete: s3 vless %q: %v", login, err)
 		}
 	}
+	// S4 must be revoked here too — a customer deleted everywhere else but left on S4
+	// would keep working through it. That exact class of gap bit us on S2 (strogino).
+	if p.xui4 != nil {
+		if err := p.xui4.DelClient(login); err != nil {
+			log.Printf("delete: s4 vless %q: %v", login, err)
+		}
+	}
 	return p.st.Delete(login)
 }
 
@@ -569,6 +585,11 @@ func (p *Provisioner) TrafficFor(login string) int64 {
 	}
 	if p.xui3 != nil {
 		if n, err := p.xui3.UsedTraffic(login); err == nil {
+			total += n
+		}
+	}
+	if p.xui4 != nil {
+		if n, err := p.xui4.UsedTraffic(login); err == nil {
 			total += n
 		}
 	}
@@ -614,7 +635,8 @@ func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 	// 3rd node (S3): push the new expiry to the VLESS client (and add it if a renewal is
 	// the first time this customer touches S3). Persist any newly-added creds.
 	p.provisionS3(cust, cust.Login)
-	if cust.VLESS3 != nil {
+	p.provisionS4(cust, cust.Login)
+	if cust.VLESS3 != nil || cust.VLESS4 != nil {
 		_ = p.st.Put(cust)
 	}
 	return nil
@@ -800,6 +822,87 @@ func (p *Provisioner) provisionS3(cust *store.Customer, login string) {
 			PublicKey: p.cfg.VLESS3.PublicKey, ShortID: p.cfg.VLESS3.ShortID, Fingerprint: p.cfg.VLESS3.Fingerprint,
 		}
 	}
+}
+
+// provisionS4 is provisionS3 for the 4th node — same best-effort contract: it NEVER fails
+// the caller, so an unreachable S4 leaves every other server untouched and the customer
+// simply lacks S4 until the next provision/backfill. Caller holds p.mu.
+func (p *Provisioner) provisionS4(cust *store.Customer, login string) {
+	if p.xui4 == nil || p.cfg.VLESS4.Server == "" {
+		return
+	}
+	if err := p.xui4.Login(); err != nil {
+		log.Printf("provision: s4 login %q: %v", login, err)
+		return
+	}
+	// Reuse the customer's existing VLESS uuid so all nodes carry ONE identity.
+	uuid := ""
+	switch {
+	case cust.VLESS != nil && cust.VLESS.UUID != "":
+		uuid = cust.VLESS.UUID
+	case cust.VLESS4 != nil && cust.VLESS4.UUID != "":
+		uuid = cust.VLESS4.UUID
+	default:
+		uuid = uuid4()
+	}
+	vc := xui.VLESSClient{
+		ID: uuid, Email: login, Flow: p.cfg.VLESS4.Flow, Enable: true,
+		SubID: cust.SubToken, ExpiryTime: cust.Expires.UnixMilli(), LimitIP: deviceLimit(login),
+	}
+	var verr error
+	if ex, _ := p.xui4.GetClient(login); ex != nil {
+		if ex.SubID != "" {
+			vc.SubID = ex.SubID
+		}
+		verr = p.xui4.UpdateClient(p.cfg.VLESS4.InboundID, login, vc)
+	} else {
+		verr = p.xui4.AddClient(p.cfg.VLESS4.InboundID, vc)
+	}
+	if verr != nil {
+		log.Printf("provision: s4 vless %q: %v", login, verr)
+	} else {
+		cust.VLESS4 = &subgen.VLESSCreds{
+			Server: p.cfg.VLESS4.Server, Port: p.cfg.VLESS4.Port, UUID: uuid,
+			Flow: p.cfg.VLESS4.Flow, SNI: p.cfg.VLESS4.SNI,
+			PublicKey: p.cfg.VLESS4.PublicKey, ShortID: p.cfg.VLESS4.ShortID, Fingerprint: p.cfg.VLESS4.Fingerprint,
+		}
+	}
+}
+
+// BackfillS4 gives the 4th node to stored customers that lack it, WITHOUT touching any
+// other server/protocol — it only adds clients to S4's panel, so live S1/S2/S3 connections
+// are never disturbed. Best-effort per customer, idempotent.
+//
+// `only` limits the run to specific logins — that is the CANARY step: hand S4 to one
+// customer, watch, and only then call with no filter to reach everyone. Returns how many
+// customers gained S4.
+func (p *Provisioner) BackfillS4(only ...string) (int, error) {
+	if p.xui4 == nil || p.cfg.VLESS4.Server == "" {
+		return 0, nil
+	}
+	want := map[string]bool{}
+	for _, l := range only {
+		want[l] = true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, c := range p.st.List() {
+		if c.VLESS4 != nil {
+			continue
+		}
+		if len(want) > 0 && !want[c.Login] {
+			continue
+		}
+		p.provisionS4(c, c.Login)
+		if c.VLESS4 != nil {
+			if err := p.st.Put(c); err != nil {
+				return n, fmt.Errorf("provision: backfill s4 store %q: %w", c.Login, err)
+			}
+			n++
+		}
+	}
+	return n, nil
 }
 
 // BackfillS3 gives the 3rd node (S3 VLESS-Reality) to every stored customer that lacks it,

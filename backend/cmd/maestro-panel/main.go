@@ -163,14 +163,42 @@ func main() {
 				Fingerprint: env("S3_VLESS_FP", "chrome"),
 			}
 		}
+		// 4th node (S4): another 3x-ui panel serving VLESS-Reality, same wiring as S3.
+		// Enabled ONLY when S4_XUI_BASE_URL + S4_VLESS_SERVER are both set; otherwise xui4
+		// stays nil and every S4 path is a no-op, so existing customers' configs are
+		// byte-for-byte unchanged. ⚠️ Give S4 its OWN S4_VLESS_SNI — sharing one SNI with
+		// S1/S3 puts both behind a single DPI counter (see the June-2026 TSPU scheme).
+		var xc4 provision.NodeClienter
+		if env("S4_XUI_BASE_URL", "") != "" && env("S4_VLESS_SERVER", "") != "" {
+			x4, err := xui.New(xui.Config{
+				BaseURL:  os.Getenv("S4_XUI_BASE_URL"),
+				Host:     os.Getenv("S4_XUI_HOST"),
+				Token:    os.Getenv("S4_XUI_TOKEN"),
+				Insecure: env("S4_XUI_INSECURE", "1") == "1",
+			})
+			if err != nil {
+				log.Fatalf("s4 xui client: %v", err)
+			}
+			xc4 = x4
+			provCfg.VLESS4 = provision.VLESSTmpl{
+				InboundID: atoi(os.Getenv("S4_VLESS_INBOUND"), 1),
+				Server:    os.Getenv("S4_VLESS_SERVER"), Port: atoi(os.Getenv("S4_VLESS_PORT"), 443),
+				SNI: os.Getenv("S4_VLESS_SNI"), PublicKey: os.Getenv("S4_VLESS_PBK"),
+				ShortID: os.Getenv("S4_VLESS_SID"), Flow: env("S4_VLESS_FLOW", "xtls-rprx-vision"),
+				Fingerprint: env("S4_VLESS_FP", "chrome"),
+			}
+		}
 		pc := provision.New(st, xc, s2, provCfg)
 		if xc3 != nil {
 			pc.SetS3Node(xc3)
 		}
+		if xc4 != nil {
+			pc.SetS4Node(xc4)
+		}
 		prov = pc
-		log.Printf("provisioning enabled (3x-ui + server2; naive=%v anytls=%v s3=%v)",
+		log.Printf("provisioning enabled (3x-ui + server2; naive=%v anytls=%v s3=%v s4=%v)",
 			os.Getenv("NAIVE_SERVER") != "", os.Getenv("ANYTLS_SERVER") != "",
-			os.Getenv("S3_VLESS_SERVER") != "")
+			os.Getenv("S3_VLESS_SERVER") != "", os.Getenv("S4_VLESS_SERVER") != "")
 		// Pull each customer's authoritative expiry from whichever panel owns it (3x-ui
 		// VLESS and/or the s2 naive panel) into the unified store, advance-only, every
 		// 15 min — so a renewal in ANY of the 3 panels propagates to the app + the

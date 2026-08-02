@@ -70,6 +70,7 @@ type Customer struct {
 	Naive  *NaiveCreds
 	AnyTLS *AnyTLSCreds
 	VLESS3 *VLESSCreds  // VLESS-Reality on the 3rd node (S3)
+	VLESS4 *VLESSCreds  // VLESS-Reality on the 4th node (S4); nil until S4_* env is configured
 	WG     *WGCreds     // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
 	OLC    *OLCRTCCreds // olcRTC (WebRTC video-disguise) — opt-in fallback; ⛔ emitted ONLY for login "wapmix" (creds-gate in the /sub handler), nil otherwise
 	VKTurn *VKTurnCreds // VK TURN/DTLS carrier — mobile-only manual fallback; gated by the /sub handler
@@ -128,6 +129,7 @@ type WGCreds struct {
 const (
 	tagVLESS  = "vless"
 	tagVLESS3 = "vless-s3" // VLESS-Reality on the 3rd node
+	tagVLESS4 = "vless-s4" // VLESS-Reality on the 4th node (S4)
 	tagHy2    = "hysteria2"
 	tagNaive  = "naive"
 	tagAnyTLS = "anytls"
@@ -299,6 +301,16 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	if c.VLESS3 != nil {
 		outbounds = append(outbounds, vlessOutbound(c.VLESS3, tagVLESS3))
 		protoTags = append(protoTags, tagVLESS3)
+	}
+	// 4th node (S4). Like S3 it needs its OWN tag — an outbound tag is fixed, so a second
+	// VLESS endpoint cannot reuse "vless". It joins the urltest "auto" pool on purpose:
+	// urltest only ever picks a leaf that ANSWERS its probe, so a dead S4 is never chosen.
+	// WHO gets it is controlled upstream by provisioning (cust.VLESS4 stays nil until the
+	// customer is added to S4), which is what makes a canary-then-everyone rollout possible
+	// without a feature flag here.
+	if c.VLESS4 != nil {
+		outbounds = append(outbounds, vlessOutbound(c.VLESS4, tagVLESS4))
+		protoTags = append(protoTags, tagVLESS4)
 	}
 	// AmneziaWG goes in the top-level "endpoints" array (NOT outbounds). ⛔ Only the
 	// with_awg libbox parses it; the PLAIN fleet libbox HARD-FAILS the whole config → c.WG
