@@ -165,3 +165,35 @@ release и OTA. Нельзя merge в `main`, публиковать release и�
 5. 390×844, 390×797 и короткий 320×568 не используют индивидуальные offsets.
 6. Старый revolver/flattened Home и дублирующий UI не возвращаются.
 7. TV/backend/release/OTA diff равен нулю.
+
+## 7. Поправка self-review: full-window Home, а не inset-сжатый Home
+
+После повторного сопоставления с самим owner reference подтверждён ещё один корень дефекта.
+Все landmark-координаты 390×844 сняты от полного окна, включая системную область сверху.
+`enableEdgeToEdge()` уже включён, но внешний Material `Scaffold` применяет content insets и
+передаёт phone Home примерно 390×797. Поэтому кодовый титул получает дополнительный top inset,
+а Canvas одновременно делает центрированный crop; итоговый разрыв и неверная абсолютная позиция
+логотипа складываются из двух разных сдвигов.
+
+Эта поправка уточняет и имеет приоритет над формулировками разделов 2A, 3.1 и 3.2:
+
+- только для mobile Home корневой content получает полное edge-to-edge окно без Scaffold
+  `contentWindowInsets`; TV и остальные маршруты сохраняют прежний shell;
+- системные status/navigation bars остаются системными overlay и не воспроизводятся кодом;
+- внутри полного окна portrait Home использует ширинный top-anchored transform:
+  `scale = width / 2160`, `translationX = 0`, `translationY = 0`;
+- title/reference coordinates остаются координатами полного окна: status bar inset из них не
+  вычитается и повторно к ним не прибавляется;
+- navigation-bar inset добавляется только как нижний spacer прокручиваемого контента, чтобы
+  последние действия оставались достижимы, не сдвигая ни один primary landmark;
+- запрещены константа 797, подгонка под высоту status bar и offsets конкретной модели телефона;
+- landscape сохраняет существующий crop до отдельного compact/landscape-дизайна.
+
+Дополнительные тестовые контракты:
+
+1. Решение shell для mobile Home выбирает нулевые Scaffold content insets; для TV Home и любого
+   другого маршрута — существующие insets.
+2. 390×844 и любая более короткая portrait-высота имеют одинаковые art/title/deck anchors.
+3. Полная позиция титула берётся из `title.top = 54` без добавочного safe-top inset.
+4. Нижний navigation inset увеличивает только достижимый scroll content end и не входит в
+   координаты `deckTop`, `console` или других primary controls.
