@@ -92,9 +92,11 @@ class LivingEyeLayerGeometryTest {
 
         assertEquals(fit.scale, profile.fitScale, 0.000001f)
         assertEquals(fit.stateBounds, profile.stateBounds)
-        assertTrue(profile.innerOcclusionWidthPx > 0f)
-        assertTrue(profile.innerOcclusionAlpha in 0f..1f)
-        assertTrue(profile.eyelidContactShadowBlurPx > 0f)
-        assertTrue(profile.eyelidContactShadowAlpha in 0f..1f)
+        assertEquals(18.2f, profile.innerOcclusionWidthPx, 0.001f)
+        assertEquals(0.36f, profile.innerOcclusionAlpha, 0f)
+        assertEquals(7.8f, profile.eyelidContactShadowBlurPx, 0.001f)
+        assertEquals(0.24f, profile.eyelidContactShadowAlpha, 0f)
+        assertTrue(profile.innerOcclusionWidthPx < livingEyeBronzeInset(520f, 520f))
+        assertTrue(profile.eyelidContactShadowBlurPx < profile.innerOcclusionWidthPx)
     }
 }

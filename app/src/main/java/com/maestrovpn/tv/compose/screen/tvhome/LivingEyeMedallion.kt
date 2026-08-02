@@ -19,7 +19,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
@@ -221,6 +224,7 @@ internal fun LivingEyeMedallion(
         // оказался бы только один кадр и моргание «прыгало» бы по границе.
         val bronzeInset = livingEyeBronzeInset(size.width, size.height)
         val medallion = minOf(size.width, size.height)
+        val integration = livingEyeIntegrationProfile(size.width, size.height)
         val bronzeClip = Path().apply {
             addOval(
                 Rect(
@@ -232,7 +236,7 @@ internal fun LivingEyeMedallion(
             )
         }
         clipPath(bronzeClip) {
-            val layerFit = fitLivingEyeLayer(width = size.width, height = size.height)
+            val layerFit = integration.layerFit
             val phase = lidPhase.value.coerceIn(0f, 1f)
             val openToSquint = (phase / 0.5f).coerceIn(0f, 1f)
             val squintToClosed = ((phase - 0.5f) / 0.5f).coerceIn(0f, 1f)
@@ -349,6 +353,15 @@ internal fun LivingEyeMedallion(
                     alpha = squintToClosed,
                 )
             }
+
+            // Anatomy and blink frames stay untouched. These shadows add only physical contact:
+            // eyelids meet the surrounding mosaic and the bronze socket occludes the layer edge.
+            drawEyelidContactShadow(
+                layerFit = layerFit,
+                phase = phase,
+                profile = integration,
+            )
+            drawLivingEyeInnerOcclusion(bronzeInset, medallion, integration)
         }
 
         // Свет по внутренней кромке кольца — СНАРУЖИ клипа: он должен ложиться на бронзу, а не
@@ -507,6 +520,86 @@ private fun DrawScope.drawSourceLayer(
     )
 }
 
+private fun DrawScope.drawLivingEyeInnerOcclusion(
+    bronzeInset: Float,
+    medallion: Float,
+    profile: LivingEyeIntegrationProfile,
+) {
+    val radius = medallion / 2f - bronzeInset
+    if (radius <= 0f) return
+    val clearEdge = (1f - profile.innerOcclusionWidthPx / radius).coerceIn(0.72f, 0.98f)
+    val center = Offset(size.width / 2f, size.height / 2f)
+    drawCircle(
+        brush = Brush.radialGradient(
+            colorStops = arrayOf(
+                0f to Color.Transparent,
+                clearEdge to Color.Transparent,
+                (clearEdge + (1f - clearEdge) * 0.58f) to
+                    EYE_SOCKET_SHADOW.copy(alpha = profile.innerOcclusionAlpha * 0.34f),
+                1f to EYE_SOCKET_SHADOW.copy(alpha = profile.innerOcclusionAlpha),
+            ),
+            center = center,
+            radius = radius,
+        ),
+        center = center,
+        radius = radius,
+    )
+}
+
+private fun DrawScope.drawEyelidContactShadow(
+    layerFit: LivingEyeLayerFit,
+    phase: Float,
+    profile: LivingEyeIntegrationProfile,
+) {
+    val closure = phase.coerceIn(0f, 1f)
+
+    fun drawContour(path: Path, alphaMultiplier: Float) {
+        if (alphaMultiplier <= 0.01f) return
+        drawPath(
+            path = path,
+            color = EYE_CONTACT_SHADOW.copy(
+                alpha = profile.eyelidContactShadowAlpha * 0.30f * alphaMultiplier,
+            ),
+            style = Stroke(
+                width = profile.eyelidContactShadowBlurPx,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            ),
+        )
+        drawPath(
+            path = path,
+            color = EYE_CONTACT_SHADOW.copy(
+                alpha = profile.eyelidContactShadowAlpha * alphaMultiplier,
+            ),
+            style = Stroke(
+                width = profile.eyelidContactShadowBlurPx * 0.28f,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            ),
+        )
+    }
+
+    drawContour(eyelidContactPath(layerFit, closure, upper = true), alphaMultiplier = 1f)
+    drawContour(
+        eyelidContactPath(layerFit, closure, upper = false),
+        alphaMultiplier = 1f - closure,
+    )
+}
+
+private fun eyelidContactPath(
+    layerFit: LivingEyeLayerFit,
+    closure: Float,
+    upper: Boolean,
+): Path = Path().apply {
+    APERTURE_UPPER.zip(APERTURE_LOWER).forEachIndexed { index, (upperPoint, lowerPoint) ->
+        val seamY = (upperPoint.y + lowerPoint.y) / 2f
+        val source = if (upper) upperPoint else lowerPoint
+        val y = source.y + (seamY - source.y) * closure
+        val mapped = sourcePoint(layerFit, source.x, y)
+        if (index == 0) moveTo(mapped.x, mapped.y) else lineTo(mapped.x, mapped.y)
+    }
+}
+
 private fun eyeAperturePath(layerFit: LivingEyeLayerFit): Path = Path().apply {
     APERTURE_UPPER.forEachIndexed { index, point ->
         val mapped = sourcePoint(layerFit, point.x, point.y)
@@ -598,3 +691,5 @@ private const val GLOW_CONNECTED = 0.7f
 private const val GLOW_INNER_EDGE = 0.82f
 private const val GLOW_MAX_ALPHA = 0.22f
 private val GLOW_TINT = Color(0xFF54FF8F)
+private val EYE_SOCKET_SHADOW = Color(0xFF130B07)
+private val EYE_CONTACT_SHADOW = Color(0xFF160D08)

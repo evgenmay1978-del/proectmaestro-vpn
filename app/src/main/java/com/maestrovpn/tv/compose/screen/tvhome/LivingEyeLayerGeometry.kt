@@ -108,6 +108,36 @@ internal fun fitLivingEyeLayer(width: Float, height: Float): LivingEyeLayerFit {
 internal fun livingEyeBronzeInset(width: Float, height: Float): Float =
     minOf(width, height) * LIVING_EYE_BRONZE_INSET_FRACTION
 
+/**
+ * Pure, size-relative profile for the two shadows that seat the living eye under the bronze.
+ * The profile owns the already-approved fit so callers cannot introduce a second scale or a
+ * second registration while adding visual integration.
+ */
+internal data class LivingEyeIntegrationProfile(
+    val layerFit: LivingEyeLayerFit,
+    val innerOcclusionWidthPx: Float,
+    val innerOcclusionAlpha: Float,
+    val eyelidContactShadowBlurPx: Float,
+    val eyelidContactShadowAlpha: Float,
+) {
+    val fitScale: Float get() = layerFit.scale
+    val stateBounds: LivingEyeLayerBounds get() = layerFit.stateBounds
+}
+
+internal fun livingEyeIntegrationProfile(
+    width: Float,
+    height: Float,
+): LivingEyeIntegrationProfile {
+    val medallionSize = minOf(width, height)
+    return LivingEyeIntegrationProfile(
+        layerFit = fitLivingEyeLayer(width, height),
+        innerOcclusionWidthPx = medallionSize * LIVING_EYE_INNER_OCCLUSION_FRACTION,
+        innerOcclusionAlpha = 0.36f,
+        eyelidContactShadowBlurPx = medallionSize * LIVING_EYE_CONTACT_SHADOW_FRACTION,
+        eyelidContactShadowAlpha = 0.24f,
+    )
+}
+
 internal const val LIVING_EYE_STATE_X = 230f
 internal const val LIVING_EYE_STATE_Y = 745f
 internal const val LIVING_EYE_STATE_WIDTH = 890f
@@ -117,3 +147,5 @@ private const val LIVING_EYE_VIRTUAL_ORIGIN_X = 268.8f
 private const val LIVING_EYE_VIRTUAL_ORIGIN_Y = 637.3f
 private const val LIVING_EYE_VIRTUAL_SIZE = 822.5f
 private const val LIVING_EYE_BRONZE_INSET_FRACTION = 26f / 520f
+private const val LIVING_EYE_INNER_OCCLUSION_FRACTION = 0.035f
+private const val LIVING_EYE_CONTACT_SHADOW_FRACTION = 0.015f
