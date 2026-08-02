@@ -33,8 +33,14 @@ class MobileEyeNaturalAssetsTest(unittest.TestCase):
         candidate.putpixel((1, 1), (10, 20, 10, 255))
 
         try:
-            with self.assertRaisesRegex(ValueError, "outside approved eyelid contour"):
-                MODULE.validate_state_cutout("open", candidate, approved)
+            expected_sha256 = MODULE.alpha_support_sha256(approved)
+            with self.assertRaisesRegex(ValueError, "immutable approved contour"):
+                MODULE.validate_state_cutout(
+                    "open",
+                    candidate,
+                    expected_sha256,
+                    approved.size,
+                )
         finally:
             approved.close()
             candidate.close()
@@ -46,7 +52,13 @@ class MobileEyeNaturalAssetsTest(unittest.TestCase):
         candidate.putalpha(approved.copy())
 
         try:
-            MODULE.validate_state_cutout("open", candidate, approved)
+            expected_sha256 = MODULE.alpha_support_sha256(approved)
+            MODULE.validate_state_cutout(
+                "open",
+                candidate,
+                expected_sha256,
+                approved.size,
+            )
         finally:
             approved.close()
             candidate.close()
@@ -56,11 +68,28 @@ class MobileEyeNaturalAssetsTest(unittest.TestCase):
         candidate = Image.new("RGBA", approved.size, (0, 0, 0, 0))
 
         try:
+            expected_sha256 = MODULE.alpha_support_sha256(approved)
             with self.assertRaisesRegex(ValueError, "eyelid cutout is empty"):
-                MODULE.validate_state_cutout("closed", candidate, approved)
+                MODULE.validate_state_cutout(
+                    "closed",
+                    candidate,
+                    expected_sha256,
+                    approved.size,
+                )
         finally:
             approved.close()
             candidate.close()
+
+    def test_committed_runtime_contours_match_immutable_approvals(self) -> None:
+        for state, expected_sha256 in MODULE.APPROVED_ALPHA_SUPPORT_SHA256.items():
+            with self.subTest(state=state):
+                path = MODULE.DRAWABLE / f"mobile_eye_{state}.webp"
+                with Image.open(path) as source:
+                    candidate = source.convert("RGBA")
+                try:
+                    MODULE.validate_state_cutout(state, candidate, expected_sha256)
+                finally:
+                    candidate.close()
 
 
 if __name__ == "__main__":

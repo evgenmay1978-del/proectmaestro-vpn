@@ -14,9 +14,10 @@ are deterministic reconstructions documented in
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageOps
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,12 @@ DRAWABLE = ROOT / "app/src/main/res/drawable-nodpi"
 
 CANVAS = (1349, 1536)
 STATE_CROP = (230, 745, 1120, 1380)
+STATE_SIZE = (STATE_CROP[2] - STATE_CROP[0], STATE_CROP[3] - STATE_CROP[1])
+APPROVED_ALPHA_SUPPORT_SHA256 = {
+    "open": "8b4f87a263706752d6ad044923c77179458f32e9b46446cfe15671a9ee6f7bc9",
+    "squint": "b172931f6ccf6deaf4b0bb8098d0abc6f0ddbc04b80efd58286abdec7d766e28",
+    "closed": "2b297389fda3d7e66cfd32c5f5d2f011a54565d91fab4aa54b757f09e83a541b",
+}
 ALIGNMENT = {
     "open": (0, 0),
     "squint": (-8, -15),
@@ -59,30 +66,34 @@ def aligned(image: Image.Image, dx: int, dy: int) -> Image.Image:
     return result
 
 
+def alpha_support_sha256(alpha: Image.Image) -> str:
+    if alpha.mode != "L":
+        raise ValueError(f"expected L alpha channel, got {alpha.mode}")
+    support = bytes(1 if value else 0 for value in alpha.getdata())
+    return hashlib.sha256(support).hexdigest()
+
+
 def validate_state_cutout(
     state: str,
     candidate: Image.Image,
-    approved_alpha: Image.Image,
+    expected_sha256: str,
+    expected_size: tuple[int, int] = STATE_SIZE,
 ) -> None:
-    if candidate.mode != "RGBA" or candidate.size != approved_alpha.size:
+    if candidate.mode != "RGBA" or candidate.size != expected_size:
         raise ValueError(
-            f"{state}: expected RGBA {approved_alpha.size}, got {candidate.mode} {candidate.size}",
+            f"{state}: expected RGBA {expected_size}, got {candidate.mode} {candidate.size}",
         )
     alpha = candidate.getchannel("A")
-    if alpha.getbbox() is None:
-        alpha.close()
-        raise ValueError(f"{state}: eyelid cutout is empty")
-    approved_support = approved_alpha.point(lambda value: 255 if value else 0)
-    outside = ImageChops.multiply(alpha, ImageOps.invert(approved_support))
     try:
-        if outside.getbbox() is not None:
+        if alpha.getbbox() is None:
+            raise ValueError(f"{state}: eyelid cutout is empty")
+        actual_sha256 = alpha_support_sha256(alpha)
+        if actual_sha256 != expected_sha256:
             raise ValueError(
-                f"{state}: non-transparent pixels outside approved eyelid contour",
+                f"{state}: alpha support differs from immutable approved contour",
             )
     finally:
         alpha.close()
-        approved_support.close()
-        outside.close()
 
 
 def save_state_resources(frames: dict[str, Image.Image]) -> None:
@@ -90,16 +101,11 @@ def save_state_resources(frames: dict[str, Image.Image]) -> None:
     try:
         for state, frame in frames.items():
             layer = frame.crop(STATE_CROP).convert("RGBA")
-            approved_path = DRAWABLE / f"mobile_eye_{state}.webp"
-            if not approved_path.exists():
+            expected_sha256 = APPROVED_ALPHA_SUPPORT_SHA256.get(state)
+            if expected_sha256 is None:
                 layer.close()
-                raise ValueError(f"{state}: approved runtime cutout is missing")
-            with Image.open(approved_path) as approved:
-                approved_alpha = approved.convert("RGBA").getchannel("A")
-            try:
-                validate_state_cutout(state, layer, approved_alpha)
-            finally:
-                approved_alpha.close()
+                raise ValueError(f"{state}: immutable approved contour is missing")
+            validate_state_cutout(state, layer, expected_sha256)
             layers[state] = layer
 
         for state, layer in layers.items():

@@ -37,6 +37,7 @@ import os
 import re
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import ImageChops
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / 'app/src/main/res/drawable-nodpi'
@@ -325,18 +326,18 @@ W, H = 390 * S, 844 * S
 REF_JPG = ROOT / 'design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg'
 
 HERO_TRANSLATION_Y = -58.0          # PhoneHomeReferenceLayout.HeroTranslationY
-DECK_TOP = 363.0                    # PhoneHomeReferenceLayout.DeckTop
-MIN_TOUCH = 48.0                    # PremiumTouchTarget
+DECK_TOP = 434.0                    # PhoneHomeReferenceLayout.DeckTop
+MOBILE_HOME_LOWER_DECK_SHIFT_DP = 25.0  # Mobile4DHome.kt
 B = {                               # PhoneHomeReferenceLayout: границы эталона в dp
     'title':        (69.0,  54.0, 323.0,  88.0),
     'medallion':    (26.0, 104.0, 364.0, 413.0),
-    'status':       (128.0, 363.0, 265.0, 386.0),
-    'phone':        (81.0, 407.0, 310.0, 445.0),
-    'supportNote':  (84.0, 446.0, 306.0, 484.0),
-    'contacts':     (34.0, 486.0, 356.0, 569.0),
-    'protocolArc':  (0.0,  570.0, 390.0, 705.0),
-    'buy':          (81.0, 699.0, 309.0, 744.0),
-    'bottomConsole': (8.0, 735.0, 382.0, 839.0),
+    'status':       (128.0, 434.0, 265.0, 456.0),
+    'activeProtocol': (126.0, 456.0, 266.0, 476.0),
+    'phone':        (81.0, 478.0, 310.0, 516.0),
+    'contacts':     (34.0, 511.0, 356.0, 594.0),
+    'protocolArc':  (0.0,  595.0, 390.0, 730.0),
+    'buy':          (81.0, 724.0, 309.0, 769.0),
+    'bottomConsole': (8.0, 760.0, 382.0, 864.0),
 }
 CONTACT_GAP = 10.0                  # PhoneHomeControlDeck.CONTACT_GAP
 # Ячейки резного веера: центры заданы владельцем, провис снят с самого home_arc_c.png.
@@ -344,13 +345,14 @@ CONTACT_GAP = 10.0                  # PhoneHomeControlDeck.CONTACT_GAP
 # ⛔ Замер, а не номинал: интерьеры ячеек 40…47 dp, коробка 52 выезжала на разделитель.
 ARC_SECTOR_CENTERS = [37.8, 88.3, 141.7, 195.6, 248.2, 301.4, 352.4]
 ARC_CELL_WIDTHS = [40.1, 47.0, 45.7, 47.3, 45.7, 46.4, 40.7]
-ARC_CELL_TOPS = [619.7, 603.6, 593.7, 602.0, 593.1, 602.9, 619.4]
+ARC_CELL_TOPS = [644.7, 628.6, 618.7, 627.0, 618.1, 627.9, 644.4]
 ARC_CELL_HEIGHTS = [67.2, 77.2, 83.1, 73.6, 83.7, 77.7, 67.4]
-CONSOLE_SIDE_FRACTION, CONSOLE_SIDE_HEIGHT_FRACTION = 0.27, 0.77
-CONSOLE_DIAL_HEIGHT_FRACTION, CONSOLE_DIAL_WIDTH_FRACTION = 0.9, 0.21
+CONSOLE_LEFT = (32.0, 782.4, 139.0, 842.4)
+CONSOLE_DIAL = (160.0, 774.7, 228.0, 848.0)
+CONSOLE_RIGHT = (250.0, 782.6, 357.0, 842.4)
 SELECTION_BAR_WIDTH = 22.0
-TITLE_SP = 30          # Mobile4DHome.TITLE_MAX_FONT_SIZE
-TITLE_TRACK = 8.0      # Mobile4DHome.TITLE_LETTER_SPACING
+TITLE_SP = 38          # Mobile4DHome.TITLE_MAX_FONT_SIZE
+TITLE_TRACK = 3.5      # Mobile4DHome.TITLE_LETTER_SPACING
 TITLE_FACE_TOP, TITLE_FACE_BOT = (228,214,180), (140,122,85)   # Mobile4DHome.TITLE_FACE
 TITLE_CARVE = (36,26,16)      # Mobile4DHome.TITLE_CARVE
 TITLE_RIM = (255,240,200)     # Mobile4DHome.TITLE_RIM (alpha 0x66)
@@ -368,9 +370,8 @@ ARC_PROTOCOLS = [
     ('olcrtc', 'WEBRTC', ic_globe),
 ]
 
-def centre_4d_layers():
-    """Тот же реконструктор, что и centre_4d_scene, но послойно: кольцо надо двигать
-    отдельно от дерева/рамы/картуша/лоз (heroTranslationY применяется только к нему)."""
+def centre_4d_fragments():
+    """Читает тот же манифест, что runtime, и возвращает фрагменты в z-порядке."""
     fragments = []
     for match in FRAGMENT_RE.finditer(MOBILE_4D_MANIFEST.read_text(encoding='utf-8')):
         layer, z_order, page_index, page_path, *coords = match.groups()
@@ -381,27 +382,29 @@ def centre_4d_layers():
     # 90 = 84 + фрагменты слоя `contacts`, подключённого 01.08.
     if len(fragments) != 90:
         raise ValueError(f'Expected 90 centre-light 4D fragments, found {len(fragments)}')
+    return sorted(fragments)
 
-    base = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
-    ring = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
-    current_path, atlas = None, None
-    for fragment in fragments:
+def centre_4d_layer(fragments, layer_name):
+    """Реконструирует ровно один relief-слой, не сливая fixed и scrolling ownership."""
+    master = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
+    atlases = {}
+    for fragment in (item for item in fragments if item[3] == layer_name):
         _, _, page_path, layer, sx, sy, sw, sh, dx, dy, dw, dh = fragment
         if (sw, sh) != (dw, dh):
             raise ValueError(f'Atlas/scene rectangle mismatch in {page_path}')
-        if page_path != current_path:
-            if atlas is not None:
-                atlas.close()
+        atlas = atlases.get(page_path)
+        if atlas is None:
             atlas_path = ASSETS / page_path
             if not atlas_path.is_file():
                 raise FileNotFoundError(f'Missing committed 4D atlas: {atlas_path}')
             atlas = Image.open(atlas_path).convert('RGBA')
-            current_path = page_path
-        target = ring if layer == 'ring' else base
-        target.alpha_composite(atlas.crop((sx, sy, sx + sw, sy + sh)), (dx, dy))
-    if atlas is not None:
+            atlases[page_path] = atlas
+        crop = atlas.crop((sx, sy, sx + sw, sy + sh))
+        master.alpha_composite(crop, (dx, dy))
+        crop.close()
+    for atlas in atlases.values():
         atlas.close()
-    return base, ring
+    return master
 
 def _fit(master, w, h):
     k = max(w / master.width, h / master.height)
@@ -411,21 +414,47 @@ def _fit(master, w, h):
     scaled.close()
     return out
 
-def home_scene(w, h):
-    """Сцена = wood+frame+cartouche+vines на исходном кропе, ring — со сдвигом героя."""
-    base_master, ring_master = centre_4d_layers()
-    base = _fit(base_master, w, h)
-    ring = _fit(ring_master, w, h)
-    base_master.close(); ring_master.close()
-    shifted = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    shifted.alpha_composite(ring, (0, round(HERO_TRANSLATION_Y * S)))
-    ring.close()
-    base.alpha_composite(shifted)
-    shifted.close()
-    return base
+def home_scene(w, h, deck_scroll_dp=0.0):
+    """Ровно runtime ownership: fixed hero сверху, три relief-слоя движутся с декой."""
+    fragments = centre_4d_fragments()
+    layer_order = []
+    for _, _, _, layer, *_ in fragments:
+        if layer not in layer_order:
+            layer_order.append(layer)
+    expected = ['wood', 'console', 'contacts', 'frame', 'cartouche', 'vines', 'arc', 'ring']
+    if layer_order != expected:
+        raise ValueError(f'Unexpected 4D layer order: {layer_order!r}')
+
+    scene = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    deck_layers = {'console', 'contacts', 'arc'}
+    for layer in layer_order:
+        master = centre_4d_layer(fragments, layer)
+        fitted = _fit(master, w, h)
+        master.close()
+        dy = 0
+        if layer == 'ring':
+            dy = round(HERO_TRANSLATION_Y * S)
+        elif layer in deck_layers:
+            dy = round((MOBILE_HOME_LOWER_DECK_SHIFT_DP - deck_scroll_dp) * S)
+
+        positioned = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+        positioned.alpha_composite(fitted, (0, dy))
+        fitted.close()
+        if layer in deck_layers:
+            clip_y = round(DECK_TOP * S)
+            visible = positioned.crop((0, clip_y, w, h))
+            scene.alpha_composite(visible, (0, clip_y))
+            visible.close()
+        else:
+            scene.alpha_composite(positioned)
+        positioned.close()
+    return scene
 
 LIVING_EYE_BRONZE_INSET_FRACTION = 26.0 / 520.0   # LivingEyeLayerGeometry.kt
 LIVING_EYE_STATE_W, LIVING_EYE_STATE_H = 890.0, 635.0
+LIVING_EYE_VIRTUAL_SIZE = 822.5
+LIVING_EYE_INNER_OCCLUSION_FRACTION = 0.035
+LIVING_EYE_CONTACT_SHADOW_FRACTION = 0.015
 
 def eye_box():
     """Коробка живого глаза = medallion* из Mobile4DSceneModel.kt + общий сдвиг героя.
@@ -440,8 +469,77 @@ def eye_box():
     cx = 1080.0 * sc + tx
     cy = 1751.0 * sc + ty + HERO_TRANSLATION_Y
     size = min((MASTER_4D_SIZE[0] * 260 / 853) * sc, (MASTER_4D_SIZE[1] * 260 / 1844) * sc) * 2
-    state_w = size * (1 - LIVING_EYE_BRONZE_INSET_FRACTION * 2)
-    return cx, cy, state_w, state_w * LIVING_EYE_STATE_H / LIVING_EYE_STATE_W
+    state_w = size * LIVING_EYE_STATE_W / LIVING_EYE_VIRTUAL_SIZE
+    state_h = size * LIVING_EYE_STATE_H / LIVING_EYE_VIRTUAL_SIZE
+    return cx, cy, size, state_w, state_h
+APERTURE_UPPER = [
+    (388,1083),(405,1061),(430,1037),(460,1014),(500,993),(540,978),
+    (580,968),(620,961),(660,957),(700,957),(740,962),(780,973),
+    (820,990),(860,1011),(900,1036),(932,1061),(957,1083),
+]
+APERTURE_LOWER = [
+    (388,1083),(420,1104),(460,1123),(500,1139),(540,1152),(580,1162),
+    (620,1170),(660,1174),(700,1172),(740,1167),(780,1159),(820,1148),
+    (860,1133),(900,1115),(932,1098),(957,1083),
+]
+
+def living_eye_layer(state):
+    """Static preview of the runtime eye fit; animation logic stays in LivingEyeMedallion."""
+    asset = {'connected': 'mobile_eye_open.webp',
+             'connecting': 'mobile_eye_squint.webp',
+             'disconnected': 'mobile_eye_closed.webp'}[state]
+    cx, cy, size, state_w, state_h = eye_box()
+    canvas_px = round(size * S)
+    state_px = (round(state_w * S), round(state_h * S))
+    canvas = Image.new('RGBA', (canvas_px, canvas_px), (0, 0, 0, 0))
+    eye = Image.open(RES / asset).convert('RGBA').resize(state_px, Image.Resampling.LANCZOS)
+    state_left = round((canvas_px - state_px[0]) / 2)
+    state_top = round((canvas_px - state_px[1]) / 2)
+    canvas.alpha_composite(eye, (state_left, state_top))
+    eye.close()
+
+    phase = {'connected': 0.0, 'connecting': 0.5, 'disconnected': 1.0}[state]
+    shadow = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow, 'RGBA')
+    blur_w = max(1, round(canvas_px * LIVING_EYE_CONTACT_SHADOW_FRACTION))
+
+    def contour(upper, alpha_multiplier):
+        if alpha_multiplier <= .01:
+            return
+        points = []
+        for up, low in zip(APERTURE_UPPER, APERTURE_LOWER):
+            source = up if upper else low
+            seam_y = (up[1] + low[1]) / 2
+            y = source[1] + (seam_y - source[1]) * phase
+            px = state_left + (source[0] - 230.0) / LIVING_EYE_STATE_W * state_px[0]
+            py = state_top + (y - 745.0) / LIVING_EYE_STATE_H * state_px[1]
+            points.append((round(px), round(py)))
+        sd.line(points, fill=(8, 4, 2, round(255 * .24 * .30 * alpha_multiplier)),
+                width=blur_w, joint='curve')
+        sd.line(points, fill=(8, 4, 2, round(255 * .24 * alpha_multiplier)),
+                width=max(1, round(blur_w * .28)), joint='curve')
+
+    contour(True, 1.0)
+    contour(False, 1.0 - phase)
+    canvas.alpha_composite(shadow)
+    shadow.close()
+
+    inset = canvas_px * LIVING_EYE_BRONZE_INSET_FRACTION
+    occ_w = max(1, round(canvas_px * LIVING_EYE_INNER_OCCLUSION_FRACTION))
+    occ = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(occ, 'RGBA').ellipse(
+        (inset, inset, canvas_px - inset, canvas_px - inset),
+        outline=(5, 2, 1, round(255 * .36)), width=occ_w,
+    )
+    canvas.alpha_composite(occ.filter(ImageFilter.GaussianBlur(max(1, occ_w * .30))))
+    occ.close()
+
+    clip = Image.new('L', canvas.size, 0)
+    ImageDraw.Draw(clip).ellipse((inset, inset, canvas_px - inset, canvas_px - inset), fill=255)
+    canvas.putalpha(ImageChops.multiply(canvas.getchannel('A'), clip))
+    clip.close()
+    return canvas, round(cx * S - canvas_px / 2), round(cy * S - canvas_px / 2)
+
 
 def tile(layer, x, y, w, h, label, icf, *, selected=False, locked=False,
          icon_sp=22, label_min=8, label_max=12, gap=6, bar=False):
@@ -507,20 +605,15 @@ def pill(layer, x, y, w, h, label, icf, icon_tint):
     txt(cd, (bx + icon + 10 * S, (h - 20 * S) / 2), label, f, TXT)
     layer.alpha_composite(cell, (round(x), round(y)))
 
-def screen_home(state='connected'):
+def screen_home(state='connected', deck_scroll_dp=0.0):
     """state: connected | connecting | disconnected."""
-    ph = home_scene(W, H).convert('RGBA')
+    ph = home_scene(W, H, deck_scroll_dp).convert('RGBA')
 
-    # ── глаз: вписан в медальон эталона, состояние задаёт ассет (в приложении это
-    # opennessOverride 0f / 0.5f / null на живом LivingEyeMedallion).
-    asset = {'connected': 'mobile_eye_open.webp',
-             'connecting': 'mobile_eye_squint.webp',
-             'disconnected': 'mobile_eye_closed.webp'}[state]
-    ecx, ecy, ew, eh = eye_box()
-    eye = Image.open(RES / asset).convert('RGBA')
-    eye = eye.resize((round(ew * S), round(eh * S)), Image.Resampling.LANCZOS)
-    ph.alpha_composite(eye, (round(ecx * S - eye.width / 2), round(ecy * S - eye.height / 2)))
+    # ── глаз и титул fixed: они не принадлежат scroll-owner нижней деки.
+    eye, eye_x, eye_y = living_eye_layer(state)
+    ph.alpha_composite(eye, (eye_x, eye_y))
     eye.close()
+
 
     lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
@@ -559,9 +652,16 @@ def screen_home(state='connected'):
         face.paste(grad.resize((bb[2] - bb[0], bb[3] - bb[1])), (bb[0], bb[1]))
         face.putalpha(face_mask)
         lay.alpha_composite(face); face.close()
+    ph.alpha_composite(lay)
+    lay.close()
+
+    # Всё ниже deckTop — один scroll-owner. Его текст, hit-area и резной relief
+    # двигаются на одинаковое число dp и клипуются под неподвижным героем.
+    lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(lay)
+
 
     # ── статус + активный протокол (PhoneStatusRow, вне маски — маски больше нет вовсе)
-    connected = state == 'connected'
     label = {'connected': 'ПОДКЛЮЧЕНО', 'connecting': 'ПОДКЛЮЧЕНИЕ',
              'disconnected': 'ОТКЛЮЧЕНО'}[state]
     # Промежуточное состояние — свой цвет, не цвет отказа (см. PhoneHomeControlDeck).
@@ -581,7 +681,8 @@ def screen_home(state='connected'):
         'connecting': 'Подключение: VLESS',
         'disconnected': 'Отключён: VLESS',
     }[state]
-    txt(d, (W / 2, 396 * S), proto, f_pr, ORANGE, anchor='mm')
+    _, apt, _, apb = B['activeProtocol']
+    txt(d, (W / 2, (apt + apb) / 2 * S), proto, f_pr, ORANGE, anchor='mm')
 
     # ── телефон поддержки (орнамент 38 dp, цель нажатия 48 dp)
     pl, pt, pr_, pb = B['phone']
@@ -589,17 +690,11 @@ def screen_home(state='connected'):
     pill(lay, pl * S, pt * S, (pr_ - pl) * S, ph_h * S,
          '8 977 811-65-64', ic_phone, EMER)
 
-    # ── пояснение поддержки
-    nl, nt, nr, nb = B['supportNote']
-    f_note = F(SANS, 14)
-    for i, line in enumerate(['Если я не ответил на звонок —',
-                              'напишите в любом из мессенджеров.']):
-        txt(d, (W / 2, (nt + 2 + i * 19) * S), line, f_note, TXTM, anchor='ma')
 
     # ── три контакта: резьбу даёт слой `contacts` атласа, плитки идут без своей рамки,
     # границы плит — замер по home_contacts_c.png (ряд НЕ делится на три равные части).
     CONTACT_PLATES = [(34.1, 134.5), (144.8, 245.2), (255.5, 355.7)]  # по альфе слоя
-    CONTACT_TOP, CONTACT_BOTTOM = 496.0, 560.0
+    CONTACT_TOP, CONTACT_BOTTOM = 521.0, 585.0
     CONTACT_ICONS = ['contact_telegram', 'contact_max', 'contact_whatsapp']
     for (px0, px1), name, icon_name in zip(CONTACT_PLATES,
                                            ['Telegram', 'МАКС', 'WhatsApp'], CONTACT_ICONS):
@@ -652,21 +747,18 @@ def screen_home(state='connected'):
          'Купить подписку', ic_cart, GOLD)
 
     # ── нижняя консоль
-    kl, kt, kr, kb = B['bottomConsole']
-    kw, kh = kr - kl, kb - kt
-    side_w = kw * CONSOLE_SIDE_FRACTION
-    side_h = max(kh * CONSOLE_SIDE_HEIGHT_FRACTION, MIN_TOUCH)
-    dial = max(min(kh * CONSOLE_DIAL_HEIGHT_FRACTION, kw * CONSOLE_DIAL_WIDTH_FRACTION), MIN_TOUCH)
-    tile(lay, kl * S, (kt + (kh - side_h) / 2) * S, side_w * S, side_h * S,
+    ll, lt, lr, lb = CONSOLE_LEFT
+    tile(lay, ll * S, lt * S, (lr - ll) * S, (lb - lt) * S,
          'Ввести логин', ic_person, icon_sp=22, label_min=8, label_max=12)
-    tile(lay, (kr - side_w) * S, (kt + (kh - side_h) / 2) * S, side_w * S, side_h * S,
+    rl, rt, rr, rb = CONSOLE_RIGHT
+    tile(lay, rl * S, rt * S, (rr - rl) * S, (rb - rt) * S,
          'Подключить\nтелефон', ic_smartphone, icon_sp=22, label_min=8, label_max=12)
-    # круглый «Тест сети»: резная nine-patch после клипа в круг теряет углы, поэтому
-    # кромка рисуется кодом — ровно как в HomeDial.
-    dx = kl + (kw - dial) / 2
-    dy = kt + (kh - dial) / 2
+    dial_left, dial_top, dial_right, dial_bottom = CONSOLE_DIAL
+    dial = min(dial_right - dial_left, dial_bottom - dial_top)
+    dx = dial_left + (dial_right - dial_left - dial) / 2
+    dy = dial_top + (dial_bottom - dial_top - dial) / 2
     dl = Image.new('RGBA', (round(dial * S), round(dial * S)), (0, 0, 0, 0))
-    dd = ImageDraw.Draw(dl)
+    dd = ImageDraw.Draw(dl, 'RGBA')
     dd.ellipse((0, 0, dial * S - 1, dial * S - 1), fill=LEATHER + (255,),
                outline=GOLDM, width=round(2 * S))
     icon = round(24 * S)
@@ -678,7 +770,13 @@ def screen_home(state='connected'):
     lay.alpha_composite(dl, (round(dx * S), round(dy * S)))
     dl.close()
 
-    ph.alpha_composite(lay)
+    moved = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    moved.alpha_composite(lay, (0, -round(deck_scroll_dp * S)))
+    clip_y = round(DECK_TOP * S)
+    visible = moved.crop((0, clip_y, W, H))
+    ph.alpha_composite(visible, (0, clip_y))
+    visible.close()
+    moved.close()
     lay.close()
     return ph
 
@@ -792,6 +890,10 @@ for st in STATES:
     im = screen_home(st)
     homes[st] = im
     im.convert('RGB').save(OUTDIR / f'owner-home-{st}.png', 'PNG', optimize=True)
+SCROLL_PROOF_DP = 64.0
+home_scrolled = screen_home('connected', SCROLL_PROOF_DP)
+SCROLLED = str(OUTDIR / 'owner-home-connected-scrolled.png')
+home_scrolled.convert('RGB').save(SCROLLED, 'PNG', optimize=True)
 
 # ── доска сравнения: эталон владельца слева, симуляция того же вьюпорта справа
 ref = Image.open(REF_JPG).convert('RGB').resize((W, H), Image.LANCZOS)
@@ -805,7 +907,7 @@ txt(bd, (cb_w / 2, 34 * S), 'MaestroVPN Home — эталон владельца
 for i, line in enumerate([
         'Слева — 04-owner-selected-home-2026-07-31.jpg, приведённый к 390×844. Справа — симуляция по числам',
         'PhoneHomeReferenceLayout.kt и PhoneHomeControlDeck.kt на ПОДЛИННЫХ ассетах репозитория (центральный',
-        'свет 4D-атласа из 7 слоёв, Playfair). Это НЕ скриншот: глаз статичен, наклона и параллакса нет.',
+        'свет 4D-атласа из 8 relief-слоёв, Playfair). Это НЕ скриншот: глаз статичен, наклона и параллакса нет.',
         'Резьба дуги и консоли — настоящий арт из атласа; код рисует только подписи, иконки и выбор.']):
     txt(bd, (cb_w / 2, (80 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
 for x, im, cap in ((CMARG, ref, 'Эталон владельца'),
@@ -818,6 +920,38 @@ for x, im, cap in ((CMARG, ref, 'Эталон владельца'),
 board = board.resize((cb_w // 2, cb_h // 2), Image.LANCZOS)
 BOARD = str(OUTDIR / 'owner-home-comparison.png')
 board.save(BOARD, 'PNG', optimize=True)
+BOARD_JPG = str(OUTDIR / 'owner-home-comparison-qa.jpg')
+board_qa = board.resize((450, round(board.height * 450 / board.width)), Image.LANCZOS)
+board_qa.save(BOARD_JPG, 'JPEG', quality=42, optimize=True)
+board_qa.close()
+
+# ── доказательство общего scroll-owner: верх одинаков, relief и подписи едут вместе
+SGAP = 46 * S; SMARG = 40 * S; STOP = 142 * S; SCAP = 82 * S
+scroll_w = SMARG * 2 + W * 2 + SGAP
+scroll_h = STOP + H + SCAP
+scroll_board = Image.new('RGB', (scroll_w, scroll_h), (13, 9, 6))
+sbd = ImageDraw.Draw(scroll_board)
+txt(sbd, (scroll_w / 2, 30 * S), 'Home — fixed hero и единый скролл нижней деки',
+    F(PLAY, 28), GOLD, anchor='ma')
+for i, line in enumerate([
+        'Слева — начало. Справа — +64 dp: логотип, кольцо и глаз остаются на месте;',
+        'arc / contacts / console и все их подписи смещаются на одно значение и клипуются под героем.']):
+    txt(sbd, (scroll_w / 2, (72 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
+for x, im, cap in ((SMARG, homes['connected'].convert('RGB'), 'Начало деки'),
+                   (SMARG + W + SGAP, home_scrolled.convert('RGB'), 'Дека прокручена на 64 dp')):
+    card = rounded(im, 38 * S)
+    sbd.rounded_rectangle((x - 3 * S, STOP - 3 * S, x + W + 3 * S, STOP + H + 3 * S),
+                          radius=41 * S, fill=(58, 44, 28))
+    scroll_board.paste(card, (round(x), round(STOP)), card)
+    txt(sbd, (x + W / 2, STOP + H + 24 * S), cap, F(PLAY, 20), GOLD, anchor='ma')
+scroll_board = scroll_board.resize((scroll_w // 2, scroll_h // 2), Image.LANCZOS)
+SCROLL_BOARD = str(OUTDIR / 'owner-home-scroll-proof.png')
+scroll_board.save(SCROLL_BOARD, 'PNG', optimize=True)
+SCROLL_BOARD_JPG = str(OUTDIR / 'owner-home-scroll-proof-qa.jpg')
+scroll_board_qa = scroll_board.resize((450, round(scroll_board.height * 450 / scroll_board.width)), Image.LANCZOS)
+scroll_board_qa.save(SCROLL_BOARD_JPG, 'JPEG', quality=42, optimize=True)
+scroll_board_qa.close()
+
 
 # ── лист трёх состояний глаза
 GAP = 46 * S; MARG = 40 * S; TOPH = 150 * S; CAPH = 118 * S
@@ -832,10 +966,10 @@ sd = ImageDraw.Draw(sheet)
 txt(sd, (sheet_w / 2, 34 * S), 'MaestroVPN — Home, три состояния глаза (симуляция)',
     F(PLAY, 30), GOLD, anchor='ma')
 for i, line in enumerate([
-        'Порядок секций — из эталона владельца: титул и медальон, статус, телефон и пояснение,',
-        'Telegram / МАКС / WhatsApp, дуга протоколов, «Купить подписку», нижняя консоль.',
-        'Старого барабана, снэпа, наклона рядов и градиентной маски больше нет ни одного пикселя:',
-        'ниже героя рисует только PhoneHomeControlDeck.']):
+        'Неподвижны: логотип, медальон, мозаика и живой глаз. Ниже идут статус и активный протокол,',
+        'телефон, Telegram / МАКС / WhatsApp, дуга протоколов, покупка и нижняя консоль.',
+        'Нижняя дека имеет один scroll-owner для рельефа, плиток, иконок и текста. Старого барабана,',
+        'снэпа, наклона рядов и градиентной маски больше нет.']):
     txt(sd, (sheet_w / 2, (78 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
 xs = [MARG, MARG + W + GAP, MARG + (W + GAP) * 2]
 for x, st in zip(xs, STATES):
@@ -848,5 +982,5 @@ for x, st in zip(xs, STATES):
 sheet = sheet.resize((sheet_w // 2, sheet_h // 2), Image.LANCZOS)
 sheet.save(OUT, 'PNG', optimize=True)
 
-for name in [OUT, BOARD] + [str(OUTDIR / f'owner-home-{st}.png') for st in STATES]:
+for name in [OUT, BOARD, SCROLLED, SCROLL_BOARD] + [str(OUTDIR / f'owner-home-{st}.png') for st in STATES]:
     print('OK', name, f'{os.path.getsize(name)/1024:.0f} KB')

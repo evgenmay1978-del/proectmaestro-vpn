@@ -1,5 +1,48 @@
 ﻿# Claude: обязательный handoff по чистой мобильной 4D-пересборке
 
+## LIVE 02.08.2026 — продолжать только отсюда
+
+Рабочая GitHub-ветка: `codex/mobile-4d-deck`. Claude не видит Windows-worktree, поэтому перед
+любой работой выполнить `git fetch --all --prune`, checkout этой ветки и подтвердить remote HEAD.
+Локальный файл без push не является checkpoint.
+
+Обязательные новые документы, полностью:
+
+1. `CONTEXT_HANDOFF.md`, самый верхний раздел `0G`;
+2. `docs/superpowers/specs/2026-08-02-mobile-home-scroll-logo-eye-design.md`;
+3. `docs/superpowers/plans/2026-08-02-mobile-home-scroll-logo-eye.md`;
+4. `design-qa.md`, раздел `0. LIVE`;
+5. `ops/README.md`, пункт `phone-screen-sim.py`;
+6. затем production-файлы `Mobile4DHome.kt`, `PhoneHomeControlDeck.kt`,
+   `PhoneHomeReferenceLayout.kt`, `LivingEyeMedallion.kt`, `LivingEyeLayerGeometry.kt`;
+7. `ops/mobile-eye-natural-assets.py` и `ops/test_mobile_eye_natural_assets.py` — immutable
+   alpha-support contract живых век.
+
+Уже реализовано checkpoint-коммитами `2181813`, `d7b6901`, `281173e`, `9ec2473`: один
+`ScrollState`; fixed логотип/картуш/кольцо/мозаика/глаз; только `console/contacts/arc` движутся
+вместе с нижней декой; support-фраза удалена; статус опущен ниже медальона; фирменные contact
+icons выровнены; Playfair-титул исправлен; живой глаз посажен внутрь мозаики без изменения
+регистрации или animation state machine.
+
+Жёсткий runtime-контракт:
+
+- верх Home неподвижен;
+- один scroll-owner управляет relief, плитками, иконками, текстом и hit-target нижней деки;
+- обе части клипуются ниже `deckTop = 434 dp`; новый UI не накладывается поверх старого;
+- глаз сохраняет blink, squint, gaze, iris/pupil motion, touch reaction, catchlight и три VPN
+  состояния; меняются только inner occlusion/contact shadows;
+- никаких изменений TV, `tvm_*`, backend, release, OTA или signing.
+
+Лёгкий simulator даёт `owner-home-comparison.png` и `owner-home-scroll-proof.png` (scroll 64 dp
+достижим за счёт SecondaryDeck). Три независимых review закрыли Kotlin-scroll, simulator и
+eye-integration; после исправлений Critical/High/Medium нет. Следующий gate — только GitHub
+Actions: `assembleOtherDebug` + `testOtherDebugUnitTest`, затем реально существующий APK
+artifact. Локальный Gradle/APK на слабом компьютере владельца запрещён.
+
+Старые разделы ниже исторические там, где противоречат этому LIVE-блоку: особенно упоминания
+пояснения после телефона, шести протоколов, отсутствующих arc/console layers и старого branch.
+
+
 Эта инструкция обязательна для любого нового контекста Claude, который продолжает
 мобильный интерфейс MaestroVPN. Она дополняет `CLAUDE.md` и
 `CONTEXT_HANDOFF.md`; при расхождении сначала сверить фактический Git, затем

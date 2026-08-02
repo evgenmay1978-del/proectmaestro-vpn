@@ -21,12 +21,14 @@ All run **on S1** (where the panel, telemetry, mirror and repo live).
   /root/.venvs/maestro-mobile4d/bin/python ops/mobile-4d-assets.py
   ```
   Create it once with `python3 -m venv /root/.venvs/maestro-mobile4d && /root/.venvs/maestro-mobile4d/bin/pip install pillow==11.3.0` (that wheel bundles libwebp 1.5.0 — verified 2026-08-01).
-- `phone-screen-sim.py` reconstructs Home from the committed centre-light atlas geometry, then draws the owner-reference control deck over it. It does not depend on a legacy flat Home image.
-  - The `ring` layer is composited separately so it can carry the same `heroTranslationY` as the eye; wood/frame/cartouche/vines stay on the original crop.
-  - Deck geometry is copied 1:1 from `PhoneHomeReferenceLayout.kt` and the constants of `PhoneHomeControlDeck.kt`. **Change the Kotlin, change this file — otherwise the simulation lies.**
-  - Outputs into `build/phone-screen-sim/`: `owner-home-connected.png`, `owner-home-connecting.png`, `owner-home-disconnected.png` (780×1688 = 390×844@2x), `owner-home-comparison.png` (owner reference beside the connected preview) and `phone-screens.png` (all three eye states).
-  - Measured deltas against the reference and the blocking asset gap live in `design-qa.md`.
-- `mobile-eye-natural-assets.py` rebuilds only the aligned `mobile_eye_open`, `mobile_eye_squint` and `mobile_eye_closed` resources and validates the existing anatomy layers. It never recreates a Home scene.
+- `phone-screen-sim.py` reconstructs Home from all eight committed centre-light atlas layers, then draws the measured owner-reference controls. It never uses a legacy flat Home image.
+  - Fixed ownership: `wood/frame/cartouche/vines`, `ring`, Playfair title and living eye. Only `console/contacts/arc` receive `+25 dp - deckScrollDp`, clipped below `deckTop = 434 dp`.
+  - The simulator uses the direct `890×635 / 822.5` eye registration plus the same bronze clip, eyelid contact shadow and inner occlusion profile as runtime; the preview is static, while the Android eye keeps blink/gaze/touch animation.
+  - Deck geometry is copied 1:1 from `PhoneHomeReferenceLayout.kt` and `PhoneHomeControlDeck.kt`. **Change the Kotlin, change this file — otherwise the simulation lies.**
+  - Outputs include the three VPN states, `owner-home-comparison.png`, `owner-home-connected-scrolled.png` and `owner-home-scroll-proof.png`; the last board proves that logo/eye are fixed while relief, tiles, icons and labels move together.
+  - The removed support sentence must not reappear in runtime or simulator.
+  - Current visual findings and acceptance evidence live in `design-qa.md`.
+- `mobile-eye-natural-assets.py` rebuilds only the aligned `mobile_eye_open`, `mobile_eye_squint` and `mobile_eye_closed` resources and validates the existing anatomy layers. It never recreates a Home scene. The approved alpha support for every eyelid state is an immutable SHA-256 constant; never replace that contract with a comparison against the runtime WebP that the same script overwrites.
 
 The mobile 4D atlas is the single Home-art pipeline. Keep text and the eye separate; do not add a flattened Home drawable back. TV assets and TV tools are outside this pipeline.
 

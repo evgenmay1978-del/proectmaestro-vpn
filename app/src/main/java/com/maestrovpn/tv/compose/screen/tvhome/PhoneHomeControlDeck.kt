@@ -52,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -169,12 +170,20 @@ internal fun PhoneHomeControlDeck(
         val contactScale = deckWidth / REFERENCE_WIDTH
         val arcProtocols = remember(protocols) { orderedHomeProtocols(protocols) }
 
-        Column(
+        // Явный viewport не даёт ни тексту, ни hit-target деки подняться поверх
+        // неподвижных логотипа и глаза. Арт-слои используют тот же deckTop в Canvas.
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = deckTop.dp)
-                .verticalScroll(scrollState),
+                .fillMaxWidth()
+                .absoluteOffset(y = deckTop.dp)
+                .height((maxHeight.value - deckTop).coerceAtLeast(0f).dp)
+                .clipToBounds(),
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState),
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -318,6 +327,7 @@ internal fun PhoneHomeControlDeck(
                 onSplitTunnel = onSplitTunnel,
                 onUpdate = onUpdate,
             )
+        }
         }
     }
 }
