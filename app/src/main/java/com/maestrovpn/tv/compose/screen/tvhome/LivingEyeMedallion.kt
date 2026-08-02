@@ -222,6 +222,8 @@ internal fun LivingEyeMedallion(
         val bronzeInset = livingEyeBronzeInset(size.width, size.height)
         val medallion = minOf(size.width, size.height)
         val integration = livingEyeIntegrationProfile(size.width, size.height)
+        val phase = lidPhase.value.coerceIn(0f, 1f)
+        val renderPolicy = livingEyeRenderPolicy(phase)
         val bronzeClip = Path().apply {
             addOval(
                 Rect(
@@ -234,7 +236,6 @@ internal fun LivingEyeMedallion(
         }
         clipPath(bronzeClip) {
             val layerFit = integration.layerFit
-            val phase = lidPhase.value.coerceIn(0f, 1f)
             val aperture = livingEyeApertureContour(
                 layerFit = layerFit,
                 closure = phase,
@@ -243,7 +244,7 @@ internal fun LivingEyeMedallion(
 
             // Do not rely on renderer behavior for a degenerate closed Path: at full closure the
             // living layer is deliberately empty and the one true mosaic below remains visible.
-            if (phase < FULLY_CLOSED_PHASE) {
+            if (renderPolicy.eyeLayersEnabled) {
                 clipPath(aperture) {
                     drawSourceLayer(
                         image = openState,
@@ -326,7 +327,7 @@ internal fun LivingEyeMedallion(
         // Свет по внутренней кромке кольца — СНАРУЖИ клипа: он должен ложиться на бронзу, а не
         // подрезаться ею. Центр НАМЕРЕННО прозрачный: заливая середину, мы засветили бы радужку
         // и зрачок — самое ценное в кадре. Читается как свет из-под бронзы, а не как пятно сверху.
-        val glowValue = glow.value
+        val glowValue = if (renderPolicy.glowEnabled) glow.value else 0f
         if (glowValue > 0.01f) {
             val centre = Offset(size.width / 2f, size.height / 2f)
             val glowRadius = medallion / 2f - bronzeInset
@@ -488,25 +489,13 @@ private fun DrawScope.drawEyelidContactShadow(
     val closure = phase.coerceIn(0f, 1f)
 
     fun drawContour(path: Path, alphaMultiplier: Float) {
-        if (alphaMultiplier <= 0.01f) return
+        val alpha = profile.contactSeamAlpha * alphaMultiplier
+        if (alpha <= 0.01f) return
         drawPath(
             path = path,
-            color = EYE_CONTACT_SHADOW.copy(
-                alpha = profile.eyelidContactShadowAlpha * 0.30f * alphaMultiplier,
-            ),
+            color = EYE_CONTACT_SHADOW.copy(alpha = alpha),
             style = Stroke(
-                width = profile.eyelidContactShadowBlurPx,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            ),
-        )
-        drawPath(
-            path = path,
-            color = EYE_CONTACT_SHADOW.copy(
-                alpha = profile.eyelidContactShadowAlpha * alphaMultiplier,
-            ),
-            style = Stroke(
-                width = profile.eyelidContactShadowBlurPx * 0.28f,
+                width = profile.contactSeamWidthPx,
                 cap = StrokeCap.Round,
                 join = StrokeJoin.Round,
             ),
@@ -577,7 +566,6 @@ private const val BLINK_DOWN_SHIFT = 2f
 private const val GLOW_CONNECTING_MIN = 0.45f
 private const val GLOW_CONNECTING_MAX = 1f
 private const val GLOW_CONNECTED = 0.7f
-private const val FULLY_CLOSED_PHASE = 0.999f
 // Доля радиуса, до которой свет полностью прозрачен: центр не засвечиваем. 0.82 и alpha 0.22
 // вместо прежних 0.55 и 0.5 — при них свет ложился пеленой поверх глаза (владелец 31.07).
 private const val GLOW_INNER_EDGE = 0.82f

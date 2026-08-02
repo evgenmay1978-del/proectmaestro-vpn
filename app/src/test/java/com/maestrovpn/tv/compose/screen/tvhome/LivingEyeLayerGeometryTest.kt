@@ -1,6 +1,7 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -86,15 +87,32 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun integrationProfileAddsOcclusionWithoutChangingEyeRegistration() {
+    fun integrationProfileKeepsRegistrationAndDefinesUniformContactSeam() {
         val fit = fitLivingEyeLayer(width = 520f, height = 520f)
         val profile = livingEyeIntegrationProfile(width = 520f, height = 520f)
 
         assertEquals(fit.scale, profile.fitScale, 0.000001f)
         assertEquals(fit.stateBounds, profile.stateBounds)
-        assertEquals(3f, profile.eyelidContactShadowBlurPx, 0.001f)
-        assertEquals(0.18f, profile.eyelidContactShadowAlpha, 0f)
-        assertTrue(profile.eyelidContactShadowBlurPx < livingEyeBronzeInset(520f, 520f))
+        assertEquals(3f, profile.contactSeamWidthPx, 0.001f)
+        assertEquals(0.18f, profile.contactSeamAlpha, 0f)
+        assertTrue(profile.contactSeamWidthPx < livingEyeBronzeInset(520f, 520f))
+    }
+
+    @Test
+    fun fullClosureDisablesEyeLayersAndGlowWhileOpenEyeKeepsBoth() {
+        val open = livingEyeRenderPolicy(closure = 0f)
+        val justOpen = livingEyeRenderPolicy(closure = 0.998f)
+        val threshold = livingEyeRenderPolicy(closure = 0.999f)
+        val closed = livingEyeRenderPolicy(closure = 1f)
+
+        assertTrue(open.eyeLayersEnabled)
+        assertTrue(open.glowEnabled)
+        assertTrue(justOpen.eyeLayersEnabled)
+        assertTrue(justOpen.glowEnabled)
+        assertFalse(threshold.eyeLayersEnabled)
+        assertFalse(threshold.glowEnabled)
+        assertFalse(closed.eyeLayersEnabled)
+        assertFalse(closed.glowEnabled)
     }
 
     @Test

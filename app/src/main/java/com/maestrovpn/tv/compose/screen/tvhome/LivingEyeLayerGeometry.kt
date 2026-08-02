@@ -184,8 +184,8 @@ internal fun livingEyeBronzeInset(width: Float, height: Float): Float =
  */
 internal data class LivingEyeIntegrationProfile(
     val layerFit: LivingEyeLayerFit,
-    val eyelidContactShadowBlurPx: Float,
-    val eyelidContactShadowAlpha: Float,
+    val contactSeamWidthPx: Float,
+    val contactSeamAlpha: Float,
 ) {
     val fitScale: Float get() = layerFit.scale
     val stateBounds: LivingEyeLayerBounds get() = layerFit.stateBounds
@@ -198,8 +198,23 @@ internal fun livingEyeIntegrationProfile(
     val medallionSize = minOf(width, height)
     return LivingEyeIntegrationProfile(
         layerFit = fitLivingEyeLayer(width, height),
-        eyelidContactShadowBlurPx = medallionSize * LIVING_EYE_CONTACT_SHADOW_FRACTION,
-        eyelidContactShadowAlpha = 0.18f,
+        contactSeamWidthPx = medallionSize * LIVING_EYE_CONTACT_SHADOW_FRACTION,
+        contactSeamAlpha = 0.18f,
+    )
+}
+
+internal data class LivingEyeRenderPolicy(
+    val eyeLayersEnabled: Boolean,
+    val glowEnabled: Boolean,
+)
+
+/** Full closure exposes only the registered base mosaic and its thin contact seam. */
+internal fun livingEyeRenderPolicy(closure: Float): LivingEyeRenderPolicy {
+    val livingLayersEnabled =
+        closure.coerceIn(0f, 1f) < LIVING_EYE_FULLY_CLOSED_PHASE
+    return LivingEyeRenderPolicy(
+        eyeLayersEnabled = livingLayersEnabled,
+        glowEnabled = livingLayersEnabled,
     )
 }
 
@@ -214,6 +229,7 @@ private const val LIVING_EYE_VIRTUAL_SIZE = 822.5f
 private const val LIVING_EYE_BRONZE_INSET_FRACTION = 26f / 520f
 private const val LIVING_EYE_CONTACT_SHADOW_FRACTION = 3f / 520f
 private const val LIVING_EYE_UPPER_LID_TRAVEL_SHARE = 0.70f
+private const val LIVING_EYE_FULLY_CLOSED_PHASE = 0.999f
 
 private val LIVING_EYE_APERTURE_UPPER_SOURCE = listOf(
     LivingEyeLayerPoint(388f, 1083f),
