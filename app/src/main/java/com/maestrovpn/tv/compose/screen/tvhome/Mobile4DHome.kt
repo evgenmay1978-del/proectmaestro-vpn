@@ -1,6 +1,8 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -36,6 +38,8 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.isSupported
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -60,19 +64,28 @@ import kotlin.math.roundToInt
 internal data class Mobile4DHomeReliefLayer(
     val name: String,
     val parallax: Mobile4DParallaxLayer,
+    val movesWithDeck: Boolean,
 )
 
 /** Единственный runtime-план слоёв Home; тест сверяет его с generated manifest. */
 internal val mobile4DHomeReliefLayers = listOf(
-    Mobile4DHomeReliefLayer("console", Mobile4DParallaxLayer.Console),
-    Mobile4DHomeReliefLayer("contacts", Mobile4DParallaxLayer.Console),
-    Mobile4DHomeReliefLayer("frame", Mobile4DParallaxLayer.Frame),
-    Mobile4DHomeReliefLayer("cartouche", Mobile4DParallaxLayer.Cartouche),
-    Mobile4DHomeReliefLayer("vines", Mobile4DParallaxLayer.Vines),
-    Mobile4DHomeReliefLayer("arc", Mobile4DParallaxLayer.Arc),
+    Mobile4DHomeReliefLayer("console", Mobile4DParallaxLayer.Console, movesWithDeck = true),
+    Mobile4DHomeReliefLayer("contacts", Mobile4DParallaxLayer.Console, movesWithDeck = true),
+    Mobile4DHomeReliefLayer("frame", Mobile4DParallaxLayer.Frame, movesWithDeck = false),
+    Mobile4DHomeReliefLayer("cartouche", Mobile4DParallaxLayer.Cartouche, movesWithDeck = false),
+    Mobile4DHomeReliefLayer("vines", Mobile4DParallaxLayer.Vines, movesWithDeck = false),
+    Mobile4DHomeReliefLayer("arc", Mobile4DParallaxLayer.Arc, movesWithDeck = true),
 )
 internal val mobile4DHomeLayerOrder =
     listOf("wood") + mobile4DHomeReliefLayers.map(Mobile4DHomeReliefLayer::name) + "ring"
+
+internal const val MOBILE_HOME_LOWER_DECK_SHIFT_DP = 25f
+
+internal fun mobile4DDeckLayerTranslationYPx(
+    layer: Mobile4DHomeReliefLayer,
+    staticShiftPx: Float,
+    scrollPx: Float,
+): Float = if (layer.movesWithDeck) staticShiftPx - scrollPx else 0f
 
 /** Clean phone-only compositor. It never draws the obsolete flattened mobile scene. */
 @Composable
@@ -113,10 +126,12 @@ internal fun Mobile4DHome(
             mobile4DSceneLayout(viewportWidthPx.toFloat(), viewportHeightPx.toFloat())
         }
         val reference = phoneHomeReferenceLayout(maxWidth.value, maxHeight.value)
+        val deckScrollState = rememberScrollState()
         Mobile4DSceneAndHero(
             layout = layout,
             reference = reference,
             viewportWidthPx = viewportWidthPx,
+            deckScrollState = deckScrollState,
             connected = connected,
             connecting = connecting,
             onToggleConnect = onToggleConnect,
@@ -147,6 +162,7 @@ internal fun Mobile4DHome(
             onShareIos = onShareIos,
             onScanQr = onScanQr,
             onEnterTrial = onEnterTrial,
+            scrollState = deckScrollState,
             modifier = Modifier
                 .zIndex(3f)
                 .fillMaxSize(),
@@ -159,6 +175,7 @@ private fun Mobile4DSceneAndHero(
     layout: Mobile4DSceneLayout,
     reference: PhoneHomeReferenceLayout,
     viewportWidthPx: Int,
+    deckScrollState: ScrollState,
     connected: Boolean,
     connecting: Boolean,
     onToggleConnect: () -> Unit,
@@ -185,6 +202,8 @@ private fun Mobile4DSceneAndHero(
     // картуш и лозы остаются на исходном кропе: лозы — полноэкранный слой, и сдвиг с
     // медальоном оголил бы низ и обрезал бока.
     val heroShift = Offset(0f, with(density) { reference.heroTranslationY.dp.toPx() })
+    val deckTopPx = with(density) { reference.deckTop.dp.toPx() }
+    val lowerDeckShiftPx = with(density) { MOBILE_HOME_LOWER_DECK_SHIFT_DP.dp.toPx() }
 
     Box(modifier = modifier) {
         Canvas(Modifier.fillMaxSize()) {
@@ -199,7 +218,20 @@ private fun Mobile4DSceneAndHero(
                 opaque = true,
             )
             mobile4DHomeReliefLayers.forEach { layer ->
-                drawReliefWithShadow(layer.name, layer.parallax, layout, tilt, lightMix, pages)
+                val translationY = mobile4DDeckLayerTranslationYPx(
+                    layer = layer,
+                    staticShiftPx = lowerDeckShiftPx,
+                    scrollPx = deckScrollState.value.toFloat(),
+                )
+                if (layer.movesWithDeck) {
+                    clipRect(top = deckTopPx) {
+                        translate(top = translationY) {
+                            drawReliefWithShadow(layer.name, layer.parallax, layout, tilt, lightMix, pages)
+                        }
+                    }
+                } else {
+                    drawReliefWithShadow(layer.name, layer.parallax, layout, tilt, lightMix, pages)
+                }
             }
             drawReliefWithShadow(
                 "ring",
@@ -573,14 +605,9 @@ private fun Mobile4DLightSide.toAssetLight(): Mobile4DAssetLight = when (this) {
 }
 
 private val ADDITIVE_RELIEF_SUPPORTED = BlendMode.Plus.isSupported()
-/**
- * ⛔ Было 46 sp без разрядки — буквы получались на треть выше эталонных и почти касались краёв
- * таблички. Замер по эталону: строка занимает ~242 dp при высоте глифов ~20 dp, то есть набрана
- * НЕ крупным кеглем, а средним с большой разрядкой. Playfair 30 sp даёт 165 dp, недостающие
- * ~77 dp добираются трекингом по девяти промежуткам.
- */
-private val TITLE_MAX_FONT_SIZE = 30.sp
-private val TITLE_LETTER_SPACING = 8.sp
+/** Эталон владельца: читаемый логотип в пределах таблички, без прежней чрезмерной разрядки. */
+private val TITLE_MAX_FONT_SIZE = 38.sp
+private val TITLE_LETTER_SPACING = 3.5.sp
 /**
  * Грань буквы: светлее сверху, темнее снизу — так металл читается объёмным. Средний тон набора
  * держится около замеренного на эталоне (186,170,137), крайние точки разведены от него.

@@ -23,7 +23,6 @@ internal data class PhoneHomeReferenceLayout(
     val status: PhoneHomeReferenceBounds,
     val activeProtocol: PhoneHomeReferenceBounds,
     val phone: PhoneHomeReferenceBounds,
-    val supportNote: PhoneHomeReferenceBounds,
     val contacts: PhoneHomeReferenceBounds,
     val protocolArc: PhoneHomeReferenceBounds,
     val buy: PhoneHomeReferenceBounds,
@@ -41,7 +40,7 @@ internal fun phoneHomeReferenceLayout(width: Float, height: Float): PhoneHomeRef
         bottom = bottom * scale,
     )
 
-    val bottomConsole = bounds(8f, 735f, 382f, 839f)
+    val bottomConsole = bounds(8f, 760f, 382f, 864f)
     val deckTop = DeckTop * scale
     val primaryDeckBottom = bottomConsole.bottom
     val primaryDeckContentHeight = primaryDeckBottom - deckTop
@@ -55,18 +54,17 @@ internal fun phoneHomeReferenceLayout(width: Float, height: Float): PhoneHomeRef
         requiresScroll = height < primaryDeckBottom,
         title = bounds(69f, 54f, 323f, 88f),
         medallion = bounds(26f, 104f, 364f, 413f),
-        status = bounds(128f, 363f, 265f, 386f),
-        activeProtocol = bounds(126f, 386f, 266f, 406f),
-        phone = bounds(81f, 407f, 310f, 445f),
-        supportNote = bounds(84f, 446f, 306f, 484f),
-        contacts = bounds(34f, 486f, 356f, 569f),
-        protocolArc = bounds(0f, 570f, 390f, 705f),
-        buy = bounds(81f, 699f, 309f, 744f),
+        status = bounds(128f, 434f, 265f, 456f),
+        activeProtocol = bounds(126f, 456f, 266f, 476f),
+        phone = bounds(81f, 478f, 310f, 516f),
+        contacts = bounds(34f, 511f, 356f, 594f),
+        protocolArc = bounds(0f, 595f, 390f, 730f),
+        buy = bounds(81f, 724f, 309f, 769f),
         bottomConsole = bottomConsole,
     )
 }
 
 private const val ReferenceWidth = 390f
 private const val HeroTranslationY = -58f
-private const val DeckTop = 363f
+private const val DeckTop = 434f
 private const val MinimumInteractiveHeight = 48f

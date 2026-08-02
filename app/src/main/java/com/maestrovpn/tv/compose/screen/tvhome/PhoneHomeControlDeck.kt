@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
@@ -73,7 +73,6 @@ import com.maestrovpn.tv.compose.premium.PremiumEmerald
 import com.maestrovpn.tv.compose.premium.PremiumGold
 import com.maestrovpn.tv.compose.premium.PremiumGoldMuted
 import com.maestrovpn.tv.compose.premium.PremiumText
-import com.maestrovpn.tv.compose.premium.PremiumTextMuted
 import com.maestrovpn.tv.compose.premium.PremiumTouchTarget
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -99,8 +98,8 @@ import kotlin.math.max
  *     «чёрная плита». Здесь нет ни одной полноэкранной подложки и ни одной маски: дека
  *     начинается на `layout.deckTop`, выше живут только герой и глаз, и они ловят касания.
  *  2. `graphicsLayer { rotationX }` + snap-fling (цилиндр) ломали попадание пальцем и
- *     TalkBack. Дуга протоколов здесь — статический вертикальный сдвиг плитки: без
- *     вращения, без привязки к скроллу, без снэпа и хаптик-тиков.
+ *     TalkBack. Дуга не вращается и не снапится; вся нижняя дека движется единым ScrollState
+ *     вместе со своим резным atlas-слоем.
  *  3. Видимый орнамент бывает ниже 48 dp (телефонная пилюля эталона — 38 dp). Размер
  *     ОРНАМЕНТА берётся из эталона, а область нажатия расширяется до
  *     [PhoneHomeReferenceLayout.minimumInteractiveHeight] вокруг того же центра.
@@ -127,6 +126,7 @@ internal fun PhoneHomeControlDeck(
     onShareIos: () -> Unit,
     onScanQr: () -> Unit,
     onEnterTrial: () -> Unit,
+    scrollState: ScrollState,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -173,7 +173,7 @@ internal fun PhoneHomeControlDeck(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = deckTop.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
         ) {
             Box(
                 modifier = Modifier
@@ -182,9 +182,8 @@ internal fun PhoneHomeControlDeck(
             ) {
                 // ⛔ ЛОВУШКА: сюда напрашивался готовый `PhoneStatusRow`, но у него своя
                 // вертикальная раскладка (padding 6 dp + spacer 8 dp), и строка протокола
-                // уезжала на 398–418 dp — прямо под телефонную пилюлю (её цель нажатия
-                // начинается на 402 dp). На эталоне статус занимает 363–386, протокол
-                // 386–406, телефон 407: обе строки стоят по своим измеренным границам.
+                // не должна менять утверждённые границы: статус 434–456, протокол 456–476,
+                // телефон 478–516. Они начинаются ниже фактической кромки медальона.
                 // ⛔ Красная точка над словом «ПОДКЛЮЧЕНИЕ» — это ярлык, который врёт:
                 // тот же класс дефекта, что «Загрузка…» над установкой обновления на ТВ.
                 // Промежуточное состояние получает свой цвет, а не цвет отказа.
@@ -241,18 +240,6 @@ internal fun PhoneHomeControlDeck(
                             .fillMaxWidth()
                             .testTag("home-action-phone"),
                         leadingIcon = { Icon(Icons.Filled.Call, null, tint = PremiumEmerald) },
-                    )
-                }
-
-                DeckSection(layout.supportNote, deckTop) {
-                    Text(
-                        text = SUPPORT_NOTE,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PremiumTextMuted,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("home-support-note"),
                     )
                 }
 
@@ -440,7 +427,7 @@ internal fun homeButtonVisualHeight(bounds: PhoneHomeReferenceBounds): Float =
     bounds.bottom - bounds.top
 
 /**
- * Шесть протоколов по дуге. Дуга — СТАТИЧЕСКИЙ вертикальный сдвиг сектора по параболе от
+ * Семь протоколов по дуге. Дуга — статический вертикальный сдвиг сектора по параболе от
  * центра ряда: крайние опускаются на [ARC_DROP], средние почти не двигаются. Это не старый
  * цилиндр: ни `rotationX`, ни привязки к скроллу, ни снэпа — палец и TalkBack получают
  * обычный ряд радиокнопок.
@@ -807,7 +794,6 @@ private val HOME_PROTOCOL_ORDER =
     listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc")
 private const val SUPPORT_PHONE_LABEL = "8 977 811-65-64"
 private const val SUPPORT_PHONE_URI = "+79778116564"
-private const val SUPPORT_NOTE = "Если я не ответил на звонок — напишите в любом из мессенджеров."
 /** 1:1 к прежней строке статуса: ОТКЛЮЧЕНО = красная точка и красный текст. */
 private val StatusRed = Color(0xFFFF4040)
 /**
@@ -844,8 +830,8 @@ internal val homeContactSpecs = listOf(
         355.7f,
     ),
 )
-internal const val HOME_CONTACT_TOP_DP = 496f
-internal const val HOME_CONTACT_BOTTOM_DP = 560f
+internal const val HOME_CONTACT_TOP_DP = 521f
+internal const val HOME_CONTACT_BOTTOM_DP = 585f
 internal const val HOME_CONTACT_ICON_DP = 26f
 /** Подпись контакта у эталона мельче остальных плиток. */
 internal const val HOME_CONTACT_LABEL_SP = 10.5f
@@ -865,7 +851,7 @@ private val ARC_SECTOR_CENTERS = listOf(37.8f, 88.3f, 141.7f, 195.6f, 248.2f, 30
  * Центры при этом спеке соответствуют: расхождение не больше 2 dp.
  */
 private val ARC_CELL_WIDTHS = listOf(40.1f, 47.0f, 45.7f, 47.3f, 45.7f, 46.4f, 40.7f)
-private val ARC_CELL_TOPS = listOf(619.7f, 603.6f, 593.7f, 602.0f, 593.1f, 602.9f, 619.4f)
+private val ARC_CELL_TOPS = listOf(644.7f, 628.6f, 618.7f, 627.0f, 618.1f, 627.9f, 644.4f)
 private val ARC_CELL_HEIGHTS = listOf(67.2f, 77.2f, 83.1f, 73.6f, 83.7f, 77.7f, 67.4f)
 private const val SELECTION_BAR_WIDTH = 22f
 /**
@@ -873,7 +859,7 @@ private const val SELECTION_BAR_WIDTH = 22f
  * (тёмные интерьеры внутри резьбы). Круглая центральная зона выше боковых, как на эталоне.
  * Все три крупнее 48 dp: 107×60, 68×73, 107×60.
  */
-private val CONSOLE_LEFT = listOf(32f, 757.4f, 139f, 817.4f)
-private val CONSOLE_DIAL = listOf(160f, 749.7f, 228f, 823f)
-private val CONSOLE_RIGHT = listOf(250f, 757.6f, 357f, 817.4f)
+private val CONSOLE_LEFT = listOf(32f, 782.4f, 139f, 842.4f)
+private val CONSOLE_DIAL = listOf(160f, 774.7f, 228f, 848f)
+private val CONSOLE_RIGHT = listOf(250f, 782.6f, 357f, 842.4f)
 private const val CONSOLE_REFERENCE_WIDTH = 390f
