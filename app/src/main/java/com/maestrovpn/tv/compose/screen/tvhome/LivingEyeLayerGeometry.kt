@@ -70,10 +70,13 @@ internal fun livingEyeMosaicProfile(
 ): LivingEyeMosaicProfile {
     val size = minOf(width, height)
     return LivingEyeMosaicProfile(
+        // These are the exact registered ring pixels, so full replacement is seamless. A
+        // translucent or aperture-sized patch lets the black/bronze blink frame ghost through.
         textureAlpha = (lidPhase.coerceIn(0f, 1f) / 0.5f)
-            .coerceIn(0f, 1f) * 0.78f,
+            .coerceIn(0f, 1f),
         seamOverlapPx = maxOf(1f, size * 0.005f),
-        envelopeExpansionPx = size * 0.046f,
+        // The bounds helper clamps this expansion to the complete eye-state rectangle.
+        envelopeExpansionPx = size,
     )
 }
 
