@@ -138,6 +138,32 @@ class Mobile4DSceneModelTest {
     }
 
     @Test
+    fun onlyLowerDeckReliefLayersFollowTheSharedScrollOwner() {
+        assertEquals(
+            mapOf(
+                "console" to true,
+                "contacts" to true,
+                "frame" to false,
+                "cartouche" to false,
+                "vines" to false,
+                "arc" to true,
+            ),
+            mobile4DHomeReliefLayers.associate { it.name to it.movesWithDeck },
+        )
+
+        val staticShiftPx = 50f
+        val scrollPx = 137f
+        mobile4DHomeReliefLayers.forEach { layer ->
+            val expected = if (layer.movesWithDeck) staticShiftPx - scrollPx else 0f
+            assertEquals(
+                expected,
+                mobile4DDeckLayerTranslationYPx(layer, staticShiftPx, scrollPx),
+                0f,
+            )
+        }
+    }
+
+    @Test
     fun disconnectedEyeIsClosed() {
         assertEquals(Mobile4DEyeState.Disconnected, mobile4DEyeState(connected = false, connecting = false))
     }

@@ -84,4 +84,17 @@ class LivingEyeLayerGeometryTest {
         assertTrue(fit.stateBounds.right >= transformedApertureBounds.right)
         assertTrue(fit.stateBounds.bottom >= transformedApertureBounds.bottom)
     }
+
+    @Test
+    fun integrationProfileAddsOcclusionWithoutChangingEyeRegistration() {
+        val fit = fitLivingEyeLayer(width = 520f, height = 520f)
+        val profile = livingEyeIntegrationProfile(width = 520f, height = 520f)
+
+        assertEquals(fit.scale, profile.fitScale, 0.000001f)
+        assertEquals(fit.stateBounds, profile.stateBounds)
+        assertTrue(profile.innerOcclusionWidthPx > 0f)
+        assertTrue(profile.innerOcclusionAlpha in 0f..1f)
+        assertTrue(profile.eyelidContactShadowBlurPx > 0f)
+        assertTrue(profile.eyelidContactShadowAlpha in 0f..1f)
+    }
 }
