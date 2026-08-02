@@ -45,6 +45,7 @@ func (f *fakeProv) DeviceLimitFor(login string) int {
 
 func (f *fakeProv) BackfillAnyTLS() (int, error)                           { return 0, nil }
 func (f *fakeProv) BackfillS3() (int, error)                               { return 0, nil }
+func (f *fakeProv) BackfillS4(only ...string) (int, error)                 { return len(only), nil }
 func (f *fakeProv) BulkActivateExisting(l []string) (int, []string, error) { return 0, nil, nil }
 func (f *fakeProv) MigrateAnyTLSEndpoint() (int, error)                    { return 0, nil }
 func (f *fakeProv) DeleteCustomer(login string) error                      { return f.st.Delete(login) }
