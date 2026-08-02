@@ -1,5 +1,25 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0I. LIVE: full-window Home и мозаичные веки собраны на GitHub
+
+Проверенный GitHub-handoff от **02.08.2026**:
+
+- ветка `codex/mobile-4d-deck`, протестированный remote SHA
+  `ede03afaacd10d0ba8c5a39ebbd35f8b62d66a16`;
+- GitHub Actions run `30753147169` (`Build app APK (test / compile-check)`) —
+  `completed / success`;
+- `:app:assembleOtherDebug` — success; загрузка APK — success;
+  `:app:testOtherDebugUnitTest` — success;
+- APK artifact `maestrovpn-tv-test-apk`, id `8835149771`, размер `177366787` байт,
+  digest `sha256:92b5298f46b0fa58e4b4fbc2f08bf15b2929fffb1760016121948a5fdeb2367f`,
+  срок хранения до `2026-10-31T14:54:28Z`;
+- прямая страница артефакта:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30753147169/artifacts/8835149771`;
+- CI-only draft PR `#76` закрыт после успешной сборки, **не смержен**. Release, OTA,
+  backend, VPN-runtime и TV не трогались.
+
+Следующий шаг — установить этот APK и проверить Home на физическом телефоне.
+
 ## 0H. LIVE: GitHub compile, unit-тесты и тестовый APK зелёные
 
 Этот раздел новее 0G и фиксирует проверенный GitHub-handoff от **02.08.2026**:
