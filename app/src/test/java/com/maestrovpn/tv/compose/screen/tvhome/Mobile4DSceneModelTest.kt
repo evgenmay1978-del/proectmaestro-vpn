@@ -68,8 +68,10 @@ class Mobile4DSceneModelTest {
     fun cropMappingKeepsMedallionOnTheApprovedAnchor() {
         val layout = mobile4DSceneLayout(width = 390f, height = 844f)
 
-        assertEquals(196.6f, layout.medallionCenterX, 0.2f)
-        assertEquals(325.3f, layout.medallionCenterY, 0.2f)
+        // ⛔ Центр привязан к НОВОМУ кольцу с мозаикой (`home_ring_*`, master 1080/1751), а не к
+        // прежнему пустому овалу 430/853 и 711/1844: те уводили глаз на 9 dp вниз от резьбы.
+        assertEquals(195.0f, layout.medallionCenterX, 0.2f)
+        assertEquals(316.4f, layout.medallionCenterY, 0.2f)
         assertEquals(119f, layout.medallionRadiusX, 0.2f)
         assertEquals(119f, layout.medallionRadiusY, 0.2f)
     }
@@ -81,8 +83,8 @@ class Mobile4DSceneModelTest {
         assertEquals(844f / 2160f, layout.scale, 0.0001f)
         assertEquals(0f, layout.translationX, 0.0001f)
         assertEquals(-717.4f, layout.translationY, 0.2f)
-        assertEquals(425.5f, layout.medallionCenterX, 0.2f)
-        assertEquals(-13.8f, layout.medallionCenterY, 0.2f)
+        assertEquals(422.0f, layout.medallionCenterX, 0.2f)
+        assertEquals(-33.2f, layout.medallionCenterY, 0.2f)
     }
 
     @Test
@@ -241,7 +243,11 @@ class Mobile4DSceneModelTest {
         assertEquals(1620, roomy.targetWidthPx)
         assertTrue(roomy.estimatedResidentBytes <= roomy.decodedArtBudgetBytes)
         assertEquals(Mobile4DAssetRetention.CentreAndActiveSide, constrained.retention)
-        assertEquals(1536, constrained.targetWidthPx)
+        // ⛔ Было 1536. Атлас вырос с пяти слоёв до восьми (`console`, `contacts`, `arc`), и на
+        // memoryClass 256 МиБ два света помещаются только в 1408 px: 87.6 МиБ при бюджете 94.4.
+        // Это не «подгонка теста», а измеренное следствие подключения новых слоёв — при 512 МиБ
+        // три света по-прежнему держатся на полных 1620 px (173.8 МиБ при бюджете 196.8).
+        assertEquals(1408, constrained.targetWidthPx)
         assertTrue(constrained.estimatedResidentBytes <= constrained.decodedArtBudgetBytes)
     }
 
