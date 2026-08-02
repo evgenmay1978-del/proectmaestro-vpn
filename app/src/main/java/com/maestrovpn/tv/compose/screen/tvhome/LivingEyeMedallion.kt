@@ -15,15 +15,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -61,6 +64,7 @@ internal fun LivingEyeMedallion(
     connected: Boolean,
     touchGaze: Offset? = null,
     opennessOverride: Float? = null,
+    mosaicPainter: (DrawScope.() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val openState = ImageBitmap.imageResource(R.drawable.mobile_eye_open)
@@ -354,6 +358,44 @@ internal fun LivingEyeMedallion(
                 )
             }
 
+            mosaicPainter?.let { painter ->
+                val profile = livingEyeMosaicProfile(size.width, size.height, phase)
+                if (profile.textureAlpha > 0.001f) {
+                    val aperture = livingEyeApertureContour(
+                        layerFit = layerFit,
+                        closure = phase,
+                        seamOverlapPx = profile.seamOverlapPx,
+                    ).toPath()
+                    val openContour = livingEyeApertureContour(
+                        layerFit = layerFit,
+                        closure = 0f,
+                        seamOverlapPx = 0f,
+                    )
+                    val envelope = livingEyeEyelidEnvelopeBounds(
+                        contour = openContour,
+                        expansionPx = profile.envelopeExpansionPx,
+                        stateBounds = layerFit.stateBounds,
+                    )
+                    val layerBounds = Rect(
+                        envelope.left,
+                        envelope.top,
+                        envelope.right,
+                        envelope.bottom,
+                    )
+                    clipRect(envelope.left, envelope.top, envelope.right, envelope.bottom) {
+                        clipPath(aperture, clipOp = ClipOp.Difference) {
+                            val paint = Paint().apply { alpha = profile.textureAlpha }
+                            drawContext.canvas.saveLayer(layerBounds, paint)
+                            try {
+                                painter()
+                            } finally {
+                                drawContext.canvas.restore()
+                            }
+                        }
+                    }
+                }
+            }
+
             // Anatomy and blink frames stay untouched. These shadows add only physical contact:
             // eyelids meet the surrounding mosaic and the bronze socket occludes the layer edge.
             drawEyelidContactShadow(
@@ -590,24 +632,25 @@ private fun eyelidContactPath(
     layerFit: LivingEyeLayerFit,
     closure: Float,
     upper: Boolean,
-): Path = Path().apply {
-    APERTURE_UPPER.zip(APERTURE_LOWER).forEachIndexed { index, (upperPoint, lowerPoint) ->
-        val seamY = (upperPoint.y + lowerPoint.y) / 2f
-        val source = if (upper) upperPoint else lowerPoint
-        val y = source.y + (seamY - source.y) * closure
-        val mapped = sourcePoint(layerFit, source.x, y)
-        if (index == 0) moveTo(mapped.x, mapped.y) else lineTo(mapped.x, mapped.y)
+): Path {
+    val contour = livingEyeApertureContour(layerFit, closure, seamOverlapPx = 0f)
+    val points = if (upper) contour.upper else contour.lower
+    return Path().apply {
+        points.forEachIndexed { index, point ->
+            if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+        }
     }
 }
 
-private fun eyeAperturePath(layerFit: LivingEyeLayerFit): Path = Path().apply {
-    APERTURE_UPPER.forEachIndexed { index, point ->
-        val mapped = sourcePoint(layerFit, point.x, point.y)
-        if (index == 0) moveTo(mapped.x, mapped.y) else lineTo(mapped.x, mapped.y)
+private fun eyeAperturePath(layerFit: LivingEyeLayerFit): Path =
+    livingEyeApertureContour(layerFit, closure = 0f, seamOverlapPx = 0f).toPath()
+
+private fun LivingEyeApertureContour.toPath(): Path = Path().apply {
+    upper.forEachIndexed { index, point ->
+        if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
     }
-    APERTURE_LOWER.asReversed().forEach { point ->
-        val mapped = sourcePoint(layerFit, point.x, point.y)
-        lineTo(mapped.x, mapped.y)
+    lower.asReversed().forEach { point ->
+        lineTo(point.x, point.y)
     }
     close()
 }
@@ -616,8 +659,6 @@ private fun sourcePoint(layerFit: LivingEyeLayerFit, x: Float, y: Float): Offset
     layerFit.mapSourceX(x),
     layerFit.mapSourceY(y),
 )
-
-private data class SourcePoint(val x: Float, val y: Float)
 
 private const val SCLERA_X = 350f
 private const val SCLERA_Y = 930f
@@ -642,45 +683,6 @@ private const val MAX_GAZE_X = 7f
 private const val MAX_GAZE_Y = 4f
 private const val BLINK_NASAL_SHIFT = 1.2f
 private const val BLINK_DOWN_SHIFT = 2f
-
-private val APERTURE_UPPER = listOf(
-    SourcePoint(388f, 1083f),
-    SourcePoint(405f, 1061f),
-    SourcePoint(430f, 1037f),
-    SourcePoint(460f, 1014f),
-    SourcePoint(500f, 993f),
-    SourcePoint(540f, 978f),
-    SourcePoint(580f, 968f),
-    SourcePoint(620f, 961f),
-    SourcePoint(660f, 957f),
-    SourcePoint(700f, 957f),
-    SourcePoint(740f, 962f),
-    SourcePoint(780f, 973f),
-    SourcePoint(820f, 990f),
-    SourcePoint(860f, 1011f),
-    SourcePoint(900f, 1036f),
-    SourcePoint(932f, 1061f),
-    SourcePoint(957f, 1083f),
-)
-
-private val APERTURE_LOWER = listOf(
-    SourcePoint(388f, 1083f),
-    SourcePoint(420f, 1104f),
-    SourcePoint(460f, 1123f),
-    SourcePoint(500f, 1139f),
-    SourcePoint(540f, 1152f),
-    SourcePoint(580f, 1162f),
-    SourcePoint(620f, 1170f),
-    SourcePoint(660f, 1174f),
-    SourcePoint(700f, 1172f),
-    SourcePoint(740f, 1167f),
-    SourcePoint(780f, 1159f),
-    SourcePoint(820f, 1148f),
-    SourcePoint(860f, 1133f),
-    SourcePoint(900f, 1115f),
-    SourcePoint(932f, 1098f),
-    SourcePoint(957f, 1083f),
-)
 
 // Свечение: на подключении пульсирует между MIN и MAX, на «подключено» держится ровно.
 private const val GLOW_CONNECTING_MIN = 0.45f

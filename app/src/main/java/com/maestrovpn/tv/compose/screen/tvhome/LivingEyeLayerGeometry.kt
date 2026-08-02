@@ -41,6 +41,107 @@ internal data class LivingEyeLayerFit(
     )
 }
 
+internal data class LivingEyeLayerPoint(val x: Float, val y: Float)
+
+internal data class LivingEyeApertureContour(
+    val upper: List<LivingEyeLayerPoint>,
+    val lower: List<LivingEyeLayerPoint>,
+) {
+    val bounds: LivingEyeLayerBounds
+        get() = LivingEyeLayerBounds(
+            left = minOf(upper.minOf { it.x }, lower.minOf { it.x }),
+            top = minOf(upper.minOf { it.y }, lower.minOf { it.y }),
+            right = maxOf(upper.maxOf { it.x }, lower.maxOf { it.x }),
+            bottom = maxOf(upper.maxOf { it.y }, lower.maxOf { it.y }),
+            scale = 1f,
+        )
+}
+
+internal data class LivingEyeMosaicProfile(
+    val textureAlpha: Float,
+    val seamOverlapPx: Float,
+    val envelopeExpansionPx: Float,
+)
+
+internal fun livingEyeMosaicProfile(
+    width: Float,
+    height: Float,
+    lidPhase: Float,
+): LivingEyeMosaicProfile {
+    val size = minOf(width, height)
+    return LivingEyeMosaicProfile(
+        textureAlpha = (lidPhase.coerceIn(0f, 1f) / 0.5f)
+            .coerceIn(0f, 1f) * 0.78f,
+        seamOverlapPx = maxOf(1f, size * 0.005f),
+        envelopeExpansionPx = size * 0.046f,
+    )
+}
+
+internal fun livingEyeApertureContour(
+    layerFit: LivingEyeLayerFit,
+    closure: Float,
+    seamOverlapPx: Float,
+): LivingEyeApertureContour {
+    val phase = closure.coerceIn(0f, 1f)
+    val overlap = seamOverlapPx.coerceAtLeast(0f)
+
+    fun mappedPoint(
+        point: LivingEyeLayerPoint,
+        opposite: List<LivingEyeLayerPoint>,
+        upper: Boolean,
+    ): LivingEyeLayerPoint {
+        val oppositeY = livingEyeSourceYAtX(opposite, point.x)
+        val seamSourceY = (point.y + oppositeY) / 2f
+        val closingSourceY = point.y + (seamSourceY - point.y) * phase
+        val seamY = layerFit.mapSourceY(seamSourceY)
+        val closingY = layerFit.mapSourceY(closingSourceY)
+        val contractedY = if (upper) {
+            minOf(seamY, closingY + overlap)
+        } else {
+            maxOf(seamY, closingY - overlap)
+        }
+        return LivingEyeLayerPoint(
+            x = layerFit.mapSourceX(point.x),
+            y = contractedY,
+        )
+    }
+
+    return LivingEyeApertureContour(
+        upper = LIVING_EYE_APERTURE_UPPER_SOURCE.map {
+            mappedPoint(it, LIVING_EYE_APERTURE_LOWER_SOURCE, upper = true)
+        },
+        lower = LIVING_EYE_APERTURE_LOWER_SOURCE.map {
+            mappedPoint(it, LIVING_EYE_APERTURE_UPPER_SOURCE, upper = false)
+        },
+    )
+}
+
+internal fun livingEyeEyelidEnvelopeBounds(
+    contour: LivingEyeApertureContour,
+    expansionPx: Float,
+    stateBounds: LivingEyeLayerBounds,
+): LivingEyeLayerBounds {
+    val expansion = expansionPx.coerceAtLeast(0f)
+    val bounds = contour.bounds
+    return LivingEyeLayerBounds(
+        left = maxOf(stateBounds.left, bounds.left - expansion),
+        top = maxOf(stateBounds.top, bounds.top - expansion),
+        right = minOf(stateBounds.right, bounds.right + expansion),
+        bottom = minOf(stateBounds.bottom, bounds.bottom + expansion),
+        scale = stateBounds.scale,
+    )
+}
+
+private fun livingEyeSourceYAtX(points: List<LivingEyeLayerPoint>, x: Float): Float {
+    if (x <= points.first().x) return points.first().y
+    if (x >= points.last().x) return points.last().y
+    val rightIndex = points.indexOfFirst { it.x >= x }
+    val left = points[rightIndex - 1]
+    val right = points[rightIndex]
+    val fraction = (x - left.x) / (right.x - left.x)
+    return left.y + (right.y - left.y) * fraction
+}
+
 /**
  * Fits the complete emerald eye layer inside the fixed bronze medallion.
  *
@@ -149,3 +250,42 @@ private const val LIVING_EYE_VIRTUAL_SIZE = 822.5f
 private const val LIVING_EYE_BRONZE_INSET_FRACTION = 26f / 520f
 private const val LIVING_EYE_INNER_OCCLUSION_FRACTION = 0.035f
 private const val LIVING_EYE_CONTACT_SHADOW_FRACTION = 0.015f
+
+private val LIVING_EYE_APERTURE_UPPER_SOURCE = listOf(
+    LivingEyeLayerPoint(388f, 1083f),
+    LivingEyeLayerPoint(405f, 1061f),
+    LivingEyeLayerPoint(430f, 1037f),
+    LivingEyeLayerPoint(460f, 1014f),
+    LivingEyeLayerPoint(500f, 993f),
+    LivingEyeLayerPoint(540f, 978f),
+    LivingEyeLayerPoint(580f, 968f),
+    LivingEyeLayerPoint(620f, 961f),
+    LivingEyeLayerPoint(660f, 957f),
+    LivingEyeLayerPoint(700f, 957f),
+    LivingEyeLayerPoint(740f, 962f),
+    LivingEyeLayerPoint(780f, 973f),
+    LivingEyeLayerPoint(820f, 990f),
+    LivingEyeLayerPoint(860f, 1011f),
+    LivingEyeLayerPoint(900f, 1036f),
+    LivingEyeLayerPoint(932f, 1061f),
+    LivingEyeLayerPoint(957f, 1083f),
+)
+
+private val LIVING_EYE_APERTURE_LOWER_SOURCE = listOf(
+    LivingEyeLayerPoint(388f, 1083f),
+    LivingEyeLayerPoint(420f, 1104f),
+    LivingEyeLayerPoint(460f, 1123f),
+    LivingEyeLayerPoint(500f, 1139f),
+    LivingEyeLayerPoint(540f, 1152f),
+    LivingEyeLayerPoint(580f, 1162f),
+    LivingEyeLayerPoint(620f, 1170f),
+    LivingEyeLayerPoint(660f, 1174f),
+    LivingEyeLayerPoint(700f, 1172f),
+    LivingEyeLayerPoint(740f, 1167f),
+    LivingEyeLayerPoint(780f, 1159f),
+    LivingEyeLayerPoint(820f, 1148f),
+    LivingEyeLayerPoint(860f, 1133f),
+    LivingEyeLayerPoint(900f, 1115f),
+    LivingEyeLayerPoint(932f, 1098f),
+    LivingEyeLayerPoint(957f, 1083f),
+)

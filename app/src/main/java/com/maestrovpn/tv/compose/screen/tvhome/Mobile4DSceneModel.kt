@@ -33,6 +33,13 @@ internal data class Mobile4DSceneLayout(
 
     fun mapMasterY(y: Float): Float = y * scale + translationY
 }
+internal fun Mobile4DSceneLayout.translatedBy(dx: Float, dy: Float): Mobile4DSceneLayout = copy(
+    translationX = translationX + dx,
+    translationY = translationY + dy,
+    medallionCenterX = medallionCenterX + dx,
+    medallionCenterY = medallionCenterY + dy,
+)
+
 
 internal enum class Mobile4DParallaxLayer(val maximumDepthDp: Float) {
     Wood(0.5f),
@@ -199,6 +206,20 @@ internal fun mobile4DSceneLayout(width: Float, height: Float): Mobile4DSceneLayo
         medallionRadiusY = MOBILE_4D_MEDALLION_RADIUS_Y * scale,
     )
 }
+internal fun mobile4DHomeSceneLayout(width: Float, height: Float): Mobile4DSceneLayout {
+    if (height < width) return mobile4DSceneLayout(width, height)
+    val scale = width / MOBILE_4D_MASTER_WIDTH
+    return Mobile4DSceneLayout(
+        scale = scale,
+        translationX = 0f,
+        translationY = 0f,
+        medallionCenterX = MOBILE_4D_MEDALLION_CENTER_X * scale,
+        medallionCenterY = MOBILE_4D_MEDALLION_CENTER_Y * scale,
+        medallionRadiusX = MOBILE_4D_MEDALLION_RADIUS_X * scale,
+        medallionRadiusY = MOBILE_4D_MEDALLION_RADIUS_Y * scale,
+    )
+}
+
 
 internal fun mobile4DLightMix(
     tiltX: Float,

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
@@ -167,7 +170,7 @@ internal fun PhoneHomeControlDeck(
         val layout = phoneHomeReferenceLayout(maxWidth.value, maxHeight.value)
         val deckTop = layout.deckTop
         val deckWidth = maxWidth.value
-        val contactScale = deckWidth / REFERENCE_WIDTH
+        val contactScale = layout.referenceScale
         val arcProtocols = remember(protocols) { orderedHomeProtocols(protocols) }
 
         // Явный viewport не даёт ни тексту, ни hit-target деки подняться поверх
@@ -306,7 +309,7 @@ internal fun PhoneHomeControlDeck(
                 }
 
                 BottomConsole(
-                    bounds = layout.bottomConsole,
+                    referenceScale = layout.referenceScale,
                     deckTop = deckTop,
                     onEnterCode = onEnterCode,
                     onCheckConnection = onCheckConnection,
@@ -327,6 +330,8 @@ internal fun PhoneHomeControlDeck(
                 onSplitTunnel = onSplitTunnel,
                 onUpdate = onUpdate,
             )
+
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
         }
     }
@@ -594,21 +599,23 @@ private fun ProtocolSector(
 /** Нижняя консоль эталона: «Ввести логин» — круглый «Тест сети» — «Подключить телефон». */
 @Composable
 private fun BottomConsole(
-    bounds: PhoneHomeReferenceBounds,
+    referenceScale: Float,
     deckTop: Float,
     onEnterCode: () -> Unit,
     onCheckConnection: () -> Unit,
     onShareIos: () -> Unit,
 ) {
-    val scale = (bounds.right - bounds.left) / CONSOLE_REFERENCE_WIDTH
-
     @Composable
     fun zone(left: Float, top: Float, right: Float, bottom: Float, content: @Composable () -> Unit) {
+        val mapped = phoneHomeReferenceBounds(referenceScale, left, top, right, bottom)
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .absoluteOffset(x = (left * scale).dp, y = (top * scale - deckTop).dp)
-                .size(width = (right - left) * scale, height = (bottom - top) * scale),
+                .absoluteOffset(x = mapped.left.dp, y = (mapped.top - deckTop).dp)
+                .size(
+                    width = (mapped.right - mapped.left).dp,
+                    height = (mapped.bottom - mapped.top).dp,
+                ),
         ) { content() }
     }
 
@@ -872,4 +879,3 @@ private const val SELECTION_BAR_WIDTH = 22f
 private val CONSOLE_LEFT = listOf(32f, 782.4f, 139f, 842.4f)
 private val CONSOLE_DIAL = listOf(160f, 774.7f, 228f, 848f)
 private val CONSOLE_RIGHT = listOf(250f, 782.6f, 357f, 842.4f)
-private const val CONSOLE_REFERENCE_WIDTH = 390f
