@@ -99,4 +99,47 @@ class LivingEyeLayerGeometryTest {
         assertTrue(profile.innerOcclusionWidthPx < livingEyeBronzeInset(520f, 520f))
         assertTrue(profile.eyelidContactShadowBlurPx < profile.innerOcclusionWidthPx)
     }
+
+    @Test
+    fun mosaicAppearsOnEveryClosingAndClosedLidPhase() {
+        val open = livingEyeMosaicProfile(520f, 520f, lidPhase = 0f)
+        val squint = livingEyeMosaicProfile(520f, 520f, lidPhase = 0.5f)
+        val closed = livingEyeMosaicProfile(520f, 520f, lidPhase = 1f)
+
+        assertEquals(0f, open.textureAlpha, 0f)
+        assertEquals(0.78f, squint.textureAlpha, 0.0001f)
+        assertEquals(0.78f, closed.textureAlpha, 0.0001f)
+        assertTrue(squint.seamOverlapPx >= 1f)
+        assertTrue(squint.envelopeExpansionPx > squint.seamOverlapPx)
+    }
+
+    @Test
+    fun mosaicEnvelopeContainsTheAnimatedApertureWithoutChangingEyeFit() {
+        val fit = fitLivingEyeLayer(520f, 520f)
+        listOf(0f, 0.5f, 1f).forEach { phase ->
+            val profile = livingEyeMosaicProfile(520f, 520f, phase)
+            val contour = livingEyeApertureContour(
+                layerFit = fit,
+                closure = phase,
+                seamOverlapPx = profile.seamOverlapPx,
+            )
+            val aperture = contour.bounds
+            val state = fit.stateBounds
+            val envelope = livingEyeEyelidEnvelopeBounds(
+                contour = contour,
+                expansionPx = profile.envelopeExpansionPx,
+                stateBounds = state,
+            )
+
+            assertTrue(envelope.left <= aperture.left)
+            assertTrue(envelope.top <= aperture.top)
+            assertTrue(envelope.right >= aperture.right)
+            assertTrue(envelope.bottom >= aperture.bottom)
+            assertTrue(envelope.left >= state.left)
+            assertTrue(envelope.top >= state.top)
+            assertTrue(envelope.right <= state.right)
+            assertTrue(envelope.bottom <= state.bottom)
+        }
+        assertEquals(520f / 822.5f, fit.scale, 0.000001f)
+    }
 }

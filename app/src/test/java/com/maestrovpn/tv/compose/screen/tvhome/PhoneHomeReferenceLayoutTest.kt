@@ -71,4 +71,24 @@ class PhoneHomeReferenceLayoutTest {
     fun nonPositiveViewportDimensionsAreRejected() {
         phoneHomeReferenceLayout(0f, 844f)
     }
+
+    @Test
+    fun referenceScaleMapsConsoleZonesWithoutASecondInsetScale() {
+        val full = phoneHomeReferenceLayout(390f, 844f)
+        val narrow = phoneHomeReferenceLayout(320f, 568f)
+        val left = phoneHomeReferenceBounds(
+            referenceScale = full.referenceScale,
+            left = 32f,
+            top = 782.4f,
+            right = 139f,
+            bottom = 842.4f,
+        )
+
+        assertEquals(1f, full.referenceScale, 0f)
+        assertEquals(320f / 390f, narrow.referenceScale, 0.000001f)
+        assertEquals(32f, left.left, 0f)
+        assertEquals(782.4f, left.top, 0f)
+        assertEquals(139f, left.right, 0f)
+        assertEquals(842.4f, left.bottom, 0f)
+    }
 }

@@ -385,4 +385,42 @@ class Mobile4DSceneModelTest {
 
         assertEquals(listOf(2, 1), released)
     }
+
+    @Test
+    fun portraitHomeUsesOneWidthAnchoredOriginAtEveryViewportHeight() {
+        val fullWindow = mobile4DHomeSceneLayout(width = 390f, height = 844f)
+        val formerInsetViewport = mobile4DHomeSceneLayout(width = 390f, height = 797f)
+        val shortPhone = mobile4DHomeSceneLayout(width = 320f, height = 568f)
+
+        assertEquals(390f / 2160f, fullWindow.scale, 0.000001f)
+        assertEquals(0f, fullWindow.translationX, 0f)
+        assertEquals(0f, fullWindow.translationY, 0f)
+        assertEquals(fullWindow.scale, formerInsetViewport.scale, 0f)
+        assertEquals(fullWindow.medallionCenterX, formerInsetViewport.medallionCenterX, 0f)
+        assertEquals(fullWindow.medallionCenterY, formerInsetViewport.medallionCenterY, 0f)
+        assertEquals(320f / 2160f, shortPhone.scale, 0.000001f)
+        assertEquals(0f, shortPhone.translationY, 0f)
+    }
+
+    @Test
+    fun landscapeHomeKeepsTheExistingCropContract() {
+        assertEquals(
+            mobile4DSceneLayout(width = 844f, height = 390f),
+            mobile4DHomeSceneLayout(width = 844f, height = 390f),
+        )
+    }
+
+    @Test
+    fun ringLocalLayoutIsOnlyATranslationOfTheFullScene() {
+        val full = mobile4DHomeSceneLayout(width = 390f, height = 844f)
+        val local = full.translatedBy(dx = -76f, dy = -139f)
+
+        assertEquals(full.scale, local.scale, 0f)
+        assertEquals(full.translationX - 76f, local.translationX, 0f)
+        assertEquals(full.translationY - 139f, local.translationY, 0f)
+        assertEquals(full.medallionCenterX - 76f, local.medallionCenterX, 0f)
+        assertEquals(full.medallionCenterY - 139f, local.medallionCenterY, 0f)
+        assertEquals(full.medallionRadiusX, local.medallionRadiusX, 0f)
+        assertEquals(full.medallionRadiusY, local.medallionRadiusY, 0f)
+    }
 }
