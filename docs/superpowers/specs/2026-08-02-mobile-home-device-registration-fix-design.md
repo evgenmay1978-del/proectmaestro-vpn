@@ -197,3 +197,35 @@ release и OTA. Нельзя merge в `main`, публиковать release и�
 3. Полная позиция титула берётся из `title.top = 54` без добавочного safe-top inset.
 4. Нижний navigation inset увеличивает только достижимый scroll content end и не входит в
    координаты `deckTop`, `console` или других primary controls.
+
+## 8. Решение владельца: мозаика продолжается на закрывающихся веках
+
+Дополнение владельца 02.08.2026: «Веки закрытые и при моргании на них тоже мозаика, чтобы
+смотрелось как единое». Это обязательное визуальное поведение для `connecting`, `disconnected`
+и каждого промежуточного кадра blink.
+
+Реализация использует существующую relit-мозаику слоя `ring`, а не новый несвязанный bitmap:
+
+- `LivingEyeMedallion` получает painter той же ring/mosaic текстуры, того же света, transform,
+  hero shift и parallax, что уже видны вокруг глаза;
+- при `phase = 0` открытая апертура и исходная анатомия глаза не перекрываются мозаикой;
+- по мере закрытия mosaic painter клипуется только в поверхность верхнего и нижнего века —
+  снаружи текущей aperture и внутри общего eyelid envelope;
+- к `phase = 0.5` (squint/connecting) мозаика на веках уже полностью читается; при
+  `phase = 1` (closed/disconnected) она покрывает сомкнутые веки;
+- тот же `lidPhase`, который управляет open/squint/closed crossfade, управляет mosaic mask,
+  поэтому routine blink, forced connecting и disconnect не могут разойтись по фазе;
+- поверх текстуры повторно рисуются существующие contact shadows, сохраняя объём и линию
+  смыкания; iris, pupil, sclera, catchlight, gaze и размеры не меняются;
+- запрещены отдельная анимация мозаики, второй parallax, плоский общий eye/ring PNG и новая
+  геометрия для каждого состояния.
+
+Тестовые контракты:
+
+1. `phase = 0` даёт нулевую mosaic alpha; `phase = 0.5` и `phase = 1` — утверждённую полную
+   lid alpha.
+2. Eyelid envelope содержит текущую aperture с seam overlap не меньше 1 px и остаётся внутри
+   неизменных state bounds.
+3. Mosaic painter использует ring-local layout, полученный единственным переносом full-screen
+   scene layout на origin eye box; scale и parallax не пересчитываются.
+4. Существующие тесты прямого eye fit и alpha registration остаются зелёными.
