@@ -778,6 +778,8 @@ private fun SecondaryDeck(
  * запрос владельцу), ровно как в старом меню.
  */
 internal fun orderedHomeProtocols(protocols: List<String>): List<String> {
+    // Cold-start selector gap: retain the owner-approved arc before runtime protocols arrive.
+    if (protocols.isEmpty()) return HOME_PROTOCOL_ORDER
     val known = HOME_PROTOCOL_ORDER.filter { it in protocols }
     val extra = protocols.filter { it !in HOME_PROTOCOL_ORDER }
     return (known + extra + "olcrtc").distinct()
