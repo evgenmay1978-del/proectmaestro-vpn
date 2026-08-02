@@ -1,5 +1,32 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0J. LIVE: артефакты мозаики на закрытом глазе исправлены и CI зелёный
+
+Проверенный handoff от **02.08.2026** по скриншоту владельца 18:34:
+
+- дефект: узкий полупрозрачный mosaic-envelope оставлял чёрные боковые фрагменты,
+  бронзовую дугу закрытого eye-state и светлую прямоугольную заплатку;
+- root cause: `textureAlpha = 0.78` и `envelopeExpansionPx = 0.046 * size` заменяли
+  только центр кадра, хотя painter уже рисовал точные зарегистрированные пиксели `ring`;
+- RED commit `de6dcf179d941c6e2549958db1e1c83a6c90abed`, run `30754966619`:
+  APK собрался, а 81 unit-тест завершился ровно двумя ожидаемыми падениями — alpha и
+  неполное покрытие `stateBounds`;
+- исправленный и протестированный remote SHA
+  `0a116af2cc193af15091a1a1dcfd32ebb34e3e90`;
+- GREEN run `30755278589` — `completed / success`: `:app:assembleOtherDebug`, загрузка
+  APK и все 81 unit-тест прошли;
+- APK artifact `maestrovpn-tv-test-apk`, id `8835762207`, размер `177367483` байта,
+  digest `sha256:543eb8ce1553ab48809c897783a1e487bc9f5b2dcff5f3f5b5bf0d8d67c4ce7e`,
+  срок хранения до `2026-10-31T15:51:01Z`;
+- прямая страница артефакта:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30755278589/artifacts/8835762207`;
+- eye fit, iris/pupil/catchlight, gaze, touch и blink timing не менялись. Изменён только
+  профиль замещения: к фазе `0.5` мозаика непрозрачно покрывает полный eye-state вне щели;
+- CI-only draft PR `#77` закрыт, **не смержен**. TV, backend, VPN-runtime, Release и OTA
+  не трогались.
+
+Следующий шаг — установить этот APK и визуально проверить закрытый глаз и обычное моргание.
+
 ## 0I. LIVE: full-window Home и мозаичные веки собраны на GitHub
 
 Проверенный GitHub-handoff от **02.08.2026**:

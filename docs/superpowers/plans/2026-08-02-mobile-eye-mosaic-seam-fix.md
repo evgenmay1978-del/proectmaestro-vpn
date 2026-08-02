@@ -27,23 +27,23 @@
 - Consumes: `livingEyeMosaicProfile`, `livingEyeEyelidEnvelopeBounds`, `fitLivingEyeLayer`.
 - Produces: full-alpha mosaic replacement over the complete `stateBounds`, with the current aperture excluded by `LivingEyeMedallion`.
 
-- [ ] **Step 1: Write the failing regression test**
+- [x] **Step 1: Write the failing regression test**
 
 Change the squint/closed alpha expectations from `0.78f` to `1f`. For phases `0f`, `0.5f`, and `1f`, assert the computed envelope equals all four edges of `fit.stateBounds`.
 
-- [ ] **Step 2: Verify RED on GitHub**
+- [x] **Step 2: Verify RED on GitHub**
 
 Push the test-only commit and trigger `android-test.yml` through a CI-only draft PR. Expected: `LivingEyeLayerGeometryTest` fails because current alpha is `0.78f` and the current `0.046 * size` envelope does not reach `stateBounds`.
 
-- [ ] **Step 3: Implement the minimal production change**
+- [x] **Step 3: Implement the minimal production change**
 
 In `livingEyeMosaicProfile`, ramp `textureAlpha` to `1f` by phase `0.5` and set `envelopeExpansionPx = size`. The existing clamp in `livingEyeEyelidEnvelopeBounds` then returns the complete state rectangle; do not change `fitLivingEyeLayer`, aperture geometry or painter registration.
 
-- [ ] **Step 4: Verify GREEN on GitHub**
+- [x] **Step 4: Verify GREEN on GitHub**
 
 Run `android-test.yml` for the implementation commit. Require success for `:app:assembleOtherDebug`, `:app:testOtherDebugUnitTest`, and artifact `maestrovpn-tv-test-apk`.
 
-- [ ] **Step 5: Verify scope and hand off**
+- [x] **Step 5: Verify scope and hand off**
 
 Run `git diff --check`, confirm no TV/backend/workflow diff, update `CONTEXT_HANDOFF.md` with tested SHA/run/artifact, close the CI-only PR without merge, and push the documentation checkpoint.
 
