@@ -9,7 +9,7 @@
 
 Что берётся из репо (воспроизводимо, ничего не выдумано):
   mobile_4d/atlas_c_*.webp      — центральное освещение пятислойной 4D-сцены
-  mobile_eye_closed.webp        — закрытый глаз для отключённого состояния
+  mobile_eye_open.webp          — единый слой глаза для всех фаз моргания
   mobile_surface.webp            — фон внутренних экранов
   frame_button.9.png / frame_bar.9.png / frame_panel.9.png — nine-patch рамы
   font/playfair_display.ttf      — титульный шрифт
@@ -27,14 +27,16 @@
     когда у Text задан maxLines и НЕ задан overflow. Это обрубание посреди глифа,
     без «...». Если поправить на ellipsis=True «чтобы красивее» — симуляция начнёт
     врать и перестанет ловить именно этот класс дефектов.
- 3. Это НЕ скриншот. Глаз статичен (в приложении моргает и следит за пальцем),
-    барабан не крутится, суммы/QR условные. Для доказательств поведения — CI и
+ 3. Это НЕ скриншот. Лист фаз глаза детерминированно показывает форму моргания,
+    но не воспроизводит слежение за пальцем; барабан не крутится, суммы/QR условные.
+    Для доказательств поведения — CI и
     устройство, симуляция только для глаз.
 
 Использование:  ops/phone-screen-sim.py   ->  build/phone-screen-sim/phone-screens.png
 """
 import os
 import re
+import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PIL import ImageChops
@@ -47,6 +49,7 @@ OUTDIR = ROOT / 'build/phone-screen-sim'
 OUTDIR.mkdir(parents=True, exist_ok=True)
 OUT = str(OUTDIR / 'phone-screens.png')
 S = 2  # супер-семплинг: работаем в 2x от dp
+EYE_PHASES_ONLY = '--eye-phases-only' in sys.argv
 
 PLAY = str(ROOT / 'app/src/main/res/font/playfair_display.ttf')
 
@@ -453,8 +456,9 @@ def home_scene(w, h, deck_scroll_dp=0.0):
 LIVING_EYE_BRONZE_INSET_FRACTION = 26.0 / 520.0   # LivingEyeLayerGeometry.kt
 LIVING_EYE_STATE_W, LIVING_EYE_STATE_H = 890.0, 635.0
 LIVING_EYE_VIRTUAL_SIZE = 822.5
-LIVING_EYE_INNER_OCCLUSION_FRACTION = 0.035
-LIVING_EYE_CONTACT_SHADOW_FRACTION = 0.015
+LIVING_EYE_SEAM_FROM_UPPER = 0.70
+LIVING_EYE_CONTACT_SHADOW_FRACTION = 3.0 / 520.0
+LIVING_EYE_CONTACT_SHADOW_ALPHA = 0.18
 
 def eye_box():
     """Коробка живого глаза = medallion* из Mobile4DSceneModel.kt + общий сдвиг героя.
@@ -483,62 +487,93 @@ APERTURE_LOWER = [
     (860,1133),(900,1115),(932,1098),(957,1083),
 ]
 
-def living_eye_layer(state):
-    """Static preview of the runtime eye fit; animation logic stays in LivingEyeMedallion."""
-    asset = {'connected': 'mobile_eye_open.webp',
-             'connecting': 'mobile_eye_squint.webp',
-             'disconnected': 'mobile_eye_closed.webp'}[state]
+def _interpolate_contour_y(points, x):
+    """Linear Y at X for a monotonic contour; both contours use their union of X values."""
+    if x <= points[0][0]:
+        return float(points[0][1])
+    if x >= points[-1][0]:
+        return float(points[-1][1])
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if x0 <= x <= x1:
+            if x1 == x0:
+                return float(y1)
+            t = (x - x0) / (x1 - x0)
+            return y0 + (y1 - y0) * t
+    raise AssertionError(f'contour does not cover x={x}')
+
+
+APERTURE_SAMPLES = tuple(
+    (x, _interpolate_contour_y(APERTURE_UPPER, x),
+     _interpolate_contour_y(APERTURE_LOWER, x))
+    for x in sorted({p[0] for p in APERTURE_UPPER} | {p[0] for p in APERTURE_LOWER})
+)
+
+
+def _living_eye_contours(phase, state_left, state_top, state_px):
+    """Upper/lower aperture contours converging on a 70/30 shared seam."""
+    phase = max(0.0, min(1.0, float(phase)))
+    upper, lower = [], []
+    for x, source_upper_y, source_lower_y in APERTURE_SAMPLES:
+        seam_y = source_upper_y + (source_lower_y - source_upper_y) * LIVING_EYE_SEAM_FROM_UPPER
+        current_upper_y = source_upper_y + (seam_y - source_upper_y) * phase
+        current_lower_y = source_lower_y + (seam_y - source_lower_y) * phase
+        px = state_left + (x - 230.0) / LIVING_EYE_STATE_W * state_px[0]
+        upper.append((px, state_top + (current_upper_y - 745.0) / LIVING_EYE_STATE_H * state_px[1]))
+        lower.append((px, state_top + (current_lower_y - 745.0) / LIVING_EYE_STATE_H * state_px[1]))
+    return upper, lower
+
+
+def _living_eye_components(phase):
+    """One open-eye layer clipped by a shrinking aperture, plus a separate emerald seam."""
+    phase = max(0.0, min(1.0, float(phase)))
     cx, cy, size, state_w, state_h = eye_box()
     canvas_px = round(size * S)
     state_px = (round(state_w * S), round(state_h * S))
-    canvas = Image.new('RGBA', (canvas_px, canvas_px), (0, 0, 0, 0))
-    eye = Image.open(RES / asset).convert('RGBA').resize(state_px, Image.Resampling.LANCZOS)
     state_left = round((canvas_px - state_px[0]) / 2)
     state_top = round((canvas_px - state_px[1]) / 2)
-    canvas.alpha_composite(eye, (state_left, state_top))
-    eye.close()
+    upper, lower = _living_eye_contours(phase, state_left, state_top, state_px)
 
+    eye_layer = Image.new('RGBA', (canvas_px, canvas_px), (0, 0, 0, 0))
+    source = Image.open(RES / 'mobile_eye_open.webp').convert('RGBA').resize(
+        state_px, Image.Resampling.LANCZOS)
+    eye_layer.alpha_composite(source, (state_left, state_top))
+    source.close()
+
+    aperture = Image.new('L', eye_layer.size, 0)
+    if phase < 1.0:
+        ImageDraw.Draw(aperture).polygon(upper + list(reversed(lower)), fill=255)
+    eye_layer.putalpha(ImageChops.multiply(eye_layer.getchannel('A'), aperture))
+
+    seam = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
+    seam_draw = ImageDraw.Draw(seam, 'RGBA')
+    seam_width = max(1, round(canvas_px * LIVING_EYE_CONTACT_SHADOW_FRACTION))
+    seam_rgb = (6, 20, 9)  # LivingEyeMedallion.kt EYE_CONTACT_SHADOW = #061409
+    upper_colour = (*seam_rgb, round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA))
+    lower_alpha = round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA * (1.0 - phase))
+    seam_draw.line(upper, fill=upper_colour, width=seam_width, joint='curve')
+    if lower_alpha > 0:
+        seam_draw.line(lower, fill=(*seam_rgb, lower_alpha), width=seam_width, joint='curve')
+
+    x = round(cx * S - canvas_px / 2)
+    y = round(cy * S - canvas_px / 2)
+    return eye_layer, seam, aperture, x, y
+
+
+def living_eye_phase_layer(phase):
+    eye_layer, seam, aperture, x, y = _living_eye_components(phase)
+    canvas = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
+    canvas.alpha_composite(eye_layer)
+    canvas.alpha_composite(seam)
+    eye_layer.close()
+    seam.close()
+    aperture.close()
+    return canvas, x, y
+
+
+def living_eye_layer(state):
+    """Static state sampled from the same one-layer aperture animation used at runtime."""
     phase = {'connected': 0.0, 'connecting': 0.5, 'disconnected': 1.0}[state]
-    shadow = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow, 'RGBA')
-    blur_w = max(1, round(canvas_px * LIVING_EYE_CONTACT_SHADOW_FRACTION))
-
-    def contour(upper, alpha_multiplier):
-        if alpha_multiplier <= .01:
-            return
-        points = []
-        for up, low in zip(APERTURE_UPPER, APERTURE_LOWER):
-            source = up if upper else low
-            seam_y = (up[1] + low[1]) / 2
-            y = source[1] + (seam_y - source[1]) * phase
-            px = state_left + (source[0] - 230.0) / LIVING_EYE_STATE_W * state_px[0]
-            py = state_top + (y - 745.0) / LIVING_EYE_STATE_H * state_px[1]
-            points.append((round(px), round(py)))
-        sd.line(points, fill=(8, 4, 2, round(255 * .24 * .30 * alpha_multiplier)),
-                width=blur_w, joint='curve')
-        sd.line(points, fill=(8, 4, 2, round(255 * .24 * alpha_multiplier)),
-                width=max(1, round(blur_w * .28)), joint='curve')
-
-    contour(True, 1.0)
-    contour(False, 1.0 - phase)
-    canvas.alpha_composite(shadow)
-    shadow.close()
-
-    inset = canvas_px * LIVING_EYE_BRONZE_INSET_FRACTION
-    occ_w = max(1, round(canvas_px * LIVING_EYE_INNER_OCCLUSION_FRACTION))
-    occ = Image.new('RGBA', canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(occ, 'RGBA').ellipse(
-        (inset, inset, canvas_px - inset, canvas_px - inset),
-        outline=(5, 2, 1, round(255 * .36)), width=occ_w,
-    )
-    canvas.alpha_composite(occ.filter(ImageFilter.GaussianBlur(max(1, occ_w * .30))))
-    occ.close()
-
-    clip = Image.new('L', canvas.size, 0)
-    ImageDraw.Draw(clip).ellipse((inset, inset, canvas_px - inset, canvas_px - inset), fill=255)
-    canvas.putalpha(ImageChops.multiply(canvas.getchannel('A'), clip))
-    clip.close()
-    return canvas, round(cx * S - canvas_px / 2), round(cy * S - canvas_px / 2)
+    return living_eye_phase_layer(phase)
 
 
 def tile(layer, x, y, w, h, label, icf, *, selected=False, locked=False,
@@ -886,14 +921,99 @@ STATE_RU = {'connected': 'ПОДКЛЮЧЕНО — глаз открыт',
             'disconnected': 'ОТКЛЮЧЕНО — глаз полностью закрыт'}
 
 homes = {}
-for st in STATES:
-    im = screen_home(st)
-    homes[st] = im
-    im.convert('RGB').save(OUTDIR / f'owner-home-{st}.png', 'PNG', optimize=True)
 SCROLL_PROOF_DP = 64.0
-home_scrolled = screen_home('connected', SCROLL_PROOF_DP)
 SCROLLED = str(OUTDIR / 'owner-home-connected-scrolled.png')
-home_scrolled.convert('RGB').save(SCROLLED, 'PNG', optimize=True)
+if not EYE_PHASES_ONLY:
+    for st in STATES:
+        im = screen_home(st)
+        homes[st] = im
+        im.convert('RGB').save(OUTDIR / f'owner-home-{st}.png', 'PNG', optimize=True)
+    home_scrolled = screen_home('connected', SCROLL_PROOF_DP)
+    home_scrolled.convert('RGB').save(SCROLLED, 'PNG', optimize=True)
+else:
+    home_scrolled = None
+
+# ── детерминированный close-up пяти фаз: одна мозаика, один open-eye, динамическая щель
+EYE_PHASES = (0.0, 0.25, 0.5, 0.75, 1.0)
+EYE_PHASE_CARD = 360
+EYE_PHASE_GAP = 16
+EYE_PHASE_MARGIN = 24
+EYE_PHASE_HEADER = 86
+eye_phase_sheet = Image.new(
+    'RGB',
+    (EYE_PHASE_MARGIN * 2 + EYE_PHASE_CARD * len(EYE_PHASES)
+     + EYE_PHASE_GAP * (len(EYE_PHASES) - 1), EYE_PHASE_HEADER + EYE_PHASE_CARD + 56),
+    (13, 9, 6),
+)
+eye_phase_draw = ImageDraw.Draw(eye_phase_sheet)
+txt(eye_phase_draw, (eye_phase_sheet.width / 2, 18),
+    'Глаз + мозаика — единая маска моргания', F(PLAY, 18), GOLD, anchor='ma')
+txt(eye_phase_draw, (eye_phase_sheet.width / 2, 50),
+    'mobile_eye_open клипуется щелью; при phase=1 остаются базовая мозаика и тонкий изумрудный шов.',
+    F(SANS, 10), TXTM, anchor='ma')
+eye_phase_base = home_scene(W, H, 0.0).convert('RGBA')
+cx, cy, _, _, _ = eye_box()
+eye_phase_half_crop = round(180 * S)
+eye_phase_crop_box = (
+    round(cx * S) - eye_phase_half_crop,
+    round(cy * S) - eye_phase_half_crop,
+    round(cx * S) + eye_phase_half_crop,
+    round(cy * S) + eye_phase_half_crop,
+)
+for index, phase in enumerate(EYE_PHASES):
+    eye_layer, seam, aperture, eye_x, eye_y = _living_eye_components(phase)
+    combined = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
+    combined.alpha_composite(eye_layer)
+    combined.alpha_composite(seam)
+
+    seam_mask = seam.getchannel('A').point(lambda alpha: 255 if alpha else 0)
+    allowed_mask = ImageChops.lighter(aperture, seam_mask)
+    outside_mask = ImageChops.invert(allowed_mask)
+    assert ImageChops.multiply(combined.getchannel('A'), outside_mask).getbbox() is None, \
+        f'phase={phase}: eye overlay leaked outside aperture/seam'
+    if phase == 1.0:
+        assert eye_layer.getchannel('A').getbbox() is None, \
+            'closed phase must have zero open-eye alpha'
+        assert ImageChops.difference(combined.getchannel('A'), seam.getchannel('A')).getbbox() is None, \
+            'closed phase must contain only the emerald seam overlay'
+
+    frame = eye_phase_base.copy()
+    frame.alpha_composite(combined, (eye_x, eye_y))
+    before = eye_phase_base.crop((eye_x, eye_y, eye_x + combined.width, eye_y + combined.height))
+    after = frame.crop((eye_x, eye_y, eye_x + combined.width, eye_y + combined.height))
+    colour_diff = ImageChops.difference(before.convert('RGB'), after.convert('RGB'))
+    assert all(ImageChops.multiply(channel, outside_mask).getbbox() is None
+               for channel in colour_diff.split()), \
+        f'phase={phase}: base mosaic changed outside aperture/seam'
+
+    crop = frame.crop(eye_phase_crop_box).convert('RGB').resize(
+        (EYE_PHASE_CARD, EYE_PHASE_CARD), Image.Resampling.LANCZOS)
+    x = EYE_PHASE_MARGIN + index * (EYE_PHASE_CARD + EYE_PHASE_GAP)
+    eye_phase_draw.rectangle((x - 2, EYE_PHASE_HEADER - 2,
+                              x + EYE_PHASE_CARD + 1, EYE_PHASE_HEADER + EYE_PHASE_CARD + 1),
+                             fill=(75, 57, 34))
+    eye_phase_sheet.paste(crop, (x, EYE_PHASE_HEADER))
+    txt(eye_phase_draw, (x + EYE_PHASE_CARD / 2, EYE_PHASE_HEADER + EYE_PHASE_CARD + 16),
+        f'phase {phase:.2f}', F(SANSB, 12), GOLD, anchor='ma')
+    crop.close(); before.close(); after.close(); frame.close(); colour_diff.close()
+    allowed_mask.close(); outside_mask.close(); seam_mask.close()
+    combined.close(); eye_layer.close(); seam.close(); aperture.close()
+eye_phase_base.close()
+EYE_PHASE_SHEET = str(OUTDIR / 'owner-eye-blink-phases.png')
+eye_phase_sheet.save(EYE_PHASE_SHEET, 'PNG', optimize=True)
+EYE_PHASE_SHEET_QA = str(OUTDIR / 'owner-eye-blink-phases-qa.jpg')
+eye_phase_qa_width = 600
+eye_phase_qa = eye_phase_sheet.resize(
+    (eye_phase_qa_width, round(eye_phase_sheet.height * eye_phase_qa_width / eye_phase_sheet.width)),
+    Image.Resampling.LANCZOS,
+)
+eye_phase_qa.save(EYE_PHASE_SHEET_QA, 'JPEG', quality=55, optimize=True)
+eye_phase_qa.close()
+eye_phase_sheet.close()
+if EYE_PHASES_ONLY:
+    print('OK', EYE_PHASE_SHEET, f'{os.path.getsize(EYE_PHASE_SHEET)/1024:.0f} KB')
+    print('OK', EYE_PHASE_SHEET_QA, f'{os.path.getsize(EYE_PHASE_SHEET_QA)/1024:.0f} KB')
+    raise SystemExit(0)
 
 # ── доска сравнения: эталон владельца слева, симуляция того же вьюпорта справа
 ref = Image.open(REF_JPG).convert('RGB').resize((W, H), Image.LANCZOS)
@@ -982,5 +1102,6 @@ for x, st in zip(xs, STATES):
 sheet = sheet.resize((sheet_w // 2, sheet_h // 2), Image.LANCZOS)
 sheet.save(OUT, 'PNG', optimize=True)
 
-for name in [OUT, BOARD, SCROLLED, SCROLL_BOARD] + [str(OUTDIR / f'owner-home-{st}.png') for st in STATES]:
+for name in [OUT, BOARD, SCROLLED, SCROLL_BOARD, EYE_PHASE_SHEET] + [
+        str(OUTDIR / f'owner-home-{st}.png') for st in STATES]:
     print('OK', name, f'{os.path.getsize(name)/1024:.0f} KB')

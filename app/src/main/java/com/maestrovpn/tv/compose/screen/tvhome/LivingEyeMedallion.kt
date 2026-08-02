@@ -15,18 +15,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -47,14 +44,15 @@ import kotlin.random.Random
 /**
  * Phone-only living version of the owner's eye.
  *
- * The carved plaque and medallion live in the fixed phone background and never animate.
- * Only the eye aperture is layered here:
+ * The carved plaque, emerald mosaic and medallion live in the fixed phone background and are
+ * drawn exactly once. This layer draws eye anatomy only inside a dynamic aperture:
  *
- *  * sclera stays fixed;
+ *  * the shrinking aperture reveals the unchanged mosaic below during every blink;
+ *  * sclera stays registered;
  *  * iris and pupil perform short saccades together;
  *  * the pupil changes radius inside a fixed outer iris;
  *  * the corneal catchlight follows only 8% of gaze translation;
- *  * every blink passes through the supplied squint frame.
+ *  * full closure draws no eye or separate eyelid bitmap.
  *
  * Source measurements and reconstruction limits are recorded in
  * `docs/design/mobile-eye-natural/asset_metadata.json`.
@@ -64,17 +62,14 @@ internal fun LivingEyeMedallion(
     connected: Boolean,
     touchGaze: Offset? = null,
     opennessOverride: Float? = null,
-    mosaicPainter: (DrawScope.() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val openState = ImageBitmap.imageResource(R.drawable.mobile_eye_open)
-    val squintState = ImageBitmap.imageResource(R.drawable.mobile_eye_squint)
-    val closedState = ImageBitmap.imageResource(R.drawable.mobile_eye_closed)
     val sclera = ImageBitmap.imageResource(R.drawable.mobile_eye_sclera)
     val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_iris)
     val catchlight = ImageBitmap.imageResource(R.drawable.mobile_eye_catchlight)
 
-    // 0 = open, 0.5 = the owner's squint frame, 1 = the owner's closed frame.
+    // 0 = open aperture, 1 = zero-height aperture over the untouched mosaic.
     val lidPhase = remember { Animatable(1f) }
     val blinkEyeShift = remember { Animatable(0f) }
     val gazeX = remember { Animatable(0f) } // source-frame pixels
@@ -222,10 +217,8 @@ internal fun LivingEyeMedallion(
     }
 
     Canvas(modifier = modifier) {
-        // Клип по бронзовому кольцу. Заменил прежнее ужимание всего слоя: зелень, что выходит
-        // за кольцо, теперь прячется ПОД него, а радужка, зрачок и блик сохраняют исходный
-        // размер. Клип охватывает ВСЕ состояния (открыт/прищур/закрыт) — иначе подрезанным
-        // оказался бы только один кадр и моргание «прыгало» бы по границе.
+        // The bronze socket clips only the living overlay. The registered ring/mosaic is already
+        // below this Canvas and must never be repainted here.
         val bronzeInset = livingEyeBronzeInset(size.width, size.height)
         val medallion = minOf(size.width, size.height)
         val integration = livingEyeIntegrationProfile(size.width, size.height)
@@ -242,28 +235,25 @@ internal fun LivingEyeMedallion(
         clipPath(bronzeClip) {
             val layerFit = integration.layerFit
             val phase = lidPhase.value.coerceIn(0f, 1f)
-            val openToSquint = (phase / 0.5f).coerceIn(0f, 1f)
-            val squintToClosed = ((phase - 0.5f) / 0.5f).coerceIn(0f, 1f)
-
-            // Основа — открытый кадр владельца. Маппинг снова прямой (virtualScale), то есть слой
-            // опять сведён с глазом так же, как до PR #72. ⛔ Самого `mobile_home_scene.webp`
-            // больше нет (удалён в c15b4e3): Home собирается из 4D-атласа.
-            // ⛔ Комментарий, стоявший здесь до 31.07.2026, утверждал обратное («слой БОЛЬШЕ не
-            // совпадает с фоном, и это намеренно») и описывал промежуточное решение, при котором
-            // весь слой ужимался в кольцо. Владелец его отверг: глаз терял треть площади. Зелень
-            // с кольца убирает клип выше, а не масштаб.
-            drawSourceLayer(
-                image = openState,
-                sourceX = LIVING_EYE_STATE_X,
-                sourceY = LIVING_EYE_STATE_Y,
-                sourceWidth = LIVING_EYE_STATE_WIDTH,
-                sourceHeight = LIVING_EYE_STATE_HEIGHT,
+            val aperture = livingEyeApertureContour(
                 layerFit = layerFit,
-            )
+                closure = phase,
+                seamOverlapPx = 0f,
+            ).toPath()
 
-            if (phase <= 0.5f) {
-                val aperture = eyeAperturePath(layerFit)
+            // Do not rely on renderer behavior for a degenerate closed Path: at full closure the
+            // living layer is deliberately empty and the one true mosaic below remains visible.
+            if (phase < FULLY_CLOSED_PHASE) {
                 clipPath(aperture) {
+                    drawSourceLayer(
+                        image = openState,
+                        sourceX = LIVING_EYE_STATE_X,
+                        sourceY = LIVING_EYE_STATE_Y,
+                        sourceWidth = LIVING_EYE_STATE_WIDTH,
+                        sourceHeight = LIVING_EYE_STATE_HEIGHT,
+                        layerFit = layerFit,
+                    )
+
                     drawSourceLayer(
                         image = sclera,
                         sourceX = SCLERA_X,
@@ -322,88 +312,15 @@ internal fun LivingEyeMedallion(
                         layerFit = layerFit,
                     )
                 }
-
-                // A single supplied intermediate frame covers the complete anatomy, avoiding
-                // separate translucent iris/lid ghosts during the fast closing half.
-                if (openToSquint > 0.001f) {
-                    drawSourceLayer(
-                        image = squintState,
-                        sourceX = LIVING_EYE_STATE_X,
-                        sourceY = LIVING_EYE_STATE_Y,
-                        sourceWidth = LIVING_EYE_STATE_WIDTH,
-                        sourceHeight = LIVING_EYE_STATE_HEIGHT,
-                        layerFit = layerFit,
-                        alpha = openToSquint,
-                    )
-                }
-            } else {
-                // Keep squint opaque as the base of the second half. Closed then replaces it,
-                // so the permanently open foundation cannot shine through the eyelids.
-                drawSourceLayer(
-                    image = squintState,
-                    sourceX = LIVING_EYE_STATE_X,
-                    sourceY = LIVING_EYE_STATE_Y,
-                    sourceWidth = LIVING_EYE_STATE_WIDTH,
-                    sourceHeight = LIVING_EYE_STATE_HEIGHT,
-                    layerFit = layerFit,
-                )
-                drawSourceLayer(
-                    image = closedState,
-                    sourceX = LIVING_EYE_STATE_X,
-                    sourceY = LIVING_EYE_STATE_Y,
-                    sourceWidth = LIVING_EYE_STATE_WIDTH,
-                    sourceHeight = LIVING_EYE_STATE_HEIGHT,
-                    layerFit = layerFit,
-                    alpha = squintToClosed,
-                )
             }
 
-            mosaicPainter?.let { painter ->
-                val profile = livingEyeMosaicProfile(size.width, size.height, phase)
-                if (profile.textureAlpha > 0.001f) {
-                    val aperture = livingEyeApertureContour(
-                        layerFit = layerFit,
-                        closure = phase,
-                        seamOverlapPx = profile.seamOverlapPx,
-                    ).toPath()
-                    val openContour = livingEyeApertureContour(
-                        layerFit = layerFit,
-                        closure = 0f,
-                        seamOverlapPx = 0f,
-                    )
-                    val envelope = livingEyeEyelidEnvelopeBounds(
-                        contour = openContour,
-                        expansionPx = profile.envelopeExpansionPx,
-                        stateBounds = layerFit.stateBounds,
-                    )
-                    val layerBounds = Rect(
-                        envelope.left,
-                        envelope.top,
-                        envelope.right,
-                        envelope.bottom,
-                    )
-                    clipRect(envelope.left, envelope.top, envelope.right, envelope.bottom) {
-                        clipPath(aperture, clipOp = ClipOp.Difference) {
-                            val paint = Paint().apply { alpha = profile.textureAlpha }
-                            drawContext.canvas.saveLayer(layerBounds, paint)
-                            try {
-                                painter()
-                            } finally {
-                                drawContext.canvas.restore()
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Anatomy and blink frames stay untouched. These shadows add only physical contact:
-            // eyelids meet the surrounding mosaic and the bronze socket occludes the layer edge.
+            // This thin seam is the only overlay outside the eye aperture. The registered mosaic
+            // stays pixel-identical to the base ring at full closure.
             drawEyelidContactShadow(
                 layerFit = layerFit,
                 phase = phase,
                 profile = integration,
             )
-            drawLivingEyeInnerOcclusion(bronzeInset, medallion, integration)
         }
 
         // Свет по внутренней кромке кольца — СНАРУЖИ клипа: он должен ложиться на бронзу, а не
@@ -562,31 +479,6 @@ private fun DrawScope.drawSourceLayer(
     )
 }
 
-private fun DrawScope.drawLivingEyeInnerOcclusion(
-    bronzeInset: Float,
-    medallion: Float,
-    profile: LivingEyeIntegrationProfile,
-) {
-    val radius = medallion / 2f - bronzeInset
-    if (radius <= 0f) return
-    val clearEdge = (1f - profile.innerOcclusionWidthPx / radius).coerceIn(0.72f, 0.98f)
-    val center = Offset(size.width / 2f, size.height / 2f)
-    drawCircle(
-        brush = Brush.radialGradient(
-            colorStops = arrayOf(
-                0f to Color.Transparent,
-                clearEdge to Color.Transparent,
-                (clearEdge + (1f - clearEdge) * 0.58f) to
-                    EYE_SOCKET_SHADOW.copy(alpha = profile.innerOcclusionAlpha * 0.34f),
-                1f to EYE_SOCKET_SHADOW.copy(alpha = profile.innerOcclusionAlpha),
-            ),
-            center = center,
-            radius = radius,
-        ),
-        center = center,
-        radius = radius,
-    )
-}
 
 private fun DrawScope.drawEyelidContactShadow(
     layerFit: LivingEyeLayerFit,
@@ -642,9 +534,6 @@ private fun eyelidContactPath(
     }
 }
 
-private fun eyeAperturePath(layerFit: LivingEyeLayerFit): Path =
-    livingEyeApertureContour(layerFit, closure = 0f, seamOverlapPx = 0f).toPath()
-
 private fun LivingEyeApertureContour.toPath(): Path = Path().apply {
     upper.forEachIndexed { index, point ->
         if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
@@ -688,10 +577,10 @@ private const val BLINK_DOWN_SHIFT = 2f
 private const val GLOW_CONNECTING_MIN = 0.45f
 private const val GLOW_CONNECTING_MAX = 1f
 private const val GLOW_CONNECTED = 0.7f
+private const val FULLY_CLOSED_PHASE = 0.999f
 // Доля радиуса, до которой свет полностью прозрачен: центр не засвечиваем. 0.82 и alpha 0.22
 // вместо прежних 0.55 и 0.5 — при них свет ложился пеленой поверх глаза (владелец 31.07).
 private const val GLOW_INNER_EDGE = 0.82f
 private const val GLOW_MAX_ALPHA = 0.22f
-private val GLOW_TINT = Color(0xFF54FF8F)
-private val EYE_SOCKET_SHADOW = Color(0xFF130B07)
-private val EYE_CONTACT_SHADOW = Color(0xFF160D08)
+private val GLOW_TINT = Color(0xFF2EBE6C)
+private val EYE_CONTACT_SHADOW = Color(0xFF061409)

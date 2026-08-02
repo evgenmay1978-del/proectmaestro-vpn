@@ -255,10 +255,6 @@ private fun Mobile4DSceneAndHero(
         val eyeTopPx = (layout.medallionCenterY - layout.medallionRadiusY + eyeOffsetYPx).roundToInt()
         val eyeRightPx = (layout.medallionCenterX + layout.medallionRadiusX + eyeOffsetXPx).roundToInt()
         val eyeBottomPx = (layout.medallionCenterY + layout.medallionRadiusY + eyeOffsetYPx).roundToInt()
-        val eyeLocalLayout = layout.translatedBy(
-            dx = -eyeLeftPx.toFloat(),
-            dy = -eyeTopPx.toFloat(),
-        )
         var touchGaze by remember { mutableStateOf<Offset?>(null) }
         val eyeState = mobile4DEyeState(connected = connected, connecting = connecting)
         val eyeStateDescription = when (eyeState) {
@@ -307,18 +303,6 @@ private fun Mobile4DSceneAndHero(
                     Mobile4DEyeState.Disconnected -> 0f
                     Mobile4DEyeState.Connecting -> 0.5f
                     Mobile4DEyeState.Connected -> null
-                },
-                mosaicPainter = {
-                    drawAtlasLayer(
-                        layer = "ring",
-                        parallaxLayer = Mobile4DParallaxLayer.RingAndEye,
-                        layout = eyeLocalLayout,
-                        tilt = tilt,
-                        lightMix = lightMix,
-                        pages = pages,
-                        opaque = false,
-                        heroShift = heroShift,
-                    )
                 },
                 modifier = Modifier.fillMaxSize(),
             )

@@ -57,28 +57,6 @@ internal data class LivingEyeApertureContour(
         )
 }
 
-internal data class LivingEyeMosaicProfile(
-    val textureAlpha: Float,
-    val seamOverlapPx: Float,
-    val envelopeExpansionPx: Float,
-)
-
-internal fun livingEyeMosaicProfile(
-    width: Float,
-    height: Float,
-    lidPhase: Float,
-): LivingEyeMosaicProfile {
-    val size = minOf(width, height)
-    return LivingEyeMosaicProfile(
-        // These are the exact registered ring pixels, so full replacement is seamless. A
-        // translucent or aperture-sized patch lets the black/bronze blink frame ghost through.
-        textureAlpha = (lidPhase.coerceIn(0f, 1f) / 0.5f)
-            .coerceIn(0f, 1f),
-        seamOverlapPx = maxOf(1f, size * 0.005f),
-        // The bounds helper clamps this expansion to the complete eye-state rectangle.
-        envelopeExpansionPx = size,
-    )
-}
 
 internal fun livingEyeApertureContour(
     layerFit: LivingEyeLayerFit,
@@ -87,15 +65,22 @@ internal fun livingEyeApertureContour(
 ): LivingEyeApertureContour {
     val phase = closure.coerceIn(0f, 1f)
     val overlap = seamOverlapPx.coerceAtLeast(0f)
+    val sourceXs = (
+        LIVING_EYE_APERTURE_UPPER_SOURCE.map { it.x } +
+            LIVING_EYE_APERTURE_LOWER_SOURCE.map { it.x }
+        ).distinct().sorted()
 
-    fun mappedPoint(
-        point: LivingEyeLayerPoint,
-        opposite: List<LivingEyeLayerPoint>,
-        upper: Boolean,
-    ): LivingEyeLayerPoint {
-        val oppositeY = livingEyeSourceYAtX(opposite, point.x)
-        val seamSourceY = (point.y + oppositeY) / 2f
-        val closingSourceY = point.y + (seamSourceY - point.y) * phase
+    fun sourceGeometryAt(x: Float): Triple<Float, Float, Float> {
+        val upperY = livingEyeSourceYAtX(LIVING_EYE_APERTURE_UPPER_SOURCE, x)
+        val lowerY = livingEyeSourceYAtX(LIVING_EYE_APERTURE_LOWER_SOURCE, x)
+        val seamY = upperY + (lowerY - upperY) * LIVING_EYE_UPPER_LID_TRAVEL_SHARE
+        return Triple(upperY, lowerY, seamY)
+    }
+
+    fun mappedPoint(x: Float, upper: Boolean): LivingEyeLayerPoint {
+        val (upperY, lowerY, seamSourceY) = sourceGeometryAt(x)
+        val sourceY = if (upper) upperY else lowerY
+        val closingSourceY = sourceY + (seamSourceY - sourceY) * phase
         val seamY = layerFit.mapSourceY(seamSourceY)
         val closingY = layerFit.mapSourceY(closingSourceY)
         val contractedY = if (upper) {
@@ -104,36 +89,17 @@ internal fun livingEyeApertureContour(
             maxOf(seamY, closingY - overlap)
         }
         return LivingEyeLayerPoint(
-            x = layerFit.mapSourceX(point.x),
+            x = layerFit.mapSourceX(x),
             y = contractedY,
         )
     }
 
     return LivingEyeApertureContour(
-        upper = LIVING_EYE_APERTURE_UPPER_SOURCE.map {
-            mappedPoint(it, LIVING_EYE_APERTURE_LOWER_SOURCE, upper = true)
-        },
-        lower = LIVING_EYE_APERTURE_LOWER_SOURCE.map {
-            mappedPoint(it, LIVING_EYE_APERTURE_UPPER_SOURCE, upper = false)
-        },
+        upper = sourceXs.map { mappedPoint(it, upper = true) },
+        lower = sourceXs.map { mappedPoint(it, upper = false) },
     )
 }
 
-internal fun livingEyeEyelidEnvelopeBounds(
-    contour: LivingEyeApertureContour,
-    expansionPx: Float,
-    stateBounds: LivingEyeLayerBounds,
-): LivingEyeLayerBounds {
-    val expansion = expansionPx.coerceAtLeast(0f)
-    val bounds = contour.bounds
-    return LivingEyeLayerBounds(
-        left = maxOf(stateBounds.left, bounds.left - expansion),
-        top = maxOf(stateBounds.top, bounds.top - expansion),
-        right = minOf(stateBounds.right, bounds.right + expansion),
-        bottom = minOf(stateBounds.bottom, bounds.bottom + expansion),
-        scale = stateBounds.scale,
-    )
-}
 
 private fun livingEyeSourceYAtX(points: List<LivingEyeLayerPoint>, x: Float): Float {
     if (x <= points.first().x) return points.first().y
@@ -213,14 +179,11 @@ internal fun livingEyeBronzeInset(width: Float, height: Float): Float =
     minOf(width, height) * LIVING_EYE_BRONZE_INSET_FRACTION
 
 /**
- * Pure, size-relative profile for the two shadows that seat the living eye under the bronze.
- * The profile owns the already-approved fit so callers cannot introduce a second scale or a
- * second registration while adding visual integration.
+ * Pure, size-relative profile for the only runtime overlay allowed over the mosaic: the thin
+ * aperture contact seam. The bronze and mosaic depth stays in the single registered ring art.
  */
 internal data class LivingEyeIntegrationProfile(
     val layerFit: LivingEyeLayerFit,
-    val innerOcclusionWidthPx: Float,
-    val innerOcclusionAlpha: Float,
     val eyelidContactShadowBlurPx: Float,
     val eyelidContactShadowAlpha: Float,
 ) {
@@ -235,10 +198,8 @@ internal fun livingEyeIntegrationProfile(
     val medallionSize = minOf(width, height)
     return LivingEyeIntegrationProfile(
         layerFit = fitLivingEyeLayer(width, height),
-        innerOcclusionWidthPx = medallionSize * LIVING_EYE_INNER_OCCLUSION_FRACTION,
-        innerOcclusionAlpha = 0.36f,
         eyelidContactShadowBlurPx = medallionSize * LIVING_EYE_CONTACT_SHADOW_FRACTION,
-        eyelidContactShadowAlpha = 0.24f,
+        eyelidContactShadowAlpha = 0.18f,
     )
 }
 
@@ -251,8 +212,8 @@ private const val LIVING_EYE_VIRTUAL_ORIGIN_X = 268.8f
 private const val LIVING_EYE_VIRTUAL_ORIGIN_Y = 637.3f
 private const val LIVING_EYE_VIRTUAL_SIZE = 822.5f
 private const val LIVING_EYE_BRONZE_INSET_FRACTION = 26f / 520f
-private const val LIVING_EYE_INNER_OCCLUSION_FRACTION = 0.035f
-private const val LIVING_EYE_CONTACT_SHADOW_FRACTION = 0.015f
+private const val LIVING_EYE_CONTACT_SHADOW_FRACTION = 3f / 520f
+private const val LIVING_EYE_UPPER_LID_TRAVEL_SHARE = 0.70f
 
 private val LIVING_EYE_APERTURE_UPPER_SOURCE = listOf(
     LivingEyeLayerPoint(388f, 1083f),
