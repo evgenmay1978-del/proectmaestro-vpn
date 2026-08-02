@@ -32,7 +32,7 @@ VPN-runtime, workflows, Release, signing и OTA в этой итерации н�
 
 Обязательные новые документы, полностью:
 
-1. `CONTEXT_HANDOFF.md`, самый верхний раздел `0H`;
+1. `CONTEXT_HANDOFF.md`, самый верхний раздел `0K`;
 2. `docs/superpowers/specs/2026-08-02-mobile-home-scroll-logo-eye-design.md`;
 3. `docs/superpowers/plans/2026-08-02-mobile-home-scroll-logo-eye.md`;
 4. `design-qa.md`, раздел `0. LIVE`;
