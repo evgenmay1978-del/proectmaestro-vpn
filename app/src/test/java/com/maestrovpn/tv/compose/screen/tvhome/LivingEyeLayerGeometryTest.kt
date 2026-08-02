@@ -94,49 +94,49 @@ class LivingEyeLayerGeometryTest {
         assertEquals(fit.stateBounds, profile.stateBounds)
         assertEquals(18.2f, profile.innerOcclusionWidthPx, 0.001f)
         assertEquals(0.36f, profile.innerOcclusionAlpha, 0f)
-        assertEquals(7.8f, profile.eyelidContactShadowBlurPx, 0.001f)
-        assertEquals(0.24f, profile.eyelidContactShadowAlpha, 0f)
+        assertEquals(3f, profile.eyelidContactShadowBlurPx, 0.001f)
+        assertEquals(0.18f, profile.eyelidContactShadowAlpha, 0f)
         assertTrue(profile.innerOcclusionWidthPx < livingEyeBronzeInset(520f, 520f))
         assertTrue(profile.eyelidContactShadowBlurPx < profile.innerOcclusionWidthPx)
     }
 
     @Test
-    fun mosaicAppearsOnEveryClosingAndClosedLidPhase() {
-        val open = livingEyeMosaicProfile(520f, 520f, lidPhase = 0f)
-        val squint = livingEyeMosaicProfile(520f, 520f, lidPhase = 0.5f)
-        val closed = livingEyeMosaicProfile(520f, 520f, lidPhase = 1f)
+    fun apertureUsesOneCommonGridAndClosesToZeroHeight() {
+        val fit = fitLivingEyeLayer(520f, 520f)
+        val open = livingEyeApertureContour(fit, closure = 0f, seamOverlapPx = 0f)
+        val half = livingEyeApertureContour(fit, closure = 0.5f, seamOverlapPx = 0f)
+        val closed = livingEyeApertureContour(fit, closure = 1f, seamOverlapPx = 0f)
 
-        assertEquals(0f, open.textureAlpha, 0f)
-        assertEquals(1f, squint.textureAlpha, 0.0001f)
-        assertEquals(1f, closed.textureAlpha, 0.0001f)
-        assertTrue(squint.seamOverlapPx >= 1f)
-        assertTrue(squint.envelopeExpansionPx > squint.seamOverlapPx)
+        assertEquals(open.upper.size, open.lower.size)
+        assertEquals(open.upper.map { it.x }, open.lower.map { it.x })
+        assertEquals(open.upper.map { it.x }, half.upper.map { it.x })
+        assertEquals(open.upper.map { it.x }, half.lower.map { it.x })
+        assertEquals(open.upper.map { it.x }, closed.upper.map { it.x })
+        assertEquals(open.upper.map { it.x }, closed.lower.map { it.x })
+
+        open.upper.indices.forEach { index ->
+            val openHeight = open.lower[index].y - open.upper[index].y
+            val halfHeight = half.lower[index].y - half.upper[index].y
+            val closedHeight = closed.lower[index].y - closed.upper[index].y
+            assertEquals(openHeight * 0.5f, halfHeight, 0.001f)
+            assertEquals(0f, closedHeight, 0.001f)
+        }
     }
 
     @Test
-    fun mosaicReplacementCoversCompleteEyeStateWithoutChangingEyeFit() {
+    fun upperLidTravelsSeventyPercentAndLowerLidThirtyPercent() {
         val fit = fitLivingEyeLayer(520f, 520f)
-        listOf(0f, 0.5f, 1f).forEach { phase ->
-            val profile = livingEyeMosaicProfile(520f, 520f, phase)
-            val contour = livingEyeApertureContour(
-                layerFit = fit,
-                closure = phase,
-                seamOverlapPx = profile.seamOverlapPx,
-            )
-            val aperture = contour.bounds
-            val state = fit.stateBounds
-            val envelope = livingEyeEyelidEnvelopeBounds(
-                contour = contour,
-                expansionPx = profile.envelopeExpansionPx,
-                stateBounds = state,
-            )
+        val open = livingEyeApertureContour(fit, closure = 0f, seamOverlapPx = 0f)
+        val closed = livingEyeApertureContour(fit, closure = 1f, seamOverlapPx = 0f)
+        val sampleX = fit.mapSourceX(700f)
+        val openUpper = open.upper.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
+        val openLower = open.lower.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
+        val closedUpper = closed.upper.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
+        val closedLower = closed.lower.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
+        val expectedSeamY = openUpper.y + (openLower.y - openUpper.y) * 0.70f
 
-            assertEquals(state.left, envelope.left, 0.0001f)
-            assertEquals(state.top, envelope.top, 0.0001f)
-            assertEquals(state.right, envelope.right, 0.0001f)
-            assertEquals(state.bottom, envelope.bottom, 0.0001f)
-            assertTrue(aperture.left >= envelope.left && aperture.right <= envelope.right)
-        }
+        assertEquals(expectedSeamY, closedUpper.y, 0.001f)
+        assertEquals(expectedSeamY, closedLower.y, 0.001f)
         assertEquals(520f / 822.5f, fit.scale, 0.000001f)
     }
 }
