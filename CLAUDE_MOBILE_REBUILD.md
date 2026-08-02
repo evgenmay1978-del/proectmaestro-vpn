@@ -7,14 +7,28 @@
 Локальный файл без push не является checkpoint.
 
 GitHub gate уже пройден для implementation SHA
-`6dcae22019274aac71ad10237460e14ff161b178`: run `30743893059` завершён `success`,
-`assembleOtherDebug` и unit tests зелёные. Тестовый APK:
+`0263eb9196c3f0a7187187b41beb7318b47fcd9c`: run `30758563590` завершён `success`,
+`assembleOtherDebug`, загрузка APK и unit tests зелёные. Тестовый APK:
 
-`https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30743893059/artifacts/8832259523`
+`https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30758563590/artifacts/8836764415`
 
-Artifact: `maestrovpn-tv-test-apk`, id `8832259523`, 177363062 байта, digest
-`sha256:372301d9d669581d510cb2eca62ae332ea459918cc636e3341e0ac054261f670`.
-CI-only draft PR `#75` закрыт без merge; повторный CI нужен только после изменения кода.
+Artifact: `maestrovpn-tv-test-apk`, id `8836764415`, 177367280 байт, digest
+`sha256:1a1d016cd6f87600efbb8f64aaeae2249f20e8fe07022b44376f9129b466507f`,
+не истёк, хранится до `2026-10-31T17:18:02Z`. CI-only draft PR `#78` закрыт без merge;
+повторный CI нужен только после изменения кода.
+
+⛔ Ссылка run `30743893059` / artifact `8832259523` относится к старому SHA `6dcae220`.
+Она уже была ошибочно передана владельцу и дала старую посадку экрана, старое бронзовое веко
+и пустую дугу. Больше никогда не использовать её как handoff.
+
+Актуальный APK включает все три последовательных исправления телефона:
+
+- full-window/top registration: `ede03afa`;
+- полное непрозрачное мозаичное замещение закрытого века: `0a116af2`;
+- семь подписей дуги при временно пустом runtime selector list: `0263eb91`.
+
+Физическая визуальная проверка актуального APK остаётся следующим шагом. TV, backend,
+VPN-runtime, workflows, Release, signing и OTA в этой итерации не менялись.
 
 Обязательные новые документы, полностью:
 

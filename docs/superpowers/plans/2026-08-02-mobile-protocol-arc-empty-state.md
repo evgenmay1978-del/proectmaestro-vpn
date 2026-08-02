@@ -27,7 +27,7 @@
 - Consumes: `orderedHomeProtocols(protocols: List<String>): List<String>` and existing `HOME_PROTOCOL_ORDER`.
 - Produces: the seven-tag approved order for empty input without changing non-empty behavior.
 
-- [ ] **Step 1: Write the failing regression test**
+- [x] **Step 1: Write the failing regression test**
 
 Replace the old empty-input expectation with:
 
@@ -43,13 +43,13 @@ fun emptyRuntimeListKeepsEveryOwnerApprovedArcLabel() {
 
 Keep the existing assertion that `olcrtc` appears exactly once when the backend already provides it.
 
-- [ ] **Step 2: Verify RED on GitHub**
+- [x] **Step 2: Verify RED on GitHub**
 
 Commit and push the test-only change, open a CI-only draft PR against `main`, and wait for
 `android-test.yml`. Expected: `PhoneHomeProtocolOrderTest.emptyRuntimeListKeepsEveryOwnerApprovedArcLabel`
 fails because the actual value is `[olcrtc]`; build may pass, unit-test job must fail for this assertion.
 
-- [ ] **Step 3: Write the minimal production implementation**
+- [x] **Step 3: Write the minimal production implementation**
 
 At the start of `orderedHomeProtocols`, add:
 
@@ -60,13 +60,13 @@ if (protocols.isEmpty()) return HOME_PROTOCOL_ORDER
 Add one short comment tying the fallback to the cold-start selector gap. Do not change
 `ProtocolArc`, `arcSectorCells`, callbacks, labels, assets or shared group loading.
 
-- [ ] **Step 4: Verify GREEN and the APK artifact on GitHub**
+- [x] **Step 4: Verify GREEN and the APK artifact on GitHub**
 
 Commit and push the production change. Require success for `:app:assembleOtherDebug`, APK upload,
 and `:app:testOtherDebugUnitTest`. Fetch the artifact list and record the new artifact id, digest,
 tested head SHA and expiry.
 
-- [ ] **Step 5: Close and hand off**
+- [x] **Step 5: Close and hand off**
 
 Close the CI-only PR without merge. Run `git diff --check`, confirm the branch is clean/synced and
 that code scope contains only the phone helper plus its JVM test. Update `CONTEXT_HANDOFF.md` with

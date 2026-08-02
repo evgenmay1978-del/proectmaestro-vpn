@@ -1,5 +1,38 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0K. LIVE: исправлена пустая дуга протоколов; передавать только новый APK
+
+Проверенный handoff от **02.08.2026** после скриншота владельца 19:40:
+
+- владельцу по ошибке была передана старая ссылка на run `30743893059`, artifact
+  `8832259523`, SHA `6dcae22019274aac71ad10237460e14ff161b178`. Этот APK предшествует
+  исправлениям посадки Home и мозаичных век; **не передавать и не устанавливать его снова**;
+- скриншот с единственным `WEBRTC` выявил отдельный runtime-дефект: при временно пустом
+  списке селектора `orderedHomeProtocols(emptyList())` возвращал только `[olcrtc]`, после
+  чего единственная ячейка центрировалась на дуге, а `olcrtc` отображался как `WEBRTC`;
+- RED commit `132c16ecd136051d1653a390eaba846c8edc21f1`, run `30758296195`:
+  APK собрался, а `PhoneHomeProtocolOrderTest.emptyRuntimeListKeepsEveryOwnerApprovedArcLabel`
+  упал ожидаемо (`82 tests completed, 1 failed`);
+- минимальное phone-only исправление в commit
+  `0263eb9196c3f0a7187187b41beb7318b47fcd9c`: пустой runtime-список использует
+  существующий `HOME_PROTOCOL_ORDER`; обработка любого непустого списка не менялась;
+- GREEN run `30758563590` — `completed / success`: `:app:assembleOtherDebug`, загрузка
+  APK и все unit-тесты прошли;
+- APK artifact `maestrovpn-tv-test-apk`, id `8836764415`, размер `177367280` байт,
+  digest `sha256:1a1d016cd6f87600efbb8f64aaeae2249f20e8fe07022b44376f9129b466507f`,
+  срок хранения до `2026-10-31T17:18:02Z`;
+- единственная актуальная страница артефакта:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30758563590/artifacts/8836764415`;
+- этот APK последовательно включает: full-window/top registration из `ede03afa`, полное
+  непрозрачное замещение закрытого века мозаикой из `0a116af2` и стабильные семь подписей
+  дуги (`АВТО`, `VLESS`, `HYSTERIA2`, `ANYTLS`, `NAIVE PROXY`, `WDTT`, `WEBRTC`) из
+  `0263eb91`;
+- CI-only draft PR `#78` закрыт, **не смержен**. TV, backend, VPN-runtime, workflows,
+  Release, signing и OTA не менялись.
+
+Код и CI проверены. Визуальная проверка этого точного APK на физическом телефоне ещё нужна;
+локальный simulator не считается доказательством нового runtime empty-state.
+
 ## 0J. LIVE: артефакты мозаики на закрытом глазе исправлены и CI зелёный
 
 Проверенный handoff от **02.08.2026** по скриншоту владельца 18:34:
