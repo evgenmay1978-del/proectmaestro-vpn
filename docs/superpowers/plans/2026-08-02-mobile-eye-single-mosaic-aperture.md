@@ -20,9 +20,9 @@
 **Files:**
 - Modify: `LivingEyeLayerGeometryTest.kt`
 
-- [ ] Replace obsolete mosaic-overlay tests with common-X, 70/30 seam and zero-height closed-aperture assertions.
-- [ ] Update contact-shadow expectation to `3 px / 0.18 alpha`.
-- [ ] Push a test-only commit and verify the targeted test fails in a CI-only draft PR.
+- [x] Replace obsolete mosaic-overlay tests with common-X, 70/30 seam and zero-height closed-aperture assertions.
+- [x] Update contact-shadow expectation to `3 px / 0.18 alpha`.
+- [x] Push a test-only commit and verify the targeted test fails in a CI-only draft PR.
 
 ### Task 2: Implement one mosaic and one aperture
 
@@ -31,27 +31,27 @@
 - Modify: `LivingEyeMedallion.kt`
 - Modify: `Mobile4DHome.kt`
 
-- [ ] Interpolate upper/lower sources on one sorted union X-grid.
-- [ ] Move upper 70% and lower 30% toward one shared seam.
-- [ ] Draw open-eye anatomy only inside the current aperture; skip all eye pixels at full closure.
-- [ ] Remove runtime squint/closed crossfades and repeated `ring` painter.
-- [ ] Use a thin deep-emerald contact seam without changing fit or animation clocks.
+- [x] Interpolate upper/lower sources on one sorted union X-grid.
+- [x] Move upper 70% and lower 30% toward one shared seam.
+- [x] Draw open-eye anatomy only inside the current aperture; skip all eye pixels at full closure.
+- [x] Remove runtime squint/closed crossfades and repeated `ring` painter.
+- [x] Use a thin deep-emerald contact seam without changing fit or animation clocks.
 
 ### Task 3: Update deterministic visual QA
 
 **Files:**
 - Modify: `ops/phone-screen-sim.py`
 
-- [ ] Render every state from `mobile_eye_open.webp` clipped by the same union-X aperture.
-- [ ] Generate a 0/25/50/75/100% blink close-up sheet.
-- [ ] Assert full closure leaves no eye-layer alpha and the base mosaic stays unchanged outside the aperture.
+- [x] Render every state from `mobile_eye_open.webp` clipped by the same union-X aperture.
+- [x] Generate a 0/25/50/75/100% blink close-up sheet.
+- [x] Assert full closure leaves no eye-layer alpha and the base mosaic stays unchanged outside the aperture.
 
 ### Task 4: Verify and build on GitHub
 
-- [ ] Run Python simulator, visual checks, `py_compile`, `git diff --check`, and scoped source searches.
-- [ ] Push implementation; require GitHub Android compile/unit success and APK artifact.
-- [ ] Record tested SHA, run ID, artifact ID and direct GitHub link in handoff docs.
-- [ ] Close the CI-only PR without merge; do not touch `main`, Release or OTA.
+- [x] Run Python simulator, visual checks, `py_compile`, `git diff --check`, and scoped source searches.
+- [x] Push implementation; require GitHub Android compile/unit success and APK artifact.
+- [x] Record tested SHA, run ID, artifact ID and direct GitHub link in handoff docs.
+- [x] Close the CI-only PR without merge; do not touch `main`, Release or OTA.
 
 ## Self-review gates
 

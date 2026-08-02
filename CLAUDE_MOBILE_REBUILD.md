@@ -1,6 +1,32 @@
 ﻿# Claude: обязательный handoff по чистой мобильной 4D-пересборке
 
-## LIVE 02.08.2026 — продолжать только отсюда
+## LIVE 02.08.2026 — устанавливать только финальный artifact 8838559790
+
+Рабочая GitHub-ветка: `codex/mobile-4d-deck`. Финальный implementation SHA:
+`120fb816f4fd8be6c05f328d33d36089af9fbe54`. GitHub Actions run `30764526376`
+завершён `success`: `assembleOtherDebug`, загрузка APK и unit tests зелёные.
+
+`https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30764526376/artifacts/8838559790`
+
+Artifact `maestrovpn-tv-test-apk`, id `8838559790`, 177365255 байт, digest
+`sha256:64aadd731303732a1def8c5fb01db95510197ef730eb2514db10cf377100ac25`,
+хранится до `2026-10-31T19:57:38Z`.
+
+Этот APK кумулятивно включает full-window/top registration (`ede03afa`), стабильные семь
+подписей дуги (`0263eb91`) и финальный single-mosaic eye renderer (`55e9ced`, `120fb81`).
+Мозаика рисуется один раз; анатомия глаза клипуется общей 70/30 апертурой; при полном
+закрытии нет bronze bitmap, повторной мозаики или glow поверх диска — остаются базовая
+emerald-мозаика и единый шов `3 px / 0.18`.
+
+Полный simulator/reference comparison подтверждает неизменный титул и все семь подписей:
+`АВТО`, `VLESS`, `HYSTERIA2`, `ANYTLS`, `NAIVE PROXY`, `WDTT`, `WEBRTC`. CI-only draft
+PR `#79` закрыт без merge. TV, backend, VPN-runtime, workflows, Release, signing и OTA
+не менялись. Нужна только проверка этого точного APK на физическом телефоне.
+
+⛔ Все старые APK-ссылки ниже исторические. Особенно запрещены artifact `8832259523`,
+`8836764415` и промежуточный `8838290105`.
+
+## ИСТОРИЯ 02.08.2026 — прежний handoff
 
 Рабочая GitHub-ветка: `codex/mobile-4d-deck`. Claude не видит Windows-worktree, поэтому перед
 любой работой выполнить `git fetch --all --prune`, checkout этой ветки и подтвердить remote HEAD.

@@ -1,5 +1,38 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0L. LIVE: единая мозаика глаза; логотип и семь подписей сохранены
+
+Финальный GitHub-handoff от **02.08.2026** после повторного production-review:
+
+- передавать только APK из run `30764526376`, artifact `8838559790`; старые artifacts
+  `8832259523`, `8836764415` и промежуточный `8838290105` больше не использовать;
+- RED commit `51de6b0a88d5c3ed9195f7ec59214b6323a7f323`, run `30762345257`:
+  `assembleOtherDebug` прошёл, а три новые geometry-проверки ожидаемо упали;
+- основной single-mosaic renderer сделан в `55e9ced9c2e07765cdd4a08347be73e6d5983ea7`;
+  финальное ревью дополнительно выявило, что connected glow менял мозаику при полном
+  моргании, а runtime-шов не совпадал с QA-рендером;
+- окончательное исправление и протестированный SHA:
+  `120fb816f4fd8be6c05f328d33d36089af9fbe54`;
+- GREEN run `30764526376` завершён `completed / success`: `:app:assembleOtherDebug`,
+  загрузка APK, unit tests и загрузка test report прошли;
+- APK `maestrovpn-tv-test-apk`, id `8838559790`, размер `177365255` байт,
+  digest `sha256:64aadd731303732a1def8c5fb01db95510197ef730eb2514db10cf377100ac25`,
+  хранится до `2026-10-31T19:57:38Z`;
+- единственная актуальная ссылка:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30764526376/artifacts/8838559790`;
+- runtime теперь рисует зарегистрированную emerald-мозаику ровно один раз, живую анатомию
+  глаза — только внутри общей 70/30 апертуры, а при полном закрытии оставляет ту же мозаику
+  и единый шов `3 px / 0.18`; отдельные bronze squint/closed frames, повторная mosaic paint
+  и glow поверх закрытого диска отсутствуют;
+- полный `phone-screen-sim.py`, `py_compile`, five-phase eye QA и `git diff --check` прошли.
+  Контракты full-window/top registration не менялись; титул остаётся в bounds
+  `69,54–323,88`, дуга сохраняет семь подписей: `АВТО`, `VLESS`, `HYSTERIA2`, `ANYTLS`,
+  `NAIVE PROXY`, `WDTT`, `WEBRTC`;
+- CI-only draft PR `#79` закрыт, **не смержен**. `main`, TV, backend, VPN-runtime,
+  workflows, Release, signing и OTA не менялись.
+
+Следующий gate — только визуальная проверка этого точного APK на физическом телефоне.
+
 ## 0K. LIVE: исправлена пустая дуга протоколов; передавать только новый APK
 
 Проверенный handoff от **02.08.2026** после скриншота владельца 19:40:
