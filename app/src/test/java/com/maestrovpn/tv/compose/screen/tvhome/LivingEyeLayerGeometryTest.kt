@@ -107,14 +107,14 @@ class LivingEyeLayerGeometryTest {
         val closed = livingEyeMosaicProfile(520f, 520f, lidPhase = 1f)
 
         assertEquals(0f, open.textureAlpha, 0f)
-        assertEquals(0.78f, squint.textureAlpha, 0.0001f)
-        assertEquals(0.78f, closed.textureAlpha, 0.0001f)
+        assertEquals(1f, squint.textureAlpha, 0.0001f)
+        assertEquals(1f, closed.textureAlpha, 0.0001f)
         assertTrue(squint.seamOverlapPx >= 1f)
         assertTrue(squint.envelopeExpansionPx > squint.seamOverlapPx)
     }
 
     @Test
-    fun mosaicEnvelopeContainsTheAnimatedApertureWithoutChangingEyeFit() {
+    fun mosaicReplacementCoversCompleteEyeStateWithoutChangingEyeFit() {
         val fit = fitLivingEyeLayer(520f, 520f)
         listOf(0f, 0.5f, 1f).forEach { phase ->
             val profile = livingEyeMosaicProfile(520f, 520f, phase)
@@ -131,14 +131,11 @@ class LivingEyeLayerGeometryTest {
                 stateBounds = state,
             )
 
-            assertTrue(envelope.left <= aperture.left)
-            assertTrue(envelope.top <= aperture.top)
-            assertTrue(envelope.right >= aperture.right)
-            assertTrue(envelope.bottom >= aperture.bottom)
-            assertTrue(envelope.left >= state.left)
-            assertTrue(envelope.top >= state.top)
-            assertTrue(envelope.right <= state.right)
-            assertTrue(envelope.bottom <= state.bottom)
+            assertEquals(state.left, envelope.left, 0.0001f)
+            assertEquals(state.top, envelope.top, 0.0001f)
+            assertEquals(state.right, envelope.right, 0.0001f)
+            assertEquals(state.bottom, envelope.bottom, 0.0001f)
+            assertTrue(aperture.left >= envelope.left && aperture.right <= envelope.right)
         }
         assertEquals(520f / 822.5f, fit.scale, 0.000001f)
     }
