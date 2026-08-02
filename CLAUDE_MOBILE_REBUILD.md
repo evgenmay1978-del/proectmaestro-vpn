@@ -6,9 +6,19 @@
 любой работой выполнить `git fetch --all --prune`, checkout этой ветки и подтвердить remote HEAD.
 Локальный файл без push не является checkpoint.
 
+GitHub gate уже пройден для implementation SHA
+`6dcae22019274aac71ad10237460e14ff161b178`: run `30743893059` завершён `success`,
+`assembleOtherDebug` и unit tests зелёные. Тестовый APK:
+
+`https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30743893059/artifacts/8832259523`
+
+Artifact: `maestrovpn-tv-test-apk`, id `8832259523`, 177363062 байта, digest
+`sha256:372301d9d669581d510cb2eca62ae332ea459918cc636e3341e0ac054261f670`.
+CI-only draft PR `#75` закрыт без merge; повторный CI нужен только после изменения кода.
+
 Обязательные новые документы, полностью:
 
-1. `CONTEXT_HANDOFF.md`, самый верхний раздел `0G`;
+1. `CONTEXT_HANDOFF.md`, самый верхний раздел `0H`;
 2. `docs/superpowers/specs/2026-08-02-mobile-home-scroll-logo-eye-design.md`;
 3. `docs/superpowers/plans/2026-08-02-mobile-home-scroll-logo-eye.md`;
 4. `design-qa.md`, раздел `0. LIVE`;

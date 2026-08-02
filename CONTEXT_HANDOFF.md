@@ -1,5 +1,23 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0H. LIVE: GitHub compile, unit-тесты и тестовый APK зелёные
+
+Этот раздел новее 0G и фиксирует проверенный GitHub-handoff от **02.08.2026**:
+
+- ветка `codex/mobile-4d-deck`, протестированный remote SHA
+  `6dcae22019274aac71ad10237460e14ff161b178`;
+- GitHub Actions run `30743893059` — `completed / success`;
+- `:app:assembleOtherDebug` — success; загрузка APK — success; unit tests — success;
+- APK artifact `maestrovpn-tv-test-apk`, id `8832259523`, размер `177363062` байта,
+  digest `sha256:372301d9d669581d510cb2eca62ae332ea459918cc636e3341e0ac054261f670`,
+  срок хранения до `2026-10-31T10:30:52Z`;
+- прямая страница артефакта:
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30743893059/artifacts/8832259523`;
+- CI-only draft PR `#75` после успешной сборки закрыт, **не смержен**. Release, production
+  signing/OTA и TV не трогались. Повторно запускать CI без изменения кода не нужно.
+
+Следующий шаг — только установка этого APK владельцем и визуальная проверка на телефоне.
+
 ## 0G. LIVE: логотип и живой глаз закреплены, нижняя дека скроллится целиком
 
 Этот раздел новее 0F. Текущая рабочая ветка — `codex/mobile-4d-deck`. Claude видит
