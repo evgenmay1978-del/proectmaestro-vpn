@@ -37,7 +37,14 @@ class PhoneHomeProtocolOrderTest {
     fun olcrtcIsAlwaysPresentExactlyOnceEvenIfBackendAlreadySentIt() {
         assertEquals(1, orderedHomeProtocols(listOf("auto", "olcrtc")).count { it == "olcrtc" })
         assertEquals(listOf("auto", "olcrtc"), orderedHomeProtocols(listOf("auto", "olcrtc")))
-        assertEquals(listOf("olcrtc"), orderedHomeProtocols(emptyList()))
+    }
+
+    @Test
+    fun emptyRuntimeListKeepsEveryOwnerApprovedArcLabel() {
+        assertEquals(
+            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc"),
+            orderedHomeProtocols(emptyList()),
+        )
     }
 
     @Test
