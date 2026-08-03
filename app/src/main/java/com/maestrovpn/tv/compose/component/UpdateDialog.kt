@@ -34,8 +34,25 @@ import org.kodein.emoji.Emoji
 import org.kodein.emoji.EmojiTemplateCatalog
 import org.kodein.emoji.all
 
+/**
+ * ⛔ ДВА РАЗНЫХ НАМЕРЕНИЯ, НЕ ПУТАТЬ (разделено 2026-08-03).
+ * Раньше был один колбэк, означавший СРАЗУ «закрыть окно» И «больше эту версию не предлагать».
+ * Кнопка «Обновить» звала его первым, поэтому нажатие «Обновить» НАВСЕГДА гасило предложение
+ * ещё до начала установки. Если установка потом срывалась (пользователь отменил системный
+ * диалог, сработал демпфер трёх неудач, система потребовала подтверждение и его не дали) —
+ * клиент больше НИКОГДА не видел предложения и оставался на старой версии до следующего
+ * релиза. При политике «не частить OTA» это месяцы.
+ *
+ * @param onHide    просто закрыть окно; предложение вернётся. Для «Обновить» и ухода читать релиз.
+ * @param onDecline пользователь ЯВНО отказался — эту версию больше не предлагать.
+ */
 @Composable
-fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdate: () -> Unit) {
+fun UpdateAvailableDialog(
+    updateInfo: UpdateInfo,
+    onHide: () -> Unit,
+    onDecline: () -> Unit,
+    onUpdate: () -> Unit,
+) {
     val context = LocalContext.current
     val emojiCatalog = remember { EmojiTemplateCatalog(Emoji.all()) }
     val processedNotes = remember(updateInfo.releaseNotes) {
@@ -44,11 +61,11 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
     val viewRelease: () -> Unit = {
         // ТВ-бокс без браузера: голый ACTION_VIEW роняет приложение прямо из диалога обновления.
         context.launchCustomTab(updateInfo.releaseUrl)
-        onDismiss()
+        onHide()
     }
 
     // ── Dark-Fantasy modal (phone + TV) ──
-    FantasyDialog(onDismiss = onDismiss, title = stringResource(R.string.check_update)) {
+    FantasyDialog(onDismiss = onHide, title = stringResource(R.string.check_update)) {
         Text(
             text = stringResource(R.string.new_version_available, updateInfo.versionName),
             style = MaterialTheme.typography.bodyMedium,
@@ -66,7 +83,7 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
         Spacer(Modifier.height(18.dp))
         GlossyButton(
             label = stringResource(R.string.update),
-            onClick = { onDismiss(); onUpdate() },
+            onClick = { onHide(); onUpdate() },
             accent = NeonGreen,
             wood = true,
             modifier = Modifier.fillMaxWidth(),
@@ -79,7 +96,7 @@ fun UpdateAvailableDialog(updateInfo: UpdateInfo, onDismiss: () -> Unit, onUpdat
             TextButton(onClick = viewRelease) {
                 Text(stringResource(R.string.view_release), color = GoldMid, fontWeight = FontWeight.Medium)
             }
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDecline) {
                 Text(stringResource(android.R.string.cancel), color = GoldMid.copy(alpha = 0.7f))
             }
         }

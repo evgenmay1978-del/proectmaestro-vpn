@@ -677,7 +677,11 @@ class MainActivity :
         if (showUpdateDialog && shouldShowUpdateDialog) {
             UpdateAvailableDialog(
                 updateInfo = updateInfo!!,
-                onDismiss = {
+                // Просто закрыть: предложение вернётся при следующей проверке. Сюда попадаем,
+                // когда нажали «Обновить» или ушли смотреть релиз — это НЕ отказ.
+                onHide = { showUpdateDialog = false },
+                // Явный отказ («Отмена») — только здесь гасим версию насовсем.
+                onDecline = {
                     Settings.lastShownUpdateVersion = updateInfo!!.versionCode
                     showUpdateDialog = false
                 },

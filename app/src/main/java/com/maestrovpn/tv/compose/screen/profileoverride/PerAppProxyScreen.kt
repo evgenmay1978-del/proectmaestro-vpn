@@ -398,9 +398,7 @@ fun PerAppProxyScreen(
                         postSaveSelectedApplications(emptySet())
                     },
                     onImport = {
-                        val packageNames =
-                            clipboardText?.split("\n")?.distinct()
-                                ?.takeIf { it.isNotEmpty() && it[0].isNotEmpty() }
+                        val packageNames = parseImportedPackageNames(clipboardText)
                         if (packageNames.isNullOrEmpty()) {
                             Toast.makeText(
                                 context,
@@ -613,9 +611,7 @@ fun PerAppProxyScreen(
                         postSaveSelectedApplications(emptySet())
                     },
                     onImport = {
-                        val packageNames =
-                            clipboardText?.split("\n")?.distinct()
-                                ?.takeIf { it.isNotEmpty() && it[0].isNotEmpty() }
+                        val packageNames = parseImportedPackageNames(clipboardText)
                         if (packageNames.isNullOrEmpty()) {
                             Toast.makeText(
                                 context,

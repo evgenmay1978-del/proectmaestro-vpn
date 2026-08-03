@@ -405,7 +405,9 @@ fun AppSettingsScreen(
     if (showUpdateAvailableDialog && updateInfo != null) {
         UpdateAvailableDialog(
             updateInfo = updateInfo!!,
-            onDismiss = { showUpdateAvailableDialog = false },
+            // Открыто пользователем вручную — оба пути просто закрывают окно, версию не гасим.
+            onHide = { showUpdateAvailableDialog = false },
+            onDecline = { showUpdateAvailableDialog = false },
             onUpdate = {
                 showDownloadDialog = true
                 downloadError = null
