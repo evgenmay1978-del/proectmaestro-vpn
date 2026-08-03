@@ -102,8 +102,14 @@ cutover is fast.
 ```bash
 systemctl enable --now x-ui maestro-panel nginx
 curl -s https://wapmixx.ru:8911/healthz                 # -> ok
-# pick a known sub_token from customers.json and confirm the sub renders 5 outbounds:
-curl -s "https://wapmixx.ru:8911/sub/<token>" | grep -o '"type":"[a-z2]*"' | sort -u
+# Взять живой sub_token из customers.json и убедиться, что подписка собирается.
+# ⚠️ Число НЕ фиксировано и растёт с числом узлов: на 2026-08-02 это 6 outbounds
+# (vless, hysteria2, naive, anytls, vless-s3, vless-s4) + auto/select/direct,
+# ПЛЮС секция endpoints (awg) — её grep по "type" в outbounds не увидит.
+curl -s "https://wapmixx.ru:8911/sub/<token>" | python3 -c "
+import json,sys; d=json.load(sys.stdin)
+print('outbounds:', [o.get('tag') for o in d.get('outbounds',[])])
+print('endpoints:', [e.get('tag') for e in d.get('endpoints',[])])"
 ```
 Then claim/activate a throwaway login end-to-end and connect a test device.
 

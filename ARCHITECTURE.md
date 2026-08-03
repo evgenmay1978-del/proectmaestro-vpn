@@ -1,5 +1,19 @@
 # MaestroVPN TV — architecture & plan
 
+> ⛔ **ЭТО ДОКУМЕНТ ПЛАНИРОВАНИЯ ОТ 2026-06-14, А НЕ ОПИСАНИЕ ТЕКУЩЕГО СОСТОЯНИЯ.**
+> Часть описанного здесь так и не была сделана, а часть цифр устарела в разы. Читая его,
+> легко принять ПЛАН за СДЕЛАННОЕ — на этом 2026-08-02 уже подорвались (строки про
+> «server2 VLESS/Reality» ниже описывают невыполненный план, и по ним было сделано неверное
+> утверждение о флоте).
+>
+> **Актуальная карта флота, протоколов и доступов:** `memory/ORIENT.md`.
+> **Живое состояние одной командой:** `sh /root/maestrotv-ops/orient.sh`.
+> **Статус задач:** `memory/OPEN.md`.
+>
+> Сверка 2026-08-02: узлов ЧЕТЫРЕ (S1 194.48.141.106 NL, S2 85.137.166.237 CZ,
+> S3 46.30.42.151 NL, S4 89.125.19.95 NL). VLESS-Reality отдают ТОЛЬКО S1, S3 и S4.
+> Клиентов в витрине панели 71. Подписка отдаёт 6 outbounds + 1 endpoint (awg).
+
 Own-brand **Android TV** VPN client. Headline feature: **the client never touches
 keys** — the app fetches its config from the backend and auto-updates when the
 key rotates. Built so a non-technical customer needs to do nothing after install.
@@ -20,6 +34,9 @@ key rotates. Built so a non-technical customer needs to do nothing after install
     inbound to server 2 *alongside* naive so ONE core covers both servers and
     existing naive users are untouched. Plan (b, fallback): bundle a separate
     naive client = two cores, much more work.
+    > ⛔ **ПЛАН (a) ТАК И НЕ ВЫПОЛНЕН.** Проверено 2026-08-02: на S2 нет ни `xray`, ни `x-ui`;
+    > он отдаёт только NaiveProxy :443, Hysteria2 :8443/udp и AnyTLS :8443/tcp. VLESS там НЕТ.
+    > Вместо этого вторым и третьим VLESS-узлами стали S3 (46.30.42.151) и S4 (89.125.19.95).
 - **Auto-auth (zero-config for the client):** per-customer **subscription URL**
   (a 3x-ui sub link returning BOTH servers' configs). The app polls it and
   re-applies → key rotation is invisible to the client. The URL is provisioned by
@@ -41,7 +58,8 @@ Android TV app (first run) ── stores sub URL ──► polls it (e.g. every 
         ▼                                              ▼
  sing-box core (urltest selector)            config updated → key rotation transparent
    ├── server1 VLESS/Reality (194.48.141.106)
-   └── server2 VLESS/Reality (85.137.166.237, added alongside naive)
+   └── server2 VLESS/Reality (85.137.166.237, added alongside naive)   ← ⛔ НЕ СДЕЛАНО, см. выше
+       (фактически: S3 46.30.42.151 и S4 89.125.19.95 — оба VLESS/Reality :443)
         │
         ▼
    VpnService tun → internet
@@ -57,6 +75,7 @@ Android TV app (first run) ── stores sub URL ──► polls it (e.g. every 
 4. **Zero-config provisioning** — how the owner binds a customer (baked URL /
    activation code / device-bound register-and-approve).
 5. **Server 2 VLESS inbound** — add carefully on 85.137.166.237 (don't disrupt naive).
+   ⛔ ОТМЕНЁН: вместо этого подняты отдельные узлы S3 и S4.
 6. **CI** — GitHub Actions → signed APK; owner-distributable.
 7. (later) in-app СБП payment, multi-server picker, update channel.
 
@@ -72,6 +91,9 @@ Android TV app (first run) ── stores sub URL ──► polls it (e.g. every 
     (GET/POST), `/api/hy2/users`, `/api/config`, `/api/status`, ...
   - Stack flags: `naive: true`, `hy2: false` — **the panel can also run
     Hysteria2** on `:443/udp` (same Caddy cert). Currently off.
+    > ⚠️ Речь о флаге в rixxx-панели. Hysteria2 у нас поднят ОТДЕЛЬНОЙ инсталляцией
+    > (юнит `hysteria-server.service`, :8443/udp) и раздаётся всем клиентам — см. раздел
+    > «Hysteria2 — INSTALLED & TESTED» ниже, он верен.
 - Also present (not app-related): **frps** (FRP server :7000, allowPorts
   20000-21999), nginx :8080.
 
@@ -89,8 +111,9 @@ sing-box covers BOTH servers with NO second client:
 
 ## Server 1 study (194.48.141.106, wapmixx.ru) — 2026-06-14
 
-- **3x-ui v3.3.0.** VLESS inbounds: `:443` ("moy2", **133 clients** — production,
-  don't disrupt) + `:8443` ("VLESS STABIL", 7 clients).
+- **3x-ui v3.3.0.** VLESS inbounds: `:443` ("moy2") + `:8443` ("VLESS STABIL").
+  ⚠️ Замер 14.06 был 133 и 7 клиентов. Пересчёт 2026-08-02: **69 и 2**. Цифры в этом файле
+  не поддерживаются — брать их командой, а не отсюда.
 - **Subscription server ON**: `subPort 2096`, `subPath /sub/`, `/json/`. So each
   client already has `https://wapmixx.ru:2096/sub/<subId>` that serves the current
   config — **this IS the auto-key backend** (rotate the key in 3x-ui → the sub
