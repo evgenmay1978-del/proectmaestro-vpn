@@ -5,6 +5,30 @@
 **База:** `codex/mobile-4d-deck`  
 **Область:** только мобильный `Home`; TV, backend, VPN-runtime, release и OTA вне задачи.
 
+## 0. Исходная тестовая сборка и OTA-барьер
+
+Дефект подтверждён владельцем на последней документированной тестовой APK:
+
+- implementation SHA: `120fb816f4fd8be6c05f328d33d36089af9fbe54`;
+- GitHub Actions run: `30764526376`;
+- artifact: `maestrovpn-tv-test-apk`, id `8838559790`;
+- размер: `177365255` bytes;
+- digest: `sha256:64aadd731303732a1def8c5fb01db95510197ef730eb2514db10cf377100ac25`.
+
+Эти реквизиты являются точкой воспроизведения дефекта, а не разрешением на выпуск релиза.
+Исправление ведётся в ветке `codex/mobile-deck-layer-order` от актуальной
+`codex/mobile-4d-deck`.
+
+Жёсткие ограничения сборки и публикации:
+
+- только draft PR и тестовый workflow `.github/workflows/android-test.yml`;
+- workflow `.github/workflows/android.yml` нельзя изменять, вручную запускать или косвенно
+  активировать;
+- запрещены push/merge в `main`, GitHub Release, OTA manifest/mirror, signing и production;
+- APK считается полученной только после проверки реальной записи artifact, её размера,
+  digest и доступности; одного зелёного статуса workflow недостаточно;
+- на Windows нельзя изменять проект, запускать тесты, симулятор или сборку.
+
 ## 1. Подтверждённый дефект
 
 Один `ScrollState` уже правильно двигает нижнюю Compose-деку и bitmap-слои `console`,
@@ -69,17 +93,20 @@ inventory manifest, затем рисует слои в порядке прил�
    - полный runtime-порядок;
    - одинаковый набор runtime и generated слоёв;
    - `console`, `contacts`, `arc` остаются единственными scroll-слоями.
-3. Python/self-check симулятора подтверждает отдельные manifest inventory и runtime order.
-4. `phone-screen-sim.py` создаёт обычный и прокрученные кадры; при `scroll = 64 dp` и на
-   дополнительных диагностических смещениях, где контактный либо нижний ряд пересекает
-   боковой орнамент, каждая видимая часть всех трёх контактных плит и консоли композится
-   поверх него, как дуга. Элемент, естественно ушедший выше `deckTop`, не обязан оставаться
-   видимым.
-5. Логотип, глаз и кольцо имеют нулевой scroll delta; верхний clip не меняется.
-6. Выполняются GitHub unit tests, GitHub APK compile, simulator/self-check и scope-проверка
-   нулевого diff по TV/backend/release/OTA.
-7. На Windows не выполняются изменения, тесты, симулятор или сборка. Все дальнейшие операции
-   выполняются только в GitHub; тестовый APK — только через GitHub Actions.
+3. Исходник `ops/phone-screen-sim.py` синхронизируется с явным runtime order и продолжает
+   отдельно проверять manifest inventory. В рамках этой задачи симулятор на Windows не
+   запускается; соответствие подтверждается review diff и JVM-контрактом.
+4. Draft PR запускает только `.github/workflows/android-test.yml`:
+   `testOtherDebugUnitTest` и `assembleOtherDebug`.
+5. После успешного run отдельно проверяются запись `maestrovpn-tv-test-apk`, ненулевой
+   размер, digest и возможность скачать artifact, поскольку один статус workflow не
+   доказывает успешную загрузку APK.
+6. Итоговая визуальная приёмка выполняется на новой тестовой APK: при пересечении с
+   боковым орнаментом контактный ряд и нижняя консоль видимы поверх него, как дуга.
+   Элемент, естественно ушедший выше `deckTop`, не обязан оставаться видимым.
+7. Логотип, глаз и кольцо имеют нулевой scroll delta; верхний clip не меняется.
+8. Scope-проверка подтверждает нулевой diff по TV, backend, VPN-runtime, release, OTA,
+   workflow-файлам и `main`.
 
 ## 5. Риски и границы
 
