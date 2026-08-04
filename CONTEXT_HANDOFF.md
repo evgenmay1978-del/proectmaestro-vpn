@@ -47,6 +47,10 @@ arc(scroll) → ring
 3. [утверждённая spec](docs/superpowers/specs/2026-08-04-mobile-deck-foreground-scroll-design.md);
 4. [подробный TDD-план](docs/superpowers/plans/2026-08-04-mobile-deck-foreground-scroll.md).
 
+Постоянное зеркало задачи:
+[`maestro-memory/mobile-home-deck-scroll-z-order-2026-08-04.md`](https://github.com/evgenmay1978-del/maestro-memory/blob/master/mobile-home-deck-scroll-z-order-2026-08-04.md);
+реестр `OPEN.md` обновлён commit `fcb398bd5bd4b968e38464c34bb6fd33cc167d01`.
+
 Следующий точный шаг: test-only RED commit в
 `Mobile4DGeneratedAssetsTest.kt`, затем draft PR в `codex/mobile-4d-deck`, ожидаемый RED
 в `.github/workflows/android-test.yml`, минимальная перестановка
