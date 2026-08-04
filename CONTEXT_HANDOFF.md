@@ -1,5 +1,62 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0M. LIVE: Mobile Home — foreground scroll поверх бокового орнамента
+
+Активная задача владельца от **04.08.2026**. Это новый верхний checkpoint; разделы 0L и ниже —
+история предыдущих test APK.
+
+- репозиторий: `evgenmay1978-del/proectmaestro-vpn`;
+- база: `codex/mobile-4d-deck`;
+- рабочая ветка: `codex/mobile-deck-layer-order`;
+- последний документационный checkpoint перед этой записью:
+  `55403c965a95f2e0dbbb27cae6673b637a342539`;
+- production-код ещё не менялся, draft PR не открыт, новый CI и новая APK не запускались;
+- владелец подтвердил точный QA-интерфейс и выбрал вариант 1: `console`, `contacts` и
+  `arc` должны одной декой проходить поверх `frame/cartouche/vines`;
+- причина подтверждена как z-order, а не scroll/geometry.
+
+Текущий неправильный runtime order:
+
+```text
+wood → console(scroll) → contacts(scroll) → frame → cartouche → vines →
+arc(scroll) → ring
+```
+
+Утверждённый target:
+
+```text
+wood → frame → cartouche → vines → console(scroll) → contacts(scroll) →
+arc(scroll) → ring
+```
+
+Сохранённая точка воспроизведения:
+
+- implementation SHA `120fb816f4fd8be6c05f328d33d36089af9fbe54`;
+- run `30764526376`;
+- test artifact `maestrovpn-tv-test-apk`, id `8838559790`, size `177365255`,
+  digest `sha256:64aadd731303732a1def8c5fb01db95510197ef730eb2514db10cf377100ac25`;
+- QA baseline:
+  [`docs/evidence/2026-08-04-owner-home-scroll-proof-qa.svg`](docs/evidence/2026-08-04-owner-home-scroll-proof-qa.svg);
+- вложенный JPEG: 450×530, 28512 bytes,
+  SHA-256 `ab153d2a00c05a7326b42ed7856b42dd01dd6f382f79f0ff04716aaab4d85add`.
+
+Обязательное чтение и единственная точка продолжения:
+
+1. [рабочий контракт](docs/agent-working-contract.md);
+2. [task handoff с failure log](docs/handoffs/2026-08-04-mobile-deck-layer-order.md);
+3. [утверждённая spec](docs/superpowers/specs/2026-08-04-mobile-deck-foreground-scroll-design.md);
+4. [подробный TDD-план](docs/superpowers/plans/2026-08-04-mobile-deck-foreground-scroll.md).
+
+Следующий точный шаг: test-only RED commit в
+`Mobile4DGeneratedAssetsTest.kt`, затем draft PR в `codex/mobile-4d-deck`, ожидаемый RED
+в `.github/workflows/android-test.yml`, минимальная перестановка
+`mobile4DHomeReliefLayers`, GREEN, синхронизация существующего
+`ops/phone-screen-sim.py` и новая test APK.
+
+Жёсткие ограничения: только GitHub; Windows не использовать; TV/backend/VPN/workflows/main/
+Release/OTA не менять. Любая новая APK остаётся тестовой. К обновлению переходить только после
+точной фразы владельца **«добро на обновление»**.
+
 ## 0L. LIVE: единая мозаика глаза; логотип и семь подписей сохранены
 
 Финальный GitHub-handoff от **02.08.2026** после повторного production-review:
