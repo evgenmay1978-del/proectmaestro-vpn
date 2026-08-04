@@ -69,11 +69,11 @@ internal data class Mobile4DHomeReliefLayer(
 
 /** Единственный runtime-план слоёв Home; тест сверяет его с generated manifest. */
 internal val mobile4DHomeReliefLayers = listOf(
-    Mobile4DHomeReliefLayer("console", Mobile4DParallaxLayer.Console, movesWithDeck = true),
-    Mobile4DHomeReliefLayer("contacts", Mobile4DParallaxLayer.Console, movesWithDeck = true),
     Mobile4DHomeReliefLayer("frame", Mobile4DParallaxLayer.Frame, movesWithDeck = false),
     Mobile4DHomeReliefLayer("cartouche", Mobile4DParallaxLayer.Cartouche, movesWithDeck = false),
     Mobile4DHomeReliefLayer("vines", Mobile4DParallaxLayer.Vines, movesWithDeck = false),
+    Mobile4DHomeReliefLayer("console", Mobile4DParallaxLayer.Console, movesWithDeck = true),
+    Mobile4DHomeReliefLayer("contacts", Mobile4DParallaxLayer.Console, movesWithDeck = true),
     Mobile4DHomeReliefLayer("arc", Mobile4DParallaxLayer.Arc, movesWithDeck = true),
 )
 internal val mobile4DHomeLayerOrder =
