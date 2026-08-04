@@ -420,17 +420,30 @@ def _fit(master, w, h):
 def home_scene(w, h, deck_scroll_dp=0.0):
     """Ровно runtime ownership: fixed hero сверху, три relief-слоя движутся с декой."""
     fragments = centre_4d_fragments()
-    layer_order = []
+    manifest_order = []
     for _, _, _, layer, *_ in fragments:
-        if layer not in layer_order:
-            layer_order.append(layer)
-    expected = ['wood', 'console', 'contacts', 'frame', 'cartouche', 'vines', 'arc', 'ring']
-    if layer_order != expected:
-        raise ValueError(f'Unexpected 4D layer order: {layer_order!r}')
+        if layer not in manifest_order:
+            manifest_order.append(layer)
+    expected_manifest_order = [
+        'wood', 'console', 'contacts', 'frame', 'cartouche', 'vines', 'arc', 'ring',
+    ]
+    if manifest_order != expected_manifest_order:
+        raise ValueError(f'Unexpected 4D manifest order: {manifest_order!r}')
+
+    runtime_order = [
+        'wood', 'frame', 'cartouche', 'vines', 'console', 'contacts', 'arc', 'ring',
+    ]
+    if len(runtime_order) != len(set(runtime_order)):
+        raise ValueError(f'Duplicate runtime 4D layers: {runtime_order!r}')
+    if set(runtime_order) != set(manifest_order):
+        raise ValueError(
+            'Runtime/manifest 4D layer inventory differs: '
+            f'runtime={runtime_order!r}, manifest={manifest_order!r}'
+        )
 
     scene = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     deck_layers = {'console', 'contacts', 'arc'}
-    for layer in layer_order:
+    for layer in runtime_order:
         master = centre_4d_layer(fragments, layer)
         fitted = _fit(master, w, h)
         master.close()
