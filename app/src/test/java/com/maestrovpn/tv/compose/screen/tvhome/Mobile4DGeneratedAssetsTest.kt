@@ -6,21 +6,42 @@ import org.junit.Test
 
 class Mobile4DGeneratedAssetsTest {
     @Test
-    fun manifestUsesTheMasterCanvasAndApprovedLayerOrder() {
+    fun manifestPackingOrderAndRuntimeHomeOrderStayIndependent() {
+        val expectedManifestOrder = listOf(
+            "wood", "console", "contacts", "frame", "cartouche", "vines", "arc", "ring",
+        )
+        val expectedRuntimeOrder = listOf(
+            "wood", "frame", "cartouche", "vines", "console", "contacts", "arc", "ring",
+        )
+
         assertEquals(2160, Mobile4DGeneratedAssets.masterWidth)
         assertEquals(4670, Mobile4DGeneratedAssets.masterHeight)
+        assertEquals(expectedManifestOrder, Mobile4DGeneratedAssets.layerZOrder)
         assertEquals(
-            listOf("wood", "console", "contacts", "frame", "cartouche", "vines", "arc", "ring"),
-            Mobile4DGeneratedAssets.layerZOrder,
+            "runtime Home compositor must keep scrolling controls above the fixed ornament",
+            expectedRuntimeOrder,
+            mobile4DHomeLayerOrder,
         )
         assertEquals(
             "runtime Home compositor must draw every generated layer exactly once",
-            Mobile4DGeneratedAssets.layerZOrder,
-            mobile4DHomeLayerOrder,
+            Mobile4DGeneratedAssets.layerZOrder.size,
+            mobile4DHomeLayerOrder.size,
+        )
+        assertEquals(
+            Mobile4DGeneratedAssets.layerZOrder.toSet(),
+            mobile4DHomeLayerOrder.toSet(),
         )
         assertEquals(
             Mobile4DGeneratedAssets.layerZOrder.toSet(),
             Mobile4DGeneratedAssets.fragments.map { it.layer }.toSet(),
+        )
+    }
+
+    @Test
+    fun homeDeckMovesOnlyConsoleContactsAndArc() {
+        assertEquals(
+            listOf("console", "contacts", "arc"),
+            mobile4DHomeReliefLayers.filter { it.movesWithDeck }.map { it.name },
         )
     }
 
