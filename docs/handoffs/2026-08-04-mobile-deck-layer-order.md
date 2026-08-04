@@ -179,3 +179,16 @@ RED/GREEN contract:
 7. После GREEN синхронизировать порядок в существующем `ops/phone-screen-sim.py`, проверить итоговый SHA и реальный APK artifact.
 8. Передать владельцу только итоговую test APK для проверки на телефоне.
 9. Даже после визуального одобрения не выполнять release/OTA до фразы **«добро на обновление»**.
+
+
+## 11. Зеркало в maestro-memory
+
+Активная задача также записана в постоянную память GitHub:
+
+- [detail-файл](https://github.com/evgenmay1978-del/maestro-memory/blob/master/mobile-home-deck-scroll-z-order-2026-08-04.md), commit `4295820e690b7d85c2955bee66587abb3df9b1d3`;
+- индекс `MEMORY.md` обновлён commit `977b73e48c724cca1497cf8477400c7d10644edf`;
+- существующая строка `home-deck-unpushed` в `OPEN.md` обновлена без создания дубля,
+  commit `fcb398bd5bd4b968e38464c34bb6fd33cc167d01`.
+
+Статус в `OPEN.md` остаётся `open`: решение утверждено и документация сохранена, но
+production fix, RED/GREEN CI и новая test APK ещё не выполнены.
