@@ -1,0 +1,439 @@
+# Mobile Home Eye Surround Replacement Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Полностью заменить радиальную мозаику в центральном медальоне на рельефное окружение крупного живого глаза, сохранив всю динамику глаза и единственного владельца каждого runtime-слоя.
+
+**Architecture:** Новый ImageGen master хранится отдельно от runtime-арта. Узкий детерминированный Python-скрипт заменяет RGB внутри круга бывшей мозаики непосредственно в `home_ring_{l,c,r}`, сохраняет внешнюю бронзу и alpha, синхронизирует `kit/source`, после чего штатный генератор пересобирает атласы. `LivingEyeMedallion` остаётся единственным динамическим слоем; один `LivingEyeLayerFit` увеличивает всю анатомию на `1.10` и применяет нормализованный сдвиг.
+
+**Tech Stack:** Python 3 + Pillow + `unittest`; Kotlin/JVM pure unit tests; Jetpack Compose Canvas; существующий `ops/mobile-4d-assets.py`; GitHub Actions `android-test.yml`.
+
+## Global Constraints
+
+- Работать только в `evgenmay1978-del/proectmaestro-vpn`, ветка `codex/mobile-4d-deck`.
+- Визуальный эталон: `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg`.
+- Старая мозаика физически удаляется из `home_ring_*`; запрещён новый runtime overlay поверх неё.
+- Material circle: центр `(1080,1751)`, радиус `644 px` на master `2160×4670`; внешний guard начинается на радиусе `650 px`.
+- Глаз: uniform anatomy scale `1.10`; offsets `3.5/238` ширины canvas и `7/238` высоты canvas.
+- Сохраняются blink/gaze/touch/pupil/catchlight/state coroutines и правила закрытия `70/30`.
+- Не менять TV, D-pad/focus/Back, backend, API, VPN runtime, lower-deck scroll ownership, signing, release, OTA, workflows или `main`.
+- Локально не собирать APK/Gradle; Kotlin RED/GREEN подтверждать через manual dispatch существующего GitHub Actions workflow.
+
+## File Map
+
+- `design/mobile-asset-redraw/materials/mobile_eye_surround_c.png` — выбранный master без глаза и внешней бронзы.
+- `ops/mobile-eye-surround-assets.py` — единственная воспроизводимая операция замены пикселей и создания L/C/R.
+- `ops/test_mobile_eye_surround_assets.py` — unit-контракты маски, relight, сохранения alpha/outer bytes и `--check`.
+- `ops/mobile-4d-art-check.py` — приёмочный guard против возврата legacy mosaic.
+- `design/mobile-asset-redraw/{kit,source}/home_ring_{l,c,r}.png` — синхронные результаты замены.
+- `LivingEyeLayerGeometry.kt` / `LivingEyeLayerGeometryTest.kt` — единый увеличенный transform.
+- `LivingEyeMedallion.kt` — только актуализация ownership-комментариев; анимационная логика не меняется.
+- `ops/phone-screen-sim.py` — mirror production geometry и фазовая визуальная QA.
+- `app/src/main/assets/mobile_4d/atlas_{l,c,r}_*.webp` — штатно регенерированные страницы ring-фрагментов.
+
+---
+
+### Task 1: RED-контракт, запрещающий прежнюю мозаику
+
+**Files:**
+- Modify: `ops/mobile-4d-art-check.py`
+- Test: встроенный `selftest()` в `ops/mobile-4d-art-check.py`
+
+**Interfaces:**
+- Produces: `masked_circle_digest(image, center, radius) -> str`.
+- Produces: `outside_circle_digest(image, center, guard_radius) -> str`.
+- Produces: `check_eye_surround(name, images, report) -> None`.
+- Legacy core SHA-256 at radius `620`: L `8b1e98e7658c0c190d5633d7662624d9fab377836fd59befca2b933640920375`, C `645d7df653316754d43f83b02ffa8e0630c473f7d50d5a4b84d217787e96c5c6`, R `409747235c039a8744b874499eb2a71d94c3ac33b622f7d9749bb8f12ffa3f49`.
+- Immutable outside SHA-256 at guard radius `650`: L `9917a32afe8f1532c001e39c39c4fd37eabe13f68d589b0f8fc68e82453f4b03`, C `9a708bd0527be69304776c37b9a7e26a15c54dc8c2084b427b52fa44450ccf43`, R `f6beeabaff79fced29109a2e8f00272fdaae3aa27d946d75a600d0bca254d53e`.
+
+- [ ] **Step 1: Заменить старые mosaic-поля спецификации ring**
+
+Удалить `mosaic_rows`, `mosaic_luma_zones`, `mosaic_luma_radius`,
+`mosaic_luma_ratio` и `check_mosaic_continuity`. Добавить константы:
+
+```python
+EYE_SURROUND_CENTER = (1080, 1751)
+EYE_SURROUND_RADIUS = 644
+EYE_SURROUND_CORE_RADIUS = 620
+EYE_SURROUND_OUTSIDE_GUARD_RADIUS = 650
+LEGACY_MOSAIC_CORE_SHA256 = {
+    "l": "8b1e98e7658c0c190d5633d7662624d9fab377836fd59befca2b933640920375",
+    "c": "645d7df653316754d43f83b02ffa8e0630c473f7d50d5a4b84d217787e96c5c6",
+    "r": "409747235c039a8744b874499eb2a71d94c3ac33b622f7d9749bb8f12ffa3f49",
+}
+EXPECTED_RING_OUTSIDE_SHA256 = {
+    "l": "9917a32afe8f1532c001e39c39c4fd37eabe13f68d589b0f8fc68e82453f4b03",
+    "c": "9a708bd0527be69304776c37b9a7e26a15c54dc8c2084b427b52fa44450ccf43",
+    "r": "f6beeabaff79fced29109a2e8f00272fdaae3aa27d946d75a600d0bca254d53e",
+}
+```
+
+- [ ] **Step 2: Добавить новую проверку ring и ломающий selftest**
+
+`check_eye_surround` обязан для каждого света проверить:
+
+```python
+report.check(
+    masked_circle_digest(image, EYE_SURROUND_CENTER, EYE_SURROUND_CORE_RADIUS)
+    != LEGACY_MOSAIC_CORE_SHA256[light],
+    f"ring _{light}: прежняя радиальная мозаика удалена",
+)
+report.check(
+    outside_circle_digest(image, EYE_SURROUND_CENTER, EYE_SURROUND_OUTSIDE_GUARD_RADIUS)
+    == EXPECTED_RING_OUTSIDE_SHA256[light],
+    f"ring _{light}: внешняя бронза вне material-mask неизменна",
+)
+```
+
+В `selftest()` передать текущую legacy ring-картинку и потребовать, чтобы guard
+поймал строку `прежняя радиальная мозаика`.
+
+- [ ] **Step 3: Запустить RED на текущем GitHub-арте**
+
+Run:
+
+```powershell
+python ops/mobile-4d-art-check.py --selftest
+python ops/mobile-4d-art-check.py --group ring
+```
+
+Expected: `--selftest` PASS; `--group ring` FAIL только на проверках присутствия
+legacy mosaic. Outside SHA, alpha bbox, формат и L/C/R должны оставаться PASS.
+
+- [ ] **Step 4: Зафиксировать RED-коммит**
+
+```powershell
+git add -- ops/mobile-4d-art-check.py
+git commit -m "test: reject legacy home eye mosaic"
+```
+
+---
+
+### Task 2: Воспроизводимо заменить пиксели ring на новый материал
+
+**Files:**
+- Create: `design/mobile-asset-redraw/materials/mobile_eye_surround_c.png`
+- Create: `ops/mobile-eye-surround-assets.py`
+- Create: `ops/test_mobile_eye_surround_assets.py`
+- Modify: `design/mobile-asset-redraw/kit/home_ring_l.png`
+- Modify: `design/mobile-asset-redraw/kit/home_ring_c.png`
+- Modify: `design/mobile-asset-redraw/kit/home_ring_r.png`
+- Modify: `design/mobile-asset-redraw/source/home_ring_l.png`
+- Modify: `design/mobile-asset-redraw/source/home_ring_c.png`
+- Modify: `design/mobile-asset-redraw/source/home_ring_r.png`
+
+**Interfaces:**
+- Consumes: selected ImageGen PNG, SHA-256 `bcd108a3c53a1f18b1d1a984c56105e315bc86a581c4fe05efc5b76f2b0eeeac`, `1254×1254`, RGB.
+- Produces: `replacement_mask(radius: int = 644, feather: int = 6) -> Image.Image`.
+- Produces: `directional_material(master: Image.Image, light: str, size: tuple[int, int]) -> Image.Image`.
+- Produces: `replace_ring_material(base: Image.Image, material: Image.Image, light: str) -> Image.Image`.
+- CLI: `python ops/mobile-eye-surround-assets.py` writes; `--check` is read-only and byte-compares decoded RGBA output.
+
+- [ ] **Step 1: Добавить выбранный ImageGen master**
+
+```powershell
+New-Item -ItemType Directory -Force design/mobile-asset-redraw/materials
+Copy-Item -LiteralPath '..\generated\eye-surround-c-v1.png' -Destination 'design\mobile-asset-redraw\materials\mobile_eye_surround_c.png'
+```
+
+Проверить размер, mode и SHA ровно значениями из `Interfaces`.
+
+- [ ] **Step 2: Написать unit-тесты до генератора**
+
+В тесте использовать синтетическую RGBA-картинку `96×144`, уменьшенные center/radius
+и RGB master. Обязательные assertions:
+
+```python
+self.assertEqual(result.getchannel("A").tobytes(), base.getchannel("A").tobytes())
+self.assertEqual(outside_digest(result), outside_digest(base))
+self.assertNotEqual(core_digest(result), core_digest(base))
+self.assertEqual(alpha_support(left), alpha_support(center))
+self.assertEqual(alpha_support(center), alpha_support(right))
+self.assertNotEqual(left.convert("RGB").tobytes(), right.convert("RGB").tobytes())
+```
+
+Добавить integration-test: tracked `kit/source` пары должны совпадать после
+`render_expected_outputs()`.
+
+- [ ] **Step 3: Запустить тест и подтвердить RED**
+
+```powershell
+python -m unittest ops.test_mobile_eye_surround_assets
+```
+
+Expected: FAIL с `ModuleNotFoundError` для `mobile_eye_surround_assets`.
+
+- [ ] **Step 4: Реализовать минимальный генератор**
+
+Скрипт должен:
+
+```python
+MASTER_SIZE = (2160, 4670)
+MATERIAL_CENTER = (1080, 1751)
+MATERIAL_RADIUS = 644
+MATERIAL_FEATHER = 6
+LIGHTS = ("l", "c", "r")
+```
+
+1. Создать локальную circular mask `1289×1289`; blur разрешён только внутри
+   переходного band, который заканчивается до guard radius `650`.
+2. Масштабировать один master в ту же квадратную область.
+3. Для `l/r` построить зеркальные горизонтальные поля между версиями brightness
+   `0.88` и `1.10`; `c` оставить нейтральным. Геометрия master не меняется.
+4. Заменить RGB через `Image.composite`, вернуть исходный alpha без изменений.
+5. Перед записью проверить outside SHA из Task 1.
+6. Одни и те же RGBA-байты сохранить в `kit` и `source` без ICC.
+7. `--check` заново отрендерит ожидаемые RGBA-байты в памяти и завершится `1`,
+   если любой tracked output отличается.
+
+- [ ] **Step 5: Получить GREEN и записать шесть ring-файлов**
+
+```powershell
+python -m unittest ops.test_mobile_eye_surround_assets
+python ops/mobile-eye-surround-assets.py
+python ops/mobile-eye-surround-assets.py --check
+python ops/mobile-4d-art-check.py --selftest
+python ops/mobile-4d-art-check.py --group ring
+```
+
+Expected: все команды PASS; внутри radius `620` ни один digest не равен legacy;
+outside radius `650` совпадает с исходными SHA; `kit/source` идентичны.
+
+- [ ] **Step 6: Зафиксировать арт и генератор**
+
+```powershell
+git add -- design/mobile-asset-redraw/materials/mobile_eye_surround_c.png design/mobile-asset-redraw/kit/home_ring_l.png design/mobile-asset-redraw/kit/home_ring_c.png design/mobile-asset-redraw/kit/home_ring_r.png design/mobile-asset-redraw/source/home_ring_l.png design/mobile-asset-redraw/source/home_ring_c.png design/mobile-asset-redraw/source/home_ring_r.png ops/mobile-eye-surround-assets.py ops/test_mobile_eye_surround_assets.py
+git commit -m "design: replace home mosaic with eye surround"
+```
+
+---
+
+### Task 3: RED→GREEN для единого увеличенного transform глаза
+
+**Files:**
+- Modify: `app/src/test/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeLayerGeometryTest.kt`
+- Modify: `app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeLayerGeometry.kt`
+- Modify: `app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeMedallion.kt`
+- Modify: `app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DSceneModel.kt`
+
+**Interfaces:**
+- `fitLivingEyeLayer(width, height)` сохраняет тип результата.
+- New constants: `LIVING_EYE_ANATOMY_SCALE = 1.10f`, `LIVING_EYE_OFFSET_X_FRACTION = 3.5f / 238f`, `LIVING_EYE_OFFSET_Y_FRACTION = 7f / 238f`.
+- For `520×520`: scale `0.6954407`; state bounds `(-41.8241,54.4917)–(577.1182,496.0965)`; open aperture `(68.0556,201.9251)–(463.7613,352.8358)`; aperture ratios `0.760973×0.290213`.
+
+- [ ] **Step 1: Переписать geometry-тест под новый утверждённый размер**
+
+Удалить тест про `base mosaic` и прямой scale `520/822.5`. Добавить:
+
+```kotlin
+@Test
+fun anatomyUsesOneOwnerApprovedScaleAndOffset() {
+    val fit = fitLivingEyeLayer(520f, 520f)
+    val aperture = livingEyeApertureContour(fit, closure = 0f, seamOverlapPx = 0f).bounds
+
+    assertEquals(0.6954407f, fit.scale, 0.000001f)
+    assertEquals(-41.8241f, fit.stateBounds.left, 0.001f)
+    assertEquals(54.4917f, fit.stateBounds.top, 0.001f)
+    assertEquals(577.1182f, fit.stateBounds.right, 0.001f)
+    assertEquals(496.0965f, fit.stateBounds.bottom, 0.001f)
+    assertEquals(0.760973f, (aperture.right - aperture.left) / 520f, 0.00001f)
+    assertEquals(0.290213f, (aperture.bottom - aperture.top) / 520f, 0.00001f)
+}
+```
+
+Сохранить тесты общего mapping, 70/30, zero-height closure и render policy.
+
+- [ ] **Step 2: Создать test-only commit, push и доказать RED в GitHub**
+
+```powershell
+git add -- app/src/test/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeLayerGeometryTest.kt
+git commit -m "test: require larger living eye geometry"
+git push origin codex/mobile-4d-deck
+gh workflow run android-test.yml --ref codex/mobile-4d-deck
+```
+
+Получить run id через `gh run list --workflow android-test.yml --branch codex/mobile-4d-deck --limit 1`
+и дождаться завершения. Expected: `testOtherDebugUnitTest` FAIL именно на новом scale/bounds.
+
+- [ ] **Step 3: Реализовать один uniform transform**
+
+В `fitLivingEyeLayer`:
+
+```kotlin
+val layerScale = LIVING_EYE_ANATOMY_SCALE
+val anatomyOffsetX = medallionSize * LIVING_EYE_OFFSET_X_FRACTION
+val anatomyOffsetY = medallionSize * LIVING_EYE_OFFSET_Y_FRACTION
+val layerTranslationX =
+    width / 2f - (rawStateLeft + rawStateRight) / 2f * layerScale + anatomyOffsetX
+val layerTranslationY =
+    height / 2f - (rawStateTop + rawStateBottom) / 2f * layerScale + anatomyOffsetY
+```
+
+Не добавлять отдельный scale/offset в `LivingEyeMedallion`: он уже использует
+`fit` для anatomy, aperture, iris, pupil, catchlight, gaze и seam.
+
+- [ ] **Step 4: Актуализировать ownership-комментарии**
+
+Убрать формулировки `mosaic` и `only runtime overlay allowed over the mosaic`.
+Новая формулировка: full closure exposes baked eye-surround material and the thin
+contact seam. В `Mobile4DSceneModel.kt` заменить комментарий «кольцо с мозаикой»
+на «кольцо с eye-surround»; числовую геометрию медальона не менять.
+
+- [ ] **Step 5: Зафиксировать GREEN implementation commit**
+
+```powershell
+git add -- app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeLayerGeometry.kt app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeMedallion.kt app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DSceneModel.kt
+git commit -m "feat: enlarge living eye with one transform"
+```
+
+---
+
+### Task 4: Пересобрать runtime-атласы и честную фазовую QA
+
+**Files:**
+- Modify: `ops/phone-screen-sim.py`
+- Regenerate: `app/src/main/assets/mobile_4d/atlas_l_*.webp`
+- Regenerate: `app/src/main/assets/mobile_4d/atlas_c_*.webp`
+- Regenerate: `app/src/main/assets/mobile_4d/atlas_r_*.webp`
+- Verify/possibly unchanged: `app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DGeneratedAssets.kt`
+
+**Interfaces:**
+- Consumes: six synchronized `source/home_ring_*` outputs and geometry constants from Task 3.
+- Produces: deterministic atlas pages plus `build/phone-screen-sim/owner-eye-blink-phases.png` and `owner-home-comparison.png`.
+
+- [ ] **Step 1: Обновить simulator mirror до production transform**
+
+Добавить:
+
+```python
+LIVING_EYE_ANATOMY_SCALE = 1.10
+LIVING_EYE_OFFSET_X_FRACTION = 3.5 / 238.0
+LIVING_EYE_OFFSET_Y_FRACTION = 7.0 / 238.0
+```
+
+Умножить `state_w/state_h` на `LIVING_EYE_ANATOMY_SCALE`; в
+`_living_eye_components` добавить offsets к `state_left/state_top`. Не менять
+`canvas_px`: material/socket остаётся `≈238 dp`.
+
+- [ ] **Step 2: Переписать фазовые подписи и assertions**
+
+Текст листа должен говорить `новый eye-surround + один dynamic open-eye`. Assertion
+вне aperture/seam сохраняется, но сообщает `base eye-surround changed`. При
+`phase == 1.0` по-прежнему обязательны zero open-eye alpha и только контактный
+seam поверх baked material. Удалить все утверждения, что base является мозаикой.
+
+- [ ] **Step 3: Пересобрать штатные атласы**
+
+```powershell
+python ops/mobile-4d-assets.py
+python ops/mobile-4d-assets.py --check
+```
+
+Expected: меняются только страницы с ring-fragments; manifest остаётся byte-stable,
+если alpha и placement не изменились.
+
+- [ ] **Step 4: Выполнить лёгкие проверки и визуальные артефакты**
+
+```powershell
+python -m py_compile ops/mobile-eye-surround-assets.py ops/mobile-4d-art-check.py ops/mobile-4d-assets.py ops/phone-screen-sim.py
+python -m unittest ops.test_mobile_eye_surround_assets ops.test_mobile_eye_natural_assets
+python ops/mobile-4d-art-check.py --selftest
+python ops/mobile-4d-art-check.py --group ring
+python ops/phone-screen-sim.py --eye-phases-only
+python ops/phone-screen-sim.py
+git diff --check
+```
+
+Expected: все команды PASS. На comparison board глаз соответствует исходному
+viewport, крупнее прежнего, радиальные спицы отсутствуют; на пяти фазах старый
+узор не проявляется.
+
+- [ ] **Step 5: Проверить сравнение эталон/симуляция как один input**
+
+Открыть `build/phone-screen-sim/owner-home-comparison-qa.jpg` и
+`owner-eye-blink-phases-qa.jpg`. Проверить края material circle слева/справа/
+сверху/снизу, отсутствие crop глаза, совпадение центра, бронзовую кромку и
+отсутствие старой сетки. Если отличается более чем на `±4 dp`, корректировать
+только общие scale/offset constants и повторять Step 4.
+
+- [ ] **Step 6: Зафиксировать simulator и regenerated atlases**
+
+```powershell
+git add -- ops/phone-screen-sim.py app/src/main/assets/mobile_4d app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DGeneratedAssets.kt
+git commit -m "build: regenerate home eye surround atlases"
+```
+
+---
+
+### Task 5: Обновить долговременные контракты и завершить GitHub-проверку
+
+**Files:**
+- Modify: `design/mobile-asset-redraw/README.md`
+- Modify: `design/mobile-asset-redraw/SPEC.md`
+- Modify: `design/mobile-asset-redraw/KIT.md`
+- Modify: `design-qa.md`
+- Modify: `CLAUDE_MOBILE_REBUILD.md`
+- Modify: `CONTEXT_HANDOFF.md`
+- Modify: `docs/superpowers/specs/2026-08-02-mobile-home-scroll-logo-eye-design.md`
+- Add: `docs/superpowers/specs/2026-08-05-mobile-home-eye-surround-replacement-design.md`
+- Add: `docs/superpowers/plans/2026-08-05-mobile-home-eye-surround-replacement.md`
+
+**Interfaces:**
+- Produces: один непротиворечивый handoff: `ring = bronze + baked eye-surround`, dynamic layer = anatomy only.
+
+- [ ] **Step 1: Удалить устаревшие обещания сохранить мозаику**
+
+Во всех перечисленных документах закрепить:
+
+```text
+The radial mosaic is superseded and must not exist in runtime ring pixels.
+home_ring owns the static bronze + eye-surround material.
+LivingEyeMedallion owns only dynamic anatomy and the contact seam.
+```
+
+Старую spec 02.08 не удалять; добавить сверху ссылку `Superseded by
+2026-08-05-mobile-home-eye-surround-replacement-design.md`.
+
+- [ ] **Step 2: Запустить полный локальный audit**
+
+```powershell
+python ops/mobile-eye-surround-assets.py --check
+python ops/mobile-4d-assets.py --check
+python ops/mobile-4d-art-check.py --selftest
+python ops/mobile-4d-art-check.py --group ring
+python -m unittest ops.test_mobile_eye_surround_assets ops.test_mobile_eye_natural_assets
+python -m py_compile ops/mobile-eye-surround-assets.py ops/mobile-4d-art-check.py ops/mobile-4d-assets.py ops/phone-screen-sim.py
+git diff --check
+git status --short
+```
+
+Expected: PASS; status содержит только файлы этого плана, без TV/backend/workflow.
+
+- [ ] **Step 3: Зафиксировать docs/handoff commit**
+
+```powershell
+git add -- design/mobile-asset-redraw/README.md design/mobile-asset-redraw/SPEC.md design/mobile-asset-redraw/KIT.md design-qa.md CLAUDE_MOBILE_REBUILD.md CONTEXT_HANDOFF.md docs/superpowers/specs/2026-08-02-mobile-home-scroll-logo-eye-design.md docs/superpowers/specs/2026-08-05-mobile-home-eye-surround-replacement-design.md docs/superpowers/plans/2026-08-05-mobile-home-eye-surround-replacement.md
+git commit -m "docs: record home eye surround ownership"
+```
+
+- [ ] **Step 4: Push финальный HEAD и запустить GREEN GitHub Actions**
+
+```powershell
+git push origin codex/mobile-4d-deck
+gh workflow run android-test.yml --ref codex/mobile-4d-deck
+```
+
+Дождаться run. Expected: `assembleOtherDebug` и `testOtherDebugUnitTest` PASS.
+
+- [ ] **Step 5: Проверить GitHub source of truth и artifact**
+
+```powershell
+git fetch origin codex/mobile-4d-deck
+git rev-parse HEAD
+git rev-parse origin/codex/mobile-4d-deck
+git status --short --branch
+```
+
+Expected: локальный и remote SHA совпадают, worktree чист. Скопировать URL run и
+URL APK artifact из успешного workflow; не создавать release, OTA или merge.
+
