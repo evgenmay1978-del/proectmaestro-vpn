@@ -1,5 +1,45 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0P. FINAL: вариант утверждён, atlas интегрированы, test APK собран
+
+Этот раздел от **08.08.2026** заменяет раздел 0O как текущая точка входа.
+
+- Владелец визуально утвердил показанные OFF/ON и фазы из GitHub run
+  `31272014651`: «фиксируйся все хорошо и заканчиваем с этим».
+- repository: `evgenmay1978-del/proectmaestro-vpn`; branch:
+  `codex/mobile-4d-deck`; проверенный функциональный HEAD:
+  `db94ee0884f244f81c3e7cf7d7b332018e72e8c0`.
+- Коммит `db94ee0` интегрирует ровно шесть atlas
+  `atlas_{l,c,r}_{07,08}.webp` из проверенного artifact run `31272014651`.
+  Каждый источник до копирования и каждый target после копирования сверены с
+  `runtime-assets-report.txt` по SHA-256 и размеру; других runtime/TV файлов
+  в asset-коммите нет.
+- Лёгкие проверки после интеграции: `ops.test_mobile_eye_state_preview` —
+  **9/9 PASS**; Python compile — **PASS**; `git diff --check` — **PASS**;
+  TV/`tvm_*` diff отсутствует.
+
+### Актуальный тестовый APK
+
+- GitHub Actions run: `31273024061`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31273024061`;
+- workflow/task: `android-test.yml` / `android`;
+- exact HEAD: `db94ee0884f244f81c3e7cf7d7b332018e72e8c0`;
+- result: `completed / success`; блокирующие `:app:assembleOtherDebug` и
+  `:app:testOtherDebugUnitTest` завершились успешно;
+- artifact: `maestrovpn-tv-test-apk`, ID `9026232602`;
+- artifact ZIP: `176590422` bytes, SHA-256
+  `baa3e9d6bb42833d8c0dacc63750a8ecb483b1a70dd7975d1c2b80f8dc110c7d`;
+- APK: `MaestroVPN-TV-1.0.92-test-debug.apk`, `179273514` bytes, SHA-256
+  `29bd5628801eaafc0cdc0941a7b744606d2c0fd26fbb512c4c395b302c1bec07`;
+- локальная проверенная копия:
+  `build/github-artifacts/run-31273024061/extracted/MaestroVPN-TV-1.0.92-test-debug.apk`.
+
+Эта задача по замене мозаики и единому изумрудному живому глазу завершена.
+Рабочая ветка сохраняется как есть; `main`, TV, backend, API, VPN runtime,
+GitHub Release, production signing и OTA не менялись. Следующий внешний шаг —
+только ручная установка именно указанного test APK на физический телефон.
+OTA по-прежнему требует отдельного явного разрешения владельца.
+
 ## 0O. LIVE: веко объединено с изумрудным окружением; GitHub proof готов
 
 Этот раздел от **08.08.2026** заменяет противоречащие ему сведения раздела
