@@ -39,7 +39,7 @@ class InstallConfirmationDeliveryTest {
     }
 
     @Test
-    fun failedForegroundLaunchFallsBackToOnePark() {
+    fun receiverLaunchFailureParksOnce() {
         var launches = 0
         var parks = 0
 
@@ -74,7 +74,7 @@ class InstallConfirmationDeliveryTest {
     }
 
     @Test
-    fun retryLaunchFailureReParksOnce() {
+    fun mainActivityRetryLaunchFailureReParksOnce() {
         var launches = 0
         var parks = 0
 

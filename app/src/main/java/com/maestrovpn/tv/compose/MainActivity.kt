@@ -130,6 +130,7 @@ import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.utils.RemoteControlManager
+import com.maestrovpn.tv.vendor.deliverInstallConfirmation
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1410,7 +1411,12 @@ class MainActivity :
         // the receiver gets a terminal STATUS_FAILURE_ABORTED and the flow ends normally.
         UpdateState.pendingConfirmIntent.value?.let { confirm ->
             UpdateState.pendingConfirmIntent.value = null
-            runCatching { startActivity(confirm) }
+            deliverInstallConfirmation(
+                confirmation = confirm,
+                appInForeground = true,
+                launch = { confirmation -> startActivity(confirmation) },
+                park = { confirmation -> UpdateState.pendingConfirmIntent.value = confirmation },
+            )
         }
         // Belt-and-suspenders resync: every time the activity comes forward, re-push the
         // authoritative status into the dashboard VM so the connect/disconnect decision can never

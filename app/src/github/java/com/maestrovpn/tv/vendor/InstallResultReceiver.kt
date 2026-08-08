@@ -5,8 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.util.Log
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ProcessLifecycleOwner
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.utils.AppLifecycleObserver
 
@@ -40,9 +38,10 @@ class InstallResultReceiver : BroadcastReceiver() {
                     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     // Set the visible state before the one-shot delivery decision.
                     UpdateState.phase.value = UpdateState.Phase.AwaitingConfirm
-                    val appInForeground = AppLifecycleObserver.isForeground.value &&
-                        ProcessLifecycleOwner.get().lifecycle.currentState
-                            .isAtLeast(Lifecycle.State.STARTED)
+                    val appInForeground = isInstallConfirmationForeground(
+                        processLifecycleStarted = AppLifecycleObserver.isForeground.value,
+                        hasResumedActivity = AppLifecycleObserver.hasResumedActivity,
+                    )
                     val delivery = deliverInstallConfirmation(
                         confirmation = it,
                         appInForeground = appInForeground,

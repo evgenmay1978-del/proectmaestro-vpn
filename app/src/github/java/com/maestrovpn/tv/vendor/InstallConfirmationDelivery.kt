@@ -2,6 +2,11 @@ package com.maestrovpn.tv.vendor
 
 internal enum class InstallConfirmationDelivery { Launched, Parked }
 
+internal fun isInstallConfirmationForeground(
+    processLifecycleStarted: Boolean,
+    hasResumedActivity: Boolean,
+): Boolean = processLifecycleStarted && hasResumedActivity
+
 internal inline fun <T> deliverInstallConfirmation(
     confirmation: T,
     appInForeground: Boolean,
