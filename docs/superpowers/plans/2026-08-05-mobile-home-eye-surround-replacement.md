@@ -11,13 +11,16 @@
 ## Global Constraints
 
 - Работать только в `evgenmay1978-del/proectmaestro-vpn`, ветка `codex/mobile-4d-deck`.
-- Визуальный эталон: `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg`.
+- Единственный full-layout baseline: `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`, ровно `591×1280`, SHA-256 `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`.
+- `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg` используется только для eye/eye-surround art direction; никогда не брать из него layout, status, contacts, protocol arc или lower-deck geometry.
 - Старая мозаика физически удаляется из `home_ring_*`; запрещён новый runtime overlay поверх неё.
 - Material circle: центр `(1080,1751)`, радиус `644 px` на master `2160×4670`; внешний guard начинается на радиусе `650 px`.
 - Глаз: uniform anatomy scale `1.10`; offsets `3.5/238` ширины canvas и `7/238` высоты canvas.
 - Сохраняются blink/gaze/touch/pupil/catchlight/state coroutines и правила закрытия `70/30`.
-- Не менять TV, D-pad/focus/Back, backend, API, VPN runtime, lower-deck scroll ownership, signing, release, OTA, workflows или `main`.
-- Локально не собирать APK/Gradle; Kotlin RED/GREEN подтверждать через manual dispatch существующего GitHub Actions workflow.
+- Компьютер владельца слабый: локально разрешены только чтение, Git, правки документов, лёгкие Python preview/tests и просмотр скачанных artifacts. Не запускать локально Gradle/APK, full-size ring generation, atlas rebuild или полный simulator.
+- Тяжёлую генерацию и Android-проверки выполнять manual jobs в GitHub Actions. Изменения CI допустимы только для изолированных test/artifact jobs; не менять release/OTA triggers.
+- Не менять TV, D-pad/focus/Back, backend, API, VPN runtime, lower-deck scroll ownership, signing, release, OTA или `main`.
+- Новый APK создаётся только после одобрения владельцем точной пары scripted-preview; OTA — только после физической проверки APK и отдельного явного разрешения.
 
 ## File Map
 
@@ -186,18 +189,23 @@ LIGHTS = ("l", "c", "r")
 7. `--check` заново отрендерит ожидаемые RGBA-байты в памяти и завершится `1`,
    если любой tracked output отличается.
 
-- [ ] **Step 5: Получить GREEN и записать шесть ring-файлов**
+- [ ] **Step 5: Получить GREEN и шесть ring-файлов на GitHub runner**
+
+Локально full-size PNG не генерировать. После лёгких synthetic tests вручную
+запустить уже добавленный job:
 
 ```powershell
-python -m unittest ops.test_mobile_eye_surround_assets
-python ops/mobile-eye-surround-assets.py
-python ops/mobile-eye-surround-assets.py --check
-python ops/mobile-4d-art-check.py --selftest
-python ops/mobile-4d-art-check.py --group ring
+gh workflow run android-test.yml --ref codex/mobile-4d-deck -f task=mobile-eye-ring-assets
 ```
+
+На runner выполняются `mobile-eye-surround-assets.py`, `--check`, полный
+`unittest`, art selftest и ring guard. Скачать artifact
+`mobile-eye-ring-assets-<sha>` с шестью PNG и digest-report.
 
 Expected: все команды PASS; внутри radius `620` ни один digest не равен legacy;
 outside radius `650` совпадает с исходными SHA; `kit/source` идентичны.
+Job `227d8cc` пока существует, но его успешный запуск и интеграция artifact
+должны быть подтверждены отдельно.
 
 - [ ] **Step 6: Зафиксировать арт и генератор**
 
@@ -249,7 +257,7 @@ fun anatomyUsesOneOwnerApprovedScaleAndOffset() {
 git add -- app/src/test/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeLayerGeometryTest.kt
 git commit -m "test: require larger living eye geometry"
 git push origin codex/mobile-4d-deck
-gh workflow run android-test.yml --ref codex/mobile-4d-deck
+gh workflow run android-test.yml --ref codex/mobile-4d-deck -f task=android
 ```
 
 Получить run id через `gh run list --workflow android-test.yml --branch codex/mobile-4d-deck --limit 1`
@@ -322,39 +330,55 @@ LIVING_EYE_OFFSET_Y_FRACTION = 7.0 / 238.0
 `phase == 1.0` по-прежнему обязательны zero open-eye alpha и только контактный
 seam поверх baked material. Удалить все утверждения, что base является мозаикой.
 
-- [ ] **Step 3: Пересобрать штатные атласы**
+- [ ] **Step 3: Пересобрать штатные атласы только на GitHub runner**
+
+Не запускать эти команды на слабом Windows-компьютере владельца. Выполнить их в
+manual test/artifact job GitHub Actions:
 
 ```powershell
 python ops/mobile-4d-assets.py
 python ops/mobile-4d-assets.py --check
 ```
 
-Expected: меняются только страницы с ring-fragments; manifest остаётся byte-stable,
-если alpha и placement не изменились.
+Expected: artifact содержит только изменённые страницы с ring-fragments;
+manifest остаётся byte-stable, если alpha и placement не изменились.
 
-- [ ] **Step 4: Выполнить лёгкие проверки и визуальные артефакты**
+- [ ] **Step 4: Разделить лёгкие локальные и тяжёлые GitHub-проверки**
+
+Локально допустимы только:
 
 ```powershell
 python -m py_compile ops/mobile-eye-surround-assets.py ops/mobile-4d-art-check.py ops/mobile-4d-assets.py ops/phone-screen-sim.py
 python -m unittest ops.test_mobile_eye_surround_assets ops.test_mobile_eye_natural_assets
+git diff --check
+```
+
+На GitHub runner выполнить full-size ring/atlas checks и обе симуляции:
+
+```powershell
 python ops/mobile-4d-art-check.py --selftest
 python ops/mobile-4d-art-check.py --group ring
 python ops/phone-screen-sim.py --eye-phases-only
 python ops/phone-screen-sim.py
-git diff --check
 ```
 
-Expected: все команды PASS. На comparison board глаз соответствует исходному
-viewport, крупнее прежнего, радиальные спицы отсутствуют; на пяти фазах старый
-узор не проявляется.
+Загрузить `owner-eye-blink-phases.png`, `owner-home-comparison.png` и QA-JPEG
+как workflow artifacts. Expected: все команды PASS; глаз крупнее прежнего,
+радиальные спицы отсутствуют, на пяти фазах старый узор не проявляется.
 
-- [ ] **Step 5: Проверить сравнение эталон/симуляция как один input**
+- [ ] **Step 5: Проверить два разных визуальных контракта**
 
-Открыть `build/phone-screen-sim/owner-home-comparison-qa.jpg` и
-`owner-eye-blink-phases-qa.jpg`. Проверить края material circle слева/справа/
-сверху/снизу, отсутствие crop глаза, совпадение центра, бронзовую кромку и
-отсутствие старой сетки. Если отличается более чем на `±4 dp`, корректировать
-только общие scale/offset constants и повторять Step 4.
+Открыть скачанные `owner-home-comparison-qa.jpg` и
+`owner-eye-blink-phases-qa.jpg`.
+
+- Полный layout, title, status, phone, contacts, protocol arc и lower deck
+  сравнивать только с
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`.
+- `04-owner-selected-home-2026-07-31.jpg` использовать только для характера
+  глаза, век, трещин, бронзовых прожилок и общей eye-surround art direction.
+- Проверить края material circle, отсутствие crop глаза, совпадение центра,
+  бронзовую кромку и отсутствие старой сетки. При расхождении больше `±4 dp`
+  корректировать только общие scale/offset constants и повторять runner Step 4.
 
 - [ ] **Step 6: Зафиксировать simulator и regenerated atlases**
 
@@ -394,20 +418,15 @@ LivingEyeMedallion owns only dynamic anatomy and the contact seam.
 Старую spec 02.08 не удалять; добавить сверху ссылку `Superseded by
 2026-08-05-mobile-home-eye-surround-replacement-design.md`.
 
-- [ ] **Step 2: Запустить полный локальный audit**
+- [ ] **Step 2: Запустить полный audit с соблюдением weak-PC policy**
 
-```powershell
-python ops/mobile-eye-surround-assets.py --check
-python ops/mobile-4d-assets.py --check
-python ops/mobile-4d-art-check.py --selftest
-python ops/mobile-4d-art-check.py --group ring
-python -m unittest ops.test_mobile_eye_surround_assets ops.test_mobile_eye_natural_assets
-python -m py_compile ops/mobile-eye-surround-assets.py ops/mobile-4d-art-check.py ops/mobile-4d-assets.py ops/phone-screen-sim.py
-git diff --check
-git status --short
-```
+Локально выполнить только лёгкие `py_compile`, `unittest`, `git diff --check`
+и `git status --short`. Full-size `mobile-eye-surround-assets.py --check`,
+`mobile-4d-assets.py --check`, ring art checks и полный simulator выполнить на
+GitHub runner и сохранить отчёты/artifacts.
 
-Expected: PASS; status содержит только файлы этого плана, без TV/backend/workflow.
+Expected: PASS; status содержит только файлы этого плана, без TV/backend/API/
+VPN runtime/release/OTA изменений.
 
 - [ ] **Step 3: Зафиксировать docs/handoff commit**
 
@@ -420,7 +439,7 @@ git commit -m "docs: record home eye surround ownership"
 
 ```powershell
 git push origin codex/mobile-4d-deck
-gh workflow run android-test.yml --ref codex/mobile-4d-deck
+gh workflow run android-test.yml --ref codex/mobile-4d-deck -f task=android
 ```
 
 Дождаться run. Expected: `assembleOtherDebug` и `testOtherDebugUnitTest` PASS.

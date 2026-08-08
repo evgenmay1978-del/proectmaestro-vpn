@@ -4,7 +4,10 @@ Applying the lesson from the training videos (esp. Anthropic-skills #5: *"if a t
 code, do it with code"* → run a tested script instead of re-deriving the commands each session →
 0 tokens, stable, fast). These encapsulate the operations I used to type out by hand every time.
 
-All run **on S1** (where the panel, telemetry, mirror and repo live).
+Server operations run **on S1** (where the panel, telemetry, mirror and repo live).
+The lightweight mobile eye-state preview below may run locally; heavy ring/atlas
+generation, the full simulator, Gradle and APK builds run only on GitHub Actions
+for the owner's weak computer.
 
 ## Mobile 4D assets and phone preview
 
@@ -21,6 +24,22 @@ All run **on S1** (where the panel, telemetry, mirror and repo live).
   /root/.venvs/maestro-mobile4d/bin/python ops/mobile-4d-assets.py
   ```
   Create it once with `python3 -m venv /root/.venvs/maestro-mobile4d && /root/.venvs/maestro-mobile4d/bin/pip install pillow==11.3.0` (that wheel bundles libwebp 1.5.0 — verified 2026-08-01).
+- `mobile-eye-state-preview.py` is the repeatable lightweight owner-preview for the
+  exact installed-test Home baseline
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`
+  (`591×1280`, SHA-256
+  `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`).
+  ```powershell
+  python ops/mobile-eye-state-preview.py
+  python ops/mobile-eye-state-preview.py --output-dir build/mobile-eye-state-preview-qa --scale 1
+  python ops/mobile-eye-state-preview.py --check
+  ```
+  It always writes `home-disconnected.png`, `home-connected.png` and
+  `home-eye-states-comparison.png` in the selected output directory. The
+  allowed-change mask is explicit; `04-owner-selected-home-2026-07-31.jpg` is
+  used only as eye/eye-surround art-direction history, never as layout geometry.
+  **This is a scripted preview, not a runtime screenshot, Android render, APK
+  acceptance result or OTA authorization.**
 - `phone-screen-sim.py` reconstructs Home from all eight committed centre-light atlas layers, then draws the measured owner-reference controls. It never uses a legacy flat Home image.
   - Fixed ownership: `wood/frame/cartouche/vines`, `ring`, Playfair title and living eye. Only `console/contacts/arc` receive `+25 dp - deckScrollDp`, clipped below `deckTop = 434 dp`.
   - The simulator uses the direct `890×635 / 822.5` eye registration plus the same bronze clip, eyelid contact shadow and inner occlusion profile as runtime; the preview is static, while the Android eye keeps blink/gaze/touch animation.

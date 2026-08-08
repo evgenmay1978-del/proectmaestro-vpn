@@ -1,49 +1,102 @@
-﻿# MaestroVPN — актуальный контекст и передача работы
+# MaestroVPN — актуальный контекст и передача работы
 
-## 0M. LIVE: мозаика отменена; замена eye-surround начата на GitHub
+## 0M. LIVE: установленный Home закреплён как единственный layout-baseline
 
-Актуальный checkpoint от **08.08.2026**. Этот раздел заменяет устаревший контракт
-«сохранить единую мозаику» из 0L и более старых разделов.
+Проверенный GitHub checkpoint от **08.08.2026**. Этот раздел заменяет прежнюю
+версию 0M и исправляет ключевую ошибку: работа и показ владельцу должны
+начинаться от реально установленной тестовой сборки, а не от старого концепт-макета.
 
-Решение владельца:
+### Неподвижный источник правды
 
-- радиальная изумрудная мозаика в центре Home должна быть физически удалена из
-  `home_ring_{l,c,r}`;
-- всё прежнее пространство мозаики заполняет непрерывный тёмно-изумрудный
-  рельеф век с трещинами и бронзовыми прожилками по эталону
-  `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg`;
-- глаз становится крупнее одним uniform transform `1.10`, остаётся живым и
-  сохраняет blink/gaze/touch/pupil/catchlight/VPN-state;
-- запрещён новый runtime overlay поверх старой мозаики: `home_ring` владеет
-  статическим bronze + eye-surround, `LivingEyeMedallion` — только динамической
-  анатомией и контактным швом.
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- branch: `codex/mobile-4d-deck`;
+- функциональный checkpoint до этого docs-обновления:
+  `a384f971d961332f996851bc985b2af82d427ef1`;
+- единственный full-layout baseline:
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`;
+- baseline имеет ровно `591×1280`, SHA-256
+  `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`;
+- `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg` — только
+  история eye/eye-surround art direction. Он никогда не является источником
+  full-layout, title/status, contacts, protocol arc или lower-deck geometry и
+  не должен показываться как текущая установленная сборка.
 
-GitHub source of truth:
+Решение владельца остаётся прежним: центральная радиальная мозаика физически
+удаляется из `home_ring_{l,c,r}`; всё её пространство занимает единый
+тёмно-изумрудный рельеф век с трещинами и бронзовыми прожилками. Глаз крупнее
+одним uniform transform `1.10`, не статичен и сохраняет blink, gaze, touch,
+pupil, catchlight и VPN-state. Запрещён overlay поверх старой мозаики:
+`home_ring` владеет static bronze + eye-surround, а `LivingEyeMedallion` —
+только динамической анатомией и контактным швом.
 
-- repository `evgenmay1978-del/proectmaestro-vpn`;
-- branch `codex/mobile-4d-deck`;
-- утверждённые spec/plan опубликованы commit
-  `f8ba1f3a84b2ba615e4dc19bd2d9d304c19c2bf1`;
-- RED guard опубликован и подтверждён GitHub commit
-  `7241f20129b7c318ef638be233cf83af3fdbe4a4`;
-- `ops/mobile-4d-art-check.py --selftest` проходит, а `--group ring` на текущем
-  legacy-арте ожидаемо падает ровно на трёх проверках старой мозаики; outer
-  bronze/alpha/format/light checks проходят;
-- старая мозаика пока ещё физически присутствует в tracked ring PNG: Task 2 не
-  завершён, GREEN APK ещё не существует.
+### Что произошло и какие preview-коммиты действительны
 
-Политика ресурсов владельца от **08.08.2026**: компьютер слабый. Не запускать на
-Windows локальные Gradle/APK, тяжёлую генерацию PNG, пересборку атласов или полную
-визуальную симуляцию. Такие операции выполнять на GitHub Actions; локально допустимы
-только лёгкие правки кода/документов, Git, чтение и загрузка готовых artifacts.
-Выбранный ImageGen master: `../generated/eye-surround-c-v1.png`, `1254×1254` RGB,
-SHA-256 `bcd108a3c53a1f18b1d1a984c56105e315bc86a581c4fe05efc5b76f2b0eeeac`;
-tracked target — `design/mobile-asset-redraw/materials/mobile_eye_surround_c.png`.
+- `cdeae9f` (первый preview RED) и `20ac882` (первая реализация preview)
+  использовали неверный полный baseline `04`. Эти результаты признаны
+  недействительными: их нельзя показывать как приёмочное доказательство и нельзя
+  переносить их layout/status/deck geometry в runtime.
+- `98c5763` добавил corrective RED, требующий установленный Home `08`;
+  `ed81c57` перевёл scripted-preview на точный baseline и сохранил остальной
+  экран.
+- `eb2850d` и `adb28f8` усилили независимый RED: owner-owned change mask,
+  runtime alpha контактного шва и отсутствие красного ghost
+  `ОТКЛЮЧЕНО` в connected-status.
+- `a384f97` устранил красный ghost, использует чистый status-background и
+  runtime seam alpha `0.18`.
+- Финальное независимое scoped-review для `a384f97` — **PASS**, замечаний не осталось.
+- Текущий лёгкий checkpoint: `python -m unittest
+  ops.test_mobile_eye_state_preview` — **9/9 PASS**; `py_compile`, render
+  scale 1, `--check` и `git diff --check` — **PASS**. Визуально connected
+  status осмотрен: старых красных букв/ореола нет.
+- Repeatable commands:
+  ```powershell
+  python ops/mobile-eye-state-preview.py
+  python ops/mobile-eye-state-preview.py --output-dir build/mobile-eye-state-preview-qa --scale 1
+  python ops/mobile-eye-state-preview.py --check
+  ```
+  Exact outputs: `home-disconnected.png`, `home-connected.png`,
+  `home-eye-states-comparison.png`. Это scripted preview, а не runtime/Android
+  screenshot и не готовый APK.
 
-Следующий шаг: завершить отдельное review RED-коммита, затем Task 2 по TDD —
-добавить master, тесты и детерминированный генератор; тяжёлый render/atlas получать
-с GitHub runner как artifact. Не менять TV, backend, API, VPN runtime, release, OTA
-или `main`.
+### Production Task 2 — ещё не GREEN
+
+- `fd510f0` добавил tests; `60b60a4` добавил master и детерминированный
+  generator.
+- Review вернул **REQUEST CHANGES**: в branch отсутствуют шесть сгенерированных
+  ring PNG, `--check` остаётся самореферентным, а mismatch/read-only
+  integration coverage недостаточна. Task 2 не считается завершённой.
+- `227d8cc` добавил manual GitHub Actions job
+  `task=mobile-eye-ring-assets` в `.github/workflows/android-test.yml`.
+  Job существует, но ещё не был dispatch/подтверждён; generated artifact не
+  интегрирован.
+- Старые runtime ring/atlas и старые APK из исторических разделов не содержат
+  новую принятую замену eye-surround.
+
+### Ресурсная и release-политика
+
+Компьютер владельца слабый. Локально допустимы чтение, Git, правки
+кода/документов, лёгкие Python preview/tests и просмотр скачанных artifacts.
+Не запускать локально Gradle/APK, тяжёлую full-size ring generation, atlas
+rebuild или полный simulator: это выполняется на GitHub runner.
+
+**Нового APK с этой заменой ещё нет. OTA не выполнялась и сейчас не разрешена.**
+Не передавать старый APK как результат текущей задачи.
+
+Следующие обязательные gates строго по порядку:
+
+1. Владелец визуально одобряет точные OFF/ON кадры scripted-preview на baseline
+   `08`.
+2. Task 2 исправляется и завершается на GitHub runner; шесть ring PNG и
+   digest-report проходят независимый review и интегрируются.
+3. Runtime Kotlin/geometry, atlas и полный visual simulator проверяются на
+   GitHub; затем GitHub Actions собирает новый test APK.
+4. Владелец устанавливает именно этот artifact и проверяет его на физическом
+   телефоне.
+5. Только после отдельного явного разрешения владельца можно планировать OTA.
+   Одобрение preview или APK само по себе не является разрешением OTA.
+
+Scope не расширять: TV, `tvm_*`, D-pad/focus/Back, backend, API, VPN runtime,
+production signing/release/OTA и `main` не менять.
 
 ## 0L. LIVE: единая мозаика глаза; логотип и семь подписей сохранены
 
