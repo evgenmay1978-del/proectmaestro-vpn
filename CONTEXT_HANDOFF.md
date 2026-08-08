@@ -1,5 +1,50 @@
 ﻿# MaestroVPN — актуальный контекст и передача работы
 
+## 0M. LIVE: мозаика отменена; замена eye-surround начата на GitHub
+
+Актуальный checkpoint от **08.08.2026**. Этот раздел заменяет устаревший контракт
+«сохранить единую мозаику» из 0L и более старых разделов.
+
+Решение владельца:
+
+- радиальная изумрудная мозаика в центре Home должна быть физически удалена из
+  `home_ring_{l,c,r}`;
+- всё прежнее пространство мозаики заполняет непрерывный тёмно-изумрудный
+  рельеф век с трещинами и бронзовыми прожилками по эталону
+  `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg`;
+- глаз становится крупнее одним uniform transform `1.10`, остаётся живым и
+  сохраняет blink/gaze/touch/pupil/catchlight/VPN-state;
+- запрещён новый runtime overlay поверх старой мозаики: `home_ring` владеет
+  статическим bronze + eye-surround, `LivingEyeMedallion` — только динамической
+  анатомией и контактным швом.
+
+GitHub source of truth:
+
+- repository `evgenmay1978-del/proectmaestro-vpn`;
+- branch `codex/mobile-4d-deck`;
+- утверждённые spec/plan опубликованы commit
+  `f8ba1f3a84b2ba615e4dc19bd2d9d304c19c2bf1`;
+- RED guard опубликован и подтверждён GitHub commit
+  `7241f20129b7c318ef638be233cf83af3fdbe4a4`;
+- `ops/mobile-4d-art-check.py --selftest` проходит, а `--group ring` на текущем
+  legacy-арте ожидаемо падает ровно на трёх проверках старой мозаики; outer
+  bronze/alpha/format/light checks проходят;
+- старая мозаика пока ещё физически присутствует в tracked ring PNG: Task 2 не
+  завершён, GREEN APK ещё не существует.
+
+Политика ресурсов владельца от **08.08.2026**: компьютер слабый. Не запускать на
+Windows локальные Gradle/APK, тяжёлую генерацию PNG, пересборку атласов или полную
+визуальную симуляцию. Такие операции выполнять на GitHub Actions; локально допустимы
+только лёгкие правки кода/документов, Git, чтение и загрузка готовых artifacts.
+Выбранный ImageGen master: `../generated/eye-surround-c-v1.png`, `1254×1254` RGB,
+SHA-256 `bcd108a3c53a1f18b1d1a984c56105e315bc86a581c4fe05efc5b76f2b0eeeac`;
+tracked target — `design/mobile-asset-redraw/materials/mobile_eye_surround_c.png`.
+
+Следующий шаг: завершить отдельное review RED-коммита, затем Task 2 по TDD —
+добавить master, тесты и детерминированный генератор; тяжёлый render/atlas получать
+с GitHub runner как artifact. Не менять TV, backend, API, VPN runtime, release, OTA
+или `main`.
+
 ## 0L. LIVE: единая мозаика глаза; логотип и семь подписей сохранены
 
 Финальный GitHub-handoff от **02.08.2026** после повторного production-review:
