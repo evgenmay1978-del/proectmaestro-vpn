@@ -12,7 +12,8 @@
 
 - Работать только в `evgenmay1978-del/proectmaestro-vpn`, ветка `codex/mobile-4d-deck`.
 - Единственный full-layout baseline: `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`, ровно `591×1280`, SHA-256 `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`.
-- `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg` используется только для eye/eye-surround art direction; никогда не брать из него layout, status, contacts, protocol arc или lower-deck geometry.
+- `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg` is historical only and is never the current eye or eye-surround source.
+- `design/mobile-4d-references/09-owner-selected-closed-eye-v2-2026-08-08.png` is the authoritative current closed-lid and eye-surround source; it is not a full-layout baseline.
 - Старая мозаика физически удаляется из `home_ring_*`; запрещён новый runtime overlay поверх неё.
 - Material circle: центр `(1080,1751)`, радиус `644 px` на master `2160×4670`; внешний guard начинается на радиусе `650 px`.
 - Глаз: uniform anatomy scale `1.10`; offsets `3.5/238` ширины canvas и `7/238` высоты canvas.
