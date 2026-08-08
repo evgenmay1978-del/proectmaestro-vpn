@@ -30,14 +30,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import math
-import statistics
 import sys
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 KIT = ROOT / "design" / "mobile-asset-redraw" / "kit"
@@ -50,6 +48,21 @@ VIEWPORT_WIDTH = 390.0
 PX_PER_DP_X = MASTER_WIDTH / VIEWPORT_WIDTH
 
 LIGHTS = ("l", "c", "r")
+
+EYE_SURROUND_CENTER = (1080, 1751)
+EYE_SURROUND_RADIUS = 644
+EYE_SURROUND_CORE_RADIUS = 620
+EYE_SURROUND_OUTSIDE_GUARD_RADIUS = 650
+LEGACY_MOSAIC_CORE_SHA256 = {
+    "l": "8b1e98e7658c0c190d5633d7662624d9fab377836fd59befca2b933640920375",
+    "c": "645d7df653316754d43f83b02ffa8e0630c473f7d50d5a4b84d217787e96c5c6",
+    "r": "409747235c039a8744b874499eb2a71d94c3ac33b622f7d9749bb8f12ffa3f49",
+}
+EXPECTED_RING_OUTSIDE_SHA256 = {
+    "l": "9917a32afe8f1532c001e39c39c4fd37eabe13f68d589b0f8fc68e82453f4b03",
+    "c": "9a708bd0527be69304776c37b9a7e26a15c54dc8c2084b427b52fa44450ccf43",
+    "r": "f6beeabaff79fced29109a2e8f00272fdaae3aa27d946d75a600d0bca254d53e",
+}
 
 
 @dataclass(frozen=True)
@@ -64,14 +77,8 @@ class GroupSpec:
     cell_min_height: int = 0
     #: подъём верхней кромки в центре относительно краёв, px
     dome_rise: tuple[int, int] | None = None
-    #: контрольные строки непрерывной мозаики: (master y, min green px, min x-span)
-    mosaic_rows: tuple[tuple[int, int, int], ...] = ()
-    #: нижняя и соседняя зоны для сравнения weighted luma только зелёных пикселей
-    mosaic_luma_zones: tuple[tuple[int, int, int, int], tuple[int, int, int, int]] | None = None
-    mosaic_luma_radius: tuple[float, float] | None = None
-    mosaic_luma_ratio: tuple[float, float] | None = None
-    #: мерить ли тёплую бронзу. ⛔ У кольца НЕТ: его диск — изумрудная мозаика, и критерий
-    #: «R−G = +8…+12» там обязан не выполняться. Сторож, который кричит всегда, перестают читать.
+    #: мерить ли тёплую бронзу. У кольца смешаны внешняя бронза и отдельный
+    #: тёмно-изумрудный eye-surround, поэтому общий material-критерий к нему неприменим.
     bronze_material: bool = True
 
 
@@ -89,13 +96,6 @@ GROUPS = {
         name="ring",
         alpha_bbox=(156, 827, 2005, 2676),
         bronze_material=False,
-        # Решение владельца 01.08: деревянная хорда выглядит наложенной плашкой. Мозаика снова
-        # идёт до нижней бронзы. Донор 03a672a даёт 417/369 зелёных px на этих срезах,
-        # дефектный 6447a9a — 0/0.
-        mosaic_rows=((2250, 350, 700), (2300, 300, 550)),
-        mosaic_luma_zones=((584, 2163, 1578, 2360), (584, 2030, 1578, 2163)),
-        mosaic_luma_radius=(490.0, 815.0),
-        mosaic_luma_ratio=(0.95, 1.10),
     ),
     "contacts": GroupSpec(
         name="contacts",
@@ -154,6 +154,39 @@ def check_format(report: Report, path: Path, image: Image.Image) -> None:
 
 def alpha_bytes(image: Image.Image) -> bytes:
     return image.convert("RGBA").getchannel("A").tobytes()
+
+
+def masked_circle_digest(
+    image: Image.Image,
+    center: tuple[int, int],
+    radius: int,
+) -> str:
+    """SHA-256 of an RGB square with only the selected circle retained."""
+    cx, cy = center
+    box = (cx - radius, cy - radius, cx + radius + 1, cy + radius + 1)
+    crop = image.convert("RGB").crop(box)
+    mask = Image.new("L", crop.size, 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, radius * 2, radius * 2), fill=255)
+    masked = Image.new("RGB", crop.size, (0, 0, 0))
+    masked.paste(crop, mask=mask)
+    return hashlib.sha256(masked.tobytes()).hexdigest()
+
+
+def outside_circle_digest(
+    image: Image.Image,
+    center: tuple[int, int],
+    guard_radius: int,
+) -> str:
+    """SHA-256 of full RGBA bytes after zeroing the guarded circle."""
+    rgba = image.convert("RGBA")
+    mask = Image.new("L", rgba.size, 0)
+    cx, cy = center
+    ImageDraw.Draw(mask).ellipse(
+        (cx - guard_radius, cy - guard_radius, cx + guard_radius, cy + guard_radius),
+        fill=255,
+    )
+    outside = Image.composite(Image.new("RGBA", rgba.size, (0, 0, 0, 0)), rgba, mask)
+    return hashlib.sha256(outside.tobytes()).hexdigest()
 
 
 def check_magenta(report: Report, path: Path, image: Image.Image) -> None:
@@ -272,6 +305,9 @@ def check_group(name: str, spec: GroupSpec, report: Report) -> None:
         pb = images[b].convert("RGB").tobytes()
         report.check(pa != pb, f"{name}: свет _{a} и _{b} различаются (копия файла запрещена)")
 
+    if name == "ring":
+        check_eye_surround(name, images, report)
+
     if spec.cells is not None:
         # ⛔ СПРАВОЧНО, НЕ ГЕЙТ. Надёжно посчитать ячейки автоматически на этом арте не выходит:
         # у резьбы полупрозрачные края (альфа в теле дуги гуляет 32…232), заливка по яркости
@@ -308,60 +344,28 @@ def check_group(name: str, spec: GroupSpec, report: Report) -> None:
                          f"{name}: подъём купола {rise} px, нужен {lo}…{hi} "
                          f"({'ЧАША' if rise < 0 else 'купол'})")
 
-    if spec.mosaic_rows:
-        check_mosaic_continuity(name, images["c"], spec, report)
-
     if spec.bronze_material:
         check_material(name, images["c"], spec, report)
 
 
-def _is_strong_green(pixel: tuple[int, int, int, int]) -> bool:
-    r, g, b, a = pixel
-    return a > 200 and g - r > 18 and g - b > 18
-
-
-def check_mosaic_continuity(name: str, image: Image.Image,
-                            spec: GroupSpec, report: Report) -> None:
-    """Деревянная хорда не должна обрывать мозаику до нижней бронзы."""
-    rgba = image.convert("RGBA")
-    x0, _, x1, _ = spec.alpha_bbox
-    for y, minimum_green, minimum_span in spec.mosaic_rows:
-        green_x = [x for x in range(x0, x1) if _is_strong_green(rgba.getpixel((x, y)))]
-        span = 0 if not green_x else green_x[-1] - green_x[0] + 1
+def check_eye_surround(
+    name: str,
+    images: dict[str, Image.Image],
+    report: Report,
+) -> None:
+    """Reject the legacy mosaic while protecting bronze outside the material guard."""
+    for light in LIGHTS:
+        image = images[light]
         report.check(
-            len(green_x) >= minimum_green and span >= minimum_span,
-            f"{name}: мозаика на y={y}: {len(green_x)} зелёных px, span {span}; "
-            f"нужно ≥{minimum_green} и ≥{minimum_span} — деревянная хорда запрещена",
+            masked_circle_digest(image, EYE_SURROUND_CENTER, EYE_SURROUND_CORE_RADIUS)
+            != LEGACY_MOSAIC_CORE_SHA256[light],
+            f"{name} _{light}: прежняя радиальная мозаика удалена",
         )
-
-    if spec.mosaic_luma_zones and spec.mosaic_luma_radius and spec.mosaic_luma_ratio:
-        def zone_luma(zone: tuple[int, int, int, int]) -> list[float]:
-            values: list[float] = []
-            x0, y0, x1, y1 = zone
-            radius_min, radius_max = spec.mosaic_luma_radius
-            for y in range(y0, y1):
-                for x in range(x0, x1):
-                    pixel = rgba.getpixel((x, y))
-                    radius = math.hypot(x - 1080.0, y - 1751.0)
-                    if radius_min <= radius <= radius_max and _is_strong_green(pixel):
-                        r, g, b, _ = pixel
-                        values.append(0.2126 * r + 0.7152 * g + 0.0722 * b)
-            return values
-
-        lower = zone_luma(spec.mosaic_luma_zones[0])
-        adjacent = zone_luma(spec.mosaic_luma_zones[1])
-        if not lower or not adjacent:
-            report.check(False, f"{name}: не удалось измерить яркость нижней мозаики")
-        else:
-            lower_median = statistics.median(lower)
-            adjacent_median = statistics.median(adjacent)
-            ratio = lower_median / adjacent_median
-            lo, hi = spec.mosaic_luma_ratio
-            report.check(
-                lo <= ratio <= hi,
-                f"{name}: яркость нижней/соседней мозаики {ratio:.3f} "
-                f"({lower_median:.2f}/{adjacent_median:.2f}), нужно {lo:.2f}…{hi:.2f}",
-            )
+        report.check(
+            outside_circle_digest(image, EYE_SURROUND_CENTER, EYE_SURROUND_OUTSIDE_GUARD_RADIUS)
+            == EXPECTED_RING_OUTSIDE_SHA256[light],
+            f"{name} _{light}: внешняя бронза вне material-mask неизменна",
+        )
 
 
 def check_material(name: str, image: Image.Image, spec: GroupSpec, report: Report) -> None:
@@ -387,7 +391,7 @@ def selftest() -> int:
     Правило проекта: молчаливый сторож хуже отсутствующего. Гейт, который никогда не срабатывал,
     считается неработающим, поэтому каждая проверка здесь ломается нарочно.
     """
-    from PIL import ImageDraw
+    from unittest.mock import patch
 
     def blank(size=(MASTER_WIDTH, MASTER_HEIGHT), colour=(90, 78, 48, 255), box=(0, 3150, MASTER_WIDTH, 3905)):
         im = Image.new("RGBA", size, (0, 0, 0, 0))
@@ -441,16 +445,21 @@ def selftest() -> int:
     if not crown_excluded:
         failures += 1
 
-    ring_cap = Image.new("RGBA", (MASTER_WIDTH, MASTER_HEIGHT), (0, 0, 0, 0))
-    ring_draw = ImageDraw.Draw(ring_cap)
-    ring_draw.rectangle((156, 827, 2004, 2675), fill=(12, 54, 20, 255))
-    # Заведомый старый дефект: тёмное дерево отсекает низ мозаики.
-    ring_draw.rectangle((156, 2230, 2004, 2566), fill=(22, 15, 10, 255))
+    ring_images = {
+        light: load(KIT / f"home_ring_{light}.png")
+        for light in LIGHTS
+    }
+    current_core = {
+        light: masked_circle_digest(image, EYE_SURROUND_CENTER, EYE_SURROUND_CORE_RADIUS)
+        for light, image in ring_images.items()
+    }
     ring_report = Report()
-    check_mosaic_continuity("ring", ring_cap, GROUPS["ring"], ring_report)
-    cap_caught = any(not ok and "деревянная хорда" in text for ok, text in ring_report.rows)
-    print(f"  {'PASS' if cap_caught else 'FAIL'}  сторож ловит деревянную хорду кольца")
-    if not cap_caught:
+    with patch.dict(LEGACY_MOSAIC_CORE_SHA256, current_core, clear=True):
+        check_eye_surround("ring", ring_images, ring_report)
+    mosaic_caught = any(not ok and "прежняя радиальная мозаика" in text
+                        for ok, text in ring_report.rows)
+    print(f"  {'PASS' if mosaic_caught else 'FAIL'}  сторож ловит прежнюю радиальную мозаику")
+    if not mosaic_caught:
         failures += 1
 
     print()
