@@ -257,851 +257,29 @@ def ic_back(d, x, y, s, c):
     d.line([(x+s*.42,y+s*.18),(x+s*.1,y+s*.5),(x+s*.42,y+s*.82)], fill=c,
            width=max(2,round(s*.09)), joint='curve')
 def ic_err(d, x, y, s, c):
-    d.ellipse((x,y,x+s,y+s), outline=c, width=max(3,round(s*.07)))
-    d.line((x+s*.5,y+s*.24,x+s*.5,y+s*.58), fill=c, width=max(3,round(s*.09)))
-    circle(d, x+s*.5, y+s*.72, s*.055, c)
-def ic_search(d, x, y, s, c):
-    d.ellipse((x+s*.06,y+s*.06,x+s*.7,y+s*.7), outline=c, width=max(2,round(s*.09)))
-    d.line((x+s*.64,y+s*.64,x+s*.94,y+s*.94), fill=c, width=max(2,round(s*.11)))
-def ic_qr(d, x, y, s, c):
-    for (a,b) in [(0,0),(.62,0),(0,.62)]:
-        d.rectangle((x+s*a,y+s*b,x+s*(a+.32),y+s*(b+.32)), outline=c, width=max(2,round(s*.08)))
-    for (a,b) in [(.46,.46),(.62,.62),(.84,.5),(.5,.84)]:
-        d.rectangle((x+s*a,y+s*b,x+s*(a+.1),y+s*(b+.1)), fill=c)
-
-# ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê –¥–æ–ø–æ–ª–Ω–∏—Ç–µ–ª—å–Ω—ã–µ –∏–∫–æ–Ω–∫–∏ –ø–æ–¥ –Ω–æ–≤—É—é –¥–µ–∫—É ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê
-def ic_phone(d, x, y, s, c):
-    # ‚õî –ó–¥–µ—Å—å –±—ã–ª–∏ –¥–≤–∞ –∫–≤–∞–¥—Ä–∞—Ç–∏–∫–∞ –∏ –¥—É–≥–∞ ¬´—Ç—Ä—É–±–∫–∏¬ª, –∫–æ—Ç–æ—Ä—ã–µ –Ω–∞ 22 dp —Ä–∏—Å–æ–≤–∞–ª–∏—Å—å –∫–∞–∫ –∑–µ–ª—ë–Ω–∞—è
-    # —Ç–æ—á–∫–∞ –∏ –∑–µ–ª—ë–Ω–∞—è –∑–∞–∫–æ—Ä—é—á–∫–∞ —Ä—è–¥–æ–º —Å –Ω–æ–º–µ—Ä–æ–º ‚Äî –≤–ª–∞–¥–µ–ª–µ—Ü —Å–ø—Ä–∞–≤–µ–¥–ª–∏–≤–æ —Å–ø—Ä–æ—Å–∏–ª, —á—Ç–æ —ç—Ç–æ.
-    # –í –ø—Ä–∏–ª–æ–∂–µ–Ω–∏–∏ –≤ —ç—Ç–æ–º –º–µ—Å—Ç–µ —Å—Ç–æ–∏—Ç Material `Icons.Filled.Call`; —Ä–∏—Å—É–µ–º —É–∑–Ω–∞–≤–∞–µ–º—É—é —Ç—Ä—É–±–∫—É.
-    w = max(2, round(s * .16))
-    d.line((x+s*.20, y+s*.16, x+s*.34, y+s*.34), fill=c, width=w)
-    d.line((x+s*.34, y+s*.34, x+s*.26, y+s*.50), fill=c, width=w)
-    d.line((x+s*.26, y+s*.50, x+s*.50, y+s*.74), fill=c, width=w)
-    d.line((x+s*.50, y+s*.74, x+s*.66, y+s*.66), fill=c, width=w)
-    d.line((x+s*.66, y+s*.66, x+s*.84, y+s*.80), fill=c, width=w)
-    d.line((x+s*.84, y+s*.80, x+s*.66, y+s*.94), fill=c, width=w)
-    d.line((x+s*.66, y+s*.94, x+s*.20, y+s*.16), fill=None, width=1)
-def ic_send(d, x, y, s, c):
-    d.polygon([(x,y+s*.5),(x+s,y),(x+s*.42,y+s),(x+s*.34,y+s*.66)], fill=c)
-def ic_forum(d, x, y, s, c):
-    d.rounded_rectangle((x,y+s*.1,x+s*.74,y+s*.66), radius=s*.12, outline=c, width=max(2,round(s*.09)))
-    d.rounded_rectangle((x+s*.26,y+s*.36,x+s,y+s*.92), radius=s*.12, fill=c)
-def ic_chat(d, x, y, s, c):
-    d.rounded_rectangle((x,y+s*.1,x+s,y+s*.76), radius=s*.14, fill=c)
-    d.polygon([(x+s*.2,y+s*.72),(x+s*.46,y+s*.72),(x+s*.2,y+s)], fill=c)
-def ic_auto(d, x, y, s, c):
-    w = max(2, round(s*.12))
-    d.arc((x+s*.08,y+s*.08,x+s*.92,y+s*.92), 40, 320, fill=c, width=w)
-    d.polygon([(x+s*.62,y),(x+s*.98,y+s*.2),(x+s*.6,y+s*.34)], fill=c)
-def ic_shield(d, x, y, s, c):
-    d.polygon([(x+s*.5,y),(x+s*.96,y+s*.2),(x+s*.86,y+s*.72),(x+s*.5,y+s),
-               (x+s*.14,y+s*.72),(x+s*.04,y+s*.2)], fill=c)
-def ic_hub(d, x, y, s, c):
-    circle(d, x+s*.5, y+s*.5, s*.17, c)
-    for a in (0, 60, 120, 180, 240, 300):
-        import math
-        rad = math.radians(a)
-        px, py = x+s*.5+math.cos(rad)*s*.36, y+s*.5+math.sin(rad)*s*.36
-        d.line((x+s*.5, y+s*.5, px, py), fill=c, width=max(2, round(s*.07)))
-        circle(d, px, py, s*.1, c)
-def ic_video(d, x, y, s, c):
-    d.rounded_rectangle((x,y+s*.24,x+s*.68,y+s*.78), radius=s*.1, fill=c)
-    d.polygon([(x+s*.72,y+s*.44),(x+s,y+s*.26),(x+s,y+s*.76),(x+s*.72,y+s*.58)], fill=c)
-def ic_gear(d, x, y, s, c):
-    import math
-    w = max(2, round(s*.13))
-    d.ellipse((x+s*.14,y+s*.14,x+s*.86,y+s*.86), outline=c, width=w)
-    d.ellipse((x+s*.38,y+s*.38,x+s*.62,y+s*.62), outline=c, width=max(2, round(s*.1)))
-    for a in range(0, 360, 45):
-        rad = math.radians(a)
-        d.line((x+s*.5+math.cos(rad)*s*.34, y+s*.5+math.sin(rad)*s*.34,
-                x+s*.5+math.cos(rad)*s*.5, y+s*.5+math.sin(rad)*s*.5), fill=c, width=w)
-def ic_smartphone(d, x, y, s, c):
-    d.rounded_rectangle((x+s*.24,y,x+s*.76,y+s), radius=s*.1, outline=c, width=max(2,round(s*.1)))
-    d.line((x+s*.42,y+s*.86,x+s*.58,y+s*.86), fill=c, width=max(2,round(s*.08)))
-
-# ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê –≠–ö–†–ê–ù 1: –≥–ª–∞–≤–Ω—ã–π ‚Äî –¥–µ–∫–∞ –ø–æ —ç—Ç–∞–ª–æ–Ω—É –≤–ª–∞–¥–µ–ª—å—Ü–∞ ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê
-# ‚õî –ß–∏—Å–ª–∞ –ù–ï –≤—ã–¥—É–º–∞–Ω—ã: 1:1 –∏–∑ PhoneHomeReferenceLayout.kt (–≥—Ä–∞–Ω–∏—Ü—ã, –∏–∑–º–µ—Ä–µ–Ω–Ω—ã–µ –ø–æ
-# design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg) –∏ –∏–∑ –∫–æ–Ω—Å—Ç–∞–Ω—Ç
-# PhoneHomeControlDeck.kt. –ú–µ–Ω—è–µ—à—å Kotlin ‚Äî –º–µ–Ω—è–π –∑–¥–µ—Å—å, –∏–Ω–∞—á–µ —Å–∏–º—É–ª—è—Ü–∏—è –Ω–∞—á–Ω—ë—Ç –≤—Ä–∞—Ç—å.
-W, H = 390 * S, 844 * S
-REF_JPG = ROOT / 'design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg'
-
-HERO_TRANSLATION_Y = -58.0          # PhoneHomeReferenceLayout.HeroTranslationY
-DECK_TOP = 434.0                    # PhoneHomeReferenceLayout.DeckTop
-MOBILE_HOME_LOWER_DECK_SHIFT_DP = 25.0  # Mobile4DHome.kt
-B = {                               # PhoneHomeReferenceLayout: –≥—Ä–∞–Ω–∏—Ü—ã —ç—Ç–∞–ª–æ–Ω–∞ –≤ dp
-    'title':        (69.0,  54.0, 323.0,  88.0),
-    'medallion':    (26.0, 104.0, 364.0, 413.0),
-    'status':       (128.0, 434.0, 265.0, 456.0),
-    'activeProtocol': (126.0, 456.0, 266.0, 476.0),
-    'phone':        (81.0, 478.0, 310.0, 516.0),
-    'contacts':     (34.0, 511.0, 356.0, 594.0),
-    'protocolArc':  (0.0,  595.0, 390.0, 730.0),
-    'buy':          (81.0, 724.0, 309.0, 769.0),
-    'bottomConsole': (8.0, 760.0, 382.0, 864.0),
-}
-CONTACT_GAP = 10.0                  # PhoneHomeControlDeck.CONTACT_GAP
-# –Ø—á–µ–π–∫–∏ —Ä–µ–∑–Ω–æ–≥–æ –≤–µ–µ—Ä–∞: —Ü–µ–Ω—Ç—Ä—ã –∑–∞–¥–∞–Ω—ã –≤–ª–∞–¥–µ–ª—å—Ü–µ–º, –ø—Ä–æ–≤–∏—Å —Å–Ω—è—Ç —Å —Å–∞–º–æ–≥–æ home_arc_c.png.
-# ‚õî –ù–µ –ø—É—Ç–∞—Ç—å —Å —Å–∏–ª—É—ç—Ç–æ–º –¥—É–≥–∏ ‚Äî –æ–Ω –ø—Ä–æ–≤–∏—Å–∞–µ—Ç –Ω–∞ 39.8 dp, —è—á–µ–π–∫–∏ —Ç–æ–ª—å–∫–æ –Ω–∞ ~12.
-# ‚õî –ó–∞–º–µ—Ä, –∞ –Ω–µ –Ω–æ–º–∏–Ω–∞–ª: –∏–Ω—Ç–µ—Ä—å–µ—Ä—ã —è—á–µ–µ–∫ 40‚Ä¶47 dp, –∫–æ—Ä–æ–±–∫–∞ 52 –≤—ã–µ–∑–∂–∞–ª–∞ –Ω–∞ —Ä–∞–∑–¥–µ–ª–∏—Ç–µ–ª—å.
-ARC_SECTOR_CENTERS = [37.8, 88.3, 141.7, 195.6, 248.2, 301.4, 352.4]
-ARC_CELL_WIDTHS = [40.1, 47.0, 45.7, 47.3, 45.7, 46.4, 40.7]
-ARC_CELL_TOPS = [644.7, 628.6, 618.7, 627.0, 618.1, 627.9, 644.4]
-ARC_CELL_HEIGHTS = [67.2, 77.2, 83.1, 73.6, 83.7, 77.7, 67.4]
-CONSOLE_LEFT = (32.0, 782.4, 139.0, 842.4)
-CONSOLE_DIAL = (160.0, 774.7, 228.0, 848.0)
-CONSOLE_RIGHT = (250.0, 782.6, 357.0, 842.4)
-SELECTION_BAR_WIDTH = 22.0
-TITLE_SP = 38          # Mobile4DHome.TITLE_MAX_FONT_SIZE
-TITLE_TRACK = 3.5      # Mobile4DHome.TITLE_LETTER_SPACING
-TITLE_FACE_TOP, TITLE_FACE_BOT = (228,214,180), (140,122,85)   # Mobile4DHome.TITLE_FACE
-TITLE_CARVE = (36,26,16)      # Mobile4DHome.TITLE_CARVE
-TITLE_RIM = (255,240,200)     # Mobile4DHome.TITLE_RIM (alpha 0x66)
-TITLE_CARVE_DEPTH, TITLE_RIM_LIFT = 1.6, 0.9
-
-# –°–µ–∫—Ç–æ—Ä–∞ –¥—É–≥–∏: —Ç–µ–≥ ‚Üí (–ø–æ–¥–ø–∏—Å—å —ç—Ç–∞–ª–æ–Ω–∞, –∏–∫–æ–Ω–∫–∞). WDTT (`vk-turn`) –Ω–∞ —ç—Ç–∞–ª–æ–Ω–µ –Ω–µ –Ω–∞—Ä–∏—Å–æ–≤–∞–Ω,
-# –Ω–æ –Ω–∞ —Ç–µ–ª–µ—Ñ–æ–Ω–µ —ç—Ç–æ –∂–∏–≤–æ–π –ø—Ä–æ—Ç–æ–∫–æ–ª (–ø—Ä—è—á–µ—Ç –µ–≥–æ —Ç–æ–ª—å–∫–æ –¢–í), –ø–æ—ç—Ç–æ–º—É —Å–µ–∫—Ç–æ—Ä –µ–º—É –≤—ã–¥–µ–ª–µ–Ω.
-ARC_PROTOCOLS = [
-    ('auto', '–ê–í–¢–û', ic_auto),
-    ('vless', 'VLESS', ic_shield),
-    ('hysteria2', 'HYSTERIA2', ic_bolt),
-    ('anytls', 'ANYTLS', ic_lock),
-    ('naive', 'NAIVE\nPROXY', ic_hub),
-    ('vk-turn', 'WDTT', ic_video),
-    ('olcrtc', 'WEBRTC', ic_globe),
-]
-
-def centre_4d_fragments():
-    """–ß–∏—Ç–∞–µ—Ç —Ç–æ—Ç –∂–µ –º–∞–Ω–∏—Ñ–µ—Å—Ç, —á—Ç–æ runtime, –∏ –≤–æ–∑–≤—Ä–∞—â–∞–µ—Ç —Ñ—Ä–∞–≥–º–µ–Ω—Ç—ã –≤ z-–ø–æ—Ä—è–¥–∫–µ."""
-    fragments = []
-    for match in FRAGMENT_RE.finditer(MOBILE_4D_MANIFEST.read_text(encoding='utf-8')):
-        layer, z_order, page_index, page_path, *coords = match.groups()
-        fragments.append((int(z_order), int(page_index), page_path, layer, *map(int, coords)))
-    # 83 = 77 –ø—Ä–µ–∂–Ω–∏—Ö + 6 —Ñ—Ä–∞–≥–º–µ–Ω—Ç–æ–≤ —Å–ª–æ—è `arc`, –¥–æ–±–∞–≤–ª–µ–Ω–Ω–æ–≥–æ 2026-08-01. –ß–∏—Å–ª–æ —Å–≤–µ—Ä—è–µ—Ç—Å—è
-    # –Ω–∞–º–µ—Ä–µ–Ω–Ω–æ: –º–æ–ª—á–∞–ª–∏–≤–æ–µ —Ä–∞—Å—Ö–æ–∂–¥–µ–Ω–∏–µ –º–∞–Ω–∏—Ñ–µ—Å—Ç–∞ –∏ —Å–∏–º—É–ª—è—Ü–∏–∏ = —Å–∏–º—É–ª—è—Ü–∏—è –Ω–∞—á–Ω—ë—Ç –≤—Ä–∞—Ç—å.
-    # 84 = 83 + —Ñ—Ä–∞–≥–º–µ–Ω—Ç —Å–ª–æ—è `console`, –ø–æ–¥–∫–ª—é—á—ë–Ω–Ω–æ–≥–æ 01.08.
-    # 90 = 84 + —Ñ—Ä–∞–≥–º–µ–Ω—Ç—ã —Å–ª–æ—è `contacts`, –ø–æ–¥–∫–ª—é—á—ë–Ω–Ω–æ–≥–æ 01.08.
-    if len(fragments) != 90:
-        raise ValueError(f'Expected 90 centre-light 4D fragments, found {len(fragments)}')
-    return sorted(fragments)
-
-def centre_4d_layer(fragments, layer_name):
-    """–†–µ–∫–æ–Ω—Å—Ç—Ä—É–∏—Ä—É–µ—Ç —Ä–æ–≤–Ω–æ –æ–¥–∏–Ω relief-—Å–ª–æ–π, –Ω–µ —Å–ª–∏–≤–∞—è fixed –∏ scrolling ownership."""
-    master = Image.new('RGBA', MASTER_4D_SIZE, (0, 0, 0, 0))
-    atlases = {}
-    for fragment in (item for item in fragments if item[3] == layer_name):
-        _, _, page_path, layer, sx, sy, sw, sh, dx, dy, dw, dh = fragment
-        if (sw, sh) != (dw, dh):
-            raise ValueError(f'Atlas/scene rectangle mismatch in {page_path}')
-        atlas = atlases.get(page_path)
-        if atlas is None:
-            atlas_path = ASSETS / page_path
-            if not atlas_path.is_file():
-                raise FileNotFoundError(f'Missing committed 4D atlas: {atlas_path}')
-            atlas = Image.open(atlas_path).convert('RGBA')
-            atlases[page_path] = atlas
-        crop = atlas.crop((sx, sy, sx + sw, sy + sh))
-        master.alpha_composite(crop, (dx, dy))
-        crop.close()
-    for atlas in atlases.values():
-        atlas.close()
-    return master
-
-def _fit(master, w, h):
-    k = max(w / master.width, h / master.height)
-    scaled = master.resize((round(master.width * k), round(master.height * k)), Image.Resampling.LANCZOS)
-    left, top = (scaled.width - w) // 2, (scaled.height - h) // 2
-    out = scaled.crop((left, top, left + w, top + h))
-    scaled.close()
-    return out
-
-def home_scene(w, h, deck_scroll_dp=0.0):
-    """–†–æ–≤–Ω–æ runtime ownership: fixed hero —Å–≤–µ—Ä—Ö—É, —Ç—Ä–∏ relief-—Å–ª–æ—è –¥–≤–∏–∂—É—Ç—Å—è —Å –¥–µ–∫–æ–π."""
-    fragments = centre_4d_fragments()
-    layer_order = []
-    for _, _, _, layer, *_ in fragments:
-        if layer not in layer_order:
-            layer_order.append(layer)
-    expected = ['wood', 'console', 'contacts', 'frame', 'cartouche', 'vines', 'arc', 'ring']
-    if layer_order != expected:
-        raise ValueError(f'Unexpected 4D layer order: {layer_order!r}')
-
-    scene = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    deck_layers = {'console', 'contacts', 'arc'}
-    for layer in layer_order:
-        master = centre_4d_layer(fragments, layer)
-        fitted = _fit(master, w, h)
-        master.close()
-        dy = 0
-        if layer == 'ring':
-            dy = round(HERO_TRANSLATION_Y * S)
-        elif layer in deck_layers:
-            dy = round((MOBILE_HOME_LOWER_DECK_SHIFT_DP - deck_scroll_dp) * S)
-
-        positioned = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-        positioned.alpha_composite(fitted, (0, dy))
-        fitted.close()
-        if layer in deck_layers:
-            clip_y = round(DECK_TOP * S)
-            visible = positioned.crop((0, clip_y, w, h))
-            scene.alpha_composite(visible, (0, clip_y))
-            visible.close()
-        else:
-            scene.alpha_composite(positioned)
-        positioned.close()
-    return scene
-
-LIVING_EYE_BRONZE_INSET_FRACTION = 26.0 / 520.0   # LivingEyeLayerGeometry.kt
-LIVING_EYE_STATE_W, LIVING_EYE_STATE_H = 890.0, 635.0
-LIVING_EYE_VIRTUAL_SIZE = 822.5
-LIVING_EYE_SEAM_FROM_UPPER = 0.70
-LIVING_EYE_CONTACT_SHADOW_FRACTION = 3.0 / 520.0
-LIVING_EYE_CONTACT_SHADOW_ALPHA = 0.18
-
-def eye_box():
-    """–ö–æ—Ä–æ–±–∫–∞ –∂–∏–≤–æ–≥–æ –≥–ª–∞–∑–∞ = medallion* –∏–∑ Mobile4DSceneModel.kt + –æ–±—â–∏–π —Å–¥–≤–∏–≥ –≥–µ—Ä–æ—è.
-
-    ‚õî –õ–û–í–£–®–ö–ê: —ç—Ç–æ –ù–ï `B['medallion']`. –ì—Ä–∞–Ω–∏—Ü—ã —ç—Ç–∞–ª–æ–Ω–∞ –æ–ø–∏—Å—ã–≤–∞—é—Ç –í–ù–ï–®–ù–ï–ï –±—Ä–æ–Ω–∑–æ–≤–æ–µ
-    –∫–æ–ª—å—Ü–æ (338 dp), –∞ LivingEyeMedallion –≤–ø–∏—Å—ã–≤–∞–µ—Ç –∞—Å—Å–µ—Ç 890√ó635 –≤ –∫–≤–∞–¥—Ä–∞—Ç
-    2*radius (238 dp) –º–∏–Ω—É—Å –±—Ä–æ–Ω–∑–æ–≤—ã–π –∏–Ω—Å–µ—Ç. –ï—Å–ª–∏ –≤–∑—è—Ç—å —ç—Ç–∞–ª–æ–Ω–Ω—ã–µ ‚Äî –≥–ª–∞–∑ –≤—ã–ª–µ–∑–µ—Ç
-    –∏–∑ –∫–æ–ª—å—Ü–∞ –Ω–∞ 42%."""
-    sc = max(390.0 / MASTER_4D_SIZE[0], 844.0 / MASTER_4D_SIZE[1])
-    tx = (390.0 - MASTER_4D_SIZE[0] * sc) / 2
-    ty = (844.0 - MASTER_4D_SIZE[1] * sc) / 2
-    cx = 1080.0 * sc + tx
-    cy = 1751.0 * sc + ty + HERO_TRANSLATION_Y
-    size = min((MASTER_4D_SIZE[0] * 260 / 853) * sc, (MASTER_4D_SIZE[1] * 260 / 1844) * sc) * 2
-    state_w = size * LIVING_EYE_STATE_W / LIVING_EYE_VIRTUAL_SIZE
-    state_h = size * LIVING_EYE_STATE_H / LIVING_EYE_VIRTUAL_SIZE
-    return cx, cy, size, state_w, state_h
-APERTURE_UPPER = [
-    (388,1083),(405,1061),(430,1037),(460,1014),(500,993),(540,978),
-    (580,968),(620,961),(660,957),(700,957),(740,962),(780,973),
-    (820,990),(860,1011),(900,1036),(932,1061),(957,1083),
-]
-APERTURE_LOWER = [
-    (388,1083),(420,1104),(460,1123),(500,1139),(540,1152),(580,1162),
-    (620,1170),(660,1174),(700,1172),(740,1167),(780,1159),(820,1148),
-    (860,1133),(900,1115),(932,1098),(957,1083),
-]
-
-def _interpolate_contour_y(points, x):
-    """Linear Y at X for a monotonic contour; both contours use their union of X values."""
-    if x <= points[0][0]:
-        return float(points[0][1])
-    if x >= points[-1][0]:
-        return float(points[-1][1])
-    for (x0, y0), (x1, y1) in zip(points, points[1:]):
-        if x0 <= x <= x1:
-            if x1 == x0:
-                return float(y1)
-            t = (x - x0) / (x1 - x0)
-            return y0 + (y1 - y0) * t
-    raise AssertionError(f'contour does not cover x={x}')
-
-
-APERTURE_SAMPLES = tuple(
-    (x, _interpolate_contour_y(APERTURE_UPPER, x),
-     _interpolate_contour_y(APERTURE_LOWER, x))
-    for x in sorted({p[0] for p in APERTURE_UPPER} | {p[0] for p in APERTURE_LOWER})
-)
-
-
-def _living_eye_contours(phase, state_left, state_top, state_px):
-    """Upper/lower aperture contours converging on a 70/30 shared seam."""
-    phase = max(0.0, min(1.0, float(phase)))
-    upper, lower = [], []
-    for x, source_upper_y, source_lower_y in APERTURE_SAMPLES:
-        seam_y = source_upper_y + (source_lower_y - source_upper_y) * LIVING_EYE_SEAM_FROM_UPPER
-        current_upper_y = source_upper_y + (seam_y - source_upper_y) * phase
-        current_lower_y = source_lower_y + (seam_y - source_lower_y) * phase
-        px = state_left + (x - 230.0) / LIVING_EYE_STATE_W * state_px[0]
-        upper.append((px, state_top + (current_upper_y - 745.0) / LIVING_EYE_STATE_H * state_px[1]))
-        lower.append((px, state_top + (current_lower_y - 745.0) / LIVING_EYE_STATE_H * state_px[1]))
-    return upper, lower
-
-
-def _living_eye_components(phase):
-    """One open-eye layer clipped by a shrinking aperture, plus a separate emerald seam."""
-    phase = max(0.0, min(1.0, float(phase)))
-    cx, cy, size, state_w, state_h = eye_box()
-    canvas_px = round(size * S)
-    state_px = (round(state_w * S), round(state_h * S))
-    state_left = round((canvas_px - state_px[0]) / 2)
-    state_top = round((canvas_px - state_px[1]) / 2)
-    upper, lower = _living_eye_contours(phase, state_left, state_top, state_px)
-
-    eye_layer = Image.new('RGBA', (canvas_px, canvas_px), (0, 0, 0, 0))
-    source = Image.open(RES / 'mobile_eye_open.webp').convert('RGBA').resize(
-        state_px, Image.Resampling.LANCZOS)
-    eye_layer.alpha_composite(source, (state_left, state_top))
-    source.close()
-
-    aperture = Image.new('L', eye_layer.size, 0)
-    if phase < 1.0:
-        ImageDraw.Draw(aperture).polygon(upper + list(reversed(lower)), fill=255)
-    eye_layer.putalpha(ImageChops.multiply(eye_layer.getchannel('A'), aperture))
-
-    seam = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
-    seam_draw = ImageDraw.Draw(seam, 'RGBA')
-    seam_width = max(1, round(canvas_px * LIVING_EYE_CONTACT_SHADOW_FRACTION))
-    seam_rgb = (6, 20, 9)  # LivingEyeMedallion.kt EYE_CONTACT_SHADOW = #061409
-    upper_colour = (*seam_rgb, round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA))
-    lower_alpha = round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA * (1.0 - phase))
-    seam_draw.line(upper, fill=upper_colour, width=seam_width, joint='curve')
-    if lower_alpha > 0:
-        seam_draw.line(lower, fill=(*seam_rgb, lower_alpha), width=seam_width, joint='curve')
-
-    x = round(cx * S - canvas_px / 2)
-    y = round(cy * S - canvas_px / 2)
-    return eye_layer, seam, aperture, x, y
-
-
-def living_eye_phase_layer(phase):
-    eye_layer, seam, aperture, x, y = _living_eye_components(phase)
-    canvas = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
-    canvas.alpha_composite(eye_layer)
-    canvas.alpha_composite(seam)
-    eye_layer.close()
-    seam.close()
-    aperture.close()
-    return canvas, x, y
-
-
-def living_eye_layer(state):
-    """Static state sampled from the same one-layer aperture animation used at runtime."""
-    phase = {'connected': 0.0, 'connecting': 0.5, 'disconnected': 1.0}[state]
-    return living_eye_phase_layer(phase)
-
-
-def tile(layer, x, y, w, h, label, icf, *, selected=False, locked=False,
-         icon_sp=22, label_min=8, label_max=12, gap=6, bar=False):
-    """–†–µ–∑–Ω–∞—è –ø–ª–∏—Ç–∫–∞: nine-patch frame_button + –∏–∫–æ–Ω–∫–∞ —Å–≤–µ—Ä—Ö—É + –ø–æ–¥–ø–∏—Å—å —Å–Ω–∏–∑—É.
-    –≠—Ç–æ —Ä–æ–≤–Ω–æ HomeTile/ProtocolSector –∏–∑ PhoneHomeControlDeck.kt."""
-    w, h = round(w), round(h)
-    cell = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    cell.alpha_composite(nine(BTN, w, h))
-    cd = ImageDraw.Draw(cell)
-    icon = round(icon_sp * S)
-    bar_h = round(5 * S) if bar else 0
-    block = icon + round(gap * S) + round(label_max * S) + bar_h
-    iy = (h - block) / 2
-    tint = EMER if selected else GOLD
-    icf(cd, (w - icon) / 2, iy, icon, tint)
-    ly = iy + icon + gap * S
-    col = TXT
-    if bar:
-        col = TXT if selected else GOLDM
-    lines = label.split('\n')
-    sp = label_max
-    for line in lines:
-        sp = min(sp, autosize_probe(line, w - 8 * S, SANSB, label_min, label_max))
-    for i, line in enumerate(lines):
-        clip_txt_centered(cell, w / 2, ly + i * sp * 1.15 * S, line, F(SANSB, sp), col, round(w - 8 * S))
-    if bar and selected:
-        by = ly + len(lines) * sp * 1.15 * S + 3 * S
-        bw = SELECTION_BAR_WIDTH * S
-        cd.rounded_rectangle(((w - bw) / 2, by, (w + bw) / 2, by + 2 * S), radius=S, fill=EMER)
-    if locked:
-        cell.putalpha(cell.getchannel('A').point(lambda a: round(a * .72)))
-    layer.alpha_composite(cell, (round(x), round(y)))
-
-def autosize_probe(s, maxw, path, min_sp, max_sp, step_sp=0.5):
-    """–ö–µ–≥–ª—å, –ø—Ä–∏ –∫–æ—Ç–æ—Ä–æ–º —Å—Ç—Ä–æ–∫–∞ –≤–ª–µ–∑–∞–µ—Ç –≤ maxw ‚Äî TextAutoSize.StepBased."""
-    sp = max_sp
-    while sp > min_sp:
-        if F(path, sp).getlength(s) <= maxw:
-            break
-        sp -= step_sp
-    return sp
-
-def clip_txt_centered(layer, cx, y, s, font, fill, maxw):
-    clip_txt(layer, cx - min(font.getlength(s), maxw) / 2, y, s, font, fill, maxw, ellipsis=False)
-
-def autosize_centered(layer, cx, y, s, fill, maxw, path, min_sp, max_sp, step_sp=0.5):
-    """autosize_txt, –Ω–æ –ø–æ —Ü–µ–Ω—Ç—Ä—É ‚Äî TextAlign.Center —É BasicText –≤ –¥–µ–∫–µ."""
-    sp = autosize_probe(s, maxw, path, min_sp, max_sp, step_sp)
-    clip_txt_centered(layer, cx, y, s, F(path, sp), fill, round(maxw))
-    return sp
-
-def pill(layer, x, y, w, h, label, icf, icon_tint):
-    """MobilePremiumButton: —Ä–∞–º–∞ frame_button, –∏–∫–æ–Ω–∫–∞ + –ø–æ–¥–ø–∏—Å—å –≤ —Å—Ç—Ä–æ–∫—É –ø–æ —Ü–µ–Ω—Ç—Ä—É."""
-    w, h = round(w), round(h)
-    cell = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    cell.alpha_composite(nine(BTN, w, h))
-    cd = ImageDraw.Draw(cell)
-    f = F(SANSB, 16)
-    icon = round(22 * S)
-    total = f.getlength(label) + icon + 10 * S
-    bx = (w - total) / 2
-    icf(cd, bx, (h - icon) / 2, icon, icon_tint)
-    txt(cd, (bx + icon + 10 * S, (h - 20 * S) / 2), label, f, TXT)
-    layer.alpha_composite(cell, (round(x), round(y)))
-
-def screen_home(state='connected', deck_scroll_dp=0.0):
-    """state: connected | connecting | disconnected."""
-    ph = home_scene(W, H, deck_scroll_dp).convert('RGBA')
-
-    # ‚îÄ‚îÄ –≥–ª–∞–∑ –∏ —Ç–∏—Ç—É–ª fixed: –æ–Ω–∏ –Ω–µ –ø—Ä–∏–Ω–∞–¥–ª–µ–∂–∞—Ç scroll-owner –Ω–∏–∂–Ω–µ–π –¥–µ–∫–∏.
-    eye, eye_x, eye_y = living_eye_layer(state)
-    ph.alpha_composite(eye, (eye_x, eye_y))
-    eye.close()
-
-
-    lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(lay)
-
-    # ‚îÄ‚îÄ —Ç–∏—Ç—É–ª: –∫–æ–¥–æ–≤—ã–π Playfair –ø–æ –∏–∑–º–µ—Ä–µ–Ω–Ω—ã–º –≥—Ä–∞–Ω–∏—Ü–∞–º —ç—Ç–∞–ª–æ–Ω–∞
-    tl, tt, tr, tb = B['title']
-    # –û–±—ä—ë–º–Ω—ã–π —Ç–∏—Ç—É–ª: –ø—Ä–æ—Ä–µ–∑—å —Å–Ω–∏–∑—É, —Å–≤–µ—Ç–ª–∞—è –∫—Ä–æ–º–∫–∞ —Å–≤–µ—Ä—Ö—É, –≥—Ä–∞–¥–∏–µ–Ω—Ç –ø–æ –≥—Ä–∞–Ω–∏ ‚Äî —Ç–µ –∂–µ —Ç—Ä–∏
-    # —Å–ª–æ—è, —á—Ç–æ –∏ –≤ Mobile4DHome. PIL –Ω–µ —É–º–µ–µ—Ç letterSpacing, –ø–æ—ç—Ç–æ–º—É —à–∞–≥ –∑–∞–¥–∞—ë–º –≤—Ä—É—á–Ω—É—é.
-    tf = F(PLAY, TITLE_SP)
-    text = 'MaestroVPN'
-    adv = [tf.getlength(ch) for ch in text]
-    total = sum(adv) + TITLE_TRACK * S * (len(text) - 1)
-    tx0 = ((tl + tr) / 2) * S - total / 2
-    ty0 = ((tt + tb) / 2) * S
-
-    def draw_title(layer_d, dy, fill):
-        x = tx0
-        for ch, w in zip(text, adv):
-            layer_d.text((x, ty0 + dy), ch, font=tf, fill=fill, anchor='lm')
-            x += w + TITLE_TRACK * S
-
-    draw_title(d, TITLE_CARVE_DEPTH * S, TITLE_CARVE)
-    rim = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    draw_title(ImageDraw.Draw(rim), -TITLE_RIM_LIFT * S, TITLE_RIM + (0x66,))
-    lay.alpha_composite(rim); rim.close()
-    face_mask = Image.new('L', (W, H), 0)
-    draw_title(ImageDraw.Draw(face_mask), 0, 255)
-    bb = face_mask.getbbox()
-    if bb:
-        grad = Image.new('RGB', (1, max(1, bb[3] - bb[1])))
-        gp = grad.load()
-        for i in range(grad.height):
-            t = i / max(1, grad.height - 1)
-            gp[0, i] = tuple(round(a + (b - a) * t) for a, b in zip(TITLE_FACE_TOP, TITLE_FACE_BOT))
-        face = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-        face.paste(grad.resize((bb[2] - bb[0], bb[3] - bb[1])), (bb[0], bb[1]))
-        face.putalpha(face_mask)
-        lay.alpha_composite(face); face.close()
-    ph.alpha_composite(lay)
-    lay.close()
-
-    # –í—Å—ë –Ω–∏–∂–µ deckTop ‚Äî –æ–¥–∏–Ω scroll-owner. –ï–≥–æ —Ç–µ–∫—Å—Ç, hit-area –∏ —Ä–µ–∑–Ω–æ–π relief
-    # –¥–≤–∏–≥–∞—é—Ç—Å—è –Ω–∞ –æ–¥–∏–Ω–∞–∫–æ–≤–æ–µ —á–∏—Å–ª–æ dp –∏ –∫–ª–∏–ø—É—é—Ç—Å—è –ø–æ–¥ –Ω–µ–ø–æ–¥–≤–∏–∂–Ω—ã–º –≥–µ—Ä–æ–µ–º.
-    lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(lay)
-
-
-    # ‚îÄ‚îÄ —Å—Ç–∞—Ç—É—Å + –∞–∫—Ç–∏–≤–Ω—ã–π –ø—Ä–æ—Ç–æ–∫–æ–ª (PhoneStatusRow, –≤–Ω–µ –º–∞—Å–∫–∏ ‚Äî –º–∞—Å–∫–∏ –±–æ–ª—å—à–µ –Ω–µ—Ç –≤–æ–≤—Å–µ)
-    label = {'connected': '–ü–û–î–ö–õ–Æ–ß–ï–ù–û', 'connecting': '–ü–û–î–ö–õ–Æ–ß–ï–ù–ò–ï',
-             'disconnected': '–û–¢–ö–õ–Æ–ß–ï–ù–û'}[state]
-    # –ü—Ä–æ–º–µ–∂—É—Ç–æ—á–Ω–æ–µ —Å–æ—Å—Ç–æ—è–Ω–∏–µ ‚Äî —Å–≤–æ–π —Ü–≤–µ—Ç, –Ω–µ —Ü–≤–µ—Ç –æ—Ç–∫–∞–∑–∞ (—Å–º. PhoneHomeControlDeck).
-    col = {'connected': NEONG, 'connecting': ORANGE, 'disconnected': STATERED}[state]
-    # ‚õî –ü–æ–ª–æ—Å—ã —Å—Ç–∞—Ç—É—Å–∞ –∏ –ø—Ä–æ—Ç–æ–∫–æ–ª–∞ —Å—Ç–æ—è—Ç –ø–æ –°–í–û–ò–ú –≥—Ä–∞–Ω–∏—Ü–∞–º —ç—Ç–∞–ª–æ–Ω–∞ (363‚Äì386 –∏ 386‚Äì406).
-    # –£ –ø—Ä–µ–∂–Ω–µ–≥–æ PhoneStatusRow –±—ã–ª–∞ —Å–≤–æ—è –≤–µ—Ä—Ç–∏–∫–∞–ª—å (padding 6 + spacer 8), –∏ —Å—Ç—Ä–æ–∫–∞
-    # –ø—Ä–æ—Ç–æ–∫–æ–ª–∞ —É–µ–∑–∂–∞–ª–∞ –Ω–∞ 398‚Äì418 ‚Äî –ø–æ–¥ —Ç–µ–ª–µ—Ñ–æ–Ω–Ω—É—é –ø–∏–ª—é–ª—é, –Ω–∞—á–∏–Ω–∞—é—â—É—é—Å—è —Å 402.
-    f_st, f_pr = F(SANSB, 16), F(SANSB, 14)
-    sl, st_, sr, sb = B['status']
-    tw = f_st.getlength(label)
-    dot_x = (W - (tw + 11 * S + 9 * S)) / 2
-    scy = (st_ + sb) / 2 * S
-    circle(d, dot_x + 5.5 * S, scy, 5.5 * S, col)
-    txt(d, (dot_x + 20 * S, scy), label, f_st, col, anchor='lm')
-    proto = {
-        'connected': '–ü–æ–¥–∫–ª—é—á—ë–Ω: VLESS',
-        'connecting': '–ü–æ–¥–∫–ª—é—á–µ–Ω–∏–µ: VLESS',
-        'disconnected': '–û—Ç–∫–ª—é—á—ë–Ω: VLESS',
-    }[state]
-    _, apt, _, apb = B['activeProtocol']
-    txt(d, (W / 2, (apt + apb) / 2 * S), proto, f_pr, ORANGE, anchor='mm')
-
-    # ‚îÄ‚îÄ —Ç–µ–ª–µ—Ñ–æ–Ω –ø–æ–¥–¥–µ—Ä–∂–∫–∏ (–æ—Ä–Ω–∞–º–µ–Ω—Ç 38 dp, —Ü–µ–ª—å –Ω–∞–∂–∞—Ç–∏—è 48 dp)
-    pl, pt, pr_, pb = B['phone']
-    ph_h = pb - pt
-    pill(lay, pl * S, pt * S, (pr_ - pl) * S, ph_h * S,
-         '8 977 811-65-64', ic_phone, EMER)
-
-
-    # ‚îÄ‚îÄ —Ç—Ä–∏ –∫–æ–Ω—Ç–∞–∫—Ç–∞: —Ä–µ–∑—å–±—É –¥–∞—ë—Ç —Å–ª–æ–π `contacts` –∞—Ç–ª–∞—Å–∞, –ø–ª–∏—Ç–∫–∏ –∏–¥—É—Ç –±–µ–∑ —Å–≤–æ–µ–π —Ä–∞–º–∫–∏,
-    # –≥—Ä–∞–Ω–∏—Ü—ã –ø–ª–∏—Ç ‚Äî –∑–∞–º–µ—Ä –ø–æ home_contacts_c.png (—Ä—è–¥ –ù–ï –¥–µ–ª–∏—Ç—Å—è –Ω–∞ —Ç—Ä–∏ —Ä–∞–≤–Ω—ã–µ —á–∞—Å—Ç–∏).
-    CONTACT_PLATES = [(34.1, 134.5), (144.8, 245.2), (255.5, 355.7)]  # –ø–æ –∞–ª—å—Ñ–µ —Å–ª–æ—è
-    CONTACT_TOP, CONTACT_BOTTOM = 521.0, 585.0
-    CONTACT_ICONS = ['contact_telegram', 'contact_max', 'contact_whatsapp']
-    for (px0, px1), name, icon_name in zip(CONTACT_PLATES,
-                                           ['Telegram', '–ú–ê–ö–°', 'WhatsApp'], CONTACT_ICONS):
-        pw, ph_ = px1 - px0, CONTACT_BOTTOM - CONTACT_TOP
-        cell = Image.new('RGBA', (round(pw * S), round(ph_ * S)), (0, 0, 0, 0))
-        # ‚õî –§–∏—Ä–º–µ–Ω–Ω—ã–µ –∏–∫–æ–Ω–∫–∏ –∏–∑ –∫–∏—Ç–∞ –≤–ª–∞–¥–µ–ª—å—Ü–∞, –∞ –Ω–µ Material-–≥–ª–∏—Ñ—ã: —Ç–µ –¥–∞–≤–∞–ª–∏ –ø–ª–æ—Å–∫–∏–π
-        # —Ç—Ä–µ—É–≥–æ–ª—å–Ω–∏–∫ –≤–º–µ—Å—Ç–æ —Å–∞–º–æ–ª—ë—Ç–∏–∫–∞ –∏ –¥–≤–∞ –∫–≤–∞–¥—Ä–∞—Ç–∏–∫–∞ –≤–º–µ—Å—Ç–æ WhatsApp.
-        ic = Image.open(RES / f'{icon_name}.webp').convert('RGBA')
-        isz = round(26 * S)
-        ic = ic.resize((isz, isz), Image.LANCZOS)
-        block = isz + round(6 * S) + round(10.5 * S)
-        iy = round((cell.height - block) / 2)
-        cell.alpha_composite(ic, ((cell.width - isz) // 2, iy))
-        ic.close()
-        autosize_centered(cell, cell.width / 2, iy + isz + 6 * S, name, TXT,
-                          cell.width - 8 * S, SANSB, 8, 10.5)
-        lay.alpha_composite(cell, (round(px0 * S), round(CONTACT_TOP * S)))
-
-    # ‚îÄ‚îÄ —Å–µ–∫—Ç–æ—Ä–∞ –ø—Ä–æ—Ç–æ–∫–æ–ª–æ–≤: —Ä–µ–∑—å–±—É —Ä–∏—Å—É–µ—Ç –ê–†–¢ (—Å–ª–æ–π `arc` –∞—Ç–ª–∞—Å–∞), —Å—é–¥–∞ –∏–¥—É—Ç —Ç–æ–ª—å–∫–æ
-    # –ø–æ–¥–ø–∏—Å—å, –∏–∫–æ–Ω–∫–∞ –∏ –æ—Ç–º–µ—Ç–∫–∞ –≤—ã–±–æ—Ä–∞. –°–≤–æ–µ–π —Ä–∞–º–∫–∏ —É —Å–µ–∫—Ç–æ—Ä–∞ –±–æ–ª—å—à–µ –Ω–µ—Ç ‚Äî –¥–≤–∞ –∫–∞–Ω—Ç–∞
-    # –¥—Ä—É–≥ –Ω–∞ –¥—Ä—É–≥–µ –∏ –±—ã–ª–∏ ¬´–¥–≤–æ–π–Ω—ã–º —Ö–æ–∑—è–∏–Ω–æ–º¬ª –∑–æ–Ω—ã.
-    for i, (tag, name, icf) in enumerate(ARC_PROTOCOLS):
-        cx, cw = ARC_SECTOR_CENTERS[i], ARC_CELL_WIDTHS[i]
-        y, ch = ARC_CELL_TOPS[i], ARC_CELL_HEIGHTS[i]
-        x = cx - cw / 2
-        sel = tag == 'vless'
-        cell = Image.new('RGBA', (round(cw * S), round(ch * S)), (0, 0, 0, 0))
-        cd = ImageDraw.Draw(cell)
-        tint = EMER if sel else GOLD
-        icon = round(20 * S)
-        # —Å–æ–¥–µ—Ä–∂–∏–º–æ–µ —Ü–µ–Ω—Ç—Ä–∏—Ä—É–µ—Ç—Å—è –≤ –ò–ó–ú–ï–†–ï–ù–ù–û–ú –∏–Ω—Ç–µ—Ä—å–µ—Ä–µ, –∞ –Ω–µ –ø—Ä–∏–∂–∏–º–∞–µ—Ç—Å—è –∫ –≤–µ—Ä—Ö—É –∫–æ—Ä–æ–±–∫–∏
-        block = icon + round(4 * S) + round(11 * S) + (round(5 * S) if sel else 0)
-        iy = (cell.height - block) / 2
-        icf(cd, (cell.width - icon) / 2, iy, icon, tint)
-        sp = autosize_centered(cell, cell.width / 2, iy + icon + 4 * S, name,
-                               TXT if sel else GOLDM, cell.width - 6 * S, SANSB, 7, 11)
-        if sel:
-            by = iy + icon + 4 * S + sp * 1.15 * S + 3 * S
-            bw = SELECTION_BAR_WIDTH * S
-            cd.rounded_rectangle(((cell.width - bw) / 2, by, (cell.width + bw) / 2, by + 2 * S),
-                                 radius=S, fill=EMER)
-        if tag == 'olcrtc':
-            cell.putalpha(cell.getchannel('A').point(lambda a: round(a * .72)))
-        lay.alpha_composite(cell, (round(x * S), round(y * S)))
-
-    # ‚îÄ‚îÄ –∫—É–ø–∏—Ç—å –ø–æ–¥–ø–∏—Å–∫—É
-    bl, bt, br, bb = B['buy']
-    bh = bb - bt
-    pill(lay, bl * S, bt * S, (br - bl) * S, bh * S,
-         '–ö—É–ø–∏—Ç—å –ø–æ–¥–ø–∏—Å–∫—É', ic_cart, GOLD)
-
-    # ‚îÄ‚îÄ –Ω–∏–∂–Ω—è—è –∫–æ–Ω—Å–æ–ª—å
-    ll, lt, lr, lb = CONSOLE_LEFT
-    tile(lay, ll * S, lt * S, (lr - ll) * S, (lb - lt) * S,
-         '–í–≤–µ—Å—Ç–∏ –ª–æ–≥–∏–Ω', ic_person, icon_sp=22, label_min=8, label_max=12)
-    rl, rt, rr, rb = CONSOLE_RIGHT
-    tile(lay, rl * S, rt * S, (rr - rl) * S, (rb - rt) * S,
-         '–ü–æ–¥–∫–ª—é—á–∏—Ç—å\n—Ç–µ–ª–µ—Ñ–æ–Ω', ic_smartphone, icon_sp=22, label_min=8, label_max=12)
-    dial_left, dial_top, dial_right, dial_bottom = CONSOLE_DIAL
-    dial = min(dial_right - dial_left, dial_bottom - dial_top)
-    dx = dial_left + (dial_right - dial_left - dial) / 2
-    dy = dial_top + (dial_bottom - dial_top - dial) / 2
-    dl = Image.new('RGBA', (round(dial * S), round(dial * S)), (0, 0, 0, 0))
-    dd = ImageDraw.Draw(dl, 'RGBA')
-    dd.ellipse((0, 0, dial * S - 1, dial * S - 1), fill=LEATHER + (255,),
-               outline=GOLDM, width=round(2 * S))
-    icon = round(24 * S)
-    block = icon + 4 * S + 12 * S
-    iy = (dial * S - block) / 2
-    ic_gear(dd, (dial * S - icon) / 2, iy, icon, GOLD)
-    autosize_centered(dl, dial * S / 2, iy + icon + 4 * S, '–¢–µ—Å—Ç —Å–µ—Ç–∏', TXT,
-                      dial * S - 16 * S, SANSB, 8, 12)
-    lay.alpha_composite(dl, (round(dx * S), round(dy * S)))
-    dl.close()
-
-    moved = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    moved.alpha_composite(lay, (0, -round(deck_scroll_dp * S)))
-    clip_y = round(DECK_TOP * S)
-    visible = moved.crop((0, clip_y, W, H))
-    ph.alpha_composite(visible, (0, clip_y))
-    visible.close()
-    moved.close()
-    lay.close()
-    return ph
-
-
-# ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê –≠–ö–†–ê–ù 2: –æ–ø–ª–∞—Ç–∞ (BuyScreen.PhonePaymentContent) ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê
-def fake_qr(px=216):
-    import random
-    rnd = random.Random(72); n = 29; cell = px // n
-    im = Image.new('RGB', (n * cell, n * cell), 'white'); p = im.load()
-    def sq(x, y, s, v):
-        for i in range(s * cell):
-            for j in range(s * cell): p[x * cell + i, y * cell + j] = v
-    for yy in range(n):
-        for xx in range(n):
-            if rnd.random() < .45: sq(xx, yy, 1, (12, 12, 12))
-    for (fx, fy) in [(0, 0), (n - 7, 0), (0, n - 7)]:
-        sq(fx, fy, 7, (12, 12, 12)); sq(fx + 1, fy + 1, 5, (255,) * 3); sq(fx + 2, fy + 2, 3, (12, 12, 12))
-    return im.resize((px, px), Image.NEAREST)
-
-def screen_pay():
-    ph = cover(f'{str(RES)}/mobile_surface.webp', W, H).convert('RGBA')
-    ph.alpha_composite(Image.new('RGBA', (W, H), (0, 0, 0, 51)))
-    d = ImageDraw.Draw(ph)
-    pad = 18 * S
-    # –∑–∞–≥–æ–ª–æ–≤–æ–∫ MobilePremiumScreen
-    ic_back(d, pad, 22 * S, 26 * S, GOLD)
-    txt(d, (pad + 38 * S, 20 * S), '–ü–æ–∫—É–ø–∫–∞', F(PLAY, 26), GOLD)
-    # –ø–∞–Ω–µ–ª—å
-    py = 72 * S; ph_h = H - py - 26 * S
-    pan = nine(PANEL, W - 2 * pad, ph_h)
-    inner = Image.new('RGBA', (W - 2 * pad, ph_h), (0, 0, 0, 0))
-    inner.alpha_composite(pan)
-    idr = ImageDraw.Draw(inner); cw = inner.width
-    y = 26 * S
-    txt(idr, (cw / 2, y), '–û–ø–ª–∞—Ç–∞', F(PLAY, 23), GOLD, anchor='ma'); y += 32 * S
-    txt(idr, (cw / 2, y), '–°—É–º–º–∞: 450 ‚ÇΩ', F(DEJAB, 20), EMER, anchor='ma'); y += 34 * S
-    # –±–µ–ª–∞—è –∫–∞—Ä—Ç–æ—á–∫–∞ + QR 216dp (mobilePremiumPaymentQrSize)
-    q = 216 * S; card = q + 24 * S
-    cx = (cw - card) / 2
-    idr.rounded_rectangle((cx, y, cx + card, y + card), radius=16 * S, fill=(255, 255, 255))
-    inner.paste(fake_qr(q), (round(cx + 12 * S), round(y + 12 * S)))
-    y += card + 12 * S
-    f_h = F(SANS, 13.5)
-    txt(idr, (cw / 2, y), '–û—Ç—Å–∫–∞–Ω–∏—Ä—É–π—Ç–µ —Ç–µ–ª–µ—Ñ–æ–Ω–æ–º ‚Äî –æ—Ç–∫—Ä–æ–µ—Ç—Å—è –æ–ø–ª–∞—Ç–∞', f_h, TXT, anchor='ma')
-    y += 19 * S
-    txt(idr, (cw / 2, y), '(–°–ë–ü –∏–ª–∏ –∫–∞—Ä—Ç–æ–π, –∏–∑ –ª—é–±–æ–≥–æ –±–∞–Ω–∫–∞)', f_h, TXT, anchor='ma'); y += 26 * S
-    for label in ['–û—Ç–∫—Ä—ã—Ç—å —Å—Ç—Ä–∞–Ω–∏—Ü—É –æ–ø–ª–∞—Ç—ã']:
-        bh = 50 * S; bw = cw - 44 * S
-        b = Image.new('RGBA', (bw, bh), (0, 0, 0, 0)); b.alpha_composite(nine(BTN, bw, bh))
-        txt(ImageDraw.Draw(b), (bw / 2, (bh - 20 * S) / 2), label, F(SANSB, 16), TXT, anchor='ma')
-        inner.alpha_composite(b, (round((cw - bw) / 2), round(y))); y += bh + 14 * S
-    txt(idr, (cw / 2, y), '–ö–æ–¥ –∑–∞–∫–∞–∑–∞ (—É–∫–∞–∂–∏—Ç–µ –≤ —Å–æ–æ–±—â–µ–Ω–∏–∏ –∫ –ø–µ—Ä–µ–≤–æ–¥—É):', f_h, TXT, anchor='ma')
-    y += 22 * S
-    txt(idr, (cw / 2, y), 'A1B2C3', F(PLAY, 26), EMER, anchor='ma'); y += 38 * S
-    txt(idr, (cw / 2, y), '–ò–ª–∏ –≤—Ä—É—á–Ω—É—é –ø–æ –°–ë–ü: +7 977 811-65-64', f_h, TXT, anchor='ma'); y += 30 * S
-    bh = 50 * S; bw = 240 * S
-    b = Image.new('RGBA', (bw, bh), (0, 0, 0, 0)); b.alpha_composite(nine(BTN, bw, bh))
-    txt(ImageDraw.Draw(b), (bw / 2, (bh - 20 * S) / 2), '–Ø –æ–ø–ª–∞—Ç–∏–ª', F(SANSB, 16), TXT, anchor='ma')
-    inner.alpha_composite(b, (round((cw - bw) / 2), round(y))); y += bh + 14 * S
-    f_m = F(SANS, 12.5)
-    for line in ['–ü–æ—Å–ª–µ –Ω–∞–∂–∞—Ç–∏—è –∑–∞—è–≤–∫–∞ —É–π–¥—ë—Ç –≤–ª–∞–¥–µ–ª—å—Ü—É.',
-                 '–ü–æ–¥–ø–∏—Å–∫–∞ –∞–∫—Ç–∏–≤–∏—Ä—É–µ—Ç—Å—è –ø–æ—Å–ª–µ –ø–æ–¥—Ç–≤–µ—Ä–∂–¥–µ–Ω–∏—è ‚Äî', '–æ—Å—Ç–∞–≤—å—Ç–µ —ç–∫—Ä–∞–Ω –æ—Ç–∫—Ä—ã—Ç—ã–º.']:
-        txt(idr, (cw / 2, y), line, f_m, TXTM, anchor='ma'); y += 18 * S
-    ph.alpha_composite(inner, (round(pad), round(py)))
-    return ph
-
-# ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê –≠–ö–†–ê–ù 3: –æ—à–∏–±–∫–∞ –∞–∫—Ç–∏–≤–∞—Ü–∏–∏ (ClaimScreen + MobilePremiumError) ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê
-def screen_err():
-    ph = cover(f'{str(RES)}/mobile_surface.webp', W, H).convert('RGBA')
-    ph.alpha_composite(Image.new('RGBA', (W, H), (0, 0, 0, 51)))
-    d = ImageDraw.Draw(ph)
-    pad = 18 * S
-    ic_back(d, pad, 22 * S, 26 * S, GOLD)
-    txt(d, (pad + 38 * S, 18 * S), '–ê–∫—Ç–∏–≤–∞—Ü–∏—è –ø–æ–¥–ø–∏—Å–∫–∏', F(PLAY, 24), GOLD)
-    # –ø–æ–ª–µ –≤–≤–æ–¥–∞ MobilePremiumTextField (frame_bar) ‚Äî –Ω–∏–∂–µ —Ä–µ–∑–Ω–æ–≥–æ –æ—Ä–Ω–∞–º–µ–Ω—Ç–∞ —Å—Ü–µ–Ω—ã
-    y = 104 * S; fh = 54 * S
-    fld = Image.new('RGBA', (W - 2 * pad, fh), (0, 0, 0, 0))
-    fld.alpha_composite(nine(BAR, W - 2 * pad, fh))
-    txt(ImageDraw.Draw(fld), (22 * S, (fh - 20 * S) / 2), '–ö–æ–¥ –∏–ª–∏ –ª–æ–≥–∏–Ω', F(SANS, 16), TXTM)
-    ph.alpha_composite(fld, (round(pad), round(y)))
-    y += fh + 16 * S
-    # –ø–∞–Ω–µ–ª—å –æ—à–∏–±–∫–∏
-    ph_h = 300 * S
-    pan = Image.new('RGBA', (W - 2 * pad, ph_h), (0, 0, 0, 0))
-    pan.alpha_composite(nine(PANEL, W - 2 * pad, ph_h))
-    pd = ImageDraw.Draw(pan); cw = pan.width
-    iy = 40 * S
-    ic_err(pd, (cw - 52 * S) / 2, iy, 52 * S, RUBY); iy += 52 * S + 18 * S
-    txt(pd, (cw / 2, iy), '–û—à–∏–±–∫–∞: –ö–æ–¥ –Ω–µ –Ω–∞–π–¥–µ–Ω', F(SANS, 17), RUBY, anchor='ma')
-    iy += 26 * S + 18 * S
-    bh = 50 * S; bw = cw - 44 * S
-    b = Image.new('RGBA', (bw, bh), (0, 0, 0, 0)); b.alpha_composite(nine(BTN, bw, bh))
-    txt(ImageDraw.Draw(b), (bw / 2, (bh - 20 * S) / 2), '–ü–æ–≤—Ç–æ—Ä–∏—Ç—å', F(SANSB, 16), TXT, anchor='ma')
-    pan.alpha_composite(b, (round((cw - bw) / 2), round(iy)))
-    ph.alpha_composite(pan, (round(pad), round(y)))
-    return ph, y + 200 * S
-
-# ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê —Å–±–æ—Ä–∫–∞ –ª–∏—Å—Ç–æ–≤ ‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê‚ïê
-def rounded(im, rad):
-    m = Image.new('L', im.size, 0)
-    ImageDraw.Draw(m).rounded_rectangle((0, 0, im.width - 1, im.height - 1), radius=rad, fill=255)
-    o = im.copy(); o.putalpha(m); return o
-
-STATES = ('connected', 'connecting', 'disconnected')
-STATE_RU = {'connected': '–ü–û–î–ö–õ–Æ–ß–ï–ù–û ‚Äî –≥–ª–∞–∑ –æ—Ç–∫—Ä—ã—Ç',
-            'connecting': '–ü–û–î–ö–õ–Æ–ß–ï–ù–ò–ï ‚Äî –≥–ª–∞–∑ –ø–æ–ª—É–æ—Ç–∫—Ä—ã—Ç',
-            'disconnected': '–û–¢–ö–õ–Æ–ß–ï–ù–û ‚Äî –≥–ª–∞–∑ –ø–æ–ª–Ω–æ—Å—Ç—å—é –∑–∞–∫—Ä—ã—Ç'}
-
-homes = {}
-SCROLL_PROOF_DP = 64.0
-SCROLLED = str(OUTDIR / 'owner-home-connected-scrolled.png')
-if not EYE_PHASES_ONLY:
-    for st in STATES:
-        im = screen_home(st)
-        homes[st] = im
-        im.convert('RGB').save(OUTDIR / f'owner-home-{st}.png', 'PNG', optimize=True)
-    home_scrolled = screen_home('connected', SCROLL_PROOF_DP)
-    home_scrolled.convert('RGB').save(SCROLLED, 'PNG', optimize=True)
-else:
-    home_scrolled = None
-
-# ‚îÄ‚îÄ –¥–µ—Ç–µ—Ä–º–∏–Ω–∏—Ä–æ–≤–∞–Ω–Ω—ã–π close-up –ø—è—Ç–∏ —Ñ–∞–∑: –æ–¥–Ω–∞ –º–æ–∑–∞–∏–∫–∞, –æ–¥–∏–Ω open-eye, –¥–∏–Ω–∞–º–∏—á–µ—Å–∫–∞—è —â–µ–ª—å
-EYE_PHASES = (0.0, 0.25, 0.5, 0.75, 1.0)
-EYE_PHASE_CARD = 360
-EYE_PHASE_GAP = 16
-EYE_PHASE_MARGIN = 24
-EYE_PHASE_HEADER = 86
-eye_phase_sheet = Image.new(
-    'RGB',
-    (EYE_PHASE_MARGIN * 2 + EYE_PHASE_CARD * len(EYE_PHASES)
-     + EYE_PHASE_GAP * (len(EYE_PHASES) - 1), EYE_PHASE_HEADER + EYE_PHASE_CARD + 56),
-    (13, 9, 6),
-)
-eye_phase_draw = ImageDraw.Draw(eye_phase_sheet)
-txt(eye_phase_draw, (eye_phase_sheet.width / 2, 18),
-    '–ì–ª–∞–∑ + –º–æ–∑–∞–∏–∫–∞ ‚Äî –µ–¥–∏–Ω–∞—è –º–∞—Å–∫–∞ –º–æ—Ä–≥–∞–Ω–∏—è', F(PLAY, 18), GOLD, anchor='ma')
-txt(eye_phase_draw, (eye_phase_sheet.width / 2, 50),
-    'mobile_eye_open –∫–ª–∏–ø—É–µ—Ç—Å—è —â–µ–ª—å—é; –ø—Ä–∏ phase=1 –æ—Å—Ç–∞—é—Ç—Å—è –±–∞–∑–æ–≤–∞—è –º–æ–∑–∞–∏–∫–∞ –∏ —Ç–æ–Ω–∫–∏–π –∏–∑—É–º—Ä—É–¥–Ω—ã–π —à–æ–≤.',
-    F(SANS, 10), TXTM, anchor='ma')
-eye_phase_base = home_scene(W, H, 0.0).convert('RGBA')
-cx, cy, _, _, _ = eye_box()
-eye_phase_half_crop = round(180 * S)
-eye_phase_crop_box = (
-    round(cx * S) - eye_phase_half_crop,
-    round(cy * S) - eye_phase_half_crop,
-    round(cx * S) + eye_phase_half_crop,
-    round(cy * S) + eye_phase_half_crop,
-)
-for index, phase in enumerate(EYE_PHASES):
-    eye_layer, seam, aperture, eye_x, eye_y = _living_eye_components(phase)
-    combined = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
-    combined.alpha_composite(eye_layer)
-    combined.alpha_composite(seam)
-
-    seam_mask = seam.getchannel('A').point(lambda alpha: 255 if alpha else 0)
-    allowed_mask = ImageChops.lighter(aperture, seam_mask)
-    outside_mask = ImageChops.invert(allowed_mask)
-    assert ImageChops.multiply(combined.getchannel('A'), outside_mask).getbbox() is None, \
-        f'phase={phase}: eye overlay leaked outside aperture/seam'
-    if phase == 1.0:
-        assert eye_layer.getchannel('A').getbbox() is None, \
-            'closed phase must have zero open-eye alpha'
-        assert ImageChops.difference(combined.getchannel('A'), seam.getchannel('A')).getbbox() is None, \
-            'closed phase must contain only the emerald seam overlay'
-
-    frame = eye_phase_base.copy()
-    frame.alpha_composite(combined, (eye_x, eye_y))
-    before = eye_phase_base.crop((eye_x, eye_y, eye_x + combined.width, eye_y + combined.height))
-    after = frame.crop((eye_x, eye_y, eye_x + combined.width, eye_y + combined.height))
-    colour_diff = ImageChops.difference(before.convert('RGB'), after.convert('RGB'))
-    assert all(ImageChops.multiply(channel, outside_mask).getbbox() is None
-               for channel in colour_diff.split()), \
-        f'phase={phase}: base mosaic changed outside aperture/seam'
-
-    crop = frame.crop(eye_phase_crop_box).convert('RGB').resize(
-        (EYE_PHASE_CARD, EYE_PHASE_CARD), Image.Resampling.LANCZOS)
-    x = EYE_PHASE_MARGIN + index * (EYE_PHASE_CARD + EYE_PHASE_GAP)
-    eye_phase_draw.rectangle((x - 2, EYE_PHASE_HEADER - 2,
-                              x + EYE_PHASE_CARD + 1, EYE_PHASE_HEADER + EYE_PHASE_CARD + 1),
-                             fill=(75, 57, 34))
-    eye_phase_sheet.paste(crop, (x, EYE_PHASE_HEADER))
-    txt(eye_phase_draw, (x + EYE_PHASE_CARD / 2, EYE_PHASE_HEADER + EYE_PHASE_CARD + 16),
-        f'phase {phase:.2f}', F(SANSB, 12), GOLD, anchor='ma')
-    crop.close(); before.close(); after.close(); frame.close(); colour_diff.close()
-    allowed_mask.close(); outside_mask.close(); seam_mask.close()
-    combined.close(); eye_layer.close(); seam.close(); aperture.close()
-eye_phase_base.close()
-EYE_PHASE_SHEET = str(OUTDIR / 'owner-eye-blink-phases.png')
-eye_phase_sheet.save(EYE_PHASE_SHEET, 'PNG', optimize=True)
-EYE_PHASE_SHEET_QA = str(OUTDIR / 'owner-eye-blink-phases-qa.jpg')
-eye_phase_qa_width = 600
-eye_phase_qa = eye_phase_sheet.resize(
-    (eye_phase_qa_width, round(eye_phase_sheet.height * eye_phase_qa_width / eye_phase_sheet.width)),
-    Image.Resampling.LANCZOS,
-)
-eye_phase_qa.save(EYE_PHASE_SHEET_QA, 'JPEG', quality=55, optimize=True)
-eye_phase_qa.close()
-eye_phase_sheet.close()
-if EYE_PHASES_ONLY:
-    print('OK', EYE_PHASE_SHEET, f'{os.path.getsize(EYE_PHASE_SHEET)/1024:.0f} KB')
-    print('OK', EYE_PHASE_SHEET_QA, f'{os.path.getsize(EYE_PHASE_SHEET_QA)/1024:.0f} KB')
-    raise SystemExit(0)
-
-# ‚îÄ‚îÄ –¥–æ—Å–∫–∞ —Å—Ä–∞–≤–Ω–µ–Ω–∏—è: —ç—Ç–∞–ª–æ–Ω –≤–ª–∞–¥–µ–ª—å—Ü–∞ —Å–ª–µ–≤–∞, —Å–∏–º—É–ª—è—Ü–∏—è —Ç–æ–≥–æ –∂–µ –≤—å—é–ø–æ—Ä—Ç–∞ —Å–ø—Ä–∞–≤–∞
-ref = Image.open(REF_JPG).convert('RGB').resize((W, H), Image.LANCZOS)
-CGAP = 46 * S; CMARG = 40 * S; CTOP = 168 * S; CCAP = 96 * S
-cb_w = CMARG * 2 + W * 2 + CGAP
-cb_h = CTOP + H + CCAP
-board = Image.new('RGB', (cb_w, cb_h), (13, 9, 6))
-bd = ImageDraw.Draw(board)
-txt(bd, (cb_w / 2, 34 * S), 'MaestroVPN Home ‚Äî —ç—Ç–∞–ª–æ–Ω –≤–ª–∞–¥–µ–ª—å—Ü–∞ –ø—Ä–æ—Ç–∏–≤ —Å–∏–º—É–ª—è—Ü–∏–∏',
-    F(PLAY, 30), GOLD, anchor='ma')
-for i, line in enumerate([
-        '–°–ª–µ–≤–∞ ‚Äî 04-owner-selected-home-2026-07-31.jpg, –ø—Ä–∏–≤–µ–¥—ë–Ω–Ω—ã–π –∫ 390√ó844. –°–ø—Ä–∞–≤–∞ ‚Äî —Å–∏–º—É–ª—è—Ü–∏—è –ø–æ —á–∏—Å–ª–∞–º',
-        'PhoneHomeReferenceLayout.kt –∏ PhoneHomeControlDeck.kt –Ω–∞ –ü–û–î–õ–ò–ù–ù–´–• –∞—Å—Å–µ—Ç–∞—Ö —Ä–µ–ø–æ–∑–∏—Ç–æ—Ä–∏—è (—Ü–µ–Ω—Ç—Ä–∞–ª—å–Ω—ã–π',
-        '—Å–≤–µ—Ç 4D-–∞—Ç–ª–∞—Å–∞ –∏–∑ 8 relief-—Å–ª–æ—ë–≤, Playfair). –≠—Ç–æ –ù–ï —Å–∫—Ä–∏–Ω—à–æ—Ç: –≥–ª–∞–∑ —Å—Ç–∞—Ç–∏—á–µ–Ω, –Ω–∞–∫–ª–æ–Ω–∞ –∏ –ø–∞—Ä–∞–ª–ª–∞–∫—Å–∞ –Ω–µ—Ç.',
-        '–†–µ–∑—å–±–∞ –¥—É–≥–∏ –∏ –∫–æ–Ω—Å–æ–ª–∏ ‚Äî –Ω–∞—Å—Ç–æ—è—â–∏–π –∞—Ä—Ç –∏–∑ –∞—Ç–ª–∞—Å–∞; –∫–æ–¥ —Ä–∏—Å—É–µ—Ç —Ç–æ–ª—å–∫–æ –ø–æ–¥–ø–∏—Å–∏, –∏–∫–æ–Ω–∫–∏ –∏ –≤—ã–±–æ—Ä.']):
-    txt(bd, (cb_w / 2, (80 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
-for x, im, cap in ((CMARG, ref, '–≠—Ç–∞–ª–æ–Ω –≤–ª–∞–¥–µ–ª—å—Ü–∞'),
-                   (CMARG + W + CGAP, homes['connected'].convert('RGB'), '–°–∏–º—É–ª—è—Ü–∏—è –ü–û–î–ö–õ–Æ–ß–ï–ù–û')):
-    card = rounded(im, 38 * S)
-    bd.rounded_rectangle((x - 3 * S, CTOP - 3 * S, x + W + 3 * S, CTOP + H + 3 * S),
-                         radius=41 * S, fill=(58, 44, 28))
-    board.paste(card, (round(x), round(CTOP)), card)
-    txt(bd, (x + W / 2, CTOP + H + 24 * S), cap, F(PLAY, 20), GOLD, anchor='ma')
-board = board.resize((cb_w // 2, cb_h // 2), Image.LANCZOS)
-BOARD = str(OUTDIR / 'owner-home-comparison.png')
-board.save(BOARD, 'PNG', optimize=True)
-BOARD_JPG = str(OUTDIR / 'owner-home-comparison-qa.jpg')
-board_qa = board.resize((450, round(board.height * 450 / board.width)), Image.LANCZOS)
-board_qa.save(BOARD_JPG, 'JPEG', quality=42, optimize=True)
-board_qa.close()
-
-# ‚îÄ‚îÄ –¥–æ–∫–∞–∑–∞—Ç–µ–ª—å—Å—Ç–≤–æ –æ–±—â–µ–≥–æ scroll-owner: –≤–µ—Ä—Ö –æ–¥–∏–Ω–∞–∫–æ–≤, relief –∏ –ø–æ–¥–ø–∏—Å–∏ –µ–¥—É—Ç –≤–º–µ—Å—Ç–µ
-SGAP = 46 * S; SMARG = 40 * S; STOP = 142 * S; SCAP = 82 * S
-scroll_w = SMARG * 2 + W * 2 + SGAP
-scroll_h = STOP + H + SCAP
-scroll_board = Image.new('RGB', (scroll_w, scroll_h), (13, 9, 6))
-sbd = ImageDraw.Draw(scroll_board)
-txt(sbd, (scroll_w / 2, 30 * S), 'Home ‚Äî fixed hero –∏ –µ–¥–∏–Ω—ã–π —Å–∫—Ä–æ–ª–ª –Ω–∏–∂–Ω–µ–π –¥–µ–∫–∏',
-    F(PLAY, 28), GOLD, anchor='ma')
-for i, line in enumerate([
-        '–°–ª–µ–≤–∞ ‚Äî –Ω–∞—á–∞–ª–æ. –°–ø—Ä–∞–≤–∞ ‚Äî +64 dp: –ª–æ–≥–æ—Ç–∏–ø, –∫–æ–ª—å—Ü–æ –∏ –≥–ª–∞–∑ –æ—Å—Ç–∞—é—Ç—Å—è –Ω–∞ –º–µ—Å—Ç–µ;',
-        'arc / contacts / console –∏ –≤—Å–µ –∏—Ö –ø–æ–¥–ø–∏—Å–∏ —Å–º–µ—â–∞—é—Ç—Å—è –Ω–∞ –æ–¥–Ω–æ –∑–Ω–∞—á–µ–Ω–∏–µ –∏ –∫–ª–∏–ø—É—é—Ç—Å—è –ø–æ–¥ –≥–µ—Ä–æ–µ–º.']):
-    txt(sbd, (scroll_w / 2, (72 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
-for x, im, cap in ((SMARG, homes['connected'].convert('RGB'), '–ù–∞—á–∞–ª–æ –¥–µ–∫–∏'),
-                   (SMARG + W + SGAP, home_scrolled.convert('RGB'), '–î–µ–∫–∞ –ø—Ä–æ–∫—Ä—É—á–µ–Ω–∞ –Ω–∞ 64 dp')):
-    card = rounded(im, 38 * S)
-    sbd.rounded_rectangle((x - 3 * S, STOP - 3 * S, x + W + 3 * S, STOP + H + 3 * S),
-                          radius=41 * S, fill=(58, 44, 28))
-    scroll_board.paste(card, (round(x), round(STOP)), card)
-    txt(sbd, (x + W / 2, STOP + H + 24 * S), cap, F(PLAY, 20), GOLD, anchor='ma')
-scroll_board = scroll_board.resize((scroll_w // 2, scroll_h // 2), Image.LANCZOS)
-SCROLL_BOARD = str(OUTDIR / 'owner-home-scroll-proof.png')
-scroll_board.save(SCROLL_BOARD, 'PNG', optimize=True)
-SCROLL_BOARD_JPG = str(OUTDIR / 'owner-home-scroll-proof-qa.jpg')
-scroll_board_qa = scroll_board.resize((450, round(scroll_board.height * 450 / scroll_board.width)), Image.LANCZOS)
-scroll_board_qa.save(SCROLL_BOARD_JPG, 'JPEG', quality=42, optimize=True)
-scroll_board_qa.close()
-
-
-# ‚îÄ‚îÄ –ª–∏—Å—Ç —Ç—Ä—ë—Ö —Å–æ—Å—Ç–æ—è–Ω–∏–π –≥–ª–∞–∑–∞
-GAP = 46 * S; MARG = 40 * S; TOPH = 150 * S; CAPH = 118 * S
-sheet_w = MARG * 2 + W * 3 + GAP * 2
-sheet_h = TOPH + H + CAPH + 30 * S
-sheet = Image.new('RGB', (sheet_w, sheet_h), (13, 9, 6))
-glow = Image.new('RGB', (sheet_w, sheet_h), (13, 9, 6))
-ImageDraw.Draw(glow).ellipse((sheet_w * .15, -sheet_h * .35, sheet_w * .85, sheet_h * .45),
-                             fill=(38, 27, 18))
-sheet = Image.blend(sheet, glow.filter(ImageFilter.GaussianBlur(160)), .85)
-sd = ImageDraw.Draw(sheet)
-txt(sd, (sheet_w / 2, 34 * S), 'MaestroVPN ‚Äî Home, —Ç—Ä–∏ —Å–æ—Å—Ç–æ—è–Ω–∏—è –≥–ª–∞–∑–∞ (—Å–∏–º—É–ª—è—Ü–∏—è)',
-    F(PLAY, 30), GOLD, anchor='ma')
-for i, line in enumerate([
-        '–ù–µ–ø–æ–¥–≤–∏–∂–Ω—ã: –ª–æ–≥–æ—Ç–∏–ø, –º–µ–¥–∞–ª—å–æ–Ω, –º–æ–∑–∞–∏–∫–∞ –∏ –∂–∏–≤–æ–π –≥–ª–∞–∑. –ù–∏–∂–µ –∏–¥—É—Ç —Å—Ç–∞—Ç—É—Å –∏ –∞–∫—Ç–∏–≤–Ω—ã–π –ø—Ä–æ—Ç–æ–∫–æ–ª,',
-        '—Ç–µ–ª–µ—Ñ–æ–Ω, Telegram / –ú–ê–ö–° / WhatsApp, –¥—É–≥–∞ –ø—Ä–æ—Ç–æ–∫–æ–ª–æ–≤, –ø–æ–∫—É–ø–∫–∞ –∏ –Ω–∏–∂–Ω—è—è –∫–æ–Ω—Å–æ–ª—å.',
-        '–ù–∏–∂–Ω—è—è –¥–µ–∫–∞ –∏–º–µ–µ—Ç –æ–¥–∏–Ω scroll-owner –¥–ª—è —Ä–µ–ª—å–µ—Ñ–∞, –ø–ª–∏—Ç–æ–∫, –∏–∫–æ–Ω–æ–∫ –∏ —Ç–µ–∫—Å—Ç–∞. –°—Ç–∞—Ä–æ–≥–æ –±–∞—Ä–∞–±–∞–Ω–∞,',
-        '—Å–Ω—ç–ø–∞, –Ω–∞–∫–ª–æ–Ω–∞ —Ä—è–¥–æ–≤ –∏ –≥—Ä–∞–¥–∏–µ–Ω—Ç–Ω–æ–π –º–∞—Å–∫–∏ –±–æ–ª—å—à–µ –Ω–µ—Ç.']):
-    txt(sd, (sheet_w / 2, (78 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
-xs = [MARG, MARG + W + GAP, MARG + (W + GAP) * 2]
-for x, st in zip(xs, STATES):
-    im = homes[st].convert('RGB')
-    card = rounded(im, 38 * S)
-    sd.rounded_rectangle((x - 3 * S, TOPH - 3 * S, x + W + 3 * S, TOPH + H + 3 * S),
-                         radius=41 * S, fill=(58, 44, 28))
-    sheet.paste(card, (round(x), round(TOPH)), card)
-    txt(sd, (x + W / 2, TOPH + H + 26 * S), STATE_RU[st], F(PLAY, 18), GOLD, anchor='ma')
-sheet = sheet.resize((sheet_w // 2, sheet_h // 2), Image.LANCZOS)
-sheet.save(OUT, 'PNG', optimize=True)
-
-for name in [OUT, BOARD, SCROLLED, SCROLL_BOARD, EYE_PHASE_SHEET] + [
-        str(OUTDIR / f'owner-home-{st}.png') for st in STATES]:
-    print('OK', name, f'{os.path.getsize(name)/1024:.0f} KB')
+    d.ellipse(◊N˝Ú⁄$z{-ÆÈ‹j◊ù¢f˜"∆&V¬ñ‚≤}	Ì-≠Ω-¬-›çm2Ì˝Ω-≤u”†–¢&Ç“S¢3≤'r“7r“CB¢0–¢"“ñ÷vRÊÊWrÇu$t$r¬Ü'r¬&Çí¬É¬¬¬íì≤"Ê«Üˆ6ˆ◊˜6óFRÜÊñÊRÑ%D‚¬'r¬&Çíê–¢GáBÑñ÷vTG&r‰G&rÜ"í¬Ü'rÚ"¬Ü&Ç“#¢2íÚ"í¬∆&V¬¬bÖ4Â4"¬bí¬EÖB¬Ê6Ü˜#“v÷rê–¢ñÊÊW"Ê«Üˆ6ˆ◊˜6óFRÜ"¬á&˜VÊBÇÜ7r“'ríÚ"í¬&˜VÊBáíííì≤í≥“&Ç≤B¢0–¢GáBÜñG"¬Ü7rÚ"¬íí¬}	≠ÌB}≠}ç=≠mç-R"ÌÌù]›çÇ¢˝]]-ÌM2ì¢r¬eˆÇ¬EÖB¬Ê6Ü˜#“v÷rê–¢í≥“#"¢0–¢GáBÜñG"¬Ü7rÚ"¬íí¬t#$32r¬bÖƒí¬#bí¬T‘U"¬Ê6Ü˜#“v÷rì≤í≥“3Ç¢0–¢GáBÜñG"¬Ü7rÚ"¬íí¬}	çΩÇ-=}›=‚˝‚
+		Û¢≥rìsrÉ”cR”cBr¬eˆÇ¬EÖB¬Ê6Ü˜#“v÷rì≤í≥“3¢0–¢&Ç“S¢3≤'r“#C¢0–¢"“ñ÷vRÊÊWrÇu$t$r¬Ü'r¬&Çí¬É¬¬¬íì≤"Ê«Üˆ6ˆ◊˜6óFRÜÊñÊRÑ%D‚¬'r¬&Çíê–¢GáBÑñ÷vTG&r‰G&rÜ"í¬Ü'rÚ"¬Ü&Ç“#¢2íÚ"í¬}
+ÚÌ˝Ω-ç≤r¬bÖ4Â4"¬bí¬EÖB¬Ê6Ü˜#“v÷rê–¢ñÊÊW"Ê«Üˆ6ˆ◊˜6óFRÜ"¬á&˜VÊBÇÜ7r“'ríÚ"í¬&˜VÊBáíííì≤í≥“&Ç≤B¢0–¢eˆ““bÖ4Â2¬"„Rê–¢f˜"∆ñÊRñ‚≤}	˝ÌΩR›m-çÚ}˝-≠=ùM"-ΩM]ΩÕm2‚r¿–¢}	˝ÌM˝ç≠≠-ç-ç=]-Ú˝ÌΩR˝ÌM--]mM]›çÚ(	Br¬}Ì--Õ-R›≠“Ì-≠Ω-Ω¬‚u”†–¢GáBÜñG"¬Ü7rÚ"¬íí¬∆ñÊR¬eˆ“¬EÖD“¬Ê6Ü˜#“v÷rì≤í≥“Ç¢0–¢ÇÊ«Üˆ6ˆ◊˜6óFRÜñÊÊW"¬á&˜VÊBáBí¬&˜VÊBáíííê–¢&WGW&‚Ä–†–¢2)Y)Y)Y)Y)Y)Y)Y)Y)Y
+›	≠
+		“3¢Ìçç≠≠-ç-mçÇÑ6∆ñ’67&VV‚≤÷ˆ&ñ∆U&V÷óV‘W'&˜"í)Y)Y)Y)Y)Y)Y)Y)Y)Y –¶FVb67&VVÂˆW'"Çì†–¢Ç“6˜fW"Übw∑7G"Ö$U2ó“ˆ÷ˆ&ñ∆U˜7W&f6RÁvV'r¬r¬ÇíÊ6ˆÁfW'BÇu$t$rê–¢ÇÊ«Üˆ6ˆ◊˜6óFRÑñ÷vRÊÊWrÇu$t$r¬Ör¬Çí¬É¬¬¬Sííê–¢B“ñ÷vTG&r‰G&ráÇê–¢B“Ç¢0–¢ñ5ˆ&6≤ÜB¬B¬#"¢2¬#b¢2¬tÙƒBê–¢GáBÜB¬áB≤3Ç¢2¬Ç¢2í¬}	≠-ç-mçÚ˝ÌM˝ç≠Çr¬bÖƒí¬#Bí¬tÙƒBê–¢2˝ÌΩR--ÌM÷ˆ&ñ∆U&V÷óV’FWáDfñV∆BÜg&÷Uˆ&"í(	B›çmR]}›Ì=‚Ì›Õ]›-m]›∞–¢í“B¢3≤fÇ“SB¢0–¢f∆B“ñ÷vRÊÊWrÇu$t$r¬Ör“"¢B¬fÇí¬É¬¬¬íê–¢f∆BÊ«Üˆ6ˆ◊˜6óFRÜÊñÊRÑ$"¬r“"¢B¬fÇíê–¢GáBÑñ÷vTG&r‰G&rÜf∆Bí¬É#"¢2¬ÜfÇ“#¢2íÚ"í¬}	≠ÌBçΩÇΩÌ=ç“r¬bÖ4Â2¬bí¬EÖD“ê–¢ÇÊ«Üˆ6ˆ◊˜6óFRÜf∆B¬á&˜VÊBáBí¬&˜VÊBáíííê–¢í≥“fÇ≤b¢0–¢2˝›]Ω¬Ìçç≠Ä–¢ÖˆÇ“3¢0–¢‚“ñ÷vRÊÊWrÇu$t$r¬Ör“"¢B¬ÖˆÇí¬É¬¬¬íê–¢‚Ê«Üˆ6ˆ◊˜6óFRÜÊñÊRÖ‰T¬¬r“"¢B¬ÖˆÇíê–¢B“ñ÷vTG&r‰G&rá‚ì≤7r“‚ÁvñGFÄ–¢óí“C¢0–¢ñ5ˆW'"áB¬Ü7r“S"¢2íÚ"¬óí¬S"¢2¬%T%íì≤óí≥“S"¢2≤Ç¢0–¢GáBáB¬Ü7rÚ"¬óíí¬}	Ìçç≠¢	≠ÌB›R›ùM]“r¬bÖ4Â2¬rí¬%T%í¬Ê6Ü˜#“v÷rê–¢óí≥“#b¢2≤Ç¢0–¢&Ç“S¢3≤'r“7r“CB¢0–¢"“ñ÷vRÊÊWrÇu$t$r¬Ü'r¬&Çí¬É¬¬¬íì≤"Ê«Üˆ6ˆ◊˜6óFRÜÊñÊRÑ%D‚¬'r¬&Çíê–¢GáBÑñ÷vTG&r‰G&rÜ"í¬Ü'rÚ"¬Ü&Ç“#¢2íÚ"í¬}	˝Ì--Ìç-¬r¬bÖ4Â4"¬bí¬EÖB¬Ê6Ü˜#“v÷rê–¢‚Ê«Üˆ6ˆ◊˜6óFRÜ"¬á&˜VÊBÇÜ7r“'ríÚ"í¬&˜VÊBÜóíííê–¢ÇÊ«Üˆ6ˆ◊˜6óFRá‚¬á&˜VÊBáBí¬&˜VÊBáíííê–¢&WGW&‚Ç¬í≤#¢0–†–¢2)Y)Y)Y)Y)Y)Y)Y)Y)YÌ≠Ωç-Ì")Y)Y)Y)Y)Y)Y)Y)Y)Y –¶FVb&˜VÊFVBÜñ“¬&Bì†–¢““ñ÷vRÊÊWrÇt¬r¬ñ“Á6ó¶R¬ê–¢ñ÷vTG&r‰G&rÜ“íÁ&˜VÊFVE˜&V7FÊv∆RÇÉ¬¬ñ“ÁvñGFÇ“¬ñ“ÊÜVñváB“í¬&FóW3◊&B¬fñ∆√”#SRê–¢Ú“ñ“Ê6˜íÇì≤ÚÁWF«ÜÜ“ì≤&WGW&‚–†–•5DDU2“Çv6ˆÊÊV7FVBr¬v6ˆÊÊV7FñÊrr¬vFó66ˆÊÊV7FVBrê–•5DDUı%R“≤v6ˆÊÊV7FVBs¢}	˝	Ì	M	≠	Ω
+Ì
+}	]	›	‚(	B=ΩrÌ-≠Ω"r¿–¢v6ˆÊÊV7FñÊrs¢}	˝	Ì	M	≠	Ω
+Ì
+}	]	›	ç	R(	B=Ωr˝ÌΩ=Ì-≠Ω"r¿–¢vFó66ˆÊÊV7FVBs¢}	Ì
+-	≠	Ω
+Ì
+}	]	›	‚(	B=Ωr˝ÌΩ›Ì-Õ‚}≠Ω"w––†–¶Üˆ÷W2“∑––•45$Ùƒ≈ı$ÙÙeÙE“cB„ –•45$ÙƒƒTB“7G"ÑıUDDï"Úv˜vÊW"÷Üˆ÷R÷6ˆÊÊV7FVB◊67&ˆ∆∆VBÁÊrrê–¶ñbÊ˜BUîUıÑ4U5ÙÙ‰≈ì†–¢f˜"7Bñ‚5DDU3†–¢ñ““67&VVÂˆÜˆ÷Rá7Bê–¢Üˆ÷W5∑7E““ñ––¢ñ“Ê6ˆÁfW'BÇu$t"ríÁ6fRÑıUDDï"Úbv˜vÊW"÷Üˆ÷R◊∑7G“ÁÊrr¬u‰rr¬˜Fñ÷ó¶S’G'VRê–¢Üˆ÷U˜67&ˆ∆∆VB“67&VVÂˆÜˆ÷RÇv6ˆÊÊV7FVBr¬45$Ùƒ≈ı$ÙÙeÙEê–¢Üˆ÷U˜67&ˆ∆∆VBÊ6ˆÁfW'BÇu$t"ríÁ6fRÖ45$ÙƒƒTB¬u‰rr¬˜Fñ÷ó¶S’G'VRê–¶V«6S†–¢Üˆ÷U˜67&ˆ∆∆VB“ÊˆÊP–†–¢2)H)HM]-]Õç›çÌ-››Ωí6∆˜6R◊W˝˝-ÇMs¢ÌM›ÕÌ}ç≠¬ÌMç“˜V‚÷WñR¬Mç›Õç}]≠Úù]Ω¿–§UîUıÑ4U2“É„¬„#R¬„R¬„sR¬„ê–§UîUıÑ4UÙ4$B“3c –§UîUıÑ4UÙt“`–§UîUıÑ4UÙ‘$tî‚“#@–§UîUıÑ4UÙÑTDU"“É`–¶WñU˜Ü6U˜6ÜVWB“ñ÷vRÊÊWrÄ–¢u$t"r¿–¢ÑUîUıÑ4UÙ‘$tî‚¢"≤UîUıÑ4UÙ4$B¢∆V‚ÑUîUıÑ4U2ê–¢≤UîUıÑ4UÙt¢Ü∆V‚ÑUîUıÑ4U2í“í¬UîUıÑ4UÙÑTDU"≤UîUıÑ4UÙ4$B≤Sbí¿–¢É2¬í¬bí¿–¢ê–¶WñU˜Ü6UˆG&r“ñ÷vTG&r‰G&rÜWñU˜Ü6U˜6ÜVWBê–ßGáBÜWñU˜Ü6UˆG&r¬ÜWñU˜Ü6U˜6ÜVWBÁvñGFÇÚ"¬Çí¿–¢}	=Ωr≤ÕÌ}ç≠(	B]Mç›ÚÕ≠ÕÌ=›çÚr¬bÖƒí¬Çí¬tÙƒB¬Ê6Ü˜#“v÷rê–ßGáBÜWñU˜Ü6UˆG&r¬ÜWñU˜Ü6U˜6ÜVWBÁvñGFÇÚ"¬Sí¿–¢v÷ˆ&ñ∆UˆWñUˆ˜V‚≠Ωç˝=]-Úù]ΩÕ„≤˝ÇÜ6S”Ì-Ì-Ú}Ì-ÚÕÌ}ç≠Ç-Ì›≠çíç}=Õ=M›ΩíçÌ"‚r¿–¢bÖ4Â2¬í¬EÖD“¬Ê6Ü˜#“v÷rê–¶WñU˜Ü6Uˆ&6R“Üˆ÷U˜66VÊRÖr¬Ç¬„íÊ6ˆÁfW'BÇu$t$rê–¶7Ç¬7í¬Ú¬Ú¬Ú“WñUˆ&˜ÇÇê–¶WñU˜Ü6UˆÜ∆eˆ7&˜“&˜VÊBÉÉ¢2ê–¶WñU˜Ü6Uˆ7&˜ˆ&˜Ç“Ä–¢&˜VÊBÜ7Ç¢2í“WñU˜Ü6UˆÜ∆eˆ7&˜¿–¢&˜VÊBÜ7í¢2í“WñU˜Ü6UˆÜ∆eˆ7&˜¿–¢&˜VÊBÜ7Ç¢2í≤WñU˜Ü6UˆÜ∆eˆ7&˜¿–¢&˜VÊBÜ7í¢2í≤WñU˜Ü6UˆÜ∆eˆ7&˜¿–¢ê–¶f˜"ñÊFWÇ¬Ü6Rñ‚VÁV÷W&FRÑUîUıÑ4U2ì†–¢WñUˆ∆ñW"¬6V“¬W'GW&R¬WñU˜Ç¬WñU˜í“ˆ∆ófñÊuˆWñUˆ6ˆ◊ˆÊVÁG2áÜ6Rê–¢6ˆ÷&ñÊVB“ñ÷vRÊÊWrÇu$t$r¬WñUˆ∆ñW"Á6ó¶R¬É¬¬¬íê–¢6ˆ÷&ñÊVBÊ«Üˆ6ˆ◊˜6óFRÜWñUˆ∆ñW"ê–¢6ˆ÷&ñÊVBÊ«Üˆ6ˆ◊˜6óFRá6V“ê–†–¢6V’ˆ÷6≤“6V“ÊvWF6ÜÊÊV¬ÇtríÁˆñÁBÜ∆÷&F«Ü¢#SRñb«ÜV«6Rê–¢∆∆˜vVEˆ÷6≤“ñ÷vT6Ü˜2Ê∆ñváFW"ÜW'GW&R¬6V’ˆ÷6≤ê–¢˜WG6ñFUˆ÷6≤“ñ÷vT6Ü˜2ÊñÁfW'BÜ∆∆˜vVEˆ÷6≤ê–¢76W'Bñ÷vT6Ü˜2Ê◊V«Fó«íÜ6ˆ÷&ñÊVBÊvWF6ÜÊÊV¬Çtrí¬˜WG6ñFUˆ÷6≤íÊvWF&&˜ÇÇíó2ÊˆÊR¬¿–¢bwÜ6S◊∑Ü6W”¢WñR˜fW&∆í∆V∂VB˜WG6ñFRW'GW&R˜6V“p–¢ñbÜ6R”“„†–¢76W'BWñUˆ∆ñW"ÊvWF6ÜÊÊV¬ÇtríÊvWF&&˜ÇÇíó2ÊˆÊR¬¿–¢v6∆˜6VBÜ6R◊W7BÜfR¶W&Ú˜V‚÷WñR«Üp–¢76W'Bñ÷vT6Ü˜2ÊFñffW&VÊ6RÜ6ˆ÷&ñÊVBÊvWF6ÜÊÊV¬Çtrí¬6V“ÊvWF6ÜÊÊV¬ÇtrííÊvWF&&˜ÇÇíó2ÊˆÊR¬¿–¢v6∆˜6VBÜ6R◊W7B6ˆÁFñ‚ˆÊ«íFÜRV÷W&∆B6V“˜fW&∆íp–†–¢g&÷R“WñU˜Ü6Uˆ&6RÊ6˜íÇê–¢g&÷RÊ«Üˆ6ˆ◊˜6óFRÜ6ˆ÷&ñÊVB¬ÜWñU˜Ç¬WñU˜ííê–¢&Vf˜&R“WñU˜Ü6Uˆ&6RÊ7&˜ÇÜWñU˜Ç¬WñU˜í¬WñU˜Ç≤6ˆ÷&ñÊVBÁvñGFÇ¬WñU˜í≤6ˆ÷&ñÊVBÊÜVñváBíê–¢gFW"“g&÷RÊ7&˜ÇÜWñU˜Ç¬WñU˜í¬WñU˜Ç≤6ˆ÷&ñÊVBÁvñGFÇ¬WñU˜í≤6ˆ÷&ñÊVBÊÜVñváBíê–¢6ˆ∆˜W%ˆFñfb“ñ÷vT6Ü˜2ÊFñffW&VÊ6RÜ&Vf˜&RÊ6ˆÁfW'BÇu$t"rí¬gFW"Ê6ˆÁfW'BÇu$t"ríê–¢76W'B∆¬Ññ÷vT6Ü˜2Ê◊V«Fó«íÜ6ÜÊÊV¬¬˜WG6ñFUˆ÷6≤íÊvWF&&˜ÇÇíó2ÊˆÊP–¢f˜"6ÜÊÊV¬ñ‚6ˆ∆˜W%ˆFñfbÁ7∆óBÇíí¬¿–¢bwÜ6S◊∑Ü6W”¢&6R÷˜6ñ26ÜÊvVB˜WG6ñFRW'GW&R˜6V“p–†–¢7&˜“g&÷RÊ7&˜ÜWñU˜Ü6Uˆ7&˜ˆ&˜ÇíÊ6ˆÁfW'BÇu$t"ríÁ&W6ó¶RÄ–¢ÑUîUıÑ4UÙ4$B¬UîUıÑ4UÙ4$Bí¬ñ÷vRÂ&W6◊∆ñÊr‰ƒ‰5§ı2ê–¢Ç“UîUıÑ4UÙ‘$tî‚≤ñÊFWÇ¢ÑUîUıÑ4UÙ4$B≤UîUıÑ4UÙtê–¢WñU˜Ü6UˆG&rÁ&V7FÊv∆RÇáÇ“"¬UîUıÑ4UÙÑTDU"“"¿–¢Ç≤UîUıÑ4UÙ4$B≤¬UîUıÑ4UÙÑTDU"≤UîUıÑ4UÙ4$B≤í¿–¢fñ∆√“ÉsR¬Sr¬3Bíê–¢WñU˜Ü6U˜6ÜVWBÁ7FRÜ7&˜¬áÇ¬UîUıÑ4UÙÑTDU"íê–¢GáBÜWñU˜Ü6UˆG&r¬áÇ≤UîUıÑ4UÙ4$BÚ"¬UîUıÑ4UÙÑTDU"≤UîUıÑ4UÙ4$B≤bí¿–¢bwÜ6R∑Ü6S¢„&g“r¬bÖ4Â4"¬"í¬tÙƒB¬Ê6Ü˜#“v÷rê–¢7&˜Ê6∆˜6RÇì≤&Vf˜&RÊ6∆˜6RÇì≤gFW"Ê6∆˜6RÇì≤g&÷RÊ6∆˜6RÇì≤6ˆ∆˜W%ˆFñfbÊ6∆˜6RÇê–¢∆∆˜vVEˆ÷6≤Ê6∆˜6RÇì≤˜WG6ñFUˆ÷6≤Ê6∆˜6RÇì≤6V’ˆ÷6≤Ê6∆˜6RÇê–¢6ˆ÷&ñÊVBÊ6∆˜6RÇì≤WñUˆ∆ñW"Ê6∆˜6RÇì≤6V“Ê6∆˜6RÇì≤W'GW&RÊ6∆˜6RÇê–¶WñU˜Ü6Uˆ&6RÊ6∆˜6RÇê–§UîUıÑ4Uı4ÑTUB“7G"ÑıUDDï"Úv˜vÊW"÷WñR÷&∆ñÊ≤◊Ü6W2ÁÊrrê–¶WñU˜Ü6U˜6ÜVWBÁ6fRÑUîUıÑ4Uı4ÑTUB¬u‰rr¬˜Fñ÷ó¶S’G'VRê–§UîUıÑ4Uı4ÑTUEı“7G"ÑıUDDï"Úv˜vÊW"÷WñR÷&∆ñÊ≤◊Ü6W2◊Êßrrê–¶WñU˜Ü6U˜˜vñGFÇ“c –¶WñU˜Ü6U˜“WñU˜Ü6U˜6ÜVWBÁ&W6ó¶RÄ–¢ÜWñU˜Ü6U˜˜vñGFÇ¬&˜VÊBÜWñU˜Ü6U˜6ÜVWBÊÜVñváB¢WñU˜Ü6U˜˜vñGFÇÚWñU˜Ü6U˜6ÜVWBÁvñGFÇíí¿–¢ñ÷vRÂ&W6◊∆ñÊr‰ƒ‰5§ı2¿–¢ê–¶WñU˜Ü6U˜Á6fRÑUîUıÑ4Uı4ÑTUEı¬t•Trr¬V∆óGì”SR¬˜Fñ÷ó¶S’G'VRê–¶WñU˜Ü6U˜Ê6∆˜6RÇê–¶WñU˜Ü6U˜6ÜVWBÊ6∆˜6RÇê–¶ñbUîUıÑ4U5ÙÙ‰≈ì†–¢&ñÁBÇtÙ≤r¬UîUıÑ4Uı4ÑTUB¬bw∂˜2ÁFÇÊvWG6ó¶RÑUîUıÑ4Uı4ÑTUBíÛ#C¢„g“¥"rê–¢&ñÁBÇtÙ≤r¬UîUıÑ4Uı4ÑTUEı¬bw∂˜2ÁFÇÊvWG6ó¶RÑUîUıÑ4Uı4ÑTUEıíÛ#C¢„g“¥"rê–¢&ó6R7ó7FV‘WÜóBÉê–†–¢2)H)HMÌ≠-›]›çÛ¢›-ΩÌ“-ΩM]ΩÕmΩ]-¬çÕ=Ω˝mçÚ-Ì=‚mR-ÕÌ˝Ì-˝- –ß&Vb“ñ÷vRÊ˜V‚Ö$TeÙ•ríÊ6ˆÁfW'BÇu$t"ríÁ&W6ó¶RÇÖr¬Çí¬ñ÷vR‰ƒ‰5§ı2ê–§4t“Cb¢3≤4‘$r“C¢3≤5Dı“cÇ¢3≤44“ìb¢0–¶6%˜r“4‘$r¢"≤r¢"≤4t –¶6%ˆÇ“5Dı≤Ç≤44 –¶&ˆ&B“ñ÷vRÊÊWrÇu$t"r¬Ü6%˜r¬6%ˆÇí¬É2¬í¬bíê–¶&B“ñ÷vTG&r‰G&rÜ&ˆ&Bê–ßGáBÜ&B¬Ü6%˜rÚ"¬3B¢2í¬t÷W7G&ıe‚Üˆ÷R(	B›-ΩÌ“-ΩM]ΩÕm˝Ì-ç"çÕ=Ω˝mçÇr¿–¢bÖƒí¬3í¬tÙƒB¬Ê6Ü˜#“v÷rê–¶f˜"í¬∆ñÊRñ‚VÁV÷W&FRÖ∞–¢}
+Ω]-(	BB÷˜vÊW"◊6V∆V7FVB÷Üˆ÷R”##b”r”3Êßr¬˝ç-]M››Ωí¢3ì9sÉCB‚
+˝-(	BçÕ=Ω˝mçÚ˝‚}çΩ¬r¿–¢uÜˆÊTÜˆ÷U&VfW&VÊ6T∆ñ˜WBÊ∑BÇÜˆÊTÜˆ÷T6ˆÁG&ˆƒFV6≤Ê∑B›	˝	Ì	M	Ω	ç	›	›
+Ω
+R]-R]˝Ì}ç-ÌçÚçm]›-ΩÕ›Ωír¿–¢}-]"DB›-ΩçrÇ&V∆ñVb›ΩÌ"¬∆ñfó"í‚
+›-‚	›	R≠ç›çÌ#¢=Ωr--ç}]“¬›≠ΩÌ›Ç˝ΩΩ≠›]"‚r¿–¢}
+]}ÕM==ÇÇ≠Ì›ÌΩÇ(	B›-Ì˝ùçí"çr-Ω≤≠ÌBç=]"-ÌΩÕ≠‚˝ÌM˝çÇ¬ç≠Ì›≠ÇÇ-ΩÌ‚u“ì†–¢GáBÜ&B¬Ü6%˜rÚ"¬ÉÉ≤í¢íí¢2í¬∆ñÊR¬bÖ4Â2¬2í¬EÖD“¬Ê6Ü˜#“v÷rê–¶f˜"Ç¬ñ“¬6ñ‚ÇÑ4‘$r¬&Vb¬}
+›-ΩÌ“-ΩM]ΩÕmrí¿–¢Ñ4‘$r≤r≤4t¬Üˆ÷W5≤v6ˆÊÊV7FVBu“Ê6ˆÁfW'BÇu$t"rí¬}
+çÕ=Ω˝mçÚ	˝	Ì	M	≠	Ω
+Ì
+}	]	›	‚ríì†–¢6&B“&˜VÊFVBÜñ“¬3Ç¢2ê–¢&BÁ&˜VÊFVE˜&V7FÊv∆RÇáÇ“2¢2¬5Dı“2¢2¬Ç≤r≤2¢2¬5Dı≤Ç≤2¢2í¿–¢&FóW3”C¢2¬fñ∆√“ÉSÇ¬CB¬#Çíê–¢&ˆ&BÁ7FRÜ6&B¬á&˜VÊBáÇí¬&˜VÊBÑ5Dıíí¬6&Bê–¢GáBÜ&B¬áÇ≤rÚ"¬5Dı≤Ç≤#B¢2í¬6¬bÖƒí¬#í¬tÙƒB¬Ê6Ü˜#“v÷rê–¶&ˆ&B“&ˆ&BÁ&W6ó¶RÇÜ6%˜rÚÚ"¬6%ˆÇÚÚ"í¬ñ÷vR‰ƒ‰5§ı2ê–§$Ù$B“7G"ÑıUDDï"Úv˜vÊW"÷Üˆ÷R÷6ˆ◊&ó6ˆ‚ÁÊrrê–¶&ˆ&BÁ6fRÑ$Ù$B¬u‰rr¬˜Fñ÷ó¶S’G'VRê–§$Ù$EÙ•r“7G"ÑıUDDï"Úv˜vÊW"÷Üˆ÷R÷6ˆ◊&ó6ˆ‚◊Êßrrê–¶&ˆ&E˜“&ˆ&BÁ&W6ó¶RÇÉCS¬&˜VÊBÜ&ˆ&BÊÜVñváB¢CSÚ&ˆ&BÁvñGFÇíí¬ñ÷vR‰ƒ‰5§ı2ê–¶&ˆ&E˜Á6fRÑ$Ù$EÙ•r¬t•Trr¬V∆óGì”C"¬˜Fñ÷ó¶S’G'VRê–¶&ˆ&E˜Ê6∆˜6RÇê–†–¢2)H)HMÌ≠}-]ΩÕ--‚Ìù]=‚67&ˆ∆¬÷˜vÊW#¢-]RÌMç›≠Ì"¬&V∆ñVbÇ˝ÌM˝çÇ]M="-Õ]-P–•4t“Cb¢3≤4‘$r“C¢3≤5Dı“C"¢3≤44“É"¢0–ß67&ˆ∆≈˜r“4‘$r¢"≤r¢"≤4t –ß67&ˆ∆≈ˆÇ“5Dı≤Ç≤44 –ß67&ˆ∆≈ˆ&ˆ&B“ñ÷vRÊÊWrÇu$t"r¬á67&ˆ∆≈˜r¬67&ˆ∆≈ˆÇí¬É2¬í¬bíê–ß6&B“ñ÷vTG&r‰G&rá67&ˆ∆≈ˆ&ˆ&Bê–ßGáBá6&B¬á67&ˆ∆≈˜rÚ"¬3¢2í¬tÜˆ÷R(	BfóÜVBÜW&ÚÇ]Mç›Ωí≠ÌΩ≤›çm›]íM]≠Çr¿–¢bÖƒí¬#Çí¬tÙƒB¬Ê6Ü˜#“v÷rê–¶f˜"í¬∆ñÊRñ‚VÁV÷W&FRÖ∞–¢}
+Ω]-(	B›}Ω‚‚
+˝-(	B≥cBG¢ΩÌ=Ì-çÚ¬≠ÌΩÕm‚Ç=ΩrÌ-Ì-Ú›Õ]-S≤r¿–¢v&2Ú6ˆÁF7G2Ú6ˆÁ6ˆ∆RÇ-RçR˝ÌM˝çÇÕ]ùÌ-Ú›ÌM›‚}›}]›çRÇ≠Ωç˝=Ì-Ú˝ÌB=]Ì]¬‚u“ì†–¢GáBá6&B¬á67&ˆ∆≈˜rÚ"¬És"≤í¢íí¢2í¬∆ñÊR¬bÖ4Â2¬2í¬EÖD“¬Ê6Ü˜#“v÷rê–¶f˜"Ç¬ñ“¬6ñ‚ÇÖ4‘$r¬Üˆ÷W5≤v6ˆÊÊV7FVBu“Ê6ˆÁfW'BÇu$t"rí¬}	›}Ω‚M]≠Çrí¿–¢Ö4‘$r≤r≤4t¬Üˆ÷U˜67&ˆ∆∆VBÊ6ˆÁfW'BÇu$t"rí¬}	M]≠˝Ì≠=}]››cBGríì†–¢6&B“&˜VÊFVBÜñ“¬3Ç¢2ê–¢6&BÁ&˜VÊFVE˜&V7FÊv∆RÇáÇ“2¢2¬5Dı“2¢2¬Ç≤r≤2¢2¬5Dı≤Ç≤2¢2í¿–¢&FóW3”C¢2¬fñ∆√“ÉSÇ¬CB¬#Çíê–¢67&ˆ∆≈ˆ&ˆ&BÁ7FRÜ6&B¬á&˜VÊBáÇí¬&˜VÊBÖ5Dıíí¬6&Bê–¢GáBá6&B¬áÇ≤rÚ"¬5Dı≤Ç≤#B¢2í¬6¬bÖƒí¬#í¬tÙƒB¬Ê6Ü˜#“v÷rê–ß67&ˆ∆≈ˆ&ˆ&B“67&ˆ∆≈ˆ&ˆ&BÁ&W6ó¶RÇá67&ˆ∆≈˜rÚÚ"¬67&ˆ∆≈ˆÇÚÚ"í¬ñ÷vR‰ƒ‰5§ı2ê–•45$Ùƒ≈Ù$Ù$B“7G"ÑıUDDï"Úv˜vÊW"÷Üˆ÷R◊67&ˆ∆¬◊&ˆˆbÁÊrrê–ß67&ˆ∆≈ˆ&ˆ&BÁ6fRÖ45$Ùƒ≈Ù$Ù$B¬u‰rr¬˜Fñ÷ó¶S’G'VRê–•45$Ùƒ≈Ù$Ù$EÙ•r“7G"ÑıUDDï"Úv˜vÊW"÷Üˆ÷R◊67&ˆ∆¬◊&ˆˆb◊Êßrrê–ß67&ˆ∆≈ˆ&ˆ&E˜“67&ˆ∆≈ˆ&ˆ&BÁ&W6ó¶RÇÉCS¬&˜VÊBá67&ˆ∆≈ˆ&ˆ&BÊÜVñváB¢CSÚ67&ˆ∆≈ˆ&ˆ&BÁvñGFÇíí¬ñ÷vR‰ƒ‰5§ı2ê–ß67&ˆ∆≈ˆ&ˆ&E˜Á6fRÖ45$Ùƒ≈Ù$Ù$EÙ•r¬t•Trr¬V∆óGì”C"¬˜Fñ÷ó¶S’G'VRê–ß67&ˆ∆≈ˆ&ˆ&E˜Ê6∆˜6RÇê–†–†–¢2)H)HΩç"-RÌ-Ì˝›çí=Ω} –§t“Cb¢3≤‘$r“C¢3≤DıÇ“S¢3≤4Ç“Ç¢0–ß6ÜVWE˜r“‘$r¢"≤r¢2≤t¢ –ß6ÜVWEˆÇ“DıÇ≤Ç≤4Ç≤3¢0–ß6ÜVWB“ñ÷vRÊÊWrÇu$t"r¬á6ÜVWE˜r¬6ÜVWEˆÇí¬É2¬í¬bíê–¶v∆˜r“ñ÷vRÊÊWrÇu$t"r¬á6ÜVWE˜r¬6ÜVWEˆÇí¬É2¬í¬bíê–§ñ÷vTG&r‰G&rÜv∆˜ríÊV∆∆ó6RÇá6ÜVWE˜r¢„R¬◊6ÜVWEˆÇ¢„3R¬6ÜVWE˜r¢„ÉR¬6ÜVWEˆÇ¢„CRí¿–¢fñ∆√“É3Ç¬#r¬Çíê–ß6ÜVWB“ñ÷vRÊ&∆VÊBá6ÜVWB¬v∆˜rÊfñ«FW"Ññ÷vTfñ«FW"‰vW76ñ‰&«W"Écíí¬„ÉRê–ß6B“ñ÷vTG&r‰G&rá6ÜVWBê–ßGáBá6B¬á6ÜVWE˜rÚ"¬3B¢2í¬t÷W7G&ıe‚(	BÜˆ÷R¬-ÇÌ-Ì˝›çÚ=Ω}ççÕ=Ω˝mçÚír¿–¢bÖƒí¬3í¬tÙƒB¬Ê6Ü˜#“v÷rê–¶f˜"í¬∆ñÊRñ‚VÁV÷W&FRÖ∞–¢}	›]˝ÌM-çm›≥¢ΩÌ=Ì-çÚ¬Õ]MΩÕÌ“¬ÕÌ}ç≠Çmç-Ìí=Ωr‚	›çmRçM="--=Ç≠-ç-›Ωí˝Ì-Ì≠Ì≤¬r¿–¢}-]Ω]MÌ“¬FV∆Vw&“Ú	Õ		≠
+ÚvÜG4¬M==˝Ì-Ì≠ÌΩÌ"¬˝Ì≠=˝≠Ç›çm›˝Ú≠Ì›ÌΩ¬‚r¿–¢}	›çm›˝ÚM]≠çÕ]]"ÌMç“67&ˆ∆¬÷˜vÊW"MΩÚ]ΩÕ]M¬˝Ωç-Ì¢¬ç≠Ì›Ì¢Ç-]≠-‚
+-Ì=‚›¬r¿–¢}››˝¬›≠ΩÌ›˝MÌ"Ç=Mç]›-›ÌíÕ≠ÇÌΩÕçR›]"‚u“ì†–¢GáBá6B¬á6ÜVWE˜rÚ"¬ÉsÇ≤í¢íí¢2í¬∆ñÊR¬bÖ4Â2¬2í¬EÖD“¬Ê6Ü˜#“v÷rê–ßá2“¥‘$r¬‘$r≤r≤t¬‘$r≤Ör≤tí¢%––¶f˜"Ç¬7Bñ‚¶óáá2¬5DDU2ì†–¢ñ““Üˆ÷W5∑7E“Ê6ˆÁfW'BÇu$t"rê–¢6&B“&˜VÊFVBÜñ“¬3Ç¢2ê–¢6BÁ&˜VÊFVE˜&V7FÊv∆RÇáÇ“2¢2¬DıÇ“2¢2¬Ç≤r≤2¢2¬DıÇ≤Ç≤2¢2í¿–¢&FóW3”C¢2¬fñ∆√“ÉSÇ¬CB¬#Çíê–¢6ÜVWBÁ7FRÜ6&B¬á&˜VÊBáÇí¬&˜VÊBÖDıÇíí¬6&Bê–¢GáBá6B¬áÇ≤rÚ"¬DıÇ≤Ç≤#b¢2í¬5DDUı%U∑7E“¬bÖƒí¬Çí¬tÙƒB¬Ê6Ü˜#“v÷rê–ß6ÜVWB“6ÜVWBÁ&W6ó¶RÇá6ÜVWE˜rÚÚ"¬6ÜVWEˆÇÚÚ"í¬ñ÷vR‰ƒ‰5§ı2ê–ß6ÜVWBÁ6fRÑıUB¬u‰rr¬˜Fñ÷ó¶S’G'VRê–†–¶f˜"Ê÷Rñ‚¥ıUB¬$Ù$B¬45$ÙƒƒTB¬45$Ùƒ≈Ù$Ù$B¬UîUıÑ4Uı4ÑTUE“≤∞–¢7G"ÑıUDDï"Úbv˜vÊW"÷Üˆ÷R◊∑7G“ÁÊrríf˜"7Bñ‚5DDU5”†–¢&ñÁBÇtÙ≤r¬Ê÷R¬bw∂˜2ÁFÇÊvWG6ó¶RÜÊ÷RíÛ#C¢„g“¥"rê–
