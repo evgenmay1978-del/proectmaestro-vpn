@@ -8,8 +8,10 @@ import hashlib
 import io
 import math
 import sys
+import zlib
 from pathlib import Path
 
+import PIL
 from PIL import Image, ImageEnhance, ImageOps, ImageDraw
 
 
@@ -279,8 +281,11 @@ def check_master(expected: Image.Image) -> int:
     if not MASTER.is_file():
         print(f"MISMATCH {MASTER.relative_to(ROOT)}")
         return 1
-    encoded_matches = MASTER.read_bytes() == _encoded_master(expected)
+    tracked_encoded = MASTER.read_bytes()
+    expected_encoded = _encoded_master(expected)
+    encoded_matches = tracked_encoded == expected_encoded
     with Image.open(MASTER) as tracked:
+        tracked_rgb = tracked.convert("RGB").tobytes()
         pixels_match = (
             tracked.mode == "RGB"
             and tracked.size == MASTER_MATERIAL_SIZE
@@ -288,6 +293,23 @@ def check_master(expected: Image.Image) -> int:
         )
     if not encoded_matches or not pixels_match:
         print(f"MISMATCH {MASTER.relative_to(ROOT)}")
+        expected_rgb = expected.convert("RGB").tobytes()
+        print(f"diagnostic encoded_matches={encoded_matches} pixels_match={pixels_match}")
+        print(
+            "diagnostic "
+            f"tracked_encoded_sha256={hashlib.sha256(tracked_encoded).hexdigest()} "
+            f"expected_encoded_sha256={hashlib.sha256(expected_encoded).hexdigest()}",
+        )
+        print(
+            "diagnostic "
+            f"tracked_rgb_sha256={hashlib.sha256(tracked_rgb).hexdigest()} "
+            f"expected_rgb_sha256={hashlib.sha256(expected_rgb).hexdigest()}",
+        )
+        print(
+            "diagnostic "
+            f"pillow={PIL.__version__} zlib_compile={zlib.ZLIB_VERSION} "
+            f"zlib_runtime={zlib.ZLIB_RUNTIME_VERSION}",
+        )
         return 1
     print("PASS owner-selected eye-surround master matches tracked PNG")
     return 0
