@@ -17,6 +17,12 @@ class LivingEyeLayerGeometryTest {
         assertEquals(54.4917f, fit.stateBounds.top, 0.001f)
         assertEquals(577.1182f, fit.stateBounds.right, 0.001f)
         assertEquals(496.0965f, fit.stateBounds.bottom, 0.001f)
+        assertEquals(-201.7754f, fit.translationX, 0.001f)
+        assertEquals(-463.6117f, fit.translationY, 0.001f)
+        assertEquals(68.0556f, aperture.left, 0.001f)
+        assertEquals(201.9251f, aperture.top, 0.001f)
+        assertEquals(463.7613f, aperture.right, 0.001f)
+        assertEquals(352.8358f, aperture.bottom, 0.001f)
         assertEquals(0.760973f, (aperture.right - aperture.left) / 520f, 0.00001f)
         assertEquals(0.290213f, (aperture.bottom - aperture.top) / 520f, 0.00001f)
     }
