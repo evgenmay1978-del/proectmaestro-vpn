@@ -19,11 +19,12 @@ for the owner's weak computer.
   ```
   Валит приёмку по числу: холст, RGBA8, ICC/APNG, alpha bbox, совпадение альфы между `_l/_c/_r`, реальная разница света, остаток magenta-кея, подъём купола, тепло материала (R−G) и доля тёплого рельефа. ⛔ Подсчёт секторов — СПРАВОЧНЫЙ (строка `ИНФО`): у резьбы полупрозрачные края, и один файл при разных порогах даёт от 0 до 14 «интерьеров» там, где глазом видно шесть. Количество секторов проверяется глазами.
   `--selftest` ломает картинки нарочно и требует, чтобы сторож это поймал — гейт, который ни разу не срабатывал, считается неработающим.
-- `mobile-4d-assets.py` refuses to run unless the toolchain is exactly Pillow 11.3.0 + libwebp 1.5.0 — the atlas is committed and `--check` has to be byte-stable. S1 ships Pillow 12.3.0, so run it from the pinned venv:
-  ```bash
-  /root/.venvs/maestro-mobile4d/bin/python ops/mobile-4d-assets.py
-  ```
-  Create it once with `python3 -m venv /root/.venvs/maestro-mobile4d && /root/.venvs/maestro-mobile4d/bin/pip install pillow==11.3.0` (that wheel bundles libwebp 1.5.0 — verified 2026-08-01).
+- `mobile-4d-assets.py` refuses to run unless the toolchain is exactly
+  Pillow 11.3.0 + libwebp 1.5.0; committed atlas output and `--check` must be
+  byte-stable. For the current eye-surround work install that pinned wheel in a
+  GitHub Actions test/artifact job and run generation there. Do not use the
+  owner's Windows computer or an ad-hoc S1 session as a fallback for atlas
+  regeneration.
 - `mobile-eye-state-preview.py` is the repeatable lightweight owner-preview for the
   exact installed-test Home baseline
   `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`

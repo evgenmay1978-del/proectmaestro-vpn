@@ -33,6 +33,7 @@
 - `LivingEyeMedallion.kt` — только актуализация ownership-комментариев; анимационная логика не меняется.
 - `ops/phone-screen-sim.py` — mirror production geometry и фазовая визуальная QA.
 - `app/src/main/assets/mobile_4d/atlas_{l,c,r}_*.webp` — штатно регенерированные страницы ring-фрагментов.
+- `.github/workflows/android-test.yml` — manual non-release jobs для full-size ring, atlas, simulator artifacts и Android test APK; release/OTA triggers не меняются.
 
 ---
 
@@ -300,6 +301,7 @@ git commit -m "feat: enlarge living eye with one transform"
 
 **Files:**
 - Modify: `ops/phone-screen-sim.py`
+- Modify if needed: `.github/workflows/android-test.yml` — расширить только manual test/artifact job, потому что существующий `task=mobile-eye-ring-assets` покрывает Task 2, но ещё не atlas/full simulator.
 - Regenerate: `app/src/main/assets/mobile_4d/atlas_l_*.webp`
 - Regenerate: `app/src/main/assets/mobile_4d/atlas_c_*.webp`
 - Regenerate: `app/src/main/assets/mobile_4d/atlas_r_*.webp`
