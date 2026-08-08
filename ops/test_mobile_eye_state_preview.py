@@ -193,7 +193,7 @@ class MobileEyeStatePreviewRenderTest(unittest.TestCase):
         red_pixels = sum(
             1
             for red, green, blue in probe.getdata()
-            if red >= 96 and red > green * 1.5 and red > blue * 1.5
+            if red >= 50 and red > green * 1.5 and red > blue * 1.5
         )
         self.assertEqual(red_pixels, 0)
 
