@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
 
 MODULE_NAME = "mobile_eye_state_preview"
@@ -101,6 +101,16 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             seam.getchannel("A").tobytes(),
         )
 
+    def test_connected_contact_seam_uses_runtime_alpha(self) -> None:
+        _eye, seam, _aperture, _glow = MODULE.render_living_eye_layers(
+            closure=0.0,
+            scale=2,
+        )
+        alphas = [value for value in seam.getchannel("A").getdata() if value]
+
+        self.assertTrue(alphas)
+        self.assertEqual(max(alphas), round(255 * 0.18))
+
 
 class MobileEyeStatePreviewRenderTest(unittest.TestCase):
     def load_current_installed_home(self, scale: int = 1) -> Image.Image:
@@ -115,6 +125,20 @@ class MobileEyeStatePreviewRenderTest(unittest.TestCase):
                 Image.Resampling.LANCZOS,
             )
 
+    def owner_allowed_change_mask(self, state: str, scale: int = 1) -> Image.Image:
+        mask = Image.new("L", (390 * scale, 844 * scale), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.ellipse(
+            tuple(round(value * scale) for value in (78.5, 142.0, 311.5, 375.0)),
+            fill=255,
+        )
+        if state == "connected":
+            draw.rectangle(
+                tuple(round(value * scale) for value in (96.0, 426.0, 294.0, 480.0)),
+                fill=255,
+            )
+        return mask
+
     def test_load_reference_uses_the_current_installed_test_build(self) -> None:
         expected = self.load_current_installed_home(scale=1)
 
@@ -122,10 +146,11 @@ class MobileEyeStatePreviewRenderTest(unittest.TestCase):
 
     def test_two_states_are_deterministic_and_do_not_touch_unowned_pixels(self) -> None:
         reference = self.load_current_installed_home(scale=1)
-        allowed = MODULE.allowed_change_mask(scale=1)
-        outside = ImageChops.invert(allowed)
 
         for state in MODULE.STATES:
+            outside = ImageChops.invert(
+                self.owner_allowed_change_mask(state, scale=1)
+            )
             first = MODULE.render_home(state, scale=1)
             second = MODULE.render_home(state, scale=1)
             self.assertEqual(first.mode, "RGB")
@@ -155,6 +180,22 @@ class MobileEyeStatePreviewRenderTest(unittest.TestCase):
             reference.crop(material_box).tobytes(),
             disconnected.crop(material_box).tobytes(),
         )
+
+    def test_connected_status_does_not_carry_old_disconnected_ink(self) -> None:
+        reference = Image.new("RGB", (390, 844), (32, 32, 32))
+        old_ink_box = (104, 451, 116, 459)
+        ImageDraw.Draw(reference).rectangle(old_ink_box, fill=(240, 20, 20))
+        canvas = reference.convert("RGBA")
+
+        MODULE._draw_connected_status(canvas, reference, scale=1)
+
+        probe = canvas.convert("RGB").crop((100, 448, 120, 462))
+        red_pixels = sum(
+            1
+            for red, green, blue in probe.getdata()
+            if red >= 96 and red > green * 1.5 and red > blue * 1.5
+        )
+        self.assertEqual(red_pixels, 0)
 
     def test_write_and_check_are_reproducible_and_check_is_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
