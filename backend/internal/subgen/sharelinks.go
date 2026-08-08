@@ -28,6 +28,12 @@ func ShareLinks(c Customer) string {
 	if c.VLESS3 != nil {
 		links = append(links, vlessLink(c.VLESS3, c.Name+" S3"))
 	}
+	// S4 must be here too, not only in the sing-box JSON: iPhone customers run Karing and
+	// import THIS list. Adding a node only to GenerateSingbox would silently skip every
+	// non-Android customer.
+	if c.VLESS4 != nil {
+		links = append(links, vlessLink(c.VLESS4, c.Name+" S4"))
+	}
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 }
 

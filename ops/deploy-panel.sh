@@ -10,7 +10,10 @@
 #   ops/deploy-panel.sh --dry-run  # build + vet ONLY (no install, no restart) — safe pre-check
 set -eu
 
-REPO=/root/maestrovpn-tv/backend
+# Repo path is overridable so the panel can be deployed from a git WORKTREE without
+# checking the main tree off whatever branch it sits on (the UI work lives there).
+# Default stays the canonical tree, so existing usage is unchanged.
+REPO=${MAESTRO_PANEL_REPO:-/root/maestrovpn-tv/backend}
 BIN=/usr/local/bin/maestro-panel
 PANEL=http://127.0.0.1:8910
 DRY=0; [ "${1:-}" = "--dry-run" ] && DRY=1

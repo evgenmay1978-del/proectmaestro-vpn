@@ -30,6 +30,7 @@ type Customer struct {
 	Naive    *subgen.NaiveCreds  `json:"naive,omitempty"`
 	AnyTLS   *subgen.AnyTLSCreds `json:"anytls,omitempty"`
 	VLESS3   *subgen.VLESSCreds  `json:"vless3,omitempty"` // VLESS-Reality on the 3rd node (S3)
+	VLESS4   *subgen.VLESSCreds  `json:"vless4,omitempty"` // VLESS-Reality on the 4th node (S4)
 	WG       *subgen.WGCreds     `json:"wg,omitempty"`     // AmneziaWG (S3); ⛔ nil for ALL real customers until the with_awg libbox is the fleet engine
 	// olcRTC is NOT per-customer: its room/key are GLOBAL (one srv, one room) and live in
 	// package olcconf (the panel's olcrtc.json). WHO gets olcRTC is the MAESTRO_OLC_LOGINS
@@ -49,7 +50,7 @@ func (c *Customer) Active() bool {
 
 // ToSubgen maps a customer to the subscription generator input.
 func (c *Customer) ToSubgen() subgen.Customer {
-	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3, WG: c.WG}
+	return subgen.Customer{Name: c.Login, VLESS: c.VLESS, Hy2: c.Hy2, Naive: c.Naive, AnyTLS: c.AnyTLS, VLESS3: c.VLESS3, VLESS4: c.VLESS4, WG: c.WG}
 }
 
 // clone returns an independent deep copy so callers can read it without the lock
@@ -80,6 +81,10 @@ func (c *Customer) clone() *Customer {
 	if c.VLESS3 != nil {
 		v := *c.VLESS3
 		cp.VLESS3 = &v
+	}
+	if c.VLESS4 != nil {
+		v := *c.VLESS4
+		cp.VLESS4 = &v
 	}
 	if c.WG != nil {
 		w := *c.WG

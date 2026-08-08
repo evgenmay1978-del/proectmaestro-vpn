@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
@@ -240,6 +241,37 @@ func (s *Server) handleBackfillS3(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n})
+}
+
+// handleBackfillS4 (admin): same as backfill-s3 for the 4th node, adding ONLY S4 panel
+// clients so live S1/S2/S3 connections are never disturbed. Idempotent.
+//
+// Optional body {"logins":["a","b"]} restricts the run to those customers — that is the
+// canary: give S4 to one account, watch it, then POST with no body to reach everyone.
+// An empty/absent body means "all customers lacking S4".
+func (s *Server) handleBackfillS4(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Logins []string `json:"logins"`
+	}
+	// Body is optional here, so a decode failure must NOT abort: no body = backfill all.
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	n, err := s.prov.BackfillS4(req.Logins...)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"backfilled": n, "scope": scopeLabel(req.Logins)})
+}
+
+func scopeLabel(logins []string) string {
+	if len(logins) == 0 {
+		return "all"
+	}
+	return "canary:" + strings.Join(logins, ",")
 }
 
 // handleBulkImport (admin): import a list of existing panel logins into the unified store,
