@@ -15,20 +15,32 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE_PATH = ROOT / "design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg"
+REFERENCE_PATH = ROOT / "design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg"
 MATERIAL_PATH = ROOT / "design/mobile-asset-redraw/materials/mobile_eye_surround_c.png"
 OPEN_EYE_PATH = ROOT / "app/src/main/res/drawable-nodpi/mobile_eye_open.webp"
+REPO_FONT_PATH = ROOT / "app/src/main/res/font/playfair_display.ttf"
 
 DP_SIZE = (390, 844)
 STATES = ("disconnected", "connected")
 MATERIAL_BOUNDS_DP = (78.5, 142.0, 311.5, 375.0)
-STATE_BOUNDS_DP = (56.8716, 164.4053, 340.1284, 366.5043)
-APERTURE_LEFT = 107.158
-APERTURE_RIGHT = 288.251
-SEAM_END_Y = 271.979
-SEAM_MID_Y = 280.222
-APERTURE_TOP = 231.878
-APERTURE_BOTTOM = 300.942
+STATUS_PATCH_BOUNDS_DP = (96.0, 426.0, 294.0, 480.0)
+MASTER_4D_SIZE = (2160.0, 4670.0)
+HERO_TRANSLATION_Y = -58.0
+LIVING_EYE_STATE_W, LIVING_EYE_STATE_H = (890.0, 635.0)
+LIVING_EYE_VIRTUAL_SIZE = 822.5
+LIVING_EYE_UNIFORM_SCALE = 1.10
+LIVING_EYE_OFFSET_DP = (3.5, 7.0)
+SEAM_FROM_UPPER = 0.70
+APERTURE_UPPER = (
+    (388, 1083), (405, 1061), (430, 1037), (460, 1014), (500, 993), (540, 978),
+    (580, 968), (620, 961), (660, 957), (700, 957), (740, 962), (780, 973),
+    (820, 990), (860, 1011), (900, 1036), (932, 1061), (957, 1083),
+)
+APERTURE_LOWER = (
+    (388, 1083), (420, 1104), (460, 1123), (500, 1139), (540, 1152), (580, 1162),
+    (620, 1170), (660, 1174), (700, 1172), (740, 1167), (780, 1159), (820, 1148),
+    (860, 1133), (900, 1115), (932, 1098), (957, 1083),
+)
 GLOW_INNER_EDGE = 0.82
 GLOW_MAX_ALPHA = 0.22 * 0.7
 
@@ -37,62 +49,70 @@ def _scaled(value: float, scale: int) -> int:
     return round(value * scale)
 
 
-def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for candidate in (
-        "C:/Windows/Fonts/arialbd.ttf",
-        "C:/Windows/Fonts/arial.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    ):
-        try:
-            return ImageFont.truetype(candidate, size=size)
-        except OSError:
-            pass
-    return ImageFont.load_default()
+def _font(size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(REPO_FONT_PATH, size=size)
 
 
 def load_reference(scale: int = 1) -> Image.Image:
-    """Return the owner reference registered to the 390x844 dp viewport."""
+    """Return the installed owner Home screenshot registered to 390×844 dp."""
     with Image.open(REFERENCE_PATH) as source:
         return source.convert("RGB").resize(
             (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale)),
             Image.Resampling.LANCZOS,
         )
 
+def _current_medallion_dp() -> tuple[float, float, float]:
+    scale = max(DP_SIZE[0] / MASTER_4D_SIZE[0], DP_SIZE[1] / MASTER_4D_SIZE[1])
+    translate_x = (DP_SIZE[0] - MASTER_4D_SIZE[0] * scale) / 2
+    translate_y = (DP_SIZE[1] - MASTER_4D_SIZE[1] * scale) / 2
+    center_x = 1080.0 * scale + translate_x
+    center_y = 1751.0 * scale + translate_y + HERO_TRANSLATION_Y
+    size = min(
+        (MASTER_4D_SIZE[0] * 260.0 / 853.0) * scale,
+        (MASTER_4D_SIZE[1] * 260.0 / 1844.0) * scale,
+    ) * 2.0
+    return center_x, center_y, size
+
+
+def _state_geometry_dp() -> tuple[float, float, float, float, float, float, float]:
+    center_x, center_y, medallion = _current_medallion_dp()
+    state_width = medallion * LIVING_EYE_STATE_W / LIVING_EYE_VIRTUAL_SIZE * LIVING_EYE_UNIFORM_SCALE
+    state_height = medallion * LIVING_EYE_STATE_H / LIVING_EYE_VIRTUAL_SIZE * LIVING_EYE_UNIFORM_SCALE
+    left = center_x - state_width / 2 + LIVING_EYE_OFFSET_DP[0]
+    top = center_y - state_height / 2 + LIVING_EYE_OFFSET_DP[1]
+    return left, top, state_width, state_height, medallion, center_x, center_y
+
 
 def eye_state_bounds_dp() -> tuple[float, float, float, float]:
-    """Owner-approved 1.10 uniform fit with its (+3.5,+7) dp shift applied."""
-    return STATE_BOUNDS_DP
+    """Derive the approved 1.10 uniform fit from the production master viewport."""
+    left, top, width, height, _medallion, _center_x, _center_y = _state_geometry_dp()
+    return left, top, left + width, top + height
 
 
-def _seam_points() -> list[tuple[float, float]]:
-    # 19 points match the lightweight contact contour used by the preview.
-    xs = [APERTURE_LEFT + (APERTURE_RIGHT - APERTURE_LEFT) * index / 18 for index in range(19)]
-    xs[9] = 193.726
-    points: list[tuple[float, float]] = []
-    for index, x in enumerate(xs):
-        t = index / 18
-        y = SEAM_END_Y + (SEAM_MID_Y - SEAM_END_Y) * (1.0 - (2.0 * t - 1.0) ** 2)
-        points.append((x, y))
-    points[9] = (193.726, SEAM_MID_Y)
-    return points
+def _interpolate_contour_y(points: tuple[tuple[int, int], ...], x: int) -> float:
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        if x0 <= x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    if x == points[-1][0]:
+        return float(points[-1][1])
+    raise ValueError(f"source contour does not cover x={x}")
 
 
 def aperture_contours_dp(closure: float) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
-    """Return the shared 70/30 aperture contours for a blink closure [0, 1]."""
+    """Map the production contour samples through the shared 70/30 blink seam."""
     closure = max(0.0, min(1.0, closure))
-    seam = _seam_points()
-    upper: list[tuple[float, float]] = []
-    lower: list[tuple[float, float]] = []
-    for index, (x, seam_y) in enumerate(seam):
-        t = index / 18
-        lobe = 1.0 - (2.0 * t - 1.0) ** 2
-        upper_open = seam_y - (SEAM_MID_Y - APERTURE_TOP) * lobe
-        lower_open = seam_y + (APERTURE_BOTTOM - SEAM_MID_Y) * lobe
-        upper.append((x, seam_y * closure + upper_open * (1.0 - closure)))
-        lower.append((x, seam_y * closure + lower_open * (1.0 - closure)))
+    left, top, width, height, _medallion, _center_x, _center_y = _state_geometry_dp()
+    upper, lower = [], []
+    for source_x in sorted({x for x, _y in APERTURE_UPPER} | {x for x, _y in APERTURE_LOWER}):
+        source_upper = _interpolate_contour_y(APERTURE_UPPER, source_x)
+        source_lower = _interpolate_contour_y(APERTURE_LOWER, source_x)
+        seam = source_upper + (source_lower - source_upper) * SEAM_FROM_UPPER
+        current_upper = source_upper + (seam - source_upper) * closure
+        current_lower = source_lower + (seam - source_lower) * closure
+        x = left + (source_x - 230.0) / LIVING_EYE_STATE_W * width
+        upper.append((x, top + (current_upper - 745.0) / LIVING_EYE_STATE_H * height))
+        lower.append((x, top + (current_lower - 745.0) / LIVING_EYE_STATE_H * height))
     return upper, lower
-
-
 def _contour_mask(scale: int, closure: float) -> Image.Image:
     mask = Image.new("L", (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale)), 0)
     upper, lower = aperture_contours_dp(closure)
@@ -113,17 +133,29 @@ def _material_mask(scale: int) -> Image.Image:
     return ImageChops.darker(mask, blurred)
 
 
+def _status_patch_mask(scale: int) -> Image.Image:
+    mask = Image.new("L", (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale)), 0)
+    left, top, right, bottom = (_scaled(value, scale) for value in STATUS_PATCH_BOUNDS_DP)
+    inset = max(2, _scaled(4.0, scale))
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (left + inset, top + inset, right - inset, bottom - inset),
+        radius=max(2, _scaled(8.0, scale)), fill=255,
+    )
+    feathered = mask.filter(ImageFilter.GaussianBlur(radius=max(1, _scaled(3.0, scale))))
+    boundary = Image.new("L", mask.size, 0)
+    ImageDraw.Draw(boundary).rectangle((left, top, right, bottom), fill=255)
+    return ImageChops.multiply(feathered, boundary)
+
+
 def allowed_change_mask(scale: int = 1) -> Image.Image:
-    """The hero replacement and status rows are the only mutable reference pixels."""
-    mask = _material_mask(scale)
-    draw = ImageDraw.Draw(mask)
-    # The material replacement owns its complete registered box; anatomy/glow overhang it.
-    draw.rectangle(tuple(_scaled(value, scale) for value in MATERIAL_BOUNDS_DP), fill=255)
-    draw.rectangle(tuple(_scaled(value, scale) for value in (55, 150, 343, 370)), fill=255)
-    draw.rectangle((_scaled(58, scale), _scaled(360, scale), _scaled(332, scale), _scaled(408, scale)), fill=255)
-    return mask
-
-
+    """Exact material circle plus the feathered connected-status patch support."""
+    mask = Image.new("L", (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale)), 0)
+    left, top, right, bottom = MATERIAL_BOUNDS_DP
+    ImageDraw.Draw(mask).ellipse(
+        (_scaled(left, scale), _scaled(top, scale), _scaled(right, scale), _scaled(bottom, scale)), fill=255
+    )
+    patch_support = _status_patch_mask(scale).point(lambda value: 255 if value else 0)
+    return ImageChops.lighter(mask, patch_support)
 def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Image, Image.Image, Image.Image, Image.Image]:
     """Build anatomy, contact seam, aperture and annular glow as independent layers."""
     size = (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale))
@@ -132,8 +164,9 @@ def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Imag
     aperture = Image.new("L", size, 0)
     glow = Image.new("RGBA", size, (0, 0, 0, 0))
     if closure >= 1.0:
-        points = [(_scaled(x, scale), _scaled(y, scale)) for x, y in _seam_points()]
-        ImageDraw.Draw(seam).line(points, fill=(6, 20, 9, round(255 * 0.18)), width=max(1, _scaled(1.25, scale)), joint="curve")
+        upper, _lower = aperture_contours_dp(closure=1.0)
+        points = [(_scaled(x, scale), _scaled(y, scale)) for x, y in upper]
+        ImageDraw.Draw(seam).line(points, fill=(6, 20, 9, round(255 * 0.18)), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)), joint="curve")
         return eye, seam, aperture, glow
 
     aperture = _contour_mask(scale, closure)
@@ -146,11 +179,12 @@ def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Imag
     eye.putalpha(ImageChops.multiply(eye.getchannel("A"), aperture))
     upper, lower = aperture_contours_dp(closure)
     seam_draw = ImageDraw.Draw(seam)
-    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in upper], fill=(6, 20, 9, 35), width=max(1, _scaled(0.65, scale)))
-    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in lower], fill=(6, 20, 9, 35), width=max(1, _scaled(0.65, scale)))
+    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in upper], fill=(6, 20, 9, 35), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
+    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in lower], fill=(6, 20, 9, 35), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
 
-    centre = (_scaled(195.0, scale), _scaled(258.45, scale))
-    outer = _scaled(107.0, scale)
+    _left, _top, _width, _height, medallion, center_x, center_y = _state_geometry_dp()
+    centre = (_scaled(center_x, scale), _scaled(center_y, scale))
+    outer = _scaled(medallion * (0.5 - 26.0 / 520.0), scale)
     glow_draw = ImageDraw.Draw(glow)
     for band in range(18):
         t = band / 17
@@ -159,7 +193,7 @@ def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Imag
         glow_draw.ellipse(
             (centre[0] - radius, centre[1] - radius, centre[0] + radius, centre[1] + radius),
             outline=(46, 190, 108, alpha),
-            width=max(1, _scaled(1.25, scale)),
+            width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)),
         )
     return eye, seam, aperture, glow
 
@@ -178,18 +212,24 @@ def _replace_material(reference: Image.Image, scale: int) -> Image.Image:
     return canvas
 
 
-def _draw_disconnected_status(canvas: Image.Image, scale: int) -> None:
-    draw = ImageDraw.Draw(canvas)
-    box = (_scaled(58, scale), _scaled(360, scale), _scaled(332, scale), _scaled(408, scale))
-    draw.rectangle(box, fill=(5, 17, 10, 255))
-    status_font = _font(_scaled(16, scale))
-    protocol_font = _font(_scaled(14, scale))
-    red = (207, 70, 70, 255)
-    draw.ellipse((_scaled(117, scale), _scaled(368, scale), _scaled(128, scale), _scaled(379, scale)), fill=red)
-    _center_text(draw, _scaled(202, scale), _scaled(374, scale), "ОТКЛЮЧЕНО", status_font, red)
-    _center_text(draw, _scaled(195, scale), _scaled(397, scale), "Отключён: VLESS", protocol_font, (232, 163, 93, 255))
-
-
+def _draw_connected_status(canvas: Image.Image, reference: Image.Image, scale: int) -> None:
+    """Replace only the installed status ink with a small feathered local wood patch."""
+    patch_mask = _status_patch_mask(scale)
+    left, top, right, bottom = (_scaled(value, scale) for value in STATUS_PATCH_BOUNDS_DP)
+    source_patch = reference.crop((left, top, right, bottom)).filter(
+        ImageFilter.GaussianBlur(radius=max(1, _scaled(9.0, scale)))
+    )
+    patch = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    patch.paste(source_patch.convert("RGBA"), (left, top))
+    draw = ImageDraw.Draw(patch)
+    status_font = _font(_scaled(15, scale))
+    protocol_font = _font(_scaled(13, scale))
+    green = (46, 190, 108, 255)
+    draw.ellipse((_scaled(113, scale), _scaled(436, scale), _scaled(123, scale), _scaled(446, scale)), fill=green)
+    _center_text(draw, _scaled(204, scale), _scaled(442, scale), "ПОДКЛЮЧЕНО", status_font, green)
+    _center_text(draw, _scaled(195, scale), _scaled(466, scale), "Подключён: VLESS", protocol_font, (232, 163, 93, 255))
+    patch.putalpha(patch_mask)
+    canvas.alpha_composite(patch)
 def _center_text(draw: ImageDraw.ImageDraw, x: int, y: int, text: str, font: ImageFont.ImageFont, fill: tuple[int, int, int, int]) -> None:
     bbox = draw.textbbox((0, 0), text, font=font)
     draw.text((x - (bbox[2] - bbox[0]) / 2, y - (bbox[3] - bbox[1]) / 2), text, font=font, fill=fill)
@@ -206,8 +246,7 @@ def render_home(state: str, scale: int = 2) -> Image.Image:
     canvas.alpha_composite(seam)
     if state == "connected":
         canvas.alpha_composite(glow)
-    else:
-        _draw_disconnected_status(canvas, scale)
+        _draw_connected_status(canvas, load_reference(scale), scale)
     return canvas.convert("RGB")
 
 
