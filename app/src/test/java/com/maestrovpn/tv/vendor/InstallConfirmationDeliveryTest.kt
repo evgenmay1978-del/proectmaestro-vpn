@@ -40,16 +40,56 @@ class InstallConfirmationDeliveryTest {
 
     @Test
     fun failedForegroundLaunchFallsBackToOnePark() {
+        var launches = 0
         var parks = 0
 
         val result = deliverInstallConfirmation(
             confirmation = "confirm",
             appInForeground = true,
-            launch = { error("blocked") },
+            launch = {
+                launches++
+                error("blocked")
+            },
             park = { parks++ },
         )
 
         assertEquals(InstallConfirmationDelivery.Parked, result)
+        assertEquals(1, launches)
+        assertEquals(1, parks)
+    }
+
+    @Test
+    fun coldBackgroundIsNotEligibleToLaunchConfirmation() {
+        assertEquals(false, isInstallConfirmationForeground(false, false))
+    }
+
+    @Test
+    fun warmBackgroundWithStartedProcessAndNoResumedActivityIsNotEligibleToLaunchConfirmation() {
+        assertEquals(false, isInstallConfirmationForeground(true, false))
+    }
+
+    @Test
+    fun resumedActivityIsEligibleToLaunchConfirmation() {
+        assertEquals(true, isInstallConfirmationForeground(true, true))
+    }
+
+    @Test
+    fun retryLaunchFailureReParksOnce() {
+        var launches = 0
+        var parks = 0
+
+        val result = deliverInstallConfirmation(
+            confirmation = "confirm",
+            appInForeground = true,
+            launch = {
+                launches++
+                error("blocked")
+            },
+            park = { parks++ },
+        )
+
+        assertEquals(InstallConfirmationDelivery.Parked, result)
+        assertEquals(1, launches)
         assertEquals(1, parks)
     }
 }
