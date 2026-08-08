@@ -179,8 +179,8 @@ def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Imag
     eye.putalpha(ImageChops.multiply(eye.getchannel("A"), aperture))
     upper, lower = aperture_contours_dp(closure)
     seam_draw = ImageDraw.Draw(seam)
-    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in upper], fill=(6, 20, 9, 35), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
-    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in lower], fill=(6, 20, 9, 35), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
+    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in upper], fill=(6, 20, 9, round(255 * 0.18)), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
+    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in lower], fill=(6, 20, 9, round(255 * 0.18)), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
 
     _left, _top, _width, _height, medallion, center_x, center_y = _state_geometry_dp()
     centre = (_scaled(center_x, scale), _scaled(center_y, scale))
@@ -212,11 +212,50 @@ def _replace_material(reference: Image.Image, scale: int) -> Image.Image:
     return canvas
 
 
+def _clean_status_background(reference: Image.Image) -> Image.Image:
+    """Inpaint the disconnected red ink before making a soft local wood patch."""
+    source = reference.convert("RGB")
+    width, height = source.size
+    pixels = list(source.getdata())
+
+    def is_old_status_red(pixel: tuple[int, int, int]) -> bool:
+        red, green, blue = pixel
+        return red >= 50 and red > green * 1.5 and red > blue * 1.5
+
+    clean_pixels = [pixel for pixel in pixels if not is_old_status_red(pixel)]
+    fallback = tuple(sum(pixel[channel] for pixel in clean_pixels) // len(clean_pixels) for channel in range(3))
+    result = pixels[:]
+    for index, pixel in enumerate(pixels):
+        if not is_old_status_red(pixel):
+            continue
+        x, y = index % width, index // width
+        samples: list[tuple[int, int, int]] = []
+        for radius in range(1, 17):
+            x0, x1 = max(0, x - radius), min(width, x + radius + 1)
+            y0, y1 = max(0, y - radius), min(height, y + radius + 1)
+            samples = [
+                pixels[yy * width + xx]
+                for yy in range(y0, y1)
+                for xx in range(x0, x1)
+                if not is_old_status_red(pixels[yy * width + xx])
+            ]
+            if samples:
+                break
+        result[index] = (
+            sum(sample[0] for sample in samples) // len(samples),
+            sum(sample[1] for sample in samples) // len(samples),
+            sum(sample[2] for sample in samples) // len(samples),
+        ) if samples else fallback
+    cleaned = Image.new("RGB", source.size)
+    cleaned.putdata(result)
+    return cleaned
+
+
 def _draw_connected_status(canvas: Image.Image, reference: Image.Image, scale: int) -> None:
-    """Replace only the installed status ink with a small feathered local wood patch."""
+    """Replace OFF ink with an inpainted, feathered local wood patch and connected labels."""
     patch_mask = _status_patch_mask(scale)
     left, top, right, bottom = (_scaled(value, scale) for value in STATUS_PATCH_BOUNDS_DP)
-    source_patch = reference.crop((left, top, right, bottom)).filter(
+    source_patch = _clean_status_background(reference.crop((left, top, right, bottom))).filter(
         ImageFilter.GaussianBlur(radius=max(1, _scaled(9.0, scale)))
     )
     patch = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
