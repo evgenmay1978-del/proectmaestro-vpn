@@ -55,6 +55,24 @@ mobile-eye-runtime-assets`:
 На `owner-home-comparison` из этого exact run видны все семь плашек; они
 образуют непрерывную выпуклую дугу, а боковые завитки находятся позади канта.
 
+### Итоговый test APK после исправления плашек
+
+Сборка выполнена один раз на GitHub из точного HEAD, включающего исправление и
+актуальную память проекта. Release/OTA не запускались.
+
+- Actions run: `31275136685`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31275136685`;
+- workflow/task: `android-test.yml` / `android`;
+- exact run HEAD: `10ee9b71c68c51423b500231ca2df0bcff9f709f`;
+- result: `completed / success`;
+- artifact: `maestrovpn-tv-test-apk`, ID `9026832301`;
+- artifact ZIP: `176590647` bytes, SHA-256
+  `b41e417e930a3b96f8424c2dc9bb8128d9a228e9da5765416c1d6b9b274f8322`;
+- APK: `MaestroVPN-TV-1.0.92-test-debug.apk`, `179273510` bytes, SHA-256
+  `9cc18d373eeadd9542511eab9fa2c44b9e79b79697e05e94ca1cc52296cc029b`;
+- локальная проверенная копия:
+  `build/github-artifacts/run-31275136685/extracted/MaestroVPN-TV-1.0.92-test-debug.apk`.
+
 ### Очистка старых тестовых версий
 
 Перед удалением выполнен read-only аудит ancestry, уникальных коммитов и PR.
