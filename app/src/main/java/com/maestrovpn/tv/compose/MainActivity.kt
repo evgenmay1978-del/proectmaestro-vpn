@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,6 +54,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -675,7 +677,11 @@ class MainActivity :
         if (showUpdateDialog && shouldShowUpdateDialog) {
             UpdateAvailableDialog(
                 updateInfo = updateInfo!!,
-                onDismiss = {
+                // Просто закрыть: предложение вернётся при следующей проверке. Сюда попадаем,
+                // когда нажали «Обновить» или ушли смотреть релиз — это НЕ отказ.
+                onHide = { showUpdateDialog = false },
+                // Явный отказ («Отмена») — только здесь гасим версию насовсем.
+                onDecline = {
                     Settings.lastShownUpdateVersion = updateInfo!!.versionCode
                     showUpdateDialog = false
                 },
@@ -1193,6 +1199,15 @@ class MainActivity :
                     modifier = Modifier.fillMaxSize(),
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                     topBar = topBarContent,
+                    contentWindowInsets = if (mobileHomeUsesFullWindow(
+                            isTelevision = isTelevision(this@MainActivity),
+                            isHomeRoute = currentRoute == Screen.TvHome.route,
+                        )
+                    ) {
+                        WindowInsets(0, 0, 0, 0)
+                    } else {
+                        ScaffoldDefaults.contentWindowInsets
+                    },
                     bottomBar = {
                         if (!isSubScreen && bottomNavigationScreens.isNotEmpty()) {
                             val hasUpdate by UpdateState.hasUpdate

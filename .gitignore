@@ -13,3 +13,5 @@ app/libs/*.aar
 app/src/main/jniLibs/
 captures/
 graphify-out/
+__pycache__/
+*.pyc

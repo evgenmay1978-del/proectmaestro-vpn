@@ -23,6 +23,16 @@ name: Build app APK (test / compile-check)
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: Manual task to run on the selected ref
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - mobile-eye-ring-assets
+          - mobile-eye-runtime-assets
   pull_request:
     paths:
       - 'app/**'
@@ -32,7 +42,253 @@ on:
       - .github/workflows/android-test.yml
 
 jobs:
+  mobile-eye-ring-assets:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-ring-assets' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned Pillow
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'Pillow==11.3.0'
+          python - <<'PY'
+          import PIL
+          print(f'Pillow {PIL.__version__}')
+          PY
+
+      - name: Run synthetic eye-surround contracts
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_mask_has_a_full_core_and_local_feather \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_preserves_alpha_and_pixels_outside_circle \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_lights_share_alpha_support_but_left_and_right_rgb_differ \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_is_idempotent_with_feather
+
+
+      - name: Verify owner-selected closed-eye inputs and preview contracts
+        run: |
+          set -euo pipefail
+          python ops/mobile-eye-surround-assets.py --material-only --check
+          python -m unittest ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsIntegrationTest.test_archived_owner_reference_rebuilds_the_tracked_master ops.test_mobile_eye_state_preview
+      - name: Render and verify full-size ring outputs
+        run: |
+          set -euo pipefail
+          python ops/mobile-eye-surround-assets.py
+          python ops/mobile-eye-surround-assets.py --check
+          python -m unittest ops.test_mobile_eye_surround_assets
+          python ops/mobile-4d-art-check.py --selftest
+          python ops/mobile-4d-art-check.py --group ring
+          git diff --check
+
+      - name: Record decoded RGBA and alpha digests
+        run: |
+          set -euo pipefail
+          mkdir -p build/mobile-eye-ring-assets
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from PIL import Image
+
+          root = Path('.')
+          report = []
+          for directory in ('kit', 'source'):
+              for light in ('l', 'c', 'r'):
+                  path = root / 'design/mobile-asset-redraw' / directory / f'home_ring_{light}.png'
+                  with Image.open(path) as source:
+                      rgba = source.convert('RGBA')
+                  report.append(
+                      f'{path.as_posix()} '
+                      f'rgba={hashlib.sha256(rgba.tobytes()).hexdigest()} '
+                      f'alpha={hashlib.sha256(rgba.getchannel("A").tobytes()).hexdigest()} '
+                      f'size={rgba.width}x{rgba.height}'
+                  )
+          output = '\n'.join(report) + '\n'
+          Path('build/mobile-eye-ring-assets/decoded-rgba-sha256.txt').write_text(
+              output,
+              encoding='utf-8',
+          )
+          print(output, end='')
+          PY
+
+      - name: Upload generated ring assets (artifact only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-eye-ring-assets-${{ github.sha }}
+          path: |
+            design/mobile-asset-redraw/kit/home_ring_l.png
+            design/mobile-asset-redraw/kit/home_ring_c.png
+            design/mobile-asset-redraw/kit/home_ring_r.png
+            design/mobile-asset-redraw/source/home_ring_l.png
+            design/mobile-asset-redraw/source/home_ring_c.png
+            design/mobile-asset-redraw/source/home_ring_r.png
+            build/mobile-eye-ring-assets/decoded-rgba-sha256.txt
+          if-no-files-found: error
+
+  mobile-eye-runtime-assets:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-runtime-assets' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned Pillow
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'Pillow==11.3.0'
+          python - <<'PY'
+          import PIL
+          print(f'Pillow {PIL.__version__}')
+          PY
+
+      - name: RED gate - require owner-approved runtime eye geometry
+        run: python ops/phone-screen-sim.py --eye-phases-only
+
+      - name: Verify source and atlas-generator contracts
+        run: |
+          set -euo pipefail
+          python -m unittest ops.test_mobile_4d_assets
+          python ops/mobile-eye-surround-assets.py --check
+
+      - name: Record pre-generation manifest digest
+        run: |
+          set -euo pipefail
+          mkdir -p build/mobile-eye-runtime-assets
+          sha256sum \
+            app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/Mobile4DGeneratedAssets.kt \
+            > build/mobile-eye-runtime-assets/manifest-before.sha256
+
+      - name: Regenerate and verify deterministic runtime atlases
+        run: |
+          set -euo pipefail
+          python ops/mobile-4d-assets.py
+          python ops/mobile-4d-assets.py --check
+
+      - name: Verify ring art contracts
+        run: |
+          set -euo pipefail
+          python ops/mobile-4d-art-check.py --selftest
+          python ops/mobile-4d-art-check.py --group ring
+
+      - name: Render full phone simulator
+        run: python ops/phone-screen-sim.py
+
+      - name: Require only six atlas changes and write SHA-256 report
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import subprocess
+          from pathlib import Path
+
+          manifest = Path(
+              'app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/'
+              'Mobile4DGeneratedAssets.kt'
+          )
+          expected_atlases = {
+              Path(f'app/src/main/assets/mobile_4d/atlas_{light}_{page:02d}.webp')
+              for light in ('l', 'c', 'r')
+              for page in (7, 8)
+          }
+          changed = {
+              Path(line)
+              for line in subprocess.check_output(
+                  [
+                      'git', 'diff', '--name-only', '--',
+                      'app/src/main/assets/mobile_4d', str(manifest),
+                  ],
+                  text=True,
+              ).splitlines()
+              if line
+          }
+          if changed and changed != expected_atlases:
+              missing = sorted(str(path) for path in expected_atlases - changed)
+              unexpected = sorted(str(path) for path in changed - expected_atlases)
+              raise SystemExit(
+                  'runtime atlas scope drift: expected exactly six changed pages or '
+                  f'a clean verification run; missing={missing or "none"}; '
+                  f'unexpected={unexpected or "none"}'
+              )
+          atlas_status = 'generated' if changed else 'verified'
+
+          before_line = Path(
+              'build/mobile-eye-runtime-assets/manifest-before.sha256'
+          ).read_text(encoding='utf-8').strip()
+          before_sha = before_line.split()[0]
+          after_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
+          if before_sha != after_sha:
+              raise SystemExit(
+                  'generated manifest changed despite stable alpha/placement: '
+                  f'before={before_sha}; after={after_sha}'
+              )
+
+          qa_outputs = (
+              Path('build/phone-screen-sim/owner-eye-blink-phases.png'),
+              Path('build/phone-screen-sim/owner-eye-blink-phases-qa.jpg'),
+              Path('build/phone-screen-sim/owner-home-comparison.png'),
+              Path('build/phone-screen-sim/owner-home-comparison-qa.jpg'),
+              Path('build/phone-screen-sim/phone-screens.png'),
+              Path('build/phone-screen-sim/phone-screens-qa.jpg'),
+          )
+          expected_outputs = tuple(sorted(expected_atlases)) + qa_outputs
+          missing_outputs = [str(path) for path in expected_outputs if not path.is_file()]
+          if missing_outputs:
+              raise SystemExit(f'missing runtime QA outputs: {missing_outputs}')
+
+          report_lines = [
+              f'status={atlas_status}',
+              f'manifest_sha256={after_sha}',
+              'changed_files:',
+              *(f'  {path.as_posix()}' for path in sorted(changed)),
+              'artifact_sha256:',
+          ]
+          for path in expected_outputs:
+              report_lines.append(
+                  f'  {hashlib.sha256(path.read_bytes()).hexdigest()}  '
+                  f'{path.as_posix()}  bytes={path.stat().st_size}'
+              )
+          report = '\n'.join(report_lines) + '\n'
+          Path(
+              'build/mobile-eye-runtime-assets/runtime-assets-report.txt'
+          ).write_text(report, encoding='utf-8')
+          print(report, end='')
+          PY
+          git diff --check
+
+      - name: Upload runtime eye atlases and visual QA (artifact only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-eye-runtime-assets-${{ github.sha }}
+          path: |
+            app/src/main/assets/mobile_4d/atlas_l_07.webp
+            app/src/main/assets/mobile_4d/atlas_l_08.webp
+            app/src/main/assets/mobile_4d/atlas_c_07.webp
+            app/src/main/assets/mobile_4d/atlas_c_08.webp
+            app/src/main/assets/mobile_4d/atlas_r_07.webp
+            app/src/main/assets/mobile_4d/atlas_r_08.webp
+            build/phone-screen-sim/owner-eye-blink-phases.png
+            build/phone-screen-sim/owner-eye-blink-phases-qa.jpg
+            build/phone-screen-sim/owner-home-comparison.png
+            build/phone-screen-sim/owner-home-comparison-qa.jpg
+            build/phone-screen-sim/phone-screens.png
+            build/phone-screen-sim/phone-screens-qa.jpg
+            build/mobile-eye-runtime-assets/runtime-assets-report.txt
+          if-no-files-found: error
+
   build:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' }}
     runs-on: ubuntu-latest
     # The repo default token permission is "read", which does NOT include actions:read — so
     # `gh run list --workflow=libbox.yml` (the libbox.aar fetch below) failed with

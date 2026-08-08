@@ -3,22 +3,14 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,8 +25,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,25 +37,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.NeonAccountCard
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.MaestroOrange
@@ -82,11 +61,11 @@ import com.maestrovpn.tv.compose.theme.NeonGreen
  * roughly one screen so there's almost nothing to scroll with the D-pad. Phone keeps the
  * hero fixed and scrolls only the content below the eye.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TvHomeScreen(
     statusText: String,
     connected: Boolean,
+    connecting: Boolean = false,
     protocols: List<String>,
     selected: String?,
     activeProtocol: String? = null,
@@ -123,51 +102,6 @@ fun TvHomeScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .drawBehind {
-                    // ТВ v4: фон = цельный непрозрачный арт (tvm_bg_*) — рисовать под ним
-                    // glow/паутину бессмысленно (overdraw на 1ГБ-боксах). Только телефон.
-                    if (isTv) return@drawBehind
-                    val center = if (isTv) {
-                        Offset(size.width * 0.24f, size.height * 0.5f)
-                    } else {
-                        Offset(size.width * 0.5f, size.height * 0.40f)   // ON the medallion
-                    }
-                    // Glow ONLY around the central element (owner: свечение только вокруг центра).
-                    // Tight radius (was half the screen → bled onto account/status).
-                    val radius = if (isTv) size.maxDimension * 0.45f else size.minDimension * 0.52f
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                NeonGreen.copy(alpha = if (connected) 0.11f else 0.06f),
-                                NeonGreen.copy(alpha = if (connected) 0.035f else 0.02f),
-                                Color.Transparent,
-                            ),
-                            center = center, radius = radius,
-                        ),
-                        radius = radius, center = center,
-                    )
-                    // Faint decorative SPIDERWEB around the glow — a few radial spokes + concentric
-                    // rings at very low alpha for atmosphere/depth. Also static (no per-frame clock).
-                    val webR = size.minDimension * (if (isTv) 0.46f else 0.58f)
-                    val webA = if (connected) 0.055f else 0.038f
-                    val spokes = 12
-                    for (i in 0 until spokes) {
-                        val a = (i * 2f * Math.PI / spokes).toFloat()
-                        drawLine(
-                            color = NeonGreen.copy(alpha = webA),
-                            start = center,
-                            end = Offset(center.x + kotlin.math.cos(a) * webR, center.y + kotlin.math.sin(a) * webR),
-                            strokeWidth = 1f,
-                        )
-                    }
-                    for (ring in 1..4) {
-                        drawCircle(
-                            color = NeonGreen.copy(alpha = webA * 0.6f),
-                            radius = webR * ring / 4f, center = center,
-                            style = Stroke(width = 1f),
-                        )
-                    }
-                }
                 .graphicsLayer {
                     // The phone hero is a fixed physical frame: it must never slide with the menu.
                     // Keep the existing TV entrance untouched.
@@ -203,137 +137,29 @@ fun TvHomeScreen(
                     connectFocus = connectFocus,
                 )
             } else {
-                // ── PHONE: the carved frame, logo and closed-eye medallion are one fixed scene.
-                // Only the content below the eye moves. Connected state reveals the matching open
-                // eye inside the same socket, so neither the ring nor the full background crossfades.
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("premium-phone-home"),
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.mobile_home_scene),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-
-                    // Exact ContentScale.Crop mapping for the fixed 853×1844 scene. Оба состояния
-                    // занимают один и тот же бокс 520px — но САМИ СЛОИ глаза внутри него вписаны в
-                    // бронзовый отступ, см. fitLivingEyeLayer в LivingEyeLayerGeometry.kt.
-                    // ⛔ Здесь стояло «never shrink the closed eye» — это ПРОТИВОПОЛОЖНО текущему
-                    // заданию владельца. В версии 1.0.151 зелень глаза перекрывала бронзовое кольцо
-                    // (старый маппинг выходил за канву на 24.5px с каждой стороны), и владелец
-                    // поручил вписать глаз внутрь кольца. Не «починить» обратно по старому комментарию.
-                    val imageWidth = 853f
-                    val imageHeight = 1844f
-                    val medallionCenterX = 430f
-                    val medallionCenterY = 711f
-                    val medallionRadius = 260f
-                    val sceneScale = maxOf(maxWidth.value / imageWidth, maxHeight.value / imageHeight)
-                    val renderedLeft = (maxWidth.value - imageWidth * sceneScale) / 2f
-                    val renderedTop = (maxHeight.value - imageHeight * sceneScale) / 2f
-                    val medallionRadiusDp = medallionRadius * sceneScale
-                    val medallionCenterDpX = renderedLeft + medallionCenterX * sceneScale
-                    val medallionCenterDpY = renderedTop + medallionCenterY * sceneScale
-
-                    // The cylinder starts from the measured bottom edge of the eye, not a screen
-                    // percentage. The carved bottom ornament stays fixed and masks outgoing rows.
-                    val windowTop = (medallionCenterDpY + medallionRadiusDp + 12f).dp
-                    val windowBottom = maxHeight * 0.070f
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = windowTop, bottom = windowBottom)
-                            .clipToBounds(),
-                    ) {
-                        PhoneRevolverMenu(
-                            statusText = statusText,
-                            connected = connected,
-                            activeProtocol = activeProtocol,
-                            accountLogin = accountLogin,
-                            daysLeft = daysLeft,
-                            accountExpires = accountExpires,
-                            protocols = protocols,
-                            selected = selected,
-                            hasSubProfile = hasSubProfile,
-                            hasOlcrtcCreds = hasOlcrtcCreds,
-                            olcrtcProvider = olcrtcProvider,
-                            onSelectProtocol = onSelectProtocol,
-                            onSelectOlcrtc = onSelectOlcrtc,
-                            onBuy = onBuy,
-                            onEnterCode = onEnterCode,
-                            onSplitTunnel = onSplitTunnel,
-                            onShareIos = onShareIos,
-                            onScanQr = onScanQr,
-                            onEnterTrial = onEnterTrial,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-
-                    // Fixed full-size eye + connect target. The open image is clipped to the inner
-                    // aperture, so the base ring remains pixel-identical throughout the transition.
-                    var touchGaze by remember { mutableStateOf<Offset?>(null) }
-                    Box(
-                        modifier = Modifier
-                            .offset(
-                                x = (medallionCenterDpX - medallionRadiusDp).dp,
-                                y = (medallionCenterDpY - medallionRadiusDp).dp,
-                            )
-                            .size((2f * medallionRadiusDp).dp)
-                            .pointerInput(Unit) {
-                                try {
-                                    awaitEachGesture {
-                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                        fun track(position: Offset) {
-                                            val width = size.width.toFloat().coerceAtLeast(1f)
-                                            val height = size.height.toFloat().coerceAtLeast(1f)
-                                            touchGaze = Offset(
-                                                x = (position.x / width - 0.5f) * 2f,
-                                                y = (position.y / height - 0.5f) * 2f,
-                                            )
-                                        }
-                                        track(down.position)
-
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            val pressed = event.changes
-                                                .firstOrNull { it.pressed }
-                                                ?: break
-                                            track(pressed.position)
-                                        }
-                                        touchGaze = null
-                                    }
-                                } finally {
-                                    touchGaze = null
-                                }
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        LivingEyeMedallion(
-                            connected = connected,
-                            touchGaze = touchGaze,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        Button(
-                            onClick = onToggleConnect,
-                            shape = CircleShape,
-                            contentPadding = PaddingValues(0.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .semantics {
-                                    contentDescription = if (connected) {
-                                        "Отключить VPN"
-                                    } else {
-                                        "Подключить VPN"
-                                    }
-                                },
-                            content = {},
-                        )
-                    }
-                }
+                Mobile4DHome(
+                    statusText = statusText,
+                    connected = connected,
+                    connecting = connecting,
+                    protocols = protocols,
+                    selected = selected,
+                    activeProtocol = activeProtocol,
+                    accountLogin = accountLogin,
+                    daysLeft = daysLeft,
+                    accountExpires = accountExpires,
+                    hasSubProfile = hasSubProfile,
+                    hasOlcrtcCreds = hasOlcrtcCreds,
+                    olcrtcProvider = olcrtcProvider,
+                    onToggleConnect = onToggleConnect,
+                    onSelectProtocol = onSelectProtocol,
+                    onSelectOlcrtc = onSelectOlcrtc,
+                    onBuy = onBuy,
+                    onEnterCode = onEnterCode,
+                    onSplitTunnel = onSplitTunnel,
+                    onShareIos = onShareIos,
+                    onScanQr = onScanQr,
+                    onEnterTrial = onEnterTrial,
+                )
             }
         }
     }

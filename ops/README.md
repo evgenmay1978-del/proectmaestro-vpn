@@ -4,7 +4,76 @@ Applying the lesson from the training videos (esp. Anthropic-skills #5: *"if a t
 code, do it with code"* → run a tested script instead of re-deriving the commands each session →
 0 tokens, stable, fast). These encapsulate the operations I used to type out by hand every time.
 
-All run **on S1** (where the panel, telemetry, mirror and repo live).
+Server operations run **on S1** (where the panel, telemetry, mirror and repo live).
+The lightweight mobile eye-state preview below may run locally; heavy ring/atlas
+generation, the full simulator, Gradle and APK builds run only on GitHub Actions
+for the owner's weak computer.
+
+## GitHub Actions test/artifact handoff
+
+`github-actions-artifact.py` replaces the error-prone manual dispatch, run lookup,
+artifact download and ZIP extraction sequence with one tested command:
+
+```powershell
+python ops/github-actions-artifact.py --task mobile-eye-ring-assets
+python ops/github-actions-artifact.py --task mobile-eye-runtime-assets
+python ops/github-actions-artifact.py --task android
+```
+
+The helper fails closed unless the worktree is clean, the current branch is exactly
+`codex/mobile-4d-deck`, and local `HEAD` is already present at the same remote ref.
+It dispatches only `android-test.yml` and the three listed non-release tasks, then
+accepts only a new `workflow_dispatch` run with that exact `head_sha`. The artifact
+name must match the selected task exactly. Results are downloaded to
+`build/github-artifacts/run-<id>/`, with `metadata.json`, `artifact.sha256`, the
+original ZIP and a path-traversal-safe `extracted/` directory.
+
+Authentication lookup order is `GH_TOKEN`, `GITHUB_TOKEN`, then
+`git credential fill`; credentials are never written to metadata or printed. This
+script has no GitHub Release or OTA endpoint and does not merge or publish anything.
+
+## Mobile 4D assets and phone preview
+
+- `mobile-4d-assets.py` validates the 15 source PNGs, builds the committed three-light atlas set and generated Kotlin geometry.
+- `mobile-4d-art-check.py` — приёмка арт-чекпойнтов кита ДО переноса в `source/` и сборки атласа. Не рантайм: только читает PNG и печатает PASS/FAIL.
+  ```bash
+  python3 ops/mobile-4d-art-check.py --group arc
+  python3 ops/mobile-4d-art-check.py --selftest
+  ```
+  Валит приёмку по числу: холст, RGBA8, ICC/APNG, alpha bbox, совпадение альфы между `_l/_c/_r`, реальная разница света, остаток magenta-кея, подъём купола, тепло материала (R−G) и доля тёплого рельефа. ⛔ Подсчёт секторов — СПРАВОЧНЫЙ (строка `ИНФО`): у резьбы полупрозрачные края, и один файл при разных порогах даёт от 0 до 14 «интерьеров» там, где глазом видно шесть. Количество секторов проверяется глазами.
+  `--selftest` ломает картинки нарочно и требует, чтобы сторож это поймал — гейт, который ни разу не срабатывал, считается неработающим.
+- `mobile-4d-assets.py` refuses to run unless the toolchain is exactly
+  Pillow 11.3.0 + libwebp 1.5.0; committed atlas output and `--check` must be
+  byte-stable. For the current eye-surround work install that pinned wheel in a
+  GitHub Actions test/artifact job and run generation there. Do not use the
+  owner's Windows computer or an ad-hoc S1 session as a fallback for atlas
+  regeneration.
+- `mobile-eye-state-preview.py` is the repeatable lightweight owner-preview for the
+  exact installed-test Home baseline
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`
+  (`591×1280`, SHA-256
+  `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`).
+  ```powershell
+  python ops/mobile-eye-state-preview.py
+  python ops/mobile-eye-state-preview.py --output-dir build/mobile-eye-state-preview-qa --scale 1
+  python ops/mobile-eye-state-preview.py --check
+  ```
+  It always writes `home-disconnected.png`, `home-connected.png` and
+  `home-eye-states-comparison.png` in the selected output directory. The
+  allowed-change mask is explicit; `04-owner-selected-home-2026-07-31.jpg` is
+  used only as eye/eye-surround art-direction history, never as layout geometry.
+  **This is a scripted preview, not a runtime screenshot, Android render, APK
+  acceptance result or OTA authorization.**
+- `phone-screen-sim.py` reconstructs Home from all eight committed centre-light atlas layers, then draws the measured owner-reference controls. It never uses a legacy flat Home image.
+  - Fixed ownership: `wood/frame/cartouche/vines`, `ring`, Playfair title and living eye. Only `console/contacts/arc` receive `+25 dp - deckScrollDp`, clipped below `deckTop = 434 dp`.
+  - The simulator uses the direct `890×635 / 822.5` eye registration plus the same bronze clip, eyelid contact shadow and inner occlusion profile as runtime; the preview is static, while the Android eye keeps blink/gaze/touch animation.
+  - Deck geometry is copied 1:1 from `PhoneHomeReferenceLayout.kt` and `PhoneHomeControlDeck.kt`. **Change the Kotlin, change this file — otherwise the simulation lies.**
+  - Outputs include the three VPN states, `owner-home-comparison.png`, `owner-home-connected-scrolled.png` and `owner-home-scroll-proof.png`; the last board proves that logo/eye are fixed while relief, tiles, icons and labels move together.
+  - The removed support sentence must not reappear in runtime or simulator.
+  - Current visual findings and acceptance evidence live in `design-qa.md`.
+- `mobile-eye-natural-assets.py` rebuilds only the aligned `mobile_eye_open`, `mobile_eye_squint` and `mobile_eye_closed` resources and validates the existing anatomy layers. It never recreates a Home scene. The approved alpha support for every eyelid state is an immutable SHA-256 constant; never replace that contract with a comparison against the runtime WebP that the same script overwrites.
+
+The mobile 4D atlas is the single Home-art pipeline. Keep text and the eye separate; do not add a flattened Home drawable back. TV assets and TV tools are outside this pipeline.
 
 | script | when to use | safety |
 |--------|-------------|--------|

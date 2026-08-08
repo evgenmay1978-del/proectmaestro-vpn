@@ -60,4 +60,17 @@ class MobilePremiumLayoutTest {
         assertEquals(216, mobilePremiumPaymentQrSize(maxContentWidthDp = 240))
         assertEquals(220, mobilePremiumPaymentQrSize(maxContentWidthDp = 400))
     }
+
+    @Test
+    fun shellContentWidthStaysReadableOnTablets() {
+        assertEquals(560, mobilePremiumMaximumContentWidth(MobilePremiumLayoutMode.Expanded))
+        assertEquals(560, mobilePremiumMaximumContentWidth(MobilePremiumLayoutMode.Regular))
+        assertEquals(720, mobilePremiumMaximumContentWidth(MobilePremiumLayoutMode.Compact))
+    }
+
+    @Test
+    fun premiumShellIsPhoneOnly() {
+        assertEquals(true, mobilePremiumShellEnabled(isTv = false))
+        assertEquals(false, mobilePremiumShellEnabled(isTv = true))
+    }
 }

@@ -11,7 +11,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,8 +22,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import androidx.compose.foundation.layout.height
@@ -91,6 +88,13 @@ import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.base.UiEvent
 import com.maestrovpn.tv.compose.base.rememberApplyServiceChangeNotifier
+import com.maestrovpn.tv.compose.premium.MobilePremium4DShell
+import com.maestrovpn.tv.compose.premium.MobilePremiumPanel
+import com.maestrovpn.tv.compose.premium.MobilePremiumTextField
+import com.maestrovpn.tv.compose.premium.PremiumEmerald
+import com.maestrovpn.tv.compose.premium.PremiumGold
+import com.maestrovpn.tv.compose.premium.PremiumText
+import com.maestrovpn.tv.compose.premium.PremiumTextMuted
 import com.maestrovpn.tv.compose.shared.AppSelectionCard
 import com.maestrovpn.tv.compose.shared.PackageCache
 import com.maestrovpn.tv.compose.shared.SortMode
@@ -330,6 +334,212 @@ fun PerAppProxyScreen(
 
     val isTv = rememberIsTv()
 
+    if (!isTv) {
+        MobilePremium4DShell(
+            title = stringResource(R.string.per_app_proxy),
+            onBack = onBack,
+            actions = {
+                IconButton(
+                    onClick = {
+                        isSearchActive = !isSearchActive
+                        if (!isSearchActive) {
+                            searchQuery = ""
+                            updateCurrentPackages("")
+                            focusManager.clearFocus()
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                        contentDescription = stringResource(R.string.search),
+                        tint = PremiumGold,
+                    )
+                }
+                PerAppProxyMenus(
+                    proxyMode = proxyMode,
+                    sortMode = sortMode,
+                    sortReverse = sortReverse,
+                    hideSystemApps = hideSystemApps,
+                    hideOfflineApps = hideOfflineApps,
+                    hideDisabledApps = hideDisabledApps,
+                    onModeChange = { mode ->
+                        proxyMode = mode
+                        coroutineScope.launch {
+                            withContext(Dispatchers.IO) {
+                                Settings.perAppProxyMode = mode
+                            }
+                            notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                        }
+                    },
+                    onSortModeChange = { mode ->
+                        sortMode = mode
+                        applyFilter()
+                    },
+                    onSortReverseToggle = {
+                        sortReverse = !sortReverse
+                        applyFilter()
+                    },
+                    onHideSystemAppsToggle = {
+                        hideSystemApps = !hideSystemApps
+                        applyFilter()
+                    },
+                    onHideOfflineAppsToggle = {
+                        hideOfflineApps = !hideOfflineApps
+                        applyFilter()
+                    },
+                    onHideDisabledAppsToggle = {
+                        hideDisabledApps = !hideDisabledApps
+                        applyFilter()
+                    },
+                    onSelectAll = {
+                        postSaveSelectedApplications(currentPackages.map { it.uid }.toSet())
+                    },
+                    onDeselectAll = {
+                        postSaveSelectedApplications(emptySet())
+                    },
+                    onImport = {
+                        val packageNames = parseImportedPackageNames(clipboardText)
+                        if (packageNames.isNullOrEmpty()) {
+                            Toast.makeText(
+                                context,
+                                R.string.toast_clipboard_empty,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            val newSelected =
+                                packages.mapNotNull { packageCache ->
+                                    if (packageNames.contains(packageCache.packageName)) {
+                                        packageCache.uid
+                                    } else {
+                                        null
+                                    }
+                                }.toSet()
+                            postSaveSelectedApplications(newSelected)
+                            Toast.makeText(
+                                context,
+                                R.string.toast_imported_from_clipboard,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                    onExport = {
+                        val packageList =
+                            packages.mapNotNull { packageCache ->
+                                if (selectedUids.contains(packageCache.uid)) {
+                                    packageCache.packageName
+                                } else {
+                                    null
+                                }
+                            }
+                        clipboardText = packageList.joinToString("\n")
+                        Toast.makeText(
+                            context,
+                            R.string.toast_copied_to_clipboard,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onScanChinaApps = { startScan() },
+                )
+            },
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                AnimatedVisibility(
+                    visible = isLoading,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = PremiumEmerald,
+                    )
+                }
+
+                MobilePremiumPanel {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Text(
+                            text = if (proxyMode == Settings.PER_APP_PROXY_INCLUDE) {
+                                stringResource(R.string.per_app_proxy_mode_include_description)
+                            } else {
+                                stringResource(R.string.per_app_proxy_mode_exclude_description)
+                            },
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PremiumText,
+                        )
+                        Text(
+                            text = "${selectedUids.size}/${currentPackages.size}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = PremiumTextMuted,
+                        )
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = isSearchActive,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
+                    val focusRequester = remember { FocusRequester() }
+                    LaunchedEffect(isSearchActive) {
+                        if (isSearchActive) focusRequester.requestFocus()
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MobilePremiumTextField(
+                            value = searchQuery,
+                            onValueChange = {
+                                searchQuery = it
+                                updateCurrentPackages(it)
+                            },
+                            placeholder = stringResource(R.string.search),
+                            focusRequester = focusRequester,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    searchQuery = ""
+                                    updateCurrentPackages("")
+                                    focusManager.clearFocus()
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = stringResource(R.string.content_description_clear_search),
+                                    tint = PremiumGold,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(currentPackages, key = { it.packageName }) { packageCache ->
+                        AppSelectionCard(
+                            packageCache = packageCache,
+                            selected = selectedUids.contains(packageCache.uid),
+                            onToggle = { selected -> toggleSelection(packageCache, selected) },
+                            onCopyLabel = { clipboardText = packageCache.applicationLabel },
+                            onCopyPackage = { clipboardText = packageCache.packageName },
+                            onCopyUid = { clipboardText = packageCache.uid.toString() },
+                        )
+                    }
+                }
+            }
+        }
+    } else {
     OverrideTopBar {
         TopAppBar(
             title = { Text(stringResource(R.string.per_app_proxy)) },
@@ -401,9 +611,7 @@ fun PerAppProxyScreen(
                         postSaveSelectedApplications(emptySet())
                     },
                     onImport = {
-                        val packageNames =
-                            clipboardText?.split("\n")?.distinct()
-                                ?.takeIf { it.isNotEmpty() && it[0].isNotEmpty() }
+                        val packageNames = parseImportedPackageNames(clipboardText)
                         if (packageNames.isNullOrEmpty()) {
                             Toast.makeText(
                                 context,
@@ -464,16 +672,6 @@ fun PerAppProxyScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-      // PHONE: shared mobile wood surface with a readability scrim. TV keeps its graphite scene.
-      if (!isTv) {
-          Image(
-              painter = painterResource(R.drawable.mobile_surface),
-              contentDescription = null,
-              modifier = Modifier.fillMaxSize(),
-              contentScale = ContentScale.Crop,
-          )
-          Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = 0.50f)) })
-      }
       Column(
         modifier = Modifier
             .fillMaxSize()
@@ -606,6 +804,7 @@ fun PerAppProxyScreen(
             }
         }
       }
+    }
     }
 
     if (scanProgress != null) {

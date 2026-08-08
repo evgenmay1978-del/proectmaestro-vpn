@@ -38,5 +38,13 @@ internal fun mobilePremiumPaymentQrSize(maxContentWidthDp: Int): Int =
         .coerceAtMost(MOBILE_PREMIUM_QR_MAX_SIZE_DP)
         .coerceAtLeast(1)
 
+internal fun mobilePremiumMaximumContentWidth(mode: MobilePremiumLayoutMode): Int = when (mode) {
+    MobilePremiumLayoutMode.Compact -> 720
+    MobilePremiumLayoutMode.Regular,
+    MobilePremiumLayoutMode.Expanded -> 560
+}
+
+internal fun mobilePremiumShellEnabled(isTv: Boolean): Boolean = !isTv
+
 private const val MOBILE_PREMIUM_QR_CARD_PADDING_DP = 12
 private const val MOBILE_PREMIUM_QR_MAX_SIZE_DP = 220

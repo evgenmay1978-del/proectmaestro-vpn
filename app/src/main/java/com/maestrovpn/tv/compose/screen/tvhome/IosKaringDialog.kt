@@ -2,6 +2,8 @@ package com.maestrovpn.tv.compose.screen.tvhome
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +12,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,14 +28,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.component.GlossyButton
 import com.maestrovpn.tv.compose.fantasy.FantasyDialog
 import com.maestrovpn.tv.compose.fantasy.FantasySegmented
+import com.maestrovpn.tv.compose.premium.MobilePremiumButton
+import com.maestrovpn.tv.compose.premium.MobilePremiumDialogSurface
+import com.maestrovpn.tv.compose.premium.MobilePremiumSegmented
+import com.maestrovpn.tv.compose.premium.PremiumText
 import com.maestrovpn.tv.compose.theme.MaestroSilver
 import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
@@ -82,17 +95,75 @@ fun IosKaringDialog(onDismiss: () -> Unit) {
     val isTv = com.maestrovpn.tv.compose.rememberIsTv()
     var androidMode by remember { mutableStateOf(!isTv) }
 
-    // ── Dark-Fantasy modal (phone + TV) ──
-    FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
-        ShareBody(state, androidMode, { androidMode = it })
-        Spacer(Modifier.height(18.dp))
-        GlossyButton(
-            label = "Закрыть",
-            onClick = onDismiss,
-            accent = NeonGreen,
-            wood = true,
-            modifier = Modifier.fillMaxWidth(if (isTv) 0.42f else 1f),
+    if (isTv) {
+        // TV keeps its established D-pad dialog, iPhone-first default and compact QR geometry.
+        FantasyDialog(onDismiss = onDismiss, title = "Поделиться подпиской") {
+            ShareBody(state, androidMode, { androidMode = it }, isTv = true)
+            Spacer(Modifier.height(18.dp))
+            GlossyButton(
+                label = "Закрыть",
+                onClick = onDismiss,
+                accent = NeonGreen,
+                wood = true,
+                modifier = Modifier.fillMaxWidth(0.42f),
+            )
+        }
+    } else {
+        PhoneShareDialog(
+            state = state,
+            androidMode = androidMode,
+            onMode = { androidMode = it },
+            onDismiss = onDismiss,
         )
+    }
+}
+
+@Composable
+private fun PhoneShareDialog(
+    state: ShareState,
+    androidMode: Boolean,
+    onMode: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val configuration = LocalConfiguration.current
+    val bodyMaxHeight = (configuration.screenHeightDp * 0.72f).dp
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(onDismiss) {
+                    detectTapGestures { onDismiss() }
+                }
+                .padding(horizontal = 18.dp, vertical = 24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            MobilePremiumDialogSurface(
+                title = "Поделиться подпиской",
+                modifier = Modifier.pointerInput(Unit) {
+                        detectTapGestures { /* Consume taps inside the panel. */ }
+                    },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = bodyMaxHeight)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ShareBody(state, androidMode, onMode, isTv = false)
+                    Spacer(Modifier.height(18.dp))
+                    MobilePremiumButton(
+                        label = "Закрыть",
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -103,8 +174,9 @@ private fun ShareBody(
     state: ShareState,
     androidMode: Boolean,
     onMode: (Boolean) -> Unit,
+    isTv: Boolean,
 ) {
-    val bodyColor = MaestroSilver
+    val bodyColor = if (isTv) MaestroSilver else PremiumText
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -123,12 +195,21 @@ private fun ShareBody(
             )
             is ShareState.Ready -> {
                 // Android / iPhone toggle.
-                FantasySegmented(
-                    options = listOf("Android", "iPhone"),
-                    selected = if (androidMode) 0 else 1,
-                    onSelect = { onMode(it == 0) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (isTv) {
+                    FantasySegmented(
+                        options = listOf("Android", "iPhone"),
+                        selected = if (androidMode) 0 else 1,
+                        onSelect = { onMode(it == 0) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    MobilePremiumSegmented(
+                        options = listOf("Android", "iPhone"),
+                        selectedIndex = if (androidMode) 0 else 1,
+                        onSelect = { onMode(it == 0) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
 
                 val shareUrl = if (androidMode) {
@@ -166,16 +247,15 @@ private fun ShareBody(
                     // ТВ → tvm_qr_bezel v4 (рама frame_qr ТЕЛЕФОНА, проём 0.8105 стороны,
                     // золото с 0.834 — карточка 0.82 заправлена под золото);
                     // телефон → прежний frame_qr-композит НЕ тронут (owner телефон одобрил).
-                    val tv = com.maestrovpn.tv.compose.rememberIsTv()
                     Box(
-                        modifier = if (tv) {
+                        modifier = if (isTv) {
                             Modifier.size(210.dp)
                         } else {
                             Modifier.fillMaxWidth(0.84f).aspectRatio(1f)
                         },
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (tv) {
+                        if (isTv) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
