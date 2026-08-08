@@ -27,6 +27,23 @@ SPEC.loader.exec_module(MODULE)
 
 HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 REF = "codex/mobile-4d-deck"
+MIB = 1024 * 1024
+
+
+def extraction_limits(
+    *,
+    max_total_bytes: int = 64,
+    max_file_bytes: int = 32,
+    max_members: int = 8,
+    max_compression_ratio: float = 100.0,
+):
+    return MODULE.ArtifactLimits(
+        max_download_bytes=128,
+        max_total_extracted_bytes=max_total_bytes,
+        max_file_bytes=max_file_bytes,
+        max_members=max_members,
+        max_compression_ratio=max_compression_ratio,
+    )
 
 
 class DispatchPolicyTest(unittest.TestCase):
@@ -157,9 +174,15 @@ class AuthenticationTest(unittest.TestCase):
 
 
 class FakeResponse:
-    def __init__(self, body: bytes = b"", status: int = 200) -> None:
+    def __init__(
+        self,
+        body: bytes = b"",
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self._body = io.BytesIO(body)
         self.status = status
+        self.headers = {} if headers is None else headers
 
     def read(self, size: int = -1) -> bytes:
         return self._body.read(size)
@@ -194,6 +217,139 @@ class GitHubApiTest(unittest.TestCase):
             json.loads(request.data.decode("utf-8")),
             {"ref": REF, "inputs": {"task": "android"}},
         )
+
+    def test_artifact_redirect_to_storage_never_forwards_authorization(self) -> None:
+        storage_url = (
+            "https://productionresultssa1.blob.core.windows.net/"
+            "actions-results/artifact.zip?sig=signed"
+        )
+        responses = [
+            FakeResponse(status=302, headers={"Location": storage_url}),
+            FakeResponse(body=b"zip", headers={"Content-Length": "3"}),
+        ]
+        requests = []
+
+        def opener(request, timeout):
+            requests.append((request, timeout))
+            return responses.pop(0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "artifact.zip"
+            api = MODULE.GitHubActionsApi("token-secret", opener=opener)
+
+            api.download_artifact(42, destination, max_bytes=16)
+
+            self.assertEqual(destination.read_bytes(), b"zip")
+
+        self.assertEqual(len(requests), 2)
+        first_request = requests[0][0]
+        storage_request = requests[1][0]
+        self.assertEqual(
+            first_request.full_url,
+            "https://api.github.com/repos/evgenmay1978-del/proectmaestro-vpn/"
+            "actions/artifacts/42/zip",
+        )
+        self.assertEqual(first_request.get_header("Authorization"), "Bearer token-secret")
+        self.assertEqual(storage_request.full_url, storage_url)
+        self.assertIsNone(storage_request.get_header("Authorization"))
+        self.assertNotIn(
+            "token-secret",
+            "\n".join(f"{key}: {value}" for key, value in storage_request.header_items()),
+        )
+
+    def test_artifact_redirect_requires_https_storage_host(self) -> None:
+        cases = (
+            ("https://attacker.example/artifact.zip", "host"),
+            (
+                "http://productionresultssa1.blob.core.windows.net/artifact.zip",
+                "HTTPS",
+            ),
+        )
+        for location, message in cases:
+            with self.subTest(location=location), tempfile.TemporaryDirectory() as temporary:
+                requests = []
+
+                def opener(request, timeout):
+                    requests.append((request, timeout))
+                    return FakeResponse(status=302, headers={"Location": location})
+
+                destination = Path(temporary) / "artifact.zip"
+                api = MODULE.GitHubActionsApi("token-secret", opener=opener)
+
+                with self.assertRaisesRegex(MODULE.ArtifactSafetyError, message):
+                    api.download_artifact(42, destination, max_bytes=16)
+
+                self.assertFalse(destination.exists())
+                self.assertEqual(len(requests), 1)
+
+    def test_artifact_download_rejects_oversize_content_length(self) -> None:
+        storage_url = (
+            "https://productionresultssa1.blob.core.windows.net/"
+            "actions-results/artifact.zip?sig=signed"
+        )
+        responses = [
+            FakeResponse(status=302, headers={"Location": storage_url}),
+            FakeResponse(body=b"", headers={"Content-Length": "17"}),
+        ]
+
+        def opener(request, timeout):
+            return responses.pop(0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "artifact.zip"
+            api = MODULE.GitHubActionsApi("token-secret", opener=opener)
+
+            with self.assertRaisesRegex(MODULE.ArtifactSafetyError, "Content-Length"):
+                api.download_artifact(42, destination, max_bytes=16)
+
+            self.assertFalse(destination.exists())
+
+    def test_artifact_download_counts_stream_bytes_without_content_length(self) -> None:
+        storage_url = (
+            "https://productionresultssa1.blob.core.windows.net/"
+            "actions-results/artifact.zip?sig=signed"
+        )
+        responses = [
+            FakeResponse(status=302, headers={"Location": storage_url}),
+            FakeResponse(body=b"0123456789overflow"),
+        ]
+
+        def opener(request, timeout):
+            return responses.pop(0)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "artifact.zip"
+            api = MODULE.GitHubActionsApi("token-secret", opener=opener)
+
+            with self.assertRaisesRegex(MODULE.ArtifactSafetyError, "download limit"):
+                api.download_artifact(42, destination, max_bytes=10)
+
+            self.assertFalse(destination.exists())
+
+    def test_artifact_redirect_chain_is_bounded_and_remains_tokenless(self) -> None:
+        storage_url = (
+            "https://productionresultssa1.blob.core.windows.net/"
+            "actions-results/artifact.zip?sig=signed"
+        )
+        requests = []
+
+        def opener(request, timeout):
+            requests.append((request, timeout))
+            return FakeResponse(status=302, headers={"Location": storage_url})
+
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "artifact.zip"
+            api = MODULE.GitHubActionsApi("token-secret", opener=opener)
+
+            with self.assertRaisesRegex(MODULE.ArtifactSafetyError, "redirect limit"):
+                api.download_artifact(42, destination, max_bytes=16)
+
+            self.assertFalse(destination.exists())
+
+        self.assertEqual(len(requests), MODULE.MAX_ARTIFACT_REDIRECTS + 1)
+        self.assertEqual(requests[0][0].get_header("Authorization"), "Bearer token-secret")
+        for request, _timeout in requests[1:]:
+            self.assertIsNone(request.get_header("Authorization"))
 
     def test_run_filter_requires_new_workflow_dispatch_exact_sha_and_branch(self) -> None:
         payload = {
@@ -261,7 +417,7 @@ class SafeExtractionTest(unittest.TestCase):
             destination = root / "extracted"
             self.write_zip(archive, {"nested/result.txt": b"ok", "report.json": b"{}"})
 
-            MODULE.safe_extract_zip(archive, destination)
+            MODULE.safe_extract_zip(archive, destination, extraction_limits())
 
             self.assertEqual((destination / "nested/result.txt").read_bytes(), b"ok")
             self.assertEqual((destination / "report.json").read_bytes(), b"{}")
@@ -285,18 +441,167 @@ class SafeExtractionTest(unittest.TestCase):
                 self.write_zip(archive, {name: b"bad"})
 
                 with self.assertRaises(MODULE.ArtifactSafetyError):
-                    MODULE.safe_extract_zip(archive, destination)
+                    MODULE.safe_extract_zip(archive, destination, extraction_limits())
 
                 self.assertFalse(destination.exists())
                 self.assertFalse((root / "escape.txt").exists())
 
+    def test_safe_extract_rejects_high_compression_ratio_zip_bomb(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "bomb.zip"
+            destination = root / "extracted"
+            with zipfile.ZipFile(
+                archive,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as output:
+                output.writestr("bomb.txt", b"A" * 4096)
+
+            with self.assertRaisesRegex(MODULE.ArtifactSafetyError, "compression ratio"):
+                MODULE.safe_extract_zip(
+                    archive,
+                    destination,
+                    extraction_limits(
+                        max_file_bytes=8192,
+                        max_total_bytes=8192,
+                        max_compression_ratio=2.0,
+                    ),
+                )
+
+            self.assertFalse(destination.exists())
+
+    def test_safe_extract_rejects_member_count_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "members.zip"
+            destination = root / "extracted"
+            self.write_zip(
+                archive,
+                {"one.txt": b"1", "two.txt": b"2", "three.txt": b"3"},
+            )
+
+            with self.assertRaisesRegex(MODULE.ArtifactSafetyError, "member count"):
+                MODULE.safe_extract_zip(
+                    archive,
+                    destination,
+                    extraction_limits(max_members=2),
+                )
+
+            self.assertFalse(destination.exists())
+
+    def test_safe_extract_rejects_per_file_and_total_caps(self) -> None:
+        cases = (
+            (
+                {"large.bin": b"123456789"},
+                extraction_limits(max_file_bytes=8, max_total_bytes=32),
+                "per-file",
+            ),
+            (
+                {"one.bin": b"123456", "two.bin": b"abcdef"},
+                extraction_limits(max_file_bytes=8, max_total_bytes=10),
+                "total extracted",
+            ),
+        )
+        for index, (members, limits, message) in enumerate(cases):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                archive = root / f"cap-{index}.zip"
+                destination = root / "extracted"
+                self.write_zip(archive, members)
+
+                with self.assertRaisesRegex(MODULE.ArtifactSafetyError, message):
+                    MODULE.safe_extract_zip(archive, destination, limits)
+
+                self.assertFalse(destination.exists())
+
+    def test_safe_extract_counts_actual_stream_bytes_beyond_zipinfo(self) -> None:
+        member = zipfile.ZipInfo("result.txt")
+        member.file_size = 3
+        member.compress_size = 3
+
+        class FakeArchive:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args) -> None:
+                return None
+
+            def infolist(self):
+                return [member]
+
+            def open(self, _member, _mode):
+                return io.BytesIO(b"stream-overrun")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            destination = root / "extracted"
+            limits = extraction_limits(max_file_bytes=4, max_total_bytes=4)
+
+            with mock.patch.object(MODULE.zipfile, "ZipFile", return_value=FakeArchive()):
+                with self.assertRaisesRegex(MODULE.ArtifactSafetyError, "stream"):
+                    MODULE.safe_extract_zip(root / "ignored.zip", destination, limits)
+
+            self.assertFalse(destination.exists())
+
+    def test_safe_extract_rejects_short_output_write(self) -> None:
+        member = zipfile.ZipInfo("result.txt")
+        member.file_size = 3
+        member.compress_size = 3
+
+        class FakeArchive:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args) -> None:
+                return None
+
+            def infolist(self):
+                return [member]
+
+            def open(self, _member, _mode):
+                return io.BytesIO(b"abc")
+
+        class ShortWriter(io.BytesIO):
+            def write(self, body):
+                super().write(body[:-1])
+                return len(body) - 1
+
+        def short_open(_path, mode="r", *_args, **_kwargs):
+            if mode != "xb":
+                raise AssertionError(f"unexpected path mode: {mode}")
+            return ShortWriter()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            destination = root / "extracted"
+            with mock.patch.object(MODULE.zipfile, "ZipFile", return_value=FakeArchive()):
+                with mock.patch.object(MODULE.Path, "open", new=short_open):
+                    with self.assertRaisesRegex(MODULE.ArtifactSafetyError, "short write"):
+                        MODULE.safe_extract_zip(
+                            root / "ignored.zip",
+                            destination,
+                            extraction_limits(),
+                        )
+
+            self.assertFalse(destination.exists())
+
 
 class ArtifactPersistenceTest(unittest.TestCase):
     def test_download_writes_zip_digest_safe_metadata_and_extracted_files(self) -> None:
+        observed_max_bytes = []
+
         class FakeApi:
-            def download_artifact(self, artifact_id: int, destination: Path) -> None:
+            def download_artifact(
+                self,
+                artifact_id: int,
+                destination: Path,
+                *,
+                max_bytes: int,
+            ) -> None:
                 if artifact_id != 42:
                     raise AssertionError("wrong artifact")
+                observed_max_bytes.append(max_bytes)
                 with zipfile.ZipFile(destination, "w") as archive:
                     archive.writestr("app/test.apk", b"apk")
 
@@ -312,7 +617,7 @@ class ArtifactPersistenceTest(unittest.TestCase):
         artifact = MODULE.ArtifactRecord(
             artifact_id=42,
             name="maestrovpn-tv-test-apk",
-            size_in_bytes=3,
+            size_in_bytes=177_365_255,
         )
         revision = MODULE.LocalRevision(ref=REF, head_sha=HEAD_SHA)
 
@@ -330,6 +635,7 @@ class ArtifactPersistenceTest(unittest.TestCase):
             self.assertEqual(result.zip_sha256, expected_digest)
             self.assertEqual(result.run_directory.name, "run-77")
             self.assertEqual((result.extracted_directory / "app/test.apk").read_bytes(), b"apk")
+            self.assertEqual(observed_max_bytes, [256 * MIB])
             metadata = json.loads(result.metadata_path.read_text(encoding="utf-8"))
             self.assertEqual(metadata["head_sha"], HEAD_SHA)
             self.assertEqual(metadata["workflow"], "android-test.yml")
@@ -337,6 +643,55 @@ class ArtifactPersistenceTest(unittest.TestCase):
             serialized = result.metadata_path.read_text(encoding="utf-8")
             self.assertNotIn("Authorization", serialized)
             self.assertNotIn("token", serialized.lower())
+
+    def test_task_specific_declared_size_caps_reject_before_download(self) -> None:
+        class NeverDownloadApi:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def download_artifact(self, *_args, **_kwargs) -> None:
+                self.calls += 1
+                raise AssertionError("oversize artifact must not be downloaded")
+
+        run = MODULE.RunRecord(
+            run_id=78,
+            event="workflow_dispatch",
+            head_sha=HEAD_SHA,
+            head_branch=REF,
+            status="completed",
+            conclusion="success",
+            html_url="https://github.com/example/actions/runs/78",
+        )
+        revision = MODULE.LocalRevision(ref=REF, head_sha=HEAD_SHA)
+        cases = (
+            ("mobile-eye-ring-assets", 64 * MIB + 1),
+            ("mobile-eye-runtime-assets", 160 * MIB + 1),
+            ("android", 256 * MIB + 1),
+        )
+
+        for task, declared_size in cases:
+            with self.subTest(task=task), tempfile.TemporaryDirectory() as temporary:
+                api = NeverDownloadApi()
+                artifact = MODULE.ArtifactRecord(
+                    artifact_id=42,
+                    name=MODULE.artifact_name_for(task, REF, HEAD_SHA),
+                    size_in_bytes=declared_size,
+                )
+
+                with self.assertRaisesRegex(
+                    MODULE.ArtifactSafetyError,
+                    "declared size",
+                ):
+                    MODULE.persist_artifact(
+                        api,
+                        run,
+                        artifact,
+                        revision,
+                        task,
+                        Path(temporary),
+                    )
+
+                self.assertEqual(api.calls, 0)
 
 
 if __name__ == "__main__":

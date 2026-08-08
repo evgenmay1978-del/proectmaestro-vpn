@@ -40,6 +40,11 @@ API_ACTIONS_PREFIX = f"/repos/{REPOSITORY}/actions/"
 HTTP_TIMEOUT_SECONDS = 60
 DEFAULT_WAIT_TIMEOUT_SECONDS = 7_200
 DEFAULT_POLL_SECONDS = 10.0
+STREAM_CHUNK_BYTES = 1024 * 1024
+MAX_ARTIFACT_REDIRECTS = 3
+ARTIFACT_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+ARTIFACT_STORAGE_HOSTS = frozenset({"results-receiver.actions.githubusercontent.com"})
+ARTIFACT_STORAGE_HOST_SUFFIX = ".blob.core.windows.net"
 SHA1_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 SAFE_ARTIFACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 WINDOWS_RESERVED_NAMES = frozenset(
@@ -88,6 +93,47 @@ class ArtifactRecord(NamedTuple):
     artifact_id: int
     name: str
     size_in_bytes: int
+
+
+class ArtifactLimits(NamedTuple):
+    max_download_bytes: int
+    max_total_extracted_bytes: int
+    max_file_bytes: int
+    max_members: int
+    max_compression_ratio: float
+
+
+MIB = 1024 * 1024
+TASK_ARTIFACT_LIMITS = {
+    "android": ArtifactLimits(
+        max_download_bytes=256 * MIB,
+        max_total_extracted_bytes=256 * MIB,
+        max_file_bytes=224 * MIB,
+        max_members=16,
+        max_compression_ratio=100.0,
+    ),
+    "mobile-eye-ring-assets": ArtifactLimits(
+        max_download_bytes=64 * MIB,
+        max_total_extracted_bytes=64 * MIB,
+        max_file_bytes=16 * MIB,
+        max_members=16,
+        max_compression_ratio=100.0,
+    ),
+    "mobile-eye-runtime-assets": ArtifactLimits(
+        max_download_bytes=160 * MIB,
+        max_total_extracted_bytes=256 * MIB,
+        max_file_bytes=96 * MIB,
+        max_members=64,
+        max_compression_ratio=100.0,
+    ),
+}
+
+
+def artifact_limits_for(task: str) -> ArtifactLimits:
+    try:
+        return TASK_ARTIFACT_LIMITS[task]
+    except KeyError:
+        raise PolicyError(f"task is not allowed: {task}") from None
 
 
 class ArtifactResult(NamedTuple):
@@ -236,6 +282,51 @@ def redact_sensitive(message: str, secret_values: Sequence[str]) -> str:
     return rendered
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Return redirects to the caller instead of following them with API headers."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _open_without_redirect(request: urllib.request.Request, timeout: float) -> Any:
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    return opener.open(request, timeout=timeout)
+
+
+def validate_artifact_storage_url(url: str) -> str:
+    """Accept only HTTPS GitHub Actions storage URLs without user-info or ports."""
+    if not isinstance(url, str) or not url:
+        raise ArtifactSafetyError("artifact redirect Location is missing")
+    parsed = urllib.parse.urlsplit(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ArtifactSafetyError("artifact redirect has an invalid port") from None
+    host = parsed.hostname.casefold() if parsed.hostname else ""
+    try:
+        host.encode("ascii")
+    except UnicodeEncodeError:
+        raise ArtifactSafetyError("artifact redirect host must be ASCII") from None
+    allowed_host = host in ARTIFACT_STORAGE_HOSTS or (
+        host.endswith(ARTIFACT_STORAGE_HOST_SUFFIX)
+        and host != ARTIFACT_STORAGE_HOST_SUFFIX.lstrip(".")
+    )
+    if (
+        parsed.scheme.casefold() != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.fragment
+        or not parsed.path.startswith("/")
+    ):
+        raise ArtifactSafetyError("artifact redirect must be an absolute HTTPS storage URL")
+    if not allowed_host:
+        raise ArtifactSafetyError("artifact redirect host is not allowed")
+    return url
+
+
 class GitHubActionsApi:
     """Minimal GitHub Actions client with no generic or release endpoint access."""
 
@@ -243,12 +334,12 @@ class GitHubActionsApi:
         self,
         token: str,
         *,
-        opener: Callable[..., Any] = urllib.request.urlopen,
+        opener: Callable[..., Any] | None = None,
     ) -> None:
         if not token:
             raise AuthenticationError("empty GitHub token")
         self._token = token
-        self._opener = opener
+        self._opener = _open_without_redirect if opener is None else opener
 
     def _request(
         self,
@@ -323,9 +414,17 @@ class GitHubActionsApi:
             raise GitHubError("GitHub artifacts response is not an object")
         return payload
 
-    def download_artifact(self, artifact_id: int, destination: Path) -> None:
+    def download_artifact(
+        self,
+        artifact_id: int,
+        destination: Path,
+        *,
+        max_bytes: int,
+    ) -> None:
         path = f"{API_ACTIONS_PREFIX}artifacts/{int(artifact_id)}/zip"
         validate_actions_api_path(path)
+        if max_bytes <= 0:
+            raise ArtifactSafetyError("artifact download limit must be positive")
         if destination.exists():
             raise ArtifactSafetyError(f"refusing to overwrite {destination}")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -343,14 +442,80 @@ class GitHubActionsApi:
             },
         )
         try:
-            with self._opener(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-                with partial.open("xb") as output:
-                    while True:
-                        chunk = response.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        output.write(chunk)
-            os.replace(partial, destination)
+            for redirect_count in range(MAX_ARTIFACT_REDIRECTS + 1):
+                try:
+                    response = self._opener(request, timeout=HTTP_TIMEOUT_SECONDS)
+                except urllib.error.HTTPError as exc:
+                    if exc.code not in ARTIFACT_REDIRECT_STATUSES:
+                        raise
+                    response = exc
+                with response:
+                    status_value = getattr(response, "status", None)
+                    if status_value is None:
+                        status_value = response.getcode()
+                    status_code = int(status_value)
+                    if redirect_count == 0 and status_code != 302:
+                        raise GitHubError("GitHub artifact download did not return HTTP 302")
+                    if status_code in ARTIFACT_REDIRECT_STATUSES:
+                        if redirect_count >= MAX_ARTIFACT_REDIRECTS:
+                            raise ArtifactSafetyError("artifact redirect limit exceeded")
+                        location = response.headers.get("Location", "")
+                        storage_url = validate_artifact_storage_url(location)
+                        request = urllib.request.Request(
+                            storage_url,
+                            method="GET",
+                            headers={
+                                "Accept": "application/zip",
+                                "User-Agent": "MaestroVPN-GitHub-Actions-Artifact",
+                            },
+                        )
+                        continue
+                    if status_code != 200:
+                        raise GitHubError(
+                            f"GitHub artifact download returned HTTP {status_code}"
+                        )
+
+                    raw_length = response.headers.get("Content-Length")
+                    content_length: int | None = None
+                    if raw_length is not None:
+                        rendered_length = str(raw_length).strip()
+                        if re.fullmatch(r"[0-9]+", rendered_length) is None:
+                            raise ArtifactSafetyError(
+                                "artifact Content-Length is invalid"
+                            )
+                        content_length = int(rendered_length)
+                        if content_length > max_bytes:
+                            raise ArtifactSafetyError(
+                                "artifact Content-Length exceeds download limit"
+                            )
+
+                    bytes_written = 0
+                    with partial.open("xb") as output:
+                        while True:
+                            read_size = min(
+                                STREAM_CHUNK_BYTES,
+                                max_bytes - bytes_written + 1,
+                            )
+                            chunk = response.read(read_size)
+                            if not chunk:
+                                break
+                            bytes_written += len(chunk)
+                            if bytes_written > max_bytes:
+                                raise ArtifactSafetyError(
+                                    "artifact download limit exceeded while streaming"
+                                )
+                            written = output.write(chunk)
+                            if written != len(chunk):
+                                raise ArtifactSafetyError(
+                                    "artifact download produced a short write"
+                                )
+                    if content_length is not None and bytes_written != content_length:
+                        raise ArtifactSafetyError(
+                            "artifact download does not match Content-Length"
+                        )
+                    os.replace(partial, destination)
+                    return
+            raise ArtifactSafetyError("artifact redirect limit exceeded")
         except urllib.error.HTTPError as exc:
             partial.unlink(missing_ok=True)
             raise GitHubError(f"GitHub artifact download returned HTTP {exc.code}") from None
@@ -508,10 +673,18 @@ def wait_for_success(
         sleep(poll_seconds)
 
 
-def _safe_archive_members(archive: zipfile.ZipFile) -> list[tuple[zipfile.ZipInfo, tuple[str, ...]]]:
+def _safe_archive_members(
+    archive: zipfile.ZipFile,
+    limits: ArtifactLimits,
+) -> list[tuple[zipfile.ZipInfo, tuple[str, ...]]]:
+    members = archive.infolist()
+    if len(members) > limits.max_members:
+        raise ArtifactSafetyError("ZIP member count exceeds task limit")
+
     safe: list[tuple[zipfile.ZipInfo, tuple[str, ...]]] = []
     seen: set[str] = set()
-    for member in archive.infolist():
+    metadata_total = 0
+    for member in members:
         raw_name = member.filename
         if not raw_name or "\x00" in raw_name:
             raise ArtifactSafetyError("ZIP contains an empty or NUL path")
@@ -541,12 +714,28 @@ def _safe_archive_members(archive: zipfile.ZipFile) -> list[tuple[zipfile.ZipInf
         if key in seen:
             raise ArtifactSafetyError(f"duplicate ZIP member path: {raw_name!r}")
         seen.add(key)
+
+        if member.file_size < 0 or member.compress_size < 0:
+            raise ArtifactSafetyError("ZIP contains an invalid member size")
+        if member.file_size > limits.max_file_bytes:
+            raise ArtifactSafetyError("ZIP member exceeds per-file task limit")
+        metadata_total += member.file_size
+        if metadata_total > limits.max_total_extracted_bytes:
+            raise ArtifactSafetyError("ZIP total extracted size exceeds task limit")
+        if member.file_size:
+            compression_ratio = member.file_size / max(member.compress_size, 1)
+            if compression_ratio > limits.max_compression_ratio:
+                raise ArtifactSafetyError("ZIP member compression ratio exceeds task limit")
         safe.append((member, parts))
     return safe
 
 
-def safe_extract_zip(archive_path: Path, destination: Path) -> None:
-    """Extract without absolute paths, parent traversal, links, or overwrites."""
+def safe_extract_zip(
+    archive_path: Path,
+    destination: Path,
+    limits: ArtifactLimits,
+) -> None:
+    """Extract within task byte/member/ratio caps and safe relative paths."""
     archive_path = Path(archive_path)
     destination = Path(destination)
     if destination.exists():
@@ -555,17 +744,46 @@ def safe_extract_zip(archive_path: Path, destination: Path) -> None:
     temporary = Path(
         tempfile.mkdtemp(prefix=f".{destination.name}-", dir=str(destination.parent))
     )
+    total_written = 0
     try:
         with zipfile.ZipFile(archive_path, "r") as archive:
-            members = _safe_archive_members(archive)
+            members = _safe_archive_members(archive, limits)
             for member, parts in members:
                 target = temporary.joinpath(*parts)
                 if member.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
+                member_read = 0
+                member_written = 0
                 with archive.open(member, "r") as source, target.open("xb") as output:
-                    shutil.copyfileobj(source, output, length=1024 * 1024)
+                    while True:
+                        read_size = min(
+                            STREAM_CHUNK_BYTES,
+                            limits.max_file_bytes - member_read + 1,
+                            limits.max_total_extracted_bytes - total_written + 1,
+                        )
+                        chunk = source.read(read_size)
+                        if not chunk:
+                            break
+                        member_read += len(chunk)
+                        if (
+                            member_read > limits.max_file_bytes
+                            or total_written + len(chunk)
+                            > limits.max_total_extracted_bytes
+                        ):
+                            raise ArtifactSafetyError(
+                                "ZIP stream exceeds extracted byte limit"
+                            )
+                        written = output.write(chunk)
+                        if written != len(chunk):
+                            raise ArtifactSafetyError("ZIP stream produced a short write")
+                        member_written += written
+                        total_written += written
+                if member_read != member.file_size or member_written != member.file_size:
+                    raise ArtifactSafetyError(
+                        "ZIP member stream size does not match metadata"
+                    )
         os.replace(temporary, destination)
     except Exception:
         shutil.rmtree(temporary, ignore_errors=True)
@@ -592,8 +810,11 @@ def persist_artifact(
     build_root: Path = ROOT / "build/github-artifacts",
 ) -> ArtifactResult:
     expected_name = artifact_name_for(task, revision.ref, revision.head_sha)
+    limits = artifact_limits_for(task)
     if artifact.name != expected_name or SAFE_ARTIFACT_NAME.fullmatch(artifact.name) is None:
         raise ArtifactSafetyError("artifact name does not match the approved task")
+    if artifact.size_in_bytes < 0 or artifact.size_in_bytes > limits.max_download_bytes:
+        raise ArtifactSafetyError("artifact declared size exceeds task download limit")
     if run.event != "workflow_dispatch" or run.head_sha != revision.head_sha:
         raise ArtifactSafetyError("run does not match the exact local HEAD")
     if run.status != "completed" or run.conclusion != "success":
@@ -604,10 +825,14 @@ def persist_artifact(
     run_directory = build_root / f"run-{run.run_id}"
     run_directory.mkdir(exist_ok=False)
     zip_path = run_directory / f"{artifact.name}.zip"
-    api.download_artifact(artifact.artifact_id, zip_path)
+    api.download_artifact(
+        artifact.artifact_id,
+        zip_path,
+        max_bytes=limits.max_download_bytes,
+    )
     zip_sha256 = _sha256_file(zip_path)
     extracted_directory = run_directory / "extracted"
-    safe_extract_zip(zip_path, extracted_directory)
+    safe_extract_zip(zip_path, extracted_directory, limits)
 
     digest_path = run_directory / "artifact.sha256"
     digest_path.write_text(f"{zip_sha256}  {zip_path.name}\n", encoding="utf-8")
@@ -632,6 +857,7 @@ def persist_artifact(
             "zip_filename": zip_path.name,
             "zip_sha256": zip_sha256,
             "extracted_directory": extracted_directory.name,
+            "safety_limits": dict(limits._asdict()),
         },
     }
     metadata_path.write_text(
