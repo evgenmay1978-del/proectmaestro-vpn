@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import tempfile
 import unittest
@@ -17,6 +18,17 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"Cannot load {MODULE_PATH}")
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+ROOT = Path(__file__).resolve().parents[1]
+CURRENT_INSTALLED_HOME = (
+    ROOT
+    / "design"
+    / "mobile-4d-references"
+    / "08-owner-installed-test-home-2026-08-08.jpg"
+)
+CURRENT_INSTALLED_HOME_SHA256 = (
+    "9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b"
+)
 
 
 class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
@@ -39,7 +51,7 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
         self.assertAlmostEqual(bounds[2] - bounds[0], 181.093, delta=0.05)
         self.assertAlmostEqual(bounds[3] - bounds[1], 69.064, delta=0.05)
 
-    def test_full_closure_uses_the_70_30_seam(self) -> None:
+    def test_full_closure_uses_the_production_70_30_seam(self) -> None:
         upper, lower = MODULE.aperture_contours_dp(closure=1.0)
 
         self.assertEqual(len(upper), len(lower))
@@ -47,14 +59,30 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             self.assertAlmostEqual(upper_point[0], lower_point[0], delta=0.0001)
             self.assertAlmostEqual(upper_point[1], lower_point[1], delta=0.0001)
 
-        expected_points = {
-            0: (107.158, 271.979),
-            9: (193.726, 280.222),
-            -1: (288.251, 271.979),
-        }
-        for index, expected in expected_points.items():
-            self.assertAlmostEqual(upper[index][0], expected[0], delta=0.05)
-            self.assertAlmostEqual(upper[index][1], expected[1], delta=0.05)
+        expected_points = [
+            (107.158, 271.979),
+            (112.568, 272.364),
+            (117.342, 273.182),
+            (120.525, 273.324),
+            (130.073, 274.303),
+            (142.803, 275.862),
+            (155.534, 277.326),
+            (168.265, 278.599),
+            (180.995, 279.713),
+            (193.726, 280.222),
+            (206.457, 279.777),
+            (219.187, 279.140),
+            (231.918, 278.408),
+            (244.649, 277.581),
+            (257.379, 276.244),
+            (270.110, 274.621),
+            (280.294, 273.221),
+            (288.251, 271.979),
+        ]
+        self.assertEqual(len(upper), len(expected_points))
+        for actual, expected in zip(upper, expected_points):
+            self.assertAlmostEqual(actual[0], expected[0], delta=0.05)
+            self.assertAlmostEqual(actual[1], expected[1], delta=0.05)
 
     def test_disconnected_overlay_contains_only_the_contact_seam(self) -> None:
         eye, seam, aperture, _ = MODULE.render_living_eye_layers(
@@ -75,8 +103,25 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
 
 
 class MobileEyeStatePreviewRenderTest(unittest.TestCase):
+    def load_current_installed_home(self, scale: int = 1) -> Image.Image:
+        self.assertEqual(
+            hashlib.sha256(CURRENT_INSTALLED_HOME.read_bytes()).hexdigest(),
+            CURRENT_INSTALLED_HOME_SHA256,
+        )
+        with Image.open(CURRENT_INSTALLED_HOME) as source:
+            self.assertEqual(source.size, (591, 1280))
+            return source.convert("RGB").resize(
+                (390 * scale, 844 * scale),
+                Image.Resampling.LANCZOS,
+            )
+
+    def test_load_reference_uses_the_current_installed_test_build(self) -> None:
+        expected = self.load_current_installed_home(scale=1)
+
+        self.assertEqual(MODULE.load_reference(scale=1).tobytes(), expected.tobytes())
+
     def test_two_states_are_deterministic_and_do_not_touch_unowned_pixels(self) -> None:
-        reference = MODULE.load_reference(scale=1)
+        reference = self.load_current_installed_home(scale=1)
         allowed = MODULE.allowed_change_mask(scale=1)
         outside = ImageChops.invert(allowed)
 
@@ -94,6 +139,16 @@ class MobileEyeStatePreviewRenderTest(unittest.TestCase):
         connected = MODULE.render_home("connected", scale=1)
         disconnected = MODULE.render_home("disconnected", scale=1)
         self.assertNotEqual(connected.tobytes(), disconnected.tobytes())
+
+        installed_status_box = (96, 426, 294, 480)
+        self.assertEqual(
+            disconnected.crop(installed_status_box).tobytes(),
+            reference.crop(installed_status_box).tobytes(),
+        )
+        self.assertNotEqual(
+            connected.crop(installed_status_box).tobytes(),
+            reference.crop(installed_status_box).tobytes(),
+        )
 
         material_box = tuple(round(value) for value in MODULE.MATERIAL_BOUNDS_DP)
         self.assertNotEqual(
