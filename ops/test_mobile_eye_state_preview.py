@@ -84,32 +84,39 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             self.assertAlmostEqual(actual[0], expected[0], delta=0.05)
             self.assertAlmostEqual(actual[1], expected[1], delta=0.05)
 
-    def test_disconnected_dynamic_lids_opaquely_cover_the_open_aperture(self) -> None:
+    def test_full_closure_reveals_the_registered_emerald_surround(self) -> None:
+        scale = 2
+        material_only = MODULE._replace_material(
+            MODULE.load_reference(scale),
+            scale,
+        ).convert("RGB")
+        disconnected = MODULE.render_home("disconnected", scale=scale)
         eye, seam, aperture, glow = MODULE.render_living_eye_layers(
             closure=1.0,
-            scale=2,
+            scale=scale,
         )
         combined = Image.new("RGBA", eye.size, (0, 0, 0, 0))
         combined.alpha_composite(eye)
         combined.alpha_composite(seam)
 
-        required = MODULE._contour_mask(scale=2, closure=0.0).filter(
+        required = MODULE._contour_mask(scale=scale, closure=0.0).filter(
             ImageFilter.MinFilter(3)
         )
-        opaque = combined.getchannel("A").point(
-            lambda alpha: 255 if alpha >= 250 else 0
-        )
-        uncovered = ImageChops.subtract(required, opaque)
+        difference = ImageChops.difference(material_only, disconnected)
 
         self.assertIsNone(aperture.getbbox())
         self.assertIsNone(glow.getchannel("A").getbbox())
         self.assertIsNone(
-            uncovered.getbbox(),
-            "full closure leaves the original open aperture without opaque "
-            f"lid coverage: required={required.getbbox()}, "
-            f"overlay={combined.getchannel('A').getbbox()}, "
-            f"uncovered={uncovered.getbbox()}",
+            combined.getchannel("A").getbbox(),
+            "full closure must add no anatomy, legacy lid texture, or doubled "
+            f"contact seam over the registered surround: overlay={combined.getchannel('A').getbbox()}",
         )
+        for channel in difference.split():
+            self.assertIsNone(
+                ImageChops.multiply(channel, required).getbbox(),
+                "full closure must be pixel-identical to the registered "
+                "emerald surround inside the original aperture",
+            )
 
     def test_connected_contact_seam_uses_runtime_alpha(self) -> None:
         _eye, seam, _aperture, _glow = MODULE.render_living_eye_layers(
