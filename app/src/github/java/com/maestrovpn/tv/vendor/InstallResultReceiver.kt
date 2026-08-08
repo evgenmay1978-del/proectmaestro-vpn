@@ -5,7 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.maestrovpn.tv.update.UpdateState
+import com.maestrovpn.tv.utils.AppLifecycleObserver
 
 class InstallResultReceiver : BroadcastReceiver() {
     companion object {
@@ -35,23 +38,18 @@ class InstallResultReceiver : BroadcastReceiver() {
                 }
                 confirmIntent?.let {
                     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    // Park the confirm first: background-activity-start restrictions
-                    // (Android 10+) silently DROP the startActivity below when we're not
-                    // foreground (worker-committed installs) — MainActivity re-fires the
-                    // parked Intent on the next resume, so the install completes in place
-                    // the moment the user opens the app instead of looping another cycle.
-                    UpdateState.pendingConfirmIntent.value = it
-                    // The dialog is (or should be) on screen now — tell the user that, instead of
-                    // leaving «Загрузка» up while the installer silently waits for their answer.
+                    // Set the visible state before the one-shot delivery decision.
                     UpdateState.phase.value = UpdateState.Phase.AwaitingConfirm
-                    val started = runCatching { context.startActivity(it) }
-                        .onFailure { e -> Log.w(TAG, "confirm intent blocked", e) }
-                        .isSuccess
-                    // THE event that explains «постоянно загрузка»: from here the app sits in
-                    // SystemPackageInstaller's 4-minute wait while the UI still says «Загрузка».
-                    // started=false additionally means the system swallowed the dialog (background
-                    // activity start), i.e. the user was never even asked.
-                    UpdateTelemetry.emit("confirm_required", "session=$sessionId started=$started")
+                    val appInForeground = AppLifecycleObserver.isForeground.value &&
+                        ProcessLifecycleOwner.get().lifecycle.currentState
+                            .isAtLeast(Lifecycle.State.STARTED)
+                    val delivery = deliverInstallConfirmation(
+                        confirmation = it,
+                        appInForeground = appInForeground,
+                        launch = { confirmation -> context.startActivity(confirmation) },
+                        park = { confirmation -> UpdateState.pendingConfirmIntent.value = confirmation },
+                    )
+                    UpdateTelemetry.emit("confirm_required", "session=$sessionId delivery=$delivery")
                 }
             }
             PackageInstaller.STATUS_SUCCESS -> {
