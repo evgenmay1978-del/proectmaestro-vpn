@@ -23,6 +23,15 @@ name: Build app APK (test / compile-check)
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: Manual task to run on the selected ref
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - mobile-eye-ring-assets
   pull_request:
     paths:
       - 'app/**'
@@ -32,7 +41,92 @@ on:
       - .github/workflows/android-test.yml
 
 jobs:
+  mobile-eye-ring-assets:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-ring-assets' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned Pillow
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check 'Pillow==11.3.0'
+          python - <<'PY'
+          import PIL
+          print(f'Pillow {PIL.__version__}')
+          PY
+
+      - name: Run synthetic eye-surround contracts
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_mask_has_a_full_core_and_local_feather \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_preserves_alpha_and_pixels_outside_circle \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_lights_share_alpha_support_but_left_and_right_rgb_differ \
+            ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_is_idempotent_with_feather
+
+      - name: Render and verify full-size ring outputs
+        run: |
+          set -euo pipefail
+          python ops/mobile-eye-surround-assets.py
+          python ops/mobile-eye-surround-assets.py --check
+          python -m unittest ops.test_mobile_eye_surround_assets
+          python ops/mobile-4d-art-check.py --selftest
+          python ops/mobile-4d-art-check.py --group ring
+          git diff --check
+
+      - name: Record decoded RGBA and alpha digests
+        run: |
+          set -euo pipefail
+          mkdir -p build/mobile-eye-ring-assets
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from PIL import Image
+
+          root = Path('.')
+          report = []
+          for directory in ('kit', 'source'):
+              for light in ('l', 'c', 'r'):
+                  path = root / 'design/mobile-asset-redraw' / directory / f'home_ring_{light}.png'
+                  with Image.open(path) as source:
+                      rgba = source.convert('RGBA')
+                  report.append(
+                      f'{path.as_posix()} '
+                      f'rgba={hashlib.sha256(rgba.tobytes()).hexdigest()} '
+                      f'alpha={hashlib.sha256(rgba.getchannel("A").tobytes()).hexdigest()} '
+                      f'size={rgba.width}x{rgba.height}'
+                  )
+          output = '\n'.join(report) + '\n'
+          Path('build/mobile-eye-ring-assets/decoded-rgba-sha256.txt').write_text(
+              output,
+              encoding='utf-8',
+          )
+          print(output, end='')
+          PY
+
+      - name: Upload generated ring assets (artifact only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-eye-ring-assets-${{ github.sha }}
+          path: |
+            design/mobile-asset-redraw/kit/home_ring_l.png
+            design/mobile-asset-redraw/kit/home_ring_c.png
+            design/mobile-asset-redraw/kit/home_ring_r.png
+            design/mobile-asset-redraw/source/home_ring_l.png
+            design/mobile-asset-redraw/source/home_ring_c.png
+            design/mobile-asset-redraw/source/home_ring_r.png
+            build/mobile-eye-ring-assets/decoded-rgba-sha256.txt
+          if-no-files-found: error
+
   build:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' }}
     runs-on: ubuntu-latest
     # The repo default token permission is "read", which does NOT include actions:read — so
     # `gh run list --workflow=libbox.yml` (the libbox.aar fetch below) failed with
