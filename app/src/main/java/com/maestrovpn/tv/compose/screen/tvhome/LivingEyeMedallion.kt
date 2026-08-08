@@ -45,10 +45,10 @@ import kotlin.random.Random
  * Phone-only living version of the owner's eye.
  *
  * The carved plaque, baked bronze and eye-surround live in the fixed phone background and are drawn
- * exactly once. This layer keeps the anatomy live while textured upper/lower lids move over it:
+ * exactly once. This layer keeps the anatomy live while the aperture reveals that same surround:
  *
- *  * one 70/30 aperture drives anatomy clipping and opaque lid coverage;
- *  * existing squint/closed resources supply lid texture only, never a whole-eye state swap;
+ *  * one 70/30 aperture drives anatomy clipping;
+ *  * closing the aperture exposes the registered emerald relief below, with no state-frame swap;
  *  * sclera stays registered;
  *  * iris and pupil perform short saccades together;
  *  * the pupil changes radius inside a fixed outer iris;
@@ -66,8 +66,7 @@ internal fun LivingEyeMedallion(
     modifier: Modifier = Modifier,
 ) {
     val openState = ImageBitmap.imageResource(R.drawable.mobile_eye_open)
-    val squintLidTexture = ImageBitmap.imageResource(R.drawable.mobile_eye_squint)
-    val closedLidTexture = ImageBitmap.imageResource(R.drawable.mobile_eye_closed)
+
     val sclera = ImageBitmap.imageResource(R.drawable.mobile_eye_sclera)
     val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_iris)
     val catchlight = ImageBitmap.imageResource(R.drawable.mobile_eye_catchlight)
@@ -220,8 +219,8 @@ internal fun LivingEyeMedallion(
     }
 
     Canvas(modifier = modifier) {
-        // The bronze socket clips the live anatomy and moving lid texture. The registered ring and
-        // surrounding material stay below this Canvas and are not duplicated here.
+        // The bronze socket clips the live anatomy. The registered ring and emerald eye-surround
+        // stay below this Canvas, becoming the visible lids as the aperture closes.
         val bronzeInset = livingEyeBronzeInset(size.width, size.height)
         val medallion = minOf(size.width, size.height)
         val integration = livingEyeIntegrationProfile(size.width, size.height)
@@ -244,14 +243,8 @@ internal fun LivingEyeMedallion(
                 closure = phase,
                 seamOverlapPx = 0f,
             ).toPath()
-            val lidCoverage = livingEyeLidCoverageContours(
-                layerFit = layerFit,
-                closure = phase,
-                seamOverlapPx = integration.contactSeamWidthPx / 2f,
-            )
-
             // Do not rely on renderer behavior for a degenerate closed Path: full closure disables
-            // anatomy explicitly, while the opaque textured lids cover the original aperture.
+            // anatomy explicitly and reveals the registered emerald eye-surround below.
             if (renderPolicy.eyeLayersEnabled) {
                 clipPath(aperture) {
                     drawSourceLayer(
@@ -323,24 +316,7 @@ internal fun LivingEyeMedallion(
                 }
             }
 
-            if (renderPolicy.lidCoverageEnabled) {
-                // Squint fills the transparent crown of the closed texture; closed is drawn last.
-                // Both are clipped to moving lid polygons, so neither replaces the live eye state.
-                drawTexturedLidCoverage(
-                    image = squintLidTexture,
-                    coverage = lidCoverage,
-                    layerFit = layerFit,
-                    alpha = renderPolicy.lidCoverageAlpha,
-                )
-                drawTexturedLidCoverage(
-                    image = closedLidTexture,
-                    coverage = lidCoverage,
-                    layerFit = layerFit,
-                    alpha = renderPolicy.lidCoverageAlpha,
-                )
-            }
-
-            // The contact seam stays above both anatomy and opaque lid texture.
+            // The transient aperture shadow fades out before the baked closed fold takes ownership.
             drawEyelidContactShadow(
                 layerFit = layerFit,
                 phase = phase,
@@ -505,32 +481,6 @@ private fun DrawScope.drawSourceLayer(
 }
 
 
-private fun DrawScope.drawTexturedLidCoverage(
-    image: ImageBitmap,
-    coverage: LivingEyeLidCoverageContours,
-    layerFit: LivingEyeLayerFit,
-    alpha: Float,
-) {
-    fun drawCoveragePolygon(points: List<LivingEyeLayerPoint>) {
-        if (points.size < 3) return
-        clipPath(points.toClosedPath()) {
-            drawSourceLayer(
-                image = image,
-                sourceX = LIVING_EYE_STATE_X,
-                sourceY = LIVING_EYE_STATE_Y,
-                sourceWidth = LIVING_EYE_STATE_WIDTH,
-                sourceHeight = LIVING_EYE_STATE_HEIGHT,
-                layerFit = layerFit,
-                alpha = alpha,
-            )
-        }
-    }
-
-    drawCoveragePolygon(coverage.upper)
-    drawCoveragePolygon(coverage.lower)
-}
-
-
 private fun DrawScope.drawEyelidContactShadow(
     layerFit: LivingEyeLayerFit,
     phase: Float,
@@ -552,10 +502,14 @@ private fun DrawScope.drawEyelidContactShadow(
         )
     }
 
-    drawContour(eyelidContactPath(layerFit, closure, upper = true), alphaMultiplier = 1f)
+    val apertureShadowAlpha = 1f - closure
+    drawContour(
+        eyelidContactPath(layerFit, closure, upper = true),
+        alphaMultiplier = apertureShadowAlpha,
+    )
     drawContour(
         eyelidContactPath(layerFit, closure, upper = false),
-        alphaMultiplier = 1f - closure,
+        alphaMultiplier = apertureShadowAlpha,
     )
 }
 
@@ -571,13 +525,6 @@ private fun eyelidContactPath(
             if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
         }
     }
-}
-
-private fun List<LivingEyeLayerPoint>.toClosedPath(): Path = Path().apply {
-    forEachIndexed { index, point ->
-        if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
-    }
-    close()
 }
 
 private fun LivingEyeApertureContour.toPath(): Path = Path().apply {

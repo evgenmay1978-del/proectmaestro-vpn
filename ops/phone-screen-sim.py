@@ -9,7 +9,7 @@
 
 Что берётся из репо (воспроизводимо, ничего не выдумано):
   mobile_4d/atlas_c_*.webp      — центральное освещение пятислойной 4D-сцены
-  mobile_eye_open/squint/closed  — live anatomy plus textured dynamic lid coverage
+  mobile_eye_open                — live anatomy revealed by one moving 70/30 aperture
   mobile_surface.webp            — фон внутренних экранов
   frame_button.9.png / frame_bar.9.png / frame_panel.9.png — nine-patch рамы
   font/playfair_display.ttf      — титульный шрифт
@@ -527,7 +527,7 @@ def _living_eye_contours(phase, state_left, state_top, state_px):
 
 
 def _living_eye_components(phase):
-    """Live anatomy plus opaque squint/closed textures clipped by moving 70/30 lids."""
+    """Live anatomy clipped by a moving 70/30 aperture over registered eye-surround."""
     phase = max(0.0, min(1.0, float(phase)))
     cx, cy, size, state_w, state_h = eye_box()
     canvas_px = round(size * S)
@@ -576,33 +576,14 @@ def _living_eye_components(phase):
         eye_layer.putalpha(ImageChops.multiply(eye_layer.getchannel('A'), aperture))
 
     seam_width = max(1, round(canvas_px * LIVING_EYE_CONTACT_SHADOW_FRACTION))
-    coverage = Image.new('L', (canvas_px, canvas_px), 0)
-    if phase >= 0.999:
-        coverage = open_aperture.copy()
-    elif phase > 0.0:
-        eroded_aperture = aperture.filter(ImageFilter.MinFilter(seam_width * 2 + 1))
-        coverage = ImageChops.subtract(open_aperture, eroded_aperture)
-        eroded_aperture.close()
-    if coverage.getbbox() is not None:
-        lids = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
-        for texture_name in ('mobile_eye_squint.webp', 'mobile_eye_closed.webp'):
-            source = Image.open(RES / texture_name).convert('RGBA').resize(
-                state_px, Image.Resampling.LANCZOS)
-            lids.alpha_composite(source, (state_left, state_top))
-            source.close()
-        lids.putalpha(ImageChops.multiply(lids.getchannel('A'), coverage))
-        eye_layer.alpha_composite(lids)
-        lids.close()
-    coverage.close()
-
     seam = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
     seam_draw = ImageDraw.Draw(seam, 'RGBA')
     seam_rgb = (6, 20, 9)  # LivingEyeMedallion.kt EYE_CONTACT_SHADOW = #061409
-    upper_colour = (*seam_rgb, round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA))
-    lower_alpha = round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA * (1.0 - phase))
-    seam_draw.line(upper, fill=upper_colour, width=seam_width, joint='curve')
-    if lower_alpha > 0:
-        seam_draw.line(lower, fill=(*seam_rgb, lower_alpha), width=seam_width, joint='curve')
+    seam_alpha = round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA * (1.0 - phase))
+    if seam_alpha > 0:
+        seam_colour = (*seam_rgb, seam_alpha)
+        seam_draw.line(upper, fill=seam_colour, width=seam_width, joint='curve')
+        seam_draw.line(lower, fill=seam_colour, width=seam_width, joint='curve')
 
     x = round(cx * S - canvas_px / 2)
     y = round(cy * S - canvas_px / 2)
@@ -984,7 +965,7 @@ if not EYE_PHASES_ONLY:
 else:
     home_scrolled = None
 
-# ── детерминированный close-up пяти фаз: live anatomy + opaque textured lids
+# ── детерминированный close-up пяти фаз: live anatomy + registered surround reveal
 EYE_PHASES = (0.0, 0.25, 0.5, 0.75, 1.0)
 EYE_PHASE_CARD = 360
 EYE_PHASE_GAP = 16
@@ -998,9 +979,9 @@ eye_phase_sheet = Image.new(
 )
 eye_phase_draw = ImageDraw.Draw(eye_phase_sheet)
 txt(eye_phase_draw, (eye_phase_sheet.width / 2, 18),
-    'Живой глаз — непрозрачные динамические веки 70/30', F(PLAY, 18), GOLD, anchor='ma')
+    'Живой глаз — единый изумрудный материал, апертура 70/30', F(PLAY, 18), GOLD, anchor='ma')
 txt(eye_phase_draw, (eye_phase_sheet.width / 2, 50),
-    'Open-анатомия остаётся живой; squint/closed дают только фактуру движущихся век.',
+    'Open-анатомия остаётся живой; закрытие раскрывает тот же eye-surround без отдельного века.',
     F(SANS, 10), TXTM, anchor='ma')
 eye_phase_base = home_scene(W, H, 0.0).convert('RGBA')
 cx, cy, _, _, _ = eye_box()
@@ -1024,13 +1005,9 @@ for index, phase in enumerate(EYE_PHASES):
         f'phase={phase}: eye overlay leaked outside original aperture/seam'
     if phase == 1.0:
         assert aperture.getbbox() is None, 'closed phase must disable the open anatomy aperture'
-        required = open_aperture.filter(ImageFilter.MinFilter(3))
-        opaque = combined.getchannel('A').point(lambda alpha: 255 if alpha >= 250 else 0)
-        uncovered = ImageChops.subtract(required, opaque)
-        assert uncovered.getbbox() is None, (
-            'closed phase must opaquely cover the original open aperture; '
-            f'uncovered={uncovered.getbbox()}')
-        required.close(); opaque.close(); uncovered.close()
+        assert combined.getchannel('A').getbbox() is None, (
+            'closed phase must reveal the registered eye-surround without an overlay; '
+            f'overlay={combined.getchannel("A").getbbox()}')
 
     frame = eye_phase_base.copy()
     frame.alpha_composite(combined, (eye_x, eye_y))
