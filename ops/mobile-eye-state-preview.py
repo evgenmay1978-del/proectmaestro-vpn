@@ -1,8 +1,8 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Small deterministic preview of the approved phone Home eye states.
 
 This is an art-review aid, not a runtime renderer or an Android screenshot.
-Only the approved owner reference, surround master, and open-eye anatomy are read.
+Only approved owner references and registered open/closed eye resources are read.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_PATH = ROOT / "design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg"
 MATERIAL_PATH = ROOT / "design/mobile-asset-redraw/materials/mobile_eye_surround_c.png"
 OPEN_EYE_PATH = ROOT / "app/src/main/res/drawable-nodpi/mobile_eye_open.webp"
+SQUINT_EYE_PATH = ROOT / "app/src/main/res/drawable-nodpi/mobile_eye_squint.webp"
+CLOSED_EYE_PATH = ROOT / "app/src/main/res/drawable-nodpi/mobile_eye_closed.webp"
 REPO_FONT_PATH = ROOT / "app/src/main/res/font/playfair_display.ttf"
 
 DP_SIZE = (390, 844)
@@ -121,6 +123,21 @@ def _contour_mask(scale: int, closure: float) -> Image.Image:
     return mask
 
 
+def _lid_coverage_mask(scale: int, closure: float) -> Image.Image:
+    """Opaque area swept by the 70/30 lids, with a tiny seam overlap."""
+    phase = max(0.0, min(1.0, closure))
+    size = (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale))
+    if phase <= 0.0:
+        return Image.new("L", size, 0)
+    open_aperture = _contour_mask(scale, closure=0.0)
+    if phase >= 0.999:
+        return open_aperture
+    current_aperture = _contour_mask(scale, closure=phase)
+    overlap = max(1, round(_state_geometry_dp()[4] * scale * 1.5 / 520.0))
+    current_aperture = current_aperture.filter(ImageFilter.MinFilter(overlap * 2 + 1))
+    return ImageChops.subtract(open_aperture, current_aperture)
+
+
 def _material_mask(scale: int) -> Image.Image:
     mask = Image.new("L", (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale)), 0)
     left, top, right, bottom = MATERIAL_BOUNDS_DP
@@ -157,44 +174,68 @@ def allowed_change_mask(scale: int = 1) -> Image.Image:
     patch_support = _status_patch_mask(scale).point(lambda value: 255 if value else 0)
     return ImageChops.lighter(mask, patch_support)
 def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Image, Image.Image, Image.Image, Image.Image]:
-    """Build anatomy, contact seam, aperture and annular glow as independent layers."""
+    """Build live anatomy, opaque textured lids, seam, aperture and annular glow."""
+    phase = max(0.0, min(1.0, closure))
     size = (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale))
     eye = Image.new("RGBA", size, (0, 0, 0, 0))
     seam = Image.new("RGBA", size, (0, 0, 0, 0))
     aperture = Image.new("L", size, 0)
     glow = Image.new("RGBA", size, (0, 0, 0, 0))
-    if closure >= 1.0:
-        upper, _lower = aperture_contours_dp(closure=1.0)
-        points = [(_scaled(x, scale), _scaled(y, scale)) for x, y in upper]
-        ImageDraw.Draw(seam).line(points, fill=(6, 20, 9, round(255 * 0.18)), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)), joint="curve")
-        return eye, seam, aperture, glow
-
-    aperture = _contour_mask(scale, closure)
     left, top, right, bottom = eye_state_bounds_dp()
-    with Image.open(OPEN_EYE_PATH) as source:
-        anatomy = source.convert("RGBA").resize(
-            (_scaled(right - left, scale), _scaled(bottom - top, scale)), Image.Resampling.LANCZOS
-        )
-    eye.alpha_composite(anatomy, (_scaled(left, scale), _scaled(top, scale)))
-    eye.putalpha(ImageChops.multiply(eye.getchannel("A"), aperture))
-    upper, lower = aperture_contours_dp(closure)
-    seam_draw = ImageDraw.Draw(seam)
-    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in upper], fill=(6, 20, 9, round(255 * 0.18)), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
-    seam_draw.line([(_scaled(x, scale), _scaled(y, scale)) for x, y in lower], fill=(6, 20, 9, round(255 * 0.18)), width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)))
+    state_size = (_scaled(right - left, scale), _scaled(bottom - top, scale))
+    state_origin = (_scaled(left, scale), _scaled(top, scale))
 
-    _left, _top, _width, _height, medallion, center_x, center_y = _state_geometry_dp()
-    centre = (_scaled(center_x, scale), _scaled(center_y, scale))
-    outer = _scaled(medallion * (0.5 - 26.0 / 520.0), scale)
-    glow_draw = ImageDraw.Draw(glow)
-    for band in range(18):
-        t = band / 17
-        radius = int(outer * (1.0 - t * (1.0 - GLOW_INNER_EDGE)))
-        alpha = round(255 * GLOW_MAX_ALPHA * (1.0 - t) ** 2)
-        glow_draw.ellipse(
-            (centre[0] - radius, centre[1] - radius, centre[0] + radius, centre[1] + radius),
-            outline=(46, 190, 108, alpha),
-            width=max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0)),
+    if phase < 0.999:
+        aperture = _contour_mask(scale, phase)
+        with Image.open(OPEN_EYE_PATH) as source:
+            anatomy = source.convert("RGBA").resize(state_size, Image.Resampling.LANCZOS)
+        eye.alpha_composite(anatomy, state_origin)
+        eye.putalpha(ImageChops.multiply(eye.getchannel("A"), aperture))
+
+    coverage = _lid_coverage_mask(scale, phase)
+    if coverage.getbbox() is not None:
+        lids = Image.new("RGBA", size, (0, 0, 0, 0))
+        # Squint fills the transparent crown of closed; closed remains the visible top texture.
+        # Both are clipped to moving geometry and never replace the complete live eye state.
+        for texture_path in (SQUINT_EYE_PATH, CLOSED_EYE_PATH):
+            with Image.open(texture_path) as source:
+                texture = source.convert("RGBA").resize(state_size, Image.Resampling.LANCZOS)
+            lids.alpha_composite(texture, state_origin)
+        lids.putalpha(ImageChops.multiply(lids.getchannel("A"), coverage))
+        eye.alpha_composite(lids)
+
+    upper, lower = aperture_contours_dp(phase)
+    seam_draw = ImageDraw.Draw(seam)
+    seam_width = max(1, round(_state_geometry_dp()[4] * scale * 3.0 / 520.0))
+    seam_fill = (6, 20, 9, round(255 * 0.18))
+    seam_draw.line(
+        [(_scaled(x, scale), _scaled(y, scale)) for x, y in upper],
+        fill=seam_fill,
+        width=seam_width,
+        joint="curve",
+    )
+    if phase < 0.999:
+        seam_draw.line(
+            [(_scaled(x, scale), _scaled(y, scale)) for x, y in lower],
+            fill=seam_fill,
+            width=seam_width,
+            joint="curve",
         )
+
+    if phase < 0.999:
+        _left, _top, _width, _height, medallion, center_x, center_y = _state_geometry_dp()
+        centre = (_scaled(center_x, scale), _scaled(center_y, scale))
+        outer = _scaled(medallion * (0.5 - 26.0 / 520.0), scale)
+        glow_draw = ImageDraw.Draw(glow)
+        for band in range(18):
+            t = band / 17
+            radius = int(outer * (1.0 - t * (1.0 - GLOW_INNER_EDGE)))
+            alpha = round(255 * GLOW_MAX_ALPHA * (1.0 - t) ** 2)
+            glow_draw.ellipse(
+                (centre[0] - radius, centre[1] - radius, centre[0] + radius, centre[1] + radius),
+                outline=(46, 190, 108, alpha),
+                width=seam_width,
+            )
     return eye, seam, aperture, glow
 
 

@@ -57,6 +57,11 @@ internal data class LivingEyeApertureContour(
         )
 }
 
+internal data class LivingEyeLidCoverageContours(
+    val upper: List<LivingEyeLayerPoint>,
+    val lower: List<LivingEyeLayerPoint>,
+)
+
 
 internal fun livingEyeApertureContour(
     layerFit: LivingEyeLayerFit,
@@ -97,6 +102,25 @@ internal fun livingEyeApertureContour(
     return LivingEyeApertureContour(
         upper = sourceXs.map { mappedPoint(it, upper = true) },
         lower = sourceXs.map { mappedPoint(it, upper = false) },
+    )
+}
+
+/** Opaque upper/lower lid polygons between the original and current 70/30 apertures. */
+internal fun livingEyeLidCoverageContours(
+    layerFit: LivingEyeLayerFit,
+    closure: Float,
+    seamOverlapPx: Float,
+): LivingEyeLidCoverageContours {
+    val phase = closure.coerceIn(0f, 1f)
+    val open = livingEyeApertureContour(layerFit, closure = 0f, seamOverlapPx = 0f)
+    val current = livingEyeApertureContour(
+        layerFit = layerFit,
+        closure = phase,
+        seamOverlapPx = seamOverlapPx.coerceAtLeast(0f) * phase,
+    )
+    return LivingEyeLidCoverageContours(
+        upper = open.upper + current.upper.asReversed(),
+        lower = current.lower + open.lower.asReversed(),
     )
 }
 
@@ -202,15 +226,20 @@ internal fun livingEyeIntegrationProfile(
 
 internal data class LivingEyeRenderPolicy(
     val eyeLayersEnabled: Boolean,
+    val lidCoverageEnabled: Boolean,
+    val lidCoverageAlpha: Float,
     val glowEnabled: Boolean,
 )
 
-/** Full closure exposes baked eye-surround material and the thin contact seam. */
+/** Geometry, not alpha fading, owns the opaque textured eyelid motion. */
 internal fun livingEyeRenderPolicy(closure: Float): LivingEyeRenderPolicy {
-    val livingLayersEnabled =
-        closure.coerceIn(0f, 1f) < LIVING_EYE_FULLY_CLOSED_PHASE
+    val phase = closure.coerceIn(0f, 1f)
+    val livingLayersEnabled = phase < LIVING_EYE_FULLY_CLOSED_PHASE
+    val lidCoverageEnabled = phase > 0f
     return LivingEyeRenderPolicy(
         eyeLayersEnabled = livingLayersEnabled,
+        lidCoverageEnabled = lidCoverageEnabled,
+        lidCoverageAlpha = if (lidCoverageEnabled) 1f else 0f,
         glowEnabled = livingLayersEnabled,
     )
 }
