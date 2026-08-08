@@ -48,6 +48,19 @@ class PhoneHomeControlDeckContractTest {
     }
 
     @Test
+    fun startingPresentationWinsWhenNavigationSetsBothFlags() {
+        assertEquals(
+            "Подключение: VLESS",
+            homeActiveProtocolLine(
+                connected = true,
+                connecting = true,
+                activeProtocol = "vless",
+                selected = "vless",
+            ),
+        )
+    }
+
+    @Test
     fun referenceButtonKeepsVisualHeightSeparateFromTouchTarget() {
         val layout = phoneHomeReferenceLayout(390f, 844f)
 
