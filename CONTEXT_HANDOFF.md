@@ -1,5 +1,59 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0N. LIVE: вариант 2 реализован и проверен на GitHub, ждёт решения владельца
+
+Этот раздел от **08.08.2026** заменяет противоречащие ему сведения ниже.
+
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- branch: `codex/mobile-4d-deck`;
+- точный опубликованный HEAD: `5dae79eca07f0a590cb9c348d489201d4eeae22b`;
+- full-layout baseline остаётся только
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`;
+- выбранный владельцем **вариант 2**: закрытие непрерывными непрозрачными
+  верхним и нижним веками, которые сходятся по прежней пропорции хода 70/30;
+- OFF: исходная апертура полностью закрыта, анатомия, радужка, зрачок и
+  свечение не видны;
+- ON: глаз полностью открыт и сохраняет одну runtime-модель blink, gaze,
+  touch, pupil и catchlight. Это не переключение статичных кадров;
+- `home_ring` владеет зарегистрированным статичным бронзово-изумрудным
+  окружением вместо мозаики. `LivingEyeMedallion` владеет динамической
+  анатомией, контактным швом и движущимся покрытием век, используя
+  `mobile_eye_squint` + `mobile_eye_closed` только как текстуру покрытия, а не
+  как полноэкранные state-swap изображения.
+
+### Действительные коммиты и проверки
+
+- `62fbde1` — RED-контракт непрозрачного полного закрытия;
+- `7e100ac` — GREEN: динамические текстурированные веки в Kotlin и лёгком
+  scripted-preview;
+- `5dae79e` — та же модель перенесена в полный phone simulator и baseline `08`;
+- `9424dd7`, `efa0876` — повторяемый безопасный GitHub Actions
+  dispatch/wait/download helper с лимитами и защитой redirect/ZIP;
+- `python -m unittest ops.test_mobile_eye_state_preview` — **9/9 PASS**;
+- helper tests — **25/25 PASS**; `py_compile` и `git diff --check` — **PASS**;
+- локально тяжёлые Gradle/atlas/simulator не запускались.
+
+Полный тяжёлый рендер выполнен только на GitHub:
+
+- Actions run: `31261067414`;
+- workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
+- result: `completed / success`;
+- artifact ID: `9022816420`;
+- artifact ZIP SHA-256:
+  `9b6a5399763dd3dc7e397c0b501ae539b2f1f9b3640670321bb8f699d314986e`;
+- скачанные QA-файлы находятся в
+  `build/github-artifacts/run-31261067414/extracted/build/phone-screen-sim/`;
+- артефакт содержит полноразмерные и QA-версии `phone-screens`,
+  `owner-home-comparison`, `owner-eye-blink-phases`, отчёт и ровно шесть
+  сгенерированных atlas WebP.
+
+Текущий gate: владельцу показаны реальные OFF/ON кадры этого GitHub run;
+требуется его визуальное решение. **Android APK ещё не собирался, atlas из
+artifact ещё не интегрировались, OTA не выполнялась и не разрешена.** После
+одобрения сначала интегрировать точные шесть atlas, затем запустить GitHub task
+`android`; APK передать на тест, OTA делать только по отдельному явному
+разрешению.
+
 ## 0M. LIVE: установленный Home закреплён как единственный layout-baseline
 
 Проверенный GitHub checkpoint от **08.08.2026**. Этот раздел заменяет прежнюю
