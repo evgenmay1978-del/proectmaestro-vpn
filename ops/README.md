@@ -9,6 +9,29 @@ The lightweight mobile eye-state preview below may run locally; heavy ring/atlas
 generation, the full simulator, Gradle and APK builds run only on GitHub Actions
 for the owner's weak computer.
 
+## GitHub Actions test/artifact handoff
+
+`github-actions-artifact.py` replaces the error-prone manual dispatch, run lookup,
+artifact download and ZIP extraction sequence with one tested command:
+
+```powershell
+python ops/github-actions-artifact.py --task mobile-eye-ring-assets
+python ops/github-actions-artifact.py --task mobile-eye-runtime-assets
+python ops/github-actions-artifact.py --task android
+```
+
+The helper fails closed unless the worktree is clean, the current branch is exactly
+`codex/mobile-4d-deck`, and local `HEAD` is already present at the same remote ref.
+It dispatches only `android-test.yml` and the three listed non-release tasks, then
+accepts only a new `workflow_dispatch` run with that exact `head_sha`. The artifact
+name must match the selected task exactly. Results are downloaded to
+`build/github-artifacts/run-<id>/`, with `metadata.json`, `artifact.sha256`, the
+original ZIP and a path-traversal-safe `extracted/` directory.
+
+Authentication lookup order is `GH_TOKEN`, `GITHUB_TOKEN`, then
+`git credential fill`; credentials are never written to metadata or printed. This
+script has no GitHub Release or OTA endpoint and does not merge or publish anything.
+
 ## Mobile 4D assets and phone preview
 
 - `mobile-4d-assets.py` validates the 15 source PNGs, builds the committed three-light atlas set and generated Kotlin geometry.
