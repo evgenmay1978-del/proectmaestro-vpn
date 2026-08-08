@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import PIL
+import PIL.features
 from PIL import Image
 
 
@@ -222,6 +223,20 @@ class MobileEyeSurroundAssetsIntegrationTest(unittest.TestCase):
         self.assertEqual(tracked.mode, expected.mode)
         self.assertEqual(tracked.tobytes(), expected.tobytes())
 
+    def test_master_accepts_pinned_artifact_with_matching_regenerated_rgb(self) -> None:
+        expected = Image.new("RGB", MODULE.MASTER_MATERIAL_SIZE, (8, 31, 19))
+        with tempfile.TemporaryDirectory(dir=MODULE.ROOT) as temporary_directory:
+            tracked_path = Path(temporary_directory) / "alternate-encoding-master.png"
+            expected.save(tracked_path, format="PNG", optimize=False, compress_level=0)
+            tracked_sha256 = hashlib.sha256(tracked_path.read_bytes()).hexdigest()
+            with (
+                mock.patch.object(MODULE, "MASTER", tracked_path),
+                mock.patch.object(MODULE, "MASTER_MATERIAL_SHA256", tracked_sha256),
+            ):
+                result = MODULE.check_master(expected)
+
+        self.assertEqual(result, 0)
+
     def test_master_mismatch_reports_encoding_pixels_and_runtime_versions(self) -> None:
         expected = Image.new("RGB", MODULE.MASTER_MATERIAL_SIZE, (8, 31, 19))
         expected_buffer = io.BytesIO()
@@ -239,21 +254,23 @@ class MobileEyeSurroundAssetsIntegrationTest(unittest.TestCase):
 
         diagnostic = output.getvalue()
         self.assertEqual(result, 1)
-        self.assertIn("encoded_matches=False pixels_match=True", diagnostic)
+        self.assertIn("artifact_hash_matches=False pixels_match=True", diagnostic)
         self.assertIn(
             f"tracked_encoded_sha256={hashlib.sha256(tracked_encoded).hexdigest()}",
             diagnostic,
         )
         self.assertIn(
-            f"expected_encoded_sha256={hashlib.sha256(expected_encoded).hexdigest()}",
+            f"locally_encoded_expected_sha256={hashlib.sha256(expected_encoded).hexdigest()}",
             diagnostic,
         )
+        self.assertIn(f"pinned_encoded_sha256={MODULE.MASTER_MATERIAL_SHA256}", diagnostic)
         expected_pixel_sha256 = hashlib.sha256(expected_pixels).hexdigest()
         self.assertIn(f"tracked_rgb_sha256={expected_pixel_sha256}", diagnostic)
         self.assertIn(f"expected_rgb_sha256={expected_pixel_sha256}", diagnostic)
         self.assertIn(f"pillow={PIL.__version__}", diagnostic)
-        self.assertIn(f"zlib_compile={zlib.ZLIB_VERSION}", diagnostic)
-        self.assertIn(f"zlib_runtime={zlib.ZLIB_RUNTIME_VERSION}", diagnostic)
+        self.assertIn(f"pillow_zlib_codec={PIL.features.version_codec('zlib')}", diagnostic)
+        self.assertIn(f"python_zlib_compile={zlib.ZLIB_VERSION}", diagnostic)
+        self.assertIn(f"python_zlib_runtime={zlib.ZLIB_RUNTIME_VERSION}", diagnostic)
 
 
 if __name__ == "__main__":

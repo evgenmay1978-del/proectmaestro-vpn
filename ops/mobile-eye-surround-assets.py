@@ -12,6 +12,7 @@ import zlib
 from pathlib import Path
 
 import PIL
+import PIL.features
 from PIL import Image, ImageEnhance, ImageOps, ImageDraw
 
 
@@ -282,8 +283,8 @@ def check_master(expected: Image.Image) -> int:
         print(f"MISMATCH {MASTER.relative_to(ROOT)}")
         return 1
     tracked_encoded = MASTER.read_bytes()
-    expected_encoded = _encoded_master(expected)
-    encoded_matches = tracked_encoded == expected_encoded
+    tracked_encoded_sha256 = hashlib.sha256(tracked_encoded).hexdigest()
+    artifact_hash_matches = tracked_encoded_sha256 == MASTER_MATERIAL_SHA256
     with Image.open(MASTER) as tracked:
         tracked_rgb = tracked.convert("RGB").tobytes()
         pixels_match = (
@@ -291,14 +292,19 @@ def check_master(expected: Image.Image) -> int:
             and tracked.size == MASTER_MATERIAL_SIZE
             and tracked.tobytes() == expected.tobytes()
         )
-    if not encoded_matches or not pixels_match:
+    if not artifact_hash_matches or not pixels_match:
         print(f"MISMATCH {MASTER.relative_to(ROOT)}")
+        expected_encoded = _encoded_master(expected)
         expected_rgb = expected.convert("RGB").tobytes()
-        print(f"diagnostic encoded_matches={encoded_matches} pixels_match={pixels_match}")
         print(
             "diagnostic "
-            f"tracked_encoded_sha256={hashlib.sha256(tracked_encoded).hexdigest()} "
-            f"expected_encoded_sha256={hashlib.sha256(expected_encoded).hexdigest()}",
+            f"artifact_hash_matches={artifact_hash_matches} pixels_match={pixels_match}",
+        )
+        print(
+            "diagnostic "
+            f"tracked_encoded_sha256={tracked_encoded_sha256} "
+            f"pinned_encoded_sha256={MASTER_MATERIAL_SHA256} "
+            f"locally_encoded_expected_sha256={hashlib.sha256(expected_encoded).hexdigest()}",
         )
         print(
             "diagnostic "
@@ -307,8 +313,10 @@ def check_master(expected: Image.Image) -> int:
         )
         print(
             "diagnostic "
-            f"pillow={PIL.__version__} zlib_compile={zlib.ZLIB_VERSION} "
-            f"zlib_runtime={zlib.ZLIB_RUNTIME_VERSION}",
+            f"pillow={PIL.__version__} "
+            f"pillow_zlib_codec={PIL.features.version_codec('zlib')} "
+            f"python_zlib_compile={zlib.ZLIB_VERSION} "
+            f"python_zlib_runtime={zlib.ZLIB_RUNTIME_VERSION}",
         )
         return 1
     print("PASS owner-selected eye-surround master matches tracked PNG")
