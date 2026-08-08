@@ -137,17 +137,15 @@ internal fun fitLivingEyeLayer(width: Float, height: Float): LivingEyeLayerFit {
             (LIVING_EYE_STATE_Y + LIVING_EYE_STATE_HEIGHT - LIVING_EYE_VIRTUAL_ORIGIN_Y) *
             virtualScale
 
-    // ⛔ БОЛЬШЕ НЕ УЖИМАЕМ СЛОЙ. Здесь стояло
-    //     layerScale = (medallionSize - inset * 2) / (rawStateRight - rawStateLeft)
-    // — оно вписывало в бронзовый отступ ВЕСЬ слой целиком. Внешняя граница арта и есть зелень,
-    // поэтому убрать её с кольца масштабированием можно было только утащив за собой радужку,
-    // зрачок и блик: глаз терял 16.8% стороны и 30.8% площади (0.632219 → 0.525843), и владелец
-    // 31.07.2026 это увидел — «глаз сам стал меньше, можно было оставить как был».
-    // Зелень вылезала всего на 21.3 px с каждой стороны при канве 520 — это подрезается клипом по
-    // кольцу (livingEyeBronzeInset + clipPath в LivingEyeMedallion), а не уменьшением всего глаза.
-    val layerScale = 1f
-    val layerTranslationX = width / 2f - (rawStateLeft + rawStateRight) / 2f * layerScale
-    val layerTranslationY = height / 2f - (rawStateTop + rawStateBottom) / 2f * layerScale
+    // Apply the owner-approved anatomy scale and offsets exactly once. Every anatomy consumer uses
+    // this fit, so blink, gaze, pupil, catchlight and the contact seam remain registered.
+    val layerScale = LIVING_EYE_ANATOMY_SCALE
+    val anatomyOffsetX = medallionSize * LIVING_EYE_OFFSET_X_FRACTION
+    val anatomyOffsetY = medallionSize * LIVING_EYE_OFFSET_Y_FRACTION
+    val layerTranslationX =
+        width / 2f - (rawStateLeft + rawStateRight) / 2f * layerScale + anatomyOffsetX
+    val layerTranslationY =
+        height / 2f - (rawStateTop + rawStateBottom) / 2f * layerScale + anatomyOffsetY
     val scale = virtualScale * layerScale
     val translationX =
         (canvasLeft - LIVING_EYE_VIRTUAL_ORIGIN_X * virtualScale) * layerScale +
@@ -179,8 +177,8 @@ internal fun livingEyeBronzeInset(width: Float, height: Float): Float =
     minOf(width, height) * LIVING_EYE_BRONZE_INSET_FRACTION
 
 /**
- * Pure, size-relative profile for the only runtime overlay allowed over the mosaic: the thin
- * aperture contact seam. The bronze and mosaic depth stays in the single registered ring art.
+ * Pure, size-relative profile for the thin aperture contact seam. The baked bronze and eye-surround
+ * material stays in the single registered ring art.
  */
 internal data class LivingEyeIntegrationProfile(
     val layerFit: LivingEyeLayerFit,
@@ -208,7 +206,7 @@ internal data class LivingEyeRenderPolicy(
     val glowEnabled: Boolean,
 )
 
-/** Full closure exposes only the registered base mosaic and its thin contact seam. */
+/** Full closure exposes baked eye-surround material and the thin contact seam. */
 internal fun livingEyeRenderPolicy(closure: Float): LivingEyeRenderPolicy {
     val livingLayersEnabled =
         closure.coerceIn(0f, 1f) < LIVING_EYE_FULLY_CLOSED_PHASE
@@ -226,6 +224,9 @@ internal const val LIVING_EYE_STATE_HEIGHT = 635f
 private const val LIVING_EYE_VIRTUAL_ORIGIN_X = 268.8f
 private const val LIVING_EYE_VIRTUAL_ORIGIN_Y = 637.3f
 private const val LIVING_EYE_VIRTUAL_SIZE = 822.5f
+internal const val LIVING_EYE_ANATOMY_SCALE = 1.10f
+internal const val LIVING_EYE_OFFSET_X_FRACTION = 3.5f / 238f
+internal const val LIVING_EYE_OFFSET_Y_FRACTION = 7f / 238f
 private const val LIVING_EYE_BRONZE_INSET_FRACTION = 26f / 520f
 private const val LIVING_EYE_CONTACT_SHADOW_FRACTION = 3f / 520f
 private const val LIVING_EYE_UPPER_LID_TRAVEL_SHARE = 0.70f

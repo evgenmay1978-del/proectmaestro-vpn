@@ -44,15 +44,15 @@ import kotlin.random.Random
 /**
  * Phone-only living version of the owner's eye.
  *
- * The carved plaque, emerald mosaic and medallion live in the fixed phone background and are
+ * The carved plaque, baked bronze and sealed eye-surround live in the fixed phone background and are
  * drawn exactly once. This layer draws eye anatomy only inside a dynamic aperture:
  *
- *  * the shrinking aperture reveals the unchanged mosaic below during every blink;
+ *  * the shrinking aperture reveals baked eye-surround material during every blink;
  *  * sclera stays registered;
  *  * iris and pupil perform short saccades together;
  *  * the pupil changes radius inside a fixed outer iris;
  *  * the corneal catchlight follows only 8% of gaze translation;
- *  * full closure draws no eye or separate eyelid bitmap.
+ *  * full closure exposes baked eye-surround material and the thin contact seam.
  *
  * Source measurements and reconstruction limits are recorded in
  * `docs/design/mobile-eye-natural/asset_metadata.json`.
@@ -69,7 +69,7 @@ internal fun LivingEyeMedallion(
     val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_iris)
     val catchlight = ImageBitmap.imageResource(R.drawable.mobile_eye_catchlight)
 
-    // 0 = open aperture, 1 = zero-height aperture over the untouched mosaic.
+    // 0 = open aperture, 1 = zero-height aperture over baked eye-surround material.
     val lidPhase = remember { Animatable(1f) }
     val blinkEyeShift = remember { Animatable(0f) }
     val gazeX = remember { Animatable(0f) } // source-frame pixels
@@ -217,8 +217,8 @@ internal fun LivingEyeMedallion(
     }
 
     Canvas(modifier = modifier) {
-        // The bronze socket clips only the living overlay. The registered ring/mosaic is already
-        // below this Canvas and must never be repainted here.
+        // The bronze socket clips only the living overlay. The registered ring and baked eye-surround
+        // material are already below this Canvas and must never be repainted here.
         val bronzeInset = livingEyeBronzeInset(size.width, size.height)
         val medallion = minOf(size.width, size.height)
         val integration = livingEyeIntegrationProfile(size.width, size.height)
@@ -243,7 +243,8 @@ internal fun LivingEyeMedallion(
             ).toPath()
 
             // Do not rely on renderer behavior for a degenerate closed Path: at full closure the
-            // living layer is deliberately empty and the one true mosaic below remains visible.
+            // living layer is deliberately empty; baked eye-surround material and the thin
+            // contact seam remain visible.
             if (renderPolicy.eyeLayersEnabled) {
                 clipPath(aperture) {
                     drawSourceLayer(
@@ -315,8 +316,8 @@ internal fun LivingEyeMedallion(
                 }
             }
 
-            // This thin seam is the only overlay outside the eye aperture. The registered mosaic
-            // stays pixel-identical to the base ring at full closure.
+            // This thin seam is the only overlay outside the eye aperture. The baked eye-surround
+            // material stays pixel-identical to the base ring at full closure.
             drawEyelidContactShadow(
                 layerFit = layerFit,
                 phase = phase,

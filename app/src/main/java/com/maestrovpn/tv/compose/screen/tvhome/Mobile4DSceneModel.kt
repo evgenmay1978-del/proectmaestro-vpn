@@ -425,12 +425,11 @@ private fun mobile4DNextLowerTargetWidthBucket(currentWidthPx: Int): Int {
 
 private const val MOBILE_4D_MASTER_WIDTH = 2160f
 private const val MOBILE_4D_MASTER_HEIGHT = 4670f
-// Центр медальона привязан к НОВОМУ кольцу с мозаикой (`home_ring_*`, 01.08): его alpha bbox
+// Центр медальона привязан к НОВОМУ кольцу с eye-surround (`home_ring_*`, 01.08): его alpha bbox
 // [156,827,2005,2676) даёт центр (1080,1751) и Ø1849 на мастер-холсте. Прежние 430/853 и 711/1844
 // указывали на старое пустое кольцо и уводили глаз на 9 dp вниз от резьбы.
-// ⛔ Радиус НЕ трогаю: он задаёт размер глаза, а его владелец защитил отдельно (`00e47a3`,
-// «глаз сам стал меньше»). Мозаика теперь заполняет диск, поэтому глаз больше не висит в пустоте
-// и без изменения размера. Менять размер — только по прямому решению владельца.
+// Радиус остаётся фиксированной геометрией socket/medallion и не меняется. Размер и owner-approved
+// offset динамической анатомии принадлежат fitLivingEyeLayer; baked eye-surround заполняет диск.
 private const val MOBILE_4D_MEDALLION_CENTER_X = 1080f
 private const val MOBILE_4D_MEDALLION_CENTER_Y = 1751f
 private const val MOBILE_4D_MEDALLION_RADIUS_X = MOBILE_4D_MASTER_WIDTH * 260f / 853f
