@@ -1,8 +1,8 @@
 # Mobile Home: единая прокрутка деки, титул и живой глаз в мозаике
 
-**Решение владельца:** 02.08.2026  
-**Ветка:** `codex/mobile-4d-deck`  
-**База при проектировании:** `c1b83f95786c14f3fdd15be5d3500223201b995c`  
+**Решение владельца:** 02.08.2026
+**Ветка:** `codex/mobile-4d-deck`
+**База при проектировании:** `c1b83f95786c14f3fdd15be5d3500223201b995c`
 **Область:** только мобильный `Home`; TV, backend, release и OTA вне задачи.
 
 ## 1. Подтверждённые дефекты
@@ -117,4 +117,3 @@ arc(scroll) → ring → living eye → Playfair title → controls(scroll)
 7. Поиск не находит старого revolver/flattened Home и новых дублирующих владельцев области.
 8. Diff по TV-файлам, `tvm_*`, TV tests/simulators, backend, release и OTA равен нулю.
 9. Android compile/unit выполняются только GitHub Actions; локальный Gradle запрещён владельцем.
-
