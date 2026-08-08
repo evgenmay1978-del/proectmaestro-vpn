@@ -18,6 +18,11 @@ enum class InstallMethod {
     ROOT,
 }
 
+internal fun shouldRestoreTunnelAfterInstallFailure(
+    weStoppedTunnel: Boolean,
+    wasStartedByUserBeforeStop: Boolean,
+): Boolean = weStoppedTunnel && wasStartedByUserBeforeStop
+
 object ApkInstaller {
 
     private const val TAG = "ApkInstaller"
@@ -51,9 +56,8 @@ object ApkInstaller {
      *
      * Никогда не бросает: восстановление не должно подменять исходную причину ошибки.
      */
-    private fun restoreTunnelAfterFailure(weStoppedIt: Boolean) {
-        if (!weStoppedIt) return
-        if (!Settings.startedByUser) return
+    private fun restoreTunnelAfterFailure(shouldRestoreTunnel: Boolean) {
+        if (!shouldRestoreTunnel) return
         runCatching { BoxService.start() }
             .onFailure { Log.w(TAG, "не удалось поднять VPN после сорвавшейся установки", it) }
     }
@@ -137,11 +141,15 @@ object ApkInstaller {
         // the archive check, the VPN teardown and the PackageInstaller session — none of which
         // is a download, and together they are most of the wait the owner saw as an endless one.
         UpdateState.phase.value = UpdateState.Phase.Installing
-        // Гасили ли туннель МЫ — от этого зависит, надо ли поднимать его обратно при срыве.
-        var weStoppedTunnel = false
+        // Решение о восстановлении фиксируем ДО BoxService.stop(): штатная остановка очищает
+        // Settings.startedByUser, поэтому перечитывать этот флаг после срыва уже поздно.
+        var shouldRestoreTunnel = false
         try {
             validateArchive(context, apkFile)
-            weStoppedTunnel = File(Application.application.filesDir, "command.sock").exists()
+            shouldRestoreTunnel = shouldRestoreTunnelAfterInstallFailure(
+                weStoppedTunnel = File(Application.application.filesDir, "command.sock").exists(),
+                wasStartedByUserBeforeStop = Settings.startedByUser,
+            )
             if (!stopServiceIfRunning()) {
                 // VPN engine still holding command.sock after the wait — do NOT install blindly over a
                 // live tunnel; abort and let the caller retry on the next cycle.
@@ -158,7 +166,7 @@ object ApkInstaller {
             Settings.clearUpdateInstallFailures()
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Отмена — тоже срыв: туннель гасили мы, поднять обязаны.
-            restoreTunnelAfterFailure(weStoppedTunnel)
+            restoreTunnelAfterFailure(shouldRestoreTunnel)
             throw e
         } catch (e: Exception) {
             runCatching { Settings.recordUpdateInstallFailure(targetVersionCode) }
@@ -171,7 +179,7 @@ object ApkInstaller {
                     "strikes=${Settings.updateFailedCount} err=${e.message}",
             )
             UpdateState.phase.value = UpdateState.Phase.Idle
-            restoreTunnelAfterFailure(weStoppedTunnel)
+            restoreTunnelAfterFailure(shouldRestoreTunnel)
             throw e
         }
     }
