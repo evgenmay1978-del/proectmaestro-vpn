@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import statistics
 import unittest
 from pathlib import Path
 
@@ -133,6 +134,64 @@ class MobileEyeSurroundAssetsTest(unittest.TestCase):
 
 
 class MobileEyeSurroundAssetsIntegrationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        with Image.open(MODULE.MASTER) as source:
+            cls.master = source.convert("RGB")
+
+        size = 1254
+        center = size / 2
+        radius_squared = (0.49 * size) ** 2
+
+        def region(
+            bounds: tuple[float, float, float, float],
+        ) -> list[tuple[int, int, int]]:
+            left, top, right, bottom = bounds
+            pixels = cls.master.load()
+            return [
+                pixels[x, y]
+                for y in range(size)
+                for x in range(size)
+                if left <= x < right
+                and top <= y < bottom
+                and (x - center) ** 2 + (y - center) ** 2 <= radius_squared
+            ]
+
+        aperture = region((154, 484, 1129, 855))
+        upper = region((0.25 * size, 0.28 * size, 0.75 * size, 0.49 * size))
+        lower = region((0.25 * size, 0.62 * size, 0.75 * size, 0.82 * size))
+        cls.aperture_green_minus_red = sum(green - red for red, green, _ in aperture) / len(aperture)
+        cls.upper_green_minus_red = sum(green - red for red, green, _ in upper) / len(upper)
+
+        def median_luma(pixels: list[tuple[int, int, int]]) -> float:
+            return statistics.median(
+                0.2126 * red + 0.7152 * green + 0.0722 * blue
+                for red, green, blue in pixels
+            )
+
+        cls.upper_lower_luma_delta = median_luma(upper) - median_luma(lower)
+
+    def test_tracked_master_keeps_dense_emerald_lids_across_the_aperture(self) -> None:
+        self.assertGreaterEqual(
+            self.aperture_green_minus_red,
+            14.0,
+            "regression: the sealed aperture lost its dense dark-emerald lid material",
+        )
+
+    def test_tracked_master_keeps_the_brighter_raised_upper_lid_relief(self) -> None:
+        self.assertGreaterEqual(
+            self.upper_green_minus_red,
+            20.0,
+            "regression: the raised upper lid lost its emerald relief",
+        )
+
+    def test_tracked_master_keeps_upper_lid_brighter_than_the_broad_lower_lid(self) -> None:
+        self.assertGreaterEqual(
+            self.upper_lower_luma_delta,
+            8.0,
+            "regression: the upper and lower lids collapsed into a flat or hollow socket",
+        )
+
     def test_tracked_kit_and_source_match_rendered_expectations(self) -> None:
         expected = MODULE.render_expected_outputs()
 
