@@ -112,12 +112,11 @@ private fun livingEyeSourceYAtX(points: List<LivingEyeLayerPoint>, x: Float): Fl
 }
 
 /**
- * Fits the complete emerald eye layer inside the fixed bronze medallion.
+ * Applies one owner-approved uniform scale and translation to the complete living-eye anatomy.
  *
- * The actual offset state rectangle is mapped from the owner-frame coordinates,
- * then its full horizontal extent is fitted into the bronze inset. One uniform
- * scale and translation maps every blink state, the aperture, iris, pupil and
- * catchlight so their source registration cannot drift.
+ * The mapped bounds may extend beyond the canvas; the bronze socket clip hides that overflow.
+ * Every blink state, aperture, iris, pupil, catchlight, gaze offset and seam shares this fit so
+ * source registration cannot drift.
  */
 internal fun fitLivingEyeLayer(width: Float, height: Float): LivingEyeLayerFit {
     val medallionSize = minOf(width, height)
