@@ -71,6 +71,12 @@ jobs:
             ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_lights_share_alpha_support_but_left_and_right_rgb_differ \
             ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsTest.test_replacement_is_idempotent_with_feather
 
+
+      - name: Verify owner-selected closed-eye inputs and preview contracts
+        run: |
+          set -euo pipefail
+          python ops/mobile-eye-surround-assets.py --material-only --check
+          python -m unittest ops.test_mobile_eye_surround_assets.MobileEyeSurroundAssetsIntegrationTest.test_archived_owner_reference_rebuilds_the_tracked_master ops.test_mobile_eye_state_preview
       - name: Render and verify full-size ring outputs
         run: |
           set -euo pipefail

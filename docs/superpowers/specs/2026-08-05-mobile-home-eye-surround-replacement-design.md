@@ -10,8 +10,7 @@
 - Единственный эталон полного Home, его статуса, контактов, дуги протоколов и
   нижней деки:
   `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`,
-  ровно `591×1280`, SHA-256
-  `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`.
+  ровно `591×1280`, SHA-256 `9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b`.
 - `design/mobile-4d-references/04-owner-selected-home-2026-07-31.jpg` остаётся
   только историей художественного направления глаза и окружающего его
   eye-surround. Запрещено брать из него full-layout, status, contacts, protocol
@@ -28,7 +27,7 @@
 живой анатомический глаз. Всё пространство, которое занимала радиальная
 изумрудная мозаика, физически заменено непрерывным тёмно-изумрудным рельефом
 верхнего и нижнего века с трещинами и бронзовыми прожилками. Художественное
-направление материала сверяется с `04`, но регистрация, размеры экрана и всё
+Material direction for the closed lids/eye-surround compares only to `09-owner-selected-closed-eye-v2-2026-08-08.png`; layout registration and the surrounding medallion compare only to `08`.
 окружение медальона — только с `08`.
 
 Это замена пикселей существующего `ring`, а не новый диск, Canvas или bitmap,
@@ -115,9 +114,7 @@ python ops/mobile-eye-state-preview.py --check
    ожидаемые aperture-ratios, сохраняя правила 70/30 и полного закрытия.
 4. `ops/phone-screen-sim.py --eye-phases-only` показывает пять фаз на новом
    материале; phase `1.0` не содержит open-eye alpha и не открывает мозаику.
-5. Полный layout, status, contacts, protocol arc и lower deck сравниваются только
-   с `08`; художественный характер глаза и eye-surround отдельно сверяется с
-   `04`.
+5. Full layout, status, contacts, protocol arc and lower deck compare only to `08`; closed lids and eye-surround compare only to `09-owner-selected-closed-eye-v2-2026-08-08.png`. `04` is historical only.
 6. Тяжёлая генерация ring/atlas, полный simulator, Gradle и APK выполняются
    только на GitHub runner; слабый Windows-компьютер владельца ими не нагружается.
 7. GitHub Actions `android-test.yml` проходит `assembleOtherDebug` и
@@ -129,3 +126,17 @@ python ops/mobile-eye-state-preview.py --check
 
 TV, D-pad/focus/Back, backend, API, VPN runtime, scroll-owner нижней деки,
 статусные callbacks, tilt/parallax/memory policy, signing, release, OTA и `main`.
+
+## Option-2 closed-eye source correction (2026-08-08)
+
+The closed-eye eye-surround is compared only with archived owner selection
+`09-owner-selected-closed-eye-v2-2026-08-08.png` (RGB 852×1846, SHA-256 `97cf7cddbeb780fd23ad8035c394183ce680b149895f0b26cbbb3a004122ac81`). `04` is historical art direction,
+not the current closed-lid reference. The deterministic RGB 1254×1254 master
+SHA-256 is `0f5d565c2a269579166723b7b59532cde7032cb0b7ea668847b95c5531f278ca`.
+
+Regenerate or verify it without rendering `home_ring_*`:
+
+```text
+python ops/mobile-eye-surround-assets.py --material-only
+python ops/mobile-eye-surround-assets.py --material-only --check
+```

@@ -127,7 +127,7 @@ git commit -m "test: reject legacy home eye mosaic"
 - Modify: `design/mobile-asset-redraw/source/home_ring_r.png`
 
 **Interfaces:**
-- Consumes: selected ImageGen PNG, SHA-256 `bcd108a3c53a1f18b1d1a984c56105e315bc86a581c4fe05efc5b76f2b0eeeac`, `1254×1254`, RGB.
+- Consumes: archived owner-selected closed-eye reference `design/mobile-4d-references/09-owner-selected-closed-eye-v2-2026-08-08.png`, RGB `852×1846`, archive SHA-256 `97cf7cddbeb780fd23ad8035c394183ce680b149895f0b26cbbb3a004122ac81`; produces RGB `1254×1254` master SHA-256 `0f5d565c2a269579166723b7b59532cde7032cb0b7ea668847b95c5531f278ca`.
 - Produces: `replacement_mask(radius: int = 644, feather: int = 6) -> Image.Image`.
 - Produces: `directional_material(master: Image.Image, light: str, size: tuple[int, int]) -> Image.Image`.
 - Produces: `replace_ring_material(base: Image.Image, material: Image.Image, light: str) -> Image.Image`.
@@ -376,8 +376,7 @@ python ops/phone-screen-sim.py
 - Полный layout, title, status, phone, contacts, protocol arc и lower deck
   сравнивать только с
   `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`.
-- `04-owner-selected-home-2026-07-31.jpg` использовать только для характера
-  глаза, век, трещин, бронзовых прожилок и общей eye-surround art direction.
+- `09-owner-selected-closed-eye-v2-2026-08-08.png` is the current closed-lid/eye-surround reference; `04-owner-selected-home-2026-07-31.jpg` is historical only.
 - Проверить края material circle, отсутствие crop глаза, совпадение центра,
   бронзовую кромку и отсутствие старой сетки. При расхождении больше `±4 dp`
   корректировать только общие scale/offset constants и повторять runner Step 4.
@@ -458,3 +457,16 @@ git status --short --branch
 Expected: локальный и remote SHA совпадают, worktree чист. Скопировать URL run и
 URL APK artifact из успешного workflow; не создавать release, OTA или merge.
 
+
+## Option-2 closed-eye material correction (2026-08-08)
+
+Task 2 consumes archived owner selection
+`design/mobile-4d-references/09-owner-selected-closed-eye-v2-2026-08-08.png` (RGB 852×1846; archive SHA-256 `97cf7cddbeb780fd23ad8035c394183ce680b149895f0b26cbbb3a004122ac81`)
+for the closed lids. `04` is historical only. Regenerate or verify tracked master
+`mobile_eye_surround_c.png` (RGB 1254×1254; SHA-256 `0f5d565c2a269579166723b7b59532cde7032cb0b7ea668847b95c5531f278ca`) without rendering
+`home_ring_*`:
+
+```text
+python ops/mobile-eye-surround-assets.py --material-only
+python ops/mobile-eye-surround-assets.py --material-only --check
+```

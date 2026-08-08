@@ -208,5 +208,14 @@ class MobileEyeSurroundAssetsIntegrationTest(unittest.TestCase):
                 self.assertEqual(tracked.convert("RGBA").tobytes(), rendered.tobytes())
 
 
+    def test_archived_owner_reference_rebuilds_the_tracked_master(self) -> None:
+        expected = MODULE.render_expected_master()
+        with Image.open(MODULE.MASTER) as source:
+            tracked = source.convert("RGB")
+        self.assertEqual(tracked.size, expected.size)
+        self.assertEqual(tracked.mode, expected.mode)
+        self.assertEqual(tracked.tobytes(), expected.tobytes())
+
+
 if __name__ == "__main__":
     unittest.main()
