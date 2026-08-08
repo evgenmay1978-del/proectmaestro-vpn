@@ -14,6 +14,22 @@ class InstallResultReceiver : BroadcastReceiver() {
         private const val TAG = "InstallResultReceiver"
     }
 
+    internal fun <T> deliverPendingConfirmation(
+        confirmation: T,
+        processLifecycleStarted: Boolean,
+        hasResumedActivity: Boolean,
+        launch: (T) -> Unit,
+        park: (T) -> Unit,
+    ): InstallConfirmationDelivery = deliverInstallConfirmation(
+        confirmation = confirmation,
+        appInForeground = isInstallConfirmationForeground(
+            processLifecycleStarted = processLifecycleStarted,
+            hasResumedActivity = hasResumedActivity,
+        ),
+        launch = launch,
+        park = park,
+    )
+
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_INSTALL_COMPLETE) return
 
@@ -38,13 +54,10 @@ class InstallResultReceiver : BroadcastReceiver() {
                     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     // Set the visible state before the one-shot delivery decision.
                     UpdateState.phase.value = UpdateState.Phase.AwaitingConfirm
-                    val appInForeground = isInstallConfirmationForeground(
+                    val delivery = deliverPendingConfirmation(
+                        confirmation = it,
                         processLifecycleStarted = AppLifecycleObserver.isForeground.value,
                         hasResumedActivity = AppLifecycleObserver.hasResumedActivity,
-                    )
-                    val delivery = deliverInstallConfirmation(
-                        confirmation = it,
-                        appInForeground = appInForeground,
                         launch = { confirmation -> context.startActivity(confirmation) },
                         park = { confirmation -> UpdateState.pendingConfirmIntent.value = confirmation },
                     )

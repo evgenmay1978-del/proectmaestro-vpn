@@ -98,7 +98,7 @@ class InstallConfirmationDeliveryTest {
         var launches = 0
         var parks = 0
 
-        val result = deliverInstallConfirmationFromReceiver(
+        val result = InstallResultReceiver().deliverPendingConfirmation(
             confirmation = "confirm",
             processLifecycleStarted = false,
             hasResumedActivity = false,
@@ -116,7 +116,7 @@ class InstallConfirmationDeliveryTest {
         var launches = 0
         var parks = 0
 
-        val result = deliverInstallConfirmationFromReceiver(
+        val result = InstallResultReceiver().deliverPendingConfirmation(
             confirmation = "confirm",
             processLifecycleStarted = true,
             hasResumedActivity = false,
@@ -134,7 +134,7 @@ class InstallConfirmationDeliveryTest {
         var launches = 0
         var parks = 0
 
-        val result = deliverInstallConfirmationFromReceiver(
+        val result = InstallResultReceiver().deliverPendingConfirmation(
             confirmation = "confirm",
             processLifecycleStarted = true,
             hasResumedActivity = true,
