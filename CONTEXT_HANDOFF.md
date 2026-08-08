@@ -1,5 +1,73 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0O. LIVE: веко объединено с изумрудным окружением; GitHub proof готов
+
+Этот раздел от **08.08.2026** заменяет противоречащие ему сведения раздела
+0N и всех более старых разделов.
+
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- branch: `codex/mobile-4d-deck`;
+- точный функциональный HEAD: `8bbcce6332a4721615de4573a1055a636da295d9`;
+- единственный full-layout baseline:
+  `design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg`;
+- требование владельца: глаз и веки являются **единым изумрудным объектом**.
+  Бронзовое, золотое, красное или отдельное текстурное веко запрещено.
+
+### Исправленная runtime-модель
+
+- Старые `mobile_eye_squint` и `mobile_eye_closed` больше не рисуются поверх
+  окружения ни в `LivingEyeMedallion`, ни в обоих Python-рендерах.
+- `home_ring` один раз рисует зарегистрированный изумрудный eye-surround.
+  Живая анатомия видна только внутри движущейся апертуры 70/30. При закрытии
+  апертура уменьшается и открывает тот же рельеф под ней; новый слой века не
+  создаётся.
+- OFF: апертура, анатомия, glow и временный контактный shadow полностью
+  исчезают; остаётся естественная закрытая складка того же изумрудного
+  материала.
+- ON: глаз открыт; blink, gaze, touch, pupil и catchlight продолжают работать.
+  Это одна анимированная runtime-модель, а не переключение статичных кадров.
+
+### Коммиты, тесты и воспроизводимые доказательства
+
+- `025b7d1` — design/spec/plan изумрудной непрерывности;
+- `05dcebf` — RED-контракт: full close обязан раскрывать зарегистрированный
+  surround и оставлять нулевую alpha у eye/seam overlay;
+- `8bbcce6` — GREEN: удалено отдельное покрытие века из Kotlin,
+  `mobile-eye-state-preview.py` и `phone-screen-sim.py`;
+- `python -m unittest ops.test_mobile_eye_state_preview` — **9/9 PASS**;
+- `python -m py_compile ops/mobile-eye-state-preview.py
+  ops/phone-screen-sim.py` — **PASS**;
+- `python ops/mobile-eye-state-preview.py --check` — **PASS**;
+- `git diff --check` — **PASS**;
+- независимое review GREEN — **PASS**, блокирующих и существенных замечаний нет.
+
+Тяжёлый контроль выполнен только на GitHub:
+
+- Actions run: `31272014651`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31272014651`;
+- workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
+- result: `completed / success`;
+- exact run HEAD: `8bbcce6332a4721615de4573a1055a636da295d9`;
+- artifact:
+  `mobile-eye-runtime-assets-8bbcce6332a4721615de4573a1055a636da295d9`;
+- artifact ZIP SHA-256:
+  `4411a5065ed2030af99962e618d9a2e14850732eedd4e9f93803faeb2d79042b`;
+- скачанный exact artifact:
+  `build/github-artifacts/run-31272014651/`;
+- приёмочные изображения:
+  `extracted/build/phone-screen-sim/phone-screens-qa.jpg`,
+  `owner-home-comparison-qa.jpg`,
+  `owner-eye-blink-phases-qa.jpg`;
+- artifact также содержит полноразмерные PNG, отчёт и ровно шесть новых atlas
+  WebP.
+
+Текущий gate: показать владельцу OFF, ON и пять фаз из run `31272014651` и
+получить его визуальное решение. **Шесть atlas из artifact ещё не
+интегрированы, Android APK ещё не собирался, OTA не выполнялась и не
+разрешена.** После явного одобрения изображений: интегрировать точные шесть
+atlas, затем запустить GitHub task `android`, передать APK на ручной тест.
+OTA — только после отдельного явного разрешения владельца.
+
 ## 0N. LIVE: вариант 2 реализован и проверен на GitHub, ждёт решения владельца
 
 Этот раздел от **08.08.2026** заменяет противоречащие ему сведения ниже.
