@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 
 MODULE_NAME = "mobile_eye_state_preview"
@@ -84,8 +84,8 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             self.assertAlmostEqual(actual[0], expected[0], delta=0.05)
             self.assertAlmostEqual(actual[1], expected[1], delta=0.05)
 
-    def test_disconnected_overlay_contains_only_the_contact_seam(self) -> None:
-        eye, seam, aperture, _ = MODULE.render_living_eye_layers(
+    def test_disconnected_dynamic_lids_opaquely_cover_the_open_aperture(self) -> None:
+        eye, seam, aperture, glow = MODULE.render_living_eye_layers(
             closure=1.0,
             scale=2,
         )
@@ -93,12 +93,22 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
         combined.alpha_composite(eye)
         combined.alpha_composite(seam)
 
-        self.assertIsNone(eye.getchannel("A").getbbox())
+        required = MODULE._contour_mask(scale=2, closure=0.0).filter(
+            ImageFilter.MinFilter(3)
+        )
+        opaque = combined.getchannel("A").point(
+            lambda alpha: 255 if alpha >= 250 else 0
+        )
+        uncovered = ImageChops.subtract(required, opaque)
+
         self.assertIsNone(aperture.getbbox())
-        self.assertIsNotNone(seam.getchannel("A").getbbox())
-        self.assertEqual(
-            combined.getchannel("A").tobytes(),
-            seam.getchannel("A").tobytes(),
+        self.assertIsNone(glow.getchannel("A").getbbox())
+        self.assertIsNone(
+            uncovered.getbbox(),
+            "full closure leaves the original open aperture without opaque "
+            f"lid coverage: required={required.getbbox()}, "
+            f"overlay={combined.getchannel('A').getbbox()}, "
+            f"uncovered={uncovered.getbbox()}",
         )
 
     def test_connected_contact_seam_uses_runtime_alpha(self) -> None:

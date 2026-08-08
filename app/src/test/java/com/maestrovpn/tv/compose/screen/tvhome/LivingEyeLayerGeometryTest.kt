@@ -57,19 +57,27 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun fullClosureDisablesEyeLayersAndGlowWhileOpenEyeKeepsBoth() {
+    fun fullClosureUsesOpaqueLidsAndDisablesAnatomyAndGlow() {
         val open = livingEyeRenderPolicy(closure = 0f)
         val justOpen = livingEyeRenderPolicy(closure = 0.998f)
         val threshold = livingEyeRenderPolicy(closure = 0.999f)
         val closed = livingEyeRenderPolicy(closure = 1f)
 
         assertTrue(open.eyeLayersEnabled)
+        assertFalse(open.lidCoverageEnabled)
+        assertEquals(0f, open.lidCoverageAlpha, 0f)
         assertTrue(open.glowEnabled)
         assertTrue(justOpen.eyeLayersEnabled)
         assertTrue(justOpen.glowEnabled)
+
         assertFalse(threshold.eyeLayersEnabled)
+        assertTrue(threshold.lidCoverageEnabled)
+        assertEquals(1f, threshold.lidCoverageAlpha, 0f)
         assertFalse(threshold.glowEnabled)
+
         assertFalse(closed.eyeLayersEnabled)
+        assertTrue(closed.lidCoverageEnabled)
+        assertEquals(1f, closed.lidCoverageAlpha, 0f)
         assertFalse(closed.glowEnabled)
     }
 
