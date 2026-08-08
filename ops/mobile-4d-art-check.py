@@ -456,8 +456,11 @@ def selftest() -> int:
     ring_report = Report()
     with patch.dict(LEGACY_MOSAIC_CORE_SHA256, current_core, clear=True):
         check_eye_surround("ring", ring_images, ring_report)
-    mosaic_caught = any(not ok and "прежняя радиальная мозаика" in text
-                        for ok, text in ring_report.rows)
+    mosaic_caught = all(
+        any(not ok and f"ring _{light}:" in text and "прежняя радиальная мозаика" in text
+            for ok, text in ring_report.rows)
+        for light in LIGHTS
+    )
     print(f"  {'PASS' if mosaic_caught else 'FAIL'}  сторож ловит прежнюю радиальную мозаику")
     if not mosaic_caught:
         failures += 1
