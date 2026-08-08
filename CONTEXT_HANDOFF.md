@@ -1,5 +1,76 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0R. BLOCKED: mobile OTA разрешена, но текущий канал неизбежно обновляет TV
+
+Этот раздел от **08.08.2026** заменяет раздел 0Q как текущая точка входа.
+
+Владелец явно разрешил запуск обновления и синхронизацию Яндекса, но поставил
+обязательное условие: **TV-версию не затрагивать**. Production mutation не
+выполнена, потому что проверка исходников доказала несовместимость этих двух
+условий в текущей архитектуре.
+
+### Подтверждённый блокер
+
+- Телефон и TV используют один `applicationId=com.maestrovpn.tv`, один flavor
+  `other` и один universal APK; ABI splits выключены.
+- `Application.onCreate()` планирует `UpdateWorker` на любом form factor.
+- `PanelUpdateChecker` запрашивает единый `/update/update.json`; общий
+  `HTTPClient.userAgent` передаёт версию/libbox/язык, но не `mobile|tv`.
+- Backend `handleUpdate` выбирает manifest только по `versionCode` и обязательным
+  waypoint; platform-gate отсутствует.
+- GitHub Release и Yandex Object Storage публикуют один APK, один
+  `update.json` и один `latest.apk` всему флоту.
+
+Следовательно, штатный release + Yandex sync неизбежно предложит новый APK и
+телефонам, и телевизорам. Явные TV-арт/геометрия (`TvEskiz*`, `tvm_*`, D-pad)
+в mobile-ветке не менялись, но universal APK всё равно обновит TV, а общие
+`UpdateDialog`/installer-пути также входят в branch diff.
+
+### VersionCode-блокер тестового телефона
+
+- Установленный exact test build из run `31275136685` имеет workflow
+  `run_number=275`, следовательно `versionCode=90000+275=90275`.
+- Live production и Yandex сейчас: `1.0.153`, `versionCode=153`.
+- Следующий обычный production run: `1.0.154`, `versionCode=154`.
+- Android не установит `154` поверх `90275`; обычная OTA не обновит телефон с
+  проверенной test-сборкой. Повышение production code выше `90275` потребует
+  постоянного изменения versioning всей fleet-линейки и затронет TV.
+
+### Проверенное release-состояние
+
+- mobile branch: `codex/mobile-4d-deck`, HEAD
+  `c58811228bf0c42d1ea6e0f1b07b9cff94bbe063`;
+- `origin/main`: `54b90eff9abe2a3a2b253863644e264eab193cd4`;
+- merge-base: `5e16c001ba99fe8bdb227e95c071b46845739c68`;
+- mobile branch: 149 commits ahead и 4 commits behind current main;
+- read-only `git merge-tree` не обнаружил конфликтов, но main нельзя заменять
+  или force-push: четыре новых S4/backend/docs-коммита нужно сохранить;
+- live Yandex manifest: `1.0.153`, APK `116383427` bytes, SHA-256
+  `f20fed193a9291ce4abed8f23fa63d797c73d3b817a6115930e7eb4a45212999`;
+- latest GitHub Release: `tv-v1.0.153`, те же APK/размер.
+
+«Яндекс» в проекте означает public Yandex Object Storage bucket
+`maestro-apk`, не магазин приложений. Штатный sync выполняется на S1 сервисом
+`maestro-update-mirror.service`; repeatable gate — `ops/verify-ota.sh --sync`,
+затем `ops/verify-ota.sh`. Из текущей среды S1:22 и panel `:8911` недоступны по
+таймауту; публичный Yandex manifest прочитан успешно.
+
+### Следующее обязательное решение владельца
+
+До publication нужно выбрать ровно одно:
+
+1. Разрешить общий universal OTA: TV тоже получит новую версию, хотя TV-арт и
+   TV-геометрия не меняются.
+2. Оставить TV полностью нетронутым: не делать OTA; собрать подписанный APK с
+   `versionCode > 90275` и установить вручную только на телефон.
+3. Отдельной задачей спроектировать mobile-only OTA channel/versioning. Старые
+   клиенты не передают form factor, поэтому безопасный bootstrap также нужен.
+
+До этого решения запрещено merge в `main`, dispatch `android.yml`, создание
+latest Release, запуск `maestro-update-mirror.service` и изменение Yandex
+`update.json`. Rollback после fleet-установки возможен только roll-forward
+новым большим `versionCode`; публикация старого `153` обратно не откатит Android.
+
 ## 0Q. LIVE: плашки возвращены поверх бокового орнамента; старые UI-ветки удалены
 
 Этот раздел от **08.08.2026** заменяет раздел 0P как текущая точка входа.
