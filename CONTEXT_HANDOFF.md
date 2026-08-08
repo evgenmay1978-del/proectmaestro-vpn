@@ -1,5 +1,86 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0Q. LIVE: плашки возвращены поверх бокового орнамента; старые UI-ветки удалены
+
+Этот раздел от **08.08.2026** заменяет раздел 0P как текущая точка входа.
+
+### Что исправлено и что запрещено менять
+
+- Владелец отдельно подтвердил, что изумрудный живой глаз уже решён. В этой
+  задаче глаз, его состояния, анимация, геометрия и шесть atlas-страниц
+  **не менялись**.
+- Фактический дефект был не в исчезновении семи нижних плашек: runtime сначала
+  рисовал `console` и `contacts`, а затем перекрывал их фиксированными
+  `frame`, `cartouche` и `vines`. Дуга оставалась видна, потому что `arc`
+  рисовался позже.
+- Старый неправильный runtime-порядок:
+  `wood → console → contacts → frame → cartouche → vines → arc → ring`.
+- Новый обязательный runtime-порядок:
+  `wood → frame → cartouche → vines → console → contacts → arc → ring`.
+  Поэтому плашки и их резной кант лежат поверх бокового орнамента, остаются
+  единой выпуклой дугой и прокручиваются вместе с `arc`.
+- Manifest/atlas packing order намеренно не менялся: inventory-порядок и
+  визуальный z-order теперь проверяются отдельно. Atlas перегенерировать из-за
+  этого исправления не требуется.
+
+### Точная реализация и проверки
+
+- repository: `evgenmay1978-del/proectmaestro-vpn`;
+- единственная актуальная тестовая ветка: `codex/mobile-4d-deck`;
+- функциональный HEAD: `dcc3d59717f21caff74c77ddb70472cfddcf3906`;
+- `bec4430` — контрактный тест foreground-порядка и полного inventory;
+- `f00baf0` — минимальная перестановка двух пар строк runtime-слоёв;
+- `dcc3d59` — тот же порядок закреплён в `ops/phone-screen-sim.py`.
+- `python -m unittest ops.test_mobile_eye_state_preview` — **9/9 PASS**;
+- `python -m py_compile ops/phone-screen-sim.py
+  ops/mobile-eye-state-preview.py` — **PASS**;
+- `git diff --check` — **PASS**.
+
+Тяжёлая визуальная проверка выполнена только на GitHub сохранённым безопасным
+скриптом `python ops/github-actions-artifact.py --task
+mobile-eye-runtime-assets`:
+
+- Actions run: `31274629481`;
+- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31274629481`;
+- workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
+- exact run HEAD: `dcc3d59717f21caff74c77ddb70472cfddcf3906`;
+- result: **PASS**;
+- artifact:
+  `mobile-eye-runtime-assets-dcc3d59717f21caff74c77ddb70472cfddcf3906`;
+- artifact ZIP SHA-256:
+  `f091c53024b883c3195383afc30bdb6c47e5a61277c2319dc6e3c0bbe7643c48`;
+- локальная проверенная копия:
+  `build/github-artifacts/run-31274629481/`.
+
+На `owner-home-comparison` из этого exact run видны все семь плашек; они
+образуют непрерывную выпуклую дугу, а боковые завитки находятся позади канта.
+
+### Очистка старых тестовых версий
+
+Перед удалением выполнен read-only аудит ancestry, уникальных коммитов и PR.
+PR `#73` и `#74` закрыты как устаревшие. На GitHub удалены ровно пять старых
+mobile/UI-веток:
+
+- `codex/mobile-4d-interface`;
+- `codex/mobile-4d-reference-pack`;
+- `codex/mobile-deck-layer-order`;
+- `feat/mobile-4d-redesign`;
+- `fix/eye-size-restore`.
+
+Исправление из старой `codex/mobile-deck-layer-order` не потеряно: stable
+patch-id всей RED/GREEN/parity-тройки совпал с перенесёнными коммитами
+`bec4430` / `f00baf0` / `dcc3d59`. Старые eye/redesign-ветки относились к
+удалённой flat-scene-модели и полностью заменены текущими 4D atlas и
+изумрудным глазом. Локальные stale remote-tracking refs также удалены.
+
+После удаления `git ls-remote --heads origin` подтверждает: из mobile/UI
+тестовых веток осталась только `codex/mobile-4d-deck`. `main`, AWG, backend,
+security, telemetry и WDTT-ветки намеренно сохранены как нетестовая работа и
+не относятся к этой очистке.
+
+TV, backend, API, VPN runtime, GitHub Release, production signing и OTA не
+менялись. OTA по-прежнему запрещена без отдельного явного разрешения владельца.
+
 ## 0P. FINAL: вариант утверждён, atlas интегрированы, test APK собран
 
 Этот раздел от **08.08.2026** заменяет раздел 0O как текущая точка входа.
