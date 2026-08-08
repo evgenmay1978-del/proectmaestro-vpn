@@ -199,10 +199,10 @@ internal fun PhoneHomeControlDeck(
                 // ⛔ Красная точка над словом «ПОДКЛЮЧЕНИЕ» — это ярлык, который врёт:
                 // тот же класс дефекта, что «Загрузка…» над установкой обновления на ТВ.
                 // Промежуточное состояние получает свой цвет, а не цвет отказа.
-                val statusColor = when {
-                    connected -> NeonGreen
-                    connecting -> MaestroOrange
-                    else -> StatusRed
+                val statusColor = when (phoneHomeConnectionPresentation(connected, connecting)) {
+                    PhoneHomeConnectionPresentation.CONNECTING -> MaestroOrange
+                    PhoneHomeConnectionPresentation.CONNECTED -> NeonGreen
+                    PhoneHomeConnectionPresentation.DISCONNECTED -> StatusRed
                 }
                 DeckSection(layout.status.acrossViewport(deckWidth), deckTop) {
                     Row(
@@ -416,6 +416,21 @@ private fun ReferenceHomeButton(
 private fun PhoneHomeReferenceBounds.acrossViewport(width: Float): PhoneHomeReferenceBounds =
     copy(left = 0f, right = width)
 
+internal enum class PhoneHomeConnectionPresentation {
+    CONNECTING,
+    CONNECTED,
+    DISCONNECTED,
+}
+
+internal fun phoneHomeConnectionPresentation(
+    connected: Boolean,
+    connecting: Boolean,
+): PhoneHomeConnectionPresentation = when {
+    connecting -> PhoneHomeConnectionPresentation.CONNECTING
+    connected -> PhoneHomeConnectionPresentation.CONNECTED
+    else -> PhoneHomeConnectionPresentation.DISCONNECTED
+}
+
 /**
  * Строка активного протокола под статусом — тот же текст, что показывал старый
  * `PhoneStatusRow`: протокол виден в ОБОИХ состояниях, а «• авто» дописывается, когда
@@ -429,10 +444,10 @@ internal fun homeActiveProtocolLine(
 ): String? {
     val main = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
     if (main.isNullOrBlank()) return null
-    val prefix = when {
-        connected -> "Подключён"
-        connecting -> "Подключение"
-        else -> "Отключён"
+    val prefix = when (phoneHomeConnectionPresentation(connected, connecting)) {
+        PhoneHomeConnectionPresentation.CONNECTING -> "Подключение"
+        PhoneHomeConnectionPresentation.CONNECTED -> "Подключён"
+        PhoneHomeConnectionPresentation.DISCONNECTED -> "Отключён"
     }
     val viaAuto = selected == "auto" && main != "auto"
     return if (viaAuto) "$prefix: ${protocolLabel(main)}  •  авто" else "$prefix: ${protocolLabel(main)}"
