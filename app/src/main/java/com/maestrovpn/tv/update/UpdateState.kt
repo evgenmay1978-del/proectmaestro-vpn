@@ -9,6 +9,7 @@ import java.io.File
 
 object UpdateState {
     private val promptCoordinator = UpdatePromptCoordinator()
+    private val projectionGate = UpdateStateProjectionGate()
     private val promptGateway = UpdatePromptGateway(
         coordinator = promptCoordinator,
         readLastShownVersion = { Settings.lastShownUpdateVersion },
@@ -60,60 +61,67 @@ object UpdateState {
         applyUpdateCheckResult(Result.success(info))
     }
 
-    internal fun applyUpdateCheckResult(result: Result<UpdateInfo?>) {
-        promptCoordinator.applyUpdateCheckResult(result)
-        syncPromptState()
-    }
+    internal fun applyUpdateCheckResult(result: Result<UpdateInfo?>) =
+        mutateCoordinatorAndProject {
+            promptCoordinator.applyUpdateCheckResult(result)
+        }
 
     internal fun requestUpdatePrompt(
         info: UpdateInfo,
         provenance: UpdatePromptProvenance,
-    ): UpdatePromptRequest {
-        val request = promptGateway.publishManual(info, provenance)
-        syncPromptState()
-        return request
+    ): UpdatePromptRequest = mutateCoordinatorAndProject {
+        promptGateway.publishManual(info, provenance)
     }
 
     internal fun applyPromptAction(availableVersion: Int, action: UpdatePromptAction): Int =
-        promptGateway.applyAction(availableVersion, action)
+        projectionGate.mutateAndProject(
+            mutate = { promptGateway.applyAction(availableVersion, action) },
+            project = { _ -> },
+        )
 
     internal fun beginBackgroundUpdateAttempt(info: UpdateInfo): UpdateAttempt? =
-        acquireUpdateAttemptSafely(
-            acquire = { promptCoordinator.beginBackgroundAttempt(info) },
-            project = { syncPromptState() },
-            rollback = ::rollbackProjectedAttempt,
+        projectionGate.mutateAndProject(
+            mutate = {
+                acquireUpdateAttemptSafely(
+                    acquire = { promptCoordinator.beginBackgroundAttempt(info) },
+                    project = { syncPromptStateLocked() },
+                    rollback = ::rollbackProjectedAttemptLocked,
+                )
+            },
+            project = { _ -> },
         )
 
-    internal fun clearUpdatePrompt(sequence: Long): Boolean {
-        val cleared = promptCoordinator.clearUpdatePrompt(sequence)
-        syncPromptState()
-        return cleared
-    }
+    internal fun clearUpdatePrompt(sequence: Long): Boolean =
+        mutateCoordinatorAndProject {
+            promptCoordinator.clearUpdatePrompt(sequence)
+        }
 
     internal fun beginUpdateAttempt(offer: UpdatePromptOffer): UpdateAttempt? =
-        acquireUpdateAttemptSafely(
-            acquire = { promptCoordinator.beginAttempt(offer) },
-            project = { syncPromptState() },
-            rollback = ::rollbackProjectedAttempt,
+        projectionGate.mutateAndProject(
+            mutate = {
+                acquireUpdateAttemptSafely(
+                    acquire = { promptCoordinator.beginAttempt(offer) },
+                    project = { syncPromptStateLocked() },
+                    rollback = ::rollbackProjectedAttemptLocked,
+                )
+            },
+            project = { _ -> },
         )
 
-    internal fun completeUpdateAttempt(attemptId: Long): Boolean {
-        val completed = promptCoordinator.completeAttempt(attemptId)
-        syncPromptState()
-        return completed
-    }
+    internal fun completeUpdateAttempt(attemptId: Long): Boolean =
+        mutateCoordinatorAndProject {
+            promptCoordinator.completeAttempt(attemptId)
+        }
 
-    internal fun cancelUpdateAttempt(attemptId: Long): Boolean {
-        val cancelled = promptCoordinator.cancelAttempt(attemptId)
-        syncPromptState()
-        return cancelled
-    }
+    internal fun cancelUpdateAttempt(attemptId: Long): Boolean =
+        mutateCoordinatorAndProject {
+            promptCoordinator.cancelAttempt(attemptId)
+        }
 
-    internal fun retryFailedUpdateAttempt(attemptId: Long): UpdatePromptRequest? {
-        val request = promptCoordinator.retryFailedAttempt(attemptId)
-        syncPromptState()
-        return request
-    }
+    internal fun retryFailedUpdateAttempt(attemptId: Long): UpdatePromptRequest? =
+        mutateCoordinatorAndProject {
+            promptCoordinator.retryFailedAttempt(attemptId)
+        }
 
     fun setInstallStatus(status: InstallStatus) {
         installStatus.value = status
@@ -134,16 +142,20 @@ object UpdateState {
     }
 
     fun clear() {
-        promptCoordinator.clearAll()
-        syncPromptState(saveCache = false)
-        isDownloading.value = false
-        downloadProgress.value = null
-        downloadError.value = null
-        installStatus.value = InstallStatus.Idle
-        cachedApkFile.value = null
-        pendingConfirmIntent.value = null
-        phase.value = Phase.Idle
-        clearCache()
+        projectionGate.mutateAndProject(
+            mutate = { promptCoordinator.clearAll() },
+            project = {
+                syncPromptStateLocked(saveCache = false)
+                isDownloading.value = false
+                downloadProgress.value = null
+                downloadError.value = null
+                installStatus.value = InstallStatus.Idle
+                cachedApkFile.value = null
+                pendingConfirmIntent.value = null
+                phase.value = Phase.Idle
+                clearCache()
+            },
+        )
     }
 
     fun resetDownload() {
@@ -154,39 +166,57 @@ object UpdateState {
     }
 
     fun loadFromCache() {
-        val json = Settings.cachedUpdateInfo
-        if (json.isBlank()) return
+        projectionGate.mutateAndProject(
+            mutate = {
+                val json = Settings.cachedUpdateInfo
+                if (json.isBlank()) return@mutateAndProject false
 
-        val info = UpdateInfo.fromJson(json) ?: return
-        if (info.versionCode <= BuildConfig.VERSION_CODE) {
-            clearCache()
-            return
-        }
+                val info = UpdateInfo.fromJson(json) ?: return@mutateAndProject false
+                if (info.versionCode <= BuildConfig.VERSION_CODE) {
+                    clearCache()
+                    return@mutateAndProject false
+                }
 
-        promptCoordinator.applyUpdateCheckResult(Result.success(info))
-        syncPromptState(saveCache = false)
+                promptCoordinator.applyUpdateCheckResult(Result.success(info))
+                true
+            },
+            project = { loaded ->
+                if (loaded) {
+                    syncPromptStateLocked(saveCache = false)
 
-        val apkPath = Settings.cachedApkPath
-        if (apkPath.isNotBlank()) {
-            val apkFile = File(apkPath)
-            if (apkFile.exists() && apkFile.length() > 0) {
-                cachedApkFile.value = apkFile
-            } else {
-                Settings.cachedApkPath = ""
-            }
-        }
+                    val apkPath = Settings.cachedApkPath
+                    if (apkPath.isNotBlank()) {
+                        val apkFile = File(apkPath)
+                        if (apkFile.exists() && apkFile.length() > 0) {
+                            cachedApkFile.value = apkFile
+                        } else {
+                            Settings.cachedApkPath = ""
+                        }
+                    }
+                }
+            },
+        )
     }
 
     private fun saveToCache(info: UpdateInfo?) {
         Settings.cachedUpdateInfo = info?.toJson() ?: ""
     }
 
-    private fun rollbackProjectedAttempt(attemptId: Long) {
+    private fun rollbackProjectedAttemptLocked(attemptId: Long) {
         promptCoordinator.cancelAttempt(attemptId)
-        syncPromptState(saveCache = false)
+        syncPromptStateLocked(saveCache = false)
     }
 
-    private fun syncPromptState(saveCache: Boolean = true) {
+    private fun <T> mutateCoordinatorAndProject(
+        saveCache: Boolean = true,
+        mutation: () -> T,
+    ): T = projectionGate.mutateAndProject(
+        mutate = mutation,
+        project = { syncPromptStateLocked(saveCache) },
+    )
+
+    /** Must only run while [projectionGate] is held. */
+    private fun syncPromptStateLocked(saveCache: Boolean = true) {
         val info = promptCoordinator.candidate
         updateInfo.value = info
         hasUpdate.value = info != null
@@ -195,10 +225,13 @@ object UpdateState {
         if (saveCache) saveToCache(info)
     }
 
-    fun saveApkPath(file: File) {
-        Settings.cachedApkPath = file.absolutePath
-        cachedApkFile.value = file
-    }
+    fun saveApkPath(file: File) = projectionGate.mutateAndProject(
+        mutate = {
+            Settings.cachedApkPath = file.absolutePath
+            cachedApkFile.value = file
+        },
+        project = { _ -> },
+    )
 
     private fun clearCache() {
         Settings.cachedUpdateInfo = ""

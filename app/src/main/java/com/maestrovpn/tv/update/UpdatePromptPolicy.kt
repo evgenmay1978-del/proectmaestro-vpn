@@ -243,6 +243,21 @@ internal class UpdatePromptGateway(
     }
 }
 
+/**
+ * Serializes a coordinator mutation with every observable/cache write derived from it.
+ *
+ * The JVM monitor is intentionally reentrant: projection-failure rollback must finish before a
+ * newer UI/worker transaction can enter. Callers must keep network, download and install work
+ * outside this gate.
+ */
+internal class UpdateStateProjectionGate {
+    @Synchronized
+    fun <T> mutateAndProject(
+        mutate: () -> T,
+        project: (T) -> Unit,
+    ): T = mutate().also(project)
+}
+
 /** Keeps the attempt lease until the cancelled job has actually unwound. */
 internal class UpdateAttemptCancellationGate(
     private val releaseAttempt: () -> Unit,
