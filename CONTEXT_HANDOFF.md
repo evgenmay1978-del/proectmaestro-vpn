@@ -109,10 +109,13 @@
 
 - Сейчас выполняется только read-only аудит и дизайн вариантов. Код, production,
   DNS, nginx, systemd, базы, VPN-узлы, Release и OTA не изменялись.
-- rqlite, exactly-once оплата и бесплатный ingress/failover уже выбраны. Следом
-  нужно записать отдельную design-spec, провести self-review и проверку владельца.
-- После утверждения design-spec подготовить исполнимый TDD/rollout/rollback-план
-  и только затем менять код или production.
+- rqlite, exactly-once оплата и бесплатный ingress/failover выбраны.
+- Полная design-spec записана в
+  `docs/superpowers/specs/2026-08-09-maestrovpn-ha-control-plane-design.md`.
+  Два независимых повторных review дали `Critical 0 / Important 0`; документ
+  готов к проверке владельцем. Implementation plan и код ещё не начинались.
+- После утверждения design-spec нужно подготовить TDD/rollout/rollback-план и
+  только затем менять код или production.
 
 ## 0U. LIVE: OTA race fixes GREEN на GitHub; новый production OTA не выпускался
 
