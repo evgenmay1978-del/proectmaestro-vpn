@@ -62,14 +62,57 @@
   транзакционный источник правды, идемпотентные операции, outbox/reconciliation,
   leader/fencing или эквивалентная защита от split-brain.
 
+### Выбранный ingress/failover без новых расходов
+
+- На S2/S3/S4 должны работать одинаковые stateless-панели с публичным TLS на
+  `:8911`; установленный парк продолжает обращаться к
+  `https://wapmixx.ru:8911`.
+- Публичная A-запись должна содержать только активный и полностью готовый узел.
+  Слепой multi-A запрещён. Переключение выполняет сериализованный workflow в уже
+  используемом GitHub Actions через SpaceWeb API после независимых повторных
+  проверок. SpaceWeb credentials хранятся только в encrypted GitHub Secrets, не
+  в репозитории и не размножаются по S2/S3/S4.
+- До первого DNS cutover адрес S1 VLESS отделяется на
+  `s1-vless.wapmixx.ru`; иначе изменение apex одновременно направит старый
+  VLESS `:443` на чужой сервис S2/S3/S4. Новая subscription truth использует
+  отдельное имя, а старые last-good конфигурации проверяются на безопасный
+  fallback к остальным протоколам.
+- Существующий `/healthz` сохраняется для совместимости. Для маршрутизации нужны
+  отдельные `/livez` и закрытый `/readyz`, а также внешние проверки TLS/SNI,
+  тарифов, OTA manifest и секретной canary-подписки.
+- Текущий DNS TTL равен 600 секундам. Перед плановым cutover его нужно снизить до
+  минимально поддерживаемого SpaceWeb и выждать старый TTL; уже закэшированные
+  ответы ускорить задним числом нельзя.
+
+### Обязательные GO/NO-GO условия production cutover
+
+- До production нужен повторяемый dry-run importer и полный backup с хешами:
+  S1 JSON/orders/trials/settings и x-ui, S2 bot SQLite, S3/S4 x-ui. Неразрешённая
+  коллизия login/token/UUID/subId/expiry означает `NO-GO`.
+- До первой rqlite-записи старые S1 panel/bot/reconciler и старые bot pollers
+  должны быть hard-fenced. Вернувшийся S1 стартует изолированно, не импортирует
+  старый JSON обратно и получает новое incarnation перед catch-up.
+- Confirm/cancel оплаты конкурируют одной CAS-транзакцией. `confirm:<order_id>`
+  атомарно сохраняет payment, абсолютную expiry, generation и outbox; повтор
+  возвращает сохранённый результат и не прибавляет срок.
+- Cutover выполняется через короткий общий write-freeze, final delta import и
+  digest-сверку. После первой принятой rqlite-write откат к старым JSON/SQLite
+  запрещён: допускается только предыдущий binary поверх той же rqlite либо
+  проверенный export при новом write-freeze.
+- До `GO` обязательны fault-тесты кворума, crash до/после commit, повторных
+  Telegram updates/callbacks, confirm-vs-cancel, stale fencing, S1 catch-up,
+  restore drill и владельческий canary-платёж с ровно одним продлением.
+- Старый expiry reconciler после cutover становится audit-only и не может
+  поднимать даты из stale x-ui или локальной bot DB.
+
 ### Текущий этап и границы
 
 - Сейчас выполняется только read-only аудит и дизайн вариантов. Код, production,
   DNS, nginx, systemd, базы, VPN-узлы, Release и OTA не изменялись.
-- До реализации необходимо сравнить управляемую HA-базу с кластером на
-  существующих S1–S4, выбрать ingress/failover и получить одобрение владельца.
-- После одобрения: записать отдельную design-spec, провести self-review,
-  подготовить исполнимый TDD/rollout/rollback-план и только затем менять код.
+- rqlite, exactly-once оплата и бесплатный ingress/failover уже выбраны. Следом
+  нужно записать отдельную design-spec, провести self-review и проверку владельца.
+- После утверждения design-spec подготовить исполнимый TDD/rollout/rollback-план
+  и только затем менять код или production.
 
 ## 0U. LIVE: OTA race fixes GREEN на GitHub; новый production OTA не выпускался
 
