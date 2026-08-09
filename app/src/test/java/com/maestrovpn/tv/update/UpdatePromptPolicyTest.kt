@@ -44,22 +44,25 @@ class UpdatePromptPolicyTest {
         val coordinator = UpdatePromptCoordinator()
         val info = updateInfo(versionCode = 154)
 
-        val first = coordinator.requestUpdatePrompt(info, forced = true)
-        val second = coordinator.requestUpdatePrompt(info.copy(), forced = true)
+        val first = coordinator.requestUpdatePrompt(info, UpdatePromptProvenance.VendorManual)
+        val second = coordinator.requestUpdatePrompt(
+            info.copy(),
+            UpdatePromptProvenance.VendorManual,
+        )
 
         assertTrue(second.sequence > first.sequence)
         assertEquals(154, first.versionCode)
         assertEquals(154, second.versionCode)
         assertSame(info, first.info)
-        assertTrue(first.forced)
-        assertTrue(second.forced)
+        assertTrue(first.isForced)
+        assertTrue(second.isForced)
     }
 
     @Test
     fun staleClearCannotEraseANewerRequest() {
         val coordinator = UpdatePromptCoordinator()
-        val first = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
-        val second = coordinator.requestUpdatePrompt(updateInfo(155), forced = true)
+        val first = coordinator.requestUpdatePrompt(updateInfo(154), UpdatePromptProvenance.VendorManual)
+        val second = coordinator.requestUpdatePrompt(updateInfo(155), UpdatePromptProvenance.VendorManual)
 
         assertFalse(coordinator.clearUpdatePrompt(first.sequence))
         assertEquals(second, coordinator.pendingRequest)
@@ -70,10 +73,10 @@ class UpdatePromptPolicyTest {
     @Test
     fun newerRequestSurvivesOldDialogClearWhileAttemptIsActive() {
         val coordinator = UpdatePromptCoordinator()
-        val first = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
-        val firstOffer = UpdatePromptOffer(first.info, first.sequence, forced = true)
+        val first = coordinator.requestUpdatePrompt(updateInfo(154), UpdatePromptProvenance.VendorManual)
+        val firstOffer = UpdatePromptOffer(first.info, first.sequence, first.provenance)
         val attempt = coordinator.beginAttempt(firstOffer)
-        val second = coordinator.requestUpdatePrompt(updateInfo(155), forced = true)
+        val second = coordinator.requestUpdatePrompt(updateInfo(155), UpdatePromptProvenance.SettingsManual)
 
         assertFalse(coordinator.clearUpdatePrompt(first.sequence))
         assertEquals(second, coordinator.pendingRequest)
@@ -84,8 +87,8 @@ class UpdatePromptPolicyTest {
     @Test
     fun failedAttemptReissuesCapturedInfoWithANewForcedSequence() {
         val coordinator = UpdatePromptCoordinator()
-        val original = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
-        val offer = UpdatePromptOffer(original.info, original.sequence, forced = true)
+        val original = coordinator.requestUpdatePrompt(updateInfo(154), UpdatePromptProvenance.VendorManual)
+        val offer = UpdatePromptOffer(original.info, original.sequence, original.provenance)
         val attempt = coordinator.beginAttempt(offer)!!
 
         assertNull(coordinator.pendingRequest)
@@ -93,7 +96,7 @@ class UpdatePromptPolicyTest {
 
         assertTrue(retry.sequence > original.sequence)
         assertSame(attempt.offer.info, retry.info)
-        assertTrue(retry.forced)
+        assertEquals(UpdatePromptProvenance.ErrorRetry, retry.provenance)
         assertEquals(retry, coordinator.pendingRequest)
         assertNull(coordinator.activeAttempt)
     }
@@ -101,11 +104,11 @@ class UpdatePromptPolicyTest {
     @Test
     fun failedOldAttemptPreservesANewerPendingRequest() {
         val coordinator = UpdatePromptCoordinator()
-        val original = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
+        val original = coordinator.requestUpdatePrompt(updateInfo(154), UpdatePromptProvenance.VendorManual)
         val attempt = coordinator.beginAttempt(
-            UpdatePromptOffer(original.info, original.sequence, forced = true),
+            UpdatePromptOffer(original.info, original.sequence, original.provenance),
         )!!
-        val newer = coordinator.requestUpdatePrompt(updateInfo(155), forced = true)
+        val newer = coordinator.requestUpdatePrompt(updateInfo(155), UpdatePromptProvenance.SettingsManual)
 
         val next = coordinator.retryFailedAttempt(attempt.id)
 
@@ -121,26 +124,48 @@ class UpdatePromptPolicyTest {
         val info = updateInfo(154)
         coordinator.applyUpdateCheckResult(Result.success(info))
         val session = UpdatePromptSession()
-        val offer = session.nextOffer(coordinator.candidate, lastShownVersion = 153, pendingRequest = null)!!
+        val offer = session.nextOffer(
+            coordinator.candidate,
+            lastShownVersion = 153,
+            pendingRequest = null,
+            activeAttempt = coordinator.activeAttempt,
+        )!!
         val attempt = coordinator.beginAttempt(offer)!!
 
         assertTrue(session.close(offer))
         assertTrue(coordinator.cancelAttempt(attempt.id))
 
         assertNull(coordinator.pendingRequest)
-        assertNull(session.nextOffer(coordinator.candidate, lastShownVersion = 153, pendingRequest = null))
+        assertNull(
+            session.nextOffer(
+                coordinator.candidate,
+                lastShownVersion = 153,
+                pendingRequest = null,
+                activeAttempt = coordinator.activeAttempt,
+            ),
+        )
     }
 
     @Test
     fun lateAttemptCompletionCannotAlterANewerAttemptOrRequest() {
         val coordinator = UpdatePromptCoordinator()
-        val first = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
-        val attemptOne = coordinator.beginAttempt(UpdatePromptOffer(first.info, first.sequence, true))!!
+        val first = coordinator.requestUpdatePrompt(updateInfo(154), UpdatePromptProvenance.VendorManual)
+        val attemptOne = coordinator.beginAttempt(
+            UpdatePromptOffer(first.info, first.sequence, first.provenance),
+        )!!
         assertTrue(coordinator.cancelAttempt(attemptOne.id))
 
-        val second = coordinator.requestUpdatePrompt(updateInfo(155), forced = true)
-        val attemptTwo = coordinator.beginAttempt(UpdatePromptOffer(second.info, second.sequence, true))!!
-        val newest = coordinator.requestUpdatePrompt(updateInfo(156), forced = true)
+        val second = coordinator.requestUpdatePrompt(
+            updateInfo(155),
+            UpdatePromptProvenance.SettingsManual,
+        )
+        val attemptTwo = coordinator.beginAttempt(
+            UpdatePromptOffer(second.info, second.sequence, second.provenance),
+        )!!
+        val newest = coordinator.requestUpdatePrompt(
+            updateInfo(156),
+            UpdatePromptProvenance.VendorManual,
+        )
 
         assertFalse(coordinator.completeAttempt(attemptOne.id))
         assertEquals(attemptTwo, coordinator.activeAttempt)
@@ -151,8 +176,10 @@ class UpdatePromptPolicyTest {
     @Test
     fun activeAttemptDefersAutomaticCandidateWithoutChangingVerifierMetadata() {
         val coordinator = UpdatePromptCoordinator()
-        val first = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
-        val attempt = coordinator.beginAttempt(UpdatePromptOffer(first.info, first.sequence, true))!!
+        val first = coordinator.requestUpdatePrompt(updateInfo(154), UpdatePromptProvenance.VendorManual)
+        val attempt = coordinator.beginAttempt(
+            UpdatePromptOffer(first.info, first.sequence, first.provenance),
+        )!!
 
         coordinator.applyUpdateCheckResult(Result.success(updateInfo(155)))
 
@@ -208,18 +235,67 @@ class UpdatePromptPolicyTest {
         val info = updateInfo(154)
 
         val firstActivity = UpdatePromptSession()
-        val firstOffer = firstActivity.nextOffer(info, lastShownVersion = 153, pendingRequest = null)!!
+        val firstOffer = firstActivity.nextOffer(
+            info,
+            lastShownVersion = 153,
+            pendingRequest = null,
+            activeAttempt = null,
+        )!!
         assertTrue(firstActivity.close(firstOffer))
-        assertNull(firstActivity.nextOffer(info, lastShownVersion = 153, pendingRequest = null))
+        assertNull(
+            firstActivity.nextOffer(
+                info,
+                lastShownVersion = 153,
+                pendingRequest = null,
+                activeAttempt = null,
+            ),
+        )
 
         val recreatedActivity = UpdatePromptSession()
-        assertEquals(154, recreatedActivity.nextOffer(info, lastShownVersion = 153, pendingRequest = null)?.info?.versionCode)
-        assertNull(UpdatePromptSession().nextOffer(info, lastShownVersion = 154, pendingRequest = null))
+        assertEquals(
+            154,
+            recreatedActivity.nextOffer(
+                info,
+                lastShownVersion = 153,
+                pendingRequest = null,
+                activeAttempt = null,
+            )?.info?.versionCode,
+        )
+        assertNull(
+            UpdatePromptSession().nextOffer(
+                info,
+                lastShownVersion = 154,
+                pendingRequest = null,
+                activeAttempt = null,
+            ),
+        )
 
-        val forced = UpdatePromptRequest(sequence = 9, info = info, forced = true)
-        val forcedOffer = UpdatePromptSession().nextOffer(info, lastShownVersion = 154, pendingRequest = forced)
+        val forced = UpdatePromptRequest(9, info, UpdatePromptProvenance.SettingsManual)
+        val forcedOffer = UpdatePromptSession().nextOffer(
+            info,
+            lastShownVersion = 154,
+            pendingRequest = forced,
+            activeAttempt = null,
+        )
         assertEquals(9L, forcedOffer?.requestSequence)
-        assertTrue(forcedOffer?.forced == true)
+        assertEquals(UpdatePromptProvenance.SettingsManual, forcedOffer?.provenance)
+    }
+
+    @Test
+    fun cancellationRequestKeepsAttemptUntilJobCompletionCallback() {
+        var cancelRequests = 0
+        var releases = 0
+        val gate = UpdateAttemptCancellationGate { releases += 1 }
+
+        gate.requestCancellation { cancelRequests += 1 }
+
+        assertEquals(1, cancelRequests)
+        assertEquals(0, releases)
+
+        gate.onJobCompleted(cancelled = true)
+        gate.onJobCompleted(cancelled = true)
+
+        assertEquals(1, releases)
     }
 
     @Test
@@ -228,6 +304,65 @@ class UpdatePromptPolicyTest {
         assertTrue(UpdatePromptProvenance.VendorManual.isForced)
         assertTrue(UpdatePromptProvenance.SettingsManual.isForced)
         assertTrue(UpdatePromptProvenance.ErrorRetry.isForced)
+    }
+
+    @Test
+    fun updateTransactionClosesOfferOnlyAfterAttemptLockSucceeds() {
+        val coordinator = UpdatePromptCoordinator()
+        val info = updateInfo(154)
+        coordinator.applyUpdateCheckResult(Result.success(info))
+        val session = UpdatePromptSession()
+        val offer = session.nextOffer(info, 153, pendingRequest = null, activeAttempt = null)!!
+        val workerAttempt = coordinator.beginBackgroundAttempt(updateInfo(155))!!
+
+        val blocked = beginPromptAttemptTransaction(
+            offer = offer,
+            beginAttempt = coordinator::beginAttempt,
+            closeOffer = session::close,
+        )
+
+        assertNull(blocked)
+        assertSame(offer, session.activeOffer)
+
+        assertTrue(coordinator.cancelAttempt(workerAttempt.id))
+        val started = beginPromptAttemptTransaction(
+            offer = offer,
+            beginAttempt = coordinator::beginAttempt,
+            closeOffer = session::close,
+        )
+
+        assertEquals(154, started?.offer?.info?.versionCode)
+        assertNull(session.activeOffer)
+    }
+
+    @Test
+    fun terminalFailureReleasesLeaseAndRetrySurvivesActivityRecreation() {
+        val coordinator = UpdatePromptCoordinator()
+        val request = coordinator.requestUpdatePrompt(
+            updateInfo(154),
+            UpdatePromptProvenance.VendorManual,
+        )
+        val oldSession = UpdatePromptSession()
+        val offer = oldSession.nextOffer(
+            candidate = coordinator.candidate,
+            lastShownVersion = 153,
+            pendingRequest = request,
+            activeAttempt = null,
+        )!!
+        val attempt = coordinator.beginAttempt(offer)!!
+
+        val retry = coordinator.retryFailedAttempt(attempt.id)
+
+        assertNull(coordinator.activeAttempt)
+        assertEquals(UpdatePromptProvenance.ErrorRetry, retry?.provenance)
+        val recreatedOffer = UpdatePromptSession().nextOffer(
+            candidate = coordinator.candidate,
+            lastShownVersion = 153,
+            pendingRequest = coordinator.pendingRequest,
+            activeAttempt = coordinator.activeAttempt,
+        )
+        assertEquals(retry?.sequence, recreatedOffer?.requestSequence)
+        assertEquals(154, recreatedOffer?.info?.versionCode)
     }
 
     @Test
@@ -279,6 +414,32 @@ class UpdatePromptPolicyTest {
         assertNull(coordinator.beginBackgroundAttempt(updateInfo(155)))
         assertSame(uiAttempt, coordinator.activeAttempt)
         assertSame(uiInfo, coordinator.candidate)
+
+        coordinator.clearAll()
+
+        assertSame(uiAttempt, coordinator.activeAttempt)
+        assertSame(uiInfo, coordinator.candidate)
+        assertTrue(coordinator.cancelAttempt(uiAttempt.id))
+        assertNull(coordinator.candidate)
+    }
+
+    @Test
+    fun invalidatedActiveAttemptReleasesWithoutReofferingBadArchive() {
+        val coordinator = UpdatePromptCoordinator()
+        val request = coordinator.requestUpdatePrompt(
+            updateInfo(154),
+            UpdatePromptProvenance.VendorManual,
+        )
+        val attempt = coordinator.beginAttempt(
+            UpdatePromptOffer(request.info, request.sequence, request.provenance),
+        )!!
+
+        coordinator.clearAll()
+
+        assertNull(coordinator.retryFailedAttempt(attempt.id))
+        assertNull(coordinator.activeAttempt)
+        assertNull(coordinator.candidate)
+        assertNull(coordinator.pendingRequest)
     }
 
     private fun updateInfo(versionCode: Int) = UpdateInfo(
