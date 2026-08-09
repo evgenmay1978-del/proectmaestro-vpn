@@ -326,26 +326,98 @@ class UpdatePromptPolicyTest {
         coordinator.applyUpdateCheckResult(Result.success(info))
         val session = UpdatePromptSession()
         val offer = session.nextOffer(info, 153, pendingRequest = null, activeAttempt = null)!!
-        val workerAttempt = coordinator.beginBackgroundAttempt(updateInfo(155))!!
+        val workerInfo = updateInfo(155)
+        coordinator.applyUpdateCheckResult(Result.success(workerInfo))
+        val workerAttempt = coordinator.beginBackgroundAttempt(workerInfo)!!
 
         val blocked = beginPromptAttemptTransaction(
             offer = offer,
             beginAttempt = coordinator::beginAttempt,
             closeOffer = session::close,
+            rollbackAttempt = { coordinator.cancelAttempt(it) },
         )
 
         assertNull(blocked)
         assertSame(offer, session.activeOffer)
 
         assertTrue(coordinator.cancelAttempt(workerAttempt.id))
+        val refreshedOffer = session.nextOffer(
+            candidate = coordinator.candidate,
+            lastShownVersion = 153,
+            pendingRequest = coordinator.pendingRequest,
+            activeAttempt = coordinator.activeAttempt,
+        )!!
         val started = beginPromptAttemptTransaction(
-            offer = offer,
+            offer = refreshedOffer,
             beginAttempt = coordinator::beginAttempt,
             closeOffer = session::close,
+            rollbackAttempt = { coordinator.cancelAttempt(it) },
         )
 
-        assertEquals(154, started?.offer?.info?.versionCode)
+        assertEquals(155, started?.offer?.info?.versionCode)
         assertNull(session.activeOffer)
+    }
+
+    @Test
+    fun updateTransactionRollsBackWhenSessionRefusesToCloseOffer() {
+        val coordinator = UpdatePromptCoordinator()
+        val info = updateInfo(154)
+        coordinator.applyUpdateCheckResult(Result.success(info))
+        val offer = UpdatePromptOffer(
+            info = info,
+            requestSequence = null,
+            provenance = UpdatePromptProvenance.Automatic,
+        )
+        var rollbackCount = 0
+
+        val result = beginPromptAttemptTransaction(
+            offer = offer,
+            beginAttempt = coordinator::beginAttempt,
+            closeOffer = { false },
+            rollbackAttempt = { attemptId ->
+                rollbackCount += 1
+                coordinator.cancelAttempt(attemptId)
+            },
+        )
+
+        assertNull(result)
+        assertEquals(1, rollbackCount)
+        assertNull(coordinator.activeAttempt)
+        assertEquals(info, coordinator.candidate)
+    }
+
+    @Test
+    fun updateTransactionPreservesCloseExceptionAndSuppressesRollbackFailure() {
+        val coordinator = UpdatePromptCoordinator()
+        val info = updateInfo(154)
+        coordinator.applyUpdateCheckResult(Result.success(info))
+        val offer = UpdatePromptOffer(
+            info = info,
+            requestSequence = null,
+            provenance = UpdatePromptProvenance.Automatic,
+        )
+        val closeFailure = IllegalStateException("close failed")
+        val rollbackFailure = IllegalArgumentException("rollback failed")
+        var thrown: Throwable? = null
+
+        try {
+            beginPromptAttemptTransaction(
+                offer = offer,
+                beginAttempt = coordinator::beginAttempt,
+                closeOffer = { throw closeFailure },
+                rollbackAttempt = { attemptId ->
+                    coordinator.cancelAttempt(attemptId)
+                    throw rollbackFailure
+                },
+            )
+        } catch (error: Throwable) {
+            thrown = error
+        }
+
+        assertSame(closeFailure, thrown)
+        assertEquals(listOf(rollbackFailure), thrown?.suppressedExceptions)
+        assertNull(coordinator.activeAttempt)
+        assertEquals(info, coordinator.candidate)
     }
 
     @Test
@@ -493,6 +565,18 @@ class UpdatePromptPolicyTest {
         assertNull(coordinator.beginBackgroundAttempt(workerInfo))
         assertEquals(pending, coordinator.pendingRequest)
         assertNull(coordinator.activeAttempt)
+
+        val exactCoordinator = UpdatePromptCoordinator()
+        val exactInfo = updateInfo(157)
+        exactCoordinator.applyUpdateCheckResult(Result.success(exactInfo))
+        val exactPending = exactCoordinator.requestUpdatePrompt(
+            exactInfo,
+            UpdatePromptProvenance.SettingsManual,
+        )
+
+        assertNull(exactCoordinator.beginBackgroundAttempt(exactInfo))
+        assertEquals(exactPending, exactCoordinator.pendingRequest)
+        assertNull(exactCoordinator.activeAttempt)
     }
 
     @Test

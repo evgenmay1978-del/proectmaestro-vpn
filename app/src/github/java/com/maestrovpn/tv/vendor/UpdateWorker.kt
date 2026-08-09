@@ -17,6 +17,7 @@ import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
 import com.maestrovpn.tv.update.checkFDroidUpdate
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 
 class UpdateWorker(private val appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
@@ -78,6 +79,7 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
 
         Log.d(TAG, "Checking for updates...")
 
+        var acquiredAttemptId: Long? = null
         return try {
             // Panel channel FIRST (RU-reachable); GitHub/F-Droid only as fallback.
             val updateInfo = runCatching { PanelUpdateChecker().use { it.checkUpdate() } }.getOrNull()
@@ -140,8 +142,18 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
                 return Result.success()
             }
 
+            // Serialize with the foreground flow before touching the shared update.apk files.
+            // The attempt also pins UpdateState.updateInfo to this exact immutable verifier offer.
+            val attempt = UpdateState.beginBackgroundUpdateAttempt(updateInfo)
+            if (attempt == null) {
+                Log.d(TAG, "Another update attempt is active — deferring background download")
+                return Result.success()
+            }
+            acquiredAttemptId = attempt.id
+            val lockedInfo = attempt.offer.info
+
             Log.d(TAG, "Downloading update...")
-            val apkFile = ApkDownloader().use { it.download(updateInfo.downloadUrl) }
+            val apkFile = ApkDownloader().use { it.download(lockedInfo.downloadUrl) }
 
             if (canSilent) {
                 Log.d(TAG, "Installing update...")
@@ -159,12 +171,20 @@ class UpdateWorker(private val appContext: Context, params: WorkerParameters) : 
                 Log.d(TAG, "Silent install unavailable — APK pre-downloaded for the next app launch")
                 UpdateTelemetry.emit(
                     "predownloaded",
-                    "target=${updateInfo.versionCode} bytes=${apkFile.length()} free=${UpdateTelemetry.freeMb()}MB",
+                    "target=${lockedInfo.versionCode} bytes=${apkFile.length()} free=${UpdateTelemetry.freeMb()}MB",
                 )
             }
 
+            UpdateState.completeUpdateAttempt(attempt.id)
+            acquiredAttemptId = null
             Result.success()
+        } catch (e: CancellationException) {
+            acquiredAttemptId?.let(UpdateState::cancelUpdateAttempt)
+            acquiredAttemptId = null
+            throw e
         } catch (e: Exception) {
+            acquiredAttemptId?.let(UpdateState::cancelUpdateAttempt)
+            acquiredAttemptId = null
             Log.e(TAG, "Auto update failed", e)
             Result.retry()
         }

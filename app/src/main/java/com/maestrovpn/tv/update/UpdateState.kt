@@ -9,10 +9,16 @@ import java.io.File
 
 object UpdateState {
     private val promptCoordinator = UpdatePromptCoordinator()
+    private val promptGateway = UpdatePromptGateway(
+        coordinator = promptCoordinator,
+        readLastShownVersion = { Settings.lastShownUpdateVersion },
+        writeLastShownVersion = { Settings.lastShownUpdateVersion = it },
+    )
 
     val hasUpdate = mutableStateOf(false)
     val updateInfo = mutableStateOf<UpdateInfo?>(null)
     internal val promptRequest = mutableStateOf<UpdatePromptRequest?>(null)
+    internal val activeAttempt = mutableStateOf<UpdateAttempt?>(null)
     val isChecking = mutableStateOf(false)
 
     val isDownloading = mutableStateOf(false)
@@ -59,11 +65,24 @@ object UpdateState {
         syncPromptState()
     }
 
-    internal fun requestUpdatePrompt(info: UpdateInfo, forced: Boolean = true): UpdatePromptRequest {
-        val request = promptCoordinator.requestUpdatePrompt(info, forced)
+    internal fun requestUpdatePrompt(
+        info: UpdateInfo,
+        provenance: UpdatePromptProvenance,
+    ): UpdatePromptRequest {
+        val request = promptGateway.publishManual(info, provenance)
         syncPromptState()
         return request
     }
+
+    internal fun applyPromptAction(availableVersion: Int, action: UpdatePromptAction): Int =
+        promptGateway.applyAction(availableVersion, action)
+
+    internal fun beginBackgroundUpdateAttempt(info: UpdateInfo): UpdateAttempt? =
+        acquireUpdateAttemptSafely(
+            acquire = { promptCoordinator.beginBackgroundAttempt(info) },
+            project = { syncPromptState() },
+            rollback = ::rollbackProjectedAttempt,
+        )
 
     internal fun clearUpdatePrompt(sequence: Long): Boolean {
         val cleared = promptCoordinator.clearUpdatePrompt(sequence)
@@ -71,11 +90,12 @@ object UpdateState {
         return cleared
     }
 
-    internal fun beginUpdateAttempt(offer: UpdatePromptOffer): UpdateAttempt? {
-        val attempt = promptCoordinator.beginAttempt(offer)
-        syncPromptState()
-        return attempt
-    }
+    internal fun beginUpdateAttempt(offer: UpdatePromptOffer): UpdateAttempt? =
+        acquireUpdateAttemptSafely(
+            acquire = { promptCoordinator.beginAttempt(offer) },
+            project = { syncPromptState() },
+            rollback = ::rollbackProjectedAttempt,
+        )
 
     internal fun completeUpdateAttempt(attemptId: Long): Boolean {
         val completed = promptCoordinator.completeAttempt(attemptId)
@@ -161,11 +181,17 @@ object UpdateState {
         Settings.cachedUpdateInfo = info?.toJson() ?: ""
     }
 
+    private fun rollbackProjectedAttempt(attemptId: Long) {
+        promptCoordinator.cancelAttempt(attemptId)
+        syncPromptState(saveCache = false)
+    }
+
     private fun syncPromptState(saveCache: Boolean = true) {
         val info = promptCoordinator.candidate
         updateInfo.value = info
         hasUpdate.value = info != null
         promptRequest.value = promptCoordinator.pendingRequest
+        activeAttempt.value = promptCoordinator.activeAttempt
         if (saveCache) saveToCache(info)
     }
 

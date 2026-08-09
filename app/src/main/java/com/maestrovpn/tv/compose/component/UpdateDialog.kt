@@ -43,7 +43,7 @@ import org.kodein.emoji.all
  * клиент больше НИКОГДА не видел предложения и оставался на старой версии до следующего
  * релиза. При политике «не частить OTA» это месяцы.
  *
- * @param onHide    просто закрыть окно; предложение вернётся. Для «Обновить» и ухода читать релиз.
+ * @param onHide    просто закрыть окно; предложение вернётся. Для ухода читать релиз.
  * @param onDecline пользователь ЯВНО отказался — эту версию больше не предлагать.
  */
 @Composable
@@ -83,7 +83,7 @@ fun UpdateAvailableDialog(
         Spacer(Modifier.height(18.dp))
         GlossyButton(
             label = stringResource(R.string.update),
-            onClick = { onHide(); onUpdate() },
+            onClick = onUpdate,
             accent = NeonGreen,
             wood = true,
             modifier = Modifier.fillMaxWidth(),

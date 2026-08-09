@@ -11,6 +11,7 @@ import com.maestrovpn.tv.compose.screen.qrscan.QRCodeCropArea
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.update.UpdateCheckException
 import com.maestrovpn.tv.update.UpdateInfo
+import com.maestrovpn.tv.update.UpdatePromptProvenance
 import com.maestrovpn.tv.update.UpdateSource
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
@@ -25,7 +26,10 @@ object Vendor : VendorInterface {
             if (updateInfo != null) {
                 activity.runOnUiThread {
                     if (byUser) {
-                        UpdateState.requestUpdatePrompt(updateInfo, forced = true)
+                        UpdateState.requestUpdatePrompt(
+                            updateInfo,
+                            UpdatePromptProvenance.VendorManual,
+                        )
                     } else {
                         UpdateState.applyUpdateCheckResult(Result.success(updateInfo))
                     }

@@ -96,6 +96,7 @@ import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.clipboardText
 import com.maestrovpn.tv.update.UpdateCheckException
+import com.maestrovpn.tv.update.UpdatePromptProvenance
 import com.maestrovpn.tv.update.UpdateSource
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
@@ -1149,7 +1150,10 @@ fun AppSettingsScreen(
                                                 UpdateState.applyUpdateCheckResult(Result.success(null))
                                                 showErrorDialog = context.getString(R.string.no_updates_available)
                                             } else {
-                                                UpdateState.requestUpdatePrompt(info, forced = true)
+                                                UpdateState.requestUpdatePrompt(
+                                                    info,
+                                                    UpdatePromptProvenance.SettingsManual,
+                                                )
                                             }
                                         },
                                         onFailure = { error ->
@@ -1198,7 +1202,10 @@ fun AppSettingsScreen(
                             .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
                             .clickable {
                                 updateInfo?.let { info ->
-                                    UpdateState.requestUpdatePrompt(info, forced = true)
+                                    UpdateState.requestUpdatePrompt(
+                                        info,
+                                        UpdatePromptProvenance.SettingsManual,
+                                    )
                                 }
                             },
                         colors =

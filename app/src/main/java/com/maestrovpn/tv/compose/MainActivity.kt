@@ -129,11 +129,12 @@ import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.ktx.launchCustomTab
 import com.maestrovpn.tv.update.UpdateAttempt
+import com.maestrovpn.tv.update.UpdateAttemptCancellationGate
 import com.maestrovpn.tv.update.UpdatePromptAction
 import com.maestrovpn.tv.update.UpdatePromptOffer
 import com.maestrovpn.tv.update.UpdatePromptSession
 import com.maestrovpn.tv.update.UpdateState
-import com.maestrovpn.tv.update.lastShownVersionAfterPromptAction
+import com.maestrovpn.tv.update.beginPromptAttemptTransaction
 import com.maestrovpn.tv.utils.RemoteControlManager
 import com.maestrovpn.tv.vendor.deliverInstallConfirmation
 import com.maestrovpn.tv.vendor.Vendor
@@ -659,6 +660,7 @@ class MainActivity :
         // candidate remains locked to an active attempt because ApkDownloader verifies against it.
         val updateInfo by UpdateState.updateInfo
         val promptRequest by UpdateState.promptRequest
+        val coordinatorAttempt by UpdateState.activeAttempt
         val promptSession = remember { UpdatePromptSession() }
         var activeUpdateOffer by remember { mutableStateOf<UpdatePromptOffer?>(null) }
 
@@ -667,13 +669,15 @@ class MainActivity :
         var downloadJob by remember { mutableStateOf<Job?>(null) }
         var downloadError by remember { mutableStateOf<String?>(null) }
         var activeUpdateAttempt by remember { mutableStateOf<UpdateAttempt?>(null) }
+        var activeCancellationGate by remember { mutableStateOf<UpdateAttemptCancellationGate?>(null) }
 
-        LaunchedEffect(updateInfo, promptRequest?.sequence, showDownloadDialog) {
+        LaunchedEffect(updateInfo, promptRequest?.sequence, coordinatorAttempt?.id, showDownloadDialog) {
             if (!showDownloadDialog) {
                 activeUpdateOffer = promptSession.nextOffer(
                     candidate = updateInfo,
                     lastShownVersion = Settings.lastShownUpdateVersion,
                     pendingRequest = promptRequest,
+                    activeAttempt = coordinatorAttempt,
                 )
             }
         }
@@ -683,6 +687,10 @@ class MainActivity :
                 updateInfo = offer.info,
                 onHide = {
                     if (promptSession.close(offer)) {
+                        UpdateState.applyPromptAction(
+                            offer.info.versionCode,
+                            UpdatePromptAction.Hide,
+                        )
                         activeUpdateOffer = null
                         offer.requestSequence?.let(UpdateState::clearUpdatePrompt)
                     }
@@ -690,21 +698,35 @@ class MainActivity :
                 onDecline = {
                     if (promptSession.close(offer)) {
                         activeUpdateOffer = null
-                        Settings.lastShownUpdateVersion = lastShownVersionAfterPromptAction(
-                            current = Settings.lastShownUpdateVersion,
-                            available = offer.info.versionCode,
-                            action = UpdatePromptAction.Decline,
+                        UpdateState.applyPromptAction(
+                            offer.info.versionCode,
+                            UpdatePromptAction.Decline,
                         )
                         offer.requestSequence?.let(UpdateState::clearUpdatePrompt)
                     }
                 },
                 onUpdate = {
-                    val attempt = UpdateState.beginUpdateAttempt(offer)
+                    val attempt = beginPromptAttemptTransaction(
+                        offer = offer,
+                        beginAttempt = UpdateState::beginUpdateAttempt,
+                        closeOffer = promptSession::close,
+                        rollbackAttempt = { attemptId ->
+                            UpdateState.cancelUpdateAttempt(attemptId)
+                        },
+                    )
                         ?: return@UpdateAvailableDialog
+                    activeUpdateOffer = null
                     activeUpdateAttempt = attempt
                     showDownloadDialog = true
                     downloadError = null
-                    downloadJob = scope.launch {
+                    val cancellationGate = UpdateAttemptCancellationGate {
+                        // Reset while this lease still excludes the worker: an old attempt must
+                        // never overwrite phase/progress after a newer attempt acquires the lock.
+                        UpdateState.resetDownload()
+                        UpdateState.cancelUpdateAttempt(attempt.id)
+                    }
+                    activeCancellationGate = cancellationGate
+                    val job = scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
                                 Vendor.downloadAndInstall(
@@ -716,19 +738,30 @@ class MainActivity :
                                 activeUpdateAttempt?.id == attempt.id
                             ) {
                                 activeUpdateAttempt = null
+                                activeCancellationGate = null
                                 downloadJob = null
                                 showDownloadDialog = false
                             }
                         } catch (e: CancellationException) {
-                            UpdateState.cancelUpdateAttempt(attempt.id)
                             throw e
                         } catch (e: Exception) {
+                            if (cancellationGate.shouldTreatFailureAsCancellation()) {
+                                return@launch
+                            }
+                            UpdateState.retryFailedUpdateAttempt(attempt.id)
                             if (activeUpdateAttempt?.id == attempt.id) {
+                                activeCancellationGate = null
                                 downloadJob = null
                                 downloadError = e.message ?: e.toString()
                             }
                         }
                     }
+                    job.invokeOnCompletion { cause ->
+                        cancellationGate.onJobCompleted(
+                            cancelledByCause = cause is CancellationException,
+                        )
+                    }
+                    downloadJob = job
                 },
             )
         }
@@ -782,17 +815,23 @@ class MainActivity :
                         onClick = {
                             val attempt = activeUpdateAttempt
                             val failed = downloadError != null
-                            if (!failed) downloadJob?.cancel()
+                            if (!failed) {
+                                activeCancellationGate?.requestCancellation {
+                                    downloadJob?.cancel()
+                                }
+                            }
                             downloadJob = null
+                            activeCancellationGate = null
                             activeUpdateAttempt = null
                             showDownloadDialog = false
                             downloadError = null
                             UpdateState.resetDownload()
                             if (attempt != null) {
                                 if (failed) {
-                                    UpdateState.retryFailedUpdateAttempt(attempt.id)
-                                } else {
-                                    UpdateState.cancelUpdateAttempt(attempt.id)
+                                    UpdateState.applyPromptAction(
+                                        attempt.offer.info.versionCode,
+                                        UpdatePromptAction.InstallFailed,
+                                    )
                                 }
                             }
                         },
