@@ -28,7 +28,7 @@ class UpdateStateProjectionRaceTest {
 
         try {
             val oldFuture = executor.submit {
-                gate.mutateAndProject(
+                gate.mutateAndProject<ProjectionSnapshot>(
                     mutate = {
                         coordinator.applyUpdateCheckResult(Result.success(oldInfo))
                         coordinator.projectionSnapshot()
@@ -47,7 +47,7 @@ class UpdateStateProjectionRaceTest {
 
             val newerFuture = executor.submit {
                 newerThreadCallingGate.countDown()
-                gate.mutateAndProject(
+                gate.mutateAndProject<ProjectionSnapshot>(
                     mutate = {
                         newerMutationEntered.countDown()
                         val request = coordinator.requestUpdatePrompt(
