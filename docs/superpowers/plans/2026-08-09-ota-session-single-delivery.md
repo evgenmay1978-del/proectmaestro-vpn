@@ -266,6 +266,6 @@ Require GitHub, panel and `https://storage.yandexcloud.net/maestro-apk/update.js
 
 On a device running `1.0.154`, perform one update through the app. Acceptance: one download, one system confirmation, no `Session files in use`, failure/cancel keeps the offer recoverable, successful install advances version without data loss, mobile Home remains approved and TV-specific diff is zero.
 
-- [ ] **Step 6: Update permanent context**
+- [x] **Step 6: Update permanent context**
 
 Add a new top section to `CONTEXT_HANDOFF.md` with root cause, RED/GREEN run IDs, exact commit/release, artifact hashes, mirror state, unperformed device checks and the next safe step.

@@ -1,5 +1,99 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0U. LIVE: OTA race fixes GREEN на GitHub; новый production OTA не выпускался
+
+Этот раздел от **09.08.2026** заменяет 0T как единственная текущая точка входа.
+Владелец подтвердил, что production 1.0.154 установилась на телефоне после
+первого зависания/`Session files in use` и задержанного повторного предложения.
+Ни один новый release/OTA после этого подтверждения не запускался.
+
+### Текущее точное состояние
+
+- Единственная тестовая ветка: `codex/mobile-4d-deck`.
+- Exact GREEN HEAD:
+  `db490082d03191630ab985586debe072b02ef3ec`.
+- Production fix commit: `162047f` (`fix(update): serialize observable
+  projection`); сверху только двухстрочный test type-pin `db49008`.
+- GitHub Actions run `31292439105`, build job `93191813232`: checkout, Android
+  build, `:app:assembleOtherDebug`, artifact upload, все unit tests и test-report
+  upload — **success**.
+- Artifact `maestrovpn-tv-test-apk`: ID `9031883529`, ZIP `176596754` bytes,
+  ZIP SHA-256
+  `94b46a9f4dd39903678b320ca40a152bf5a15c411be90a4a922a0c43a405e6f8`.
+- Извлечённый test APK: `179282417` bytes, SHA-256
+  `90a852d9324a3a58c9e8d3f4b5299fc9c1a507f84bc89078260cb6ef36e9e970`.
+- Focused post-GREEN re-review: Critical `0`, Important `0`, Minor `0`.
+- Финальный full-branch audit exact `db490082...`: Critical `0`, Important `0`,
+  Minor `0`; verdict **release-code GO**. Device/OTA gates отдельно не пройдены.
+- Worktree clean, local HEAD совпадает с `origin/codex/mobile-4d-deck`,
+  `git diff --check e3bfadd..HEAD` — PASS.
+
+### Что теперь исправлено
+
+1. System install confirmation доставляется ровно одним путём: receiver либо
+   запускает Intent при реально resumed Activity, либо паркует его для
+   `MainActivity`; failed launch снова безопасно паркуется.
+2. Одна `PackageInstaller.Session` больше не получает два параллельных confirm
+   прохода — устранён согласующийся с AOSP механизм `Session files in use`.
+3. `lastShownUpdateVersion` записывается только после явного отказа; failed
+   install/download остаётся повторно предлагаемым.
+4. UI и WorkManager используют одну immutable attempt-модель; stale/lower/
+   mismatched результаты проверки не меняют активный verifier.
+5. Последняя найденная race закрыта `UpdateStateProjectionGate`: coordinator
+   mutation и derived observable/cache projection теперь выполняются одной
+   короткой транзакцией. Старый VC154 projection не может перезаписать новый
+   attempt VC155.
+6. Gate не держится на network/download/install/suspend. Acquire rollback
+   заканчивается до входа следующей транзакции; исходная ошибка сохраняется, а
+   rollback failure остаётся suppressed.
+7. Ранее найденные production-инварианты сохранены: `6d7692d` восстанавливает
+   VPN после failed/cancelled install; `cb59434` показывает `Status.Starting`
+   как «Подключение», не как «Подключён».
+
+### TDD/CI цепочка последнего finding
+
+- Test-only RED: `a464b47`; expected RED run `31291406913`, job `93189109755`:
+  app assemble и artifact upload success, unit compile failure на отсутствующем
+  `UpdateStateProjectionGate`.
+- Первый GREEN attempt: run `31292160785`, job `93191063455`; production APK
+  собрался, но unit compile выявил только generic inference в новом тесте.
+- Test-only correction `db49008` явно закрепил `ProjectionSnapshot`; production
+  код не менялся.
+- Финальный GREEN: `31292439105` на exact `db490082...`, все шаги success.
+
+### TV, release и mirror границы
+
+- В diff
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe..db490082d03191630ab985586debe072b02ef3ec`
+  нет изменений `TvEskizHome.kt`, `TvEskizSpec.kt`, `tvm_*`, TV geometry/assets,
+  D-pad/focus/Back и `ops/tv-*`.
+- Universal APK обновит общий binary/OTA-код TV-боксов, но TV-specific UI/assets
+  остаются без изменений.
+- Production 1.0.154 (`bede79ac...`, run `31279484939`) не содержит этих новых
+  race fixes. Её APK: `179275216` bytes, SHA-256
+  `57d71a6e011659b01c5c83b0509e0b1e3d76f0238c5c8961c607f82d8ef9042a`.
+- Последняя read-only проверка: GitHub latest/main — 1.0.154; public Yandex
+  manifest — 1.0.153 и public APK 1.0.154 — 404; panel/S1 недоступны по timeout.
+  Перед публикацией значения нужно проверить заново.
+- Не выполнялись merge в `main`, production workflow, Release, panel/S1/Yandex
+  mutation или новый OTA.
+
+### Следующий безопасный шаг
+
+1. В GitHub Actions собрать подписанный artifact-only production-кандидат с
+   `versionCode > 154`, без Release и OTA.
+2. На телефоне поверх 1.0.154 проверить: foreground/background confirmation,
+   cancel, ошибка → OK → повтор той же версии, Activity recreation, VPN restore
+   и успешное повышение версии без потери данных.
+3. Только после device acceptance опубликовать **тот же проверенный APK** и
+   единым gate сверить GitHub Release, panel и Yandex по versionName/versionCode,
+   размеру и SHA-256. TV-визуал не менять.
+
+Текущий GitHub test APK имеет высокий test `versionCode=90295`; его нельзя
+устанавливать на основной телефон, иначе обычный production-кандидат станет для
+Android downgrade. Локальный Gradle/APK не запускать: тяжёлые действия только
+через сохранённые `ops/`-скрипты GitHub Actions.
+
 ## 0T. BLOCKED: 1.0.154 установилась; перед следующим OTA закрывается observable projection race
 
 Этот раздел от **09.08.2026** заменяет и уточняет 0S как единственная текущая
