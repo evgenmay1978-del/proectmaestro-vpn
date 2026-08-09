@@ -282,7 +282,7 @@ class UpdatePromptPolicyTest {
     }
 
     @Test
-    fun cancellationRequestKeepsAttemptUntilJobCompletionCallback() {
+    fun requestedCancellationClassifiesGenericFailureAndReleasesAfterUnwind() {
         var cancelRequests = 0
         var releases = 0
         val gate = UpdateAttemptCancellationGate { releases += 1 }
@@ -290,10 +290,23 @@ class UpdatePromptPolicyTest {
         gate.requestCancellation { cancelRequests += 1 }
 
         assertEquals(1, cancelRequests)
+        assertTrue(gate.shouldTreatFailureAsCancellation())
         assertEquals(0, releases)
 
-        gate.onJobCompleted(cancelled = true)
-        gate.onJobCompleted(cancelled = true)
+        gate.onJobCompleted(cancelledByCause = false)
+        gate.onJobCompleted(cancelledByCause = false)
+
+        assertEquals(1, releases)
+    }
+
+    @Test
+    fun activityCancellationReleasesWithoutAnExplicitCancelRequest() {
+        var releases = 0
+        val gate = UpdateAttemptCancellationGate { releases += 1 }
+
+        assertFalse(gate.shouldTreatFailureAsCancellation())
+        gate.onJobCompleted(cancelledByCause = true)
+        gate.onJobCompleted(cancelledByCause = true)
 
         assertEquals(1, releases)
     }
@@ -400,6 +413,134 @@ class UpdatePromptPolicyTest {
     }
 
     @Test
+    fun sessionReplacesStaleAutomaticOfferAndCoordinatorRejectsOldSnapshot() {
+        val coordinator = UpdatePromptCoordinator()
+        val oldInfo = updateInfo(154)
+        coordinator.applyUpdateCheckResult(Result.success(oldInfo))
+        val session = UpdatePromptSession()
+        val oldOffer = session.nextOffer(
+            candidate = coordinator.candidate,
+            lastShownVersion = 153,
+            pendingRequest = null,
+            activeAttempt = null,
+        )!!
+
+        val newInfo = updateInfo(155)
+        coordinator.applyUpdateCheckResult(Result.success(newInfo))
+        val refreshedOffer = session.nextOffer(
+            candidate = coordinator.candidate,
+            lastShownVersion = 153,
+            pendingRequest = null,
+            activeAttempt = null,
+        )!!
+
+        assertEquals(155, refreshedOffer.info.versionCode)
+        assertNull(coordinator.beginAttempt(oldOffer))
+        assertEquals(newInfo, coordinator.candidate)
+        assertEquals(155, coordinator.beginAttempt(refreshedOffer)?.offer?.info?.versionCode)
+    }
+
+    @Test
+    fun coordinatorRejectsStaleOrMetadataMismatchedForcedOffer() {
+        val coordinator = UpdatePromptCoordinator()
+        val first = coordinator.requestUpdatePrompt(
+            updateInfo(154),
+            UpdatePromptProvenance.VendorManual,
+        )
+        val forgedInfo = first.info.copy(downloadUrl = "https://mirror.example.invalid/154.apk")
+        val mismatchedOffer = UpdatePromptOffer(
+            forgedInfo,
+            first.sequence,
+            first.provenance,
+        )
+
+        assertNull(coordinator.beginAttempt(mismatchedOffer))
+        assertEquals(first, coordinator.pendingRequest)
+
+        val newer = coordinator.requestUpdatePrompt(
+            updateInfo(155),
+            UpdatePromptProvenance.SettingsManual,
+        )
+        val staleOffer = UpdatePromptOffer(first.info, first.sequence, first.provenance)
+
+        assertNull(coordinator.beginAttempt(staleOffer))
+        assertEquals(newer, coordinator.pendingRequest)
+        assertNull(coordinator.activeAttempt)
+    }
+
+    @Test
+    fun backgroundAttemptRejectsStaleCandidateAndPendingMetadataMismatch() {
+        val coordinator = UpdatePromptCoordinator()
+        val current = updateInfo(155)
+        coordinator.applyUpdateCheckResult(Result.success(current))
+
+        assertNull(coordinator.beginBackgroundAttempt(updateInfo(154)))
+        assertEquals(current, coordinator.candidate)
+        assertNull(coordinator.activeAttempt)
+
+        val pendingInfo = updateInfo(156)
+        val pending = coordinator.requestUpdatePrompt(
+            pendingInfo,
+            UpdatePromptProvenance.VendorManual,
+        )
+        val workerInfo = pendingInfo.copy(
+            downloadUrl = "https://mirror.example.invalid/156.apk",
+            sha256 = "different156",
+        )
+        coordinator.applyUpdateCheckResult(Result.success(workerInfo))
+
+        assertEquals(pendingInfo, coordinator.candidate)
+        assertNull(coordinator.beginBackgroundAttempt(workerInfo))
+        assertEquals(pending, coordinator.pendingRequest)
+        assertNull(coordinator.activeAttempt)
+    }
+
+    @Test
+    fun staleAutomaticResultCannotRollbackCurrentOrDeferredCandidate() {
+        val coordinator = UpdatePromptCoordinator()
+        val current = updateInfo(155)
+        coordinator.applyUpdateCheckResult(Result.success(current))
+
+        coordinator.applyUpdateCheckResult(Result.success(updateInfo(154)))
+
+        assertEquals(current, coordinator.candidate)
+        assertNull(coordinator.beginBackgroundAttempt(updateInfo(154)))
+
+        val currentAttempt = coordinator.beginBackgroundAttempt(current)!!
+        coordinator.applyUpdateCheckResult(Result.success(updateInfo(154)))
+        assertTrue(coordinator.cancelAttempt(currentAttempt.id))
+
+        assertEquals(current, coordinator.candidate)
+    }
+
+    @Test
+    fun projectionFailureRollsBackNewlyAcquiredAttemptBeforeEscaping() {
+        val coordinator = UpdatePromptCoordinator()
+        val info = updateInfo(154)
+        coordinator.applyUpdateCheckResult(Result.success(info))
+        var rollbackCount = 0
+        var thrown: Throwable? = null
+
+        try {
+            acquireUpdateAttemptSafely(
+                acquire = { coordinator.beginBackgroundAttempt(info) },
+                project = { throw IllegalStateException("cache write failed") },
+                rollback = { attemptId ->
+                    rollbackCount += 1
+                    coordinator.cancelAttempt(attemptId)
+                },
+            )
+        } catch (error: Throwable) {
+            thrown = error
+        }
+
+        assertEquals("cache write failed", thrown?.message)
+        assertEquals(1, rollbackCount)
+        assertNull(coordinator.activeAttempt)
+        assertEquals(info, coordinator.candidate)
+    }
+
+    @Test
     fun backgroundAttemptCannotReplaceAnActiveUiAttemptOrItsVerifierCandidate() {
         val coordinator = UpdatePromptCoordinator()
         val uiInfo = updateInfo(154)
@@ -440,6 +581,57 @@ class UpdatePromptPolicyTest {
         assertNull(coordinator.activeAttempt)
         assertNull(coordinator.candidate)
         assertNull(coordinator.pendingRequest)
+    }
+
+    @Test
+    fun newerManualRequestConsumesAncientDeferredClearBeforeItsAttempt() {
+        val coordinator = UpdatePromptCoordinator()
+        val oldRequest = coordinator.requestUpdatePrompt(
+            updateInfo(154),
+            UpdatePromptProvenance.VendorManual,
+        )
+        val oldAttempt = coordinator.beginAttempt(
+            UpdatePromptOffer(oldRequest.info, oldRequest.sequence, oldRequest.provenance),
+        )!!
+        coordinator.clearAll()
+        val newer = coordinator.requestUpdatePrompt(
+            updateInfo(155),
+            UpdatePromptProvenance.SettingsManual,
+        )
+
+        assertEquals(newer, coordinator.retryFailedAttempt(oldAttempt.id))
+        val newerAttempt = coordinator.beginAttempt(
+            UpdatePromptOffer(newer.info, newer.sequence, newer.provenance),
+        )!!
+        assertTrue(coordinator.cancelAttempt(newerAttempt.id))
+
+        assertEquals(155, coordinator.candidate?.versionCode)
+    }
+
+    @Test
+    fun automaticCheckAfterManualRequestRemainsDeferredUntilAttemptFinishes() {
+        val coordinator = UpdatePromptCoordinator()
+        val oldRequest = coordinator.requestUpdatePrompt(
+            updateInfo(154),
+            UpdatePromptProvenance.VendorManual,
+        )
+        val oldAttempt = coordinator.beginAttempt(
+            UpdatePromptOffer(oldRequest.info, oldRequest.sequence, oldRequest.provenance),
+        )!!
+        coordinator.clearAll()
+        val manual = coordinator.requestUpdatePrompt(
+            updateInfo(155),
+            UpdatePromptProvenance.SettingsManual,
+        )
+        coordinator.applyUpdateCheckResult(Result.success(updateInfo(156)))
+
+        assertEquals(manual, coordinator.retryFailedAttempt(oldAttempt.id))
+        val manualAttempt = coordinator.beginAttempt(
+            UpdatePromptOffer(manual.info, manual.sequence, manual.provenance),
+        )!!
+        assertTrue(coordinator.cancelAttempt(manualAttempt.id))
+
+        assertEquals(156, coordinator.candidate?.versionCode)
     }
 
     private fun updateInfo(versionCode: Int) = UpdateInfo(
