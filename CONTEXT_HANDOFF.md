@@ -107,15 +107,18 @@
 
 ### Текущий этап и границы
 
-- Сейчас выполняется только read-only аудит и дизайн вариантов. Код, production,
-  DNS, nginx, systemd, базы, VPN-узлы, Release и OTA не изменялись.
-- rqlite, exactly-once оплата и бесплатный ingress/failover выбраны.
-- Полная design-spec записана в
-  `docs/superpowers/specs/2026-08-09-maestrovpn-ha-control-plane-design.md`.
-  Два независимых повторных review дали `Critical 0 / Important 0`; документ
-  готов к проверке владельцем. Implementation plan и код ещё не начинались.
-- После утверждения design-spec нужно подготовить TDD/rollout/rollback-план и
-  только затем менять код или production.
+- Владелец утвердил design и трёхузловой rqlite на S2/S3/S4. Подготовлен
+  исполняемый TDD/rollout/rollback-пакет: master-plan, Plans 01–04 и матрица
+  покрытия в `docs/superpowers/plans/2026-08-09-maestrovpn-ha-*`.
+- Итоговый независимый аудит пакета: `Critical 0 / Important 0`. Он остаётся
+  **production NO-GO** до прохождения всех доказательных gates самих планов.
+- В этой работе изменялась только документация репозитория. Код, production,
+  DNS, nginx, systemd, базы, VPN-узлы, GitHub Release, OTA и TV не изменялись.
+- Точка продолжения: Plan 01, Task 1, TDD в отдельной рабочей ветке. Затем задачи
+  выполняются строго по порядку 01 -> 02 -> 03 -> 04 с проверками и review.
+- Live-переключение ботов запрещено до точной инвентаризации их источников,
+  финального импорта состояния и подписанных hard-fence proofs. TV-интерфейс и
+  TV-ассеты во всей HA-работе остаются без изменений.
 
 ## 0U. LIVE: OTA race fixes GREEN на GitHub; новый production OTA не выпускался
 

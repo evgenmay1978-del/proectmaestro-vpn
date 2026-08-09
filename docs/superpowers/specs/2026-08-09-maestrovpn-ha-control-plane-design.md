@@ -1,6 +1,6 @@
 # MaestroVPN: отказоустойчивый control plane S2/S3/S4
 
-**Статус:** готов к проверке владельцем; self-review PASS
+**Статус:** утверждено владельцем 09.08.2026; authoritative execution package — `docs/superpowers/plans/2026-08-09-maestrovpn-ha-control-plane.md` и Plans 01–04; production остаётся NO-GO без отдельного approval
 **Дата:** 2026-08-09
 **Ветка:** `codex/mobile-4d-deck`
 **Источник контекста:** `CONTEXT_HANDOFF.md`, раздел 0V
@@ -68,7 +68,7 @@ MaestroVPN продолжает создавать и активировать �
 flowchart TD
     Clients["Android / TV / web panel"] --> Public["wapmixx.ru:8911"]
     Public --> Active["активная TLS-панель S2, S3 или S4"]
-    Bots["два Telegram-бота<br/>single-active per token"] --> API["единый business API"]
+    Bots["два Telegram-бота<br/>single-active per stable getMe identity"] --> API["единый business API"]
     Active --> API
     API --> RQ["rqlite voters<br/>S2 + S3 + S4"]
     RQ --> Outbox["transactional outbox"]
@@ -97,7 +97,7 @@ Outbox ускоряет применение; периодическая пол�
 | `devices` | HMAC device ID и лимит без сырого идентификатора |
 | `tariff_versions` | immutable amount/currency/duration snapshot; заказ ссылается на конкретную версию |
 | `orders` | buyer identity, tariff snapshot, payment/provisioning states, unique high-entropy payment code, result expiry, operation ID, CHECK amount/duration/state |
-| `active_order_guards` | один non-terminal bot/authenticated order на buyer/customer; PK по identity scope |
+| `active_order_guards` | PK identity scope/key, `UNIQUE(order_id,identity_scope)`; global Telegram buyer HMAC не зависит от bot/chat/token |
 | `payments` | `UNIQUE(order_id)`, `UNIQUE(provider, provider_event_id)` и при наличии `receipt_ref UNIQUE` |
 | `trial_redemptions` | идемпотентный trial и anti-abuse identity |
 | `idempotency_requests` | PK `(scope, command_type, key)`, canonical request hash, applied status и сохранённый response |
@@ -108,9 +108,19 @@ Outbox ускоряет применение; периодическая пол�
 | `node_leases` | lease, fencing token и cluster epoch |
 | `node_apply_receipts` | PK `(node_id,service_id,customer_id)`, последний epoch/incarnation/fence/generation/hash |
 | `tombstones` | удаление до ack всех сервисов и retention |
-| `telegram_inbox` | PK `(bot_id,update_id)`, callback ID, state, lease fence и offset |
-| `telegram_bindings` | Telegram identity к customer без локальной expiry |
-| `cluster_settings` | olcRTC/VKTurn/allowlists, approved OTA manifest и shared mutable settings |
+| `telegram_pollers` | один offset/lease/fence на stable HMAC numeric `getMe.id`; token fingerprint и credential version — только route |
+| `telegram_inbox` | PK stable bot identity/update ID, encrypted update, state и fence |
+| `telegram_callbacks`, `telegram_delivery_outbox` | durable callback/delivery state с unique business operation ID |
+| `telegram_bindings` | global Telegram buyer identity к customer без локальной expiry |
+| `cluster_job_leases`, `external_actions` | fenced expiry/backup/WB workers и `pending -> attempt_started -> succeeded|unknown` |
+| `operations`, `operation_batches` | crash-resumable endpoint/bulk operations с input/batch digest |
+| `import_runs`, `import_batches` | crash-resumable full/delta import с explicit deletes/parent digest |
+| `cluster_settings`, `setting_members`, `setting_secrets` | validated public settings, normalized allowlists и row-bound encrypted secrets |
+| `principals`, `principal_roles`, `principal_credentials`, `web_sessions` | default-deny RBAC, hashes/envelopes, revocation epoch и sessions |
+| `backup_watermarks` | durable dirty generation и last downloaded+verified object digest |
+| `tombstone_targets` | frozen required acknowledgement set для hard delete |
+| `audit_events`, `rate_limit_buckets` | append-only audit и bounded actor/IP limits |
+| `health_write_canary` | bounded per-panel committed nonce row |
 
 Все связи имеют явные FK и ON DELETE policy; отсутствие orphan rows проверяется
 миграционным и backup-restore тестом. Login case, UUID, subId, SubToken,
@@ -167,6 +177,9 @@ cancel после начисления.
 - Для Telegram и известного customer DB-enforced active guard разрешает один
   non-terminal order на buyer/customer. Повтор возвращает существующий order.
 - «Я оплатил» делает CAS `created -> payment_claimed` и создаёт одно событие
+- Только невостребованный `created` автоматически expires через 24 часа и освобождает guards.
+- `payment_claimed` никогда не исчезает до явного owner confirm/cancel; после 24 часов создаётся один idempotent owner alert.
+- Expiry scheduler single-active и проверяет свежий DB lease fence внутри каждой mutation transaction.
   `owner-claim:<order_id>`.
 - Payment code уникален и достаточно случаен; короткие legacy-коды сохраняются,
   но не становятся idempotency key.
@@ -211,16 +224,16 @@ canonical payload получает `409`.
 
 ### 8.1 Crash-safe inbox и single-active poller
 
-- Один long-poller на bot token получает rqlite lease/fencing token.
-- `telegram_inbox` проходит `received -> command_committed -> delivery_queued ->
-  completed`.
-- `(bot_id,update_id)` и callback ID уникальны.
-- Bot-to-business command содержит текущий poller fence; он проверяется в той же
-  DB transaction. Stale poller не может подтвердить заказ.
-- Update offset/high-watermark двигается только после durable inbox.
-- При невозможности продлить lease poller прекращает `getUpdates` и business API.
+- Один long-poller на stable `BotIdentityHMAC = HMAC(cluster_key,numeric getMe.id)` получает lease/fence.
+- Token fingerprint HMAC и monotonic credential version — только credential route; deployment `BOT_ID` не владеет состоянием.
+- `telegram_inbox` проходит `received -> command_committed -> delivery_queued -> completed`.
+- `(BotIdentityHMAC,update_id)`, callback HMAC и business operation ID уникальны.
+- Bot-to-business command содержит текущий poller fence, проверяемый в той же DB transaction; stale poller не подтверждает заказ.
+- Offset двигается только после durable inbox; pending/in-flight callbacks и paid claims также cluster-backed.
+- При потере lease poller прекращает `getUpdates` и business API; S2/S3/S4 могут принять lease без overlap.
+- Hard fence старого poller предшествует signed capture/import final offset/callbacks/claims и старту нового.
+- Token rotation CAS проверяет в памяти тот же numeric `getMe.id`, повышает credential version и сохраняет offset/fence/callbacks.
 - Replies создаются только delivery outbox после business commit.
-- Копии S2/S3/S4 принимают lease после потери активной.
 - Webhook на первом этапе не вводится из-за доступных портов 443/80/88/8443
   ([Telegram webhook requirements](https://core.telegram.org/bots/webhooks)).
 
@@ -230,17 +243,14 @@ Owner видит сумму, tariff snapshot, payment code, order ID и кноп
 сначала закрывает spinner «Проверяю…», затем сообщение перерисовывается из
 cluster truth. Token/private URL не выводятся.
 
-Client-ready delivery имеет key `client-ready:<order_id>:<bot_id>`. Exactly-once
+Client-ready delivery имеет глобальный key `client-ready:<order_id>`; token/chat хранится отдельно как encrypted route. Exactly-once
 гарантируется payment/expiry/generation. Telegram send не имеет idempotency:
 crash после принятия сообщения Telegram до receipt способен дать редкий дубль
 текста; он несёт тот же operation ID и никогда не повторяет начисление.
 
 ### 8.3 Live-дрейф
 
-До cutover полный live source S1/S2 ботов переносится в GitHub, S2 bindings
-импортируются, admin allowlist/TLS/router проверяются, старые poller hard-fenced.
-При необходимости token того же бота поворачивается; пользовательские чаты
-сохраняются, а старый S1 теряет доступ.
+До cutover полный live source обоих ботов переносится в GitHub; bindings, stable bot identity, credential version, final offset, callbacks и paid claims импортируются по signed digest. Старые poller hard-fenced до capture. Legacy inline buttons временно работают только через imported binding и тот же `confirm:<order_id>` operation key. При rotation новый token обязан вернуть тот же `getMe.id`; чаты/offset сохраняются, старый S1 теряет доступ.
 
 ## 9. Subscription URL, API и OTA compatibility
 
@@ -321,9 +331,7 @@ Stale S1 JSON/x-ui никогда не импортируется назад.
 
 ### 12.1 S1 VLESS
 
-До cutover создаётся `s1-vless.wapmixx.ru -> S1`: apex сейчас одновременно
-адресует panel `:8911` и S1 VLESS `:443`. Новая subscription truth использует
-отдельное имя, а старые last-good configs проверяются на fallback S2/S3/S4.
+До cutover под общим SpaceWeb lock создаётся ровно `s1-vless.wapmixx.ru -> 194.48.141.106` и фиксируется signed provider/TTL proof; доступность S1 не требуется, потому что rescue несут S2/S3/S4. Во время freeze resumable CAS меняет у всех только server host S1 VLESS `wapmixx.ru -> s1-vless.wapmixx.ru`, сохраняя UUID/SubID/SubToken/password/SNI/PBK/SID/fingerprint/flow, один раз повышает generation и создаёт desired/outbox. Apex gate требует zero new `wapmixx.ru:443` VLESS и независимый S2/S3/S4 fallback у legacy-клиентов.
 
 ### 12.2 TLS до DNS-переключения
 
@@ -338,18 +346,14 @@ last-good certificate.
 
 ### 12.3 Active-only DNS без новых расходов
 
-- SpaceWeb остаётся authoritative; apex A содержит один ready panel IP.
-- Multi-A запрещён.
-- Production workflow запускается schedule каждые 5 минут и вручную; GitHub
-  schedule может задержаться, поэтому мгновенный RTO не обещается.
-- Failover требует consecutive failures active и consecutive success candidate;
-  failback имеет более длинный hysteresis.
-- Workflow использует concurrency lock, protected production environment,
-  минимальные permissions, SHA-pinned actions, exact record/IP allowlist и
-  read-before-write. Secrets недоступны PR-коду.
-- Проверки объединяют GitHub black-box и quorum-signed node status.
-- Audit artifact не содержит credentials.
-- TTL снижается до минимума SpaceWeb с ожиданием прежнего TTL. Реальный RTO —
+- SpaceWeb authoritative; apex содержит ровно один ready A и не имеет AAAA/CNAME/ANAME/ALIAS/flattening/wildcard обхода.
+- Scheduled failover каждые 5 минут использует branch-restricted `production-dns-auto` без per-run reviewer; manual override использует reviewed отдельную environment.
+- Все SpaceWeb apex/TTL/alias/ACME mutations держат один `maestro-spaceweb-dns-mutations` lock, SHA-pinned actions, exact allowlist и read-before-write.
+- Failover требует consecutive active failures/candidate successes; failback имеет более длинный hysteresis.
+- GitHub-hosted workflow видит только public mTLS probe/status/failover CAS, а не private rqlite/agent.
+- После irreversible marker DNS rollback allowlist содержит только write-ready S2/S3/S4; ambiguous initial switch никогда автоматически не возвращает S1.
+- Secrets/canary URL отсутствуют в artifact/log; PR не получает secrets.
+- TTL снижается с ожиданием прежнего TTL. Реальный RTO —
   detection + GitHub delay + DNS propagation/cache + client retry.
 
 ### 12.4 Read/write health
@@ -357,6 +361,8 @@ last-good certificate.
 - `/healthz` сохраняется для совместимости; `/livez` проверяет процесс.
 - `/readyz/read` требует schema/keys/settings и последний verified strong commit.
 - `/readyz/write` требует quorum, strong read, disk space и свежий committed
+- Public nginx запрещает исходные `/readyz/read|write`; automation использует только client-cert-protected `/readyz/probe/read|write` и nonce-bound redacted status/CAS routes.
+- Sensitive `/sub`, order и probe logs не содержат request URI/query/token/header/body.
   write-canary. Canary обновляет одну bounded health row и затем strong-read
   проверяет nonce; rollback-only probe не считается доказательством write.
 - Black-box проверяет direct-IP TLS/SNI, tariffs, approved OTA manifest и secret
@@ -408,25 +414,25 @@ Importer сохраняет exact values; любой unresolved conflict озн�
 
 ### D. Production cutover
 
-1. Общий write-freeze app/panel/bots/admin.
-2. Выполнение и независимая проверка всей fence matrix, включая недоступный S1.
-3. Только после fence — final backup и delta import.
-4. Strong-read/digest reconciliation и immutable import report.
-5. Включение new agents; side effects ещё canary-only.
-6. Первая rqlite business-write — owner canary create/renew/confirm.
-7. Проверка одной payment row, expiry delta, generation и node receipts.
-8. TLS/DNS dry-run; затем apex cutover.
-9. Наблюдение и постепенное открытие writes.
+1. Подготовить shadow cluster/TLS/probes, S1 alias и initial full import dry-run.
+2. Ввести global freeze app/panel/admin/bots/reconcilers/olcRTC/legacy backup.
+3. Остановить old pollers, signed-capture stable bot identity/final offset/callbacks/claims и доказать всю fence matrix.
+4. Final backup и crash-resumable delta import; linearizable digest reconciliation.
+5. До activation выполнить S1 endpoint migration и zero-apex-VLESS/fallback gate.
+6. Canary-only agents: Naive zero-unowned, S3 olcRTC, receipts/log/backup/dashboard gates.
+7. По отдельному approval атомарно записать irreversible marker с первой live owner canary business command.
+8. Выполнить owner create/renew/paid-claim/confirm и доказать одну payment/expiry/generation.
+9. После отдельного production approval переключить single apex A на ready HA; ambiguity не возвращает S1.
+10. Стартовать новые pollers с imported offset в legacy-callback replacement mode.
+11. Выполнить allowlisted «Я оплатил → owner confirm» canary через каждую bot configuration без cross-bot дубля.
+12. Закрыть replacement только при zero pending imported work.
+13. Постепенно открыть writes и наблюдать quorum/lag/outbox/DNS/TLS/backup/RPO/RTO.
 
 Если пункт 2 нельзя доказать, первая business-write и DNS cutover запрещены.
 
 ## 15. Rollback и disaster-recovery epoch
 
-До первой rqlite business-write можно вернуть старую маршрутизацию после
-подтверждённого write-freeze.
-
-После первой write JSON/SQLite — stale forensic archive. Разрешены только
-previous binary на той же rqlite либо write-freeze + verified export.
+До irreversible marker pre-activation cluster можно discard, а старую маршрутизацию вернуть только при доказанном freeze/fence. Marker коммитится с первой live business command. После marker JSON/SQLite — stale forensic archive, S1 запрещён как DNS rollback target; разрешены только previous binary на том же rqlite либо write-freeze + verified rqlite export. Dual-write/reverse import запрещены.
 
 Cluster restore выполняется при fenced agents/pollers и отсутствии writes
 ([rqlite backup/restore](https://rqlite.io/docs/guides/backup/)). После restore
@@ -436,12 +442,9 @@ Agents принимают signed activation нового epoch только по
 
 ## 16. Backup, RPO/RTO и наблюдаемость
 
-Canonical DR backup — SQLite backup через rqlite API, отдельно encrypted
-application key, node inventory/receipts и cryptographically authenticated
-manifest с SHA-256, counts, schema version, cluster epoch и timestamp. Raft data
-directories — forensic material, не основной restore source.
+Canonical DR backup — SQLite image через rqlite API; schema/epoch/counts/receipt high-watermarks выводятся из скачанного image, а не racing live reads. Каждый business commit повышает durable dirty watermark; single-active capability-ready worker на S2/S3/S4 coalesces on-change, делает backup не реже часа и подтверждает watermark только после re-download/signature/hash verification. Application keys находятся в encrypted signed bundle; plaintext temp закрыт `0700/0600` и очищается trap/startup recovery. Raft directories — только forensic material.
 
-Backup шифруется до существующего Yandex Object Storage. Retention не может быть
+Backup шифруется до существующего Yandex Object Storage. Legacy JSON/SSH backup units запрещены в rqlite mode и конфликтуют с HA worker. Retention не может быть
 хуже текущей on-change/hourly политики. Целевой RPO — не более 1 часа; RTO
 измеряется restore drill и публикуется владельцу, а не обещается без измерения.
 Пустой 3-node restore drill обязателен регулярно и перед cutover.
