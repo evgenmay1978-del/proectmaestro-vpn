@@ -55,7 +55,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -92,7 +91,6 @@ import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.base.UiEvent
 import com.maestrovpn.tv.compose.base.rememberApplyServiceChangeNotifier
-import com.maestrovpn.tv.compose.component.UpdateAvailableDialog
 import com.maestrovpn.tv.compose.topbar.OverrideTopBar
 import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.Settings
@@ -103,7 +101,6 @@ import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
 import com.maestrovpn.tv.vendor.Vendor
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
@@ -153,10 +150,6 @@ fun AppSettingsScreen(
     var isVerifyingMethod by remember { mutableStateOf(false) }
     var silentInstallError by remember { mutableStateOf<String?>(null) }
 
-    var showDownloadDialog by remember { mutableStateOf(false) }
-    var downloadJob by remember { mutableStateOf<Job?>(null) }
-    var downloadError by remember { mutableStateOf<String?>(null) }
-    var showUpdateAvailableDialog by remember { mutableStateOf(false) }
     var showVersionMenu by remember { mutableStateOf(false) }
 
     var notificationEnabled by remember { mutableStateOf(true) }
@@ -265,61 +258,6 @@ fun AppSettingsScreen(
         )
     }
 
-    if (showDownloadDialog) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(stringResource(R.string.update)) },
-            text = {
-                Column {
-                    if (downloadError != null) {
-                        Text(
-                            downloadError!!,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    } else {
-                        val progress by UpdateState.downloadProgress
-                        // Capture ONCE — same deferred-snapshot-read NPE fixed in MainActivity:
-                        // `{ progress!! }` re-reads the delegate at draw time, and downloadProgress
-                        // goes null mid-stream (unknown Content-Length) / on reset → `!!` crashed.
-                        val p = progress
-                        // Same three honest states as MainActivity — see UpdateState.Phase.
-                        val ph by UpdateState.phase
-                        Column {
-                            val label = stringResource(UpdateState.phaseLabelRes(ph))
-                            if (ph == UpdateState.Phase.Downloading && p != null) {
-                                Text("$label ${(p * 100).toInt()}%")
-                            } else {
-                                Text(label)
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            if (ph == UpdateState.Phase.Downloading && p != null) {
-                                LinearProgressIndicator(
-                                    progress = { p },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            } else {
-                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        downloadJob?.cancel()
-                        downloadJob = null
-                        showDownloadDialog = false
-                        downloadError = null
-                        UpdateState.resetDownload()
-                    },
-                ) {
-                    Text(stringResource(if (downloadError != null) R.string.ok else android.R.string.cancel))
-                }
-            },
-        )
-    }
-
     if (showInstallMethodMenu) {
         InstallMethodDialog(
             currentMethod = silentInstallMethod,
@@ -397,30 +335,6 @@ fun AppSettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showDisableNotificationDialog = false }) {
                     Text(stringResource(android.R.string.cancel))
-                }
-            },
-        )
-    }
-
-    if (showUpdateAvailableDialog && updateInfo != null) {
-        UpdateAvailableDialog(
-            updateInfo = updateInfo!!,
-            // Открыто пользователем вручную — оба пути просто закрывают окно, версию не гасим.
-            onHide = { showUpdateAvailableDialog = false },
-            onDecline = { showUpdateAvailableDialog = false },
-            onUpdate = {
-                showDownloadDialog = true
-                downloadError = null
-                downloadJob = scope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            Vendor.downloadAndInstall(context, updateInfo!!.downloadUrl)
-                        }
-                        showDownloadDialog = false
-                    } catch (e: Exception) {
-                        Log.e("AppSettingsScreen", "Error downloading update", e)
-                        downloadError = e.message
-                    }
                 }
             },
         )
@@ -1226,24 +1140,27 @@ fun AppSettingsScreen(
                                 // (clickable(enabled = !isChecking)) до перезапуска приложения.
                                 UpdateState.isChecking.value = true
                                 try {
-                                    withContext(Dispatchers.IO) {
-                                        try {
-                                            val result = Vendor.checkUpdateAsync()
-                                            UpdateState.setUpdate(result)
-                                            if (result == null) {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching { Vendor.checkUpdateAsync() }
+                                    }
+                                    result.fold(
+                                        onSuccess = { info ->
+                                            if (info == null) {
+                                                UpdateState.applyUpdateCheckResult(Result.success(null))
                                                 showErrorDialog = context.getString(R.string.no_updates_available)
                                             } else {
-                                                showUpdateAvailableDialog = true
+                                                UpdateState.requestUpdatePrompt(info, forced = true)
                                             }
-                                        } catch (_: UpdateCheckException.TrackNotSupported) {
-                                            UpdateState.setUpdate(null)
-                                            showErrorDialog = context.getString(R.string.update_track_not_supported)
-                                        } catch (e: Exception) {
-                                            Log.e("AppSettingsScreen", "checkUpdateAsync failed", e)
-                                            UpdateState.setUpdate(null)
-                                            showErrorDialog = e.message
-                                        }
-                                    }
+                                        },
+                                        onFailure = { error ->
+                                            if (error is UpdateCheckException.TrackNotSupported) {
+                                                showErrorDialog = context.getString(R.string.update_track_not_supported)
+                                            } else {
+                                                Log.e("AppSettingsScreen", "checkUpdateAsync failed", error)
+                                                showErrorDialog = error.message
+                                            }
+                                        },
+                                    )
                                 } finally {
                                     UpdateState.isChecking.value = false
                                 }
@@ -1280,7 +1197,9 @@ fun AppSettingsScreen(
                         Modifier
                             .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
                             .clickable {
-                                showUpdateAvailableDialog = true
+                                updateInfo?.let { info ->
+                                    UpdateState.requestUpdatePrompt(info, forced = true)
+                                }
                             },
                         colors =
                         ListItemDefaults.colors(

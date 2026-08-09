@@ -8,8 +8,11 @@ import com.maestrovpn.tv.database.Settings
 import java.io.File
 
 object UpdateState {
+    private val promptCoordinator = UpdatePromptCoordinator()
+
     val hasUpdate = mutableStateOf(false)
     val updateInfo = mutableStateOf<UpdateInfo?>(null)
+    internal val promptRequest = mutableStateOf<UpdatePromptRequest?>(null)
     val isChecking = mutableStateOf(false)
 
     val isDownloading = mutableStateOf(false)
@@ -48,9 +51,48 @@ object UpdateState {
     val pendingConfirmIntent = mutableStateOf<android.content.Intent?>(null)
 
     fun setUpdate(info: UpdateInfo?) {
-        updateInfo.value = info
-        hasUpdate.value = info != null
-        saveToCache(info)
+        applyUpdateCheckResult(Result.success(info))
+    }
+
+    internal fun applyUpdateCheckResult(result: Result<UpdateInfo?>) {
+        promptCoordinator.applyUpdateCheckResult(result)
+        syncPromptState()
+    }
+
+    internal fun requestUpdatePrompt(info: UpdateInfo, forced: Boolean = true): UpdatePromptRequest {
+        val request = promptCoordinator.requestUpdatePrompt(info, forced)
+        syncPromptState()
+        return request
+    }
+
+    internal fun clearUpdatePrompt(sequence: Long): Boolean {
+        val cleared = promptCoordinator.clearUpdatePrompt(sequence)
+        syncPromptState()
+        return cleared
+    }
+
+    internal fun beginUpdateAttempt(offer: UpdatePromptOffer): UpdateAttempt? {
+        val attempt = promptCoordinator.beginAttempt(offer)
+        syncPromptState()
+        return attempt
+    }
+
+    internal fun completeUpdateAttempt(attemptId: Long): Boolean {
+        val completed = promptCoordinator.completeAttempt(attemptId)
+        syncPromptState()
+        return completed
+    }
+
+    internal fun cancelUpdateAttempt(attemptId: Long): Boolean {
+        val cancelled = promptCoordinator.cancelAttempt(attemptId)
+        syncPromptState()
+        return cancelled
+    }
+
+    internal fun retryFailedUpdateAttempt(attemptId: Long): UpdatePromptRequest? {
+        val request = promptCoordinator.retryFailedAttempt(attemptId)
+        syncPromptState()
+        return request
     }
 
     fun setInstallStatus(status: InstallStatus) {
@@ -72,8 +114,8 @@ object UpdateState {
     }
 
     fun clear() {
-        hasUpdate.value = false
-        updateInfo.value = null
+        promptCoordinator.clearAll()
+        syncPromptState(saveCache = false)
         isDownloading.value = false
         downloadProgress.value = null
         downloadError.value = null
@@ -101,8 +143,8 @@ object UpdateState {
             return
         }
 
-        updateInfo.value = info
-        hasUpdate.value = true
+        promptCoordinator.applyUpdateCheckResult(Result.success(info))
+        syncPromptState(saveCache = false)
 
         val apkPath = Settings.cachedApkPath
         if (apkPath.isNotBlank()) {
@@ -119,6 +161,14 @@ object UpdateState {
         Settings.cachedUpdateInfo = info?.toJson() ?: ""
     }
 
+    private fun syncPromptState(saveCache: Boolean = true) {
+        val info = promptCoordinator.candidate
+        updateInfo.value = info
+        hasUpdate.value = info != null
+        promptRequest.value = promptCoordinator.pendingRequest
+        if (saveCache) saveToCache(info)
+    }
+
     fun saveApkPath(file: File) {
         Settings.cachedApkPath = file.absolutePath
         cachedApkFile.value = file
@@ -127,6 +177,5 @@ object UpdateState {
     private fun clearCache() {
         Settings.cachedUpdateInfo = ""
         Settings.cachedApkPath = ""
-        Settings.lastShownUpdateVersion = 0
     }
 }

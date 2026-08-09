@@ -15,34 +15,20 @@ import com.maestrovpn.tv.update.UpdateSource
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
 import com.maestrovpn.tv.update.checkFDroidUpdate
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 object Vendor : VendorInterface {
     private const val TAG = "Vendor"
-
-    // Lives for the app lifetime — drives the manual-update download off the UI thread.
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun checkUpdate(activity: Activity, byUser: Boolean) {
         try {
             val updateInfo = checkUpdateAsync()
             if (updateInfo != null) {
-                // Publish THIS offer as the authoritative one before any download: ApkDownloader
-                // verifies size/sha256 against UpdateState.updateInfo, and a stale entry from an
-                // earlier check (e.g. the GitHub fallback with a different URL/size) makes every
-                // completed download fail verification → delete → re-download, up to 8 full passes.
-                // Mark it as already-shown first — we present our own dialog right below, and
-                // setUpdate() would otherwise ALSO trigger MainActivity's Compose update dialog.
-                Settings.lastShownUpdateVersion = maxOf(Settings.lastShownUpdateVersion, updateInfo.versionCode)
-                UpdateState.setUpdate(updateInfo)
                 activity.runOnUiThread {
-                    showUpdateDialog(activity, updateInfo)
+                    if (byUser) {
+                        UpdateState.requestUpdatePrompt(updateInfo, forced = true)
+                    } else {
+                        UpdateState.applyUpdateCheckResult(Result.success(updateInfo))
+                    }
                 }
             } else if (byUser) {
                 activity.runOnUiThread {
@@ -61,83 +47,6 @@ object Vendor : VendorInterface {
             if (byUser) {
                 activity.runOnUiThread {
                     showNoUpdatesDialog(activity)
-                }
-            }
-        }
-    }
-
-    private fun showUpdateDialog(activity: Activity, updateInfo: UpdateInfo) {
-        val message = buildString {
-            append(activity.getString(R.string.new_version_available, updateInfo.versionName))
-            if (!updateInfo.releaseNotes.isNullOrBlank()) {
-                append("\n\n")
-                append(updateInfo.releaseNotes.take(500))
-                if (updateInfo.releaseNotes.length > 500) {
-                    append("...")
-                }
-            }
-        }
-
-        MaterialAlertDialogBuilder(activity)
-            .setTitle(R.string.check_update)
-            .setMessage(message)
-            .setPositiveButton(R.string.update) { _, _ ->
-                startInPlaceInstall(activity, updateInfo)
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
-    }
-
-    /**
-     * Download the APK and install it IN PLACE via the system package installer (the same
-     * flow the automatic update uses) — instead of opening the release URL in a browser,
-     * which on a phone just saves the APK as a file the user has to find and install by
-     * hand. On a TV / privileged device this is silent; on a normal phone the system shows
-     * its "обновить?" prompt, then updates the app in place.
-     */
-    private fun startInPlaceInstall(activity: Activity, updateInfo: UpdateInfo) {
-        val progress = MaterialAlertDialogBuilder(activity)
-            .setTitle(R.string.update)
-            .setMessage(activity.getString(R.string.downloading))
-            .setCancelable(false)
-            .create()
-        runCatching { progress.show() }
-        UpdateState.resetDownload()
-        scope.launch {
-            val ticker = launch {
-                while (isActive) {
-                    // Non-Compose twin of MainActivity's progress dialog — same three honest
-                    // states (see UpdateState.Phase). The old text said «Загрузка обновления…»
-                    // right through the install and the 4-minute confirm wait; the percentage
-                    // belongs to the download alone.
-                    val ph = UpdateState.phase.value
-                    val base = activity.getString(UpdateState.phaseLabelRes(ph))
-                    val pct = UpdateState.downloadProgress.value
-                    val msg = if (ph == UpdateState.Phase.Downloading && pct != null) {
-                        "$base ${(pct * 100).toInt()}%"
-                    } else {
-                        base
-                    }
-                    runCatching { progress.setMessage(msg) }
-                    delay(400)
-                }
-            }
-            try {
-                withContext(Dispatchers.IO) {
-                    downloadAndInstall(activity, updateInfo.downloadUrl)
-                }
-                ticker.cancel()
-                runCatching { progress.dismiss() }
-            } catch (e: Exception) {
-                Log.e(TAG, "in-place update failed", e)
-                ticker.cancel()
-                runCatching { progress.dismiss() }
-                runCatching {
-                    MaterialAlertDialogBuilder(activity)
-                        .setTitle(R.string.check_update)
-                        .setMessage(e.message ?: "Не удалось установить обновление")
-                        .setPositiveButton(R.string.ok, null)
-                        .show()
                 }
             }
         }

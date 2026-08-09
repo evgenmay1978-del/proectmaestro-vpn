@@ -88,12 +88,30 @@ class UpdatePromptPolicyTest {
         val offer = UpdatePromptOffer(original.info, original.sequence, forced = true)
         val attempt = coordinator.beginAttempt(offer)!!
 
+        assertNull(coordinator.pendingRequest)
         val retry = coordinator.retryFailedAttempt(attempt.id)!!
 
         assertTrue(retry.sequence > original.sequence)
         assertSame(attempt.offer.info, retry.info)
         assertTrue(retry.forced)
         assertEquals(retry, coordinator.pendingRequest)
+        assertNull(coordinator.activeAttempt)
+    }
+
+    @Test
+    fun failedOldAttemptPreservesANewerPendingRequest() {
+        val coordinator = UpdatePromptCoordinator()
+        val original = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
+        val attempt = coordinator.beginAttempt(
+            UpdatePromptOffer(original.info, original.sequence, forced = true),
+        )!!
+        val newer = coordinator.requestUpdatePrompt(updateInfo(155), forced = true)
+
+        val next = coordinator.retryFailedAttempt(attempt.id)
+
+        assertEquals(newer, next)
+        assertEquals(newer, coordinator.pendingRequest)
+        assertEquals(155, coordinator.candidate?.versionCode)
         assertNull(coordinator.activeAttempt)
     }
 
@@ -122,10 +140,11 @@ class UpdatePromptPolicyTest {
 
         val second = coordinator.requestUpdatePrompt(updateInfo(155), forced = true)
         val attemptTwo = coordinator.beginAttempt(UpdatePromptOffer(second.info, second.sequence, true))!!
+        val newest = coordinator.requestUpdatePrompt(updateInfo(156), forced = true)
 
         assertFalse(coordinator.completeAttempt(attemptOne.id))
         assertEquals(attemptTwo, coordinator.activeAttempt)
-        assertEquals(second, coordinator.pendingRequest)
+        assertEquals(newest, coordinator.pendingRequest)
         assertEquals(155, coordinator.candidate?.versionCode)
     }
 
