@@ -173,21 +173,34 @@ class UpdatePromptPolicyTest {
     }
 
     @Test
-    fun manualPromptGatewayDoesNotAdvanceLastShownBeforeUserAction() {
+    fun promptGatewayPersistsOnlyExplicitDecline() {
         val coordinator = UpdatePromptCoordinator()
-        val currentLastShown = 154
-
-        val request = coordinator.requestUpdatePrompt(updateInfo(154), forced = true)
-
-        assertEquals(154, currentLastShown)
-        assertEquals(
-            currentLastShown,
-            lastShownVersionAfterPromptAction(
-                currentLastShown,
-                request.versionCode,
-                UpdatePromptAction.Hide,
-            ),
+        var persistedVersion = 153
+        val writes = mutableListOf<Int>()
+        val gateway = UpdatePromptGateway(
+            coordinator = coordinator,
+            readLastShownVersion = { persistedVersion },
+            writeLastShownVersion = { version ->
+                persistedVersion = version
+                writes += version
+            },
         )
+
+        val request = gateway.publishManual(
+            updateInfo(154),
+            provenance = UpdatePromptProvenance.VendorManual,
+        )
+        gateway.applyAction(154, UpdatePromptAction.Hide)
+        gateway.applyAction(154, UpdatePromptAction.InstallFailed)
+
+        assertEquals(UpdatePromptProvenance.VendorManual, request.provenance)
+        assertTrue(writes.isEmpty())
+        assertEquals(153, persistedVersion)
+
+        gateway.applyAction(154, UpdatePromptAction.Decline)
+
+        assertEquals(listOf(154), writes)
+        assertEquals(154, persistedVersion)
     }
 
     @Test
@@ -207,6 +220,65 @@ class UpdatePromptPolicyTest {
         val forcedOffer = UpdatePromptSession().nextOffer(info, lastShownVersion = 154, pendingRequest = forced)
         assertEquals(9L, forcedOffer?.requestSequence)
         assertTrue(forcedOffer?.forced == true)
+    }
+
+    @Test
+    fun promptProvenanceDerivesForcedEligibility() {
+        assertFalse(UpdatePromptProvenance.Automatic.isForced)
+        assertTrue(UpdatePromptProvenance.VendorManual.isForced)
+        assertTrue(UpdatePromptProvenance.SettingsManual.isForced)
+        assertTrue(UpdatePromptProvenance.ErrorRetry.isForced)
+    }
+
+    @Test
+    fun recreatedSessionDoesNotOfferOrSuppressWhileBackgroundAttemptIsActive() {
+        val coordinator = UpdatePromptCoordinator()
+        val cached = updateInfo(154)
+        coordinator.applyUpdateCheckResult(Result.success(cached))
+        val backgroundAttempt = coordinator.beginBackgroundAttempt(cached)!!
+        val forcedRequest = coordinator.requestUpdatePrompt(
+            updateInfo(155),
+            provenance = UpdatePromptProvenance.SettingsManual,
+        )
+        val recreated = UpdatePromptSession()
+
+        assertNull(
+            recreated.nextOffer(
+                candidate = coordinator.candidate,
+                lastShownVersion = 153,
+                pendingRequest = forcedRequest,
+                activeAttempt = coordinator.activeAttempt,
+            ),
+        )
+        assertNull(recreated.activeOffer)
+
+        assertTrue(coordinator.completeAttempt(backgroundAttempt.id))
+        val recovered = recreated.nextOffer(
+            candidate = coordinator.candidate,
+            lastShownVersion = 153,
+            pendingRequest = coordinator.pendingRequest,
+            activeAttempt = coordinator.activeAttempt,
+        )
+
+        assertEquals(155, recovered?.info?.versionCode)
+        assertEquals(UpdatePromptProvenance.SettingsManual, recovered?.provenance)
+    }
+
+    @Test
+    fun backgroundAttemptCannotReplaceAnActiveUiAttemptOrItsVerifierCandidate() {
+        val coordinator = UpdatePromptCoordinator()
+        val uiInfo = updateInfo(154)
+        val uiRequest = coordinator.requestUpdatePrompt(
+            uiInfo,
+            provenance = UpdatePromptProvenance.VendorManual,
+        )
+        val uiAttempt = coordinator.beginAttempt(
+            UpdatePromptOffer(uiRequest.info, uiRequest.sequence, uiRequest.provenance),
+        )!!
+
+        assertNull(coordinator.beginBackgroundAttempt(updateInfo(155)))
+        assertSame(uiAttempt, coordinator.activeAttempt)
+        assertSame(uiInfo, coordinator.candidate)
     }
 
     private fun updateInfo(versionCode: Int) = UpdateInfo(
