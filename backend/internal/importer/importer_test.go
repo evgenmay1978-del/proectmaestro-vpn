@@ -315,6 +315,20 @@ func TestEncryptedSecretIdentityCollisionIsBlocking(t *testing.T) {
 	}
 }
 
+func TestTrialIdentityCollisionIsBlocking(t *testing.T) {
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	first := legacyTrialFixture()
+	conflicting := first
+	conflicting.SourceKey = "legacy-trial-conflict"
+	conflicting.CurrentHMAC = strings.Repeat("4", 64)
+	snapshot.Trials = []LegacyTrial{first, conflicting}
+
+	_, report := Plan(snapshot, testPlanOptions())
+	if !hasBlockerCode(report.Blockers, "trial_identity_collision") {
+		t.Fatalf("trial identity collision blockers = %#v", report.Blockers)
+	}
+}
+
 func TestRequiredSettingsPrincipalsAndEncryptedSecretsArePreserved(t *testing.T) {
 	snapshot := decodeFixture(t, "settings-principals-v1.json")
 	plan, report := Plan(snapshot, testPlanOptions())

@@ -391,6 +391,101 @@ WHERE audit_digest=?`, Args: []any{snapshot.BotCredentialRotations[0].AuditDiges
 	}
 }
 
+func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
+	db, err := rqlite.New(rqlite.Config{
+		Endpoints: []string{
+			"http://127.0.0.1:4401",
+			"http://127.0.0.1:4403",
+			"http://127.0.0.1:4405",
+		},
+		Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("rqlite.New: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	trial := legacyTrialFixture()
+	trial.SourceKey = "integration-legacy-trial-v1"
+	trial.LegacyAnchorHMAC = strings.Repeat("9", 64)
+	trial.CurrentHMAC = strings.Repeat("a", 64)
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	snapshot.Trials = []LegacyTrial{trial}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected trial blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	selected := make([]ApplyOperation, 0, 1)
+	for _, operation := range operations {
+		if operation.Entity == "trial" {
+			selected = append(selected, operation)
+		}
+	}
+	if len(selected) != 1 {
+		t.Fatalf("trial operations = %#v", selected)
+	}
+	batch := ApplyBatch{
+		RunID: "importer-integration-protected-trial-v1", PlanDigest: plan.PlanDigest, Index: 0,
+		Digest: digestBatch(selected), Operations: selected,
+	}
+	protection := protectedTrialImportFixture()
+	store, err := NewRQLiteApplyStoreWithTrialProtection(
+		db, func() time.Time { return time.Unix(1_500_000, 0) }, protection,
+	)
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStoreWithTrialProtection: %v", err)
+	}
+	if _, err := store.BeginOrResume(ctx, ApplyRun{
+		RunID: batch.RunID, SnapshotKind: "full", SourceDigest: plan.SourceDigest,
+		PlanDigest: plan.PlanDigest, BatchCount: 1,
+	}); err != nil {
+		t.Fatalf("trial BeginOrResume: %v", err)
+	}
+	receipt, err := store.CommitBatch(ctx, batch)
+	if err != nil {
+		t.Fatalf("trial CommitBatch: %v", err)
+	}
+	if receipt.Digest != batch.Digest {
+		t.Fatalf("trial receipt = %#v", receipt)
+	}
+
+	results, err := db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT owner_type,owner_source_key,field,kind,key_version,secret_sha256
+FROM imported_secrets WHERE secret_id='legacy-trial-salt-v1'`},
+		rqlite.Statement{SQL: `SELECT legacy_anchor_hmac,current_hmac,used,expires_at_unix,lookup_secret_id
+FROM imported_trial_identities WHERE source_key=?`, Args: []any{trial.SourceKey}},
+		rqlite.Statement{SQL: `SELECT batch_digest,status FROM import_batches
+WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
+	)
+	if err != nil {
+		t.Fatalf("verify protected trial rows: %v", err)
+	}
+	if len(results) != 3 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 || len(results[2].Rows) != 1 {
+		t.Fatalf("protected trial results = %#v", results)
+	}
+	if results[0].Rows[0]["owner_type"] != "trial_lookup" ||
+		results[0].Rows[0]["owner_source_key"] != "legacy" ||
+		results[0].Rows[0]["field"] != "salt" || results[0].Rows[0]["kind"] != "hmac-key" ||
+		!rqliteIntegerEquals(results[0].Rows[0]["key_version"], 1) ||
+		results[0].Rows[0]["secret_sha256"] != protection.SaltSHA256 ||
+		results[1].Rows[0]["legacy_anchor_hmac"] != trial.LegacyAnchorHMAC ||
+		results[1].Rows[0]["current_hmac"] != trial.CurrentHMAC ||
+		!rqliteIntegerEquals(results[1].Rows[0]["used"], 0) ||
+		!rqliteIntegerEquals(results[1].Rows[0]["expires_at_unix"], trial.ExpiresAtUnix) ||
+		results[1].Rows[0]["lookup_secret_id"] != "legacy-trial-salt-v1" ||
+		results[2].Rows[0]["batch_digest"] != batch.Digest || results[2].Rows[0]["status"] != "applied" {
+		t.Fatalf("protected trial verification mismatch: %#v", results)
+	}
+}
+
 func rqliteIntegerEquals(value any, want int64) bool {
 	got, ok := applyRowInt(value)
 	return ok && got == want

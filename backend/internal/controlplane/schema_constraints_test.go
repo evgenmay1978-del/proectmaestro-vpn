@@ -356,6 +356,68 @@ func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
 	})
 }
 
+func TestImportSchemaPreservesProtectedLegacyTrialIdentity(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	secretID := "schema-legacy-trial-salt-v1"
+	envelope := `{"key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"cHJvdGVjdGVkLXRyaWFsLXNhbHQ="}`
+	saltSHA := repeatHex("8")
+	legacyHMAC := repeatHex("2")
+	currentHMAC := repeatHex("3")
+
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO imported_secrets(
+			secret_id,owner_type,owner_source_key,field,kind,key_version,
+			secret_envelope,secret_sha256,imported_at_unix
+		) VALUES(?,?,?,?,?,?,?,?,?)
+	`, Args: []any{
+		secretID, "trial_lookup", "schema-legacy", "salt", "hmac-key", 1,
+		envelope, saltSHA, 1_000_000,
+	}})
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO imported_trial_identities(
+			source_key,legacy_anchor_hmac,current_hmac,used,expires_at_unix,
+			lookup_secret_id,imported_at_unix
+		) VALUES(?,?,?,?,?,?,?)
+	`, Args: []any{
+		"schema-trial-source", legacyHMAC, currentHMAC, 0, 2_000_000,
+		secretID, 1_000_000,
+	}})
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT legacy_anchor_hmac,current_hmac,used,expires_at_unix,lookup_secret_id
+		FROM imported_trial_identities WHERE source_key=?
+	`, Args: []any{"schema-trial-source"}})
+	if len(result.Rows) != 1 ||
+		result.Rows[0]["legacy_anchor_hmac"] != legacyHMAC ||
+		result.Rows[0]["current_hmac"] != currentHMAC ||
+		!rqliteIntegerEquals(result.Rows[0]["used"], 0) ||
+		!rqliteIntegerEquals(result.Rows[0]["expires_at_unix"], 2_000_000) ||
+		result.Rows[0]["lookup_secret_id"] != secretID {
+		t.Fatalf("protected trial identity = %#v", result.Rows)
+	}
+
+	mustRequest(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_trial_identities SET used=1 WHERE source_key=?",
+		Args: []any{"schema-trial-source"},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_trial_identities SET used=0 WHERE source_key=?",
+		Args: []any{"schema-trial-source"},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_trial_identities SET legacy_anchor_hmac=? WHERE source_key=?",
+		Args: []any{repeatHex("4"), "schema-trial-source"},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_trial_identities SET current_hmac=? WHERE source_key=?",
+		Args: []any{repeatHex("5"), "schema-trial-source"},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_trial_identities SET expires_at_unix=? WHERE source_key=?",
+		Args: []any{2_000_001, "schema-trial-source"},
+	})
+}
+
 func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	t.Helper()
 	columns := make([]string, 0, len(result.Rows))

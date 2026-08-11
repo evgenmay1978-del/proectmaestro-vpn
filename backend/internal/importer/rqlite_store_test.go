@@ -668,6 +668,121 @@ func TestRQLiteApplyStoreCommitsStandaloneEncryptedSecretAsTypedRow(t *testing.T
 	}
 }
 
+func TestRQLiteApplyStoreRequiresProtectedTrialSalt(t *testing.T) {
+	batch := canonicalTrialBatch(t)
+	db := &applyStoreRQLite{}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err == nil ||
+		!strings.Contains(err.Error(), "protected legacy trial salt is required") {
+		t.Fatalf("CommitBatch trial without protected salt error = %v", err)
+	}
+	if len(db.requests) != 0 {
+		t.Fatalf("trial without protected salt wrote %d requests", len(db.requests))
+	}
+}
+
+func TestRQLiteApplyStoreCommitsTrialWithProtectedSaltAsTypedRows(t *testing.T) {
+	batch := canonicalTrialBatch(t)
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}},
+		receiptQueryResult(batch),
+	}}
+	protection := protectedTrialImportFixture()
+	store, err := NewRQLiteApplyStoreWithTrialProtection(
+		db, func() time.Time { return time.Unix(1_500_000, 0) }, protection,
+	)
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStoreWithTrialProtection: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch trial: %v", err)
+	}
+	if len(db.requests) != 1 {
+		t.Fatalf("trial request count = %d", len(db.requests))
+	}
+
+	wantSaltArgs := []any{
+		"legacy-trial-salt-v1", "trial_lookup", "legacy", "salt", "hmac-key",
+		1, protection.EncryptedSaltEnvelope, protection.SaltSHA256, int64(1_500_000),
+		batch.RunID, batch.Index, batch.Digest,
+	}
+	trial := legacyTrialFixture()
+	wantTrialArgs := []any{
+		trial.SourceKey, trial.LegacyAnchorHMAC, trial.CurrentHMAC, 0,
+		trial.ExpiresAtUnix, "legacy-trial-salt-v1", int64(1_500_000),
+		batch.RunID, batch.Index, batch.Digest,
+	}
+	foundSalt, foundTrial := false, false
+	for _, statement := range db.requests[0].statements {
+		sqlText := strings.ToLower(statement.SQL)
+		if strings.Contains(sqlText, "canonical_import_rows") || strings.Contains(sqlText, "canonical_json") {
+			t.Fatalf("trial used generic staging: %s", statement.SQL)
+		}
+		switch {
+		case strings.Contains(sqlText, "insert into imported_secrets"):
+			foundSalt = true
+			if fmt.Sprint(statement.Args) != fmt.Sprint(wantSaltArgs) {
+				t.Fatalf("protected trial salt args = %v, want %v", statement.Args, wantSaltArgs)
+			}
+		case strings.Contains(sqlText, "insert into imported_trial_identities"):
+			foundTrial = true
+			if fmt.Sprint(statement.Args) != fmt.Sprint(wantTrialArgs) {
+				t.Fatalf("trial identity args = %v, want %v", statement.Args, wantTrialArgs)
+			}
+		}
+	}
+	if !foundSalt || !foundTrial {
+		t.Fatalf("typed trial writes = salt:%t trial:%t", foundSalt, foundTrial)
+	}
+}
+
+func canonicalTrialBatch(t *testing.T) ApplyBatch {
+	t.Helper()
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	snapshot.Trials = []LegacyTrial{legacyTrialFixture()}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	for _, operation := range operations {
+		if operation.Entity == "trial" {
+			batch := ApplyBatch{
+				RunID: "import-run-protected-trial", PlanDigest: plan.PlanDigest, Index: 0,
+				Operations: []ApplyOperation{operation},
+			}
+			batch.Digest = digestBatch(batch.Operations)
+			return batch
+		}
+	}
+	t.Fatal("canonical trial operation is missing")
+	return ApplyBatch{}
+}
+
+func legacyTrialFixture() LegacyTrial {
+	return LegacyTrial{
+		SourceKey: "legacy-trial-owner",
+		LegacyAnchorHMAC: strings.Repeat("2", 64),
+		CurrentHMAC: strings.Repeat("3", 64),
+		Used: false,
+		ExpiresAtUnix: 2_000_000,
+	}
+}
+
+func protectedTrialImportFixture() TrialImportProtection {
+	return TrialImportProtection{
+		KeyVersion: 1,
+		EncryptedSaltEnvelope: `{"key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"cHJvdGVjdGVkLXRyaWFsLXNhbHQ="}`,
+		SaltSHA256: strings.Repeat("8", 64),
+	}
+}
+
 func standaloneEncryptedSecret() LegacyEncryptedSecret {
 	return LegacyEncryptedSecret{
 		SecretID: "secret-standalone-wb",

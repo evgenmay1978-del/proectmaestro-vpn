@@ -2413,3 +2413,40 @@ tombstones/deletes; Task 6 и production import всё ещё не заверш�
 Typed owner-bound standalone `encrypted_secret`, затем `trial` с отдельным
 protected legacy salt input и typed tombstones/deletes. Task 6 и production
 import всё ещё не завершены.
+
+## HA control plane: Task 6 standalone encrypted secret checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `f531f50402f9e55eaa9411fea54150fc722c8eaf`; run
+  `31514231930`, job `93855254096` доказал отсутствие owner collision blocker
+  и unsupported `encrypted_secret` в apply store.
+- Production GREEN commit `78840d74090416ca6ac981e5a75d5d340ee5ed26`.
+- Run `31514646876`, job `93856641018`: formatting, unit, race, vet и harness
+  прошли; integration обнаружил только конфликт одинакового тестового owner
+  tuple между пакетами на общем CI rqlite-кластере.
+- Test-only isolation commit `4f67220d9b0846479256475261c151d6c56fc3d9`.
+- Final GREEN run `31515049920`, job `93857990043`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Standalone legacy secret хранится только в typed `imported_secrets` с
+  уникальным owner tuple `(owner_type, owner_source_key, field)`.
+- Сохраняются encrypted envelope, SHA-256 и key version; plaintext secret в
+  snapshot/report/typed SQL не появляется.
+- Secret row immutable и undeletable; exact retry идемпотентен, а подмена
+  owner/envelope/hash/version атомарно блокируется.
+- Таблица включена в deterministic business digest; real rqlite E2E проверяет
+  exact typed row и durable batch receipt.
+
+### Следующий безопасный шаг
+
+Отдельный RED -> GREEN `trial`: current и legacy HMAC сохраняются в typed
+identity row, а legacy trial salt принимается только отдельным защищённым
+входом и хранится как encrypted key-version-1 secret. Затем остаются typed
+tombstones/deletes; Task 6 и production import всё ещё не завершены.
