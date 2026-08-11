@@ -30,7 +30,9 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		t.Fatalf("migrate schema: %v", err)
 	}
 
-	plan, report := Plan(decodeFixture(t, "orders-pending-credited.json"), testPlanOptions())
+	snapshot := decodeFixture(t, "orders-pending-credited.json")
+	snapshot.Orders[0].PaymentCode = "MCRD-RQLITE-E2E"
+	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
 		t.Fatalf("unexpected blockers: %#v", report.Blockers)
 	}
@@ -98,7 +100,7 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		t.Fatalf("verification results = %#v", results)
 	}
 	if results[0].Rows[0]["display_login"] != "OrderOwner" ||
-		results[1].Rows[0]["payment_code"] != "MCRD1" ||
+		results[1].Rows[0]["payment_code"] != "MCRD-RQLITE-E2E" ||
 		results[2].Rows[0]["batch_digest"] != batch.Digest ||
 		results[2].Rows[0]["status"] != "applied" ||
 		results[3].Rows[0]["target_sha256"] != target.BusinessDigest ||
