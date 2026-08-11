@@ -8,6 +8,15 @@ import (
 	"sort"
 )
 
+type customerApplyPayload struct {
+	Customer       PlannedCustomer       `json:"customer"`
+	IdentitySecret LegacyEncryptedSecret `json:"identity_secret"`
+}
+
+type orderApplyPayload struct {
+	Order PlannedOrder `json:"order"`
+}
+
 func Apply(ctx context.Context, store ApplyStore, plan ImportPlan, options ApplyOptions) (ApplyResult, error) {
 	if len(plan.Blockers) != 0 {
 		return ApplyResult{}, ErrBlockedPlan
@@ -115,13 +124,27 @@ func planOperations(plan ImportPlan) ([]ApplyOperation, error) {
 		operations = append(operations, ApplyOperation{Entity: entity, Key: key, CanonicalJSON: encoded})
 		return nil
 	}
+	secretsByID := make(map[string]LegacyEncryptedSecret, len(plan.EncryptedSecrets))
+	for _, secret := range plan.EncryptedSecrets {
+		secretsByID[secret.SecretID] = secret
+	}
+	consumedSecrets := make(map[string]struct{}, len(plan.EncryptedSecrets))
 	for _, value := range plan.Customers {
-		if err := appendJSON("customer", value.SourceKey, value); err != nil {
+		secret, exists := secretsByID[value.IdentitySecretRef]
+		if value.IdentitySecretRef == "" || !exists {
+			return nil, fmt.Errorf("customer operation has no protected identity")
+		}
+		payload := customerApplyPayload{Customer: value, IdentitySecret: secret}
+		if err := appendJSON("customer", value.SourceKey, payload); err != nil {
 			return nil, err
 		}
+		consumedSecrets[secret.SecretID] = struct{}{}
 	}
 	for _, value := range plan.Orders {
-		if err := appendJSON("order", value.SourceKey, value); err != nil {
+		if value.CustomerSourceKey != "" && value.CustomerInternalID == "" {
+			return nil, fmt.Errorf("order operation has no canonical customer identity")
+		}
+		if err := appendJSON("order", value.SourceKey, orderApplyPayload{Order: value}); err != nil {
 			return nil, err
 		}
 	}
@@ -147,6 +170,9 @@ func planOperations(plan ImportPlan) ([]ApplyOperation, error) {
 		}
 	}
 	for _, value := range plan.EncryptedSecrets {
+		if _, consumed := consumedSecrets[value.SecretID]; consumed {
+			continue
+		}
 		if err := appendJSON("encrypted_secret", value.SecretID, value); err != nil {
 			return nil, err
 		}

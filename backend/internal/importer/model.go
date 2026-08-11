@@ -165,6 +165,7 @@ type PlannedCustomer struct {
 type PlannedOrder struct {
 	InternalID          string   `json:"internal_id"`
 	SourceKey           string   `json:"source_key"`
+	CustomerInternalID  string   `json:"customer_internal_id,omitempty"`
 	CustomerSourceKey   string   `json:"customer_source_key"`
 	BuyerScope          string   `json:"buyer_scope"`
 	BuyerKeyHMAC        string   `json:"buyer_key_hmac"`

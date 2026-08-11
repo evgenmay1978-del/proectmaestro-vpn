@@ -166,9 +166,12 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 		BotCredentialRotations: append([]LegacyBotCredentialRotation(nil), snapshot.BotCredentialRotations...),
 	}
 
+	customerInternalIDs := make(map[string]string, len(snapshot.Customers))
 	for _, customer := range snapshot.Customers {
+		internalID := deterministicID(options.Namespace, "customer", customer.SourceKey)
+		customerInternalIDs[customer.SourceKey] = internalID
 		plan.Customers = append(plan.Customers, PlannedCustomer{
-			InternalID:                deterministicID(options.Namespace, "customer", customer.SourceKey),
+			InternalID:                internalID,
 			SourceKey:                 customer.SourceKey,
 			DisplayLogin:              customer.Login,
 			LoginKeyHMAC:              customer.LoginKeyHMAC,
@@ -186,6 +189,7 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 		planned := PlannedOrder{
 			InternalID:        deterministicID(options.Namespace, "order", order.SourceKey),
 			SourceKey:         order.SourceKey,
+			CustomerInternalID: customerInternalIDs[order.CustomerSourceKey],
 			CustomerSourceKey: order.CustomerSourceKey,
 			BuyerScope:        order.BuyerScope,
 			BuyerKeyHMAC:      order.BuyerKeyHMAC,
