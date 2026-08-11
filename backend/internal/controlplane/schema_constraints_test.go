@@ -136,21 +136,21 @@ func TestConstraintPaymentsAndIdempotencyFailClosed(t *testing.T) {
 	mustRequest(t, ctx, db,
 		rqlite.Statement{SQL: `
 			INSERT INTO customers(
-				customer_id,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix
-			) VALUES(?,?,?,?,?,?,?)
-		`, Args: []any{"constraint-customer", repeatHex("a"), "active", 200000, 1, 100000, 100000}},
+				customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix
+			) VALUES(?,?,?,?,?,?,?,?)
+		`, Args: []any{"constraint-customer", "ConstraintCustomer", repeatHex("a"), "active", 200000, 1, 100000, 100000}},
 	)
 
 	insertOrder := func(orderID string, created int64) {
 		t.Helper()
 		mustRequest(t, ctx, db, rqlite.Statement{SQL: `
 			INSERT INTO orders(
-				order_id,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
+				order_id,payment_code,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
 				amount_minor,currency,duration_days,created_at_unix,expires_at_unix,
 				payment_state,provisioning_state,operation_id
-			) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+			) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		`, Args: []any{
-			orderID, "telegram", repeatHex("b"), "constraint-customer", "tariff_1m_v1",
+			orderID, "CODE-" + orderID, "telegram", repeatHex("b"), "constraint-customer", "tariff_1m_v1",
 			40000, "RUB", 30, created, created + 86400,
 			string(PaymentPending), string(ProvisioningPending), "operation-" + orderID,
 		}})

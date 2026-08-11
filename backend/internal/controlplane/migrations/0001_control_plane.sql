@@ -10,6 +10,7 @@ CREATE TABLE schema_migrations (
 -- maestro:statement
 CREATE TABLE customers (
     customer_id TEXT PRIMARY KEY,
+    display_login TEXT NOT NULL,
     login_key_hmac TEXT NOT NULL UNIQUE CHECK(length(login_key_hmac) = 64),
     status TEXT NOT NULL CHECK(status IN ('active','suspended','expired','deleted')),
     expires_at_unix INTEGER NOT NULL CHECK(expires_at_unix >= 0),
@@ -37,6 +38,8 @@ CREATE TABLE subscription_tokens (
     token_id TEXT PRIMARY KEY,
     customer_id TEXT NOT NULL REFERENCES customers(customer_id) ON DELETE CASCADE,
     token_hmac TEXT NOT NULL UNIQUE CHECK(length(token_hmac) = 64),
+    token_envelope BLOB NOT NULL,
+    token_sha256 TEXT NOT NULL CHECK(length(token_sha256) = 64),
     generation INTEGER NOT NULL CHECK(generation >= 0),
     revoked INTEGER NOT NULL CHECK(revoked IN (0,1)),
     created_at_unix INTEGER NOT NULL CHECK(created_at_unix >= 0),
@@ -71,6 +74,7 @@ CREATE TABLE tariff_versions (
 -- maestro:statement
 CREATE TABLE orders (
     order_id TEXT PRIMARY KEY,
+    payment_code TEXT NOT NULL UNIQUE,
     buyer_scope TEXT NOT NULL,
     buyer_key_hmac TEXT NOT NULL CHECK(length(buyer_key_hmac) = 64),
     customer_id TEXT REFERENCES customers(customer_id) ON DELETE RESTRICT,
@@ -525,7 +529,7 @@ END
 
 -- maestro:statement
 CREATE TRIGGER orders_immutable_terms
-BEFORE UPDATE OF tariff_version_id, amount_minor, currency, duration_days, created_at_unix, expires_at_unix,
+BEFORE UPDATE OF payment_code, tariff_version_id, amount_minor, currency, duration_days, created_at_unix, expires_at_unix,
     buyer_scope, buyer_key_hmac ON orders
 BEGIN
     SELECT RAISE(ABORT, 'order terms are immutable');
