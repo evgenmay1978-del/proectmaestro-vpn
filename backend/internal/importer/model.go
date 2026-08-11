@@ -50,9 +50,18 @@ type LegacyCustomer struct {
 type LegacyOrder struct {
 	SourceKey                   string `json:"source_key"`
 	CustomerSourceKey           string `json:"customer_source_key"`
+	BuyerScope                  string `json:"buyer_scope"`
+	BuyerKeyHMAC                string `json:"buyer_key_hmac"`
+	TariffVersionID             string `json:"tariff_version_id"`
+	AmountMinor                 int64  `json:"amount_minor"`
+	Currency                    string `json:"currency"`
+	DurationDays                int64  `json:"duration_days"`
+	PaymentCode                 string `json:"payment_code"`
+	CreatedAtUnix               int64  `json:"created_at_unix"`
 	State                       string `json:"state"`
 	Credited                    bool   `json:"credited"`
 	StoredCustomerExpiresAtUnix int64  `json:"stored_customer_expires_at_unix"`
+	ResultGeneration            int64  `json:"result_generation"`
 }
 
 type LegacyTrial struct {
@@ -157,10 +166,20 @@ type PlannedOrder struct {
 	InternalID          string   `json:"internal_id"`
 	SourceKey           string   `json:"source_key"`
 	CustomerSourceKey   string   `json:"customer_source_key"`
+	BuyerScope          string   `json:"buyer_scope"`
+	BuyerKeyHMAC        string   `json:"buyer_key_hmac"`
+	TariffVersionID     string   `json:"tariff_version_id"`
+	AmountMinor         int64    `json:"amount_minor"`
+	Currency            string   `json:"currency"`
+	DurationDays        int64    `json:"duration_days"`
+	PaymentCode         string   `json:"payment_code"`
+	CreatedAtUnix       int64    `json:"created_at_unix"`
+	ExpiresAtUnix       int64    `json:"expires_at_unix"`
 	PaymentState        string   `json:"payment_state"`
 	ProvisioningState   string   `json:"provisioning_state"`
 	ImportState         string   `json:"import_state"`
 	ResultExpiresAtUnix int64    `json:"result_expires_at_unix"`
+	ResultGeneration    int64    `json:"result_generation"`
 	AuditMarkers        []string `json:"audit_markers"`
 }
 

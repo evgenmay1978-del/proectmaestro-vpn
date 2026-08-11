@@ -187,6 +187,16 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 			InternalID:        deterministicID(options.Namespace, "order", order.SourceKey),
 			SourceKey:         order.SourceKey,
 			CustomerSourceKey: order.CustomerSourceKey,
+			BuyerScope:        order.BuyerScope,
+			BuyerKeyHMAC:      order.BuyerKeyHMAC,
+			TariffVersionID:   order.TariffVersionID,
+			AmountMinor:       order.AmountMinor,
+			Currency:          order.Currency,
+			DurationDays:      order.DurationDays,
+			PaymentCode:       order.PaymentCode,
+			CreatedAtUnix:     order.CreatedAtUnix,
+			ExpiresAtUnix:     order.CreatedAtUnix + 86400,
+			ResultGeneration:  order.ResultGeneration,
 			ImportState:       order.State,
 		}
 		if order.State == "pending" && order.Credited {
