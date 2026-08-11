@@ -258,6 +258,15 @@ CREATE TABLE tombstone_targets (
 )
 
 -- maestro:statement
+CREATE TABLE telegram_bot_routes (
+    bot_identity_hmac TEXT PRIMARY KEY CHECK(length(bot_identity_hmac) = 64),
+    token_fingerprint_hmac TEXT NOT NULL UNIQUE CHECK(length(token_fingerprint_hmac) = 64),
+    credential_version INTEGER NOT NULL CHECK(credential_version > 0),
+    schema_fingerprint TEXT NOT NULL CHECK(length(schema_fingerprint) > 0),
+    updated_at_unix INTEGER NOT NULL CHECK(updated_at_unix >= 0)
+)
+
+-- maestro:statement
 CREATE TABLE telegram_pollers (
     bot_id TEXT PRIMARY KEY,
     node_id TEXT NOT NULL REFERENCES nodes(node_id) ON DELETE RESTRICT,
@@ -498,6 +507,19 @@ CREATE TABLE health_write_canary (
     written_at_unix INTEGER NOT NULL CHECK(written_at_unix >= 0),
     observed_at_unix INTEGER NOT NULL CHECK(observed_at_unix >= written_at_unix)
 )
+
+-- maestro:statement
+CREATE TRIGGER telegram_bot_routes_monotonic_version
+BEFORE UPDATE ON telegram_bot_routes
+WHEN NEW.credential_version < OLD.credential_version OR (
+    NEW.credential_version = OLD.credential_version AND (
+        NEW.token_fingerprint_hmac <> OLD.token_fingerprint_hmac OR
+        NEW.schema_fingerprint <> OLD.schema_fingerprint
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'telegram bot credential route conflict');
+END
 
 -- maestro:statement
 CREATE TRIGGER tariff_versions_no_update

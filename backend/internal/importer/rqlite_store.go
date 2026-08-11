@@ -42,6 +42,7 @@ var businessDigestQueries = []struct {
 	{"trial_redemptions", "SELECT * FROM trial_redemptions ORDER BY redemption_id"},
 	{"desired_node_state", "SELECT * FROM desired_node_state ORDER BY customer_id,node_id,service_name"},
 	{"tombstones", "SELECT * FROM tombstones ORDER BY tombstone_id"},
+	{"telegram_bot_routes", "SELECT * FROM telegram_bot_routes ORDER BY bot_identity_hmac"},
 	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_id"},
 	{"telegram_callbacks", "SELECT * FROM telegram_callbacks ORDER BY callback_hmac"},
 	{"telegram_bindings", "SELECT * FROM telegram_bindings ORDER BY binding_id"},
@@ -355,6 +356,8 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 		return nil, fmt.Errorf("unsupported import tombstone entity %q", operation.Entity)
 	}
 	switch operation.Entity {
+	case "bot_binding":
+		return s.botRouteStatements(batch, operation)
 	case "customer":
 		return s.customerStatements(batch, operation)
 	case "order":
@@ -366,6 +369,36 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 	default:
 		return nil, fmt.Errorf("unsupported canonical import entity %q", operation.Entity)
 	}
+}
+
+func (s *RQLiteApplyStore) botRouteStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	var route LegacyBotBinding
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &route); err != nil {
+		return nil, err
+	}
+	if len(route.BotIdentityHMAC) != 64 || len(route.TokenFingerprintHMAC) != 64 ||
+		route.CredentialVersion <= 0 || route.SchemaFingerprint == "" {
+		return nil, errors.New("invalid canonical bot credential route")
+	}
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{{
+		SQL: `INSERT INTO telegram_bot_routes(
+    bot_identity_hmac,token_fingerprint_hmac,credential_version,schema_fingerprint,updated_at_unix
+) SELECT ?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(bot_identity_hmac) DO UPDATE SET
+    token_fingerprint_hmac=excluded.token_fingerprint_hmac,
+    credential_version=excluded.credential_version,
+    schema_fingerprint=excluded.schema_fingerprint,
+    updated_at_unix=CASE
+        WHEN excluded.credential_version > telegram_bot_routes.credential_version
+        THEN excluded.updated_at_unix
+        ELSE telegram_bot_routes.updated_at_unix
+    END`,
+		Args: append([]any{
+			route.BotIdentityHMAC, route.TokenFingerprintHMAC, route.CredentialVersion,
+			route.SchemaFingerprint, s.now().Unix(),
+		}, gate...),
+	}}, nil
 }
 
 func (s *RQLiteApplyStore) customerStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {

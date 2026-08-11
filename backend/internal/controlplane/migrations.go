@@ -59,6 +59,7 @@ var expectedSchemaTables = []string{
 	"subscription_tokens",
 	"tariff_versions",
 	"telegram_bindings",
+	"telegram_bot_routes",
 	"telegram_callbacks",
 	"telegram_delivery_outbox",
 	"telegram_inbox",
