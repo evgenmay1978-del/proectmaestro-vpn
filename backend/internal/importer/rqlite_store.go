@@ -43,7 +43,7 @@ var businessDigestQueries = []struct {
 	{"desired_node_state", "SELECT * FROM desired_node_state ORDER BY customer_id,node_id,service_name"},
 	{"tombstones", "SELECT * FROM tombstones ORDER BY tombstone_id"},
 	{"telegram_bot_routes", "SELECT * FROM telegram_bot_routes ORDER BY bot_identity_hmac"},
-	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_id"},
+	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_identity_hmac"},
 	{"telegram_callbacks", "SELECT * FROM telegram_callbacks ORDER BY callback_hmac"},
 	{"telegram_bindings", "SELECT * FROM telegram_bindings ORDER BY binding_id"},
 	{"cluster_settings", "SELECT * FROM cluster_settings ORDER BY setting_key"},
@@ -358,6 +358,8 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 	switch operation.Entity {
 	case "bot_binding":
 		return s.botRouteStatements(batch, operation)
+	case "bot_poll_state":
+		return s.botPollStateStatements(batch, operation)
 	case "customer":
 		return s.customerStatements(batch, operation)
 	case "order":
@@ -397,6 +399,43 @@ ON CONFLICT(bot_identity_hmac) DO UPDATE SET
 		Args: append([]any{
 			route.BotIdentityHMAC, route.TokenFingerprintHMAC, route.CredentialVersion,
 			route.SchemaFingerprint, s.now().Unix(),
+		}, gate...),
+	}}, nil
+}
+
+func (s *RQLiteApplyStore) botPollStateStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	var state LegacyBotPollState
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &state); err != nil {
+		return nil, err
+	}
+	const maxSQLiteInteger = uint64(1<<63 - 1)
+	if len(state.BotIdentityHMAC) != 64 || len(state.CurrentTokenFingerprintHMAC) != 64 ||
+		state.CredentialVersion <= 0 || state.NextUpdateID < 0 || state.CapturedFence > maxSQLiteInteger {
+		return nil, errors.New("invalid canonical bot poll state")
+	}
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{{
+		SQL: `INSERT INTO telegram_pollers(
+    bot_identity_hmac,node_id,lease_token,offset_value,lease_fence,
+    lease_expires_at_unix,updated_at_unix
+) SELECT CASE WHEN EXISTS(
+    SELECT 1 FROM telegram_bot_routes
+    WHERE bot_identity_hmac=? AND token_fingerprint_hmac=? AND credential_version=?
+) THEN ? ELSE NULL END,NULL,NULL,?,?,0,?
+WHERE ` + batchWriteGate + `
+ON CONFLICT(bot_identity_hmac) DO UPDATE SET
+    node_id=NULL,lease_token=NULL,
+    offset_value=excluded.offset_value,lease_fence=excluded.lease_fence,
+    lease_expires_at_unix=0,
+    updated_at_unix=CASE
+        WHEN excluded.offset_value > telegram_pollers.offset_value OR
+             excluded.lease_fence > telegram_pollers.lease_fence
+        THEN excluded.updated_at_unix
+        ELSE telegram_pollers.updated_at_unix
+    END`,
+		Args: append([]any{
+			state.BotIdentityHMAC, state.CurrentTokenFingerprintHMAC, state.CredentialVersion,
+			state.BotIdentityHMAC, state.NextUpdateID, int64(state.CapturedFence), s.now().Unix(),
 		}, gate...),
 	}}, nil
 }

@@ -268,12 +268,19 @@ CREATE TABLE telegram_bot_routes (
 
 -- maestro:statement
 CREATE TABLE telegram_pollers (
-    bot_id TEXT PRIMARY KEY,
-    node_id TEXT NOT NULL REFERENCES nodes(node_id) ON DELETE RESTRICT,
-    lease_token TEXT NOT NULL UNIQUE,
+    bot_identity_hmac TEXT PRIMARY KEY NOT NULL
+        CHECK(length(bot_identity_hmac) = 64)
+        REFERENCES telegram_bot_routes(bot_identity_hmac) ON DELETE RESTRICT,
+    node_id TEXT REFERENCES nodes(node_id) ON DELETE RESTRICT,
+    lease_token TEXT UNIQUE,
     offset_value INTEGER NOT NULL CHECK(offset_value >= 0),
+    lease_fence INTEGER NOT NULL CHECK(lease_fence >= 0),
     lease_expires_at_unix INTEGER NOT NULL CHECK(lease_expires_at_unix >= 0),
-    updated_at_unix INTEGER NOT NULL CHECK(updated_at_unix >= 0)
+    updated_at_unix INTEGER NOT NULL CHECK(updated_at_unix >= 0),
+    CHECK(
+        (node_id IS NULL AND lease_token IS NULL AND lease_expires_at_unix = 0) OR
+        (node_id IS NOT NULL AND lease_token IS NOT NULL AND lease_expires_at_unix > 0)
+    )
 )
 
 -- maestro:statement
@@ -519,6 +526,14 @@ WHEN NEW.credential_version < OLD.credential_version OR (
 )
 BEGIN
     SELECT RAISE(ABORT, 'telegram bot credential route conflict');
+END
+
+-- maestro:statement
+CREATE TRIGGER telegram_pollers_monotonic_state
+BEFORE UPDATE OF offset_value, lease_fence ON telegram_pollers
+WHEN NEW.offset_value < OLD.offset_value OR NEW.lease_fence < OLD.lease_fence
+BEGIN
+    SELECT RAISE(ABORT, 'telegram poll state rollback');
 END
 
 -- maestro:statement
