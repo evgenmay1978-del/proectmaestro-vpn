@@ -4,6 +4,7 @@ package controlplane
 
 import (
 	"context"
+	"sort"
 	"fmt"
 	"strings"
 	"testing"
@@ -43,6 +44,47 @@ func TestSchemaSeedsImmutableTariffsAndFourNodes(t *testing.T) {
 	if _, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
 		SQL:  "UPDATE tariff_versions SET amount_minor=? WHERE tariff_version_id=?",
 		Args: []any{1, "tariff_1m_v1"},
+func TestImportSchemaBindsRunAndBatchDigests(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+
+	runColumns := schemaColumnNames(t, mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: "PRAGMA table_info(import_runs)"}))
+	wantRunColumns := []string{
+		"batch_count", "completed_at_unix", "import_run_id", "parent_source_sha256",
+		"plan_sha256", "snapshot_kind", "source_sha256", "started_at_unix", "status", "target_sha256",
+	}
+	if fmt.Sprint(runColumns) != fmt.Sprint(wantRunColumns) {
+		t.Fatalf("import_runs columns = %v, want %v", runColumns, wantRunColumns)
+	}
+
+	batchColumns := schemaColumnNames(t, mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: "PRAGMA table_info(import_batches)"}))
+	wantBatchColumns := []string{
+		"applied_at_unix", "batch_digest", "batch_index", "import_run_id", "row_count", "status",
+	}
+	if fmt.Sprint(batchColumns) != fmt.Sprint(wantBatchColumns) {
+		t.Fatalf("import_batches columns = %v, want %v", batchColumns, wantBatchColumns)
+	}
+
+	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO import_runs(
+			import_run_id,snapshot_kind,source_sha256,plan_sha256,parent_source_sha256,
+			batch_count,status,started_at_unix
+		) VALUES(?,?,?,?,?,?,?,?)
+	`, Args: []any{"bad-full-parent", "full", repeatHex("a"), repeatHex("b"), repeatHex("c"), 1, "applying", 100}})
+}
+
+func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
+	t.Helper()
+	columns := make([]string, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		name, ok := row["name"].(string)
+		if !ok || name == "" {
+			t.Fatalf("malformed PRAGMA table_info row: %#v", row)
+		}
+		columns = append(columns, name)
+	}
+	sort.Strings(columns)
+	return columns
+}
 	}); err == nil {
 		t.Fatal("immutable tariff version accepted an update")
 	}
