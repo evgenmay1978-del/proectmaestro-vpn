@@ -2062,3 +2062,74 @@ Test-only контракт уже фиксирует:
 concurrent-resume/missing-delete-marker, получить второй содержательный RED,
 затем реализовывать минимальный importer. Текущие `import_runs/import_batches`
 не содержат parent/plan/target digest и потребуют проверяемого расширения схемы.
+
+## HA control plane: Plan 02 / Task 6 Apply + schema GREEN checkpoint (11.08.2026)
+
+Работа продолжена строго в `codex/ha-rqlite-task2`, draft PR `#82`. Никаких
+production import/deploy/restart/DNS/TLS/panel/bot/OTA/server writes не было.
+Legacy остаётся единственным live/default write path.
+
+### Полный Apply/resume/delta RED
+
+- Test-only commit: `cb44e19a3bd451e01532f316e952229e43c1ca31`.
+- GitHub RED: run `31494082958`, job `93787334728`.
+- Formatting и все существующие backend/controlplane пакеты прошли.
+- `backend/internal/importer` упал только на отсутствующих production symbols
+  `ApplyRun`, `RunProgress`, `TargetState`, `ApplyBatch`, `BatchReceipt`,
+  `ApplyCompletion`, а также ранее зафиксированных `Snapshot/PlanOptions`.
+- Test-only contract теперь включает exact-once retry, unknown outcome after
+  committed batch, crash at every batch boundary, different-digest conflict,
+  exact delta parent, explicit tombstone, full+delta=fresh-full digest,
+  concurrent resume и implicit-delete blocker.
+- Synthetic fixtures находятся в
+  `backend/internal/importer/testdata/full-then-delta/`; production/customer
+  bytes, tokens и private subscription URLs туда не попадали.
+
+### Минимальный importer core GREEN
+
+- Production commit: `f1ee4e941d373b8ffefe48c61b046fdc2379ca8f`.
+- GitHub GREEN: run `31494782931`, job `93789659960`.
+- Прошли `go test ./...`, race, vet, rqlite harness contract и изолированная
+  трёхузловая rqlite integration.
+- Реализованы строгий `DecodeSnapshot`, stable `Validate/Plan/Digest`, exact
+  casing/expiry/generation/encrypted-envelope preservation, deterministic
+  internal IDs, redacted immutable report, explicit/cascade tombstones и
+  `Apply` через транзакционный `ApplyStore` boundary.
+- `Apply` привязывает immutable `run_id + source_digest + plan_digest +
+  batch_index + batch_digest`, не повторяет committed receipt после transport
+  failure и сверяет final business digest.
+
+### Проверяемое расширение importer schema GREEN
+
+- Valid schema RED commit после syntax correction:
+  `747a51f159b57b3a185e788587b567d07d832b38`.
+- Valid RED run `31495446387`, job `93791871998`: unit/race/vet/harness были
+  green, rqlite integration упала ровно на старых колонках `import_runs`.
+- Schema GREEN commit:
+  `a853ee764f444eed2f2efb6cc367341e5b9068be`.
+- Final GREEN run `31495703008`, job `93792740664`: все шаги green, включая
+  3-node rqlite integration.
+- Неразвёрнутая schema v1 теперь хранит snapshot kind, source/plan/parent/
+  target digest, deterministic batch count и `(run_id,batch_index,
+  batch_digest)` с fail-closed CHECK constraints.
+
+### Зафиксированные ошибки и правильные повторения
+
+1. Windows `rg path/*_test.go` не расширяет glob. Использовать
+   `rg -g "*_test.go" PATTERN directory`.
+2. Первый schema RED patch вставил функцию внутрь предыдущего вызова из-за
+   неверного `unidiff-zero` anchor; это был invalid RED. Исправление вынесено
+   отдельным commit, после чего получен содержательный schema RED.
+3. Ручной hunk-count schema patch был неверен; первый `git apply --check`
+   остановил изменение. Правильный linked-worktree путь:
+   `git apply --check --unidiff-zero --recount PATCH`, отдельный guard check,
+   затем ровно один `git apply --unidiff-zero --recount PATCH`.
+
+### Следующий безопасный шаг
+
+Task 6 ещё не объявлять завершённым. Остаются production rqlite adapter для
+`ApplyStore` с реальными canonical business rows/receipts, explicit CLI
+`backend/cmd/maestro-import`, legacy trial salt protected-file gate и
+`ops/ha/shadow-verify.sh`. Сначала писать отдельные RED tests для adapter/CLI/
+shadow, затем GREEN через GitHub Actions. Не выполнять production import до
+inventory, snapshot, collision, shadow и отдельного owner cutover approval.
