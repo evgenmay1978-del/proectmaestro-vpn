@@ -49,7 +49,7 @@ validated_root() {
 
 require_commands() {
   local command_name
-  for command_name in curl sha256sum tar mktemp realpath python3 readlink; do
+  for command_name in curl sha256sum tar mktemp realpath python3 readlink tail; do
     command -v "$command_name" >/dev/null 2>&1 || fail "missing command: $command_name"
   done
 }
@@ -118,12 +118,14 @@ import urllib.request
 
 deadline = time.monotonic() + 30
 last_error = "cluster did not converge"
+last_nodes = {}
 while time.monotonic() < deadline:
     try:
         with urllib.request.urlopen(
             "http://127.0.0.1:4401/nodes?ver=2&timeout=2s", timeout=5
         ) as response:
             nodes = json.load(response)
+        last_nodes = nodes
         if len(nodes) != 3:
             raise RuntimeError(f"node count is {len(nodes)}")
         if sum(bool(node.get("leader")) for node in nodes.values()) != 1:
@@ -160,7 +162,7 @@ while time.monotonic() < deadline:
     print("leaders=1 voters=3")
     print("foreign_keys=1 endpoints=3")
     raise SystemExit(0)
-raise SystemExit(last_error)
+raise SystemExit(f"{last_error}; nodes={json.dumps(last_nodes, sort_keys=True)}")
 PY
 }
 
@@ -207,12 +209,19 @@ start_cluster() {
 
   cleanup_failed_start() {
     local status="$1" cleanup_base="$2" cleanup_marker="$3" cleanup_root="$4"
-    local cleanup_pid attempt any_running resolved_cleanup_root executable
+    local cleanup_pid attempt any_running resolved_cleanup_root executable node log_file
     shift 4
     local -a cleanup_pids=("$@")
     local -a cleanup_marker_lines=()
     trap - EXIT
     if [[ "$status" -ne 0 ]]; then
+      for node in 1 2 3; do
+        log_file="$cleanup_root/node${node}.log"
+        if [[ -f "$log_file" && ! -L "$log_file" ]]; then
+          printf 'ci-rqlite: node%s startup log (last 80 lines)\n' "$node" >&2
+          tail -n 80 -- "$log_file" >&2 || true
+        fi
+      done
       executable="$cleanup_root/bin/rqlited"
       for cleanup_pid in "${cleanup_pids[@]}"; do
         if kill -0 "$cleanup_pid" 2>/dev/null &&
