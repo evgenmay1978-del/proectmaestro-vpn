@@ -1864,3 +1864,68 @@ interactive mobile UI
 интеграционные тесты только на этом изолированном harness. До отдельного
 cutover-разрешения сохранять `legacy` единственным live/default режимом и не
 выполнять production import/deploy/DNS/TLS/bot/OTA mutations.
+## HA control plane: GREEN checkpoint Plan 01 / Task 3 + единая цена (11.08.2026)
+
+Task 3 завершён в репозитории и подтверждён точным GitHub Actions run. Production
+rqlite, DNS, TLS, панели, VPN-конфиги и bot process этим checkpoint не менялись.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный HEAD: `c02c0728085bcfe2651849ba99eb480130c49118`.
+- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Exact-SHA workflow run: `31486611114`, job `93763353148`, conclusion
+  `success`.
+- Успешны format, backend tests, race, vet, harness contract, запуск реального
+  трёхузлового rqlite, integration tests и stop/cleanup.
+- RED-доказательства до реализации:
+  - run `31484085387`: отсутствовали `NewMigrator` и `SchemaVersion`;
+  - run `31484546092`: отсутствовали мигратор и typed states;
+  - run `31486254959`: backend имел только 1m/2m вместо полной тарифной
+    шкалы.
+- Миграция `0001_control_plane.sql` содержит ровно 41 таблицу, 56
+  delimiter-separated statements, checksum migration, explicit `ON DELETE`,
+  immutable tariff/audit/order guards, payment/idempotency constraints,
+  S1–S4 seed state и проходит `PRAGMA foreign_key_check`.
+- `Migrator.Apply` повторяем, `Verify` fail-closed проверяет FK на трёх
+  voter endpoints, checksum, точный table set и FK integrity.
+- Каноническая цена теперь в legacy backend и HA seed одинакова:
+  1/2/3/6/12 месяцев = 400/800/1200/2400/4800 ₽; длительности
+  30/60/90/180/365 дней. Тест запрещает возврат к 300 ₽/месяц.
+
+### Read-only проверка живого S2-бота по сообщению владельца о 300 ₽
+
+- Фактический unit: `vpn_bot.service`.
+- Фактический entry point: `/opt/vpn_bot/bot_minimal.py`; старый
+  документированный путь `/root/vpn_bot` отсутствует.
+- Source mtime предшествует текущему старту unit, поэтому процесс загрузил
+  текущий файл.
+- В текущем source уже была шкала
+  400/800/1200/2400/4800 ₽ для 1/2/3/6/12 месяцев.
+- Агрегированная read-only проверка payment DB показала только суммы
+  400/800/1200 ₽; суммы 300 ₽ нет. Идентификаторы клиентов не читались и в
+  handoff не записывались.
+- Следовательно, 300 ₽ не воспроизводится в найденном живом S2-процессе.
+  Если владелец снова увидит 300 ₽, нужен скрин или точное имя Telegram-бота:
+  это может быть старое Telegram-сообщение с уже созданной inline-кнопкой либо
+  другая, пока не инвентаризированная копия.
+- На S4 bot unit/catalog не найден. S1 после переустановки не принял
+  сохранённый public-key доступ; S3 заблокирован строгой проверкой нового host
+  key. Эти защиты не обходить и не отключать. Production bot restart/deploy не
+  выполнялся.
+
+Зафиксированные ошибки команд, которые нельзя повторять:
+
+1. В PowerShell не помещать Python/SQL с кавычками и `*` в хрупкую
+   однострочную команду; использовать stdin here-string.
+2. Не использовать локальный `gh`, если он отсутствует в PATH; статусы CI
+   читать через подключённый GitHub commit-workflow API.
+3. Не использовать `$()` внутри двойных кавычек PowerShell для remote SSH:
+   локальная оболочка выполнит substitution. Использовать systemd properties
+   либо корректно изолированный remote script.
+4. SQL `ORDER BY tariff_version_id` сортирует `tariff_12m_v1` перед
+   `tariff_1m_v1`; тестовое ожидание должно повторять реальный lexical order.
+
+Следующий безопасный шаг по утверждённому плану: Plan 01 / Task 4,
+`Encrypted credentials and stable identifiers`, только в репозитории через
+RED → GREEN. До отдельного cutover-разрешения legacy остаётся единственным
+production write path; не выполнять live rqlite/import/DNS/TLS/panel/bot/OTA
+mutations.
