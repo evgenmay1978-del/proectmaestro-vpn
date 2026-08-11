@@ -103,6 +103,30 @@ func TestPendingCreditedPreservesExpiryWithoutSecondCredit(t *testing.T) {
 	}
 }
 
+func TestPlanPreservesCanonicalLegacyOrderTerms(t *testing.T) {
+	snapshot := decodeFixture(t, "orders-pending-credited.json")
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 || len(plan.Orders) != 2 {
+		t.Fatalf("plan/report = %#v / %#v", plan, report)
+	}
+	order := plan.Orders[0]
+	if order.BuyerScope != "customer_login" ||
+		order.BuyerKeyHMAC != "1010101010101010101010101010101010101010101010101010101010101010" ||
+		order.TariffVersionID != "tariff_1m_v1" || order.AmountMinor != 40_000 ||
+		order.Currency != "RUB" || order.DurationDays != 30 || order.PaymentCode != "MCRD1" ||
+		order.CreatedAtUnix != 1_000_000 || order.ExpiresAtUnix != 1_086_400 ||
+		order.ResultGeneration != 9 {
+		t.Fatalf("canonical legacy order terms changed: %#v", order)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if bytes.Contains(encoded, []byte("MCRD1")) {
+		t.Fatalf("redacted report leaked payment code: %s", encoded)
+	}
+}
+
 func TestUnsupportedBotSnapshotIsBlocking(t *testing.T) {
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.BotBindings[0].SchemaFingerprint = "unknown-live-schema"

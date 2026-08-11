@@ -11,8 +11,12 @@
     "identity_secret_ref":"secret-order-owner", "expires_at_unix":2200000, "generation":9, "status":"active"
   }],
   "orders": [
-    {"source_key":"legacy-order-credited", "customer_source_key":"s1:customer:order-owner", "state":"pending", "credited":true, "stored_customer_expires_at_unix":2200000},
-    {"source_key":"legacy-order-uncredited", "customer_source_key":"s1:customer:order-owner", "state":"pending", "credited":false, "stored_customer_expires_at_unix":2200000}
+    {"source_key":"legacy-order-credited", "customer_source_key":"s1:customer:order-owner", "buyer_scope":"customer_login", "buyer_key_hmac":"1010101010101010101010101010101010101010101010101010101010101010",
+     "tariff_version_id":"tariff_1m_v1", "amount_minor":40000, "currency":"RUB", "duration_days":30, "payment_code":"MCRD1", "created_at_unix":1000000,
+     "state":"pending", "credited":true, "stored_customer_expires_at_unix":2200000, "result_generation":9},
+    {"source_key":"legacy-order-uncredited", "customer_source_key":"s1:customer:order-owner", "buyer_scope":"customer_login", "buyer_key_hmac":"1010101010101010101010101010101010101010101010101010101010101010",
+     "tariff_version_id":"tariff_1m_v1", "amount_minor":40000, "currency":"RUB", "duration_days":30, "payment_code":"MUNCR", "created_at_unix":1000001,
+     "state":"pending", "credited":false, "stored_customer_expires_at_unix":2200000, "result_generation":0}
   ],
   "trials":[], "bot_bindings":[], "settings":[], "principals":[],
   "encrypted_secrets":[{"secret_id":"secret-order-owner","owner_type":"customer","owner_source_key":"s1:customer:order-owner","field":"identity","kind":"customer-identity","key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"c3ludGhldGljLW9yZGVyLW93bmVy","sha256":"6060606060606060606060606060606060606060606060606060606060606060"}],
