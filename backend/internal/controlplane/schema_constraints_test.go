@@ -400,7 +400,7 @@ func TestCustomerDeleteReceiptRequiresImportedAccessRows(t *testing.T) {
 				import_run_id,snapshot_kind,source_sha256,plan_sha256,parent_source_sha256,
 				target_sha256,batch_count,status,started_at_unix,completed_at_unix
 			) VALUES(?,'delta',?,?,?,NULL,1,'applying',?,NULL)
-		`, Args: []any{runID, repeatHex("1"), repeatHex("2"), repeatHex("3"), 1_000_000}},
+		`, Args: []any{runID, repeatHex("d"), repeatHex("e"), repeatHex("f"), 1_000_000}},
 		rqlite.Statement{SQL: `
 			INSERT INTO import_batches(
 				import_run_id,batch_index,batch_digest,row_count,status,applied_at_unix
