@@ -13,12 +13,12 @@ import (
 
 func TestCustomerByTokenUsesHMACAndLinearizableRead(t *testing.T) {
 	const token = "raw-private-subscription-token"
-	db := &recordingRQLite{linear: []scriptedResult{{results: []rqlite.Result{{Rows: []map[string]any{{
+	db := &recordingRQLite{linear: []scriptedResult{rowsScript(map[string]any{
 		"customer_id":    "customer-1",
 		"status":         "active",
 		"expires_at_unix": 2_100_000,
 		"generation":     7,
-	}}}}}}
+	})}}
 	service, secrets := testService(t, db)
 	customer, err := service.CustomerByToken(context.Background(), token)
 	if err != nil {
@@ -59,10 +59,10 @@ func TestCustomerByTokenNeverSendsPlainTokenToSQLOrError(t *testing.T) {
 
 func TestClaimDeviceAtomicallyEnforcesLimitAndStoresOnlyHMAC(t *testing.T) {
 	const rawDevice = "raw-device-identity"
-	db := &recordingRQLite{requests: []scriptedResult{{results: []rqlite.Result{
-		{Rows: []map[string]any{{"device_id": "device-1"}}},
-		{RowsAffected: 1},
-	}}}}
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{"device_id": "device-1"}}},
+		rqlite.Result{RowsAffected: 1},
+	)}}
 	service, _ := testService(t, db)
 	claim, err := service.ClaimDevice(context.Background(), "customer-1", rawDevice, "android", 3)
 	if err != nil {

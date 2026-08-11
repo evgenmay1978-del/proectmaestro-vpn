@@ -19,11 +19,11 @@ type stubDiskSignal struct{ writable bool }
 func (s stubDiskSignal) Writable() bool { return s.writable }
 
 func TestMissingReferencedSecretKeyVersionMakesReadinessRed(t *testing.T) {
-	db := &recordingRQLite{linear: []scriptedResult{{results: []rqlite.Result{
-		{Rows: []map[string]any{{"key_version": 99}}},
-		{Rows: []map[string]any{{"count_value": 5}}},
-		{Rows: []map[string]any{{"updated_at_unix": 1_999_999}}},
-	}}}}
+	db := &recordingRQLite{linear: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{"key_version": 99}}},
+		rqlite.Result{Rows: []map[string]any{{"count_value": 5}}},
+		rqlite.Result{Rows: []map[string]any{{"updated_at_unix": 1_999_999}}},
+	)}}
 	service, _ := testService(t, db)
 	readiness := NewReadiness(ReadinessConfig{
 		Store:            service.store,
@@ -85,10 +85,10 @@ func TestReadinessWriteRejectsQuorumLossAndNonceMismatch(t *testing.T) {
 	})
 	t.Run("nonce", func(t *testing.T) {
 		db := &recordingRQLite{
-			requests: []scriptedResult{{results: []rqlite.Result{{RowsAffected: 1}}}},
-			linear: []scriptedResult{{results: []rqlite.Result{{Rows: []map[string]any{{
+			requests: []scriptedResult{resultsScript(rqlite.Result{RowsAffected: 1})},
+			linear: []scriptedResult{rowsScript(map[string]any{
 				"nonce_hmac": "wrong",
-			}}}}}},
+			})},
 		}
 		service, _ := testService(t, db)
 		readiness := NewReadiness(ReadinessConfig{
@@ -108,10 +108,10 @@ func TestReadinessSuccessfulCanaryDoesNotGrowRows(t *testing.T) {
 	nonce, _ := ids.NewID("canary")
 	wantHMAC := secrets.LookupHMAC("health-canary", []byte(nonce))
 	ids.counter = 0
-	db.requests = []scriptedResult{{results: []rqlite.Result{{RowsAffected: 1}}}}
-	db.linear = []scriptedResult{{results: []rqlite.Result{{Rows: []map[string]any{{
+	db.requests = []scriptedResult{resultsScript(rqlite.Result{RowsAffected: 1})}
+	db.linear = []scriptedResult{rowsScript(map[string]any{
 		"nonce_hmac": wantHMAC,
-	}}}}}}
+	})}
 	readiness := NewReadiness(ReadinessConfig{
 		Store: service.store, Schema: stubSchemaVerifier{},
 		Disk: stubDiskSignal{writable: true}, IDs: ids, NodeID: "S2",

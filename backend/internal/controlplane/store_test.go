@@ -26,6 +26,14 @@ type scriptedResult struct {
 	err     error
 }
 
+func rowsScript(rows ...map[string]any) scriptedResult {
+	return scriptedResult{results: []rqlite.Result{{Rows: rows}}}
+}
+
+func resultsScript(results ...rqlite.Result) scriptedResult {
+	return scriptedResult{results: results}
+}
+
 type recordingRQLite struct {
 	mu sync.Mutex
 
@@ -164,10 +172,10 @@ func TestTariffSnapshotIsImmutable(t *testing.T) {
 }
 
 func TestMutableSettingsUseVersionCASAndAudit(t *testing.T) {
-	db := &recordingRQLite{requests: []scriptedResult{{results: []rqlite.Result{
-		{Rows: []map[string]any{{"generation": 2}}},
-		{}, {}, {}, {},
-	}}}}
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{"generation": 2}}},
+		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
+	)}}
 	service, _ := testService(t, db)
 	result, err := service.UpdateSetting(context.Background(), SettingUpdate{
 		Key:                "ota",
@@ -201,10 +209,10 @@ func TestMutableSettingsUseVersionCASAndAudit(t *testing.T) {
 }
 
 func TestSettingSecretReferenceCASIsAtomic(t *testing.T) {
-	db := &recordingRQLite{requests: []scriptedResult{{results: []rqlite.Result{
-		{Rows: []map[string]any{{"generation": 1}}},
-		{}, {}, {}, {},
-	}}}}
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{"generation": 1}}},
+		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
+	)}}
 	service, secrets := testService(t, db)
 	envelope, err := secrets.Seal(
 		SecretScope{OwnerType: "setting", OwnerID: "telegram", Field: "token", Kind: "bot-token"},
@@ -237,12 +245,12 @@ func TestSettingSecretReferenceCASIsAtomic(t *testing.T) {
 
 func TestSessionCookieContract(t *testing.T) {
 	db := &recordingRQLite{
-		linear: []scriptedResult{{results: []rqlite.Result{{Rows: []map[string]any{{
+		linear: []scriptedResult{rowsScript(map[string]any{
 			"principal_id":     "principal-1",
 			"status":           "active",
 			"revocation_epoch": 4,
-		}}}}}},
-		requests: []scriptedResult{{results: []rqlite.Result{{RowsAffected: 1}}},
+		})},
+		requests: []scriptedResult{resultsScript(rqlite.Result{RowsAffected: 1})},
 	}
 	service, _ := testService(t, db)
 	session, err := service.CreateSession(context.Background(), "principal-1")
@@ -266,13 +274,13 @@ func TestSessionCookieContract(t *testing.T) {
 func TestRevocationEpochInvalidatesExistingSession(t *testing.T) {
 	db := &recordingRQLite{
 		linear: []scriptedResult{
-			{results: []rqlite.Result{{Rows: []map[string]any{{
+			rowsScript(map[string]any{
 				"principal_id": "principal-1",
 				"role_name":    "owner",
-			}}}}},
-			{results: []rqlite.Result{{Rows: nil}}},
+			}),
+			resultsScript(rqlite.Result{Rows: nil}),
 		},
-		requests: []scriptedResult{{results: []rqlite.Result{{RowsAffected: 1}, {RowsAffected: 1}, {RowsAffected: 1}}}},
+		requests: []scriptedResult{resultsScript(rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1})},
 	}
 	service, _ := testService(t, db)
 	if _, err := service.Authorize(context.Background(), "session-token", "csrf-token", PermissionPaymentDecide); err != nil {
@@ -292,9 +300,9 @@ func TestRevocationEpochInvalidatesExistingSession(t *testing.T) {
 
 func TestPrincipalRolesAreNormalizedAndDefaultDeny(t *testing.T) {
 	db := &recordingRQLite{linear: []scriptedResult{
-		{results: []rqlite.Result{{Rows: []map[string]any{{"principal_id": "p-owner", "role_name": "owner"}}}}},
-		{results: []rqlite.Result{{Rows: []map[string]any{{"principal_id": "p-admin", "role_name": "admin"}}}}},
-		{results: []rqlite.Result{{Rows: []map[string]any{{"principal_id": "p-other", "role_name": "unknown"}}}}},
+		rowsScript(map[string]any{"principal_id": "p-owner", "role_name": "owner"}),
+		rowsScript(map[string]any{"principal_id": "p-admin", "role_name": "admin"}),
+		rowsScript(map[string]any{"principal_id": "p-other", "role_name": "unknown"}),
 	}}
 	service, _ := testService(t, db)
 	if _, err := service.Authorize(context.Background(), "s1", "c1", PermissionCriticalSettings); err != nil {
