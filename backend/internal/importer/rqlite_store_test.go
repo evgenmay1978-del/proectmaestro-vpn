@@ -19,9 +19,11 @@ type recordedApplyRequest struct {
 
 type applyStoreRQLite struct {
 	queryResponses [][]rqlite.Result
+	queryHandler   func([]rqlite.Statement) ([]rqlite.Result, error)
 	queryErrors    []error
 	queryCalls     int
 	requestError   error
+	queries        [][]rqlite.Statement
 	requests       []recordedApplyRequest
 }
 
@@ -47,11 +49,16 @@ func (db *applyStoreRQLite) Request(
 
 func (db *applyStoreRQLite) QueryLinearizable(
 	_ context.Context,
-	_ ...rqlite.Statement,
+	statements ...rqlite.Statement,
 ) ([]rqlite.Result, error) {
+	copyStatements := append([]rqlite.Statement(nil), statements...)
+	db.queries = append(db.queries, copyStatements)
 	index := db.queryCalls
 	db.queryCalls++
 	if index < len(db.queryErrors) && db.queryErrors[index] != nil {
+	if db.queryHandler != nil {
+		return db.queryHandler(copyStatements)
+	}
 		return nil, db.queryErrors[index]
 	}
 	if index >= len(db.queryResponses) {
@@ -182,5 +189,127 @@ func TestRQLiteApplyStoreRejectsChangedDigestWithoutWrite(t *testing.T) {
 	}
 	if len(db.requests) != 0 {
 		t.Fatalf("changed digest issued %d writes", len(db.requests))
+	}
+}
+
+func TestRQLiteApplyStoreBeginResumeBindsRunAndReceipts(t *testing.T) {
+	run := ApplyRun{
+		RunID: "run-lifecycle", SnapshotKind: "delta",
+		SourceDigest: strings.Repeat("a", 64), PlanDigest: strings.Repeat("b", 64),
+		ParentDigest: strings.Repeat("c", 64), BatchCount: 2,
+	}
+	db := &applyStoreRQLite{queryHandler: func(statements []rqlite.Statement) ([]rqlite.Result, error) {
+		if len(statements) != 2 {
+			t.Fatalf("BeginOrResume query statement count = %d, want 2", len(statements))
+		}
+		return []rqlite.Result{
+			{Rows: []map[string]any{{
+				"import_run_id": run.RunID, "snapshot_kind": run.SnapshotKind,
+				"source_sha256": run.SourceDigest, "plan_sha256": run.PlanDigest,
+				"parent_source_sha256": run.ParentDigest, "target_sha256": nil,
+				"batch_count": int64(run.BatchCount), "status": "applying",
+			}}},
+			{Rows: []map[string]any{{
+				"batch_index": int64(0), "batch_digest": strings.Repeat("d", 64), "status": "applied",
+			}}},
+		}, nil
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	progress, err := store.BeginOrResume(context.Background(), run)
+	if err != nil {
+		t.Fatalf("BeginOrResume: %v", err)
+	}
+	if !progress.New || progress.Completed || progress.TargetDigest != "" ||
+		progress.AppliedBatchDigests[0] != strings.Repeat("d", 64) {
+		t.Fatalf("run progress = %#v", progress)
+	}
+	if len(db.requests) != 1 || !db.requests[0].transaction ||
+		!strings.Contains(strings.ToLower(db.requests[0].statements[0].SQL), "insert into import_runs") {
+		t.Fatalf("run creation request = %#v", db.requests)
+	}
+}
+
+func inspectTargetFixture(t *testing.T, expiresAt int64) TargetState {
+	t.Helper()
+	db := &applyStoreRQLite{queryHandler: func(statements []rqlite.Statement) ([]rqlite.Result, error) {
+		results := make([]rqlite.Result, len(statements))
+		for index, statement := range statements {
+			sqlText := strings.ToLower(statement.SQL)
+			switch {
+			case strings.Contains(sqlText, "from customers"):
+				results[index].Rows = []map[string]any{{
+					"customer_id": "customer-1", "display_login": "CaseSensitiveUser",
+					"login_key_hmac": strings.Repeat("e", 64), "status": "active",
+					"expires_at_unix": expiresAt, "generation": int64(7),
+					"created_at_unix": int64(100), "updated_at_unix": int64(100),
+				}}
+			case strings.Contains(sqlText, "from import_runs"):
+				results[index].Rows = []map[string]any{{
+					"source_sha256": strings.Repeat("f", 64),
+				}}
+			}
+		}
+		return results, nil
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	state, err := store.InspectTarget(context.Background())
+	if err != nil {
+		t.Fatalf("InspectTarget: %v", err)
+	}
+	if state.Empty || state.BusinessDigest == "" || state.AppliedSourceDigest != strings.Repeat("f", 64) {
+		t.Fatalf("target state = %#v", state)
+	}
+	if len(db.queries) != 1 || len(db.queries[0]) < 5 {
+		t.Fatalf("business digest query coverage = %#v", db.queries)
+	}
+	return state
+}
+
+func TestRQLiteApplyStoreRecomputesBusinessDigestFromCanonicalRows(t *testing.T) {
+	first := inspectTargetFixture(t, 2_100_000)
+	second := inspectTargetFixture(t, 2_100_000)
+	changed := inspectTargetFixture(t, 2_100_001)
+	if first.BusinessDigest != second.BusinessDigest {
+		t.Fatalf("same canonical rows produced unstable digests: %s != %s", first.BusinessDigest, second.BusinessDigest)
+	}
+	if first.BusinessDigest == changed.BusinessDigest {
+		t.Fatal("changed customer expiry did not change business digest")
+	}
+}
+
+func TestRQLiteApplyStoreCompleteRequiresEveryAppliedReceipt(t *testing.T) {
+	completion := ApplyCompletion{
+		RunID: "run-complete", SourceDigest: strings.Repeat("a", 64),
+		PlanDigest: strings.Repeat("b", 64), TargetDigest: strings.Repeat("c", 64),
+	}
+	db := &applyStoreRQLite{queryHandler: func(statements []rqlite.Statement) ([]rqlite.Result, error) {
+		if len(statements) != 1 {
+			t.Fatalf("Complete verify statement count = %d", len(statements))
+		}
+		return []rqlite.Result{{Rows: []map[string]any{{
+			"source_sha256": completion.SourceDigest, "plan_sha256": completion.PlanDigest,
+			"target_sha256": completion.TargetDigest, "status": "applied",
+		}}}}, nil
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if err := store.Complete(context.Background(), completion); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if len(db.requests) != 1 || len(db.requests[0].statements) != 1 {
+		t.Fatalf("completion requests = %#v", db.requests)
+	}
+	statement := db.requests[0].statements[0]
+	sqlText := strings.ToLower(statement.SQL)
+	if !strings.Contains(sqlText, "count(*)") || !strings.Contains(sqlText, "status='applied'") {
+		t.Fatalf("completion is not receipt-gated: %s", statement.SQL)
 	}
 }
