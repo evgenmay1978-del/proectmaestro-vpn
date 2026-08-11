@@ -614,7 +614,10 @@ INSERT INTO tariff_versions(
     tariff_version_id, tariff_code, duration_days, amount_minor, currency, active, created_at_unix
 ) VALUES
     ('tariff_1m_v1','1m',30,40000,'RUB',1,0),
-    ('tariff_2m_v1','2m',60,80000,'RUB',1,0)
+    ('tariff_2m_v1','2m',60,80000,'RUB',1,0),
+    ('tariff_3m_v1','3m',90,120000,'RUB',1,0),
+    ('tariff_6m_v1','6m',180,240000,'RUB',1,0),
+    ('tariff_12m_v1','12m',365,480000,'RUB',1,0)
 
 -- maestro:statement
 INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix) VALUES
