@@ -21,7 +21,7 @@ func TestSchemaSeedsImmutableTariffsAndFourNodes(t *testing.T) {
 		WHERE tariff_version_id IN ('tariff_1m_v1','tariff_2m_v1','tariff_3m_v1','tariff_6m_v1','tariff_12m_v1')
 		ORDER BY tariff_version_id
 	`})
-	if got := fmt.Sprint(tariffs.Rows); got != `[map[amount_minor:40000 currency:RUB duration_days:30 tariff_version_id:tariff_1m_v1] map[amount_minor:480000 currency:RUB duration_days:365 tariff_version_id:tariff_12m_v1] map[amount_minor:80000 currency:RUB duration_days:60 tariff_version_id:tariff_2m_v1] map[amount_minor:120000 currency:RUB duration_days:90 tariff_version_id:tariff_3m_v1] map[amount_minor:240000 currency:RUB duration_days:180 tariff_version_id:tariff_6m_v1]]` {
+	if got := fmt.Sprint(tariffs.Rows); got != `[map[amount_minor:480000 currency:RUB duration_days:365 tariff_version_id:tariff_12m_v1] map[amount_minor:40000 currency:RUB duration_days:30 tariff_version_id:tariff_1m_v1] map[amount_minor:80000 currency:RUB duration_days:60 tariff_version_id:tariff_2m_v1] map[amount_minor:120000 currency:RUB duration_days:90 tariff_version_id:tariff_3m_v1] map[amount_minor:240000 currency:RUB duration_days:180 tariff_version_id:tariff_6m_v1]]` {
 		t.Fatalf("tariff seeds = %s", got)
 	}
 
