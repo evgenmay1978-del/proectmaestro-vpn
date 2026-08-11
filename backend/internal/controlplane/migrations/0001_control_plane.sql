@@ -386,6 +386,7 @@ CREATE TABLE principals (
     principal_id TEXT PRIMARY KEY,
     login_key_hmac TEXT NOT NULL UNIQUE CHECK(length(login_key_hmac) = 64),
     status TEXT NOT NULL CHECK(status IN ('active','disabled')),
+    revocation_epoch INTEGER NOT NULL DEFAULT 0 CHECK(revocation_epoch >= 0),
     created_at_unix INTEGER NOT NULL CHECK(created_at_unix >= 0)
 )
 
@@ -411,7 +412,9 @@ CREATE TABLE principal_credentials (
 -- maestro:statement
 CREATE TABLE web_sessions (
     session_hmac TEXT PRIMARY KEY CHECK(length(session_hmac) = 64),
+    csrf_hmac TEXT NOT NULL CHECK(length(csrf_hmac) = 64),
     principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE CASCADE,
+    revocation_epoch INTEGER NOT NULL CHECK(revocation_epoch >= 0),
     created_at_unix INTEGER NOT NULL CHECK(created_at_unix >= 0),
     expires_at_unix INTEGER NOT NULL CHECK(expires_at_unix > created_at_unix),
     revoked_at_unix INTEGER
@@ -476,6 +479,7 @@ CREATE TABLE audit_events (
 CREATE TABLE health_write_canary (
     node_id TEXT PRIMARY KEY REFERENCES nodes(node_id) ON DELETE CASCADE,
     generation INTEGER NOT NULL CHECK(generation >= 0),
+    nonce_hmac TEXT NOT NULL CHECK(length(nonce_hmac) = 64),
     written_at_unix INTEGER NOT NULL CHECK(written_at_unix >= 0),
     observed_at_unix INTEGER NOT NULL CHECK(observed_at_unix >= written_at_unix)
 )
