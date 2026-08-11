@@ -1,5 +1,21 @@
 package controlplane
 
+// SecretScope binds one encrypted value to its owner, row field and secret
+// kind. Every component participates in AES-GCM authenticated data.
+type SecretScope struct {
+	OwnerType string
+	OwnerID   string
+	Field     string
+	Kind      string
+}
+
+// Envelope is the durable versioned representation of one protected secret.
+type Envelope struct {
+	KeyVersion int
+	Nonce      []byte
+	Ciphertext []byte
+}
+
 // PaymentState is the durable payment decision recorded on an order.
 type PaymentState string
 
