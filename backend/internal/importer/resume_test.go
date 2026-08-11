@@ -3,8 +3,10 @@ package importer
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"sync"
@@ -154,6 +156,7 @@ func preparedDelta(t *testing.T, base Snapshot, basePlan ImportPlan) Snapshot {
 	t.Helper()
 	delta := decodeFixture(t, "full-then-delta/delta.json")
 	delta.ParentSourceDigest = basePlan.SourceDigest
+	delta.Deletes[0].ExpectedPriorDigest = canonicalLegacyDigest(base.Customers[1])
 	return delta
 }
 
@@ -233,17 +236,134 @@ func TestDeltaRequiresExactAppliedParentDigest(t *testing.T) {
 	}
 }
 
-func TestDeltaDeletionCreatesTombstone(t *testing.T) {
+func TestDeltaDeleteRequiresExactPriorDigestAndSupportedEntity(t *testing.T) {
+	base := decodeFixture(t, "full-then-delta/base-full.json")
+	basePlan := plannedFixture(t, "full-then-delta/base-full.json", testPlanOptions())
+	options := testPlanOptions()
+	options.ParentSnapshot = &base
+	options.AppliedParentDigest = basePlan.SourceDigest
+
+	delta := preparedDelta(t, base, basePlan)
+	delta.Deletes[0].ExpectedPriorDigest = ""
+	if _, report := Plan(delta, options); !hasBlockerCode(report.Blockers, "delta_delete_prior_digest_mismatch") {
+		t.Fatalf("missing prior digest blockers = %#v", report.Blockers)
+	}
+
+	delta = preparedDelta(t, base, basePlan)
+	delta.Deletes[0].ExpectedPriorDigest = fmt.Sprintf("%064x", 1)
+	if _, report := Plan(delta, options); !hasBlockerCode(report.Blockers, "delta_delete_prior_digest_mismatch") {
+		t.Fatalf("mismatched prior digest blockers = %#v", report.Blockers)
+	}
+
+	delta = preparedDelta(t, base, basePlan)
+	delta.Deletes[0].Entity = "order"
+	if _, report := Plan(delta, options); !hasBlockerCode(report.Blockers, "unsupported_delta_delete_entity") {
+		t.Fatalf("unsupported delete blockers = %#v", report.Blockers)
+	}
+
+	delta = preparedDelta(t, base, basePlan)
+	delta.Deletes[0].SourceKey = "unknown-customer"
+	if _, report := Plan(delta, options); !hasBlockerCode(report.Blockers, "delta_delete_source_missing") {
+		t.Fatalf("unknown delete source blockers = %#v", report.Blockers)
+	}
+}
+
+func TestDeltaDeleteRejectsCollisionsAndGenerationOverflow(t *testing.T) {
+	base := decodeFixture(t, "full-then-delta/base-full.json")
+	basePlan := plannedFixture(t, "full-then-delta/base-full.json", testPlanOptions())
+	options := testPlanOptions()
+	options.ParentSnapshot = &base
+	options.AppliedParentDigest = basePlan.SourceDigest
+
+	duplicate := preparedDelta(t, base, basePlan)
+	duplicate.Deletes = append(duplicate.Deletes, duplicate.Deletes[0])
+	if _, report := Plan(duplicate, options); !hasBlockerCode(report.Blockers, "delta_delete_collision") {
+		t.Fatalf("duplicate delete blockers = %#v", report.Blockers)
+	}
+
+	upsertAndDelete := preparedDelta(t, base, basePlan)
+	upsertAndDelete.Customers = append(upsertAndDelete.Customers, base.Customers[1])
+	if _, report := Plan(upsertAndDelete, options); !hasBlockerCode(report.Blockers, "delta_delete_collision") {
+		t.Fatalf("upsert/delete blockers = %#v", report.Blockers)
+	}
+
+	overflowBase := decodeFixture(t, "full-then-delta/base-full.json")
+	overflowBase.Customers[1].Generation = math.MaxInt64
+	overflowPlan := plannedFixtureFromSnapshot(t, overflowBase, testPlanOptions())
+	overflowOptions := testPlanOptions()
+	overflowOptions.ParentSnapshot = &overflowBase
+	overflowOptions.AppliedParentDigest = overflowPlan.SourceDigest
+	overflow := preparedDelta(t, overflowBase, overflowPlan)
+	if _, report := Plan(overflow, overflowOptions); !hasBlockerCode(report.Blockers, "delta_delete_generation_overflow") {
+		t.Fatalf("generation overflow blockers = %#v", report.Blockers)
+	}
+}
+
+func TestDeltaDeleteCarriesTypedCustomerAndDerivedSecretProof(t *testing.T) {
 	base := decodeFixture(t, "full-then-delta/base-full.json")
 	basePlan := plannedFixture(t, "full-then-delta/base-full.json", testPlanOptions())
 	delta := preparedDelta(t, base, basePlan)
 	options := testPlanOptions()
 	options.ParentSnapshot = &base
 	options.AppliedParentDigest = basePlan.SourceDigest
+
 	plan, report := Plan(delta, options)
-	if len(report.Blockers) != 0 || len(plan.Deletes) != 1 || !plan.Deletes[0].Tombstone {
-		t.Fatalf("delta deletion plan/report = %#v / %#v", plan.Deletes, report.Blockers)
+	if len(report.Blockers) != 0 || len(plan.Deletes) != 1 || len(plan.CascadeDeletes) != 1 {
+		t.Fatalf("typed deletes = %#v / %#v / %#v", plan.Deletes, plan.CascadeDeletes, report.Blockers)
 	}
+	customerDelete := plan.Deletes[0]
+	if customerDelete.TargetID != deterministicID(options.Namespace, "customer", "customer-beta") ||
+		customerDelete.ExpectedPriorDigest != canonicalLegacyDigest(base.Customers[1]) ||
+		customerDelete.PriorGeneration != 1 || customerDelete.NextGeneration != 2 ||
+		customerDelete.TombstoneID == "" || !customerDelete.Tombstone {
+		t.Fatalf("customer delete proof = %#v", customerDelete)
+	}
+	secretDelete := plan.CascadeDeletes[0]
+	if secretDelete.Entity != "encrypted_secret" || secretDelete.SourceKey != "secret-beta" ||
+		secretDelete.TargetID != "secret-beta" ||
+		secretDelete.ExpectedPriorDigest != canonicalLegacyDigest(base.EncryptedSecrets[1]) ||
+		secretDelete.TombstoneID != "" || secretDelete.Tombstone {
+		t.Fatalf("secret delete proof = %#v", secretDelete)
+	}
+
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	want := map[string]PlannedDelete{
+		"customer\x00customer-beta":             customerDelete,
+		"encrypted_secret\x00secret-beta": secretDelete,
+	}
+	for _, operation := range operations {
+		key := operation.Entity + "\x00" + operation.Key
+		expected, exists := want[key]
+		if !exists {
+			continue
+		}
+		if !operation.Tombstone || len(operation.CanonicalJSON) == 0 {
+			t.Fatalf("typed delete operation missing proof: %#v", operation)
+		}
+		var decoded PlannedDelete
+		if err := json.Unmarshal(operation.CanonicalJSON, &decoded); err != nil {
+			t.Fatalf("decode typed delete operation: %v", err)
+		}
+		if !reflect.DeepEqual(decoded, expected) {
+			t.Fatalf("typed delete operation = %#v, want %#v", decoded, expected)
+		}
+		delete(want, key)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing typed delete operations = %#v", want)
+	}
+}
+
+func plannedFixtureFromSnapshot(t *testing.T, snapshot Snapshot, options PlanOptions) ImportPlan {
+	t.Helper()
+	plan, report := Plan(snapshot, options)
+	if len(report.Blockers) != 0 {
+		t.Fatalf("Plan(snapshot) blockers: %#v", report.Blockers)
+	}
+	return plan
 }
 
 func TestFullThenDeltaEqualsFreshFinalFullDigest(t *testing.T) {
