@@ -2030,3 +2030,35 @@ RED/GREEN доказательства:
 importer и shadow digest, только в репозитории через RED → GREEN. Не выполнять
 production import/deploy/restart/DNS/TLS/panel/bot/OTA mutations до всех
 отдельных inventory/import/shadow/cutover gates утверждённого плана.
+
+## HA control plane: Plan 02 / Task 6 core RED checkpoint (11.08.2026)
+
+Task 6 начат только в репозитории; production import, rqlite writes, серверы,
+боты, DNS, OTA и клиентские данные не изменялись.
+
+- Ветка: `codex/ha-rqlite-task2`; Draft PR `#82`.
+- Test-only HEAD: `53144dcb68e29dc2f4ac23a6ebe4812ba6ef6128`.
+- Expected RED run: `31492975243`, job `93783663188`.
+- Старые backend/controlplane tests прошли; новый package
+  `backend/internal/importer` остановился только на отсутствующих production
+  символах `Snapshot`, `DecodeSnapshot`, `PlanOptions`, `Plan`.
+- Все пять JSON fixtures отдельно прошли `ConvertFrom-Json`; `git diff
+  --check` чист.
+
+Test-only контракт уже фиксирует:
+
+- fail-closed decode truncated JSON без эха входных bytes в ошибке;
+- точное сохранение login casing, absolute expiry, generation и encrypted
+  envelope bytes;
+- стабильный полный список collision blockers;
+- `pending+credited -> confirmed/pending` с exact уже сохранённым expiry и
+  marker `legacy_credit_preserved`, без второго credit;
+- unsupported bot schema как blocker;
+- сохранение public settings, principals/roles и encrypted secret references;
+- missing principal secret как blocker и отсутствие ciphertext в report.
+
+Следующий безопасный шаг: до production-кода добавить оставшиеся test-only
+контракты `Apply`/crash-resume/different-digest/delta/tombstone/full+delta/
+concurrent-resume/missing-delete-marker, получить второй содержательный RED,
+затем реализовывать минимальный importer. Текущие `import_runs/import_batches`
+не содержат parent/plan/target digest и потребуют проверяемого расширения схемы.
