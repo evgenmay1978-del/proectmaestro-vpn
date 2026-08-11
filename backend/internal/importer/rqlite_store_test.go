@@ -55,10 +55,10 @@ func (db *applyStoreRQLite) QueryLinearizable(
 	db.queries = append(db.queries, copyStatements)
 	index := db.queryCalls
 	db.queryCalls++
-	if index < len(db.queryErrors) && db.queryErrors[index] != nil {
 	if db.queryHandler != nil {
 		return db.queryHandler(copyStatements)
 	}
+	if index < len(db.queryErrors) && db.queryErrors[index] != nil {
 		return nil, db.queryErrors[index]
 	}
 	if index >= len(db.queryResponses) {
