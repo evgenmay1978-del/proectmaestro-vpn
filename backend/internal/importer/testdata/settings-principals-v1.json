@@ -1,0 +1,15 @@
+{
+  "format_version":1, "snapshot_kind":"full", "captured_at":"2026-08-09T00:00:00Z",
+  "source_hashes":{"settings":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+  "customers":[], "orders":[], "trials":[], "bot_bindings":[],
+  "settings":[
+    {"key":"ota","public_value_json":{"versionCode":154},"generation":4},
+    {"key":"telegram","public_value_json":{"enabled":true},"generation":2,"secret_ref":"secret-bot-token"}
+  ],
+  "principals":[{"source_key":"principal-owner","login_key_hmac":"1111111111111111111111111111111111111111111111111111111111111111","status":"active","roles":["owner"],"credential_secret_ref":"secret-panel-verifier"}],
+  "encrypted_secrets":[
+    {"secret_id":"secret-panel-verifier","owner_type":"principal","owner_source_key":"principal-owner","field":"verifier","kind":"password-verifier","key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"c3ludGhldGljLXBhbmVsLXZlcmlmaWVy","sha256":"2222222222222222222222222222222222222222222222222222222222222222"},
+    {"secret_id":"secret-bot-token","owner_type":"setting","owner_source_key":"telegram","field":"token","kind":"bot-token","key_version":1,"nonce_b64":"AQIDBAUGBwgJCgsM","ciphertext_b64":"c3ludGhldGljLWJvdC10b2tlbg==","sha256":"3333333333333333333333333333333333333333333333333333333333333333"}
+  ],
+  "deletes":[], "bot_poll_states":[], "pending_callbacks":[], "bot_credential_rotations":[]
+}

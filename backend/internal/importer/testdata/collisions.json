@@ -1,0 +1,15 @@
+{
+  "format_version":1, "snapshot_kind":"full", "captured_at":"2026-08-09T00:00:00Z",
+  "source_hashes":{"collision_fixture":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+  "customers":[
+    {"source_key":"c1","login":"CollisionUser","login_key_hmac":"1111111111111111111111111111111111111111111111111111111111111111","uuid_hmac":"2222222222222222222222222222222222222222222222222222222222222222","sub_id_hmac":"3333333333333333333333333333333333333333333333333333333333333333","token_hmac":"4444444444444444444444444444444444444444444444444444444444444444","credential_fingerprint_hmac":"5555555555555555555555555555555555555555555555555555555555555555","identity_secret_ref":"s1","expires_at_unix":2000000,"generation":1,"status":"active"},
+    {"source_key":"c2","login":"collisionuser","login_key_hmac":"6666666666666666666666666666666666666666666666666666666666666666","uuid_hmac":"2222222222222222222222222222222222222222222222222222222222222222","sub_id_hmac":"3333333333333333333333333333333333333333333333333333333333333333","token_hmac":"4444444444444444444444444444444444444444444444444444444444444444","credential_fingerprint_hmac":"5555555555555555555555555555555555555555555555555555555555555555","identity_secret_ref":"s2","expires_at_unix":1900000,"generation":2,"status":"expired"}
+  ],
+  "orders":[{"source_key":"bad-expiry","customer_source_key":"c1","state":"confirmed","credited":true,"stored_customer_expires_at_unix":1999999}],
+  "trials":[], "bot_bindings":[], "settings":[], "principals":[],
+  "encrypted_secrets":[
+    {"secret_id":"s1","owner_type":"customer","owner_source_key":"c1","field":"identity","kind":"customer-identity","key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"YQ==","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    {"secret_id":"s2","owner_type":"customer","owner_source_key":"c2","field":"identity","kind":"customer-identity","key_version":1,"nonce_b64":"AQIDBAUGBwgJCgsM","ciphertext_b64":"Yg==","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+  ],
+  "deletes":[], "bot_poll_states":[], "pending_callbacks":[], "bot_credential_rotations":[]
+}

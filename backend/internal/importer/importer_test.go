@@ -1,0 +1,146 @@
+package importer
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func fixture(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	return data
+}
+
+func decodeFixture(t *testing.T, name string) Snapshot {
+	t.Helper()
+	snapshot, err := DecodeSnapshot(fixture(t, name))
+	if err != nil {
+		t.Fatalf("DecodeSnapshot(%s): %v", name, err)
+	}
+	return snapshot
+}
+
+func testPlanOptions() PlanOptions {
+	return PlanOptions{
+		Namespace:          "maestro-legacy-v1",
+		SupportedBotSchemas: []string{"bot-schema-v1"},
+	}
+}
+
+func TestDecodeSnapshotRejectsTruncatedJSONWithoutEchoingInput(t *testing.T) {
+	privateMarker := "must-not-appear-in-error"
+	_, err := DecodeSnapshot([]byte(`{"format_version":1,"marker":"` + privateMarker))
+	if err == nil {
+		t.Fatal("truncated JSON was accepted")
+	}
+	if strings.Contains(err.Error(), privateMarker) {
+		t.Fatalf("decoder error echoed input: %v", err)
+	}
+}
+
+func TestPlanPreservesExactLegacyIdentityBytesAndExpiry(t *testing.T) {
+	snapshot := decodeFixture(t, "customers-valid.json")
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	if len(plan.Customers) != 1 || len(plan.EncryptedSecrets) != 1 {
+		t.Fatalf("plan counts = customers:%d secrets:%d", len(plan.Customers), len(plan.EncryptedSecrets))
+	}
+	customer := plan.Customers[0]
+	if customer.DisplayLogin != "CaseSensitiveUser" || customer.ExpiresAtUnix != 2_100_000 ||
+		customer.Generation != 7 || customer.IdentitySecretRef != "secret-customer-1" {
+		t.Fatalf("legacy customer bytes/expiry changed: %#v", customer)
+	}
+	secret := plan.EncryptedSecrets[0]
+	if secret.NonceB64 != "AAECAwQFBgcICQoL" || secret.CiphertextB64 != "c3ludGhldGljLWNpcGhlcnRleHQ=" || secret.KeyVersion != 1 {
+		t.Fatalf("protected identity envelope changed: %#v", secret)
+	}
+}
+
+func TestPlanReportsEveryCollisionInStableOrder(t *testing.T) {
+	snapshot := decodeFixture(t, "collisions.json")
+	_, first := Plan(snapshot, testPlanOptions())
+	_, second := Plan(snapshot, testPlanOptions())
+	want := []string{
+		"credential_collision", "expiry_contradiction", "login_collision",
+		"sub_id_collision", "token_hmac_collision", "uuid_collision",
+	}
+	got := make([]string, len(first.Blockers))
+	for i, blocker := range first.Blockers {
+		got[i] = blocker.Code
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("blockers = %#v, want %#v", got, want)
+	}
+	if !reflect.DeepEqual(first.Blockers, second.Blockers) {
+		t.Fatalf("blocker order is unstable: %#v != %#v", first.Blockers, second.Blockers)
+	}
+}
+
+func TestPendingCreditedPreservesExpiryWithoutSecondCredit(t *testing.T) {
+	snapshot := decodeFixture(t, "orders-pending-credited.json")
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 || len(plan.Orders) != 2 {
+		t.Fatalf("plan/report = %#v / %#v", plan, report)
+	}
+	credited := plan.Orders[0]
+	if credited.PaymentState != "confirmed" || credited.ProvisioningState != "pending" ||
+		credited.ResultExpiresAtUnix != 2_200_000 || !reflect.DeepEqual(credited.AuditMarkers, []string{"legacy_credit_preserved"}) {
+		t.Fatalf("credited order was transformed incorrectly: %#v", credited)
+	}
+	uncredited := plan.Orders[1]
+	if uncredited.ImportState != "created" || uncredited.ResultExpiresAtUnix != 0 {
+		t.Fatalf("uncredited pending order was credited: %#v", uncredited)
+	}
+}
+
+func TestUnsupportedBotSnapshotIsBlocking(t *testing.T) {
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	snapshot.BotBindings[0].SchemaFingerprint = "unknown-live-schema"
+	_, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 1 || report.Blockers[0].Code != "unsupported_bot_schema" {
+		t.Fatalf("unsupported bot schema blockers = %#v", report.Blockers)
+	}
+}
+
+func TestRequiredSettingsPrincipalsAndEncryptedSecretsArePreserved(t *testing.T) {
+	snapshot := decodeFixture(t, "settings-principals-v1.json")
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	if len(plan.Settings) != 2 || len(plan.Principals) != 1 || len(plan.EncryptedSecrets) != 2 {
+		t.Fatalf("settings/principals/secrets counts changed: %#v", report.Counts)
+	}
+	if !bytes.Equal(plan.Settings[0].PublicValueJSON, []byte(`{"versionCode":154}`)) ||
+		!reflect.DeepEqual(plan.Principals[0].Roles, []string{"owner"}) {
+		t.Fatalf("public setting or roles changed: %#v / %#v", plan.Settings, plan.Principals)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	for _, forbidden := range []string{"c3ludGhldGljLXBhbmVsLXZlcmlmaWVy", "c3ludGhldGljLWJvdC10b2tlbg=="} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("immutable report leaked protected ciphertext: %s", encoded)
+		}
+	}
+}
+
+func TestMissingLegacyPrincipalSecretBlocksApply(t *testing.T) {
+	snapshot := decodeFixture(t, "settings-principals-v1.json")
+	snapshot.EncryptedSecrets = snapshot.EncryptedSecrets[1:]
+	_, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 1 || report.Blockers[0].Code != "missing_principal_secret" {
+		t.Fatalf("missing principal secret blockers = %#v", report.Blockers)
+	}
+}

@@ -1,0 +1,20 @@
+{
+  "format_version": 1, "snapshot_kind": "full", "captured_at": "2026-08-09T00:00:00Z",
+  "source_hashes": {"s1_orders": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "customers": [{
+    "source_key":"s1:customer:order-owner", "login":"OrderOwner",
+    "login_key_hmac":"1010101010101010101010101010101010101010101010101010101010101010",
+    "uuid_hmac":"2020202020202020202020202020202020202020202020202020202020202020",
+    "sub_id_hmac":"3030303030303030303030303030303030303030303030303030303030303030",
+    "token_hmac":"4040404040404040404040404040404040404040404040404040404040404040",
+    "credential_fingerprint_hmac":"5050505050505050505050505050505050505050505050505050505050505050",
+    "identity_secret_ref":"secret-order-owner", "expires_at_unix":2200000, "generation":9, "status":"active"
+  }],
+  "orders": [
+    {"source_key":"legacy-order-credited", "customer_source_key":"s1:customer:order-owner", "state":"pending", "credited":true, "stored_customer_expires_at_unix":2200000},
+    {"source_key":"legacy-order-uncredited", "customer_source_key":"s1:customer:order-owner", "state":"pending", "credited":false, "stored_customer_expires_at_unix":2200000}
+  ],
+  "trials":[], "bot_bindings":[], "settings":[], "principals":[],
+  "encrypted_secrets":[{"secret_id":"secret-order-owner","owner_type":"customer","owner_source_key":"s1:customer:order-owner","field":"identity","kind":"customer-identity","key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"c3ludGhldGljLW9yZGVyLW93bmVy","sha256":"6060606060606060606060606060606060606060606060606060606060606060"}],
+  "deletes":[], "bot_poll_states":[], "pending_callbacks":[], "bot_credential_rotations":[]
+}
