@@ -2450,3 +2450,43 @@ import всё ещё не завершены.
 identity row, а legacy trial salt принимается только отдельным защищённым
 входом и хранится как encrypted key-version-1 secret. Затем остаются typed
 tombstones/deletes; Task 6 и production import всё ещё не завершены.
+
+## HA control plane: Task 6 protected legacy trial checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `ab240319c4ea74095d55a33f6c9cda708307a51b`; run
+  `31516510313`, job `93862869458` упал ровно на отсутствующих
+  `TrialImportProtection` и protected constructor.
+- Production GREEN commit `feaa3e3bc3249fe744c2704831cf128b0a5f5515`.
+- Run `31517299065`, job `93865535656`: formatting, unit, race, vet и harness
+  прошли; integration compile обнаружил только package-local test helper,
+  ошибочно использованный из другого Go package.
+- Test-only fix commit `b7e1020a3a8b549b138cb8a76c55eb40fc7757d7`.
+- Final GREEN run `31517648635`, job `93866698171`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- `imported_trial_identities` хранит только stable source key, legacy/current
+  HMAC, exact expiry, monotonic used flag и ссылку на protected lookup secret.
+- Legacy salt не входит в snapshot/report: store принимает только заранее
+  зашифрованный envelope key version 1; plaintext input fail-closed.
+- Salt хранится reserved typed row `legacy-trial-salt-v1` в
+  `imported_secrets`; salt row immutable, exact retry идемпотентен.
+- Trial identity запрещает HMAC/source collision, смену HMAC/expiry/key и
+  rollback `used=1 -> 0`; разрешены exact retry и `used=0 -> 1`.
+- Trial identity включена в deterministic business digest и проверена real
+  rqlite E2E вместе с durable batch receipt.
+
+### Следующий безопасный шаг
+
+Владелец подтвердил разделение operational tombstones и logical business
+digest. Focused design записывается в
+`docs/superpowers/specs/2026-08-11-maestrovpn-ha-import-delete-design.md`.
+После review отдельный RED -> GREEN slice реализует только explicit customer
+delete и derived encrypted-secret marker. Production import всё ещё запрещён.
