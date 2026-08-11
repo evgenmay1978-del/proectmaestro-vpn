@@ -67,6 +67,27 @@ Authentication lookup order is `GH_TOKEN`, `GITHUB_TOKEN`, then
 `git credential fill`; credentials are never written to metadata or printed. This
 script has no GitHub Release or OTA endpoint and does not merge or publish anything.
 
+## Isolated rqlite CI cluster
+
+`ops/ha/ci-rqlite-cluster.sh` is a GitHub Actions-only harness for the HA control
+plane. It downloads the pinned rqlite 10.1.0 archive, verifies its SHA-256 before
+extraction, and starts three loopback-only voters below the runner's temporary
+directory. It never connects to S1-S4 and contains no production credentials.
+
+On the owner's computer run syntax checks only; do not run `start` or the full
+contract because those download and start three rqlite processes:
+
+```powershell
+bash -n ops/ha/ci-rqlite-cluster.sh
+bash -n ops/ha/test-ci-rqlite-cluster.sh
+```
+
+The full lifecycle, leader/voter checks, per-node foreign-key checks, backend
+tests, race tests, vet and integration tests run in
+`.github/workflows/ha-control-plane.yml`. Its `always()` cleanup stops only PIDs
+recorded under the validated runner-temp root. A GREEN run on the exact pushed
+SHA is required before proceeding to the checksummed control-plane schema.
+
 ## Mobile 4D assets and phone preview
 
 - `mobile-4d-assets.py` validates the 15 source PNGs, builds the committed three-light atlas set and generated Kotlin geometry.
