@@ -171,6 +171,128 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	}
 }
 
+func TestRQLiteApplyStoreWritesBotRouteAndHardFencedPollState(t *testing.T) {
+	db, err := rqlite.New(rqlite.Config{
+		Endpoints: []string{
+			"http://127.0.0.1:4401",
+			"http://127.0.0.1:4403",
+			"http://127.0.0.1:4405",
+		},
+		Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("rqlite.New: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	snapshot.BotPollStates = []LegacyBotPollState{{
+		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		CurrentTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
+		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
+		NextUpdateID: 42,
+		CapturedFence: 11,
+	}}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	batch := ApplyBatch{
+		RunID: "importer-integration-bot-poll-state-v1", PlanDigest: plan.PlanDigest, Index: 0,
+		Digest: digestBatch(operations), Operations: operations,
+	}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.BeginOrResume(ctx, ApplyRun{
+		RunID: batch.RunID, SnapshotKind: "full", SourceDigest: plan.SourceDigest,
+		PlanDigest: plan.PlanDigest, BatchCount: 1,
+	}); err != nil {
+		t.Fatalf("BeginOrResume: %v", err)
+	}
+	if _, err := store.CommitBatch(ctx, batch); err != nil {
+		t.Fatalf("CommitBatch bot state: %v", err)
+	}
+
+	results, err := db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT token_fingerprint_hmac,credential_version
+FROM telegram_bot_routes WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindings[0].BotIdentityHMAC}},
+		rqlite.Statement{SQL: `SELECT offset_value,lease_fence,node_id,lease_token,lease_expires_at_unix
+FROM telegram_pollers WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindings[0].BotIdentityHMAC}},
+	)
+	if err != nil {
+		t.Fatalf("verify bot state: %v", err)
+	}
+	if len(results) != 2 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 {
+		t.Fatalf("bot state results = %#v", results)
+	}
+	if results[0].Rows[0]["token_fingerprint_hmac"] != snapshot.BotBindings[0].TokenFingerprintHMAC ||
+		!rqliteIntegerEquals(results[0].Rows[0]["credential_version"], 1) ||
+		!rqliteIntegerEquals(results[1].Rows[0]["offset_value"], 42) ||
+		!rqliteIntegerEquals(results[1].Rows[0]["lease_fence"], 11) ||
+		results[1].Rows[0]["node_id"] != nil || results[1].Rows[0]["lease_token"] != nil ||
+		!rqliteIntegerEquals(results[1].Rows[0]["lease_expires_at_unix"], 0) {
+		t.Fatalf("bot state verification mismatch: %#v", results)
+	}
+
+	mismatchSnapshot := decodeFixture(t, "bot-bindings-v1.json")
+	mismatchSnapshot.BotPollStates = []LegacyBotPollState{{
+		BotIdentityHMAC: mismatchSnapshot.BotBindings[0].BotIdentityHMAC,
+		CurrentTokenFingerprintHMAC: strings.Repeat("3", 64),
+		CredentialVersion: mismatchSnapshot.BotBindings[0].CredentialVersion,
+		NextUpdateID: 43,
+		CapturedFence: 12,
+	}}
+	mismatchPlan, mismatchReport := Plan(mismatchSnapshot, testPlanOptions())
+	if len(mismatchReport.Blockers) != 0 {
+		t.Fatalf("unexpected mismatch blockers: %#v", mismatchReport.Blockers)
+	}
+	mismatchOperations, err := planOperations(mismatchPlan)
+	if err != nil {
+		t.Fatalf("mismatch planOperations: %v", err)
+	}
+	selected := mismatchOperations[:0]
+	for _, operation := range mismatchOperations {
+		if operation.Entity == "bot_poll_state" {
+			selected = append(selected, operation)
+		}
+	}
+	if len(selected) != 1 {
+		t.Fatalf("mismatch poll operations = %#v", mismatchOperations)
+	}
+	mismatchBatch := ApplyBatch{
+		RunID: "importer-integration-bot-poll-mismatch-v1", PlanDigest: mismatchPlan.PlanDigest, Index: 0,
+		Digest: digestBatch(selected), Operations: selected,
+	}
+	if _, err := store.BeginOrResume(ctx, ApplyRun{
+		RunID: mismatchBatch.RunID, SnapshotKind: "full", SourceDigest: mismatchPlan.SourceDigest,
+		PlanDigest: mismatchPlan.PlanDigest, BatchCount: 1,
+	}); err != nil {
+		t.Fatalf("mismatch BeginOrResume: %v", err)
+	}
+	if _, err := store.CommitBatch(ctx, mismatchBatch); err == nil {
+		t.Fatal("CommitBatch accepted poll state for a different credential route")
+	}
+	unchanged, err := db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT offset_value,lease_fence FROM telegram_pollers WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindings[0].BotIdentityHMAC}},
+		rqlite.Statement{SQL: `SELECT status FROM import_batches WHERE import_run_id=?`, Args: []any{mismatchBatch.RunID}},
+	)
+	if err != nil || len(unchanged) != 2 || len(unchanged[0].Rows) != 1 || len(unchanged[1].Rows) != 0 ||
+		!rqliteIntegerEquals(unchanged[0].Rows[0]["offset_value"], 42) ||
+		!rqliteIntegerEquals(unchanged[0].Rows[0]["lease_fence"], 11) {
+		t.Fatalf("mismatched poll state was not rolled back atomically: %#v, %v", unchanged, err)
+	}
+}
+
 func rqliteIntegerEquals(value any, want int64) bool {
 	got, ok := applyRowInt(value)
 	return ok && got == want

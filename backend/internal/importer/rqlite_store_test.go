@@ -378,3 +378,76 @@ func TestRQLiteApplyStoreCommitsBotCredentialRouteAsTypedRow(t *testing.T) {
 		t.Fatal("transaction has no typed telegram_bot_routes write")
 	}
 }
+
+func TestRQLiteApplyStoreCommitsBotPollStateAsTypedRow(t *testing.T) {
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	snapshot.BotPollStates = []LegacyBotPollState{{
+		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		CurrentTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
+		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
+		NextUpdateID: 42,
+		CapturedFence: 11,
+	}}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	var pollOperation ApplyOperation
+	for _, operation := range operations {
+		if operation.Entity == "bot_poll_state" {
+			pollOperation = operation
+			break
+		}
+	}
+	if pollOperation.Entity == "" {
+		t.Fatalf("bot poll state operations = %#v", operations)
+	}
+	batch := ApplyBatch{
+		RunID: "import-run-bot-poll-state", PlanDigest: plan.PlanDigest, Index: 0,
+		Operations: []ApplyOperation{pollOperation},
+	}
+	batch.Digest = digestBatch(batch.Operations)
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}},
+		receiptQueryResult(batch),
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch bot poll state: %v", err)
+	}
+	if len(db.requests) != 1 {
+		t.Fatalf("bot poll state request count = %d", len(db.requests))
+	}
+	found := false
+	for _, statement := range db.requests[0].statements {
+		sqlText := strings.ToLower(statement.SQL)
+		if strings.Contains(sqlText, "canonical_import_rows") || strings.Contains(sqlText, "canonical_json") {
+			t.Fatalf("bot poll state used generic staging: %s", statement.SQL)
+		}
+		if !strings.Contains(sqlText, "insert into telegram_pollers") {
+			continue
+		}
+		found = true
+		if !strings.Contains(sqlText, "telegram_bot_routes") {
+			t.Fatalf("bot poll state did not validate credential route: %s", statement.SQL)
+		}
+		wantArgs := []any{
+			snapshot.BotBindings[0].BotIdentityHMAC, snapshot.BotBindings[0].TokenFingerprintHMAC,
+			1, snapshot.BotBindings[0].BotIdentityHMAC, int64(42), int64(11), int64(1_500_000),
+			batch.RunID, batch.Index, batch.Digest,
+		}
+		if fmt.Sprint(statement.Args) != fmt.Sprint(wantArgs) {
+			t.Fatalf("bot poll state args = %v, want %v", statement.Args, wantArgs)
+		}
+	}
+	if !found {
+		t.Fatal("transaction has no typed telegram_pollers write")
+	}
+}

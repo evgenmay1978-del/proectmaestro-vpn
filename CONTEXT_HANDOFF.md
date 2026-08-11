@@ -2281,3 +2281,39 @@ handoff/review; production import всё ещё запрещён до cutover ga
 4. После всех typed entities — fail-closed endpoint/auth/TLS CLI factory,
    полный GitHub GREEN, review и отдельный cutover gate. До этого никакого
    production import, deploy или переключения клиентов.
+
+## HA control plane: Task 6 typed Telegram bot route checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer mutations не
+выполнялись. CLI production factory всё ещё `nil` и fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `a3021e5e6b0495f3822912824a2ce3b93ae742a5`; GitHub Actions
+  run `31509153164`, job `93838265683` упал ровно на
+  `unsupported canonical import entity "bot_binding"`. Остальные
+  выполненные packages были green.
+- GREEN commit `6504cdbee19da9293d1f098eb0821388a2f95e78`.
+- Final GREEN run `31509885416`, job `93840733457`: formatting, unit,
+  race, vet, rqlite harness и настоящий изолированный трёхузловой rqlite
+  integration прошли.
+
+### Сохранённый контракт
+
+- Добавлена отдельная typed таблица `telegram_bot_routes`; generic JSON
+  staging не используется.
+- Сохраняются только stable `bot_identity_hmac`,
+  `token_fingerprint_hmac`, положительный `credential_version`,
+  `schema_fingerprint` и timestamp. Raw Telegram token/ID не сохраняются.
+- Повтор exact same version идемпотентен и не меняет timestamp; более новая
+  версия разрешена; downgrade и другой fingerprint/schema на той же версии
+  атомарно блокируются SQLite trigger.
+- Таблица включена в deterministic business digest импортера.
+
+### Следующий безопасный шаг
+
+Task 6 не завершать. Следующий отдельный RED -> GREEN slice — typed
+`bot_poll_state` с exact next update ID, credential route и captured fence;
+после него pending callbacks и credential rotations. Unsupported также
+остаются `trial`, standalone `encrypted_secret` и typed tombstones/deletes.

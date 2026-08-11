@@ -150,6 +150,52 @@ func TestImportSchemaPreservesBotCredentialRoute(t *testing.T) {
 	`, Args: []any{botIdentity, repeatHex("8"), 3, "bot-schema-v1", 1_000_001}})
 }
 
+func TestImportSchemaPreservesHardFencedBotPollState(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	botIdentity := repeatHex("9")
+	tokenFingerprint := repeatHex("a")
+
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO telegram_bot_routes(
+				bot_identity_hmac,token_fingerprint_hmac,credential_version,
+				schema_fingerprint,updated_at_unix
+			) VALUES(?,?,?,?,?)
+		`, Args: []any{botIdentity, tokenFingerprint, 5, "bot-schema-v1", 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO telegram_pollers(
+				bot_identity_hmac,node_id,lease_token,offset_value,lease_fence,
+				lease_expires_at_unix,updated_at_unix
+			) VALUES(?,NULL,NULL,?,?,0,?)
+		`, Args: []any{botIdentity, 42, 11, 1_000_000}},
+	)
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT bot_identity_hmac,offset_value,lease_fence
+		FROM telegram_pollers WHERE bot_identity_hmac=?
+	`, Args: []any{botIdentity}})
+	if got := fmt.Sprint(result.Rows); got != fmt.Sprintf(
+		`[map[bot_identity_hmac:%s lease_fence:11 offset_value:42]]`, botIdentity,
+	) {
+		t.Fatalf("hard-fenced poll state = %s", got)
+	}
+
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE telegram_pollers SET offset_value=? WHERE bot_identity_hmac=?",
+		Args: []any{41, botIdentity},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE telegram_pollers SET offset_value=?,lease_fence=? WHERE bot_identity_hmac=?",
+		Args: []any{43, 10, botIdentity},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO telegram_pollers(
+			bot_identity_hmac,node_id,lease_token,offset_value,lease_fence,
+			lease_expires_at_unix,updated_at_unix
+		) VALUES(?,NULL,NULL,?,?,0,?)
+	`, Args: []any{repeatHex("b"), 1, 1, 1_000_000}})
+}
+
 func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	t.Helper()
 	columns := make([]string, 0, len(result.Rows))
