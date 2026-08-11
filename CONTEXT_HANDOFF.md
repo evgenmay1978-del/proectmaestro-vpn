@@ -1829,3 +1829,38 @@ interactive mobile UI
 
 Не записывать сюда токены, пароли, приватные URL подписок, данные клиентов или
 непроверенные предположения.
+
+## HA control plane: GREEN checkpoint Plan 01 / Task 2 (11.08.2026)
+
+Репозиторная реализация изолированного трёхузлового rqlite CI-harness завершена.
+Продакшен, DNS, TLS, панели, Telegram-боты и четыре VPN-сервера этим checkpoint
+не изменялись; живой rqlite-кластер ещё не развёрнут.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный implementation HEAD: `ef58eb6a8ac307f79688cc69aeca00bb99af940f`.
+- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Exact-SHA GitHub Actions run: `31480737818`, conclusion `success`.
+- Job `Go and isolated rqlite` подтвердил Go format/test/race/vet и полный
+  rqlite lifecycle.
+- Контракт подтвердил один leader, три reachable voting-узла, `-fk` и
+  `PRAGMA foreign_keys=1` на каждом endpoint, безопасные start/status/stop,
+  повторный start после stop, fail-closed download, checksum pin, ограничение
+  данных runner-temp, отказ удалять out-of-scope marker/root и сохранение
+  постороннего PID.
+
+Зафиксированные причины, которые нельзя проходить повторно:
+
+1. EXIT status нужно передавать в cleanup до любых `local`-команд.
+2. EXIT-trap не может читать локальные переменные уже завершившейся функции;
+   безопасно экранированные root/marker/PID передаются литеральными аргументами.
+3. rqlite v10.1.0 возвращает `/nodes?ver=2` в wrapper-форме `{"nodes":[...]}`;
+   verifier нормализует её по стабильному `id`.
+4. Три новых voter стартуют одновременно с одинаковыми `-bootstrap-expect 3`
+   и полным списком трёх Raft-адресов.
+5. Проверка занятых loopback-портов использует `SO_REUSEADDR=1`, чтобы отличать
+   живой listener от нормального Linux `TIME_WAIT` после stop.
+
+Следующий безопасный шаг: Plan 01 / Task 3 — checksummed schema migrations и
+интеграционные тесты только на этом изолированном harness. До отдельного
+cutover-разрешения сохранять `legacy` единственным live/default режимом и не
+выполнять production import/deploy/DNS/TLS/bot/OTA mutations.
