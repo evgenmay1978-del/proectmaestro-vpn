@@ -171,7 +171,7 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	}
 }
 
-func TestRQLiteApplyStoreWritesBotRouteAndHardFencedPollState(t *testing.T) {
+func TestRQLiteApplyStoreWritesBotRoutePollStateAndPendingCallback(t *testing.T) {
 	db, err := rqlite.New(rqlite.Config{
 		Endpoints: []string{
 			"http://127.0.0.1:4401",
@@ -196,6 +196,15 @@ func TestRQLiteApplyStoreWritesBotRouteAndHardFencedPollState(t *testing.T) {
 		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
 		NextUpdateID: 42,
 		CapturedFence: 11,
+	}}
+	snapshot.PendingCallbacks = []LegacyCallback{{
+		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		TokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
+		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
+		CallbackHMAC: strings.Repeat("4", 64),
+		OrderID: "legacy-order-callback",
+		Action: "confirm",
+		State: "pending",
 	}}
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
@@ -228,11 +237,13 @@ func TestRQLiteApplyStoreWritesBotRouteAndHardFencedPollState(t *testing.T) {
 FROM telegram_bot_routes WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindings[0].BotIdentityHMAC}},
 		rqlite.Statement{SQL: `SELECT offset_value,lease_fence,node_id,lease_token,lease_expires_at_unix
 FROM telegram_pollers WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindings[0].BotIdentityHMAC}},
+		rqlite.Statement{SQL: `SELECT order_id,action,state FROM telegram_imported_callbacks
+WHERE callback_hmac=?`, Args: []any{snapshot.PendingCallbacks[0].CallbackHMAC}},
 	)
 	if err != nil {
 		t.Fatalf("verify bot state: %v", err)
 	}
-	if len(results) != 2 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 {
+	if len(results) != 3 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 || len(results[2].Rows) != 1 {
 		t.Fatalf("bot state results = %#v", results)
 	}
 	if results[0].Rows[0]["token_fingerprint_hmac"] != snapshot.BotBindings[0].TokenFingerprintHMAC ||
@@ -240,7 +251,10 @@ FROM telegram_pollers WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindin
 		!rqliteIntegerEquals(results[1].Rows[0]["offset_value"], 42) ||
 		!rqliteIntegerEquals(results[1].Rows[0]["lease_fence"], 11) ||
 		results[1].Rows[0]["node_id"] != nil || results[1].Rows[0]["lease_token"] != nil ||
-		!rqliteIntegerEquals(results[1].Rows[0]["lease_expires_at_unix"], 0) {
+		!rqliteIntegerEquals(results[1].Rows[0]["lease_expires_at_unix"], 0) ||
+		results[2].Rows[0]["order_id"] != "legacy-order-callback" ||
+		results[2].Rows[0]["action"] != "confirm" ||
+		results[2].Rows[0]["state"] != "pending" {
 		t.Fatalf("bot state verification mismatch: %#v", results)
 	}
 
@@ -290,6 +304,57 @@ FROM telegram_pollers WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindin
 		!rqliteIntegerEquals(unchanged[0].Rows[0]["offset_value"], 42) ||
 		!rqliteIntegerEquals(unchanged[0].Rows[0]["lease_fence"], 11) {
 		t.Fatalf("mismatched poll state was not rolled back atomically: %#v, %v", unchanged, err)
+	}
+
+	callbackMismatchSnapshot := decodeFixture(t, "bot-bindings-v1.json")
+	callbackMismatchSnapshot.PendingCallbacks = []LegacyCallback{{
+		BotIdentityHMAC: callbackMismatchSnapshot.BotBindings[0].BotIdentityHMAC,
+		TokenFingerprintHMAC: strings.Repeat("3", 64),
+		CredentialVersion: callbackMismatchSnapshot.BotBindings[0].CredentialVersion,
+		CallbackHMAC: snapshot.PendingCallbacks[0].CallbackHMAC,
+		OrderID: "legacy-order-callback",
+		Action: "confirm",
+		State: "in_flight",
+	}}
+	callbackMismatchPlan, callbackMismatchReport := Plan(callbackMismatchSnapshot, testPlanOptions())
+	if len(callbackMismatchReport.Blockers) != 0 {
+		t.Fatalf("unexpected callback mismatch blockers: %#v", callbackMismatchReport.Blockers)
+	}
+	callbackMismatchOperations, err := planOperations(callbackMismatchPlan)
+	if err != nil {
+		t.Fatalf("callback mismatch planOperations: %v", err)
+	}
+	callbackSelected := callbackMismatchOperations[:0]
+	for _, operation := range callbackMismatchOperations {
+		if operation.Entity == "pending_callback" {
+			callbackSelected = append(callbackSelected, operation)
+		}
+	}
+	if len(callbackSelected) != 1 {
+		t.Fatalf("mismatch callback operations = %#v", callbackMismatchOperations)
+	}
+	callbackMismatchBatch := ApplyBatch{
+		RunID: "importer-integration-bot-callback-mismatch-v1",
+		PlanDigest: callbackMismatchPlan.PlanDigest, Index: 0,
+		Digest: digestBatch(callbackSelected), Operations: callbackSelected,
+	}
+	if _, err := store.BeginOrResume(ctx, ApplyRun{
+		RunID: callbackMismatchBatch.RunID, SnapshotKind: "full",
+		SourceDigest: callbackMismatchPlan.SourceDigest,
+		PlanDigest: callbackMismatchPlan.PlanDigest, BatchCount: 1,
+	}); err != nil {
+		t.Fatalf("callback mismatch BeginOrResume: %v", err)
+	}
+	if _, err := store.CommitBatch(ctx, callbackMismatchBatch); err == nil {
+		t.Fatal("CommitBatch accepted callback for a different credential route")
+	}
+	callbackUnchanged, err := db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT state FROM telegram_imported_callbacks WHERE callback_hmac=?`, Args: []any{snapshot.PendingCallbacks[0].CallbackHMAC}},
+		rqlite.Statement{SQL: `SELECT status FROM import_batches WHERE import_run_id=?`, Args: []any{callbackMismatchBatch.RunID}},
+	)
+	if err != nil || len(callbackUnchanged) != 2 || len(callbackUnchanged[0].Rows) != 1 ||
+		len(callbackUnchanged[1].Rows) != 0 || callbackUnchanged[0].Rows[0]["state"] != "pending" {
+		t.Fatalf("mismatched callback was not rolled back atomically: %#v, %v", callbackUnchanged, err)
 	}
 }
 

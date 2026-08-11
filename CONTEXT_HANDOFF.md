@@ -2317,3 +2317,35 @@ Task 6 не завершать. Следующий отдельный RED -> GRE
 `bot_poll_state` с exact next update ID, credential route и captured fence;
 после него pending callbacks и credential rotations. Unsupported также
 остаются `trial`, standalone `encrypted_secret` и typed tombstones/deletes.
+
+## HA control plane: Task 6 hard-fenced bot poll state checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `9894e087e0ce6cd895707b6c09521635d6b4e6ae`; run
+  `31510900991`, job `93844161333` упал ровно на unsupported
+  `bot_poll_state`.
+- GREEN commit `2d140b7b6ad2be54e046aead2bb597e36a4c93a8`.
+- Final GREEN run `31511239698`, job `93845282625`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- `telegram_pollers` теперь keyed только stable `bot_identity_hmac` и
+  связан FK с `telegram_bot_routes`; raw bot ID/token не сохраняются.
+- Hard-fenced import хранит exact next update ID и captured lease fence без
+  активного node/lease. Offset и fence не могут уменьшиться.
+- Credential fingerprint/version проверяются атомарно по current route, но
+  не дублируются в poller state. Mismatch откатывает и state, и batch receipt.
+- Real rqlite E2E доказывает matching write, mismatch rollback и отсутствие
+  активного lease после импорта.
+
+### Следующий безопасный шаг
+
+Отдельный RED -> GREEN typed `pending_callback`, затем audited
+`bot_credential_rotation`. После них всё ещё остаются `trial`, standalone
+`encrypted_secret` и typed tombstones/deletes; Task 6 не завершён.

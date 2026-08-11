@@ -196,6 +196,56 @@ func TestImportSchemaPreservesHardFencedBotPollState(t *testing.T) {
 	`, Args: []any{repeatHex("b"), 1, 1, 1_000_000}})
 }
 
+func TestImportSchemaPreservesPendingCallbackState(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	botIdentity := repeatHex("c")
+	tokenFingerprint := repeatHex("d")
+	callbackHMAC := repeatHex("e")
+
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO telegram_bot_routes(
+				bot_identity_hmac,token_fingerprint_hmac,credential_version,
+				schema_fingerprint,updated_at_unix
+			) VALUES(?,?,?,?,?)
+		`, Args: []any{botIdentity, tokenFingerprint, 7, "bot-schema-v1", 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO telegram_imported_callbacks(
+				callback_hmac,bot_identity_hmac,order_id,action,state,updated_at_unix
+			) VALUES(?,?,?,?,?,?)
+		`, Args: []any{callbackHMAC, botIdentity, "legacy-order-callback", "confirm", "pending", 1_000_000}},
+	)
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT callback_hmac,bot_identity_hmac,order_id,action,state
+		FROM telegram_imported_callbacks WHERE callback_hmac=?
+	`, Args: []any{callbackHMAC}})
+	if got := fmt.Sprint(result.Rows); got != fmt.Sprintf(
+		`[map[action:confirm bot_identity_hmac:%s callback_hmac:%s order_id:legacy-order-callback state:pending]]`,
+		botIdentity, callbackHMAC,
+	) {
+		t.Fatalf("imported callback = %s", got)
+	}
+
+	mustRequest(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE telegram_imported_callbacks SET state='in_flight',updated_at_unix=? WHERE callback_hmac=?",
+		Args: []any{1_000_001, callbackHMAC},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE telegram_imported_callbacks SET state='pending' WHERE callback_hmac=?",
+		Args: []any{callbackHMAC},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE telegram_imported_callbacks SET order_id='different-order' WHERE callback_hmac=?",
+		Args: []any{callbackHMAC},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO telegram_imported_callbacks(
+			callback_hmac,bot_identity_hmac,order_id,action,state,updated_at_unix
+		) VALUES(?,?,?,?,?,?)
+	`, Args: []any{repeatHex("0"), repeatHex("f"), "missing-route-order", "confirm", "pending", 1_000_000}})
+}
+
 func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	t.Helper()
 	columns := make([]string, 0, len(result.Rows))
