@@ -337,7 +337,7 @@ Do not begin Task 3 until unit, race, vet, harness and real-rqlite schema tests 
 - Consumes: `PlannedDelete` canonical JSON, registry/receipt schema and logical digest from Tasks 1–2.
 - Produces: `customerDeleteStatements`, `encryptedSecretDeleteStatements`, exact rollback behavior, and a clean-cluster two-phase parity proof.
 
-- [ ] **Step 1: Write RED unit and real-rqlite delete tests**
+- [x] **Step 1: Write RED unit and real-rqlite delete tests**
 
 Replace the unsupported-tombstone expectation with tests that require customer delete statements to contain:
 
@@ -351,9 +351,9 @@ Replace the unsupported-tombstone expectation with tests that require customer d
 
 Add an injected wrong `ExpectedPriorDigest` operation directly at store level and assert `CommitBatch` returns an error while customer, registry, tombstone targets and `import_batches` remain unchanged.
 
-Add a derived encrypted-secret delete test requiring registry transition plus a receipt with `tombstone_id=NULL`; assert `imported_secrets` still contains the exact encrypted envelope.
+Add a derived encrypted-secret delete test requiring registry transition plus a receipt with `tombstone_id=NULL`; assert the exact encrypted envelope remains in the customer credential and subscription token. Customer-owned consumed secrets are intentionally not duplicated in `imported_secrets`; standalone secret deletes must still never hard-delete `imported_secrets`.
 
-- [ ] **Step 2: Commit and push RED apply tests**
+- [x] **Step 2: Commit and push RED apply tests**
 
 Commit message:
 
@@ -363,7 +363,7 @@ test(importer): require atomic customer tombstones
 
 Expected GitHub failure: `operationStatements` still rejects tombstones.
 
-- [ ] **Step 3: Implement typed tombstone dispatch and statements**
+- [x] **Step 3: Implement typed tombstone dispatch and statements**
 
 Change the tombstone branch before the upsert switch:
 
@@ -386,7 +386,7 @@ Customer statement order must be: registry CAS, customer CAS, credentials revoke
 
 Encrypted-secret delete must update registry and insert its receipt only. Never issue `DELETE FROM imported_secrets` or put envelope bytes in the receipt.
 
-- [ ] **Step 4: Add clean-cluster two-phase digest integration test**
+- [x] **Step 4: Add clean-cluster two-phase digest integration test**
 
 Create `TestRQLiteImportDeleteDigestPhase`. It runs only when both environment variables are present:
 
@@ -396,7 +396,7 @@ proofPath := os.Getenv("MAESTRO_IMPORT_DIGEST_PROOF")
 if phase == "" || proofPath == "" { t.Skip("dedicated parity phase") }
 ```
 
-For `phase=delta`, apply and complete base-full then prepared delta, verify customer-beta has status deleted, four targets exist and secret-beta remains encrypted, then write only the 64-character `InspectTarget().BusinessDigest` to `proofPath` with mode `0600`.
+For `phase=delta`, apply and complete base-full then prepared delta, verify customer-beta has status deleted, four targets exist and the customer-owned secret-beta envelope remains encrypted in its credential, then write only the 64-character `InspectTarget().BusinessDigest` to `proofPath` with mode `0600`.
 
 For `phase=fresh`, apply and complete final-full on a newly started empty cluster, read/validate the proof hash and compare it to fresh `InspectTarget().BusinessDigest`.
 
@@ -430,7 +430,7 @@ Update GitHub Actions after the standard integration step:
 
 Keep the existing always-run final cluster stop. Raise the job timeout from 25 to 35 minutes because the proof intentionally creates two additional clean three-voter clusters.
 
-- [ ] **Step 5: Push GREEN apply commit and inspect exact CI evidence**
+- [x] **Step 5: Push GREEN apply commit and inspect exact CI evidence**
 
 Commit message:
 
@@ -452,17 +452,17 @@ Required evidence: formatting, unit, race, vet, harness, standard integration, d
 - Consumes: final RED/GREEN commits and GitHub run/job evidence.
 - Produces: durable next-chat checkpoint without claiming production readiness.
 
-- [ ] **Step 1: Run final verification-before-completion audit**
+- [x] **Step 1: Run final verification-before-completion audit**
 
 Verify clean worktree, remote HEAD, draft PR state and latest full GitHub conclusion. Search changed files for plaintext markers, unsupported generic staging and accidental production factory enablement.
 
-- [ ] **Step 2: Record exact checkpoint**
+- [x] **Step 2: Record exact checkpoint**
 
 Append RED commit/run/job, every correction, final GREEN commit/run/job, typed tables, CAS/revoke/tombstone invariants, parity result and explicit statement that no production/server/bot/OTA/customer mutation occurred.
 
 Mark only this focused plan complete. Do not mark the parent Task 6 or the HA project complete: redacted shadow verification, production factory wiring, cutover gates and server deployment remain separately gated.
 
-- [ ] **Step 3: Commit and push documentation**
+- [x] **Step 3: Commit and push documentation**
 
 Commit message:
 

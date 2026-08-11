@@ -2554,3 +2554,76 @@ customer generation/status CAS, credential/token revoke, deterministic
 tombstone, frozen S1-S4 targets, derived secret receipt и clean-cluster
 `full(base)+delta == fresh-full` digest proof. До полного GitHub GREEN не
 включать production factory и не трогать серверы/ботов/OTA/клиентов.
+
+## HA control plane: Task 6 typed delete apply and parity checkpoint (11.08.2026)
+
+Focused delete plan завершён в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Локальный и remote HEAD после code verification:
+`800bb088e460579b4a23e5c981f3cde6bc27183c`. PR остаётся open, draft,
+mergeable; base `codex/mobile-4d-deck`.
+
+### RED -> GREEN evidence
+
+- RED commit `54f6dbfd1205b21be9ce521a1d2a9904a0f698bb`; run
+  `31526958387`, job `93897531010`: formatting прошёл, unit упал ровно на
+  `unsupported import tombstone entity "customer"` и `"encrypted_secret"`.
+- GREEN code commit `c4b0f849eb0ac86764a765dda3e5f29e712519c2`.
+- Git credential не имел OAuth `workflow` scope, поэтому code commit был
+  отправлен обычным Git, а parity workflow отдельным GitHub App commit
+  `3144607b12813fd70c0b2359d35fc00ef7917dd5`; проверка не ослаблялась.
+- Run `31527705051`, job `93900056197`: formatting, unit, race, vet, harness и
+  importer real-rqlite прошли; controlplane schema test остановился до своей
+  проверки из-за повторной пары test-only `(source_sha256,plan_sha256)`.
+- Test-only isolation commit `800bb088e460579b4a23e5c981f3cde6bc27183c`
+  заменил только три synthetic digest на уникальные `d/e/f`.
+- Final GREEN run `31528537528`, job `93902683167`: formatting, unit, race,
+  vet, harness, полный real-rqlite integration, reset/full+delta capture,
+  второй reset/fresh-full comparison и final stop прошли.
+
+### Сохранённый delete-контракт
+
+- Tombstone dispatcher принимает только `customer` и derived
+  `encrypted_secret`; неизвестные типы остаются fail-closed.
+- Customer delete proof строго связывает entity/key, exact 64-hex prior digest,
+  immutable target ID, prior/next generation и детерминированный tombstone ID.
+- Одна linearizable rqlite transaction выполняет строго: batch begin, registry
+  `active -> deleted` CAS, customer generation/status CAS, credential disable,
+  token revoke, deterministic tombstone, frozen targets из всех active desired
+  S1-S4 `maestro-core`, immutable receipt и batch finish.
+- Неверный `ExpectedPriorDigest` откатывает customer, registry, tombstone,
+  targets и batch receipt целиком. Receipt trigger также требует существующие
+  credential/token, их полный revoke и точный полный target set.
+- Derived customer-owned secret получает только registry transition и receipt
+  с `tombstone_id=NULL`; encrypted envelope остаётся в credential/token и не
+  попадает в receipt. Standalone `imported_secrets` не удаляются физически.
+- Operational tombstones/receipts/registry не входят в business digest;
+  logically deleted imported rows фильтруются. Два чистых трёхузловых кластера
+  доказали `base-full + delta == final-full` по exact 64-character digest.
+
+### Исправленные рабочие ошибки, не повторять
+
+- Workflow сначала искать через `rg --files .github/workflows`; фактический файл
+  здесь `.github/workflows/ha-control-plane.yml`.
+- `maestro-repetition-guard.py correct` требует `--old-family`, `--new-family`
+  и `--root-cause-code`.
+- Перед поиском importer-файлов использовать `rg --files`; не предполагать
+  `types.go`/`planner.go`.
+- Внешний файл для `git apply` обязан быть полноценным unified diff. Bare `@@`
+  понимает `apply_patch`, но не `git apply`; zero-context требует точных old/new
+  offsets и обязательного `--unidiff-zero`. Перед commit всегда читать итоговый
+  diff, чтобы блок не оказался внутри соседней Go-функции.
+- Тесты real-rqlite делят один кластер: каждый schema test обязан иметь
+  уникальную пару `(source_sha256,plan_sha256)`.
+- Если Git OAuth отклоняет workflow без scope, не ретраить ту же команду:
+  отправить code-only commit, обновить workflow GitHub App отдельным commit,
+  затем `git pull --ff-only` и проверять новый полный SHA.
+
+### Граница готовности и следующий безопасный шаг
+
+Production/server/bot/OTA/DNS/customer mutations не выполнялись. Реальные S1-S4
+не изменялись. `backend/cmd/maestro-import/main.go` всё ещё вызывает
+`run(..., nil)`, поэтому production apply factory остаётся nil/fail-closed.
+Завершён только focused typed-delete plan; parent Task 6 и весь HA проект не
+объявлять готовыми. Следом нужны redacted shadow verification, отдельное
+решение о production factory, backup/restore/cutover gates и лишь затем
+явно разрешённое развёртывание на серверах.
