@@ -76,6 +76,47 @@ func TestImportSchemaBindsRunAndBatchDigests(t *testing.T) {
 	`, Args: []any{"bad-full-parent", "full", repeatHex("a"), repeatHex("b"), repeatHex("c"), 1, "applying", 100}})
 }
 
+func TestImportSchemaPreservesLegacyBusinessFields(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO customers(
+				customer_id,display_login,login_key_hmac,status,expires_at_unix,
+				generation,created_at_unix,updated_at_unix
+			) VALUES(?,?,?,?,?,?,?,?)
+		`, Args: []any{"legacy-customer", "CaseSensitiveUser", repeatHex("a"), "active", 2_100_000, 7, 1_000_000, 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO subscription_tokens(
+				token_id,customer_id,token_hmac,token_envelope,token_sha256,
+				generation,revoked,created_at_unix
+			) VALUES(?,?,?,?,?,?,?,?)
+		`, Args: []any{"legacy-token", "legacy-customer", repeatHex("b"), []byte{1, 2, 3}, repeatHex("c"), 7, 0, 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO orders(
+				order_id,payment_code,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
+				amount_minor,currency,duration_days,created_at_unix,expires_at_unix,
+				payment_state,provisioning_state,operation_id
+			) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		`, Args: []any{
+			"legacy-order", "MCRD1", "customer_login", repeatHex("a"), "legacy-customer", "tariff_1m_v1",
+			40_000, "RUB", 30, 1_000_000, 1_086_400, "pending", "pending", "legacy-order-operation",
+		}},
+	)
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT c.display_login, hex(st.token_envelope) AS token_hex,
+		       st.token_sha256, o.payment_code
+		FROM customers c
+		JOIN subscription_tokens st ON st.customer_id = c.customer_id
+		JOIN orders o ON o.customer_id = c.customer_id
+		WHERE c.customer_id = 'legacy-customer'
+	`})
+	if got := fmt.Sprint(result.Rows); got != `[map[display_login:CaseSensitiveUser payment_code:MCRD1 token_hex:010203 token_sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc]]` {
+		t.Fatalf("legacy business fields = %s", got)
+	}
+}
+
 func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	t.Helper()
 	columns := make([]string, 0, len(result.Rows))
