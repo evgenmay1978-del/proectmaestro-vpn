@@ -39,7 +39,8 @@ RETURNING device_id`,
 	}, {
 		SQL: `INSERT INTO audit_events(event_id, actor_hmac, action, resource_type, resource_id_hmac, created_at_unix)
 SELECT ?, ?, 'device.claim', 'device', ?, ?
-WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0)`,
+WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0)
+ON CONFLICT(event_id) DO NOTHING`,
 		Args: []any{auditID("device", deviceHMAC, 0, now), actorHMAC, resourceHMAC, now, customerID, deviceHMAC},
 	}}
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)

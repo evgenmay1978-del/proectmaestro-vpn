@@ -52,7 +52,8 @@ func (r *Readiness) Read(ctx context.Context) error {
 	if err := r.schema.Verify(ctx); err != nil {
 		return errors.New("controlplane: schema readiness failed")
 	}
-	settingSQL := `SELECT COUNT(*) AS count_value FROM cluster_settings`
+	settingSQL := `SELECT COUNT(*) AS count_value,
+COALESCE(MAX(updated_at_unix), 0) AS updated_at_unix FROM cluster_settings`
 	settingArgs := make([]any, 0, len(r.requiredSettings))
 	if len(r.requiredSettings) > 0 {
 		placeholders := make([]string, len(r.requiredSettings))
@@ -68,7 +69,7 @@ func (r *Readiness) Read(ctx context.Context) error {
 	results, err := r.store.db.QueryLinearizable(ctx,
 		rqlite.Statement{SQL: `SELECT DISTINCT key_version FROM setting_secrets ORDER BY key_version`},
 		rqlite.Statement{SQL: `SELECT COUNT(*) AS count_value FROM tariff_versions WHERE active = 1`},
-		rqlite.Statement{SQL: `SELECT COALESCE(MAX(updated_at_unix), 0) AS updated_at_unix FROM cluster_settings; ` + settingSQL, Args: settingArgs},
+		rqlite.Statement{SQL: settingSQL, Args: settingArgs},
 	)
 	if err != nil || len(results) != 3 {
 		return errors.New("controlplane: linearizable readiness read failed")
@@ -95,6 +96,10 @@ func (r *Readiness) Read(ctx context.Context) error {
 	commitRow, ok := firstRow(results[2:3])
 	if !ok {
 		return errors.New("controlplane: commit readiness row missing")
+	}
+	settingCount, countOK := rowInt64(commitRow, "count_value")
+	if len(r.requiredSettings) > 0 && (!countOK || settingCount != int64(len(r.requiredSettings))) {
+		return errors.New("controlplane: required settings are absent")
 	}
 	updatedAt, ok := rowInt64(commitRow, "updated_at_unix")
 	if !ok || updatedAt <= 0 {

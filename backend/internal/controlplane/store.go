@@ -111,29 +111,33 @@ WHERE cluster_settings.generation = ?
 RETURNING generation`,
 		Args: []any{update.Key, update.PublicValueJSON, next, now, update.Key, update.ExpectedGeneration, update.ExpectedGeneration},
 	}, {
-		SQL:  `DELETE FROM setting_members WHERE setting_key = ?`,
-		Args: []any{update.Key},
+		SQL: `DELETE FROM setting_members WHERE setting_key = ? AND EXISTS
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)`,
+		Args: []any{update.Key, update.Key, next},
 	}}
 	if len(update.Members) > 0 {
 		values := make([]string, 0, len(update.Members))
-		args := make([]any, 0, len(update.Members)*4)
+		args := make([]any, 0, len(update.Members)*6)
 		for _, member := range update.Members {
 			canonical, err := CanonicalLoginKey(member)
 			if err != nil {
 				return SettingResult{}, errors.New("controlplane: invalid setting member")
 			}
 			memberHMAC := s.secrets.LookupHMAC("setting-member:"+update.Key, []byte(canonical))
-			values = append(values, "(?, ?, ?, ?)")
-			args = append(args, update.Key, memberHMAC, `{"enabled":true}`, next)
+			values = append(values, `SELECT ?, ?, ?, ? WHERE EXISTS
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)`)
+			args = append(args, update.Key, memberHMAC, `{"enabled":true}`, next, update.Key, next)
 		}
 		statements = append(statements, rqlite.Statement{
-			SQL: `INSERT INTO setting_members(setting_key, member_key, member_value_json, generation) VALUES ` +
-				strings.Join(values, ",") + ` ON CONFLICT(setting_key, member_key) DO UPDATE SET
+			SQL: `INSERT INTO setting_members(setting_key, member_key, member_value_json, generation) ` +
+				strings.Join(values, " UNION ALL ") + ` ON CONFLICT(setting_key, member_key) DO UPDATE SET
 member_value_json = excluded.member_value_json, generation = excluded.generation`,
 			Args: args,
 		})
 	} else {
-		statements = append(statements, rqlite.Statement{SQL: `SELECT generation FROM cluster_settings WHERE setting_key = ?`, Args: []any{update.Key}})
+		statements = append(statements, rqlite.Statement{
+			SQL: `SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?`, Args: []any{update.Key, next},
+		})
 	}
 	if update.Secret != nil {
 		envelopeBytes, err := json.Marshal(update.Secret)
@@ -143,19 +147,26 @@ member_value_json = excluded.member_value_json, generation = excluded.generation
 		digest := sha256.Sum256(envelopeBytes)
 		statements = append(statements, rqlite.Statement{
 			SQL: `INSERT INTO setting_secrets(setting_key, secret_envelope, secret_sha256, key_version, updated_at_unix)
-VALUES (?, ?, ?, ?, ?) ON CONFLICT(setting_key) DO UPDATE SET secret_envelope = excluded.secret_envelope,
+SELECT ?, ?, ?, ?, ? WHERE EXISTS
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)
+ON CONFLICT(setting_key) DO UPDATE SET secret_envelope = excluded.secret_envelope,
 secret_sha256 = excluded.secret_sha256, key_version = excluded.key_version, updated_at_unix = excluded.updated_at_unix`,
-			Args: []any{update.Key, envelopeBytes, hex.EncodeToString(digest[:]), update.Secret.KeyVersion, now},
+			Args: []any{update.Key, envelopeBytes, hex.EncodeToString(digest[:]), update.Secret.KeyVersion, now, update.Key, next},
 		})
 	} else {
-		statements = append(statements, rqlite.Statement{SQL: `DELETE FROM setting_secrets WHERE setting_key = ?`, Args: []any{update.Key}})
+		statements = append(statements, rqlite.Statement{
+			SQL: `DELETE FROM setting_secrets WHERE setting_key = ? AND EXISTS
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)`, Args: []any{update.Key, update.Key, next},
+		})
 	}
 	actorHMAC := s.secrets.LookupHMAC("audit-actor", []byte(update.Actor))
 	resourceHMAC := s.secrets.LookupHMAC("audit-resource", []byte(update.Key))
 	statements = append(statements, rqlite.Statement{
 		SQL: `INSERT INTO audit_events(event_id, actor_hmac, action, resource_type, resource_id_hmac, created_at_unix)
-VALUES (?, ?, 'setting.update', 'cluster_setting', ?, ?)`,
-		Args: []any{auditID("setting", update.Key, next, now), actorHMAC, resourceHMAC, now},
+SELECT ?, ?, 'setting.update', 'cluster_setting', ?, ? WHERE EXISTS
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)
+ON CONFLICT(event_id) DO NOTHING`,
+		Args: []any{auditID("setting", update.Key, next, now), actorHMAC, resourceHMAC, now, update.Key, next},
 	})
 	results, err := s.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	if err != nil {

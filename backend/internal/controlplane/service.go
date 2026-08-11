@@ -153,17 +153,18 @@ ORDER BY pr.role_name`,
 	if err != nil {
 		return Authorization{}, ErrForbidden
 	}
-	row, ok := firstRow(results)
-	if !ok {
+	if len(results) != 1 {
 		return Authorization{}, ErrForbidden
 	}
-	principalID, okID := rowString(row, "principal_id")
-	role, okRole := rowString(row, "role_name")
-	role = strings.ToLower(strings.TrimSpace(role))
-	if !okID || !okRole || !roleAllows(role, permission) {
-		return Authorization{}, ErrForbidden
+	for _, row := range results[0].Rows {
+		principalID, okID := rowString(row, "principal_id")
+		role, okRole := rowString(row, "role_name")
+		role = strings.ToLower(strings.TrimSpace(role))
+		if okID && okRole && roleAllows(role, permission) {
+			return Authorization{PrincipalID: principalID, Role: role}, nil
+		}
 	}
-	return Authorization{PrincipalID: principalID, Role: role}, nil
+	return Authorization{}, ErrForbidden
 }
 
 func (s *Service) RevokeSessions(ctx context.Context, principalID, actor string) error {
@@ -178,7 +179,8 @@ func (s *Service) RevokeSessions(ctx context.Context, principalID, actor string)
 		Args: []any{now, principalID},
 	}, {
 		SQL: `INSERT INTO audit_events(event_id, actor_hmac, action, resource_type, resource_id_hmac, created_at_unix)
-VALUES (?, ?, 'session.revoke_all', 'principal', ?, ?)`,
+VALUES (?, ?, 'session.revoke_all', 'principal', ?, ?)
+ON CONFLICT(event_id) DO NOTHING`,
 		Args: []any{auditID("revoke", principalID, 0, now), actorHMAC, resourceHMAC, now},
 	}}
 	if _, err := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...); err != nil {
