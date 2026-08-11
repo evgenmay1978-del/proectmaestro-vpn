@@ -2649,8 +2649,18 @@ shadow-сверка только в репозитории и изолирова
 
 ### Следующий gate
 
-Сначала владелец просматривает committed design. После подтверждения создать
-отдельный TDD implementation plan, затем RED -> GREEN и exact-SHA GitHub
-verification. До этого `backend/cmd/maestro-import/main.go` по-прежнему должен
-вызывать `run(..., nil)`; production остаётся
+Design подтверждён владельцем. Детальный TDD implementation plan записан в
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-shadow-export.md`.
+Самопроверка выявила и закрыла на уровне плана прежнее ложное допущение:
+текущий `ImportPlan` не содержит public protocol/node topology, а customer
+import ещё не создаёт `desired_node_state`. Поэтому Task 1 сначала добавляет
+явные `protocol_tags/node_ids`, typed `desired_protocol_tags` и атомарную exact
+set replacement; подставлять одинаковые constants в два export запрещено.
+
+После выбора режима выполнения идти по плану Task 1 -> Task 5 через отдельные
+RED/GREEN checkpoints и exact-SHA GitHub runs. Даже после focused GREEN parent
+Task 6 остаётся открытым: live collectors, production factory и
+backup/restore/cutover gates не входят в этот slice.
+`backend/cmd/maestro-import/main.go` по-прежнему должен вызывать
+`run(..., nil)`; production остаётся
 `NO-GO (repository implementation only)`.
