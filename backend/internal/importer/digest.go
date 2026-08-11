@@ -25,6 +25,30 @@ func digestSnapshot(snapshot Snapshot) string {
 	return sha256Hex(encoded)
 }
 
+func canonicalLegacyDigest(value any) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return sha256Hex(encoded)
+}
+
+func plannedCustomerSourceDigest(customer PlannedCustomer) string {
+	return canonicalLegacyDigest(LegacyCustomer{
+		SourceKey:                 customer.SourceKey,
+		Login:                     customer.DisplayLogin,
+		LoginKeyHMAC:              customer.LoginKeyHMAC,
+		UUIDHMAC:                  customer.UUIDHMAC,
+		SubIDHMAC:                 customer.SubIDHMAC,
+		TokenHMAC:                 customer.TokenHMAC,
+		CredentialFingerprintHMAC: customer.CredentialFingerprintHMAC,
+		IdentitySecretRef:         customer.IdentitySecretRef,
+		ExpiresAtUnix:             customer.ExpiresAtUnix,
+		Generation:                customer.Generation,
+		Status:                    customer.Status,
+	})
+}
+
 func digestBatch(operations []ApplyOperation) string {
 	encoded, err := json.Marshal(operations)
 	if err != nil {

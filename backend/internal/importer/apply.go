@@ -218,7 +218,11 @@ func planOperations(plan ImportPlan) ([]ApplyOperation, error) {
 		}
 	}
 	for _, deletion := range append(append([]PlannedDelete(nil), plan.Deletes...), plan.CascadeDeletes...) {
-		operations = append(operations, ApplyOperation{Entity: deletion.Entity, Key: deletion.SourceKey, Tombstone: true})
+		encoded, err := json.Marshal(deletion)
+		if err != nil {
+			return nil, fmt.Errorf("encode %s delete operation: %w", deletion.Entity, err)
+		}
+		operations = append(operations, ApplyOperation{Entity: deletion.Entity, Key: deletion.SourceKey, Tombstone: true, CanonicalJSON: encoded})
 	}
 	sort.Slice(operations, func(i, j int) bool {
 		return operations[i].Entity+"\x00"+operations[i].Key < operations[j].Entity+"\x00"+operations[j].Key

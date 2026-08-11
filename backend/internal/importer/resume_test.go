@@ -268,6 +268,17 @@ func TestDeltaDeleteRequiresExactPriorDigestAndSupportedEntity(t *testing.T) {
 	}
 }
 
+func TestDeleteMarkersRequireDeltaSnapshot(t *testing.T) {
+	full := decodeFixture(t, "full-then-delta/base-full.json")
+	full.Deletes = []LegacyDelete{{
+		Entity: "customer", SourceKey: full.Customers[1].SourceKey,
+		ExpectedPriorDigest: canonicalLegacyDigest(full.Customers[1]), Explicit: true,
+	}}
+	if _, report := Plan(full, testPlanOptions()); !hasBlockerCode(report.Blockers, "delete_requires_delta") {
+		t.Fatalf("full snapshot delete blockers = %#v", report.Blockers)
+	}
+}
+
 func TestDeltaDeleteRejectsCollisionsAndGenerationOverflow(t *testing.T) {
 	base := decodeFixture(t, "full-then-delta/base-full.json")
 	basePlan := plannedFixture(t, "full-then-delta/base-full.json", testPlanOptions())
@@ -312,10 +323,12 @@ func TestDeltaDeleteCarriesTypedCustomerAndDerivedSecretProof(t *testing.T) {
 		t.Fatalf("typed deletes = %#v / %#v / %#v", plan.Deletes, plan.CascadeDeletes, report.Blockers)
 	}
 	customerDelete := plan.Deletes[0]
-	if customerDelete.TargetID != deterministicID(options.Namespace, "customer", "customer-beta") ||
+	wantTargetID := deterministicID(options.Namespace, "customer", "customer-beta")
+	wantTombstoneID := sha256Hex([]byte("import-tombstone\x00" + wantTargetID + "\x002"))
+	if customerDelete.TargetID != wantTargetID ||
 		customerDelete.ExpectedPriorDigest != canonicalLegacyDigest(base.Customers[1]) ||
 		customerDelete.PriorGeneration != 1 || customerDelete.NextGeneration != 2 ||
-		customerDelete.TombstoneID == "" || !customerDelete.Tombstone {
+		customerDelete.TombstoneID != wantTombstoneID || !customerDelete.Tombstone {
 		t.Fatalf("customer delete proof = %#v", customerDelete)
 	}
 	secretDelete := plan.CascadeDeletes[0]

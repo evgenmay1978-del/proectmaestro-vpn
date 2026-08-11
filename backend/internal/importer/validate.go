@@ -2,7 +2,9 @@ package importer
 
 import (
 	"encoding/json"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -125,6 +127,8 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 
 	if snapshot.SnapshotKind == "delta" {
 		validateDelta(snapshot, options, add)
+	} else if len(snapshot.Deletes) != 0 {
+		add("delete_requires_delta", "snapshot", "")
 	}
 
 	result := make([]Blocker, 0, len(blockers))
@@ -270,6 +274,10 @@ func validateDelta(snapshot Snapshot, options PlanOptions, add func(string, stri
 		add("delta_parent_digest_mismatch", "snapshot", "")
 	}
 
+	parentCustomers := make(map[string][]LegacyCustomer, len(options.ParentSnapshot.Customers))
+	for _, customer := range options.ParentSnapshot.Customers {
+		parentCustomers[customer.SourceKey] = append(parentCustomers[customer.SourceKey], customer)
+	}
 	presentCustomers := make(map[string]struct{}, len(snapshot.Customers))
 	for _, customer := range snapshot.Customers {
 		presentCustomers[customer.SourceKey] = struct{}{}
@@ -280,7 +288,35 @@ func validateDelta(snapshot Snapshot, options PlanOptions, add func(string, stri
 			add("delta_delete_not_explicit", deletion.Entity, deletion.SourceKey)
 			continue
 		}
-		explicitDeletes[deletion.Entity+"\x00"+deletion.SourceKey] = struct{}{}
+		if deletion.Entity != "customer" {
+			add("unsupported_delta_delete_entity", deletion.Entity, deletion.SourceKey)
+			continue
+		}
+		key := deletion.Entity + "\x00" + deletion.SourceKey
+		if _, duplicate := explicitDeletes[key]; duplicate {
+			add("delta_delete_collision", deletion.Entity, deletion.SourceKey)
+		} else {
+			explicitDeletes[key] = struct{}{}
+		}
+		if _, upserted := presentCustomers[deletion.SourceKey]; upserted {
+			add("delta_delete_collision", deletion.Entity, deletion.SourceKey)
+		}
+		parents := parentCustomers[deletion.SourceKey]
+		if len(parents) == 0 {
+			add("delta_delete_source_missing", deletion.Entity, deletion.SourceKey)
+			continue
+		}
+		if len(parents) != 1 {
+			add("delta_delete_collision", deletion.Entity, deletion.SourceKey)
+			continue
+		}
+		if deletion.ExpectedPriorDigest == "" ||
+			deletion.ExpectedPriorDigest != canonicalLegacyDigest(parents[0]) {
+			add("delta_delete_prior_digest_mismatch", deletion.Entity, deletion.SourceKey)
+		}
+		if parents[0].Generation == math.MaxInt64 {
+			add("delta_delete_generation_overflow", deletion.Entity, deletion.SourceKey)
+		}
 	}
 	for _, previous := range options.ParentSnapshot.Customers {
 		if _, stillPresent := presentCustomers[previous.SourceKey]; stillPresent {
@@ -381,13 +417,9 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 		})
 	}
 	for _, deletion := range snapshot.Deletes {
-		plan.Deletes = append(plan.Deletes, PlannedDelete{
-			Entity:              deletion.Entity,
-			SourceKey:           deletion.SourceKey,
-			ExpectedPriorDigest: deletion.ExpectedPriorDigest,
-			Tombstone:           deletion.Explicit,
-		})
-		plan.CascadeDeletes = append(plan.CascadeDeletes, cascadeDeletes(snapshot, options.ParentSnapshot, deletion)...)
+		planned, cascade := planDelete(options, deletion)
+		plan.Deletes = append(plan.Deletes, planned)
+		plan.CascadeDeletes = append(plan.CascadeDeletes, cascade...)
 	}
 
 	sortPlan(&plan)
@@ -403,17 +435,46 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 	return plan, report
 }
 
-func cascadeDeletes(snapshot Snapshot, parent *Snapshot, deletion LegacyDelete) []PlannedDelete {
-	if parent == nil || deletion.Entity != "customer" || !deletion.Explicit {
-		return nil
+func planDelete(options PlanOptions, deletion LegacyDelete) (PlannedDelete, []PlannedDelete) {
+	planned := PlannedDelete{
+		Entity:              deletion.Entity,
+		SourceKey:           deletion.SourceKey,
+		ExpectedPriorDigest: deletion.ExpectedPriorDigest,
+		Tombstone:           deletion.Explicit,
 	}
-	var result []PlannedDelete
-	for _, secret := range parent.EncryptedSecrets {
-		if secret.OwnerType == "customer" && secret.OwnerSourceKey == deletion.SourceKey {
-			result = append(result, PlannedDelete{Entity: "encrypted_secret", SourceKey: secret.SecretID, Tombstone: true})
+	if options.ParentSnapshot == nil || deletion.Entity != "customer" || !deletion.Explicit {
+		return planned, nil
+	}
+	var parentCustomers []LegacyCustomer
+	for _, customer := range options.ParentSnapshot.Customers {
+		if customer.SourceKey == deletion.SourceKey {
+			parentCustomers = append(parentCustomers, customer)
 		}
 	}
-	return result
+	if len(parentCustomers) != 1 {
+		return planned, nil
+	}
+	parentCustomer := parentCustomers[0]
+	planned.TargetID = deterministicID(options.Namespace, "customer", deletion.SourceKey)
+	planned.PriorGeneration = parentCustomer.Generation
+	if parentCustomer.Generation < math.MaxInt64 {
+		planned.NextGeneration = parentCustomer.Generation + 1
+		planned.TombstoneID = sha256Hex([]byte("import-tombstone\x00" + planned.TargetID + "\x00" +
+			strconv.FormatInt(planned.NextGeneration, 10)))
+	}
+
+	var cascade []PlannedDelete
+	for _, secret := range options.ParentSnapshot.EncryptedSecrets {
+		if secret.OwnerType == "customer" && secret.OwnerSourceKey == deletion.SourceKey {
+			cascade = append(cascade, PlannedDelete{
+				Entity:              "encrypted_secret",
+				SourceKey:           secret.SecretID,
+				TargetID:            secret.SecretID,
+				ExpectedPriorDigest: canonicalLegacyDigest(secret),
+			})
+		}
+	}
+	return planned, cascade
 }
 
 func cloneSettings(settings []LegacySetting) []LegacySetting {

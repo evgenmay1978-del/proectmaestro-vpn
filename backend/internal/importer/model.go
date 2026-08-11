@@ -196,7 +196,11 @@ type PlannedPrincipal struct {
 type PlannedDelete struct {
 	Entity              string `json:"entity"`
 	SourceKey           string `json:"source_key"`
-	ExpectedPriorDigest string `json:"expected_prior_digest,omitempty"`
+	TargetID            string `json:"target_id"`
+	ExpectedPriorDigest string `json:"expected_prior_digest"`
+	PriorGeneration     int64  `json:"prior_generation,omitempty"`
+	NextGeneration      int64  `json:"next_generation,omitempty"`
+	TombstoneID         string `json:"tombstone_id,omitempty"`
 	Tombstone           bool   `json:"tombstone"`
 }
 
