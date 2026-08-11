@@ -230,6 +230,78 @@ func TestUnsupportedBotSnapshotIsBlocking(t *testing.T) {
 	}
 }
 
+func TestBotCredentialRotationChainMustBeLinearAndReachCurrentRoute(t *testing.T) {
+	valid := decodeFixture(t, "bot-bindings-v1.json")
+	botIdentity := valid.BotBindings[0].BotIdentityHMAC
+	firstFingerprint := valid.BotBindings[0].TokenFingerprintHMAC
+	middleFingerprint := strings.Repeat("3", 64)
+	currentFingerprint := strings.Repeat("4", 64)
+	valid.BotBindings[0].TokenFingerprintHMAC = currentFingerprint
+	valid.BotBindings[0].CredentialVersion = 3
+	valid.BotCredentialRotations = []LegacyBotCredentialRotation{
+		{
+			BotIdentityHMAC: botIdentity,
+			OldTokenFingerprintHMAC: firstFingerprint,
+			NewTokenFingerprintHMAC: middleFingerprint,
+			OldCredentialVersion: 1,
+			NewCredentialVersion: 2,
+			AuditDigest: strings.Repeat("5", 64),
+		},
+		{
+			BotIdentityHMAC: botIdentity,
+			OldTokenFingerprintHMAC: middleFingerprint,
+			NewTokenFingerprintHMAC: currentFingerprint,
+			OldCredentialVersion: 2,
+			NewCredentialVersion: 3,
+			AuditDigest: strings.Repeat("6", 64),
+		},
+	}
+	if _, report := Plan(valid, testPlanOptions()); len(report.Blockers) != 0 {
+		t.Fatalf("valid rotation chain blockers = %#v", report.Blockers)
+	}
+
+	fork := decodeFixture(t, "bot-bindings-v1.json")
+	fork.BotBindings[0].TokenFingerprintHMAC = currentFingerprint
+	fork.BotBindings[0].CredentialVersion = 3
+	fork.BotCredentialRotations = []LegacyBotCredentialRotation{
+		{
+			BotIdentityHMAC: botIdentity,
+			OldTokenFingerprintHMAC: firstFingerprint,
+			NewTokenFingerprintHMAC: middleFingerprint,
+			OldCredentialVersion: 1,
+			NewCredentialVersion: 2,
+			AuditDigest: strings.Repeat("5", 64),
+		},
+		{
+			BotIdentityHMAC: botIdentity,
+			OldTokenFingerprintHMAC: firstFingerprint,
+			NewTokenFingerprintHMAC: currentFingerprint,
+			OldCredentialVersion: 1,
+			NewCredentialVersion: 3,
+			AuditDigest: strings.Repeat("6", 64),
+		},
+	}
+	if _, report := Plan(fork, testPlanOptions()); !hasBlockerCode(report.Blockers, "bot_credential_rotation_fork") {
+		t.Fatalf("forked rotation chain blockers = %#v", report.Blockers)
+	}
+
+	routeMismatch := valid
+	routeMismatch.BotBindings = append([]LegacyBotBinding(nil), valid.BotBindings...)
+	routeMismatch.BotBindings[0].TokenFingerprintHMAC = strings.Repeat("7", 64)
+	if _, report := Plan(routeMismatch, testPlanOptions()); !hasBlockerCode(report.Blockers, "bot_credential_rotation_route_mismatch") {
+		t.Fatalf("route mismatch blockers = %#v", report.Blockers)
+	}
+}
+
+func hasBlockerCode(blockers []Blocker, code string) bool {
+	for _, blocker := range blockers {
+		if blocker.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRequiredSettingsPrincipalsAndEncryptedSecretsArePreserved(t *testing.T) {
 	snapshot := decodeFixture(t, "settings-principals-v1.json")
 	plan, report := Plan(snapshot, testPlanOptions())

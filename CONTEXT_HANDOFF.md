@@ -2349,3 +2349,35 @@ Task 6 не завершать. Следующий отдельный RED -> GRE
 Отдельный RED -> GREEN typed `pending_callback`, затем audited
 `bot_credential_rotation`. После них всё ещё остаются `trial`, standalone
 `encrypted_secret` и typed tombstones/deletes; Task 6 не завершён.
+
+## HA control plane: Task 6 imported pending callbacks checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `ccf06857f1f5e42bf8b15872d2ebdef711bde798`; run
+  `31511911286`, job `93847564660` упал ровно на unsupported
+  `pending_callback`.
+- GREEN commit `361d3f87c6b8745088b84b68b29aada832e709e4`.
+- Final GREEN run `31512251553`, job `93848707734`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Legacy callback не записывается в несовместимую runtime-таблицу:
+  используется отдельная typed `telegram_imported_callbacks`.
+- Exact callback/order/action/state сохраняются без raw bot ID/token;
+  credential fingerprint/version только атомарно сверяются с current route.
+- Разрешён только идемпотентный retry и `pending -> in_flight`; подмена
+  identity/order/action и state rollback блокируются.
+- Real rqlite E2E доказывает matching write и полный rollback callback плюс
+  batch receipt при чужом credential route.
+
+### Следующий безопасный шаг
+
+Typed immutable `bot_credential_rotation` с linear no-fork chain до current
+route. Затем остаются `trial`, standalone `encrypted_secret` и typed
+tombstones/deletes; Task 6 и production import всё ещё не завершены.

@@ -246,6 +246,69 @@ func TestImportSchemaPreservesPendingCallbackState(t *testing.T) {
 	`, Args: []any{repeatHex("0"), repeatHex("f"), "missing-route-order", "confirm", "pending", 1_000_000}})
 }
 
+func TestImportSchemaPreservesImmutableBotCredentialRotation(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	botIdentity := repeatHex("8")
+	oldFingerprint := repeatHex("2")
+	newFingerprint := repeatHex("3")
+	auditDigest := repeatHex("4")
+
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO telegram_bot_routes(
+				bot_identity_hmac,token_fingerprint_hmac,credential_version,
+				schema_fingerprint,updated_at_unix
+			) VALUES(?,?,?,?,?)
+		`, Args: []any{botIdentity, newFingerprint, 2, "bot-schema-v1", 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO telegram_bot_credential_rotations(
+				audit_digest,bot_identity_hmac,old_token_fingerprint_hmac,
+				new_token_fingerprint_hmac,old_credential_version,
+				new_credential_version,imported_at_unix
+			) VALUES(?,?,?,?,?,?,?)
+		`, Args: []any{auditDigest, botIdentity, oldFingerprint, newFingerprint, 1, 2, 1_000_000}},
+	)
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT audit_digest,bot_identity_hmac,old_token_fingerprint_hmac,
+		       new_token_fingerprint_hmac,old_credential_version,new_credential_version
+		FROM telegram_bot_credential_rotations WHERE audit_digest=?
+	`, Args: []any{auditDigest}})
+	if got := fmt.Sprint(result.Rows); got != fmt.Sprintf(
+		`[map[audit_digest:%s bot_identity_hmac:%s new_credential_version:2 new_token_fingerprint_hmac:%s old_credential_version:1 old_token_fingerprint_hmac:%s]]`,
+		auditDigest, botIdentity, newFingerprint, oldFingerprint,
+	) {
+		t.Fatalf("credential rotation = %s", got)
+	}
+
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO telegram_bot_credential_rotations(
+			audit_digest,bot_identity_hmac,old_token_fingerprint_hmac,
+			new_token_fingerprint_hmac,old_credential_version,new_credential_version,imported_at_unix
+		) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(audit_digest) DO UPDATE SET
+			bot_identity_hmac=excluded.bot_identity_hmac,
+			old_token_fingerprint_hmac=excluded.old_token_fingerprint_hmac,
+			new_token_fingerprint_hmac=excluded.new_token_fingerprint_hmac,
+			old_credential_version=excluded.old_credential_version,
+			new_credential_version=excluded.new_credential_version
+	`, Args: []any{auditDigest, botIdentity, oldFingerprint, newFingerprint, 1, 2, 1_000_001}})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE telegram_bot_credential_rotations SET new_token_fingerprint_hmac=? WHERE audit_digest=?",
+		Args: []any{repeatHex("5"), auditDigest},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO telegram_bot_credential_rotations(
+			audit_digest,bot_identity_hmac,old_token_fingerprint_hmac,
+			new_token_fingerprint_hmac,old_credential_version,new_credential_version,imported_at_unix
+		) VALUES(?,?,?,?,?,?,?)
+	`, Args: []any{repeatHex("6"), botIdentity, oldFingerprint, repeatHex("5"), 1, 3, 1_000_001}})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "DELETE FROM telegram_bot_credential_rotations WHERE audit_digest=?",
+		Args: []any{auditDigest},
+	})
+}
+
 func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	t.Helper()
 	columns := make([]string, 0, len(result.Rows))

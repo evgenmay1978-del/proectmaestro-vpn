@@ -527,3 +527,78 @@ func TestRQLiteApplyStoreCommitsPendingCallbackAsTypedRow(t *testing.T) {
 		t.Fatal("transaction has no typed telegram_imported_callbacks write")
 	}
 }
+
+func TestRQLiteApplyStoreCommitsBotCredentialRotationAsTypedRow(t *testing.T) {
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	oldFingerprint := snapshot.BotBindings[0].TokenFingerprintHMAC
+	snapshot.BotBindings[0].TokenFingerprintHMAC = strings.Repeat("3", 64)
+	snapshot.BotBindings[0].CredentialVersion = 2
+	snapshot.BotCredentialRotations = []LegacyBotCredentialRotation{{
+		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		OldTokenFingerprintHMAC: oldFingerprint,
+		NewTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
+		OldCredentialVersion: 1,
+		NewCredentialVersion: 2,
+		AuditDigest: strings.Repeat("4", 64),
+	}}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	var rotationOperation ApplyOperation
+	for _, operation := range operations {
+		if operation.Entity == "bot_credential_rotation" {
+			rotationOperation = operation
+			break
+		}
+	}
+	if rotationOperation.Entity == "" {
+		t.Fatalf("bot rotation operations = %#v", operations)
+	}
+	batch := ApplyBatch{
+		RunID: "import-run-bot-rotation", PlanDigest: plan.PlanDigest, Index: 0,
+		Operations: []ApplyOperation{rotationOperation},
+	}
+	batch.Digest = digestBatch(batch.Operations)
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}},
+		receiptQueryResult(batch),
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch bot rotation: %v", err)
+	}
+	if len(db.requests) != 1 {
+		t.Fatalf("bot rotation request count = %d", len(db.requests))
+	}
+	found := false
+	for _, statement := range db.requests[0].statements {
+		sqlText := strings.ToLower(statement.SQL)
+		if strings.Contains(sqlText, "canonical_import_rows") || strings.Contains(sqlText, "canonical_json") {
+			t.Fatalf("bot rotation used generic staging: %s", statement.SQL)
+		}
+		if !strings.Contains(sqlText, "insert into telegram_bot_credential_rotations") {
+			continue
+		}
+		found = true
+		wantArgs := []any{
+			snapshot.BotCredentialRotations[0].AuditDigest,
+			snapshot.BotBindings[0].BotIdentityHMAC, oldFingerprint,
+			snapshot.BotBindings[0].TokenFingerprintHMAC, 1, 2, int64(1_500_000),
+			batch.RunID, batch.Index, batch.Digest,
+		}
+		if fmt.Sprint(statement.Args) != fmt.Sprint(wantArgs) {
+			t.Fatalf("bot rotation args = %v, want %v", statement.Args, wantArgs)
+		}
+	}
+	if !found {
+		t.Fatal("transaction has no typed telegram_bot_credential_rotations write")
+	}
+}

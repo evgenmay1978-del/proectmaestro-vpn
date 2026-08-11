@@ -190,6 +190,17 @@ func TestRQLiteApplyStoreWritesBotRoutePollStateAndPendingCallback(t *testing.T)
 	}
 
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	oldFingerprint := snapshot.BotBindings[0].TokenFingerprintHMAC
+	snapshot.BotBindings[0].TokenFingerprintHMAC = strings.Repeat("5", 64)
+	snapshot.BotBindings[0].CredentialVersion = 2
+	snapshot.BotCredentialRotations = []LegacyBotCredentialRotation{{
+		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		OldTokenFingerprintHMAC: oldFingerprint,
+		NewTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
+		OldCredentialVersion: 1,
+		NewCredentialVersion: 2,
+		AuditDigest: strings.Repeat("6", 64),
+	}}
 	snapshot.BotPollStates = []LegacyBotPollState{{
 		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
 		CurrentTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
@@ -239,15 +250,18 @@ FROM telegram_bot_routes WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBin
 FROM telegram_pollers WHERE bot_identity_hmac=?`, Args: []any{snapshot.BotBindings[0].BotIdentityHMAC}},
 		rqlite.Statement{SQL: `SELECT order_id,action,state FROM telegram_imported_callbacks
 WHERE callback_hmac=?`, Args: []any{snapshot.PendingCallbacks[0].CallbackHMAC}},
+		rqlite.Statement{SQL: `SELECT old_token_fingerprint_hmac,new_token_fingerprint_hmac,
+old_credential_version,new_credential_version FROM telegram_bot_credential_rotations
+WHERE audit_digest=?`, Args: []any{snapshot.BotCredentialRotations[0].AuditDigest}},
 	)
 	if err != nil {
 		t.Fatalf("verify bot state: %v", err)
 	}
-	if len(results) != 3 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 || len(results[2].Rows) != 1 {
+	if len(results) != 4 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 || len(results[2].Rows) != 1 || len(results[3].Rows) != 1 {
 		t.Fatalf("bot state results = %#v", results)
 	}
 	if results[0].Rows[0]["token_fingerprint_hmac"] != snapshot.BotBindings[0].TokenFingerprintHMAC ||
-		!rqliteIntegerEquals(results[0].Rows[0]["credential_version"], 1) ||
+		!rqliteIntegerEquals(results[0].Rows[0]["credential_version"], 2) ||
 		!rqliteIntegerEquals(results[1].Rows[0]["offset_value"], 42) ||
 		!rqliteIntegerEquals(results[1].Rows[0]["lease_fence"], 11) ||
 		results[1].Rows[0]["node_id"] != nil || results[1].Rows[0]["lease_token"] != nil ||
@@ -255,7 +269,13 @@ WHERE callback_hmac=?`, Args: []any{snapshot.PendingCallbacks[0].CallbackHMAC}},
 		results[2].Rows[0]["order_id"] != "legacy-order-callback" ||
 		results[2].Rows[0]["action"] != "confirm" ||
 		results[2].Rows[0]["state"] != "pending" {
-		t.Fatalf("bot state verification mismatch: %#v", results)
+		t.Fatalf("bot state or callback verification mismatch: %#v", results)
+	}
+	if results[3].Rows[0]["old_token_fingerprint_hmac"] != oldFingerprint ||
+		results[3].Rows[0]["new_token_fingerprint_hmac"] != snapshot.BotBindings[0].TokenFingerprintHMAC ||
+		!rqliteIntegerEquals(results[3].Rows[0]["old_credential_version"], 1) ||
+		!rqliteIntegerEquals(results[3].Rows[0]["new_credential_version"], 2) {
+		t.Fatalf("bot rotation verification mismatch: %#v", results[3])
 	}
 
 	mismatchSnapshot := decodeFixture(t, "bot-bindings-v1.json")
