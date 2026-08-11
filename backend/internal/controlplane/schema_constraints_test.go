@@ -321,7 +321,7 @@ func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
 			secret_envelope,secret_sha256,imported_at_unix
 		) VALUES(?,?,?,?,?,?,?,?,?)
 	`, Args: []any{
-		secretID, "legacy_service", "s3-wb", "token", "bearer", 1,
+		secretID, "legacy_service", "schema-s3-wb", "token", "bearer", 1,
 		envelope, secretSHA, 1_000_000,
 	}})
 
@@ -330,7 +330,7 @@ func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
 		FROM imported_secrets WHERE secret_id=?
 	`, Args: []any{secretID}})
 	if got := fmt.Sprint(result.Rows); got != fmt.Sprintf(
-		`[map[field:token key_version:1 kind:bearer owner_source_key:s3-wb owner_type:legacy_service secret_envelope:%s secret_sha256:%s]]`,
+		`[map[field:token key_version:1 kind:bearer owner_source_key:schema-s3-wb owner_type:legacy_service secret_envelope:%s secret_sha256:%s]]`,
 		envelope, secretSHA,
 	) {
 		t.Fatalf("standalone secret envelope = %s", got)
@@ -343,7 +343,7 @@ func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
 		) VALUES(?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(secret_id) DO UPDATE SET secret_envelope=excluded.secret_envelope
 	`, Args: []any{
-		secretID, "legacy_service", "s3-wb", "token", "bearer", 1,
+		secretID, "legacy_service", "schema-s3-wb", "token", "bearer", 1,
 		envelope, secretSHA, 1_000_000,
 	}})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
