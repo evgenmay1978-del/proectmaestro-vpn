@@ -185,7 +185,7 @@ read_recorded_pid() {
 }
 
 start_cluster() {
-  local base marker root archive expected_member binary pid
+  local base marker root archive expected_member binary pid join_targets
   local -a started_pids=()
   umask 077
   require_commands
@@ -207,7 +207,8 @@ start_cluster() {
 
   cleanup_failed_start() {
     local status="$1"
-    local cleanup_pid attempt any_running validated_cleanup_root executable
+    local cleanup_pid attempt any_running resolved_cleanup_root executable
+    local -a cleanup_marker_lines=()
     trap - EXIT
     if [[ "$status" -ne 0 ]]; then
       executable="$root/bin/rqlited"
@@ -242,11 +243,20 @@ start_cluster() {
           any_running=1
         fi
       done
-      if [[ "$any_running" -eq 0 ]] &&
-        validated_cleanup_root="$(validated_root 2>/dev/null)" &&
-        [[ "$validated_cleanup_root" == "$root" ]]; then
-        rm -rf -- "$root"
-        rm -f -- "$marker"
+      if [[ "$any_running" -eq 0 ]]; then
+        resolved_cleanup_root="$(realpath -e -- "$root" 2>/dev/null || true)"
+        if [[ -f "$marker" && ! -L "$marker" ]]; then
+          mapfile -t cleanup_marker_lines <"$marker" || true
+        fi
+        if [[ "$resolved_cleanup_root" == "$root" && -d "$root" && ! -L "$root" &&
+          "${#cleanup_marker_lines[@]}" -eq 1 && "${cleanup_marker_lines[0]}" == "$root" ]]; then
+          case "$root" in
+            "$base"/maestro-rqlite-ci.*)
+              rm -rf -- "$root"
+              rm -f -- "$marker"
+              ;;
+          esac
+        fi
       fi
     fi
     exit "$status"
@@ -269,24 +279,31 @@ start_cluster() {
   tar -xOzf "$archive" "$expected_member" >"$binary"
   chmod 0700 "$binary"
   [[ -x "$binary" ]] || fail "rqlited binary is not executable"
+  join_targets="127.0.0.1:4402,127.0.0.1:4404,127.0.0.1:4406"
 
   "$binary" \
     -node-id ci-rqlite-1 \
     -http-addr 127.0.0.1:4401 \
     -raft-addr 127.0.0.1:4402 \
+    -bootstrap-expect 3 \
+    -bootstrap-expect-timeout 30s \
+    -join "$join_targets" \
+    -join-attempts 120 \
+    -join-interval 250ms \
     -fk \
     "$root/node1" >"$root/node1.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
   write_pid "$root" 1 "$pid"
-  wait_ready 4401 "$pid"
 
   "$binary" \
     -node-id ci-rqlite-2 \
     -http-addr 127.0.0.1:4403 \
     -raft-addr 127.0.0.1:4404 \
-    -join 127.0.0.1:4402 \
-    -join-attempts 20 \
+    -bootstrap-expect 3 \
+    -bootstrap-expect-timeout 30s \
+    -join "$join_targets" \
+    -join-attempts 120 \
     -join-interval 250ms \
     -fk \
     "$root/node2" >"$root/node2.log" 2>&1 &
@@ -298,8 +315,10 @@ start_cluster() {
     -node-id ci-rqlite-3 \
     -http-addr 127.0.0.1:4405 \
     -raft-addr 127.0.0.1:4406 \
-    -join 127.0.0.1:4402 \
-    -join-attempts 20 \
+    -bootstrap-expect 3 \
+    -bootstrap-expect-timeout 30s \
+    -join "$join_targets" \
+    -join-attempts 120 \
     -join-interval 250ms \
     -fk \
     "$root/node3" >"$root/node3.log" 2>&1 &
@@ -307,6 +326,7 @@ start_cluster() {
   started_pids+=("$pid")
   write_pid "$root" 3 "$pid"
 
+  wait_ready 4401 "$(<"$root/node1.pid")"
   wait_ready 4403 "$(<"$root/node2.pid")"
   wait_ready 4405 "$(<"$root/node3.pid")"
   verify_cluster
