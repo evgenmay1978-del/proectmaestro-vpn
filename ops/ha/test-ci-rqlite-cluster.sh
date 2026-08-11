@@ -119,7 +119,13 @@ expected_ids = {"ci-rqlite-1", "ci-rqlite-2", "ci-rqlite-3"}
 with urllib.request.urlopen(
     "http://127.0.0.1:4401/nodes?ver=2&timeout=5s", timeout=10
 ) as response:
-    nodes = json.load(response)
+    payload = json.load(response)
+if isinstance(payload, dict) and isinstance(payload.get("nodes"), list):
+    nodes = {node["id"]: node for node in payload["nodes"]}
+elif isinstance(payload, dict):
+    nodes = payload
+else:
+    raise SystemExit("nodes response is not an object")
 
 if set(nodes) != expected_ids:
     raise SystemExit(f"unexpected node IDs: {sorted(nodes)}")
