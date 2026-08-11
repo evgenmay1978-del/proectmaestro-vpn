@@ -151,6 +151,60 @@ func TestRQLiteApplyStoreCommitsCanonicalRowsAndReceiptAtomically(t *testing.T) 
 	}
 }
 
+func TestRQLiteApplyStoreWritesActiveCustomerAndConsumedSecretRegistry(t *testing.T) {
+	batch := canonicalCustomerOrderBatch(t)
+	var payload customerApplyPayload
+	for _, operation := range batch.Operations {
+		if operation.Entity == "customer" {
+			if err := decodeCanonicalOperation(operation.CanonicalJSON, &payload); err != nil {
+				t.Fatalf("decode customer operation: %v", err)
+			}
+		}
+	}
+	if payload.Customer.InternalID == "" || payload.IdentitySecret.SecretID == "" {
+		t.Fatalf("customer payload = %#v", payload)
+	}
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}}, receiptQueryResult(batch),
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch customer registry: %v", err)
+	}
+	want := map[string][]any{
+		"customer": {
+			"customer", payload.Customer.SourceKey, payload.Customer.InternalID,
+			plannedCustomerSourceDigest(payload.Customer), "active", int64(1_500_000),
+			batch.RunID, batch.Index, batch.Digest,
+		},
+		"encrypted_secret": {
+			"encrypted_secret", payload.IdentitySecret.SecretID, payload.IdentitySecret.SecretID,
+			canonicalLegacyDigest(payload.IdentitySecret), "active", int64(1_500_000),
+			batch.RunID, batch.Index, batch.Digest,
+		},
+	}
+	for _, statement := range db.requests[0].statements {
+		if !strings.Contains(strings.ToLower(statement.SQL), "insert into imported_entity_state") || len(statement.Args) == 0 {
+			continue
+		}
+		kind, _ := statement.Args[0].(string)
+		expected, exists := want[kind]
+		if !exists {
+			continue
+		}
+		if fmt.Sprint(statement.Args) != fmt.Sprint(expected) {
+			t.Fatalf("%s registry args = %v, want %v", kind, statement.Args, expected)
+		}
+		delete(want, kind)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing active registry writes = %#v", want)
+	}
+}
+
 func TestRQLiteApplyStoreResolvesUnknownOutcomeByReceiptWithoutRetry(t *testing.T) {
 	batch := canonicalCustomerOrderBatch(t)
 	db := &applyStoreRQLite{
@@ -281,6 +335,40 @@ func TestRQLiteApplyStoreRecomputesBusinessDigestFromCanonicalRows(t *testing.T)
 	}
 	if first.BusinessDigest == changed.BusinessDigest {
 		t.Fatal("changed customer expiry did not change business digest")
+	}
+}
+
+func TestBusinessDigestUsesLogicalImportedEntityProjection(t *testing.T) {
+	queries := make(map[string]string, len(businessDigestQueries))
+	for _, query := range businessDigestQueries {
+		queries[query.name] = strings.ToLower(query.sql)
+	}
+	if _, exists := queries["tombstones"]; exists {
+		t.Fatal("operational tombstones remained in canonical business digest")
+	}
+	wantFragments := map[string][]string{
+		"customers":           {"from customers c", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=c.customer_id", "lifecycle='deleted'"},
+		"credentials":         {"from credentials c", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=c.customer_id", "lifecycle='deleted'"},
+		"subscription_tokens": {"from subscription_tokens t", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=t.customer_id", "lifecycle='deleted'"},
+		"desired_node_state":  {"from desired_node_state d", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=d.customer_id", "lifecycle='deleted'"},
+		"imported_secrets":    {"from imported_secrets i", "not exists", "imported_entity_state", "entity_kind='encrypted_secret'", "target_id=i.secret_id", "lifecycle='deleted'"},
+	}
+	for table, fragments := range wantFragments {
+		sqlText, exists := queries[table]
+		if !exists {
+			t.Fatalf("business digest query missing %s", table)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(sqlText, fragment) {
+				t.Fatalf("%s digest query missing %q: %s", table, fragment, sqlText)
+			}
+		}
+	}
+
+	logical := inspectTargetFixture(t, 2_100_000)
+	fresh := inspectTargetFixture(t, 2_100_000)
+	if logical.BusinessDigest != fresh.BusinessDigest {
+		t.Fatalf("logical delete digest=%s fresh digest=%s", logical.BusinessDigest, fresh.BusinessDigest)
 	}
 }
 
@@ -644,27 +732,36 @@ func TestRQLiteApplyStoreCommitsStandaloneEncryptedSecretAsTypedRow(t *testing.T
 	if len(db.requests) != 1 {
 		t.Fatalf("standalone secret request count = %d", len(db.requests))
 	}
-	found := false
+	foundSecret, foundState := false, false
 	for _, statement := range db.requests[0].statements {
 		sqlText := strings.ToLower(statement.SQL)
 		if strings.Contains(sqlText, "canonical_import_rows") || strings.Contains(sqlText, "canonical_json") {
 			t.Fatalf("standalone secret used generic staging: %s", statement.SQL)
 		}
-		if !strings.Contains(sqlText, "insert into imported_secrets") {
-			continue
-		}
-		found = true
-		wantArgs := []any{
-			secret.SecretID, secret.OwnerType, secret.OwnerSourceKey, secret.Field, secret.Kind,
-			secret.KeyVersion, string(secretOperation.CanonicalJSON), secret.SHA256, int64(1_500_000),
-			batch.RunID, batch.Index, batch.Digest,
-		}
-		if fmt.Sprint(statement.Args) != fmt.Sprint(wantArgs) {
-			t.Fatalf("standalone secret args = %v, want %v", statement.Args, wantArgs)
+		switch {
+		case strings.Contains(sqlText, "insert into imported_secrets"):
+			foundSecret = true
+			wantArgs := []any{
+				secret.SecretID, secret.OwnerType, secret.OwnerSourceKey, secret.Field, secret.Kind,
+				secret.KeyVersion, string(secretOperation.CanonicalJSON), secret.SHA256, int64(1_500_000),
+				batch.RunID, batch.Index, batch.Digest,
+			}
+			if fmt.Sprint(statement.Args) != fmt.Sprint(wantArgs) {
+				t.Fatalf("standalone secret args = %v, want %v", statement.Args, wantArgs)
+			}
+		case strings.Contains(sqlText, "insert into imported_entity_state"):
+			foundState = true
+			wantArgs := []any{
+				"encrypted_secret", secret.SecretID, secret.SecretID, canonicalLegacyDigest(secret),
+				"active", int64(1_500_000), batch.RunID, batch.Index, batch.Digest,
+			}
+			if fmt.Sprint(statement.Args) != fmt.Sprint(wantArgs) {
+				t.Fatalf("standalone secret registry args = %v, want %v", statement.Args, wantArgs)
+			}
 		}
 	}
-	if !found {
-		t.Fatal("transaction has no typed imported_secrets write")
+	if !foundSecret || !foundState {
+		t.Fatalf("typed standalone secret writes = secret:%t state:%t", foundSecret, foundState)
 	}
 }
 

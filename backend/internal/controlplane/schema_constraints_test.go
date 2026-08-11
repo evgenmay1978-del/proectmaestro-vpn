@@ -309,6 +309,83 @@ func TestImportSchemaPreservesImmutableBotCredentialRotation(t *testing.T) {
 	})
 }
 
+func TestImportEntityRegistryAndDeleteReceiptsAreFailClosed(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	runID := "schema-delete-registry-run"
+	batchDigest := repeatHex("9")
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO import_runs(
+				import_run_id,snapshot_kind,source_sha256,plan_sha256,parent_source_sha256,
+				target_sha256,batch_count,status,started_at_unix,completed_at_unix
+			) VALUES(?,?,?,?,NULL,NULL,1,'applying',?,NULL)
+		`, Args: []any{runID, "full", repeatHex("1"), repeatHex("2"), 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO import_batches(
+				import_run_id,batch_index,batch_digest,row_count,status,applied_at_unix
+			) VALUES(?,?,?,1,'applying',NULL)
+		`, Args: []any{runID, 0, batchDigest}},
+	)
+
+	insertState := func(sourceKey, targetID, digest string) {
+		t.Helper()
+		mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+			INSERT INTO imported_entity_state(
+				entity_kind,source_key,target_id,canonical_sha256,lifecycle,updated_at_unix
+			) VALUES('encrypted_secret',?,?,?,'active',?)
+		`, Args: []any{sourceKey, targetID, digest, 1_000_000}})
+	}
+	deleteState := func(sourceKey string) {
+		t.Helper()
+		mustRequest(t, ctx, db, rqlite.Statement{
+			SQL: "UPDATE imported_entity_state SET lifecycle='deleted',updated_at_unix=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+			Args: []any{1_000_001, sourceKey},
+		})
+	}
+	insertReceipt := func(sourceKey, targetID, digest string) rqlite.Statement {
+		t.Helper()
+		return rqlite.Statement{SQL: `
+			INSERT INTO import_delete_receipts(
+				entity_kind,source_key,target_id,expected_prior_digest,lifecycle,tombstone_id,
+				import_run_id,batch_index,batch_digest,imported_at_unix
+			) VALUES('encrypted_secret',?,?,?,'deleted',NULL,?,?,?,?)
+		`, Args: []any{sourceKey, targetID, digest, runID, 0, batchDigest, 1_000_001}}
+	}
+
+	insertState("schema-secret-one", "schema-target-one", repeatHex("a"))
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_entity_state SET target_id=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+		Args: []any{"substituted-target", "schema-secret-one"},
+	})
+	deleteState("schema-secret-one")
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_entity_state SET lifecycle='active' WHERE entity_kind='encrypted_secret' AND source_key=?",
+		Args: []any{"schema-secret-one"},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_entity_state SET canonical_sha256=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+		Args: []any{repeatHex("b"), "schema-secret-one"},
+	})
+	exactReceipt := insertReceipt("schema-secret-one", "schema-target-one", repeatHex("a"))
+	mustRequest(t, ctx, db, exactReceipt)
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE import_delete_receipts SET imported_at_unix=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+		Args: []any{1_000_002, "schema-secret-one"},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "DELETE FROM import_delete_receipts WHERE entity_kind='encrypted_secret' AND source_key=?",
+		Args: []any{"schema-secret-one"},
+	})
+
+	insertState("schema-secret-two", "schema-target-two", repeatHex("b"))
+	deleteState("schema-secret-two")
+	mustRequestFail(t, ctx, db, insertReceipt("schema-secret-two", "schema-target-two", repeatHex("c")))
+
+	insertState("schema-secret-three", "schema-target-three", repeatHex("c"))
+	deleteState("schema-secret-three")
+	mustRequestFail(t, ctx, db, insertReceipt("schema-secret-three", "substituted-target", repeatHex("c")))
+}
+
 func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
 	ctx, db := mustAppliedSchema(t)
 	secretID := "secret-schema-standalone"
