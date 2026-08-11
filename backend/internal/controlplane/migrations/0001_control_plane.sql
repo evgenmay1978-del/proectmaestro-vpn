@@ -433,23 +433,34 @@ CREATE TABLE rate_limit_buckets (
 -- maestro:statement
 CREATE TABLE import_runs (
     import_run_id TEXT PRIMARY KEY,
-    source_node_id TEXT REFERENCES nodes(node_id) ON DELETE RESTRICT,
+    snapshot_kind TEXT NOT NULL CHECK(snapshot_kind IN ('full','delta')),
     source_sha256 TEXT NOT NULL CHECK(length(source_sha256) = 64),
-    status TEXT NOT NULL CHECK(status IN ('pending','validating','applying','applied','failed')),
+    plan_sha256 TEXT NOT NULL CHECK(length(plan_sha256) = 64),
+    parent_source_sha256 TEXT CHECK(parent_source_sha256 IS NULL OR length(parent_source_sha256) = 64),
+    target_sha256 TEXT CHECK(target_sha256 IS NULL OR length(target_sha256) = 64),
+    batch_count INTEGER NOT NULL CHECK(batch_count >= 0),
+    status TEXT NOT NULL CHECK(status IN ('applying','applied','failed')),
     started_at_unix INTEGER NOT NULL CHECK(started_at_unix >= 0),
     completed_at_unix INTEGER,
-    UNIQUE(source_node_id, source_sha256)
+    UNIQUE(source_sha256, plan_sha256),
+    CHECK((snapshot_kind = 'full' AND parent_source_sha256 IS NULL) OR
+          (snapshot_kind = 'delta' AND parent_source_sha256 IS NOT NULL)),
+    CHECK((status = 'applied' AND target_sha256 IS NOT NULL AND completed_at_unix IS NOT NULL) OR
+          (status <> 'applied' AND completed_at_unix IS NULL)),
+    CHECK(completed_at_unix IS NULL OR completed_at_unix >= started_at_unix)
 )
 
 -- maestro:statement
 CREATE TABLE import_batches (
     import_run_id TEXT NOT NULL REFERENCES import_runs(import_run_id) ON DELETE CASCADE,
-    batch_no INTEGER NOT NULL CHECK(batch_no >= 0),
-    payload_sha256 TEXT NOT NULL CHECK(length(payload_sha256) = 64),
+    batch_index INTEGER NOT NULL CHECK(batch_index >= 0),
+    batch_digest TEXT NOT NULL CHECK(length(batch_digest) = 64),
     row_count INTEGER NOT NULL CHECK(row_count >= 0),
-    status TEXT NOT NULL CHECK(status IN ('pending','applying','applied','failed')),
+    status TEXT NOT NULL CHECK(status IN ('applying','applied','failed')),
     applied_at_unix INTEGER,
-    PRIMARY KEY(import_run_id, batch_no)
+    PRIMARY KEY(import_run_id, batch_index),
+    CHECK((status = 'applied' AND applied_at_unix IS NOT NULL) OR
+          (status <> 'applied' AND applied_at_unix IS NULL))
 )
 
 -- maestro:statement
