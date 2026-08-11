@@ -63,6 +63,7 @@ var expectedSchemaTables = []string{
 	"telegram_callbacks",
 	"telegram_delivery_outbox",
 	"telegram_inbox",
+	"telegram_imported_callbacks",
 	"telegram_pollers",
 	"tombstone_targets",
 	"tombstones",

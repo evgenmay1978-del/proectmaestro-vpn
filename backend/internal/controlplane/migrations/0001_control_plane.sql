@@ -284,6 +284,17 @@ CREATE TABLE telegram_pollers (
 )
 
 -- maestro:statement
+CREATE TABLE telegram_imported_callbacks (
+    callback_hmac TEXT PRIMARY KEY NOT NULL CHECK(length(callback_hmac) = 64),
+    bot_identity_hmac TEXT NOT NULL CHECK(length(bot_identity_hmac) = 64)
+        REFERENCES telegram_bot_routes(bot_identity_hmac) ON DELETE RESTRICT,
+    order_id TEXT NOT NULL CHECK(length(order_id) > 0),
+    action TEXT NOT NULL CHECK(length(action) > 0),
+    state TEXT NOT NULL CHECK(state IN ('pending','in_flight')),
+    updated_at_unix INTEGER NOT NULL CHECK(updated_at_unix >= 0)
+)
+
+-- maestro:statement
 CREATE TABLE telegram_inbox (
     bot_id TEXT NOT NULL,
     update_id INTEGER NOT NULL,
@@ -534,6 +545,21 @@ BEFORE UPDATE OF offset_value, lease_fence ON telegram_pollers
 WHEN NEW.offset_value < OLD.offset_value OR NEW.lease_fence < OLD.lease_fence
 BEGIN
     SELECT RAISE(ABORT, 'telegram poll state rollback');
+END
+
+-- maestro:statement
+CREATE TRIGGER telegram_imported_callbacks_transition
+BEFORE UPDATE ON telegram_imported_callbacks
+WHEN NEW.callback_hmac <> OLD.callback_hmac OR
+     NEW.bot_identity_hmac <> OLD.bot_identity_hmac OR
+     NEW.order_id <> OLD.order_id OR
+     NEW.action <> OLD.action OR
+     NOT (
+         NEW.state = OLD.state OR
+         (OLD.state = 'pending' AND NEW.state = 'in_flight')
+     )
+BEGIN
+    SELECT RAISE(ABORT, 'invalid imported callback transition');
 END
 
 -- maestro:statement

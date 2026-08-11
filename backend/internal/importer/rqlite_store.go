@@ -44,6 +44,7 @@ var businessDigestQueries = []struct {
 	{"tombstones", "SELECT * FROM tombstones ORDER BY tombstone_id"},
 	{"telegram_bot_routes", "SELECT * FROM telegram_bot_routes ORDER BY bot_identity_hmac"},
 	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_identity_hmac"},
+	{"telegram_imported_callbacks", "SELECT * FROM telegram_imported_callbacks ORDER BY callback_hmac"},
 	{"telegram_callbacks", "SELECT * FROM telegram_callbacks ORDER BY callback_hmac"},
 	{"telegram_bindings", "SELECT * FROM telegram_bindings ORDER BY binding_id"},
 	{"cluster_settings", "SELECT * FROM cluster_settings ORDER BY setting_key"},
@@ -368,6 +369,8 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 		return s.settingStatements(batch, operation)
 	case "principal":
 		return s.principalStatements(batch, operation)
+	case "pending_callback":
+		return s.pendingCallbackStatements(batch, operation)
 	default:
 		return nil, fmt.Errorf("unsupported canonical import entity %q", operation.Entity)
 	}
@@ -436,6 +439,42 @@ ON CONFLICT(bot_identity_hmac) DO UPDATE SET
 		Args: append([]any{
 			state.BotIdentityHMAC, state.CurrentTokenFingerprintHMAC, state.CredentialVersion,
 			state.BotIdentityHMAC, state.NextUpdateID, int64(state.CapturedFence), s.now().Unix(),
+		}, gate...),
+	}}, nil
+}
+
+func (s *RQLiteApplyStore) pendingCallbackStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	var callback LegacyCallback
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &callback); err != nil {
+		return nil, err
+	}
+	if len(callback.CallbackHMAC) != 64 || len(callback.BotIdentityHMAC) != 64 ||
+		len(callback.TokenFingerprintHMAC) != 64 || callback.CredentialVersion <= 0 ||
+		callback.OrderID == "" || callback.Action == "" ||
+		(callback.State != "pending" && callback.State != "in_flight") {
+		return nil, errors.New("invalid canonical pending callback")
+	}
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{{
+		SQL: `INSERT INTO telegram_imported_callbacks(
+    callback_hmac,bot_identity_hmac,order_id,action,state,updated_at_unix
+) SELECT ?,CASE WHEN EXISTS(
+    SELECT 1 FROM telegram_bot_routes
+    WHERE bot_identity_hmac=? AND token_fingerprint_hmac=? AND credential_version=?
+) THEN ? ELSE NULL END,?,?,?,?
+WHERE ` + batchWriteGate + `
+ON CONFLICT(callback_hmac) DO UPDATE SET
+    bot_identity_hmac=excluded.bot_identity_hmac,
+    order_id=excluded.order_id,action=excluded.action,state=excluded.state,
+    updated_at_unix=CASE
+        WHEN excluded.state <> telegram_imported_callbacks.state
+        THEN excluded.updated_at_unix
+        ELSE telegram_imported_callbacks.updated_at_unix
+    END`,
+		Args: append([]any{
+			callback.CallbackHMAC,
+			callback.BotIdentityHMAC, callback.TokenFingerprintHMAC, callback.CredentialVersion,
+			callback.BotIdentityHMAC, callback.OrderID, callback.Action, callback.State, s.now().Unix(),
 		}, gate...),
 	}}, nil
 }

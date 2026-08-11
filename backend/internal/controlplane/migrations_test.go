@@ -56,7 +56,7 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 		"idempotency_requests", "nodes", "node_services", "desired_node_state", "outbox_events",
 		"node_leases", "cluster_job_leases", "node_apply_receipts", "tombstones", "tombstone_targets",
 		"telegram_bot_routes", "telegram_pollers", "telegram_inbox", "telegram_callbacks",
-		"telegram_delivery_outbox", "telegram_bindings", "external_actions", "operations",
+		"telegram_delivery_outbox", "telegram_bindings", "telegram_imported_callbacks", "external_actions", "operations",
 		"operation_batches", "cluster_settings", "setting_members", "setting_secrets",
 		"principals", "principal_roles", "principal_credentials", "web_sessions",
 		"rate_limit_buckets", "import_runs", "import_batches", "backup_watermarks",
