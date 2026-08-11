@@ -29,7 +29,7 @@ jobs:
   go-and-rqlite:
     name: Go and isolated rqlite
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       # actions/checkout v4.2.2
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -71,6 +71,30 @@ jobs:
       - name: Test rqlite integration
         working-directory: backend
         run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -tags=rqlite_integration ./...
+
+      - name: Reset rqlite for importer delta parity
+        run: |
+          bash ops/ha/ci-rqlite-cluster.sh stop
+          bash ops/ha/ci-rqlite-cluster.sh start
+
+      - name: Capture full-plus-delta digest
+        working-directory: backend
+        env:
+          MAESTRO_IMPORT_DIGEST_PHASE: delta
+          MAESTRO_IMPORT_DIGEST_PROOF: ${{ runner.temp }}/maestro-import-digest-proof
+        run: go test -tags=rqlite_integration ./internal/importer -run '^TestRQLiteImportDeleteDigestPhase$' -count=1
+
+      - name: Reset rqlite for importer fresh-full parity
+        run: |
+          bash ops/ha/ci-rqlite-cluster.sh stop
+          bash ops/ha/ci-rqlite-cluster.sh start
+
+      - name: Compare fresh-full digest
+        working-directory: backend
+        env:
+          MAESTRO_IMPORT_DIGEST_PHASE: fresh
+          MAESTRO_IMPORT_DIGEST_PROOF: ${{ runner.temp }}/maestro-import-digest-proof
+        run: go test -tags=rqlite_integration ./internal/importer -run '^TestRQLiteImportDeleteDigestPhase$' -count=1
 
       - name: Stop isolated rqlite cluster
         if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
