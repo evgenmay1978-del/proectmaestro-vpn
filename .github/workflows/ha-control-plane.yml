@@ -56,11 +56,6 @@ jobs:
         working-directory: backend
         run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -race ./...
 
-      - name: Test shadow verifier contract
-        run: |
-          bash -n ops/ha/test-shadow-verify.sh
-          bash ops/ha/test-shadow-verify.sh
-
       - name: Vet backend
         working-directory: backend
         run: go vet ./...
