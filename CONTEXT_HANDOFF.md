@@ -2627,3 +2627,30 @@ Production/server/bot/OTA/DNS/customer mutations не выполнялись. Р
 объявлять готовыми. Следом нужны redacted shadow verification, отдельное
 решение о production factory, backup/restore/cutover gates и лишь затем
 явно разрешённое развёртывание на серверах.
+
+## HA control plane: repository-only shadow export design (12.08.2026)
+
+Владелец подтвердил рекомендуемый следующий этап: воспроизводимая redacted
+shadow-сверка только в репозитории и изолированном GitHub Actions rqlite.
+Утверждённая спецификация:
+`docs/superpowers/specs/2026-08-12-maestrovpn-ha-shadow-export-design.md`.
+
+### Зафиксированное решение
+
+- Один versioned `ShadowExport` получает два чистых producer: из уже
+  проверенного `ImportPlan` и из canonical linearizable candidate rows.
+- Оба producer используют один строгий canonical encoder; существующий
+  `ops/ha/shadow-verify.sh` остаётся отдельным offline verifier.
+- Реальный proof использует только synthetic HMAC и существующий runner-local
+  трёхузловой rqlite: import -> legacy export -> candidate export -> exact
+  verifier match.
+- Live collectors, S1-S4, Telegram DB/credentials, production endpoints и
+  production `maestro-import` factory не входят в этот slice.
+
+### Следующий gate
+
+Сначала владелец просматривает committed design. После подтверждения создать
+отдельный TDD implementation plan, затем RED -> GREEN и exact-SHA GitHub
+verification. До этого `backend/cmd/maestro-import/main.go` по-прежнему должен
+вызывать `run(..., nil)`; production остаётся
+`NO-GO (repository implementation only)`.
