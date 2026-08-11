@@ -184,6 +184,15 @@ type PlannedOrder struct {
 	AuditMarkers        []string `json:"audit_markers"`
 }
 
+type PlannedPrincipal struct {
+	InternalID          string   `json:"internal_id"`
+	SourceKey           string   `json:"source_key"`
+	LoginKeyHMAC        string   `json:"login_key_hmac"`
+	Status              string   `json:"status"`
+	Roles               []string `json:"roles"`
+	CredentialSecretRef string   `json:"credential_secret_ref"`
+}
+
 type PlannedDelete struct {
 	Entity              string `json:"entity"`
 	SourceKey           string `json:"source_key"`
@@ -202,7 +211,7 @@ type ImportPlan struct {
 	Trials           []LegacyTrial             `json:"trials"`
 	BotBindings      []LegacyBotBinding        `json:"bot_bindings"`
 	Settings         []LegacySetting           `json:"settings"`
-	Principals       []LegacyPrincipal         `json:"principals"`
+	Principals       []PlannedPrincipal        `json:"principals"`
 	EncryptedSecrets []LegacyEncryptedSecret   `json:"encrypted_secrets"`
 	Deletes          []PlannedDelete           `json:"deletes"`
 	CascadeDeletes   []PlannedDelete           `json:"cascade_deletes,omitempty"`

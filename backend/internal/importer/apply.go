@@ -17,6 +17,16 @@ type orderApplyPayload struct {
 	Order PlannedOrder `json:"order"`
 }
 
+type settingApplyPayload struct {
+	Setting LegacySetting          `json:"setting"`
+	Secret  *LegacyEncryptedSecret `json:"secret,omitempty"`
+}
+
+type principalApplyPayload struct {
+	Principal        PlannedPrincipal       `json:"principal"`
+	CredentialSecret LegacyEncryptedSecret `json:"credential_secret"`
+}
+
 func Apply(ctx context.Context, store ApplyStore, plan ImportPlan, options ApplyOptions) (ApplyResult, error) {
 	if len(plan.Blockers) != 0 {
 		return ApplyResult{}, ErrBlockedPlan
@@ -160,14 +170,29 @@ func planOperations(plan ImportPlan) ([]ApplyOperation, error) {
 		}
 	}
 	for _, value := range plan.Settings {
-		if err := appendJSON("setting", value.Key, value); err != nil {
+		payload := settingApplyPayload{Setting: value}
+		if value.SecretRef != "" {
+			secret, exists := secretsByID[value.SecretRef]
+			if !exists {
+				return nil, fmt.Errorf("setting operation has no protected secret")
+			}
+			payload.Secret = &secret
+			consumedSecrets[secret.SecretID] = struct{}{}
+		}
+		if err := appendJSON("setting", value.Key, payload); err != nil {
 			return nil, err
 		}
 	}
 	for _, value := range plan.Principals {
-		if err := appendJSON("principal", value.SourceKey, value); err != nil {
+		secret, exists := secretsByID[value.CredentialSecretRef]
+		if value.CredentialSecretRef == "" || !exists {
+			return nil, fmt.Errorf("principal operation has no protected credential")
+		}
+		payload := principalApplyPayload{Principal: value, CredentialSecret: secret}
+		if err := appendJSON("principal", value.SourceKey, payload); err != nil {
 			return nil, err
 		}
+		consumedSecrets[secret.SecretID] = struct{}{}
 	}
 	for _, value := range plan.EncryptedSecrets {
 		if _, consumed := consumedSecrets[value.SecretID]; consumed {

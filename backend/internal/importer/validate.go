@@ -159,7 +159,6 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 		Trials:                 append([]LegacyTrial(nil), snapshot.Trials...),
 		BotBindings:            append([]LegacyBotBinding(nil), snapshot.BotBindings...),
 		Settings:               cloneSettings(snapshot.Settings),
-		Principals:             clonePrincipals(snapshot.Principals),
 		EncryptedSecrets:       append([]LegacyEncryptedSecret(nil), snapshot.EncryptedSecrets...),
 		BotPollStates:          append([]LegacyBotPollState(nil), snapshot.BotPollStates...),
 		PendingCallbacks:       append([]LegacyCallback(nil), snapshot.PendingCallbacks...),
@@ -217,6 +216,16 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 			planned.ProvisioningState = order.State
 		}
 		plan.Orders = append(plan.Orders, planned)
+	}
+	for _, principal := range snapshot.Principals {
+		plan.Principals = append(plan.Principals, PlannedPrincipal{
+			InternalID:          deterministicID(options.Namespace, "principal", principal.SourceKey),
+			SourceKey:           principal.SourceKey,
+			LoginKeyHMAC:        principal.LoginKeyHMAC,
+			Status:              principal.Status,
+			Roles:               append([]string(nil), principal.Roles...),
+			CredentialSecretRef: principal.CredentialSecretRef,
+		})
 	}
 	for _, deletion := range snapshot.Deletes {
 		plan.Deletes = append(plan.Deletes, PlannedDelete{
