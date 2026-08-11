@@ -11,8 +11,6 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
-var errRQLiteApplyStoreNotReady = errors.New("rqlite apply store run lifecycle is not ready")
-
 type RQLiteApplyStore struct {
 	db  rqlite.RQLite
 	now func() time.Time
@@ -27,16 +25,218 @@ func NewRQLiteApplyStore(db rqlite.RQLite, now func() time.Time) (*RQLiteApplySt
 	return &RQLiteApplyStore{db: db, now: now}, nil
 }
 
-func (*RQLiteApplyStore) InspectTarget(context.Context) (TargetState, error) {
-	return TargetState{}, errRQLiteApplyStoreNotReady
+type businessDigestTable struct {
+	Name string           `json:"name"`
+	Rows []map[string]any `json:"rows"`
 }
 
-func (*RQLiteApplyStore) BeginOrResume(context.Context, ApplyRun) (RunProgress, error) {
-	return RunProgress{}, errRQLiteApplyStoreNotReady
+var businessDigestQueries = []struct {
+	name string
+	sql  string
+}{
+	{"customers", "SELECT * FROM customers ORDER BY customer_id"},
+	{"credentials", "SELECT * FROM credentials ORDER BY credential_id"},
+	{"subscription_tokens", "SELECT * FROM subscription_tokens ORDER BY token_id"},
+	{"orders", "SELECT * FROM orders ORDER BY order_id"},
+	{"trial_redemptions", "SELECT * FROM trial_redemptions ORDER BY redemption_id"},
+	{"desired_node_state", "SELECT * FROM desired_node_state ORDER BY customer_id,node_id,service_name"},
+	{"tombstones", "SELECT * FROM tombstones ORDER BY tombstone_id"},
+	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_id"},
+	{"telegram_callbacks", "SELECT * FROM telegram_callbacks ORDER BY callback_hmac"},
+	{"telegram_bindings", "SELECT * FROM telegram_bindings ORDER BY binding_id"},
+	{"cluster_settings", "SELECT * FROM cluster_settings ORDER BY setting_key"},
+	{"setting_members", "SELECT * FROM setting_members ORDER BY setting_key,member_key"},
+	{"setting_secrets", "SELECT * FROM setting_secrets ORDER BY setting_key"},
+	{"principals", "SELECT * FROM principals ORDER BY principal_id"},
+	{"principal_roles", "SELECT * FROM principal_roles ORDER BY principal_id,role_name"},
+	{"principal_credentials", "SELECT * FROM principal_credentials ORDER BY credential_id"},
 }
 
-func (*RQLiteApplyStore) Complete(context.Context, ApplyCompletion) error {
-	return errRQLiteApplyStoreNotReady
+func (s *RQLiteApplyStore) InspectTarget(ctx context.Context) (TargetState, error) {
+	statements := make([]rqlite.Statement, 0, len(businessDigestQueries)+1)
+	for _, query := range businessDigestQueries {
+		statements = append(statements, rqlite.Statement{SQL: query.sql})
+	}
+	statements = append(statements, rqlite.Statement{SQL: `SELECT source_sha256 FROM import_runs
+WHERE status='applied' ORDER BY completed_at_unix DESC,import_run_id DESC LIMIT 1`})
+	results, err := s.db.QueryLinearizable(ctx, statements...)
+	if err != nil {
+		return TargetState{}, err
+	}
+	if len(results) != len(statements) {
+		return TargetState{}, errors.New("invalid business digest result count")
+	}
+	tables := make([]businessDigestTable, len(businessDigestQueries))
+	empty := true
+	for index, query := range businessDigestQueries {
+		rows := results[index].Rows
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		if len(rows) != 0 {
+			empty = false
+		}
+		tables[index] = businessDigestTable{Name: query.name, Rows: rows}
+	}
+	encoded, err := json.Marshal(tables)
+	if err != nil {
+		return TargetState{}, errors.New("cannot encode canonical business digest")
+	}
+	state := TargetState{Empty: empty, BusinessDigest: sha256Hex(encoded)}
+	latest := results[len(results)-1].Rows
+	if len(latest) > 1 {
+		return TargetState{}, errors.New("ambiguous applied import source")
+	}
+	if len(latest) == 1 {
+		source, ok := latest[0]["source_sha256"].(string)
+		if !ok || source == "" {
+			return TargetState{}, errors.New("invalid applied import source")
+		}
+		state.AppliedSourceDigest = source
+	}
+	return state, nil
+}
+
+func (s *RQLiteApplyStore) BeginOrResume(ctx context.Context, run ApplyRun) (RunProgress, error) {
+	if run.RunID == "" || (run.SnapshotKind != "full" && run.SnapshotKind != "delta") ||
+		len(run.SourceDigest) != 64 || len(run.PlanDigest) != 64 || run.BatchCount < 0 ||
+		(run.SnapshotKind == "full" && run.ParentDigest != "") ||
+		(run.SnapshotKind == "delta" && len(run.ParentDigest) != 64) {
+		return RunProgress{}, errors.New("invalid import run")
+	}
+	var parent any
+	if run.ParentDigest != "" {
+		parent = run.ParentDigest
+	}
+	results, writeErr := s.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+		SQL: `INSERT INTO import_runs(
+    import_run_id,snapshot_kind,source_sha256,plan_sha256,parent_source_sha256,
+    target_sha256,batch_count,status,started_at_unix,completed_at_unix
+) SELECT ?,?,?,?,?,NULL,?,'applying',?,NULL
+WHERE NOT EXISTS(
+    SELECT 1 FROM import_runs WHERE source_sha256=? AND plan_sha256=?
+) ON CONFLICT(import_run_id) DO NOTHING`,
+		Args: []any{
+			run.RunID, run.SnapshotKind, run.SourceDigest, run.PlanDigest, parent,
+			run.BatchCount, s.now().Unix(), run.SourceDigest, run.PlanDigest,
+		},
+	})
+	created := writeErr == nil && len(results) == 1 && results[0].RowsAffected == 1
+
+	readResults, readErr := s.db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT import_run_id,snapshot_kind,source_sha256,plan_sha256,
+parent_source_sha256,target_sha256,batch_count,status
+FROM import_runs WHERE import_run_id=?`, Args: []any{run.RunID}},
+		rqlite.Statement{SQL: `SELECT batch_index,batch_digest,status FROM import_batches
+WHERE import_run_id=? ORDER BY batch_index`, Args: []any{run.RunID}},
+	)
+	if readErr != nil {
+		if writeErr != nil {
+			return RunProgress{}, writeErr
+		}
+		return RunProgress{}, readErr
+	}
+	if len(readResults) != 2 || len(readResults[0].Rows) != 1 {
+		if writeErr != nil {
+			return RunProgress{}, writeErr
+		}
+		return RunProgress{}, ErrRunDigestMismatch
+	}
+	row := readResults[0].Rows[0]
+	if !runRowMatches(row, run) {
+		return RunProgress{}, ErrRunDigestMismatch
+	}
+	status, _ := row["status"].(string)
+	target, targetOK := nullableApplyString(row["target_sha256"])
+	if !targetOK || (status != "applying" && status != "applied") ||
+		(status == "applied" && target == "") {
+		return RunProgress{}, ErrRunDigestMismatch
+	}
+	progress := RunProgress{
+		New: created, AppliedBatchDigests: make(map[int]string),
+		Completed: status == "applied", TargetDigest: target,
+	}
+	for _, batchRow := range readResults[1].Rows {
+		index, indexOK := applyRowInt(batchRow["batch_index"])
+		digest, digestOK := batchRow["batch_digest"].(string)
+		batchStatus, statusOK := batchRow["status"].(string)
+		if !indexOK || index < 0 || !digestOK || !statusOK {
+			return RunProgress{}, ErrRunDigestMismatch
+		}
+		if batchStatus == "applied" {
+			progress.AppliedBatchDigests[int(index)] = digest
+		}
+	}
+	return progress, nil
+}
+
+func runRowMatches(row map[string]any, run ApplyRun) bool {
+	runID, runIDOK := row["import_run_id"].(string)
+	kind, kindOK := row["snapshot_kind"].(string)
+	source, sourceOK := row["source_sha256"].(string)
+	plan, planOK := row["plan_sha256"].(string)
+	parent, parentOK := nullableApplyString(row["parent_source_sha256"])
+	count, countOK := applyRowInt(row["batch_count"])
+	return runIDOK && kindOK && sourceOK && planOK && parentOK && countOK &&
+		runID == run.RunID && kind == run.SnapshotKind && source == run.SourceDigest &&
+		plan == run.PlanDigest && parent == run.ParentDigest && count == int64(run.BatchCount)
+}
+
+func (s *RQLiteApplyStore) Complete(ctx context.Context, completion ApplyCompletion) error {
+	if completion.RunID == "" || len(completion.SourceDigest) != 64 ||
+		len(completion.PlanDigest) != 64 || len(completion.TargetDigest) != 64 {
+		return errors.New("invalid import completion")
+	}
+	_, writeErr := s.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+		SQL: `UPDATE import_runs SET status='applied',target_sha256=?,completed_at_unix=?
+WHERE import_run_id=? AND source_sha256=? AND plan_sha256=? AND status='applying'
+AND (SELECT COUNT(*) FROM import_batches WHERE import_run_id=? )=batch_count
+AND (SELECT COUNT(*) FROM import_batches WHERE import_run_id=? AND status='applied')=batch_count
+AND (batch_count=0 OR (
+    (SELECT MIN(batch_index) FROM import_batches WHERE import_run_id=? AND status='applied')=0
+    AND (SELECT MAX(batch_index) FROM import_batches WHERE import_run_id=? AND status='applied')=batch_count-1
+))`,
+		Args: []any{
+			completion.TargetDigest, s.now().Unix(), completion.RunID,
+			completion.SourceDigest, completion.PlanDigest, completion.RunID,
+			completion.RunID, completion.RunID, completion.RunID,
+		},
+	})
+	results, readErr := s.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: `SELECT source_sha256,plan_sha256,target_sha256,status
+FROM import_runs WHERE import_run_id=?`, Args: []any{completion.RunID},
+	})
+	if readErr != nil {
+		if writeErr != nil {
+			return writeErr
+		}
+		return readErr
+	}
+	if len(results) != 1 || len(results[0].Rows) != 1 {
+		if writeErr != nil {
+			return writeErr
+		}
+		return ErrRunDigestMismatch
+	}
+	row := results[0].Rows[0]
+	source, sourceOK := row["source_sha256"].(string)
+	plan, planOK := row["plan_sha256"].(string)
+	target, targetOK := row["target_sha256"].(string)
+	status, statusOK := row["status"].(string)
+	if !sourceOK || !planOK || !targetOK || !statusOK ||
+		source != completion.SourceDigest || plan != completion.PlanDigest ||
+		target != completion.TargetDigest || status != "applied" {
+		return ErrRunDigestMismatch
+	}
+	return nil
+}
+
+func nullableApplyString(value any) (string, bool) {
+	if value == nil {
+		return "", true
+	}
+	text, ok := value.(string)
+	return text, ok
 }
 
 func (s *RQLiteApplyStore) CommitBatch(ctx context.Context, batch ApplyBatch) (BatchReceipt, error) {
