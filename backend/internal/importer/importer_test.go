@@ -175,6 +175,52 @@ func TestPlanOperationsBindCustomerSecretAndOrderIdentity(t *testing.T) {
 	}
 }
 
+func TestPlanOperationsBindSettingAndPrincipalSecrets(t *testing.T) {
+	snapshot := decodeFixture(t, "settings-principals-v1.json")
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	var settingOperation, principalOperation ApplyOperation
+	for _, operation := range operations {
+		switch {
+		case operation.Entity == "setting" && operation.Key == "telegram":
+			settingOperation = operation
+		case operation.Entity == "principal" && operation.Key == "principal-owner":
+			principalOperation = operation
+		case operation.Entity == "encrypted_secret":
+			t.Fatalf("protected owner secret remained detached: %s", operation.Key)
+		}
+	}
+	var settingPayload struct {
+		Setting LegacySetting          `json:"setting"`
+		Secret  *LegacyEncryptedSecret `json:"secret"`
+	}
+	if err := json.Unmarshal(settingOperation.CanonicalJSON, &settingPayload); err != nil {
+		t.Fatalf("decode setting operation: %v", err)
+	}
+	if settingPayload.Setting.Key != "telegram" || settingPayload.Secret == nil ||
+		settingPayload.Secret.SecretID != "secret-bot-token" {
+		t.Fatalf("setting secret is not owner-bound: %#v", settingPayload)
+	}
+	var principalPayload struct {
+		Principal        map[string]any       `json:"principal"`
+		CredentialSecret LegacyEncryptedSecret `json:"credential_secret"`
+	}
+	if err := json.Unmarshal(principalOperation.CanonicalJSON, &principalPayload); err != nil {
+		t.Fatalf("decode principal operation: %v", err)
+	}
+	wantPrincipalID := deterministicID(testPlanOptions().Namespace, "principal", "principal-owner")
+	if principalPayload.Principal["internal_id"] != wantPrincipalID ||
+		principalPayload.CredentialSecret.SecretID != "secret-panel-verifier" {
+		t.Fatalf("principal secret is not owner-bound: %#v", principalPayload)
+	}
+}
+
 func TestUnsupportedBotSnapshotIsBlocking(t *testing.T) {
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.BotBindings[0].SchemaFingerprint = "unknown-live-schema"
