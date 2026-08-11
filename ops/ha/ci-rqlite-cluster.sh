@@ -206,8 +206,8 @@ start_cluster() {
   }
 
   cleanup_failed_start() {
-    local status cleanup_pid attempt any_running validated_cleanup_root executable
-    status="$?"
+    local status="$1"
+    local cleanup_pid attempt any_running validated_cleanup_root executable
     trap - EXIT
     if [[ "$status" -ne 0 ]]; then
       executable="$root/bin/rqlited"
@@ -251,7 +251,7 @@ start_cluster() {
     fi
     exit "$status"
   }
-  trap cleanup_failed_start EXIT
+  trap 'cleanup_failed_start "$?"' EXIT
 
   mkdir -p -- "$root/bin" "$root/node1" "$root/node2" "$root/node3"
   archive="$root/$ARCHIVE_NAME"
