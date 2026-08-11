@@ -31,6 +31,14 @@ for node_id in ci-rqlite-1 ci-rqlite-2 ci-rqlite-3; do
   [[ "$count" == 1 ]] || fail "node ID $node_id must appear exactly once"
 done
 
+bootstrap_count="$(grep -cF -- '-bootstrap-expect 3' "$HARNESS" || true)"
+join_flag_count="$(grep -cF -- '-join "$join_targets"' "$HARNESS" || true)"
+join_target_count="$(grep -cF 'join_targets="127.0.0.1:4402,127.0.0.1:4404,127.0.0.1:4406"' "$HARNESS" || true)"
+[[ "$bootstrap_count" == 3 ]] || fail "all three nodes must use bootstrap-expect 3"
+[[ "$join_flag_count" == 3 ]] || fail "all three nodes must use the shared join target list"
+[[ "$join_target_count" == 1 ]] ||
+  fail "the complete loopback join target list must be declared exactly once"
+
 executable_lines="$(grep -Ev '^[[:space:]]*(#|$)' "$HARNESS")"
 if grep -Eq '(^|[^[:alnum:]_])(ssh|scp|rsync)([^[:alnum:]_]|$)|/etc/|/var/lib/|0\.0\.0\.0' <<<"$executable_lines"; then
   fail "host access or non-loopback bind is forbidden"
@@ -76,13 +84,14 @@ cat >"$fake_bin/curl" <<'EOF'
 exit 22
 EOF
 chmod 0700 "$fake_bin/curl"
-if PATH="$fake_bin:$PATH" bash "$HARNESS" start >/dev/null 2>&1; then
+failed_start_output=""
+if failed_start_output="$(PATH="$fake_bin:$PATH" bash "$HARNESS" start 2>&1)"; then
   fail "start unexpectedly succeeded when the pinned download failed"
 fi
 [[ ! -e "$test_temp/maestro-rqlite-ci-root" ]] ||
-  fail "failed start left a stale cluster marker"
+  fail "failed start left a stale cluster marker; output: ${failed_start_output:-<none>}"
 if compgen -G "$test_temp/maestro-rqlite-ci.*" >/dev/null; then
-  fail "failed start left a stale cluster root"
+  fail "failed start left a stale cluster root; output: ${failed_start_output:-<none>}"
 fi
 rm -rf -- "$fake_bin"
 
