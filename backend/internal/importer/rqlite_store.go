@@ -71,13 +71,20 @@ var businessDigestQueries = []struct {
 	name string
 	sql  string
 }{
-	{"customers", "SELECT * FROM customers ORDER BY customer_id"},
-	{"credentials", "SELECT * FROM credentials ORDER BY credential_id"},
-	{"subscription_tokens", "SELECT * FROM subscription_tokens ORDER BY token_id"},
+	{"customers", `SELECT c.* FROM customers c WHERE NOT EXISTS(
+SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
+AND s.target_id=c.customer_id AND s.lifecycle='deleted') ORDER BY c.customer_id`},
+	{"credentials", `SELECT c.* FROM credentials c WHERE NOT EXISTS(
+SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
+AND s.target_id=c.customer_id AND s.lifecycle='deleted') ORDER BY c.credential_id`},
+	{"subscription_tokens", `SELECT t.* FROM subscription_tokens t WHERE NOT EXISTS(
+SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
+AND s.target_id=t.customer_id AND s.lifecycle='deleted') ORDER BY t.token_id`},
 	{"orders", "SELECT * FROM orders ORDER BY order_id"},
 	{"trial_redemptions", "SELECT * FROM trial_redemptions ORDER BY redemption_id"},
-	{"desired_node_state", "SELECT * FROM desired_node_state ORDER BY customer_id,node_id,service_name"},
-	{"tombstones", "SELECT * FROM tombstones ORDER BY tombstone_id"},
+	{"desired_node_state", `SELECT d.* FROM desired_node_state d WHERE NOT EXISTS(
+SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
+AND s.target_id=d.customer_id AND s.lifecycle='deleted') ORDER BY d.customer_id,d.node_id,d.service_name`},
 	{"telegram_bot_routes", "SELECT * FROM telegram_bot_routes ORDER BY bot_identity_hmac"},
 	{"telegram_bot_credential_rotations", "SELECT * FROM telegram_bot_credential_rotations ORDER BY audit_digest"},
 	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_identity_hmac"},
@@ -87,7 +94,9 @@ var businessDigestQueries = []struct {
 	{"cluster_settings", "SELECT * FROM cluster_settings ORDER BY setting_key"},
 	{"setting_members", "SELECT * FROM setting_members ORDER BY setting_key,member_key"},
 	{"setting_secrets", "SELECT * FROM setting_secrets ORDER BY setting_key"},
-	{"imported_secrets", "SELECT * FROM imported_secrets ORDER BY secret_id"},
+	{"imported_secrets", `SELECT i.* FROM imported_secrets i WHERE NOT EXISTS(
+SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='encrypted_secret'
+AND s.target_id=i.secret_id AND s.lifecycle='deleted') ORDER BY i.secret_id`},
 	{"imported_trial_identities", "SELECT * FROM imported_trial_identities ORDER BY source_key"},
 	{"principals", "SELECT * FROM principals ORDER BY principal_id"},
 	{"principal_roles", "SELECT * FROM principal_roles ORDER BY principal_id,role_name"},
@@ -391,6 +400,24 @@ func batchGateArgs(batch ApplyBatch) []any {
 	return []any{batch.RunID, batch.Index, batch.Digest}
 }
 
+func entityStateUpsertStatement(
+	batch ApplyBatch,
+	entity, sourceKey, targetID, digest string,
+	nowUnix int64,
+) rqlite.Statement {
+	return rqlite.Statement{
+		SQL: `INSERT INTO imported_entity_state(
+    entity_kind,source_key,target_id,canonical_sha256,lifecycle,updated_at_unix
+) SELECT ?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(entity_kind,source_key) DO UPDATE SET
+    target_id=excluded.target_id,canonical_sha256=excluded.canonical_sha256,
+    lifecycle=excluded.lifecycle,updated_at_unix=excluded.updated_at_unix`,
+		Args: append([]any{
+			entity, sourceKey, targetID, digest, "active", nowUnix,
+		}, batchGateArgs(batch)...),
+	}
+}
+
 func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
 	if operation.Tombstone {
 		return nil, fmt.Errorf("unsupported import tombstone entity %q", operation.Entity)
@@ -570,8 +597,9 @@ func (s *RQLiteApplyStore) encryptedSecretStatements(batch ApplyBatch, operation
 	if err != nil {
 		return nil, errors.New("cannot encode protected standalone envelope")
 	}
+	nowUnix := s.now().Unix()
 	gate := batchGateArgs(batch)
-	return []rqlite.Statement{{
+	statements := []rqlite.Statement{{
 		SQL: `INSERT INTO imported_secrets(
     secret_id,owner_type,owner_source_key,field,kind,key_version,
     secret_envelope,secret_sha256,imported_at_unix
@@ -583,9 +611,11 @@ ON CONFLICT(secret_id) DO UPDATE SET
     imported_at_unix=imported_secrets.imported_at_unix`,
 		Args: append([]any{
 			secret.SecretID, secret.OwnerType, secret.OwnerSourceKey, secret.Field, secret.Kind,
-			secret.KeyVersion, string(envelope), secret.SHA256, s.now().Unix(),
+			secret.KeyVersion, string(envelope), secret.SHA256, nowUnix,
 		}, gate...),
-	}}, nil
+	}}
+	statements = append(statements, entityStateUpsertStatement(batch, "encrypted_secret", secret.SecretID, secret.SecretID, canonicalLegacyDigest(secret), nowUnix))
+	return statements, nil
 }
 
 func (s *RQLiteApplyStore) trialStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
@@ -665,7 +695,7 @@ func (s *RQLiteApplyStore) customerStatements(batch ApplyBatch, operation ApplyO
 	gate := batchGateArgs(batch)
 	credentialID := sha256Hex([]byte("credential\x00" + customer.InternalID + "\x00" + secret.Kind))
 	tokenID := sha256Hex([]byte("subscription-token\x00" + customer.InternalID))
-	return []rqlite.Statement{
+	statements := []rqlite.Statement{
 		{
 			SQL: `INSERT INTO customers(
     customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix
@@ -705,7 +735,12 @@ ON CONFLICT(token_id) DO UPDATE SET
 				customer.Generation, revoked, nowUnix, revokedAt,
 			}, gate...),
 		},
-	}, nil
+	}
+	statements = append(statements,
+		entityStateUpsertStatement(batch, "customer", customer.SourceKey, customer.InternalID, plannedCustomerSourceDigest(customer), nowUnix),
+		entityStateUpsertStatement(batch, "encrypted_secret", secret.SecretID, secret.SecretID, canonicalLegacyDigest(secret), nowUnix),
+	)
+	return statements, nil
 }
 
 func (s *RQLiteApplyStore) orderStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {

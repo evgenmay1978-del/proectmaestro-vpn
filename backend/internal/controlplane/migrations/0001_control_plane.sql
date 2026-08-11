@@ -531,8 +531,45 @@ CREATE TABLE import_batches (
     status TEXT NOT NULL CHECK(status IN ('applying','applied','failed')),
     applied_at_unix INTEGER,
     PRIMARY KEY(import_run_id, batch_index),
+    UNIQUE(import_run_id, batch_index, batch_digest),
     CHECK((status = 'applied' AND applied_at_unix IS NOT NULL) OR
           (status <> 'applied' AND applied_at_unix IS NULL))
+)
+
+-- maestro:statement
+CREATE TABLE imported_entity_state (
+    entity_kind TEXT NOT NULL CHECK(entity_kind IN ('customer','encrypted_secret')),
+    source_key TEXT NOT NULL CHECK(length(source_key) > 0),
+    target_id TEXT NOT NULL CHECK(length(target_id) > 0),
+    canonical_sha256 TEXT NOT NULL CHECK(length(canonical_sha256) = 64),
+    lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','deleted')),
+    updated_at_unix INTEGER NOT NULL CHECK(updated_at_unix >= 0),
+    PRIMARY KEY(entity_kind, source_key),
+    UNIQUE(entity_kind, target_id),
+    UNIQUE(entity_kind, source_key, target_id, canonical_sha256, lifecycle)
+)
+
+-- maestro:statement
+CREATE TABLE import_delete_receipts (
+    entity_kind TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    expected_prior_digest TEXT NOT NULL CHECK(length(expected_prior_digest) = 64),
+    lifecycle TEXT NOT NULL CHECK(lifecycle = 'deleted'),
+    tombstone_id TEXT REFERENCES tombstones(tombstone_id) ON DELETE RESTRICT,
+    import_run_id TEXT NOT NULL,
+    batch_index INTEGER NOT NULL CHECK(batch_index >= 0),
+    batch_digest TEXT NOT NULL CHECK(length(batch_digest) = 64),
+    imported_at_unix INTEGER NOT NULL CHECK(imported_at_unix >= 0),
+    PRIMARY KEY(entity_kind, source_key),
+    FOREIGN KEY(entity_kind, source_key, target_id, expected_prior_digest, lifecycle)
+        REFERENCES imported_entity_state(entity_kind, source_key, target_id, canonical_sha256, lifecycle)
+        ON DELETE RESTRICT,
+    FOREIGN KEY(import_run_id, batch_index, batch_digest)
+        REFERENCES import_batches(import_run_id, batch_index, batch_digest)
+        ON DELETE RESTRICT,
+    CHECK((entity_kind = 'customer' AND tombstone_id IS NOT NULL) OR
+          (entity_kind = 'encrypted_secret' AND tombstone_id IS NULL))
 )
 
 -- maestro:statement
@@ -659,6 +696,78 @@ WHEN NEW.source_key <> OLD.source_key OR
      NEW.used < OLD.used
 BEGIN
     SELECT RAISE(ABORT, 'invalid imported trial identity transition');
+END
+
+-- maestro:statement
+CREATE TRIGGER imported_entity_state_transition
+BEFORE UPDATE ON imported_entity_state
+WHEN NEW.entity_kind <> OLD.entity_kind OR
+     NEW.source_key <> OLD.source_key OR
+     NEW.target_id <> OLD.target_id OR
+     NEW.updated_at_unix < OLD.updated_at_unix OR
+     (OLD.lifecycle = 'deleted' AND NEW.lifecycle <> 'deleted') OR
+     (NEW.canonical_sha256 <> OLD.canonical_sha256 AND
+      NOT (OLD.lifecycle = 'active' AND NEW.lifecycle = 'active'))
+BEGIN
+    SELECT RAISE(ABORT, 'invalid imported entity state transition');
+END
+
+-- maestro:statement
+CREATE TRIGGER imported_entity_state_no_delete
+BEFORE DELETE ON imported_entity_state
+BEGIN
+    SELECT RAISE(ABORT, 'imported entity state is durable');
+END
+
+-- maestro:statement
+CREATE TRIGGER import_delete_receipts_immutable
+BEFORE UPDATE ON import_delete_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'import delete receipts are immutable');
+END
+
+-- maestro:statement
+CREATE TRIGGER import_delete_receipts_no_delete
+BEFORE DELETE ON import_delete_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'import delete receipts are immutable');
+END
+
+-- maestro:statement
+CREATE TRIGGER import_delete_receipts_customer_ready
+BEFORE INSERT ON import_delete_receipts
+WHEN NEW.entity_kind = 'customer' AND (
+    NOT EXISTS (
+        SELECT 1 FROM tombstones t
+        JOIN customers c ON c.customer_id = t.customer_id
+        WHERE t.tombstone_id = NEW.tombstone_id
+          AND t.customer_id = NEW.target_id
+          AND c.status = 'deleted'
+          AND c.generation = t.generation
+    ) OR
+    EXISTS (SELECT 1 FROM credentials c WHERE c.customer_id = NEW.target_id AND c.enabled <> 0) OR
+    EXISTS (SELECT 1 FROM subscription_tokens t WHERE t.customer_id = NEW.target_id AND t.revoked <> 1) OR
+    EXISTS (
+        SELECT 1 FROM node_services n
+        WHERE n.desired_target = 1 AND n.retired = 0
+          AND NOT EXISTS (
+              SELECT 1 FROM tombstone_targets tt
+              WHERE tt.tombstone_id = NEW.tombstone_id
+                AND tt.node_id = n.node_id AND tt.service_name = n.service_name
+          )
+    ) OR
+    EXISTS (
+        SELECT 1 FROM tombstone_targets tt
+        WHERE tt.tombstone_id = NEW.tombstone_id
+          AND NOT EXISTS (
+              SELECT 1 FROM node_services n
+              WHERE n.node_id = tt.node_id AND n.service_name = tt.service_name
+                AND n.desired_target = 1 AND n.retired = 0
+          )
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'customer delete receipt requires complete revoke and targets');
 END
 
 -- maestro:statement
