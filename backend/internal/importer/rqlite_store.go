@@ -3,6 +3,7 @@ package importer
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -420,7 +421,14 @@ ON CONFLICT(entity_kind,source_key) DO UPDATE SET
 
 func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
 	if operation.Tombstone {
-		return nil, fmt.Errorf("unsupported import tombstone entity %q", operation.Entity)
+		switch operation.Entity {
+		case "customer":
+			return s.customerDeleteStatements(batch, operation)
+		case "encrypted_secret":
+			return s.encryptedSecretDeleteStatements(batch, operation)
+		default:
+			return nil, fmt.Errorf("unsupported import tombstone entity %q", operation.Entity)
+		}
 	}
 	switch operation.Entity {
 	case "bot_binding":
@@ -446,6 +454,115 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 	default:
 		return nil, fmt.Errorf("unsupported canonical import entity %q", operation.Entity)
 	}
+}
+
+func (s *RQLiteApplyStore) customerDeleteStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	var deletion PlannedDelete
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &deletion); err != nil {
+		return nil, err
+	}
+	wantTombstoneID := sha256Hex([]byte("import-tombstone\x00" + deletion.TargetID + "\x00" +
+		strconv.FormatInt(deletion.NextGeneration, 10)))
+	if deletion.Entity != "customer" || operation.Key != deletion.SourceKey || deletion.SourceKey == "" ||
+		deletion.TargetID == "" || !validCanonicalSHA256(deletion.ExpectedPriorDigest) ||
+		deletion.PriorGeneration < 0 || deletion.NextGeneration <= deletion.PriorGeneration ||
+		deletion.NextGeneration != deletion.PriorGeneration+1 || !deletion.Tombstone ||
+		deletion.TombstoneID != wantTombstoneID || !validCanonicalSHA256(deletion.TombstoneID) {
+		return nil, errors.New("invalid canonical customer delete")
+	}
+	nowUnix := s.now().Unix()
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{
+		{
+			SQL: `UPDATE imported_entity_state SET lifecycle='deleted',updated_at_unix=?
+WHERE entity_kind=? AND source_key=? AND target_id=? AND canonical_sha256=? AND lifecycle='active'
+  AND ` + batchWriteGate,
+			Args: append([]any{nowUnix, "customer", deletion.SourceKey, deletion.TargetID, deletion.ExpectedPriorDigest}, gate...),
+		},
+		{
+			SQL: `UPDATE customers SET status='deleted',generation=?,updated_at_unix=?
+WHERE customer_id=? AND generation=? AND status<>'deleted' AND ` + batchWriteGate,
+			Args: append([]any{deletion.NextGeneration, nowUnix, deletion.TargetID, deletion.PriorGeneration}, gate...),
+		},
+		{
+			SQL: `UPDATE credentials SET generation=?,enabled=0,updated_at_unix=?
+WHERE customer_id=? AND generation=? AND enabled<>0 AND ` + batchWriteGate,
+			Args: append([]any{deletion.NextGeneration, nowUnix, deletion.TargetID, deletion.PriorGeneration}, gate...),
+		},
+		{
+			SQL: `UPDATE subscription_tokens SET generation=?,revoked=1,revoked_at_unix=?
+WHERE customer_id=? AND generation=? AND revoked<>1 AND ` + batchWriteGate,
+			Args: append([]any{deletion.NextGeneration, nowUnix, deletion.TargetID, deletion.PriorGeneration}, gate...),
+		},
+		{
+			SQL: `INSERT INTO tombstones(tombstone_id,customer_id,generation,reason,created_at_unix)
+SELECT ?,?,?,?,? WHERE ` + batchWriteGate,
+			Args: append([]any{
+				deletion.TombstoneID, deletion.TargetID, deletion.NextGeneration,
+				"legacy_import_delete", nowUnix,
+			}, gate...),
+		},
+		{
+			SQL: `INSERT INTO tombstone_targets(tombstone_id,node_id,service_name,status,applied_at_unix)
+SELECT ?,node_id,service_name,'pending',NULL FROM node_services
+WHERE desired_target=1 AND retired=0 AND ` + batchWriteGate,
+			Args: append([]any{deletion.TombstoneID}, gate...),
+		},
+		{
+			SQL: `INSERT INTO import_delete_receipts(
+    entity_kind,source_key,target_id,expected_prior_digest,lifecycle,tombstone_id,
+    import_run_id,batch_index,batch_digest,imported_at_unix
+) SELECT ?,?,?,?,'deleted',?,?,?,?,? WHERE ` + batchWriteGate,
+			Args: append([]any{
+				"customer", deletion.SourceKey, deletion.TargetID, deletion.ExpectedPriorDigest,
+				deletion.TombstoneID, batch.RunID, batch.Index, batch.Digest, nowUnix,
+			}, gate...),
+		},
+	}, nil
+}
+
+func (s *RQLiteApplyStore) encryptedSecretDeleteStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	var deletion PlannedDelete
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &deletion); err != nil {
+		return nil, err
+	}
+	if deletion.Entity != "encrypted_secret" || operation.Key != deletion.SourceKey ||
+		deletion.SourceKey == "" || deletion.TargetID != deletion.SourceKey ||
+		!validCanonicalSHA256(deletion.ExpectedPriorDigest) || deletion.PriorGeneration != 0 ||
+		deletion.NextGeneration != 0 || deletion.TombstoneID != "" || deletion.Tombstone {
+		return nil, errors.New("invalid canonical encrypted-secret delete")
+	}
+	nowUnix := s.now().Unix()
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{
+		{
+			SQL: `UPDATE imported_entity_state SET lifecycle='deleted',updated_at_unix=?
+WHERE entity_kind=? AND source_key=? AND target_id=? AND canonical_sha256=? AND lifecycle='active'
+  AND ` + batchWriteGate,
+			Args: append([]any{
+				nowUnix, "encrypted_secret", deletion.SourceKey, deletion.TargetID,
+				deletion.ExpectedPriorDigest,
+			}, gate...),
+		},
+		{
+			SQL: `INSERT INTO import_delete_receipts(
+    entity_kind,source_key,target_id,expected_prior_digest,lifecycle,tombstone_id,
+    import_run_id,batch_index,batch_digest,imported_at_unix
+) SELECT ?,?,?,?,'deleted',NULL,?,?,?,? WHERE ` + batchWriteGate,
+			Args: append([]any{
+				"encrypted_secret", deletion.SourceKey, deletion.TargetID, deletion.ExpectedPriorDigest,
+				batch.RunID, batch.Index, batch.Digest, nowUnix,
+			}, gate...),
+		},
+	}, nil
+}
+
+func validCanonicalSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func (s *RQLiteApplyStore) botRouteStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {

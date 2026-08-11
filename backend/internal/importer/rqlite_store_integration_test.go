@@ -5,6 +5,7 @@ package importer
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -615,6 +616,81 @@ func commitIntegrationPlan(t *testing.T, ctx context.Context, store *RQLiteApply
 		t.Fatalf("Complete %s: %v", runID, err)
 	}
 	return target
+}
+
+func TestRQLiteImportDeleteDigestPhase(t *testing.T) {
+	phase := os.Getenv("MAESTRO_IMPORT_DIGEST_PHASE")
+	proofPath := os.Getenv("MAESTRO_IMPORT_DIGEST_PROOF")
+	if phase == "" || proofPath == "" {
+		t.Skip("dedicated parity phase")
+	}
+	db, err := rqlite.New(rqlite.Config{
+		Endpoints: []string{"http://127.0.0.1:4401", "http://127.0.0.1:4403", "http://127.0.0.1:4405"},
+		Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("rqlite.New: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_700_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+
+	switch phase {
+	case "delta":
+		base := decodeFixture(t, "full-then-delta/base-full.json")
+		basePlan := plannedFixtureFromSnapshot(t, base, testPlanOptions())
+		commitIntegrationPlan(t, ctx, store, basePlan, "importer-parity-base-run-v1")
+		delta := preparedDelta(t, base, basePlan)
+		options := testPlanOptions()
+		options.ParentSnapshot = &base
+		options.AppliedParentDigest = basePlan.SourceDigest
+		deltaPlan, report := Plan(delta, options)
+		if len(report.Blockers) != 0 {
+			t.Fatalf("unexpected parity delta blockers: %#v", report.Blockers)
+		}
+		target := commitIntegrationPlan(t, ctx, store, deltaPlan, "importer-parity-delta-run-v1")
+		betaID := deterministicID(options.Namespace, "customer", "customer-beta")
+		wantEnvelope, err := json.Marshal(base.EncryptedSecrets[1])
+		if err != nil {
+			t.Fatalf("encode parity protected envelope: %v", err)
+		}
+		results, err := db.QueryLinearizable(ctx,
+			rqlite.Statement{SQL: `SELECT status FROM customers WHERE customer_id=?`, Args: []any{betaID}},
+			rqlite.Statement{SQL: `SELECT count(*) AS count FROM tombstone_targets WHERE tombstone_id=?`, Args: []any{deltaPlan.Deletes[0].TombstoneID}},
+			rqlite.Statement{SQL: `SELECT secret_envelope FROM credentials WHERE customer_id=?`, Args: []any{betaID}},
+		)
+		if err != nil || len(results) != 3 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 ||
+			len(results[2].Rows) != 1 || results[0].Rows[0]["status"] != "deleted" ||
+			!rqliteIntegerEquals(results[1].Rows[0]["count"], 4) ||
+			results[2].Rows[0]["secret_envelope"] != string(wantEnvelope) {
+			t.Fatalf("delta parity proof mismatch: %#v, %v", results, err)
+		}
+		if !validCanonicalSHA256(target.BusinessDigest) {
+			t.Fatalf("delta business digest = %q", target.BusinessDigest)
+		}
+		if err := os.WriteFile(proofPath, []byte(target.BusinessDigest), 0o600); err != nil {
+			t.Fatalf("write digest proof: %v", err)
+		}
+	case "fresh":
+		finalPlan := plannedFixture(t, "full-then-delta/final-full.json", testPlanOptions())
+		target := commitIntegrationPlan(t, ctx, store, finalPlan, "importer-parity-fresh-run-v1")
+		proofBytes, err := os.ReadFile(proofPath)
+		if err != nil {
+			t.Fatalf("read digest proof: %v", err)
+		}
+		proof := string(proofBytes)
+		if !validCanonicalSHA256(proof) || target.BusinessDigest != proof {
+			t.Fatalf("fresh digest %q does not match delta proof %q", target.BusinessDigest, proof)
+		}
+	default:
+		t.Fatalf("unsupported digest phase %q", phase)
+	}
 }
 
 func rqliteIntegerEquals(value any, want int64) bool {

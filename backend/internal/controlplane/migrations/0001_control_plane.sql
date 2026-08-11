@@ -737,6 +737,8 @@ END
 CREATE TRIGGER import_delete_receipts_customer_ready
 BEFORE INSERT ON import_delete_receipts
 WHEN NEW.entity_kind = 'customer' AND (
+    NOT EXISTS (SELECT 1 FROM credentials c WHERE c.customer_id = NEW.target_id) OR
+    NOT EXISTS (SELECT 1 FROM subscription_tokens t WHERE t.customer_id = NEW.target_id) OR
     NOT EXISTS (
         SELECT 1 FROM tombstones t
         JOIN customers c ON c.customer_id = t.customer_id
