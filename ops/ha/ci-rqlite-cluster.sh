@@ -57,17 +57,30 @@ require_commands() {
 assert_ports_available() {
   python3 - <<'PY'
 import socket
+import time
 
-sockets = []
-try:
-    for port in (4401, 4402, 4403, 4404, 4405, 4406):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-        sock.bind(("127.0.0.1", port))
-        sockets.append(sock)
-finally:
-    for sock in sockets:
-        sock.close()
+
+def ports_available():
+    sockets = []
+    try:
+        for port in (4401, 4402, 4403, 4404, 4405, 4406):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sockets.append(sock)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+            sock.bind(("127.0.0.1", port))
+    except OSError:
+        return False
+    finally:
+        for sock in sockets:
+            sock.close()
+    return True
+
+
+deadline = time.monotonic() + 10
+while not ports_available():
+    if time.monotonic() >= deadline:
+        raise SystemExit("loopback CI ports remained occupied for 10 seconds")
+    time.sleep(0.25)
 PY
 }
 
