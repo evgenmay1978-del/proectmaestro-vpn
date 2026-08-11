@@ -127,6 +127,54 @@ func TestPlanPreservesCanonicalLegacyOrderTerms(t *testing.T) {
 	}
 }
 
+func TestPlanOperationsBindCustomerSecretAndOrderIdentity(t *testing.T) {
+	snapshot := decodeFixture(t, "orders-pending-credited.json")
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	var customerOperation, orderOperation ApplyOperation
+	for _, operation := range operations {
+		switch {
+		case operation.Entity == "customer":
+			customerOperation = operation
+		case operation.Entity == "order" && operation.Key == "legacy-order-credited":
+			orderOperation = operation
+		case operation.Entity == "encrypted_secret" && operation.Key == "secret-order-owner":
+			t.Fatal("customer secret remained a detached generic operation")
+		}
+	}
+	if len(customerOperation.CanonicalJSON) == 0 || len(orderOperation.CanonicalJSON) == 0 {
+		t.Fatalf("missing canonical operations: %#v", operations)
+	}
+	var customerPayload struct {
+		Customer       PlannedCustomer       `json:"customer"`
+		IdentitySecret LegacyEncryptedSecret `json:"identity_secret"`
+	}
+	if err := json.Unmarshal(customerOperation.CanonicalJSON, &customerPayload); err != nil {
+		t.Fatalf("decode customer operation: %v", err)
+	}
+	if customerPayload.Customer.InternalID != plan.Customers[0].InternalID ||
+		customerPayload.IdentitySecret.SecretID != "secret-order-owner" {
+		t.Fatalf("customer operation is not owner-bound: %#v", customerPayload)
+	}
+	var orderPayload struct {
+		Order struct {
+			CustomerInternalID string `json:"customer_internal_id"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(orderOperation.CanonicalJSON, &orderPayload); err != nil {
+		t.Fatalf("decode order operation: %v", err)
+	}
+	if orderPayload.Order.CustomerInternalID != plan.Customers[0].InternalID {
+		t.Fatalf("order customer internal id = %q, want %q", orderPayload.Order.CustomerInternalID, plan.Customers[0].InternalID)
+	}
+}
+
 func TestUnsupportedBotSnapshotIsBlocking(t *testing.T) {
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.BotBindings[0].SchemaFingerprint = "unknown-live-schema"
