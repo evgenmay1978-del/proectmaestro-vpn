@@ -36,7 +36,7 @@
 - Consumes: `PlanOptions.Namespace`, exact `PlanOptions.ParentSnapshot`, `AppliedParentDigest`, `LegacyDelete`.
 - Produces: `canonicalLegacyDigest(any) string`, enriched `PlannedDelete`, and tombstone `ApplyOperation.CanonicalJSON` containing the full typed delete proof.
 
-- [ ] **Step 1: Write failing validation and planning tests**
+- [x] **Step 1: Write failing validation and planning tests**
 
 Add tests that build the existing base/delta fixtures and assert exact blocker codes:
 
@@ -89,7 +89,7 @@ func TestDeltaDeleteCarriesTypedCustomerAndDerivedSecretProof(t *testing.T) {
 
 Also assert duplicate customer deletes and upsert-plus-delete of the same source produce `delta_delete_collision`.
 
-- [ ] **Step 2: Commit and push RED tests**
+- [x] **Step 2: Commit and push RED tests**
 
 Run only static checks locally:
 
@@ -106,7 +106,7 @@ test(importer): require typed delete proofs
 
 Push and verify GitHub Actions fails only because typed prior-digest/delete fields and validation are absent.
 
-- [ ] **Step 3: Add canonical source digest helpers and typed fields**
+- [x] **Step 3: Add canonical source digest helpers and typed fields**
 
 Extend `PlannedDelete` exactly:
 
@@ -153,7 +153,7 @@ func plannedCustomerSourceDigest(customer PlannedCustomer) string {
 delta.Deletes[0].ExpectedPriorDigest = canonicalLegacyDigest(base.Customers[1])
 ```
 
-- [ ] **Step 4: Implement exact delete validation and derivation**
+- [x] **Step 4: Implement exact delete validation and derivation**
 
 In `validateDelta`, require one parent customer, exact prior digest, no duplicate delete and no same-key upsert. Reject every user-provided entity except `customer`. Use `math.MaxInt64` to block generation overflow.
 
@@ -183,7 +183,7 @@ for _, deletion := range append(append([]PlannedDelete(nil), plan.Deletes...), p
 }
 ```
 
-- [ ] **Step 5: Push GREEN planning commit and verify full CI**
+- [x] **Step 5: Push GREEN planning commit and verify full CI**
 
 Commit message:
 
@@ -209,7 +209,7 @@ Required GitHub result: formatting, unit, race, vet, harness and existing real-r
 - Consumes: canonical customer/secret digests from Task 1 and existing `batchWriteGate`.
 - Produces: typed `imported_entity_state`, `import_delete_receipts`, registry upsert statements and a logical `InspectTarget` digest that hides deleted imported entities but not active rows.
 
-- [ ] **Step 1: Write RED schema and store tests**
+- [x] **Step 1: Write RED schema and store tests**
 
 Add schema tests proving:
 
@@ -235,7 +235,7 @@ Add store tests that inspect customer and standalone-secret requests and require
 
 Add an `InspectTarget` unit test whose mocked registry marks one customer and secret deleted; the resulting digest must equal the digest from the same mocked result set with those rows absent.
 
-- [ ] **Step 2: Commit and push RED registry tests**
+- [x] **Step 2: Commit and push RED registry tests**
 
 Commit message:
 
@@ -245,7 +245,7 @@ test(importer): require logical delete registry
 
 Expected GitHub failure: missing registry/receipt tables, missing typed registry writes and unfiltered digest queries.
 
-- [ ] **Step 3: Add registry and receipt schema**
+- [x] **Step 3: Add registry and receipt schema**
 
 Create `imported_entity_state` and `import_delete_receipts` in migration 0001. Use exact checks and foreign keys:
 
@@ -287,7 +287,7 @@ Add triggers for immutable target ID, no `deleted -> active`, no digest change a
 
 Add both tables to `expectedSchemaTables` and migration integration expectations.
 
-- [ ] **Step 4: Add active registry writes to customer and secret upserts**
+- [x] **Step 4: Add active registry writes to customer and secret upserts**
 
 Create a focused helper:
 
@@ -297,7 +297,7 @@ func entityStateUpsertStatement(batch ApplyBatch, entity, sourceKey, targetID, d
 
 Its `ON CONFLICT` updates `canonical_sha256`, `lifecycle='active'` and timestamp; schema triggers abort target substitution or resurrection. Append customer and consumed identity-secret state writes inside `customerStatements`; append standalone secret state inside `encryptedSecretStatements`.
 
-- [ ] **Step 5: Convert `businessDigestQueries` to logical projections**
+- [x] **Step 5: Convert `businessDigestQueries` to logical projections**
 
 Remove the direct `tombstones` query. Filter customer-owned tables with `NOT EXISTS` against deleted customer registry target IDs. Filter `imported_secrets` against deleted encrypted-secret registry target IDs. Keep orders unchanged.
 
@@ -311,7 +311,7 @@ WHERE NOT EXISTS(
 ) ORDER BY c.customer_id
 ```
 
-- [ ] **Step 6: Push GREEN registry commit and verify full CI**
+- [x] **Step 6: Push GREEN registry commit and verify full CI**
 
 Commit message:
 

@@ -2490,3 +2490,67 @@ digest. Focused design записывается в
 `docs/superpowers/specs/2026-08-11-maestrovpn-ha-import-delete-design.md`.
 После review отдельный RED -> GREEN slice реализует только explicit customer
 delete и derived encrypted-secret marker. Production import всё ещё запрещён.
+
+## HA control plane: Task 6 typed delete planning and registry checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/DNS/customer mutations не
+выполнялись; production `maestro-import` apply factory остаётся nil/fail-closed.
+Утверждённая спецификация: `docs/superpowers/specs/2026-08-11-maestrovpn-ha-import-delete-design.md`
+(commit `b13ad0c`). Подробный план: `docs/superpowers/plans/2026-08-11-maestrovpn-ha-import-delete.md`
+(commit `8f96689`).
+
+### Task 1: deterministic typed delete planning
+
+- RED commit `2ffb2c5b50be48f9d02aca93d9c33c7ab78df706`; run
+  `31521572673`, job `93879595838` упал только на отсутствующих
+  `canonicalLegacyDigest` и typed полях `PlannedDelete`.
+- GREEN commit `3ff68364c274c0f5831d23cd558f9ea403365c8a`.
+- Final GREEN run `31522413319`, job `93882447316`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+- Delete разрешён только для delta и explicit customer; exact parent digest,
+  prior customer digest, единственный source, отсутствие upsert/delete collision
+  и generation overflow проверяются до write.
+- Customer target/tombstone IDs, prior/next generation и derived owner-bound
+  encrypted-secret marker детерминированы. Delete operations несут полный
+  несекретный canonical JSON proof.
+
+### Task 2: lifecycle registry, receipts and logical digest
+
+- RED commit `78d8883c72a8e9e94ff1b367a0c9e438852f3ad7`; run
+  `31523217922`, job `93885166584` упал только на отсутствующих registry writes
+  и operational tombstones в business digest.
+- GREEN commit `9505da985ced8806afe71083654e7e3cee68b6ec`.
+- Final GREEN run `31524287056`, job `93888659664`: formatting, unit, race,
+  vet, harness, schema constraints и настоящий трёхузловой rqlite прошли.
+- `imported_entity_state` хранит только typed stable key, immutable target,
+  canonical SHA-256, lifecycle и timestamp; target substitution, state delete,
+  digest substitution при delete и `deleted -> active` fail closed.
+- `import_delete_receipts` immutable/undeletable, связан exact composite FK с
+  deleted registry state и exact `(run,batch,digest)`. Customer receipt trigger
+  требует deleted customer generation, disabled credentials, revoked tokens и
+  полный frozen target set.
+- Customer upsert атомарно пишет active registry для customer и consumed
+  encrypted-secret; standalone encrypted secret пишет immutable envelope и
+  active registry в той же batch transaction.
+- Canonical business digest исключает operational tombstones и import
+  bookkeeping; customer/credential/token/desired rows и imported secrets с
+  deleted registry state логически фильтруются. Orders остаются историческими.
+
+### Исправленные рабочие ошибки, не повторять
+
+- В этой Windows-среде локального `gh` нет: CI читать через GitHub connector.
+- Полный commit SHA всегда получать `git rev-parse HEAD`, никогда не достраивать
+  из короткого SHA.
+- Linked worktree shell требует escalation; patch mutation: внешний patch,
+  `git apply --check --recount`, новый guard и ровно один `git apply --recount`.
+- Если monolithic patch теряет актуальный context, не форсировать: записать
+  fail/correct и разделить на schema/store патчи с текущим контекстом.
+
+### Следующий безопасный шаг
+
+Task 3 RED -> GREEN: typed tombstone dispatch, atomic customer registry CAS,
+customer generation/status CAS, credential/token revoke, deterministic
+tombstone, frozen S1-S4 targets, derived secret receipt и clean-cluster
+`full(base)+delta == fresh-full` digest proof. До полного GitHub GREEN не
+включать production factory и не трогать серверы/ботов/OTA/клиентов.
