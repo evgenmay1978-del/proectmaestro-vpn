@@ -37,7 +37,9 @@ jobs:
       - name: Check Go formatting
         working-directory: backend
         run: |
-          test -z "$(gofmt -l internal/rqlite/*.go)"
+          set -euo pipefail
+          gofmt -d internal/rqlite/*.go | tee /tmp/rqlite-gofmt.diff
+          test ! -s /tmp/rqlite-gofmt.diff
 
       - name: Test rqlite client
         working-directory: backend
