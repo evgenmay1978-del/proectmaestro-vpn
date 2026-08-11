@@ -59,7 +59,7 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 		"telegram_delivery_outbox", "telegram_bindings", "telegram_imported_callbacks", "external_actions", "operations",
 		"operation_batches", "cluster_settings", "setting_members", "setting_secrets",
 		"principals", "principal_roles", "principal_credentials", "web_sessions",
-		"rate_limit_buckets", "import_runs", "import_batches", "backup_watermarks",
+		"rate_limit_buckets", "import_runs", "import_batches", "imported_secrets", "backup_watermarks",
 		"audit_events", "health_write_canary",
 	}
 	sort.Strings(wantTables)

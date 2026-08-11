@@ -47,8 +47,24 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 	}
 
 	secrets := make(map[string]struct{}, len(snapshot.EncryptedSecrets))
+	secretOwners := make(map[string]string, len(snapshot.EncryptedSecrets))
 	for _, secret := range snapshot.EncryptedSecrets {
-		secrets[secret.SecretID] = struct{}{}
+		if secret.SecretID == "" || secret.OwnerType == "" || secret.OwnerSourceKey == "" ||
+			secret.Field == "" || secret.Kind == "" || secret.KeyVersion <= 0 ||
+			secret.NonceB64 == "" || secret.CiphertextB64 == "" || len(secret.SHA256) != 64 {
+			add("invalid_encrypted_secret", "encrypted_secret", secret.SecretID)
+		}
+		if _, exists := secrets[secret.SecretID]; exists {
+			add("encrypted_secret_collision", "encrypted_secret", secret.SecretID)
+		} else {
+			secrets[secret.SecretID] = struct{}{}
+		}
+		ownerKey := secret.OwnerType + "\x00" + secret.OwnerSourceKey + "\x00" + secret.Field
+		if previous, exists := secretOwners[ownerKey]; exists && previous != secret.SecretID {
+			add("encrypted_secret_owner_collision", "encrypted_secret", secret.SecretID)
+		} else {
+			secretOwners[ownerKey] = secret.SecretID
+		}
 	}
 	for _, customer := range snapshot.Customers {
 		if customer.IdentitySecretRef != "" {

@@ -40,6 +40,7 @@ var expectedSchemaTables = []string{
 	"idempotency_requests",
 	"import_batches",
 	"import_runs",
+	"imported_secrets",
 	"node_apply_receipts",
 	"node_leases",
 	"node_services",

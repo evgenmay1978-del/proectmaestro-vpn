@@ -428,6 +428,20 @@ CREATE TABLE setting_secrets (
 )
 
 -- maestro:statement
+CREATE TABLE imported_secrets (
+    secret_id TEXT PRIMARY KEY NOT NULL CHECK(length(secret_id) > 0),
+    owner_type TEXT NOT NULL CHECK(length(owner_type) > 0),
+    owner_source_key TEXT NOT NULL CHECK(length(owner_source_key) > 0),
+    field TEXT NOT NULL CHECK(length(field) > 0),
+    kind TEXT NOT NULL CHECK(length(kind) > 0),
+    key_version INTEGER NOT NULL CHECK(key_version > 0),
+    secret_envelope BLOB NOT NULL CHECK(length(secret_envelope) > 0),
+    secret_sha256 TEXT NOT NULL CHECK(length(secret_sha256) = 64),
+    imported_at_unix INTEGER NOT NULL CHECK(imported_at_unix >= 0),
+    UNIQUE(owner_type, owner_source_key, field)
+)
+
+-- maestro:statement
 CREATE TABLE principals (
     principal_id TEXT PRIMARY KEY,
     login_key_hmac TEXT NOT NULL UNIQUE CHECK(length(login_key_hmac) = 64),
@@ -596,6 +610,29 @@ CREATE TRIGGER telegram_bot_credential_rotations_no_delete
 BEFORE DELETE ON telegram_bot_credential_rotations
 BEGIN
     SELECT RAISE(ABORT, 'bot credential rotations are immutable');
+END
+
+-- maestro:statement
+CREATE TRIGGER imported_secrets_immutable
+BEFORE UPDATE ON imported_secrets
+WHEN NEW.secret_id <> OLD.secret_id OR
+     NEW.owner_type <> OLD.owner_type OR
+     NEW.owner_source_key <> OLD.owner_source_key OR
+     NEW.field <> OLD.field OR
+     NEW.kind <> OLD.kind OR
+     NEW.key_version <> OLD.key_version OR
+     NEW.secret_envelope <> OLD.secret_envelope OR
+     NEW.secret_sha256 <> OLD.secret_sha256 OR
+     NEW.imported_at_unix <> OLD.imported_at_unix
+BEGIN
+    SELECT RAISE(ABORT, 'imported secrets are immutable');
+END
+
+-- maestro:statement
+CREATE TRIGGER imported_secrets_no_delete
+BEFORE DELETE ON imported_secrets
+BEGIN
+    SELECT RAISE(ABORT, 'imported secrets are immutable');
 END
 
 -- maestro:statement

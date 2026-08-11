@@ -51,6 +51,7 @@ var businessDigestQueries = []struct {
 	{"cluster_settings", "SELECT * FROM cluster_settings ORDER BY setting_key"},
 	{"setting_members", "SELECT * FROM setting_members ORDER BY setting_key,member_key"},
 	{"setting_secrets", "SELECT * FROM setting_secrets ORDER BY setting_key"},
+	{"imported_secrets", "SELECT * FROM imported_secrets ORDER BY secret_id"},
 	{"principals", "SELECT * FROM principals ORDER BY principal_id"},
 	{"principal_roles", "SELECT * FROM principal_roles ORDER BY principal_id,role_name"},
 	{"principal_credentials", "SELECT * FROM principal_credentials ORDER BY credential_id"},
@@ -366,6 +367,8 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 		return s.botPollStateStatements(batch, operation)
 	case "customer":
 		return s.customerStatements(batch, operation)
+	case "encrypted_secret":
+		return s.encryptedSecretStatements(batch, operation)
 	case "order":
 		return s.orderStatements(batch, operation)
 	case "setting":
@@ -510,6 +513,38 @@ ON CONFLICT(audit_digest) DO UPDATE SET
 			rotation.AuditDigest, rotation.BotIdentityHMAC,
 			rotation.OldTokenFingerprintHMAC, rotation.NewTokenFingerprintHMAC,
 			rotation.OldCredentialVersion, rotation.NewCredentialVersion, s.now().Unix(),
+		}, gate...),
+	}}, nil
+}
+
+func (s *RQLiteApplyStore) encryptedSecretStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	var secret LegacyEncryptedSecret
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &secret); err != nil {
+		return nil, err
+	}
+	if secret.SecretID == "" || secret.OwnerType == "" || secret.OwnerSourceKey == "" ||
+		secret.Field == "" || secret.Kind == "" || secret.KeyVersion <= 0 ||
+		secret.NonceB64 == "" || secret.CiphertextB64 == "" || len(secret.SHA256) != 64 {
+		return nil, errors.New("invalid canonical encrypted secret")
+	}
+	envelope, err := json.Marshal(secret)
+	if err != nil {
+		return nil, errors.New("cannot encode protected standalone envelope")
+	}
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{{
+		SQL: `INSERT INTO imported_secrets(
+    secret_id,owner_type,owner_source_key,field,kind,key_version,
+    secret_envelope,secret_sha256,imported_at_unix
+) SELECT ?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(secret_id) DO UPDATE SET
+    owner_type=excluded.owner_type,owner_source_key=excluded.owner_source_key,
+    field=excluded.field,kind=excluded.kind,key_version=excluded.key_version,
+    secret_envelope=excluded.secret_envelope,secret_sha256=excluded.secret_sha256,
+    imported_at_unix=imported_secrets.imported_at_unix`,
+		Args: append([]any{
+			secret.SecretID, secret.OwnerType, secret.OwnerSourceKey, secret.Field, secret.Kind,
+			secret.KeyVersion, string(envelope), secret.SHA256, s.now().Unix(),
 		}, gate...),
 	}}, nil
 }
