@@ -309,6 +309,53 @@ func TestImportSchemaPreservesImmutableBotCredentialRotation(t *testing.T) {
 	})
 }
 
+func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	secretID := "secret-schema-standalone"
+	envelope := `{"key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"c3ludGhldGljLWVuY3J5cHRlZA=="}`
+	secretSHA := repeatHex("a")
+
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO imported_secrets(
+			secret_id,owner_type,owner_source_key,field,kind,key_version,
+			secret_envelope,secret_sha256,imported_at_unix
+		) VALUES(?,?,?,?,?,?,?,?,?)
+	`, Args: []any{
+		secretID, "legacy_service", "s3-wb", "token", "bearer", 1,
+		envelope, secretSHA, 1_000_000,
+	}})
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT owner_type,owner_source_key,field,kind,key_version,secret_envelope,secret_sha256
+		FROM imported_secrets WHERE secret_id=?
+	`, Args: []any{secretID}})
+	if got := fmt.Sprint(result.Rows); got != fmt.Sprintf(
+		`[map[field:token key_version:1 kind:bearer owner_source_key:s3-wb owner_type:legacy_service secret_envelope:%s secret_sha256:%s]]`,
+		envelope, secretSHA,
+	) {
+		t.Fatalf("standalone secret envelope = %s", got)
+	}
+
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO imported_secrets(
+			secret_id,owner_type,owner_source_key,field,kind,key_version,
+			secret_envelope,secret_sha256,imported_at_unix
+		) VALUES(?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(secret_id) DO UPDATE SET secret_envelope=excluded.secret_envelope
+	`, Args: []any{
+		secretID, "legacy_service", "s3-wb", "token", "bearer", 1,
+		envelope, secretSHA, 1_000_000,
+	}})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "UPDATE imported_secrets SET secret_sha256=? WHERE secret_id=?",
+		Args: []any{repeatHex("b"), secretID},
+	})
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL: "DELETE FROM imported_secrets WHERE secret_id=?",
+		Args: []any{secretID},
+	})
+}
+
 func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	t.Helper()
 	columns := make([]string, 0, len(result.Rows))

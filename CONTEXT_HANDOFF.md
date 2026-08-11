@@ -2381,3 +2381,35 @@ Task 6 не завершать. Следующий отдельный RED -> GRE
 Typed immutable `bot_credential_rotation` с linear no-fork chain до current
 route. Затем остаются `trial`, standalone `encrypted_secret` и typed
 tombstones/deletes; Task 6 и production import всё ещё не завершены.
+
+## HA control plane: Task 6 audited bot rotations checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `b6d7252360c3c092cb1be10cbc36b1c1d65d49ec`; run
+  `31512957001`, job `93851034183` доказал две причины: fork chain не
+  блокировался, а `bot_credential_rotation` не поддерживался store.
+- GREEN commit `c4325d1c728bca1667e9b5dfe7b494a89c78b388`.
+- Final GREEN run `31513414491`, job `93852541374`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Plan требует одну linear rotation chain без fork/disconnected segment,
+  повторного fingerprint и cross-bot fingerprint collision; tail должен
+  точно совпасть с current credential route.
+- Typed `telegram_bot_credential_rotations` хранит только HMAC fingerprints,
+  monotonic versions и audit digest. Raw Telegram token/ID отсутствуют.
+- Уникальные old/new version блокируют fork на уровне DB; audit history
+  immutable и undeletable, exact retry идемпотентен.
+- Real rqlite E2E переносит route/poll/callback/rotation в одной transaction.
+
+### Следующий безопасный шаг
+
+Typed owner-bound standalone `encrypted_secret`, затем `trial` с отдельным
+protected legacy salt input и typed tombstones/deletes. Task 6 и production
+import всё ещё не завершены.

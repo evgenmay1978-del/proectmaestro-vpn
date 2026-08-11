@@ -302,6 +302,19 @@ func hasBlockerCode(blockers []Blocker, code string) bool {
 	return false
 }
 
+func TestEncryptedSecretIdentityCollisionIsBlocking(t *testing.T) {
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	first := standaloneEncryptedSecret()
+	conflicting := first
+	conflicting.SHA256 = strings.Repeat("b", 64)
+	snapshot.EncryptedSecrets = []LegacyEncryptedSecret{first, conflicting}
+
+	_, report := Plan(snapshot, testPlanOptions())
+	if !hasBlockerCode(report.Blockers, "encrypted_secret_collision") {
+		t.Fatalf("encrypted secret collision blockers = %#v", report.Blockers)
+	}
+}
+
 func TestRequiredSettingsPrincipalsAndEncryptedSecretsArePreserved(t *testing.T) {
 	snapshot := decodeFixture(t, "settings-principals-v1.json")
 	plan, report := Plan(snapshot, testPlanOptions())

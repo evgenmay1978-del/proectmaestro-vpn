@@ -602,3 +602,82 @@ func TestRQLiteApplyStoreCommitsBotCredentialRotationAsTypedRow(t *testing.T) {
 		t.Fatal("transaction has no typed telegram_bot_credential_rotations write")
 	}
 }
+
+func TestRQLiteApplyStoreCommitsStandaloneEncryptedSecretAsTypedRow(t *testing.T) {
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	secret := standaloneEncryptedSecret()
+	snapshot.EncryptedSecrets = []LegacyEncryptedSecret{secret}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	var secretOperation ApplyOperation
+	for _, operation := range operations {
+		if operation.Entity == "encrypted_secret" {
+			secretOperation = operation
+			break
+		}
+	}
+	if secretOperation.Entity == "" {
+		t.Fatalf("standalone secret operations = %#v", operations)
+	}
+	batch := ApplyBatch{
+		RunID: "import-run-standalone-secret", PlanDigest: plan.PlanDigest, Index: 0,
+		Operations: []ApplyOperation{secretOperation},
+	}
+	batch.Digest = digestBatch(batch.Operations)
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}},
+		receiptQueryResult(batch),
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch standalone secret: %v", err)
+	}
+	if len(db.requests) != 1 {
+		t.Fatalf("standalone secret request count = %d", len(db.requests))
+	}
+	found := false
+	for _, statement := range db.requests[0].statements {
+		sqlText := strings.ToLower(statement.SQL)
+		if strings.Contains(sqlText, "canonical_import_rows") || strings.Contains(sqlText, "canonical_json") {
+			t.Fatalf("standalone secret used generic staging: %s", statement.SQL)
+		}
+		if !strings.Contains(sqlText, "insert into imported_secrets") {
+			continue
+		}
+		found = true
+		wantArgs := []any{
+			secret.SecretID, secret.OwnerType, secret.OwnerSourceKey, secret.Field, secret.Kind,
+			secret.KeyVersion, string(secretOperation.CanonicalJSON), secret.SHA256, int64(1_500_000),
+			batch.RunID, batch.Index, batch.Digest,
+		}
+		if fmt.Sprint(statement.Args) != fmt.Sprint(wantArgs) {
+			t.Fatalf("standalone secret args = %v, want %v", statement.Args, wantArgs)
+		}
+	}
+	if !found {
+		t.Fatal("transaction has no typed imported_secrets write")
+	}
+}
+
+func standaloneEncryptedSecret() LegacyEncryptedSecret {
+	return LegacyEncryptedSecret{
+		SecretID: "secret-standalone-wb",
+		OwnerType: "legacy_service",
+		OwnerSourceKey: "s3-wb",
+		Field: "token",
+		Kind: "bearer",
+		KeyVersion: 1,
+		NonceB64: "AAECAwQFBgcICQoL",
+		CiphertextB64: "c3ludGhldGljLWVuY3J5cHRlZA==",
+		SHA256: strings.Repeat("a", 64),
+	}
+}

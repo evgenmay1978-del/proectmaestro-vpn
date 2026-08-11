@@ -111,7 +111,9 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		t.Fatal("business digest contains plaintext row data")
 	}
 
-	securityPlan, securityReport := Plan(decodeFixture(t, "settings-principals-v1.json"), testPlanOptions())
+	securitySnapshot := decodeFixture(t, "settings-principals-v1.json")
+	securitySnapshot.EncryptedSecrets = append(securitySnapshot.EncryptedSecrets, standaloneEncryptedSecret())
+	securityPlan, securityReport := Plan(securitySnapshot, testPlanOptions())
 	if len(securityReport.Blockers) != 0 {
 		t.Fatalf("unexpected security blockers: %#v", securityReport.Blockers)
 	}
@@ -149,9 +151,13 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		rqlite.Statement{SQL: `SELECT login_key_hmac,status FROM principals WHERE principal_id=?`, Args: []any{securityPlan.Principals[0].InternalID}},
 		rqlite.Statement{SQL: `SELECT role_name FROM principal_roles WHERE principal_id=?`, Args: []any{securityPlan.Principals[0].InternalID}},
 		rqlite.Statement{SQL: `SELECT verifier_sha256,active FROM principal_credentials WHERE principal_id=?`, Args: []any{securityPlan.Principals[0].InternalID}},
+		rqlite.Statement{SQL: `SELECT owner_type,owner_source_key,field,kind,key_version,secret_sha256 FROM imported_secrets WHERE secret_id=?`, Args: []any{standaloneEncryptedSecret().SecretID}},
 	)
 	if err != nil {
 		t.Fatalf("verify security rows: %v", err)
+	}
+	if len(securityResults) != 6 {
+		t.Fatalf("security result count = %d, want 6", len(securityResults))
 	}
 	for index, result := range securityResults {
 		if len(result.Rows) != 1 {
@@ -167,7 +173,14 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		securityResults[3].Rows[0]["role_name"] != "owner" ||
 		securityResults[4].Rows[0]["verifier_sha256"] != strings.Repeat("2", 64) ||
 		!rqliteIntegerEquals(securityResults[4].Rows[0]["active"], 1) {
-		t.Fatalf("security verification mismatch: %#v", securityResults)
+		t.Fatalf("owner-bound security verification mismatch: %#v", securityResults)
+	}
+	if securityResults[5].Rows[0]["owner_type"] != "legacy_service" ||
+		securityResults[5].Rows[0]["owner_source_key"] != "s3-wb" ||
+		securityResults[5].Rows[0]["field"] != "token" || securityResults[5].Rows[0]["kind"] != "bearer" ||
+		!rqliteIntegerEquals(securityResults[5].Rows[0]["key_version"], 1) ||
+		securityResults[5].Rows[0]["secret_sha256"] != strings.Repeat("a", 64) {
+		t.Fatalf("standalone secret verification mismatch: %#v", securityResults[5])
 	}
 }
 
