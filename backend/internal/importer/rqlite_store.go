@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
@@ -599,6 +600,9 @@ func applyRowInt(value any) (int64, bool) {
 		return int64(typed), typed == float64(int64(typed))
 	case json.Number:
 		parsed, err := typed.Int64()
+		return parsed, err == nil
+	case string:
+		parsed, err := strconv.ParseInt(typed, 10, 64)
 		return parsed, err == nil
 	default:
 		return 0, false

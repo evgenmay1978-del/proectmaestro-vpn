@@ -297,6 +297,7 @@ func TestRQLiteApplyStoreCompleteRequiresEveryAppliedReceipt(t *testing.T) {
 			"target_sha256": completion.TargetDigest, "status": "applied",
 		}}}}, nil
 	}}
+
 	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
 	if err != nil {
 		t.Fatalf("NewRQLiteApplyStore: %v", err)
@@ -311,5 +312,15 @@ func TestRQLiteApplyStoreCompleteRequiresEveryAppliedReceipt(t *testing.T) {
 	sqlText := strings.ToLower(statement.SQL)
 	if !strings.Contains(sqlText, "count(*)") || !strings.Contains(sqlText, "status='applied'") {
 		t.Fatalf("completion is not receipt-gated: %s", statement.SQL)
+	}
+}
+
+func TestApplyRowIntAcceptsRQLiteIntegerWireString(t *testing.T) {
+	got, ok := applyRowInt("42")
+	if !ok || got != 42 {
+		t.Fatalf("applyRowInt wire integer = %d,%t", got, ok)
+	}
+	if _, ok := applyRowInt("4.2"); ok {
+		t.Fatal("applyRowInt accepted non-integer wire value")
 	}
 }

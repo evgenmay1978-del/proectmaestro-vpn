@@ -159,14 +159,19 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		}
 	}
 	if securityResults[0].Rows[0]["public_value_json"] != `{"enabled":true}` ||
-		securityResults[0].Rows[0]["generation"] != float64(2) ||
+		!rqliteIntegerEquals(securityResults[0].Rows[0]["generation"], 2) ||
 		securityResults[1].Rows[0]["secret_sha256"] != strings.Repeat("3", 64) ||
-		securityResults[1].Rows[0]["key_version"] != float64(1) ||
+		!rqliteIntegerEquals(securityResults[1].Rows[0]["key_version"], 1) ||
 		securityResults[2].Rows[0]["login_key_hmac"] != strings.Repeat("1", 64) ||
 		securityResults[2].Rows[0]["status"] != "active" ||
 		securityResults[3].Rows[0]["role_name"] != "owner" ||
 		securityResults[4].Rows[0]["verifier_sha256"] != strings.Repeat("2", 64) ||
-		securityResults[4].Rows[0]["active"] != float64(1) {
+		!rqliteIntegerEquals(securityResults[4].Rows[0]["active"], 1) {
 		t.Fatalf("security verification mismatch: %#v", securityResults)
 	}
+}
+
+func rqliteIntegerEquals(value any, want int64) bool {
+	got, ok := applyRowInt(value)
+	return ok && got == want
 }
