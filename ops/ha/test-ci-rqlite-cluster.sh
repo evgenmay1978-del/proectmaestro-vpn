@@ -69,6 +69,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
+fake_bin="$test_temp/fake-bin"
+mkdir -p -- "$fake_bin"
+cat >"$fake_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+exit 22
+EOF
+chmod 0700 "$fake_bin/curl"
+if PATH="$fake_bin:$PATH" bash "$HARNESS" start >/dev/null 2>&1; then
+  fail "start unexpectedly succeeded when the pinned download failed"
+fi
+[[ ! -e "$test_temp/maestro-rqlite-ci-root" ]] ||
+  fail "failed start left a stale cluster marker"
+if compgen -G "$test_temp/maestro-rqlite-ci.*" >/dev/null; then
+  fail "failed start left a stale cluster root"
+fi
+rm -rf -- "$fake_bin"
+
 bash "$HARNESS" start
 status_output="$(bash "$HARNESS" status)"
 printf '%s\n' "$status_output"
