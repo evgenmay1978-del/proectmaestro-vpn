@@ -442,6 +442,18 @@ CREATE TABLE imported_secrets (
 )
 
 -- maestro:statement
+CREATE TABLE imported_trial_identities (
+    source_key TEXT PRIMARY KEY NOT NULL CHECK(length(source_key) > 0),
+    legacy_anchor_hmac TEXT NOT NULL UNIQUE CHECK(length(legacy_anchor_hmac) = 64),
+    current_hmac TEXT NOT NULL UNIQUE CHECK(length(current_hmac) = 64),
+    used INTEGER NOT NULL CHECK(used IN (0,1)),
+    expires_at_unix INTEGER NOT NULL CHECK(expires_at_unix >= 0),
+    lookup_secret_id TEXT NOT NULL
+        REFERENCES imported_secrets(secret_id) ON DELETE RESTRICT,
+    imported_at_unix INTEGER NOT NULL CHECK(imported_at_unix >= 0)
+)
+
+-- maestro:statement
 CREATE TABLE principals (
     principal_id TEXT PRIMARY KEY,
     login_key_hmac TEXT NOT NULL UNIQUE CHECK(length(login_key_hmac) = 64),
@@ -633,6 +645,20 @@ CREATE TRIGGER imported_secrets_no_delete
 BEFORE DELETE ON imported_secrets
 BEGIN
     SELECT RAISE(ABORT, 'imported secrets are immutable');
+END
+
+-- maestro:statement
+CREATE TRIGGER imported_trial_identities_transition
+BEFORE UPDATE ON imported_trial_identities
+WHEN NEW.source_key <> OLD.source_key OR
+     NEW.legacy_anchor_hmac <> OLD.legacy_anchor_hmac OR
+     NEW.current_hmac <> OLD.current_hmac OR
+     NEW.expires_at_unix <> OLD.expires_at_unix OR
+     NEW.lookup_secret_id <> OLD.lookup_secret_id OR
+     NEW.imported_at_unix <> OLD.imported_at_unix OR
+     NEW.used < OLD.used
+BEGIN
+    SELECT RAISE(ABORT, 'invalid imported trial identity transition');
 END
 
 -- maestro:statement

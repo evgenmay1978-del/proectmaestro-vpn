@@ -684,6 +684,21 @@ func TestRQLiteApplyStoreRequiresProtectedTrialSalt(t *testing.T) {
 	}
 }
 
+func TestRQLiteApplyStoreRejectsPlaintextTrialProtection(t *testing.T) {
+	db := &applyStoreRQLite{}
+	_, err := NewRQLiteApplyStoreWithTrialProtection(
+		db,
+		func() time.Time { return time.Unix(1_500_000, 0) },
+		TrialImportProtection{
+			KeyVersion: 1, EncryptedSaltEnvelope: "plaintext-salt",
+			SaltSHA256: strings.Repeat("8", 64),
+		},
+	)
+	if err == nil {
+		t.Fatal("plaintext legacy trial salt was accepted as an encrypted envelope")
+	}
+}
+
 func TestRQLiteApplyStoreCommitsTrialWithProtectedSaltAsTypedRows(t *testing.T) {
 	batch := canonicalTrialBatch(t)
 	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{

@@ -41,6 +41,7 @@ var expectedSchemaTables = []string{
 	"import_batches",
 	"import_runs",
 	"imported_secrets",
+	"imported_trial_identities",
 	"node_apply_receipts",
 	"node_leases",
 	"node_services",

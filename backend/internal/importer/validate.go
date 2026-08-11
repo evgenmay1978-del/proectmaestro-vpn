@@ -46,6 +46,27 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 		}
 	}
 
+	trialSources := make(map[string]LegacyTrial, len(snapshot.Trials))
+	legacyTrialHMACs := make(map[string]string, len(snapshot.Trials))
+	currentTrialHMACs := make(map[string]string, len(snapshot.Trials))
+	for _, trial := range snapshot.Trials {
+		if trial.SourceKey == "" || len(trial.LegacyAnchorHMAC) != 64 ||
+			len(trial.CurrentHMAC) != 64 || trial.ExpiresAtUnix < 0 {
+			add("invalid_trial_identity", "trial", trial.SourceKey)
+		}
+		if previous, exists := trialSources[trial.SourceKey]; exists && previous != trial {
+			add("trial_identity_collision", "trial", trial.SourceKey)
+		} else {
+			trialSources[trial.SourceKey] = trial
+		}
+		collision(legacyTrialHMACs, trial.LegacyAnchorHMAC, trial.SourceKey, func() {
+			add("trial_identity_collision", "trial", trial.SourceKey)
+		})
+		collision(currentTrialHMACs, trial.CurrentHMAC, trial.SourceKey, func() {
+			add("trial_identity_collision", "trial", trial.SourceKey)
+		})
+	}
+
 	secrets := make(map[string]struct{}, len(snapshot.EncryptedSecrets))
 	secretOwners := make(map[string]string, len(snapshot.EncryptedSecrets))
 	for _, secret := range snapshot.EncryptedSecrets {

@@ -13,9 +13,20 @@ import (
 )
 
 type RQLiteApplyStore struct {
-	db  rqlite.RQLite
-	now func() time.Time
+	db              rqlite.RQLite
+	now             func() time.Time
+	trialProtection *TrialImportProtection
 }
+
+// TrialImportProtection contains only the already encrypted legacy lookup
+// salt. Plaintext salt is never part of an import plan, report or SQL args.
+type TrialImportProtection struct {
+	KeyVersion             int
+	EncryptedSaltEnvelope string
+	SaltSHA256             string
+}
+
+const legacyTrialSaltSecretID = "legacy-trial-salt-v1"
 
 var _ ApplyStore = (*RQLiteApplyStore)(nil)
 
@@ -24,6 +35,31 @@ func NewRQLiteApplyStore(db rqlite.RQLite, now func() time.Time) (*RQLiteApplySt
 		return nil, errors.New("rqlite apply store dependencies are required")
 	}
 	return &RQLiteApplyStore{db: db, now: now}, nil
+}
+
+func NewRQLiteApplyStoreWithTrialProtection(
+	db rqlite.RQLite,
+	now func() time.Time,
+	protection TrialImportProtection,
+) (*RQLiteApplyStore, error) {
+	store, err := NewRQLiteApplyStore(db, now)
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		KeyVersion    int    `json:"key_version"`
+		NonceB64      string `json:"nonce_b64"`
+		CiphertextB64 string `json:"ciphertext_b64"`
+	}
+	if protection.KeyVersion != 1 || len(protection.SaltSHA256) != 64 ||
+		decodeCanonicalOperation([]byte(protection.EncryptedSaltEnvelope), &envelope) != nil ||
+		envelope.KeyVersion != protection.KeyVersion || envelope.NonceB64 == "" ||
+		envelope.CiphertextB64 == "" {
+		return nil, errors.New("invalid protected legacy trial salt")
+	}
+	copyProtection := protection
+	store.trialProtection = &copyProtection
+	return store, nil
 }
 
 type businessDigestTable struct {
@@ -52,6 +88,7 @@ var businessDigestQueries = []struct {
 	{"setting_members", "SELECT * FROM setting_members ORDER BY setting_key,member_key"},
 	{"setting_secrets", "SELECT * FROM setting_secrets ORDER BY setting_key"},
 	{"imported_secrets", "SELECT * FROM imported_secrets ORDER BY secret_id"},
+	{"imported_trial_identities", "SELECT * FROM imported_trial_identities ORDER BY source_key"},
 	{"principals", "SELECT * FROM principals ORDER BY principal_id"},
 	{"principal_roles", "SELECT * FROM principal_roles ORDER BY principal_id,role_name"},
 	{"principal_credentials", "SELECT * FROM principal_credentials ORDER BY credential_id"},
@@ -375,6 +412,8 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 		return s.settingStatements(batch, operation)
 	case "principal":
 		return s.principalStatements(batch, operation)
+	case "trial":
+		return s.trialStatements(batch, operation)
 	case "pending_callback":
 		return s.pendingCallbackStatements(batch, operation)
 	default:
@@ -545,6 +584,57 @@ ON CONFLICT(secret_id) DO UPDATE SET
 		Args: append([]any{
 			secret.SecretID, secret.OwnerType, secret.OwnerSourceKey, secret.Field, secret.Kind,
 			secret.KeyVersion, string(envelope), secret.SHA256, s.now().Unix(),
+		}, gate...),
+	}}, nil
+}
+
+func (s *RQLiteApplyStore) trialStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	if s.trialProtection == nil {
+		return nil, errors.New("protected legacy trial salt is required")
+	}
+	var trial LegacyTrial
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &trial); err != nil {
+		return nil, err
+	}
+	if trial.SourceKey == "" || operation.Key != trial.SourceKey ||
+		len(trial.LegacyAnchorHMAC) != 64 || len(trial.CurrentHMAC) != 64 ||
+		trial.ExpiresAtUnix < 0 {
+		return nil, errors.New("invalid canonical trial identity")
+	}
+	used := 0
+	if trial.Used {
+		used = 1
+	}
+	protection := s.trialProtection
+	nowUnix := s.now().Unix()
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{{
+		SQL: `INSERT INTO imported_secrets(
+    secret_id,owner_type,owner_source_key,field,kind,key_version,
+    secret_envelope,secret_sha256,imported_at_unix
+) SELECT ?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(secret_id) DO UPDATE SET
+    owner_type=excluded.owner_type,owner_source_key=excluded.owner_source_key,
+    field=excluded.field,kind=excluded.kind,key_version=excluded.key_version,
+    secret_envelope=excluded.secret_envelope,secret_sha256=excluded.secret_sha256,
+    imported_at_unix=imported_secrets.imported_at_unix`,
+		Args: append([]any{
+			legacyTrialSaltSecretID, "trial_lookup", "legacy", "salt", "hmac-key",
+			protection.KeyVersion, protection.EncryptedSaltEnvelope, protection.SaltSHA256, nowUnix,
+		}, gate...),
+	}, {
+		SQL: `INSERT INTO imported_trial_identities(
+    source_key,legacy_anchor_hmac,current_hmac,used,expires_at_unix,
+    lookup_secret_id,imported_at_unix
+) SELECT ?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(source_key) DO UPDATE SET
+    legacy_anchor_hmac=excluded.legacy_anchor_hmac,current_hmac=excluded.current_hmac,
+    used=excluded.used,expires_at_unix=excluded.expires_at_unix,
+    lookup_secret_id=excluded.lookup_secret_id,
+    imported_at_unix=imported_trial_identities.imported_at_unix`,
+		Args: append([]any{
+			trial.SourceKey, trial.LegacyAnchorHMAC, trial.CurrentHMAC, used,
+			trial.ExpiresAtUnix, legacyTrialSaltSecretID, nowUnix,
 		}, gate...),
 	}}, nil
 }
