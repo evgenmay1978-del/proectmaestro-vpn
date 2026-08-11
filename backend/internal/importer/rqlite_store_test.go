@@ -3,6 +3,7 @@ package importer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -322,5 +323,58 @@ func TestApplyRowIntAcceptsRQLiteIntegerWireString(t *testing.T) {
 	}
 	if _, ok := applyRowInt("4.2"); ok {
 		t.Fatal("applyRowInt accepted non-integer wire value")
+	}
+}
+
+func TestRQLiteApplyStoreCommitsBotCredentialRouteAsTypedRow(t *testing.T) {
+	plan, report := Plan(decodeFixture(t, "bot-bindings-v1.json"), testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	if len(operations) != 1 || operations[0].Entity != "bot_binding" {
+		t.Fatalf("bot route operations = %#v", operations)
+	}
+	batch := ApplyBatch{
+		RunID: "import-run-bot-route", PlanDigest: plan.PlanDigest, Index: 0,
+		Digest: digestBatch(operations), Operations: operations,
+	}
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}},
+		receiptQueryResult(batch),
+	}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch bot route: %v", err)
+	}
+	if len(db.requests) != 1 {
+		t.Fatalf("bot route request count = %d", len(db.requests))
+	}
+	found := false
+	for _, statement := range db.requests[0].statements {
+		sqlText := strings.ToLower(statement.SQL)
+		if strings.Contains(sqlText, "canonical_import_rows") || strings.Contains(sqlText, "canonical_json") {
+			t.Fatalf("bot route used generic staging: %s", statement.SQL)
+		}
+		if !strings.Contains(sqlText, "insert into telegram_bot_routes") {
+			continue
+		}
+		found = true
+		wantArgs := []any{
+			strings.Repeat("1", 64), strings.Repeat("2", 64), 1, "bot-schema-v1", int64(1_500_000),
+			batch.RunID, batch.Index, batch.Digest,
+		}
+		if fmt.Sprint(statement.Args) != fmt.Sprint(wantArgs) {
+			t.Fatalf("bot route args = %v, want %v", statement.Args, wantArgs)
+		}
+	}
+	if !found {
+		t.Fatal("transaction has no typed telegram_bot_routes write")
 	}
 }

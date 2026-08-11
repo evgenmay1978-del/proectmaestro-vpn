@@ -117,6 +117,39 @@ func TestImportSchemaPreservesLegacyBusinessFields(t *testing.T) {
 	}
 }
 
+func TestImportSchemaPreservesBotCredentialRoute(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	botIdentity := repeatHex("6")
+	tokenFingerprint := repeatHex("7")
+
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO telegram_bot_routes(
+			bot_identity_hmac,token_fingerprint_hmac,credential_version,
+			schema_fingerprint,updated_at_unix
+		) VALUES(?,?,?,?,?)
+	`, Args: []any{botIdentity, tokenFingerprint, 3, "bot-schema-v1", 1_000_000}})
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT bot_identity_hmac,token_fingerprint_hmac,credential_version,schema_fingerprint
+		FROM telegram_bot_routes WHERE bot_identity_hmac=?
+	`, Args: []any{botIdentity}})
+	if got := fmt.Sprint(result.Rows); got != fmt.Sprintf(
+		`[map[bot_identity_hmac:%s credential_version:3 schema_fingerprint:bot-schema-v1 token_fingerprint_hmac:%s]]`,
+		botIdentity, tokenFingerprint,
+	) {
+		t.Fatalf("bot credential route = %s", got)
+	}
+
+	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO telegram_bot_routes(
+			bot_identity_hmac,token_fingerprint_hmac,credential_version,
+			schema_fingerprint,updated_at_unix
+		) VALUES(?,?,?,?,?)
+		ON CONFLICT(bot_identity_hmac) DO UPDATE SET
+			token_fingerprint_hmac=excluded.token_fingerprint_hmac
+	`, Args: []any{botIdentity, repeatHex("8"), 3, "bot-schema-v1", 1_000_001}})
+}
+
 func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	t.Helper()
 	columns := make([]string, 0, len(result.Rows))
