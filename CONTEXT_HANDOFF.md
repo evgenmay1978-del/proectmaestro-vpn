@@ -2194,3 +2194,90 @@ writes и receipts. Нельзя подменять его generic JSON staging 
 `factory` до tests на customer/order/settings/principal rows, unknown write
 outcome и recomputed business digest. После adapter — повторный полный GREEN,
 handoff/review; production import всё ещё запрещён до cutover gates.
+
+## HA control plane: Plan 02 / Task 6 real rqlite ApplyStore checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer mutations не
+выполнялись. CLI production factory всё ещё `nil` и fail-closed.
+
+### Canonical legacy values и schema
+
+- Order contract/model RED `e6ac3ce0fa61b042ebdab1db47a9db5e25dee948`,
+  GREEN `ad090febe0bc0677df2a5274475946bffcf20afd`; green run
+  `31499691823`, job `93805089568`.
+- Canonical schema RED `00b04c3e5c68c9a54b9dd5ffde3a375d6066b61b`,
+  GREEN `ada15a005c4d384c9f02f54f31bb187ec010fb63`, test correction
+  `69b18b55c941dc75fbc74df8262ec42494702607`; green run
+  `31500654537`, job `93809465011`.
+- Customers preserve exact `display_login`; subscription token/credential
+  envelopes stay protected; orders preserve unique `payment_code`, buyer
+  HMAC/scope, tariff version, amount/currency/duration, absolute times and
+  credited result generation.
+- Customer/order owner binding GREEN `a73f9676221bbe09172265f7f9f0ff82836b42f2`,
+  run `31501401007`, job `93812029942`.
+- Setting/principal protected owner binding GREEN
+  `37ffe96ada80cee64707a26aab09a2acd1bb4d15`; detached owner secrets больше не
+  создаются как generic operations.
+
+### Production `RQLiteApplyStore`
+
+- Core atomic batch GREEN `8b32d67c546f4ee244064558f99499c3b24777d9`;
+  run `31503058590`, job `93817685482`, all green.
+- Durable lifecycle GREEN `e9ed1ddfc748467e71ff223c6a97e9a6d5cf5558` и
+  recorder correction `c8e650cac5563e6bf5a7f6be9212b253050581bb`;
+  run `31504254201`, job `93821695468`, all green.
+- `CommitBatch` делает receipt `applying -> applied` и все typed canonical
+  writes в одной linearizable transaction. Неопределённый transport outcome
+  не повторяет write, а разрешается linearizable receipt read.
+- `BeginOrResume` связывает run/source/plan/parent/batch-count и receipts;
+  `Complete` требует полный непрерывный набор receipts.
+- `InspectTarget` пересчитывает deterministic SHA-256 по canonical business
+  rows и исключает importer bookkeeping.
+
+### Real three-node rqlite E2E
+
+- Первый E2E `923321df0d13f906b84ea90a15779f42f3cca0ee`.
+  Run `31504676834`, job `93823121685` выявил cross-package collision
+  тестового `payment_code`; production transaction не была причиной.
+- Fixture-isolation fix `b4c010288ddac4c5975619402006e9bec1553d52`.
+  Run `31505118200` полностью green: unit, race, vet, harness и настоящий
+  трёхузловой rqlite E2E.
+- E2E проверяет `customers`, `credentials`, `subscription_tokens`, `orders`,
+  `import_batches`, `import_runs`, business digest и durable lifecycle.
+- Protected setting/principal E2E
+  `90d5c3a9a9a46348145bcd61a19c8f5ae2f8b753`. Run `31505703054`, job
+  `93826610614`: обычные шаги green; integration записала и прочитала все
+  строки, но test-only assertion ожидал `float64`, а rqlite wire вернул
+  INTEGER строками.
+- Parser/test fix `45edd94`: `applyRowInt` строго принимает decimal INTEGER
+  string и отвергает нецелое; E2E использует тот же parser. Final GREEN run
+  `31506224995` полностью прошёл, включая настоящий трёхузловой rqlite.
+
+### Ошибки, которые нельзя повторять
+
+1. Integration packages используют один CI cluster: каждый UNIQUE fixture
+   обязан иметь package-scoped value до `Plan`, чтобы Source/Plan digest
+   оставались честными.
+2. Реальный rqlite INTEGER может приходить строкой с `Types=integer`;
+   проверять через `applyRowInt`, не сравнивать с `float64`.
+3. Нельзя добавлять Go-функцию по голому номеру строки как якобы EOF: дважды
+   test попал внутрь предыдущей функции. Использовать full-context patch с
+   видимой закрывающей скобкой и просматривать конец файла до commit.
+4. Windows linked worktree: внешний patch, `git apply --check --recount`,
+   отдельный guard, один `git apply --recount`; для zero-context также
+   `--unidiff-zero`.
+
+### Следующий безопасный шаг
+
+1. Сначала подтвердить полный green для `45edd94`.
+2. Task 6 не завершать и CLI factory не включать: production store пока
+   fail-closed для `trial`, `bot_binding`, `encrypted_secret`,
+   `bot_poll_state`, `pending_callback`, `bot_credential_rotation` и typed
+   tombstones/deletes.
+3. Не писать legacy bot/trial данные в несовместимые runtime tables. Сначала
+   RED schema/adapter tests на exact HMAC/version/fence/callback/rotation и
+   protected legacy trial salt, затем typed schema + transaction + E2E.
+4. После всех typed entities — fail-closed endpoint/auth/TLS CLI factory,
+   полный GitHub GREEN, review и отдельный cutover gate. До этого никакого
+   production import, deploy или переключения клиентов.
