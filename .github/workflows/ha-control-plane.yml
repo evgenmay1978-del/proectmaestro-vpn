@@ -1,0 +1,48 @@
+name: HA control-plane checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/ha-control-plane.yml'
+  push:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/ha-control-plane.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ha-control-plane-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  go-unit:
+    name: Go unit and vet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # actions/setup-go v5.6.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache-dependency-path: backend/go.sum
+
+      - name: Check Go formatting
+        working-directory: backend
+        run: |
+          test -z "$(gofmt -l internal/rqlite/*.go)"
+
+      - name: Test rqlite client
+        working-directory: backend
+        run: go test ./internal/rqlite -count=1
+
+      - name: Vet rqlite client
+        working-directory: backend
+        run: go vet ./internal/rqlite
