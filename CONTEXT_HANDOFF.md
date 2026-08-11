@@ -1953,3 +1953,80 @@ Plan 01 полностью завершён в репозитории; productio
 `Cluster-backed read models, settings, sessions and audit`, через отдельный
 RED → GREEN checkpoint в том же draft PR. Production legacy остаётся
 единственным live/default write path до отдельного cutover-разрешения.
+
+## HA control plane: GREEN checkpoint Plan 02 / Task 5 (11.08.2026)
+
+Task 5 завершён и проверен в репозитории. Production rqlite, legacy JSON/SQLite,
+DNS, TLS, панели, Telegram-боты, OTA и четыре VPN-сервера этим checkpoint не
+изменялись; legacy остаётся единственным live/default write path.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный implementation HEAD:
+  `2e460f79ba4b92cdad182987af5f4a1ec4565247`.
+- Draft PR: `#82` —
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Финальный exact-SHA GitHub Actions run: `31491787642`, job `93779767990`,
+  conclusion `success`.
+- Успешны backend tests, race, vet, rqlite harness contract, запуск
+  изолированного трёхузлового rqlite, integration tests и stop/cleanup.
+
+RED/GREEN доказательства:
+
+1. После исправления синтаксиса test fixtures run `31490144430`, job
+   `93774435519` дал содержательный RED только на отсутствующих `Service`,
+   `NewReadiness` и `ReadinessConfig`.
+2. Первая реализация прошла полный baseline GREEN в run `31491211843`.
+3. Дополнительный hardening RED run `31491501558`, job `93778854328`
+   доказал четыре реальные слабости: dependent setting writes не были
+   привязаны к успешному CAS; authorizer смотрел только первую роль;
+   readiness формировал два SELECT в одном statement; audit device claim не
+   был retry-idempotent.
+4. После production-исправлений финальный run `31491787642` полностью GREEN.
+
+Реализовано и проверено:
+
+- `Store`/`Service` используют только injected `rqlite.RQLite`, `SecretBox`,
+  clock и ID source; глобального mutable state нет.
+- `CustomerByToken` и `CustomerByLogin` выполняют linearizable lookup только
+  по kind-separated HMAC; raw token/login/device identity не попадают в SQL
+  или printable errors.
+- `ClaimDevice` одной rqlite-транзакцией делает DB-enforced limit,
+  `ON CONFLICT` idempotency и HMAC-only audit; повторная audit-запись имеет
+  `ON CONFLICT(event_id) DO NOTHING`.
+- Tariff snapshots читаются linearizable и копируются; caller не может
+  изменить следующий результат.
+- Настройки используют version CAS. Удаление/вставка members, encrypted
+  secret envelope и audit выполняются только через `EXISTS` на уже
+  committed next generation; конфликт не может частично изменить dependents.
+- Web session имеет абсолютный TTL 30 минут, Secure/HttpOnly/SameSite=Strict,
+  отдельный CSRF HMAC и revocation epoch. `owner` имеет полный явный набор,
+  `admin` — только read/provision, неизвестные роли default-deny; учитываются
+  все роли principal.
+- Read readiness проверяет schema checksum, referenced key versions, tariff
+  catalog, точное наличие required settings и commit age одним корректным
+  aggregate statement. Write readiness делает bounded upsert одной canary row
+  с nonce HMAC и linearizable post-commit comparison; rollback-only probe нет.
+- Исходная миграция по-прежнему содержит 41 таблицу и дополнена физическими
+  полями `principals.revocation_epoch`, `web_sessions.csrf_hmac`,
+  `web_sessions.revocation_epoch`, `health_write_canary.nonce_hmac`.
+
+Зафиксированные ошибки, которые нельзя повторять:
+
+1. Не создавать глубокие вложенные Go composite literals в fixtures;
+   использовать `rowsScript`/`resultsScript` и явные типы function args.
+2. Guard correction принимает точный флаг `--root-cause-code`; не изобретать
+   похожие имена параметров.
+3. В linked Windows worktree прямой `apply_patch` блокируется ACL: создавать
+   внешний patch, выполнять `git apply --check --unidiff-zero --recount`,
+   затем один `git apply`.
+4. Проверка plaintext не может запрещать substring `secret` в SQL, потому что
+   защищённая таблица называется `setting_secrets`; сравнивать точные args.
+5. Не соединять несколько SELECT через `;` внутри одного rqlite Statement.
+6. Успешный CAS первой statement сам по себе не откатывает последующие
+   statement при zero rows; каждый dependent write обязан иметь generation
+   gate внутри той же транзакции.
+
+Следующий безопасный шаг: Plan 02 / Task 6 — deterministic legacy snapshot
+importer и shadow digest, только в репозитории через RED → GREEN. Не выполнять
+production import/deploy/restart/DNS/TLS/panel/bot/OTA mutations до всех
+отдельных inventory/import/shadow/cutover gates утверждённого плана.
