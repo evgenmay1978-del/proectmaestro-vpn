@@ -100,6 +100,44 @@ func canonicalCustomerOrderBatch(t *testing.T) ApplyBatch {
 	}
 }
 
+func canonicalDeleteBatch(t *testing.T, entity string) (ApplyBatch, PlannedDelete) {
+	t.Helper()
+	base := decodeFixture(t, "full-then-delta/base-full.json")
+	basePlan := plannedFixtureFromSnapshot(t, base, testPlanOptions())
+	delta := preparedDelta(t, base, basePlan)
+	options := testPlanOptions()
+	options.ParentSnapshot = &base
+	options.AppliedParentDigest = basePlan.SourceDigest
+	plan, report := Plan(delta, options)
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected delete blockers: %#v", report.Blockers)
+	}
+	deletions := append(append([]PlannedDelete(nil), plan.Deletes...), plan.CascadeDeletes...)
+	var want PlannedDelete
+	for _, deletion := range deletions {
+		if deletion.Entity == entity {
+			want = deletion
+			break
+		}
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	selected := make([]ApplyOperation, 0, 1)
+	for _, operation := range operations {
+		if operation.Tombstone && operation.Entity == entity {
+			selected = append(selected, operation)
+		}
+	}
+	if want.Entity == "" || len(selected) != 1 {
+		t.Fatalf("typed %s delete = %#v / %#v", entity, want, selected)
+	}
+	batch := ApplyBatch{RunID: "import-delete-" + entity, PlanDigest: plan.PlanDigest, Index: 0, Operations: selected}
+	batch.Digest = digestBatch(batch.Operations)
+	return batch, want
+}
+
 func receiptQueryResult(batch ApplyBatch) []rqlite.Result {
 	return []rqlite.Result{{Rows: []map[string]any{{
 		"batch_index": int64(batch.Index), "batch_digest": batch.Digest, "status": "applied",
@@ -202,6 +240,66 @@ func TestRQLiteApplyStoreWritesActiveCustomerAndConsumedSecretRegistry(t *testin
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing active registry writes = %#v", want)
+	}
+}
+
+func TestRQLiteApplyStoreBuildsAtomicCustomerDeleteTransaction(t *testing.T) {
+	batch, deletion := canonicalDeleteBatch(t, "customer")
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}, receiptQueryResult(batch)}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch customer delete: %v", err)
+	}
+	if len(db.requests) != 1 || !db.requests[0].transaction || db.requests[0].level != rqlite.Linearizable {
+		t.Fatalf("customer delete request = %#v", db.requests)
+	}
+	fragments := []string{
+		"insert into import_batches", "update imported_entity_state", "update customers set",
+		"update credentials set", "update subscription_tokens set", "insert into tombstones",
+		"insert into tombstone_targets", "insert into import_delete_receipts", "update import_batches",
+	}
+	next := 0
+	for _, statement := range db.requests[0].statements {
+		if next < len(fragments) && strings.Contains(strings.ToLower(statement.SQL), fragments[next]) {
+			next++
+		}
+	}
+	if next != len(fragments) {
+		t.Fatalf("customer delete transaction stopped before %q: %#v", fragments[next], db.requests[0].statements)
+	}
+	wantIdentity := []string{deletion.SourceKey, deletion.TargetID, deletion.ExpectedPriorDigest, deletion.TombstoneID}
+	joined := fmt.Sprint(db.requests[0].statements)
+	for _, value := range wantIdentity {
+		if value == "" || !strings.Contains(joined, value) {
+			t.Fatalf("customer delete transaction omitted proof value %q: %#v", value, deletion)
+		}
+	}
+}
+
+func TestRQLiteApplyStoreBuildsLogicalEncryptedSecretDelete(t *testing.T) {
+	batch, deletion := canonicalDeleteBatch(t, "encrypted_secret")
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}, receiptQueryResult(batch)}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch encrypted-secret delete: %v", err)
+	}
+	if len(db.requests) != 1 {
+		t.Fatalf("encrypted-secret delete requests = %#v", db.requests)
+	}
+	gotSQL := strings.ToLower(fmt.Sprint(db.requests[0].statements))
+	for _, required := range []string{"update imported_entity_state", "insert into import_delete_receipts"} {
+		if !strings.Contains(gotSQL, required) {
+			t.Fatalf("encrypted-secret delete omitted %q: %s", required, gotSQL)
+		}
+	}
+	if strings.Contains(gotSQL, "delete from imported_secrets") || deletion.TombstoneID != "" {
+		t.Fatalf("encrypted-secret delete removed protected material: %#v / %s", deletion, gotSQL)
 	}
 }
 

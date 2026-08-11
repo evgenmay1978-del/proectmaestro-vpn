@@ -4,6 +4,7 @@ package importer
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -484,6 +485,136 @@ WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
 		results[2].Rows[0]["batch_digest"] != batch.Digest || results[2].Rows[0]["status"] != "applied" {
 		t.Fatalf("protected trial verification mismatch: %#v", results)
 	}
+}
+
+func TestRQLiteApplyStoreCustomerDeleteRollsBackWrongProofThenCommits(t *testing.T) {
+	db, err := rqlite.New(rqlite.Config{
+		Endpoints: []string{"http://127.0.0.1:4401", "http://127.0.0.1:4403", "http://127.0.0.1:4405"},
+		Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("rqlite.New: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_600_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	base := decodeFixture(t, "full-then-delta/base-full.json")
+	basePlan := plannedFixtureFromSnapshot(t, base, testPlanOptions())
+	commitIntegrationPlan(t, ctx, store, basePlan, "importer-delete-base-run-v1")
+	delta := preparedDelta(t, base, basePlan)
+	options := testPlanOptions()
+	options.ParentSnapshot = &base
+	options.AppliedParentDigest = basePlan.SourceDigest
+	deltaPlan, report := Plan(delta, options)
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected delta blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(deltaPlan)
+	if err != nil {
+		t.Fatalf("delta planOperations: %v", err)
+	}
+	validBatch := ApplyBatch{RunID: "importer-delete-delta-run-v1", PlanDigest: deltaPlan.PlanDigest, Index: 0, Operations: operations}
+	validBatch.Digest = digestBatch(validBatch.Operations)
+	if _, err := store.BeginOrResume(ctx, ApplyRun{
+		RunID: validBatch.RunID, SnapshotKind: "delta", SourceDigest: deltaPlan.SourceDigest,
+		PlanDigest: deltaPlan.PlanDigest, ParentDigest: deltaPlan.ParentSourceDigest, BatchCount: 1,
+	}); err != nil {
+		t.Fatalf("delta BeginOrResume: %v", err)
+	}
+	wrongBatch := validBatch
+	wrongBatch.Operations = append([]ApplyOperation(nil), validBatch.Operations...)
+	for index := range wrongBatch.Operations {
+		operation := &wrongBatch.Operations[index]
+		if !operation.Tombstone || operation.Entity != "customer" {
+			continue
+		}
+		var deletion PlannedDelete
+		if err := decodeCanonicalOperation(operation.CanonicalJSON, &deletion); err != nil {
+			t.Fatalf("decode customer deletion: %v", err)
+		}
+		deletion.ExpectedPriorDigest = strings.Repeat("f", 64)
+		operation.CanonicalJSON, err = json.Marshal(deletion)
+		if err != nil {
+			t.Fatalf("encode wrong customer deletion: %v", err)
+		}
+	}
+	wrongBatch.Digest = digestBatch(wrongBatch.Operations)
+	if _, err := store.CommitBatch(ctx, wrongBatch); err == nil {
+		t.Fatal("CommitBatch accepted a wrong prior customer digest")
+	}
+	betaID := deterministicID(options.Namespace, "customer", "customer-beta")
+	unchanged, err := db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT status,generation FROM customers WHERE customer_id=?`, Args: []any{betaID}},
+		rqlite.Statement{SQL: `SELECT lifecycle FROM imported_entity_state WHERE entity_kind='customer' AND source_key='customer-beta'`},
+		rqlite.Statement{SQL: `SELECT count(*) AS count FROM tombstones WHERE customer_id=?`, Args: []any{betaID}},
+		rqlite.Statement{SQL: `SELECT count(*) AS count FROM tombstone_targets tt JOIN tombstones t ON t.tombstone_id=tt.tombstone_id WHERE t.customer_id=?`, Args: []any{betaID}},
+		rqlite.Statement{SQL: `SELECT count(*) AS count FROM import_batches WHERE import_run_id=?`, Args: []any{validBatch.RunID}},
+	)
+	if err != nil || len(unchanged) != 5 || len(unchanged[0].Rows) != 1 || len(unchanged[1].Rows) != 1 ||
+		unchanged[0].Rows[0]["status"] != "active" || !rqliteIntegerEquals(unchanged[0].Rows[0]["generation"], 1) ||
+		unchanged[1].Rows[0]["lifecycle"] != "active" || !rqliteIntegerEquals(unchanged[2].Rows[0]["count"], 0) ||
+		!rqliteIntegerEquals(unchanged[3].Rows[0]["count"], 0) || !rqliteIntegerEquals(unchanged[4].Rows[0]["count"], 0) {
+		t.Fatalf("wrong digest was not rolled back atomically: %#v, %v", unchanged, err)
+	}
+	if _, err := store.CommitBatch(ctx, validBatch); err != nil {
+		t.Fatalf("CommitBatch valid customer delete: %v", err)
+	}
+	wantEnvelope, err := json.Marshal(base.EncryptedSecrets[1])
+	if err != nil {
+		t.Fatalf("encode expected protected envelope: %v", err)
+	}
+	deleted, err := db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT status,generation FROM customers WHERE customer_id=?`, Args: []any{betaID}},
+		rqlite.Statement{SQL: `SELECT lifecycle FROM imported_entity_state WHERE entity_kind='customer' AND source_key='customer-beta'`},
+		rqlite.Statement{SQL: `SELECT lifecycle FROM imported_entity_state WHERE entity_kind='encrypted_secret' AND source_key='secret-beta'`},
+		rqlite.Statement{SQL: `SELECT count(*) AS count FROM tombstone_targets WHERE tombstone_id=?`, Args: []any{deltaPlan.Deletes[0].TombstoneID}},
+		rqlite.Statement{SQL: `SELECT enabled,secret_envelope FROM credentials WHERE customer_id=?`, Args: []any{betaID}},
+		rqlite.Statement{SQL: `SELECT revoked,token_envelope FROM subscription_tokens WHERE customer_id=?`, Args: []any{betaID}},
+		rqlite.Statement{SQL: `SELECT tombstone_id FROM import_delete_receipts WHERE entity_kind='encrypted_secret' AND source_key='secret-beta'`},
+	)
+	if err != nil || len(deleted) != 7 || len(deleted[0].Rows) != 1 || len(deleted[1].Rows) != 1 ||
+		len(deleted[2].Rows) != 1 || len(deleted[3].Rows) != 1 || len(deleted[4].Rows) != 1 ||
+		len(deleted[5].Rows) != 1 || len(deleted[6].Rows) != 1 ||
+		deleted[0].Rows[0]["status"] != "deleted" || !rqliteIntegerEquals(deleted[0].Rows[0]["generation"], 2) ||
+		deleted[1].Rows[0]["lifecycle"] != "deleted" || deleted[2].Rows[0]["lifecycle"] != "deleted" ||
+		!rqliteIntegerEquals(deleted[3].Rows[0]["count"], 4) || !rqliteIntegerEquals(deleted[4].Rows[0]["enabled"], 0) ||
+		deleted[4].Rows[0]["secret_envelope"] != string(wantEnvelope) || !rqliteIntegerEquals(deleted[5].Rows[0]["revoked"], 1) ||
+		deleted[5].Rows[0]["token_envelope"] != string(wantEnvelope) || deleted[6].Rows[0]["tombstone_id"] != nil {
+		t.Fatalf("valid delete verification mismatch: %#v, %v", deleted, err)
+	}
+}
+
+func commitIntegrationPlan(t *testing.T, ctx context.Context, store *RQLiteApplyStore, plan ImportPlan, runID string) TargetState {
+	t.Helper()
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	batch := ApplyBatch{RunID: runID, PlanDigest: plan.PlanDigest, Index: 0, Operations: operations}
+	batch.Digest = digestBatch(batch.Operations)
+	if _, err := store.BeginOrResume(ctx, ApplyRun{
+		RunID: runID, SnapshotKind: plan.SnapshotKind, SourceDigest: plan.SourceDigest,
+		PlanDigest: plan.PlanDigest, ParentDigest: plan.ParentSourceDigest, BatchCount: 1,
+	}); err != nil {
+		t.Fatalf("BeginOrResume %s: %v", runID, err)
+	}
+	if _, err := store.CommitBatch(ctx, batch); err != nil {
+		t.Fatalf("CommitBatch %s: %v", runID, err)
+	}
+	target, err := store.InspectTarget(ctx)
+	if err != nil {
+		t.Fatalf("InspectTarget %s: %v", runID, err)
+	}
+	if err := store.Complete(ctx, ApplyCompletion{RunID: runID, SourceDigest: plan.SourceDigest, PlanDigest: plan.PlanDigest, TargetDigest: target.BusinessDigest}); err != nil {
+		t.Fatalf("Complete %s: %v", runID, err)
+	}
+	return target
 }
 
 func rqliteIntegerEquals(value any, want int64) bool {

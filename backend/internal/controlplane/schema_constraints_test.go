@@ -386,6 +386,55 @@ func TestImportEntityRegistryAndDeleteReceiptsAreFailClosed(t *testing.T) {
 	mustRequestFail(t, ctx, db, insertReceipt("schema-secret-three", "substituted-target", repeatHex("c")))
 }
 
+func TestCustomerDeleteReceiptRequiresImportedAccessRows(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	runID := "schema-customer-delete-access-run"
+	batchDigest := repeatHex("8")
+	customerID := "schema-customer-delete-access-id"
+	sourceKey := "schema-customer-delete-access"
+	priorDigest := repeatHex("7")
+	tombstoneID := "schema-customer-delete-access-tombstone"
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO import_runs(
+				import_run_id,snapshot_kind,source_sha256,plan_sha256,parent_source_sha256,
+				target_sha256,batch_count,status,started_at_unix,completed_at_unix
+			) VALUES(?,'delta',?,?,?,NULL,1,'applying',?,NULL)
+		`, Args: []any{runID, repeatHex("1"), repeatHex("2"), repeatHex("3"), 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO import_batches(
+				import_run_id,batch_index,batch_digest,row_count,status,applied_at_unix
+			) VALUES(?,?,?,1,'applying',NULL)
+		`, Args: []any{runID, 0, batchDigest}},
+		rqlite.Statement{SQL: `
+			INSERT INTO customers(
+				customer_id,display_login,login_key_hmac,status,expires_at_unix,
+				generation,created_at_unix,updated_at_unix
+			) VALUES(?,?,?,'deleted',0,2,?,?)
+		`, Args: []any{customerID, "Schema Delete", repeatHex("4"), 1_000_000, 1_000_001}},
+		rqlite.Statement{SQL: `
+			INSERT INTO imported_entity_state(
+				entity_kind,source_key,target_id,canonical_sha256,lifecycle,updated_at_unix
+			) VALUES('customer',?,?,?,'deleted',?)
+		`, Args: []any{sourceKey, customerID, priorDigest, 1_000_001}},
+		rqlite.Statement{SQL: `
+			INSERT INTO tombstones(tombstone_id,customer_id,generation,reason,created_at_unix)
+			VALUES(?,?,2,'legacy_import_delete',?)
+		`, Args: []any{tombstoneID, customerID, 1_000_001}},
+		rqlite.Statement{SQL: `
+			INSERT INTO tombstone_targets(tombstone_id,node_id,service_name,status,applied_at_unix)
+			SELECT ?,node_id,service_name,'pending',NULL FROM node_services
+			WHERE desired_target=1 AND retired=0
+		`, Args: []any{tombstoneID}},
+	)
+	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO import_delete_receipts(
+			entity_kind,source_key,target_id,expected_prior_digest,lifecycle,tombstone_id,
+			import_run_id,batch_index,batch_digest,imported_at_unix
+		) VALUES('customer',?,?,?,'deleted',?,?,?,?,?)
+	`, Args: []any{sourceKey, customerID, priorDigest, tombstoneID, runID, 0, batchDigest, 1_000_001}})
+}
+
 func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
 	ctx, db := mustAppliedSchema(t)
 	secretID := "secret-schema-standalone"
