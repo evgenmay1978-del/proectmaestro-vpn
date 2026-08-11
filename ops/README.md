@@ -4,6 +4,41 @@ Applying the lesson from the training videos (esp. Anthropic-skills #5: *"if a t
 code, do it with code"* → run a tested script instead of re-deriving the commands each session →
 0 tokens, stable, fast). These encapsulate the operations I used to type out by hand every time.
 
+## Обязательный барьер повторов
+
+`maestro-repetition-guard.py` не даёт агенту повторить необъяснённо упавшую
+операцию. Запускать из корня репозитория перед внешней/долгой/изменяющей
+операцией и перед любой повторной попыткой:
+
+```powershell
+python ops/maestro-repetition-guard.py check --action s1-key-login --family openssh-key-probe
+```
+
+После первой ошибки или указания владельца, что способ неверен:
+
+```powershell
+python ops/maestro-repetition-guard.py fail --action s1-key-login --family puttygen-gui --reason-code hidden-interactive-prompt
+```
+
+Продолжать можно только после установления причины и регистрации действительно
+другого способа:
+
+```powershell
+python ops/maestro-repetition-guard.py correct --action s1-key-login --old-family puttygen-gui --new-family openssh-key-probe --root-cause-code gui-needs-tty
+python ops/maestro-repetition-guard.py check --action s1-key-login --family openssh-key-probe
+python ops/maestro-repetition-guard.py success --action s1-key-login --family openssh-key-probe --evidence-code key-only-login-confirmed
+```
+
+Код `42` означает обязательную остановку, `43` — повреждённый/нечитаемый
+журнал и тоже обязательную остановку. Локальный журнал находится в
+`.maestro-state/repetition-guard.json`, исключён из Git и хранит только
+смысловые коды и SHA-256 способов. Никогда не подставлять туда текст команды,
+пароль, ключ, токен, URL подписки или данные клиента. Проверка:
+
+```powershell
+python -m unittest ops.test_maestro_repetition_guard -v
+```
+
 Server operations run **on S1** (where the panel, telemetry, mirror and repo live).
 The lightweight mobile eye-state preview below may run locally; heavy ring/atlas
 generation, the full simulator, Gradle and APK builds run only on GitHub Actions
