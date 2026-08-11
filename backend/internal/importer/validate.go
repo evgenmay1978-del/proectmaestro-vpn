@@ -84,6 +84,7 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 			add("unsupported_bot_schema", "bot_binding", binding.BotIdentityHMAC)
 		}
 	}
+	validateBotCredentialRotations(snapshot, add)
 
 	if snapshot.SnapshotKind == "delta" {
 		validateDelta(snapshot, options, add)
@@ -103,6 +104,121 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 		return result[i].SourceKey < result[j].SourceKey
 	})
 	return result
+}
+
+func validateBotCredentialRotations(snapshot Snapshot, add func(string, string, string)) {
+	routes := make(map[string]LegacyBotBinding, len(snapshot.BotBindings))
+	fingerprintOwners := make(map[string]string)
+	recordFingerprint := func(fingerprint, identity string) {
+		if fingerprint == "" {
+			return
+		}
+		if previous, exists := fingerprintOwners[fingerprint]; exists && previous != identity {
+			add("bot_token_fingerprint_collision", "bot_binding", identity)
+			return
+		}
+		fingerprintOwners[fingerprint] = identity
+	}
+	for _, binding := range snapshot.BotBindings {
+		if _, exists := routes[binding.BotIdentityHMAC]; exists {
+			add("bot_identity_route_collision", "bot_binding", binding.BotIdentityHMAC)
+			continue
+		}
+		routes[binding.BotIdentityHMAC] = binding
+		recordFingerprint(binding.TokenFingerprintHMAC, binding.BotIdentityHMAC)
+	}
+
+	groups := make(map[string][]LegacyBotCredentialRotation)
+	auditOwners := make(map[string]string)
+	for _, rotation := range snapshot.BotCredentialRotations {
+		if len(rotation.AuditDigest) != 64 || len(rotation.BotIdentityHMAC) != 64 ||
+			len(rotation.OldTokenFingerprintHMAC) != 64 || len(rotation.NewTokenFingerprintHMAC) != 64 ||
+			rotation.OldTokenFingerprintHMAC == rotation.NewTokenFingerprintHMAC ||
+			rotation.OldCredentialVersion <= 0 || rotation.NewCredentialVersion <= rotation.OldCredentialVersion {
+			add("invalid_bot_credential_rotation", "bot_credential_rotation", rotation.AuditDigest)
+			continue
+		}
+		if previous, exists := auditOwners[rotation.AuditDigest]; exists && previous != rotation.BotIdentityHMAC {
+			add("bot_credential_rotation_audit_collision", "bot_credential_rotation", rotation.AuditDigest)
+			continue
+		}
+		auditOwners[rotation.AuditDigest] = rotation.BotIdentityHMAC
+		recordFingerprint(rotation.OldTokenFingerprintHMAC, rotation.BotIdentityHMAC)
+		recordFingerprint(rotation.NewTokenFingerprintHMAC, rotation.BotIdentityHMAC)
+		groups[rotation.BotIdentityHMAC] = append(groups[rotation.BotIdentityHMAC], rotation)
+	}
+
+	identities := make([]string, 0, len(groups))
+	for identity := range groups {
+		identities = append(identities, identity)
+	}
+	sort.Strings(identities)
+	for _, identity := range identities {
+		rotations := groups[identity]
+		outgoing := make(map[int]LegacyBotCredentialRotation, len(rotations))
+		incoming := make(map[int]LegacyBotCredentialRotation, len(rotations))
+		forked := false
+		for _, rotation := range rotations {
+			if _, exists := outgoing[rotation.OldCredentialVersion]; exists {
+				forked = true
+			} else {
+				outgoing[rotation.OldCredentialVersion] = rotation
+			}
+			if _, exists := incoming[rotation.NewCredentialVersion]; exists {
+				forked = true
+			} else {
+				incoming[rotation.NewCredentialVersion] = rotation
+			}
+		}
+		if forked {
+			add("bot_credential_rotation_fork", "bot_credential_rotation", identity)
+		}
+
+		roots := make([]LegacyBotCredentialRotation, 0, 1)
+		for _, rotation := range rotations {
+			if _, hasPredecessor := incoming[rotation.OldCredentialVersion]; !hasPredecessor {
+				roots = append(roots, rotation)
+			}
+		}
+		chainMismatch := len(roots) != 1
+		var tail LegacyBotCredentialRotation
+		tailSet := false
+		if len(roots) == 1 {
+			current := roots[0]
+			expectedFingerprint := current.OldTokenFingerprintHMAC
+			seenFingerprints := map[string]struct{}{expectedFingerprint: {}}
+			visited := 0
+			for {
+				if current.OldTokenFingerprintHMAC != expectedFingerprint {
+					chainMismatch = true
+				}
+				if _, reused := seenFingerprints[current.NewTokenFingerprintHMAC]; reused {
+					chainMismatch = true
+				}
+				seenFingerprints[current.NewTokenFingerprintHMAC] = struct{}{}
+				visited++
+				next, exists := outgoing[current.NewCredentialVersion]
+				if !exists {
+					tail = current
+					tailSet = true
+					break
+				}
+				expectedFingerprint = current.NewTokenFingerprintHMAC
+				current = next
+			}
+			if visited != len(rotations) {
+				chainMismatch = true
+			}
+		}
+		if chainMismatch {
+			add("bot_credential_rotation_chain_mismatch", "bot_credential_rotation", identity)
+		}
+		route, routeExists := routes[identity]
+		if !routeExists || !tailSet || route.CredentialVersion != tail.NewCredentialVersion ||
+			route.TokenFingerprintHMAC != tail.NewTokenFingerprintHMAC {
+			add("bot_credential_rotation_route_mismatch", "bot_credential_rotation", identity)
+		}
+	}
 }
 
 func validateDelta(snapshot Snapshot, options PlanOptions, add func(string, string, string)) {

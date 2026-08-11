@@ -43,6 +43,7 @@ var businessDigestQueries = []struct {
 	{"desired_node_state", "SELECT * FROM desired_node_state ORDER BY customer_id,node_id,service_name"},
 	{"tombstones", "SELECT * FROM tombstones ORDER BY tombstone_id"},
 	{"telegram_bot_routes", "SELECT * FROM telegram_bot_routes ORDER BY bot_identity_hmac"},
+	{"telegram_bot_credential_rotations", "SELECT * FROM telegram_bot_credential_rotations ORDER BY audit_digest"},
 	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_identity_hmac"},
 	{"telegram_imported_callbacks", "SELECT * FROM telegram_imported_callbacks ORDER BY callback_hmac"},
 	{"telegram_callbacks", "SELECT * FROM telegram_callbacks ORDER BY callback_hmac"},
@@ -359,6 +360,8 @@ func (s *RQLiteApplyStore) operationStatements(batch ApplyBatch, operation Apply
 	switch operation.Entity {
 	case "bot_binding":
 		return s.botRouteStatements(batch, operation)
+	case "bot_credential_rotation":
+		return s.botCredentialRotationStatements(batch, operation)
 	case "bot_poll_state":
 		return s.botPollStateStatements(batch, operation)
 	case "customer":
@@ -475,6 +478,38 @@ ON CONFLICT(callback_hmac) DO UPDATE SET
 			callback.CallbackHMAC,
 			callback.BotIdentityHMAC, callback.TokenFingerprintHMAC, callback.CredentialVersion,
 			callback.BotIdentityHMAC, callback.OrderID, callback.Action, callback.State, s.now().Unix(),
+		}, gate...),
+	}}, nil
+}
+
+func (s *RQLiteApplyStore) botCredentialRotationStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
+	var rotation LegacyBotCredentialRotation
+	if err := decodeCanonicalOperation(operation.CanonicalJSON, &rotation); err != nil {
+		return nil, err
+	}
+	if len(rotation.AuditDigest) != 64 || len(rotation.BotIdentityHMAC) != 64 ||
+		len(rotation.OldTokenFingerprintHMAC) != 64 || len(rotation.NewTokenFingerprintHMAC) != 64 ||
+		rotation.OldTokenFingerprintHMAC == rotation.NewTokenFingerprintHMAC ||
+		rotation.OldCredentialVersion <= 0 || rotation.NewCredentialVersion <= rotation.OldCredentialVersion {
+		return nil, errors.New("invalid canonical bot credential rotation")
+	}
+	gate := batchGateArgs(batch)
+	return []rqlite.Statement{{
+		SQL: `INSERT INTO telegram_bot_credential_rotations(
+    audit_digest,bot_identity_hmac,old_token_fingerprint_hmac,
+    new_token_fingerprint_hmac,old_credential_version,new_credential_version,imported_at_unix
+) SELECT ?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(audit_digest) DO UPDATE SET
+    bot_identity_hmac=excluded.bot_identity_hmac,
+    old_token_fingerprint_hmac=excluded.old_token_fingerprint_hmac,
+    new_token_fingerprint_hmac=excluded.new_token_fingerprint_hmac,
+    old_credential_version=excluded.old_credential_version,
+    new_credential_version=excluded.new_credential_version,
+    imported_at_unix=telegram_bot_credential_rotations.imported_at_unix`,
+		Args: append([]any{
+			rotation.AuditDigest, rotation.BotIdentityHMAC,
+			rotation.OldTokenFingerprintHMAC, rotation.NewTokenFingerprintHMAC,
+			rotation.OldCredentialVersion, rotation.NewCredentialVersion, s.now().Unix(),
 		}, gate...),
 	}}, nil
 }

@@ -267,6 +267,21 @@ CREATE TABLE telegram_bot_routes (
 )
 
 -- maestro:statement
+CREATE TABLE telegram_bot_credential_rotations (
+    audit_digest TEXT PRIMARY KEY NOT NULL CHECK(length(audit_digest) = 64),
+    bot_identity_hmac TEXT NOT NULL CHECK(length(bot_identity_hmac) = 64)
+        REFERENCES telegram_bot_routes(bot_identity_hmac) ON DELETE RESTRICT,
+    old_token_fingerprint_hmac TEXT NOT NULL CHECK(length(old_token_fingerprint_hmac) = 64),
+    new_token_fingerprint_hmac TEXT NOT NULL CHECK(length(new_token_fingerprint_hmac) = 64),
+    old_credential_version INTEGER NOT NULL CHECK(old_credential_version > 0),
+    new_credential_version INTEGER NOT NULL CHECK(new_credential_version > old_credential_version),
+    imported_at_unix INTEGER NOT NULL CHECK(imported_at_unix >= 0),
+    CHECK(old_token_fingerprint_hmac <> new_token_fingerprint_hmac),
+    UNIQUE(bot_identity_hmac, old_credential_version),
+    UNIQUE(bot_identity_hmac, new_credential_version)
+)
+
+-- maestro:statement
 CREATE TABLE telegram_pollers (
     bot_identity_hmac TEXT PRIMARY KEY NOT NULL
         CHECK(length(bot_identity_hmac) = 64)
@@ -560,6 +575,27 @@ WHEN NEW.callback_hmac <> OLD.callback_hmac OR
      )
 BEGIN
     SELECT RAISE(ABORT, 'invalid imported callback transition');
+END
+
+-- maestro:statement
+CREATE TRIGGER telegram_bot_credential_rotations_immutable
+BEFORE UPDATE ON telegram_bot_credential_rotations
+WHEN NEW.audit_digest <> OLD.audit_digest OR
+     NEW.bot_identity_hmac <> OLD.bot_identity_hmac OR
+     NEW.old_token_fingerprint_hmac <> OLD.old_token_fingerprint_hmac OR
+     NEW.new_token_fingerprint_hmac <> OLD.new_token_fingerprint_hmac OR
+     NEW.old_credential_version <> OLD.old_credential_version OR
+     NEW.new_credential_version <> OLD.new_credential_version OR
+     NEW.imported_at_unix <> OLD.imported_at_unix
+BEGIN
+    SELECT RAISE(ABORT, 'bot credential rotations are immutable');
+END
+
+-- maestro:statement
+CREATE TRIGGER telegram_bot_credential_rotations_no_delete
+BEFORE DELETE ON telegram_bot_credential_rotations
+BEGIN
+    SELECT RAISE(ABORT, 'bot credential rotations are immutable');
 END
 
 -- maestro:statement
