@@ -2133,3 +2133,64 @@ Task 6 ещё не объявлять завершённым. Остаются p
 `ops/ha/shadow-verify.sh`. Сначала писать отдельные RED tests для adapter/CLI/
 shadow, затем GREEN через GitHub Actions. Не выполнять production import до
 inventory, snapshot, collision, shadow и отдельного owner cutover approval.
+
+## HA control plane: Plan 02 / Task 6 CLI + shadow GREEN checkpoint (11.08.2026)
+
+Работа по-прежнему только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer writes не было.
+
+### Fail-closed `maestro-import` CLI
+
+- CLI RED commit: `8abc81f2534a7bbe889a78d61d8ddcdb5684905f`.
+- Valid RED run `31496133093`, job `93794192769`: новый command package упал
+  только на отсутствующих `run`, exit constants и `applyConfig`.
+- CLI GREEN commit: `d91e73399f161330ed427577d5f0091f79d1af54`.
+- GREEN run `31496370525`, job `93795000410`: unit, race, vet, harness и
+  3-node rqlite integration прошли.
+- CLI требует явные `--snapshot`, `--report`, `--mode=dry-run|apply`; delta
+  дополнительно требует explicit parent snapshot/digest. Exit codes:
+  `0=clean`, `2=blockers`, `3=input/system`.
+- Report пишется atomically mode `0600` и содержит только redacted `Report`.
+- Apply до вызова store требует exact approved plan digest, stable run id,
+  protected key file и protected legacy-trial-salt file. Production `main`
+  пока имеет `factory=nil`, поэтому apply fail-closed до реального rqlite
+  adapter; dry-run уже полностью работает.
+
+### Offline redacted shadow verifier
+
+- Shadow test commits: `12502d96883d348599f74f7142d6f47d28d47bbe`,
+  `4648f70b424dbf88d1b5fef5972af3edae51e676`.
+- Valid RED run `31496825873`, job `93796538244`: harness упал ровно на
+  отсутствующем `ops/ha/shadow-verify.sh`.
+- Production commit: `5425878bbc34e3dbf90cbcc5a95e07862a5c5461`;
+  executable-mode fix `9795baea775124b7994939664baff7d027772967`.
+- Final GREEN run `31497241816`, job `93797939798`: shadow contract, unit,
+  race, vet, harness и 3-node integration прошли.
+- Script принимает только explicit `--legacy`, `--candidate`, `--salt-file`,
+  не содержит network-capable commands, строго валидирует versioned JSON,
+  нормализует protocol/node order, сравнивает counts, HMAC identities, exact
+  expiry/generation, protocol tags, node set, Maestro/Karing URL shape,
+  settings/principals fingerprints и exact OTA manifest.
+- Match -> `0`, mismatch -> `2`, invalid/system -> `3`; report содержит только
+  run-salt HMAC subject IDs и не выводит raw identity HMAC/URL/value bytes.
+
+### Новые зафиксированные ошибки
+
+1. Local OAuth push не имеет `workflow` scope. Не менять existing workflow
+   ради нового test step; запускать shell contract через обычный Go test,
+   который уже входит в `go test ./...`. Net workflow diff был возвращён до
+   успешного push.
+2. Windows worktree создаёт `.sh` как Git mode `100644`. После Linux
+   `Permission denied` правильное исправление: guard, затем
+   `git update-index --chmod=+x <scripts>`, mode-only commit и один retry.
+3. `git check-ignore` возвращает exit `1`, когда файл корректно НЕ ignored;
+   обрабатывать этот отрицательный результат явно, не считать ошибкой task.
+
+### Следующий безопасный шаг
+
+Task 6 ещё не завершён: нужен отдельный RED -> GREEN production rqlite
+`ApplyStore` adapter, который атомарно связывает реальные canonical business
+writes и receipts. Нельзя подменять его generic JSON staging или включать
+`factory` до tests на customer/order/settings/principal rows, unknown write
+outcome и recomputed business digest. После adapter — повторный полный GREEN,
+handoff/review; production import всё ещё запрещён до cutover gates.
