@@ -206,13 +206,15 @@ start_cluster() {
   }
 
   cleanup_failed_start() {
-    local status="$1"
+    local status="$1" cleanup_base="$2" cleanup_marker="$3" cleanup_root="$4"
     local cleanup_pid attempt any_running resolved_cleanup_root executable
+    shift 4
+    local -a cleanup_pids=("$@")
     local -a cleanup_marker_lines=()
     trap - EXIT
     if [[ "$status" -ne 0 ]]; then
-      executable="$root/bin/rqlited"
-      for cleanup_pid in "${started_pids[@]}"; do
+      executable="$cleanup_root/bin/rqlited"
+      for cleanup_pid in "${cleanup_pids[@]}"; do
         if kill -0 "$cleanup_pid" 2>/dev/null &&
           [[ -f "$executable" && ! -L "$executable" ]] &&
           [[ "$(readlink -f -- "/proc/${cleanup_pid}/exe" 2>/dev/null)" == "$executable" ]]; then
@@ -221,7 +223,7 @@ start_cluster() {
       done
       for ((attempt = 1; attempt <= 40; attempt++)); do
         any_running=0
-        for cleanup_pid in "${started_pids[@]}"; do
+        for cleanup_pid in "${cleanup_pids[@]}"; do
           if kill -0 "$cleanup_pid" 2>/dev/null; then
             any_running=1
           fi
@@ -229,7 +231,7 @@ start_cluster() {
         [[ "$any_running" -eq 0 ]] && break
         sleep 0.25
       done
-      for cleanup_pid in "${started_pids[@]}"; do
+      for cleanup_pid in "${cleanup_pids[@]}"; do
         if kill -0 "$cleanup_pid" 2>/dev/null &&
           [[ -f "$executable" && ! -L "$executable" ]] &&
           [[ "$(readlink -f -- "/proc/${cleanup_pid}/exe" 2>/dev/null)" == "$executable" ]]; then
@@ -238,22 +240,22 @@ start_cluster() {
         wait "$cleanup_pid" 2>/dev/null || true
       done
       any_running=0
-      for cleanup_pid in "${started_pids[@]}"; do
+      for cleanup_pid in "${cleanup_pids[@]}"; do
         if kill -0 "$cleanup_pid" 2>/dev/null; then
           any_running=1
         fi
       done
       if [[ "$any_running" -eq 0 ]]; then
-        resolved_cleanup_root="$(realpath -e -- "$root" 2>/dev/null || true)"
-        if [[ -f "$marker" && ! -L "$marker" ]]; then
-          mapfile -t cleanup_marker_lines <"$marker" || true
+        resolved_cleanup_root="$(realpath -e -- "$cleanup_root" 2>/dev/null || true)"
+        if [[ -f "$cleanup_marker" && ! -L "$cleanup_marker" ]]; then
+          mapfile -t cleanup_marker_lines <"$cleanup_marker" || true
         fi
-        if [[ "$resolved_cleanup_root" == "$root" && -d "$root" && ! -L "$root" &&
-          "${#cleanup_marker_lines[@]}" -eq 1 && "${cleanup_marker_lines[0]}" == "$root" ]]; then
-          case "$root" in
-            "$base"/maestro-rqlite-ci.*)
-              rm -rf -- "$root"
-              rm -f -- "$marker"
+        if [[ "$resolved_cleanup_root" == "$cleanup_root" && -d "$cleanup_root" && ! -L "$cleanup_root" &&
+          "${#cleanup_marker_lines[@]}" -eq 1 && "${cleanup_marker_lines[0]}" == "$cleanup_root" ]]; then
+          case "$cleanup_root" in
+            "$cleanup_base"/maestro-rqlite-ci.*)
+              rm -rf -- "$cleanup_root"
+              rm -f -- "$cleanup_marker"
               ;;
           esac
         fi
@@ -261,7 +263,17 @@ start_cluster() {
     fi
     exit "$status"
   }
-  trap 'cleanup_failed_start "$?"' EXIT
+
+  install_cleanup_trap() {
+    local trap_command trap_pid
+    printf -v trap_command 'cleanup_failed_start "$?" %q %q %q' "$base" "$marker" "$root"
+    for trap_pid in "${started_pids[@]}"; do
+      printf -v trap_command '%s %q' "$trap_command" "$trap_pid"
+    done
+    trap "$trap_command" EXIT
+  }
+
+  install_cleanup_trap
 
   mkdir -p -- "$root/bin" "$root/node1" "$root/node2" "$root/node3"
   archive="$root/$ARCHIVE_NAME"
@@ -294,6 +306,7 @@ start_cluster() {
     "$root/node1" >"$root/node1.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
+  install_cleanup_trap
   write_pid "$root" 1 "$pid"
 
   "$binary" \
@@ -309,6 +322,7 @@ start_cluster() {
     "$root/node2" >"$root/node2.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
+  install_cleanup_trap
   write_pid "$root" 2 "$pid"
 
   "$binary" \
@@ -324,6 +338,7 @@ start_cluster() {
     "$root/node3" >"$root/node3.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
+  install_cleanup_trap
   write_pid "$root" 3 "$pid"
 
   wait_ready 4401 "$(<"$root/node1.pid")"
