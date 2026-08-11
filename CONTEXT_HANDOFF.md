@@ -1929,3 +1929,27 @@ rqlite, DNS, TLS, панели, VPN-конфиги и bot process этим check
 RED → GREEN. До отдельного cutover-разрешения legacy остаётся единственным
 production write path; не выполнять live rqlite/import/DNS/TLS/panel/bot/OTA
 mutations.
+## HA control plane: GREEN checkpoint Plan 01 / Task 4 (11.08.2026)
+
+Plan 01 полностью завершён в репозитории; production не изменялся.
+
+- Implementation HEAD: `00244c722d7a08fac3c84d15f0c35f76753e2665`.
+- RED run `31487271087`: отсутствовали `NewSecretBox`, `SecretScope` и
+  связанные функции.
+- GREEN run `31487505121`, job `93766169546`: format, backend tests, race,
+  vet, harness, трёхузловой rqlite integration и cleanup успешны.
+- `SecretBox` использует AES-256-GCM только из Go standard library, свежий
+  nonce для каждого seal и length-delimited AAD с key version, owner type,
+  owner ID, field и secret kind.
+- Предыдущая key version может только decrypt; новые envelope всегда используют
+  current version. Отсутствующая referenced version делает readiness red.
+- Encryption key и HMAC key обязаны быть разными 32-byte ключами.
+- Lookup HMAC детерминирован и разделён по kind; ошибки не содержат plaintext,
+  nonce или ciphertext.
+- `NewID` проверен под 100 конкурентными goroutine; `CanonicalLoginKey`
+  стабилизирует login lookup и отказывает на пустом/control/oversize input.
+
+Следующий безопасный шаг: Plan 02 / Task 5,
+`Cluster-backed read models, settings, sessions and audit`, через отдельный
+RED → GREEN checkpoint в том же draft PR. Production legacy остаётся
+единственным live/default write path до отдельного cutover-разрешения.
