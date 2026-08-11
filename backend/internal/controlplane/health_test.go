@@ -136,3 +136,28 @@ func containsAll(value string, values ...string) bool {
 	}
 	return true
 }
+
+func TestReadinessRequiredSettingsUseOneValidStatement(t *testing.T) {
+	db := &recordingRQLite{linear: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: nil},
+		rqlite.Result{Rows: []map[string]any{{"count_value": 5}}},
+		rqlite.Result{Rows: []map[string]any{{"count_value": 1, "updated_at_unix": 1_999_999}}},
+	)}}
+	service, _ := testService(t, db)
+	readiness := NewReadiness(ReadinessConfig{
+		Store: service.store, Schema: stubSchemaVerifier{},
+		Disk: stubDiskSignal{writable: true}, IDs: &sequenceIDs{}, NodeID: "S2",
+		RequiredSettings: []string{"ota"}, MaxCommitAge: time.Minute,
+	})
+	if err := readiness.Read(context.Background()); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(db.linearCalls) != 1 || len(db.linearCalls[0].statements) != 3 {
+		t.Fatalf("readiness query shape = %#v", db.linearCalls)
+	}
+	statement := db.linearCalls[0].statements[2]
+	if strings.Count(strings.ToUpper(statement.SQL), "SELECT") != 1 ||
+		!containsAll(statement.SQL, "count_value", "updated_at_unix", "setting_key IN") {
+		t.Fatalf("required settings check is not one valid aggregate statement: %s", statement.SQL)
+	}
+}

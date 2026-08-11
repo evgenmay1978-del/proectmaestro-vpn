@@ -335,3 +335,35 @@ func statementsText(statements []rqlite.Statement) string {
 	}
 	return builder.String()
 }
+
+func TestSettingCASGatesEveryDependentMutation(t *testing.T) {
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{"generation": 2}}},
+		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
+	)}}
+	service, _ := testService(t, db)
+	_, err := service.UpdateSetting(context.Background(), SettingUpdate{
+		Key: "ota", ExpectedGeneration: 1, PublicValueJSON: `{"version_code":155}`,
+		Members: []string{"owner-a"}, Actor: "owner",
+	})
+	if err != nil {
+		t.Fatalf("UpdateSetting: %v", err)
+	}
+	statements := db.requestCalls[0].statements
+	for index, statement := range statements[1:] {
+		if !containsAll(statement.SQL, "SELECT 1 FROM cluster_settings", "generation = ?") {
+			t.Fatalf("dependent statement %d is not gated by successful CAS: %s", index+1, statement.SQL)
+		}
+	}
+}
+
+func TestAuthorizeUsesAnyExplicitRole(t *testing.T) {
+	db := &recordingRQLite{linear: []scriptedResult{rowsScript(
+		map[string]any{"principal_id": "p-owner", "role_name": "admin"},
+		map[string]any{"principal_id": "p-owner", "role_name": "owner"},
+	)}}
+	service, _ := testService(t, db)
+	if _, err := service.Authorize(context.Background(), "session", "csrf", PermissionCriticalSettings); err != nil {
+		t.Fatalf("owner role was ignored when another explicit role sorted first: %v", err)
+	}
+}

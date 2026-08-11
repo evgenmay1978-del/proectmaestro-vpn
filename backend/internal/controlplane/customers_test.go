@@ -84,6 +84,10 @@ func TestClaimDeviceAtomicallyEnforcesLimitAndStoresOnlyHMAC(t *testing.T) {
 			t.Fatal("raw device identity reached SQL")
 		}
 	}
+	auditSQL := db.requestCalls[0].statements[1].SQL
+	if !strings.Contains(auditSQL, "ON CONFLICT(event_id) DO NOTHING") {
+		t.Fatalf("device claim audit is not retry-idempotent: %s", auditSQL)
+	}
 }
 
 func TestConcurrentSameDeviceClaimIsIdempotent(t *testing.T) {
