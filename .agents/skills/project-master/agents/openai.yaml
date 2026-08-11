@@ -1,0 +1,4 @@
+interface:
+  display_name: "MaestroVPN Project Master"
+  short_description: "Safely continue MaestroVPN across app and server"
+  default_prompt: "Use $project-master to inspect the current MaestroVPN context and complete the requested change safely."

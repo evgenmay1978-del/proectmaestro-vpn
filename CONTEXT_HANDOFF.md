@@ -1,5 +1,63 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0S. LIVE: S1 восстановлен, приложения и Telegram-боты работают
+
+Этот раздел от **11.08.2026** является текущей production-точкой входа и
+заменяет 0R только в вопросах серверов, подписок и ботов. История mobile UI/OTA
+ниже сохранена и не является описанием текущего серверного инцидента.
+
+### Подтверждённое live-состояние
+
+- S1 (`193.17.183.48`) после переустановки восстановлен из проверенных копий.
+  Активны и enabled: 3x-ui (`x-ui.service`), `maestro-panel.service`,
+  `vpn_bot.service`, nginx и Hysteria. Maestro health отвечает, store содержит
+  77 клиентов; восстановление не уменьшило и не продвинуло сроки подписок.
+- S1 Maestro backend запущен из exact commit
+  `71b7f0c59e0c8fa6be36d1bc78f66b4753324a26`. S1 Telegram bot запущен из
+  `c52855556f23d078e0a16ac5454a2a35aa78185d`; тесты 8/8, один poller,
+  Telegram pending queue после запуска 0.
+- S2 (`85.137.166.237`) bot/caddy/Hysteria active. Исправление canonical
+  subscription/QR и TLS запущено из commit `aa672d7`; один процесс, SQLite
+  `quick_check` проходит, pending queue 0.
+- Сохранённые S1 management API проверены read-only: S3 (`46.30.42.151`) и S4
+  (`89.125.19.95`) отвечают HTTP 200. На S4 `x-ui.service` active, база
+  `quick_check` проходит; admin-порт разрешён firewall только с текущего S1.
+- Владелец подтвердил на физическом телефоне: приложение успешно подтянуло
+  подписку по существующему owner login. Это подтверждает рабочую цепочку
+  app → Maestro claim → subscription. Реальная оплата/продление ради теста не
+  выполнялись.
+- S1 и S2 боты отдают canonical Maestro URL и QR без исторической приписки
+  `app=karing`. Существующие payment confirmation/idempotency paths сохранены;
+  live-платёж не создавался и не подтверждался.
+- olcRTC ограничен ровно тремя разрешёнными owner aliases из production env.
+  WDTT также должен быть доступен только этим трём aliases, но на S1 его live
+  config сейчас `enabled=false`; наблюдаемое отсутствие WDTT в mobile 1.0.154
+  ещё не диагностировано и внесено в `BACKLOG.md`.
+
+### Важная граница отказоустойчивости
+
+Система восстановлена «как раньше», но это **not high availability**: S1 всё
+ещё является control-plane single point of failure. Трёхузловой `rqlite` на
+S2/S3/S4, quorum/failover, replicated operation ledger и автоматический bot
+failover **не развёрнуты**. Нельзя утверждать обратное до проверки реального
+кворума, переключения, восстановления узла и отсутствия дублей. Целевой этап
+описан в `BACKLOG.md`.
+
+### Безопасное продолжение
+
+1. Для любой server/network/mutation работы сначала полностью читать
+   `SERVER_RUNBOOK.md` и запускать `ops/maestro-repetition-guard.py`.
+2. Не переустанавливать S1 и не менять работающие units «для порядка». Product
+   называется 3x-ui, но его systemd unit — `x-ui.service`; S-ui не устанавливать.
+3. Не коммитить пароли, tokens, private panel suffixes, customer data и полные
+   subscription URLs. Exact admin endpoints получать read-only из live config;
+   владелец получил их отдельно.
+4. Следующая продуктовая работа (ресницы, WDTT 153/154, прокручиваемая protocol
+   arc) и следующий инфраструктурный этап (HA Maestro/боты) зафиксированы в
+   `BACKLOG.md`; не смешивать их с аварийным восстановлением.
+
+Авторитетная операционная сводка и rollback-пути: `SERVER_RUNBOOK.md`.
+
 ## 0R. BLOCKED: mobile OTA разрешена, но текущий канал неизбежно обновляет TV
 
 Этот раздел от **08.08.2026** заменяет раздел 0Q как текущая точка входа.
