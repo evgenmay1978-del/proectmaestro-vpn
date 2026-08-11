@@ -390,8 +390,8 @@ func TestImportSchemaPreservesProtectedLegacyTrialIdentity(t *testing.T) {
 	if len(result.Rows) != 1 ||
 		result.Rows[0]["legacy_anchor_hmac"] != legacyHMAC ||
 		result.Rows[0]["current_hmac"] != currentHMAC ||
-		!rqliteIntegerEquals(result.Rows[0]["used"], 0) ||
-		!rqliteIntegerEquals(result.Rows[0]["expires_at_unix"], 2_000_000) ||
+		fmt.Sprint(result.Rows[0]["used"]) != "0" ||
+		fmt.Sprint(result.Rows[0]["expires_at_unix"]) != "2000000" ||
 		result.Rows[0]["lookup_secret_id"] != secretID {
 		t.Fatalf("protected trial identity = %#v", result.Rows)
 	}
