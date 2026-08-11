@@ -27,10 +27,10 @@ const (
 )
 
 var (
-	errResponseTooLarge     = errors.New("response exceeds configured limit")
-	errMalformedResponse    = errors.New("malformed response")
+	errResponseTooLarge      = errors.New("response exceeds configured limit")
+	errMalformedResponse     = errors.New("malformed response")
 	errUnexpectedResultCount = errors.New("unexpected result count")
-	errServerRejected       = errors.New("server rejected request")
+	errServerRejected        = errors.New("server rejected request")
 )
 
 // Consistency is an rqlite read consistency level.
@@ -408,11 +408,11 @@ type wireResponse struct {
 }
 
 type wireResult struct {
-	LastInsertID int64            `json:"last_insert_id"`
-	RowsAffected int64            `json:"rows_affected"`
+	LastInsertID int64             `json:"last_insert_id"`
+	RowsAffected int64             `json:"rows_affected"`
 	Types        map[string]string `json:"types"`
-	Rows         []map[string]any `json:"rows"`
-	Error        string           `json:"error"`
+	Rows         []map[string]any  `json:"rows"`
+	Error        string            `json:"error"`
 }
 
 func decodeResponse(body []byte, statementCount int) ([]Result, error) {
