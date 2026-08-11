@@ -238,8 +238,19 @@ func TestSettingSecretReferenceCASIsAtomic(t *testing.T) {
 	if !strings.Contains(joined, "setting_secrets") || !strings.Contains(joined, "audit_events") {
 		t.Fatalf("secret transaction incomplete: %s", joined)
 	}
-	if strings.Contains(joined, "secret") {
-		t.Fatal("SQL text contains secret material")
+	for _, statement := range db.requestCalls[0].statements {
+		for _, arg := range statement.Args {
+			switch value := arg.(type) {
+			case string:
+				if value == "secret" {
+					t.Fatal("SQL args contain plaintext secret material")
+				}
+			case []byte:
+				if bytes.Equal(value, []byte("secret")) {
+					t.Fatal("SQL args contain plaintext secret material")
+				}
+			}
+		}
 	}
 }
 
