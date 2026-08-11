@@ -44,6 +44,10 @@ func TestSchemaSeedsImmutableTariffsAndFourNodes(t *testing.T) {
 	if _, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
 		SQL:  "UPDATE tariff_versions SET amount_minor=? WHERE tariff_version_id=?",
 		Args: []any{1, "tariff_1m_v1"},
+	}); err == nil {
+		t.Fatal("immutable tariff version accepted an update")
+	}
+}
 func TestImportSchemaBindsRunAndBatchDigests(t *testing.T) {
 	ctx, db := mustAppliedSchema(t)
 
@@ -84,10 +88,6 @@ func schemaColumnNames(t *testing.T, result rqlite.Result) []string {
 	}
 	sort.Strings(columns)
 	return columns
-}
-	}); err == nil {
-		t.Fatal("immutable tariff version accepted an update")
-	}
 }
 
 func TestConstraintPaymentsAndIdempotencyFailClosed(t *testing.T) {
