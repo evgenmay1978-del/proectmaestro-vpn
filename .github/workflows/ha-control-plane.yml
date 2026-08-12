@@ -96,6 +96,19 @@ jobs:
           MAESTRO_IMPORT_DIGEST_PROOF: ${{ runner.temp }}/maestro-import-digest-proof
         run: go test -tags=rqlite_integration ./internal/importer -run '^TestRQLiteImportDeleteDigestPhase$' -count=1
 
+      - name: Reset rqlite for shadow parity
+        run: |
+          bash ops/ha/ci-rqlite-cluster.sh stop
+          bash ops/ha/ci-rqlite-cluster.sh start
+
+      - name: Prove redacted shadow export parity
+        working-directory: backend
+        env:
+          MAESTRO_SHADOW_EXPORT_PROOF: "1"
+        run: go test -tags=rqlite_integration ./internal/importer -run '^TestRQLiteShadowExportParity        if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
+        run: bash ops/ha/ci-rqlite-cluster.sh stop
+ -count=1
+
       - name: Stop isolated rqlite cluster
         if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
         run: bash ops/ha/ci-rqlite-cluster.sh stop
