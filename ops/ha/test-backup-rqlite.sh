@@ -54,6 +54,7 @@ case "$sandbox" in
   *) fail "test sandbox escaped runner temp" ;;
 esac
 cleanup() {
+  bash "$HARNESS" stop >/dev/null 2>&1 || true
   if [[ -d "$sandbox" ]]; then
     resolved="$(realpath -e "$sandbox")"
     case "$resolved" in
@@ -82,4 +83,70 @@ then
 fi
 [[ ! -e "$output" ]] || fail "malformed invocation published an output"
 
+
+bash "$HARNESS" start-mtls
+status="$(bash "$HARNESS" status)"
+cluster_root="$(awk -F= '$1 == "root" { print $2 }' <<<"$status")"
+[[ -n "$cluster_root" ]] || fail "mTLS cluster root is missing"
+cluster_root="$(realpath -e "$cluster_root")"
+case "$cluster_root" in
+  "$sandbox"/maestro-rqlite-ci.*) ;;
+  *) fail "positive cluster escaped test sandbox" ;;
+esac
+
+(
+  cd "$ROOT/backend"
+  MAESTRO_IMPORT_SCHEMA_PREP=1     go test -tags=rqlite_integration ./cmd/maestro-import       -run '^TestPrepareProductionImportSchemaMTLS$' -count=1
+) >/dev/null
+
+gpg_home="$sandbox/gnupg"
+identity="$sandbox/dr-identity.json"
+bash "$IDENTITY" --gpg-home "$gpg_home" --output "$identity" >/dev/null
+mapfile -t fingerprints < <(python3 - "$identity" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if set(data) != {"format_version", "recipient_fingerprint", "signer_fingerprint"}:
+    raise SystemExit(1)
+if data["format_version"] != 1:
+    raise SystemExit(1)
+print(data["signer_fingerprint"])
+print(data["recipient_fingerprint"])
+PY
+)
+[[ "${#fingerprints[@]}" -eq 2 ]] || fail "identity output is invalid"
+export GNUPGHOME="$gpg_home"
+export MAESTRO_DR_COMMIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+export MAESTRO_DR_RUN_ID=123456
+
+bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" >/dev/null
+[[ -f "$output" && ! -L "$output" ]] || fail "encrypted output is missing"
+[[ "$(stat -c '%a' "$output")" == "600" ]] || fail "encrypted output is not mode 0600"
+before="$(sha256sum "$output" | awk '{print $1}')"
+if bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" >/dev/null 2>&1
+then
+  fail "creator overwrote an existing output"
+fi
+after="$(sha256sum "$output" | awk '{print $1}')"
+[[ "$before" == "$after" ]] || fail "existing output changed after rejected invocation"
+
+observed="$sandbox/observed.tar"
+gpg --homedir "$gpg_home" --batch --no-tty --output "$observed"   --decrypt "$output" >/dev/null 2>&1 || fail "recipient could not decrypt output"
+mapfile -t observed_names < <(tar -tf "$observed")
+expected_names=(
+  application-keys.json
+  control-plane.sqlite3
+  manifest.json
+  manifest.sig
+)
+[[ "${#observed_names[@]}" -eq "${#expected_names[@]}" ]] ||
+  fail "encrypted archive member count is invalid"
+for index in "${!expected_names[@]}"; do
+  [[ "${observed_names[$index]}" == "${expected_names[$index]}" ]] ||
+    fail "encrypted archive member order is invalid"
+done
+rm -f -- "$observed"
+bash "$HARNESS" stop >/dev/null
 printf 'backup-rqlite contract passed\n'

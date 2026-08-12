@@ -498,6 +498,48 @@ start_cluster() {
   printf 'ci-rqlite cluster started\n'
 }
 
+
+describe_mtls() {
+  local root mode output parent resolved_parent basename
+  root="$(validated_root)" || return
+  mode="$(read_cluster_mode "$root")" || return
+  [[ "$mode" == "mtls" ]] || fail "describe-mtls requires an mTLS cluster"
+  [[ "${1:-}" == "--output" && -n "${2:-}" && "$#" -eq 2 ]] ||
+    fail "describe-mtls --output FILE"
+  output="$2"
+  [[ ! -e "$output" && ! -L "$output" ]] || fail "describe-mtls output already exists"
+  parent="$(dirname -- "$output")"
+  resolved_parent="$(realpath -e -- "$parent")" ||
+    fail "describe-mtls output parent cannot be resolved"
+  basename="$(basename -- "$output")"
+  [[ "$output" == "$resolved_parent/$basename" ]] ||
+    fail "describe-mtls output path is not canonical"
+  case "$resolved_parent" in
+    "$root"|"$root"/*) ;;
+    *) fail "describe-mtls output escaped cluster root" ;;
+  esac
+
+  umask 077
+  (set -o noclobber; python3 - <<'PY' >"$output"
+import json
+
+payload = {
+    "format_version": 1,
+    "nodes": [
+        {"node_id": "S2", "endpoint": "https://127.0.0.1:4401"},
+        {"node_id": "S3", "endpoint": "https://127.0.0.1:4403"},
+        {"node_id": "S4", "endpoint": "https://127.0.0.1:4405"},
+    ],
+    "ca": "tls/ca.crt",
+    "client_cert": "tls/client.crt",
+    "client_key": "tls/client.key",
+}
+print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+PY
+  ) 2>/dev/null || fail "describe-mtls output could not be created atomically"
+  chmod 0600 "$output"
+  [[ -f "$output" && ! -L "$output" ]] || fail "describe-mtls output is unsafe"
+}
 status_cluster() {
   local root mode node pid
   root="$(validated_root)" || return
@@ -558,7 +600,7 @@ stop_cluster() {
 }
 
 usage() {
-  printf 'usage: %s start|start-mtls|status|stop\n' "${0##*/}" >&2
+  printf 'usage: %s start|start-mtls|status|describe-mtls --output FILE|stop\n' "${0##*/}" >&2
   return 2
 }
 
@@ -566,6 +608,7 @@ case "${1:-}" in
   start) start_cluster plain ;;
   start-mtls) start_cluster mtls ;;
   status) status_cluster ;;
+  describe-mtls) shift; describe_mtls "$@" ;;
   stop) stop_cluster ;;
   *) usage ;;
 esac

@@ -164,7 +164,7 @@ def _inspect_image(path: Path) -> dict[str, Any]:
             "COALESCE(MAX(applied_at_unix),0) FROM import_batches"
         ).fetchone()
         watermark = connection.execute(
-            "SELECT COALESCE(MAX(snapshot_unix),0) FROM backup_watermarks"
+            "SELECT COALESCE(MAX(created_at_unix),0) FROM backup_watermarks"
         ).fetchone()[0]
         return {
             "schema": {
@@ -178,7 +178,7 @@ def _inspect_image(path: Path) -> dict[str, Any]:
                 "import_completed_at_high_watermark": int(import_high or 0),
                 "batch_index_high_watermark": int(batch_row[0] or 0),
                 "batch_applied_at_high_watermark": int(batch_row[1] or 0),
-                "backup_snapshot_high_watermark": int(watermark or 0),
+                "backup_created_at_high_watermark": int(watermark or 0),
             },
         }
     except (sqlite3.Error, TypeError, ValueError, OverflowError):
@@ -192,7 +192,7 @@ def _validate_metadata(metadata: Any) -> None:
         _fail("input")
     if metadata["format_version"] != 1:
         _fail("input")
-    if not _canonical_hex(metadata["repository_commit_sha"], 64):
+    if not _canonical_hex(metadata["repository_commit_sha"], 40):
         _fail("input")
     if not isinstance(metadata["workflow_run_id"], int) or metadata["workflow_run_id"] <= 0:
         _fail("input")

@@ -11,6 +11,7 @@ from ops.ha.verify_backup import BackupVerificationError, build_manifest, verify
 
 HEX_A = "a" * 64
 HEX_B = "b" * 64
+GIT_SHA = "a" * 40
 SIGNER = "A" * 40
 RECIPIENT = "B" * 40
 MARKER = "SYNTHETIC-SECRET-MARKER"
@@ -29,7 +30,7 @@ class VerifyBackupTests(unittest.TestCase):
         os.chmod(self.keys, 0o600)
         self.metadata = {
             "format_version": 1,
-            "repository_commit_sha": HEX_A,
+            "repository_commit_sha": GIT_SHA,
             "workflow_run_id": 123456,
             "rqlite_version": "10.1.0",
             "created_at_utc": "2026-08-12T00:00:00Z",
@@ -65,7 +66,13 @@ class VerifyBackupTests(unittest.TestCase):
               import_run_id TEXT, batch_index INTEGER, applied_at_unix INTEGER
             );
             CREATE TABLE backup_watermarks(
-              node_id TEXT PRIMARY KEY, snapshot_unix INTEGER NOT NULL
+              backup_id TEXT PRIMARY KEY,
+              schema_version INTEGER NOT NULL,
+              backup_sha256 TEXT NOT NULL,
+              destination TEXT NOT NULL,
+              status TEXT NOT NULL,
+              created_at_unix INTEGER NOT NULL,
+              verified_at_unix INTEGER
             );
             INSERT INTO schema_migrations VALUES(1, '""" + HEX_A + """');
             INSERT INTO schema_migrations VALUES(2, '""" + HEX_B + """');
@@ -73,9 +80,8 @@ class VerifyBackupTests(unittest.TestCase):
               VALUES(1, '""" + ("c" * 64) + """', 7, NULL, 1, 100, 100);
             INSERT INTO import_runs VALUES('run-2', 200);
             INSERT INTO import_batches VALUES('run-2', 3, 201);
-            INSERT INTO backup_watermarks VALUES('S2', 202);
-            INSERT INTO backup_watermarks VALUES('S3', 203);
-            INSERT INTO backup_watermarks VALUES('S4', 204);
+            INSERT INTO backup_watermarks
+              VALUES('backup-1', 2, '""" + ("d" * 64) + """', 'drill', 'verified', 202, 204);
             """
         )
         db.commit()
@@ -101,6 +107,14 @@ class VerifyBackupTests(unittest.TestCase):
             manifest["repository_commit_sha"],
             "d" * 40,
         )
+
+    def test_uses_real_backup_watermark_created_at_column(self):
+        manifest = build_manifest(self.image, self.keys, self.metadata)
+        self.assertEqual(
+            manifest["receipts"]["backup_created_at_high_watermark"],
+            202,
+        )
+
     @staticmethod
     def _valid_gpg(command):
         del command

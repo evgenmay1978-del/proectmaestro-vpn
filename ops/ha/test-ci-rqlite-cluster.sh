@@ -114,6 +114,12 @@ case "$cluster_root" in
   *) fail "cluster root escaped the isolated runner temp" ;;
 esac
 
+plain_description="$cluster_root/plain-description.json"
+if bash "$HARNESS" describe-mtls --output "$plain_description" >/dev/null 2>&1; then
+  fail "describe-mtls accepted a plain cluster"
+fi
+[[ ! -e "$plain_description" ]] || fail "plain describe-mtls created an output"
+
 for node in 1 2 3; do
   [[ -f "$cluster_root/node${node}.pid" ]] || fail "node${node} PID file is missing"
 done
@@ -212,6 +218,40 @@ for public_file in ca.crt server.crt client.crt; do
   [[ "$(stat -c '%a' "$mtls_root/tls/$public_file")" == "600" ]] ||
     fail "mTLS certificate $public_file is not mode 0600"
 done
+
+description="$mtls_root/mtls-description.json"
+bash "$HARNESS" describe-mtls --output "$description"
+[[ -f "$description" && ! -L "$description" ]] ||
+  fail "describe-mtls output is missing or unsafe"
+[[ "$(stat -c '%a' "$description")" == "600" ]] ||
+  fail "describe-mtls output is not mode 0600"
+python3 - "$description" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    "format_version": 1,
+    "nodes": [
+        {"node_id": "S2", "endpoint": "https://127.0.0.1:4401"},
+        {"node_id": "S3", "endpoint": "https://127.0.0.1:4403"},
+        {"node_id": "S4", "endpoint": "https://127.0.0.1:4405"},
+    ],
+    "ca": "tls/ca.crt",
+    "client_cert": "tls/client.crt",
+    "client_key": "tls/client.key",
+}
+if payload != expected:
+    raise SystemExit("describe-mtls payload mismatch")
+encoded = json.dumps(payload, sort_keys=True)
+for forbidden in ("ca.key", "server.key", "server.crt"):
+    if forbidden in encoded:
+        raise SystemExit("describe-mtls disclosed forbidden material")
+PY
+if bash "$HARNESS" describe-mtls --output "$description" >/dev/null 2>&1; then
+  fail "describe-mtls overwrote an existing output"
+fi
 
 if curl --fail --silent --show-error --max-time 3 \
   --cacert "$mtls_root/tls/ca.crt" \
