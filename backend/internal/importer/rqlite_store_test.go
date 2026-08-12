@@ -100,6 +100,35 @@ func canonicalCustomerOrderBatch(t *testing.T) ApplyBatch {
 	}
 }
 
+func customerOnlyBatch(t *testing.T, fixtureName, sourceKey string) (ApplyBatch, customerApplyPayload) {
+	t.Helper()
+	plan, report := Plan(decodeFixture(t, fixtureName), testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	operations, err := planOperations(plan)
+	if err != nil {
+		t.Fatalf("planOperations: %v", err)
+	}
+	var selected ApplyOperation
+	for _, operation := range operations {
+		if operation.Entity == "customer" && operation.Key == sourceKey {
+			selected = operation
+			break
+		}
+	}
+	if selected.Entity == "" {
+		t.Fatalf("customer operation %q not found", sourceKey)
+	}
+	var payload customerApplyPayload
+	if err := decodeCanonicalOperation(selected.CanonicalJSON, &payload); err != nil {
+		t.Fatalf("decode customer operation: %v", err)
+	}
+	batch := ApplyBatch{RunID: "import-topology-run", PlanDigest: plan.PlanDigest, Index: 0, Operations: []ApplyOperation{selected}}
+	batch.Digest = digestBatch(batch.Operations)
+	return batch, payload
+}
+
 func canonicalDeleteBatch(t *testing.T, entity string) (ApplyBatch, PlannedDelete) {
 	t.Helper()
 	base := decodeFixture(t, "full-then-delta/base-full.json")
@@ -186,6 +215,125 @@ func TestRQLiteApplyStoreCommitsCanonicalRowsAndReceiptAtomically(t *testing.T) 
 		if strings.Contains(gotSQL, forbidden) {
 			t.Fatalf("transaction used generic staging %q:\n%s", forbidden, gotSQL)
 		}
+	}
+}
+
+func requireTopologyBatchGate(t *testing.T, statement rqlite.Statement, batch ApplyBatch) {
+	t.Helper()
+	if !strings.Contains(statement.SQL, batchWriteGate) {
+		t.Fatalf("topology statement is not batch-gated: %s", statement.SQL)
+	}
+	if len(statement.Args) < 3 {
+		t.Fatalf("topology statement gate args are missing: %#v", statement)
+	}
+	got := statement.Args[len(statement.Args)-3:]
+	want := batchGateArgs(batch)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("topology gate args = %v, want %v", got, want)
+	}
+}
+
+func TestRQLiteApplyStoreWritesEveryExplicitCustomerTopologyTupleAtomically(t *testing.T) {
+	batch, payload := customerOnlyBatch(t, "orders-pending-credited.json", "s1:customer:order-owner")
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}, receiptQueryResult(batch)}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch topology: %v", err)
+	}
+	if len(db.requests) != 1 || !db.requests[0].transaction || db.requests[0].level != rqlite.Linearizable {
+		t.Fatalf("topology write was not one linearizable transaction: %#v", db.requests)
+	}
+
+	wantNodes := make(map[string]struct{}, len(payload.Customer.NodeIDs))
+	wantTuples := make(map[string]struct{}, len(payload.Customer.NodeIDs)*len(payload.Customer.ProtocolTags))
+	for _, nodeID := range payload.Customer.NodeIDs {
+		wantNodes[nodeID] = struct{}{}
+		for _, protocolTag := range payload.Customer.ProtocolTags {
+			wantTuples[nodeID+"\x00"+protocolTag] = struct{}{}
+		}
+	}
+	protocolDeletes := 0
+	nodeDeletes := 0
+	for _, statement := range db.requests[0].statements {
+		sqlText := strings.ToLower(statement.SQL)
+		switch {
+		case strings.Contains(sqlText, "delete from desired_protocol_tags"):
+			requireTopologyBatchGate(t, statement, batch)
+			protocolDeletes++
+		case strings.Contains(sqlText, "delete from desired_node_state"):
+			requireTopologyBatchGate(t, statement, batch)
+			nodeDeletes++
+		case strings.Contains(sqlText, "insert into desired_node_state"):
+			requireTopologyBatchGate(t, statement, batch)
+			if len(statement.Args) < 8 || statement.Args[0] != payload.Customer.InternalID || statement.Args[2] != "maestro-core" ||
+				statement.Args[3] != payload.Customer.Generation || statement.Args[5] != payload.IdentitySecret.SHA256 || statement.Args[6] != "pending" {
+				t.Fatalf("desired node args = %#v", statement.Args)
+			}
+			nodeID, _ := statement.Args[1].(string)
+			if _, exists := wantNodes[nodeID]; !exists {
+				t.Fatalf("unexpected desired node %q", nodeID)
+			}
+			delete(wantNodes, nodeID)
+		case strings.Contains(sqlText, "insert into desired_protocol_tags"):
+			requireTopologyBatchGate(t, statement, batch)
+			if len(statement.Args) < 4 || statement.Args[0] != payload.Customer.InternalID || statement.Args[2] != "maestro-core" {
+				t.Fatalf("desired protocol args = %#v", statement.Args)
+			}
+			nodeID, _ := statement.Args[1].(string)
+			protocolTag, _ := statement.Args[3].(string)
+			key := nodeID + "\x00" + protocolTag
+			if _, exists := wantTuples[key]; !exists {
+				t.Fatalf("unexpected desired protocol tuple %q", key)
+			}
+			delete(wantTuples, key)
+		}
+	}
+	if protocolDeletes != 1 || nodeDeletes != 1 || len(wantNodes) != 0 || len(wantTuples) != 0 {
+		t.Fatalf("topology coverage deletes=%d/%d missing nodes=%v tuples=%v", protocolDeletes, nodeDeletes, wantNodes, wantTuples)
+	}
+}
+
+func TestRQLiteApplyStoreNarrowsCustomerTopologyAsExactSet(t *testing.T) {
+	batch, payload := customerOnlyBatch(t, "full-then-delta/final-full.json", "customer-alpha")
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}, receiptQueryResult(batch)}}
+	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("CommitBatch narrowed topology: %v", err)
+	}
+	wantProtocolArgs := []any{payload.Customer.InternalID, "maestro-core", "vless"}
+	wantNodeArgs := []any{payload.Customer.InternalID, "maestro-core", "S2", "S3", "S4"}
+	protocolDelete := false
+	nodeDelete := false
+	for _, statement := range db.requests[0].statements {
+		sqlText := strings.ToLower(statement.SQL)
+		if !strings.Contains(sqlText, "delete from desired_protocol_tags") && !strings.Contains(sqlText, "delete from desired_node_state") {
+			continue
+		}
+		requireTopologyBatchGate(t, statement, batch)
+		if !strings.Contains(sqlText, "not in") {
+			t.Fatalf("topology delete is not exact-set narrowing: %s", statement.SQL)
+		}
+		setArgs := statement.Args[:len(statement.Args)-3]
+		if strings.Contains(sqlText, "desired_protocol_tags") {
+			protocolDelete = true
+			if fmt.Sprint(setArgs) != fmt.Sprint(wantProtocolArgs) {
+				t.Fatalf("protocol narrowing args = %v, want %v", setArgs, wantProtocolArgs)
+			}
+		} else {
+			nodeDelete = true
+			if fmt.Sprint(setArgs) != fmt.Sprint(wantNodeArgs) {
+				t.Fatalf("node narrowing args = %v, want %v", setArgs, wantNodeArgs)
+			}
+		}
+	}
+	if !protocolDelete || !nodeDelete {
+		t.Fatalf("exact-set topology deletes missing: protocol=%v node=%v", protocolDelete, nodeDelete)
 	}
 }
 
@@ -449,6 +597,7 @@ func TestBusinessDigestUsesLogicalImportedEntityProjection(t *testing.T) {
 		"credentials":         {"from credentials c", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=c.customer_id", "lifecycle='deleted'"},
 		"subscription_tokens": {"from subscription_tokens t", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=t.customer_id", "lifecycle='deleted'"},
 		"desired_node_state":  {"from desired_node_state d", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=d.customer_id", "lifecycle='deleted'"},
+		"desired_protocol_tags": {"from desired_protocol_tags p", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=p.customer_id", "lifecycle='deleted'"},
 		"imported_secrets":    {"from imported_secrets i", "not exists", "imported_entity_state", "entity_kind='encrypted_secret'", "target_id=i.secret_id", "lifecycle='deleted'"},
 	}
 	for table, fragments := range wantFragments {

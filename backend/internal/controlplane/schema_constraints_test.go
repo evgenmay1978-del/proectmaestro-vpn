@@ -48,6 +48,57 @@ func TestSchemaSeedsImmutableTariffsAndFourNodes(t *testing.T) {
 		t.Fatal("immutable tariff version accepted an update")
 	}
 }
+
+func TestDesiredProtocolTagsBindToExactDesiredNode(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	customerID := "topology-customer"
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO customers(
+			customer_id,display_login,login_key_hmac,status,expires_at_unix,
+			generation,created_at_unix,updated_at_unix
+		) VALUES(?,?,?,?,?,?,?,?)
+	`, Args: []any{customerID, "TopologyCustomer", repeatHex("1"), "active", 2_100_000, 7, 1_000_000, 1_000_000}})
+
+	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO desired_protocol_tags(customer_id,node_id,service_name,protocol_tag)
+		VALUES(?,?,?,?)
+	`, Args: []any{customerID, "S2", "maestro-core", "vless"}})
+
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO desired_node_state(
+				customer_id,node_id,service_name,generation,desired_envelope,
+				desired_sha256,status,updated_at_unix
+			) VALUES(?,?,?,?,?,?,?,?)
+		`, Args: []any{customerID, "S2", "maestro-core", 7, "synthetic-envelope", repeatHex("2"), "pending", 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO desired_protocol_tags(customer_id,node_id,service_name,protocol_tag)
+			VALUES(?,?,?,?)
+		`, Args: []any{customerID, "S2", "maestro-core", "vless"}},
+	)
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT customer_id,node_id,service_name,protocol_tag
+		FROM desired_protocol_tags
+		WHERE customer_id=?
+	`, Args: []any{customerID}})
+	if got := fmt.Sprint(result.Rows); got != `[map[customer_id:topology-customer node_id:S2 protocol_tag:vless service_name:maestro-core]]` {
+		t.Fatalf("desired protocol rows = %s", got)
+	}
+
+	mustRequest(t, ctx, db, rqlite.Statement{
+		SQL: "DELETE FROM desired_node_state WHERE customer_id=? AND node_id=? AND service_name=?",
+		Args: []any{customerID, "S2", "maestro-core"},
+	})
+	result = mustStrongQuery(t, ctx, db, rqlite.Statement{
+		SQL: "SELECT protocol_tag FROM desired_protocol_tags WHERE customer_id=?",
+		Args: []any{customerID},
+	})
+	if len(result.Rows) != 0 {
+		t.Fatalf("desired protocol cascade rows = %#v", result.Rows)
+	}
+}
+
 func TestImportSchemaBindsRunAndBatchDigests(t *testing.T) {
 	ctx, db := mustAppliedSchema(t)
 
