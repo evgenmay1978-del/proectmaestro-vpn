@@ -67,9 +67,9 @@ func (b *SecretBox) Seal(scope SecretScope, plaintext []byte) (Envelope, error) 
 	if b == nil {
 		return Envelope{}, errors.New("controlplane: secret box is unavailable")
 	}
-	aead, ok := b.aeadByVersion[b.current]
-	if !ok {
-		return Envelope{}, errors.New("controlplane: current secret key version is unavailable")
+	aead, err := b.currentAEAD()
+	if err != nil {
+		return Envelope{}, err
 	}
 	aad, err := secretAAD(b.current, scope)
 	if err != nil {
@@ -85,6 +85,14 @@ func (b *SecretBox) Seal(scope SecretScope, plaintext []byte) (Envelope, error) 
 		Nonce:      nonce,
 		Ciphertext: ciphertext,
 	}, nil
+}
+
+func (b *SecretBox) currentAEAD() (cipher.AEAD, error) {
+	aead, ok := b.aeadByVersion[b.current]
+	if !ok {
+		return nil, errors.New("controlplane: current secret key version is unavailable")
+	}
+	return aead, nil
 }
 
 // Open authenticates both the envelope and its exact owning scope.
