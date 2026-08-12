@@ -26,6 +26,13 @@ grep -qF '127.0.0.1:4401' "$HARNESS" || fail "first loopback HTTP endpoint is mi
 grep -qF '127.0.0.1:4403' "$HARNESS" || fail "second loopback HTTP endpoint is missing"
 grep -qF '127.0.0.1:4405' "$HARNESS" || fail "third loopback HTTP endpoint is missing"
 
+grep -qF 'start-mtls) start_cluster mtls' "$HARNESS" ||
+  fail "start-mtls command is missing"
+grep -qF -- '-http-verify-client' "$HARNESS" ||
+  fail "mTLS client verification flag is missing"
+grep -qF 'subjectAltName=IP:127.0.0.1' "$HARNESS" ||
+  fail "loopback server certificate SAN is missing"
+
 for node_id in ci-rqlite-1 ci-rqlite-2 ci-rqlite-3; do
   count="$(grep -cF -- "-node-id $node_id" "$HARNESS" || true)"
   [[ "$count" == 1 ]] || fail "node ID $node_id must appear exactly once"
@@ -180,5 +187,43 @@ fi
 rm -f -- "$test_temp/maestro-rqlite-ci-root"
 rm -rf -- "$outside_root"
 outside_root=""
+
+bash "$HARNESS" start-mtls
+mtls_status="$(bash "$HARNESS" status)"
+mtls_root="$(awk -F= '$1 == "root" { print $2 }' <<<"$mtls_status")"
+[[ -n "$mtls_root" ]] || fail "mTLS status did not report cluster root"
+mtls_root="$(realpath -e "$mtls_root")"
+case "$mtls_root" in
+  "$test_temp"/maestro-rqlite-ci.*) ;;
+  *) fail "mTLS cluster root escaped runner temp" ;;
+esac
+[[ "$(awk -F= '$1 == "mode" { print $2 }' <<<"$mtls_status")" == "mtls" ]] ||
+  fail "mTLS status did not report mode=mtls"
+
+for private_file in ca.key server.key client.key; do
+  [[ -f "$mtls_root/tls/$private_file" && ! -L "$mtls_root/tls/$private_file" ]] ||
+    fail "mTLS private file $private_file is missing or unsafe"
+  [[ "$(stat -c '%a' "$mtls_root/tls/$private_file")" == "600" ]] ||
+    fail "mTLS private file $private_file is not mode 0600"
+done
+for public_file in ca.crt server.crt client.crt; do
+  [[ -f "$mtls_root/tls/$public_file" && ! -L "$mtls_root/tls/$public_file" ]] ||
+    fail "mTLS certificate $public_file is missing or unsafe"
+  [[ "$(stat -c '%a' "$mtls_root/tls/$public_file")" == "600" ]] ||
+    fail "mTLS certificate $public_file is not mode 0600"
+done
+
+if curl --fail --silent --show-error --max-time 3 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  "https://127.0.0.1:4401/readyz" >/dev/null 2>&1; then
+  fail "mTLS endpoint accepted a client without a certificate"
+fi
+curl --fail --silent --show-error --max-time 3 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  --cert "$mtls_root/tls/client.crt" \
+  --key "$mtls_root/tls/client.key" \
+  "https://127.0.0.1:4401/readyz" >/dev/null
+bash "$HARNESS" stop
+[[ ! -e "$mtls_root" ]] || fail "mTLS stop did not remove validated cluster root"
 
 printf 'ci-rqlite contract passed\n'
