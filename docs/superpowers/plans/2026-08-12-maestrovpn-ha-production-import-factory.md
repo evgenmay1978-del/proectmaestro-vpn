@@ -68,6 +68,12 @@ func TestDecodeSnapshotV2RequiresClusterHMACKeyDigest(t *testing.T) {
 
 func TestPlanBindsTrialSaltDigestOnlyWhenTrialsExist(t *testing.T) {
     snapshot := decodeFixture(t, "customers-valid.json")
+    snapshot.Trials = []LegacyTrial{{
+        SourceKey: "trial-protection-v2",
+        LegacyAnchorHMAC: strings.Repeat("1", 64),
+        CurrentHMAC: strings.Repeat("2", 64),
+        ExpiresAtUnix: 2_100_100,
+    }}
     snapshot.LegacyTrialSaltSHA256 = strings.Repeat("a", 64)
     plan, report := Plan(snapshot, testPlanOptions())
     if len(report.Blockers) != 0 { t.Fatalf("blockers=%#v", report.Blockers) }
