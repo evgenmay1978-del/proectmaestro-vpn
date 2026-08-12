@@ -57,7 +57,7 @@ func TestDesiredProtocolTagsBindToExactDesiredNode(t *testing.T) {
 			customer_id,display_login,login_key_hmac,status,expires_at_unix,
 			generation,created_at_unix,updated_at_unix
 		) VALUES(?,?,?,?,?,?,?,?)
-	`, Args: []any{customerID, "TopologyCustomer", repeatHex("1"), "active", 2_100_000, 7, 1_000_000, 1_000_000}})
+	`, Args: []any{customerID, "TopologyCustomer", strings.Repeat("ab", 32), "active", 2_100_000, 7, 1_000_000, 1_000_000}})
 
 	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
 		INSERT INTO desired_protocol_tags(customer_id,node_id,service_name,protocol_tag)
@@ -97,6 +97,10 @@ func TestDesiredProtocolTagsBindToExactDesiredNode(t *testing.T) {
 	if len(result.Rows) != 0 {
 		t.Fatalf("desired protocol cascade rows = %#v", result.Rows)
 	}
+	mustRequest(t, ctx, db, rqlite.Statement{
+		SQL: "DELETE FROM customers WHERE customer_id=?",
+		Args: []any{customerID},
+	})
 }
 
 func TestImportSchemaBindsRunAndBatchDigests(t *testing.T) {

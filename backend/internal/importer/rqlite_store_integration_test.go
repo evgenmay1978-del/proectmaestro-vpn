@@ -5,6 +5,7 @@ package importer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -131,7 +132,7 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	for _, row := range results[4].Rows {
 		nodeID, _ := row["node_id"].(string)
 		if _, exists := wantNodes[nodeID]; !exists || row["service_name"] != "maestro-core" ||
-			row["generation"] != plan.Customers[0].Generation || row["desired_sha256"] != plan.EncryptedSecrets[0].SHA256 ||
+			fmt.Sprint(row["generation"]) != fmt.Sprint(plan.Customers[0].Generation) || row["desired_sha256"] != plan.EncryptedSecrets[0].SHA256 ||
 			row["status"] != "pending" {
 			t.Fatalf("unexpected desired node row: %#v", row)
 		}
