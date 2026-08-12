@@ -55,7 +55,7 @@ func NewRQLiteApplyStoreWithTrialProtection(
 		NonceB64      string `json:"nonce_b64"`
 		CiphertextB64 string `json:"ciphertext_b64"`
 	}
-	if protection.KeyVersion != 1 || len(protection.SaltSHA256) != 64 ||
+	if protection.KeyVersion <= 0 || len(protection.SaltSHA256) != 64 ||
 		decodeCanonicalOperation([]byte(protection.EncryptedSaltEnvelope), &envelope) != nil ||
 		envelope.KeyVersion != protection.KeyVersion || envelope.NonceB64 == "" ||
 		envelope.CiphertextB64 == "" {
