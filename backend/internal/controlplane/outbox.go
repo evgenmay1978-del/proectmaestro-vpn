@@ -275,6 +275,7 @@ WHERE node_id=? AND service_name=? AND status<>'applied'
 		return ErrConflict
 	}
 	return nil
+}
 
 func (s *Service) applyReceiptRecordedExactly(ctx context.Context, receipt ApplyReceipt) (bool, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT
@@ -314,7 +315,6 @@ WHERE customer_id=? AND node_id=? AND service_name=? AND generation=?`, Args: []
 		}
 	}
 	return true, nil
-}
 }
 
 func (s *Service) ReconcileNode(ctx context.Context, command ReconcileNodeCommand) (int64, error) {
