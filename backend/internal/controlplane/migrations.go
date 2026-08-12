@@ -319,7 +319,7 @@ func splitMigrationStatements(data []byte) []rqlite.Statement {
 func identitiesFromRows(rows []map[string]any) ([]migrationIdentity, error) {
 	identities := make([]migrationIdentity, 0, len(rows))
 	for _, row := range rows {
-		version, ok := restoreInteger(row["version"])
+		version, ok := rowInt64(row, "version")
 		checksum, checksumOK := row["checksum"].(string)
 		if !ok || version <= 0 || !checksumOK || !canonicalRestoreHex(checksum) {
 			return nil, errors.New("controlplane: schema migration row is invalid")

@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"fmt"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -39,15 +40,15 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
 			rowsScript(map[string]any{"name": "schema_migrations"}),
 			rowsScript(map[string]any{
-				"version": int64(1), "checksum": migrations[0].Checksum,
+				"version": json.Number("1"), "checksum": migrations[0].Checksum,
 			}),
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
 			resultsScript(
 				rqlite.Result{Rows: []map[string]any{
-					{"version": int64(1), "checksum": migrations[0].Checksum},
-					{"version": int64(2), "checksum": migrations[1].Checksum},
+					{"version": json.Number("1"), "checksum": migrations[0].Checksum},
+					{"version": json.Number("2"), "checksum": migrations[1].Checksum},
 				}},
 				rqlite.Result{Rows: tableRows},
 				rqlite.Result{},
