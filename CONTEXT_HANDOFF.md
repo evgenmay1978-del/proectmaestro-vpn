@@ -1,5 +1,26 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAA. HA DR TASK 4 GREEN; RESTORE FENCING/PARITY NEXT (12.08.2026)
+
+- Task 4 is complete on exact SHA
+  `11798300efd9781dd4ea62c66dfe9808e287f013`. GitHub Actions run
+  `31579056320`, job `94057725391`, passed every Python, shell, Go, race,
+  vet, rqlite, importer and mTLS step.
+- Exact RED workflow commit was
+  `d496a382ce9452522785271187b42f4107af9f52`; run `31578174830`, job
+  `94055155511`, failed only because `ops.ha.restore_api` did not exist.
+- The real shell E2E creates a populated source mTLS cluster, creates and
+  authenticates an encrypted backup, destroys the source, creates a different
+  empty three-node mTLS cluster, restores exactly once, and rejects a repeated
+  restore. The loader persists a no-clobber attempt marker before the one load.
+- Restore API requires exact S2/S3/S4 loopback HTTPS voters, CA and client
+  certificate/key, strong empty reads on all voters, one POST /db/load with no
+  retry, fixed unknown-outcome handling, and exact strong migration/table-count
+  readback on all three voters.
+- Next is Task 5 RED/GREEN real restored-cluster epoch fencing and importer
+  parity. Production remains NO-GO; no S1-S4, panel, bot, customer, VPN, DNS,
+  Android/TV, Release or OTA state was accessed or changed.
+
 ## 0AAA. HA DR TASK 3 GREEN; FRESH-CLUSTER RESTORE NEXT (12.08.2026)
 
 - Active repository/branch/PR: `evgenmay1978-del/proectmaestro-vpn`,
