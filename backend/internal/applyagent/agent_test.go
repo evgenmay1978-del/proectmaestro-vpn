@@ -34,13 +34,13 @@ type fakeDriver struct {
 	prepareCalls  atomic.Int32
 	commitCalls   atomic.Int32
 	rollbackCalls atomic.Int32
-	inspectFn     func(DesiredSnapshot) (AppliedState, error)
-	prepareFn     func(DesiredSnapshot) (PreparedChange, error)
+	inspectFn     func(MaterializedSnapshot) (AppliedState, error)
+	prepareFn     func(MaterializedSnapshot) (PreparedChange, error)
 	commitFn      func(PreparedChange) (AppliedState, error)
 	rollbackFn    func(PreparedChange) error
 }
 
-func (d *fakeDriver) Inspect(_ context.Context, snapshot DesiredSnapshot) (AppliedState, error) {
+func (d *fakeDriver) Inspect(_ context.Context, snapshot MaterializedSnapshot) (AppliedState, error) {
 	d.inspectCalls.Add(1)
 	if d.inspectFn != nil {
 		return d.inspectFn(snapshot)
@@ -48,7 +48,7 @@ func (d *fakeDriver) Inspect(_ context.Context, snapshot DesiredSnapshot) (Appli
 	return AppliedState{}, nil
 }
 
-func (d *fakeDriver) Prepare(_ context.Context, snapshot DesiredSnapshot) (PreparedChange, error) {
+func (d *fakeDriver) Prepare(_ context.Context, snapshot MaterializedSnapshot) (PreparedChange, error) {
 	d.prepareCalls.Add(1)
 	if d.prepareFn != nil {
 		return d.prepareFn(snapshot)
@@ -114,7 +114,7 @@ func agentFixture(t *testing.T, verifier LeaseVerifier, driver Driver, state Loc
 	agent, err := NewAgent(AgentConfig{
 		NodeID: "node-a", ServiceID: "xui", NodeIncarnation: 3,
 		PublicKeys: map[string]ed25519.PublicKey{"dispatcher-key-1": publicKey},
-		Verifier: verifier, Driver: driver, State: state,
+		Verifier: verifier, Driver: driver, State: state, Opener: validFakePayloadOpener(),
 		Clock: func() time.Time { return time.Unix(2_000_030, 0) },
 	})
 	if err != nil {
@@ -192,7 +192,7 @@ func TestAgentRejectsOldGenerationAndHashConflict(t *testing.T) {
 func TestAgentSameGenerationSameHashIsNoOp(t *testing.T) {
 	verifier := &fakeLeaseVerifier{}
 	_, command, _ := agentFixture(t, verifier, &fakeDriver{}, &fakeStateStore{})
-	driver := &fakeDriver{inspectFn: func(DesiredSnapshot) (AppliedState, error) {
+	driver := &fakeDriver{inspectFn: func(MaterializedSnapshot) (AppliedState, error) {
 		return AppliedState{SnapshotSHA256: command.Snapshot.SnapshotSHA256, Healthy: true}, nil
 	}}
 	agent, command, privateKey := agentFixture(t, verifier, driver, &fakeStateStore{marker: markerForCommand(command)})
@@ -281,7 +281,7 @@ func TestCrashAfterSideEffectBeforeReceiptRetriesAsHashNoOp(t *testing.T) {
 	state := &fakeStateStore{storeErr: errors.New("test: fsync failed")}
 	var currentHash string
 	driver := &fakeDriver{
-		inspectFn: func(DesiredSnapshot) (AppliedState, error) {
+		inspectFn: func(MaterializedSnapshot) (AppliedState, error) {
 			return AppliedState{SnapshotSHA256: currentHash, Healthy: true}, nil
 		},
 		commitFn: func(prepared PreparedChange) (AppliedState, error) {
@@ -306,7 +306,7 @@ func TestConcurrentApplyIsSerializedPerService(t *testing.T) {
 	verifier := &fakeLeaseVerifier{}
 	var active atomic.Int32
 	var maximum atomic.Int32
-	driver := &fakeDriver{prepareFn: func(snapshot DesiredSnapshot) (PreparedChange, error) {
+	driver := &fakeDriver{prepareFn: func(snapshot MaterializedSnapshot) (PreparedChange, error) {
 		current := active.Add(1)
 		for {
 			old := maximum.Load()

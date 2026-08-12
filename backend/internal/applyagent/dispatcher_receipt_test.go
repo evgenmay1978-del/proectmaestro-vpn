@@ -16,7 +16,7 @@ import (
 type selectiveSnapshotSource struct { failed Target }
 func (s selectiveSnapshotSource) CompleteSnapshot(_ context.Context,target Target,operationID string)(DesiredSnapshot,error){
 	if target==s.failed{return DesiredSnapshot{},errors.New("test: target unavailable")}
-	return NewDesiredSnapshot(target.NodeID,target.ServiceID,operationID,[]DesiredEntry{{CustomerID:"customer-a",OperationID:"operation-a",Generation:3,Payload:controlplane.Envelope{KeyVersion:1,Nonce:[]byte("nonce"),Ciphertext:[]byte("cipher")},PayloadSHA256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}})
+	return NewDesiredSnapshot(target.NodeID,target.ServiceID,operationID,[]DesiredEntry{{CustomerID:"customer-a",OperationID:"operation-a",PayloadKind:"vless",Generation:3,Payload:controlplane.Envelope{KeyVersion:1,Nonce:[]byte("nonce"),Ciphertext:[]byte("cipher")},PayloadSHA256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}})
 }
 type resultSender struct { mu sync.Mutex; calls []Target }
 func (s *resultSender) Send(_ context.Context,target Target,signed SignedCommand)(DispatchResult,error){

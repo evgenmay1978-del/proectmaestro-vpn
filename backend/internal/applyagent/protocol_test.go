@@ -18,12 +18,12 @@ func protocolFixture(t *testing.T) (ApplyCommand, ed25519.PublicKey, ed25519.Pri
 	}
 	snapshot, err := NewDesiredSnapshot("node-a", "xui", "operation-trigger", []DesiredEntry{
 		{
-			CustomerID: "customer-b", OperationID: "operation-b", Generation: 4,
+			CustomerID: "customer-b", OperationID: "operation-b", PayloadKind: "vless", Generation: 4,
 			Payload: controlplane.Envelope{KeyVersion: 2, Nonce: []byte("nonce-b"), Ciphertext: []byte("cipher-b")},
 			PayloadSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		},
 		{
-			CustomerID: "customer-a", OperationID: "operation-a", Generation: 3,
+			CustomerID: "customer-a", OperationID: "operation-a", PayloadKind: "vless", Generation: 3,
 			Payload: controlplane.Envelope{KeyVersion: 2, Nonce: []byte("nonce-a"), Ciphertext: []byte("cipher-a")},
 			PayloadSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		},

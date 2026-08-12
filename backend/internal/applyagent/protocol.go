@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
@@ -25,6 +26,7 @@ var ErrInvalidCommand = errors.New("applyagent: invalid command")
 type DesiredEntry struct {
 	CustomerID    string                `json:"customer_id"`
 	OperationID   string                `json:"operation_id"`
+	PayloadKind   string                `json:"payload_kind"`
 	Generation    int64                 `json:"generation"`
 	Tombstone     bool                  `json:"tombstone"`
 	Payload       controlplane.Envelope `json:"payload"`
@@ -104,6 +106,7 @@ func validateSnapshotFields(snapshot DesiredSnapshot) error {
 	previousCustomer := ""
 	for index, entry := range snapshot.Entries {
 		if strings.TrimSpace(entry.CustomerID) == "" || strings.TrimSpace(entry.OperationID) == "" ||
+			strings.TrimSpace(entry.PayloadKind) == "" || len(entry.PayloadKind) > 1024 || !utf8.ValidString(entry.PayloadKind) ||
 			entry.Generation <= 0 || !validSHA256(entry.PayloadSHA256) {
 			return ErrInvalidCommand
 		}

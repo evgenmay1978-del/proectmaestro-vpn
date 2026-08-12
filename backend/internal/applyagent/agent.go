@@ -17,17 +17,17 @@ type StateMarker struct { SnapshotSHA256 string; ClusterEpoch, NodeIncarnation, 
 
 type LeaseVerifier interface { VerifyCurrentStrong(context.Context, string, string, string, string, int64, int64, int64) error }
 type Driver interface {
-	Inspect(context.Context, DesiredSnapshot) (AppliedState, error)
-	Prepare(context.Context, DesiredSnapshot) (PreparedChange, error)
+	Inspect(context.Context, MaterializedSnapshot) (AppliedState, error)
+	Prepare(context.Context, MaterializedSnapshot) (PreparedChange, error)
 	Commit(context.Context, PreparedChange) (AppliedState, error)
 	Rollback(context.Context, PreparedChange) error
 }
 type LocalStateStore interface { Load(context.Context) (StateMarker, error); Store(context.Context, StateMarker) error }
-type AgentConfig struct { NodeID, ServiceID string; NodeIncarnation int64; PublicKeys map[string]ed25519.PublicKey; Verifier LeaseVerifier; Driver Driver; State LocalStateStore; Clock func() time.Time }
+type AgentConfig struct { NodeID, ServiceID string; NodeIncarnation int64; PublicKeys map[string]ed25519.PublicKey; Verifier LeaseVerifier; Driver Driver; State LocalStateStore; Opener PayloadOpener; Clock func() time.Time }
 type Agent struct { cfg AgentConfig; mu sync.Mutex }
 
 func NewAgent(cfg AgentConfig) (*Agent, error) {
-	if cfg.NodeID=="" || cfg.ServiceID=="" || cfg.NodeIncarnation<=0 || cfg.Verifier==nil || cfg.Driver==nil || cfg.State==nil || cfg.Clock==nil || len(cfg.PublicKeys)==0 { return nil, ErrInvalidCommand }
+	if cfg.NodeID=="" || cfg.ServiceID=="" || cfg.NodeIncarnation<=0 || cfg.Verifier==nil || cfg.Driver==nil || cfg.State==nil || cfg.Opener==nil || cfg.Clock==nil || len(cfg.PublicKeys)==0 { return nil, ErrInvalidCommand }
 	return &Agent{cfg:cfg}, nil
 }
 
@@ -39,12 +39,14 @@ func (a *Agent) Apply(ctx context.Context, signed SignedCommand) (DispatchResult
 	if err=verify(); err!=nil { return DispatchResult{}, err }
 	marker,err:=a.cfg.State.Load(ctx);if err!=nil{return DispatchResult{},err}
 	if err=validateMarkerForCommand(marker,cmd);err!=nil{return DispatchResult{},err}
-	actual, err := a.cfg.Driver.Inspect(ctx, cmd.Snapshot); if err!=nil { return DispatchResult{}, err }
+	materialized,err:=materializeSnapshot(a.cfg.Opener,cmd.Snapshot);if err!=nil{return DispatchResult{},err}
+	defer wipeMaterializedSnapshot(&materialized)
+	actual, err := a.cfg.Driver.Inspect(ctx, materialized); if err!=nil { return DispatchResult{}, err }
 	if actual.Healthy && actual.SnapshotSHA256==cmd.Snapshot.SnapshotSHA256 {
 		if err:=a.storeMarker(ctx,cmd);err!=nil{return DispatchResult{},err}
 		return dispatchResult(cmd),nil
 	}
-	prepared, err := a.cfg.Driver.Prepare(ctx, cmd.Snapshot); if err!=nil { return DispatchResult{}, err }
+	prepared, err := a.cfg.Driver.Prepare(ctx, materialized); if err!=nil { return DispatchResult{}, err }
 	if prepared.SnapshotSHA256=="" { prepared.SnapshotSHA256=cmd.Snapshot.SnapshotSHA256 }
 	if err=verify(); err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, err }
 	applied, err := a.cfg.Driver.Commit(ctx, prepared); if err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, err }
