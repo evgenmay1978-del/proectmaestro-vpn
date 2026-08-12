@@ -10,7 +10,7 @@ import (
 
 const MaxHTTPBodyBytes int64 = 4 << 20
 
-type HTTPConfig struct { Agent *Agent; DispatcherSAN string; Ready func() bool }
+type HTTPConfig struct { Agent *Agent; Status *StatusSigner; DispatcherSAN string; Ready func() bool }
 type HTTPHandler struct { cfg HTTPConfig }
 
 func NewHTTPHandler(cfg HTTPConfig) (*HTTPHandler,error) {
@@ -27,6 +27,8 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter,r *http.Request) {
 	case "/v1/apply":
 		h.apply(w,r)
 	default:
+	case "/v1/status":
+		h.status(w,r)
 		http.NotFound(w,r)
 	}
 }
@@ -46,6 +48,16 @@ func (h *HTTPHandler) apply(w http.ResponseWriter,r *http.Request) {
 
 func hasExactPeerSAN(r *http.Request,want string) bool {
 	if r.TLS==nil || len(r.TLS.PeerCertificates)!=1 { return false }
+func (h *HTTPHandler) status(w http.ResponseWriter,r *http.Request) {
+	if r.Method!=http.MethodGet { w.WriteHeader(http.StatusMethodNotAllowed);return }
+	if !hasExactPeerSAN(r,h.cfg.DispatcherSAN) { w.WriteHeader(http.StatusUnauthorized);return }
+	if h.cfg.Status==nil { w.WriteHeader(http.StatusServiceUnavailable);return }
+	signed,err:=h.cfg.Status.Sign(r.Context(),r.URL.Query().Get("nonce"));if err!=nil { w.WriteHeader(http.StatusServiceUnavailable);return }
+	w.Header().Set("Content-Type","application/json")
+	_ = json.NewEncoder(w).Encode(signed)
+}
+
+
 	for _,name:=range r.TLS.PeerCertificates[0].DNSNames { if name==want{return true} }
 	return false
 }
