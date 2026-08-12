@@ -70,7 +70,6 @@ WHERE ns.desired_target=1 AND ns.retired=0
 ON CONFLICT(tombstone_id,node_id,service_name) DO NOTHING`, Args: []any{
 			command.TombstoneID, command.TombstoneID, command.CustomerID, command.Generation,
 		}},
-	)
 		rqlite.Statement{SQL: `UPDATE desired_node_state
 SET generation=?,desired_envelope=?,desired_sha256=?,status='pending',
     updated_at_unix=unixepoch(),tombstone=1,operation_id=?
@@ -106,6 +105,7 @@ ON CONFLICT DO NOTHING`, Args: []any{
 			command.TombstoneID, command.TombstoneID, command.TombstoneID,
 			command.CustomerID, command.Generation, command.TombstoneID,
 		}},
+	)
 	if err != nil || len(results) != 6 {
 		return 0, errors.New("controlplane: create customer tombstone unavailable")
 	}
