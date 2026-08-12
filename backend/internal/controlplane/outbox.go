@@ -256,7 +256,7 @@ func (s *Service) ReconcileNode(ctx context.Context, command ReconcileNodeComman
 		return 0, errors.New("controlplane: invalid reconcile command")
 	}
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `
-INSERT OR IGNORE INTO outbox_events(
+INSERT INTO outbox_events(
 event_id,aggregate_type,aggregate_id,generation,event_type,payload_envelope,payload_sha256,
 status,available_at_unix,attempts,created_at_unix,node_id,service_name,operation_id,event_kind)
 SELECT 'reconcile:'||d.operation_id||':'||d.node_id||':'||d.service_name||':'||d.generation,
@@ -270,7 +270,8 @@ WHERE d.node_id=? AND d.service_name=? AND d.operation_id IS NOT NULL
   AND NOT EXISTS(SELECT 1 FROM outbox_events o
       WHERE o.operation_id=d.operation_id AND o.node_id=d.node_id
         AND o.service_name=d.service_name AND o.generation=d.generation
-        AND o.event_kind='customer_desired')`, Args: []any{command.NodeID, command.ServiceName}})
+        AND o.event_kind='customer_desired')
+ON CONFLICT DO NOTHING`, Args: []any{command.NodeID, command.ServiceName}})
 	if err != nil || len(results) != 1 {
 		return 0, errors.New("controlplane: reconcile unavailable")
 	}
