@@ -53,6 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m unittest ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api
+          python ops/ha/test-dr-workflow-policy.py
           bash ops/ha/test-backup-rqlite.sh
           bash ops/ha/test-restore-rqlite.sh
 
