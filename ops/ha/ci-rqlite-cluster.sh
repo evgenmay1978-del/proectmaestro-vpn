@@ -554,9 +554,55 @@ status_cluster() {
   verify_cluster "$mode" "$root"
 }
 
+stop_one_node() {
+  local root node_id node pid executable stopped_file attempt
+  root="$(validated_root)" || return
+  [[ "${1:-}" == "--node" && -n "${2:-}" && "$#" -eq 2 ]] ||
+    fail "stop-node --node S2|S3|S4"
+  node_id="$2"
+  case "$node_id" in
+    S2) node=1 ;;
+    S3) node=2 ;;
+    S4) node=3 ;;
+    *) fail "stop-node requires S2, S3 or S4" ;;
+  esac
+  executable="$root/bin/rqlited"
+  [[ -f "$executable" && ! -L "$executable" ]] ||
+    fail "cluster binary is missing or unsafe"
+  stopped_file="$root/node${node}.stopped"
+  [[ ! -e "$stopped_file" && ! -L "$stopped_file" ]] ||
+    fail "${node_id} already has a stop marker"
+  pid="$(read_recorded_pid "$root" "$node")" || return
+  [[ -n "$pid" ]] || fail "${node_id} is not running"
+  kill -TERM "$pid"
+  for ((attempt = 1; attempt <= 40; attempt++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.25
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    [[ "$(readlink -f -- "/proc/${pid}/exe")" == "$executable" ]] ||
+      fail "refusing to kill a reused PID"
+    kill -KILL "$pid"
+    for ((attempt = 1; attempt <= 20; attempt++)); do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
+  kill -0 "$pid" 2>/dev/null && fail "${node_id} did not stop"
+  (set -o noclobber; printf '%s\n' "$pid" >"$stopped_file") 2>/dev/null ||
+    fail "cannot create ${node_id} stop marker"
+  chmod 0600 "$stopped_file"
+  printf '%s stopped\n' "$node_id"
+}
+
 stop_cluster() {
-  local base marker root node pid attempt any_running executable
+  local base marker root node pid attempt any_running executable stopped_file
   local -a pids=()
+  local -a stopped_lines=() pid_lines=()
   base="$(runner_base)" || return
   marker="$base/$MARKER_NAME"
   if [[ ! -e "$marker" && ! -L "$marker" ]]; then
@@ -568,6 +614,19 @@ stop_cluster() {
   [[ -f "$executable" && ! -L "$executable" ]] || fail "cluster binary is missing or unsafe"
 
   for node in 1 2 3; do
+    stopped_file="$root/node${node}.stopped"
+    if [[ -e "$stopped_file" || -L "$stopped_file" ]]; then
+      [[ -f "$stopped_file" && ! -L "$stopped_file" &&
+        "$(stat -c '%a' "$stopped_file")" == "600" ]] ||
+        fail "unsafe stop marker for node${node}"
+      mapfile -t stopped_lines <"$stopped_file"
+      mapfile -t pid_lines <"$root/node${node}.pid"
+      [[ "${#stopped_lines[@]}" -eq 1 && "${#pid_lines[@]}" -eq 1 &&
+        "${stopped_lines[0]}" == "${pid_lines[0]}" &&
+        "${stopped_lines[0]}" =~ ^[1-9][0-9]*$ ]] ||
+        fail "invalid stop marker for node${node}"
+      continue
+    fi
     pid="$(read_recorded_pid "$root" "$node")" || return
     if [[ -n "$pid" ]]; then
       pids+=("$pid")
@@ -600,7 +659,7 @@ stop_cluster() {
 }
 
 usage() {
-  printf 'usage: %s start|start-mtls|status|describe-mtls --output FILE|stop\n' "${0##*/}" >&2
+  printf 'usage: %s start|start-mtls|status|describe-mtls --output FILE|stop-node --node S2|S3|S4|stop\n' "${0##*/}" >&2
   return 2
 }
 
@@ -609,6 +668,7 @@ case "${1:-}" in
   start-mtls) start_cluster mtls ;;
   status) status_cluster ;;
   describe-mtls) shift; describe_mtls "$@" ;;
+  stop-node) shift; stop_one_node "$@" ;;
   stop) stop_cluster ;;
   *) usage ;;
 esac
