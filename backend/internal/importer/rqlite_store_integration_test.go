@@ -93,12 +93,23 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		rqlite.Statement{SQL: `SELECT payment_code FROM orders WHERE order_id=?`, Args: []any{plan.Orders[0].InternalID}},
 		rqlite.Statement{SQL: `SELECT batch_digest,status FROM import_batches WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
 		rqlite.Statement{SQL: `SELECT target_sha256,status FROM import_runs WHERE import_run_id=?`, Args: []any{batch.RunID}},
+		rqlite.Statement{SQL: `
+			SELECT node_id,service_name,generation,desired_sha256,status
+			FROM desired_node_state WHERE customer_id=?
+			ORDER BY node_id,service_name
+		`, Args: []any{plan.Customers[0].InternalID}},
+		rqlite.Statement{SQL: `
+			SELECT node_id,service_name,protocol_tag
+			FROM desired_protocol_tags WHERE customer_id=?
+			ORDER BY node_id,service_name,protocol_tag
+		`, Args: []any{plan.Customers[0].InternalID}},
 	)
 	if err != nil {
 		t.Fatalf("verify canonical rows: %v", err)
 	}
-	if len(results) != 4 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 ||
-		len(results[2].Rows) != 1 || len(results[3].Rows) != 1 {
+	if len(results) != 6 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 ||
+		len(results[2].Rows) != 1 || len(results[3].Rows) != 1 || len(results[4].Rows) != 4 ||
+		len(results[5].Rows) != len(plan.Customers[0].NodeIDs)*len(plan.Customers[0].ProtocolTags) {
 		t.Fatalf("verification results = %#v", results)
 	}
 	if results[0].Rows[0]["display_login"] != "OrderOwner" ||
@@ -108,6 +119,35 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		results[3].Rows[0]["target_sha256"] != target.BusinessDigest ||
 		results[3].Rows[0]["status"] != "applied" {
 		t.Fatalf("canonical verification mismatch: %#v", results)
+	}
+	wantNodes := make(map[string]struct{}, len(plan.Customers[0].NodeIDs))
+	wantTuples := make(map[string]struct{}, len(plan.Customers[0].NodeIDs)*len(plan.Customers[0].ProtocolTags))
+	for _, nodeID := range plan.Customers[0].NodeIDs {
+		wantNodes[nodeID] = struct{}{}
+		for _, protocolTag := range plan.Customers[0].ProtocolTags {
+			wantTuples[nodeID+"\x00"+protocolTag] = struct{}{}
+		}
+	}
+	for _, row := range results[4].Rows {
+		nodeID, _ := row["node_id"].(string)
+		if _, exists := wantNodes[nodeID]; !exists || row["service_name"] != "maestro-core" ||
+			row["generation"] != plan.Customers[0].Generation || row["desired_sha256"] != plan.EncryptedSecrets[0].SHA256 ||
+			row["status"] != "pending" {
+			t.Fatalf("unexpected desired node row: %#v", row)
+		}
+		delete(wantNodes, nodeID)
+	}
+	for _, row := range results[5].Rows {
+		nodeID, _ := row["node_id"].(string)
+		protocolTag, _ := row["protocol_tag"].(string)
+		key := nodeID + "\x00" + protocolTag
+		if _, exists := wantTuples[key]; !exists || row["service_name"] != "maestro-core" {
+			t.Fatalf("unexpected desired protocol row: %#v", row)
+		}
+		delete(wantTuples, key)
+	}
+	if len(wantNodes) != 0 || len(wantTuples) != 0 {
+		t.Fatalf("missing desired topology rows: nodes=%v tuples=%v", wantNodes, wantTuples)
 	}
 	if strings.Contains(target.BusinessDigest, "OrderOwner") {
 		t.Fatal("business digest contains plaintext row data")
