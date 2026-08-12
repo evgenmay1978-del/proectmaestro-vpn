@@ -68,7 +68,7 @@ func TestDuplicateReceiptIsExactHashNoOp(t *testing.T) {
 
 func TestAppliedTombstoneReceiptAcknowledgesRequiredTarget(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
-		rqlite.Result{Rows: []map[string]any{{"receipt_id": "receipt-1"}},
+		rqlite.Result{Rows: []map[string]any{{"receipt_id": "receipt-1"}}},
 		rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1},
 	)}}
 	service, _ := testService(t, db)
