@@ -58,7 +58,7 @@ func writeReceiptAtomic(path string, receipt importer.ImportReceipt) error {
 	if _, err := os.Lstat(path); err == nil || !os.IsNotExist(err) {
 		return errReceiptFile
 	}
-	if err := os.Rename(tempPath, path); err != nil {
+	if err := renameReceiptNoReplace(tempPath, path); err != nil {
 		return errReceiptFile
 	}
 	renamed = true

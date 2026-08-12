@@ -155,6 +155,12 @@ func buildProductionApplyRuntime(
 	if err != nil {
 		return nil, errInvalidProductionRuntime
 	}
+	signerTransferred := false
+	defer func() {
+		if !signerTransferred {
+			zero(signer)
+		}
+	}()
 	box, err := controlplane.NewSecretBox(
 		bundle.CurrentKeyVersion,
 		bundle.EncryptionKeys,
@@ -214,13 +220,15 @@ func buildProductionApplyRuntime(
 	if err != nil || box.ReadyForVersions(versions...) != nil {
 		return nil, errInvalidProductionRuntime
 	}
-	return &applyRuntime{
+	result := &applyRuntime{
 		Store:              store,
 		Schema:             schema,
 		TargetConfigSHA256: targetDigest,
 		Signer:             signer,
 		SignerKeyID:        signerKeyID,
-	}, nil
+	}
+	signerTransferred = true
+	return result, nil
 }
 
 func loadTargetConfig(path string, now time.Time) (targetConfig, string, error) {
@@ -344,6 +352,7 @@ func loadKeyBundle(path string) (loadedKeyBundle, error) {
 	if err != nil {
 		return loadedKeyBundle{}, errInvalidProductionRuntime
 	}
+	defer zero(data)
 	var encoded keyBundle
 	if strictRuntimeJSON(data, &encoded) != nil ||
 		encoded.SchemaVersion != 1 || encoded.CurrentKeyVersion <= 0 ||
@@ -406,6 +415,7 @@ func loadReceiptSigningKey(path string) (ed25519.PrivateKey, string, error) {
 	if err != nil {
 		return nil, "", errInvalidProductionRuntime
 	}
+	defer zero(data)
 	var encoded receiptSigningKey
 	if strictRuntimeJSON(data, &encoded) != nil || encoded.SchemaVersion != 1 {
 		return nil, "", errInvalidProductionRuntime

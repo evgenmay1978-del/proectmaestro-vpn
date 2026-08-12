@@ -93,3 +93,26 @@ func TestWriteReceiptAtomicRejectsConflictingExistingBytesAndSymlink(t *testing.
 		t.Fatal("receipt symlink destination was accepted")
 	}
 }
+
+func TestRenameReceiptNoReplaceNeverOverwritesDestination(t *testing.T) {
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source")
+	destination := filepath.Join(directory, "destination")
+	if err := os.WriteFile(source, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := renameReceiptNoReplace(source, destination); err == nil {
+		t.Fatal("no-replace rename accepted an existing destination")
+	}
+	gotDestination, err := os.ReadFile(destination)
+	if err != nil || !bytes.Equal(gotDestination, []byte("old")) {
+		t.Fatalf("destination was overwritten: %q / %v", gotDestination, err)
+	}
+	gotSource, err := os.ReadFile(source)
+	if err != nil || !bytes.Equal(gotSource, []byte("new")) {
+		t.Fatalf("source changed after rejected rename: %q / %v", gotSource, err)
+	}
+}
