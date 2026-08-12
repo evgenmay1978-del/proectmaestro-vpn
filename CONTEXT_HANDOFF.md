@@ -2752,3 +2752,26 @@ Focused plan
 затем обязательные backup/restore, fencing, dry-run и cutover/rollback gates.
 До их утверждения и полного exact-SHA GREEN серверы, панели и Telegram-боты
 не развёртывать и production factory не включать.
+
+## HA control plane: production import factory design (12.08.2026)
+
+Владелец подтвердил рекомендуемый узкий следующий этап: production-capable
+import factory только в репозитории и isolated GitHub Actions, без изменений
+реальных S1-S4, клиентов, панелей, ботов, Android/TV, Release и OTA.
+Утверждённая спецификация:
+`docs/superpowers/specs/2026-08-12-maestrovpn-ha-production-import-factory-design.md`.
+
+Зафиксирован mandatory-mTLS target config ровно для S2/S3/S4, strict protected
+control-plane key bundle, exact legacy-trial-salt digest binding, read-only
+`Migrator.Verify` без автоматического schema apply, существующий resumable
+`importer.Apply` и подписанный Ed25519 applied-run receipt. Dry-run остаётся
+network/secret-free; production errors и artifacts не раскрывают секреты.
+
+Даже после реализации этого slice статус остаётся
+`NO-GO (repository implementation only)`. Реальные import/deploy/restart,
+backup/restore, legacy-writer fencing, live dry-run/final delta, shadow parity,
+canary и cutover/rollback требуют отдельных gates и явного разрешения.
+
+Следующий шаг по brainstorming gate: self-review этой спецификации, review
+владельца, затем отдельный TDD implementation plan. До его утверждения
+production factory code не менять.
