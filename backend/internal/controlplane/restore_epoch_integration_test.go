@@ -138,7 +138,11 @@ func TestRestoredQuorumBoundaries(t *testing.T) {
 		t.Fatal("MAESTRO_DR_QUORUM_PHASE must be one-loss or two-loss")
 	}
 	checkpoint := readAdvancedEpoch(t)
-	db := restoredEpochRQLite(t)
+	endpoints := []string{"https://127.0.0.1:4401", "https://127.0.0.1:4403"}
+	if phase == "two-loss" {
+		endpoints = endpoints[:1]
+	}
+	db := restoredEpochRQLiteEndpoints(t, endpoints)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
 	bot := strings.Repeat("d", 64)
@@ -341,6 +345,13 @@ func readEpochDRMetadata(t *testing.T) epochDRMetadata {
 
 func restoredEpochRQLite(t *testing.T) *rqlite.Client {
 	t.Helper()
+	return restoredEpochRQLiteEndpoints(t, []string{
+		"https://127.0.0.1:4401", "https://127.0.0.1:4403", "https://127.0.0.1:4405",
+	})
+}
+
+func restoredEpochRQLiteEndpoints(t *testing.T, endpoints []string) *rqlite.Client {
+	t.Helper()
 	base, err := filepath.EvalSymlinks(os.Getenv("RUNNER_TEMP"))
 	if err != nil {
 		t.Fatal("resolve runner temp")
@@ -355,9 +366,7 @@ func restoredEpochRQLite(t *testing.T) *rqlite.Client {
 		t.Fatal("unsafe restored cluster root")
 	}
 	db, err := rqlite.New(rqlite.Config{
-		Endpoints: []string{
-			"https://127.0.0.1:4401", "https://127.0.0.1:4403", "https://127.0.0.1:4405",
-		},
+		Endpoints: endpoints,
 		CAFile: filepath.Join(root, "tls", "ca.crt"),
 		CertFile: filepath.Join(root, "tls", "client.crt"),
 		KeyFile: filepath.Join(root, "tls", "client.key"),
