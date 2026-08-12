@@ -27,10 +27,12 @@ func (o *fakePayloadOpener) OpenDesiredPayload(scope controlplane.DesiredPayload
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.scopes = append(o.scopes, scope)
+	document := o.documents[scope.CustomerID]
 	if o.failAt > 0 && len(o.scopes) == o.failAt {
-		return controlplane.DesiredPayloadDocument{}, o.err
+		return document, o.err
 	}
-	return o.documents[scope.CustomerID], nil
+	document.Body = append(json.RawMessage(nil), document.Body...)
+	return document, nil
 }
 
 func (o *fakePayloadOpener) callCount() int {

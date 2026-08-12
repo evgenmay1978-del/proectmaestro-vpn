@@ -79,18 +79,32 @@ func (b *SecretBox) OpenDesiredPayload(scope DesiredPayloadScope, envelope Envel
 	if err != nil || !equalDesiredPayloadDigest(actualDigest, envelopeSHA256) {
 		return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadEnvelopeError)
 	}
+	aead, ok := b.aeadByVersion[envelope.KeyVersion]
+	if !ok {
+		return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadEnvelopeError)
+	}
+	return openDesiredPayloadDocument(aead, scope, envelope)
+}
+
+type desiredPayloadAEAD interface {
+	NonceSize() int
+	Overhead() int
+	Open([]byte, []byte, []byte, []byte) ([]byte, error)
+}
+
+func openDesiredPayloadDocument(aead desiredPayloadAEAD, scope DesiredPayloadScope, envelope Envelope) (DesiredPayloadDocument, error) {
 	aad, err := desiredPayloadAAD(envelope.KeyVersion, scope)
 	if err != nil {
 		return DesiredPayloadDocument{}, err
 	}
-	aead, ok := b.aeadByVersion[envelope.KeyVersion]
-	if !ok || len(envelope.Nonce) != aeadNonceSize(aead) || len(envelope.Ciphertext) < aeadOverhead(aead) {
+	if len(envelope.Nonce) != aeadNonceSize(aead) || len(envelope.Ciphertext) < aeadOverhead(aead) {
 		return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadEnvelopeError)
 	}
 	plaintext, err := aead.Open(nil, envelope.Nonce, envelope.Ciphertext, aad)
 	if err != nil {
 		return DesiredPayloadDocument{}, errors.New(desiredPayloadAuthenticationError)
 	}
+	defer wipeDesiredPayloadBytes(plaintext)
 	document, err := decodeDesiredPayloadDocument(plaintext)
 	if err != nil {
 		return DesiredPayloadDocument{}, err
@@ -116,6 +130,12 @@ func (b *SecretBox) OpenDesiredPayload(scope DesiredPayloadScope, envelope Envel
 		return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadDocumentError)
 	}
 	return document, nil
+}
+
+func wipeDesiredPayloadBytes(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
 }
 
 func desiredPayloadAAD(version int, scope DesiredPayloadScope) ([]byte, error) {

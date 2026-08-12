@@ -44,17 +44,21 @@ func materializeSnapshot(opener PayloadOpener, encrypted DesiredSnapshot) (Mater
 		}
 		document, err := opener.OpenDesiredPayload(scope, entry.Payload, entry.PayloadSHA256)
 		if err != nil {
+			wipeBytes(document.Body)
 			wipeMaterializedSnapshot(&materialized)
-			return MaterializedSnapshot{}, err
+			return MaterializedSnapshot{}, ErrPayloadOpen
 		}
 		if !validMaterializedDocument(scope, document) {
+			wipeBytes(document.Body)
 			wipeMaterializedSnapshot(&materialized)
 			return MaterializedSnapshot{}, ErrInvalidCommand
 		}
+		body := append(json.RawMessage(nil), document.Body...)
+		wipeBytes(document.Body)
 		materialized.Entries = append(materialized.Entries, MaterializedEntry{
 			CustomerID: entry.CustomerID, OperationID: entry.OperationID, PayloadKind: entry.PayloadKind,
 			Generation: entry.Generation, Tombstone: entry.Tombstone,
-			Body: append(json.RawMessage(nil), document.Body...),
+			Body: body,
 			DesiredSHA256: entry.PayloadSHA256, BodySHA256: document.BodySHA256,
 		})
 	}
@@ -84,10 +88,14 @@ func wipeMaterializedSnapshot(snapshot *MaterializedSnapshot) {
 		return
 	}
 	for index := range snapshot.Entries {
-		for bodyIndex := range snapshot.Entries[index].Body {
-			snapshot.Entries[index].Body[bodyIndex] = 0
-		}
+		wipeBytes(snapshot.Entries[index].Body)
 		snapshot.Entries[index].Body = nil
 	}
 	snapshot.Entries = nil
+}
+
+func wipeBytes(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
 }

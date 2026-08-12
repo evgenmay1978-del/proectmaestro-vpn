@@ -8,7 +8,13 @@ import (
 	"time"
 )
 
-var ErrStaleFence = errors.New("applyagent: stale fence")
+var (
+	ErrStaleFence    = errors.New("applyagent: stale fence")
+	ErrPayloadOpen   = errors.New("applyagent: payload open failed")
+	ErrDriverInspect = errors.New("applyagent: driver inspect failed")
+	ErrDriverPrepare = errors.New("applyagent: driver prepare failed")
+	ErrDriverCommit  = errors.New("applyagent: driver commit failed")
+)
 
 type AppliedState struct { SnapshotSHA256 string; Healthy bool }
 type PreparedChange struct { SnapshotSHA256 string }
@@ -41,15 +47,15 @@ func (a *Agent) Apply(ctx context.Context, signed SignedCommand) (DispatchResult
 	if err=validateMarkerForCommand(marker,cmd);err!=nil{return DispatchResult{},err}
 	materialized,err:=materializeSnapshot(a.cfg.Opener,cmd.Snapshot);if err!=nil{return DispatchResult{},err}
 	defer wipeMaterializedSnapshot(&materialized)
-	actual, err := a.cfg.Driver.Inspect(ctx, materialized); if err!=nil { return DispatchResult{}, err }
+	actual, err := a.cfg.Driver.Inspect(ctx, materialized); if err!=nil { return DispatchResult{}, ErrDriverInspect }
 	if actual.Healthy && actual.SnapshotSHA256==cmd.Snapshot.SnapshotSHA256 {
 		if err:=a.storeMarker(ctx,cmd);err!=nil{return DispatchResult{},err}
 		return dispatchResult(cmd),nil
 	}
-	prepared, err := a.cfg.Driver.Prepare(ctx, materialized); if err!=nil { return DispatchResult{}, err }
+	prepared, err := a.cfg.Driver.Prepare(ctx, materialized); if err!=nil { return DispatchResult{}, ErrDriverPrepare }
 	if prepared.SnapshotSHA256=="" { prepared.SnapshotSHA256=cmd.Snapshot.SnapshotSHA256 }
 	if err=verify(); err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, err }
-	applied, err := a.cfg.Driver.Commit(ctx, prepared); if err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, err }
+	applied, err := a.cfg.Driver.Commit(ctx, prepared); if err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, ErrDriverCommit }
 	if !applied.Healthy || applied.SnapshotSHA256!=cmd.Snapshot.SnapshotSHA256 { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, ErrInvalidCommand }
 	if err:=a.storeMarker(ctx,cmd);err!=nil{return DispatchResult{},err}
 	return dispatchResult(cmd),nil
