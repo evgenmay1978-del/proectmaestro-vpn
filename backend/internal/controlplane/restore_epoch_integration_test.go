@@ -129,12 +129,6 @@ func TestAdvanceRestoredEpochAndFence(t *testing.T) {
 	}
 }
 
-func drEpochMutation(t *testing.T, ctx context.Context, db rqlite.RQLite, epoch int64) int64 {
-	t.Helper()
-	results, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
-		SQL: `UPDATE telegram_pollers SET offset_value=43,lease_fence=13,updated_at_unix=101
-			WHERE bot_identity_hmac=? AND lease_fence=12
-
 func TestRestoredQuorumBoundaries(t *testing.T) {
 	if os.Getenv("MAESTRO_DR_PROOF_PHASE") != "restored" {
 		t.Skip("dedicated restored quorum proof is disabled")
@@ -145,6 +139,12 @@ func TestRestoredQuorumBoundaries(t *testing.T) {
 	}
 	t.Fatal("restored quorum proof wiring is absent")
 }
+
+func drEpochMutation(t *testing.T, ctx context.Context, db rqlite.RQLite, epoch int64) int64 {
+	t.Helper()
+	results, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+		SQL: `UPDATE telegram_pollers SET offset_value=43,lease_fence=13,updated_at_unix=101
+			WHERE bot_identity_hmac=? AND lease_fence=12
 			AND EXISTS(SELECT 1 FROM cluster_restore_state
 				WHERE singleton_id=1 AND restore_epoch=? AND activated=1)`,
 		Args: []any{strings.Repeat("d", 64), epoch},
