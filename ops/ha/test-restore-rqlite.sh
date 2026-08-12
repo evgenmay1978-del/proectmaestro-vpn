@@ -114,6 +114,7 @@ import_binary="$sandbox/maestro-import"
   go build -o "$import_binary" ./cmd/maestro-import
 )
 chmod 0700 "$import_binary"
+source_metadata="$sandbox/dr-source-metadata.json"
 metadata="$sandbox/dr-metadata.json"
 
 bash "$HARNESS" start-mtls >/dev/null
@@ -122,7 +123,7 @@ source_root="$(awk -F= '$1 == "root" { print $2 }' <<<"$source_status")"
 source_root="$(realpath -e "$source_root")"
 (
   cd "$ROOT/backend"
-  MAESTRO_DR_PROOF_PHASE=source MAESTRO_DR_METADATA="$metadata" \
+  MAESTRO_DR_PROOF_PHASE=source MAESTRO_DR_METADATA="$source_metadata" \
     MAESTRO_IMPORT_BINARY="$import_binary" \
     go test -tags=rqlite_integration ./cmd/maestro-import \
       -run '^TestPrepareSyntheticDRSource$' -count=1
@@ -131,6 +132,36 @@ bundle="$sandbox/source-backup.tar.gpg"
 bash "$BACKUP" --drill --cluster-root "$source_root" --keys "$keys" \
   --output "$bundle" --signer "${fingerprints[0]}" \
   --recipient "${fingerprints[1]}" >/dev/null
+python3 - "$source_metadata" "$bundle" "$metadata" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+bundle = pathlib.Path(sys.argv[2])
+target = pathlib.Path(sys.argv[3])
+payload = json.loads(source.read_text(encoding="utf-8"))
+expected = {
+    "format_version", "source_epoch", "schema_version", "schema_checksum",
+    "run_id", "source_digest", "plan_digest", "target_digest", "batch_count",
+    "batch_receipt_digest", "receipt_sha256", "shadow_sha256",
+}
+if set(payload) != expected:
+    raise SystemExit("source metadata contract mismatch")
+digest = hashlib.sha256()
+with bundle.open("rb") as handle:
+    for block in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(block)
+payload["backup_sha256"] = digest.hexdigest()
+encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
+    output.write(encoded)
+source.unlink()
+PY
+chmod 0600 "$metadata"
 bash "$HARNESS" stop >/dev/null
 
 bash "$HARNESS" start-mtls >/dev/null
@@ -143,11 +174,11 @@ bash "$RESTORE" --drill --cluster-root "$target_root" --bundle "$bundle" \
 (
   cd "$ROOT/backend"
   MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_METADATA="$metadata" \
-    go test -tags=rqlite_integration ./internal/controlplane \
-      -run '^TestAdvanceRestoredEpochAndFence$' -count=1
-  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_METADATA="$metadata" \
     go test -tags=rqlite_integration ./internal/importer \
       -run '^TestVerifyRestoredBusinessParity$' -count=1
+  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_METADATA="$metadata" \
+    go test -tags=rqlite_integration ./internal/controlplane \
+      -run '^TestAdvanceRestoredEpochAndFence$' -count=1
 )
 [[ -f "$target_root/restore-attempt" && ! -L "$target_root/restore-attempt" ]] ||
   fail "restore attempt marker is missing"

@@ -4,9 +4,13 @@ package importer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -744,5 +748,143 @@ func TestVerifyRestoredBusinessParity(t *testing.T) {
 	if os.Getenv("MAESTRO_DR_PROOF_PHASE") != "restored" {
 		t.Skip("dedicated restored business parity proof is disabled")
 	}
-	t.Fatal("restored business parity proof wiring is absent")
+	metadata := readRestoredDRMetadata(t)
+	db := restoredDRRQLite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	t.Cleanup(cancel)
+	identity, err := controlplane.NewMigrator(db).VerifyIdentity(ctx)
+	if err != nil || identity.Version != metadata.SchemaVersion ||
+		identity.Checksum != metadata.SchemaChecksum {
+		t.Fatalf("restored schema identity mismatch: %#v, %v", identity, err)
+	}
+	store, err := NewRQLiteApplyStore(db, time.Now)
+	if err != nil {
+		t.Fatalf("new restored store: %v", err)
+	}
+	target, err := store.InspectTarget(ctx)
+	if err != nil || target.BusinessDigest != metadata.TargetDigest ||
+		target.AppliedSourceDigest != metadata.SourceDigest {
+		t.Fatalf("restored business digest mismatch: %#v, %v", target, err)
+	}
+	evidence, err := store.ReadAppliedRunEvidence(ctx, metadata.RunID)
+	if err != nil || evidence.SourceDigest != metadata.SourceDigest ||
+		evidence.PlanDigest != metadata.PlanDigest ||
+		evidence.TargetDigest != metadata.TargetDigest ||
+		evidence.BatchCount != metadata.BatchCount ||
+		evidence.BatchReceiptDigest != metadata.BatchReceiptDigest {
+		t.Fatalf("restored applied evidence mismatch: %#v, %v", evidence, err)
+	}
+	shapes := ShadowURLShapes{
+		Maestro: "maestro://import/{opaque-token}",
+		Karing:  "https://proof.invalid/sub/{opaque-token}",
+	}
+	shadow, err := ShadowFromCandidate(ctx, store, metadata.SourceDigest, shapes)
+	if err != nil {
+		t.Fatalf("restored shadow: %v", err)
+	}
+	encoded, err := EncodeShadowExport(shadow)
+	if err != nil || sha256HexIntegration(encoded) != metadata.ShadowSHA256 {
+		t.Fatalf("restored shadow digest mismatch: %v", err)
+	}
+	state, err := controlplane.NewRestoreEpochStore(db).Current(ctx)
+	if err != nil || state.RestoreEpoch != metadata.SourceEpoch || !state.Activated {
+		t.Fatalf("restored pre-advance state mismatch: %#v, %v", state, err)
+	}
+}
+
+type restoredDRMetadata struct {
+	FormatVersion       int    `json:"format_version"`
+	SourceEpoch         int64  `json:"source_epoch"`
+	SchemaVersion       int    `json:"schema_version"`
+	SchemaChecksum      string `json:"schema_checksum"`
+	RunID               string `json:"run_id"`
+	SourceDigest        string `json:"source_digest"`
+	PlanDigest          string `json:"plan_digest"`
+	TargetDigest        string `json:"target_digest"`
+	BatchCount          int    `json:"batch_count"`
+	BatchReceiptDigest  string `json:"batch_receipt_digest"`
+	ReceiptSHA256       string `json:"receipt_sha256"`
+	ShadowSHA256        string `json:"shadow_sha256"`
+	BackupSHA256        string `json:"backup_sha256"`
+}
+
+func readRestoredDRMetadata(t *testing.T) restoredDRMetadata {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(os.Getenv("RUNNER_TEMP"))
+	if err != nil || !filepath.IsAbs(base) {
+		t.Fatal("RUNNER_TEMP is unavailable")
+	}
+	path := os.Getenv("MAESTRO_DR_METADATA")
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	info, statErr := os.Lstat(path)
+	if err != nil || statErr != nil || parent != base || filepath.Base(path) != "dr-metadata.json" ||
+		!info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		t.Fatal("DR metadata file is unsafe")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal("open DR metadata")
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, 1<<20))
+	decoder.DisallowUnknownFields()
+	var metadata restoredDRMetadata
+	if err := decoder.Decode(&metadata); err != nil {
+		t.Fatal("decode DR metadata")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		t.Fatal("DR metadata has trailing content")
+	}
+	for _, value := range []string{
+		metadata.SchemaChecksum, metadata.SourceDigest, metadata.PlanDigest,
+		metadata.TargetDigest, metadata.BatchReceiptDigest, metadata.ReceiptSHA256,
+		metadata.ShadowSHA256, metadata.BackupSHA256,
+	} {
+		if !validCanonicalSHA256(value) {
+			t.Fatal("DR metadata digest is invalid")
+		}
+	}
+	if metadata.FormatVersion != 1 || metadata.SourceEpoch <= 0 ||
+		metadata.SchemaVersion <= 0 || metadata.RunID != "dr-source-proof-v1" ||
+		metadata.BatchCount < 0 {
+		t.Fatal("DR metadata values are invalid")
+	}
+	return metadata
+}
+
+func restoredDRRQLite(t *testing.T) *rqlite.Client {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(os.Getenv("RUNNER_TEMP"))
+	if err != nil {
+		t.Fatal("resolve runner temp")
+	}
+	marker := filepath.Join(base, "maestro-rqlite-ci-root")
+	rootBytes, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal("read cluster marker")
+	}
+	rootLine := strings.TrimSuffix(string(rootBytes), "\n")
+	root, err := filepath.EvalSymlinks(rootLine)
+	if err != nil || root != rootLine || filepath.Dir(root) != base {
+		t.Fatal("unsafe restored cluster root")
+	}
+	db, err := rqlite.New(rqlite.Config{
+		Endpoints: []string{
+			"https://127.0.0.1:4401", "https://127.0.0.1:4403", "https://127.0.0.1:4405",
+		},
+		CAFile: filepath.Join(root, "tls", "ca.crt"),
+		CertFile: filepath.Join(root, "tls", "client.crt"),
+		KeyFile: filepath.Join(root, "tls", "client.key"),
+		Timeout: 10 * time.Second, MaxResponseBytes: 8 << 20, MaxBackupBytes: 4 << 30,
+	})
+	if err != nil {
+		t.Fatalf("new restored rqlite client: %v", err)
+	}
+	return db
+}
+
+func sha256HexIntegration(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
 }
