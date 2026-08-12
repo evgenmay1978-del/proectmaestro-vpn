@@ -2798,3 +2798,27 @@ Production code ещё не менялся. Статус остаётся
 Android/TV, Release и OTA не затронуты. Следующий шаг — выбрать режим исполнения
 плана. Каждый behavior gate обязан иметь отдельные exact-SHA RED и GREEN
 GitHub Actions evidence.
+
+
+## 2026-08-12 production import factory checkpoint (Tasks 1-3 GREEN)
+
+Authoritative branch and review surface:
+
+- branch: `codex/ha-rqlite-task2`
+- draft PR: #82
+- work remains GitHub-first; the owner PC is used only for the lightweight repetition guard and exact `rg`/Git metadata checks
+- production S1-S4, panels, bots, customers, Android/TV, Release and OTA remain unchanged
+
+Completed production-factory plan stages:
+
+1. Task 1 snapshot protection metadata v2: final GREEN SHA `97a0382362ba6a0b6540f486231a70c991c1fb16`; run `31561449224`; job `94004424897`.
+2. Task 2 local key/envelope/trial-salt authentication: GREEN SHA `9cda13006450522fa5bf294d1879a9a6d8a5e0f3`; run `31561746986`; job `94005317388`.
+3. Task 3 immutable schema identity: GREEN SHA `0417c5ae6d93336a6e218dd990dca90775033bba`; run `31562039927`; successful second-attempt job `94006475476`.
+
+Every successful job above passed ordinary backend tests, race tests, vet, harness contract, isolated real-rqlite integration, full-plus-delta parity, fresh-full parity, shadow parity and cleanup.
+
+Task 3 first job attempt `94006186086` failed only in the pre-existing nondeterministic `TestConcurrentResumeAppliesEachBatchOnce` with `import run digest mismatch`; Task 3 controlplane race tests were already GREEN. The mandatory repetition guard allowed exactly one retry, and the retry passed the entire workflow. Do not rerun that historical job again.
+
+Current next step: Task 4 in `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`: strict exactly-S2/S3/S4 HTTPS mandatory-mTLS runtime, all protected local validation before the first network request, `VerifyIdentity` only, and linearizable referenced-key-version readiness. Continue with RED tests first. Do not deploy to servers after Task 4; server dry-run remains forbidden until Tasks 1-7 are GREEN and a separate backup/restore plus fencing drill has passed.
+
+Operational note for Windows searches: pass globs through `rg -g "*.go" <pattern> <directory>`; do not append a Unix-style `directory/*.go` path because native Windows `rg` rejects it.
