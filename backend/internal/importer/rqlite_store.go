@@ -67,6 +67,79 @@ func NewRQLiteApplyStoreWithTrialProtection(
 }
 
 
+
+func (s *RQLiteApplyStore) ReadAppliedRunEvidence(
+	ctx context.Context,
+	runID string,
+) (AppliedRunEvidence, error) {
+	if s == nil || s.db == nil || runID == "" {
+		return AppliedRunEvidence{}, errors.New("invalid applied-run evidence request")
+	}
+	results, err := s.db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT import_run_id,snapshot_kind,source_sha256,plan_sha256,
+parent_source_sha256,target_sha256,batch_count,status,completed_at_unix
+FROM import_runs WHERE import_run_id=?`, Args: []any{runID}},
+		rqlite.Statement{SQL: `SELECT batch_index,batch_digest,status
+FROM import_batches WHERE import_run_id=? ORDER BY batch_index`, Args: []any{runID}},
+	)
+	if err != nil || len(results) != 2 || len(results[0].Rows) != 1 {
+		return AppliedRunEvidence{}, errors.New("applied-run evidence is unavailable")
+	}
+	row := results[0].Rows[0]
+	actualRunID, runOK := row["import_run_id"].(string)
+	kind, kindOK := row["snapshot_kind"].(string)
+	source, sourceOK := row["source_sha256"].(string)
+	plan, planOK := row["plan_sha256"].(string)
+	parent, parentOK := nullableApplyString(row["parent_source_sha256"])
+	target, targetOK := row["target_sha256"].(string)
+	status, statusOK := row["status"].(string)
+	batchCount, batchOK := applyRowInt(row["batch_count"])
+	completedAt, completedOK := applyRowInt(row["completed_at_unix"])
+	if !runOK || actualRunID != runID || !kindOK || !sourceOK || !planOK ||
+		!parentOK || !targetOK || !statusOK || status != "applied" ||
+		!batchOK || batchCount < 0 || int64(int(batchCount)) != batchCount ||
+		!completedOK || completedAt < 0 {
+		return AppliedRunEvidence{}, errors.New("invalid applied-run evidence")
+	}
+	if len(results[1].Rows) != int(batchCount) {
+		return AppliedRunEvidence{}, errors.New("applied-run batch evidence count mismatch")
+	}
+	type canonicalBatchEvidence struct {
+		Index  int    `json:"index"`
+		Digest string `json:"digest"`
+	}
+	batches := make([]canonicalBatchEvidence, len(results[1].Rows))
+	for index, batchRow := range results[1].Rows {
+		rowIndex, indexOK := applyRowInt(batchRow["batch_index"])
+		digest, digestOK := batchRow["batch_digest"].(string)
+		batchStatus, statusOK := batchRow["status"].(string)
+		if !indexOK || rowIndex != int64(index) || !digestOK ||
+			!validCanonicalSHA256(digest) || !statusOK || batchStatus != "applied" {
+			return AppliedRunEvidence{}, errors.New("invalid applied-run batch evidence")
+		}
+		batches[index] = canonicalBatchEvidence{Index: index, Digest: digest}
+	}
+	encoded, err := json.Marshal(batches)
+	if err != nil {
+		return AppliedRunEvidence{}, errors.New("cannot encode applied-run batch evidence")
+	}
+	evidence := AppliedRunEvidence{
+		RunID:              actualRunID,
+		SnapshotKind:       kind,
+		SourceDigest:       source,
+		PlanDigest:         plan,
+		ParentDigest:       parent,
+		TargetDigest:       target,
+		BatchCount:         int(batchCount),
+		BatchReceiptDigest: sha256Hex(encoded),
+		CompletedAtUnix:    completedAt,
+	}
+	if !validAppliedRunEvidence(evidence) {
+		return AppliedRunEvidence{}, errors.New("invalid applied-run evidence")
+	}
+	return evidence, nil
+}
+
 func (s *RQLiteApplyStore) ReadReferencedKeyVersions(ctx context.Context) ([]int, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("rqlite apply store is unavailable")
