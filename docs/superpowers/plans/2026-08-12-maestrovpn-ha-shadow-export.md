@@ -441,43 +441,28 @@ git commit -m "feat(importer): export linearizable shadow candidate"
 ### Task 4: Real three-node shadow parity proof
 
 **Files:**
-- Create: `backend/internal/importer/shadow_workflow_test.go`
 - Modify: `.github/workflows/ha-control-plane.yml`
-- Modify: `ops/ha/test-shadow-verify.sh`
 
 **Interfaces:**
-- Consumes: Task 1 full typed import, Task 2 legacy export, Task 3 candidate export and existing `shadow-verify.sh`.
+- Consumes: Task 3 `TestRQLiteShadowExportParity` and the existing executable `shadow-verify.sh`.
 - Produces: exact-SHA CI evidence that independently generated exports match on a clean real three-node rqlite cluster.
 
-- [ ] **Step 1: Write a failing workflow contract**
+This task changes workflow scheduling only. Do not add a test that greps YAML
+source text: the acceptance test is the real dedicated GitHub step executing
+the real integration behavior.
 
-```go
-func TestShadowParityHasDedicatedCleanClusterWorkflowPhase(t *testing.T) {
-    path := filepath.Join("..", "..", "..", ".github", "workflows", "ha-control-plane.yml")
-    data, err := os.ReadFile(path)
-    if err != nil { t.Fatal(err) }
-    text := string(data)
-    required := []string{
-        "Reset rqlite for shadow parity",
-        "Prove redacted shadow export parity",
-        `MAESTRO_SHADOW_EXPORT_PROOF: "1"`,
-        `-run '^TestRQLiteShadowExportParity$'`,
-    }
-    for _, fragment := range required {
-        if !strings.Contains(text, fragment) { t.Fatalf("workflow missing %q", fragment) }
-    }
-}
-```
+- [ ] **Step 1: Recheck the existing behavioral test before workflow editing**
 
-- [ ] **Step 2: Push and verify workflow RED**
+Read `TestRQLiteShadowExportParity` and confirm it is guarded by
+`MAESTRO_SHADOW_EXPORT_PROOF=1`, runs the executable verifier, requires exact
+`{"differences":[],"status":"match"}\n`, and scans both exports plus process
+output/errors for fixture login, payment code, nonce, ciphertext and private
+URL markers. If any assertion is absent, return to Task 3 RED/GREEN rather than
+adding it after the producer implementation.
 
-Expected: the focused unit test fails only because the four workflow fragments
-are absent. The Task 3 integration test remains skipped without its explicit
-environment gate.
+- [ ] **Step 2: Add the clean-cluster workflow phase**
 
-- [ ] **Step 3: Add the clean-cluster workflow phase**
-
-After the ordinary integration phase, stop/start the isolated cluster, then add:
+After the ordinary integration phase, add:
 
 ```yaml
 - name: Reset rqlite for shadow parity
@@ -492,38 +477,24 @@ After the ordinary integration phase, stop/start the isolated cluster, then add:
   run: go test -tags=rqlite_integration ./internal/importer -run '^TestRQLiteShadowExportParity$' -count=1
 ```
 
-The integration test must build customer, credited/uncredited orders, complete
-OTA setting, principal/roles and protected fingerprints; apply through
-`Apply`; create both mode-0600 exports and salt; execute the verifier; require
-exact `{"differences":[],"status":"match"}\n`; and scan output/errors for the
-fixture login, payment code, nonce, ciphertext and private URL markers.
+Do not change the verifier or weaken the existing network-command, invalid
+input, deterministic mismatch and redacted-output contract.
 
-- [ ] **Step 4: Preserve verifier independence**
+- [ ] **Step 3: Verify actual GitHub behavior**
 
-The test must run the executable verifier rather than call Go comparison
-helpers. Extend `test-shadow-verify.sh` only with invalid duplicate identity,
-secret-marker and deterministic mismatch-order cases; keep its network-command
-ban and exit-code contract unchanged.
+Push the workflow commit through the authorized GitHub path. Require the exact
+run to show the named parity step as executed and successful, not skipped. A
+missing/skipped step or a pass without the integration command is a workflow
+failure.
 
-- [ ] **Step 5: Verify full exact-SHA GREEN**
+The same run must also pass formatting, unit, race, vet, harness, ordinary
+real-rqlite integration, full+delta/fresh-full digest parity and final cleanup.
 
-Require one workflow run where all of these pass:
-
-- Go formatting;
-- unit tests;
-- race tests;
-- vet;
-- rqlite harness contract;
-- ordinary real-rqlite integration;
-- clean-cluster redacted shadow parity;
-- existing full+delta versus fresh-full digest parity;
-- final cluster stop/cleanup.
-
-- [ ] **Step 6: Commit Task 4**
+- [ ] **Step 4: Commit Task 4**
 
 ```bash
-git add backend/internal/importer/shadow_workflow_test.go ops/ha/test-shadow-verify.sh .github/workflows/ha-control-plane.yml
-git commit -m "test(ha): prove redacted shadow parity on rqlite"
+git add .github/workflows/ha-control-plane.yml
+git commit -m "ci(ha): prove redacted shadow parity on rqlite"
 ```
 
 ### Task 5: Final security gate and durable handoff
