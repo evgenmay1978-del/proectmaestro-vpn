@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -97,12 +98,18 @@ func (b *SecretBox) OpenDesiredPayload(scope DesiredPayloadScope, envelope Envel
 	if document.Version != DesiredPayloadVersion || document.Kind != scope.PayloadKind {
 		return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadDocumentError)
 	}
-	canonicalBody, err := canonicalDesiredPayloadJSON(document.Body)
-	if err != nil || !bytes.Equal(canonicalBody, document.Body) || !equalDesiredPayloadDigest(desiredPayloadDigest(document.Body), document.BodySHA256) {
-		return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadDocumentError)
-	}
-	if scope.Tombstone && !bytes.Equal(document.Body, []byte(`{"tombstone":true}`)) {
-		return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadDocumentError)
+	if len(document.Body) == 0 {
+		if document.Body != nil || scope.Tombstone || !equalDesiredPayloadDigest(desiredPayloadDigest(nil), document.BodySHA256) {
+			return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadDocumentError)
+		}
+	} else {
+		canonicalBody, err := canonicalDesiredPayloadJSON(document.Body)
+		if err != nil || !bytes.Equal(canonicalBody, document.Body) || !equalDesiredPayloadDigest(desiredPayloadDigest(document.Body), document.BodySHA256) {
+			return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadDocumentError)
+		}
+		if scope.Tombstone && !bytes.Equal(document.Body, []byte(`{"tombstone":true}`)) {
+			return DesiredPayloadDocument{}, errors.New(invalidDesiredPayloadDocumentError)
+		}
 	}
 	canonicalDocument, err := json.Marshal(document)
 	if err != nil || !bytes.Equal(canonicalDocument, plaintext) {
@@ -130,6 +137,9 @@ func desiredPayloadAAD(version int, scope DesiredPayloadScope) ([]byte, error) {
 }
 
 func canonicalDesiredPayloadBody(body any, tombstone bool) (json.RawMessage, error) {
+	if body == nil && !tombstone {
+		return nil, nil
+	}
 	if tombstone {
 		return json.RawMessage(`{"tombstone":true}`), nil
 	}
@@ -157,11 +167,96 @@ func canonicalDesiredPayloadJSON(raw []byte) ([]byte, error) {
 	if err := requireDesiredPayloadEOF(decoder); err != nil {
 		return nil, err
 	}
-	canonical, err := json.Marshal(value)
+	canonicalValue, err := canonicalDesiredPayloadValue(value)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := json.Marshal(canonicalValue)
 	if err != nil {
 		return nil, errors.New(invalidDesiredPayloadDocumentError)
 	}
 	return canonical, nil
+}
+
+func canonicalDesiredPayloadValue(value any) (any, error) {
+	switch value := value.(type) {
+	case json.Number:
+		return canonicalDesiredPayloadNumber(value)
+	case []any:
+		for index := range value {
+			canonical, err := canonicalDesiredPayloadValue(value[index])
+			if err != nil {
+				return nil, err
+			}
+			value[index] = canonical
+		}
+		return value, nil
+	case map[string]any:
+		for key, nested := range value {
+			canonical, err := canonicalDesiredPayloadValue(nested)
+			if err != nil {
+				return nil, err
+			}
+			value[key] = canonical
+		}
+		return value, nil
+	default:
+		return value, nil
+	}
+}
+
+func canonicalDesiredPayloadNumber(number json.Number) (json.Number, error) {
+	raw := string(number)
+	negative := false
+	if raw[0] == '-' {
+		negative = true
+		raw = raw[1:]
+	}
+	exponent := int64(0)
+	if index := strings.IndexAny(raw, "eE"); index >= 0 {
+		parsed, err := strconv.ParseInt(raw[index+1:], 10, 64)
+		if err != nil {
+			return "", errors.New(invalidDesiredPayloadDocumentError)
+		}
+		exponent = parsed
+		raw = raw[:index]
+	}
+	parts := strings.Split(raw, ".")
+	digits := strings.TrimLeft(strings.Join(parts, ""), "0")
+	if digits == "" {
+		return json.Number("0"), nil
+	}
+	scale := int64(0)
+	if len(parts) == 2 {
+		scale = int64(len(parts[1]))
+	}
+	scale -= exponent
+	for scale > 0 && strings.HasSuffix(digits, "0") {
+		digits = strings.TrimSuffix(digits, "0")
+		scale--
+	}
+	if scale > 4096 || scale < -4096 || int64(len(digits))+absDesiredPayloadInt64(scale) > 4096 {
+		return "", errors.New(invalidDesiredPayloadDocumentError)
+	}
+	if scale <= 0 {
+		digits += strings.Repeat("0", int(-scale))
+	} else if scale >= int64(len(digits)) {
+		digits = "0." + strings.Repeat("0", int(scale)-len(digits)) + digits
+	} else {
+		index := len(digits) - int(scale)
+		digits = digits[:index] + "." + digits[index:]
+	}
+	if negative {
+		digits = "-" + digits
+	}
+	return json.Number(digits), nil
+}
+
+func absDesiredPayloadInt64(value int64) int64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func decodeDesiredPayloadDocument(plaintext []byte) (DesiredPayloadDocument, error) {

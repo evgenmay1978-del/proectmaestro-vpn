@@ -30,6 +30,9 @@ func TestDesiredPayloadRoundTripBindsEnvelopeAndBodyDigests(t *testing.T) {
 	if _, err := hex.DecodeString(envelopeSHA256); err != nil {
 		t.Fatalf("envelope digest is not hex: %v", err)
 	}
+	if want := desiredPayloadTestEnvelopeDigest(t, envelope); envelopeSHA256 != want {
+		t.Fatalf("envelope digest = %s, want SHA-256 of exact canonical envelope %s", envelopeSHA256, want)
+	}
 
 	document, err := box.OpenDesiredPayload(scope, envelope, envelopeSHA256)
 	if err != nil {
@@ -158,6 +161,72 @@ func TestDesiredTombstoneContainsNoReusableCredential(t *testing.T) {
 	}
 	if strings.Contains(string(document.Body), "credential") {
 		t.Fatal("tombstone body contains reusable credential material")
+	}
+}
+
+func TestDesiredPayloadCanonicalizesEquivalentJSONNumbers(t *testing.T) {
+	box := newDesiredPayloadTestBox(t, 1, map[int]byte{1: 0x17})
+	scope := desiredPayloadTestScope()
+	for _, body := range []json.RawMessage{json.RawMessage(`{"n":1}`), json.RawMessage(`{"n":1.0}`), json.RawMessage(`{"n":1e0}`)} {
+		envelope, digest, err := box.SealDesiredPayload(scope, body)
+		if err != nil {
+			t.Fatalf("SealDesiredPayload(%s): %v", body, err)
+		}
+		document, err := box.OpenDesiredPayload(scope, envelope, digest)
+		if err != nil {
+			t.Fatalf("OpenDesiredPayload(%s): %v", body, err)
+		}
+		if got, want := string(document.Body), `{"n":1}`; got != want {
+			t.Fatalf("canonical body = %s, want %s", got, want)
+		}
+	}
+}
+
+func TestDesiredPayloadAbsentBodyUsesEmptyDigest(t *testing.T) {
+	box := newDesiredPayloadTestBox(t, 1, map[int]byte{1: 0x18})
+	scope := desiredPayloadTestScope()
+	envelope, digest, err := box.SealDesiredPayload(scope, nil)
+	if err != nil {
+		t.Fatalf("SealDesiredPayload absent body: %v", err)
+	}
+	document, err := box.OpenDesiredPayload(scope, envelope, digest)
+	if err != nil {
+		t.Fatalf("OpenDesiredPayload absent body: %v", err)
+	}
+	if document.Body != nil || document.BodySHA256 != desiredPayloadTestDigest(nil) {
+		t.Fatalf("absent body document = %#v, want omitted body with empty digest", document)
+	}
+}
+
+func TestDesiredPayloadRejectsInvalidScopeAndDocumentFraming(t *testing.T) {
+	box := newDesiredPayloadTestBox(t, 1, map[int]byte{1: 0x19})
+	scope := desiredPayloadTestScope()
+	for _, invalid := range []DesiredPayloadScope{
+		{NodeID: "", ServiceID: scope.ServiceID, CustomerID: scope.CustomerID, Generation: scope.Generation, OperationID: scope.OperationID, PayloadKind: scope.PayloadKind},
+		{NodeID: strings.Repeat("n", maxSecretScopePart+1), ServiceID: scope.ServiceID, CustomerID: scope.CustomerID, Generation: scope.Generation, OperationID: scope.OperationID, PayloadKind: scope.PayloadKind},
+		{NodeID: string([]byte{0xff}), ServiceID: scope.ServiceID, CustomerID: scope.CustomerID, Generation: scope.Generation, OperationID: scope.OperationID, PayloadKind: scope.PayloadKind},
+	} {
+		if _, _, err := box.SealDesiredPayload(invalid, map[string]string{"endpoint": "https://example.invalid/subscription"}); err == nil {
+			t.Fatal("SealDesiredPayload accepted an invalid scope")
+		}
+	}
+	validBody := json.RawMessage(`{"endpoint":"https://example.invalid/subscription"}`)
+	valid := DesiredPayloadDocument{Version: DesiredPayloadVersion, Kind: scope.PayloadKind, Body: validBody, BodySHA256: desiredPayloadTestDigest(validBody)}
+	unknownField := append(desiredPayloadTestJSON(t, valid)[:len(desiredPayloadTestJSON(t, valid))-1], []byte(`,"unexpected":true}`)...)
+	for _, plaintext := range [][]byte{unknownField, append(desiredPayloadTestJSON(t, valid), []byte(` {}`)...)} {
+		envelope := sealDesiredPayloadDocumentForTest(t, box, scope, plaintext)
+		if _, err := box.OpenDesiredPayload(scope, envelope, desiredPayloadTestEnvelopeDigest(t, envelope)); err == nil {
+			t.Fatal("OpenDesiredPayload accepted unknown fields or trailing JSON")
+		}
+	}
+	unknownKeyEnvelope, digest, err := box.SealDesiredPayload(scope, map[string]string{"endpoint": "https://example.invalid/subscription"})
+	if err != nil {
+		t.Fatalf("SealDesiredPayload: %v", err)
+	}
+	unknownKeyEnvelope.KeyVersion = 99
+	digest = desiredPayloadTestEnvelopeDigest(t, unknownKeyEnvelope)
+	if _, err := box.OpenDesiredPayload(scope, unknownKeyEnvelope, digest); err == nil {
+		t.Fatal("OpenDesiredPayload accepted unknown key version after digest recomputation")
 	}
 }
 
