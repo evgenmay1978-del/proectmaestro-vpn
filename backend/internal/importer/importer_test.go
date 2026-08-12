@@ -387,7 +387,8 @@ func TestRequiredSettingsPrincipalsAndEncryptedSecretsArePreserved(t *testing.T)
 	if len(plan.Settings) != 2 || len(plan.Principals) != 1 || len(plan.EncryptedSecrets) != 2 {
 		t.Fatalf("settings/principals/secrets counts changed: %#v", report.Counts)
 	}
-	if !bytes.Equal(plan.Settings[0].PublicValueJSON, []byte(`{"versionCode":154}`)) ||
+	wantOTA := []byte(`{"versionCode":154,"versionName":"1.5.4","sha256":"` + strings.Repeat("5", 64) + `","size":12345678}`)
+	if !bytes.Equal(plan.Settings[0].PublicValueJSON, wantOTA) ||
 		!reflect.DeepEqual(plan.Principals[0].Roles, []string{"owner"}) {
 		t.Fatalf("public setting or roles changed: %#v / %#v", plan.Settings, plan.Principals)
 	}
