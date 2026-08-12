@@ -37,6 +37,8 @@ func (a *Agent) Apply(ctx context.Context, signed SignedCommand) (DispatchResult
 	if cmd.NodeID!=a.cfg.NodeID || cmd.ServiceID!=a.cfg.ServiceID || cmd.NodeIncarnation!=a.cfg.NodeIncarnation { return DispatchResult{}, ErrInvalidCommand }
 	verify := func() error { return a.cfg.Verifier.VerifyCurrentStrong(ctx, cmd.NodeID, cmd.ServiceID, cmd.HolderID, cmd.Snapshot.SnapshotSHA256, cmd.ClusterEpoch, cmd.NodeIncarnation, cmd.LeaseFence) }
 	if err=verify(); err!=nil { return DispatchResult{}, err }
+	marker,err:=a.cfg.State.Load(ctx);if err!=nil{return DispatchResult{},err}
+	if err=validateMarkerForCommand(marker,cmd);err!=nil{return DispatchResult{},err}
 	actual, err := a.cfg.Driver.Inspect(ctx, cmd.Snapshot); if err!=nil { return DispatchResult{}, err }
 	if actual.Healthy && actual.SnapshotSHA256==cmd.Snapshot.SnapshotSHA256 {
 		if err:=a.storeMarker(ctx,cmd);err!=nil{return DispatchResult{},err}
@@ -49,6 +51,21 @@ func (a *Agent) Apply(ctx context.Context, signed SignedCommand) (DispatchResult
 	if !applied.Healthy || applied.SnapshotSHA256!=cmd.Snapshot.SnapshotSHA256 { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, ErrInvalidCommand }
 	if err:=a.storeMarker(ctx,cmd);err!=nil{return DispatchResult{},err}
 	return dispatchResult(cmd),nil
+}
+
+func validateMarkerForCommand(marker StateMarker,cmd ApplyCommand) error {
+	if marker.SnapshotSHA256==""&&len(marker.Entries)==0{return nil}
+	if err:=validateStateMarker(marker);err!=nil{return err}
+	if marker.ClusterEpoch>cmd.ClusterEpoch||
+		(marker.ClusterEpoch==cmd.ClusterEpoch&&marker.LeaseFence>cmd.LeaseFence)||
+		marker.NodeIncarnation>cmd.NodeIncarnation{return ErrInvalidCommand}
+	for _,entry:=range cmd.Snapshot.Entries {
+		previous,exists:=marker.Entries[entry.CustomerID]
+		if !exists{continue}
+		if entry.Generation<previous.Generation||
+			(entry.Generation==previous.Generation&&entry.PayloadSHA256!=previous.PayloadSHA256){return ErrInvalidCommand}
+	}
+	return nil
 }
 
 func dispatchResult(cmd ApplyCommand) DispatchResult {
