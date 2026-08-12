@@ -319,7 +319,7 @@ Commit `feat(ha): restore only into a fresh mtls cluster`.
   `TestAdvanceRestoredEpochAndFence`, `TestVerifyRestoredBusinessParity`.
 - Consumes mTLS cluster, exact importer binary, signed receipt and redacted metadata.
 
-- [ ] **Step 1: Add RED integration proof**
+- [x] **Step 1: Add RED integration proof**
 
 ~~~go
 func TestAdvanceRestoredEpochAndFence(t *testing.T) {
@@ -341,26 +341,26 @@ Parity requires exact schema identity, counts, import/batch evidence, business
 digest and shadow match, allowing only restore state, lease invalidation and
 activation audit differences.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit `test(ha): require restored epoch fencing and parity`. Expected failure:
 epoch proof wiring is absent.
 
-- [ ] **Step 3: Implement source/destination coordination**
+- [x] **Step 3: Implement source/destination coordination**
 
 Write only `0600` redacted metadata under `RUNNER_TEMP`: source business
 digest, signed receipt digest, backup SHA and source epoch. After restore,
 connect through all three voters, advance epoch, prove inactive rejection,
 reconcile synthetic desired state, activate and prove current-epoch exact-once.
 
-- [ ] **Step 4: Strengthen crash and quorum boundaries**
+- [x] **Step 4: Strengthen crash and quorum boundaries**
 
 Terminate isolated cases after verification, after load and before activation;
 each uses a new destination. Reuse of root, lease or epoch fails. After
 activation one voter loss preserves exact strong state; two-voter loss rejects
 writes.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 cd backend

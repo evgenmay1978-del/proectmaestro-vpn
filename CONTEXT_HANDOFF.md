@@ -3010,3 +3010,49 @@ Task 3 first job attempt `94006186086` failed only in the pre-existing nondeterm
 Current next step: Task 4 in `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`: strict exactly-S2/S3/S4 HTTPS mandatory-mTLS runtime, all protected local validation before the first network request, `VerifyIdentity` only, and linearizable referenced-key-version readiness. Continue with RED tests first. Do not deploy to servers after Task 4; server dry-run remains forbidden until Tasks 1-7 are GREEN and a separate backup/restore plus fencing drill has passed.
 
 Operational note for Windows searches: pass globs through `rg -g "*.go" <pattern> <directory>`; do not append a Unix-style `directory/*.go` path because native Windows `rg` rejects it.
+
+## 2026-08-12 DR restore drill checkpoint (Tasks 1-5 GREEN)
+
+Authoritative review surface remains draft PR #82, branch
+`codex/ha-rqlite-task2`. Production remains
+`NO-GO (repository DR implementation only)`: S1-S4, panels, bots, customers,
+Android/TV, Release, OTA, DNS and production credentials were not accessed or
+changed.
+
+Exact completed evidence:
+
+- Task 1 GREEN SHA `e8f1e62e72af3a75ea557bba4e7138f2c442f941`,
+  run `31573726939`.
+- Task 2 GREEN SHA `bb8b84b2cd22b35d07116c749fff1624a64668fd`,
+  run `31574573939`.
+- Task 3 GREEN SHA `cc3bc341488ebd633f7190b981998806d083e393`,
+  run `31577613693`.
+- Task 4 GREEN SHA `11798300efd9781dd4ea62c66dfe9808e287f013`,
+  run `31579056320`, job `94057725391`.
+- Task 5 final GREEN SHA `3829a861832feea431849a5b0b9c2599de691d57`,
+  run `31585328200`, job `94077716333`. Every named step succeeded:
+  unit, race, vet, harness, real-rqlite, importer parity, shadow parity,
+  production mTLS importer and unconditional cleanup.
+
+Task 5 proves the exact built importer creates a signed synthetic source, an
+authenticated encrypted backup is independently verified, a fresh mTLS
+destination is restored once, business/schema/import/batch/shadow parity holds,
+and a repeated restore into the same root is rejected. Restore epoch advance and
+activation execute in separate test processes; the process terminates after
+advance, the restarted process observes the preserved inactive epoch, stale
+leases/old epoch are fenced, and current-epoch mutation is exact-once. After
+activation, loss of S4 preserves strong state plus idempotent write through
+active S2/S3; loss of S3 as well makes S2 reject a linearizable write.
+
+A deterministic regression was added for a real importer race exposed during
+verification: completed concurrent resume now refreshes target state after
+`BeginOrResume` before comparing the completed digest. RED:
+`8c4c992641346fc575df313b1d55c6952b552609`, run `31583987756`,
+job `94073414698`; GREEN fix `a264f481948b599b2767f3ebfe2095f4453bbf31`,
+run `31584173786`, job `94074003728`.
+
+Current next step is Task 6 in
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`:
+add a dedicated repository-only exact-SHA DR workflow and strict policy test
+with no production secrets or artifact upload. Continue RED first. Production
+read-only audit is still forbidden until Tasks 1-7 are fully GREEN.
