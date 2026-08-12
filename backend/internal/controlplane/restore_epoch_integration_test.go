@@ -137,7 +137,72 @@ func TestRestoredQuorumBoundaries(t *testing.T) {
 	if phase != "one-loss" && phase != "two-loss" {
 		t.Fatal("MAESTRO_DR_QUORUM_PHASE must be one-loss or two-loss")
 	}
-	t.Fatal("restored quorum proof wiring is absent")
+	checkpoint := readAdvancedEpoch(t)
+	db := restoredEpochRQLite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	t.Cleanup(cancel)
+	bot := strings.Repeat("d", 64)
+	const updateSQL = `UPDATE telegram_pollers
+		SET offset_value=?,lease_fence=?,updated_at_unix=?
+		WHERE bot_identity_hmac=? AND lease_fence=?
+		AND EXISTS(SELECT 1 FROM cluster_restore_state
+			WHERE singleton_id=1 AND restore_epoch=? AND activated=1)`
+	if phase == "one-loss" {
+		state, err := NewRestoreEpochStore(db).Current(ctx)
+		if err != nil || !state.Activated || state.RestoreEpoch != checkpoint.RestoredEpoch {
+			t.Fatalf("one voter loss lost active restore state: %#v, %v", state, err)
+		}
+		before, err := db.QueryStrong(ctx, rqlite.Statement{
+			SQL:  "SELECT offset_value,lease_fence FROM telegram_pollers WHERE bot_identity_hmac=?",
+			Args: []any{bot},
+		})
+		if err != nil || len(before) != 1 || len(before[0].Rows) != 1 ||
+			!drIntegerEquals(before[0].Rows[0]["offset_value"], 43) ||
+			!drIntegerEquals(before[0].Rows[0]["lease_fence"], 13) {
+			t.Fatalf("one voter loss strong state mismatch: %#v, %v", before, err)
+		}
+		write, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+			SQL: updateSQL,
+			Args: []any{
+				44, 14, 102, bot, 13, checkpoint.RestoredEpoch,
+			},
+		})
+		if err != nil || len(write) != 1 || write[0].RowsAffected != 1 {
+			t.Fatalf("one voter loss rejected exact-once write: %#v, %v", write, err)
+		}
+		replay, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+			SQL: updateSQL,
+			Args: []any{
+				44, 14, 102, bot, 13, checkpoint.RestoredEpoch,
+			},
+		})
+		if err != nil || len(replay) != 1 || replay[0].RowsAffected != 0 {
+			t.Fatalf("one voter loss replay was not idempotent: %#v, %v", replay, err)
+		}
+		after, err := db.QueryStrong(ctx, rqlite.Statement{
+			SQL:  "SELECT offset_value,lease_fence FROM telegram_pollers WHERE bot_identity_hmac=?",
+			Args: []any{bot},
+		})
+		if err != nil || len(after) != 1 || len(after[0].Rows) != 1 ||
+			!drIntegerEquals(after[0].Rows[0]["offset_value"], 44) ||
+			!drIntegerEquals(after[0].Rows[0]["lease_fence"], 14) {
+			t.Fatalf("one voter loss post-write state mismatch: %#v, %v", after, err)
+		}
+		return
+	}
+
+	write, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+		SQL: updateSQL,
+		Args: []any{
+			45, 15, 103, bot, 14, checkpoint.RestoredEpoch,
+		},
+	})
+	if err == nil {
+		t.Fatalf("two voter loss accepted linearizable write: %#v", write)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("two voter loss did not reject within bounded client timeout: %v", ctx.Err())
+	}
 }
 
 func drEpochMutation(t *testing.T, ctx context.Context, db rqlite.RQLite, epoch int64) int64 {
