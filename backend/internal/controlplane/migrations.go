@@ -34,6 +34,7 @@ var expectedSchemaTables = []string{
 	"credentials",
 	"customers",
 	"desired_node_state",
+	"desired_protocol_tags",
 	"devices",
 	"external_actions",
 	"health_write_canary",
