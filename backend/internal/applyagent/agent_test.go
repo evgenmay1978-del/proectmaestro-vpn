@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -133,6 +134,86 @@ func signedFixture(t *testing.T, command ApplyCommand, privateKey ed25519.Privat
 
 func totalDriverCalls(driver *fakeDriver) int32 {
 	return driver.inspectCalls.Load() + driver.prepareCalls.Load() + driver.commitCalls.Load() + driver.rollbackCalls.Load()
+}
+
+func markerForCommand(command ApplyCommand) StateMarker {
+	marker := StateMarker{
+		SnapshotSHA256: command.Snapshot.SnapshotSHA256,
+		ClusterEpoch:   command.ClusterEpoch,
+		NodeIncarnation: command.NodeIncarnation,
+		LeaseFence:     command.LeaseFence,
+		HolderID:       command.HolderID,
+		Entries:        make(map[string]EntryMarker, len(command.Snapshot.Entries)),
+	}
+	for _, entry := range command.Snapshot.Entries {
+		marker.Entries[entry.CustomerID] = EntryMarker{
+			Generation:    entry.Generation,
+			PayloadSHA256: entry.PayloadSHA256,
+		}
+	}
+	return marker
+}
+
+func TestAgentRejectsOldGenerationAndHashConflict(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*StateMarker, DesiredEntry)
+	}{
+		{
+			name: "old generation",
+			mutate: func(marker *StateMarker, entry DesiredEntry) {
+				marker.Entries[entry.CustomerID] = EntryMarker{Generation: entry.Generation + 1, PayloadSHA256: entry.PayloadSHA256}
+			},
+		},
+		{
+			name: "same generation different hash",
+			mutate: func(marker *StateMarker, entry DesiredEntry) {
+				marker.Entries[entry.CustomerID] = EntryMarker{Generation: entry.Generation, PayloadSHA256: strings.Repeat("f", 64)}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			verifier := &fakeLeaseVerifier{}
+			driver := &fakeDriver{}
+			_, command, _ := agentFixture(t, verifier, driver, &fakeStateStore{})
+			marker := markerForCommand(command)
+			test.mutate(&marker, command.Snapshot.Entries[0])
+			agent, command, privateKey := agentFixture(t, verifier, driver, &fakeStateStore{marker: marker})
+			if _, err := agent.Apply(context.Background(), signedFixture(t, command, privateKey)); !errors.Is(err, ErrInvalidCommand) {
+				t.Fatalf("Apply error=%v, want ErrInvalidCommand", err)
+			}
+			if totalDriverCalls(driver) != 0 {
+				t.Fatalf("invalid generation reached driver: calls=%d", totalDriverCalls(driver))
+			}
+		})
+	}
+}
+
+func TestAgentSameGenerationSameHashIsNoOp(t *testing.T) {
+	verifier := &fakeLeaseVerifier{}
+	_, command, _ := agentFixture(t, verifier, &fakeDriver{}, &fakeStateStore{})
+	driver := &fakeDriver{inspectFn: func(DesiredSnapshot) (AppliedState, error) {
+		return AppliedState{SnapshotSHA256: command.Snapshot.SnapshotSHA256, Healthy: true}, nil
+	}}
+	agent, command, privateKey := agentFixture(t, verifier, driver, &fakeStateStore{marker: markerForCommand(command)})
+	if _, err := agent.Apply(context.Background(), signedFixture(t, command, privateKey)); err != nil {
+		t.Fatal(err)
+	}
+	if driver.inspectCalls.Load() != 1 || driver.prepareCalls.Load() != 0 || driver.commitCalls.Load() != 0 {
+		t.Fatalf("inspect/prepare/commit=%d/%d/%d, want 1/0/0", driver.inspectCalls.Load(), driver.prepareCalls.Load(), driver.commitCalls.Load())
+	}
+}
+
+func TestAgentStateLoadFailureCausesZeroDriverCalls(t *testing.T) {
+	driver := &fakeDriver{}
+	wantErr := errors.New("test: marker read failed")
+	agent, command, privateKey := agentFixture(t, &fakeLeaseVerifier{}, driver, &fakeStateStore{loadErr: wantErr})
+	if _, err := agent.Apply(context.Background(), signedFixture(t, command, privateKey)); !errors.Is(err, wantErr) {
+		t.Fatalf("Apply error=%v, want %v", err, wantErr)
+	}
+	if totalDriverCalls(driver) != 0 {
+		t.Fatalf("state load failure reached driver: calls=%d", totalDriverCalls(driver))
+	}
 }
 
 func TestAgentRejectsWrongNodeServiceEpochOrIncarnation(t *testing.T) {
