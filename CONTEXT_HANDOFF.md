@@ -1,6 +1,45 @@
 # MaestroVPN — актуальный контекст и передача работы
 
 
+## 0AA. HA DR TASKS 1-2 GREEN; ENCRYPTED BACKUP CREATOR NEXT (12.08.2026)
+
+- Active repository/branch/PR: `evgenmay1978-del/proectmaestro-vpn`,
+  `codex/ha-rqlite-task2`, draft PR #82. Work remains GitHub-first.
+- Task 1 is complete on exact SHA
+  `e8f1e62e72af3a75ea557bba4e7138f2c442f941`.
+  GitHub Actions run `31573726939` passed every step: formatting, backend,
+  race, vet, rqlite integration, importer parity and production importer mTLS
+  proof. Ordered immutable migrations v1->v2 now upgrade an existing v1 prefix;
+  migration 2 seeds `cluster_restore_state`; restore advancement atomically
+  increments epoch, invalidates node/job leases and clears/increments Telegram
+  poller leases/fences. Exact RED evidence before GREEN:
+  `8f26cccea0fab1680ec00fa60e12b61174c2e768`, run `31571127021`,
+  job `94033164385`; ordered-upgrade RED `e1f5ccd930321bdcaac38a24aee51bb771d25188`,
+  run `31573100794`, job `94039113230`.
+- Task 2 is complete on exact SHA
+  `bb8b84b2cd22b35d07116c749fff1624a64668fd`.
+  GitHub Actions run `31574573939`, job `94043700861`, passed all Python,
+  Go/race/vet, rqlite/importer/mTLS steps. `ops/ha/verify_backup.py` verifies
+  canonical JSON, exact members, SQLite integrity/FKs, ordered schema identity,
+  restore epoch, table counts, receipt/watermark high-watermarks, image/key
+  hashes and exactly one trusted GPG `VALIDSIG`, using only fixed redacted
+  errors. Exact RED: tests `310d5a2f112df0675f69e86d911c0f003da09e66`;
+  workflow gate `74c6f9aa3cc243953bd1f03809f9a32fe96ea6e5`, run
+  `31574300317`, job `94042844652`, failed only because
+  `ops.ha.verify_backup` was absent.
+- The workflow update had to use the GitHub connector because local Git OAuth
+  lacks `workflow` scope. Do not retry that failed push family. The equivalent
+  local commit was cleanly skipped during rebase; local and remote head were
+  aligned at `74c6f9aa...` before Task 2 GREEN.
+- Next exact step is Task 3 RED in
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`:
+  add shell contracts for `backup-rqlite.sh`, synthetic DR identity and
+  `describe-mtls --output FILE`, then a separate GREEN encrypted backup
+  creator. Tasks 3-7, read-only S2/S3/S4 audit and all live rollout remain.
+- Production is still **NO-GO**. S1-S4, panels, Telegram bots, customers, VPN
+  services/protocols, DNS, Android/TV, Release and OTA were not connected to or
+  changed during Tasks 1-2.
+
 ## 0Z. HA DR RESTORE DRILL TDD PLAN READY, code not started (12.08.2026)
 
 - Written spec approved by owner; detailed sequential TDD plan:
