@@ -130,3 +130,50 @@ func mustIntegrationRQLite(t *testing.T) rqlite.RQLite {
 	}
 	return db
 }
+
+
+func TestVerifyIdentityReturnsExactCommittedVersionAndChecksum(t *testing.T) {
+	db := mustIntegrationRQLite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	migrator := NewMigrator(db)
+	if err := migrator.Apply(ctx); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	identity, err := migrator.VerifyIdentity(ctx)
+	if err != nil {
+		t.Fatalf("VerifyIdentity: %v", err)
+	}
+	_, checksum, _, err := loadMigration()
+	if err != nil {
+		t.Fatalf("loadMigration: %v", err)
+	}
+	if identity.Version != SchemaVersion || identity.Checksum != checksum || len(identity.Checksum) != 64 {
+		t.Fatalf("identity=%#v", identity)
+	}
+}
+
+func TestVerifyIdentityRejectsChangedChecksumWithoutApplying(t *testing.T) {
+	db := &recordingRQLite{
+		strong: []scriptedResult{
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			resultsScript(
+				rqlite.Result{Rows: []map[string]any{{
+					"version": int64(SchemaVersion),
+					"checksum": strings.Repeat("0", 64),
+				}}},
+				rqlite.Result{Rows: nil},
+				rqlite.Result{Rows: nil},
+			),
+		},
+	}
+	if _, err := NewMigrator(db).VerifyIdentity(context.Background()); err == nil {
+		t.Fatal("VerifyIdentity accepted a changed checksum")
+	}
+	if len(db.requestCalls) != 0 {
+		t.Fatalf("VerifyIdentity performed %d mutation(s)", len(db.requestCalls))
+	}
+}
