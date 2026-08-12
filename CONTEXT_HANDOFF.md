@@ -1,6 +1,27 @@
 # MaestroVPN — актуальный контекст и передача работы
 
 
+## 0Y. HA DR RESTORE DRILL DESIGN APPROVED, implementation not started (12.08.2026)
+
+- Владелец утвердил безопасный порядок: сначала полностью synthetic
+  GitHub Actions backup/restore/fencing proof; затем отдельный read-only аудит
+  S2/S3/S4; только после отчёта и отдельного разрешения — live deployment.
+- Утверждённая спецификация:
+  `docs/superpowers/specs/2026-08-12-maestrovpn-ha-dr-restore-drill-design.md`.
+- Focused scope: authenticated encrypted rqlite SQLite backup, strict offline
+  manifest verification, restore only into fresh empty three-node mandatory-mTLS
+  cluster, new monotonic restore epoch, invalidation of restored node/job/bot
+  leases, fake old-epoch consumer rejection, digest/shadow parity and failure
+  matrix. Все данные/PKI/GPG keys synthetic and ephemeral.
+- Официальный rqlite контракт подтверждает `GET /db/backup?fmt=delete` и
+  SQLite load into a freshly deployed cluster with no concurrent writes.
+- Этот checkpoint является design-only. DR code и server rollout ещё не
+  начаты. S1-S4, панели, Telegram-боты, клиенты, VPN-протоколы, DNS,
+  Android/TV, Release и OTA не изменялись.
+- Следующий обязательный gate по навыку brainstorming: владелец просматривает
+  committed spec; после явного подтверждения создаётся отдельный TDD
+  implementation plan. Production остаётся NO-GO.
+
 ## 0X. HA PRODUCTION IMPORT FACTORY: Tasks 1–8 GREEN, production untouched (12.08.2026)
 
 - Рабочая ветка: `codex/ha-rqlite-task2`, draft PR #82. Работа ведётся
