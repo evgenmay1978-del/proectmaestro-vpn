@@ -55,11 +55,35 @@ jobs:
           printf '%s\0' "${noncanonical_go_files[@]}" |
             cmp - <(printf '%s\0' \
               internal/applyagent/agent.go \
+              internal/applyagent/agent_test.go \
+              internal/applyagent/apply_result_test.go \
               internal/applyagent/dispatcher.go \
+              internal/applyagent/dispatcher_receipt_test.go \
+              internal/applyagent/dispatcher_test.go \
+              internal/applyagent/http.go \
+              internal/applyagent/http_test.go \
               internal/applyagent/local_state.go \
+              internal/applyagent/materialized.go \
+              internal/applyagent/materialized_security_test.go \
+              internal/applyagent/materialized_test.go \
+              internal/applyagent/protocol.go \
+              internal/applyagent/protocol_test.go \
               internal/applyagent/status.go \
-              internal/controlplane/errors.go \
-              internal/controlplane/outbox.go)
+              internal/applyagent/status_http_test.go \
+              internal/applyagent/status_test.go \
+              internal/controlplane/customers_test.go \
+              internal/controlplane/desired_payload.go \
+              internal/controlplane/migrations.go \
+              internal/controlplane/migrations_ordered_test.go \
+              internal/controlplane/migrations_test.go \
+              internal/controlplane/models.go \
+              internal/controlplane/outbox.go \
+              internal/controlplane/outbox_test.go \
+              internal/controlplane/restore_epoch.go \
+              internal/controlplane/restore_epoch_integration_test.go \
+              internal/controlplane/restore_epoch_test.go \
+              internal/controlplane/schema_constraints_test.go \
+              internal/controlplane/service.go)
           gofmt -w "${guarded_go_files[@]}"
           go test ./internal/applyagent ./internal/controlplane
 
