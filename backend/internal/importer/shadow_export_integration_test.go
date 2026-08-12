@@ -91,13 +91,6 @@ func TestRQLiteShadowExportParity(t *testing.T) {
 	verifier := filepath.Join("..", "..", "..", "ops", "ha", "shadow-verify.sh")
 	command := exec.CommandContext(ctx, "bash", verifier, "--legacy", legacyPath, "--candidate", candidatePath, "--salt-file", saltPath)
 	output, commandErr := command.CombinedOutput()
-	if commandErr != nil {
-		t.Fatalf("shadow verifier failed: %v: %s", commandErr, output)
-	}
-	wantOutput := []byte("{\"differences\":[],\"status\":\"match\"}\n")
-	if !bytes.Equal(output, wantOutput) {
-		t.Fatalf("shadow verifier output = %q", output)
-	}
 	legacyBytes, err := os.ReadFile(legacyPath)
 	if err != nil {
 		t.Fatalf("read legacy export: %v", err)
@@ -106,7 +99,11 @@ func TestRQLiteShadowExportParity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read candidate export: %v", err)
 	}
-	combined := bytes.Join([][]byte{legacyBytes, candidateBytes, output}, []byte("\n"))
+	commandErrorBytes := []byte(nil)
+	if commandErr != nil {
+		commandErrorBytes = []byte(commandErr.Error())
+	}
+	combined := bytes.Join([][]byte{legacyBytes, candidateBytes, output, commandErrorBytes}, []byte("\n"))
 	for _, forbidden := range []string{
 		"OrderOwner", "MCRD1", "AAECAwQFBgcICQoL", "AQIDBAUGBwgJCgsM",
 		"c3ludGhldGljLW9yZGVyLW93bmVy", "c3ludGhldGljLXBhbmVsLXZlcmlmaWVy",
@@ -115,5 +112,12 @@ func TestRQLiteShadowExportParity(t *testing.T) {
 		if strings.Contains(string(combined), forbidden) {
 			t.Fatalf("shadow proof leaked protected marker")
 		}
+	}
+	if commandErr != nil {
+		t.Fatalf("shadow verifier failed: %v: %s", commandErr, output)
+	}
+	wantOutput := []byte("{\"differences\":[],\"status\":\"match\"}\n")
+	if !bytes.Equal(output, wantOutput) {
+		t.Fatalf("shadow verifier output = %q", output)
 	}
 }
