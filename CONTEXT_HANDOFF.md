@@ -3138,3 +3138,25 @@ credential was changed. The next repository task is Plan 03 Task 11: RED-first
 signed and fenced apply-agent protocol, dispatcher, local aggregate state and
 private hardened HTTP surface. Deployment remains forbidden until the remaining
 agent/driver/bot and rollout gates are GREEN and separately approved.
+
+## 2026-08-12 atomic repetition barrier checkpoint
+
+Owner correction exposed a process defect: guard checks had sometimes been
+combined with mutations/commit/push, an exit code had been treated as success
+without confirming the target, and context-free source patches had been reused
+after contextual failures. Feature work stopped until this was made durable.
+
+`AGENTS.md` and the permanent `project-master` skill now require: standalone
+guard checks; exactly one semantic action per allowance; immediate result
+inspection; `fail` as the next executable action after any unexpected result or
+owner correction; root-cause correction before one new attempt; no
+`--unidiff-zero` or context-free patch on existing source; full changed-boundary
+inspection before staging; and separate mutation, validation, add, commit and
+push actions. Repeated root cause now blocks feature work until both policies
+are updated.
+
+Resume point remains Plan 03 Task 11 on branch `codex/ha-rqlite-task2`, current
+HEAD before this policy commit `f251cdf3f3042f6aafd39b3c4c994cd757b58932`.
+Preserve the untracked RED test
+`backend/internal/applyagent/apply_result_test.go`; it is not yet validated or
+committed. Production remains NO-GO and was not accessed or changed.
