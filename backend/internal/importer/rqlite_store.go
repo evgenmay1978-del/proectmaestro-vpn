@@ -865,11 +865,11 @@ WHERE entity_kind=? AND source_key=? AND target_id=? AND canonical_sha256=? AND 
 }
 
 func validCanonicalSHA256(value string) bool {
-	if len(value) != 64 {
+	if len(value) != 64 || value != strings.ToLower(value) {
 		return false
 	}
-	_, err := hex.DecodeString(value)
-	return err == nil
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 func (s *RQLiteApplyStore) botRouteStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {

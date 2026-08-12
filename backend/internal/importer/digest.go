@@ -2,10 +2,8 @@ package importer
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 func Digest(plan ImportPlan) string {
@@ -68,12 +66,4 @@ func deterministicID(namespace, entity, sourceKey string) string {
 func sha256Hex(value []byte) string {
 	sum := sha256.Sum256(value)
 	return fmt.Sprintf("%x", sum[:])
-}
-
-func validCanonicalSHA256(value string) bool {
-	if len(value) != 64 || value != strings.ToLower(value) {
-		return false
-	}
-	decoded, err := hex.DecodeString(value)
-	return err == nil && len(decoded) == sha256.Size
 }
