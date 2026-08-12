@@ -3,6 +3,7 @@ package applyagent
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +14,12 @@ func (s *fakeSnapshotSource) CompleteSnapshot(_ context.Context, target Target, 
 type fakeLeaseProvider struct { calls int }
 func (p *fakeLeaseProvider) Acquire(_ context.Context, target Target, snapshotSHA256 string) (LeaseProof, error) { p.calls++; return LeaseProof{ClusterEpoch:7,NodeIncarnation:3,LeaseFence:11,HolderID:"dispatcher-a"},nil }
 type fakeCommandSender struct { mu sync.Mutex; calls map[Target]int }
-func (s *fakeCommandSender) Send(_ context.Context, target Target, _ SignedCommand) error { s.mu.Lock(); defer s.mu.Unlock(); s.calls[target]++; return nil }
+func (s *fakeCommandSender) Send(_ context.Context,target Target,signed SignedCommand)(DispatchResult,error){
+	s.mu.Lock();defer s.mu.Unlock();s.calls[target]++
+	var command ApplyCommand;if err:=json.Unmarshal(signed.Command,&command);err!=nil{return DispatchResult{},err}
+	entries:=make([]AppliedEntry,0,len(command.Snapshot.Entries));for _,entry:=range command.Snapshot.Entries{entries=append(entries,AppliedEntry{CustomerID:entry.CustomerID,OperationID:entry.OperationID,Generation:entry.Generation,DesiredSHA256:entry.PayloadSHA256,ObservedSHA256:entry.PayloadSHA256})}
+	return DispatchResult{SnapshotSHA256:command.Snapshot.SnapshotSHA256,Entries:entries},nil
+}
 
 func dispatcherFixture(t *testing.T) (*Dispatcher,*fakeSnapshotSource,*fakeLeaseProvider,*fakeCommandSender) {
 	t.Helper()
@@ -21,7 +27,8 @@ func dispatcherFixture(t *testing.T) (*Dispatcher,*fakeSnapshotSource,*fakeLease
 	source:=&fakeSnapshotSource{calls:map[Target]int{},snapshot:command.Snapshot}
 	leases:=&fakeLeaseProvider{}
 	sender:=&fakeCommandSender{calls:map[Target]int{}}
-	dispatcher,err:=NewDispatcher(DispatcherConfig{Source:source,Leases:leases,Sender:sender,KeyID:"dispatcher-key-1",PrivateKey:ed25519.PrivateKey(privateKey),Clock:func()time.Time{return time.Unix(2_000_000,0)}})
+	receipts:=&recordingReceiptSink{}
+	dispatcher,err:=NewDispatcher(DispatcherConfig{Source:source,Leases:leases,Sender:sender,Receipts:receipts,KeyID:"dispatcher-key-1",PrivateKey:ed25519.PrivateKey(privateKey),Clock:func()time.Time{return time.Unix(2_000_000,0)}})
 	if err!=nil { t.Fatalf("NewDispatcher: %v",err) }
 	return dispatcher,source,leases,sender
 }
