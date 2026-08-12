@@ -1,0 +1,60 @@
+{
+  "format_version": 2,
+  "cluster_hmac_key_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "legacy_trial_salt_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "snapshot_kind": "full",
+  "captured_at": "2026-08-12T00:00:00Z",
+  "source_hashes": {
+    "production_binary_fixture": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "customers": [{
+    "source_key": "s1:customer:production-binary-1",
+    "login": "ProductionBinaryUser",
+    "login_key_hmac": "1111111111111111111111111111111111111111111111111111111111111111",
+    "uuid_hmac": "2222222222222222222222222222222222222222222222222222222222222222",
+    "sub_id_hmac": "3333333333333333333333333333333333333333333333333333333333333333",
+    "token_hmac": "4444444444444444444444444444444444444444444444444444444444444444",
+    "credential_fingerprint_hmac": "5555555555555555555555555555555555555555555555555555555555555555",
+    "identity_secret_ref": "production-binary-secret-1",
+    "protocol_tags": ["vless", "hysteria2", "anytls"],
+    "node_ids": ["S1", "S2", "S3", "S4"],
+    "expires_at_unix": 2100000000,
+    "generation": 9,
+    "status": "active"
+  }],
+  "orders": [],
+  "trials": [{
+    "source_key": "production-binary-trial-1",
+    "legacy_anchor_hmac": "6666666666666666666666666666666666666666666666666666666666666666",
+    "current_hmac": "7777777777777777777777777777777777777777777777777777777777777777",
+    "used": false,
+    "expires_at_unix": 2100000000
+  }],
+  "bot_bindings": [],
+  "settings": [{
+    "key": "ota",
+    "public_value_json": {
+      "versionCode": 154,
+      "versionName": "1.5.4",
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "size": 12345678
+    },
+    "generation": 4
+  }],
+  "principals": [],
+  "encrypted_secrets": [{
+    "secret_id": "production-binary-secret-1",
+    "owner_type": "customer",
+    "owner_source_key": "s1:customer:production-binary-1",
+    "field": "identity",
+    "kind": "customer-identity",
+    "key_version": 1,
+    "nonce_b64": "AAECAwQFBgcICQoL",
+    "ciphertext_b64": "cGxhY2Vob2xkZXI=",
+    "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+  }],
+  "deletes": [],
+  "bot_poll_states": [],
+  "pending_callbacks": [],
+  "bot_credential_rotations": []
+}

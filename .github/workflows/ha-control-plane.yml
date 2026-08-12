@@ -45,8 +45,9 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          gofmt -d internal/rqlite/*.go | tee /tmp/rqlite-gofmt.diff
-          test ! -s /tmp/rqlite-gofmt.diff
+          gofmt -d cmd/maestro-import/*.go internal/importer/*.go internal/controlplane/*.go internal/rqlite/*.go |
+            tee /tmp/ha-gofmt.diff
+          test ! -s /tmp/ha-gofmt.diff
 
       - name: Test backend
         working-directory: backend
@@ -106,6 +107,27 @@ jobs:
         env:
           MAESTRO_SHADOW_EXPORT_PROOF: "1"
         run: go test -tags=rqlite_integration ./internal/importer -run '^TestRQLiteShadowExportParity$' -count=1
+
+      - name: Start isolated three-node mTLS rqlite cluster
+        run: |
+          bash ops/ha/ci-rqlite-cluster.sh stop
+          bash ops/ha/ci-rqlite-cluster.sh start-mtls
+
+      - name: Prepare production import schema over mTLS
+        working-directory: backend
+        env:
+          MAESTRO_IMPORT_SCHEMA_PREP: "1"
+        run: go test -tags=rqlite_integration ./cmd/maestro-import -run '^TestPrepareProductionImportSchemaMTLS -count=1
+
+      - name: Build exact production importer binary
+        working-directory: backend
+        run: go build -o "${RUNNER_TEMP}/maestro-import" ./cmd/maestro-import
+
+      - name: Prove production importer binary over mTLS
+        working-directory: backend
+        env:
+          MAESTRO_IMPORT_BINARY: ${{ runner.temp }}/maestro-import
+        run: go test -tags=rqlite_integration ./cmd/maestro-import -run '^TestProductionImportFactoryBinaryProof -count=1
 
       - name: Stop isolated rqlite cluster
         if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
