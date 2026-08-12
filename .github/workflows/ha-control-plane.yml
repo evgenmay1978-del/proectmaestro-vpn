@@ -51,7 +51,7 @@ jobs:
               LC_ALL=C sort -z
           )
           mapfile -d '' noncanonical_go_files < <(
-            gofmt -l "${guarded_go_files[@]}" | LC_ALL=C sort -z
+            gofmt -l "${guarded_go_files[@]}" | tr '\n' '\0' | LC_ALL=C sort -z
           )
           test "${#guarded_go_files[@]}" -gt 0
           printf '%s\0' "${noncanonical_go_files[@]}" |

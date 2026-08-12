@@ -22,6 +22,7 @@ WORKFLOW_SNIPPETS = (
     "find internal/applyagent internal/controlplane -type f -name '*.go' -print0",
     "LC_ALL=C sort -z",
     "noncanonical_go_files",
+    "tr '\\n' '\\0'",
     "cmp - <(printf '%s\\0'",
     'gofmt -w "${guarded_go_files[@]}"',
     "go test ./internal/applyagent ./internal/controlplane",
