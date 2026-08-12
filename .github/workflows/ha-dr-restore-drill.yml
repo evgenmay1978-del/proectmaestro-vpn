@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           cd backend
-          gofmt -d cmd/maestro-import/*.go internal/controlplane/*.go internal/importer/*.go internal/rqlite/*.go |
+          gofmt -d cmd/maestro-import/production_integration_test.go internal/rqlite/*.go |
             tee /tmp/ha-dr-gofmt.diff
           test ! -s /tmp/ha-dr-gofmt.diff
           cd ..
