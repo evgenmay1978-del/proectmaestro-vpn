@@ -13,7 +13,7 @@ var ErrStaleFence = errors.New("applyagent: stale fence")
 type AppliedState struct { SnapshotSHA256 string; Healthy bool }
 type PreparedChange struct { SnapshotSHA256 string }
 type EntryMarker struct { Generation int64; PayloadSHA256 string }
-type StateMarker struct { SnapshotSHA256 string; Entries map[string]EntryMarker }
+type StateMarker struct { SnapshotSHA256 string; ClusterEpoch, NodeIncarnation, LeaseFence int64; HolderID string; Entries map[string]EntryMarker }
 
 type LeaseVerifier interface { VerifyCurrentStrong(context.Context, string, string, string, string, int64, int64, int64) error }
 type Driver interface {
@@ -48,7 +48,7 @@ func (a *Agent) Apply(ctx context.Context, signed SignedCommand) (AppliedState, 
 }
 
 func (a *Agent) storeMarker(ctx context.Context, cmd ApplyCommand) error {
-	m:=StateMarker{SnapshotSHA256:cmd.Snapshot.SnapshotSHA256,Entries:map[string]EntryMarker{}}
+	m:=StateMarker{SnapshotSHA256:cmd.Snapshot.SnapshotSHA256,ClusterEpoch:cmd.ClusterEpoch,NodeIncarnation:cmd.NodeIncarnation,LeaseFence:cmd.LeaseFence,HolderID:cmd.HolderID,Entries:map[string]EntryMarker{}}
 	for _,e:=range cmd.Snapshot.Entries { m.Entries[e.CustomerID]=EntryMarker{Generation:e.Generation,PayloadSHA256:e.PayloadSHA256} }
 	return a.cfg.State.Store(ctx,m)
 }
