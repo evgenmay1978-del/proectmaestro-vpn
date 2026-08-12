@@ -8,31 +8,70 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOWS = (
-    ROOT / ".github" / "workflows" / "ha-control-plane.yml",
-    ROOT / ".github" / "workflows" / "ha-dr-restore-drill.yml",
-)
-GO_ROOTS = (
-    ROOT / "backend" / "internal" / "applyagent",
-    ROOT / "backend" / "internal" / "controlplane",
-)
 FORBIDDEN_DRIVER_SIGNATURE = re.compile(
-    r"\b(?P<method>Inspect|Prepare)\s*\(\s*context\.Context\s*,\s*DesiredSnapshot\s*\)"
+    r"\b(?P<method>Inspect|Prepare)\s*\([^)]*\bDesiredSnapshot\b[^)]*\)", re.DOTALL
 )
 SENSITIVE_SINK = re.compile(
-    r"\b(?:fmt\.(?:Errorf|Fprint|Fprintf|Fprintln|Print|Printf|Println|Sprint|Sprintf|Sprintln)"
-    r"|log\.(?:Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln|Print|Printf|Println)"
-    r"|slog\.(?:Debug|DebugContext|Error|ErrorContext|Info|InfoContext|Log|LogAttrs|Warn|WarnContext)"
-    r"|json\.(?:Marshal|MarshalIndent))\s*\(|\.\s*Encode\s*\("
+    r"(?:\b(?:Errorf|Fprint|Fprintf|Fprintln|Print|Printf|Println|Sprint|Sprintf|Sprintln"
+    r"|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln|Debug|DebugContext|Error|ErrorContext"
+    r"|Info|InfoContext|Log|LogAttrs|Warn|WarnContext|Marshal|MarshalIndent)"
+    r"|\.\s*Encode)\s*\("
 )
-BODY_REFERENCE = re.compile(r"(?:\.\s*Body\b|\bMaterializedEntry\s*\{[^}]*\bBody\s*:)", re.DOTALL)
 WORKFLOW_SNIPPETS = (
     "python ops/ha/test-agent-payload-policy.py",
     "find internal/applyagent internal/controlplane -type f -name '*.go' -print0",
     "LC_ALL=C sort -z",
+    "noncanonical_go_files",
+    "cmp - <(printf '%s\\0'",
     'gofmt -w "${guarded_go_files[@]}"',
     "go test ./internal/applyagent ./internal/controlplane",
 )
+
+
+def _code_only(text: str) -> str:
+    output = list(text)
+    index = 0
+    state = "code"
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if state == "code":
+            if char == "/" and next_char == "/":
+                output[index] = output[index + 1] = " "
+                state = "line-comment"
+                index += 1
+            elif char == "/" and next_char == "*":
+                output[index] = output[index + 1] = " "
+                state = "block-comment"
+                index += 1
+            elif char in ('"', "'", "`"):
+                output[index] = " "
+                state = {"\"": "quoted", "'": "rune", "`": "raw"}[char]
+        elif state == "line-comment":
+            if char == "\n":
+                state = "code"
+            else:
+                output[index] = " "
+        elif state == "block-comment":
+            output[index] = " " if char != "\n" else "\n"
+            if char == "*" and next_char == "/":
+                output[index + 1] = " "
+                state = "code"
+                index += 1
+        elif state in ("quoted", "rune"):
+            output[index] = " " if char != "\n" else "\n"
+            if char == "\\":
+                if index + 1 < len(text):
+                    output[index + 1] = " " if text[index + 1] != "\n" else "\n"
+                    index += 1
+            elif (state == "quoted" and char == '"') or (state == "rune" and char == "'"):
+                state = "code"
+        elif state == "raw":
+            output[index] = " " if char != "\n" else "\n"
+            if char == "`":
+                state = "code"
+        index += 1
+    return "".join(output)
 
 
 def _call_arguments(text: str, open_paren: int) -> str:
@@ -84,14 +123,44 @@ def _call_arguments(text: str, open_paren: int) -> str:
     return text[open_paren + 1 :]
 
 
+def _body_tainted_names(code: str) -> set[str]:
+    tainted: set[str] = set()
+    statements = re.split(r"[;\n]", code)
+    changed = True
+    while changed:
+        changed = False
+        for statement in statements:
+            assignment = re.search(r"(?:^|\s)([A-Za-z_]\w*)\s*(?::=|=)\s*(.+)$", statement)
+            if assignment is None:
+                continue
+            name, value = assignment.groups()
+            carries_body = (
+                re.search(r"\.\s*Body\b|\bMaterialized(?:Entry|Snapshot)\b", value) is not None
+            ) or any(
+                re.search(rf"\b{re.escape(source)}\b", value) for source in tainted
+            )
+            if carries_body and name not in tainted:
+                tainted.add(name)
+                changed = True
+    return tainted
+
+
 def scan_go_file(path: Path, text: str, *, production: bool) -> list[str]:
+    del path
+    code = _code_only(text)
     violations: list[str] = []
-    for match in FORBIDDEN_DRIVER_SIGNATURE.finditer(text):
+    for match in FORBIDDEN_DRIVER_SIGNATURE.finditer(code):
         violations.append(f"legacy-driver-{match.group('method').lower()}")
     if production:
-        for match in SENSITIVE_SINK.finditer(text):
-            arguments = _call_arguments(text, text.find("(", match.start()))
-            if BODY_REFERENCE.search(arguments):
+        tainted = _body_tainted_names(code)
+        for match in SENSITIVE_SINK.finditer(code):
+            open_paren = code.find("(", match.start())
+            arguments = _call_arguments(code, open_paren)
+            direct_body = re.search(
+                r"\.\s*Body\b|\bMaterialized(?:Entry|Snapshot)\s*\{", arguments
+            ) is not None
+            aliased_body = any(re.search(rf"\b{re.escape(name)}\b", arguments) for name in tainted)
+            if direct_body or aliased_body:
                 violations.append("materialized-body-sink")
     return violations
 
@@ -129,14 +198,20 @@ type forbiddenDriver interface {
 }
 
 func leakMaterializedBody(entry MaterializedEntry) {
-    log.Printf("synthetic body: %s", entry.Body)
-    _, _ = json.Marshal(entry.Body)
+    secret := entry.Body
+    alias := secret
+    log.Printf("synthetic body: %s", alias)
+    _, _ = json.Marshal(secret)
+    snapshot := MaterializedSnapshot{}
+    _, _ = json.Marshal(snapshot)
 }
 """
+    permitted = "// log.Printf(\"synthetic: %s\", entry.Body)\nvar note = `json.Marshal(entry.Body)`\n"
     with tempfile.TemporaryDirectory(prefix="maestro-agent-policy-") as directory:
         path = Path(directory) / "forbidden.go"
         path.write_text(fixture, encoding="utf-8")
         found = scan_go_file(path, fixture, production=True)
+        permitted_found = scan_go_file(path, permitted, production=True)
     required = {
         "legacy-driver-inspect",
         "legacy-driver-prepare",
@@ -144,6 +219,8 @@ func leakMaterializedBody(entry MaterializedEntry) {
     }
     if not required.issubset(set(found)):
         raise AssertionError("synthetic forbidden fixture was not fully rejected")
+    if permitted_found:
+        raise AssertionError("comments or string literals triggered the payload policy")
 
 
 def assert_workflow_contract(root: Path = ROOT) -> None:

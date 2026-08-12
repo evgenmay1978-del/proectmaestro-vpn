@@ -48,7 +48,18 @@ jobs:
             find internal/applyagent internal/controlplane -type f -name '*.go' -print0 |
               LC_ALL=C sort -z
           )
+          mapfile -d '' noncanonical_go_files < <(
+            gofmt -l "${guarded_go_files[@]}" | LC_ALL=C sort -z
+          )
           test "${#guarded_go_files[@]}" -gt 0
+          printf '%s\0' "${noncanonical_go_files[@]}" |
+            cmp - <(printf '%s\0' \
+              internal/applyagent/agent.go \
+              internal/applyagent/dispatcher.go \
+              internal/applyagent/local_state.go \
+              internal/applyagent/status.go \
+              internal/controlplane/errors.go \
+              internal/controlplane/outbox.go)
           gofmt -w "${guarded_go_files[@]}"
           go test ./internal/applyagent ./internal/controlplane
 
