@@ -26,7 +26,7 @@ func TestSameGenerationSameHashDoesNotRewriteOperation(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
 		rqlite.Result{Rows: []map[string]any{{
 			"generation": int64(5), "desired_sha256": testDesiredSHA,
-		}}, rqlite.Result{RowsAffected: 0},
+		}}}, rqlite.Result{RowsAffected: 0},
 	)}}
 	service, _ := testService(t, db)
 	if err := service.UpsertDesired(context.Background(), desiredFixture(5, testDesiredSHA)); err != nil {
