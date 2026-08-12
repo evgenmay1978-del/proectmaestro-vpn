@@ -1207,3 +1207,22 @@ func TestReadReferencedKeyVersionsRejectsMalformedRowsWithoutMutation(t *testing
 		})
 	}
 }
+
+
+func TestRQLiteApplyStoreAcceptsRotatedProtectedTrialSaltVersion(t *testing.T) {
+	protection := protectedTrialImportFixture()
+	protection.KeyVersion = 7
+	protection.EncryptedSaltEnvelope = strings.Replace(
+		protection.EncryptedSaltEnvelope,
+		`"key_version":1`,
+		`"key_version":7`,
+		1,
+	)
+	if _, err := NewRQLiteApplyStoreWithTrialProtection(
+		&applyStoreRQLite{},
+		time.Now,
+		protection,
+	); err != nil {
+		t.Fatalf("rotated protected trial salt was rejected: %v", err)
+	}
+}
