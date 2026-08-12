@@ -49,6 +49,11 @@ jobs:
             tee /tmp/ha-gofmt.diff
           test ! -s /tmp/ha-gofmt.diff
 
+      - name: Test HA Python contracts
+        run: |
+          set -euo pipefail
+          python -m unittest ops.ha.tests.test_verify_backup
+
       - name: Test backend
         working-directory: backend
         run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test ./...
