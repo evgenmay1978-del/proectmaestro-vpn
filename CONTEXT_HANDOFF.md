@@ -1,5 +1,28 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAA. HA DR TASK 3 GREEN; FRESH-CLUSTER RESTORE NEXT (12.08.2026)
+
+- Active repository/branch/PR: `evgenmay1978-del/proectmaestro-vpn`,
+  `codex/ha-rqlite-task2`, draft PR #82. Work remains GitHub-first.
+- Task 3 is complete on exact SHA
+  `cc3bc341488ebd633f7190b981998806d083e393`. GitHub Actions run
+  `31577613693`, job `94053179993`, passed all steps, including the
+  `Test HA Python contracts` step that executes the real encrypted-backup
+  shell E2E.
+- `ops/ha/backup-rqlite.sh` now fetches a bounded DELETE-mode SQLite image
+  only over mandatory mTLS, creates canonical metadata/manifest, detached-signs
+  it, builds a deterministic exact-member tar, encrypts it, independently
+  decrypts and verifies it, then publishes by same-filesystem no-clobber
+  hardlink. Synthetic tests use only a private ephemeral GPG home.
+- The verifier was corrected to accept an exact 40-character Git SHA-1 and to
+  derive the backup watermark from the real migration column
+  `backup_watermarks.created_at_unix`; local RED was exact, then all 9 Python
+  tests passed.
+- Next exact step is Task 4 RED: strict restore API and shell orchestration into
+  a new empty three-node mTLS drill cluster. Do not deploy or connect to
+  production before Tasks 4-7 pass and a separate read-only S2/S3/S4 audit.
+- Production remains NO-GO: S1-S4, panels, Telegram bots, customers, VPN
+  services/protocols, DNS, Android/TV, Release and OTA were not changed.
 
 ## 0AA. HA DR TASKS 1-2 GREEN; ENCRYPTED BACKUP CREATOR NEXT (12.08.2026)
 
