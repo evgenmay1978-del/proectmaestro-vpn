@@ -739,3 +739,10 @@ func rqliteIntegerEquals(value any, want int64) bool {
 	got, ok := applyRowInt(value)
 	return ok && got == want
 }
+
+func TestVerifyRestoredBusinessParity(t *testing.T) {
+	if os.Getenv("MAESTRO_DR_PROOF_PHASE") != "restored" {
+		t.Skip("dedicated restored business parity proof is disabled")
+	}
+	t.Fatal("restored business parity proof wiring is absent")
+}

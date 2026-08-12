@@ -108,15 +108,24 @@ export GNUPGHOME="$gpg_home"
 export MAESTRO_DR_COMMIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 export MAESTRO_DR_RUN_ID=123456
 
+import_binary="$sandbox/maestro-import"
+(
+  cd "$ROOT/backend"
+  go build -o "$import_binary" ./cmd/maestro-import
+)
+chmod 0700 "$import_binary"
+metadata="$sandbox/dr-metadata.json"
+
 bash "$HARNESS" start-mtls >/dev/null
 source_status="$(bash "$HARNESS" status)"
 source_root="$(awk -F= '$1 == "root" { print $2 }' <<<"$source_status")"
 source_root="$(realpath -e "$source_root")"
 (
   cd "$ROOT/backend"
-  MAESTRO_IMPORT_SCHEMA_PREP=1 \
+  MAESTRO_DR_PROOF_PHASE=source MAESTRO_DR_METADATA="$metadata" \
+    MAESTRO_IMPORT_BINARY="$import_binary" \
     go test -tags=rqlite_integration ./cmd/maestro-import \
-      -run '^TestPrepareProductionImportSchemaMTLS$' -count=1
+      -run '^TestPrepareSyntheticDRSource$' -count=1
 ) >/dev/null
 bundle="$sandbox/source-backup.tar.gpg"
 bash "$BACKUP" --drill --cluster-root "$source_root" --keys "$keys" \
@@ -131,6 +140,15 @@ target_root="$(realpath -e "$target_root")"
 [[ "$target_root" != "$source_root" ]] || fail "restore target reused source cluster"
 bash "$RESTORE" --drill --cluster-root "$target_root" --bundle "$bundle" \
   --signer "${fingerprints[0]}" --gpg-home "$gpg_home" >/dev/null
+(
+  cd "$ROOT/backend"
+  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_METADATA="$metadata" \
+    go test -tags=rqlite_integration ./internal/controlplane \
+      -run '^TestAdvanceRestoredEpochAndFence$' -count=1
+  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_METADATA="$metadata" \
+    go test -tags=rqlite_integration ./internal/importer \
+      -run '^TestVerifyRestoredBusinessParity$' -count=1
+)
 [[ -f "$target_root/restore-attempt" && ! -L "$target_root/restore-attempt" ]] ||
   fail "restore attempt marker is missing"
 if bash "$RESTORE" --drill --cluster-root "$target_root" --bundle "$bundle" \
