@@ -52,8 +52,9 @@ jobs:
       - name: Test HA Python contracts
         run: |
           set -euo pipefail
-          python -m unittest ops.ha.tests.test_verify_backup
+          python -m unittest ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api
           bash ops/ha/test-backup-rqlite.sh
+          bash ops/ha/test-restore-rqlite.sh
 
       - name: Test backend
         working-directory: backend
