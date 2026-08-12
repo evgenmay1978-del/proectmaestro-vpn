@@ -444,7 +444,6 @@ func TestDeltaWithoutExplicitDeleteMarkerBlocks(t *testing.T) {
 
 func TestDeltaRequiresMatchingProtectionMetadata(t *testing.T) {
 	base := decodeFixture(t, "full-then-delta/base-full.json")
-	base.ClusterHMACKeySHA256 = sha256Hex([]byte("synthetic-cluster-hmac-key"))
 	base.LegacyTrialSaltSHA256 = sha256Hex([]byte("synthetic-legacy-trial-salt"))
 	base.Trials = []LegacyTrial{{
 		SourceKey:        "trial-protection-v2",

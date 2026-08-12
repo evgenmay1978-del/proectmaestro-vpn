@@ -458,6 +458,7 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 	trial.CurrentHMAC = strings.Repeat("a", 64)
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.Trials = []LegacyTrial{trial}
+	snapshot.LegacyTrialSaltSHA256 = protectedTrialImportFixture().SaltSHA256
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
 		t.Fatalf("unexpected trial blockers: %#v", report.Blockers)

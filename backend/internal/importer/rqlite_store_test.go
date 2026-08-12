@@ -1102,6 +1102,7 @@ func canonicalTrialBatch(t *testing.T) ApplyBatch {
 	t.Helper()
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.Trials = []LegacyTrial{legacyTrialFixture()}
+	snapshot.LegacyTrialSaltSHA256 = protectedTrialImportFixture().SaltSHA256
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
 		t.Fatalf("unexpected blockers: %#v", report.Blockers)

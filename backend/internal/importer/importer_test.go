@@ -371,6 +371,7 @@ func TestTrialIdentityCollisionIsBlocking(t *testing.T) {
 	conflicting.SourceKey = "legacy-trial-conflict"
 	conflicting.CurrentHMAC = strings.Repeat("4", 64)
 	snapshot.Trials = []LegacyTrial{first, conflicting}
+	snapshot.LegacyTrialSaltSHA256 = protectedTrialImportFixture().SaltSHA256
 
 	_, report := Plan(snapshot, testPlanOptions())
 	if !hasBlockerCode(report.Blockers, "trial_identity_collision") {
