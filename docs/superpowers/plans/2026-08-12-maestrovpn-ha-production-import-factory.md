@@ -51,7 +51,7 @@
 - Produces: matching ImportPlan fields included in Digest(plan).
 - Consumes: canonical lowercase 64-character SHA-256 values and normalized snapshot format version 2.
 
-- [ ] **Step 1: Add RED decoder and planner contracts**
+- [x] **Step 1: Add RED decoder and planner contracts**
 
 Add these tests before changing production structs:
 
@@ -104,7 +104,7 @@ func TestProtectionMetadataChangesSourceAndPlanDigests(t *testing.T) {
 Also require DecodeSnapshot to reject format version 1, uppercase/nonhex digest,
 a missing salt digest with nonempty Trials, and a salt digest with empty Trials.
 
-- [ ] **Step 2: Push RED and verify exact failure**
+- [x] **Step 2: Push RED and verify exact failure**
 
 Commit only tests and minimally changed test fixtures needed to compile:
 
@@ -115,7 +115,7 @@ test(importer): require bound snapshot protection metadata
 Expected GitHub failure: missing Snapshot and ImportPlan fields or decoder still
 accepting version 1. No unrelated package failure counts as RED.
 
-- [ ] **Step 3: Implement format version 2 and stable validation**
+- [x] **Step 3: Implement format version 2 and stable validation**
 
 Add exact fields:
 
@@ -154,7 +154,7 @@ exact ParentSourceDigest already binds the previously applied full snapshot.
 Update every listed fixture to format_version 2 and deterministic synthetic
 digests. Preserve all existing customer, order, topology, settings and OTA bytes.
 
-- [ ] **Step 4: Run focused GREEN and commit**
+- [x] **Step 4: Run focused GREEN and commit**
 
 GitHub workflow command:
 
@@ -183,7 +183,7 @@ feat(importer): bind snapshot protection metadata
 - Produces: ValidateSnapshotProtection(protection SnapshotProtection, box *controlplane.SecretBox, rawHMACKey, rawTrialSalt []byte) (*TrialImportProtection, error).
 - Consumes: LegacyEncryptedSecret owner/source/field/kind scope and existing controlplane.SecretBox.
 
-- [ ] **Step 1: Add RED protection tests**
+- [x] **Step 1: Add RED protection tests**
 
 Define synthetic AES and HMAC keys as distinct 32-byte arrays. Seal one secret
 with owner scope and assert:
@@ -210,7 +210,7 @@ controlplane.SecretScope{
 
 A recorder passed after validation must remain at zero calls for every failure.
 
-- [ ] **Step 2: Push RED and verify missing API**
+- [x] **Step 2: Push RED and verify missing API**
 
 Commit:
 
@@ -221,7 +221,7 @@ test(importer): require local key and salt authentication
 Expected failure: SnapshotProtection, ProtectionFromSnapshot or
 ValidateSnapshotProtection is undefined.
 
-- [ ] **Step 3: Implement minimal protection boundary**
+- [x] **Step 3: Implement minimal protection boundary**
 
 Use:
 
@@ -258,7 +258,7 @@ Return TrialImportProtection with KeyVersion, canonical envelope JSON and exact
 salt SHA-256. If HasTrials is false, require len(rawTrialSalt)==0 and return nil.
 Printable errors are fixed strings without secret metadata.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ~~~bash
 cd backend
@@ -285,7 +285,7 @@ feat(importer): authenticate protected import inputs
 - Produces: (*Migrator).VerifyIdentity(context.Context) (SchemaIdentity, error).
 - Preserves: (*Migrator).Verify(context.Context) error.
 
-- [ ] **Step 1: Add RED identity tests**
+- [x] **Step 1: Add RED identity tests**
 
 ~~~go
 func TestVerifyIdentityReturnsExactCommittedVersionAndChecksum(t *testing.T) {
@@ -305,7 +305,7 @@ func TestVerifyIdentityRejectsChangedChecksumWithoutApplying(t *testing.T)
 The second test changes the stored checksum, calls VerifyIdentity, requires an
 error and proves the recorder received no Request call.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit:
 
@@ -315,7 +315,7 @@ test(controlplane): require verified schema identity
 
 Expected failure: SchemaIdentity and VerifyIdentity are undefined.
 
-- [ ] **Step 3: Refactor Verify without adding a write path**
+- [x] **Step 3: Refactor Verify without adding a write path**
 
 Implement:
 
@@ -335,7 +335,7 @@ Move the current verification body into VerifyIdentity and return identity only
 after foreign-key, checksum, exact table-set and foreign_key_check success.
 Do not call Apply from VerifyIdentity.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ~~~bash
 cd backend
@@ -365,7 +365,7 @@ refactor(controlplane): expose verified schema identity
 - Produces: (*RQLiteApplyStore).ReadReferencedKeyVersions(context.Context) ([]int, error).
 - Produces: targetConfigSHA256 from normalized S2/S3/S4 origins and public certificate fingerprints.
 
-- [ ] **Step 1: Add RED strict-config tests**
+- [x] **Step 1: Add RED strict-config tests**
 
 Create table tests for:
 
@@ -383,7 +383,7 @@ Cases include http URL, duplicate URL/node, S1/S5, URL userinfo/path/query,
 missing CA/cert/key, malformed/noncanonical base64, 31/33-byte key, absent
 current version and identical AES/HMAC bytes.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit:
 
@@ -393,7 +393,7 @@ test(importer): require strict mandatory-mtls runtime
 
 Expected failure: production runtime types and factory are absent.
 
-- [ ] **Step 3: Implement strict protected readers and config types**
+- [x] **Step 3: Implement strict protected readers and config types**
 
 Use strict JSON:
 
@@ -440,7 +440,7 @@ Decode receiptSigningKey strictly, require schema version 1 and one canonical
 base64 32-byte Ed25519 seed, derive the private/public key and define signer key
 ID as lowercase SHA-256 of the public key.
 
-- [ ] **Step 4: Implement the factory in local-before-network order**
+- [x] **Step 4: Implement the factory in local-before-network order**
 
 The factory receives injected constructors in tests and performs:
 
@@ -473,7 +473,7 @@ the exact sorted distinct set to SecretBox.ReadyForVersions. A missing version
 blocks before importer.Apply and produces zero Request calls. Never call
 Migrator.Apply.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 cd backend
@@ -503,7 +503,7 @@ feat(importer): add mandatory-mtls production runtime
 - Produces: ImportReceipt, SignImportReceipt and VerifyImportReceipt.
 - Consumes: exact run ID, schema identity, targetConfigSHA256 and Ed25519 key.
 
-- [ ] **Step 1: Add RED evidence and signature tests**
+- [x] **Step 1: Add RED evidence and signature tests**
 
 ~~~go
 func TestReadAppliedRunEvidenceRequiresOneCompletedExactRun(t *testing.T)
@@ -516,7 +516,7 @@ func TestReceiptJSONContainsNoBusinessRowsOrSecrets(t *testing.T)
 Require one QueryLinearizable batch and zero Request calls. Sort batch receipts
 by batch_index and reject gaps, duplicates, non-applied status or count drift.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit:
 
@@ -526,7 +526,7 @@ test(importer): require signed applied-run evidence
 
 Expected failure: evidence and receipt APIs are undefined.
 
-- [ ] **Step 3: Implement evidence query and canonical digest**
+- [x] **Step 3: Implement evidence query and canonical digest**
 
 Use:
 
@@ -549,7 +549,7 @@ Canonicalize batch evidence as JSON array of index and digest only, then SHA-256
 that byte sequence. Require run status applied, non-null target digest, exact
 batch count and every batch status applied.
 
-- [ ] **Step 4: Implement receipt signer/verifier**
+- [x] **Step 4: Implement receipt signer/verifier**
 
 ~~~go
 type ImportReceipt struct {
@@ -576,7 +576,7 @@ field order through json.Marshal. Sign with Ed25519. Define SignerKeyID as
 lowercase SHA-256 of the public key. Verify strict JSON, canonical base64,
 expected key ID and signature. Do not accept unknown fields or trailing JSON.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 cd backend
@@ -705,7 +705,7 @@ feat(importer): wire production apply receipt gate
 - Produces: TestPrepareProductionImportSchemaMTLS and TestProductionImportFactoryBinaryProof.
 - Consumes: built maestro-import binary and test-only CA/server/client materials inside validated RUNNER_TEMP.
 
-- [ ] **Step 1: Add RED harness and binary-proof contracts**
+- [x] **Step 1: Add RED harness and binary-proof contracts**
 
 Extend shell contract tests to require start-mtls, exact certificate permissions,
 client rejection without a certificate and unchanged safe stop behavior.
@@ -724,7 +724,7 @@ directly. It creates strict 0600 target/key/salt/signing files in t.TempDir,
 runs dry-run then apply, verifies the receipt with the synthetic public key,
 reruns the same run ID and requires the same target/batch receipt digests.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit tests and workflow step names only:
 
@@ -735,7 +735,7 @@ test(ha): require production importer mtls proof
 Expected failure: start-mtls and the real-binary proof are absent. Ordinary
 plain isolated-rqlite tests must still pass before the intended RED step.
 
-- [ ] **Step 3: Add test-only mTLS cluster mode**
+- [x] **Step 3: Add test-only mTLS cluster mode**
 
 Within the validated harness root, use OpenSSL to create a test-only CA, one
 server certificate with IP SAN 127.0.0.1 and one client certificate. Private
@@ -753,7 +753,7 @@ bootstrap, join, PID, marker and cleanup guards. mTLS wait/status probes use
 curl with --cacert, --cert and --key. A probe without client material must fail.
 The existing start command remains plaintext for existing integration tests.
 
-- [ ] **Step 4: Add exact schema-prep and real-binary proof**
+- [x] **Step 4: Add exact schema-prep and real-binary proof**
 
 TestPrepareProductionImportSchemaMTLS constructs internal/rqlite.Config from
 test-only environment paths and calls NewMigrator(db).Apply exactly as an
@@ -774,7 +774,7 @@ TestProductionImportFactoryBinaryProof:
 7. scans subprocess stdout/stderr, report, receipt and captured job text for all
    synthetic raw markers.
 
-- [ ] **Step 5: Wire named GitHub Actions gates**
+- [x] **Step 5: Wire named GitHub Actions gates**
 
 After ordinary shadow parity, add named steps:
 
@@ -791,7 +791,7 @@ Expand formatting to cmd/maestro-import, internal/importer, internal/controlplan
 and internal/rqlite. Keep checkout/setup actions pinned, permissions contents:
 read, timeout bounded and final always-stop cleanup.
 
-- [ ] **Step 6: Run GREEN and commit**
+- [x] **Step 6: Run GREEN and commit**
 
 Require all named steps success on the exact full SHA, including ordinary unit,
 race, vet, harness, real-rqlite, delete digest parity, shadow parity, schema
@@ -815,7 +815,7 @@ test(ha): prove production importer over mtls
 - Produces: exact-SHA evidence and the next backup/restore design gate.
 - Consumes: completed Tasks 1-7 and GitHub Actions run/job conclusions.
 
-- [ ] **Step 1: Run complete exact-SHA verification**
+- [x] **Step 1: Run complete exact-SHA verification**
 
 Require these GitHub commands through workflow steps:
 
@@ -833,7 +833,7 @@ bash ops/ha/test-ci-rqlite-cluster.sh
 Do not rerun an unexplained failure. Record exact failed command/output, diagnose,
 correct once, then submit one new exact-SHA run.
 
-- [ ] **Step 2: Prove scope and secret absence**
+- [x] **Step 2: Prove scope and secret absence**
 
 Use GitHub compare against the branch SHA preceding Task 1. Require:
 
@@ -847,7 +847,7 @@ Use GitHub compare against the branch SHA preceding Task 1. Require:
 
 Download no production artifact. The receipt workflow artifact remains disabled.
 
-- [ ] **Step 3: Update plan checkboxes and CONTEXT_HANDOFF**
+- [x] **Step 3: Update plan checkboxes and CONTEXT_HANDOFF**
 
 Record full commit SHA, GitHub run ID, job ID and every production-factory step
 conclusion. State explicitly:
@@ -858,7 +858,7 @@ S1-S4, panels, bots, customers, Android/TV, Release and OTA unchanged.
 Next gate: separate backup/restore design and empty-cluster restore drill.
 ~~~
 
-- [ ] **Step 4: Final documentation commit**
+- [x] **Step 4: Final documentation commit**
 
 Commit:
 

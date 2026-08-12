@@ -1,48 +1,75 @@
 # MaestroVPN — актуальный контекст и передача работы
 
 
-## 0X. HA PRODUCTION IMPORT FACTORY: Tasks 1–6 GREEN, production untouched (12.08.2026)
+## 0X. HA PRODUCTION IMPORT FACTORY: Tasks 1–8 GREEN, production untouched (12.08.2026)
 
 - Рабочая ветка: `codex/ha-rqlite-task2`, draft PR #82. Работа ведётся
-  GitHub-first; слабый Windows-компьютер используется только для repetition
-  guard и узких git metadata-проверок. Локальные Go build/test запрещены.
+  GitHub-first. Правильная локальная контрольная копия:
+  `C:\Users\User\Documents\Codex\2026-08-05\new-chat\mvpn-ha-task2`.
+  Перед любой локальной Git-командой сначала проверять `git rev-parse
+  --show-toplevel`: каталог `new-chat` сам по себе не является этой копией.
+  Слабый Windows-компьютер используется только для repetition guard, узких Git
+  metadata/diff-проверок и документации; локальные Go build/test запрещены.
 - Исполняемый план:
   `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`.
-  Tasks 1–6 завершены TDD и подтверждены полными GitHub Actions. Следующая
-  точка — Task 7: реальный subprocess binary против изолированного
-  трёхузлового mTLS rqlite, затем Task 8 full-scope/secrecy/handoff.
-- Последний exact code GREEN: `68cab97b42d165a1463a0ddea79161de7b87c699`;
-  Actions run `31565041932`, job `94015025861`: formatting, unit, race,
-  vet, harness contract, real rqlite, full/delta digest parity, shadow parity
-  и cleanup — все 17 шагов success. Документальный checkpoint поверх него:
-  `f0bd8b0957c2ad35bfe858c705c514336cc2a143`.
+  Tasks 1–8 завершены TDD и exact-SHA GitHub Actions evidence.
+- Task 1 final GREEN: `97a0382362ba6a0b6540f486231a70c991c1fb16`,
+  run `31561449224`, job `94004424897`. Task 2 final GREEN:
+  `9cda13006450522fa5bf294d1879a9a6d8a5e0f3`, run `31561746986`, job
+  `94005317388`. Task 3 final GREEN:
+  `0417c5ae6d93336a6e218dd990dca90775033bba`, run `31562039927`, successful
+  rerun job `94006475476`.
 - Task 4 final GREEN: `3af348be54de434e72d428249159c793dc789e68`.
-  Production runtime строго допускает только HTTPS voters S2/S3/S4, проверяет
-  CA/clientAuth mTLS, schema identity, versioned AES/HMAC bundle, все
-  зашифрованные envelopes и используемые target key versions до мутации.
+  Production runtime допускает ровно HTTPS voters S2/S3/S4, проверяет
+  CA/clientAuth mTLS, immutable schema identity, versioned AES/HMAC bundle,
+  encrypted envelopes и все referenced key versions до первой мутации.
 - Task 5 final GREEN: `e08a47ca7c5db46bc3621a51490c8ed64bab658a`.
-  Добавлено линейное перечитывание applied-run evidence и каноническая
-  Ed25519-подписанная квитанция без business/secret payload.
-- Task 6 GREEN реализует боевой CLI: apply-only
-  `--rqlite-config`, `--receipt`, `--receipt-signing-key-file`;
-  trial salt обязателен только для snapshot с trials. Dry-run завершается до
-  чтения apply-файлов и сети. Apply использует единый 30-минутный context,
-  после commit перечитывает точный completed run, сверяет plan/result,
-  подписывает и сохраняет receipt через same-directory temp mode 0600,
-  fsync, rename и parent-directory fsync. Exact existing receipt — no-op;
-  конфликт или symlink — fail closed. Ошибка записи receipt безопасно
-  возобновляется с тем же run ID без второй batch mutation.
-- RED-доказательство Task 6: run `31564729348`, job `94014125978` упал
-  только на отсутствующих production factory/store/atomic writer API.
-- Production S1–S4, панели, rqlite, Telegram-боты, customers/orders, DNS,
-  nginx, systemd, GitHub Release, OTA, Android и TV не изменялись. Любой
-  серверный rollout остаётся NO-GO до GREEN Tasks 7–8 и отдельного
-  backup/restore/fencing drill. S1 пока не трогать.
-- Перед каждой GitHub mutation/retry/долгой операцией обязателен
-  `python ops/maestro-repetition-guard.py check ...`. В Task 6 один локальный
-  transform pattern не совпал из-за literal escaped newline: failure и
-  correction записаны в local untracked ledger; исправленный exact-newline
-  способ прошёл и повторять старую трансформацию запрещено.
+  Applied-run evidence перечитывается linearizable и подписывается
+  канонической Ed25519-квитанцией без business/secret payload.
+- Task 6 final GREEN: `68cab97b42d165a1463a0ddea79161de7b87c699`,
+  run `31565041932`, job `94015025861`, все 17 шагов success. Боевой CLI
+  использует apply-only config/receipt/signing inputs; dry-run не читает их и
+  не открывает сеть. Receipt сохраняется resumable и atomically только после
+  точного перечитывания completed run.
+- Task 7 harness RED: `0bda98bdd76b04fb4e28260c9d4767036e3cee43`,
+  run `31565272610`, job `94015836417` упал только потому, что
+  `start-mtls` ещё отсутствовал. Первый полный real-binary GREEN:
+  `cbd441a411dbefac1142a14d643f0bd56307f09e`, run `31566361849`, job
+  `94018868088`, все 21 шага success.
+- Финальный усиленный exact code GREEN:
+  `153e5648d32f770a15bd5c9646c6e4d0031c384d`; Actions run `31566792857`,
+  job `94020137397`. Все 21 шага success: format, unit, race, vet, harness,
+  обычный real-rqlite, full+delta/fresh-full digest parity, shadow parity,
+  трёхузловой mandatory-mTLS, schema prep, сборка точного production binary,
+  отрицательные zero-write cases, valid apply, signed receipt, exact rerun и
+  cleanup. Self-review дополнительно обеспечил zeroing signer/key copies на
+  всех ошибках factory и атомарный no-clobber receipt (`RENAME_NOREPLACE` на
+  Linux, hard-link fallback на других ОС).
+- Task 8 scope/secrecy gate: compare от pre-Task-1 SHA
+  `c179e3e5b0e86e067217d65c0ba3a1105b16c07f` содержит 27 файлов только в
+  workflow/backend/tests/docs/HA harness; `app/**` и `deploy/**` отсутствуют,
+  `git diff --check` чист. Нет production IP/password, bot token, private key,
+  `InsecureSkipVerify`, production HTTP, SSH/DNS/OTA кода или production
+  `Migrator.Apply`. Единственный added HTTP — намеренно неверный
+  `synthetic.invalid` в отрицательном тесте; schema Apply существует только в
+  build-tagged подготовке изолированного mTLS test cluster.
+- Не повторять исправленные ошибки: regex с literal `$` формировать без JS
+  replacement expansion и после mutation перечитывать exact workflow;
+  форматирование проверять точным GitHub log/ограниченным gate, а не broad
+  локальным scan; tree SHA получать через `git fetch` и
+  `git show -s --format=%T FETCH_HEAD`; перед любой GitHub mutation/retry/долгой
+  операцией выполнять `python ops/maestro-repetition-guard.py check ...`.
+
+NO-GO (repository implementation only)
+
+S1-S4, panels, bots, customers, Android/TV, Release and OTA unchanged.
+
+Next gate: separate backup/restore design and empty-cluster restore drill.
+
+До отдельного GREEN backup/restore/fencing drill запрещены production import,
+deploy/restart, bot/panel/customer mutation, DNS/TLS cutover и OTA. S1 пока не
+трогать. После drill серверная реализация должна идти по отдельному плану,
+сначала S2/S3/S4, а S1 возвращается позднее только через controlled catch-up.
 
 ## 0W. INCIDENT: восстановление replacement S1 (10.08.2026)
 
