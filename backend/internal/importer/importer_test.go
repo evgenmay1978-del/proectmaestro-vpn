@@ -411,3 +411,108 @@ func TestMissingLegacyPrincipalSecretBlocksApply(t *testing.T) {
 		t.Fatalf("missing principal secret blockers = %#v", report.Blockers)
 	}
 }
+
+func TestDecodeSnapshotAcceptsProtectionBoundV2(t *testing.T) {
+	snapshot := decodeFixture(t, "customers-valid.json")
+	snapshot.FormatVersion = 2
+	snapshot.ClusterHMACKeySHA256 = strings.Repeat("a", 64)
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeSnapshot(encoded)
+	if err != nil {
+		t.Fatalf("DecodeSnapshot(v2): %v", err)
+	}
+	if decoded.FormatVersion != 2 ||
+		decoded.ClusterHMACKeySHA256 != snapshot.ClusterHMACKeySHA256 {
+		t.Fatalf("decoded protection metadata = %#v", decoded)
+	}
+}
+
+func TestDecodeSnapshotV2RequiresCanonicalProtectionDigests(t *testing.T) {
+	base := decodeFixture(t, "customers-valid.json")
+	base.FormatVersion = 2
+	base.ClusterHMACKeySHA256 = strings.Repeat("a", 64)
+
+	cases := []struct {
+		name   string
+		mutate func(*Snapshot)
+	}{
+		{"legacy format", func(snapshot *Snapshot) {
+			snapshot.FormatVersion = 1
+		}},
+		{"missing cluster hmac digest", func(snapshot *Snapshot) {
+			snapshot.ClusterHMACKeySHA256 = ""
+		}},
+		{"uppercase cluster hmac digest", func(snapshot *Snapshot) {
+			snapshot.ClusterHMACKeySHA256 = strings.Repeat("A", 64)
+		}},
+		{"nonhex cluster hmac digest", func(snapshot *Snapshot) {
+			snapshot.ClusterHMACKeySHA256 = strings.Repeat("z", 64)
+		}},
+		{"missing trial salt digest", func(snapshot *Snapshot) {
+			snapshot.Trials = []LegacyTrial{{
+				SourceKey:        "decode-trial-v2",
+				LegacyAnchorHMAC: strings.Repeat("1", 64),
+				CurrentHMAC:      strings.Repeat("2", 64),
+				ExpiresAtUnix:    2_100_100,
+			}}
+		}},
+		{"unexpected trial salt digest", func(snapshot *Snapshot) {
+			snapshot.LegacyTrialSaltSHA256 = strings.Repeat("b", 64)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot := base
+			tc.mutate(&snapshot)
+			encoded, err := json.Marshal(snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeSnapshot(encoded); err == nil {
+				t.Fatal("invalid protection metadata was accepted")
+			}
+		})
+	}
+}
+
+func TestPlanBindsTrialSaltDigestOnlyWhenTrialsExist(t *testing.T) {
+	snapshot := decodeFixture(t, "customers-valid.json")
+	snapshot.Trials = []LegacyTrial{{
+		SourceKey:        "trial-protection-v2",
+		LegacyAnchorHMAC: strings.Repeat("1", 64),
+		CurrentHMAC:      strings.Repeat("2", 64),
+		ExpiresAtUnix:    2_100_100,
+	}}
+	snapshot.LegacyTrialSaltSHA256 = strings.Repeat("b", 64)
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("blockers=%#v", report.Blockers)
+	}
+	if plan.LegacyTrialSaltSHA256 != snapshot.LegacyTrialSaltSHA256 {
+		t.Fatalf("salt digest was not preserved")
+	}
+
+	snapshot.Trials = nil
+	_, report = Plan(snapshot, testPlanOptions())
+	if !hasBlockerCode(report.Blockers, "unexpected_legacy_trial_salt_digest") {
+		t.Fatalf("blockers=%#v", report.Blockers)
+	}
+}
+
+func TestProtectionMetadataChangesSourceAndPlanDigests(t *testing.T) {
+	left := decodeFixture(t, "customers-valid.json")
+	right := left
+	right.ClusterHMACKeySHA256 = strings.Repeat("c", 64)
+	leftPlan, leftReport := Plan(left, testPlanOptions())
+	rightPlan, rightReport := Plan(right, testPlanOptions())
+	if len(leftReport.Blockers) != 0 || len(rightReport.Blockers) != 0 {
+		t.Fatalf("left blockers=%#v right blockers=%#v", leftReport.Blockers, rightReport.Blockers)
+	}
+	if leftPlan.SourceDigest == rightPlan.SourceDigest ||
+		leftPlan.PlanDigest == rightPlan.PlanDigest {
+		t.Fatal("protection metadata was outside canonical digests")
+	}
+}
