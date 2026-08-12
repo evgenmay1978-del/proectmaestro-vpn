@@ -30,14 +30,14 @@ const (
 )
 
 type productionProofFiles struct {
-	snapshot   string
-	target     string
-	keys       string
-	salt       string
-	signer     string
-	receipt    string
-	report     string
-	plan       importer.ImportPlan
+	snapshot  string
+	target    string
+	keys      string
+	salt      string
+	signer    string
+	receipt   string
+	report    string
+	plan      importer.ImportPlan
 	publicKey ed25519.PublicKey
 }
 
@@ -332,14 +332,14 @@ func prepareProductionProofFiles(t *testing.T, root string) productionProofFiles
 	})
 	directory := t.TempDir()
 	return productionProofFiles{
-		snapshot:   snapshotPath,
-		target:     targetPath,
-		keys:       keyPath,
-		salt:       saltPath,
-		signer:     signerPath,
-		receipt:    filepath.Join(directory, "receipt.json"),
-		report:     filepath.Join(directory, "report.json"),
-		plan:       plan,
+		snapshot:  snapshotPath,
+		target:    targetPath,
+		keys:      keyPath,
+		salt:      saltPath,
+		signer:    signerPath,
+		receipt:   filepath.Join(directory, "receipt.json"),
+		report:    filepath.Join(directory, "report.json"),
+		plan:      plan,
 		publicKey: ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey),
 	}
 }
