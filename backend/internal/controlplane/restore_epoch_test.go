@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -208,5 +209,17 @@ func TestCurrentReturnsExactRestoreState(t *testing.T) {
 	if got := fmt.Sprintf("%s/%d/%t/%s", state.ClusterID, state.RestoreEpoch, state.Activated, state.RestoredFromBackupSHA256);
 		got != testRestoreClusterID+"/4/true/"+backupSHA {
 		t.Fatalf("state=%s", got)
+	}
+}
+
+func TestRestoreIntegerAcceptsExactJSONNumberFromRQLiteDecoder(t *testing.T) {
+	got, ok := restoreInteger(json.Number("42"))
+	if !ok || got != 42 {
+		t.Fatalf("restoreInteger(json.Number(42)) = %d/%t", got, ok)
+	}
+	for _, invalid := range []json.Number{"", "1.0", "9e1"} {
+		if _, ok := restoreInteger(invalid); ok {
+			t.Fatalf("restoreInteger accepted non-integer json.Number %q", invalid)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -179,6 +180,9 @@ func restoreInteger(value any) (int64, bool) {
 		return int64(typed), true
 	case string:
 		parsed, err := strconv.ParseInt(typed, 10, 64)
+		return parsed, err == nil
+	case json.Number:
+		parsed, err := strconv.ParseInt(string(typed), 10, 64)
 		return parsed, err == nil
 	default:
 		return 0, false
