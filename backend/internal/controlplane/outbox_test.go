@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	testDesiredSHA  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testDesiredSHA  = "f5f8197e669855d4ced22399d9e922b4c9b66ba020c63f121a57df4d693e7015"
 	testObservedSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 

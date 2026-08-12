@@ -15,6 +15,8 @@ func TestDeleteKeepsTombstoneUntilEveryRequiredServiceAcknowledges(t *testing.T)
 		rqlite.Result{Rows: []map[string]any{{"generation": int64(9)}}},
 		rqlite.Result{RowsAffected: 1},
 		rqlite.Result{RowsAffected: 4},
+		rqlite.Result{RowsAffected: 4},
+		rqlite.Result{RowsAffected: 4},
 	)}}
 	service, _ := testService(t, db)
 
@@ -35,6 +37,11 @@ func TestDeleteKeepsTombstoneUntilEveryRequiredServiceAcknowledges(t *testing.T)
 	} {
 		if !strings.Contains(sql, required) {
 			t.Fatalf("tombstone transaction lacks %q: %s", required, sql)
+		}
+	}
+	for _, required := range []string{"update desired_node_state", "insert into outbox_events"} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("tombstone transaction lacks revoke propagation %q: %s", required, sql)
 		}
 	}
 	if strings.Contains(sql, "apply_enabled=1") || strings.Contains(sql, "fenced=0") || strings.Contains(sql, "enabled=1") {
