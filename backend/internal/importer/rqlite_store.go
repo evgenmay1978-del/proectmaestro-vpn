@@ -93,6 +93,9 @@ SELECT key_version FROM (
 	seen := make(map[int]struct{}, len(results[0].Rows))
 	versions := make([]int, 0, len(results[0].Rows))
 	for _, row := range results[0].Rows {
+		if _, encodedAsText := row["key_version"].(string); encodedAsText {
+			return nil, errors.New("invalid referenced secret key version")
+		}
 		value, ok := applyRowInt(row["key_version"])
 		if !ok || value <= 0 || int64(int(value)) != value {
 			return nil, errors.New("invalid referenced secret key version")
