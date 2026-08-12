@@ -87,12 +87,18 @@ distinct 32-byte HMAC key. Binary values are canonical base64. Duplicate
 versions, missing current key, noncanonical base64, wrong lengths or identical
 encryption/HMAC keys fail before any write.
 
+Add `cluster_hmac_key_sha256` to the versioned normalized snapshot contract.
+It is required canonical lowercase hex, included in the source/plan digests and
+compared to SHA-256 of the supplied HMAC key before network I/O. This binds all
+snapshot HMAC identities to the key later used by panels, bots and APIs without
+storing the key itself.
+
 Construct the existing `controlplane.SecretBox`. Every encrypted secret already
 present in the normalized snapshot must reference an available key version and
 authenticate under its exact owner/field/kind scope before the factory exposes
 an apply store. Plaintexts are zeroed immediately and never enter the plan,
 report, receipt, error or SQL argument. This binds imported envelopes to the
-supplied key bundle without publishing key fingerprints.
+supplied key bundle without publishing raw key material.
 
 ## Legacy trial salt binding
 
@@ -125,15 +131,16 @@ The composition order is fixed:
    redacted report write.
 2. Reject blockers, plan-digest drift, missing run ID or invalid protected-file
    metadata.
-3. Strictly decode target configuration and construct the mandatory-mTLS
-   rqlite client.
-4. Call only `controlplane.NewMigrator(db).Verify(ctx)`. The importer never
+3. Strictly decode target configuration and the key bundle, compare the HMAC
+   key digest, authenticate snapshot envelopes, bind and seal the legacy trial
+   salt, and zero all local plaintext secret material. These checks complete
+   before network I/O.
+4. Construct the mandatory-mTLS rqlite client.
+5. Call only `controlplane.NewMigrator(db).Verify(ctx)`. The importer never
    calls `Migrator.Apply`; schema creation is a separate future gate.
-5. Decode the key bundle, authenticate snapshot envelopes, bind and seal the
-   legacy trial salt, then construct the rqlite apply store.
-6. Call existing `importer.Apply`. Its target inspection, empty/full or
-   parent/delta rule, stable batches, unknown-outcome resume and final business
-   digest remain authoritative.
+6. Construct the rqlite apply store and call existing `importer.Apply`. Its
+   target inspection, empty/full or parent/delta rule, stable batches,
+   unknown-outcome resume and final business digest remain authoritative.
 7. Linearizable-read the completed run and batch receipts again and require the
    exact run/source/plan/parent/target digests, batch count and completed state.
 8. Atomically write and fsync a signed import receipt. Only then print the
@@ -186,8 +193,9 @@ Unit tests require:
   factory/network/protected-file calls;
 - apply rejects missing/HTTP/duplicate/non-S2-S4 endpoints, optional mTLS,
   broad private-file permissions and unknown JSON fields;
-- malformed key bundles, unavailable envelope versions, wrong scoped keys,
-  wrong trial-salt digest and newline drift fail before a request;
+- malformed key bundles, wrong HMAC-key digest, unavailable envelope
+  versions, wrong scoped keys, wrong trial-salt digest and newline drift fail
+  before a request;
 - the factory calls schema `Verify` but never schema `Apply`;
 - no receipt is signed before a completed exact run can be re-read;
 - receipt write interruption resumes without a second business mutation;
