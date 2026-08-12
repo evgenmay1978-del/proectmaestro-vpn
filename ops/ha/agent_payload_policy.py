@@ -30,7 +30,7 @@ WORKFLOW_SNIPPETS = (
     "python ops/ha/test-agent-payload-policy.py",
     "find internal/applyagent internal/controlplane -type f -name '*.go' -print0",
     "LC_ALL=C sort -z",
-    'gofmt -d "${guarded_go_files[@]}"',
+    'gofmt -w "${guarded_go_files[@]}"',
     "go test ./internal/applyagent ./internal/controlplane",
 )
 

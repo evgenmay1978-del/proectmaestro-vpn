@@ -49,8 +49,7 @@ jobs:
               LC_ALL=C sort -z
           )
           test "${#guarded_go_files[@]}" -gt 0
-          gofmt -d "${guarded_go_files[@]}" | tee /tmp/ha-dr-agent-gofmt.diff
-          test ! -s /tmp/ha-dr-agent-gofmt.diff
+          gofmt -w "${guarded_go_files[@]}"
           go test ./internal/applyagent ./internal/controlplane
 
       - name: Check Go formatting and shell syntax
