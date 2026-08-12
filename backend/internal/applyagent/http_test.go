@@ -24,7 +24,7 @@ func TestApplyRejectsBodyOverLimitBeforeDriver(t *testing.T) {
 	verifier:=&fakeLeaseVerifier{};driver:=&fakeDriver{}
 	agent,_,_:=agentFixture(t,verifier,driver,&fakeStateStore{})
 	handler,_:=NewHTTPHandler(HTTPConfig{Agent:agent,DispatcherSAN:"controlplane-dispatcher",Ready:func()bool{return true}})
-	request:=httptest.NewRequest(http.MethodPost,"/v1/apply",strings.NewReader(strings.Repeat("x",MaxHTTPBodyBytes+1)))
+	request:=httptest.NewRequest(http.MethodPost,"/v1/apply",strings.NewReader(strings.Repeat("x",int(MaxHTTPBodyBytes+1))))
 	request.TLS=&tls.ConnectionState{PeerCertificates:[]*x509.Certificate{{DNSNames:[]string{"controlplane-dispatcher"}}}}
 	response:=httptest.NewRecorder();handler.ServeHTTP(response,request)
 	if response.Code!=http.StatusRequestEntityTooLarge { t.Fatalf("status=%d, want 413",response.Code) }
