@@ -126,7 +126,7 @@ source_root="$(realpath -e "$source_root")"
     MAESTRO_IMPORT_BINARY="$import_binary" \
     go test -tags=rqlite_integration ./cmd/maestro-import \
       -run '^TestPrepareSyntheticDRSource$' -count=1
-) >/dev/null
+)
 bundle="$sandbox/source-backup.tar.gpg"
 bash "$BACKUP" --drill --cluster-root "$source_root" --keys "$keys" \
   --output "$bundle" --signer "${fingerprints[0]}" \
