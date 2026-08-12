@@ -105,15 +105,17 @@ func TestAgentOpensEveryEntryBeforeFirstDriverCall(t *testing.T) {
 }
 
 func TestAgentPayloadOpenFailureCausesZeroDriverCalls(t *testing.T) {
-	wantErr := errors.New("test: synthetic open failure")
+	secretErr := errors.New("test: synthetic open failure secret-marker")
 	opener := validFakePayloadOpener()
 	opener.failAt = 2
-	opener.err = wantErr
+	opener.err = secretErr
 	driver := &fakeDriver{}
 	state := &fakeStateStore{}
 	agent, command, privateKey := payloadAgentFixture(t, &fakeLeaseVerifier{}, driver, state, opener)
-	if _, err := agent.Apply(context.Background(), signedFixture(t, command, privateKey)); !errors.Is(err, wantErr) {
-		t.Fatalf("Apply error=%v, want %v", err, wantErr)
+	if _, err := agent.Apply(context.Background(), signedFixture(t, command, privateKey)); !errors.Is(err, ErrPayloadOpen) {
+		t.Fatalf("Apply error=%v, want ErrPayloadOpen", err)
+	} else if errors.Is(err, secretErr) || strings.Contains(err.Error(), "secret-marker") {
+		t.Fatalf("Apply exposed opener error: %v", err)
 	}
 	if opener.callCount() != 2 || totalDriverCalls(driver) != 0 || state.stores != 0 {
 		t.Fatalf("open/driver/store calls=%d/%d/%d, want 2/0/0", opener.callCount(), totalDriverCalls(driver), state.stores)
