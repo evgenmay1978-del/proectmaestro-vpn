@@ -1,6 +1,19 @@
 # MaestroVPN — актуальный контекст и передача работы
 
 
+## 0Z. HA DR RESTORE DRILL TDD PLAN READY, code not started (12.08.2026)
+
+- Written spec approved by owner; detailed sequential TDD plan:
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`.
+- Seven tasks / 34 steps: migration 2 + restore epoch; strict manifest
+  verifier; authenticated encrypted backup; fresh-cluster loader; real
+  fencing/parity; exact-SHA workflow; scope/handoff.
+- Baseline: `ffa3f7f2a0c88b2c754a1949a72daa2d686a49bf`.
+- Execution is GitHub-first and sequential with separate RED/GREEN checkpoints.
+- This is documentation only. S1-S4, panels, bots, customers, VPN protocols,
+  DNS, Android/TV, Release and OTA remain unchanged.
+- Server work starts only after exact GREEN and read-only S2/S3/S4 audit.
+
 ## 0Y. HA DR RESTORE DRILL DESIGN APPROVED, implementation not started (12.08.2026)
 
 - Владелец утвердил безопасный порядок: сначала полностью synthetic
