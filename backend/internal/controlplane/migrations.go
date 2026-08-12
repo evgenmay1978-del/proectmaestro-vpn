@@ -77,6 +77,13 @@ var expectedSchemaTables = []string{
 	"web_sessions",
 }
 
+// SchemaIdentity is the exact immutable migration identity verified on the
+// target cluster.
+type SchemaIdentity struct {
+	Version  int
+	Checksum string
+}
+
 // Migrator applies and verifies the immutable HA control-plane schema.
 type Migrator struct {
 	db  rqlite.RQLite
@@ -130,15 +137,22 @@ func (m *Migrator) Apply(ctx context.Context) error {
 // checksum is exact, the table set is complete, and SQLite reports no FK
 // violations.
 func (m *Migrator) Verify(ctx context.Context) error {
+	_, err := m.VerifyIdentity(ctx)
+	return err
+}
+
+// VerifyIdentity performs the same read-only verification and returns the exact
+// committed immutable migration identity. It never applies schema changes.
+func (m *Migrator) VerifyIdentity(ctx context.Context) (SchemaIdentity, error) {
 	if m == nil || m.db == nil {
-		return errors.New("controlplane: migration database is required")
+		return SchemaIdentity{}, errors.New("controlplane: migration database is required")
 	}
 	if err := m.verifyForeignKeys(ctx); err != nil {
-		return err
+		return SchemaIdentity{}, err
 	}
 	_, checksum, _, err := loadMigration()
 	if err != nil {
-		return err
+		return SchemaIdentity{}, err
 	}
 
 	results, err := m.db.QueryStrong(ctx,
@@ -148,25 +162,25 @@ func (m *Migrator) Verify(ctx context.Context) error {
 		rqlite.Statement{SQL: "PRAGMA foreign_key_check"},
 	)
 	if err != nil {
-		return fmt.Errorf("controlplane: verify schema: %w", err)
+		return SchemaIdentity{}, fmt.Errorf("controlplane: verify schema: %w", err)
 	}
 	if len(results) != 3 {
-		return errors.New("controlplane: schema verification result count is invalid")
+		return SchemaIdentity{}, errors.New("controlplane: schema verification result count is invalid")
 	}
 	if len(results[0].Rows) != 1 || fmt.Sprint(results[0].Rows[0]["version"]) != fmt.Sprint(SchemaVersion) {
-		return errors.New("controlplane: schema migration version is invalid")
+		return SchemaIdentity{}, errors.New("controlplane: schema migration version is invalid")
 	}
 	storedChecksum, ok := results[0].Rows[0]["checksum"].(string)
 	if !ok || storedChecksum != checksum {
-		return errors.New("controlplane: schema migration checksum mismatch")
+		return SchemaIdentity{}, errors.New("controlplane: schema migration checksum mismatch")
 	}
 	if err := verifyTableSet(results[1]); err != nil {
-		return err
+		return SchemaIdentity{}, err
 	}
 	if len(results[2].Rows) != 0 {
-		return errors.New("controlplane: foreign key violations detected")
+		return SchemaIdentity{}, errors.New("controlplane: foreign key violations detected")
 	}
-	return nil
+	return SchemaIdentity{Version: SchemaVersion, Checksum: storedChecksum}, nil
 }
 
 func (m *Migrator) verifyForeignKeys(ctx context.Context) error {
