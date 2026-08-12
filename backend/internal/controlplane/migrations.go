@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -78,6 +79,19 @@ var expectedSchemaTables = []string{
 	"web_sessions",
 }
 
+type migration struct {
+	Version    int
+	Path       string
+	Data       []byte
+	Checksum   string
+	Statements []rqlite.Statement
+}
+
+type migrationIdentity struct {
+	Version  int    `json:"version"`
+	Checksum string `json:"checksum"`
+}
+
 // SchemaIdentity is the exact immutable migration identity verified on the
 // target cluster.
 type SchemaIdentity struct {
@@ -96,8 +110,8 @@ func NewMigrator(db rqlite.RQLite) *Migrator {
 	return &Migrator{db: db, now: time.Now}
 }
 
-// Apply installs migration 0001 atomically, or verifies an already installed
-// copy. A failed or unknown write outcome is resolved only by strong reads.
+// Apply validates the committed prefix and applies each missing migration once.
+// A failed write is accepted only if a strong read confirms its exact receipt.
 func (m *Migrator) Apply(ctx context.Context) error {
 	if m == nil || m.db == nil {
 		return errors.New("controlplane: migration database is required")
@@ -105,31 +119,39 @@ func (m *Migrator) Apply(ctx context.Context) error {
 	if err := m.verifyForeignKeys(ctx); err != nil {
 		return err
 	}
-
+	migrations, err := loadMigrations()
+	if err != nil {
+		return err
+	}
 	exists, err := m.schemaMigrationTableExists(ctx)
 	if err != nil {
 		return err
 	}
+	applied := []migrationIdentity{}
 	if exists {
-		return m.Verify(ctx)
+		applied, err = m.readMigrationIdentities(ctx)
+		if err != nil {
+			return err
+		}
 	}
-
-	sqlBytes, checksum, statements, err := loadMigration()
-	if err != nil {
+	if err := verifyMigrationPrefix(applied, migrations); err != nil {
 		return err
 	}
-	_ = sqlBytes
-	statements = append(statements, rqlite.Statement{
-		SQL: `INSERT INTO schema_migrations(version,checksum,applied_at_unix)
-			VALUES(?,?,?)`,
-		Args: []any{SchemaVersion, checksum, m.now().Unix()},
-	})
-
-	if _, err := m.db.Request(ctx, rqlite.Linearizable, true, statements...); err != nil {
-		if verifyErr := m.Verify(ctx); verifyErr == nil {
-			return nil
+	for index := len(applied); index < len(migrations); index++ {
+		item := migrations[index]
+		statements := append([]rqlite.Statement(nil), item.Statements...)
+		statements = append(statements, rqlite.Statement{
+			SQL: `INSERT INTO schema_migrations(version,checksum,applied_at_unix)
+				VALUES(?,?,?)`,
+			Args: []any{item.Version, item.Checksum, m.now().Unix()},
+		})
+		if _, requestErr := m.db.Request(ctx, rqlite.Linearizable, true, statements...); requestErr != nil {
+			exact, readErr := m.migrationRecordedExactly(ctx, item)
+			if readErr == nil && exact {
+				continue
+			}
+			return fmt.Errorf("controlplane: apply schema migration %d: %w", item.Version, requestErr)
 		}
-		return fmt.Errorf("controlplane: apply schema migration: %w", err)
 	}
 	return m.Verify(ctx)
 }
@@ -142,8 +164,8 @@ func (m *Migrator) Verify(ctx context.Context) error {
 	return err
 }
 
-// VerifyIdentity performs the same read-only verification and returns the exact
-// committed immutable migration identity. It never applies schema changes.
+// VerifyIdentity performs the same read-only verification and returns the
+// canonical identity of the complete ordered chain.
 func (m *Migrator) VerifyIdentity(ctx context.Context) (SchemaIdentity, error) {
 	if m == nil || m.db == nil {
 		return SchemaIdentity{}, errors.New("controlplane: migration database is required")
@@ -151,11 +173,10 @@ func (m *Migrator) VerifyIdentity(ctx context.Context) (SchemaIdentity, error) {
 	if err := m.verifyForeignKeys(ctx); err != nil {
 		return SchemaIdentity{}, err
 	}
-	_, checksum, _, err := loadMigration()
+	migrations, err := loadMigrations()
 	if err != nil {
 		return SchemaIdentity{}, err
 	}
-
 	results, err := m.db.QueryStrong(ctx,
 		rqlite.Statement{SQL: "SELECT version,checksum FROM schema_migrations ORDER BY version"},
 		rqlite.Statement{SQL: `SELECT name FROM sqlite_master
@@ -168,12 +189,12 @@ func (m *Migrator) VerifyIdentity(ctx context.Context) (SchemaIdentity, error) {
 	if len(results) != 3 {
 		return SchemaIdentity{}, errors.New("controlplane: schema verification result count is invalid")
 	}
-	if len(results[0].Rows) != 1 || fmt.Sprint(results[0].Rows[0]["version"]) != fmt.Sprint(SchemaVersion) {
-		return SchemaIdentity{}, errors.New("controlplane: schema migration version is invalid")
+	stored, err := identitiesFromRows(results[0].Rows)
+	if err != nil || len(stored) != len(migrations) {
+		return SchemaIdentity{}, errors.New("controlplane: schema migration chain is invalid")
 	}
-	storedChecksum, ok := results[0].Rows[0]["checksum"].(string)
-	if !ok || storedChecksum != checksum {
-		return SchemaIdentity{}, errors.New("controlplane: schema migration checksum mismatch")
+	if err := verifyMigrationPrefix(stored, migrations); err != nil {
+		return SchemaIdentity{}, err
 	}
 	if err := verifyTableSet(results[1]); err != nil {
 		return SchemaIdentity{}, err
@@ -181,7 +202,11 @@ func (m *Migrator) VerifyIdentity(ctx context.Context) (SchemaIdentity, error) {
 	if len(results[2].Rows) != 0 {
 		return SchemaIdentity{}, errors.New("controlplane: foreign key violations detected")
 	}
-	return SchemaIdentity{Version: SchemaVersion, Checksum: storedChecksum}, nil
+	checksum, err := combinedMigrationChecksum(migrations)
+	if err != nil {
+		return SchemaIdentity{}, err
+	}
+	return SchemaIdentity{Version: SchemaVersion, Checksum: checksum}, nil
 }
 
 func (m *Migrator) verifyForeignKeys(ctx context.Context) error {
@@ -212,32 +237,129 @@ func (m *Migrator) schemaMigrationTableExists(ctx context.Context) (bool, error)
 	return len(results[0].Rows) == 1, nil
 }
 
-func loadMigration() ([]byte, string, []rqlite.Statement, error) {
-	first, err := migrationFiles.ReadFile("migrations/0001_control_plane.sql")
-	if err != nil {
-		return nil, "", nil, errors.New("controlplane: embedded migration is unavailable")
+func (m *Migrator) readMigrationIdentities(ctx context.Context) ([]migrationIdentity, error) {
+	results, err := m.db.QueryStrong(ctx, rqlite.Statement{
+		SQL: "SELECT version,checksum FROM schema_migrations ORDER BY version",
+	})
+	if err != nil || len(results) != 1 {
+		return nil, errors.New("controlplane: inspect migration chain")
 	}
-	second, err := migrationFiles.ReadFile("migrations/0002_restore_epoch.sql")
-	if err != nil {
-		return nil, "", nil, errors.New("controlplane: embedded migration is unavailable")
-	}
-	data := append(append([]byte(nil), first...), second...)
-	sum := sha256.Sum256(data)
-	checksum := hex.EncodeToString(sum[:])
+	return identitiesFromRows(results[0].Rows)
+}
 
+func (m *Migrator) migrationRecordedExactly(ctx context.Context, item migration) (bool, error) {
+	results, err := m.db.QueryStrong(ctx, rqlite.Statement{
+		SQL: "SELECT version,checksum FROM schema_migrations WHERE version=?",
+		Args: []any{item.Version},
+	})
+	if err != nil || len(results) != 1 {
+		return false, err
+	}
+	identities, err := identitiesFromRows(results[0].Rows)
+	return err == nil && len(identities) == 1 &&
+		identities[0].Version == item.Version &&
+		identities[0].Checksum == item.Checksum, err
+}
+
+func loadMigrations() ([]migration, error) {
+	specs := []struct {
+		version int
+		path    string
+	}{
+		{version: 1, path: "migrations/0001_control_plane.sql"},
+		{version: 2, path: "migrations/0002_restore_epoch.sql"},
+	}
+	migrations := make([]migration, 0, len(specs))
+	for _, spec := range specs {
+		data, err := migrationFiles.ReadFile(spec.path)
+		if err != nil {
+			return nil, errors.New("controlplane: embedded migration is unavailable")
+		}
+		sum := sha256.Sum256(data)
+		statements := splitMigrationStatements(data)
+		if len(statements) == 0 {
+			return nil, errors.New("controlplane: embedded migration has no statements")
+		}
+		migrations = append(migrations, migration{
+			Version: spec.version, Path: spec.path, Data: data,
+			Checksum: hex.EncodeToString(sum[:]), Statements: statements,
+		})
+	}
+	return migrations, nil
+}
+
+func loadMigration() ([]byte, string, []rqlite.Statement, error) {
+	migrations, err := loadMigrations()
+	if err != nil {
+		return nil, "", nil, err
+	}
+	var data []byte
+	var statements []rqlite.Statement
+	for _, item := range migrations {
+		data = append(data, item.Data...)
+		statements = append(statements, item.Statements...)
+	}
+	checksum, err := combinedMigrationChecksum(migrations)
+	return data, checksum, statements, err
+}
+
+func splitMigrationStatements(data []byte) []rqlite.Statement {
 	parts := strings.Split(string(data), migrationDelimiter)
 	statements := make([]rqlite.Statement, 0, len(parts))
 	for _, part := range parts {
 		sql := strings.TrimSpace(part)
-		if sql == "" || strings.HasPrefix(sql, "-- MaestroVPN HA schema") {
+		if sql == "" || strings.HasPrefix(sql, "-- MaestroVPN HA") {
 			continue
 		}
 		statements = append(statements, rqlite.Statement{SQL: sql})
 	}
-	if len(statements) == 0 {
-		return nil, "", nil, errors.New("controlplane: embedded migration has no statements")
+	return statements
+}
+
+func identitiesFromRows(rows []map[string]any) ([]migrationIdentity, error) {
+	identities := make([]migrationIdentity, 0, len(rows))
+	for _, row := range rows {
+		version, ok := restoreInteger(row["version"])
+		checksum, checksumOK := row["checksum"].(string)
+		if !ok || version <= 0 || !checksumOK || !canonicalRestoreHex(checksum) {
+			return nil, errors.New("controlplane: schema migration row is invalid")
+		}
+		identities = append(identities, migrationIdentity{
+			Version: int(version), Checksum: checksum,
+		})
 	}
-	return data, checksum, statements, nil
+	return identities, nil
+}
+
+func verifyMigrationPrefix(stored []migrationIdentity, migrations []migration) error {
+	if len(stored) > len(migrations) {
+		return errors.New("controlplane: unknown schema migration")
+	}
+	for index, identity := range stored {
+		item := migrations[index]
+		if identity.Version != index+1 || item.Version != index+1 {
+			return errors.New("controlplane: schema migration gap")
+		}
+		if identity.Checksum != item.Checksum {
+			return errors.New("controlplane: schema migration checksum mismatch")
+		}
+	}
+	return nil
+}
+
+func combinedMigrationChecksum(migrations []migration) (string, error) {
+	identities := make([]migrationIdentity, 0, len(migrations))
+	for _, item := range migrations {
+		identities = append(identities, migrationIdentity{
+			Version: item.Version, Checksum: item.Checksum,
+		})
+	}
+	canonical, err := json.Marshal(identities)
+	if err != nil {
+		return "", errors.New("controlplane: encode migration identity")
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func verifyTableSet(result rqlite.Result) error {
