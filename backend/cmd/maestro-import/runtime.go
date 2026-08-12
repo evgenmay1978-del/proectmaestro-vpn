@@ -69,8 +69,13 @@ type receiptSigningKey struct {
 	SeedB64       string `json:"seed_b64"`
 }
 
+type applyEvidenceStore interface {
+	importer.ApplyStore
+	ReadAppliedRunEvidence(context.Context, string) (importer.AppliedRunEvidence, error)
+}
+
 type applyRuntime struct {
-	Store              *importer.RQLiteApplyStore
+	Store              applyEvidenceStore
 	Schema             controlplane.SchemaIdentity
 	TargetConfigSHA256 string
 	Signer             ed25519.PrivateKey
