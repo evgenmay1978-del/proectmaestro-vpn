@@ -49,7 +49,7 @@
 - Produces: typed `desired_protocol_tags(customer_id,node_id,service_name,protocol_tag)` rows bound by FK to `desired_node_state`.
 - Consumes: exact supported protocol tags `vless,hysteria2,anytls,naive,wdtt,olcrtc` and exact nodes `S1,S2,S3,S4` from explicit `PlanOptions`.
 
-- [ ] **Step 1: Write failing topology contract tests**
+- [x] **Step 1: Write failing topology contract tests**
 
 Add tests before changing production structs:
 
@@ -101,7 +101,7 @@ A second recorder case starts with stale `S4/wdtt` topology, applies a narrowed
 exact set and requires gated removal of both the obsolete tag and every node
 that is absent from the new plan.
 
-- [ ] **Step 2: Push and verify topology RED**
+- [x] **Step 2: Push and verify topology RED**
 
 Commit only tests/fixtures, push once and inspect the exact-SHA HA workflow.
 
@@ -109,7 +109,7 @@ Expected: compile failure because `ProtocolTags`, `NodeIDs`,
 `SupportedProtocolTags` and `SupportedNodeIDs` do not exist; no unrelated
 package failure is accepted as RED.
 
-- [ ] **Step 3: Add minimal normalized topology model and validation**
+- [x] **Step 3: Add minimal normalized topology model and validation**
 
 Add exact fields:
 
@@ -145,7 +145,7 @@ SupportedNodeIDs:      []string{"S1", "S2", "S3", "S4"},
 Update every customer fixture with explicit topology; special-access behavior
 is represented by each customer's exact list, never inferred from login.
 
-- [ ] **Step 4: Add typed desired protocol schema and writes**
+- [x] **Step 4: Add typed desired protocol schema and writes**
 
 Add after `desired_node_state`:
 
@@ -183,7 +183,7 @@ contains the existing batch gate, so a failed or replayed batch cannot narrow
 topology independently from the customer generation update.
 No plaintext or decoded credential is introduced.
 
-- [ ] **Step 5: Verify GREEN locally-light and in GitHub**
+- [x] **Step 5: Verify GREEN locally-light and in GitHub**
 
 Run locally only:
 
@@ -195,7 +195,7 @@ Push the GREEN commit. Require exact-SHA GitHub success for format, unit,
 race, vet, harness and real rqlite integration. The integration assertion must
 see four desired rows, every expected node/protocol tuple, and no unknown row.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add backend/internal/importer backend/internal/controlplane backend/cmd/maestro-import
@@ -217,7 +217,7 @@ git commit -m "feat(importer): persist explicit customer topology"
 - Produces: `EncodeShadowExport(ShadowExport) ([]byte, error)` and `WriteShadowExport(string, ShadowExport) error`.
 - Consumes: Task 1 explicit topology and existing protected fingerprints.
 
-- [ ] **Step 1: Write failing canonical model tests**
+- [x] **Step 1: Write failing canonical model tests**
 
 Use the wished-for API:
 
@@ -250,12 +250,12 @@ Add a Linux permission test requiring a newly written regular file with mode
 `0600`, valid JSON, deterministic bytes, and refusal to overwrite an existing
 path.
 
-- [ ] **Step 2: Push and verify model RED**
+- [x] **Step 2: Push and verify model RED**
 
 Expected exact failure: undefined `ShadowExport`, `ShadowURLShapes`,
 `ShadowFromPlan`, `EncodeShadowExport` and `WriteShadowExport`.
 
-- [ ] **Step 3: Implement the strict shared model**
+- [x] **Step 3: Implement the strict shared model**
 
 Use JSON tags matching the existing verifier exactly:
 
@@ -301,7 +301,7 @@ Parse the exact `ota` public JSON keys `versionCode`, `versionName`, `sha256`
 and `size`; export them as the verifier's snake-case keys. Update the synthetic
 fixture to contain all four fields.
 
-- [ ] **Step 4: Implement atomic protected output**
+- [x] **Step 4: Implement atomic protected output**
 
 Validate before encoding. Sort customers/orders/topology and canonical
 fingerprint rows. `WriteShadowExport` creates a temp file in the destination
@@ -309,7 +309,7 @@ directory with mode `0600`, writes/fsyncs/closes, then renames only when the
 destination does not exist; clean up the temp file on every error. Return only
 fixed errors such as `shadow export invalid` and `shadow export unavailable`.
 
-- [ ] **Step 5: Verify Task 2 GREEN and commit**
+- [x] **Step 5: Verify Task 2 GREEN and commit**
 
 Require exact-SHA GitHub GREEN, then:
 
@@ -333,7 +333,7 @@ git commit -m "feat(importer): build canonical legacy shadow export"
 - Produces: `(*RQLiteApplyStore).ReadShadowProjection` using one linearizable query batch.
 - Consumes: Task 1 desired topology and Task 2 shared canonical helpers.
 
-- [ ] **Step 1: Write failing source-digest and projection tests**
+- [x] **Step 1: Write failing source-digest and projection tests**
 
 Create a fake source returning typed rows and assert exact parity with the Task
 2 legacy export. Add table tests for:
@@ -368,12 +368,12 @@ its references to candidate APIs fail before production implementation.
 The rqlite recorder must observe exactly one `QueryLinearizable` call and no
 `Request` call.
 
-- [ ] **Step 2: Push and verify candidate RED**
+- [x] **Step 2: Push and verify candidate RED**
 
 Expected: undefined candidate interfaces/functions only. Existing importer and
 shadow tests must remain green.
 
-- [ ] **Step 3: Implement one-batch linearizable projection**
+- [x] **Step 3: Implement one-batch linearizable projection**
 
 Define the typed boundary before parsing wire rows:
 
@@ -421,14 +421,14 @@ the expected source, non-null target digest, receipt count equal to batch
 count, and a recomputed business digest equal to the committed target digest.
 Reject any missing/extra/duplicate relation before producing `ShadowProjection`.
 
-- [ ] **Step 4: Convert candidate rows through shared canonical code**
+- [x] **Step 4: Convert candidate rows through shared canonical code**
 
 Map customer login HMAC to `identity_hmac`; build exact sorted node/protocol
 sets per active customer; map deterministic `order_id` to `order_hmac`; reuse
 the Task 2 state and fingerprint functions. Do not decrypt envelopes or emit
 SQL rows in errors.
 
-- [ ] **Step 5: Verify Task 3 GREEN and commit**
+- [x] **Step 5: Verify Task 3 GREEN and commit**
 
 Require unit/race/vet GitHub GREEN and recorder proof of one read-only
 linearizable batch, then:
@@ -451,7 +451,7 @@ This task changes workflow scheduling only. Do not add a test that greps YAML
 source text: the acceptance test is the real dedicated GitHub step executing
 the real integration behavior.
 
-- [ ] **Step 1: Recheck the existing behavioral test before workflow editing**
+- [x] **Step 1: Recheck the existing behavioral test before workflow editing**
 
 Read `TestRQLiteShadowExportParity` and confirm it is guarded by
 `MAESTRO_SHADOW_EXPORT_PROOF=1`, runs the executable verifier, requires exact
@@ -460,7 +460,7 @@ output/errors for fixture login, payment code, nonce, ciphertext and private
 URL markers. If any assertion is absent, return to Task 3 RED/GREEN rather than
 adding it after the producer implementation.
 
-- [ ] **Step 2: Add the clean-cluster workflow phase**
+- [x] **Step 2: Add the clean-cluster workflow phase**
 
 After the ordinary integration phase, add:
 
@@ -480,7 +480,7 @@ After the ordinary integration phase, add:
 Do not change the verifier or weaken the existing network-command, invalid
 input, deterministic mismatch and redacted-output contract.
 
-- [ ] **Step 3: Verify actual GitHub behavior**
+- [x] **Step 3: Verify actual GitHub behavior**
 
 Push the workflow commit through the authorized GitHub path. Require the exact
 run to show the named parity step as executed and successful, not skipped. A
@@ -490,7 +490,7 @@ failure.
 The same run must also pass formatting, unit, race, vet, harness, ordinary
 real-rqlite integration, full+delta/fresh-full digest parity and final cleanup.
 
-- [ ] **Step 4: Commit Task 4**
+- [x] **Step 4: Commit Task 4**
 
 ```bash
 git add .github/workflows/ha-control-plane.yml
@@ -507,7 +507,7 @@ git commit -m "ci(ha): prove redacted shadow parity on rqlite"
 - Consumes: exact final Git SHA and exact successful workflow/job IDs.
 - Produces: focused-plan completion record while parent Plan 02 Task 6 remains open.
 
-- [ ] **Step 1: Run final scope and secret scans**
+- [x] **Step 1: Run final scope and secret scans**
 
 ```bash
 git diff --check
@@ -520,7 +520,7 @@ Expected: factory remains nil; no network/live collector added; Android/TV diff
 for this focused slice is empty. Review export artifacts/logs from the exact CI
 run for all synthetic secret markers.
 
-- [ ] **Step 2: Record exact evidence**
+- [x] **Step 2: Record exact evidence**
 
 Update this plan's checkboxes and append to `CONTEXT_HANDOFF.md`:
 
@@ -531,7 +531,7 @@ Update this plan's checkboxes and append to `CONTEXT_HANDOFF.md`:
 - confirmation that production factory, servers, bots, clients and OTA were untouched;
 - next gate: separate production factory design, then backup/restore/cutover gates.
 
-- [ ] **Step 3: Verify docs, commit and push**
+- [x] **Step 3: Verify docs, commit and push**
 
 ```bash
 git diff --check
@@ -542,7 +542,7 @@ git push origin codex/ha-rqlite-task2
 
 Confirm `git ls-remote` equals local full SHA and the worktree is clean.
 
-- [ ] **Step 4: Preserve completion boundary**
+- [x] **Step 4: Preserve completion boundary**
 
 Mark only this focused plan complete. Do not mark parent Task 6 or the HA
 project production-ready. Do not wire the factory or touch S1-S4 as a follow-up

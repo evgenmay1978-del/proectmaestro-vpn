@@ -2664,3 +2664,91 @@ backup/restore/cutover gates не входят в этот slice.
 `backend/cmd/maestro-import/main.go` по-прежнему должен вызывать
 `run(..., nil)`; production остаётся
 `NO-GO (repository implementation only)`.
+
+## HA control plane: redacted shadow parity checkpoint (12.08.2026)
+
+Focused repository-only shadow export plan завершён в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production остаётся `NO-GO`: реальные S1-S4, панели,
+боты, DNS/TLS, клиенты, Android/TV, release и OTA не изменялись. Production
+factory в `backend/cmd/maestro-import/main.go` по-прежнему строго вызывает
+`os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, nil))`.
+
+### RED -> GREEN evidence
+
+- Task 1 topology RED: `efac2b4f1d00f4a94d2fef4dc17718e62720ae5e`,
+  `5a46d6db890ee2aab3af7143cf98f9ff7514daa6` и real-rqlite assertion
+  `824f66a8e899621c216bae25dcfb2740e81eeedd`. Final GREEN:
+  `282ad26e97913ed46ebc20a52cd4c902deead72a`, run `31553828257`, job
+  `93981990550`, conclusion `success`.
+- Task 2 legacy shadow RED: `2cb28db3152889474da9577d3c2a1f8cd913dc27`;
+  run `31554223345`, job `93983181574` упал только на отсутствующих shadow API.
+  Final GREEN: `4514ba1af38d8ee211f7283b4d2d9121a3a2c108`, run
+  `31554949682`, job `93985336630`, conclusion `success`.
+- Task 3 candidate RED: `7c487287146d80176df9424944c62b3645df74ad`;
+  run `31555611991`, job `93987294414` упал только на отсутствующих
+  `ShadowProjection*`, `ShadowFromCandidate` и `ReadShadowProjection`.
+  Production GREEN: `4ea96a6537613c59d052ef8c923252444aac1427`;
+  strengthened proof assertion: `5c953d506f628ff05277147482a6c74047fcfe22`,
+  run `31556257270`, job `93989193594`, conclusion `success`.
+- Task 4 final proof SHA: `f6bacd671ebf20877276a7339f5e37c692068d7e`.
+  Exact run `31556743561`, job `93990616906`: formatting, unit, race, vet,
+  harness, ordinary real-rqlite, full+delta/fresh-full digest parity, dedicated
+  clean-cluster reset, `Prove redacted shadow export parity` и final cleanup —
+  все `success`, parity step не skipped.
+
+### Доказанный shadow-контракт
+
+- Legacy producer `ShadowFromPlan` строит export только из уже validated full
+  `ImportPlan`; candidate producer `ShadowFromCandidate` независимо вызывает
+  `RQLiteApplyStore.ReadShadowProjection` и получает business rows одним
+  `QueryLinearizable` batch без единого `Request`.
+- Candidate read связывает exact source digest с единственным applied run,
+  non-null target digest, полным числом applied batch receipts и независимо
+  пересчитанным canonical business digest. Missing/extra/duplicate relations,
+  inactive/deleted customer, disabled credential, revoked token, неполная
+  node/protocol topology, malformed order/settings/principal/OTA fail closed.
+- Оба producer сходятся только в строгой versioned `ShadowExport` модели и
+  общих canonical fingerprint/state helpers; candidate не читает legacy export,
+  а legacy producer не читает rqlite.
+- Dedicated clean-cluster test применил полный synthetic snapshot через
+  `Apply`, независимо создал оба `0600` export, исполнил настоящий
+  `ops/ha/shadow-verify.sh` и потребовал точный результат
+  `{"differences":[],"status":"match"}\n`.
+- Exact job-log scan дал zero occurrences для synthetic raw login, payment
+  code, двух nonce, трёх ciphertext и private URL marker. Export JSON,
+  verifier stdout/stderr и process error проверяются до вывода ошибки.
+
+### Финальный scope/security gate
+
+- `git diff --check` чист; focused slice не добавил SSH, curl collector,
+  `MAESTRO_CONTROL_PLANE` wiring или production factory в importer.
+- Diff относительно `codex/mobile-4d-deck` для `app/src/main`, `app/src/test`
+  и `app/src/androidTest` пуст: Android mobile и TV код/ассеты не затронуты.
+- Production import, server deploy/restart, customer mutation, bot payment,
+  OTA publication и live shadow comparison не выполнялись.
+
+### Исправленные рабочие ошибки, не повторять
+
+- Fixture OTA был расширен до полного synthetic manifest 154; все прежние
+  exact-JSON tests надо обновлять одновременно, не ослабляя byte comparison.
+- Production/test helper names должны быть уникальны; collision
+  `validShadowShapes` исправлялся отдельным rename и больше не повторяется.
+- Git HTTPS OAuth без `workflow` scope не может писать `.github/workflows`:
+  не ретраить push, применять GitHub App и затем синхронизировать branch.
+- Нельзя передавать workflow text с regex, содержащим `$'`, в JavaScript
+  `String.replace` replacement string: `$'` разворачивается в suffix и портит
+  YAML. Использовать проверенные `indexOf` + `slice` (или callback replacer),
+  затем fetch remote file и требовать ровно по одному semantic marker.
+- `controlplane.NewMigrator` уже создаёт synthetic tariff/nodes/services для
+  integration cluster; повторный seed вызывает UNIQUE failure. Перед seed
+  всегда проверять migration fixtures и переиспользовать их.
+
+### Граница завершения и следующий gate
+
+Focused plan
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-shadow-export.md` завершён,
+но parent Plan 02 Task 6 и вся production HA-система ещё не завершены.
+Следующий отдельный этап: design/RED/GREEN для production import factory,
+затем обязательные backup/restore, fencing, dry-run и cutover/rollback gates.
+До их утверждения и полного exact-SHA GREEN серверы, панели и Telegram-боты
+не развёртывать и production factory не включать.
