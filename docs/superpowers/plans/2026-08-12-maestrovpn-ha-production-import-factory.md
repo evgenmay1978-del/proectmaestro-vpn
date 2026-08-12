@@ -140,9 +140,10 @@ func validCanonicalSHA256(value string) bool {
 ~~~
 
 Always require ClusterHMACKeySHA256. Require LegacyTrialSaltSHA256 exactly when
-len(Trials)>0. Copy both values into ImportPlan before Digest(plan). For a delta,
-require the parent snapshot to use the same cluster HMAC digest; when either
-snapshot carries trials, require the same legacy salt digest.
+len(Trials)>0. Copy both values into ImportPlan before Digest(plan). For a delta, require the parent snapshot to use the same cluster HMAC digest.
+If the delta itself carries trial upserts, require its salt digest to equal the
+parent salt digest. A delta with no trial operations carries no salt digest; its
+exact ParentSourceDigest already binds the previously applied full snapshot.
 
 Update every listed fixture to format_version 2 and deterministic synthetic
 digests. Preserve all existing customer, order, topology, settings and OTA bytes.
@@ -349,10 +350,13 @@ refactor(controlplane): expose verified schema identity
 - Create: backend/cmd/maestro-import/runtime.go
 - Create: backend/cmd/maestro-import/runtime_test.go
 - Modify: backend/cmd/maestro-import/main.go
+- Modify: backend/internal/importer/rqlite_store.go
+- Modify: backend/internal/importer/rqlite_store_test.go
 
 **Interfaces:**
-- Produces: targetConfig, keyBundle, applyRuntime and productionApplyRuntimeFactory.
+- Produces: targetConfig, keyBundle, receiptSigningKey, applyRuntime and productionApplyRuntimeFactory.
 - Consumes: importer.SnapshotProtection, controlplane.SchemaIdentity and importer.RQLiteApplyStore.
+- Produces: (*RQLiteApplyStore).ReadReferencedKeyVersions(context.Context) ([]int, error).
 - Produces: targetConfigSHA256 from normalized S2/S3/S4 origins and public certificate fingerprints.
 
 - [ ] **Step 1: Add RED strict-config tests**
@@ -365,6 +369,7 @@ func TestLoadTargetConfigRejectsUnknownFieldsAndBroadPrivateFiles(t *testing.T)
 func TestLoadKeyBundleRejectsDuplicateMissingOrEqualKeys(t *testing.T)
 func TestProductionFactoryValidatesLocalProtectionBeforeNewRQLite(t *testing.T)
 func TestProductionFactoryCallsVerifyIdentityButNeverApply(t *testing.T)
+func TestProductionFactoryRejectsMissingTargetKeyVersionBeforeMutation(t *testing.T)
 func TestProductionFactoryErrorTextIsSecretFree(t *testing.T)
 ~~~
 
@@ -407,6 +412,11 @@ type keyBundle struct {
     EncryptionKeys   []versionedKey       `json:"encryption_keys"`
     HMACKeyB64        string              `json:"hmac_key_b64"`
 }
+
+type receiptSigningKey struct {
+    SchemaVersion int    `json:"schema_version"`
+    SeedB64       string `json:"seed_b64"`
+}
 ~~~
 
 Decode with DisallowUnknownFields and EOF check. Reuse a bounded regular-file
@@ -415,9 +425,14 @@ trial salt and receipt signing key. Bound config/key files to 1 MiB, certificate
 files to 4 MiB, and timeout to 1..30 seconds.
 
 Parse each origin with net/url and require scheme=https, empty user/path/query/
-fragment. Parse CA and client certificates, require validity at injected clock,
+fragment. Lexically sort the canonical voter representation by node ID before
+hashing. Parse CA and client certificates, require validity at injected clock,
 client-auth extended key usage, and compute SHA-256 over DER public cert bytes.
 Do not hash private paths into targetConfigSHA256.
+
+Decode receiptSigningKey strictly, require schema version 1 and one canonical
+base64 32-byte Ed25519 seed, derive the private/public key and define signer key
+ID as lowercase SHA-256 of the public key.
 
 - [ ] **Step 4: Implement the factory in local-before-network order**
 
@@ -446,7 +461,11 @@ ValidateSnapshotProtection; zero decoded raw keys/salt; then call rqlite.New
 with exactly three HTTPS endpoints, CAFile, CertFile, KeyFile and bounded sizes.
 Call NewMigrator(db).VerifyIdentity. Construct
 NewRQLiteApplyStoreWithTrialProtection only when protection.HasTrials; otherwise
-use NewRQLiteApplyStore. Never call Migrator.Apply.
+use NewRQLiteApplyStore. Call ReadReferencedKeyVersions, which performs one
+QueryLinearizable over active imported_secrets plus setting_secrets, and pass
+the exact sorted distinct set to SecretBox.ReadyForVersions. A missing version
+blocks before importer.Apply and produces zero Request calls. Never call
+Migrator.Apply.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -738,15 +757,15 @@ TestProductionImportFactoryBinaryProof:
 
 1. builds deterministic synthetic key/salt/envelope inputs matching
    production-full-v2.json;
-2. requires dry-run zero network calls by stopping the cluster for that
-   subprocess;
-3. restarts prepared mTLS state for apply;
-4. executes the exact built binary and requires exit 0;
+2. runs dry-run with deliberately nonexistent apply-only protected paths and
+   requires exit 0, proving those files and the network were not opened;
+3. on the clean prepared cluster, runs wrong HMAC key, wrong salt, wrong client
+   certificate and HTTP target cases, requiring failure plus zero business rows
+   after every case;
+4. executes the exact built binary with valid inputs and requires exit 0;
 5. verifies signed receipt, applied evidence and shadow parity;
-6. repeats the run and proves no extra batch mutation;
-7. runs wrong HMAC key, wrong salt, wrong client certificate and HTTP target
-   cases against a clean prepared cluster and requires zero business rows;
-8. scans subprocess stdout/stderr, report, receipt and captured job text for all
+6. repeats the same run and proves no extra batch mutation;
+7. scans subprocess stdout/stderr, report, receipt and captured job text for all
    synthetic raw markers.
 
 - [ ] **Step 5: Wire named GitHub Actions gates**
