@@ -30,8 +30,10 @@ func decodeFixture(t *testing.T, name string) Snapshot {
 
 func testPlanOptions() PlanOptions {
 	return PlanOptions{
-		Namespace:          "maestro-legacy-v1",
-		SupportedBotSchemas: []string{"bot-schema-v1"},
+		Namespace:             "maestro-legacy-v1",
+		SupportedBotSchemas:   []string{"bot-schema-v1"},
+		SupportedProtocolTags: []string{"vless", "hysteria2", "anytls", "naive", "wdtt", "olcrtc"},
+		SupportedNodeIDs:      []string{"S1", "S2", "S3", "S4"},
 	}
 }
 
@@ -63,6 +65,62 @@ func TestPlanPreservesExactLegacyIdentityBytesAndExpiry(t *testing.T) {
 	secret := plan.EncryptedSecrets[0]
 	if secret.NonceB64 != "AAECAwQFBgcICQoL" || secret.CiphertextB64 != "c3ludGhldGljLWNpcGhlcnRleHQ=" || secret.KeyVersion != 1 {
 		t.Fatalf("protected identity envelope changed: %#v", secret)
+	}
+}
+
+func hasBlockerCode(blockers []Blocker, code string) bool {
+	for _, blocker := range blockers {
+		if blocker.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPlanRequiresExplicitSupportedProtocolAndNodeTopology(t *testing.T) {
+	snapshot := decodeFixture(t, "customers-valid.json")
+	snapshot.Customers[0].ProtocolTags = []string{"vless", "hysteria2"}
+	snapshot.Customers[0].NodeIDs = []string{"S4", "S2", "S1", "S3"}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %#v", report.Blockers)
+	}
+	wantProtocols := []string{"hysteria2", "vless"}
+	wantNodes := []string{"S1", "S2", "S3", "S4"}
+	if !reflect.DeepEqual(plan.Customers[0].ProtocolTags, wantProtocols) {
+		t.Fatalf("protocol tags = %v, want %v", plan.Customers[0].ProtocolTags, wantProtocols)
+	}
+	if !reflect.DeepEqual(plan.Customers[0].NodeIDs, wantNodes) {
+		t.Fatalf("node ids = %v, want %v", plan.Customers[0].NodeIDs, wantNodes)
+	}
+}
+
+func TestPlanBlocksMissingUnsupportedOrDuplicateTopology(t *testing.T) {
+	base := decodeFixture(t, "customers-valid.json")
+	cases := []struct {
+		name      string
+		code      string
+		protocols []string
+		nodes     []string
+	}{
+		{"missing protocols", "missing_customer_protocols", nil, []string{"S1"}},
+		{"missing nodes", "missing_customer_nodes", []string{"vless"}, nil},
+		{"duplicate protocol", "duplicate_customer_protocol", []string{"vless", "vless"}, []string{"S1"}},
+		{"duplicate node", "duplicate_customer_node", []string{"vless"}, []string{"S1", "S1"}},
+		{"unsupported protocol", "unsupported_customer_protocol", []string{"unknown"}, []string{"S1"}},
+		{"unsupported node", "unsupported_customer_node", []string{"vless"}, []string{"S9"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot := base
+			snapshot.Customers = append([]LegacyCustomer(nil), base.Customers...)
+			snapshot.Customers[0].ProtocolTags = tc.protocols
+			snapshot.Customers[0].NodeIDs = tc.nodes
+			_, report := Plan(snapshot, testPlanOptions())
+			if !hasBlockerCode(report.Blockers, tc.code) {
+				t.Fatalf("blockers=%#v, want %s", report.Blockers, tc.code)
+			}
+		})
 	}
 }
 

@@ -8,7 +8,7 @@
     "sub_id_hmac":"3030303030303030303030303030303030303030303030303030303030303030",
     "token_hmac":"4040404040404040404040404040404040404040404040404040404040404040",
     "credential_fingerprint_hmac":"5050505050505050505050505050505050505050505050505050505050505050",
-    "identity_secret_ref":"secret-order-owner", "expires_at_unix":2200000, "generation":9, "status":"active"
+    "identity_secret_ref":"secret-order-owner", "protocol_tags":["vless","hysteria2","anytls","naive"], "node_ids":["S1","S2","S3","S4"], "expires_at_unix":2200000, "generation":9, "status":"active"
   }],
   "orders": [
     {"source_key":"legacy-order-credited", "customer_source_key":"s1:customer:order-owner", "buyer_scope":"customer_login", "buyer_key_hmac":"1010101010101010101010101010101010101010101010101010101010101010",

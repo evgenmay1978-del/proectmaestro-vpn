@@ -12,6 +12,8 @@
     "token_hmac": "4444444444444444444444444444444444444444444444444444444444444444",
     "credential_fingerprint_hmac": "5555555555555555555555555555555555555555555555555555555555555555",
     "identity_secret_ref": "secret-customer-1",
+    "protocol_tags": ["vless", "hysteria2"],
+    "node_ids": ["S1", "S2", "S3", "S4"],
     "expires_at_unix": 2100000,
     "generation": 7,
     "status": "active"
