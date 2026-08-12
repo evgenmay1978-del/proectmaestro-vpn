@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
@@ -86,6 +87,9 @@ AND s.target_id=t.customer_id AND s.lifecycle='deleted') ORDER BY t.token_id`},
 	{"desired_node_state", `SELECT d.* FROM desired_node_state d WHERE NOT EXISTS(
 SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
 AND s.target_id=d.customer_id AND s.lifecycle='deleted') ORDER BY d.customer_id,d.node_id,d.service_name`},
+	{"desired_protocol_tags", `SELECT p.* FROM desired_protocol_tags p WHERE NOT EXISTS(
+SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
+AND s.target_id=p.customer_id AND s.lifecycle='deleted') ORDER BY p.customer_id,p.node_id,p.service_name,p.protocol_tag`},
 	{"telegram_bot_routes", "SELECT * FROM telegram_bot_routes ORDER BY bot_identity_hmac"},
 	{"telegram_bot_credential_rotations", "SELECT * FROM telegram_bot_credential_rotations ORDER BY audit_digest"},
 	{"telegram_pollers", "SELECT * FROM telegram_pollers ORDER BY bot_identity_hmac"},
@@ -786,6 +790,14 @@ ON CONFLICT(source_key) DO UPDATE SET
 	}}, nil
 }
 
+func sqlPlaceholders(count int) string {
+	placeholders := make([]string, count)
+	for index := range placeholders {
+		placeholders[index] = "?"
+	}
+	return strings.Join(placeholders, ",")
+}
+
 func (s *RQLiteApplyStore) customerStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
 	var payload customerApplyPayload
 	if err := decodeCanonicalOperation(operation.CanonicalJSON, &payload); err != nil {
@@ -793,7 +805,8 @@ func (s *RQLiteApplyStore) customerStatements(batch ApplyBatch, operation ApplyO
 	}
 	customer := payload.Customer
 	secret := payload.IdentitySecret
-	if customer.InternalID == "" || customer.DisplayLogin == "" || customer.IdentitySecretRef != secret.SecretID {
+	if customer.InternalID == "" || customer.DisplayLogin == "" || customer.IdentitySecretRef != secret.SecretID ||
+		len(customer.ProtocolTags) == 0 || len(customer.NodeIDs) == 0 {
 		return nil, errors.New("invalid canonical customer operation")
 	}
 	envelope, err := json.Marshal(secret)
@@ -852,6 +865,57 @@ ON CONFLICT(token_id) DO UPDATE SET
 				customer.Generation, revoked, nowUnix, revokedAt,
 			}, gate...),
 		},
+	}
+	protocolDeleteArgs := []any{customer.InternalID, "maestro-core"}
+	for _, protocolTag := range customer.ProtocolTags {
+		protocolDeleteArgs = append(protocolDeleteArgs, protocolTag)
+	}
+	protocolDeleteArgs = append(protocolDeleteArgs, gate...)
+	statements = append(statements, rqlite.Statement{
+		SQL: `DELETE FROM desired_protocol_tags
+WHERE customer_id=? AND service_name=? AND protocol_tag NOT IN (` + sqlPlaceholders(len(customer.ProtocolTags)) + `)
+  AND ` + batchWriteGate,
+		Args: protocolDeleteArgs,
+	})
+	nodeDeleteArgs := []any{customer.InternalID, "maestro-core"}
+	for _, nodeID := range customer.NodeIDs {
+		nodeDeleteArgs = append(nodeDeleteArgs, nodeID)
+	}
+	nodeDeleteArgs = append(nodeDeleteArgs, gate...)
+	statements = append(statements, rqlite.Statement{
+		SQL: `DELETE FROM desired_node_state
+WHERE customer_id=? AND service_name=? AND node_id NOT IN (` + sqlPlaceholders(len(customer.NodeIDs)) + `)
+  AND ` + batchWriteGate,
+		Args: nodeDeleteArgs,
+	})
+	for _, nodeID := range customer.NodeIDs {
+		statements = append(statements, rqlite.Statement{
+			SQL: `INSERT INTO desired_node_state(
+    customer_id,node_id,service_name,generation,desired_envelope,desired_sha256,status,updated_at_unix
+) SELECT ?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(customer_id,node_id,service_name) DO UPDATE SET
+    generation=excluded.generation,desired_envelope=excluded.desired_envelope,
+    desired_sha256=excluded.desired_sha256,status='pending',updated_at_unix=excluded.updated_at_unix
+WHERE desired_node_state.generation <= excluded.generation`,
+			Args: append([]any{
+				customer.InternalID, nodeID, "maestro-core", customer.Generation,
+				string(envelope), secret.SHA256, "pending", nowUnix,
+			}, gate...),
+		})
+		for _, protocolTag := range customer.ProtocolTags {
+			statements = append(statements, rqlite.Statement{
+				SQL: `INSERT INTO desired_protocol_tags(customer_id,node_id,service_name,protocol_tag)
+SELECT ?,?,?,? WHERE EXISTS(
+    SELECT 1 FROM desired_node_state
+    WHERE customer_id=? AND node_id=? AND service_name=? AND generation=?
+) AND ` + batchWriteGate + `
+ON CONFLICT(customer_id,node_id,service_name,protocol_tag) DO NOTHING`,
+				Args: append([]any{
+					customer.InternalID, nodeID, "maestro-core", protocolTag,
+					customer.InternalID, nodeID, "maestro-core", customer.Generation,
+				}, gate...),
+			})
+		}
 	}
 	statements = append(statements,
 		entityStateUpsertStatement(batch, "customer", customer.SourceKey, customer.InternalID, plannedCustomerSourceDigest(customer), nowUnix),

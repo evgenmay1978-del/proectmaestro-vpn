@@ -183,6 +183,18 @@ CREATE TABLE desired_node_state (
 )
 
 -- maestro:statement
+CREATE TABLE desired_protocol_tags (
+    customer_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    service_name TEXT NOT NULL,
+    protocol_tag TEXT NOT NULL,
+    PRIMARY KEY(customer_id, node_id, service_name, protocol_tag),
+    FOREIGN KEY(customer_id, node_id, service_name)
+        REFERENCES desired_node_state(customer_id, node_id, service_name)
+        ON DELETE CASCADE
+)
+
+-- maestro:statement
 CREATE TABLE outbox_events (
     event_id TEXT PRIMARY KEY,
     aggregate_type TEXT NOT NULL,
