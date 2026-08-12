@@ -192,5 +192,19 @@ if bash "$RESTORE" --drill --cluster-root "$target_root" --bundle "$bundle" \
 then
   fail "restore accepted a non-empty or prior-attempt cluster"
 fi
+bash "$HARNESS" stop-node --node S4
+(
+  cd "$ROOT/backend"
+  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_QUORUM_PHASE=one-loss \
+    go test -tags=rqlite_integration ./internal/controlplane \
+      -run '^TestRestoredQuorumBoundaries$' -count=1
+)
+bash "$HARNESS" stop-node --node S3
+(
+  cd "$ROOT/backend"
+  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_QUORUM_PHASE=two-loss \
+    go test -tags=rqlite_integration ./internal/controlplane \
+      -run '^TestRestoredQuorumBoundaries$' -count=1
+)
 bash "$HARNESS" stop >/dev/null
 printf 'restore-rqlite contract passed\n'
