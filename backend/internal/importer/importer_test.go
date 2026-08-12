@@ -68,15 +68,6 @@ func TestPlanPreservesExactLegacyIdentityBytesAndExpiry(t *testing.T) {
 	}
 }
 
-func hasBlockerCode(blockers []Blocker, code string) bool {
-	for _, blocker := range blockers {
-		if blocker.Code == code {
-			return true
-		}
-	}
-	return false
-}
-
 func TestPlanRequiresExplicitSupportedProtocolAndNodeTopology(t *testing.T) {
 	snapshot := decodeFixture(t, "customers-valid.json")
 	snapshot.Customers[0].ProtocolTags = []string{"vless", "hysteria2"}
