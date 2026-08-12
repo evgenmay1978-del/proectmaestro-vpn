@@ -6,13 +6,15 @@ RESTORE="$ROOT/ops/ha/restore-rqlite.sh"
 API="$ROOT/ops/ha/restore_api.py"
 VERIFIER="$ROOT/ops/ha/verify_backup.py"
 HARNESS="$ROOT/ops/ha/ci-rqlite-cluster.sh"
+BACKUP="$ROOT/ops/ha/backup-rqlite.sh"
+IDENTITY="$ROOT/ops/ha/tests/create-synthetic-dr-identity.sh"
 
 fail() {
   printf 'restore-rqlite contract failed: %s\n' "$*" >&2
   exit 1
 }
 
-for required in "$VERIFIER" "$HARNESS"; do
+for required in "$VERIFIER" "$HARNESS" "$BACKUP" "$IDENTITY"; do
   [[ -f "$required" && ! -L "$required" ]] ||
     fail "missing ${required#"$ROOT/"}"
 done
@@ -66,7 +68,16 @@ case "$sandbox" in
   "$parent"/maestro-restore-contract.*) ;;
   *) fail "test sandbox escaped runner temp" ;;
 esac
-trap 'case "$sandbox" in "$parent"/maestro-restore-contract.*) rm -rf -- "$sandbox";; esac' EXIT
+cleanup() {
+  bash "$HARNESS" stop >/dev/null 2>&1 || true
+  if [[ -d "$sandbox" ]]; then
+    resolved="$(realpath -e "$sandbox")"
+    case "$resolved" in
+      "$parent"/maestro-restore-contract.*) rm -rf -- "$resolved" ;;
+    esac
+  fi
+}
+trap cleanup EXIT
 chmod 0700 "$sandbox"
 export RUNNER_TEMP="$sandbox"
 
@@ -75,4 +86,57 @@ if bash "$RESTORE" --cluster-root "$sandbox" --bundle "$sandbox/missing.tar.gpg"
 then
   fail "restore accepted invocation without --drill"
 fi
+
+keys="$sandbox/application-keys.json"
+printf '%s\n' '{"format_version":1,"keys":[]}' >"$keys"
+chmod 0600 "$keys"
+gpg_home="$sandbox/gnupg"
+identity="$sandbox/dr-identity.json"
+bash "$IDENTITY" --gpg-home "$gpg_home" --output "$identity" >/dev/null
+mapfile -t fingerprints < <(python3 - "$identity" <<'PY'
+import json
+import pathlib
+import sys
+
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(data["signer_fingerprint"])
+print(data["recipient_fingerprint"])
+PY
+)
+[[ "${#fingerprints[@]}" -eq 2 ]] || fail "identity output is invalid"
+export GNUPGHOME="$gpg_home"
+export MAESTRO_DR_COMMIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+export MAESTRO_DR_RUN_ID=123456
+
+bash "$HARNESS" start-mtls >/dev/null
+source_status="$(bash "$HARNESS" status)"
+source_root="$(awk -F= '$1 == "root" { print $2 }' <<<"$source_status")"
+source_root="$(realpath -e "$source_root")"
+(
+  cd "$ROOT/backend"
+  MAESTRO_IMPORT_SCHEMA_PREP=1 \
+    go test -tags=rqlite_integration ./cmd/maestro-import \
+      -run '^TestPrepareProductionImportSchemaMTLS$' -count=1
+) >/dev/null
+bundle="$sandbox/source-backup.tar.gpg"
+bash "$BACKUP" --drill --cluster-root "$source_root" --keys "$keys" \
+  --output "$bundle" --signer "${fingerprints[0]}" \
+  --recipient "${fingerprints[1]}" >/dev/null
+bash "$HARNESS" stop >/dev/null
+
+bash "$HARNESS" start-mtls >/dev/null
+target_status="$(bash "$HARNESS" status)"
+target_root="$(awk -F= '$1 == "root" { print $2 }' <<<"$target_status")"
+target_root="$(realpath -e "$target_root")"
+[[ "$target_root" != "$source_root" ]] || fail "restore target reused source cluster"
+bash "$RESTORE" --drill --cluster-root "$target_root" --bundle "$bundle" \
+  --signer "${fingerprints[0]}" --gpg-home "$gpg_home" >/dev/null
+[[ -f "$target_root/restore-attempt" && ! -L "$target_root/restore-attempt" ]] ||
+  fail "restore attempt marker is missing"
+if bash "$RESTORE" --drill --cluster-root "$target_root" --bundle "$bundle" \
+  --signer "${fingerprints[0]}" --gpg-home "$gpg_home" >/dev/null 2>&1
+then
+  fail "restore accepted a non-empty or prior-attempt cluster"
+fi
+bash "$HARNESS" stop >/dev/null
 printf 'restore-rqlite contract passed\n'

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ops.ha.restore_api import RestoreAPIError, inspect_empty, load_sqlite
+from ops.ha.restore_api import RestoreAPIError, inspect_empty, inspect_restored, load_sqlite
 
 
 EMPTY_RESPONSE = b'{"results":[{"columns":["name"],"types":["text"]}]}'
@@ -176,6 +176,48 @@ class RestoreAPITests(unittest.TestCase):
         self.assertEqual(headers["Content-Type"], "application/octet-stream")
         self.assertEqual(int(headers["Content-Length"]), image.stat().st_size)
         self.assertNotIn("Authorization", headers)
+
+    def test_readback_requires_exact_schema_and_table_counts_on_all_voters(self):
+        checksum = "a" * 64
+        manifest = {
+            "schema": {
+                "version": 1,
+                "checksum": "b" * 64,
+                "migrations": [{"version": 1, "checksum": checksum}],
+            },
+            "table_counts": [{"table": "schema_migrations", "count": 1}],
+        }
+        readback = (
+            '{"results":['
+            '{"columns":["version","checksum"],"types":["integer","text"],'
+            '"values":[[1,"' + checksum + '"]]},'
+            '{"columns":["row_count"],"types":["integer"],"values":[[1]]}'
+            ']}'
+        ).encode()
+        factory = ConnectionFactory([FakeResponse(readback) for _ in range(3)])
+        inspect_restored(
+            self.config,
+            manifest,
+            connection_factory=factory,
+            context_factory=self.context_factory,
+        )
+        self.assertEqual(len(factory.calls), 3)
+        for connection in factory.connections:
+            self.assertEqual(len(connection.requests), 1)
+            method, path, body, headers = connection.requests[0]
+            self.assertEqual((method, path), ("POST", "/db/query?level=strong"))
+            self.assertIn(b"schema_migrations", body)
+            self.assertIn(b"COUNT(*)", body)
+            self.assertNotIn("Authorization", headers)
+
+        bad = readback.replace(b"[[1]]", b"[[2]]")
+        with self.assertRaises(RestoreAPIError):
+            inspect_restored(
+                self.config,
+                manifest,
+                connection_factory=ConnectionFactory([FakeResponse(bad)]),
+                context_factory=self.context_factory,
+            )
 
     def test_transport_failure_is_unknown_outcome_and_never_replayed(self):
         image = self.root / "restore.sqlite3"
