@@ -1156,3 +1156,53 @@ func standaloneEncryptedSecret() LegacyEncryptedSecret {
 		SHA256: strings.Repeat("a", 64),
 	}
 }
+
+
+func TestReadReferencedKeyVersionsUsesOneLinearizableRead(t *testing.T) {
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{
+		Rows: []map[string]any{
+			{"key_version": int64(3)},
+			{"key_version": int64(1)},
+			{"key_version": int64(3)},
+			{"key_version": int64(2)},
+		},
+	}}}}
+	store, err := NewRQLiteApplyStore(db, time.Now)
+	if err != nil {
+		t.Fatalf("NewRQLiteApplyStore: %v", err)
+	}
+	got, err := store.ReadReferencedKeyVersions(context.Background())
+	if err != nil {
+		t.Fatalf("ReadReferencedKeyVersions: %v", err)
+	}
+	want := []int{1, 2, 3}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("key versions = %v, want %v", got, want)
+	}
+	if db.queryCalls != 1 || len(db.queries) != 1 || len(db.queries[0]) != 1 {
+		t.Fatalf("linearizable calls=%d queries=%#v", db.queryCalls, db.queries)
+	}
+	if len(db.requests) != 0 {
+		t.Fatalf("key-version preflight performed %d mutation(s)", len(db.requests))
+	}
+}
+
+func TestReadReferencedKeyVersionsRejectsMalformedRowsWithoutMutation(t *testing.T) {
+	for _, value := range []any{int64(0), int64(-1), "1", nil} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{
+				Rows: []map[string]any{{"key_version": value}},
+			}}}}
+			store, err := NewRQLiteApplyStore(db, time.Now)
+			if err != nil {
+				t.Fatalf("NewRQLiteApplyStore: %v", err)
+			}
+			if _, err := store.ReadReferencedKeyVersions(context.Background()); err == nil {
+				t.Fatal("malformed key-version row was accepted")
+			}
+			if len(db.requests) != 0 {
+				t.Fatalf("malformed preflight performed %d mutation(s)", len(db.requests))
+			}
+		})
+	}
+}
