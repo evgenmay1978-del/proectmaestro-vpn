@@ -99,7 +99,7 @@ func TestTombstoneRetentionStartsAfterLastRequiredAck(t *testing.T) {
 		t.Fatalf("PurgeTombstone error=%v, want ErrConflict", err)
 	}
 	sql := strings.ToLower(statementsText(db.requestCalls[0].statements))
-	if !strings.Contains(sql, "max(applied_at_unix)") || !strings.Contains(sql, "unixepoch()-7776000") {
+	if !strings.Contains(sql, "having max(tt.applied_at_unix) <= unixepoch()-7776000") {
 		t.Fatalf("retention is not measured from last required ack: %s", sql)
 	}
 }
