@@ -31,7 +31,7 @@ type shadowOTAPublicValue struct {
 }
 
 func ShadowFromPlan(plan ImportPlan, shapes ShadowURLShapes) (ShadowExport, error) {
-	if plan.SnapshotKind != "full" || len(plan.Blockers) != 0 || !validShadowShapes(shapes) ||
+	if plan.SnapshotKind != "full" || len(plan.Blockers) != 0 || !validShadowURLShapes(shapes) ||
 		!validShadowHex64(plan.SourceDigest) || !validShadowHex64(plan.PlanDigest) || Digest(plan) != plan.PlanDigest {
 		return ShadowExport{}, ErrShadowExportInvalid
 	}

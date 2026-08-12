@@ -78,7 +78,7 @@ func canonicalShadowExport(value ShadowExport) (ShadowExport, error) {
 	identities := make(map[string]struct{}, len(value.Customers))
 	for index, customer := range value.Customers {
 		if !validShadowHex64(customer.IdentityHMAC) || customer.ExpiresAtUnix < 0 || customer.Generation < 0 ||
-			!validShadowShapes(ShadowURLShapes{Maestro: customer.MaestroURLShape, Karing: customer.KaringURLShape}) {
+			!validShadowURLShapes(ShadowURLShapes{Maestro: customer.MaestroURLShape, Karing: customer.KaringURLShape}) {
 			return ShadowExport{}, ErrShadowExportInvalid
 		}
 		if _, exists := identities[customer.IdentityHMAC]; exists {
@@ -127,7 +127,7 @@ func canonicalShadowSet(values []string) ([]string, error) {
 	return result, nil
 }
 
-func validShadowShapes(shapes ShadowURLShapes) bool {
+func validShadowURLShapes(shapes ShadowURLShapes) bool {
 	return validShadowShape(shapes.Maestro, "maestro://") && validShadowShape(shapes.Karing, "https://")
 }
 
