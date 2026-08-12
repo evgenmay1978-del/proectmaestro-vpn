@@ -1226,3 +1226,99 @@ func TestRQLiteApplyStoreAcceptsRotatedProtectedTrialSaltVersion(t *testing.T) {
 		t.Fatalf("rotated protected trial salt was rejected: %v", err)
 	}
 }
+
+
+func TestReadAppliedRunEvidenceRequiresOneCompletedExactRun(t *testing.T) {
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{
+		{
+			Rows: []map[string]any{{
+				"import_run_id": "synthetic-run",
+				"snapshot_kind": "full",
+				"source_sha256": strings.Repeat("1", 64),
+				"plan_sha256": strings.Repeat("2", 64),
+				"parent_source_sha256": nil,
+				"target_sha256": strings.Repeat("3", 64),
+				"batch_count": int64(2),
+				"status": "applied",
+				"completed_at_unix": int64(2_000_000),
+			}},
+		},
+		{
+			Rows: []map[string]any{
+				{"batch_index": int64(0), "batch_digest": strings.Repeat("a", 64), "status": "applied"},
+				{"batch_index": int64(1), "batch_digest": strings.Repeat("b", 64), "status": "applied"},
+			},
+		},
+	}}}
+	store, err := NewRQLiteApplyStore(db, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ReadAppliedRunEvidence(context.Background(), "synthetic-run")
+	if err != nil {
+		t.Fatalf("ReadAppliedRunEvidence: %v", err)
+	}
+	if got.RunID != "synthetic-run" || got.BatchCount != 2 ||
+		len(got.BatchReceiptDigest) != 64 || got.CompletedAtUnix != 2_000_000 {
+		t.Fatalf("evidence=%#v", got)
+	}
+	if db.queryCalls != 1 || len(db.queries) != 1 || len(db.queries[0]) != 2 {
+		t.Fatalf("evidence query calls=%d queries=%#v", db.queryCalls, db.queries)
+	}
+	if len(db.requests) != 0 {
+		t.Fatalf("evidence read performed %d mutation(s)", len(db.requests))
+	}
+}
+
+func TestReadAppliedRunEvidenceRejectsMissingExtraOrMismatchedBatches(t *testing.T) {
+	runRow := map[string]any{
+		"import_run_id": "synthetic-run",
+		"snapshot_kind": "delta",
+		"source_sha256": strings.Repeat("1", 64),
+		"plan_sha256": strings.Repeat("2", 64),
+		"parent_source_sha256": strings.Repeat("4", 64),
+		"target_sha256": strings.Repeat("3", 64),
+		"batch_count": int64(2),
+		"status": "applied",
+		"completed_at_unix": int64(2_000_000),
+	}
+	cases := []struct {
+		name    string
+		batches []map[string]any
+	}{
+		{"missing", []map[string]any{
+			{"batch_index": int64(0), "batch_digest": strings.Repeat("a", 64), "status": "applied"},
+		}},
+		{"extra", []map[string]any{
+			{"batch_index": int64(0), "batch_digest": strings.Repeat("a", 64), "status": "applied"},
+			{"batch_index": int64(1), "batch_digest": strings.Repeat("b", 64), "status": "applied"},
+			{"batch_index": int64(2), "batch_digest": strings.Repeat("c", 64), "status": "applied"},
+		}},
+		{"gap", []map[string]any{
+			{"batch_index": int64(0), "batch_digest": strings.Repeat("a", 64), "status": "applied"},
+			{"batch_index": int64(2), "batch_digest": strings.Repeat("b", 64), "status": "applied"},
+		}},
+		{"non-applied", []map[string]any{
+			{"batch_index": int64(0), "batch_digest": strings.Repeat("a", 64), "status": "applied"},
+			{"batch_index": int64(1), "batch_digest": strings.Repeat("b", 64), "status": "applying"},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{
+				{Rows: []map[string]any{runRow}},
+				{Rows: tc.batches},
+			}}}
+			store, err := NewRQLiteApplyStore(db, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ReadAppliedRunEvidence(context.Background(), "synthetic-run"); err == nil {
+				t.Fatal("invalid applied-run evidence was accepted")
+			}
+			if len(db.requests) != 0 {
+				t.Fatalf("invalid evidence read performed %d mutation(s)", len(db.requests))
+			}
+		})
+	}
+}
