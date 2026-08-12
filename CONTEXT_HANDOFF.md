@@ -3111,3 +3111,30 @@ Current status: `INCOMPLETE / PRODUCTION NO-GO`. Next step requires
 independent provider-console identity confirmation for both nodes, then the same
 read-only audit. Do not bypass strict host-key checking. No install, restart,
 import, customer, bot, DNS, TLS, OTA or traffic mutation occurred.
+
+## 2026-08-12 HA outbox and tombstone checkpoint (Task 10 GREEN)
+
+Authoritative review surface remains draft PR #82 on branch
+`codex/ha-rqlite-task2`. Exact GREEN SHA is
+`b68b90bf420fca49375ff3c20d45aa25e07972e2`.
+
+Task 10 now provides repository-only control-plane contracts for monotonic
+desired generations, encrypted desired payload hash verification, immutable
+same-generation operation identity, fenced leases, exact duplicate receipt
+readback, tombstone target acknowledgement, retention from the final required
+acknowledgement, and encrypted revoke propagation to every frozen required
+target with one outbox event per target.
+
+Exact verification evidence:
+
+- `HA control-plane checks`, run `31599320040` (run number 217): `success`;
+- `HA DR restore drill`, run `31599319926` (run number 21): `success`;
+- the successful workflows cover backend unit tests, race, vet, migrations,
+  isolated rqlite integration, importer parity and authenticated DR restore.
+
+Production status remains `NO-GO (repository implementation only)`. No server,
+panel, bot, customer, VPN protocol, Android/TV, Release, OTA, DNS or production
+credential was changed. The next repository task is Plan 03 Task 11: RED-first
+signed and fenced apply-agent protocol, dispatcher, local aggregate state and
+private hardened HTTP surface. Deployment remains forbidden until the remaining
+agent/driver/bot and rollout gates are GREEN and separately approved.
