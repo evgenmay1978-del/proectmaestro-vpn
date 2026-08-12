@@ -176,7 +176,12 @@ bash "$RESTORE" --drill --cluster-root "$target_root" --bundle "$bundle" \
   MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_METADATA="$metadata" \
     go test -tags=rqlite_integration ./internal/importer \
       -run '^TestVerifyRestoredBusinessParity$' -count=1
-  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_METADATA="$metadata" \
+  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_FENCE_PHASE=advance \
+    MAESTRO_DR_METADATA="$metadata" \
+    go test -tags=rqlite_integration ./internal/controlplane \
+      -run '^TestAdvanceRestoredEpochAndFence$' -count=1
+  MAESTRO_DR_PROOF_PHASE=restored MAESTRO_DR_FENCE_PHASE=activate \
+    MAESTRO_DR_METADATA="$metadata" \
     go test -tags=rqlite_integration ./internal/controlplane \
       -run '^TestAdvanceRestoredEpochAndFence$' -count=1
 )
