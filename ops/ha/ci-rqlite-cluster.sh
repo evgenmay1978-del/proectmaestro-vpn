@@ -49,7 +49,7 @@ validated_root() {
 
 require_commands() {
   local command_name
-  for command_name in curl sha256sum tar mktemp realpath python3 readlink tail; do
+  for command_name in curl sha256sum tar mktemp realpath python3 readlink tail openssl stat; do
     command -v "$command_name" >/dev/null 2>&1 || fail "missing command: $command_name"
   done
 }
@@ -107,12 +107,91 @@ write_pid() {
     fail "PID file for node${node} already exists"
 }
 
+write_cluster_mode() {
+  local root mode path
+  root="$1"
+  mode="$2"
+  [[ "$mode" == "plain" || "$mode" == "mtls" ]] || fail "invalid cluster mode"
+  path="$root/mode"
+  (set -o noclobber; printf '%s\n' "$mode" >"$path") 2>/dev/null ||
+    fail "cluster mode file could not be created atomically"
+}
+
+read_cluster_mode() {
+  local root path
+  local -a mode_lines=()
+  root="$1"
+  path="$root/mode"
+  [[ -f "$path" && ! -L "$path" ]] || fail "cluster mode file is missing or unsafe"
+  mapfile -t mode_lines <"$path"
+  [[ "${#mode_lines[@]}" -eq 1 &&
+    ("${mode_lines[0]}" == "plain" || "${mode_lines[0]}" == "mtls") ]] ||
+    fail "cluster mode file is invalid"
+  printf '%s\n' "${mode_lines[0]}"
+}
+
+prepare_mtls() {
+  local root tls
+  root="$1"
+  tls="$root/tls"
+  mkdir -p -- "$tls"
+  chmod 0700 "$tls"
+
+  openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+    -keyout "$tls/ca.key" -out "$tls/ca.crt" -days 2 \
+    -subj "/CN=MaestroVPN CI rqlite CA" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1
+
+  openssl req -newkey rsa:2048 -sha256 -nodes \
+    -keyout "$tls/server.key" -out "$tls/server.csr" \
+    -subj "/CN=127.0.0.1" >/dev/null 2>&1
+  cat >"$tls/server.ext" <<'EOF'
+[v3_req]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=IP:127.0.0.1
+EOF
+  openssl x509 -req -sha256 -days 2 \
+    -in "$tls/server.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
+    -CAcreateserial -out "$tls/server.crt" \
+    -extfile "$tls/server.ext" -extensions v3_req >/dev/null 2>&1
+
+  openssl req -newkey rsa:2048 -sha256 -nodes \
+    -keyout "$tls/client.key" -out "$tls/client.csr" \
+    -subj "/CN=maestro-import-ci" >/dev/null 2>&1
+  cat >"$tls/client.ext" <<'EOF'
+[v3_req]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=clientAuth
+EOF
+  openssl x509 -req -sha256 -days 2 \
+    -in "$tls/client.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
+    -CAcreateserial -out "$tls/client.crt" \
+    -extfile "$tls/client.ext" -extensions v3_req >/dev/null 2>&1
+
+  chmod 0600 "$tls"/*
+  openssl verify -CAfile "$tls/ca.crt" "$tls/server.crt" "$tls/client.crt" >/dev/null
+}
+
 wait_ready() {
-  local port pid attempt
+  local port pid mode root attempt
   port="$1"
   pid="$2"
+  mode="$3"
+  root="$4"
   for ((attempt = 1; attempt <= 120; attempt++)); do
-    if curl --fail --silent --show-error --max-time 2 \
+    if [[ "$mode" == "mtls" ]]; then
+      if curl --fail --silent --show-error --max-time 2 \
+        --cacert "$root/tls/ca.crt" \
+        --cert "$root/tls/client.crt" \
+        --key "$root/tls/client.key" \
+        "https://127.0.0.1:${port}/readyz" >/dev/null 2>&1; then
+        return 0
+      fi
+    elif curl --fail --silent --show-error --max-time 2 \
       "http://127.0.0.1:${port}/readyz" >/dev/null 2>&1; then
       return 0
     fi
@@ -123,11 +202,28 @@ wait_ready() {
 }
 
 verify_cluster() {
-  python3 - <<'PY'
+  local mode root scheme
+  mode="$1"
+  root="$2"
+  scheme="http"
+  [[ "$mode" == "plain" ]] || scheme="https"
+  CI_RQLITE_SCHEME="$scheme" CI_RQLITE_TLS_ROOT="$root/tls" python3 - <<'PY'
 import json
+import os
+import ssl
 import time
 import urllib.error
 import urllib.request
+
+scheme = os.environ["CI_RQLITE_SCHEME"]
+context = None
+if scheme == "https":
+    tls_root = os.environ["CI_RQLITE_TLS_ROOT"]
+    context = ssl.create_default_context(cafile=os.path.join(tls_root, "ca.crt"))
+    context.load_cert_chain(
+        certfile=os.path.join(tls_root, "client.crt"),
+        keyfile=os.path.join(tls_root, "client.key"),
+    )
 
 deadline = time.monotonic() + 30
 last_error = "cluster did not converge"
@@ -135,7 +231,9 @@ last_nodes = {}
 while time.monotonic() < deadline:
     try:
         with urllib.request.urlopen(
-            "http://127.0.0.1:4401/nodes?ver=2&timeout=2s", timeout=5
+            f"{scheme}://127.0.0.1:4401/nodes?ver=2&timeout=2s",
+            timeout=5,
+            context=context,
         ) as response:
             payload = json.load(response)
         if isinstance(payload, dict) and isinstance(payload.get("nodes"), list):
@@ -156,12 +254,12 @@ while time.monotonic() < deadline:
 
         for port in (4401, 4403, 4405):
             request = urllib.request.Request(
-                f"http://127.0.0.1:{port}/db/request?associative=true&level=linearizable",
+                f"{scheme}://127.0.0.1:{port}/db/request?associative=true&level=linearizable",
                 data=json.dumps([["PRAGMA foreign_keys"]]).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(request, timeout=5) as response:
+            with urllib.request.urlopen(request, timeout=5, context=context) as response:
                 payload = json.load(response)
             value = payload["results"][0]["rows"][0]["foreign_keys"]
             if value != 1:
@@ -183,6 +281,13 @@ while time.monotonic() < deadline:
     raise SystemExit(0)
 raise SystemExit(f"{last_error}; nodes={json.dumps(last_nodes, sort_keys=True)}")
 PY
+  if [[ "$mode" == "mtls" ]]; then
+    if curl --fail --silent --show-error --max-time 3 \
+      --cacert "$root/tls/ca.crt" \
+      "https://127.0.0.1:4401/readyz" >/dev/null 2>&1; then
+      fail "mTLS endpoint accepted a client without a certificate"
+    fi
+  fi
 }
 
 read_recorded_pid() {
@@ -206,8 +311,11 @@ read_recorded_pid() {
 }
 
 start_cluster() {
-  local base marker root archive expected_member binary pid join_targets
+  local mode base marker root archive expected_member binary pid join_targets
   local -a started_pids=()
+  local -a tls_args=()
+  mode="${1:-plain}"
+  [[ "$mode" == "plain" || "$mode" == "mtls" ]] || fail "invalid start mode"
   umask 077
   require_commands
   assert_ports_available
@@ -304,6 +412,16 @@ start_cluster() {
   install_cleanup_trap
 
   mkdir -p -- "$root/bin" "$root/node1" "$root/node2" "$root/node3"
+  write_cluster_mode "$root" "$mode"
+  if [[ "$mode" == "mtls" ]]; then
+    prepare_mtls "$root"
+    tls_args=(
+      -http-cert "$root/tls/server.crt"
+      -http-key "$root/tls/server.key"
+      -http-ca-cert "$root/tls/ca.crt"
+      -http-verify-client
+    )
+  fi
   archive="$root/$ARCHIVE_NAME"
   curl --fail --silent --show-error --location \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -331,6 +449,7 @@ start_cluster() {
     -join-attempts 120 \
     -join-interval 250ms \
     -fk \
+    "${tls_args[@]}" \
     "$root/node1" >"$root/node1.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
@@ -347,6 +466,7 @@ start_cluster() {
     -join-attempts 120 \
     -join-interval 250ms \
     -fk \
+    "${tls_args[@]}" \
     "$root/node2" >"$root/node2.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
@@ -363,30 +483,33 @@ start_cluster() {
     -join-attempts 120 \
     -join-interval 250ms \
     -fk \
+    "${tls_args[@]}" \
     "$root/node3" >"$root/node3.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
   install_cleanup_trap
   write_pid "$root" 3 "$pid"
 
-  wait_ready 4401 "$(<"$root/node1.pid")"
-  wait_ready 4403 "$(<"$root/node2.pid")"
-  wait_ready 4405 "$(<"$root/node3.pid")"
-  verify_cluster
+  wait_ready 4401 "$(<"$root/node1.pid")" "$mode" "$root"
+  wait_ready 4403 "$(<"$root/node2.pid")" "$mode" "$root"
+  wait_ready 4405 "$(<"$root/node3.pid")" "$mode" "$root"
+  verify_cluster "$mode" "$root"
   trap - EXIT
   printf 'ci-rqlite cluster started\n'
 }
 
 status_cluster() {
-  local root node pid
+  local root mode node pid
   root="$(validated_root)" || return
+  mode="$(read_cluster_mode "$root")" || return
   printf 'root=%s\n' "$root"
+  printf 'mode=%s\n' "$mode"
   for node in 1 2 3; do
     pid="$(read_recorded_pid "$root" "$node")" || return
     [[ -n "$pid" ]] || fail "node${node} is not running"
     printf 'node%s_pid=%s\n' "$node" "$pid"
   done
-  verify_cluster
+  verify_cluster "$mode" "$root"
 }
 
 stop_cluster() {
@@ -435,12 +558,13 @@ stop_cluster() {
 }
 
 usage() {
-  printf 'usage: %s start|status|stop\n' "${0##*/}" >&2
+  printf 'usage: %s start|start-mtls|status|stop\n' "${0##*/}" >&2
   return 2
 }
 
 case "${1:-}" in
-  start) start_cluster ;;
+  start) start_cluster plain ;;
+  start-mtls) start_cluster mtls ;;
   status) status_cluster ;;
   stop) stop_cluster ;;
   *) usage ;;
