@@ -39,6 +39,20 @@ jobs:
           check-latest: false
           cache-dependency-path: backend/go.sum
 
+      - name: Check materialized agent boundary
+        run: |
+          set -euo pipefail
+          python ops/ha/test-agent-payload-policy.py
+          cd backend
+          mapfile -d '' guarded_go_files < <(
+            find internal/applyagent internal/controlplane -type f -name '*.go' -print0 |
+              LC_ALL=C sort -z
+          )
+          test "${#guarded_go_files[@]}" -gt 0
+          gofmt -d "${guarded_go_files[@]}" | tee /tmp/ha-dr-agent-gofmt.diff
+          test ! -s /tmp/ha-dr-agent-gofmt.diff
+          go test ./internal/applyagent ./internal/controlplane
+
       - name: Check Go formatting and shell syntax
         run: |
           set -euo pipefail
