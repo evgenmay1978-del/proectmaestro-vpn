@@ -12,42 +12,49 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/importer"
 )
 
 const (
-	exitClean       = 0
-	exitBlockers    = 2
-	exitInputSystem = 3
-	maxSnapshotSize = 64 << 20
+	exitClean          = 0
+	exitBlockers       = 2
+	exitInputSystem    = 3
+	maxSnapshotSize    = 64 << 20
+	importCommandLimit = 30 * time.Minute
 )
 
-type applyConfig struct {
-	KeyFile             string
-	LegacyTrialSaltFile string
-}
+type applyRuntimeFactory func(context.Context, applyRuntimeConfig) (*applyRuntime, error)
 
-type applyStoreFactory func(context.Context, applyConfig) (importer.ApplyStore, error)
+var mainApplyRuntimeFactory applyRuntimeFactory = productionApplyRuntimeFactory
 
 type cliOptions struct {
-	SnapshotPath        string
-	ParentSnapshotPath  string
-	ReportPath          string
-	Mode                string
-	ExpectedPlanDigest  string
-	AppliedParentDigest string
-	KeyFile             string
-	LegacyTrialSaltFile string
-	RunID               string
-	BatchSize           int
+	SnapshotPath          string
+	ParentSnapshotPath    string
+	ReportPath            string
+	Mode                  string
+	ExpectedPlanDigest    string
+	AppliedParentDigest   string
+	KeyFile               string
+	LegacyTrialSaltFile   string
+	RQLiteConfigFile      string
+	ReceiptPath           string
+	ReceiptSigningKeyFile string
+	RunID                 string
+	BatchSize             int
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, nil))
+	os.Exit(run(
+		os.Args[1:],
+		os.Stdout,
+		os.Stderr,
+		mainApplyRuntimeFactory,
+	))
 }
 
-func run(args []string, stdout, stderr io.Writer, factory applyStoreFactory) int {
+func run(args []string, stdout, stderr io.Writer, factory applyRuntimeFactory) int {
 	options, err := parseOptions(args, stderr)
 	if err != nil {
 		writeError(stderr, "invalid arguments")
@@ -105,42 +112,116 @@ func run(args []string, stdout, stderr io.Writer, factory applyStoreFactory) int
 		writeError(stderr, "expected plan digest does not match")
 		return exitInputSystem
 	}
-	if options.RunID == "" || options.KeyFile == "" || options.LegacyTrialSaltFile == "" {
+	protection := importer.ProtectionFromSnapshot(snapshot)
+	if !validApplyOptions(options, protection.HasTrials) {
 		writeError(stderr, "apply requires run id and protected inputs")
 		return exitInputSystem
 	}
-	keyMaterial, err := readProtected(options.KeyFile)
-	if err != nil {
-		writeError(stderr, "protected key input is invalid")
+	if err := preflightApplyFiles(options, protection.HasTrials); err != nil {
+		writeError(stderr, "protected apply input is invalid")
 		return exitInputSystem
 	}
-	zero(keyMaterial)
-	legacySalt, err := readProtected(options.LegacyTrialSaltFile)
-	if err != nil {
-		writeError(stderr, "legacy trial salt input is invalid")
-		return exitInputSystem
-	}
-	zero(legacySalt)
 	if factory == nil {
-		writeError(stderr, "apply store is not configured")
+		writeError(stderr, "apply runtime is not configured")
 		return exitInputSystem
 	}
-	store, err := factory(context.Background(), applyConfig{
-		KeyFile:             options.KeyFile,
+
+	commandContext, cancel := context.WithTimeout(context.Background(), importCommandLimit)
+	defer cancel()
+	runtime, err := factory(commandContext, applyRuntimeConfig{
+		TargetConfigFile:    options.RQLiteConfigFile,
+		KeyBundleFile:       options.KeyFile,
 		LegacyTrialSaltFile: options.LegacyTrialSaltFile,
+		ReceiptSigningFile:  options.ReceiptSigningKeyFile,
+		Protection:          protection,
 	})
-	if err != nil || store == nil {
-		writeError(stderr, "apply store is unavailable")
+	if err != nil || runtime == nil {
+		writeError(stderr, "apply runtime is unavailable")
 		return exitInputSystem
 	}
-	if _, err := importer.Apply(context.Background(), store, plan, importer.ApplyOptions{
+	defer zero(runtime.Signer)
+	if runtime.Store == nil {
+		writeError(stderr, "apply runtime is unavailable")
+		return exitInputSystem
+	}
+
+	result, err := importer.Apply(commandContext, runtime.Store, plan, importer.ApplyOptions{
 		RunID: options.RunID, BatchSize: options.BatchSize,
-	}); err != nil {
+	})
+	if err != nil {
 		writeError(stderr, "apply failed")
 		return exitInputSystem
 	}
-	_, _ = fmt.Fprintln(stdout, "import apply completed and digest verified")
+	evidence, err := runtime.Store.ReadAppliedRunEvidence(commandContext, options.RunID)
+	if err != nil || !evidenceMatchesPlan(evidence, plan, result, options.RunID) {
+		writeError(stderr, "completed run evidence does not match")
+		return exitInputSystem
+	}
+	receipt, _, err := importer.SignImportReceipt(
+		evidence,
+		runtime.Schema,
+		runtime.TargetConfigSHA256,
+		runtime.Signer,
+	)
+	if err != nil || receipt.SignerKeyID != runtime.SignerKeyID {
+		writeError(stderr, "receipt cannot be signed")
+		return exitInputSystem
+	}
+	if err := writeReceiptAtomic(options.ReceiptPath, receipt); err != nil {
+		writeError(stderr, "receipt cannot be persisted")
+		return exitInputSystem
+	}
+
+	_, _ = fmt.Fprintln(stdout, "import apply completed; signed receipt persisted")
 	return exitClean
+}
+
+func validApplyOptions(options cliOptions, hasTrials bool) bool {
+	if strings.TrimSpace(options.RunID) == "" ||
+		strings.TrimSpace(options.KeyFile) == "" ||
+		strings.TrimSpace(options.RQLiteConfigFile) == "" ||
+		strings.TrimSpace(options.ReceiptPath) == "" ||
+		strings.TrimSpace(options.ReceiptSigningKeyFile) == "" {
+		return false
+	}
+	if hasTrials {
+		return strings.TrimSpace(options.LegacyTrialSaltFile) != ""
+	}
+	return strings.TrimSpace(options.LegacyTrialSaltFile) == ""
+}
+
+func preflightApplyFiles(options cliOptions, hasTrials bool) error {
+	paths := []string{
+		options.RQLiteConfigFile,
+		options.KeyFile,
+		options.ReceiptSigningKeyFile,
+	}
+	if hasTrials {
+		paths = append(paths, options.LegacyTrialSaltFile)
+	}
+	for _, path := range paths {
+		data, err := readProtected(path)
+		if err != nil {
+			return err
+		}
+		zero(data)
+	}
+	return nil
+}
+
+func evidenceMatchesPlan(
+	evidence importer.AppliedRunEvidence,
+	plan importer.ImportPlan,
+	result importer.ApplyResult,
+	runID string,
+) bool {
+	return evidence.RunID == runID &&
+		evidence.SnapshotKind == plan.SnapshotKind &&
+		evidence.SourceDigest == plan.SourceDigest &&
+		evidence.PlanDigest == plan.PlanDigest &&
+		evidence.ParentDigest == plan.ParentSourceDigest &&
+		evidence.TargetDigest == result.TargetDigest &&
+		evidence.BatchCount == result.AppliedBatches
 }
 
 func defaultPlanOptions() importer.PlanOptions {
@@ -162,8 +243,11 @@ func parseOptions(args []string, stderr io.Writer) (cliOptions, error) {
 	flags.StringVar(&options.Mode, "mode", "", "dry-run or apply")
 	flags.StringVar(&options.ExpectedPlanDigest, "expected-plan-digest", "", "exact approved plan digest")
 	flags.StringVar(&options.AppliedParentDigest, "applied-parent-digest", "", "exact applied parent source digest")
-	flags.StringVar(&options.KeyFile, "key-file", "", "protected key file path")
-	flags.StringVar(&options.LegacyTrialSaltFile, "legacy-trial-salt-file", "", "protected legacy trial salt file path")
+	flags.StringVar(&options.KeyFile, "key-file", "", "protected versioned key-bundle path")
+	flags.StringVar(&options.LegacyTrialSaltFile, "legacy-trial-salt-file", "", "protected legacy trial salt path")
+	flags.StringVar(&options.RQLiteConfigFile, "rqlite-config", "", "protected rqlite mTLS target configuration path")
+	flags.StringVar(&options.ReceiptPath, "receipt", "", "exclusive signed receipt destination")
+	flags.StringVar(&options.ReceiptSigningKeyFile, "receipt-signing-key-file", "", "protected Ed25519 receipt signing key path")
 	flags.StringVar(&options.RunID, "run-id", "", "stable import run id")
 	flags.IntVar(&options.BatchSize, "batch-size", 100, "deterministic operations per batch")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
@@ -192,7 +276,7 @@ func readBounded(path string, limit int64) ([]byte, error) {
 }
 
 func readProtected(path string) ([]byte, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 1<<20 {
 		return nil, errors.New("invalid protected file")
 	}
