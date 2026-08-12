@@ -440,3 +440,40 @@ func TestDeltaWithoutExplicitDeleteMarkerBlocks(t *testing.T) {
 		t.Fatalf("implicit deletion blockers = %#v", report.Blockers)
 	}
 }
+
+
+func TestDeltaRequiresMatchingProtectionMetadata(t *testing.T) {
+	base := decodeFixture(t, "full-then-delta/base-full.json")
+	base.ClusterHMACKeySHA256 = sha256Hex([]byte("synthetic-cluster-hmac-key"))
+	base.LegacyTrialSaltSHA256 = sha256Hex([]byte("synthetic-legacy-trial-salt"))
+	base.Trials = []LegacyTrial{{
+		SourceKey:        "trial-protection-v2",
+		LegacyAnchorHMAC: fmt.Sprintf("%064x", 1),
+		CurrentHMAC:      fmt.Sprintf("%064x", 2),
+		ExpiresAtUnix:    2_100_100,
+	}}
+	basePlan := plannedFixtureFromSnapshot(t, base, testPlanOptions())
+	options := testPlanOptions()
+	options.ParentSnapshot = &base
+	options.AppliedParentDigest = basePlan.SourceDigest
+
+	delta := preparedDelta(t, base, basePlan)
+	delta.ClusterHMACKeySHA256 = sha256Hex([]byte("different-cluster-hmac-key"))
+	if _, report := Plan(delta, options); !hasBlockerCode(report.Blockers, "delta_cluster_hmac_key_mismatch") {
+		t.Fatalf("cluster hmac mismatch blockers = %#v", report.Blockers)
+	}
+
+	delta = preparedDelta(t, base, basePlan)
+	if delta.LegacyTrialSaltSHA256 != "" {
+		t.Fatalf("trial-free delta unexpectedly carries salt digest %q", delta.LegacyTrialSaltSHA256)
+	}
+	if _, report := Plan(delta, options); len(report.Blockers) != 0 {
+		t.Fatalf("trial-free delta blockers = %#v", report.Blockers)
+	}
+
+	delta.Trials = append([]LegacyTrial(nil), base.Trials...)
+	delta.LegacyTrialSaltSHA256 = sha256Hex([]byte("different-legacy-trial-salt"))
+	if _, report := Plan(delta, options); !hasBlockerCode(report.Blockers, "delta_legacy_trial_salt_mismatch") {
+		t.Fatalf("trial salt mismatch blockers = %#v", report.Blockers)
+	}
+}
