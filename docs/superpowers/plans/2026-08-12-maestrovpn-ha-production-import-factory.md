@@ -605,7 +605,7 @@ feat(importer): add signed applied-run receipts
 - Produces: writeReceiptAtomic(path string, receipt importer.ImportReceipt) error.
 - Consumes: runtime factory, importer.Apply, ReadAppliedRunEvidence and SignImportReceipt.
 
-- [ ] **Step 1: Add RED CLI orchestration tests**
+- [x] **Step 1: Add RED CLI orchestration tests**
 
 ~~~go
 func TestMainPassesNonNilProductionFactory(t *testing.T)
@@ -622,7 +622,7 @@ The dry-run test passes paths whose opener panics and requires exit 0. The resum
 test returns an already-completed store on its second call and requires batch
 commit count remains one.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit:
 
@@ -632,7 +632,7 @@ test(importer): require production cli receipt gate
 
 Expected failure: main still passes nil and new flags/writer are absent.
 
-- [ ] **Step 3: Extend flags and replace nil factory**
+- [x] **Step 3: Extend flags and replace nil factory**
 
 Add apply-only flags --rqlite-config, --receipt and
 --receipt-signing-key-file. Make --legacy-trial-salt-file conditional on
@@ -656,7 +656,7 @@ Use one 30-minute command context and retain the rqlite per-request timeout from
 target config. Dry-run returns before apply-only protected-file checks and
 factory construction.
 
-- [ ] **Step 4: Apply, re-read, sign and atomically persist**
+- [x] **Step 4: Apply, re-read, sign and atomically persist**
 
 After importer.Apply succeeds, call ReadAppliedRunEvidence and compare every
 field with the approved plan and ApplyResult. Build and sign ImportReceipt using
@@ -674,7 +674,7 @@ writeReceiptAtomic must:
 Print success only after receipt persistence. Receipt failure exits 3. Fixed
 stderr messages contain no underlying path or secret.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 cd backend
