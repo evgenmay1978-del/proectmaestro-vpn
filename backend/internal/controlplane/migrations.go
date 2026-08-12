@@ -16,13 +16,13 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 1
+	SchemaVersion = 2
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
 )
 
-//go:embed migrations/0001_control_plane.sql
+//go:embed migrations/*.sql
 var migrationFiles embed.FS
 
 var expectedSchemaTables = []string{
@@ -30,6 +30,7 @@ var expectedSchemaTables = []string{
 	"audit_events",
 	"backup_watermarks",
 	"cluster_job_leases",
+	"cluster_restore_state",
 	"cluster_settings",
 	"credentials",
 	"customers",
@@ -212,10 +213,15 @@ func (m *Migrator) schemaMigrationTableExists(ctx context.Context) (bool, error)
 }
 
 func loadMigration() ([]byte, string, []rqlite.Statement, error) {
-	data, err := migrationFiles.ReadFile("migrations/0001_control_plane.sql")
+	first, err := migrationFiles.ReadFile("migrations/0001_control_plane.sql")
 	if err != nil {
 		return nil, "", nil, errors.New("controlplane: embedded migration is unavailable")
 	}
+	second, err := migrationFiles.ReadFile("migrations/0002_restore_epoch.sql")
+	if err != nil {
+		return nil, "", nil, errors.New("controlplane: embedded migration is unavailable")
+	}
+	data := append(append([]byte(nil), first...), second...)
 	sum := sha256.Sum256(data)
 	checksum := hex.EncodeToString(sum[:])
 

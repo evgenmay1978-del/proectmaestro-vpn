@@ -51,7 +51,7 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 		gotTables = append(gotTables, name)
 	}
 	wantTables := []string{
-		"schema_migrations", "customers", "credentials", "subscription_tokens", "devices",
+		"schema_migrations", "cluster_restore_state", "customers", "credentials", "subscription_tokens", "devices",
 		"tariff_versions", "orders", "active_order_guards", "payments", "trial_redemptions",
 		"idempotency_requests", "nodes", "node_services", "desired_node_state", "desired_protocol_tags", "outbox_events",
 		"node_leases", "cluster_job_leases", "node_apply_receipts", "tombstones", "tombstone_targets",
