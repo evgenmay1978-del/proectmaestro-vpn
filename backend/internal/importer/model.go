@@ -42,6 +42,8 @@ type LegacyCustomer struct {
 	TokenHMAC                 string `json:"token_hmac"`
 	CredentialFingerprintHMAC string `json:"credential_fingerprint_hmac"`
 	IdentitySecretRef         string `json:"identity_secret_ref"`
+	ProtocolTags              []string `json:"protocol_tags"`
+	NodeIDs                   []string `json:"node_ids"`
 	ExpiresAtUnix             int64  `json:"expires_at_unix"`
 	Generation                int64  `json:"generation"`
 	Status                    string `json:"status"`
@@ -141,10 +143,12 @@ type LegacyBotCredentialRotation struct {
 }
 
 type PlanOptions struct {
-	Namespace           string
-	SupportedBotSchemas []string
-	ParentSnapshot      *Snapshot
-	AppliedParentDigest string
+	Namespace             string
+	SupportedBotSchemas   []string
+	SupportedProtocolTags []string
+	SupportedNodeIDs      []string
+	ParentSnapshot        *Snapshot
+	AppliedParentDigest   string
 }
 
 type PlannedCustomer struct {
@@ -157,6 +161,8 @@ type PlannedCustomer struct {
 	TokenHMAC                 string `json:"token_hmac"`
 	CredentialFingerprintHMAC string `json:"credential_fingerprint_hmac"`
 	IdentitySecretRef         string `json:"identity_secret_ref"`
+	ProtocolTags              []string `json:"protocol_tags"`
+	NodeIDs                   []string `json:"node_ids"`
 	ExpiresAtUnix             int64  `json:"expires_at_unix"`
 	Generation                int64  `json:"generation"`
 	Status                    string `json:"status"`

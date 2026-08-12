@@ -16,6 +16,15 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 		}
 	}
 
+	supportedProtocolTags := make(map[string]struct{}, len(options.SupportedProtocolTags))
+	for _, protocolTag := range options.SupportedProtocolTags {
+		supportedProtocolTags[protocolTag] = struct{}{}
+	}
+	supportedNodeIDs := make(map[string]struct{}, len(options.SupportedNodeIDs))
+	for _, nodeID := range options.SupportedNodeIDs {
+		supportedNodeIDs[nodeID] = struct{}{}
+	}
+
 	customersBySource := make(map[string]LegacyCustomer, len(snapshot.Customers))
 	loginKeys := make(map[string]string)
 	uuidHMACs := make(map[string]string)
@@ -23,6 +32,34 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 	tokenHMACs := make(map[string]string)
 	credentialHMACs := make(map[string]string)
 	for _, customer := range snapshot.Customers {
+		if len(customer.ProtocolTags) == 0 {
+			add("missing_customer_protocols", "customer", customer.SourceKey)
+		}
+		seenProtocolTags := make(map[string]struct{}, len(customer.ProtocolTags))
+		for _, protocolTag := range customer.ProtocolTags {
+			if _, exists := seenProtocolTags[protocolTag]; exists {
+				add("duplicate_customer_protocol", "customer", customer.SourceKey)
+			} else {
+				seenProtocolTags[protocolTag] = struct{}{}
+			}
+			if _, supported := supportedProtocolTags[protocolTag]; !supported {
+				add("unsupported_customer_protocol", "customer", customer.SourceKey)
+			}
+		}
+		if len(customer.NodeIDs) == 0 {
+			add("missing_customer_nodes", "customer", customer.SourceKey)
+		}
+		seenNodeIDs := make(map[string]struct{}, len(customer.NodeIDs))
+		for _, nodeID := range customer.NodeIDs {
+			if _, exists := seenNodeIDs[nodeID]; exists {
+				add("duplicate_customer_node", "customer", customer.SourceKey)
+			} else {
+				seenNodeIDs[nodeID] = struct{}{}
+			}
+			if _, supported := supportedNodeIDs[nodeID]; !supported {
+				add("unsupported_customer_node", "customer", customer.SourceKey)
+			}
+		}
 		customersBySource[customer.SourceKey] = customer
 		collision(loginKeys, strings.ToLower(strings.TrimSpace(customer.Login)), customer.SourceKey, func() {
 			add("login_collision", "customer", customer.SourceKey)
@@ -358,6 +395,10 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 	for _, customer := range snapshot.Customers {
 		internalID := deterministicID(options.Namespace, "customer", customer.SourceKey)
 		customerInternalIDs[customer.SourceKey] = internalID
+		protocolTags := append([]string(nil), customer.ProtocolTags...)
+		sort.Strings(protocolTags)
+		nodeIDs := append([]string(nil), customer.NodeIDs...)
+		sort.Strings(nodeIDs)
 		plan.Customers = append(plan.Customers, PlannedCustomer{
 			InternalID:                internalID,
 			SourceKey:                 customer.SourceKey,
@@ -368,6 +409,8 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 			TokenHMAC:                 customer.TokenHMAC,
 			CredentialFingerprintHMAC: customer.CredentialFingerprintHMAC,
 			IdentitySecretRef:         customer.IdentitySecretRef,
+			ProtocolTags:              protocolTags,
+			NodeIDs:                   nodeIDs,
 			ExpiresAtUnix:             customer.ExpiresAtUnix,
 			Generation:                customer.Generation,
 			Status:                    customer.Status,

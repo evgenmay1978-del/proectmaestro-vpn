@@ -145,8 +145,10 @@ func run(args []string, stdout, stderr io.Writer, factory applyStoreFactory) int
 
 func defaultPlanOptions() importer.PlanOptions {
 	return importer.PlanOptions{
-		Namespace:           "maestro-legacy-v1",
-		SupportedBotSchemas: []string{"bot-schema-v1"},
+		Namespace:             "maestro-legacy-v1",
+		SupportedBotSchemas:   []string{"bot-schema-v1"},
+		SupportedProtocolTags: []string{"vless", "hysteria2", "anytls", "naive", "wdtt", "olcrtc"},
+		SupportedNodeIDs:      []string{"S1", "S2", "S3", "S4"},
 	}
 }
 

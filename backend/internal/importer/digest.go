@@ -43,6 +43,8 @@ func plannedCustomerSourceDigest(customer PlannedCustomer) string {
 		TokenHMAC:                 customer.TokenHMAC,
 		CredentialFingerprintHMAC: customer.CredentialFingerprintHMAC,
 		IdentitySecretRef:         customer.IdentitySecretRef,
+		ProtocolTags:              append([]string(nil), customer.ProtocolTags...),
+		NodeIDs:                   append([]string(nil), customer.NodeIDs...),
 		ExpiresAtUnix:             customer.ExpiresAtUnix,
 		Generation:                customer.Generation,
 		Status:                    customer.Status,
