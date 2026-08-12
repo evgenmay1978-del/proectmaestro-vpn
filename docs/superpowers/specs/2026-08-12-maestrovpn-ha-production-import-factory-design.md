@@ -100,6 +100,11 @@ an apply store. Plaintexts are zeroed immediately and never enter the plan,
 report, receipt, error or SQL argument. This binds imported envelopes to the
 supplied key bundle without publishing raw key material.
 
+For delta/resume against a nonempty target, a linearizable preflight reads the
+distinct key versions referenced by active `imported_secrets` and
+`setting_secrets`. `SecretBox.ReadyForVersions` must accept the complete set
+before `importer.Apply`; an omitted historical key blocks with zero writes.
+
 ## Legacy trial salt binding
 
 The current snapshot contains only legacy/current HMAC values, so merely
@@ -138,12 +143,14 @@ The composition order is fixed:
 4. Construct the mandatory-mTLS rqlite client.
 5. Call only `controlplane.NewMigrator(db).Verify(ctx)`. The importer never
    calls `Migrator.Apply`; schema creation is a separate future gate.
-6. Construct the rqlite apply store and call existing `importer.Apply`. Its
-   target inspection, empty/full or parent/delta rule, stable batches,
-   unknown-outcome resume and final business digest remain authoritative.
-7. Linearizable-read the completed run and batch receipts again and require the
+6. Construct the rqlite apply store, linearizable-read every referenced target
+   key version and require the supplied SecretBox to cover them all.
+7. Call existing `importer.Apply`. Its target inspection, empty/full or
+   parent/delta rule, stable batches, unknown-outcome resume and final business
+   digest remain authoritative.
+8. Linearizable-read the completed run and batch receipts again and require the
    exact run/source/plan/parent/target digests, batch count and completed state.
-8. Atomically write and fsync a signed import receipt. Only then print the
+9. Atomically write and fsync a signed import receipt. Only then print the
    generic success line and exit `0`.
 
 Every operation uses a bounded context. Mutating requests are never retried by
@@ -193,9 +200,11 @@ Unit tests require:
   factory/network/protected-file calls;
 - apply rejects missing/HTTP/duplicate/non-S2-S4 endpoints, optional mTLS,
   broad private-file permissions and unknown JSON fields;
-- malformed key bundles, wrong HMAC-key digest, unavailable envelope
+- malformed key bundles, wrong HMAC-key digest, unavailable snapshot-envelope
   versions, wrong scoped keys, wrong trial-salt digest and newline drift fail
   before a request;
+- a target-referenced historical key version missing from the supplied bundle
+  fails after read-only preflight and before any mutation;
 - the factory calls schema `Verify` but never schema `Apply`;
 - no receipt is signed before a completed exact run can be re-read;
 - receipt write interruption resumes without a second business mutation;
