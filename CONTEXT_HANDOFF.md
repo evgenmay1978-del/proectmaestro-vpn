@@ -3160,3 +3160,48 @@ HEAD before this policy commit `f251cdf3f3042f6aafd39b3c4c994cd757b58932`.
 Preserve the untracked RED test
 `backend/internal/applyagent/apply_result_test.go`; it is not yet validated or
 committed. Production remains NO-GO and was not accessed or changed.
+
+## 2026-08-12 Task 11 apply-result and monotonic-marker checkpoint
+
+This section supersedes the stale resume point immediately above. Authoritative
+review surface remains draft PR #82, branch `codex/ha-rqlite-task2`. Exact
+current GREEN SHA is `13bb17b24fa5b314f4f97d4fd7ba517a94b19a65`.
+
+Completed RED/GREEN evidence:
+
+- per-entry apply result RED SHA
+  `885d0f86d28ead67ff2cf05b63c2f4930a7d7c50`: `HA control-plane
+  checks` run 238 and `HA DR restore drill` run 42 failed at backend tests
+  after formatting passed;
+- per-entry result GREEN SHA
+  `705a81d02dfde6763cd9e97e4c2122f759c02478`: control-plane run 239
+  and DR run 43 succeeded;
+- monotonic local-marker RED SHA
+  `5a645e5f07b1c3e142b263610b856ade60d059f7`: DR run 44 failed at
+  backend tests;
+- monotonic local-marker GREEN SHA
+  `13bb17b24fa5b314f4f97d4fd7ba517a94b19a65`: control-plane run 241
+  and DR run 45 succeeded.
+
+The agent now returns canonical per-entry `DispatchResult` only after successful
+aggregate apply and local marker fsync; private `/v1/apply` returns that JSON to
+the dispatcher. It strong-verifies the lease, loads and validates the local
+marker before any driver call, rejects generation rollback and same-generation
+hash conflict, and fails closed on marker read error. The standalone RED test is
+committed; there is no longer an untracked test file.
+
+Task 11 is not complete. Confirmed P1 gap: `DesiredEntry.Payload` is still a
+`controlplane.Envelope`, `AgentConfig` has no payload opener/decryption key, and
+the `Driver` receives the encrypted `DesiredSnapshot` unchanged. No code in
+`backend/internal/applyagent` opens the envelope or enforces the planned AAD over
+node/service/customer/generation. `backend/cmd/maestro-agent` is also absent;
+do not create a dead runtime stub or begin Task 12 drivers over ciphertext.
+
+Next repository step: RED-first define a materialized plaintext snapshot boundary
+and injected fail-closed payload opener with exact AAD binding, authenticate and
+open every entry only after signature plus strong lease validation, ensure any
+open/hash/key-version failure makes zero driver calls, and re-run both GitHub HA
+workflows. After that, implement real Task 12 local drivers and wire
+`cmd/maestro-agent` to those concrete drivers. Production remains NO-GO; no
+server, customer, bot, VPN, Android/TV, OTA, DNS or production credential was
+accessed or changed.
