@@ -93,6 +93,14 @@ class VerifyBackupTests(unittest.TestCase):
         signature.write_bytes(b"synthetic-detached-signature")
         os.chmod(signature, 0o600)
 
+    def test_accepts_exact_full_git_sha1_identity(self):
+        metadata = dict(self.metadata)
+        metadata["repository_commit_sha"] = "d" * 40
+        manifest = build_manifest(self.image, self.keys, metadata)
+        self.assertEqual(
+            manifest["repository_commit_sha"],
+            "d" * 40,
+        )
     @staticmethod
     def _valid_gpg(command):
         del command
