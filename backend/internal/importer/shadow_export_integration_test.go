@@ -33,19 +33,6 @@ func TestRQLiteShadowExportParity(t *testing.T) {
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
-	seed := []rqlite.Statement{{
-		SQL: "INSERT INTO tariff_versions(tariff_version_id,tariff_code,duration_days,amount_minor,currency,active,created_at_unix) VALUES(?,?,?,?,?,?,?)",
-		Args: []any{"tariff_1m_v1", "one-month", 30, 40000, "RUB", 1, 1},
-	}}
-	for _, nodeID := range []string{"S1", "S2", "S3", "S4"} {
-		seed = append(seed,
-			rqlite.Statement{SQL: "INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix) VALUES(?,?,?,?,?)", Args: []any{nodeID, nodeID, 1, 1, 1}},
-			rqlite.Statement{SQL: "INSERT INTO node_services(node_id,service_name,desired_target,apply_enabled,fenced,retired,updated_at_unix) VALUES(?,?,?,?,?,?,?)", Args: []any{nodeID, "maestro-core", 1, 1, 0, 0, 1}},
-		)
-	}
-	if _, err := db.Request(ctx, rqlite.Linearizable, true, seed...); err != nil {
-		t.Fatalf("seed projection dependencies: %v", err)
-	}
 
 	privateURLMarker := "https://private-shadow-source.invalid"
 	snapshot := decodeFixture(t, "orders-pending-credited.json")
