@@ -53,6 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m unittest ops.ha.tests.test_verify_backup
+          bash ops/ha/test-backup-rqlite.sh
 
       - name: Test backend
         working-directory: backend
