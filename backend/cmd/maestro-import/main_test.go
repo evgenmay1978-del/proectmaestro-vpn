@@ -111,9 +111,9 @@ func TestRunApplyRequiresExpectedDigestAndProtectedFiles(t *testing.T) {
 	snapshot := commandFixture(t, "customers-valid.json")
 	reportPath := filepath.Join(t.TempDir(), "report.json")
 	called := false
-	factory := func(context.Context, applyConfig) (importer.ApplyStore, error) {
+	factory := func(context.Context, applyRuntimeConfig) (*applyRuntime, error) {
 		called = true
-		return &cliApplyStore{}, nil
+		return &applyRuntime{}, nil
 	}
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
@@ -137,9 +137,9 @@ func TestRunApplyRejectsExpectedPlanDigestDriftBeforeStore(t *testing.T) {
 		}
 	}
 	called := false
-	factory := func(context.Context, applyConfig) (importer.ApplyStore, error) {
+	factory := func(context.Context, applyRuntimeConfig) (*applyRuntime, error) {
 		called = true
-		return &cliApplyStore{}, nil
+		return &applyRuntime{}, nil
 	}
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
@@ -156,7 +156,7 @@ func TestRunApplyRejectsExpectedPlanDigestDriftBeforeStore(t *testing.T) {
 	}
 }
 
-func TestRunApplyUsesVerifiedPlanAndInjectedStore(t *testing.T) {
+func TestRunApplyCannotUseIncompleteRuntime(t *testing.T) {
 	snapshotPath := commandFixture(t, "customers-valid.json")
 	snapshotBytes, err := os.ReadFile(snapshotPath)
 	if err != nil {
@@ -171,27 +171,31 @@ func TestRunApplyUsesVerifiedPlanAndInjectedStore(t *testing.T) {
 		t.Fatalf("fixture blockers: %#v", report.Blockers)
 	}
 	temp := t.TempDir()
-	keyPath := filepath.Join(temp, "key")
-	saltPath := filepath.Join(temp, "legacy-salt")
-	for _, path := range []string{keyPath, saltPath} {
-		if err := os.WriteFile(path, []byte("synthetic-protected-input"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	factory := func(context.Context, applyRuntimeConfig) (*applyRuntime, error) {
+		return &applyRuntime{}, nil
 	}
-	store := &cliApplyStore{}
-	factory := func(context.Context, applyConfig) (importer.ApplyStore, error) { return store, nil }
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
 		"--snapshot", snapshotPath,
 		"--report", filepath.Join(temp, "report.json"),
 		"--mode", "apply",
 		"--expected-plan-digest", plan.PlanDigest,
-		"--key-file", keyPath,
-		"--legacy-trial-salt-file", saltPath,
+		"--key-file", protectedFixtureForLegacyTest(t, temp, "keys"),
+		"--rqlite-config", protectedFixtureForLegacyTest(t, temp, "target"),
+		"--receipt-signing-key-file", protectedFixtureForLegacyTest(t, temp, "signer"),
+		"--receipt", filepath.Join(temp, "receipt.json"),
 		"--run-id", "synthetic-run",
-		"--batch-size", "1",
 	}, &stdout, &stderr, factory)
-	if code != exitClean || !store.completed || store.run.PlanDigest != plan.PlanDigest {
-		t.Fatalf("run exit=%d completed=%v run=%#v stderr=%q", code, store.completed, store.run, stderr.String())
+	if code != exitInputSystem {
+		t.Fatalf("run exit=%d stderr=%q", code, stderr.String())
 	}
+}
+
+func protectedFixtureForLegacyTest(t *testing.T, directory, name string) string {
+	t.Helper()
+	path := filepath.Join(directory, name)
+	if err := os.WriteFile(path, []byte("synthetic-protected-input"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
