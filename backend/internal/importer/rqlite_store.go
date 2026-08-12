@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -63,6 +64,48 @@ func NewRQLiteApplyStoreWithTrialProtection(
 	copyProtection := protection
 	store.trialProtection = &copyProtection
 	return store, nil
+}
+
+
+func (s *RQLiteApplyStore) ReadReferencedKeyVersions(ctx context.Context) ([]int, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("rqlite apply store is unavailable")
+	}
+	results, err := s.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `
+SELECT key_version FROM (
+    SELECT i.key_version AS key_version
+    FROM imported_secrets i
+    WHERE NOT EXISTS(
+        SELECT 1 FROM imported_entity_state state
+        WHERE state.entity_kind='encrypted_secret'
+          AND state.target_id=i.secret_id
+          AND state.lifecycle='deleted'
+    )
+    UNION
+    SELECT key_version FROM setting_secrets
+) ORDER BY key_version`})
+	if err != nil {
+		return nil, errors.New("cannot read referenced secret key versions")
+	}
+	if len(results) != 1 {
+		return nil, errors.New("invalid referenced secret key version result count")
+	}
+	seen := make(map[int]struct{}, len(results[0].Rows))
+	versions := make([]int, 0, len(results[0].Rows))
+	for _, row := range results[0].Rows {
+		value, ok := applyRowInt(row["key_version"])
+		if !ok || value <= 0 || int64(int(value)) != value {
+			return nil, errors.New("invalid referenced secret key version")
+		}
+		version := int(value)
+		if _, duplicate := seen[version]; duplicate {
+			continue
+		}
+		seen[version] = struct{}{}
+		versions = append(versions, version)
+	}
+	sort.Ints(versions)
+	return versions, nil
 }
 
 type businessDigestTable struct {
