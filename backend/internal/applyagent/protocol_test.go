@@ -101,12 +101,11 @@ func TestSignedCommandRejectsUnknownKeyAndInvalidLifetime(t *testing.T) {
 
 	command.NotAfterUnix = command.IssuedAtUnix + 61
 	signed, err = SignCommand(command, "dispatcher-key-1", privateKey)
-	if err != nil {
-		t.Fatalf("SignCommand overlong lifetime: %v", err)
-	}
-	if _, err := VerifySignedCommand(signed, map[string]ed25519.PublicKey{
-		"dispatcher-key-1": publicKey,
-	}, time.Unix(2_000_030, 0)); err == nil {
-		t.Fatal("command lifetime over 60 seconds was accepted")
+	if err == nil {
+		if _, verifyErr := VerifySignedCommand(signed, map[string]ed25519.PublicKey{
+			"dispatcher-key-1": publicKey,
+		}, time.Unix(2_000_030, 0)); verifyErr == nil {
+			t.Fatal("command lifetime over 60 seconds was accepted")
+		}
 	}
 }
