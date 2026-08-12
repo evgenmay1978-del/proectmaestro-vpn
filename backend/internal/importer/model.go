@@ -16,6 +16,8 @@ var (
 
 type Snapshot struct {
 	FormatVersion          int                           `json:"format_version"`
+	ClusterHMACKeySHA256    string                        `json:"cluster_hmac_key_sha256"`
+	LegacyTrialSaltSHA256   string                        `json:"legacy_trial_salt_sha256,omitempty"`
 	SnapshotKind           string                        `json:"snapshot_kind"`
 	ParentSourceDigest     string                        `json:"parent_source_digest,omitempty"`
 	CapturedAt             time.Time                     `json:"captured_at"`
@@ -211,7 +213,9 @@ type PlannedDelete struct {
 }
 
 type ImportPlan struct {
-	FormatVersion    int                       `json:"format_version"`
+	FormatVersion          int                       `json:"format_version"`
+	ClusterHMACKeySHA256    string                    `json:"cluster_hmac_key_sha256"`
+	LegacyTrialSaltSHA256   string                    `json:"legacy_trial_salt_sha256,omitempty"`
 	SnapshotKind     string                    `json:"snapshot_kind"`
 	ParentSourceDigest string                  `json:"parent_source_digest,omitempty"`
 	SourceDigest     string                    `json:"source_digest"`

@@ -16,6 +16,17 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 		}
 	}
 
+	if !validCanonicalSHA256(snapshot.ClusterHMACKeySHA256) {
+		add("invalid_cluster_hmac_key_digest", "snapshot", "")
+	}
+	if len(snapshot.Trials) > 0 {
+		if !validCanonicalSHA256(snapshot.LegacyTrialSaltSHA256) {
+			add("missing_or_invalid_legacy_trial_salt_digest", "snapshot", "")
+		}
+	} else if snapshot.LegacyTrialSaltSHA256 != "" {
+		add("unexpected_legacy_trial_salt_digest", "snapshot", "")
+	}
+
 	supportedProtocolTags := make(map[string]struct{}, len(options.SupportedProtocolTags))
 	for _, protocolTag := range options.SupportedProtocolTags {
 		supportedProtocolTags[protocolTag] = struct{}{}
@@ -307,6 +318,12 @@ func validateDelta(snapshot Snapshot, options PlanOptions, add func(string, stri
 		add("delta_parent_snapshot_missing", "snapshot", "")
 		return
 	}
+	if snapshot.ClusterHMACKeySHA256 != options.ParentSnapshot.ClusterHMACKeySHA256 {
+		add("delta_cluster_hmac_key_mismatch", "snapshot", "")
+	}
+	if len(snapshot.Trials) > 0 && snapshot.LegacyTrialSaltSHA256 != options.ParentSnapshot.LegacyTrialSaltSHA256 {
+		add("delta_legacy_trial_salt_mismatch", "snapshot", "")
+	}
 	if digestSnapshot(*options.ParentSnapshot) != snapshot.ParentSourceDigest {
 		add("delta_parent_digest_mismatch", "snapshot", "")
 	}
@@ -379,6 +396,8 @@ func collision(index map[string]string, value, sourceKey string, onCollision fun
 func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 	plan := ImportPlan{
 		FormatVersion:          snapshot.FormatVersion,
+		ClusterHMACKeySHA256:   snapshot.ClusterHMACKeySHA256,
+		LegacyTrialSaltSHA256:  snapshot.LegacyTrialSaltSHA256,
 		SnapshotKind:           snapshot.SnapshotKind,
 		ParentSourceDigest:     snapshot.ParentSourceDigest,
 		SourceDigest:           digestSnapshot(snapshot),

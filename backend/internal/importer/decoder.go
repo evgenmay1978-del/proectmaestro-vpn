@@ -20,7 +20,17 @@ func DecodeSnapshot(data []byte) (Snapshot, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return Snapshot{}, errInvalidSnapshot
 	}
-	if snapshot.FormatVersion != 1 || (snapshot.SnapshotKind != "full" && snapshot.SnapshotKind != "delta") {
+	if snapshot.FormatVersion != 2 || (snapshot.SnapshotKind != "full" && snapshot.SnapshotKind != "delta") {
+		return Snapshot{}, errInvalidSnapshot
+	}
+	if !validCanonicalSHA256(snapshot.ClusterHMACKeySHA256) {
+		return Snapshot{}, errInvalidSnapshot
+	}
+	if len(snapshot.Trials) > 0 {
+		if !validCanonicalSHA256(snapshot.LegacyTrialSaltSHA256) {
+			return Snapshot{}, errInvalidSnapshot
+		}
+	} else if snapshot.LegacyTrialSaltSHA256 != "" {
 		return Snapshot{}, errInvalidSnapshot
 	}
 	if snapshot.CapturedAt.IsZero() || len(snapshot.SourceHashes) == 0 {

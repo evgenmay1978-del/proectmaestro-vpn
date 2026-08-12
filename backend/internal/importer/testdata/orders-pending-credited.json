@@ -1,5 +1,5 @@
 {
-  "format_version": 1, "snapshot_kind": "full", "captured_at": "2026-08-09T00:00:00Z",
+  "format_version": 2, "cluster_hmac_key_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "snapshot_kind": "full", "captured_at": "2026-08-09T00:00:00Z",
   "source_hashes": {"s1_orders": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
   "customers": [{
     "source_key":"s1:customer:order-owner", "login":"OrderOwner",

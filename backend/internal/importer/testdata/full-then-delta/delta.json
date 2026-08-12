@@ -1,5 +1,5 @@
 {
-  "format_version":1, "snapshot_kind":"delta", "parent_source_digest":"replaced-by-test", "captured_at":"2026-08-10T00:00:00Z",
+  "format_version":2, "cluster_hmac_key_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "snapshot_kind":"delta", "parent_source_digest":"replaced-by-test", "captured_at":"2026-08-10T00:00:00Z",
   "source_hashes":{"delta":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
   "customers":[
     {"source_key":"customer-alpha","login":"Alpha","login_key_hmac":"1111111111111111111111111111111111111111111111111111111111111111","uuid_hmac":"2222222222222222222222222222222222222222222222222222222222222222","sub_id_hmac":"3333333333333333333333333333333333333333333333333333333333333333","token_hmac":"4444444444444444444444444444444444444444444444444444444444444444","credential_fingerprint_hmac":"5555555555555555555555555555555555555555555555555555555555555555","identity_secret_ref":"secret-alpha","protocol_tags":["vless"],"node_ids":["S2","S3","S4"],"expires_at_unix":2300000,"generation":2,"status":"active"},
