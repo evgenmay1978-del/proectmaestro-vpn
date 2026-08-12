@@ -13,6 +13,7 @@ const (
 	testDesiredSHA  = "f5f8197e669855d4ced22399d9e922b4c9b66ba020c63f121a57df4d693e7015"
 	testObservedSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
+	testConflictingSHA = "943a5f37cc56e5f10ba27f2eab99bbe5461222ea5ccfeaa2a34e603e691708ff"
 
 func desiredFixture(generation int64, digest string) DesiredState {
 	return DesiredState{
@@ -52,7 +53,9 @@ func TestSameGenerationDifferentPayloadHashConflicts(t *testing.T) {
 	)}}
 	service, _ := testService(t, db)
 
-	err := service.UpsertDesired(context.Background(), desiredFixture(5, testObservedSHA))
+	desired := desiredFixture(5, testConflictingSHA)
+	desired.Payload.Ciphertext = []byte("other")
+	err := service.UpsertDesired(context.Background(), desired)
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("same-generation hash conflict error=%v, want ErrConflict", err)
 	}

@@ -2,6 +2,8 @@ package controlplane
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,6 +81,10 @@ func (s *Service) UpsertDesired(ctx context.Context, desired DesiredState) error
 	if err != nil {
 		return errors.New("controlplane: encode desired state")
 	}
+	payloadDigest := sha256.Sum256(payload)
+	if hex.EncodeToString(payloadDigest[:]) != desired.PayloadSHA256 {
+		return errors.New("controlplane: desired payload hash mismatch")
+	}
 	eventID, err := s.ids.NewID("event")
 	if err != nil {
 		return errors.New("controlplane: generate outbox event")
@@ -96,9 +102,13 @@ SELECT ?,?,?,?,?,?,'pending',?,?,?
 FROM node_services
 WHERE node_id=? AND service_name=? AND desired_target=1 AND retired=0
 ON CONFLICT(customer_id,node_id,service_name) DO UPDATE SET
-generation=excluded.generation,desired_envelope=excluded.desired_envelope,
-desired_sha256=excluded.desired_sha256,status='pending',updated_at_unix=excluded.updated_at_unix,
-tombstone=excluded.tombstone,operation_id=excluded.operation_id
+generation=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.generation ELSE desired_node_state.generation END,
+desired_envelope=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.desired_envelope ELSE desired_node_state.desired_envelope END,
+desired_sha256=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.desired_sha256 ELSE desired_node_state.desired_sha256 END,
+status=CASE WHEN excluded.generation>desired_node_state.generation THEN 'pending' ELSE desired_node_state.status END,
+updated_at_unix=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.updated_at_unix ELSE desired_node_state.updated_at_unix END,
+tombstone=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.tombstone ELSE desired_node_state.tombstone END,
+operation_id=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.operation_id ELSE desired_node_state.operation_id END
 WHERE excluded.generation > desired_node_state.generation OR
       (excluded.generation = desired_node_state.generation AND
        excluded.desired_sha256 = desired_node_state.desired_sha256)
@@ -235,12 +245,29 @@ WHERE operation_id=? AND node_id=? AND service_name=? AND generation=?
 AND EXISTS(SELECT 1 FROM node_apply_receipts WHERE receipt_id=?)`, Args: []any{
 			receipt.OperationID, receipt.NodeID, receipt.ServiceName, receipt.Generation, receipt.ReceiptID,
 		}},
+		rqlite.Statement{SQL: `UPDATE tombstone_targets SET status='applied',applied_at_unix=unixepoch()
+WHERE node_id=? AND service_name=? AND status<>'applied'
+  AND EXISTS(SELECT 1 FROM desired_node_state d
+      JOIN tombstones t ON t.customer_id=d.customer_id AND t.generation=d.generation
+      JOIN node_apply_receipts r ON r.receipt_id=? AND r.customer_id=d.customer_id
+      WHERE d.customer_id=? AND d.node_id=? AND d.service_name=? AND d.tombstone=1
+        AND tombstone_targets.tombstone_id=t.tombstone_id)`, Args: []any{
+			receipt.NodeID, receipt.ServiceName, receipt.ReceiptID, receipt.CustomerID, receipt.NodeID, receipt.ServiceName,
+		}},
 	)
 	if err != nil {
+		exact, readErr := s.applyReceiptRecordedExactly(ctx, receipt)
+		if readErr == nil && exact {
+			return nil
+		}
 		return errors.New("controlplane: apply receipt unavailable")
 	}
 	row, ok := firstRow(results)
 	if !ok {
+		exact, readErr := s.applyReceiptRecordedExactly(ctx, receipt)
+		if readErr == nil && exact {
+			return nil
+		}
 		return ErrConflict
 	}
 	storedID, ok := rowString(row, "receipt_id")
@@ -248,6 +275,46 @@ AND EXISTS(SELECT 1 FROM node_apply_receipts WHERE receipt_id=?)`, Args: []any{
 		return ErrConflict
 	}
 	return nil
+
+func (s *Service) applyReceiptRecordedExactly(ctx context.Context, receipt ApplyReceipt) (bool, error) {
+	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT
+receipt_id,customer_id,node_id,service_name,operation_id,generation,
+cluster_epoch,node_incarnation,lease_fence,desired_sha256,observed_sha256
+FROM node_apply_receipts
+WHERE customer_id=? AND node_id=? AND service_name=? AND generation=?`, Args: []any{
+		receipt.CustomerID, receipt.NodeID, receipt.ServiceName, receipt.Generation,
+	}})
+	if err != nil {
+		return false, err
+	}
+	row, ok := firstRow(results)
+	if !ok {
+		return false, nil
+	}
+	stringsMatch := map[string]string{
+		"receipt_id": receipt.ReceiptID, "customer_id": receipt.CustomerID,
+		"node_id": receipt.NodeID, "service_name": receipt.ServiceName,
+		"operation_id": receipt.OperationID, "desired_sha256": receipt.DesiredSHA256,
+		"observed_sha256": receipt.ObservedSHA256,
+	}
+	for key, want := range stringsMatch {
+		got, valid := rowString(row, key)
+		if !valid || got != want {
+			return false, nil
+		}
+	}
+	integers := map[string]int64{
+		"generation": receipt.Generation, "cluster_epoch": receipt.ClusterEpoch,
+		"node_incarnation": receipt.NodeIncarnation, "lease_fence": receipt.LeaseFence,
+	}
+	for key, want := range integers {
+		got, valid := rowInt64(row, key)
+		if !valid || got != want {
+			return false, nil
+		}
+	}
+	return true, nil
+}
 }
 
 func (s *Service) ReconcileNode(ctx context.Context, command ReconcileNodeCommand) (int64, error) {
@@ -286,9 +353,10 @@ func (s *Service) PurgeTombstone(ctx context.Context, command TombstonePurgeComm
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `
 DELETE FROM customers
 WHERE customer_id=?
-  AND EXISTS(SELECT 1 FROM tombstones t WHERE t.tombstone_id=?
-      AND t.customer_id=customers.customer_id
-      AND t.created_at_unix <= unixepoch()-7776000)
+  AND EXISTS(SELECT 1 FROM tombstones t
+      JOIN tombstone_targets tt ON tt.tombstone_id=t.tombstone_id
+      WHERE t.tombstone_id=? AND t.customer_id=customers.customer_id
+      GROUP BY t.tombstone_id HAVING MAX(tt.applied_at_unix) <= unixepoch()-7776000)
   AND NOT EXISTS(SELECT 1 FROM tombstone_targets tt
       WHERE tt.tombstone_id=? AND tt.status <> 'applied')
   AND NOT EXISTS(

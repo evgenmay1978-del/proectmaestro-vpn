@@ -16,6 +16,7 @@ func TestDeleteKeepsTombstoneUntilEveryRequiredServiceAcknowledges(t *testing.T)
 		rqlite.Result{RowsAffected: 1},
 		rqlite.Result{RowsAffected: 4},
 		rqlite.Result{RowsAffected: 4},
+		rqlite.Result{RowsAffected: 0},
 		rqlite.Result{RowsAffected: 4},
 	)}}
 	service, _ := testService(t, db)
