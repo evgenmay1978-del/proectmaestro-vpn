@@ -117,7 +117,7 @@ jobs:
         working-directory: backend
         env:
           MAESTRO_IMPORT_SCHEMA_PREP: "1"
-        run: go test -tags=rqlite_integration ./cmd/maestro-import -run '^TestPrepareProductionImportSchemaMTLS -count=1
+        run: go test -tags=rqlite_integration ./cmd/maestro-import -run '^TestPrepareProductionImportSchemaMTLS\\z' -count=1
 
       - name: Build exact production importer binary
         working-directory: backend
@@ -127,7 +127,7 @@ jobs:
         working-directory: backend
         env:
           MAESTRO_IMPORT_BINARY: ${{ runner.temp }}/maestro-import
-        run: go test -tags=rqlite_integration ./cmd/maestro-import -run '^TestProductionImportFactoryBinaryProof -count=1
+        run: go test -tags=rqlite_integration ./cmd/maestro-import -run '^TestProductionImportFactoryBinaryProof\\z' -count=1
 
       - name: Stop isolated rqlite cluster
         if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
