@@ -1,5 +1,49 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+
+## 0X. HA PRODUCTION IMPORT FACTORY: Tasks 1–6 GREEN, production untouched (12.08.2026)
+
+- Рабочая ветка: `codex/ha-rqlite-task2`, draft PR #82. Работа ведётся
+  GitHub-first; слабый Windows-компьютер используется только для repetition
+  guard и узких git metadata-проверок. Локальные Go build/test запрещены.
+- Исполняемый план:
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`.
+  Tasks 1–6 завершены TDD и подтверждены полными GitHub Actions. Следующая
+  точка — Task 7: реальный subprocess binary против изолированного
+  трёхузлового mTLS rqlite, затем Task 8 full-scope/secrecy/handoff.
+- Последний exact code GREEN: `68cab97b42d165a1463a0ddea79161de7b87c699`;
+  Actions run `31565041932`, job `94015025861`: formatting, unit, race,
+  vet, harness contract, real rqlite, full/delta digest parity, shadow parity
+  и cleanup — все 17 шагов success. Документальный checkpoint поверх него:
+  `f0bd8b0957c2ad35bfe858c705c514336cc2a143`.
+- Task 4 final GREEN: `3af348be54de434e72d428249159c793dc789e68`.
+  Production runtime строго допускает только HTTPS voters S2/S3/S4, проверяет
+  CA/clientAuth mTLS, schema identity, versioned AES/HMAC bundle, все
+  зашифрованные envelopes и используемые target key versions до мутации.
+- Task 5 final GREEN: `e08a47ca7c5db46bc3621a51490c8ed64bab658a`.
+  Добавлено линейное перечитывание applied-run evidence и каноническая
+  Ed25519-подписанная квитанция без business/secret payload.
+- Task 6 GREEN реализует боевой CLI: apply-only
+  `--rqlite-config`, `--receipt`, `--receipt-signing-key-file`;
+  trial salt обязателен только для snapshot с trials. Dry-run завершается до
+  чтения apply-файлов и сети. Apply использует единый 30-минутный context,
+  после commit перечитывает точный completed run, сверяет plan/result,
+  подписывает и сохраняет receipt через same-directory temp mode 0600,
+  fsync, rename и parent-directory fsync. Exact existing receipt — no-op;
+  конфликт или symlink — fail closed. Ошибка записи receipt безопасно
+  возобновляется с тем же run ID без второй batch mutation.
+- RED-доказательство Task 6: run `31564729348`, job `94014125978` упал
+  только на отсутствующих production factory/store/atomic writer API.
+- Production S1–S4, панели, rqlite, Telegram-боты, customers/orders, DNS,
+  nginx, systemd, GitHub Release, OTA, Android и TV не изменялись. Любой
+  серверный rollout остаётся NO-GO до GREEN Tasks 7–8 и отдельного
+  backup/restore/fencing drill. S1 пока не трогать.
+- Перед каждой GitHub mutation/retry/долгой операцией обязателен
+  `python ops/maestro-repetition-guard.py check ...`. В Task 6 один локальный
+  transform pattern не совпал из-за literal escaped newline: failure и
+  correction записаны в local untracked ledger; исправленный exact-newline
+  способ прошёл и повторять старую трансформацию запрещено.
+
 ## 0W. INCIDENT: восстановление replacement S1 (10.08.2026)
 
 - Replacement S1 подтверждён как Litnets `srv_142257` / `193.17.183.48`.
