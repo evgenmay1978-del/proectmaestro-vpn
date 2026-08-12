@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path
 
+from agent_payload_policy import main as assert_agent_payload_policy
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ha-dr-restore-drill.yml"
 
@@ -76,6 +78,7 @@ def main() -> int:
         fail("workflow does not execute authenticated backup proof")
     if "bash ops/ha/test-restore-rqlite.sh" not in text:
         fail("workflow does not execute fresh restore/fencing proof")
+    assert_agent_payload_policy()
     print("DR workflow policy passed")
     return 0
 
