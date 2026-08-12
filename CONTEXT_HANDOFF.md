@@ -3092,3 +3092,22 @@ inventory versions, ports, service topology, current panel/bot placement,
 backup availability and rollback prerequisites, but must not install, import,
 restart, rotate, write customer data or change traffic. Any staged production
 deployment still requires the audit evidence and explicit owner approval.
+
+
+## 2026-08-12 read-only production readiness audit — public summary
+
+Durable report:
+`docs/operations/ha-readiness-audit-2026-08-12.md`.
+
+One authenticated node was inventoried without mutations. Existing customer VPN,
+panel and bot services remained active, while the new HA control plane was not
+yet installed. Backup evidence, storage headroom and legacy file permissions
+must be resolved before a canary. No customer records or secrets were read.
+
+Two additional nodes are reachable, but their SSH identities are not yet
+independently verified. They were not trusted or accessed.
+
+Current status: `INCOMPLETE / PRODUCTION NO-GO`. Next step requires
+independent provider-console identity confirmation for both nodes, then the same
+read-only audit. Do not bypass strict host-key checking. No install, restart,
+import, customer, bot, DNS, TLS, OTA or traffic mutation occurred.
