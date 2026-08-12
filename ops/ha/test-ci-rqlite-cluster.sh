@@ -263,6 +263,25 @@ curl --fail --silent --show-error --max-time 3 \
   --cert "$mtls_root/tls/client.crt" \
   --key "$mtls_root/tls/client.key" \
   "https://127.0.0.1:4401/readyz" >/dev/null
+
+s4_pid="$(<"$mtls_root/node3.pid")"
+bash "$HARNESS" stop-node --node S4
+if kill -0 "$s4_pid" 2>/dev/null; then
+  fail "stop-node left S4 running"
+fi
+if curl --fail --silent --show-error --max-time 2 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  --cert "$mtls_root/tls/client.crt" \
+  --key "$mtls_root/tls/client.key" \
+  "https://127.0.0.1:4405/readyz" >/dev/null 2>&1
+then
+  fail "stopped S4 endpoint remained reachable"
+fi
+curl --fail --silent --show-error --max-time 3 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  --cert "$mtls_root/tls/client.crt" \
+  --key "$mtls_root/tls/client.key" \
+  "https://127.0.0.1:4401/readyz" >/dev/null
 bash "$HARNESS" stop
 [[ ! -e "$mtls_root" ]] || fail "mTLS stop did not remove validated cluster root"
 
