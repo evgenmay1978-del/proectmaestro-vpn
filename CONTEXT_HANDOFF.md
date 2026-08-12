@@ -2775,3 +2775,26 @@ canary и cutover/rollback требуют отдельных gates и явног
 Следующий шаг по brainstorming gate: self-review этой спецификации, review
 владельца, затем отдельный TDD implementation plan. До его утверждения
 production factory code не менять.
+
+## HA control plane: production import factory implementation plan (12.08.2026)
+
+После подтверждённого design review создан и самопроверен TDD-план:
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`.
+
+План содержит восемь RED -> GREEN gates: snapshot format v2 с HMAC/salt
+binding; локальная аутентификация key bundle/envelopes/trial salt; verified
+schema identity; strict S2/S3/S4 mandatory-mTLS runtime; linearizable preflight
+всех target-referenced key versions; canonical Ed25519 applied-run receipt;
+production CLI wiring с resumable atomic receipt; real built-binary proof на
+test-only three-node mTLS rqlite и финальный scope/secrecy gate.
+
+Self-review дополнительно закрыл две ошибки до кода: delta не может потерять
+historical encryption key, уже referenced в rqlite; отрицательные mTLS cases
+выполняются на чистом prepared cluster до valid import и не используют restart,
+который удаляет harness state.
+
+Production code ещё не менялся. Статус остаётся
+`NO-GO (repository implementation only)`; S1-S4, панели, боты, клиенты,
+Android/TV, Release и OTA не затронуты. Следующий шаг — выбрать режим исполнения
+плана. Каждый behavior gate обязан иметь отдельные exact-SHA RED и GREEN
+GitHub Actions evidence.
