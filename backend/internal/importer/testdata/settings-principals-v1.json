@@ -3,7 +3,7 @@
   "source_hashes":{"settings":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
   "customers":[], "orders":[], "trials":[], "bot_bindings":[],
   "settings":[
-    {"key":"ota","public_value_json":{"versionCode":154},"generation":4},
+    {"key":"ota","public_value_json":{"versionCode":154,"versionName":"1.5.4","sha256":"5555555555555555555555555555555555555555555555555555555555555555","size":12345678},"generation":4},
     {"key":"telegram","public_value_json":{"enabled":true},"generation":2,"secret_ref":"secret-bot-token"}
   ],
   "principals":[{"source_key":"principal-owner","login_key_hmac":"1111111111111111111111111111111111111111111111111111111111111111","status":"active","roles":["owner"],"credential_secret_ref":"secret-panel-verifier"}],
