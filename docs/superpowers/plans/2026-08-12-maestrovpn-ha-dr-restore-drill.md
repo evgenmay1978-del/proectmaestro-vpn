@@ -40,7 +40,7 @@
 - Produces ordered immutable migrations 1 and 2, `SchemaVersion == 2`, and a combined schema identity.
 - Consumes existing node/job leases and Telegram poller lease/fence fields.
 
-- [ ] **Step 1: Add RED migration and restore-state contracts**
+- [x] **Step 1: Add RED migration and restore-state contracts**
 
 ~~~go
 func TestAdvanceAfterRestoreRaisesEpochAndInvalidatesEveryLease(t *testing.T) {
@@ -66,12 +66,12 @@ The recorder requires one transaction: epoch CAS, delete node/job leases, clear
 Telegram poller owner/token/expiry, increment its fence. Every dependent
 statement contains the exact successful epoch-CAS gate.
 
-- [ ] **Step 2: Push RED and record the exact intended failure**
+- [x] **Step 2: Push RED and record the exact intended failure**
 
 Commit `test(controlplane): require monotonic restore epoch`. Expected failure:
 migration 2 and restore APIs are undefined; no unrelated failure counts.
 
-- [ ] **Step 3: Implement ordered immutable migrations**
+- [x] **Step 3: Implement ordered immutable migrations**
 
 Use:
 
@@ -107,7 +107,7 @@ CREATE TABLE cluster_restore_state (
 Seed one generated lowercase 64-hex cluster ID, epoch 1, active, without a
 backup digest.
 
-- [ ] **Step 4: Implement fail-closed epoch transitions**
+- [x] **Step 4: Implement fail-closed epoch transitions**
 
 `AdvanceAfterRestore` accepts a positive expected epoch and canonical backup
 SHA-256. One non-retried linearizable transaction sets epoch + 1 inactive,
@@ -116,7 +116,7 @@ ownership and increments poller fences. Resolve unknown outcome only by one
 exact linearizable state read. `Activate` is an exact inactive-to-active CAS
 and idempotent only for the same epoch.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 cd backend
@@ -144,7 +144,7 @@ Commit `feat(controlplane): add monotonic restore epoch`.
 - Produces `verify_bundle(directory, trusted_signer_fingerprint, gpg_home) -> dict`.
 - Produces CLI `python -m ops.ha.verify_backup build|verify ...`.
 
-- [ ] **Step 1: Add RED strict manifest tests**
+- [x] **Step 1: Add RED strict manifest tests**
 
 ~~~python
 class VerifyBackupTests(unittest.TestCase):
@@ -160,12 +160,12 @@ class VerifyBackupTests(unittest.TestCase):
 Use only complete synthetic fixtures. Inject the GPG command runner; raw GPG
 output is never printable.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit `test(ha): require authenticated backup manifest`. Expected failure:
 `ops.ha.verify_backup` is absent.
 
-- [ ] **Step 3: Implement canonical parsing and image-only inspection**
+- [x] **Step 3: Implement canonical parsing and image-only inspection**
 
 Strict JSON rejects duplicate/unknown/missing keys and noncanonical encoding.
 Exact archive basenames are `control-plane.sqlite3`,
@@ -175,14 +175,14 @@ URI `mode=ro&immutable=1`; require `PRAGMA integrity_check`, empty
 import/batch receipt and backup-watermark high-watermarks derived only from the
 image.
 
-- [ ] **Step 4: Implement signature and secrecy gates**
+- [x] **Step 4: Implement signature and secrecy gates**
 
 Run GPG with private `0700` home, `--batch --no-tty --status-fd`; require
 exactly one `VALIDSIG` matching the expected full fingerprint. Success output
 is exactly `{"format_version":1,"status":"verified"}`. Failures use fixed
 codes and marker scans precede success.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 python -m unittest ops.ha.tests.test_verify_backup
@@ -207,7 +207,7 @@ Commit `feat(ha): verify canonical backup manifests`.
 - Produces an encrypted `.tar.gpg` only after independent decrypt-and-verify.
 - Consumes the validated mTLS harness and Task 2 verifier.
 
-- [ ] **Step 1: Add RED shell contracts**
+- [x] **Step 1: Add RED shell contracts**
 
 Tests reject missing `--drill`, roots outside `RUNNER_TEMP`, links, broad
 permissions, HTTP, missing client certificate, existing output, `set -x`,
@@ -215,19 +215,19 @@ unsafe cleanup and missing commands. Require `fmt=delete`, timeouts, disabled
 redirects, same-filesystem temp, deterministic tar, detached signature,
 encryption and post-encryption verification.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit `test(ha): require fail-closed encrypted backup`. Expected failure:
 creator and synthetic identity helper are absent.
 
-- [ ] **Step 3: Add safe harness metadata boundary**
+- [x] **Step 3: Add safe harness metadata boundary**
 
 Add `describe-mtls --output FILE`: write one no-clobber `0600` JSON file
 inside the marked root containing three loopback HTTPS voters and relative
 CA/client cert/key names. Reject plain mode, stdout, existing/outside paths.
 Never expose server or CA private keys.
 
-- [ ] **Step 4: Implement backup creation**
+- [x] **Step 4: Implement backup creation**
 
 Install traps first. Download a bounded DELETE-mode image to `0600`, validate
 SQLite header, build manifest, detach-sign it, create exact deterministic tar,
@@ -235,7 +235,7 @@ encrypt to the ephemeral recipient, decrypt to a second private directory and
 run Task 2 verification before atomic no-clobber publication. Delete only
 validated owned temporaries on failure.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 bash -n ops/ha/backup-rqlite.sh ops/ha/tests/create-synthetic-dr-identity.sh
@@ -261,7 +261,7 @@ Commit `feat(ha): create authenticated encrypted rqlite backup`.
 - Produces `restore_api.inspect_empty(config) -> bool` and `restore_api.load_sqlite(config, path) -> None`.
 - Consumes Tasks 2-3 and a new mandatory-mTLS harness cluster.
 
-- [ ] **Step 1: Add RED restore and HTTP contracts**
+- [x] **Step 1: Add RED restore and HTTP contracts**
 
 ~~~python
 def test_inspect_empty_requires_three_exact_https_voters_and_mtls(): ...
@@ -273,12 +273,12 @@ def test_http_wrong_ca_missing_client_and_oversize_fail_closed(): ...
 Shell tests require verification before inspection, inspection before load,
 one load only, non-empty/prior-attempt rejection and unconditional cleanup.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit `test(ha): require fresh-cluster restore gate`. Expected failure:
 restore loader/API are absent.
 
-- [ ] **Step 3: Implement strict restore API**
+- [x] **Step 3: Implement strict restore API**
 
 Use Python `ssl` and `http.client`, TLS 1.2 minimum, hostname verification
 and exact CA/client material. Drill config permits exactly loopback S2/S3/S4.
@@ -287,14 +287,14 @@ strong-reads absence of schema/business state; `load_sqlite` sends one
 `POST /db/load` with `application/octet-stream`. Ambiguous transport outcome
 returns a fixed code and is never retried.
 
-- [ ] **Step 4: Implement restore orchestration**
+- [x] **Step 4: Implement restore orchestration**
 
 Strict order: private extract, GPG decrypt, Task 2 offline verification, exact
 empty proof, no-clobber restore-attempt marker, one load, strong schema/count
 readback. Any failure requires a new harness cluster. Stop before epoch advance
 and activation, which Task 1 Go code owns.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ~~~bash
 python -m unittest ops.ha.tests.test_restore_api ops.ha.tests.test_verify_backup
@@ -383,18 +383,18 @@ Commit `test(ha): prove restored epoch fencing and parity`.
 - Produces named repository-only CI gates and exact run/job evidence.
 - Consumes Tasks 1-5, pinned rqlite 10.1.0 and ephemeral runner keys.
 
-- [ ] **Step 1: Add RED workflow-policy test**
+- [x] **Step 1: Add RED workflow-policy test**
 
 Require pinned 40-hex actions, `contents: read`, no environment/production
 secrets, Ubuntu 24.04, bounded timeouts, non-cancelling concurrency, no artifact
 upload and unconditional cleanup.
 
-- [ ] **Step 2: Push RED**
+- [x] **Step 2: Push RED**
 
 Commit `test(ha): require isolated dr workflow policy`. Expected failure:
 workflow is absent.
 
-- [ ] **Step 3: Wire exact named gates**
+- [x] **Step 3: Wire exact named gates**
 
 Order: unit/race/vet/syntax; source mTLS cluster; exact importer/source; ephemeral
 GPG identity; backup and independent verification; tamper/wrong-key/signer
@@ -402,12 +402,12 @@ matrix; fresh destination; non-empty rejection in a separate cluster; one load;
 epoch advance/fence/reconcile/activate; digest/shadow/receipt parity; duplicate
 no-op; one-voter/no-quorum; marker scan; always cleanup.
 
-- [ ] **Step 4: Run exact full GREEN**
+- [x] **Step 4: Run exact full GREEN**
 
 Require all named steps success on one exact code SHA. Fetch step list and
 failed logs only. No backup artifact may exist.
 
-- [ ] **Step 5: Commit workflow proof**
+- [x] **Step 5: Commit workflow proof**
 
 Commit `ci(ha): prove authenticated empty-cluster restore`.
 
@@ -423,14 +423,14 @@ Commit `ci(ha): prove authenticated empty-cluster restore`.
 - Produces final exact-SHA/run/job evidence and the read-only server audit gate.
 - Consumes Tasks 1-6.
 
-- [ ] **Step 1: Run final scope and secret audit**
+- [x] **Step 1: Run final scope and secret audit**
 
 Compare baseline `ffa3f7f2a0c88b2c754a1949a72daa2d686a49bf` to final code.
 Require no `app/**`, `deploy/**`, production service/address/password/token,
 customer identity, DNS, OTA, SSH, `InsecureSkipVerify` or production endpoint.
 Only loopback and `synthetic.invalid` negative fixtures are allowed.
 
-- [ ] **Step 2: Verify all exact evidence**
+- [x] **Step 2: Verify all exact evidence**
 
 ~~~bash
 cd backend
@@ -447,7 +447,7 @@ python ops/ha/test-dr-workflow-policy.py
 
 The exact workflow also proves real mTLS backup/restore/fencing and cleanup.
 
-- [ ] **Step 3: Update plan and handoff**
+- [x] **Step 3: Update plan and handoff**
 
 Record exact SHA, run, job and conclusions. State:
 
@@ -457,7 +457,7 @@ S1-S4, panels, bots, customers, VPN protocols, Android/TV, Release and OTA uncha
 Next gate: read-only S2/S3/S4 readiness audit; no installation or restart.
 ~~~
 
-- [ ] **Step 4: Final documentation commit**
+- [x] **Step 4: Final documentation commit**
 
 Commit `docs(ha): record authenticated restore proof`.
 

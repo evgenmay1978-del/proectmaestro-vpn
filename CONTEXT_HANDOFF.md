@@ -3056,3 +3056,39 @@ Current next step is Task 6 in
 add a dedicated repository-only exact-SHA DR workflow and strict policy test
 with no production secrets or artifact upload. Continue RED first. Production
 read-only audit is still forbidden until Tasks 1-7 are fully GREEN.
+
+
+## 2026-08-12 authenticated DR restore drill complete
+
+Plan `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`
+is fully GREEN in draft PR #82 on branch `codex/ha-rqlite-task2`.
+
+Final code evidence:
+
+- exact code SHA: `e9c0bc74e963ab55c4e96214fb6a7de76d1b823e`
+- dedicated workflow: `HA DR restore drill`, run `31586579401`, job
+  `94081701920`, conclusion `success`
+- ordinary workflow on the same SHA: `HA control-plane checks`, run
+  `31586579375`, conclusion `success`
+- dedicated job steps all succeeded: pinned checkout/setup, baseline formatting
+  plus shell syntax, backend unit, race, vet, self-policy, authenticated backup
+  and tamper matrix, fresh restore fencing/parity/quorum, unconditional cleanup
+- workflow artifact list for run `31586579401` is empty
+
+Final scope/secrecy audit compared
+`ffa3f7f2a0c88b2c754a1949a72daa2d686a49bf..e9c0bc74e963ab55c4e96214fb6a7de76d1b823e`.
+There are no `app/**` or `deploy/**` changes. Added URLs are only loopback
+rqlite endpoints and `.invalid` synthetic fixtures. No production endpoint,
+DNS/OTA/SSH operation, `InsecureSkipVerify`, GitHub environment, repository
+secret, artifact upload or customer identity was introduced. Local Python
+verification ran 15 tests successfully and the workflow policy passed.
+
+Status remains: `NO-GO (repository DR implementation only)`. S1-S4, panels,
+bots, customers, VPN protocols, Android/TV, Release and OTA are unchanged.
+Repository GREEN does not authorize deployment.
+
+Next authorized gate is a separate read-only S2/S3/S4 readiness audit. It may
+inventory versions, ports, service topology, current panel/bot placement,
+backup availability and rollback prerequisites, but must not install, import,
+restart, rotate, write customer data or change traffic. Any staged production
+deployment still requires the audit evidence and explicit owner approval.
