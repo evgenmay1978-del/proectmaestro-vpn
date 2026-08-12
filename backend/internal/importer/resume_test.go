@@ -119,6 +119,58 @@ func cloneProgress(progress RunProgress) RunProgress {
 	return clone
 }
 
+type completedResumeRaceStore struct {
+	*memoryApplyStore
+	mu           sync.Mutex
+	inspectCount int
+	beginCount   int
+	inspected    chan struct{}
+	completed    chan struct{}
+	completeOnce sync.Once
+}
+
+func newCompletedResumeRaceStore() *completedResumeRaceStore {
+	return &completedResumeRaceStore{
+		memoryApplyStore: newMemoryApplyStore(),
+		inspected:        make(chan struct{}),
+		completed:        make(chan struct{}),
+	}
+}
+
+func (s *completedResumeRaceStore) InspectTarget(ctx context.Context) (TargetState, error) {
+	target, err := s.memoryApplyStore.InspectTarget(ctx)
+	s.mu.Lock()
+	s.inspectCount++
+	count := s.inspectCount
+	if count == 2 {
+		close(s.inspected)
+	}
+	s.mu.Unlock()
+	if count <= 2 {
+		<-s.inspected
+	}
+	return target, err
+}
+
+func (s *completedResumeRaceStore) BeginOrResume(ctx context.Context, run ApplyRun) (RunProgress, error) {
+	s.mu.Lock()
+	s.beginCount++
+	count := s.beginCount
+	s.mu.Unlock()
+	if count == 2 {
+		<-s.completed
+	}
+	return s.memoryApplyStore.BeginOrResume(ctx, run)
+}
+
+func (s *completedResumeRaceStore) Complete(ctx context.Context, completion ApplyCompletion) error {
+	err := s.memoryApplyStore.Complete(ctx, completion)
+	if err == nil {
+		s.completeOnce.Do(func() { close(s.completed) })
+	}
+	return err
+}
+
 func digestMemoryState(state map[string][]byte) string {
 	keys := make([]string, 0, len(state))
 	for key := range state {
@@ -411,6 +463,34 @@ func TestConcurrentResumeAppliesEachBatchOnce(t *testing.T) {
 		go func() {
 			<-start
 			_, err := Apply(context.Background(), store, plan, ApplyOptions{RunID: "concurrent", BatchSize: 1})
+			results <- err
+		}()
+	}
+	close(start)
+	for i := 0; i < 2; i++ {
+		if err := <-results; err != nil {
+			t.Fatalf("concurrent Apply: %v", err)
+		}
+	}
+	for index, count := range store.commitCounts {
+		if count != 1 {
+			t.Fatalf("batch %d committed %d times", index, count)
+		}
+	}
+}
+
+func TestCompletedConcurrentResumeRefreshesTargetDigest(t *testing.T) {
+	plan := plannedFixture(t, "full-then-delta/base-full.json", testPlanOptions())
+	store := newCompletedResumeRaceStore()
+	results := make(chan error, 2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			_, err := Apply(context.Background(), store, plan, ApplyOptions{
+				RunID:    "completed-resume-race",
+				BatchSize: 1,
+			})
 			results <- err
 		}()
 	}
