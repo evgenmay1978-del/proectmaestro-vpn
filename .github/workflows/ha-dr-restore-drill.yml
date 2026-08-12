@@ -1,0 +1,82 @@
+name: HA DR restore drill
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'ops/ha/**'
+      - '.github/workflows/ha-dr-restore-drill.yml'
+  push:
+    branches:
+      - main
+      - codex/mobile-4d-deck
+    paths:
+      - 'backend/**'
+      - 'ops/ha/**'
+      - '.github/workflows/ha-dr-restore-drill.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ha-dr-restore-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authenticated-empty-cluster-restore:
+    name: Authenticated empty-cluster restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # actions/setup-go v5.6.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache-dependency-path: backend/go.sum
+
+      - name: Check Go formatting and shell syntax
+        run: |
+          set -euo pipefail
+          cd backend
+          gofmt -d cmd/maestro-import/*.go internal/controlplane/*.go internal/importer/*.go internal/rqlite/*.go |
+            tee /tmp/ha-dr-gofmt.diff
+          test ! -s /tmp/ha-dr-gofmt.diff
+          cd ..
+          bash -n ops/ha/backup-rqlite.sh ops/ha/restore-rqlite.sh
+          bash -n ops/ha/ci-rqlite-cluster.sh ops/ha/test-ci-rqlite-cluster.sh
+          bash -n ops/ha/test-backup-rqlite.sh ops/ha/test-restore-rqlite.sh
+
+      - name: Test backend
+        working-directory: backend
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test ./...
+
+      - name: Race-test backend
+        working-directory: backend
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -race ./...
+
+      - name: Vet backend
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Test DR workflow policy
+        run: python ops/ha/test-dr-workflow-policy.py
+
+      - name: Test authenticated backup verification and tamper matrix
+        run: |
+          set -euo pipefail
+          python -m unittest ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api
+          bash ops/ha/test-backup-rqlite.sh
+
+      - name: Test fresh restore fencing parity and quorum
+        run: |
+          set -euo pipefail
+          bash ops/ha/test-restore-rqlite.sh
+
+      - name: Stop isolated rqlite cluster
+        if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
+        run: bash ops/ha/ci-rqlite-cluster.sh stop
