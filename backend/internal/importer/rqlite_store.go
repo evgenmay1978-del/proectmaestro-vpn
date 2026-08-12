@@ -153,6 +153,309 @@ WHERE status='applied' ORDER BY completed_at_unix DESC,import_run_id DESC LIMIT 
 	return state, nil
 }
 
+func (s *RQLiteApplyStore) ReadShadowProjection(ctx context.Context, expectedSourceDigest string) (ShadowProjection, error) {
+	if !validShadowHex64(expectedSourceDigest) {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	statements := make([]rqlite.Statement, 0, len(businessDigestQueries)+6)
+	for _, query := range businessDigestQueries {
+		statements = append(statements, rqlite.Statement{SQL: query.sql})
+	}
+	statements = append(statements,
+		rqlite.Statement{SQL: `SELECT import_run_id,source_sha256,target_sha256,batch_count,status,
+(SELECT COUNT(*) FROM import_batches b
+ WHERE b.import_run_id=r.import_run_id AND b.status='applied') AS applied_batch_count
+FROM import_runs r WHERE source_sha256=?
+ORDER BY completed_at_unix DESC,import_run_id`, Args: []any{expectedSourceDigest}},
+		rqlite.Statement{SQL: `SELECT c.customer_id,c.login_key_hmac,c.status,c.expires_at_unix,c.generation,
+EXISTS(SELECT 1 FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1) AS credential_enabled,
+(SELECT COUNT(*) FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1) AS credential_count,
+EXISTS(SELECT 1 FROM subscription_tokens t WHERE t.customer_id=c.customer_id AND t.revoked=0) AS token_active,
+(SELECT COUNT(*) FROM subscription_tokens t WHERE t.customer_id=c.customer_id AND t.revoked=0) AS token_count
+FROM customers c WHERE c.status='active' AND NOT EXISTS(
+ SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
+ AND s.target_id=c.customer_id AND s.lifecycle='deleted')
+ORDER BY c.customer_id`},
+		rqlite.Statement{SQL: `SELECT d.customer_id,d.node_id,d.service_name,d.generation,d.status,p.protocol_tag
+FROM desired_node_state d
+JOIN customers c ON c.customer_id=d.customer_id AND c.status='active'
+JOIN desired_protocol_tags p ON p.customer_id=d.customer_id AND p.node_id=d.node_id AND p.service_name=d.service_name
+WHERE d.service_name='maestro-core' AND NOT EXISTS(
+ SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='customer'
+ AND s.target_id=d.customer_id AND s.lifecycle='deleted')
+ORDER BY d.customer_id,d.node_id,p.protocol_tag`},
+		rqlite.Statement{SQL: `SELECT order_id,payment_state,provisioning_state,
+COALESCE(result_expires_at_unix,0) AS result_expires_at_unix
+FROM orders ORDER BY order_id`},
+		rqlite.Statement{SQL: `SELECT c.setting_key,c.public_value_json,c.generation,
+s.secret_sha256,s.key_version
+FROM cluster_settings c LEFT JOIN setting_secrets s ON s.setting_key=c.setting_key
+ORDER BY c.setting_key`},
+		rqlite.Statement{SQL: `SELECT p.principal_id,p.login_key_hmac,p.status,r.role_name,
+(SELECT COUNT(*) FROM principal_credentials c WHERE c.principal_id=p.principal_id AND c.active=1) AS credential_count,
+(SELECT c.verifier_sha256 FROM principal_credentials c
+ WHERE c.principal_id=p.principal_id AND c.active=1 ORDER BY c.credential_id LIMIT 1) AS verifier_sha256,
+(SELECT CAST(json_extract(c.verifier_envelope,'$.key_version') AS INTEGER) FROM principal_credentials c
+ WHERE c.principal_id=p.principal_id AND c.active=1 ORDER BY c.credential_id LIMIT 1) AS verifier_key_version
+FROM principals p LEFT JOIN principal_roles r ON r.principal_id=p.principal_id
+ORDER BY p.principal_id,r.role_name`},
+	)
+	results, err := s.db.QueryLinearizable(ctx, statements...)
+	if err != nil || len(results) != len(statements) {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+
+	tables := make([]businessDigestTable, len(businessDigestQueries))
+	tableCounts := make(map[string]int, len(businessDigestQueries))
+	for index, query := range businessDigestQueries {
+		rows := results[index].Rows
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		tables[index] = businessDigestTable{Name: query.name, Rows: rows}
+		tableCounts[query.name] = len(rows)
+	}
+	encoded, err := json.Marshal(tables)
+	if err != nil {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	businessDigest := sha256Hex(encoded)
+	offset := len(businessDigestQueries)
+	runRows := results[offset].Rows
+	if len(runRows) != 1 {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	run := runRows[0]
+	sourceDigest, sourceOK := shadowRowString(run, "source_sha256")
+	targetDigest, targetOK := shadowRowString(run, "target_sha256")
+	status, statusOK := shadowRowString(run, "status")
+	batchCount, batchOK := applyRowInt(run["batch_count"])
+	appliedCount, appliedOK := applyRowInt(run["applied_batch_count"])
+	if !sourceOK || sourceDigest != expectedSourceDigest || !targetOK || targetDigest != businessDigest ||
+		!statusOK || status != "applied" || !batchOK || batchCount < 0 || !appliedOK || appliedCount != batchCount {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	projection := ShadowProjection{
+		SourceDigest: sourceDigest, TargetDigest: targetDigest, RunApplied: true,
+		BatchCount: batchCount, AppliedBatchCount: appliedCount,
+	}
+
+	customerRows := results[offset+1].Rows
+	if len(customerRows) != tableCounts["customers"] {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	customers := make(map[string]*ShadowProjectionCustomer, len(customerRows))
+	for _, row := range customerRows {
+		internalID, idOK := shadowRowString(row, "customer_id")
+		loginHMAC, loginOK := shadowRowString(row, "login_key_hmac")
+		customerStatus, customerStatusOK := shadowRowString(row, "status")
+		expiresAt, expiryOK := applyRowInt(row["expires_at_unix"])
+		generation, generationOK := applyRowInt(row["generation"])
+		credentialEnabled, credentialEnabledOK := applyRowInt(row["credential_enabled"])
+		credentialCount, credentialCountOK := applyRowInt(row["credential_count"])
+		tokenActive, tokenActiveOK := applyRowInt(row["token_active"])
+		tokenCount, tokenCountOK := applyRowInt(row["token_count"])
+		if !idOK || !loginOK || !customerStatusOK || customerStatus != "active" || !expiryOK || expiresAt < 0 ||
+			!generationOK || generation < 0 || !credentialEnabledOK || credentialEnabled != 1 ||
+			!credentialCountOK || credentialCount != 1 || !tokenActiveOK || tokenActive != 1 ||
+			!tokenCountOK || tokenCount != 1 {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		if _, exists := customers[internalID]; exists {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		projection.Customers = append(projection.Customers, ShadowProjectionCustomer{
+			InternalID: internalID, LoginKeyHMAC: loginHMAC, Status: customerStatus,
+			ExpiresAtUnix: expiresAt, Generation: generation, CredentialEnabled: true,
+		})
+		customers[internalID] = &projection.Customers[len(projection.Customers)-1]
+	}
+
+	topologyRows := results[offset+2].Rows
+	if len(topologyRows) != tableCounts["desired_protocol_tags"] {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	type shadowNodeTags map[string]map[string]struct{}
+	topology := make(map[string]shadowNodeTags, len(customers))
+	tuples := make(map[string]struct{}, len(topologyRows))
+	for _, row := range topologyRows {
+		customerID, customerOK := shadowRowString(row, "customer_id")
+		nodeID, nodeOK := shadowRowString(row, "node_id")
+		service, serviceOK := shadowRowString(row, "service_name")
+		tag, tagOK := shadowRowString(row, "protocol_tag")
+		generation, generationOK := applyRowInt(row["generation"])
+		desiredStatus, desiredStatusOK := shadowRowString(row, "status")
+		customer, exists := customers[customerID]
+		if !customerOK || !nodeOK || !serviceOK || service != "maestro-core" || !tagOK ||
+			!generationOK || !exists || generation != customer.Generation || !desiredStatusOK ||
+			(desiredStatus != "pending" && desiredStatus != "applying" && desiredStatus != "applied" && desiredStatus != "failed") {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		tuple := customerID + "\x00" + nodeID + "\x00" + tag
+		if _, duplicate := tuples[tuple]; duplicate {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		tuples[tuple] = struct{}{}
+		if topology[customerID] == nil {
+			topology[customerID] = make(shadowNodeTags)
+		}
+		if topology[customerID][nodeID] == nil {
+			topology[customerID][nodeID] = make(map[string]struct{})
+		}
+		topology[customerID][nodeID][tag] = struct{}{}
+	}
+	if tableCounts["desired_node_state"] != 0 {
+		nodeCount := 0
+		for _, nodes := range topology {
+			nodeCount += len(nodes)
+		}
+		if nodeCount != tableCounts["desired_node_state"] {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+	}
+	for index := range projection.Customers {
+		customer := &projection.Customers[index]
+		nodes := topology[customer.InternalID]
+		if len(nodes) == 0 {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		var expectedTags []string
+		for nodeID, tagSet := range nodes {
+			tags := shadowSetKeys(tagSet)
+			if expectedTags == nil {
+				expectedTags = tags
+			} else if !equalShadowStrings(expectedTags, tags) {
+				return ShadowProjection{}, ErrShadowExportUnavailable
+			}
+			customer.Nodes = append(customer.Nodes, nodeID)
+		}
+		customer.ProtocolTags = expectedTags
+		customer.Nodes, err = canonicalShadowSet(customer.Nodes)
+		if err != nil {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+	}
+
+	orderRows := results[offset+3].Rows
+	if len(orderRows) != tableCounts["orders"] {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	orderIDs := make(map[string]struct{}, len(orderRows))
+	for _, row := range orderRows {
+		orderID, orderOK := shadowRowString(row, "order_id")
+		payment, paymentOK := shadowRowString(row, "payment_state")
+		provisioning, provisioningOK := shadowRowString(row, "provisioning_state")
+		resultExpiry, resultOK := applyRowInt(row["result_expires_at_unix"])
+		if !orderOK || !paymentOK || !provisioningOK || !resultOK || resultExpiry < 0 {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		if _, exists := orderIDs[orderID]; exists {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		orderIDs[orderID] = struct{}{}
+		projection.Orders = append(projection.Orders, ShadowProjectionOrder{
+			InternalID: orderID, PaymentState: payment, ProvisioningState: provisioning,
+			ResultExpiresAtUnix: resultExpiry,
+		})
+	}
+
+	settingRows := results[offset+4].Rows
+	if len(settingRows) != tableCounts["cluster_settings"] || tableCounts["setting_members"] != 0 {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	settingKeys := make(map[string]struct{}, len(settingRows))
+	for _, row := range settingRows {
+		key, keyOK := shadowRowString(row, "setting_key")
+		publicJSON, publicOK := shadowRowString(row, "public_value_json")
+		generation, generationOK := applyRowInt(row["generation"])
+		if !keyOK || !publicOK || !generationOK || generation < 0 {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		if _, exists := settingKeys[key]; exists {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		settingKeys[key] = struct{}{}
+		setting := ShadowProjectionSetting{Key: key, PublicValueJSON: json.RawMessage(publicJSON), Generation: generation}
+		if secretSHA, exists := nullableApplyString(row["secret_sha256"]); !exists {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		} else if secretSHA != "" {
+			keyVersion, keyVersionOK := applyRowInt(row["key_version"])
+			if !keyVersionOK || keyVersion <= 0 || keyVersion > int64(^uint(0)>>1) {
+				return ShadowProjection{}, ErrShadowExportUnavailable
+			}
+			setting.SecretSHA256, setting.SecretKeyVersion = secretSHA, int(keyVersion)
+		} else if row["key_version"] != nil {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		projection.Settings = append(projection.Settings, setting)
+	}
+
+	principalRows := results[offset+5].Rows
+	principals := make(map[string]*ShadowProjectionPrincipal)
+	rolePairs := make(map[string]struct{}, len(principalRows))
+	for _, row := range principalRows {
+		principalID, principalOK := shadowRowString(row, "principal_id")
+		loginHMAC, loginOK := shadowRowString(row, "login_key_hmac")
+		principalStatus, principalStatusOK := shadowRowString(row, "status")
+		role, roleOK := shadowRowString(row, "role_name")
+		credentialCount, countOK := applyRowInt(row["credential_count"])
+		verifierSHA, verifierOK := shadowRowString(row, "verifier_sha256")
+		verifierVersion, versionOK := applyRowInt(row["verifier_key_version"])
+		if !principalOK || !loginOK || !principalStatusOK || !roleOK || !countOK || credentialCount != 1 ||
+			!verifierOK || !versionOK || verifierVersion <= 0 || verifierVersion > int64(^uint(0)>>1) {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		principal := principals[principalID]
+		if principal == nil {
+			projection.Principals = append(projection.Principals, ShadowProjectionPrincipal{
+				InternalID: principalID, LoginKeyHMAC: loginHMAC, Status: principalStatus,
+				VerifierSHA256: verifierSHA, VerifierKeyVersion: int(verifierVersion), CredentialActive: true,
+			})
+			principal = &projection.Principals[len(projection.Principals)-1]
+			principals[principalID] = principal
+		} else if principal.LoginKeyHMAC != loginHMAC || principal.Status != principalStatus ||
+			principal.VerifierSHA256 != verifierSHA || principal.VerifierKeyVersion != int(verifierVersion) {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		pair := principalID + "\x00" + role
+		if _, duplicate := rolePairs[pair]; duplicate {
+			return ShadowProjection{}, ErrShadowExportUnavailable
+		}
+		rolePairs[pair] = struct{}{}
+		principal.Roles = append(principal.Roles, role)
+	}
+	if len(principals) != tableCounts["principals"] {
+		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	return projection, nil
+}
+
+func shadowRowString(row map[string]any, key string) (string, bool) {
+	value, ok := row[key].(string)
+	return value, ok && value != ""
+}
+
+func shadowSetKeys(values map[string]struct{}) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	result, _ = canonicalShadowSet(result)
+	return result
+}
+
+func equalShadowStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *RQLiteApplyStore) BeginOrResume(ctx context.Context, run ApplyRun) (RunProgress, error) {
 	if run.RunID == "" || (run.SnapshotKind != "full" && run.SnapshotKind != "delta") ||
 		len(run.SourceDigest) != 64 || len(run.PlanDigest) != 64 || run.BatchCount < 0 ||
