@@ -56,7 +56,11 @@ func Apply(ctx context.Context, store ApplyStore, plan ImportPlan, options Apply
 		return ApplyResult{}, err
 	}
 	if progress.Completed {
-		if targetBefore.BusinessDigest != progress.TargetDigest {
+		completedTarget, err := store.InspectTarget(ctx)
+		if err != nil {
+			return ApplyResult{}, err
+		}
+		if completedTarget.BusinessDigest != progress.TargetDigest {
 			return ApplyResult{}, ErrRunDigestMismatch
 		}
 		return ApplyResult{Counts: cloneCounts(plan.Counts), TargetDigest: progress.TargetDigest, AppliedBatches: len(batches)}, nil
