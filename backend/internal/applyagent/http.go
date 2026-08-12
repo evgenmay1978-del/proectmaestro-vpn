@@ -42,8 +42,9 @@ func (h *HTTPHandler) apply(w http.ResponseWriter,r *http.Request) {
 	var signed SignedCommand
 	if err:=decoder.Decode(&signed);err!=nil { var maxErr *http.MaxBytesError;if errors.As(err,&maxErr){w.WriteHeader(http.StatusRequestEntityTooLarge)}else{w.WriteHeader(http.StatusBadRequest)};return }
 	if err:=decoder.Decode(&struct{}{});!errors.Is(err,io.EOF) { w.WriteHeader(http.StatusBadRequest);return }
-	if _,err:=h.cfg.Agent.Apply(r.Context(),signed);err!=nil { w.WriteHeader(http.StatusConflict);return }
-	w.WriteHeader(http.StatusNoContent)
+	result,err:=h.cfg.Agent.Apply(r.Context(),signed);if err!=nil { w.WriteHeader(http.StatusConflict);return }
+	w.Header().Set("Content-Type","application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (h *HTTPHandler) status(w http.ResponseWriter,r *http.Request) {

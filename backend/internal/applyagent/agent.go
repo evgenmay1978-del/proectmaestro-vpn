@@ -31,20 +31,38 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	return &Agent{cfg:cfg}, nil
 }
 
-func (a *Agent) Apply(ctx context.Context, signed SignedCommand) (AppliedState, error) {
+func (a *Agent) Apply(ctx context.Context, signed SignedCommand) (DispatchResult, error) {
 	a.mu.Lock(); defer a.mu.Unlock()
-	cmd, err := VerifySignedCommand(signed, a.cfg.PublicKeys, a.cfg.Clock()); if err!=nil { return AppliedState{}, err }
-	if cmd.NodeID!=a.cfg.NodeID || cmd.ServiceID!=a.cfg.ServiceID || cmd.NodeIncarnation!=a.cfg.NodeIncarnation { return AppliedState{}, ErrInvalidCommand }
+	cmd, err := VerifySignedCommand(signed, a.cfg.PublicKeys, a.cfg.Clock()); if err!=nil { return DispatchResult{}, err }
+	if cmd.NodeID!=a.cfg.NodeID || cmd.ServiceID!=a.cfg.ServiceID || cmd.NodeIncarnation!=a.cfg.NodeIncarnation { return DispatchResult{}, ErrInvalidCommand }
 	verify := func() error { return a.cfg.Verifier.VerifyCurrentStrong(ctx, cmd.NodeID, cmd.ServiceID, cmd.HolderID, cmd.Snapshot.SnapshotSHA256, cmd.ClusterEpoch, cmd.NodeIncarnation, cmd.LeaseFence) }
-	if err=verify(); err!=nil { return AppliedState{}, err }
-	actual, err := a.cfg.Driver.Inspect(ctx, cmd.Snapshot); if err!=nil { return AppliedState{}, err }
-	if actual.Healthy && actual.SnapshotSHA256==cmd.Snapshot.SnapshotSHA256 { return actual, a.storeMarker(ctx, cmd) }
-	prepared, err := a.cfg.Driver.Prepare(ctx, cmd.Snapshot); if err!=nil { return AppliedState{}, err }
+	if err=verify(); err!=nil { return DispatchResult{}, err }
+	actual, err := a.cfg.Driver.Inspect(ctx, cmd.Snapshot); if err!=nil { return DispatchResult{}, err }
+	if actual.Healthy && actual.SnapshotSHA256==cmd.Snapshot.SnapshotSHA256 {
+		if err:=a.storeMarker(ctx,cmd);err!=nil{return DispatchResult{},err}
+		return dispatchResult(cmd),nil
+	}
+	prepared, err := a.cfg.Driver.Prepare(ctx, cmd.Snapshot); if err!=nil { return DispatchResult{}, err }
 	if prepared.SnapshotSHA256=="" { prepared.SnapshotSHA256=cmd.Snapshot.SnapshotSHA256 }
-	if err=verify(); err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return AppliedState{}, err }
-	applied, err := a.cfg.Driver.Commit(ctx, prepared); if err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return AppliedState{}, err }
-	if !applied.Healthy || applied.SnapshotSHA256!=cmd.Snapshot.SnapshotSHA256 { _=a.cfg.Driver.Rollback(ctx, prepared); return AppliedState{}, ErrInvalidCommand }
-	return applied, a.storeMarker(ctx, cmd)
+	if err=verify(); err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, err }
+	applied, err := a.cfg.Driver.Commit(ctx, prepared); if err!=nil { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, err }
+	if !applied.Healthy || applied.SnapshotSHA256!=cmd.Snapshot.SnapshotSHA256 { _=a.cfg.Driver.Rollback(ctx, prepared); return DispatchResult{}, ErrInvalidCommand }
+	if err:=a.storeMarker(ctx,cmd);err!=nil{return DispatchResult{},err}
+	return dispatchResult(cmd),nil
+}
+
+func dispatchResult(cmd ApplyCommand) DispatchResult {
+	entries:=make([]AppliedEntry,0,len(cmd.Snapshot.Entries))
+	for _,entry:=range cmd.Snapshot.Entries {
+		entries=append(entries,AppliedEntry{
+			CustomerID:entry.CustomerID,
+			OperationID:entry.OperationID,
+			Generation:entry.Generation,
+			DesiredSHA256:entry.PayloadSHA256,
+			ObservedSHA256:entry.PayloadSHA256,
+		})
+	}
+	return DispatchResult{SnapshotSHA256:cmd.Snapshot.SnapshotSHA256,Entries:entries}
 }
 
 func (a *Agent) storeMarker(ctx context.Context, cmd ApplyCommand) error {

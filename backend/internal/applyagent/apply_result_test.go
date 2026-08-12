@@ -41,6 +41,9 @@ func TestHTTPApplyReturnsPerEntryAppliedResult(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s, want 200", response.Code, response.Body.String())
 	}
+	if body:=response.Body.String();!strings.Contains(body,`"snapshot_sha256"`)||strings.Contains(body,`"SnapshotSHA256"`){
+		t.Fatalf("non-canonical JSON response: %s",body)
+	}
 	var result DispatchResult
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)

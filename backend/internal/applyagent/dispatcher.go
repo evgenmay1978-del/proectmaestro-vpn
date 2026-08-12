@@ -14,8 +14,17 @@ type Trigger struct { Target Target; OperationID string }
 type LeaseProof struct { ClusterEpoch, NodeIncarnation, LeaseFence int64; HolderID string }
 type SnapshotSource interface { CompleteSnapshot(context.Context, Target, string) (DesiredSnapshot, error) }
 type LeaseProvider interface { Acquire(context.Context, Target, string) (LeaseProof, error) }
-type AppliedEntry struct { CustomerID, OperationID string; Generation int64; DesiredSHA256, ObservedSHA256 string }
-type DispatchResult struct { SnapshotSHA256 string; Entries []AppliedEntry }
+type AppliedEntry struct {
+	CustomerID     string `json:"customer_id"`
+	OperationID    string `json:"operation_id"`
+	Generation     int64  `json:"generation"`
+	DesiredSHA256  string `json:"desired_sha256"`
+	ObservedSHA256 string `json:"observed_sha256"`
+}
+type DispatchResult struct {
+	SnapshotSHA256 string         `json:"snapshot_sha256"`
+	Entries        []AppliedEntry `json:"entries"`
+}
 type CommandSender interface { Send(context.Context, Target, SignedCommand) (DispatchResult,error) }
 type ReceiptSink interface { CommitApplied(context.Context, Target, LeaseProof, DesiredSnapshot, DispatchResult) error }
 type DispatcherConfig struct { Source SnapshotSource; Leases LeaseProvider; Sender CommandSender; Receipts ReceiptSink; KeyID string; PrivateKey ed25519.PrivateKey; Clock func() time.Time }
