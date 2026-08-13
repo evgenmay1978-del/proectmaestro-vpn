@@ -8,13 +8,17 @@ OLC_LIB="${MAESTRO_OLCRTC_LIB:-/usr/local/libexec/maestro-olcrtc-ssh-config.sh}"
 # shellcheck disable=SC1090
 . "$OLC_LIB"
 
-raw=$(olc_ssh "set -eu; : '# maestro-phase=health'; for f in /opt/olcrtc/rooms/*.yaml; do [ -f \"\$f\" ] || continue; lg=\$(basename \"\$f\" .yaml); case \"\$lg\" in *[!A-Za-z0-9._-]*|'') continue;; esac; unit=\"olcrtc-srv@\$lg\"; active=\$(systemctl is-active \"\$unit\" 2>/dev/null || true); [ -n \"\$active\" ] || active=unknown; start=\$(systemctl show -p ExecMainStartTimestamp --value \"\$unit\" 2>/dev/null || true); joined=0; if [ -n \"\$start\" ] && journalctl -u \"\$unit\" --since \"\$start\" --no-pager 2>/dev/null | grep -qE 'Link connected|KCP started'; then joined=1; fi; printf '%s %s %s\n' \"\$lg\" \"\$active\" \"\$joined\"; done" 2>/dev/null) || raw=""
+PROBE_OK=1
+raw=$(olc_ssh "set -eu; : '# maestro-phase=health'; for f in /opt/olcrtc/rooms/*.yaml; do [ -f \"\$f\" ] || continue; lg=\$(basename \"\$f\" .yaml); case \"\$lg\" in *[!A-Za-z0-9._-]*|'') continue;; esac; unit=\"olcrtc-srv@\$lg\"; active=\$(systemctl is-active \"\$unit\" 2>/dev/null || true); [ -n \"\$active\" ] || active=unknown; start=\$(systemctl show -p ExecMainStartTimestamp --value \"\$unit\" 2>/dev/null || true); joined=0; if [ -n \"\$start\" ] && journalctl -u \"\$unit\" --since \"\$start\" --no-pager 2>/dev/null | grep -qE 'Link connected|KCP started'; then joined=1; fi; printf '%s %s %s\n' \"\$lg\" \"\$active\" \"\$joined\"; done" 2>/dev/null) || {
+	raw=""
+	PROBE_OK=0
+}
 
 RAW_FILE=$(mktemp "${TMPDIR:-/tmp}/maestro-olc-health.XXXXXX")
 trap 'rm -f "$RAW_FILE"' EXIT HUP INT TERM
 printf '%s\n' "$raw" > "$RAW_FILE"
 CHECKED=$(date -u +%s)
-export CHECKED
+export CHECKED PROBE_OK
 python3 - "$OLC_HEALTH_FILE" "$RAW_FILE" <<'PY'
 import json
 import os
@@ -41,7 +45,13 @@ with open(raw_path, encoding="utf-8") as source:
             "joined": joined,
             "healthy": active == "active" and joined,
         }
-payload = {"checked": int(os.environ["CHECKED"]), "exits": exits}
+probe_ok = os.environ["PROBE_OK"] == "1"
+payload = {
+    "checked": int(os.environ["CHECKED"]),
+    "probe_ok": probe_ok,
+    "error": "" if probe_ok else "ssh_unavailable",
+    "exits": exits,
+}
 fd, temporary = tempfile.mkstemp(prefix=".olcrtc-health.", dir=directory)
 try:
     os.fchmod(fd, 0o600)

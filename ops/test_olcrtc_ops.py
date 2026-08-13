@@ -68,7 +68,7 @@ done
 case "$phase" in
   stage|restart|verify|rollback|commit)
     case " $* " in
-      *"/run/maestro-olcrtc-owner.lock"*) ;;
+      *"/run/maestro-olcrtc-owner.lock"*|*"/run/maestro-olcrtc-global.lock"*) ;;
       *) printf 'ssh:unsafe-lock:%s\n' "$phase" >> "$FAKE_CALLS" ;;
     esac
     ;;
@@ -263,6 +263,18 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         self.assertNotIn("secret-wb-marker", combined)
         self.assertNotIn("test-admin-token", combined)
 
+    def test_health_marks_ssh_probe_failure(self):
+        result = subprocess.run(
+            ["sh", str(HEALTH)], cwd=ROOT,
+            env=self.env(FAKE_SSH_FAIL_PHASE="health"), text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        snapshot = json.loads(self.health.read_text(encoding="utf-8"))
+        self.assertFalse(snapshot["probe_ok"])
+        self.assertEqual(snapshot["error"], "ssh_unavailable")
+        self.assertEqual(snapshot["exits"], {})
+
     def test_health_uses_strict_ssh_and_atomic_snapshot(self):
         result = subprocess.run(
             ["sh", str(HEALTH)], cwd=ROOT, env=self.env(), text=True,
@@ -270,6 +282,8 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         )
         self.assertEqual(result.returncode, 0, result.stdout)
         snapshot = json.loads(self.health.read_text(encoding="utf-8"))
+        self.assertTrue(snapshot["probe_ok"])
+        self.assertEqual(snapshot["error"], "")
         self.assertTrue(snapshot["exits"]["owner"]["healthy"])
         self.assertEqual(self.call_lines(), ["ssh:strict:health"])
         self.assertEqual(stat.S_IMODE(self.health.stat().st_mode) & 0o077, 0)

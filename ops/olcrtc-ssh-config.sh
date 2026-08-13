@@ -1,24 +1,25 @@
 #!/bin/sh
-# Shared strict S1 -> S3 SSH boundary for olcRTC operations.
-# Production configuration is root-owned /etc/maestro-olcrtc.env.
+# Shared strict S1 -> S3 SSH and local-secret boundary for olcRTC operations.
 set -eu
 
 OLC_ENV_FILE="${MAESTRO_OLCRTC_ENV_FILE:-/etc/maestro-olcrtc.env}"
-[ -r "$OLC_ENV_FILE" ] || { echo "olcRTC SSH configuration is unavailable" >&2; exit 1; }
 
-# The file is administrator-controlled shell syntax. Refuse group/world-writable input.
-if command -v stat >/dev/null 2>&1; then
-	mode=$(stat -c '%a' "$OLC_ENV_FILE" 2>/dev/null || stat -f '%Lp' "$OLC_ENV_FILE" 2>/dev/null || echo "")
-	case "$mode" in
-		""|*[!0-7]*) echo "cannot verify olcRTC SSH configuration permissions" >&2; exit 1 ;;
-	esac
+olc_secure_file() {
+	path="$1"
+	label="$2"
+	[ -f "$path" ] || { echo "$label is unavailable" >&2; return 1; }
+	command -v stat >/dev/null 2>&1 || { echo "cannot verify $label metadata" >&2; return 1; }
+	uid=$(stat -c '%u' "$path" 2>/dev/null || stat -f '%u' "$path" 2>/dev/null || echo "")
+	mode=$(stat -c '%a' "$path" 2>/dev/null || stat -f '%Lp' "$path" 2>/dev/null || echo "")
+	euid=$(id -u)
+	case "$uid" in ""|*[!0-9]*) echo "cannot verify $label owner" >&2; return 1;; esac
+	case "$mode" in ""|*[!0-7]*) echo "cannot verify $label permissions" >&2; return 1;; esac
+	[ "$uid" = "$euid" ] || { echo "$label owner is unsafe" >&2; return 1; }
 	permissions=$((0$mode))
-	if [ $((permissions & 022)) -ne 0 ]; then
-		echo "olcRTC SSH configuration permissions are unsafe" >&2
-		exit 1
-	fi
-fi
+	[ $((permissions & 022)) -eq 0 ] || { echo "$label permissions are unsafe" >&2; return 1; }
+}
 
+olc_secure_file "$OLC_ENV_FILE" "olcRTC SSH configuration"
 # shellcheck disable=SC1090
 . "$OLC_ENV_FILE"
 
@@ -33,20 +34,37 @@ fi
 
 case "$S3_HOST" in *[!A-Za-z0-9._:-]*|"") echo "invalid S3_HOST" >&2; exit 1;; esac
 case "$S3_USER" in *[!A-Za-z0-9._-]*|"") echo "invalid S3_USER" >&2; exit 1;; esac
-case "$PANEL_URL" in http://127.0.0.1:*|http://localhost:*) ;; *) echo "PANEL_URL must be loopback HTTP" >&2; exit 1;; esac
 
-[ -r "$S3_IDENTITY_FILE" ] || { echo "S3 identity file is unavailable" >&2; exit 1; }
-[ -r "$S3_KNOWN_HOSTS_FILE" ] || { echo "S3 known-hosts file is unavailable" >&2; exit 1; }
-[ -r "$PANEL_ENV_FILE" ] || { echo "panel environment file is unavailable" >&2; exit 1; }
+python3 - "$PANEL_URL" <<'PY'
+import sys
+from urllib.parse import urlsplit
+url = urlsplit(sys.argv[1])
+if (
+    url.scheme != "http"
+    or url.hostname not in {"127.0.0.1", "localhost"}
+    or url.username is not None
+    or url.password is not None
+    or url.query
+    or url.fragment
+    or url.path not in {"", "/"}
+    or url.port is None
+):
+    raise SystemExit("PANEL_URL must be plain loopback HTTP with an explicit port")
+PY
+
+olc_secure_file "$S3_IDENTITY_FILE" "S3 identity file"
+olc_secure_file "$S3_KNOWN_HOSTS_FILE" "S3 known-hosts file"
+olc_secure_file "$PANEL_ENV_FILE" "panel environment file"
 
 SSH_TARGET="$S3_USER@$S3_HOST"
 
 olc_ssh() {
-	ssh 		-i "$S3_IDENTITY_FILE" 		-o BatchMode=yes 		-o IdentitiesOnly=yes 		-o StrictHostKeyChecking=yes 		-o "UserKnownHostsFile=$S3_KNOWN_HOSTS_FILE" 		-o ConnectTimeout=8 		"$SSH_TARGET" "$@"
-}
-
-olc_panel_token() {
-	sed -n 's/^MAESTRO_ADMIN_TOKEN=//p' "$PANEL_ENV_FILE" |
-		head -n 1 |
-		sed 's/^"//;s/"$//'
+	ssh \
+		-i "$S3_IDENTITY_FILE" \
+		-o BatchMode=yes \
+		-o IdentitiesOnly=yes \
+		-o StrictHostKeyChecking=yes \
+		-o "UserKnownHostsFile=$S3_KNOWN_HOSTS_FILE" \
+		-o ConnectTimeout=8 \
+		"$SSH_TARGET" "$@"
 }
