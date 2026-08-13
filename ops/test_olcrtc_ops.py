@@ -87,7 +87,7 @@ if [ "$phase" = verify ]; then
 fi
 if [ "$phase" = rollback ]; then
   case " $* " in
-    *'! -d "$lock"'*) ;;
+    *'! -d "$lock"'*|*'[ -d "$lock" ] || exit 0'*) ;;
     *) printf 'ssh:unsafe-rollback\n' >> "$FAKE_CALLS" ;;
   esac
 fi
