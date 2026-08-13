@@ -1,39 +1,62 @@
 #!/bin/sh
-# Probe each per-login olcRTC exit on S3 and write a health snapshot the web panel reads, so a
-# DEAD exit shows red instead of the panel silently emitting creds that point at a room no srv is
-# in. "Healthy" is stricter than is-active: the unit must be active AND have JOINED its Telemost
-# room since its last (re)start (a "Link connected"/"KCP started" line) — so a running-but-can't-
-# join srv (bad/expired room) is red, not green. Run by maestro-olcrtc-health.timer (~60s) on S1.
+# Strict S1 probe for per-login olcRTC exits on S3.
 set -eu
-S3="${S3_HOST:-46.30.42.151}"
-OUT="${OLC_HEALTH_FILE:-/var/lib/maestro/olcrtc-health.json}"
+umask 077
 
-# One SSH round-trip: emit "<login> <active> <joined 0|1>" per per-login srv (rooms/*.yaml on S3).
-raw=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 "root@$S3" '
-  for f in /opt/olcrtc/rooms/*.yaml; do
-    [ -f "$f" ] || continue
-    lg=$(basename "$f" .yaml)
-    unit="olcrtc-srv@$lg"
-    active=$(systemctl is-active "$unit" 2>/dev/null); [ -n "$active" ] || active=unknown
-    start=$(systemctl show -p ExecMainStartTimestamp --value "$unit" 2>/dev/null)
-    joined=0
-    if [ -n "$start" ] && journalctl -u "$unit" --since "$start" --no-pager 2>/dev/null | grep -qE "Link connected|KCP started"; then
-      joined=1
-    fi
-    echo "$lg $active $joined"
-  done
-' 2>/dev/null) || raw=""
+OLC_LIB="${MAESTRO_OLCRTC_LIB:-/usr/local/libexec/maestro-olcrtc-ssh-config.sh}"
+[ -r "$OLC_LIB" ] || { echo "olcRTC SSH helper is unavailable" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$OLC_LIB"
 
-# Build the JSON on S1 (robust) + stamp the check time. An SSH failure → empty {} (panel shows
-# "unknown" rather than stale green). Keys: login → {active, joined, healthy}.
-printf '%s' "$raw" | TS="$(date -u +%s)" python3 -c '
-import json, os, sys
-out = {}
-for line in sys.stdin:
-    p = line.split()
-    if len(p) != 3:
-        continue
-    lg, active, joined = p[0], p[1], p[2] == "1"
-    out[lg] = {"active": active, "joined": joined, "healthy": active == "active" and joined}
-print(json.dumps({"checked": int(os.environ["TS"]), "exits": out}))
-' > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+raw=$(olc_ssh "set -eu; : '# maestro-phase=health'; for f in /opt/olcrtc/rooms/*.yaml; do [ -f \"\$f\" ] || continue; lg=\$(basename \"\$f\" .yaml); case \"\$lg\" in *[!A-Za-z0-9._-]*|'') continue;; esac; unit=\"olcrtc-srv@\$lg\"; active=\$(systemctl is-active \"\$unit\" 2>/dev/null || true); [ -n \"\$active\" ] || active=unknown; start=\$(systemctl show -p ExecMainStartTimestamp --value \"\$unit\" 2>/dev/null || true); joined=0; if [ -n \"\$start\" ] && journalctl -u \"\$unit\" --since \"\$start\" --no-pager 2>/dev/null | grep -qE 'Link connected|KCP started'; then joined=1; fi; printf '%s %s %s\n' \"\$lg\" \"\$active\" \"\$joined\"; done" 2>/dev/null) || raw=""
+
+RAW_FILE=$(mktemp "${TMPDIR:-/tmp}/maestro-olc-health.XXXXXX")
+trap 'rm -f "$RAW_FILE"' EXIT HUP INT TERM
+printf '%s\n' "$raw" > "$RAW_FILE"
+CHECKED=$(date -u +%s)
+export CHECKED
+python3 - "$OLC_HEALTH_FILE" "$RAW_FILE" <<'PY'
+import json
+import os
+import re
+import sys
+import tempfile
+
+destination = os.path.abspath(sys.argv[1])
+raw_path = sys.argv[2]
+directory = os.path.dirname(destination)
+os.makedirs(directory, mode=0o700, exist_ok=True)
+exits = {}
+with open(raw_path, encoding="utf-8") as source:
+    for line in source:
+        fields = line.split()
+        if len(fields) != 3:
+            continue
+        login, active, joined_raw = fields
+        if re.fullmatch(r"[A-Za-z0-9._-]+", login) is None:
+            continue
+        joined = joined_raw == "1"
+        exits[login] = {
+            "active": active,
+            "joined": joined,
+            "healthy": active == "active" and joined,
+        }
+payload = {"checked": int(os.environ["CHECKED"]), "exits": exits}
+fd, temporary = tempfile.mkstemp(prefix=".olcrtc-health.", dir=directory)
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(payload, stream, separators=(",", ":"))
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, destination)
+    directory_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
