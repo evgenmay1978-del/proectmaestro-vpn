@@ -16,7 +16,7 @@ class PhoneHomeProtocolOrderTest {
 
         assertEquals(
             listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "awg", "olcrtc"),
-            orderedHomeProtocols(backend),
+            orderedHomeProtocols(backend, includeOwnerProtocols = true),
         )
     }
 
@@ -24,7 +24,7 @@ class PhoneHomeProtocolOrderTest {
     fun wdttKeepsItsSectorBetweenNaiveproxyAndWebrtc() {
         val backend = listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn")
 
-        val ordered = orderedHomeProtocols(backend)
+        val ordered = orderedHomeProtocols(backend, includeOwnerProtocols = true)
 
         assertEquals(
             listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "awg", "olcrtc"),
@@ -43,13 +43,13 @@ class PhoneHomeProtocolOrderTest {
     fun emptyRuntimeListKeepsEveryOwnerApprovedArcLabel() {
         assertEquals(
             listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "awg", "olcrtc"),
-            orderedHomeProtocols(emptyList()),
+            orderedHomeProtocols(emptyList(), includeOwnerProtocols = true),
         )
     }
 
     @Test
     fun unknownBackendTagsSurviveAfterTheKnownOnes() {
-        val ordered = orderedHomeProtocols(listOf("trojan", "auto", "shadowsocks"))
+        val ordered = orderedHomeProtocols(listOf("trojan", "auto", "shadowsocks"), includeOwnerProtocols = true)
 
         assertEquals(listOf("auto", "trojan", "shadowsocks", "vk-turn", "awg", "olcrtc"), ordered)
     }
@@ -101,6 +101,27 @@ class PhoneHomeProtocolOrderTest {
     }
 
     @Test
+    fun overflowProtocolsContinuePastTheSeventhCellInsteadOfBeingDropped() {
+        val cells = arcSectorCells(8)
+        val seventh = arcProtocolPlacement(6, cells)
+        val eighth = arcProtocolPlacement(7, cells)
+
+        assertEquals(7, cells.size)
+        assertEquals(0f, seventh?.horizontalOffsetDp ?: -1f, 0.01f)
+        assertEquals(52f, eighth?.horizontalOffsetDp ?: -1f, 0.01f)
+        assertEquals(cells.last(), eighth?.cell)
+    }
+
+    @Test
+    fun ordinaryAccountsDoNotGetPrivateOwnerProtocolsFromAnEmptySelector() {
+        val ordered = orderedHomeProtocols(emptyList())
+
+        assertTrue("vk-turn leaked to an ordinary account", "vk-turn" !in ordered)
+        assertTrue("awg leaked to an ordinary account", "awg" !in ordered)
+        assertTrue("olcrtc teaser must remain available", "olcrtc" in ordered)
+    }
+
+    @Test
     fun fewerProtocolsFillTheCentralCellsNotTheLeftEdge() {
         // Веер симметричен: сдвиг ряда влево оставил бы пустую резьбу сбоку, и это
         // читается как брак сборки, а не как «протоколов меньше».
@@ -118,7 +139,8 @@ class PhoneHomeProtocolOrderTest {
         assertEquals("WEBRTC", homeProtocolLabel("olcrtc"))
         assertEquals("olcRTC", protocolLabel("olcrtc"))
         assertTrue("olcrtc" in orderedHomeProtocols(listOf("auto")))
-        assertTrue("vk-turn" in orderedHomeProtocols(listOf("auto")))
-        assertTrue("awg" in orderedHomeProtocols(listOf("auto")))
+        val ownerProtocols = orderedHomeProtocols(listOf("auto"), includeOwnerProtocols = true)
+        assertTrue("vk-turn" in ownerProtocols)
+        assertTrue("awg" in ownerProtocols)
     }
 }
