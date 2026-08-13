@@ -190,7 +190,7 @@ func TestPanelVKTurnSaveMergeToggleAndCSRF(t *testing.T) {
 		}}
 	}
 	resp := panelPost(t, srv, "api/vkturn", cookie, csrf, map[string]any{
-		"min_version_code": 90200, "server": "newhost:56000", "vk_hashes": []string{"fresh-hash"}, "clients": clients,
+		"min_version_code": 156, "server": "newhost:56000", "vk_hashes": []string{"fresh-hash"}, "clients": clients,
 	})
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -198,7 +198,7 @@ func TestPanelVKTurnSaveMergeToggleAndCSRF(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	got := vkStore.Get()
-	if got.Server != "newhost:56000" || got.VKHashes[0] != "fresh-hash" || got.MinVersionCode != 90200 {
+	if got.Server != "newhost:56000" || got.VKHashes[0] != "fresh-hash" || got.MinVersionCode != 156 {
 		t.Fatalf("save did not apply public fields: %+v", got)
 	}
 	if got.Clients["wapmix"].Password != "pass-wapmix" || got.Clients["wapmix"].WG.PrivateKey != vkTurnTestKey {
@@ -228,6 +228,22 @@ func TestPanelVKTurnSaveMergeToggleAndCSRF(t *testing.T) {
 	_ = r3.Body.Close()
 	if r3.StatusCode != http.StatusForbidden {
 		t.Fatalf("missing CSRF must be 403, got %d", r3.StatusCode)
+	}
+}
+
+
+func TestPanelVKTurnRejectsCanaryVersionCodeAndKeepsPrevious(t *testing.T) {
+	srv, vkStore := newPanelVKTurnServer(t, validVKTurnConfig())
+	defer srv.Close()
+	cookie, csrf := panelLogin(t, srv)
+
+	resp := panelPost(t, srv, "api/vkturn", cookie, csrf, map[string]any{"min_version_code": 90181})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("canary versionCode must be rejected by the production panel, got %d", resp.StatusCode)
+	}
+	if got := vkStore.Get().MinVersionCode; got != 200 {
+		t.Fatalf("rejected canary versionCode clobbered the live config: got %d want 200", got)
 	}
 }
 

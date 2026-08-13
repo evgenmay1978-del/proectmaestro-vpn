@@ -200,7 +200,7 @@ function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…
  var h='<div class="toolbar" style="margin:8px 0"><b>WDTT / VK-TURN</b> '+badge+'<span class="sp"></span>'+
    (configured?'<button class="btn '+(enabled?'dng':'pri')+'" id="w_toggle">'+(enabled?'Выключить':'Включить')+'</button>':'')+'</div>'+
    '<p class="mut">Мобильный обходной транспорт (WireGuard поверх VK-TURN). Только для '+esc(logins.join(', '))+'. Секреты не показываются — оставь поле пустым, чтобы не менять.</p>'+
-   '<div class="field"><label>Мин. версия</label><input id="w_mvc" type="number" value="'+esc(o.min_version_code||'')+'" style="width:130px" placeholder="напр. 90181"></div>'+
+   '<div class="field"><label>Мин. versionCode APK</label><input id="w_mvc" type="number" value="'+esc(o.min_version_code||'')+'" style="width:170px" placeholder="напр. 156 (не 90xxx)"></div>'+
    '<div class="field"><label>Сервер</label><input id="w_server" value="'+esc(o.server||'')+'" placeholder="host:port (DTLS, напр. 56000)" style="min-width:260px"></div>'+
    '<div class="field"><label>VK-хеши</label><input id="w_hashes" value="'+esc((o.vk_hashes||[]).join(', '))+'" placeholder="хеш1, хеш2 (1..4, через запятую)" style="flex:1;min-width:280px"></div>';
  logins.forEach(function(lg){var c=clients[lg]||{};var wg=c.wg||{};
@@ -215,9 +215,11 @@ function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…
  el('body').innerHTML=h;
  if(el('w_toggle'))el('w_toggle').onclick=function(){post('api/vkturn/enabled',{enabled:!enabled}).then(function(){toast(enabled?'WDTT выключен':'WDTT включён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});};
  el('w_save').onclick=function(){
+   var mvc=+el('w_mvc').value||0;
+   if(mvc>=90000){toast('Укажи production versionCode APK, например 156. Тестовые 90xxx запрещены.');return;}
    var hashes=el('w_hashes').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
    var cl={};logins.forEach(function(lg){cl[lg]={password:el('w_pw_'+lg).value,wg:{private_key:el('w_pk_'+lg).value,peer_public_key:el('w_pub_'+lg).value.trim(),local_address:el('w_addr_'+lg).value.trim()}};});
-   post('api/vkturn',{min_version_code:+el('w_mvc').value||0,server:el('w_server').value.trim(),vk_hashes:hashes,clients:cl}).then(function(){toast('WDTT сохранён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});
+   post('api/vkturn',{min_version_code:mvc,server:el('w_server').value.trim(),vk_hashes:hashes,clients:cl}).then(function(){toast('WDTT сохранён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});
  };
 }).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
 
