@@ -1,177 +1,162 @@
 #!/bin/sh
-# Assign / swap an olcRTC carrier (Yandex Telemost) room from ONE command — run on S1.
-#
-#   ops/olcrtc-room.sh <login> "https://telemost.yandex.ru/j/<id>"   # PER-LOGIN room + exit (isolation)
-#   ops/olcrtc-room.sh "https://telemost.yandex.ru/j/<id>"           # GLOBAL fallback room (back-compat)
-#
-# PER-LOGIN (the family-isolation path): each family login (wapmix/wapmixx/wapmix2/…) gets its OWN
-# Telemost room + its OWN exit on S3, so two members never share a room+srv → no cross-latch. This:
-#   1. reuses that login's existing shared key (or mints a fresh 64-hex one the FIRST time) so a
-#      room-only swap never desyncs the srv;
-#   2. POSTs the login's {room,key} to the panel (POST /admin/olcrtc/room) → that login's /sub +
-#      /info serve its OWN room on the next poll (≤15 min);
-#   3. writes /opt/olcrtc/rooms/<login>.yaml on S3 and (re)starts olcrtc-srv@<login> → that login's
-#      exit joins the room. The GLOBAL olcrtc-srv is left untouched as the fallback for logins with
-#      no dedicated room.
-#
-# A Telemost room can expire; when it does, create a fresh one in the Yandex UI and re-run this with
-# the SAME login and the new URL — the key is preserved, only the room moves.
-#
-# ⛔ Reads MAESTRO_ADMIN_TOKEN from /etc/maestro-panel.env. SSHes root@S3 to update that login's srv.
+# Transactionally activate one per-login olcRTC exit on S3, then publish it to the panel.
 set -eu
+umask 077
 
 usage() {
-	echo "usage: $0 <login> <room> [telemost|wbstream] [newkey]   # per-login (isolation)"
-	echo "       $0 <telemost-room-url>                           # global fallback room"
-	echo "   telemost/jitsi room = http(s) URL ; wbstream room = bare id (UUID)"
+	echo "usage: $0 <login> <room> [telemost|wbstream] [newkey]" >&2
 	exit 1
 }
 
-LOGIN=""
-ROOM=""
-NEWKEY=0
+[ "$#" -ge 2 ] || usage
+LOGIN="$1"
+ROOM="$2"
+shift 2
 PROVIDER=telemost
-# Positional: <login> <room> [provider] [newkey]  (or <room> for the global telemost swap).
-# provider ∈ {telemost, wbstream}; newkey forces a fresh per-login key.
-if [ $# -eq 1 ]; then
-	ROOM="$1"
-else
-	LOGIN="$1"; ROOM="$2"; shift 2
-	for a in "$@"; do
-		case "$a" in
-			telemost|wbstream) PROVIDER="$a" ;;
-			newkey) NEWKEY=1 ;;
-			*) usage ;;
-		esac
-	done
-fi
-[ -n "$ROOM" ] || usage
-# Room shape per carrier: wbstream = bare room id (UUID); everything else = http(s) URL.
+NEWKEY=0
+for arg in "$@"; do
+	case "$arg" in
+		telemost|wbstream) PROVIDER="$arg" ;;
+		newkey) NEWKEY=1 ;;
+		*) usage ;;
+	esac
+done
+
+case "$LOGIN" in *[!A-Za-z0-9._-]*|"") echo "invalid login" >&2; exit 1;; esac
 if [ "$PROVIDER" = wbstream ]; then
-	case "$ROOM" in
-		*[!A-Za-z0-9._~-]* | "") echo "wbstream room must be a bare id (A-Za-z0-9._~-)"; exit 1 ;;
-	esac
-	[ -n "$LOGIN" ] || { echo "wbstream is per-login only (needs a <login>)"; exit 1; }
+	case "$ROOM" in *[!A-Za-z0-9._~-]*|"") echo "invalid wbstream room" >&2; exit 1;; esac
 else
-	case "$ROOM" in
-		https://* | http://*) ;;
-		*) echo "room must be an http(s) URL"; exit 1 ;;
+	case "$ROOM" in http://*|https://*) ;;
+		*) echo "invalid Telemost room" >&2; exit 1 ;;
 	esac
-fi
-# Guard the login against shell/YAML/systemd-instance injection (same charset the panel accepts).
-if [ -n "$LOGIN" ]; then
-	case "$LOGIN" in
-		*[!A-Za-z0-9._-]*) echo "login has illegal chars (allowed: A-Za-z0-9._-)"; exit 1 ;;
-	esac
+	case "$ROOM" in *'
+'*|*'
+'*) echo "invalid room" >&2; exit 1;; esac
 fi
 
-PANEL=http://127.0.0.1:8910
-S3=46.30.42.151
-# Parse the token from the systemd EnvironmentFile (KEY=VALUE — not always valid shell to source).
-TOKEN=$(grep -E '^MAESTRO_ADMIN_TOKEN=' /etc/maestro-panel.env | head -1 | cut -d= -f2- | sed 's/^"//;s/"$//')
-[ -n "$TOKEN" ] || { echo "MAESTRO_ADMIN_TOKEN not in /etc/maestro-panel.env"; exit 1; }
+OLC_LIB="${MAESTRO_OLCRTC_LIB:-/usr/local/libexec/maestro-olcrtc-ssh-config.sh}"
+[ -r "$OLC_LIB" ] || { echo "olcRTC SSH helper is unavailable" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$OLC_LIB"
 
-# ── GLOBAL room swap (no login) — the original one-room behaviour ─────────────────────────────────
-if [ -z "$LOGIN" ]; then
-	echo "→ 1/3 panel GLOBAL olcRTC room (fallback logins update via /info)"
-	HTTP=$(curl -s -o /tmp/olc-room.out -w '%{http_code}' -X POST "$PANEL/admin/olcrtc/room" \
-		-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "{\"room\":\"$ROOM\"}")
-	[ "$HTTP" = 200 ] || { echo "  ❌ panel update failed (HTTP $HTTP)"; exit 1; }
-	echo "  ✅ panel updated: $(sed 's/"key":"[0-9a-fA-F]*"/"key":"<redacted>"/g' /tmp/olc-room.out)"
+TMP_ROOT="${TMPDIR:-/tmp}"
+WORK=$(mktemp -d "$TMP_ROOT/maestro-olcrtc.XXXXXX")
+CURRENT="$WORK/current.json"
+YAML="$WORK/room.yaml"
+PAYLOAD="$WORK/payload.json"
+CURLCFG="$WORK/curl.cfg"
+OUT="$WORK/panel.out"
+TXN=$(openssl rand -hex 8)
+case "$TXN" in *[!0-9a-f]*|"") echo "cannot create transaction id" >&2; exit 1;; esac
+STAGED=0
 
-	echo "→ 2/3 S3 GLOBAL srv server.yaml + restart"
-	ssh -o StrictHostKeyChecking=no "root@$S3" "
-		set -e
-		test -f /opt/olcrtc/server.yaml
-		sed -i 's#^  id: .*#  id: \"$ROOM\"#' /opt/olcrtc/server.yaml
-		grep -q '$ROOM' /opt/olcrtc/server.yaml || { echo 'sed missed the room line'; exit 1; }
-		systemctl restart olcrtc-srv
-		sleep 8
-		systemctl is-active olcrtc-srv
-	"
-	echo "→ 3/3 verify S3 rejoined"
-	ssh -o StrictHostKeyChecking=no "root@$S3" "journalctl -u olcrtc-srv -n 12 --no-pager | grep -E 'KCP started|Link connected|peers count' || echo '  (no join line yet — check journalctl -u olcrtc-srv)'"
-	echo "✅ global room swapped. Clients pick it up on next /info poll (≤15 min)."
-	exit 0
-fi
+remote_rollback() {
+	olc_ssh "set -eu; : '# maestro-phase=rollback'; lock='/run/maestro-olcrtc-$LOGIN-$TXN'; dest='/opt/olcrtc/rooms/$LOGIN.yaml'; if [ -f \"\$lock/previous.yaml\" ]; then mv -f \"\$lock/previous.yaml\" \"\$dest\"; else rm -f \"\$dest\"; fi; prev=inactive; [ ! -f \"\$lock/previous-active\" ] || prev=\$(cat \"\$lock/previous-active\"); if [ \"\$prev\" = active ]; then systemctl restart 'olcrtc-srv@$LOGIN'; else systemctl stop 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; fi; rm -rf \"\$lock\""
+}
 
-# ── PER-LOGIN room+exit (family isolation) ────────────────────────────────────────────────────────
-echo "→ 1/4 resolve $LOGIN's key (its OWN per-login key; mint one the first time / on 'newkey')"
-curl -s -o /tmp/olc-get.out -H "Authorization: Bearer $TOKEN" "$PANEL/admin/olcrtc" >/dev/null || true
-# Read ONLY this login's dedicated key (NOT the global one) so every family login is isolated by
-# BOTH a distinct room AND a distinct key — the global key/room stay the fallback for wapmix/others.
-KEY=$(python3 -c "import json
+cleanup() {
+	code=$?
+	trap - EXIT HUP INT TERM
+	if [ "$STAGED" = 1 ]; then remote_rollback >/dev/null 2>&1 || true; fi
+	rm -rf "$WORK"
+	exit "$code"
+}
+trap cleanup EXIT HUP INT TERM
+
+# Prove the remote boundary before reading or minting credentials.
+olc_ssh "set -eu; : '# maestro-phase=preflight'; test -d /opt/olcrtc; test -d /opt/olcrtc/rooms; test -x /opt/olcrtc/olcrtc; systemctl cat 'olcrtc-srv@.service' >/dev/null"
+
+TOKEN=$(olc_panel_token)
+[ -n "$TOKEN" ] || { echo "panel credential is unavailable" >&2; exit 1; }
+case "$TOKEN" in *'
+'*|*'
+'*|*'"'*) echo "panel credential format is invalid" >&2; exit 1;; esac
+python3 - "$CURLCFG" "$TOKEN" <<'PY'
+import os, sys
+path, token = sys.argv[1], sys.argv[2]
+with open(path, "w", encoding="utf-8") as f:
+    f.write('header = "Authorization: Bearer ' + token + '"\n')
+os.chmod(path, 0o600)
+PY
+curl -sS --fail --config "$CURLCFG" "$PANEL_URL/admin/olcrtc" > "$CURRENT"
+
+KEY=$(LOGIN="$LOGIN" python3 - "$CURRENT" <<'PY'
+import json, os, sys
 try:
-    d=json.load(open('/tmp/olc-get.out'))
-    print(((d.get('rooms') or {}).get('$LOGIN') or {}).get('key',''))
+    with open(sys.argv[1], encoding="utf-8") as f:
+        data = json.load(f)
+    print(((data.get("rooms") or {}).get(os.environ["LOGIN"]) or {}).get("key", ""))
 except Exception:
-    print('')")
-if [ "$NEWKEY" = 1 ] || [ -z "$KEY" ]; then
-	KEY=$(openssl rand -hex 32)
-	echo "  minted a fresh 64-hex key for $LOGIN"
-else
-	echo "  reusing $LOGIN's existing per-login key"
-fi
-# Validate KEY is 64 hex (defence-in-depth before it lands in YAML on S3).
-case "$KEY" in
-	*[!0-9a-fA-F]* | "") echo "  ❌ bad key"; exit 1 ;;
-esac
-[ "${#KEY}" -eq 64 ] || { echo "  ❌ key must be 64 hex chars (got ${#KEY})"; exit 1; }
+    print("")
+PY
+)
+if [ "$NEWKEY" = 1 ] || [ -z "$KEY" ]; then KEY=$(openssl rand -hex 32); fi
+case "$KEY" in *[!0-9a-fA-F]*|"") echo "invalid room key" >&2; exit 1;; esac
+[ "${#KEY}" -eq 64 ] || { echo "invalid room key length" >&2; exit 1; }
 
-echo "→ 2/4 panel per-login room for $LOGIN (provider=$PROVIDER; its /sub + /info serve THIS room)"
-HTTP=$(curl -s -o /tmp/olc-room.out -w '%{http_code}' -X POST "$PANEL/admin/olcrtc/room" \
-	-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-	-d "{\"login\":\"$LOGIN\",\"room\":\"$ROOM\",\"key\":\"$KEY\",\"provider\":\"$PROVIDER\"}")
-[ "$HTTP" = 200 ] || { echo "  ❌ panel update failed (HTTP $HTTP)"; exit 1; }
-echo "  ✅ panel updated for $LOGIN (key redacted)"
-
-# Build the auth block for the S3 srv. wbstream must join AS THE ACCOUNT (else the room dies when
-# no owner is present) → embed the account token; telemost/jitsi join anonymously.
+WBTOK=""
 if [ "$PROVIDER" = wbstream ]; then
-	WBTOK=$(cat /var/lib/maestro/wb.token 2>/dev/null | tr -d '\r\n')
-	[ -n "$WBTOK" ] || { echo "  ❌ no wbstream account token at /var/lib/maestro/wb.token — set it in the panel first"; exit 1; }
-	AUTHBLOCK="auth:
-  provider: wbstream
-  token: \"$WBTOK\""
-else
-	AUTHBLOCK="auth:
-  provider: $PROVIDER"
+	[ -r "$WB_TOKEN_FILE" ] || { echo "wbstream credential is unavailable" >&2; exit 1; }
+	WBTOK=$(tr -d '\r\n' < "$WB_TOKEN_FILE")
+	case "$WBTOK" in *[!A-Za-z0-9._~-]*|"") echo "wbstream credential format is invalid" >&2; exit 1;; esac
 fi
 
-echo "→ 3/4 S3 exit olcrtc-srv@$LOGIN → rooms/$LOGIN.yaml + (re)start"
-ssh -o StrictHostKeyChecking=no "root@$S3" "
-	set -e
-	mkdir -p /opt/olcrtc/rooms /opt/olcrtc/data
-	umask 077
-	cat > /opt/olcrtc/rooms/$LOGIN.yaml <<YAML
-mode: srv
-$AUTHBLOCK
-room:
-  id: \"$ROOM\"
-crypto:
-  key: \"$KEY\"
-net:
-  transport: vp8channel
-  dns: \"8.8.8.8:53\"
-liveness:
-  interval: 10s
-  timeout: 5s
-  failures: 3
-socks:
-  host: \"127.0.0.1\"
-  port: 8808
-vp8:
-  fps: 30
-  batch_size: 64
-data: /opt/olcrtc/data
-YAML
-	grep -q '$ROOM' /opt/olcrtc/rooms/$LOGIN.yaml || { echo 'room not written'; exit 1; }
-	systemctl enable olcrtc-srv@$LOGIN >/dev/null 2>&1 || true
-	systemctl restart olcrtc-srv@$LOGIN
-	sleep 8
-	systemctl is-active olcrtc-srv@$LOGIN
-"
+LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" WBTOK="$WBTOK" python3 - "$YAML" <<'PY'
+import json, os, stat, sys
+q = json.dumps
+provider = os.environ["PROVIDER"]
+lines = [
+    "mode: srv",
+    "auth:",
+    "  provider: " + q(provider),
+]
+if provider == "wbstream":
+    lines.append("  token: " + q(os.environ["WBTOK"]))
+lines += [
+    "room:",
+    "  id: " + q(os.environ["ROOM"]),
+    "crypto:",
+    "  key: " + q(os.environ["KEY"]),
+    "net:",
+    '  transport: "vp8channel"',
+    '  dns: "8.8.8.8:53"',
+    "liveness:",
+    "  interval: 10s",
+    "  timeout: 5s",
+    "  failures: 3",
+    "socks:",
+    '  host: "127.0.0.1"',
+    "  port: 8808",
+    "vp8:",
+    "  fps: 30",
+    "  batch_size: 64",
+    "data: /opt/olcrtc/data",
+]
+path = sys.argv[1]
+with open(path, "w", encoding="utf-8") as f:
+    f.write("\n".join(lines) + "\n")
+os.chmod(path, 0o600)
+PY
 
-echo "→ 4/4 verify $LOGIN's exit joined its room"
-ssh -o StrictHostKeyChecking=no "root@$S3" "journalctl -u olcrtc-srv@$LOGIN -n 15 --no-pager | grep -E 'KCP started|Link connected|peers count' || echo '  (no join line yet — check journalctl -u olcrtc-srv@$LOGIN)'"
-echo "✅ $LOGIN isolated on its own room + exit. $LOGIN's device picks it up on next /info poll (≤15 min); re-select olcRTC to switch immediately."
+olc_ssh "set -eu; : '# maestro-phase=stage'; lock='/run/maestro-olcrtc-$LOGIN-$TXN'; dest='/opt/olcrtc/rooms/$LOGIN.yaml'; mkdir \"\$lock\"; if [ -f \"\$dest\" ]; then cp -p \"\$dest\" \"\$lock/previous.yaml\"; fi; systemctl is-active 'olcrtc-srv@$LOGIN' > \"\$lock/previous-active\" 2>/dev/null || printf 'inactive\n' > \"\$lock/previous-active\"; umask 077; cat > \"\$lock/candidate.yaml\"; grep -q '^mode: srv$' \"\$lock/candidate.yaml\"; grep -q '^crypto:$' \"\$lock/candidate.yaml\"; mv -f \"\$lock/candidate.yaml\" \"\$dest\"" < "$YAML"
+STAGED=1
+olc_ssh "set -eu; : '# maestro-phase=restart'; test -d '/run/maestro-olcrtc-$LOGIN-$TXN'; systemctl enable 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; systemctl restart 'olcrtc-srv@$LOGIN'"
+olc_ssh "set -eu; : '# maestro-phase=verify'; test -d '/run/maestro-olcrtc-$LOGIN-$TXN'; systemctl is-active --quiet 'olcrtc-srv@$LOGIN'; start=\$(systemctl show -p ExecMainStartTimestamp --value 'olcrtc-srv@$LOGIN'); test -n \"\$start\"; journalctl -u 'olcrtc-srv@$LOGIN' --since \"\$start\" --no-pager | grep -qE 'Link connected|KCP started'"
+
+LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" python3 - "$PAYLOAD" <<'PY'
+import json, os, sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({
+        "login": os.environ["LOGIN"],
+        "room": os.environ["ROOM"],
+        "key": os.environ["KEY"],
+        "provider": os.environ["PROVIDER"],
+    }, f, separators=(",", ":"))
+os.chmod(sys.argv[1], 0o600)
+PY
+HTTP=$(curl -sS --config "$CURLCFG" -o "$OUT" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary "@$PAYLOAD" "$PANEL_URL/admin/olcrtc/room")
+[ "$HTTP" = 200 ] || { echo "panel rejected verified olcRTC room" >&2; exit 1; }
+
+olc_ssh "set -eu; : '# maestro-phase=commit'; rm -rf '/run/maestro-olcrtc-$LOGIN-$TXN'"
+STAGED=0
+echo "olcRTC room activated and published"
