@@ -336,7 +336,7 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         lock.mkdir()
         dest = self.base / "remote.yaml"
         dest.write_text("new-config\n", encoding="utf-8")
-        (lock / "owner").write_text("txn\n", encoding="utf-8")
+        (lock / "owner").write_text("0123456789abcdef\n", encoding="utf-8")
         (lock / "previous.yaml").write_text("old-config\n", encoding="utf-8")
         (lock / "previous-exists").touch()
         (lock / "previous-active").write_text("inactive\n", encoding="utf-8")
@@ -354,7 +354,7 @@ case "$1" in
 esac
 """)
         result = subprocess.run(
-            ["sh", str(REMOTE_RESTORE), str(lock), str(dest), "olcrtc-srv@owner", "txn"],
+            ["sh", str(REMOTE_RESTORE), str(lock), str(dest), "olcrtc-srv@owner", "0123456789abcdef"],
             cwd=ROOT, env=self.env(FAKE_REMOTE_ACTIVE=str(active)), text=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
         )

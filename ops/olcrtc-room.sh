@@ -53,6 +53,9 @@ OLC_LIB="${MAESTRO_OLCRTC_LIB:-/usr/local/libexec/maestro-olcrtc-ssh-config.sh}"
 # shellcheck disable=SC1090
 . "$OLC_LIB"
 
+REMOTE_RESTORE="${MAESTRO_OLCRTC_REMOTE_RESTORE:-/usr/local/libexec/maestro-olcrtc-remote-restore.sh}"
+olc_secure_file "$REMOTE_RESTORE" "olcRTC remote restore helper"
+
 TMP_ROOT="${TMPDIR:-/tmp}"
 WORK=$(mktemp -d "$TMP_ROOT/maestro-olcrtc.XXXXXX")
 CURRENT="$WORK/current.json"
@@ -64,6 +67,7 @@ RECONCILED="$WORK/reconciled.json"
 TXN=$(openssl rand -hex 8)
 case "$TXN" in *[!0-9a-f]*|"") echo "cannot create transaction id" >&2; exit 1;; esac
 STAGED=0
+PUBLICATION_INFLIGHT=0
 
 if [ -n "$LOGIN" ]; then
 	REMOTE_NAME="$LOGIN"
@@ -77,13 +81,20 @@ fi
 REMOTE_LOCK="/run/maestro-olcrtc-$REMOTE_NAME.lock"
 
 remote_rollback() {
-	olc_ssh "set -eu; : '# maestro-phase=rollback'; lock='$REMOTE_LOCK'; dest='$REMOTE_DEST'; unit='$REMOTE_UNIT'; [ -d \"\$lock\" ] || exit 0; [ -f \"\$lock/owner\" ] || exit 0; owner=\$(cat \"\$lock/owner\"); [ \"\$owner\" = '$TXN' ] || exit 0; if [ -f \"\$lock/previous-exists\" ] && [ -f \"\$lock/previous.yaml\" ]; then mv -f \"\$lock/previous.yaml\" \"\$dest\"; elif [ -f \"\$lock/new-dest\" ]; then rm -f \"\$dest\"; fi; active=inactive; [ ! -f \"\$lock/previous-active\" ] || active=\$(cat \"\$lock/previous-active\"); enabled=unknown; [ ! -f \"\$lock/previous-enabled\" ] || enabled=\$(cat \"\$lock/previous-enabled\"); case \"\$enabled\" in enabled|enabled-runtime|linked|linked-runtime|alias) systemctl enable \"\$unit\" >/dev/null ;; masked|masked-runtime) systemctl mask \"\$unit\" >/dev/null ;; disabled) systemctl disable \"\$unit\" >/dev/null ;; esac; if [ \"\$active\" = active ]; then systemctl restart \"\$unit\"; else systemctl stop \"\$unit\" >/dev/null 2>&1 || true; fi; rm -rf \"\$lock\""
+	olc_ssh "set -eu; : '# maestro-phase=rollback'; sh -s -- '$REMOTE_LOCK' '$REMOTE_DEST' '$REMOTE_UNIT' '$TXN'" < "$REMOTE_RESTORE"
 }
 
 cleanup() {
 	code=$?
 	trap - EXIT HUP INT TERM
-	if [ "$STAGED" = 1 ]; then remote_rollback >/dev/null 2>&1 || true; fi
+	if [ "$STAGED" = 1 ]; then
+		if [ "$PUBLICATION_INFLIGHT" = 1 ]; then
+			STAGED=0
+			echo "panel publication interrupted; verified S3 state and recovery lock retained" >&2
+		else
+			remote_rollback >/dev/null 2>&1 || true
+		fi
+	fi
 	rm -rf "$WORK"
 	exit "$code"
 }
@@ -253,6 +264,7 @@ except (OSError, ValueError, TypeError, json.JSONDecodeError):
 PY
 }
 
+PUBLICATION_INFLIGHT=1
 set +e
 HTTP=$(curl -sS --config "$CURLCFG" -o "$OUT" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary "@$PAYLOAD" "$PANEL_URL/admin/olcrtc/room")
 POST_STATUS=$?
@@ -263,9 +275,9 @@ else
 	PANEL_RESULT=$(panel_result)
 fi
 case "$PANEL_RESULT" in
-	published) STAGED=0 ;;
-	unchanged) echo "panel rejected verified olcRTC room" >&2; exit 1 ;;
-	*) STAGED=0; echo "panel result is ambiguous; verified S3 state and recovery lock retained" >&2; exit 1 ;;
+	published) PUBLICATION_INFLIGHT=0; STAGED=0 ;;
+	unchanged) PUBLICATION_INFLIGHT=0; echo "panel rejected verified olcRTC room" >&2; exit 1 ;;
+	*) PUBLICATION_INFLIGHT=0; STAGED=0; echo "panel result is ambiguous; verified S3 state and recovery lock retained" >&2; exit 1 ;;
 esac
 
 # Publication is the point of no return: never roll S3 back after the panel accepted the same state.
