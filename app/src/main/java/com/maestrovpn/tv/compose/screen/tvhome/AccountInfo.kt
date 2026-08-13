@@ -23,6 +23,14 @@ data class AccountInfo(
     val expiresDate: String? = null,
 )
 
+internal fun accountInfoAfterRefresh(previous: AccountInfo, refreshed: AccountInfo): AccountInfo =
+    when {
+        !refreshed.hasSubProfile -> AccountInfo()
+        refreshed.login != null -> refreshed
+        previous.hasSubProfile && previous.login != null -> previous
+        else -> refreshed
+    }
+
 /** "2026-08-02T15:04:05Z"/"+03:00"-варианты → "02.08.2026"; мусор → null (строка просто короче). */
 private fun formatExpires(raw: String?): String? {
     val date = raw?.substringBefore('T') ?: return null
@@ -41,7 +49,8 @@ private fun formatExpires(raw: String?): String? {
 @Composable
 fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
     produceState(initialValue = AccountInfo(), refreshKey) {
-        value = runCatching {
+        val previous = value
+        val refreshed = runCatching {
             withContext(Dispatchers.IO) {
                 // hasSubProfile is true whenever a MaestroVPN sub profile exists locally — even if
                 // the panel is unreachable below — so a transient timeout never makes a payer "look
@@ -94,5 +103,6 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                     expiresDate = formatExpires(o.optString("expires").ifBlank { null }),
                 )
             }
-        }.getOrDefault(AccountInfo())
+        }.getOrElse { AccountInfo(hasSubProfile = previous.hasSubProfile) }
+        value = accountInfoAfterRefresh(previous, refreshed)
     }
