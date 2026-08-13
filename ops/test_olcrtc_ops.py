@@ -94,7 +94,7 @@ if [ "$phase" = stage ]; then
   esac
   if [ "${FAKE_STAGE_ROLLBACK_RESTORE_FAIL:-}" = 1 ]; then
     case " $* " in
-      *'systemctl restart "$unit" >/dev/null 2>&1 || true'*|*'systemctl stop "$unit" >/dev/null 2>&1 || true'*)
+      *' || true'*)
         printf 'ssh:rollback-lock-removed-after-restore-failure\n' >> "$FAKE_CALLS" ;;
         ;;
     esac
