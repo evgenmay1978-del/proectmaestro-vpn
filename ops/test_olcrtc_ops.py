@@ -47,6 +47,7 @@ class OlcRtcOpsTest(unittest.TestCase):
             OLC_HEALTH_FILE={self.health}
         """), encoding="utf-8")
         self.config.chmod(0o600)
+        REMOTE_RESTORE.chmod(0o600)
         self.real_stat = shutil.which("stat")
         self.assertIsNotNone(self.real_stat)
         self._write_fake("id", r"""#!/bin/sh
