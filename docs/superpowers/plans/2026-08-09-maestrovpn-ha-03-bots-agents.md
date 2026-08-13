@@ -203,7 +203,7 @@ git commit -m "feat(agent): add signed fenced apply protocol"
 #### Task 11 payload-boundary subplan — GREEN (12.08.2026)
 
 The approved node-service payload-isolation design and implementation subplan are
-GREEN through exact SHA `2b713af2ff9bb5da6aa1353e091205d8f2805767`.
+GREEN through exact SHA `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`.
 Task 1 final GREEN `4572c7f2efb7e9ca7ed179d54164d01757d840e1`
 passed HA control-plane run `31623192987` and HA DR run `31623228487`.
 Task 2 final GREEN `efe6d6f40b9d2020c2aaee3c58f34eb5b358eed8`
@@ -211,8 +211,8 @@ passed control-plane run `31630333917` and DR run `31630333923`.
 Task 3 policy RED `5ce1447ce467b384d54103ff09b589011d29562c`
 failed only at the missing workflow gate in control-plane run `31632212354`
 and DR run `31632212414`. Final Task 3 GREEN
-`2b713af2ff9bb5da6aa1353e091205d8f2805767` passed control-plane run
-`31633321011` and DR run `31633321063`.
+`d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2` passed control-plane run
+`31665206563` and DR run `31665206661`.
 
 The durable boundary is now:
 
@@ -222,9 +222,10 @@ The durable boundary is now:
   local service and return actual observed hashes;
 - no driver may open another node-service key ring, cache/log plaintext or expose
   dependency error text; outward errors are fixed and safe;
-- CI rejects the old encrypted driver signatures and direct production Body
-  logging/serialization sinks after proving the scanner on a synthetic forbidden
-  fixture;
+- CI rejects the old encrypted driver signatures and direct or propagated
+  production Body logging/serialization/error sinks, including `fmt.Errorf`,
+  `log`/`slog` receivers, helpers, aggregates and inline JSON encoders, after
+  proving the scanner on a synthetic forbidden fixture;
 - `cmd/maestro-agent` stays deferred until at least one real local Task 12 driver
   exists. A no-op production runtime is forbidden.
 

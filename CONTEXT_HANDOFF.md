@@ -1,10 +1,10 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0AAAAA. APPLY-AGENT PAYLOAD BOUNDARY GREEN; TASK 12 DRIVERS NEXT (12.08.2026)
+## 0AAAAA. APPLY-AGENT PAYLOAD BOUNDARY FINAL GREEN; TASK 12 DRIVERS NEXT (13.08.2026)
 
 - Authoritative review surface remains draft PR #82 on branch
   `codex/ha-rqlite-task2`. The node-service payload-isolation subplan is GREEN
-  through exact SHA `2b713af2ff9bb5da6aa1353e091205d8f2805767`.
+  through exact SHA `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`.
 - Task 1 final GREEN is `4572c7f2efb7e9ca7ed179d54164d01757d840e1`:
   HA control-plane run `31623192987` and HA DR run `31623228487` succeeded.
   Task 2 final GREEN is `efe6d6f40b9d2020c2aaee3c58f34eb5b358eed8`:
@@ -13,17 +13,18 @@
   control-plane run `31632212354` / job `94233541343` and DR run
   `31632212414` / job `94233541741` failed only because the new deterministic
   materialized-agent gate was not yet wired. Final Task 3 GREEN is
-  `2b713af2ff9bb5da6aa1353e091205d8f2805767`: control-plane run
-  `31633321011` / job `94237322429` and DR run `31633321063` / job
-  `94237322686` succeeded, including the new boundary policy, complete sorted
-  formatting/test scope, full backend, race, vet, rqlite/importer/mTLS and DR
-  restore/fencing/parity/quorum gates.
+  `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`: control-plane run
+  `31665206563` / job `94338175192` and DR run `31665206661` / job
+  `94338175568` succeeded, including the hardened structural boundary policy,
+  complete sorted formatting/test scope, full backend, race, vet,
+  rqlite/importer/mTLS and DR restore/fencing/parity/quorum gates.
 - CI now rejects legacy `Driver.Inspect/Prepare(... DesiredSnapshot)`
-  signatures and direct apply-agent production logging/serialization sinks for
-  `MaterializedEntry.Body`. Its scanner first rejects an in-memory synthetic
-  forbidden fixture. Both HA workflows deterministically sort and format every
-  Go file under `internal/applyagent` and `internal/controlplane`, then test both
-  packages.
+  signatures and direct or propagated apply-agent production
+  logging/serialization/error sinks for `MaterializedEntry.Body`, including
+  `fmt.Errorf`, `log`/`slog` receivers, helpers, aggregates and inline JSON
+  encoders. Its scanner first rejects an in-memory synthetic forbidden fixture.
+  Both HA workflows deterministically sort and format every Go file under
+  `internal/applyagent` and `internal/controlplane`, then test both packages.
 - Task 12 drivers consume only `MaterializedSnapshot`, select exactly their
   configured local service, and return actual observed hashes. A driver must
   never open another `(node_id, service_id)` key ring, cache/log plaintext or
@@ -36,10 +37,10 @@
   GREEN.
 - Scope/secrecy audit from pre-design base `ca27e26` through Task 3 found only
   controlplane/applyagent tests and source, the two HA workflows, payload plan/
-  spec and repository policy. No app, deploy, server, customer, bot, payment,
-  DNS, OTA or protocol-policy mutation; no production address, TLS verification
-  bypass, authenticated URL or secret material was introduced. Added URL data is
-  synthetic only and no artifact upload was added.
+  spec, `AGENTS.md` and repository policy. No app, deploy, server, customer,
+  bot, payment, DNS, OTA or protocol-policy mutation; no production address,
+  TLS verification bypass, authenticated URL or secret material was introduced.
+  Added URL data is synthetic only and no artifact upload was added.
 - Production remains **NO-GO (repository implementation only)**. Next authorized
   repository work is Task 12 real local drivers, followed by concrete agent
   runtime wiring, then a separately approved staged deployment. S1-S4, panels,
