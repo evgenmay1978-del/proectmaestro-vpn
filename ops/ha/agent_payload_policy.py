@@ -7,9 +7,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[5] / "mvpn-ha-task2"
-if not (ROOT / "backend").is_dir():
-    ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[2]
 ANALYZER = ROOT / "ops" / "ha" / "agent_payload_policy_ast.go"
 WORKFLOW_SNIPPETS = (
     "python ops/ha/test-agent-payload-policy.py",
@@ -37,9 +35,12 @@ def assert_synthetic_forbidden_fixture() -> None:
     fixture = """package applyagent
 
 import (
+    "bytes"
     "context"
     enc "encoding/json"
+    "fmt"
     logger "log"
+    slog "log/slog"
 )
 
 type forbiddenDriver interface {
@@ -48,22 +49,38 @@ type forbiddenDriver interface {
 }
 
 func reveal(entry MaterializedEntry) any { return entry.Body }
+func relay(entry MaterializedEntry) any { return reveal(entry) }
 
 func leakMaterializedBody(entry MaterializedEntry, snapshot MaterializedSnapshot) {
     secret := entry.Body
     alias := secret
     logger.Printf("synthetic body: %s", alias)
+    _ = fmt.Errorf("synthetic body: %s", alias)
     _, _ = enc.Marshal(entry)
     _, _ = enc.Marshal(snapshot)
     holder := struct{ Secret any }{}
     holder.Secret = entry.Body
     logger.Printf("synthetic holder: %v", holder.Secret)
-    logger.Printf("synthetic helper: %v", reveal(entry))
+    logger.Printf("synthetic helper: %v", relay(entry))
+    var buffer bytes.Buffer
+    encoder := enc.NewEncoder(&buffer)
+    _ = encoder.Encode(snapshot)
+    _ = enc.NewEncoder(&buffer).Encode(entry.Body)
+    logger.New(&buffer, "", 0).Printf("synthetic logger: %v", entry.Body)
+    receiver := logger.New(&buffer, "", 0)
+    receiver.Print(entry.Body)
+    handler := slog.NewTextHandler(&buffer, nil)
+    slog.New(handler).Info("synthetic slog", "body", entry.Body)
+    slogReceiver := slog.New(handler)
+    slogReceiver.Error("synthetic slog", "snapshot", snapshot)
 }
 
 type unrelated struct{}
 func (unrelated) Error(any) {}
-func permitted(entry MaterializedEntry) { unrelated{}.Error(entry.Body) }
+func permitted(entry MaterializedEntry, err error) {
+    unrelated{}.Error(entry.Body)
+    _ = fmt.Errorf("ordinary error: %w", err)
+}
 """
     permitted = """package applyagent
 // logger.Printf("synthetic: %s", entry.Body)
