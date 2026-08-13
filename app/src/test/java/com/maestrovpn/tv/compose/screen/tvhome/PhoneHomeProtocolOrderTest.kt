@@ -15,7 +15,7 @@ class PhoneHomeProtocolOrderTest {
         val backend = listOf("naive", "auto", "anytls", "vless", "hysteria2")
 
         assertEquals(
-            listOf("auto", "vless", "hysteria2", "anytls", "naive", "olcrtc"),
+            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "awg", "olcrtc"),
             orderedHomeProtocols(backend),
         )
     }
@@ -27,7 +27,7 @@ class PhoneHomeProtocolOrderTest {
         val ordered = orderedHomeProtocols(backend)
 
         assertEquals(
-            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc"),
+            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "awg", "olcrtc"),
             ordered,
         )
         assertTrue("WDTT потерялся из меню телефона", "vk-turn" in ordered)
@@ -42,7 +42,7 @@ class PhoneHomeProtocolOrderTest {
     @Test
     fun emptyRuntimeListKeepsEveryOwnerApprovedArcLabel() {
         assertEquals(
-            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc"),
+            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "awg", "olcrtc"),
             orderedHomeProtocols(emptyList()),
         )
     }
@@ -51,7 +51,7 @@ class PhoneHomeProtocolOrderTest {
     fun unknownBackendTagsSurviveAfterTheKnownOnes() {
         val ordered = orderedHomeProtocols(listOf("trojan", "auto", "shadowsocks"))
 
-        assertEquals(listOf("auto", "trojan", "shadowsocks", "olcrtc"), ordered)
+        assertEquals(listOf("auto", "trojan", "shadowsocks", "vk-turn", "awg", "olcrtc"), ordered)
     }
 
     @Test
@@ -62,6 +62,7 @@ class PhoneHomeProtocolOrderTest {
         assertEquals("ANYTLS", homeProtocolLabel("anytls"))
         assertEquals("NAIVEPROXY", homeProtocolLabel("naive"))
         assertEquals("WDTT", homeProtocolLabel("vk-turn"))
+        assertEquals("AWG", homeProtocolLabel("awg"))
     }
 
     @Test
@@ -70,7 +71,7 @@ class PhoneHomeProtocolOrderTest {
         // «NAIVEPROXY» по символам и оставляет «NAIVEPROX / Y».
         assertEquals("NAIVE\nPROXY", homeProtocolSectorLabel("naive"))
         assertEquals("NAIVEPROXY", homeProtocolLabel("naive"))
-        for (tag in listOf("auto", "vless", "hysteria2", "anytls", "vk-turn", "olcrtc")) {
+        for (tag in listOf("auto", "vless", "hysteria2", "anytls", "vk-turn", "awg", "olcrtc")) {
             assertEquals(homeProtocolLabel(tag), homeProtocolSectorLabel(tag))
         }
     }
@@ -117,5 +118,7 @@ class PhoneHomeProtocolOrderTest {
         assertEquals("WEBRTC", homeProtocolLabel("olcrtc"))
         assertEquals("olcRTC", protocolLabel("olcrtc"))
         assertTrue("olcrtc" in orderedHomeProtocols(listOf("auto")))
+        assertTrue("vk-turn" in orderedHomeProtocols(listOf("auto")))
+        assertTrue("awg" in orderedHomeProtocols(listOf("auto")))
     }
 }
