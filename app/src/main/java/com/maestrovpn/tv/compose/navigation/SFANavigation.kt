@@ -97,8 +97,12 @@ fun SFANavHost(
                 else -> "Отключено"
             }
             val connected = serviceStatus == Status.Started || serviceStatus == Status.Starting
+            val isTv = rememberIsTv()
             // login + days-left for the active subscription (refetched on connect change)
-            val accountInfo by rememberAccountInfo(connected)
+            val accountInfo by rememberAccountInfo(
+                refreshKey = connected,
+                preserveVerifiedIdentityOnOutage = !isTv,
+            )
             // ⛔ Expiry gate (owner: «при истёкшей подписке открывать экран оплаты»). When the
             // subscription has EXPIRED, greet the user with the payment screen instead of home.
             // Keyed on days_left and acts ONLY on an explicit value — NEVER on null (loading /
@@ -123,7 +127,6 @@ fun SFANavHost(
                 IosKaringDialog(onDismiss = { showIosQr = false })
             }
             if (groupsViewModel != null) {
-                val isTv = rememberIsTv()
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
                 // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
