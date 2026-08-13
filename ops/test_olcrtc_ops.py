@@ -73,6 +73,12 @@ case "$phase" in
     esac
     ;;
 esac
+if [ "$phase" = stage ]; then
+  case " $* " in
+    *"trap"*) ;;
+    *) printf 'ssh:unsafe-stage-recovery\n' >> "$FAKE_CALLS" ;;
+  esac
+fi
 if [ "$phase" = verify ]; then
   case " $* " in
     *"sleep 5"*) ;;
@@ -165,12 +171,11 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.call_lines(), [])
 
-    def test_partial_stage_failure_attempts_safe_rollback(self):
+    def test_stage_has_remote_recovery_before_panel(self):
         result = self.run_room(FAKE_SSH_FAIL_PHASE="stage")
         self.assertNotEqual(result.returncode, 0)
         calls = self.call_lines()
-        self.assertIn("ssh:strict:rollback", calls)
-        self.assertNotIn("ssh:unsafe-rollback", calls)
+        self.assertNotIn("ssh:unsafe-stage-recovery", calls)
         self.assertNotIn("curl:panel-post", calls)
 
     def test_remote_verification_failure_never_posts_panel(self):

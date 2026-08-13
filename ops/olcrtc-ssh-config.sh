@@ -10,12 +10,13 @@ OLC_ENV_FILE="${MAESTRO_OLCRTC_ENV_FILE:-/etc/maestro-olcrtc.env}"
 if command -v stat >/dev/null 2>&1; then
 	mode=$(stat -c '%a' "$OLC_ENV_FILE" 2>/dev/null || stat -f '%Lp' "$OLC_ENV_FILE" 2>/dev/null || echo "")
 	case "$mode" in
-		*0|*1|*2|*3|*4|*5|*6|*7)
-			last=$(printf '%s' "$mode" | sed 's/.*\(.\)$/\1/')
-			case "$last" in 0) ;; *) echo "olcRTC SSH configuration permissions are unsafe" >&2; exit 1 ;; esac
-			;;
-		*) echo "cannot verify olcRTC SSH configuration permissions" >&2; exit 1 ;;
+		""|*[!0-7]*) echo "cannot verify olcRTC SSH configuration permissions" >&2; exit 1 ;;
 	esac
+	permissions=$((0$mode))
+	if [ $((permissions & 022)) -ne 0 ]; then
+		echo "olcRTC SSH configuration permissions are unsafe" >&2
+		exit 1
+	fi
 fi
 
 # shellcheck disable=SC1090
@@ -49,3 +50,4 @@ olc_panel_token() {
 		head -n 1 |
 		sed 's/^"//;s/"$//'
 }
+

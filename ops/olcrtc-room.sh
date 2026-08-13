@@ -51,7 +51,7 @@ case "$TXN" in *[!0-9a-f]*|"") echo "cannot create transaction id" >&2; exit 1;;
 STAGED=0
 
 remote_rollback() {
-	olc_ssh "set -eu; : '# maestro-phase=rollback'; lock='/run/maestro-olcrtc-$LOGIN-$TXN'; dest='/opt/olcrtc/rooms/$LOGIN.yaml'; if [ -f \"\$lock/previous.yaml\" ]; then mv -f \"\$lock/previous.yaml\" \"\$dest\"; else rm -f \"\$dest\"; fi; prev=inactive; [ ! -f \"\$lock/previous-active\" ] || prev=\$(cat \"\$lock/previous-active\"); if [ \"\$prev\" = active ]; then systemctl restart 'olcrtc-srv@$LOGIN'; else systemctl stop 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; fi; rm -rf \"\$lock\""
+	olc_ssh "set -eu; : '# maestro-phase=rollback'; lock='/run/maestro-olcrtc-$LOGIN.lock'; dest='/opt/olcrtc/rooms/$LOGIN.yaml'; if [ ! -d \"\$lock\" ]; then exit 0; fi; [ -f \"\$lock/owner\" ] || exit 0; [ \"\$(cat \"\$lock/owner\")\" = '$TXN' ] || exit 0; if [ -f \"\$lock/previous.yaml\" ]; then mv -f \"\$lock/previous.yaml\" \"\$dest\"; else rm -f \"\$dest\"; fi; prev=inactive; [ ! -f \"\$lock/previous-active\" ] || prev=\$(cat \"\$lock/previous-active\"); if [ \"\$prev\" = active ]; then systemctl restart 'olcrtc-srv@$LOGIN'; else systemctl stop 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; fi; rm -rf \"\$lock\""
 }
 
 cleanup() {
@@ -138,10 +138,48 @@ with open(path, "w", encoding="utf-8") as f:
 os.chmod(path, 0o600)
 PY
 
-olc_ssh "set -eu; : '# maestro-phase=stage'; lock='/run/maestro-olcrtc-$LOGIN-$TXN'; dest='/opt/olcrtc/rooms/$LOGIN.yaml'; mkdir \"\$lock\"; if [ -f \"\$dest\" ]; then cp -p \"\$dest\" \"\$lock/previous.yaml\"; fi; systemctl is-active 'olcrtc-srv@$LOGIN' > \"\$lock/previous-active\" 2>/dev/null || printf 'inactive\n' > \"\$lock/previous-active\"; umask 077; cat > \"\$lock/candidate.yaml\"; grep -q '^mode: srv$' \"\$lock/candidate.yaml\"; grep -q '^crypto:$' \"\$lock/candidate.yaml\"; mv -f \"\$lock/candidate.yaml\" \"\$dest\"" < "$YAML"
+olc_ssh "set -eu; : '# maestro-phase=stage'; lock='/run/maestro-olcrtc-$LOGIN.lock'; dest='/opt/olcrtc/rooms/$LOGIN.yaml'; txn='$TXN'; owned=0; stage_cleanup() { code=\$?; trap - EXIT HUP INT TERM; if [ \"\$owned\" = 1 ]; then if [ -f \"\$lock/previous.yaml\" ]; then mv -f \"\$lock/previous.yaml\" \"\$dest\"; else rm -f \"\$dest\"; fi; prev=inactive; [ ! -f \"\$lock/previous-active\" ] || prev=\$(cat \"\$lock/previous-active\"); if [ \"\$prev\" = active ]; then systemctl restart 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; else systemctl stop 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; fi; rm -rf \"\$lock\"; fi; exit \"\$code\"; }; trap stage_cleanup EXIT HUP INT TERM; mkdir \"\$lock\"; owned=1; printf '%s\n' \"\$txn\" > \"\$lock/owner\"; if [ -f \"\$dest\" ]; then cp -p \"\$dest\" \"\$lock/previous.yaml\"; fi; systemctl is-active 'olcrtc-srv@$LOGIN' > \"\$lock/previous-active\" 2>/dev/null || printf 'inactive\n' > \"\$lock/previous-active\"; umask 077; cat > \"\$lock/candidate.yaml\"; grep -q '^mode: srv
+LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" python3 - "$PAYLOAD" <<'PY'
+import json, os, sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({
+        "login": os.environ["LOGIN"],
+        "room": os.environ["ROOM"],
+        "key": os.environ["KEY"],
+        "provider": os.environ["PROVIDER"],
+    }, f, separators=(",", ":"))
+os.chmod(sys.argv[1], 0o600)
+PY
+HTTP=$(curl -sS --config "$CURLCFG" -o "$OUT" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary "@$PAYLOAD" "$PANEL_URL/admin/olcrtc/room")
+[ "$HTTP" = 200 ] || { echo "panel rejected verified olcRTC room" >&2; exit 1; }
+
+olc_ssh "set -eu; : '# maestro-phase=commit'; lock='/run/maestro-olcrtc-$LOGIN.lock'; [ -f \"\$lock/owner\" ]; [ \"\$(cat \"\$lock/owner\")\" = '$TXN' ]; rm -rf \"\$lock\""
+STAGED=0
+echo "olcRTC room activated and published"
+
+ \"\$lock/candidate.yaml\"; grep -q '^crypto:
+LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" python3 - "$PAYLOAD" <<'PY'
+import json, os, sys
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump({
+        "login": os.environ["LOGIN"],
+        "room": os.environ["ROOM"],
+        "key": os.environ["KEY"],
+        "provider": os.environ["PROVIDER"],
+    }, f, separators=(",", ":"))
+os.chmod(sys.argv[1], 0o600)
+PY
+HTTP=$(curl -sS --config "$CURLCFG" -o "$OUT" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary "@$PAYLOAD" "$PANEL_URL/admin/olcrtc/room")
+[ "$HTTP" = 200 ] || { echo "panel rejected verified olcRTC room" >&2; exit 1; }
+
+olc_ssh "set -eu; : '# maestro-phase=commit'; rm -rf '/run/maestro-olcrtc-$LOGIN-$TXN'"
+STAGED=0
+echo "olcRTC room activated and published"
+
+ \"\$lock/candidate.yaml\"; mv -f \"\$lock/candidate.yaml\" \"\$dest\"; trap - EXIT HUP INT TERM" < "$YAML"
 STAGED=1
-olc_ssh "set -eu; : '# maestro-phase=restart'; test -d '/run/maestro-olcrtc-$LOGIN-$TXN'; systemctl enable 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; systemctl restart 'olcrtc-srv@$LOGIN'"
-olc_ssh "set -eu; : '# maestro-phase=verify'; test -d '/run/maestro-olcrtc-$LOGIN-$TXN'; systemctl is-active --quiet 'olcrtc-srv@$LOGIN'; start=\$(systemctl show -p ExecMainStartTimestamp --value 'olcrtc-srv@$LOGIN'); test -n \"\$start\"; journalctl -u 'olcrtc-srv@$LOGIN' --since \"\$start\" --no-pager | grep -qE 'Link connected|KCP started'"
+olc_ssh "set -eu; : '# maestro-phase=restart'; lock='/run/maestro-olcrtc-$LOGIN.lock'; [ -f \"\$lock/owner\" ]; [ \"\$(cat \"\$lock/owner\")\" = '$TXN' ]; systemctl enable 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true; systemctl restart 'olcrtc-srv@$LOGIN'"
+olc_ssh "set -eu; : '# maestro-phase=verify'; lock='/run/maestro-olcrtc-$LOGIN.lock'; [ -f \"\$lock/owner\" ]; [ \"\$(cat \"\$lock/owner\")\" = '$TXN' ]; systemctl is-active --quiet 'olcrtc-srv@$LOGIN'; start=\$(systemctl show -p ExecMainStartTimestamp --value 'olcrtc-srv@$LOGIN'); test -n \"\$start\"; i=0; while [ \"\$i\" -lt 12 ]; do if journalctl -u 'olcrtc-srv@$LOGIN' --since \"\$start\" --no-pager | grep -qE 'Link connected|KCP started'; then exit 0; fi; i=\$((i + 1)); sleep 5; done; exit 1"
 
 LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" python3 - "$PAYLOAD" <<'PY'
 import json, os, sys
@@ -160,3 +198,4 @@ HTTP=$(curl -sS --config "$CURLCFG" -o "$OUT" -w '%{http_code}' -X POST -H 'Cont
 olc_ssh "set -eu; : '# maestro-phase=commit'; rm -rf '/run/maestro-olcrtc-$LOGIN-$TXN'"
 STAGED=0
 echo "olcRTC room activated and published"
+
