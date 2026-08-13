@@ -50,4 +50,3 @@ olc_panel_token() {
 		head -n 1 |
 		sed 's/^"//;s/"$//'
 }
-

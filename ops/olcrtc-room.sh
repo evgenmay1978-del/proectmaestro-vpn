@@ -198,4 +198,3 @@ HTTP=$(curl -sS --config "$CURLCFG" -o "$OUT" -w '%{http_code}' -X POST -H 'Cont
 olc_ssh "set -eu; : '# maestro-phase=commit'; rm -rf '/run/maestro-olcrtc-$LOGIN-$TXN'"
 STAGED=0
 echo "olcRTC room activated and published"
-
