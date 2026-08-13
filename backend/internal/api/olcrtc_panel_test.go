@@ -39,14 +39,12 @@ func newPanelOlcRoomServer(t *testing.T, script string) *httptest.Server {
 		t.Fatal(err)
 	}
 	s := New(st, nil, nil, nil, Config{
-		PanelPath:          "/mp/",
-		PanelPasswordHash:  string(hash),
-		OLC:                olc,
-		OlcrtcRoomScript:   script,
-		OlcAllowedLogins:   []string{"wapmix", "wapmixx", "wapmix2"},
-		OlcHealthFile:      "",
-		OlcWBAccountToken:  "",
-		OlcWBCreateBaseURL: "",
+		PanelPath:         "/mp/",
+		PanelPasswordHash: string(hash),
+		OLC:               olc,
+		OlcrtcRoomScript:  script,
+		OlcHealthFile:     "",
+		OlcWBTokenFile:    "",
 	})
 	return httptest.NewServer(s.Handler())
 }
