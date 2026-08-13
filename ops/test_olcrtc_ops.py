@@ -273,6 +273,11 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         source = LIB.read_text(encoding="utf-8")
         self.assertIn('[ "$euid" -eq 0 ]', source)
 
+    def test_secret_boundary_rejects_owner_mismatch(self):
+        result = self.run_room(FAKE_STAT_UID="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.call_lines(), [])
+
     def test_panel_commit_with_lost_response_is_reconciled_without_rollback(self):
         result = self.run_room(FAKE_PANEL_POST_RESPONSE_LOST="1")
         self.assertEqual(result.returncode, 0, result.stdout)

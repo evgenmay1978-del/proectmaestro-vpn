@@ -60,6 +60,7 @@ YAML="$WORK/room.yaml"
 PAYLOAD="$WORK/payload.json"
 CURLCFG="$WORK/curl.cfg"
 OUT="$WORK/panel.out"
+RECONCILED="$WORK/reconciled.json"
 TXN=$(openssl rand -hex 8)
 case "$TXN" in *[!0-9a-f]*|"") echo "cannot create transaction id" >&2; exit 1;; esac
 STAGED=0
@@ -176,7 +177,7 @@ os.chmod(sys.argv[1], 0o600)
 PY
 fi
 
-COMMON_STAGE="lock='$REMOTE_LOCK'; dest='$REMOTE_DEST'; unit='$REMOTE_UNIT'; owned=0; stage_cleanup() { code=\$?; trap - EXIT HUP INT TERM; if [ \"\$owned\" = 1 ]; then if [ -f \"\$lock/previous-exists\" ] && [ -f \"\$lock/previous.yaml\" ]; then mv -f \"\$lock/previous.yaml\" \"\$dest\"; elif [ -f \"\$lock/new-dest\" ]; then rm -f \"\$dest\"; fi; active=inactive; [ ! -f \"\$lock/previous-active\" ] || active=\$(cat \"\$lock/previous-active\"); enabled=unknown; [ ! -f \"\$lock/previous-enabled\" ] || enabled=\$(cat \"\$lock/previous-enabled\"); case \"\$enabled\" in enabled|enabled-runtime|linked|linked-runtime|alias) systemctl enable \"\$unit\" >/dev/null ;; masked|masked-runtime) systemctl mask \"\$unit\" >/dev/null ;; disabled) systemctl disable \"\$unit\" >/dev/null ;; esac; if [ \"\$active\" = active ]; then systemctl restart \"\$unit\" >/dev/null 2>&1 || true; else systemctl stop \"\$unit\" >/dev/null 2>&1 || true; fi; rm -rf \"\$lock\"; fi; exit \"\$code\"; }; trap stage_cleanup EXIT HUP INT TERM; mkdir \"\$lock\"; owned=1; printf '%s\n' '$TXN' > \"\$lock/owner\"; systemctl is-active \"\$unit\" > \"\$lock/previous-active\" 2>/dev/null || printf 'inactive\n' > \"\$lock/previous-active\"; systemctl is-enabled \"\$unit\" > \"\$lock/previous-enabled\" 2>/dev/null || printf 'disabled\n' > \"\$lock/previous-enabled\"; if [ -f \"\$dest\" ]; then cp -p \"\$dest\" \"\$lock/previous.yaml.tmp\"; sync \"\$lock/previous.yaml.tmp\"; mv -f \"\$lock/previous.yaml.tmp\" \"\$lock/previous.yaml\"; : > \"\$lock/previous-exists\"; else : > \"\$lock/new-dest\"; fi; umask 077"
+COMMON_STAGE="lock='$REMOTE_LOCK'; dest='$REMOTE_DEST'; unit='$REMOTE_UNIT'; owned=0; stage_cleanup() { code=\$?; trap - EXIT HUP INT TERM; if [ \"\$owned\" = 1 ]; then restore_ok=1; if [ -f \"\$lock/previous-exists\" ] && [ -f \"\$lock/previous.yaml\" ]; then mv -f \"\$lock/previous.yaml\" \"\$dest\" || restore_ok=0; elif [ -f \"\$lock/new-dest\" ]; then rm -f \"\$dest\" || restore_ok=0; fi; active=inactive; [ ! -f \"\$lock/previous-active\" ] || active=\$(cat \"\$lock/previous-active\"); enabled=unknown; [ ! -f \"\$lock/previous-enabled\" ] || enabled=\$(cat \"\$lock/previous-enabled\"); case \"\$enabled\" in enabled|enabled-runtime|linked|linked-runtime|alias) systemctl enable \"\$unit\" >/dev/null || restore_ok=0 ;; masked|masked-runtime) systemctl mask \"\$unit\" >/dev/null || restore_ok=0 ;; disabled) systemctl disable \"\$unit\" >/dev/null || restore_ok=0 ;; esac; if [ \"\$active\" = active ]; then systemctl restart \"\$unit\" >/dev/null 2>&1 || restore_ok=0; else systemctl stop \"\$unit\" >/dev/null 2>&1 || restore_ok=0; fi; if [ \"\$restore_ok\" = 1 ]; then rm -rf \"\$lock\"; else echo 'olcRTC rollback incomplete; recovery lock retained' >&2; fi; fi; exit \"\$code\"; }; trap stage_cleanup EXIT HUP INT TERM; mkdir \"\$lock\"; owned=1; printf '%s\n' '$TXN' > \"\$lock/owner\"; systemctl is-active \"\$unit\" > \"\$lock/previous-active\" 2>/dev/null || printf 'inactive\n' > \"\$lock/previous-active\"; systemctl is-enabled \"\$unit\" > \"\$lock/previous-enabled\" 2>/dev/null || printf 'disabled\n' > \"\$lock/previous-enabled\"; if [ -f \"\$dest\" ]; then cp -p \"\$dest\" \"\$lock/previous.yaml.tmp\"; sync \"\$lock/previous.yaml.tmp\"; mv -f \"\$lock/previous.yaml.tmp\" \"\$lock/previous.yaml\"; : > \"\$lock/previous-exists\"; else : > \"\$lock/new-dest\"; fi; umask 077"
 
 if [ -n "$LOGIN" ]; then
 	olc_ssh "set -eu; : '# maestro-phase=stage'; $COMMON_STAGE; cat > \"\$lock/candidate.yaml\"; grep -q '^mode: srv$' \"\$lock/candidate.yaml\"; grep -q '^crypto:$' \"\$lock/candidate.yaml\"; mv -f \"\$lock/candidate.yaml\" \"\$dest\"; trap - EXIT HUP INT TERM" < "$YAML"
@@ -201,12 +202,84 @@ with open(sys.argv[1], "w", encoding="utf-8") as output:
     os.fsync(output.fileno())
 os.chmod(sys.argv[1], 0o600)
 PY
+panel_result() {
+	if ! curl -sS --fail --config "$CURLCFG" "$PANEL_URL/admin/olcrtc" > "$RECONCILED"; then
+		echo unknown
+		return
+	fi
+	LOGIN="$LOGIN" python3 - "$CURRENT" "$RECONCILED" "$PAYLOAD" <<'PY'
+import json, os, sys
+
+def read(path):
+    with open(path, encoding="utf-8") as stream:
+        value = json.load(stream)
+    if not isinstance(value, dict):
+        raise ValueError("state is not an object")
+    return value
+
+def selected(state, login):
+    if not login:
+        room, key, provider = (state.get(name, "") for name in ("room", "key", "provider"))
+        if not all(isinstance(value, str) for value in (room, key, provider)):
+            raise ValueError("invalid global state")
+        return {"exists": True, "room": room, "key": key, "provider": provider}
+    rooms = state.get("rooms", {})
+    if rooms is None:
+        rooms = {}
+    if not isinstance(rooms, dict):
+        raise ValueError("invalid rooms state")
+    item = rooms.get(login)
+    if item is None:
+        return {"exists": False}
+    if not isinstance(item, dict):
+        raise ValueError("invalid room state")
+    room, key, provider = (item.get(name, "") for name in ("room", "key", "provider"))
+    if not all(isinstance(value, str) for value in (room, key, provider)):
+        raise ValueError("invalid room state")
+    return {"exists": True, "room": room, "key": key, "provider": provider}
+
+try:
+    before, after, payload = map(read, sys.argv[1:4])
+    login = os.environ["LOGIN"]
+    expected = {"exists": True, "room": payload.get("room"), "key": payload.get("key"), "provider": payload.get("provider")}
+    if selected(after, login) == expected:
+        print("published")
+    elif selected(after, login) == selected(before, login):
+        print("unchanged")
+    else:
+        print("unknown")
+except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    print("unknown")
+PY
+}
+
+set +e
 HTTP=$(curl -sS --config "$CURLCFG" -o "$OUT" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary "@$PAYLOAD" "$PANEL_URL/admin/olcrtc/room")
-[ "$HTTP" = 200 ] || { echo "panel rejected verified olcRTC room" >&2; exit 1; }
+POST_STATUS=$?
+set -e
+if [ "$POST_STATUS" -eq 0 ] && [ "$HTTP" = 200 ]; then
+	PANEL_RESULT=published
+else
+	PANEL_RESULT=$(panel_result)
+fi
+case "$PANEL_RESULT" in
+	published) STAGED=0 ;;
+	unchanged) echo "panel rejected verified olcRTC room" >&2; exit 1 ;;
+	*) STAGED=0; echo "panel result is ambiguous; verified S3 state and recovery lock retained" >&2; exit 1 ;;
+esac
 
 # Publication is the point of no return: never roll S3 back after the panel accepted the same state.
-STAGED=0
-if ! olc_ssh "set -eu; : '# maestro-phase=commit'; lock='$REMOTE_LOCK'; [ -f \"\$lock/owner\" ]; owner=\$(cat \"\$lock/owner\"); [ \"\$owner\" = '$TXN' ]; rm -rf \"\$lock\""; then
+COMMITTED=0
+ATTEMPT=0
+while [ "$ATTEMPT" -lt 3 ]; do
+	if olc_ssh "set -eu; : '# maestro-phase=commit'; lock='$REMOTE_LOCK'; [ -f \"\$lock/owner\" ]; owner=\$(cat \"\$lock/owner\"); [ \"\$owner\" = '$TXN' ]; rm -rf \"\$lock\""; then
+		COMMITTED=1
+		break
+	fi
+	ATTEMPT=$((ATTEMPT + 1))
+	[ "$ATTEMPT" -ge 3 ] || sleep 1
+done
+if [ "$COMMITTED" != 1 ]; then
 	echo "olcRTC state published; remote lock cleanup is pending" >&2
 fi
 echo "olcRTC room activated and published"

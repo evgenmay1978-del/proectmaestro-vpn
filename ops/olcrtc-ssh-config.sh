@@ -14,9 +14,10 @@ olc_secure_file() {
 	euid=$(id -u)
 	case "$uid" in ""|*[!0-9]*) echo "cannot verify $label owner" >&2; return 1;; esac
 	case "$mode" in ""|*[!0-7]*) echo "cannot verify $label permissions" >&2; return 1;; esac
-	[ "$uid" = "$euid" ] || { echo "$label owner is unsafe" >&2; return 1; }
+	[ "$euid" -eq 0 ] || { echo "$label requires root" >&2; return 1; }
+	[ "$uid" -eq 0 ] || { echo "$label owner is unsafe" >&2; return 1; }
 	permissions=$((0$mode))
-	[ $((permissions & 022)) -eq 0 ] || { echo "$label permissions are unsafe" >&2; return 1; }
+	[ $((permissions & 077)) -eq 0 ] || { echo "$label permissions are unsafe" >&2; return 1; }
 }
 
 olc_secure_file "$OLC_ENV_FILE" "olcRTC SSH configuration"
