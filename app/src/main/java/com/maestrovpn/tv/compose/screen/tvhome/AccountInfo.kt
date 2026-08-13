@@ -31,12 +31,12 @@ data class AccountInfo(
 internal fun accountInfoAfterRefresh(
     previous: AccountInfo,
     refreshed: AccountInfo,
-    preserveVerifiedIdentityOnOutage: Boolean,
+    allowPreviousIdentityFallback: Boolean,
 ): AccountInfo =
     when {
         !refreshed.hasSubProfile -> AccountInfo()
         refreshed.login != null -> refreshed
-        preserveVerifiedIdentityOnOutage &&
+        allowPreviousIdentityFallback &&
             previous.login != null &&
             previous.subscriptionIdentity != null &&
             previous.subscriptionIdentity == refreshed.subscriptionIdentity -> previous
@@ -99,6 +99,9 @@ private fun clearAccountInfoCache() {
     }
 }
 
+internal fun shouldClearPrivateTransportCreds(isMobile: Boolean, credentialsMatch: Boolean): Boolean =
+    isMobile && !credentialsMatch
+
 private fun clearPrivateTransportCreds() {
     OlcrtcManager.setCreds(provider = null, room = null, key = null, transport = null)
     WdttManager.setCreds(
@@ -136,6 +139,7 @@ fun rememberAccountInfo(
         val previous = value
         var currentIdentity: String? = null
         var hasSubProfile = previous.hasSubProfile
+        var httpFallbackUsed = false
         val refreshed = runCatching {
             withContext(Dispatchers.IO) {
                 // hasSubProfile is true whenever a MaestroVPN sub profile exists locally — even if
@@ -154,21 +158,21 @@ fun rememberAccountInfo(
                 }
                 if (profile == null) {
                     clearAccountInfoCache()
-                    clearPrivateTransportCreds()
+                    if (preserveVerifiedIdentityOnOutage) clearPrivateTransportCreds()
                     return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                 }
                 currentIdentity = subscriptionIdentity(profile.id, profile.typed.remoteURL)
                 val cached = currentIdentity?.takeIf { preserveVerifiedIdentityOnOutage }
                     ?.let { cachedAccountInfo(it, hasSubProfile) }
-                val sameVerifiedSubscription =
-                    preserveVerifiedIdentityOnOutage &&
-                        currentIdentity != null &&
+                val credentialsMatch =
+                    currentIdentity != null &&
                         (cached != null || currentIdentity == previous.subscriptionIdentity)
                 val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
                 val json = httpGetStringTimed(url)
                 if (json == null) {
-                    if (!sameVerifiedSubscription) {
-                        clearAccountInfoCache()
+                    httpFallbackUsed = true
+                    if (!credentialsMatch) clearAccountInfoCache()
+                    if (shouldClearPrivateTransportCreds(preserveVerifiedIdentityOnOutage, credentialsMatch)) {
                         clearPrivateTransportCreds()
                     }
                     return@withContext cached ?: AccountInfo(
@@ -208,19 +212,19 @@ fun rememberAccountInfo(
                     expiresDate = formatExpires(o.optString("expires").ifBlank { null }),
                     subscriptionIdentity = currentIdentity,
                 )
-                if (preserveVerifiedIdentityOnOutage) cacheAccountInfo(info)
+                if (preserveVerifiedIdentityOnOutage && info.login != null) cacheAccountInfo(info)
                 else clearAccountInfoCache()
                 info
             }
         }.getOrElse {
+            httpFallbackUsed = true
             val cached = currentIdentity?.takeIf { preserveVerifiedIdentityOnOutage }
                 ?.let { cachedAccountInfo(it, hasSubProfile) }
-            val sameVerifiedSubscription =
-                preserveVerifiedIdentityOnOutage &&
-                    currentIdentity != null &&
+            val credentialsMatch =
+                currentIdentity != null &&
                     (cached != null || currentIdentity == previous.subscriptionIdentity)
-            if (!sameVerifiedSubscription) {
-                clearAccountInfoCache()
+            if (!credentialsMatch) clearAccountInfoCache()
+            if (shouldClearPrivateTransportCreds(preserveVerifiedIdentityOnOutage, credentialsMatch)) {
                 clearPrivateTransportCreds()
             }
             cached ?: AccountInfo(
@@ -228,5 +232,9 @@ fun rememberAccountInfo(
                 subscriptionIdentity = currentIdentity,
             )
         }
-        value = accountInfoAfterRefresh(previous, refreshed, preserveVerifiedIdentityOnOutage)
+        val allowPreviousIdentityFallback =
+            httpFallbackUsed &&
+                currentIdentity != null &&
+                currentIdentity == previous.subscriptionIdentity
+        value = accountInfoAfterRefresh(previous, refreshed, allowPreviousIdentityFallback)
     }
