@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROOM = ROOT / "ops" / "olcrtc-room.sh"
 HEALTH = ROOT / "ops" / "olcrtc-health.sh"
 LIB = ROOT / "ops" / "olcrtc-ssh-config.sh"
+REMOTE_RESTORE = ROOT / "ops" / "olcrtc-remote-restore.sh"
 
 
 class OlcRtcOpsTest(unittest.TestCase):
@@ -149,6 +150,12 @@ if [ "$is_post" = 1 ]; then
     : > "${FAKE_PANEL_AMBIGUOUS:?}"
     exit 56
   fi
+  if [ "${FAKE_PANEL_POST_SIGNAL:-}" = TERM ]; then
+    : > "${FAKE_PANEL_COMMITTED:?}"
+    kill -TERM "$PPID"
+    sleep 1
+    exit 143
+  fi
   exit 0
 fi
 printf 'curl:panel-get\n' >> "$FAKE_CALLS"
@@ -182,6 +189,7 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
             "FAKE_CALLS": str(self.calls),
             "MAESTRO_OLCRTC_ENV_FILE": str(self.config),
             "MAESTRO_OLCRTC_LIB": str(LIB),
+            "MAESTRO_OLCRTC_REMOTE_RESTORE": str(REMOTE_RESTORE),
             "OLC_HEALTH_FILE": str(self.health),
             "TMPDIR": str(self.base),
             "REAL_STAT": str(self.real_stat),
@@ -297,6 +305,14 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         self.assertNotIn("ssh:strict:rollback", calls)
         self.assertNotIn("ssh:strict:commit", calls)
 
+    def test_signal_during_panel_post_keeps_verified_remote_state_and_lock(self):
+        result = self.run_room(FAKE_PANEL_POST_SIGNAL="TERM")
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.call_lines()
+        self.assertIn("curl:panel-post", calls)
+        self.assertNotIn("ssh:strict:rollback", calls)
+        self.assertNotIn("ssh:strict:commit", calls)
+
     def test_commit_cleanup_retries_and_next_update_is_not_blocked(self):
         first = self.run_room(FAKE_SSH_FAIL_PHASE_ONCE="commit")
         self.assertEqual(first.returncode, 0, first.stdout)
@@ -314,6 +330,38 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
             "ssh:rollback-lock-removed-after-restore-failure",
             self.call_lines(),
         )
+
+    def test_remote_restore_stop_failure_restores_config_and_keeps_lock(self):
+        lock = self.base / "remote-lock"
+        lock.mkdir()
+        dest = self.base / "remote.yaml"
+        dest.write_text("new-config\n", encoding="utf-8")
+        (lock / "owner").write_text("txn\n", encoding="utf-8")
+        (lock / "previous.yaml").write_text("old-config\n", encoding="utf-8")
+        (lock / "previous-exists").touch()
+        (lock / "previous-active").write_text("inactive\n", encoding="utf-8")
+        (lock / "previous-enabled").write_text("disabled\n", encoding="utf-8")
+        active = self.base / "remote-active"
+        active.write_text("active\n", encoding="utf-8")
+        self._write_fake("systemctl", r"""#!/bin/sh
+set -eu
+case "$1" in
+  disable) exit 0 ;;
+  is-enabled) printf 'disabled\n'; exit 1 ;;
+  stop) exit 42 ;;
+  is-active) [ "$(cat "$FAKE_REMOTE_ACTIVE")" = active ] ;;
+  *) exit 64 ;;
+esac
+""")
+        result = subprocess.run(
+            ["sh", str(REMOTE_RESTORE), str(lock), str(dest), "olcrtc-srv@owner", "txn"],
+            cwd=ROOT, env=self.env(FAKE_REMOTE_ACTIVE=str(active)), text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(dest.read_text(encoding="utf-8"), "old-config\n")
+        self.assertTrue(lock.is_dir())
+        self.assertEqual(active.read_text(encoding="utf-8"), "active\n")
 
     def test_loopback_url_rejects_userinfo_host_confusion(self):
         content = self.config.read_text(encoding="utf-8")
