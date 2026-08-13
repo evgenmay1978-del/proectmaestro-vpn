@@ -19,7 +19,7 @@ class AccountInfoRefreshPolicyTest {
             subscriptionIdentity = owner.subscriptionIdentity,
         )
 
-        assertEquals(owner, accountInfoAfterRefresh(owner, failedRefresh, preserveVerifiedIdentityOnOutage = true))
+        assertEquals(owner, accountInfoAfterRefresh(owner, failedRefresh, allowPreviousIdentityFallback = true))
     }
 
     @Test
@@ -29,14 +29,14 @@ class AccountInfoRefreshPolicyTest {
             subscriptionIdentity = "profile-8:ordinary-token-hash",
         )
 
-        assertEquals(replacement, accountInfoAfterRefresh(owner, replacement, preserveVerifiedIdentityOnOutage = true))
+        assertEquals(replacement, accountInfoAfterRefresh(owner, replacement, allowPreviousIdentityFallback = true))
     }
 
     @Test
     fun unrelatedLocalSubscriptionDoesNotKeepPrivateOwnerIdentity() {
         val noTrustedProfile = AccountInfo(hasSubProfile = true)
 
-        assertEquals(noTrustedProfile, accountInfoAfterRefresh(owner, noTrustedProfile, preserveVerifiedIdentityOnOutage = true))
+        assertEquals(noTrustedProfile, accountInfoAfterRefresh(owner, noTrustedProfile, allowPreviousIdentityFallback = true))
     }
 
     @Test
@@ -46,14 +46,38 @@ class AccountInfoRefreshPolicyTest {
             subscriptionIdentity = owner.subscriptionIdentity,
         )
 
-        assertEquals(failedRefresh, accountInfoAfterRefresh(owner, failedRefresh, preserveVerifiedIdentityOnOutage = false))
+        assertEquals(failedRefresh, accountInfoAfterRefresh(owner, failedRefresh, allowPreviousIdentityFallback = false))
+    }
+
+    @Test
+    fun authoritativeResponseWithoutLoginNeverRestoresPreviousOwner() {
+        val authoritative = AccountInfo(
+            hasSubProfile = true,
+            subscriptionIdentity = owner.subscriptionIdentity,
+        )
+
+        assertEquals(
+            authoritative,
+            accountInfoAfterRefresh(owner, authoritative, allowPreviousIdentityFallback = false),
+        )
+    }
+
+    @Test
+    fun tvOutageDoesNotClearPrivateTransportRuntimeBaseline() {
+        assertEquals(false, shouldClearPrivateTransportCreds(isMobile = false, credentialsMatch = false))
+    }
+
+    @Test
+    fun mobileClearsPrivateTransportOnlyWhenSubscriptionIdentityDoesNotMatch() {
+        assertEquals(false, shouldClearPrivateTransportCreds(isMobile = true, credentialsMatch = true))
+        assertEquals(true, shouldClearPrivateTransportCreds(isMobile = true, credentialsMatch = false))
     }
 
     @Test
     fun removingLocalSubscriptionClearsLastKnownIdentity() {
         assertEquals(
             AccountInfo(),
-            accountInfoAfterRefresh(owner, AccountInfo(), preserveVerifiedIdentityOnOutage = true),
+            accountInfoAfterRefresh(owner, AccountInfo(), allowPreviousIdentityFallback = true),
         )
     }
 }
