@@ -121,7 +121,8 @@ if [ "$is_post" = 1 ]; then
   exit 0
 fi
 printf 'curl:panel-get\n' >> "$FAKE_CALLS"
-printf '{"rooms":{"owner":{"room":"old-room","key":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}\n'
+if [ "${FAKE_PANEL_GET_MALFORMED:-}" = 1 ]; then printf '{broken-json\n'; exit 0; fi
+printf '{"key":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","room":"global-old","rooms":{"owner":{"room":"old-room","key":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}\n'
 """)
         self._write_fake("openssl", r"""#!/bin/sh
 printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
@@ -152,6 +153,13 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
         )
 
+    def run_global(self, **extra):
+        return subprocess.run(
+            ["sh", str(ROOM), "https://telemost.example.invalid/global"],
+            cwd=ROOT, env=self.env(**extra), text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
+        )
+
     def call_lines(self):
         if not self.calls.exists():
             return []
@@ -177,6 +185,63 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         calls = self.call_lines()
         self.assertNotIn("ssh:unsafe-stage-recovery", calls)
         self.assertNotIn("curl:panel-post", calls)
+
+    def test_global_room_update_is_transactional(self):
+        result = self.run_global()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        calls = self.call_lines()
+        self.assertLess(calls.index("ssh:strict:verify"), calls.index("curl:panel-post"))
+        self.assertEqual(calls[-1], "ssh:strict:commit")
+
+    def test_commit_cleanup_failure_does_not_rollback_published_room(self):
+        result = self.run_room(FAKE_SSH_FAIL_PHASE="commit")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        calls = self.call_lines()
+        self.assertIn("curl:panel-post", calls)
+        self.assertNotIn("ssh:strict:rollback", calls)
+
+    def test_malformed_panel_state_fails_before_remote_stage(self):
+        result = self.run_room(FAKE_PANEL_GET_MALFORMED="1")
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.call_lines()
+        self.assertNotIn("ssh:strict:stage", calls)
+        self.assertNotIn("curl:panel-post", calls)
+
+    def test_secret_boundary_files_reject_unsafe_modes(self):
+        for path in (self.identity, self.known_hosts, self.panel_env):
+            with self.subTest(path=path.name):
+                path.chmod(0o620)
+                result = self.run_room()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.call_lines(), [])
+                self.calls.unlink(missing_ok=True)
+                path.chmod(0o600)
+
+    def test_loopback_url_rejects_userinfo_host_confusion(self):
+        content = self.config.read_text(encoding="utf-8")
+        self.config.write_text(
+            content.replace(
+                "PANEL_URL=http://127.0.0.1:8910",
+                "PANEL_URL=http://127.0.0.1:8910@evil.invalid:80",
+            ),
+            encoding="utf-8",
+        )
+        self.config.chmod(0o600)
+        result = self.run_room()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.call_lines(), [])
+
+    def test_token_is_not_passed_in_process_arguments(self):
+        source = ROOM.read_text(encoding="utf-8")
+        self.assertNotIn('"$TOKEN"', source)
+        self.assertNotIn("olc_panel_token", source)
+
+    def test_remote_state_snapshots_enablement_and_backup_before_publish(self):
+        source = ROOM.read_text(encoding="utf-8")
+        self.assertIn("previous-enabled", source)
+        self.assertIn("systemctl is-enabled", source)
+        self.assertNotIn("systemctl enable 'olcrtc-srv@$LOGIN' >/dev/null 2>&1 || true", source)
+        self.assertIn("previous-exists", source)
 
     def test_remote_verification_failure_never_posts_panel(self):
         result = self.run_room(FAKE_SSH_FAIL_PHASE="verify")
@@ -212,4 +277,3 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
 
 if __name__ == "__main__":
     unittest.main()
-
