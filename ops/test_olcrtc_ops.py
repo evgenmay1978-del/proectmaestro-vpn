@@ -65,6 +65,26 @@ for arg in "$@"; do
     *s3-key) identity=1 ;;
   esac
 done
+case "$phase" in
+  stage|restart|verify|rollback|commit)
+    case " $* " in
+      *"/run/maestro-olcrtc-owner.lock"*) ;;
+      *) printf 'ssh:unsafe-lock:%s\n' "$phase" >> "$FAKE_CALLS" ;;
+    esac
+    ;;
+esac
+if [ "$phase" = verify ]; then
+  case " $* " in
+    *"sleep 5"*) ;;
+    *) printf 'ssh:unsafe-verify-retry\n' >> "$FAKE_CALLS" ;;
+  esac
+fi
+if [ "$phase" = rollback ]; then
+  case " $* " in
+    *'! -d "$lock"'*) ;;
+    *) printf 'ssh:unsafe-rollback\n' >> "$FAKE_CALLS" ;;
+  esac
+fi
 if [ "$strict" = 1 ] && [ "$known" = 1 ] && [ "$identity" = 1 ]; then
   printf 'ssh:strict:%s\n' "$phase" >> "$FAKE_CALLS"
 else
@@ -139,6 +159,20 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         self.assertEqual(calls[-1], "ssh:strict:commit")
         self.assertNotIn("ssh:unsafe", "\n".join(calls))
 
+    def test_group_writable_config_is_rejected_before_network(self):
+        self.config.chmod(0o620)
+        result = self.run_room()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.call_lines(), [])
+
+    def test_partial_stage_failure_attempts_safe_rollback(self):
+        result = self.run_room(FAKE_SSH_FAIL_PHASE="stage")
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.call_lines()
+        self.assertIn("ssh:strict:rollback", calls)
+        self.assertNotIn("ssh:unsafe-rollback", calls)
+        self.assertNotIn("curl:panel-post", calls)
+
     def test_remote_verification_failure_never_posts_panel(self):
         result = self.run_room(FAKE_SSH_FAIL_PHASE="verify")
         self.assertNotEqual(result.returncode, 0)
@@ -149,7 +183,9 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
     def test_panel_failure_restores_previous_remote_config(self):
         result = self.run_room(FAKE_PANEL_POST_STATUS="502")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("ssh:strict:rollback", self.call_lines())
+        calls = self.call_lines()
+        self.assertIn("ssh:strict:rollback", calls)
+        self.assertNotIn("ssh:unsafe-rollback", calls)
 
     def test_secret_is_never_printed(self):
         result = self.run_room(FAKE_PANEL_POST_STATUS="502")
@@ -171,3 +207,4 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
 
 if __name__ == "__main__":
     unittest.main()
+
