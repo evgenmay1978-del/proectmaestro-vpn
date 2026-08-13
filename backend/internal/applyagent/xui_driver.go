@@ -67,8 +67,8 @@ type XUIUserPatch struct {
 }
 
 type xuiDriver struct {
-	cfg                 XUIDriverConfig
-	mu                  sync.Mutex
+	cfg                XUIDriverConfig
+	mu                 sync.Mutex
 	wantSnapshotSHA256 string
 }
 
