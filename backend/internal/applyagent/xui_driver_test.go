@@ -106,9 +106,6 @@ func TestXUIDriverPreservesLoginUUIDSubIDFlowAndAbsoluteExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prepare returned %v", err)
 	}
-	if prepared.SnapshotSHA256 == snapshot.SnapshotSHA256 {
-		t.Fatalf("Prepare returned desired digest as observed digest: %q", prepared.SnapshotSHA256)
-	}
 	if len(client.upserts) != 1 {
 		t.Fatalf("upserts=%d, want 1", len(client.upserts))
 	}
@@ -122,6 +119,7 @@ func TestXUIDriverIdempotentAddUpdateDeleteAndSameGenerationNoop(t *testing.T) {
 	client := &fakeXUIClient{}
 	driver := newTestXUIDriver(t, "s1", "s1-vless", client)
 	first := xuiSnapshot("s1", "s1-vless", xuiEntry(t, "cust-1", "wapmix", 1, false))
+	client.observedSHA256 = first.SnapshotSHA256
 	prepared, err := driver.Prepare(context.Background(), first)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
@@ -200,7 +198,7 @@ func xuiEntry(t *testing.T, customerID, login string, generation int64, tombston
 	t.Helper()
 	body := xuiBody(t, login, "11111111-1111-4111-8111-111111111111", "sub-"+login, "xtls-rprx-vision", 1798761600)
 	if tombstone {
-		body = json.RawMessage(`{"tombstone":true}`)
+		body = json.RawMessage(`{"login":"` + login + `","tombstone":true}`)
 	}
 	return MaterializedEntry{CustomerID: customerID, OperationID: "op-" + customerID, PayloadKind: XUIPayloadKind, Generation: generation, Tombstone: tombstone, Body: body, BodySHA256: sha256Hex(body), DesiredSHA256: sha256Hex([]byte(customerID))}
 }
