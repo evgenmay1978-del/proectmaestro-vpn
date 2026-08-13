@@ -93,11 +93,9 @@ if [ "$phase" = stage ]; then
     *) printf 'ssh:unsafe-stage-recovery\n' >> "$FAKE_CALLS" ;;
   esac
   if [ "${FAKE_STAGE_ROLLBACK_RESTORE_FAIL:-}" = 1 ]; then
-    case " $* " in
-      *' || true'*)
-        printf 'ssh:rollback-lock-removed-after-restore-failure\n' >> "$FAKE_CALLS" ;;
-        ;;
-    esac
+    if printf '%s\n' "$*" | grep -F ' || true' >/dev/null; then
+      printf 'ssh:rollback-lock-removed-after-restore-failure\n' >> "$FAKE_CALLS"
+    fi
   fi
 fi
 if [ "$phase" = verify ]; then
@@ -165,6 +163,12 @@ printf '{"key":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
         self._write_fake("openssl", r"""#!/bin/sh
 printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
 """)
+        for fake in self.bin.iterdir():
+            syntax = subprocess.run(
+                ["sh", "-n", str(fake)], text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            )
+            self.assertEqual(syntax.returncode, 0, f"{fake.name}: {syntax.stdout}")
 
     def _write_fake(self, name, body):
         path = self.bin / name
