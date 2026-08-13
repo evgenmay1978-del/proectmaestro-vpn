@@ -107,10 +107,10 @@ if [ "$phase" = verify ]; then
   esac
 fi
 if [ "$phase" = rollback ]; then
-  case " $* " in
-    *'! -d "$lock"'*|*'[ -d "$lock" ] || exit 0'*) ;;
-    *) printf 'ssh:unsafe-rollback\n' >> "$FAKE_CALLS" ;;
-  esac
+  rollback_stdin=$(cat)
+  if ! printf '%s\n' "$rollback_stdin" | grep -F '[ -d "$lock" ] || exit 0' >/dev/null; then
+    printf 'ssh:unsafe-rollback\n' >> "$FAKE_CALLS"
+  fi
 fi
 if [ "$strict" = 1 ] && [ "$known" = 1 ] && [ "$identity" = 1 ]; then
   printf 'ssh:strict:%s\n' "$phase" >> "$FAKE_CALLS"
