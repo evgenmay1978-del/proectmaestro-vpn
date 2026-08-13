@@ -113,12 +113,15 @@ class PhoneHomeProtocolOrderTest {
     }
 
     @Test
-    fun ordinaryAccountsDoNotGetPrivateOwnerProtocolsFromAnEmptySelector() {
-        val ordered = orderedHomeProtocols(emptyList())
-
-        assertTrue("vk-turn leaked to an ordinary account", "vk-turn" !in ordered)
-        assertTrue("awg leaked to an ordinary account", "awg" !in ordered)
-        assertTrue("olcrtc teaser must remain available", "olcrtc" in ordered)
+    fun ordinaryAccountsDoNotGetPrivateOwnerProtocolsFromBackendOrFallback() {
+        for (ordered in listOf(
+            orderedHomeProtocols(emptyList()),
+            orderedHomeProtocols(listOf("auto", "vk-turn", "awg")),
+        )) {
+            assertTrue("vk-turn leaked to an ordinary account", "vk-turn" !in ordered)
+            assertTrue("awg leaked to an ordinary account", "awg" !in ordered)
+            assertTrue("olcrtc teaser must remain available", "olcrtc" in ordered)
+        }
     }
 
     @Test

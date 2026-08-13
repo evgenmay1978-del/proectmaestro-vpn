@@ -851,7 +851,7 @@ internal fun orderedHomeProtocols(
             it !in HOME_OWNER_PROTOCOLS &&
             it != HOME_OLCRTC_PROTOCOL
     }
-    val owner = HOME_OWNER_PROTOCOLS.filter { includeOwnerProtocols || it in unique }
+    val owner = if (includeOwnerProtocols) HOME_OWNER_PROTOCOLS else emptyList()
     val base = if (unique.isEmpty()) HOME_BASE_PROTOCOL_ORDER else known
     return (base + extra + owner + HOME_OLCRTC_PROTOCOL).distinct()
 }
