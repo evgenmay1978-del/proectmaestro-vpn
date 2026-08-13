@@ -1,5 +1,476 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0W. INCIDENT: восстановление replacement S1 (10.08.2026)
+
+- Replacement S1 подтверждён как Litnets `srv_142257` / `193.17.183.48`.
+  После переустановки и переноса провайдером в Испанию VPS имеет статус `On`.
+  10.08.2026 новый root-пароль проверен прямым SSH-входом; сам пароль нигде в
+  репозитории не хранится. Новый host key после переустановки ожидаемо отличается
+  от старого и закреплён как
+  `ssh-ed25519 255 SHA256:nz7FYGv3rSajprEtnn4nPm+XDIVScfo2iBN8dlrNhfU`.
+  Повторная переустановка запрещена.
+- Read-only inventory: hostname `ubuntu24`, Ubuntu 24.04, корневой диск 39 GiB
+  (около 8% занято), RAM 1.9 GiB, swap 499 MiB, failed units нет; наружу слушает
+  только SSH/22. `/var/lib/maestro`, `/etc/maestro-panel.env`, panel binary и unit
+  отсутствуют. Неожиданно существует `/etc/x-ui/x-ui.db`, но x-ui unit/listener
+  отсутствует: файл не трогать до read-only проверки происхождения и целостности.
+- Публичный проектный ED25519-ключ установлен в `/root/.ssh/authorized_keys`:
+  одна валидная строка, mode 600, server-side fingerprint
+  `SHA256:57ign2x5fN7LW6PptrJ6iWbUqSxB6MklgZoO/5WPEzk`; root password и public-key
+  authentication разрешены. Парольный root-вход подтверждён. Key-only вход с
+  owner's Windows ещё **не подтверждён**: локальный private key имеет новый
+  OpenSSH format, который `plink` напрямую не читает.
+- На S2 штатный `maestro-restore.sh` подтвердил свежую расшифровываемую off-site
+  копию customer/order/panel/x-ui state; x-ui SQLite integrity check проходит.
+  Данные на replacement S1 ещё не переносились, DNS/боты/OTA не менялись.
+- Повторная переустановка и запуск пустых panel/x-ui запрещены. Следующий
+  серверный шаг — только read-only provenance/integrity audit существующего
+  `/etc/x-ui/x-ui.db`, затем проверенный restore-before-first-start plan.
+
+- 11.08.2026 владелец сообщил, что самостоятельно установил Hysteria на новый S1
+  и разрешил удалить её, если это потребуется. Факт установки ещё не проверен
+  независимо: до любых изменений сначала снять read-only inventory точных unit,
+  binary, config и listener, затем сохранить конфигурацию и определить rollback.
+  Не удалять Hysteria только ради приведения сервера к предполагаемому шаблону.
+- Durable repetition guard установлен в репозитории как
+  `ops/maestro-repetition-guard.py` с тестом
+  `ops/test_maestro_repetition_guard.py` и локально в постоянном навыке
+  `project-master`. Перед внешним/долгим/изменяющим действием обязателен `check`;
+  первый сбой или замечание владельца требует `fail` и остановки; продолжение
+  допускается только после `correct` с доказанной причиной и иным способом.
+  Exit 42/43 означает STOP. Журнал `.maestro-state/` не коммитится и не хранит
+  команды или секреты.
+- Проверка guard от 11.08.2026: 6/6 unit-тестов проходят, включая повторный
+  сбой уже исправленного способа. Официальный `quick_validate.py` требует
+  отдельный PyYAML и на Windows должен запускаться как `python -X utf8`; иначе
+  системная CP1251 ломает чтение UTF-8 `SKILL.md`. Системный proxy Windows
+  включён и ломает старый pip (`check_hostname requires server_hostname`);
+  настройки proxy не менять. Для единственной установки PyYAML сработал только
+  процесс-локальный `NO_PROXY=*`, после чего official validator вернул
+  `Skill is valid!`.
+
+### Запрещённые повторы и правильные команды
+
+- Не передавать многострочный shell напрямую аргументом `plink`: Windows/PuTTY
+  quoting уже разбил одну public-key строку на три. Для любой сложной команды
+  использовать только доказанный transport: весь remote script кодируется
+  UTF-8/base64, а удалённая команда строго
+  `printf %s '<base64>' | base64 -d | bash`.
+- После записи `authorized_keys` всегда проверять до объявления успеха:
+  `wc -l /root/.ssh/authorized_keys`, права `stat`, затем
+  `ssh-keygen -lf /root/.ssh/authorized_keys`. Исправленный файл прошёл эти
+  проверки; malformed-вариант сохранён на S1 как rollback-copy.
+- Не запускать GUI `puttygen` для автоматической конвертации этого ключа. Три
+  попытки зависли на скрытом интерактивном запросе и были завершены; временный
+  PPK не создан. Key-only probe делать только заранее подготовленным проверенным
+  PPK либо совместимым OpenSSH-клиентом с явно закреплённым host key. Никогда не
+  отключать host-key verification.
+- После первого необъяснённого сбоя не повторять ту же операцию. Сначала
+  установить причину и проверить очистку побочных процессов/файлов; затем
+  записать рабочий способ сюда и только после этого продолжать.
+- Безопасная граница сейчас: password root access работает, public key на сервере
+  валиден, но client-side key-only probe не завершён; MaestroVPN/x-ui/bot state
+  не восстанавливался; службы не запускались; DNS, S2/S3/S4, Telegram и OTA не
+  менялись.
+## 0V. DESIGN: единый отказоустойчивый control plane без потери подписок
+
+Этот раздел от **09.08.2026** фиксирует новую приоритетную задачу владельца и
+дополняет 0U. Раздел 0U остаётся источником правды по OTA/Android, а 0V — точкой
+входа для проектирования высокой доступности backend и панели.
+
+### Утверждено владельцем 09.08.2026
+
+- Трёхузловой `rqlite`-кворум на живых S2/S3/S4 утверждён как основа
+  единого control plane. S1 сейчас недоступен; после восстановления он должен
+  безопасно догнать состояние без дублей и не быть обязательным для кворума.
+- В scope добавлены Telegram-боты: один бот сейчас не работает, а ботами ранее
+  выдавалась неправильная subscription URL с параметром наподобие `app=karing`.
+  Перед изменением нужен полный read-only аудит обоих ботов, их live/source
+  ownership и всех потребителей ссылок; точный дефект пока не считается доказанным.
+- Требование безопасности владельца: работать с повторными проверками и не
+  допустить поломки действующих клиентов, VPN-узлов, TV-интерфейса или OTA.
+- Критический сценарий оплаты должен одинаково работать в обоих Telegram-ботах:
+  клиент нажимает «Я оплатил», владелец вручную проверяет поступление и нажимает
+  «Подтвердить», после чего подписка продлевается ровно один раз. Повторный
+  callback Telegram, двойной клик владельца, одновременное подтверждение через
+  разные панели или перезапуск после уже выполненного commit не должны повторно
+  прибавлять срок, создавать второго клиента или второй платёж.
+- Новые платные серверы, балансировщики или подписки на внешние сервисы запрещены.
+  HA должна использовать только уже оплаченные S1–S4, существующие SpaceWeb и
+  Yandex; предложение дополнительных Yandex VM/NLB владельцем отклонено.
+
+
+
+### Обязательный результат владельца
+
+- Падение S1 не должно останавливать `/claim`, `/sub`, создание новых клиентов,
+  продления или административное управление.
+- Несколько панелей должны работать как **один организм**: принятая любой живой
+  панелью операция записывается один раз и получает стабильный идентификатор.
+- Желаемое состояние клиента автоматически применяется на всех доступных VPN-
+  узлах. Недоступный узел сохраняет невыполненную операцию и догоняет состояние
+  после восстановления.
+- Когда S1 возвращается, он автоматически получает все пропущенные создания,
+  продления и изменения без повторных клиентов, двойных списаний, разных сроков
+  или конфликтующих реквизитов.
+- Старые установленные приложения должны продолжать использовать существующий
+  публичный адрес `https://wapmixx.ru:8911`; аварийное переключение не должно
+  требовать ручной перенастройки каждого клиента.
+- Нужны резервные панели управления, внешняя проверка здоровья, понятный статус
+  синхронизации и безопасный возврат после аварии.
+
+### Подтверждённое текущее ограничение
+
+- S1 сейчас является control-plane SPOF: на нём `maestro-panel`, основной
+  `customers.json`/`orders.json`, 3x-ui и nginx для `wapmixx.ru:8911`.
+- Зашифрованные on-change/hourly backups и recovery runbook защищают от потери
+  данных, но это восстановление с RTO/RPO, а не работающий multi-panel HA.
+- Android сохраняет last-good конфигурацию при неудачном `/sub`, поэтому уже
+  активированный туннель обычно продолжает работу. После удаления приложения
+  локальная remote-profile привязка не восстанавливается, и без живого `/claim`
+  повторная активация невозможна.
+- Текущие file stores и прямое provisioning нескольких внешних панелей не дают
+  безопасных multi-writer семантик: для нового требования нужны единый
+  транзакционный источник правды, идемпотентные операции, outbox/reconciliation,
+  leader/fencing или эквивалентная защита от split-brain.
+
+### Выбранный ingress/failover без новых расходов
+
+- На S2/S3/S4 должны работать одинаковые stateless-панели с публичным TLS на
+  `:8911`; установленный парк продолжает обращаться к
+  `https://wapmixx.ru:8911`.
+- Публичная A-запись должна содержать только активный и полностью готовый узел.
+  Слепой multi-A запрещён. Переключение выполняет сериализованный workflow в уже
+  используемом GitHub Actions через SpaceWeb API после независимых повторных
+  проверок. SpaceWeb credentials хранятся только в encrypted GitHub Secrets, не
+  в репозитории и не размножаются по S2/S3/S4.
+- До первого DNS cutover адрес S1 VLESS отделяется на
+  `s1-vless.wapmixx.ru`; иначе изменение apex одновременно направит старый
+  VLESS `:443` на чужой сервис S2/S3/S4. Новая subscription truth использует
+  отдельное имя, а старые last-good конфигурации проверяются на безопасный
+  fallback к остальным протоколам.
+- Существующий `/healthz` сохраняется для совместимости. Для маршрутизации нужны
+  отдельные `/livez` и закрытый `/readyz`, а также внешние проверки TLS/SNI,
+  тарифов, OTA manifest и секретной canary-подписки.
+- Текущий DNS TTL равен 600 секундам. Перед плановым cutover его нужно снизить до
+  минимально поддерживаемого SpaceWeb и выждать старый TTL; уже закэшированные
+  ответы ускорить задним числом нельзя.
+
+### Обязательные GO/NO-GO условия production cutover
+
+- До production нужен повторяемый dry-run importer и полный backup с хешами:
+  S1 JSON/orders/trials/settings и x-ui, S2 bot SQLite, S3/S4 x-ui. Неразрешённая
+  коллизия login/token/UUID/subId/expiry означает `NO-GO`.
+- До первой rqlite-записи старые S1 panel/bot/reconciler и старые bot pollers
+  должны быть hard-fenced. Вернувшийся S1 стартует изолированно, не импортирует
+  старый JSON обратно и получает новое incarnation перед catch-up.
+- Confirm/cancel оплаты конкурируют одной CAS-транзакцией. `confirm:<order_id>`
+  атомарно сохраняет payment, абсолютную expiry, generation и outbox; повтор
+  возвращает сохранённый результат и не прибавляет срок.
+- Cutover выполняется через короткий общий write-freeze, final delta import и
+  digest-сверку. После первой принятой rqlite-write откат к старым JSON/SQLite
+  запрещён: допускается только предыдущий binary поверх той же rqlite либо
+  проверенный export при новом write-freeze.
+- До `GO` обязательны fault-тесты кворума, crash до/после commit, повторных
+  Telegram updates/callbacks, confirm-vs-cancel, stale fencing, S1 catch-up,
+  restore drill и владельческий canary-платёж с ровно одним продлением.
+- Старый expiry reconciler после cutover становится audit-only и не может
+  поднимать даты из stale x-ui или локальной bot DB.
+
+### Текущий этап и границы
+
+- Владелец утвердил design и трёхузловой rqlite на S2/S3/S4. Подготовлен
+  исполняемый TDD/rollout/rollback-пакет: master-plan, Plans 01–04 и матрица
+  покрытия в `docs/superpowers/plans/2026-08-09-maestrovpn-ha-*`.
+- Итоговый независимый аудит пакета: `Critical 0 / Important 0`. Он остаётся
+  **production NO-GO** до прохождения всех доказательных gates самих планов.
+- В этой работе изменялась только документация репозитория. Код, production,
+  DNS, nginx, systemd, базы, VPN-узлы, GitHub Release, OTA и TV не изменялись.
+- Точка продолжения: Plan 01, Task 1, TDD в отдельной рабочей ветке. Затем задачи
+  выполняются строго по порядку 01 -> 02 -> 03 -> 04 с проверками и review.
+- Live-переключение ботов запрещено до точной инвентаризации их источников,
+  финального импорта состояния и подписанных hard-fence proofs. TV-интерфейс и
+  TV-ассеты во всей HA-работе остаются без изменений.
+
+## 0U. LIVE: OTA race fixes GREEN на GitHub; новый production OTA не выпускался
+
+Этот раздел от **09.08.2026** заменяет 0T как единственная текущая точка входа.
+Владелец подтвердил, что production 1.0.154 установилась на телефоне после
+первого зависания/`Session files in use` и задержанного повторного предложения.
+Ни один новый release/OTA после этого подтверждения не запускался.
+
+### Текущее точное состояние
+
+- Единственная тестовая ветка: `codex/mobile-4d-deck`.
+- Exact GREEN HEAD:
+  `db490082d03191630ab985586debe072b02ef3ec`.
+- Production fix commit: `162047f` (`fix(update): serialize observable
+  projection`); сверху только двухстрочный test type-pin `db49008`.
+- GitHub Actions run `31292439105`, build job `93191813232`: checkout, Android
+  build, `:app:assembleOtherDebug`, artifact upload, все unit tests и test-report
+  upload — **success**.
+- Artifact `maestrovpn-tv-test-apk`: ID `9031883529`, ZIP `176596754` bytes,
+  ZIP SHA-256
+  `94b46a9f4dd39903678b320ca40a152bf5a15c411be90a4a922a0c43a405e6f8`.
+- Извлечённый test APK: `179282417` bytes, SHA-256
+  `90a852d9324a3a58c9e8d3f4b5299fc9c1a507f84bc89078260cb6ef36e9e970`.
+- Focused post-GREEN re-review: Critical `0`, Important `0`, Minor `0`.
+- Финальный full-branch audit exact `db490082...`: Critical `0`, Important `0`,
+  Minor `0`; verdict **release-code GO**. Device/OTA gates отдельно не пройдены.
+- Worktree clean, local HEAD совпадает с `origin/codex/mobile-4d-deck`,
+  `git diff --check e3bfadd..HEAD` — PASS.
+
+### Что теперь исправлено
+
+1. System install confirmation доставляется ровно одним путём: receiver либо
+   запускает Intent при реально resumed Activity, либо паркует его для
+   `MainActivity`; failed launch снова безопасно паркуется.
+2. Одна `PackageInstaller.Session` больше не получает два параллельных confirm
+   прохода — устранён согласующийся с AOSP механизм `Session files in use`.
+3. `lastShownUpdateVersion` записывается только после явного отказа; failed
+   install/download остаётся повторно предлагаемым.
+4. UI и WorkManager используют одну immutable attempt-модель; stale/lower/
+   mismatched результаты проверки не меняют активный verifier.
+5. Последняя найденная race закрыта `UpdateStateProjectionGate`: coordinator
+   mutation и derived observable/cache projection теперь выполняются одной
+   короткой транзакцией. Старый VC154 projection не может перезаписать новый
+   attempt VC155.
+6. Gate не держится на network/download/install/suspend. Acquire rollback
+   заканчивается до входа следующей транзакции; исходная ошибка сохраняется, а
+   rollback failure остаётся suppressed.
+7. Ранее найденные production-инварианты сохранены: `6d7692d` восстанавливает
+   VPN после failed/cancelled install; `cb59434` показывает `Status.Starting`
+   как «Подключение», не как «Подключён».
+
+### TDD/CI цепочка последнего finding
+
+- Test-only RED: `a464b47`; expected RED run `31291406913`, job `93189109755`:
+  app assemble и artifact upload success, unit compile failure на отсутствующем
+  `UpdateStateProjectionGate`.
+- Первый GREEN attempt: run `31292160785`, job `93191063455`; production APK
+  собрался, но unit compile выявил только generic inference в новом тесте.
+- Test-only correction `db49008` явно закрепил `ProjectionSnapshot`; production
+  код не менялся.
+- Финальный GREEN: `31292439105` на exact `db490082...`, все шаги success.
+
+### TV, release и mirror границы
+
+- В diff
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe..db490082d03191630ab985586debe072b02ef3ec`
+  нет изменений `TvEskizHome.kt`, `TvEskizSpec.kt`, `tvm_*`, TV geometry/assets,
+  D-pad/focus/Back и `ops/tv-*`.
+- Universal APK обновит общий binary/OTA-код TV-боксов, но TV-specific UI/assets
+  остаются без изменений.
+- Production 1.0.154 (`bede79ac...`, run `31279484939`) не содержит этих новых
+  race fixes. Её APK: `179275216` bytes, SHA-256
+  `57d71a6e011659b01c5c83b0509e0b1e3d76f0238c5c8961c607f82d8ef9042a`.
+- Последняя read-only проверка: GitHub latest/main — 1.0.154; public Yandex
+  manifest — 1.0.153 и public APK 1.0.154 — 404; panel/S1 недоступны по timeout.
+  Перед публикацией значения нужно проверить заново.
+- Не выполнялись merge в `main`, production workflow, Release, panel/S1/Yandex
+  mutation или новый OTA.
+
+### Следующий безопасный шаг
+
+1. В GitHub Actions собрать подписанный artifact-only production-кандидат с
+   `versionCode > 154`, без Release и OTA.
+2. На телефоне поверх 1.0.154 проверить: foreground/background confirmation,
+   cancel, ошибка → OK → повтор той же версии, Activity recreation, VPN restore
+   и успешное повышение версии без потери данных.
+3. Только после device acceptance опубликовать **тот же проверенный APK** и
+   единым gate сверить GitHub Release, panel и Yandex по versionName/versionCode,
+   размеру и SHA-256. TV-визуал не менять.
+
+Текущий GitHub test APK имеет высокий test `versionCode=90295`; его нельзя
+устанавливать на основной телефон, иначе обычный production-кандидат станет для
+Android downgrade. Локальный Gradle/APK не запускать: тяжёлые действия только
+через сохранённые `ops/`-скрипты GitHub Actions.
+
+## 0T. BLOCKED: 1.0.154 установилась; перед следующим OTA закрывается observable projection race
+
+Этот раздел от **09.08.2026** заменяет и уточняет 0S как единственная текущая
+точка входа. Новый production release/OTA после подтверждённой владельцем
+установки 1.0.154 не запускался.
+
+### Подтверждённые факты
+
+- Владелец подтвердил успешное обновление телефона до production `1.0.154`
+  (`versionCode=154`) после первого зависания, ошибки
+  `INSTALL_FAILED_INTERNAL_ERROR: Session files in use` и задержанного повторного
+  предложения. Это не устраняет выявленные в коде гонки.
+- Production 1.0.154: source/tag
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe`, run `31279484939`, APK
+  `179275216` bytes, SHA-256
+  `57d71a6e011659b01c5c83b0509e0b1e3d76f0238c5c8961c607f82d8ef9042a`,
+  certificate SHA-256
+  `17b958458a6c52d9062b333625503b0125663844540ac24e0de4862592d59ff7`.
+- 1.0.154 не содержит исправления duplicate confirmation и prompt/download
+  coordination; они разрабатываются только в `codex/mobile-4d-deck`.
+- Последняя read-only проверка: GitHub latest/main — 1.0.154; public Yandex
+  manifest — 1.0.153, public APK 1.0.154 — 404; panel и S1:22 недоступны по
+  timeout. Перед следующим OTA всё проверить заново.
+
+### Уже проверенные исправления
+
+- Task 1 (confirm-Intent доставляется ровно один раз): финальный commit
+  `a2b5738d1bbb49699c572b58635cbc122cf51921`, GREEN run `31284217408`,
+  artifact ZIP SHA-256
+  `95155bcdd034d1bd0ad5906654fe969afd451da8a775e1f8b577691ed84c2b0b`.
+  Scoped re-review закрыл все исходные findings; новых Critical/Important нет.
+- Task 2 (retry/persistence и единый UI/worker attempt-lock): commit
+  `f07e5b3f042497e2e4cc80cfb921ac04531fab2c`, GREEN run `31289799022`, job
+  `93184933116`, artifact ID `9031040290`, size `176596815`, ZIP SHA-256
+  `aa5707fa830ecd4cdf0d29644f5dffa9b3a7f96865dcb7660132c098bab70df2`.
+  Сфокусированный re-review Task 2: Critical `0`, Important `0`, Minor `0`.
+- Предыдущие production findings также исправлены и находятся в текущей истории:
+  `6d7692d` восстанавливает VPN после failed/cancelled install, `cb59434` не
+  показывает `Status.Starting` как уже подключённое состояние. Их regression
+  tests входят в successful run `31289799022`.
+
+### Новый Important release-blocker после полного branch-review
+
+Coordinator mutation была защищена monitor, но `UpdateState.syncPromptState()`
+публиковала observable/cache уже после выхода из него. Детерминированный
+interleaving:
+
+1. старый поток считывает candidate VC154 и приостанавливается до projection;
+2. новый поток публикует и захватывает background attempt VC155;
+3. старый поток поверх него записывает `updateInfo`/cache VC154;
+4. worker использует URL из immutable VC155, а `ApkDownloader` может взять
+   verifier size/SHA из глобального VC154 — download получает mismatch.
+
+Test-only RED commit `a464b47` добавляет
+`UpdateStateProjectionRaceTest` с управляемыми latch. До expected RED, minimal
+production fix, нового exact GREEN и повторного review ветка **не готова к
+merge/release/OTA**.
+
+### TV и дисциплина ветки
+
+- В functional diff
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe..f07e5b3f042497e2e4cc80cfb921ac04531fab2c`
+  нет изменений `TvEskizHome.kt`, `TvEskizSpec.kt`, `tvm_*`, TV geometry/assets,
+  D-pad/focus/Back и `ops/tv-*`.
+- Universal APK обновит общий binary/OTA-код TV-боксов, но TV-specific UI/assets
+  менять запрещено.
+- Оставлена ровно одна локальная/remote тестовая ветка
+  `codex/mobile-4d-deck`; дополнительная локальная history-ветка удалена.
+- Локальный Gradle/APK не запускать. Все сборки и тяжёлые тесты — только GitHub
+  Actions через `ops/github-actions-artifact.py --task android`.
+- GitHub test APK имеет высокий test versionCode и не предназначен для основного
+  телефона: он заблокирует обычный production OTA как downgrade.
+
+### Следующий безопасный порядок
+
+1. Получить expected RED на `a464b47`.
+2. Сериализовать coordinator mutation + observable/cache projection, получить
+   exact GREEN GitHub run и независимый re-review без findings.
+3. Собрать в GitHub Actions подписанный artifact-only кандидат с
+   `versionCode > 154`, без Release/OTA, и провести device acceptance.
+4. Только после приёмки опубликовать именно проверенный APK и единым gate
+   синхронизировать GitHub Release, panel и Yandex. TV-визуал не менять.
+
+## 0S. LIVE: 1.0.154 установилась; гонка OTA исправлена в тестовой ветке, новый OTA ещё не выпускался
+
+Этот раздел от **09.08.2026** заменяет 0R как единственная текущая точка
+входа. Владелец разрешил общий universal OTA при обязательном условии: TV-боксы
+могут получить новый APK, но TV-интерфейс, TV-ассеты, геометрия, D-pad/focus и
+Back-поведение должны остаться без изменений.
+
+### Что произошло на телефоне
+
+- Production `1.0.154` (`versionCode=154`) сначала зависала при установке; затем
+  Android показал `INSTALL_FAILED_INTERNAL_ERROR: Session files in use`.
+- После долгого ожидания предложение появилось повторно, и **09.08.2026 владелец
+  подтвердил, что приложение обновилось**. Это подтверждает успешную установку
+  1.0.154 на его телефоне, но не устраняет воспроизводимую гонку в её коде.
+- Production 1.0.154 собрана из
+  `bede79ac5466272cbd519e511c27781ee4ba7bfe`, run `31279484939`;
+  APK `179275216` bytes, SHA-256
+  `57d71a6e011659b01c5c83b0509e0b1e3d76f0238c5c8961c607f82d8ef9042a`,
+  signing certificate SHA-256
+  `17b958458a6c52d9062b333625503b0125663844540ac24e0de4862592d59ff7`.
+- **В 1.0.154 нет описанного ниже исправления.** Оно находится только в
+  `codex/mobile-4d-deck`; следующий production-кандидат должен получить новый
+  возрастающий versionCode и пройти отдельную проверку.
+
+### Подтверждённая причина
+
+1. `InstallResultReceiver` одновременно сохранял системный confirmation
+   `Intent` и сразу запускал его.
+2. `MainActivity.onResume()` мог запустить тот же `Intent` второй раз. Два
+   прохода по одной `PackageInstaller.Session` соответствуют ошибке Android
+   `Session files in use`.
+3. `Vendor.checkUpdate()` заранее записывал `lastShownUpdateVersion`, ещё до
+   согласия, загрузки и результата установки. Поэтому после сбоя та же версия
+   могла долго не предлагаться повторно.
+4. Дополнительная трассировка выявила конкуренцию UI/worker за общий
+   `update.apk`, устаревшие результаты проверки и потерю retry при пересоздании
+   Activity. Они также закрыты до следующего выпуска.
+
+### Исправление и доказательства
+
+- Task 1, однократная доставка system-confirmation:
+  - RED: run `31281615496` / `72755f2`, затем regression RED
+    `31283067786` / `74ebb1a` и `31283942034` / `4e917ce`;
+  - финальный GREEN: commit
+    `a2b5738d1bbb49699c572b58635cbc122cf51921`, run `31284217408`,
+    artifact ZIP SHA-256
+    `95155bcdd034d1bd0ad5906654fe969afd451da8a775e1f8b577691ed84c2b0b`;
+  - receiver запускает confirmation только при реально resumed Activity;
+    иначе Intent остаётся ровно один раз отложенным. Ошибка запуска снова
+    безопасно паркует Intent.
+- Task 2, повтор после ошибки и сериализация OTA:
+  - RED: run `31285264085` / `5e2088d`, затем `31287179150` / `c1d1444`,
+    `31288148916` / `a475e5b`, `31288902870` / `3557f19`;
+  - финальный код: `f07e5b3f042497e2e4cc80cfb921ac04531fab2c`
+    (`fix(update): serialize OTA prompt and download attempts`);
+  - точный GREEN: run `31289799022`, build job `93184933116`, все build,
+    unit-test и artifact-upload шаги successful;
+  - artifact ID `9031040290`, GitHub size `176596815` bytes, ZIP SHA-256
+    `aa5707fa830ecd4cdf0d29644f5dffa9b3a7f96865dcb7660132c098bab70df2`;
+  - UI и worker теперь получают единый immutable attempt-lock до обращения к
+    общему APK; stale/lower/mismatched результаты отвергаются; cancel/error,
+    Activity recreation и exception rollback покрыты тестами;
+  - `lastShownUpdateVersion` записывается только после явного «Отказаться», а
+    ошибка установки создаёт повторное предложение той же версии.
+- Свежий сфокусированный re-review Task 1 и Task 2: Critical `0`, Important
+  `0`, Minor `0`. Полное branch-review дополнительно проверяет старые
+  production-инварианты перед любым выпуском.
+
+### TV и границы изменений
+
+- Единственная актуальная ветка: `codex/mobile-4d-deck`; дополнительные тестовые
+  ветки/worktree не создавать.
+- В diff нет изменений `TvEskizHome.kt`, `TvEskizSpec.kt`, `tvm_*`, TV-геометрии,
+  D-pad/focus/Back и `ops/tv-*`. Мобильный экран и его ассеты остаются отдельной
+  веткой исполнения.
+- Следующий universal APK обновит бинарник и общий OTA-код на TV-боксах, но
+  TV-specific интерфейс/ассеты должны остаться без изменений.
+
+### Что сейчас намеренно не сделано
+
+- После подтверждения установки 1.0.154 **не запускались** новый release,
+  production workflow, merge в `main`, изменение panel manifest, S1 или Yandex.
+- Последняя read-only проверка видела публичный Yandex manifest ещё на 1.0.153,
+  а публичный APK 1.0.154 был недоступен; S1/panel из текущей среды недоступны.
+  Перед следующим OTA необходимо заново сверить GitHub Release, panel и Yandex:
+  versionCode/versionName, размер APK и SHA-256 должны совпасть.
+- Локальный Gradle/APK не запускать: компьютер владельца слабый. Сборка и тяжёлые
+  тесты выполняются только GitHub Actions через сохранённые `ops/`-скрипты.
+- Exact GREEN test APK имеет высокий test versionCode; его нельзя предлагать как
+  обычную установку на основной телефон, иначе последующий production OTA станет
+  downgrade.
+
+### Следующий безопасный шаг
+
+1. Завершить полное независимое branch-review и устранить любой доказанный
+   Critical/Important/Minor finding с новым RED/GREEN run.
+2. На физическом телефоне проверить следующий подписанный production-кандидат:
+   foreground/background system confirmation, отмену, ошибку → OK → повтор той
+   же версии, пересоздание Activity и восстановление VPN после неуспеха.
+3. Только после device acceptance собрать возрастающую production-версию и
+   единым gate сверить GitHub/panel/Yandex до публикации OTA. TV-визуал не менять.
+
 ## 0R. BLOCKED: mobile OTA разрешена, но текущий канал неизбежно обновляет TV
 
 Этот раздел от **08.08.2026** заменяет раздел 0Q как текущая точка входа.

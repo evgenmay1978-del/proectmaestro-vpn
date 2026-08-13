@@ -128,9 +128,17 @@ import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.ktx.launchCustomTab
+import com.maestrovpn.tv.update.UpdateAttempt
+import com.maestrovpn.tv.update.UpdateAttemptCancellationGate
+import com.maestrovpn.tv.update.UpdatePromptAction
+import com.maestrovpn.tv.update.UpdatePromptOffer
+import com.maestrovpn.tv.update.UpdatePromptSession
 import com.maestrovpn.tv.update.UpdateState
+import com.maestrovpn.tv.update.beginPromptAttemptTransaction
 import com.maestrovpn.tv.utils.RemoteControlManager
+import com.maestrovpn.tv.vendor.deliverInstallConfirmation
 import com.maestrovpn.tv.vendor.Vendor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -259,16 +267,6 @@ class MainActivity :
         RemoteControlManager.restore()
 
         UpdateState.loadFromCache()
-        if (Settings.checkUpdateEnabled) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    val updateInfo = Vendor.checkUpdateAsync()
-                    UpdateState.setUpdate(updateInfo)
-                } catch (_: Exception) {
-                    UpdateState.setUpdate(null)
-                }
-            }
-        }
 
         handleIntent(intent)
         maybeRequestBatteryExemption()
@@ -641,12 +639,7 @@ class MainActivity :
                         Settings.checkUpdateEnabled = true
                         showUpdateCheckPrompt = false
                         scope.launch(Dispatchers.IO) {
-                            try {
-                                val result = Vendor.checkUpdateAsync()
-                                UpdateState.setUpdate(result)
-                            } catch (_: Exception) {
-                                UpdateState.setUpdate(null)
-                            }
+                            UpdateState.applyUpdateCheckResult(runCatching { Vendor.checkUpdateAsync() })
                         }
                     }) {
                         Text(stringResource(R.string.ok))
@@ -663,44 +656,112 @@ class MainActivity :
             )
         }
 
-        // Handle update available dialog
+        // One shared update prompt. Each offer owns an immutable UpdateInfo snapshot; the global
+        // candidate remains locked to an active attempt because ApkDownloader verifies against it.
         val updateInfo by UpdateState.updateInfo
-        val shouldShowUpdateDialog = updateInfo != null &&
-            updateInfo!!.versionCode > Settings.lastShownUpdateVersion
-        var showUpdateDialog by remember { mutableStateOf(true) }
+        val promptRequest by UpdateState.promptRequest
+        val coordinatorAttempt by UpdateState.activeAttempt
+        val promptSession = remember { UpdatePromptSession() }
+        var activeUpdateOffer by remember { mutableStateOf<UpdatePromptOffer?>(null) }
 
         // Download dialog state
         var showDownloadDialog by remember { mutableStateOf(false) }
         var downloadJob by remember { mutableStateOf<Job?>(null) }
         var downloadError by remember { mutableStateOf<String?>(null) }
+        var activeUpdateAttempt by remember { mutableStateOf<UpdateAttempt?>(null) }
+        var activeCancellationGate by remember { mutableStateOf<UpdateAttemptCancellationGate?>(null) }
 
-        if (showUpdateDialog && shouldShowUpdateDialog) {
+        LaunchedEffect(updateInfo, promptRequest?.sequence, coordinatorAttempt?.id, showDownloadDialog) {
+            if (!showDownloadDialog) {
+                activeUpdateOffer = promptSession.nextOffer(
+                    candidate = updateInfo,
+                    lastShownVersion = Settings.lastShownUpdateVersion,
+                    pendingRequest = promptRequest,
+                    activeAttempt = coordinatorAttempt,
+                )
+            }
+        }
+
+        activeUpdateOffer?.let { offer ->
             UpdateAvailableDialog(
-                updateInfo = updateInfo!!,
-                // Просто закрыть: предложение вернётся при следующей проверке. Сюда попадаем,
-                // когда нажали «Обновить» или ушли смотреть релиз — это НЕ отказ.
-                onHide = { showUpdateDialog = false },
-                // Явный отказ («Отмена») — только здесь гасим версию насовсем.
+                updateInfo = offer.info,
+                onHide = {
+                    if (promptSession.close(offer)) {
+                        UpdateState.applyPromptAction(
+                            offer.info.versionCode,
+                            UpdatePromptAction.Hide,
+                        )
+                        activeUpdateOffer = null
+                        offer.requestSequence?.let(UpdateState::clearUpdatePrompt)
+                    }
+                },
                 onDecline = {
-                    Settings.lastShownUpdateVersion = updateInfo!!.versionCode
-                    showUpdateDialog = false
+                    if (promptSession.close(offer)) {
+                        activeUpdateOffer = null
+                        UpdateState.applyPromptAction(
+                            offer.info.versionCode,
+                            UpdatePromptAction.Decline,
+                        )
+                        offer.requestSequence?.let(UpdateState::clearUpdatePrompt)
+                    }
                 },
                 onUpdate = {
+                    val attempt = beginPromptAttemptTransaction(
+                        offer = offer,
+                        beginAttempt = UpdateState::beginUpdateAttempt,
+                        closeOffer = promptSession::close,
+                        rollbackAttempt = { attemptId ->
+                            UpdateState.cancelUpdateAttempt(attemptId)
+                        },
+                    )
+                        ?: return@UpdateAvailableDialog
+                    activeUpdateOffer = null
+                    activeUpdateAttempt = attempt
                     showDownloadDialog = true
                     downloadError = null
-                    downloadJob = scope.launch {
+                    val cancellationGate = UpdateAttemptCancellationGate {
+                        // Reset while this lease still excludes the worker: an old attempt must
+                        // never overwrite phase/progress after a newer attempt acquires the lock.
+                        UpdateState.resetDownload()
+                        UpdateState.cancelUpdateAttempt(attempt.id)
+                    }
+                    activeCancellationGate = cancellationGate
+                    val job = scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
                                 Vendor.downloadAndInstall(
                                     this@MainActivity,
-                                    updateInfo!!.downloadUrl,
+                                    attempt.offer.info.downloadUrl,
                                 )
                             }
-                            showDownloadDialog = false
+                            if (UpdateState.completeUpdateAttempt(attempt.id) &&
+                                activeUpdateAttempt?.id == attempt.id
+                            ) {
+                                activeUpdateAttempt = null
+                                activeCancellationGate = null
+                                downloadJob = null
+                                showDownloadDialog = false
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
-                            downloadError = e.message
+                            if (cancellationGate.shouldTreatFailureAsCancellation()) {
+                                return@launch
+                            }
+                            UpdateState.retryFailedUpdateAttempt(attempt.id)
+                            if (activeUpdateAttempt?.id == attempt.id) {
+                                activeCancellationGate = null
+                                downloadJob = null
+                                downloadError = e.message ?: e.toString()
+                            }
                         }
                     }
+                    job.invokeOnCompletion { cause ->
+                        cancellationGate.onJobCompleted(
+                            cancelledByCause = cause is CancellationException,
+                        )
+                    }
+                    downloadJob = job
                 },
             )
         }
@@ -752,11 +813,27 @@ class MainActivity :
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            downloadJob?.cancel()
+                            val attempt = activeUpdateAttempt
+                            val failed = downloadError != null
+                            if (!failed) {
+                                activeCancellationGate?.requestCancellation {
+                                    downloadJob?.cancel()
+                                }
+                            }
                             downloadJob = null
+                            activeCancellationGate = null
+                            activeUpdateAttempt = null
                             showDownloadDialog = false
                             downloadError = null
                             UpdateState.resetDownload()
+                            if (attempt != null) {
+                                if (failed) {
+                                    UpdateState.applyPromptAction(
+                                        attempt.offer.info.versionCode,
+                                        UpdatePromptAction.InstallFailed,
+                                    )
+                                }
+                            }
                         },
                     ) {
                         Text(stringResource(if (downloadError != null) R.string.ok else android.R.string.cancel))
@@ -1410,7 +1487,12 @@ class MainActivity :
         // the receiver gets a terminal STATUS_FAILURE_ABORTED and the flow ends normally.
         UpdateState.pendingConfirmIntent.value?.let { confirm ->
             UpdateState.pendingConfirmIntent.value = null
-            runCatching { startActivity(confirm) }
+            deliverInstallConfirmation(
+                confirmation = confirm,
+                appInForeground = true,
+                launch = { confirmation -> startActivity(confirmation) },
+                park = { confirmation -> UpdateState.pendingConfirmIntent.value = confirmation },
+            )
         }
         // Belt-and-suspenders resync: every time the activity comes forward, re-push the
         // authoritative status into the dashboard VM so the connect/disconnect decision can never
@@ -1428,10 +1510,7 @@ class MainActivity :
         ) {
             lastUpdateCheckMs = System.currentTimeMillis()
             lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    UpdateState.setUpdate(Vendor.checkUpdateAsync())
-                } catch (_: Exception) {
-                }
+                UpdateState.applyUpdateCheckResult(runCatching { Vendor.checkUpdateAsync() })
             }
         }
         // Force a fresh /sub pull on foreground (bypasses the 15-min periodic floor) so an

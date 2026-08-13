@@ -8,8 +8,18 @@ import com.maestrovpn.tv.database.Settings
 import java.io.File
 
 object UpdateState {
+    private val promptCoordinator = UpdatePromptCoordinator()
+    private val projectionGate = UpdateStateProjectionGate()
+    private val promptGateway = UpdatePromptGateway(
+        coordinator = promptCoordinator,
+        readLastShownVersion = { Settings.lastShownUpdateVersion },
+        writeLastShownVersion = { Settings.lastShownUpdateVersion = it },
+    )
+
     val hasUpdate = mutableStateOf(false)
     val updateInfo = mutableStateOf<UpdateInfo?>(null)
+    internal val promptRequest = mutableStateOf<UpdatePromptRequest?>(null)
+    internal val activeAttempt = mutableStateOf<UpdateAttempt?>(null)
     val isChecking = mutableStateOf(false)
 
     val isDownloading = mutableStateOf(false)
@@ -48,10 +58,70 @@ object UpdateState {
     val pendingConfirmIntent = mutableStateOf<android.content.Intent?>(null)
 
     fun setUpdate(info: UpdateInfo?) {
-        updateInfo.value = info
-        hasUpdate.value = info != null
-        saveToCache(info)
+        applyUpdateCheckResult(Result.success(info))
     }
+
+    internal fun applyUpdateCheckResult(result: Result<UpdateInfo?>) =
+        mutateCoordinatorAndProject {
+            promptCoordinator.applyUpdateCheckResult(result)
+        }
+
+    internal fun requestUpdatePrompt(
+        info: UpdateInfo,
+        provenance: UpdatePromptProvenance,
+    ): UpdatePromptRequest = mutateCoordinatorAndProject {
+        promptGateway.publishManual(info, provenance)
+    }
+
+    internal fun applyPromptAction(availableVersion: Int, action: UpdatePromptAction): Int =
+        projectionGate.mutateAndProject(
+            mutate = { promptGateway.applyAction(availableVersion, action) },
+            project = { _ -> },
+        )
+
+    internal fun beginBackgroundUpdateAttempt(info: UpdateInfo): UpdateAttempt? =
+        projectionGate.mutateAndProject(
+            mutate = {
+                acquireUpdateAttemptSafely(
+                    acquire = { promptCoordinator.beginBackgroundAttempt(info) },
+                    project = { syncPromptStateLocked() },
+                    rollback = ::rollbackProjectedAttemptLocked,
+                )
+            },
+            project = { _ -> },
+        )
+
+    internal fun clearUpdatePrompt(sequence: Long): Boolean =
+        mutateCoordinatorAndProject {
+            promptCoordinator.clearUpdatePrompt(sequence)
+        }
+
+    internal fun beginUpdateAttempt(offer: UpdatePromptOffer): UpdateAttempt? =
+        projectionGate.mutateAndProject(
+            mutate = {
+                acquireUpdateAttemptSafely(
+                    acquire = { promptCoordinator.beginAttempt(offer) },
+                    project = { syncPromptStateLocked() },
+                    rollback = ::rollbackProjectedAttemptLocked,
+                )
+            },
+            project = { _ -> },
+        )
+
+    internal fun completeUpdateAttempt(attemptId: Long): Boolean =
+        mutateCoordinatorAndProject {
+            promptCoordinator.completeAttempt(attemptId)
+        }
+
+    internal fun cancelUpdateAttempt(attemptId: Long): Boolean =
+        mutateCoordinatorAndProject {
+            promptCoordinator.cancelAttempt(attemptId)
+        }
+
+    internal fun retryFailedUpdateAttempt(attemptId: Long): UpdatePromptRequest? =
+        mutateCoordinatorAndProject {
+            promptCoordinator.retryFailedAttempt(attemptId)
+        }
 
     fun setInstallStatus(status: InstallStatus) {
         installStatus.value = status
@@ -72,16 +142,20 @@ object UpdateState {
     }
 
     fun clear() {
-        hasUpdate.value = false
-        updateInfo.value = null
-        isDownloading.value = false
-        downloadProgress.value = null
-        downloadError.value = null
-        installStatus.value = InstallStatus.Idle
-        cachedApkFile.value = null
-        pendingConfirmIntent.value = null
-        phase.value = Phase.Idle
-        clearCache()
+        projectionGate.mutateAndProject(
+            mutate = { promptCoordinator.clearAll() },
+            project = {
+                syncPromptStateLocked(saveCache = false)
+                isDownloading.value = false
+                downloadProgress.value = null
+                downloadError.value = null
+                installStatus.value = InstallStatus.Idle
+                cachedApkFile.value = null
+                pendingConfirmIntent.value = null
+                phase.value = Phase.Idle
+                clearCache()
+            },
+        )
     }
 
     fun resetDownload() {
@@ -92,41 +166,75 @@ object UpdateState {
     }
 
     fun loadFromCache() {
-        val json = Settings.cachedUpdateInfo
-        if (json.isBlank()) return
+        projectionGate.mutateAndProject(
+            mutate = {
+                val json = Settings.cachedUpdateInfo
+                if (json.isBlank()) return@mutateAndProject false
 
-        val info = UpdateInfo.fromJson(json) ?: return
-        if (info.versionCode <= BuildConfig.VERSION_CODE) {
-            clearCache()
-            return
-        }
+                val info = UpdateInfo.fromJson(json) ?: return@mutateAndProject false
+                if (info.versionCode <= BuildConfig.VERSION_CODE) {
+                    clearCache()
+                    return@mutateAndProject false
+                }
 
-        updateInfo.value = info
-        hasUpdate.value = true
+                promptCoordinator.applyUpdateCheckResult(Result.success(info))
+                true
+            },
+            project = { loaded ->
+                if (loaded) {
+                    syncPromptStateLocked(saveCache = false)
 
-        val apkPath = Settings.cachedApkPath
-        if (apkPath.isNotBlank()) {
-            val apkFile = File(apkPath)
-            if (apkFile.exists() && apkFile.length() > 0) {
-                cachedApkFile.value = apkFile
-            } else {
-                Settings.cachedApkPath = ""
-            }
-        }
+                    val apkPath = Settings.cachedApkPath
+                    if (apkPath.isNotBlank()) {
+                        val apkFile = File(apkPath)
+                        if (apkFile.exists() && apkFile.length() > 0) {
+                            cachedApkFile.value = apkFile
+                        } else {
+                            Settings.cachedApkPath = ""
+                        }
+                    }
+                }
+            },
+        )
     }
 
     private fun saveToCache(info: UpdateInfo?) {
         Settings.cachedUpdateInfo = info?.toJson() ?: ""
     }
 
-    fun saveApkPath(file: File) {
-        Settings.cachedApkPath = file.absolutePath
-        cachedApkFile.value = file
+    private fun rollbackProjectedAttemptLocked(attemptId: Long) {
+        promptCoordinator.cancelAttempt(attemptId)
+        syncPromptStateLocked(saveCache = false)
     }
+
+    private fun <T> mutateCoordinatorAndProject(
+        saveCache: Boolean = true,
+        mutation: () -> T,
+    ): T = projectionGate.mutateAndProject(
+        mutate = mutation,
+        project = { syncPromptStateLocked(saveCache) },
+    )
+
+    /** Must only run while [projectionGate] is held. */
+    private fun syncPromptStateLocked(saveCache: Boolean = true) {
+        val info = promptCoordinator.candidate
+        updateInfo.value = info
+        hasUpdate.value = info != null
+        promptRequest.value = promptCoordinator.pendingRequest
+        activeAttempt.value = promptCoordinator.activeAttempt
+        if (saveCache) saveToCache(info)
+    }
+
+    fun saveApkPath(file: File) = projectionGate.mutateAndProject(
+        mutate = {
+            Settings.cachedApkPath = file.absolutePath
+            cachedApkFile.value = file
+        },
+        project = { _ -> },
+    )
 
     private fun clearCache() {
         Settings.cachedUpdateInfo = ""
         Settings.cachedApkPath = ""
-        Settings.lastShownUpdateVersion = 0
     }
 }

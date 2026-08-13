@@ -1,0 +1,77 @@
+name: HA control-plane checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'ops/ha/**'
+      - 'deploy/ha/**'
+      - '.github/workflows/ha-control-plane.yml'
+  push:
+    branches:
+      - main
+      - codex/mobile-4d-deck
+    paths:
+      - 'backend/**'
+      - 'ops/ha/**'
+      - 'deploy/ha/**'
+      - '.github/workflows/ha-control-plane.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ha-control-plane-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  go-and-rqlite:
+    name: Go and isolated rqlite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      # actions/setup-go v5.6.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache-dependency-path: backend/go.sum
+
+      - name: Check Go formatting
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          gofmt -d internal/rqlite/*.go | tee /tmp/rqlite-gofmt.diff
+          test ! -s /tmp/rqlite-gofmt.diff
+
+      - name: Test backend
+        working-directory: backend
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test ./...
+
+      - name: Race-test backend
+        working-directory: backend
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -race ./...
+
+      - name: Vet backend
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Test rqlite harness contract
+        run: |
+          bash -n ops/ha/test-ci-rqlite-cluster.sh
+          bash ops/ha/test-ci-rqlite-cluster.sh
+
+      - name: Start isolated rqlite cluster
+        run: bash ops/ha/ci-rqlite-cluster.sh start
+
+      - name: Test rqlite integration
+        working-directory: backend
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -tags=rqlite_integration ./...
+
+      - name: Stop isolated rqlite cluster
+        if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
+        run: bash ops/ha/ci-rqlite-cluster.sh stop

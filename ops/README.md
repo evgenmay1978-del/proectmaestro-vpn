@@ -4,6 +4,41 @@ Applying the lesson from the training videos (esp. Anthropic-skills #5: *"if a t
 code, do it with code"* → run a tested script instead of re-deriving the commands each session →
 0 tokens, stable, fast). These encapsulate the operations I used to type out by hand every time.
 
+## Обязательный барьер повторов
+
+`maestro-repetition-guard.py` не даёт агенту повторить необъяснённо упавшую
+операцию. Запускать из корня репозитория перед внешней/долгой/изменяющей
+операцией и перед любой повторной попыткой:
+
+```powershell
+python ops/maestro-repetition-guard.py check --action s1-key-login --family openssh-key-probe
+```
+
+После первой ошибки или указания владельца, что способ неверен:
+
+```powershell
+python ops/maestro-repetition-guard.py fail --action s1-key-login --family puttygen-gui --reason-code hidden-interactive-prompt
+```
+
+Продолжать можно только после установления причины и регистрации действительно
+другого способа:
+
+```powershell
+python ops/maestro-repetition-guard.py correct --action s1-key-login --old-family puttygen-gui --new-family openssh-key-probe --root-cause-code gui-needs-tty
+python ops/maestro-repetition-guard.py check --action s1-key-login --family openssh-key-probe
+python ops/maestro-repetition-guard.py success --action s1-key-login --family openssh-key-probe --evidence-code key-only-login-confirmed
+```
+
+Код `42` означает обязательную остановку, `43` — повреждённый/нечитаемый
+журнал и тоже обязательную остановку. Локальный журнал находится в
+`.maestro-state/repetition-guard.json`, исключён из Git и хранит только
+смысловые коды и SHA-256 способов. Никогда не подставлять туда текст команды,
+пароль, ключ, токен, URL подписки или данные клиента. Проверка:
+
+```powershell
+python -m unittest ops.test_maestro_repetition_guard -v
+```
+
 Server operations run **on S1** (where the panel, telemetry, mirror and repo live).
 The lightweight mobile eye-state preview below may run locally; heavy ring/atlas
 generation, the full simulator, Gradle and APK builds run only on GitHub Actions
@@ -31,6 +66,27 @@ original ZIP and a path-traversal-safe `extracted/` directory.
 Authentication lookup order is `GH_TOKEN`, `GITHUB_TOKEN`, then
 `git credential fill`; credentials are never written to metadata or printed. This
 script has no GitHub Release or OTA endpoint and does not merge or publish anything.
+
+## Isolated rqlite CI cluster
+
+`ops/ha/ci-rqlite-cluster.sh` is a GitHub Actions-only harness for the HA control
+plane. It downloads the pinned rqlite 10.1.0 archive, verifies its SHA-256 before
+extraction, and starts three loopback-only voters below the runner's temporary
+directory. It never connects to S1-S4 and contains no production credentials.
+
+On the owner's computer run syntax checks only; do not run `start` or the full
+contract because those download and start three rqlite processes:
+
+```powershell
+bash -n ops/ha/ci-rqlite-cluster.sh
+bash -n ops/ha/test-ci-rqlite-cluster.sh
+```
+
+The full lifecycle, leader/voter checks, per-node foreign-key checks, backend
+tests, race tests, vet and integration tests run in
+`.github/workflows/ha-control-plane.yml`. Its `always()` cleanup stops only PIDs
+recorded under the validated runner-temp root. A GREEN run on the exact pushed
+SHA is required before proceeding to the checksummed control-plane schema.
 
 ## Mobile 4D assets and phone preview
 
