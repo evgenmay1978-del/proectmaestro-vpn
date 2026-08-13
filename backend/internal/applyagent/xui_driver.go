@@ -160,7 +160,7 @@ func (d *xuiDriver) Prepare(ctx context.Context, snapshot MaterializedSnapshot) 
 	return PreparedChange{SnapshotSHA256: observed}, nil
 }
 
-func (d *xuiDriver) Commit(ctx context.Context, PreparedChange) (AppliedState, error) {
+func (d *xuiDriver) Commit(ctx context.Context, prepared PreparedChange) (AppliedState, error) {
 	observed, err := d.cfg.Client.ObservedSHA256(ctx, d.cfg.InboundID)
 	if err != nil {
 		return AppliedState{}, ErrDriverCommit
@@ -174,7 +174,7 @@ func (d *xuiDriver) Commit(ctx context.Context, PreparedChange) (AppliedState, e
 	return AppliedState{SnapshotSHA256: observed, Healthy: true}, nil
 }
 
-func (d *xuiDriver) Rollback(context.Context, PreparedChange) error { return nil }
+func (d *xuiDriver) Rollback(ctx context.Context, prepared PreparedChange) error { return nil }
 
 func (d *xuiDriver) validateSnapshot(snapshot MaterializedSnapshot) error {
 	if snapshot.NodeID != d.cfg.NodeID || snapshot.ServiceID != d.cfg.ServiceID || snapshot.SnapshotSHA256 == "" {
