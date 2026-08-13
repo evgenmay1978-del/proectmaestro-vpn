@@ -38,9 +38,13 @@ func (f *fakeXUIClient) UpsertUser(_ context.Context, inboundID int, user XUIUse
 	user.InboundID = inboundID
 	f.upserts = append(f.upserts, user)
 	f.snapshot.Users = append(f.snapshot.Users, XUIUser{
-		Login: user.Login, UUID: user.UUID, SubID: user.SubID,
-		Flow: user.Flow, AbsoluteExpiryUnix: user.AbsoluteExpiryUnix,
-		Generation: user.Generation, PayloadSHA256: user.PayloadSHA256,
+		Login:              user.Login,
+		UUID:               user.UUID,
+		SubID:              user.SubID,
+		Flow:               user.Flow,
+		AbsoluteExpiryUnix: user.AbsoluteExpiryUnix,
+		Generation:         user.Generation,
+		PayloadSHA256:      user.PayloadSHA256,
 	})
 	return nil
 }
@@ -82,8 +86,11 @@ func TestXUIDriverRejectsRemoteEndpointBeforeClientCall(t *testing.T) {
 	} {
 		client := &fakeXUIClient{}
 		_, err := NewXUIDriver(XUIDriverConfig{
-			NodeID: "s1", ServiceID: "s1-vless", Endpoint: mustURL(t, endpoint),
-			InboundID: 7, Client: client,
+			NodeID:    "s1",
+			ServiceID: "s1-vless",
+			Endpoint:  mustURL(t, endpoint),
+			InboundID: 7,
+			Client:    client,
 		})
 		if !errors.Is(err, ErrDriverInvalidTarget) {
 			t.Fatalf("endpoint %s error=%v, want ErrDriverInvalidTarget", endpoint, err)
@@ -98,12 +105,15 @@ func TestXUIDriverPreservesLoginUUIDSubIDFlowAndAbsoluteExpiry(t *testing.T) {
 	client := &fakeXUIClient{}
 	driver := newTestXUIDriver(t, "s1", "s1-vless", client)
 	snapshot := xuiSnapshot("s1", "s1-vless", MaterializedEntry{
-		CustomerID: "cust-1", OperationID: "op-1", PayloadKind: XUIPayloadKind,
-		Generation: 42, Body: xuiBody(t, "wapmix", "11111111-1111-4111-8111-111111111111", "sub-wapmix", "xtls-rprx-vision", 1798761600),
-		BodySHA256: sha256Hex([]byte("body")), DesiredSHA256: sha256Hex([]byte("desired")),
+		CustomerID:    "cust-1",
+		OperationID:   "op-1",
+		PayloadKind:   XUIPayloadKind,
+		Generation:    42,
+		Body:          xuiBody(t, "wapmix", "11111111-1111-4111-8111-111111111111", "sub-wapmix", "xtls-rprx-vision", 1798761600),
+		BodySHA256:    sha256Hex([]byte("body")),
+		DesiredSHA256: sha256Hex([]byte("desired")),
 	})
-	prepared, err := driver.Prepare(context.Background(), snapshot)
-	if err != nil {
+	if _, err := driver.Prepare(context.Background(), snapshot); err != nil {
 		t.Fatalf("Prepare returned %v", err)
 	}
 	if len(client.upserts) != 1 {
@@ -170,8 +180,11 @@ func TestXUIDriverAPIErrorIsNotAbsenceAndRollbackReceiptMismatch(t *testing.T) {
 
 func TestRqliteXUICompositionHasNoRemoteEndpoint(t *testing.T) {
 	composition := XUIRqliteComposition{
-		NodeID: "s1", ServiceID: "s1-vless", Endpoint: mustURL(t, "http://10.10.10.10:54321"),
-		InboundID: 7, PayloadKind: XUIPayloadKind,
+		NodeID:      "s1",
+		ServiceID:   "s1-vless",
+		Endpoint:    mustURL(t, "http://10.10.10.10:54321"),
+		InboundID:   7,
+		PayloadKind: XUIPayloadKind,
 	}
 	if _, err := NewXUIDriverFromRqliteComposition(composition, &fakeXUIClient{}); !errors.Is(err, ErrDriverInvalidTarget) {
 		t.Fatalf("remote rqlite composition error=%v, want ErrDriverInvalidTarget", err)
@@ -181,8 +194,12 @@ func TestRqliteXUICompositionHasNoRemoteEndpoint(t *testing.T) {
 func newTestXUIDriver(t *testing.T, nodeID, serviceID string, client *fakeXUIClient) Driver {
 	t.Helper()
 	driver, err := NewXUIDriver(XUIDriverConfig{
-		NodeID: nodeID, ServiceID: serviceID, Endpoint: mustURL(t, "http://127.0.0.1:54321"),
-		InboundID: 7, PayloadKind: XUIPayloadKind, Client: client,
+		NodeID:      nodeID,
+		ServiceID:   serviceID,
+		Endpoint:    mustURL(t, "http://127.0.0.1:54321"),
+		InboundID:   7,
+		PayloadKind: XUIPayloadKind,
+		Client:      client,
 	})
 	if err != nil {
 		t.Fatalf("NewXUIDriver: %v", err)
@@ -191,7 +208,13 @@ func newTestXUIDriver(t *testing.T, nodeID, serviceID string, client *fakeXUICli
 }
 
 func xuiSnapshot(nodeID, serviceID string, entries ...MaterializedEntry) MaterializedSnapshot {
-	return MaterializedSnapshot{NodeID: nodeID, ServiceID: serviceID, TriggerOperationID: "task12-red", SnapshotSHA256: sha256Hex([]byte("desired-snapshot")), Entries: entries}
+	return MaterializedSnapshot{
+		NodeID:             nodeID,
+		ServiceID:          serviceID,
+		TriggerOperationID: "task12-red",
+		SnapshotSHA256:     sha256Hex([]byte("desired-snapshot")),
+		Entries:            entries,
+	}
 }
 
 func xuiEntry(t *testing.T, customerID, login string, generation int64, tombstone bool) MaterializedEntry {
@@ -200,12 +223,27 @@ func xuiEntry(t *testing.T, customerID, login string, generation int64, tombston
 	if tombstone {
 		body = json.RawMessage(`{"login":"` + login + `","tombstone":true}`)
 	}
-	return MaterializedEntry{CustomerID: customerID, OperationID: "op-" + customerID, PayloadKind: XUIPayloadKind, Generation: generation, Tombstone: tombstone, Body: body, BodySHA256: sha256Hex(body), DesiredSHA256: sha256Hex([]byte(customerID))}
+	return MaterializedEntry{
+		CustomerID:    customerID,
+		OperationID:   "op-" + customerID,
+		PayloadKind:   XUIPayloadKind,
+		Generation:    generation,
+		Tombstone:     tombstone,
+		Body:          body,
+		BodySHA256:    sha256Hex(body),
+		DesiredSHA256: sha256Hex([]byte(customerID)),
+	}
 }
 
 func xuiBody(t *testing.T, login, uuid, subID, flow string, absoluteExpiryUnix int64) json.RawMessage {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{"login": login, "uuid": uuid, "sub_id": subID, "flow": flow, "absolute_expiry_unix": absoluteExpiryUnix})
+	payload, err := json.Marshal(map[string]any{
+		"login":                login,
+		"uuid":                 uuid,
+		"sub_id":               subID,
+		"flow":                 flow,
+		"absolute_expiry_unix": absoluteExpiryUnix,
+	})
 	if err != nil {
 		t.Fatalf("marshal xui body: %v", err)
 	}

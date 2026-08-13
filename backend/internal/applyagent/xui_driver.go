@@ -23,18 +23,20 @@ type XUIClient interface {
 }
 
 type XUIDriverConfig struct {
-	NodeID, ServiceID string
-	Endpoint          *url.URL
-	InboundID         int
-	PayloadKind       string
-	Client            XUIClient
+	NodeID      string
+	ServiceID   string
+	Endpoint    *url.URL
+	InboundID   int
+	PayloadKind string
+	Client      XUIClient
 }
 
 type XUIRqliteComposition struct {
-	NodeID, ServiceID string
-	Endpoint          *url.URL
-	InboundID         int
-	PayloadKind       string
+	NodeID      string
+	ServiceID   string
+	Endpoint    *url.URL
+	InboundID   int
+	PayloadKind string
 }
 
 type XUIInboundSnapshot struct {
@@ -43,26 +45,30 @@ type XUIInboundSnapshot struct {
 }
 
 type XUIUser struct {
-	InboundID           int
-	Login, UUID, SubID  string
-	Flow                string
-	AbsoluteExpiryUnix  int64
-	Generation          int64
-	PayloadSHA256       string
+	InboundID          int
+	Login              string
+	UUID               string
+	SubID              string
+	Flow               string
+	AbsoluteExpiryUnix int64
+	Generation         int64
+	PayloadSHA256      string
 }
 
 type XUIUserPatch struct {
-	InboundID           int
-	Login, UUID, SubID  string
-	Flow                string
-	AbsoluteExpiryUnix  int64
-	Generation          int64
-	PayloadSHA256       string
+	InboundID          int
+	Login              string
+	UUID               string
+	SubID              string
+	Flow               string
+	AbsoluteExpiryUnix int64
+	Generation         int64
+	PayloadSHA256      string
 }
 
 type xuiDriver struct {
-	cfg XUIDriverConfig
-	mu  sync.Mutex
+	cfg                 XUIDriverConfig
+	mu                  sync.Mutex
 	wantSnapshotSHA256 string
 }
 
@@ -78,7 +84,12 @@ func NewXUIDriver(cfg XUIDriverConfig) (Driver, error) {
 	if cfg.PayloadKind == "" {
 		cfg.PayloadKind = XUIPayloadKind
 	}
-	if strings.TrimSpace(cfg.NodeID) == "" || strings.TrimSpace(cfg.ServiceID) == "" || cfg.InboundID <= 0 || cfg.Client == nil || cfg.PayloadKind != XUIPayloadKind || !isLoopbackEndpoint(cfg.Endpoint) {
+	if strings.TrimSpace(cfg.NodeID) == "" ||
+		strings.TrimSpace(cfg.ServiceID) == "" ||
+		cfg.InboundID <= 0 ||
+		cfg.Client == nil ||
+		cfg.PayloadKind != XUIPayloadKind ||
+		!isLoopbackEndpoint(cfg.Endpoint) {
 		return nil, ErrDriverInvalidTarget
 	}
 	return &xuiDriver{cfg: cfg}, nil
@@ -86,8 +97,12 @@ func NewXUIDriver(cfg XUIDriverConfig) (Driver, error) {
 
 func NewXUIDriverFromRqliteComposition(composition XUIRqliteComposition, client XUIClient) (Driver, error) {
 	return NewXUIDriver(XUIDriverConfig{
-		NodeID: composition.NodeID, ServiceID: composition.ServiceID, Endpoint: composition.Endpoint,
-		InboundID: composition.InboundID, PayloadKind: composition.PayloadKind, Client: client,
+		NodeID:      composition.NodeID,
+		ServiceID:   composition.ServiceID,
+		Endpoint:    composition.Endpoint,
+		InboundID:   composition.InboundID,
+		PayloadKind: composition.PayloadKind,
+		Client:      client,
 	})
 }
 
@@ -115,7 +130,10 @@ func (d *xuiDriver) Inspect(ctx context.Context, snapshot MaterializedSnapshot) 
 	if err != nil {
 		return AppliedState{}, ErrDriverInspect
 	}
-	return AppliedState{SnapshotSHA256: snapshot.SnapshotSHA256, Healthy: observed == snapshot.SnapshotSHA256 && d.liveMatches(snapshot, live)}, nil
+	return AppliedState{
+		SnapshotSHA256: snapshot.SnapshotSHA256,
+		Healthy:        observed == snapshot.SnapshotSHA256 && d.liveMatches(snapshot, live),
+	}, nil
 }
 
 func (d *xuiDriver) Prepare(ctx context.Context, snapshot MaterializedSnapshot) (PreparedChange, error) {
@@ -174,14 +192,19 @@ func (d *xuiDriver) Commit(ctx context.Context, prepared PreparedChange) (Applie
 	return AppliedState{SnapshotSHA256: observed, Healthy: true}, nil
 }
 
-func (d *xuiDriver) Rollback(ctx context.Context, prepared PreparedChange) error { return nil }
+func (d *xuiDriver) Rollback(ctx context.Context, prepared PreparedChange) error {
+	return nil
+}
 
 func (d *xuiDriver) validateSnapshot(snapshot MaterializedSnapshot) error {
 	if snapshot.NodeID != d.cfg.NodeID || snapshot.ServiceID != d.cfg.ServiceID || snapshot.SnapshotSHA256 == "" {
 		return ErrInvalidCommand
 	}
 	for _, entry := range snapshot.Entries {
-		if entry.PayloadKind != d.cfg.PayloadKind || entry.Generation <= 0 || entry.CustomerID == "" || entry.OperationID == "" {
+		if entry.PayloadKind != d.cfg.PayloadKind ||
+			entry.Generation <= 0 ||
+			entry.CustomerID == "" ||
+			entry.OperationID == "" {
 			return ErrInvalidCommand
 		}
 	}
@@ -209,12 +232,21 @@ func entryPatch(entry MaterializedEntry) (XUIUserPatch, error) {
 	var payload xuiPayload
 	decoder := json.NewDecoder(bytes.NewReader(entry.Body))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil || strings.TrimSpace(payload.Login) == "" || strings.TrimSpace(payload.UUID) == "" || strings.TrimSpace(payload.SubID) == "" || payload.AbsoluteExpiryUnix <= 0 {
+	if err := decoder.Decode(&payload); err != nil ||
+		strings.TrimSpace(payload.Login) == "" ||
+		strings.TrimSpace(payload.UUID) == "" ||
+		strings.TrimSpace(payload.SubID) == "" ||
+		payload.AbsoluteExpiryUnix <= 0 {
 		return XUIUserPatch{}, ErrInvalidCommand
 	}
 	return XUIUserPatch{
-		Login: payload.Login, UUID: payload.UUID, SubID: payload.SubID, Flow: payload.Flow,
-		AbsoluteExpiryUnix: payload.AbsoluteExpiryUnix, Generation: entry.Generation, PayloadSHA256: entry.DesiredSHA256,
+		Login:              payload.Login,
+		UUID:               payload.UUID,
+		SubID:              payload.SubID,
+		Flow:               payload.Flow,
+		AbsoluteExpiryUnix: payload.AbsoluteExpiryUnix,
+		Generation:         entry.Generation,
+		PayloadSHA256:      entry.DesiredSHA256,
 	}, nil
 }
 
@@ -245,5 +277,12 @@ func findXUIUser(snapshot XUIInboundSnapshot, login string) *XUIUser {
 }
 
 func sameXUIUser(user *XUIUser, patch XUIUserPatch) bool {
-	return user != nil && user.Login == patch.Login && user.UUID == patch.UUID && user.SubID == patch.SubID && user.Flow == patch.Flow && user.AbsoluteExpiryUnix == patch.AbsoluteExpiryUnix && user.Generation == patch.Generation && user.PayloadSHA256 == patch.PayloadSHA256
+	return user != nil &&
+		user.Login == patch.Login &&
+		user.UUID == patch.UUID &&
+		user.SubID == patch.SubID &&
+		user.Flow == patch.Flow &&
+		user.AbsoluteExpiryUnix == patch.AbsoluteExpiryUnix &&
+		user.Generation == patch.Generation &&
+		user.PayloadSHA256 == patch.PayloadSHA256
 }
