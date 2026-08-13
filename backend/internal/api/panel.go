@@ -707,6 +707,10 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid login", http.StatusBadRequest)
 		return
 	}
+	if req.Login == "" && req.Provider == "wbstream" {
+		http.Error(w, "wbstream room requires a login", http.StatusBadRequest)
+		return
+	}
 	// Run the SAME script the Telegram bridge uses so a UI room-swap does the FULL work: mint the
 	// login's key + write the panel config + bring up (or restart) that login's S3 exit. Falls
 	// back to a config-only write if the script isn't configured (no S3 exit, matches the old
@@ -724,7 +728,7 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 		argv = append(argv, req.Login)
 	}
 	argv = append(argv, req.Room)
-	if req.Provider != "" {
+	if req.Login != "" && req.Provider != "" {
 		argv = append(argv, req.Provider) // ops script: <login> <room> [provider]
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 100*time.Second)

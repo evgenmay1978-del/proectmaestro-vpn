@@ -10,6 +10,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -171,7 +173,12 @@ internal fun PhoneHomeControlDeck(
         val deckTop = layout.deckTop
         val deckWidth = maxWidth.value
         val contactScale = layout.referenceScale
-        val arcProtocols = remember(protocols) { orderedHomeProtocols(protocols) }
+        val hasOwnerProtocolAccess = remember(accountLogin) {
+            accountLogin?.trim()?.lowercase() in HOME_OWNER_LOGINS
+        }
+        val arcProtocols = remember(protocols, hasOwnerProtocolAccess) {
+            orderedHomeProtocols(protocols, includeOwnerProtocols = hasOwnerProtocolAccess)
+        }
 
         // Явный viewport не даёт ни тексту, ни hit-target деки подняться поверх
         // неподвижных логотипа и глаза. Арт-слои используют тот же deckTop в Canvas.
@@ -476,45 +483,72 @@ private fun ProtocolArc(
     if (protocols.isEmpty()) return
     val width = bounds.right - bounds.left
     val scale = width / REFERENCE_WIDTH
-    // Ячейки резного веера НЕ равномерны и НЕ повторяют силуэт дуги: сам силуэт провисает
-    // к краям на 39.8 dp, а верх САМИХ ячеек — только на ~12 (замерено по home_arc_c.png).
-    // Ставить сектор по силуэту нельзя: подпись уедет с резьбы на бортик.
-    val cells = arcSectorCells(protocols.size)
+    val cells = arcSectorCells(minOf(protocols.size, ARC_SECTOR_CENTERS.size))
+    if (cells.isEmpty()) return
 
-    protocols.forEachIndexed { index, protocol ->
-        val cell = cells.getOrNull(index) ?: return@forEachIndexed
-        val locked = protocol == "olcrtc" && !hasOlcrtcCreds
-        val isSelected = protocol == selected && !locked
-        val provider = when {
-            protocol != "olcrtc" -> null
-            olcrtcProvider == "wbstream" -> "через WB"
-            else -> "через Яндекс"
-        }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .absoluteOffset(
-                    x = (bounds.left + (cell.centerDp - cell.widthDp / 2f) * scale).dp,
-                    y = (cell.topDp * scale - deckTop).dp,
-                )
-                .size(width = cell.widthDp * scale, height = cell.heightDp * scale),
-        ) {
-            ProtocolSector(
-                label = homeProtocolSectorLabel(protocol),
-                icon = if (locked) Icons.Filled.Lock else protocolIcon(protocol),
-                selected = isSelected,
-                locked = locked,
-                description = buildList {
-                    add(protocolLabel(protocol))
-                    add(protocolBadge(protocol))
-                    provider?.let { add(it) }
-                    if (locked) add("по запросу")
-                }.joinToString(", "),
-                onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("home-protocol-$protocol"),
+    val overflowCount = (protocols.size - cells.size).coerceAtLeast(0)
+    val overflowWidth = overflowCount * ARC_OVERFLOW_STEP_DP * scale
+    val arcTop = cells.minOf { it.topDp }
+    val arcBottom = cells.maxOf { it.topDp + it.heightDp }
+    val scrollState = rememberScrollState()
+
+    Box(
+        modifier = Modifier
+            .absoluteOffset(
+                x = bounds.left.dp,
+                y = (arcTop * scale - deckTop).dp,
             )
+            .size(width = width.dp, height = ((arcBottom - arcTop) * scale).dp)
+            .clipToBounds()
+            .then(
+                if (overflowCount > 0) Modifier.horizontalScroll(scrollState)
+                else Modifier,
+            ),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(
+                    width = (width + overflowWidth).dp,
+                    height = ((arcBottom - arcTop) * scale).dp,
+                ),
+        ) {
+            protocols.forEachIndexed { index, protocol ->
+                val placement = arcProtocolPlacement(index, cells) ?: return@forEachIndexed
+                val cell = placement.cell
+                val locked = protocol == "olcrtc" && !hasOlcrtcCreds
+                val isSelected = protocol == selected && !locked
+                val provider = when {
+                    protocol != "olcrtc" -> null
+                    olcrtcProvider == "wbstream" -> "через WB"
+                    else -> "через Яндекс"
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .absoluteOffset(
+                            x = ((cell.centerDp - cell.widthDp / 2f + placement.horizontalOffsetDp) * scale).dp,
+                            y = ((cell.topDp - arcTop) * scale).dp,
+                        )
+                        .size(width = cell.widthDp * scale, height = cell.heightDp * scale),
+                ) {
+                    ProtocolSector(
+                        label = homeProtocolSectorLabel(protocol),
+                        icon = if (locked) Icons.Filled.Lock else protocolIcon(protocol),
+                        selected = isSelected,
+                        locked = locked,
+                        description = buildList {
+                            add(protocolLabel(protocol))
+                            add(protocolBadge(protocol))
+                            provider?.let { add(it) }
+                            if (locked) add("по запросу")
+                        }.joinToString(", "),
+                        onClick = { if (locked) onSelectOlcrtc() else onSelectProtocol(protocol) },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("home-protocol-$protocol"),
+                    )
+                }
+            }
         }
     }
 }
@@ -526,6 +560,20 @@ internal data class ArcSectorCell(
     val topDp: Float,
     val heightDp: Float,
 )
+
+internal data class ArcProtocolPlacement(
+    val cell: ArcSectorCell,
+    val horizontalOffsetDp: Float,
+)
+
+internal fun arcProtocolPlacement(index: Int, cells: List<ArcSectorCell>): ArcProtocolPlacement? {
+    if (index < 0 || cells.isEmpty()) return null
+    val anchorIndex = minOf(index, cells.lastIndex)
+    return ArcProtocolPlacement(
+        cell = cells[anchorIndex],
+        horizontalOffsetDp = (index - anchorIndex) * ARC_OVERFLOW_STEP_DP,
+    )
+}
 
 /**
  * Центры семи ячеек заданы владельцем 2026-08-01: 39, 91, 143, 195, 247, 299, 351 dp — шаг 52,
@@ -792,12 +840,20 @@ private fun SecondaryDeck(
  * `olcrtc` присутствует всегда и последним — он показывается и без выданных кредов (замок +
  * запрос владельцу), ровно как в старом меню.
  */
-internal fun orderedHomeProtocols(protocols: List<String>): List<String> {
-    // Cold-start selector gap: retain the owner-approved arc before runtime protocols arrive.
-    if (protocols.isEmpty()) return HOME_PROTOCOL_ORDER
-    val known = HOME_PROTOCOL_ORDER.filter { it in protocols }
-    val extra = protocols.filter { it !in HOME_PROTOCOL_ORDER }
-    return (known + extra + "olcrtc").distinct()
+internal fun orderedHomeProtocols(
+    protocols: List<String>,
+    includeOwnerProtocols: Boolean = false,
+): List<String> {
+    val unique = protocols.distinct()
+    val known = HOME_BASE_PROTOCOL_ORDER.filter { it in unique }
+    val extra = unique.filter {
+        it !in HOME_BASE_PROTOCOL_ORDER &&
+            it !in HOME_OWNER_PROTOCOLS &&
+            it != HOME_OLCRTC_PROTOCOL
+    }
+    val owner = if (includeOwnerProtocols) HOME_OWNER_PROTOCOLS else emptyList()
+    val base = if (unique.isEmpty()) HOME_BASE_PROTOCOL_ORDER else known
+    return (base + extra + owner + HOME_OLCRTC_PROTOCOL).distinct()
 }
 
 /**
@@ -824,8 +880,11 @@ internal fun homeProtocolSectorLabel(tag: String): String = when (tag) {
     else -> homeProtocolLabel(tag)
 }
 
-private val HOME_PROTOCOL_ORDER =
-    listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc")
+private val HOME_BASE_PROTOCOL_ORDER =
+    listOf("auto", "vless", "hysteria2", "anytls", "naive")
+private val HOME_OWNER_PROTOCOLS = listOf("vk-turn", "awg")
+private const val HOME_OLCRTC_PROTOCOL = "olcrtc"
+private val HOME_OWNER_LOGINS = setOf("wapmix", "wapmixx", "wapmix2")
 private const val SUPPORT_PHONE_LABEL = "8 977 811-65-64"
 private const val SUPPORT_PHONE_URI = "+79778116564"
 /** 1:1 к прежней строке статуса: ОТКЛЮЧЕНО = красная точка и красный текст. */
@@ -872,6 +931,7 @@ internal const val HOME_CONTACT_LABEL_SP = 10.5f
 private const val REFERENCE_WIDTH = 390f
 /** Центры ячеек резного веера, dp при ширине 390 (решение владельца 2026-08-01). */
 private val ARC_SECTOR_CENTERS = listOf(37.8f, 88.3f, 141.7f, 195.6f, 248.2f, 301.4f, 352.4f)
+private const val ARC_OVERFLOW_STEP_DP = 52f
 /**
  * Интерьеры семи ячеек резного веера, dp при ширине 390 — ЗАМЕРЕНО по `home_arc_c.png` от 01.08
  * (alpha>200, luma<210), а не взято из спеки и не посчитано формулой.
