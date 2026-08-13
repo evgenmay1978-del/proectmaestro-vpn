@@ -1,9 +1,23 @@
-# S1: probe per-login olcRTC exits on S3 → /var/lib/maestro/olcrtc-health.json (web panel reads it).
-# Install: cp ops/olcrtc-health.sh /usr/local/bin/ ; cp ops/maestro-olcrtc-health.{service,timer}
-#   /etc/systemd/system/ ; systemctl daemon-reload ; systemctl enable --now maestro-olcrtc-health.timer
+# S1: strict probe of per-login olcRTC exits on S3.
 [Unit]
-Description=MaestroVPN — probe per-login olcRTC exits on S3 → olcrtc-health.json
+Description=MaestroVPN olcRTC exit health probe
+Wants=network-online.target
 After=network-online.target
+
 [Service]
 Type=oneshot
+User=root
+Group=root
+UMask=0077
+Environment=MAESTRO_OLCRTC_ENV_FILE=/etc/maestro-olcrtc.env
 ExecStart=/usr/local/bin/olcrtc-health.sh
+TimeoutStartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/maestro
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
