@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -45,6 +46,19 @@ class OlcRtcOpsTest(unittest.TestCase):
             OLC_HEALTH_FILE={self.health}
         """), encoding="utf-8")
         self.config.chmod(0o600)
+        self.real_stat = shutil.which("stat")
+        self.assertIsNotNone(self.real_stat)
+        self._write_fake("id", r"""#!/bin/sh
+if [ "${1:-}" = "-u" ]; then printf '0\n'; exit 0; fi
+exit 64
+""")
+        self._write_fake("stat", r"""#!/bin/sh
+if [ "${1:-}" = "-c" ] && [ "${2:-}" = "%u" ]; then
+  printf '%s\n' "${FAKE_STAT_UID:-0}"
+  exit 0
+fi
+exec "$REAL_STAT" "$@"
+""")
         self._write_fake("ssh", r"""#!/bin/sh
 set -eu
 phase=unknown
@@ -78,6 +92,13 @@ if [ "$phase" = stage ]; then
     *"trap"*) ;;
     *) printf 'ssh:unsafe-stage-recovery\n' >> "$FAKE_CALLS" ;;
   esac
+  if [ "${FAKE_STAGE_ROLLBACK_RESTORE_FAIL:-}" = 1 ]; then
+    case " $* " in
+      *'systemctl restart "$unit" >/dev/null 2>&1 || true'*|*'systemctl stop "$unit" >/dev/null 2>&1 || true'*)
+        printf 'ssh:rollback-lock-removed-after-restore-failure\n' >> "$FAKE_CALLS" ;;
+        ;;
+    esac
+  fi
 fi
 if [ "$phase" = verify ]; then
   case " $* " in
@@ -97,6 +118,10 @@ else
   printf 'ssh:unsafe:%s\n' "$phase" >> "$FAKE_CALLS"
 fi
 cat >/dev/null || true
+if [ "${FAKE_SSH_FAIL_PHASE_ONCE:-}" = "$phase" ] && [ ! -f "${FAKE_SSH_ONCE_MARKER:?}" ]; then
+  : > "$FAKE_SSH_ONCE_MARKER"
+  exit 41
+fi
 if [ "${FAKE_SSH_FAIL_PHASE:-}" = "$phase" ]; then exit 41; fi
 if [ "$phase" = health ]; then printf 'owner active 1\n'; fi
 """)
@@ -118,9 +143,22 @@ if [ "$is_post" = 1 ]; then
   status="${FAKE_PANEL_POST_STATUS:-200}"
   [ -z "$out" ] || printf '{"ok":true}\n' > "$out"
   [ -z "$write_code" ] || printf '%s' "$status"
+  if [ "${FAKE_PANEL_POST_RESPONSE_LOST:-}" = 1 ]; then
+    : > "${FAKE_PANEL_COMMITTED:?}"
+    exit 56
+  fi
+  if [ "${FAKE_PANEL_POST_RESPONSE_AMBIGUOUS:-}" = 1 ]; then
+    : > "${FAKE_PANEL_AMBIGUOUS:?}"
+    exit 56
+  fi
   exit 0
 fi
 printf 'curl:panel-get\n' >> "$FAKE_CALLS"
+if [ -f "${FAKE_PANEL_COMMITTED:-/nonexistent}" ]; then
+  printf '{"key":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","room":"global-old","rooms":{"owner":{"room":"new-room","key":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","provider":"wbstream"}}}\n'
+  exit 0
+fi
+if [ -f "${FAKE_PANEL_AMBIGUOUS:-/nonexistent}" ]; then printf '{broken-json\n'; exit 0; fi
 if [ "${FAKE_PANEL_GET_MALFORMED:-}" = 1 ]; then printf '{broken-json\n'; exit 0; fi
 printf '{"key":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","room":"global-old","rooms":{"owner":{"room":"old-room","key":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}\n'
 """)
@@ -142,6 +180,10 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
             "MAESTRO_OLCRTC_LIB": str(LIB),
             "OLC_HEALTH_FILE": str(self.health),
             "TMPDIR": str(self.base),
+            "REAL_STAT": str(self.real_stat),
+            "FAKE_SSH_ONCE_MARKER": str(self.base / "ssh-once"),
+            "FAKE_PANEL_COMMITTED": str(self.base / "panel-committed"),
+            "FAKE_PANEL_AMBIGUOUS": str(self.base / "panel-ambiguous"),
         })
         env.update(extra)
         return env
@@ -216,6 +258,53 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
                 self.assertEqual(self.call_lines(), [])
                 self.calls.unlink(missing_ok=True)
                 path.chmod(0o600)
+
+    def test_secret_files_require_root_only_modes(self):
+        for mode in (0o640, 0o604, 0o644):
+            with self.subTest(mode=oct(mode)):
+                self.config.chmod(mode)
+                result = self.run_room()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.call_lines(), [])
+                self.calls.unlink(missing_ok=True)
+                self.config.chmod(0o600)
+
+    def test_secret_boundary_requires_effective_root(self):
+        source = LIB.read_text(encoding="utf-8")
+        self.assertIn('[ "$euid" -eq 0 ]', source)
+
+    def test_panel_commit_with_lost_response_is_reconciled_without_rollback(self):
+        result = self.run_room(FAKE_PANEL_POST_RESPONSE_LOST="1")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        calls = self.call_lines()
+        self.assertGreaterEqual(calls.count("curl:panel-get"), 2)
+        self.assertNotIn("ssh:strict:rollback", calls)
+
+    def test_ambiguous_panel_result_preserves_verified_remote_state_and_lock(self):
+        result = self.run_room(FAKE_PANEL_POST_RESPONSE_AMBIGUOUS="1")
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.call_lines()
+        self.assertGreaterEqual(calls.count("curl:panel-get"), 2)
+        self.assertNotIn("ssh:strict:rollback", calls)
+        self.assertNotIn("ssh:strict:commit", calls)
+
+    def test_commit_cleanup_retries_and_next_update_is_not_blocked(self):
+        first = self.run_room(FAKE_SSH_FAIL_PHASE_ONCE="commit")
+        self.assertEqual(first.returncode, 0, first.stdout)
+        self.assertGreaterEqual(self.call_lines().count("ssh:strict:commit"), 2)
+        second = self.run_room()
+        self.assertEqual(second.returncode, 0, second.stdout)
+
+    def test_stage_restore_failure_keeps_recovery_lock(self):
+        result = self.run_room(
+            FAKE_SSH_FAIL_PHASE="stage",
+            FAKE_STAGE_ROLLBACK_RESTORE_FAIL="1",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(
+            "ssh:rollback-lock-removed-after-restore-failure",
+            self.call_lines(),
+        )
 
     def test_loopback_url_rejects_userinfo_host_confusion(self):
         content = self.config.read_text(encoding="utf-8")
