@@ -138,6 +138,10 @@ func (s *Server) panelVKTurn(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &req) {
 			return
 		}
+		if req.MinVersionCode != nil && *req.MinVersionCode >= 90000 {
+			http.Error(w, "min_version_code must use the production APK versionCode (for example 156); test-build codes 90xxx are not allowed", http.StatusBadRequest)
+			return
+		}
 		// Update does the read-merge-validate-persist-swap atomically under one lock
 		// (fail-closed: a bad edit is rejected and the previous config keeps serving).
 		if err := s.vkturn.Update(func(cur *vkturnconf.Config) *vkturnconf.Config {
