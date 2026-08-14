@@ -275,9 +275,9 @@ else
 	PANEL_RESULT=$(panel_result)
 fi
 case "$PANEL_RESULT" in
-	published) PUBLICATION_INFLIGHT=0; STAGED=0 ;;
+	published) STAGED=0; PUBLICATION_INFLIGHT=0 ;;
 	unchanged) PUBLICATION_INFLIGHT=0; echo "panel rejected verified olcRTC room" >&2; exit 1 ;;
-	*) PUBLICATION_INFLIGHT=0; STAGED=0; echo "panel result is ambiguous; verified S3 state and recovery lock retained" >&2; exit 1 ;;
+	*) STAGED=0; PUBLICATION_INFLIGHT=0; echo "panel result is ambiguous; verified S3 state and recovery lock retained" >&2; exit 1 ;;
 esac
 
 # Publication is the point of no return: never roll S3 back after the panel accepted the same state.
