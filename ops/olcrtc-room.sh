@@ -98,7 +98,10 @@ cleanup() {
 	rm -rf "$WORK"
 	exit "$code"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ -n "$LOGIN" ]; then
 	olc_ssh "set -eu; : '# maestro-phase=preflight'; test -d /opt/olcrtc/rooms; test -x /opt/olcrtc/olcrtc; systemctl cat 'olcrtc-srv@.service' >/dev/null"
