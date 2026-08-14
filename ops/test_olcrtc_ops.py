@@ -107,8 +107,7 @@ if [ "$phase" = verify ]; then
     *) printf 'ssh:unsafe-verify-retry\n' >> "$FAKE_CALLS" ;;
   esac
   if [ "${FAKE_REQUIRE_SOCKET_JOIN:-}" = 1 ]; then
-    printf '%s\n' "$*" | grep -F 'ss -H -tnp' >/dev/null || exit 42
-    printf '%s\n' "$*" | grep -F 'MainPID' >/dev/null || exit 42
+    printf '%s\n' "$*" | grep -F '/usr/local/libexec/maestro-olcrtc-joined.sh' >/dev/null || exit 42
   fi
 fi
 if [ "$phase" = rollback ]; then
@@ -129,7 +128,7 @@ if [ "${FAKE_SSH_FAIL_PHASE_ONCE:-}" = "$phase" ] && [ ! -f "${FAKE_SSH_ONCE_MAR
 fi
 if [ "${FAKE_SSH_FAIL_PHASE:-}" = "$phase" ]; then exit 41; fi
 if [ "$phase" = health ]; then
-  if [ "${FAKE_REQUIRE_SOCKET_JOIN:-}" = 1 ] && { ! printf '%s\n' "$*" | grep -F 'ss -H -tnp' >/dev/null || ! printf '%s\n' "$*" | grep -F 'MainPID' >/dev/null; }; then
+  if [ "${FAKE_REQUIRE_SOCKET_JOIN:-}" = 1 ] && ! printf '%s\n' "$*" | grep -F '/usr/local/libexec/maestro-olcrtc-joined.sh' >/dev/null; then
     printf 'owner active 0\n'
   else
     printf 'owner active 1\n'
