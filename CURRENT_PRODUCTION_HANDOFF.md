@@ -2,6 +2,15 @@
 
 Last verified: 2026-08-13 (Europe/Moscow)
 
+## Pending reviewed runtime repair (PR #87)
+
+- Branch head: `093f4d5c5a61d1d7df3382868f04bcba9f40af58`.
+- Exact-SHA GitHub Actions passed: Android test/build run `31757049389`; WDTT pinned transport run `31757049401`.
+- Independent final review: READY, with no Critical or Important findings.
+- The change hardens WDTT visibility/runtime handling and olcRTC room publication/rollback, including interruption and ambiguous-result recovery.
+- TV code and TV assets are unchanged. No server, OTA, DNS, customer, bot, or payment state was changed by this branch.
+- Production rollout remains blocked until the target-server SSH identity is independently trusted and real-phone WDTT plus live olcRTC traffic checks pass.
+
 This file is intentionally anonymized. Never add passwords, tokens, private subscription URLs, customer records, private keys, production addresses, or authenticated panel paths.
 
 ## Current source and release state
