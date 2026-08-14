@@ -828,41 +828,71 @@ func (s *Server) panelOlcWBToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// createWBStreamRoom mints a FRESH wbstream room using the stored account token and returns its
-// bare room id. WB — unlike Yandex Telemost — HAS a room-creation API, so the panel can regenerate
-// a room in one click (the "как в яндексе" ask). Bounded + LimitReader so a slow/huge reply can't hang.
-func (s *Server) createWBStreamRoom(ctx context.Context) (string, error) {
-	tok := s.wbToken()
-	if tok == "" {
-		return "", errors.New("no wbstream token set")
-	}
-	body := strings.NewReader(`{"roomType":"ROOM_TYPE_ALL_ON_SCREEN","roomPrivacy":"ROOM_PRIVACY_FREE"}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://stream.wb.ru/api-room/api/v2/room", body)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("wbstream create room: HTTP %d", resp.StatusCode)
-	}
-	var out struct {
-		RoomID string `json:"roomId"`
-	}
-	if err := json.Unmarshal(b, &out); err != nil || out.RoomID == "" {
-		return "", errors.New("wbstream create room: no roomId in reply")
-	}
-	return out.RoomID, nil
+// wbStreamHTTPClient keeps the external WB boundary testable without replacing the process-wide
+// default transport.
+type wbStreamHTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
 }
 
-// panelOlcWBRoom creates a fresh wbstream room via the account token and assigns it to a login —
+// createWBStreamRoomWithClient follows WB Stream's current guest flow: mint a short-lived guest
+// access token and use that fresh token to create the room. Persisted access tokens expire and must
+// never be reused for room creation.
+func createWBStreamRoomWithClient(ctx context.Context, client wbStreamHTTPClient, apiBase string) (string, error) {
+	base := strings.TrimRight(apiBase, "/")
+	guestBody := strings.NewReader(`{"displayName":"MaestroVPN Panel","device":{"deviceName":"Linux","deviceType":"PARTICIPANT_DEVICE_TYPE_WEB_DESKTOP"}}`)
+	guestReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/auth/api/v1/auth/user/guest-register", guestBody)
+	if err != nil {
+		return "", err
+	}
+	guestReq.Header.Set("Content-Type", "application/json")
+	guestReq.Header.Set("User-Agent", "Mozilla/5.0 (Linux x86_64)")
+	guestResp, err := client.Do(guestReq)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = guestResp.Body.Close() }()
+	guestRaw, _ := io.ReadAll(io.LimitReader(guestResp.Body, 4096))
+	if guestResp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("wbstream guest register: HTTP %d", guestResp.StatusCode)
+	}
+	var guest struct {
+		AccessToken string `json:"accessToken"`
+	}
+	if err := json.Unmarshal(guestRaw, &guest); err != nil || guest.AccessToken == "" {
+		return "", errors.New("wbstream guest register: no accessToken in reply")
+	}
+
+	roomBody := strings.NewReader(`{"roomType":"ROOM_TYPE_ALL_ON_SCREEN","roomPrivacy":"ROOM_PRIVACY_FREE"}`)
+	roomReq, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api-room/api/v2/room", roomBody)
+	if err != nil {
+		return "", err
+	}
+	roomReq.Header.Set("Content-Type", "application/json")
+	roomReq.Header.Set("Authorization", "Bearer "+guest.AccessToken)
+	roomReq.Header.Set("User-Agent", "Mozilla/5.0 (Linux x86_64)")
+	roomResp, err := client.Do(roomReq)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = roomResp.Body.Close() }()
+	roomRaw, _ := io.ReadAll(io.LimitReader(roomResp.Body, 4096))
+	if roomResp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("wbstream create room: HTTP %d", roomResp.StatusCode)
+	}
+	var room struct {
+		RoomID string `json:"roomId"`
+	}
+	if err := json.Unmarshal(roomRaw, &room); err != nil || room.RoomID == "" {
+		return "", errors.New("wbstream create room: no roomId in reply")
+	}
+	return room.RoomID, nil
+}
+
+func (s *Server) createWBStreamRoom(ctx context.Context) (string, error) {
+	return createWBStreamRoomWithClient(ctx, http.DefaultClient, "https://stream.wb.ru")
+}
+
+// panelOlcWBRoom creates a fresh wbstream room via a fresh guest access token and assigns it to a login.
 // the one-click "новая комната" (like a new Yandex meeting). POST {login}. Runs the SAME room
 // script as a manual set (mint key + panel config + bring up the login's S3 wbstream exit).
 func (s *Server) panelOlcWBRoom(w http.ResponseWriter, r *http.Request) {
@@ -887,7 +917,7 @@ func (s *Server) panelOlcWBRoom(w http.ResponseWriter, r *http.Request) {
 	defer ccancel()
 	roomID, err := s.createWBStreamRoom(cctx)
 	if err != nil {
-		panelErrLog(w, http.StatusBadGateway, "could not create a wbstream room — check the token", "wbstream create", err)
+		panelErrLog(w, http.StatusBadGateway, "could not create a wbstream room - try again", "wbstream create", err)
 		return
 	}
 	if s.cfg.OlcrtcRoomScript == "" {
