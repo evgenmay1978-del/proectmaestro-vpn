@@ -105,6 +105,10 @@ if [ "$phase" = verify ]; then
     *"sleep 5"*) ;;
     *) printf 'ssh:unsafe-verify-retry\n' >> "$FAKE_CALLS" ;;
   esac
+  if [ "${FAKE_REQUIRE_SOCKET_JOIN:-}" = 1 ]; then
+    printf '%s\n' "$*" | grep -F 'ss -H -tnp' >/dev/null || exit 42
+    printf '%s\n' "$*" | grep -F 'MainPID' >/dev/null || exit 42
+  fi
 fi
 if [ "$phase" = rollback ]; then
   rollback_stdin=$(cat)
@@ -123,7 +127,13 @@ if [ "${FAKE_SSH_FAIL_PHASE_ONCE:-}" = "$phase" ] && [ ! -f "${FAKE_SSH_ONCE_MAR
   exit 41
 fi
 if [ "${FAKE_SSH_FAIL_PHASE:-}" = "$phase" ]; then exit 41; fi
-if [ "$phase" = health ]; then printf 'owner active 1\n'; fi
+if [ "$phase" = health ]; then
+  if [ "${FAKE_REQUIRE_SOCKET_JOIN:-}" = 1 ] && { ! printf '%s\n' "$*" | grep -F 'ss -H -tnp' >/dev/null || ! printf '%s\n' "$*" | grep -F 'MainPID' >/dev/null; }; then
+    printf 'owner active 0\n'
+  else
+    printf 'owner active 1\n'
+  fi
+fi
 """)
         self._write_fake("curl", r"""#!/bin/sh
 set -eu
@@ -219,6 +229,21 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         if not self.calls.exists():
             return []
         return self.calls.read_text(encoding="utf-8").splitlines()
+
+    def test_room_accepts_established_provider_socket_as_join_evidence(self):
+        result = self.run_room(FAKE_REQUIRE_SOCKET_JOIN="1")
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_health_accepts_established_provider_socket_as_join_evidence(self):
+        result = subprocess.run(
+            ["sh", str(HEALTH)], cwd=ROOT,
+            env=self.env(FAKE_REQUIRE_SOCKET_JOIN="1"), text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        snapshot = json.loads(self.health.read_text(encoding="utf-8"))
+        self.assertTrue(snapshot["exits"]["owner"]["joined"])
+        self.assertTrue(snapshot["exits"]["owner"]["healthy"])
 
     def test_room_is_published_only_after_remote_join(self):
         result = self.run_room()
