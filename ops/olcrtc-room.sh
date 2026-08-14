@@ -104,9 +104,9 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 if [ -n "$LOGIN" ]; then
-	olc_ssh "set -eu; : '# maestro-phase=preflight'; test -d /opt/olcrtc/rooms; test -x /opt/olcrtc/olcrtc; test -x /usr/local/libexec/maestro-olcrtc-joined.sh; systemctl cat 'olcrtc-srv@.service' >/dev/null"
+	olc_ssh "set -eu; : '# maestro-phase=preflight'; test -d /opt/olcrtc/rooms; test -x /opt/olcrtc/olcrtc; systemctl cat 'olcrtc-srv@.service' >/dev/null"
 else
-	olc_ssh "set -eu; : '# maestro-phase=preflight'; test -f '/opt/olcrtc/server.yaml'; test -x /opt/olcrtc/olcrtc; test -x /usr/local/libexec/maestro-olcrtc-joined.sh; systemctl cat 'olcrtc-srv.service' >/dev/null"
+	olc_ssh "set -eu; : '# maestro-phase=preflight'; test -f '/opt/olcrtc/server.yaml'; test -x /opt/olcrtc/olcrtc; systemctl cat 'olcrtc-srv.service' >/dev/null"
 fi
 
 python3 - "$CURLCFG" "$PANEL_ENV_FILE" <<'PY'
@@ -201,7 +201,7 @@ fi
 STAGED=1
 
 olc_ssh "set -eu; : '# maestro-phase=restart'; lock='$REMOTE_LOCK'; [ -f \"\$lock/owner\" ]; owner=\$(cat \"\$lock/owner\"); [ \"\$owner\" = '$TXN' ]; systemctl enable '$REMOTE_UNIT' >/dev/null; systemctl is-enabled --quiet '$REMOTE_UNIT'; systemctl restart '$REMOTE_UNIT'"
-olc_ssh "set -eu; : '# maestro-phase=verify'; lock='$REMOTE_LOCK'; [ -f \"\$lock/owner\" ]; owner=\$(cat \"\$lock/owner\"); [ \"\$owner\" = '$TXN' ]; systemctl is-active --quiet '$REMOTE_UNIT'; start=\$(systemctl show -p ExecMainStartTimestamp --value '$REMOTE_UNIT'); test -n \"\$start\"; i=0; while [ \"\$i\" -lt 12 ]; do if journalctl -u '$REMOTE_UNIT' --since \"\$start\" --no-pager | grep -qE 'Link connected|KCP started'; then exit 0; fi; if /usr/local/libexec/maestro-olcrtc-joined.sh '$REMOTE_UNIT'; then exit 0; fi; i=\$((i + 1)); sleep 5; done; exit 1"
+olc_ssh "set -eu; : '# maestro-phase=verify'; lock='$REMOTE_LOCK'; [ -f \"\$lock/owner\" ]; owner=\$(cat \"\$lock/owner\"); [ \"\$owner\" = '$TXN' ]; systemctl is-active --quiet '$REMOTE_UNIT'; start=\$(systemctl show -p ExecMainStartTimestamp --value '$REMOTE_UNIT'); test -n \"\$start\"; i=0; while [ \"\$i\" -lt 12 ]; do if journalctl -u '$REMOTE_UNIT' --since \"\$start\" --no-pager | grep -qE 'Link connected|KCP started'; then exit 0; fi; i=\$((i + 1)); sleep 5; done; exit 1"
 
 LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" python3 - "$PAYLOAD" <<'PY'
 import json, os, sys
