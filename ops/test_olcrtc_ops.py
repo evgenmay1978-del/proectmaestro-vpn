@@ -314,6 +314,28 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         self.assertNotIn("ssh:strict:rollback", calls)
         self.assertNotIn("ssh:strict:commit", calls)
 
+    def test_signal_during_published_transition_never_rolls_back(self):
+        source = ROOM.read_text(encoding="utf-8")
+        transition = "published) STAGED=0; PUBLICATION_INFLIGHT=0 ;;"
+        self.assertIn(transition, source)
+        instrumented = self.base / "instrumented-room.sh"
+        instrumented.write_text(
+            source.replace(
+                transition,
+                "published) STAGED=0; kill -TERM $$; PUBLICATION_INFLIGHT=0 ;;",
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            ["sh", str(instrumented), "owner", "new-room", "wbstream"],
+            cwd=ROOT, env=self.env(), text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.call_lines()
+        self.assertIn("curl:panel-post", calls)
+        self.assertNotIn("ssh:strict:rollback", calls)
+
     def test_commit_cleanup_retries_and_next_update_is_not_blocked(self):
         first = self.run_room(FAKE_SSH_FAIL_PHASE_ONCE="commit")
         self.assertEqual(first.returncode, 0, first.stdout)
