@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,5 +137,62 @@ func TestPanelOlcPerLoginRoomStillPassesProviderToScript(t *testing.T) {
 	wantLines := []string{"3", "wapmix", "https://telemost.yandex.ru/j/family", "telemost"}
 	if strings.TrimSpace(string(got)) != strings.Join(wantLines, "\n") {
 		t.Fatalf("per-login script args:\n got %q\nwant %q", string(got), strings.Join(wantLines, "\n")+"\n")
+	}
+}
+
+func TestCreateWBStreamRoomRegistersFreshGuestBeforeCreate(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch r.URL.Path {
+		case "/auth/api/v1/auth/user/guest-register":
+			if r.Method != http.MethodPost {
+				t.Fatalf("guest register method = %s", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "" {
+				t.Fatalf("guest register Authorization = %q", got)
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := `{"displayName":"MaestroVPN Panel","device":{"deviceName":"Linux","deviceType":"PARTICIPANT_DEVICE_TYPE_WEB_DESKTOP"}}`
+			if string(body) != want {
+				t.Fatalf("guest register body = %q, want %q", body, want)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"accessToken":"fresh-access"}`)
+		case "/api-room/api/v2/room":
+			if r.Method != http.MethodPost {
+				t.Fatalf("room create method = %s", r.Method)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer fresh-access" {
+				t.Fatalf("room create Authorization = %q", got)
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := `{"roomType":"ROOM_TYPE_ALL_ON_SCREEN","roomPrivacy":"ROOM_PRIVACY_FREE"}`
+			if string(body) != want {
+				t.Fatalf("room create body = %q, want %q", body, want)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"roomId":"fresh-room"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	room, err := createWBStreamRoomWithClient(context.Background(), upstream.Client(), upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if room != "fresh-room" {
+		t.Fatalf("room = %q", room)
+	}
+	if calls != 2 {
+		t.Fatalf("upstream calls = %d, want 2", calls)
 	}
 }
