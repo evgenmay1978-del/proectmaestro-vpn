@@ -27,6 +27,8 @@ python ops/maestro-repetition-guard.py check --action <действие> --famil
 An ALLOW is single-use and is not transferable to another command family; if the executable command differs, stop and run a fresh matching check.
 If a generated full-file transformation reports one anchor mismatch, do not tune or retry string anchors. Read the exact current bounded line, replace that entire line through a structural generator, and validate the complete replacement before diffing.
 
+Browser bridge rule: `@browser` selects the Codex in-app browser; it does not attach Yandex Browser or transfer its authenticated session. An authenticated external browser is usable only when the ChatGPT browser extension is installed and connected through Settings -> Computer use. After `Browser is not available: extension`, record `fail` and do not call `get("extension")` again until the owner explicitly confirms that the extension is connected. Never substitute the in-app browser and never inspect cookies, profiles, passwords, local storage, or session stores.
+
 `action` и `family` — только короткие смысловые идентификаторы, например
 `s1-key-login` и `openssh-key-probe`. Команды, пути с секретами, пароли, ключи,
 токены, URL подписок и данные клиентов передавать в guard запрещено.
