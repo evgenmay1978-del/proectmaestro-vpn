@@ -314,6 +314,37 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
         self.assertNotIn("ssh:strict:rollback", calls)
         self.assertNotIn("ssh:strict:commit", calls)
 
+    def test_signal_during_ambiguous_transition_never_rolls_back(self):
+        source = ROOM.read_text(encoding="utf-8")
+        transition = (
+            '*) STAGED=0; PUBLICATION_INFLIGHT=0; '
+            'echo "panel result is ambiguous; verified S3 state and recovery lock retained" >&2; exit 1 ;;'
+        )
+        self.assertIn(transition, source)
+        instrumented = self.base / "instrumented-ambiguous-room.sh"
+        instrumented.write_text(
+            source.replace(
+                transition,
+                transition.replace(
+                    "STAGED=0; PUBLICATION_INFLIGHT=0;",
+                    "STAGED=0; kill -TERM $$; PUBLICATION_INFLIGHT=0;",
+                ),
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            ["sh", str(instrumented), "owner", "new-room", "wbstream"],
+            cwd=ROOT,
+            env=self.env(FAKE_PANEL_POST_RESPONSE_AMBIGUOUS="1"),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.call_lines()
+        self.assertIn("curl:panel-post", calls)
+        self.assertNotIn("ssh:strict:rollback", calls)
     def test_signal_during_published_transition_never_rolls_back(self):
         source = ROOM.read_text(encoding="utf-8")
         transition = "published) STAGED=0; PUBLICATION_INFLIGHT=0 ;;"
