@@ -138,3 +138,28 @@ func TestPanelOlcPerLoginRoomStillPassesProviderToScript(t *testing.T) {
 		t.Fatalf("per-login script args:\n got %q\nwant %q", string(got), strings.Join(wantLines, "\n")+"\n")
 	}
 }
+func TestPanelOlcWbstreamFullURLIsNormalizedBeforeScript(t *testing.T) {
+	script, argsPath := writeOlcArgRecorder(t)
+	srv := newPanelOlcRoomServer(t, script)
+	defer srv.Close()
+	cookie, csrf := panelLogin(t, srv)
+
+	resp := panelPost(t, srv, "api/olcrtc/room", cookie, csrf, map[string]any{
+		"login":    "wapmix",
+		"room":     "https://stream.wb.ru/room/01900000-0000-7000-8000-000000000001",
+		"provider": "wbstream",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("full wbstream URL status = %d body=%s", resp.StatusCode, b)
+	}
+	got, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLines := []string{"3", "wapmix", "01900000-0000-7000-8000-000000000001", "wbstream"}
+	if strings.TrimSpace(string(got)) != strings.Join(wantLines, "\n") {
+		t.Fatalf("normalized wbstream args:\n got %q\nwant %q", string(got), strings.Join(wantLines, "\n")+"\n")
+	}
+}

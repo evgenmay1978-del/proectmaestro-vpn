@@ -519,6 +519,10 @@ esac
         self.assertEqual(self.call_lines(), ["ssh:strict:health"])
         self.assertEqual(stat.S_IMODE(self.health.stat().st_mode) & 0o077, 0)
 
+    def test_wbstream_manual_room_uses_guest_auth_without_account_token(self):
+        self.wb_token.unlink()
+        result = self.run_room()
+        self.assertEqual(result.returncode, 0, result.stdout)
 
 if __name__ == "__main__":
     unittest.main()

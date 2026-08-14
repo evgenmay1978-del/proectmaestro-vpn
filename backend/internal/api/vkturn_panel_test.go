@@ -276,3 +276,13 @@ func TestPanelVKTurnRejectsPartialAndGuardsUnconfiguredToggle(t *testing.T) {
 		t.Fatalf("unauthenticated GET should be 401, got %d", r3.StatusCode)
 	}
 }
+func TestApplyVKTurnEditNormalizesFullVKCallURL(t *testing.T) {
+	cur := validVKTurnConfig()
+	const hash = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
+	got := applyVKTurnEdit(cur, vkTurnSaveReq{
+		VKHashes: []string{"https://vk.ru/call/join/" + hash},
+	})
+	if len(got.VKHashes) != 1 || got.VKHashes[0] != hash {
+		t.Fatalf("full VK call URL was not normalized: %#v", got.VKHashes)
+	}
+}
