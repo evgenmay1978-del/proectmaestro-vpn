@@ -54,7 +54,7 @@ func applyVKTurnEdit(cur *vkturnconf.Config, req vkTurnSaveReq) *vkturnconf.Conf
 	if req.VKHashes != nil {
 		hashes := make([]string, 0, len(req.VKHashes))
 		for _, h := range req.VKHashes {
-			if h = strings.TrimSpace(h); h != "" {
+			if h = normalizeVKCallInput(h); h != "" {
 				hashes = append(hashes, h)
 			}
 		}
