@@ -37,7 +37,7 @@ function is_public(addr, octets) {
   return 1
 }
 index($0, needle) {
-  if (is_public(peer_address($5))) found = 1
+  if (is_public(peer_address($4))) found = 1
 }
 END { exit found ? 0 : 1 }
 '
