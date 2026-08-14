@@ -36,9 +36,13 @@ on:
   pull_request:
     paths:
       - 'app/**'
+      - 'ops/olcrtc-*.sh'
+      - 'ops/test_olcrtc_ops.py'
       - '.github/workflows/android-test.yml'
   push:
     paths:
+      - ops/olcrtc-*.sh
+      - ops/test_olcrtc_ops.py
       - .github/workflows/android-test.yml
 
 jobs:
@@ -299,6 +303,9 @@ jobs:
       actions: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test olcRTC operations fail closed
+        run: python -m unittest -v ops/test_olcrtc_ops.py
 
       - name: Set test version (HIGH code so the OTA never replaces it)
         id: ver
