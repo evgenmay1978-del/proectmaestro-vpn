@@ -14,7 +14,6 @@ ROOM = ROOT / "ops" / "olcrtc-room.sh"
 HEALTH = ROOT / "ops" / "olcrtc-health.sh"
 LIB = ROOT / "ops" / "olcrtc-ssh-config.sh"
 REMOTE_RESTORE = ROOT / "ops" / "olcrtc-remote-restore.sh"
-JOINED = ROOT / "ops" / "olcrtc-joined.sh"
 
 
 class OlcRtcOpsTest(unittest.TestCase):
@@ -106,8 +105,9 @@ if [ "$phase" = verify ]; then
     *"sleep 5"*) ;;
     *) printf 'ssh:unsafe-verify-retry\n' >> "$FAKE_CALLS" ;;
   esac
-  if [ "${FAKE_REQUIRE_SOCKET_JOIN:-}" = 1 ]; then
-    printf '%s\n' "$*" | grep -F '/usr/local/libexec/maestro-olcrtc-joined.sh' >/dev/null || exit 42
+  if [ "${FAKE_REQUIRE_RUNTIME_MARKER:-}" = 1 ]; then
+    printf '%s\n' "$*" | grep -F 'ExecMainStartTimestamp' >/dev/null || exit 42
+    printf '%s\n' "$*" | grep -F 'Link connected|KCP started' >/dev/null || exit 42
   fi
 fi
 if [ "$phase" = rollback ]; then
@@ -128,7 +128,7 @@ if [ "${FAKE_SSH_FAIL_PHASE_ONCE:-}" = "$phase" ] && [ ! -f "${FAKE_SSH_ONCE_MAR
 fi
 if [ "${FAKE_SSH_FAIL_PHASE:-}" = "$phase" ]; then exit 41; fi
 if [ "$phase" = health ]; then
-  if [ "${FAKE_REQUIRE_SOCKET_JOIN:-}" = 1 ] && ! printf '%s\n' "$*" | grep -F '/usr/local/libexec/maestro-olcrtc-joined.sh' >/dev/null; then
+  if [ "${FAKE_REQUIRE_RUNTIME_MARKER:-}" = 1 ] && { ! printf '%s\n' "$*" | grep -F 'ExecMainStartTimestamp' >/dev/null || ! printf '%s\n' "$*" | grep -F 'Link connected|KCP started' >/dev/null; }; then
     printf 'owner active 0\n'
   else
     printf 'owner active 1\n'
@@ -230,20 +230,26 @@ printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n'
             return []
         return self.calls.read_text(encoding="utf-8").splitlines()
 
-    def test_room_accepts_established_provider_socket_as_join_evidence(self):
-        result = self.run_room(FAKE_REQUIRE_SOCKET_JOIN="1")
+    def test_room_accepts_runtime_provider_marker_as_join_evidence(self):
+        result = self.run_room(FAKE_REQUIRE_RUNTIME_MARKER="1")
         self.assertEqual(result.returncode, 0, result.stdout)
 
-    def test_health_accepts_established_provider_socket_as_join_evidence(self):
+    def test_health_accepts_runtime_provider_marker_as_join_evidence(self):
         result = subprocess.run(
             ["sh", str(HEALTH)], cwd=ROOT,
-            env=self.env(FAKE_REQUIRE_SOCKET_JOIN="1"), text=True,
+            env=self.env(FAKE_REQUIRE_RUNTIME_MARKER="1"), text=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stdout)
         snapshot = json.loads(self.health.read_text(encoding="utf-8"))
         self.assertTrue(snapshot["exits"]["owner"]["joined"])
         self.assertTrue(snapshot["exits"]["owner"]["healthy"])
+
+    def test_scripts_reject_socket_heuristics(self):
+        for script in (ROOM, HEALTH):
+            text = script.read_text(encoding="utf-8")
+            self.assertNotIn("ss -H -tnp state established", text)
+            self.assertNotIn("maestro-olcrtc-joined.sh", text)
 
     def test_room_is_published_only_after_remote_join(self):
         result = self.run_room()
@@ -512,70 +518,6 @@ esac
         self.assertTrue(snapshot["exits"]["owner"]["healthy"])
         self.assertEqual(self.call_lines(), ["ssh:strict:health"])
         self.assertEqual(stat.S_IMODE(self.health.stat().st_mode) & 0o077, 0)
-
-
-class OlcRtcJoinedEvidenceTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.base = Path(self.tmp.name)
-        self.bin = self.base / "bin"
-        self.bin.mkdir()
-        self._write_fake("systemctl", r"""#!/bin/sh
-set -eu
-[ "${1:-}" = show ] || exit 64
-[ "${FAKE_SYSTEMCTL_FAIL:-0}" = 0 ] || exit 1
-printf '%s\n' "${FAKE_MAIN_PID:-321}"
-""")
-        self._write_fake("ss", r"""#!/bin/sh
-set -eu
-[ "${FAKE_SS_FAIL:-0}" = 0 ] || exit 1
-printf '%b' "${FAKE_SS_OUTPUT:-}"
-""")
-
-    def _write_fake(self, name, body):
-        path = self.bin / name
-        path.write_text(body, encoding="utf-8")
-        path.chmod(0o755)
-
-    def run_joined(self, output="", **extra):
-        env = os.environ.copy()
-        env.update({
-            "PATH": str(self.bin) + os.pathsep + env.get("PATH", ""),
-            "FAKE_MAIN_PID": "321",
-            "FAKE_SS_OUTPUT": output,
-        })
-        env.update(extra)
-        return subprocess.run(
-            ["sh", str(JOINED), "olcrtc-owner.service"], cwd=ROOT, env=env,
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=5,
-        )
-
-    def test_accepts_same_pid_external_provider_socket(self):
-        line = '0 0 10.0.0.2:40000 203.0.113.10:443 users:(("olcRTC",pid=321,fd=7))\\n'
-        self.assertEqual(self.run_joined(line).returncode, 0)
-
-    def test_rejects_same_pid_loopback_socket(self):
-        line = '0 0 127.0.0.1:1081 127.0.0.1:51234 users:(("olcRTC",pid=321,fd=8))\\n'
-        self.assertNotEqual(self.run_joined(line).returncode, 0)
-
-    def test_rejects_same_pid_private_or_link_local_peer(self):
-        for peer in ("10.4.3.2:443", "172.20.1.2:443", "192.168.1.2:443", "169.254.1.2:443", "[::1]:443", "[fe80::1]:443", "[fd00::1]:443"):
-            with self.subTest(peer=peer):
-                line = f'0 0 10.0.0.2:40000 {peer} users:(("olcRTC",pid=321,fd=9))\\n'
-                self.assertNotEqual(self.run_joined(line).returncode, 0)
-
-    def test_rejects_external_socket_owned_by_different_pid(self):
-        line = '0 0 10.0.0.2:40000 203.0.113.10:443 users:(("olcRTC",pid=999,fd=7))\\n'
-        self.assertNotEqual(self.run_joined(line).returncode, 0)
-
-    def test_rejects_empty_or_malformed_socket_output(self):
-        self.assertNotEqual(self.run_joined("").returncode, 0)
-        self.assertNotEqual(self.run_joined("malformed\\n").returncode, 0)
-
-    def test_rejects_ss_or_systemctl_failure(self):
-        self.assertNotEqual(self.run_joined(FAKE_SS_FAIL="1").returncode, 0)
-        self.assertNotEqual(self.run_joined(FAKE_SYSTEMCTL_FAIL="1").returncode, 0)
 
 
 if __name__ == "__main__":
