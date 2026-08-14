@@ -24,6 +24,9 @@ python ops/maestro-repetition-guard.py check --action <действие> --famil
 
 Перед формированием каждой исполняемой команды сначала сопоставить ей один semantic action и проверить, что непосредственно предыдущее отдельное действие guard вернуло `ALLOW`/`ALLOW_CORRECTED` именно для него. Если такого подтверждения нет, команду, включая read-only `git apply --check`, не запускать. Любой случай запуска без непосредственного guard считать сбоем процесса и до продолжения обновить это правило.
 
+An ALLOW is single-use and is not transferable to another command family; if the executable command differs, stop and run a fresh matching check.
+If a generated full-file transformation reports one anchor mismatch, do not tune or retry string anchors. Read the exact current bounded line, replace that entire line through a structural generator, and validate the complete replacement before diffing.
+
 `action` и `family` — только короткие смысловые идентификаторы, например
 `s1-key-login` и `openssh-key-probe`. Команды, пути с секретами, пароли, ключи,
 токены, URL подписок и данные клиентов передавать в guard запрещено.
