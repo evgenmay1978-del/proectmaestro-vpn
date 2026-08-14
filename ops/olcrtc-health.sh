@@ -9,7 +9,7 @@ OLC_LIB="${MAESTRO_OLCRTC_LIB:-/usr/local/libexec/maestro-olcrtc-ssh-config.sh}"
 . "$OLC_LIB"
 
 PROBE_OK=1
-raw=$(olc_ssh "set -eu; : '# maestro-phase=health'; for f in /opt/olcrtc/rooms/*.yaml; do [ -f \"\$f\" ] || continue; lg=\$(basename \"\$f\" .yaml); case \"\$lg\" in *[!A-Za-z0-9._-]*|'') continue;; esac; unit=\"olcrtc-srv@\$lg\"; active=\$(systemctl is-active \"\$unit\" 2>/dev/null || true); [ -n \"\$active\" ] || active=unknown; start=\$(systemctl show -p ExecMainStartTimestamp --value \"\$unit\" 2>/dev/null || true); joined=0; if [ -n \"\$start\" ] && journalctl -u \"\$unit\" --since \"\$start\" --no-pager 2>/dev/null | grep -qE 'Link connected|KCP started'; then joined=1; fi; printf '%s %s %s\n' \"\$lg\" \"\$active\" \"\$joined\"; done" 2>/dev/null) || {
+raw=$(olc_ssh "set -eu; : '# maestro-phase=health'; for f in /opt/olcrtc/rooms/*.yaml; do [ -f \"\$f\" ] || continue; lg=\$(basename \"\$f\" .yaml); case \"\$lg\" in *[!A-Za-z0-9._-]*|'') continue;; esac; unit=\"olcrtc-srv@\$lg\"; active=\$(systemctl is-active \"\$unit\" 2>/dev/null || true); [ -n \"\$active\" ] || active=unknown; start=\$(systemctl show -p ExecMainStartTimestamp --value \"\$unit\" 2>/dev/null || true); pid=\$(systemctl show -p MainPID --value "\$unit" 2>/dev/null || true); joined=0; if [ -n \"\$start\" ] && journalctl -u \"\$unit\" --since \"\$start\" --no-pager 2>/dev/null | grep -qE 'Link connected|KCP started'; then joined=1; elif [ "\${pid:-0}" -gt 0 ] 2>/dev/null && ss -H -tnp state established 2>/dev/null | grep -Fq "pid=\$pid,"; then joined=1; fi; printf '%s %s %s\n' \"\$lg\" \"\$active\" \"\$joined\"; done" 2>/dev/null) || {
 	raw=""
 	PROBE_OK=0
 }
