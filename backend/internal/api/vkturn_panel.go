@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -202,11 +203,16 @@ func (s *Server) panelVKTurnCandidate(w http.ResponseWriter, r *http.Request) {
 	hashes := normalizeVKTurnCandidates(req.VKHashes)
 	generation, err := s.vkturn.StageCandidate(hashes, time.Now().UTC())
 	if err != nil {
-		if cfg := s.vkturn.Get(); cfg != nil && cfg.ProbeStatus == vkturnconf.ProbeStatusChecking {
+		switch {
+		case errors.Is(err, vkturnconf.ErrCandidateBusy):
 			http.Error(w, "candidate probe already running", http.StatusConflict)
-			return
+		case errors.Is(err, vkturnconf.ErrCandidateInvalid):
+			http.Error(w, "invalid candidate", http.StatusBadRequest)
+		case errors.Is(err, vkturnconf.ErrCandidatePersistence):
+			panelErrLog(w, http.StatusInternalServerError, "candidate state update failed", "stage vkturn candidate", err)
+		default:
+			panelErrLog(w, http.StatusInternalServerError, "candidate state update failed", "stage vkturn candidate", err)
 		}
-		http.Error(w, "invalid candidate", http.StatusBadRequest)
 		return
 	}
 

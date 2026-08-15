@@ -197,9 +197,11 @@ function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…<
 function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/vkturn').then(function(o){
  var logins=o.logins||[];var clients=o.clients||{};var configured=!!o.configured;var enabled=!!o.enabled;
  var badge=!configured?'<span class="badge b-off">не настроен</span>':(enabled?'<span class="badge b-ok">включён</span>':'<span class="badge b-exp">выключен</span>');
- var ps=o.probe_status||'active';var pcls=ps==='active'?'b-ok':(ps==='checking'?'b-exp':'b-off');
- var plabel=ps==='active'?'активна':(ps==='checking'?'проверяется':'ошибка');
- var probe='<span class="badge '+pcls+'">комната: '+plabel+'</span>';
+ var activeCount=o.active_count||0;var roomClass=activeCount?'b-ok':'b-off';
+ var roomLabel=activeCount?'активная комната есть':'активной комнаты нет';
+ var ps=o.probe_status||'active';var pcls=ps==='checking'?'b-exp':(ps==='failed'?'b-off':'b-ok');
+ var plabel=ps==='checking'?'проверка: выполняется':(ps==='failed'?'последняя проверка: ошибка':(activeCount?'последняя проверка: успешно':'проверка ещё не выполнена'));
+ var probe='<span class="badge '+roomClass+'">'+roomLabel+'</span> <span class="badge '+pcls+'">'+plabel+'</span>';
  var counts='Активных: '+(o.active_count||0)+' · резервных: '+(o.last_known_good_count||0)+(o.candidate_count?' · кандидатов: '+o.candidate_count:'');
 	var perr=o.probe_error_code?' · код: '+o.probe_error_code:'';
 	var h='<div class="toolbar" style="margin:8px 0"><b>WDTT / VK-TURN</b> '+badge+'<span class="sp"></span>'+

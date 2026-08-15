@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"io"
 	"os/exec"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
 )
 
 const (
@@ -20,41 +21,20 @@ const (
 	defaultOutputLimit = 4096
 )
 
-var hashPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,160}$`)
-
-var safeStages = map[string]struct{}{
-	"STARTING":         {},
-	"DNS":              {},
-	"TLS":              {},
-	"VK_AUTH":          {},
-	"CAPTCHA_REQUIRED": {},
-	"TURN_ALLOCATED":   {},
-	"DTLS":             {},
-	"WRAP":             {},
-	"WIREGUARD":        {},
-	"READY":            {},
-	"FAILED":           {},
-	"STOPPED":          {},
-}
-
-var safeCodes = map[string]struct{}{
-	"OK":                   {},
-	"INPUT_INVALID":        {},
-	"TLS_TRUST_FAILED":     {},
-	"VK_AUTH_FAILED":       {},
-	"VK_CALL_UNAVAILABLE":  {},
-	"CAPTCHA_REQUIRED":     {},
-	"TURN_ALLOCATE_FAILED": {},
-	"DTLS_FAILED":          {},
-	"WRAP_FAILED":          {},
-	"WIREGUARD_FAILED":     {},
-	"PROVIDER_UNAVAILABLE": {},
-	"INTERNAL":             {},
-	"PROBE_UNAVAILABLE":    {},
-	"PROBE_TIMEOUT":        {},
-	"PROBE_OUTPUT_INVALID": {},
-	"PROBE_EXEC_FAILED":    {},
-	"PROBE_INPUT_INVALID":  {},
+var safeResultPairs = map[string]map[string]struct{}{
+	"STARTING": {
+		"INPUT_INVALID":        {},
+		"PROBE_UNAVAILABLE":    {},
+		"PROBE_TIMEOUT":        {},
+		"PROBE_OUTPUT_INVALID": {},
+		"PROBE_EXEC_FAILED":    {},
+		"PROBE_INPUT_INVALID":  {},
+	},
+	"TLS":              {"TLS_TRUST_FAILED": {}},
+	"VK_AUTH":          {"VK_AUTH_FAILED": {}, "VK_CALL_UNAVAILABLE": {}},
+	"CAPTCHA_REQUIRED": {"CAPTCHA_REQUIRED": {}},
+	"TURN_ALLOCATED":   {"OK": {}, "TURN_ALLOCATE_FAILED": {}},
+	"FAILED":           {"PROVIDER_UNAVAILABLE": {}, "INTERNAL": {}},
 }
 
 // Result is the complete public probe result. It intentionally has no detail or
@@ -93,13 +73,8 @@ func (r Runner) Probe(ctx context.Context, hashes []string) Result {
 	if strings.TrimSpace(r.Path) == "" {
 		return failure("STARTING", "PROBE_UNAVAILABLE")
 	}
-	if len(hashes) < 1 || len(hashes) > 4 {
+	if err := vkturnconf.ValidateProviderHashes(hashes); err != nil {
 		return failure("STARTING", "PROBE_INPUT_INVALID")
-	}
-	for _, hash := range hashes {
-		if !hashPattern.MatchString(hash) {
-			return failure("STARTING", "PROBE_INPUT_INVALID")
-		}
 	}
 	timeout := r.Timeout
 	if timeout <= 0 {
@@ -200,10 +175,11 @@ func parseResult(raw string) (Result, bool) {
 // Sanitize rejects any result outside the fixed public contract. It is also
 // used at the API boundary so an alternate Prober cannot inject arbitrary text.
 func Sanitize(result Result) (Result, bool) {
-	if _, ok := safeStages[result.Stage]; !ok {
+	codes, ok := safeResultPairs[result.Stage]
+	if !ok {
 		return Result{}, false
 	}
-	if _, ok := safeCodes[result.Code]; !ok {
+	if _, ok := codes[result.Code]; !ok {
 		return Result{}, false
 	}
 	if result.OK != (result.Stage == "TURN_ALLOCATED" && result.Code == "OK") {
