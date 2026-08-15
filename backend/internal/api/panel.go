@@ -226,7 +226,9 @@ func (s *Server) registerPanel(mux *http.ServeMux) {
 	mux.HandleFunc(p+"api/olcrtc/login", s.panelOlcLogin)        // POST {login,action:add|remove}
 	mux.HandleFunc(p+"api/olcrtc/wbtoken", s.panelOlcWBToken)    // POST {token} — set wbstream account token
 	mux.HandleFunc(p+"api/olcrtc/wbroom", s.panelOlcWBRoom)      // POST {login} — create+assign a fresh wbstream room
-	mux.HandleFunc(p+"api/vkturn", s.panelVKTurn)                // GET (redacted) / POST (save full WDTT config)
+	mux.HandleFunc(p+"api/vkturn", s.panelVKTurn)                // GET (redacted) / POST (save non-room WDTT config)
+	// A write-only room candidate is provider-verified before it can replace active/LKG.
+	mux.HandleFunc(p+"api/vkturn/candidate", s.panelVKTurnCandidate)
 	mux.HandleFunc(p+"api/vkturn/enabled", s.panelVKTurnEnabled) // POST {enabled} — master switch
 }
 
@@ -691,10 +693,12 @@ func (s *Server) panelOlcRoom(w http.ResponseWriter, r *http.Request) {
 	// poison the persisted config / the S3 srv. wbstream joins by a BARE room id (UUID); every
 	// other carrier uses an http(s) URL.
 	if req.Provider == "wbstream" {
-		if !olcRoomIDRe.MatchString(req.Room) {
-			http.Error(w, "wbstream room must be a bare id (letters/digits/._~-, 8-128 chars)", http.StatusBadRequest)
+		room, ok := normalizeWBStreamRoom(req.Room)
+		if !ok {
+			http.Error(w, "wbstream room must be an id or https://stream.wb.ru/room/<id>", http.StatusBadRequest)
 			return
 		}
+		req.Room = room
 	} else if !strings.HasPrefix(req.Room, "https://") && !strings.HasPrefix(req.Room, "http://") {
 		http.Error(w, "room must be an http(s) URL", http.StatusBadRequest)
 		return

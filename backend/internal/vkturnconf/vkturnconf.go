@@ -16,9 +16,12 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
@@ -43,14 +46,43 @@ type Client struct {
 	WG       subgen.VKTurnCreds `json:"wg"`
 }
 
+// ProbeStatus is the persisted, non-secret state of the provider-only room probe.
+type ProbeStatus string
+
+const (
+	ProbeStatusActive   ProbeStatus = "active"
+	ProbeStatusChecking ProbeStatus = "checking"
+	ProbeStatusFailed   ProbeStatus = "failed"
+	candidateProbeLease             = 5 * time.Minute
+	disabledRollbackHash             = "DISABLED_PENDING_VERIFIED_ROOM"
+)
+
+var (
+	// These sentinels let the HTTP boundary classify a candidate failure once,
+	// without re-reading mutable state or exposing persistence details.
+	ErrCandidateInvalid     = errors.New("vkturn: invalid candidate")
+	ErrCandidateBusy        = errors.New("vkturn: candidate probe already running")
+	ErrCandidatePersistence = errors.New("vkturn: candidate persistence failed")
+	ErrCandidateStale       = errors.New("vkturn: candidate probe lease is stale")
+
+	processStartedAt       = time.Now()
+	probeGenerationCounter atomic.Uint64
+)
+
 // Config is the complete WDTT client configuration served by maestro-panel.
 // Clients must contain exactly the three owner-approved logins.
 type Config struct {
-	Enabled        bool              `json:"enabled"`
-	MinVersionCode int               `json:"min_version_code"`
-	Server         string            `json:"server"`
-	VKHashes       []string          `json:"vk_hashes"`
-	Clients        map[string]Client `json:"clients"`
+	Enabled               bool              `json:"enabled"`
+	MinVersionCode        int               `json:"min_version_code"`
+	Server                string            `json:"server"`
+	VKHashes              []string          `json:"vk_hashes"`
+	CandidateVKHashes     []string          `json:"candidate_vk_hashes,omitempty"`
+	LastKnownGoodVKHashes []string          `json:"last_known_good_vk_hashes,omitempty"`
+	ProbeStatus           ProbeStatus       `json:"probe_status,omitempty"`
+	ProbeStartedAt        time.Time         `json:"probe_started_at,omitempty"`
+	ProbeCheckedAt        time.Time         `json:"probe_checked_at,omitempty"`
+	ProbeErrorCode        string            `json:"probe_error_code,omitempty"`
+	Clients               map[string]Client `json:"clients"`
 }
 
 // Open reads and validates path. An empty path means the feature was not
@@ -74,15 +106,25 @@ func Open(path string) (*Config, error) {
 // parse decodes+validates a config document, rejecting unknown/trailing fields
 // so a malformed file fails closed rather than serving a half-configured transport.
 func parse(b []byte) (*Config, error) {
-	var cfg Config
+	// ProbeGeneration was briefly persisted by an unreleased Task 7 revision.
+	// Accept that one known transitional field for forward recovery, but never
+	// write it again: the Task 7 base decoder is strict and must remain a valid
+	// rollback reader for every newly persisted state.
+	var document struct {
+		Config
+		DeprecatedProbeGeneration uint64 `json:"probe_generation,omitempty"`
+	}
 	dec := json.NewDecoder(strings.NewReader(string(b)))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil {
+	if err := dec.Decode(&document); err != nil {
 		return nil, fmt.Errorf("decode vkturn config: %w", err)
 	}
 	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return nil, fmt.Errorf("decode vkturn config: trailing JSON data")
 	}
+	cfg := document.Config
+	cfg.decodeRollbackPlaceholder()
+	cfg.normalizeProbeState()
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate vkturn config: %w", err)
 	}
@@ -98,6 +140,8 @@ func (c *Config) clone() *Config {
 	}
 	cp := *c
 	cp.VKHashes = append([]string(nil), c.VKHashes...)
+	cp.CandidateVKHashes = append([]string(nil), c.CandidateVKHashes...)
+	cp.LastKnownGoodVKHashes = append([]string(nil), c.LastKnownGoodVKHashes...)
 	if c.Clients != nil {
 		cp.Clients = make(map[string]Client, len(c.Clients))
 		for k, v := range c.Clients {
@@ -113,9 +157,85 @@ func (c *Config) clone() *Config {
 // config, so a rejected edit leaves the previous config serving — the same
 // fail-closed guarantee the immutable-file startup path already provided.
 type Store struct {
-	mu   sync.RWMutex
-	path string
-	cfg  *Config // nil = not configured / feature off
+	mu                    sync.RWMutex
+	path                  string
+	cfg                   *Config // nil = not configured / feature off
+	leaseNow              func() time.Duration
+	activeProbeGeneration uint64
+	probeLeaseUntil       time.Duration
+	beforePathLock         func() // deterministic transaction seam for package tests
+	beforeCandidatePersist func() // deterministic check/write seam for package tests
+}
+
+func newStore(path string) *Store {
+	return &Store{path: path, leaseNow: func() time.Duration { return time.Since(processStartedAt) }}
+}
+
+func nextProbeGeneration() uint64 {
+	for {
+		if generation := probeGenerationCounter.Add(1); generation != 0 {
+			return generation
+		}
+	}
+}
+
+func (s *Store) leaseTimeLocked() time.Duration {
+	if s.leaseNow == nil {
+		return time.Since(processStartedAt)
+	}
+	return s.leaseNow()
+}
+
+func (s *Store) clearProbeLeaseLocked() {
+	s.activeProbeGeneration = 0
+	s.probeLeaseUntil = 0
+}
+
+func configLockPath(path string) string { return path + ".lock" }
+
+func (s *Store) withPathLockLocked(fn func() error) (err error) {
+	if s.beforePathLock != nil {
+		s.beforePathLock()
+	}
+	if s.path == "" {
+		return fn()
+	}
+	unlock, err := acquireConfigFileLock(configLockPath(s.path))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if unlockErr := unlock(); err == nil && unlockErr != nil {
+			err = unlockErr
+		}
+	}()
+	return fn()
+}
+
+func (s *Store) refreshFromDiskLocked() error {
+	if s.path == "" {
+		return nil
+	}
+	b, err := os.ReadFile(s.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && s.cfg == nil {
+			return nil
+		}
+		return fmt.Errorf("read current vkturn config: %w", err)
+	}
+	disk, err := parse(b)
+	if err != nil {
+		return err
+	}
+	ownerMatches := s.cfg != nil && disk.ProbeStatus == ProbeStatusChecking &&
+		s.cfg.ProbeStatus == ProbeStatusChecking &&
+		disk.ProbeStartedAt.Equal(s.cfg.ProbeStartedAt) &&
+		sameStrings(disk.CandidateVKHashes, s.cfg.CandidateVKHashes)
+	if s.activeProbeGeneration != 0 && !ownerMatches {
+		s.clearProbeLeaseLocked()
+	}
+	s.cfg = disk
+	return nil
 }
 
 // OpenStore loads path and wraps it for runtime edits. An empty path means the
@@ -130,7 +250,7 @@ func OpenStore(path string) (*Store, error) {
 	if path == "" {
 		return nil, nil
 	}
-	s := &Store{path: path}
+	s := newStore(path)
 	b, err := os.ReadFile(s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -149,7 +269,7 @@ func OpenStore(path string) (*Store, error) {
 // NewInMemory returns a Store with no backing file: edits validate and swap in
 // memory but do NOT persist. For TESTS only — production must use OpenStore with a
 // real MAESTRO_VKTURN_FILE path so config survives restart and lands in the 0600 file.
-func NewInMemory() *Store { return &Store{} }
+func NewInMemory() *Store { return newStore("") }
 
 // Get returns a snapshot (clone) of the live config, or nil when unconfigured.
 func (s *Store) Get() *Config {
@@ -164,19 +284,14 @@ func (s *Store) Set(c *Config) error {
 	if c == nil {
 		return fmt.Errorf("nil config")
 	}
-	if err := c.Validate(); err != nil {
+	cp := c.clone()
+	cp.normalizeProbeState()
+	if err := cp.Validate(); err != nil {
 		return err
 	}
-	cp := c.clone()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.path != "" {
-		if err := writeConfigFile(s.path, cp); err != nil {
-			return err
-		}
-	}
-	s.cfg = cp
-	return nil
+	return s.withPathLockLocked(func() error { return s.persistLocked(cp) })
 }
 
 // Update applies mutate to a clone of the live config entirely under the write
@@ -188,16 +303,186 @@ func (s *Store) Set(c *Config) error {
 func (s *Store) Update(mutate func(cur *Config) *Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	next := mutate(s.cfg.clone())
-	if next == nil {
-		return fmt.Errorf("vkturn: update produced no config")
+	return s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		next := mutate(s.cfg.clone())
+		if next == nil {
+			return fmt.Errorf("vkturn: update produced no config")
+		}
+		next.normalizeProbeState()
+		if err := next.Validate(); err != nil {
+			return err
+		}
+		return s.persistLocked(next.clone())
+	})
+}
+
+// StageCandidate acquires the single probe lease without changing VKHashes,
+// which remains the active list served to every installed client.
+func (s *Store) StageCandidate(hashes []string, startedAt time.Time) (uint64, error) {
+	if err := ValidateProviderHashes(hashes); err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrCandidateInvalid, err)
 	}
-	if err := next.Validate(); err != nil {
+	if startedAt.IsZero() {
+		return 0, fmt.Errorf("%w: candidate start time is required", ErrCandidateInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var generation uint64
+	err := s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		if s.cfg == nil {
+			return fmt.Errorf("%w: config is not initialized", ErrCandidateInvalid)
+		}
+		leaseNow := s.leaseTimeLocked()
+		if s.activeProbeGeneration != 0 && leaseNow < s.probeLeaseUntil {
+			return ErrCandidateBusy
+		}
+		next := s.cfg.clone()
+		next.CandidateVKHashes = append([]string(nil), hashes...)
+		next.LastKnownGoodVKHashes = append([]string(nil), next.VKHashes...)
+		next.ProbeStatus = ProbeStatusChecking
+		probeStartedAt := startedAt.UTC()
+		// ProbeStartedAt already belongs to the rollback-compatible schema. Make it
+		// a strictly increasing persisted owner marker so a late callback from a
+		// replaced Store/process cannot promote a newer candidate.
+		if !next.ProbeStartedAt.IsZero() && !probeStartedAt.After(next.ProbeStartedAt) {
+			probeStartedAt = next.ProbeStartedAt.Add(time.Nanosecond)
+		}
+		next.ProbeStartedAt = probeStartedAt
+		next.ProbeCheckedAt = time.Time{}
+		next.ProbeErrorCode = ""
+		if err := next.Validate(); err != nil {
+			return fmt.Errorf("%w: %v", ErrCandidateInvalid, err)
+		}
+		generation = nextProbeGeneration()
+		if err := s.persistLocked(next); err != nil {
+			return err
+		}
+		s.activeProbeGeneration = generation
+		s.probeLeaseUntil = leaseNow + candidateProbeLease
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrCandidateInvalid) || errors.Is(err, ErrCandidateBusy) {
+			return 0, err
+		}
+		return 0, fmt.Errorf("%w: %v", ErrCandidatePersistence, err)
+	}
+	return generation, nil
+}
+
+// PromoteCandidate atomically makes the successfully probed candidate active.
+func (s *Store) PromoteCandidate(generation uint64, checkedAt time.Time) error {
+	if checkedAt.IsZero() {
+		return fmt.Errorf("vkturn: candidate check time is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking || len(s.cfg.CandidateVKHashes) == 0 ||
+			generation == 0 || generation != s.activeProbeGeneration {
+			return ErrCandidateStale
+		}
+		next := s.cfg.clone()
+		next.VKHashes = append([]string(nil), next.CandidateVKHashes...)
+		next.LastKnownGoodVKHashes = append([]string(nil), next.CandidateVKHashes...)
+		next.CandidateVKHashes = nil
+		next.ProbeStatus = ProbeStatusActive
+		next.ProbeCheckedAt = checkedAt.UTC()
+		next.ProbeErrorCode = ""
+		if err := next.Validate(); err != nil {
+			return err
+		}
+		if s.beforeCandidatePersist != nil {
+			s.beforeCandidatePersist()
+		}
+		if err := s.persistLocked(next); err != nil {
+			return err
+		}
+		s.clearProbeLeaseLocked()
+		return nil
+	})
+	if errors.Is(err, ErrCandidateStale) {
 		return err
 	}
-	cp := next.clone()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrCandidatePersistence, err)
+	}
+	return nil
+}
+
+// RejectCandidate records only a fixed safe code and keeps the active/LKG list.
+func (s *Store) RejectCandidate(generation uint64, code string, checkedAt time.Time) error {
+	if !validProbeErrorCode(code) {
+		return fmt.Errorf("vkturn: probe error code is invalid")
+	}
+	if checkedAt.IsZero() {
+		return fmt.Errorf("vkturn: candidate check time is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking ||
+			generation == 0 || generation != s.activeProbeGeneration {
+			return ErrCandidateStale
+		}
+		next := s.cfg.clone()
+		next.CandidateVKHashes = nil
+		next.LastKnownGoodVKHashes = append([]string(nil), next.VKHashes...)
+		next.ProbeStatus = ProbeStatusFailed
+		next.ProbeCheckedAt = checkedAt.UTC()
+		next.ProbeErrorCode = code
+		if err := next.Validate(); err != nil {
+			return err
+		}
+		if s.beforeCandidatePersist != nil {
+			s.beforeCandidatePersist()
+		}
+		if err := s.persistLocked(next); err != nil {
+			return err
+		}
+		s.clearProbeLeaseLocked()
+		return nil
+	})
+	if errors.Is(err, ErrCandidateStale) {
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrCandidatePersistence, err)
+	}
+	return nil
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) persistLocked(cp *Config) error {
 	if s.path != "" {
-		if err := writeConfigFile(s.path, cp); err != nil {
+		committed, err := writeConfigFile(s.path, cp)
+		if committed {
+			s.cfg = cp
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -206,34 +491,49 @@ func (s *Store) Update(mutate func(cur *Config) *Config) error {
 }
 
 // writeConfigFile writes c to a fresh 0600 temp then atomically renames it over
-// path. It creates the temp with O_EXCL (removing any stale leftover first) so the
-// secrets file is ALWAYS mode 0600 and is never written through a pre-planted
-// symlink — os.WriteFile would keep a pre-existing tmp's looser mode.
-func writeConfigFile(path string, c *Config) error {
-	b, err := json.MarshalIndent(c, "", "  ")
+// path. It creates a unique temp file in the target directory, forces mode 0600,
+// fsyncs the file before rename and fsyncs the parent directory after rename.
+func writeConfigFile(path string, c *Config) (bool, error) {
+	disk := c.clone()
+	disk.encodeRollbackPlaceholder()
+	b, err := json.MarshalIndent(disk, "", "  ")
 	if err != nil {
-		return err
+		return false, err
 	}
-	tmp := path + ".tmp"
-	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return err
+		return false, err
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return false, err
 	}
 	if _, err := f.Write(b); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
+		return false, err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return false, err
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
+		return false, err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return false, err
+	}
+	if err := syncConfigDirectory(dir); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
-// Validate rejects partial configurations even when Enabled is false. This
-// makes flipping the operational switch safe and predictable.
+// Validate permits only the room list to be empty while disabled so a fresh
+// installation can save the complete base settings before its first verified
+// room is promoted. Enabling still requires an active room.
 func (c *Config) Validate() error {
 	if c == nil {
 		return fmt.Errorf("nil config")
@@ -252,24 +552,36 @@ func (c *Config) Validate() error {
 	if err != nil || portNumber < 1 || portNumber > 65535 {
 		return fmt.Errorf("server port is invalid")
 	}
-	if len(c.VKHashes) == 0 || len(c.VKHashes) > 4 {
-		return fmt.Errorf("vk_hashes must contain 1..4 values")
+	if err := validateHashList("vk_hashes", c.VKHashes, c.Enabled); err != nil {
+		return err
 	}
-	seenHashes := make(map[string]struct{}, len(c.VKHashes))
-	for i, hash := range c.VKHashes {
-		hash = strings.TrimSpace(hash)
-		if hash == "" || hash != c.VKHashes[i] {
-			return fmt.Errorf("vk_hashes[%d] is empty", i)
+	status := c.ProbeStatus
+	if status == "" {
+		status = ProbeStatusActive
+	}
+	switch status {
+	case ProbeStatusActive:
+		if len(c.CandidateVKHashes) != 0 || c.ProbeErrorCode != "" {
+			return fmt.Errorf("active probe state contains candidate or error")
 		}
-		if len(hash) > 160 || strings.ContainsFunc(hash, func(r rune) bool {
-			return !(r >= 'A' && r <= 'Z') && !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && !strings.ContainsRune("._~-", r)
-		}) {
-			return fmt.Errorf("vk_hashes[%d] contains unsafe characters", i)
+	case ProbeStatusChecking:
+		if err := validateHashList("candidate_vk_hashes", c.CandidateVKHashes, true); err != nil {
+			return err
 		}
-		if _, exists := seenHashes[hash]; exists {
-			return fmt.Errorf("vk_hashes[%d] is duplicated", i)
+		if c.ProbeStartedAt.IsZero() || !c.ProbeCheckedAt.IsZero() || c.ProbeErrorCode != "" {
+			return fmt.Errorf("checking probe state is incomplete")
 		}
-		seenHashes[hash] = struct{}{}
+	case ProbeStatusFailed:
+		if len(c.CandidateVKHashes) != 0 || c.ProbeCheckedAt.IsZero() || !validProbeErrorCode(c.ProbeErrorCode) {
+			return fmt.Errorf("failed probe state is incomplete")
+		}
+	default:
+		return fmt.Errorf("probe_status is invalid")
+	}
+	if len(c.LastKnownGoodVKHashes) != 0 {
+		if err := validateHashList("last_known_good_vk_hashes", c.LastKnownGoodVKHashes, true); err != nil {
+			return err
+		}
 	}
 	if len(c.Clients) != len(allowedLogins) {
 		return fmt.Errorf("clients must contain exactly wapmix, wapmixx and wapmix2")
@@ -284,6 +596,74 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ValidateProviderHashes is the one provider-room validator shared by storage
+// and the process runner. Values are normalized before this boundary.
+func ValidateProviderHashes(hashes []string) error {
+	return validateHashList("vk_hashes", hashes, true)
+}
+
+func validateHashList(field string, hashes []string, required bool) error {
+	if (required && len(hashes) == 0) || len(hashes) > 4 {
+		return fmt.Errorf("%s must contain 1..4 values", field)
+	}
+	seenHashes := make(map[string]struct{}, len(hashes))
+	for i, hash := range hashes {
+		hash = strings.TrimSpace(hash)
+		if hash == "" || hash != hashes[i] {
+			return fmt.Errorf("%s[%d] is empty", field, i)
+		}
+		if len(hash) < 8 || len(hash) > 160 || hash == disabledRollbackHash || strings.ContainsFunc(hash, func(r rune) bool {
+			return !(r >= 'A' && r <= 'Z') && !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-'
+		}) {
+			return fmt.Errorf("%s[%d] is not a provider room hash", field, i)
+		}
+		if _, exists := seenHashes[hash]; exists {
+			return fmt.Errorf("%s[%d] is duplicated", field, i)
+		}
+		seenHashes[hash] = struct{}{}
+	}
+	return nil
+}
+
+func validProbeErrorCode(code string) bool {
+	if len(code) < 1 || len(code) > 64 {
+		return false
+	}
+	for _, r := range code {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Config) normalizeProbeState() {
+	if c.ProbeStatus == "" {
+		c.ProbeStatus = ProbeStatusActive
+	}
+	if len(c.LastKnownGoodVKHashes) == 0 {
+		c.LastKnownGoodVKHashes = append([]string(nil), c.VKHashes...)
+	}
+}
+
+func (c *Config) encodeRollbackPlaceholder() {
+	if c != nil && !c.Enabled && len(c.VKHashes) == 0 {
+		c.VKHashes = []string{disabledRollbackHash}
+	}
+}
+
+func (c *Config) decodeRollbackPlaceholder() {
+	if c == nil || c.Enabled {
+		return
+	}
+	if len(c.VKHashes) == 1 && c.VKHashes[0] == disabledRollbackHash {
+		c.VKHashes = nil
+	}
+	if len(c.LastKnownGoodVKHashes) == 1 && c.LastKnownGoodVKHashes[0] == disabledRollbackHash {
+		c.LastKnownGoodVKHashes = nil
+	}
 }
 
 // ClientFor returns a copy of the per-login configuration. Unknown logins fail

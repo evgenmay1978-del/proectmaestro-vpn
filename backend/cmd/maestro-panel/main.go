@@ -24,6 +24,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnprobe"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
 )
 
@@ -84,6 +85,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open vkturn config: %v", err)
 	}
+	vkTurnProber := vkturnprobe.New(os.Getenv("MAESTRO_VKTURN_PROBE_BIN"))
 
 	// The provisioner is wired only when its dependencies are configured.
 	var prov api.Provisioner
@@ -242,6 +244,7 @@ func main() {
 			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
 			OLC:          olc,
 			VKTurn:       vkTurn,
+			VKTurnProber: vkTurnProber,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

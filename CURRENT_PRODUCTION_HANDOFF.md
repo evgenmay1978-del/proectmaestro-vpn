@@ -68,6 +68,15 @@ The next required check is on a real Android phone:
 - AWG server credentials and rollout policy were not modified by this panel/WDTT deployment.
 - If either protocol is still absent after a fresh subscription on `1.0.156`, diagnose its live subscription payload and runtime separately; do not change WDTT again without new evidence.
 
+## Active WDTT/olcRTC recovery checkpoint (2026-08-14)
+
+- WDTT and olcRTC are visible in the mobile subscription, but neither live data plane is yet accepted as working.
+- WDTT service/listeners and the three-account allowlist are present. The remaining first boundary is a fresh active VK Call invite/hash; an ended or stale call can leave the client in VK allocation without reaching the WDTT server.
+- The stored WB account token used for olcRTC room creation is rejected by the upstream service with HTTP 401. A fresh token from the owner's authenticated WB session is required; guest room creation is no longer a supported fallback.
+- Source branch `codex/olcrtc-runtime-liveness-main` is at `834b8b469b06d8f9f7b5a1876c01ea32c513c07a`; its exact CI and final review are green/READY. Do not claim this exact head is deployed without a fresh production provenance check.
+- `@browser` selects the Codex in-app browser and does not attach Yandex Browser. The owner reports active VK and WB sessions in Yandex Browser, but the ChatGPT external-browser extension is not connected. Do not retry the extension selector until the owner explicitly confirms connection in Settings -> Computer use.
+- After the extension is connected: use the visible authenticated VK/WB sessions without inspecting cookies, profiles, passwords, local storage, or session stores; create/obtain fresh protocol credentials through supported UI; update only the protected Maestro protocol settings; preserve SSH password login and all TV behavior; then verify real traffic before reporting success.
+
 ## Safety rules for the next session
 
 - Read `AGENTS.md`, this file, and the relevant design/runbook before any mutation.

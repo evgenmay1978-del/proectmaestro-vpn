@@ -1,0 +1,4 @@
+86a1f3366afac7c6f8ae9f3c779ac221129328c43f0ab2b8817eb2f362a5025c  certs/cacert.pem
+73ec1e288f725941fed148ea3f06b3d001bb2655e3d63a5e6de12520be8e6d09  patches/0001-provider-bridge-tests.patch
+2bfde42812c16d537a144401a7be26c670b21ea4660c900d1ec148d60e703c47  patches/0002-provider-bridge-runtime.patch
+77e216e91f28a246ba7f582b9c76a2d2856ce8ac7fececf51bd5725ad8d3c950  series

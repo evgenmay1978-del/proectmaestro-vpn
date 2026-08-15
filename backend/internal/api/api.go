@@ -5,6 +5,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/telegram"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnprobe"
 )
 
 // claimCodeRe bounds a /claim code (a login) to a safe charset before it can
@@ -68,6 +70,12 @@ type Provisioner interface {
 	DeleteExpired() (int, error)
 	// TrafficFor returns the customer's total used traffic in bytes (VLESS; 0 on error).
 	TrafficFor(login string) int64
+}
+
+// VKTurnProber is the narrow provider-only verification boundary used by the
+// authenticated panel before a candidate room may become active.
+type VKTurnProber interface {
+	Probe(context.Context, []string) vkturnprobe.Result
 }
 
 // deviceIDRe bounds the app's per-install device id (a random UUID the app generates and
@@ -121,6 +129,9 @@ type Config struct {
 	// means OFF. The store validates+persists edits atomically and hands out
 	// consistent snapshots, so /sub reads never see a half-applied edit.
 	VKTurn *vkturnconf.Store
+	// VKTurnProber verifies candidate rooms. nil is deliberately fail-closed:
+	// the candidate is rejected and the current active room remains served.
+	VKTurnProber VKTurnProber
 }
 
 // Server wires the HTTP handlers to the store and (optionally) the provisioner.
@@ -133,6 +144,7 @@ type Server struct {
 	tg       *telegram.Client
 	olc      *olcconf.Store
 	vkturn   *vkturnconf.Store // WDTT/VK-TURN config store (nil → feature off); panel-editable
+	vkprober VKTurnProber
 	panel    *panelState       // web admin panel session/rate-limit state (nil until registerPanel)
 	cfg      Config
 }
@@ -142,7 +154,11 @@ func New(st *store.Store, prov Provisioner, orders *order.Store, promos *promo.S
 	return &Server{
 		st: st, prov: prov, orders: orders, promos: promos,
 		trialVel: newTrialVelocity(cfg.TrialIPQuota, 24*time.Hour),
-		tg:       telegram.New(cfg.TGBotToken), olc: cfg.OLC, vkturn: cfg.VKTurn, cfg: cfg,
+		tg:       telegram.New(cfg.TGBotToken),
+		olc:      cfg.OLC,
+		vkturn:   cfg.VKTurn,
+		vkprober: cfg.VKTurnProber,
+		cfg:      cfg,
 	}
 }
 

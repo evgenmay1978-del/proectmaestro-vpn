@@ -1,14 +1,85 @@
 package com.maestrovpn.tv.bg
 
 import android.content.Context
+import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import com.maestrovpn.tv.Application
+import com.maestrovpn.tv.compose.wdtt.WdttCaptchaActivity
+import com.maestrovpn.tv.compose.wdtt.WdttCaptchaPolicy
+import com.maestrovpn.tv.compose.wdtt.WdttCaptchaResult
 import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.utils.MaestroSub
 import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import java.io.Writer
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+internal fun canSpawnWdtt(
+    isTelevision: Boolean,
+    sdkInt: Int,
+    hasCreds: Boolean,
+    binaryExists: Boolean,
+): Boolean = !isTelevision && sdkInt >= Build.VERSION_CODES.P && hasCreds && binaryExists
+
+internal class WdttCommandWriter(private val sink: Writer) {
+    @Synchronized
+    fun writeCaptchaResult(result: WdttCaptchaResult): Boolean {
+        val value = when (result) {
+            is WdttCaptchaResult.Success ->
+                WdttCaptchaPolicy.sanitizeSuccessToken(result.token) ?: return false
+            WdttCaptchaResult.Cancelled -> "error:cancelled"
+            WdttCaptchaResult.Timeout -> "error:timeout"
+        }
+        return writeLine("CAPTCHA_RESULT|$value")
+    }
+
+    @Synchronized
+    fun writeStop(): Boolean = writeLine("STOP")
+
+    @Synchronized
+    private fun writeLine(value: String): Boolean = runCatching {
+        sink.write(value)
+        sink.write("\n")
+        sink.flush()
+    }.isSuccess
+
+    @Synchronized
+    fun close() = runCatching { sink.close() }.getOrNull()
+}
+
+internal class WdttCaptchaExchange(private val writer: WdttCommandWriter) {
+    private var sequence = 0L
+    private var active: Long? = null
+
+    @Synchronized
+    fun open(request: WdttCaptchaRequest): Long {
+        check(request.redirectUri.isNotBlank())
+        sequence = if (sequence == Long.MAX_VALUE) 1L else sequence + 1L
+        active = sequence
+        return sequence
+    }
+
+    @Synchronized
+    fun submit(requestId: Long, result: WdttCaptchaResult): Boolean {
+        if (active != requestId) return false
+        active = null
+        return writer.writeCaptchaResult(result)
+    }
+
+    @Synchronized
+    fun invalidate() {
+        active = null
+    }
+}
+
+internal data class WdttPublicState(
+    val stage: WdttStage,
+    val error: WdttSafeErrorCode? = null,
+    val captchaPending: Boolean = false,
+)
 
 /** Lifecycle for the optional WDTT transport child. It never owns an Android VPN interface. */
 object WdttManager {
@@ -17,7 +88,9 @@ object WdttManager {
 
     private const val TAG = "WdttManager"
     private const val PREFS = "maestro_wdtt"
-    private const val READY_TIMEOUT_MS = 30_000L
+    private const val ORDINARY_TIMEOUT_MS = 45_000L
+    private const val CAPTCHA_TIMEOUT_MS = 120_000L
+    private const val WAIT_SLICE_MS = 50L
 
     internal data class Creds(
         val peer: String,
@@ -34,8 +107,14 @@ object WdttManager {
     @Volatile private var process: Process? = null
     @Volatile private var startedWith: Creds? = null
     @Volatile private var starting = false
+    @Volatile private var startState: WdttStartState = WdttStartState.Stopped(0L)
+    @Volatile private var activeCaptchaRequestId: Long? = null
+    private var commandWriter: WdttCommandWriter? = null
+    private var captchaExchange: WdttCaptchaExchange? = null
     private var stopEpoch = 0L
     private val lock = Any()
+    private val mutablePublicState = MutableStateFlow(WdttPublicState(WdttStage.STOPPED))
+    internal val state: StateFlow<WdttPublicState> = mutablePublicState.asStateFlow()
 
     fun setCreds(
         peer: String?,
@@ -47,7 +126,6 @@ object WdttManager {
         obfsMode: String?,
     ) {
         val candidate = validateCreds(peer, vkHashes, password, workers, fingerprint, clientIds, obfsMode)
-        // TV must never retain credentials which could unlock or bootstrap this transport later.
         val app = Application.application
         val mobileCandidate = candidate.takeUnless { DeviceFormFactor.isTelevision(app) }
         creds = mobileCandidate
@@ -77,8 +155,12 @@ object WdttManager {
     fun isUnlocked(): Boolean {
         ensureLoaded()
         val app = Application.application
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-            !DeviceFormFactor.isTelevision(app) && creds != null && binaryFile()?.exists() == true
+        return canSpawnWdtt(
+            isTelevision = DeviceFormFactor.isTelevision(app),
+            sdkInt = Build.VERSION.SDK_INT,
+            hasCreds = creds != null,
+            binaryExists = binaryFile()?.exists() == true,
+        )
     }
 
     val isRunning: Boolean get() = process?.let(::alive) == true
@@ -86,24 +168,24 @@ object WdttManager {
     /** Blocks off-main-thread until the child emits a structured READY event on stdout. */
     fun ensureStarted(): Boolean {
         val app = Application.application
-        // Runtime hard gate immediately before any spawn path; UI/server gating is not trusted.
-        if (DeviceFormFactor.isTelevision(app)) {
-            Log.w(TAG, "WDTT is disabled on television devices")
-            stop()
-            return false
-        }
-        // The pinned upstream child is linked against Android API 28. Fail closed on older phones.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            Log.w(TAG, "WDTT requires Android 9 (API 28) or newer")
-            stop()
-            return false
-        }
         ensureLoaded()
+        val binary = binaryFile()
+        if (!canSpawnWdtt(
+                isTelevision = DeviceFormFactor.isTelevision(app),
+                sdkInt = Build.VERSION.SDK_INT,
+                hasCreds = creds != null,
+                binaryExists = binary?.exists() == true,
+            )
+        ) {
+            Log.w(TAG, "WDTT spawn policy denied")
+            stop()
+            return false
+        }
 
         val epoch: Long
         synchronized(lock) {
             val current = creds ?: return false
-            if (isRunning && startedWith == current) return true
+            if (isRunning && startedWith == current && startState is WdttStartState.Ready) return true
             if (starting) return false
             starting = true
             epoch = stopEpoch
@@ -111,18 +193,22 @@ object WdttManager {
 
         try {
             val child: Process
-            val ready = CountDownLatch(1)
+            val startedAt = SystemClock.elapsedRealtime()
             synchronized(lock) {
                 val current = creds ?: return false
                 stopLocked()
                 reapOrphans()
-                val binary = binaryFile()?.takeIf(File::exists) ?: return false
-
-                // Repeat the hard gate in the same critical section as ProcessBuilder.start().
-                if (DeviceFormFactor.isTelevision(app)) return false
+                val executable = binaryFile()?.takeIf(File::exists) ?: return false
+                if (!canSpawnWdtt(
+                        isTelevision = DeviceFormFactor.isTelevision(app),
+                        sdkInt = Build.VERSION.SDK_INT,
+                        hasCreds = true,
+                        binaryExists = true,
+                    )
+                ) return false
                 child = try {
                     ProcessBuilder(
-                        binary.absolutePath,
+                        executable.absolutePath,
                         "-peer", current.peer,
                         "-vk", current.vkHashes.joinToString(","),
                         "-n", current.workers.toString(),
@@ -137,70 +223,188 @@ object WdttManager {
                     )
                         .directory(app.filesDir)
                         .redirectErrorStream(true)
-                        .apply {
-                            environment()["WDTT_EVENTS"] = "1"
-                        }
+                        .apply { environment()["WDTT_EVENTS"] = "1" }
                         .start()
-                } catch (e: Exception) {
-                    Log.e(TAG, "WDTT exec failed: ${e.message}", e)
+                } catch (_: Exception) {
+                    publish(WdttStage.FAILED, WdttSafeErrorCode.INTERNAL)
+                    Log.e(TAG, "WDTT exec failed")
                     return false
                 }
+                val writer = WdttCommandWriter(child.outputStream.bufferedWriter())
+                commandWriter = writer
+                captchaExchange = WdttCaptchaExchange(writer)
+                activeCaptchaRequestId = null
                 process = child
                 startedWith = current
-                drainEvents(child, ready)
+                startState = WdttStartState.Waiting(startedAt, WdttStage.STARTING)
+                publish(WdttStage.STARTING)
+                drainEvents(child, startedAt)
             }
 
-            val signalled = ready.await(READY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            synchronized(lock) {
-                if (signalled && epoch == stopEpoch && process === child && alive(child)) return true
-                if (process === child) stopLocked()
+            while (true) {
+                val snapshot = startState
+                val decision = nextWdttStartDecision(
+                    state = snapshot,
+                    childAlive = alive(child),
+                    nowMs = SystemClock.elapsedRealtime(),
+                    ordinaryDeadlineMs = ORDINARY_TIMEOUT_MS,
+                    captchaDeadlineMs = CAPTCHA_TIMEOUT_MS,
+                )
+                when (decision) {
+                    WdttStartDecision.WAIT -> Thread.sleep(WAIT_SLICE_MS)
+                    WdttStartDecision.STARTED -> synchronized(lock) {
+                        if (epoch == stopEpoch && process === child && alive(child)) return true
+                        if (process === child) stopLocked()
+                        return false
+                    }
+                    WdttStartDecision.STOP -> {
+                        if (snapshot is WdttStartState.CaptchaRequired) {
+                            activeCaptchaRequestId?.let { submitCaptchaResult(it, WdttCaptchaResult.Timeout) }
+                        }
+                        if (snapshot is WdttStartState.Waiting) {
+                            publish(WdttStage.FAILED, WdttSafeErrorCode.PROVIDER_UNAVAILABLE)
+                        }
+                        synchronized(lock) { if (process === child) stopLocked(publishStopped = false) }
+                        return false
+                    }
+                }
             }
-            return false
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+            synchronized(lock) {
+                publish(WdttStage.FAILED, WdttSafeErrorCode.INTERNAL)
+                stopLocked(publishStopped = false)
+            }
             return false
         } finally {
             synchronized(lock) { starting = false }
         }
     }
 
+    internal fun submitCaptchaResult(requestId: Long, result: WdttCaptchaResult): Boolean = synchronized(lock) {
+        val exchange = captchaExchange ?: return false
+        if (!exchange.submit(requestId, result)) return false
+        activeCaptchaRequestId = null
+        when (result) {
+            is WdttCaptchaResult.Success -> {
+                val now = SystemClock.elapsedRealtime()
+                startState = WdttStartState.Waiting(now, WdttStage.VK_AUTH)
+                publish(WdttStage.VK_AUTH)
+            }
+            WdttCaptchaResult.Cancelled,
+            WdttCaptchaResult.Timeout,
+            -> {
+                startState = WdttStartState.Failed(
+                    SystemClock.elapsedRealtime(),
+                    WdttSafeErrorCode.CAPTCHA_REQUIRED,
+                )
+                publish(WdttStage.FAILED, WdttSafeErrorCode.CAPTCHA_REQUIRED)
+            }
+        }
+        true
+    }
+
     fun stop() = synchronized(lock) {
         stopEpoch++
+        startState = WdttStartState.Cancelled(SystemClock.elapsedRealtime())
         stopLocked()
     }
 
-    private fun stopLocked() {
+    private fun stopLocked(publishStopped: Boolean = true) {
         val child = process
+        val writer = commandWriter
         process = null
         startedWith = null
-        if (child == null) return
-        runCatching {
-            // Upstream supports a graceful stdin control protocol; let workers tear down first.
-            child.outputStream.bufferedWriter().use { writer ->
-                writer.write("STOP\n")
-                writer.flush()
+        commandWriter = null
+        captchaExchange?.invalidate()
+        captchaExchange = null
+        activeCaptchaRequestId = null
+        if (child != null) {
+            writer?.writeStop()
+            runCatching {
+                child.destroy()
+                val deadline = System.currentTimeMillis() + 2_000L
+                while (alive(child) && System.currentTimeMillis() < deadline) Thread.sleep(50L)
+                if (alive(child) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) child.destroyForcibly()
             }
-            child.destroy()
-            val deadline = System.currentTimeMillis() + 2_000L
-            while (alive(child) && System.currentTimeMillis() < deadline) Thread.sleep(50L)
-            if (alive(child) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) child.destroyForcibly()
         }
+        writer?.close()
+        startState = WdttStartState.Stopped(SystemClock.elapsedRealtime())
+        if (publishStopped) publish(WdttStage.STOPPED)
     }
 
-    private fun drainEvents(child: Process, ready: CountDownLatch) {
+    private fun drainEvents(child: Process, startedAt: Long) {
         Thread({
             try {
                 child.inputStream.bufferedReader().forEachLine { line ->
-                    if (isReadyEvent(line)) ready.countDown()
-                    Log.i("WDTT", redact(line))
+                    val event = parseWdttEvent(line) ?: return@forEachLine
+                    synchronized(lock) {
+                        if (process !== child) return@synchronized
+                        when (event) {
+                            is WdttEvent.Stage -> {
+                                startState = if (event.stage == WdttStage.READY) {
+                                    WdttStartState.Ready(startedAt)
+                                } else {
+                                    WdttStartState.Waiting(startedAt, event.stage)
+                                }
+                                publish(event.stage)
+                            }
+                            is WdttEvent.Failure -> {
+                                publish(WdttStage.FAILED, event.code)
+                                if (event.fatal) startState = WdttStartState.Failed(startedAt, event.code)
+                            }
+                            is WdttEvent.Captcha -> handleCaptchaLocked(event.request, startedAt)
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "WDTT event stream closed: ${e.message}")
+            } catch (_: Exception) {
+                Log.w(TAG, "WDTT event stream closed")
             } finally {
-                // Wake ensureStarted immediately on early exit; its liveness check rejects it.
-                ready.countDown()
+                synchronized(lock) {
+                    if (process === child &&
+                        startState !is WdttStartState.Ready &&
+                        startState !is WdttStartState.Failed
+                    ) {
+                        startState = WdttStartState.Failed(startedAt, WdttSafeErrorCode.PROVIDER_UNAVAILABLE)
+                        publish(WdttStage.FAILED, WdttSafeErrorCode.PROVIDER_UNAVAILABLE)
+                    }
+                }
             }
         }, "wdtt-events").apply { isDaemon = true; start() }
+    }
+
+    private fun handleCaptchaLocked(request: WdttCaptchaRequest, startedAt: Long) {
+        val app = Application.application
+        if (DeviceFormFactor.isTelevision(app) || !WdttCaptchaPolicy.isAllowedTopLevel(request.redirectUri)) {
+            startState = WdttStartState.Failed(startedAt, WdttSafeErrorCode.CAPTCHA_REQUIRED)
+            publish(WdttStage.FAILED, WdttSafeErrorCode.CAPTCHA_REQUIRED)
+            return
+        }
+        val exchange = captchaExchange ?: run {
+            startState = WdttStartState.Failed(startedAt, WdttSafeErrorCode.INTERNAL)
+            publish(WdttStage.FAILED, WdttSafeErrorCode.INTERNAL)
+            return
+        }
+        val requestId = exchange.open(request)
+        activeCaptchaRequestId = requestId
+        val requestedAt = SystemClock.elapsedRealtime()
+        startState = WdttStartState.CaptchaRequired(startedAt, requestedAt, request)
+        publish(WdttStage.CAPTCHA_REQUIRED, captchaPending = true)
+        val intent = Intent(app, WdttCaptchaActivity::class.java)
+            .putExtra(WdttCaptchaActivity.EXTRA_REQUEST_ID, requestId)
+            .putExtra(WdttCaptchaActivity.EXTRA_REDIRECT_URI, request.redirectUri)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        runCatching { app.startActivity(intent) }.onFailure {
+            submitCaptchaResult(requestId, WdttCaptchaResult.Cancelled)
+        }
+    }
+
+    private fun publish(
+        stage: WdttStage,
+        error: WdttSafeErrorCode? = null,
+        captchaPending: Boolean = false,
+    ) {
+        mutablePublicState.value = WdttPublicState(stage, error, captchaPending)
     }
 
     private fun reapOrphans() {
@@ -252,10 +456,8 @@ object WdttManager {
         try { child.exitValue(); false } catch (_: IllegalThreadStateException) { true }
 
     internal fun isReadyEvent(line: String): Boolean =
-        line.startsWith("__WDTT_EVENT__|READY|")
-
-    private fun redact(line: String): String = line
-        .replace(Regex("(?i)(password|token|secret|key)(\\s*[=:]\\s*)[^,\\s\"}]+"), "$1$2<redacted>")
+        line.startsWith("__WDTT_EVENT__|READY|") ||
+            parseWdttEvent(line) == WdttEvent.Stage(WdttStage.READY)
 
     internal fun validateCreds(
         peer: String?, hashes: List<String>?, password: String?, workers: Int?, fingerprint: String?,
@@ -272,7 +474,6 @@ object WdttManager {
         if (!p.matches(peerRe) || hs.isEmpty() || hs.size > 4 || hs.any { !it.matches(safeToken) }) return null
         if (pass.length !in 8..128 || pass.any { it.code < 0x21 || it.code > 0x7e }) return null
         val workerCount = workers ?: return null
-        // Upstream allocates workers in groups of nine (one VK call allocation per group).
         if (workerCount !in 9..108 || workerCount % 9 != 0 || !fp.matches(safeToken) || ids.isEmpty() || ids.size > 8) return null
         if (ids.any { !it.matches(Regex("^[0-9]{1,20}$")) } || !obfs.matches(Regex("^[a-z0-9_-]{1,32}$"))) return null
         val port = p.substringAfterLast(':').toIntOrNull() ?: return null

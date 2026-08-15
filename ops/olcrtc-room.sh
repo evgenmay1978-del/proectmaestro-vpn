@@ -159,21 +159,12 @@ if [ -n "$LOGIN" ] && { [ "$NEWKEY" = 1 ] || [ -z "$KEY" ]; }; then KEY=$(openss
 case "$KEY" in *[!0-9a-fA-F]*|"") echo "invalid room key" >&2; exit 1;; esac
 [ "${#KEY}" -eq 64 ] || { echo "invalid room key length" >&2; exit 1; }
 
-WBTOK=""
-if [ "$PROVIDER" = wbstream ]; then
-	olc_secure_file "$WB_TOKEN_FILE" "wbstream credential"
-	WBTOK=$(tr -d '\r\n' < "$WB_TOKEN_FILE")
-	case "$WBTOK" in *[!A-Za-z0-9._~-]*|"") echo "wbstream credential format is invalid" >&2; exit 1;; esac
-fi
-
 if [ -n "$LOGIN" ]; then
-	LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" WBTOK="$WBTOK" python3 - "$YAML" <<'PY'
+	LOGIN="$LOGIN" ROOM="$ROOM" KEY="$KEY" PROVIDER="$PROVIDER" python3 - "$YAML" <<'PY'
 import json, os, sys
 q = json.dumps
 provider = os.environ["PROVIDER"]
 lines = ["mode: srv", "auth:", "  provider: " + q(provider)]
-if provider == "wbstream":
-    lines.append("  token: " + q(os.environ["WBTOK"]))
 lines += [
     "room:", "  id: " + q(os.environ["ROOM"]),
     "crypto:", "  key: " + q(os.environ["KEY"]),

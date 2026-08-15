@@ -12,6 +12,35 @@
 5. Сохранять чужие tracked/untracked изменения и не выполнять очистку,
    reset, merge, release, OTA или деплой без прямого разрешения владельца.
 
+## Долговременная память проекта
+
+- Git-история, запушенные ветки и проверенные документы репозитория — долговременная
+  память проекта. Чат и незапушенное состояние компьютера дают только ориентиры.
+  Каждый материальный checkpoint документировать, коммитить, отправлять на GitHub и
+  подтверждать точным удалённым SHA.
+- Загружать контекст постепенно: сначала `AGENTS.md` и handoff, затем документы
+  текущей задачи, после этого только нужные ссылки, данные и скрипты. Не дублировать
+  весь проект в чате или нескольких документах.
+- Стабильную процедуру, знания и повторяемые скрипты хранить в skill; актуальное
+  внешнее состояние получать через API/MCP/connector. Не сохранять в skill секреты
+  или volatile production-факты.
+- Изменения памяти проходят те же барьеры качества: подтверждение источников,
+  просмотр diff, узкие проверки и CI, когда меняется исполняемое поведение. При
+  конфликте сводить правила в один авторитетный источник и удалять устаревшие дубли.
+- Диагностический, исполнительный и meta-loop должны иметь явные границы и условия
+  остановки. Новое постоянное правило добавлять только после воспроизводимого
+  результата или повторившейся подтверждённой ошибки, а не по единичной догадке.
+- Пока guard не использует межпроцессную блокировку, его ledger — single-writer:
+  не запускать guarded-команды параллельно из root и subagents в одном worktree.
+  Сериализовать действия либо использовать отдельные worktree и ledger. Исчезновение
+  correction/history считать ledger race: остановить конкурентов, проверить журнал и
+  один раз восстановить запись; бизнес-команду повторно не выполнять.
+- Таймаут-тест, который запускает дочерний test binary, после первого расхождения
+  между обычным и `-race` запуском запрещено чинить расширением wall-clock порога.
+  Вынести проверяемый цикл за детерминированный injected seam и моделировать deadline
+  через контекст; реальные subprocess-тесты оставить только для границ exec/stdin/
+  stdout/exit. Новый exact-SHA CI допустим только после такой структурной коррекции.
+
 ## Обязательный барьер от повторных ошибок
 
 Перед серверной/сетевой операцией, записью в GitHub, изменением файлов,
@@ -26,6 +55,9 @@ python ops/maestro-repetition-guard.py check --action <действие> --famil
 
 An ALLOW is single-use and is not transferable to another command family; if the executable command differs, stop and run a fresh matching check.
 If a generated full-file transformation reports one anchor mismatch, do not tune or retry string anchors. Read the exact current bounded line, replace that entire line through a structural generator, and validate the complete replacement before diffing.
+For Python validation executed inside an old/new patch mirror, set `PYTHONDONTWRITEBYTECODE=1` before the first run. Never clean generated `__pycache__` with `Remove-Item`: Windows policy rejects both recursive and exact-file deletion. After a read-only exact-path check proves the cache is inside the staging mirror, move the whole directory to a named quarantine path outside both mirror sides, verify the source is absent, and do not retry deletion.
+
+Browser bridge rule: `@browser` selects the Codex in-app browser; it does not attach Yandex Browser or transfer its authenticated session. An authenticated external browser is usable only when the ChatGPT browser extension is installed and connected through Settings -> Computer use. After `Browser is not available: extension`, record `fail` and do not call `get("extension")` again until the owner explicitly confirms that the extension is connected. Never substitute the in-app browser and never inspect cookies, profiles, passwords, local storage, or session stores.
 
 `action` и `family` — только короткие смысловые идентификаторы, например
 `s1-key-login` и `openssh-key-probe`. Команды, пути с секретами, пароли, ключи,
@@ -44,6 +76,12 @@ If a generated full-file transformation reports one anchor mismatch, do not tune
 компьютере владельца. Использовать уже зафиксированный список репозиториев и
 узкие `rg`/Git-проверки конкретного проекта; тяжёлые сборки выполнять в GitHub
 Actions, если handoff не требует другого проверенного места исполнения.
+
+В Windows PowerShell не передавать native `rg` путь с wildcard вроде
+`path/*.go`: PowerShell его не раскрывает, а `rg` получает несуществующий
+буквальный путь. Для узкого поиска передавать существующий каталог отдельным
+аргументом и фильтр `-g '*.go'` (или `--glob '*.go'`). После первого такого
+сбоя обязательно `fail`/`correct`; запрещено повторять wildcard-путь.
 
 Для тестовых shell-fixtures под `/bin/sh`/dash запрещены составные `case`-glob
 шаблоны с заключёнными в кавычки shell-операторами. После первой ошибки
