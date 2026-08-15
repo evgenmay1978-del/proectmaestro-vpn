@@ -68,10 +68,8 @@ def read_manifest() -> dict[str, str]:
 
 
 def reviewed_sha256(path: Path) -> str:
-    payload = path.read_bytes()
-    if path.suffix == ".patch" or path.name == "series":
-        payload = payload.replace(b"\r\n", b"\n")
-    return hashlib.sha256(payload).hexdigest()
+    canonical = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 class WdttPatchsetTest(unittest.TestCase):
