@@ -3,8 +3,10 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnprobe"
 )
 
 // vkTurnClientReq is one login's editable fields in a panel save. Pointer fields
@@ -51,15 +53,6 @@ func applyVKTurnEdit(cur *vkturnconf.Config, req vkTurnSaveReq) *vkturnconf.Conf
 	if req.Server != nil {
 		next.Server = strings.TrimSpace(*req.Server)
 	}
-	if req.VKHashes != nil {
-		hashes := make([]string, 0, len(req.VKHashes))
-		for _, h := range req.VKHashes {
-			if h = normalizeVKCallInput(h); h != "" {
-				hashes = append(hashes, h)
-			}
-		}
-		next.VKHashes = hashes
-	}
 	for login, rc := range req.Clients {
 		cl := next.Clients[login]
 		if rc.Password != nil && strings.TrimSpace(*rc.Password) != "" {
@@ -82,8 +75,9 @@ func applyVKTurnEdit(cur *vkturnconf.Config, req vkTurnSaveReq) *vkturnconf.Conf
 // vkTurnRedacted renders the WDTT config for the panel WITHOUT the secrets. WG
 // private keys and per-login passwords are never sent to the browser — only a
 // "*_set" boolean so the operator sees whether a value is present. The public
-// bits (server, hashes, peer public key, tunnel address, enabled, min version)
-// are returned so the form can be pre-filled. Mirrors wbTokenSet()'s "show
+// bits (server, peer public key, tunnel address, enabled, min version) are
+// returned so the form can be pre-filled. Room values are write-only: the
+// browser receives only counts and fixed probe status/code. Mirrors wbTokenSet()'s "show
 // presence, never the value" rule for the wbstream token.
 func (s *Server) vkTurnRedacted() map[string]any {
 	out := map[string]any{
@@ -109,15 +103,27 @@ func (s *Server) vkTurnRedacted() map[string]any {
 	out["enabled"] = cfg.Enabled
 	out["min_version_code"] = cfg.MinVersionCode
 	out["server"] = cfg.Server
-	out["vk_hashes"] = cfg.VKHashes
+	out["probe_status"] = string(cfg.ProbeStatus)
+	out["active_count"] = len(cfg.VKHashes)
+	out["candidate_count"] = len(cfg.CandidateVKHashes)
+	out["last_known_good_count"] = len(cfg.LastKnownGoodVKHashes)
+	if !cfg.ProbeStartedAt.IsZero() {
+		out["probe_started_at"] = cfg.ProbeStartedAt.UTC().Format(time.RFC3339)
+	}
+	if !cfg.ProbeCheckedAt.IsZero() {
+		out["probe_checked_at"] = cfg.ProbeCheckedAt.UTC().Format(time.RFC3339)
+	}
+	if cfg.ProbeErrorCode != "" {
+		out["probe_error_code"] = cfg.ProbeErrorCode
+	}
 	out["clients"] = clients
 	return out
 }
 
 // panelVKTurn is the panel's WDTT/VK-TURN editor. GET returns the redacted config;
-// POST saves a full config (merged, validated, persisted atomically). Secret fields
-// left blank on POST keep their existing value, so the operator can rotate a VK hash
-// or flip the switch without re-typing every WG key ("leave blank to keep" — the same
+// POST saves the non-room config (merged, validated, persisted atomically). Secret fields
+// left blank on POST keep their existing value, so the operator can change public
+// settings without re-typing every WG key ("leave blank to keep" — the same
 // UX as the wbstream token).
 func (s *Server) panelVKTurn(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -138,6 +144,10 @@ func (s *Server) panelVKTurn(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &req) {
 			return
 		}
+		if req.VKHashes != nil {
+			http.Error(w, "room changes must use the verified candidate endpoint", http.StatusBadRequest)
+			return
+		}
 		if req.MinVersionCode != nil && *req.MinVersionCode >= 90000 {
 			http.Error(w, "min_version_code must use the production APK versionCode (for example 156); test-build codes 90xxx are not allowed", http.StatusBadRequest)
 			return
@@ -154,6 +164,73 @@ func (s *Server) panelVKTurn(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+type vkTurnCandidateReq struct {
+	VKHashes []string `json:"vk_hashes"`
+}
+
+func normalizeVKTurnCandidates(inputs []string) []string {
+	hashes := make([]string, 0, len(inputs))
+	for _, input := range inputs {
+		if hash := normalizeVKCallInput(input); hash != "" {
+			hashes = append(hashes, hash)
+		}
+	}
+	return hashes
+}
+
+// panelVKTurnCandidate stages a write-only room list, runs the pinned provider
+// probe, and promotes it only on a fixed validated success result. Every failure
+// leaves the current active/LKG room list serving installed clients.
+func (s *Server) panelVKTurnCandidate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.panelGuard(w, r, true) {
+		return
+	}
+	if s.vkturn == nil {
+		http.Error(w, "vkturn storage not configured (MAESTRO_VKTURN_FILE unset)", http.StatusBadRequest)
+		return
+	}
+	var req vkTurnCandidateReq
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	hashes := normalizeVKTurnCandidates(req.VKHashes)
+	if err := s.vkturn.StageCandidate(hashes, time.Now().UTC()); err != nil {
+		if cfg := s.vkturn.Get(); cfg != nil && cfg.ProbeStatus == vkturnconf.ProbeStatusChecking {
+			http.Error(w, "candidate probe already running", http.StatusConflict)
+			return
+		}
+		http.Error(w, "invalid candidate", http.StatusBadRequest)
+		return
+	}
+
+	result := vkturnprobe.Result{Stage: "STARTING", Code: "PROBE_UNAVAILABLE"}
+	if s.vkprober != nil {
+		result = s.vkprober.Probe(r.Context(), hashes)
+	}
+	if safe, ok := vkturnprobe.Sanitize(result); ok {
+		result = safe
+	} else {
+		result = vkturnprobe.Result{Stage: "STARTING", Code: "PROBE_OUTPUT_INVALID"}
+	}
+	checkedAt := time.Now().UTC()
+	if result.OK {
+		if err := s.vkturn.PromoteCandidate(checkedAt); err != nil {
+			panelErrLog(w, http.StatusInternalServerError, "candidate state update failed", "promote vkturn candidate", err)
+			return
+		}
+	} else if err := s.vkturn.RejectCandidate(result.Code, checkedAt); err != nil {
+		panelErrLog(w, http.StatusInternalServerError, "candidate state update failed", "reject vkturn candidate", err)
+		return
+	}
+	out := s.vkTurnRedacted()
+	out["probe_stage"] = result.Stage
+	writeJSON(w, http.StatusOK, out)
 }
 
 // panelVKTurnEnabled is the quick master switch (POST {enabled}). The config must

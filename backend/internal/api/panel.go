@@ -226,7 +226,9 @@ func (s *Server) registerPanel(mux *http.ServeMux) {
 	mux.HandleFunc(p+"api/olcrtc/login", s.panelOlcLogin)        // POST {login,action:add|remove}
 	mux.HandleFunc(p+"api/olcrtc/wbtoken", s.panelOlcWBToken)    // POST {token} — set wbstream account token
 	mux.HandleFunc(p+"api/olcrtc/wbroom", s.panelOlcWBRoom)      // POST {login} — create+assign a fresh wbstream room
-	mux.HandleFunc(p+"api/vkturn", s.panelVKTurn)                // GET (redacted) / POST (save full WDTT config)
+	mux.HandleFunc(p+"api/vkturn", s.panelVKTurn)                // GET (redacted) / POST (save non-room WDTT config)
+	// A write-only room candidate is provider-verified before it can replace active/LKG.
+	mux.HandleFunc(p+"api/vkturn/candidate", s.panelVKTurnCandidate)
 	mux.HandleFunc(p+"api/vkturn/enabled", s.panelVKTurnEnabled) // POST {enabled} — master switch
 }
 

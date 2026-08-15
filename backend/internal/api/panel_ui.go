@@ -197,12 +197,19 @@ function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…<
 function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/vkturn').then(function(o){
  var logins=o.logins||[];var clients=o.clients||{};var configured=!!o.configured;var enabled=!!o.enabled;
  var badge=!configured?'<span class="badge b-off">не настроен</span>':(enabled?'<span class="badge b-ok">включён</span>':'<span class="badge b-exp">выключен</span>');
- var h='<div class="toolbar" style="margin:8px 0"><b>WDTT / VK-TURN</b> '+badge+'<span class="sp"></span>'+
+ var ps=o.probe_status||'active';var pcls=ps==='active'?'b-ok':(ps==='checking'?'b-exp':'b-off');
+ var plabel=ps==='active'?'активна':(ps==='checking'?'проверяется':'ошибка');
+ var probe='<span class="badge '+pcls+'">комната: '+plabel+'</span>';
+ var counts='Активных: '+(o.active_count||0)+' · резервных: '+(o.last_known_good_count||0)+(o.candidate_count?' · кандидатов: '+o.candidate_count:'');
+	var perr=o.probe_error_code?' · код: '+o.probe_error_code:'';
+	var h='<div class="toolbar" style="margin:8px 0"><b>WDTT / VK-TURN</b> '+badge+'<span class="sp"></span>'+
    (configured?'<button class="btn '+(enabled?'dng':'pri')+'" id="w_toggle">'+(enabled?'Выключить':'Включить')+'</button>':'')+'</div>'+
    '<p class="mut">Мобильный обходной транспорт (WireGuard поверх VK-TURN). Только для '+esc(logins.join(', '))+'. Секреты не показываются — оставь поле пустым, чтобы не менять.</p>'+
+   '<p>'+probe+' <span class="mut">'+esc(counts+perr)+'</span></p>'+
    '<div class="field"><label>Мин. versionCode APK</label><input id="w_mvc" type="number" value="'+esc(o.min_version_code||'')+'" style="width:170px" placeholder="напр. 156 (не 90xxx)"></div>'+
    '<div class="field"><label>Сервер</label><input id="w_server" value="'+esc(o.server||'')+'" placeholder="host:port (DTLS, напр. 56000)" style="min-width:260px"></div>'+
-   '<div class="field"><label>VK-хеши</label><input id="w_hashes" value="'+esc((o.vk_hashes||[]).join(', '))+'" placeholder="хеш1, хеш2 (1..4, через запятую)" style="flex:1;min-width:280px"></div>';
+   '<div class="field"><label>Новая VK-комната</label><input id="w_candidate" value="" placeholder="полная VK-ссылка или 1..4 хеша через запятую" style="flex:1;min-width:280px"> <button class="btn pri" id="w_probe">Проверить и применить</button></div>'+
+   '<p class="mut">Текущее значение скрыто. Новая комната станет активной только после проверки VK/TURN; при ошибке продолжит работать прежняя.</p>';
  logins.forEach(function(lg){var c=clients[lg]||{};var wg=c.wg||{};
    h+='<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px"><b>'+esc(lg)+'</b>'+
      '<div class="field"><label>Пароль</label><input id="w_pw_'+esc(lg)+'" type="password" placeholder="'+(c.password_set?'•••• задан — пусто = не менять':'задать пароль (8..128)')+'" style="min-width:220px"></div>'+
@@ -211,15 +218,15 @@ function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…
      '<div class="field"><label>Адрес</label><input id="w_addr_'+esc(lg)+'" value="'+esc(wg.local_address||'')+'" placeholder="10.66.66.2/32" style="width:170px"></div>'+
    '</div>';
  });
- h+='<div class="field" style="margin-top:12px"><label></label><button class="btn pri" id="w_save">Сохранить WDTT</button> <span class="mut">валидируется перед записью; включение — отдельной кнопкой</span></div>';
+ h+='<div class="field" style="margin-top:12px"><label></label><button class="btn pri" id="w_save">Сохранить настройки</button> <span class="mut">комната меняется только кнопкой проверки выше; включение — отдельно</span></div>';
  el('body').innerHTML=h;
  if(el('w_toggle'))el('w_toggle').onclick=function(){post('api/vkturn/enabled',{enabled:!enabled}).then(function(){toast(enabled?'WDTT выключен':'WDTT включён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});};
+ el('w_probe').onclick=function(){var hashes=el('w_candidate').value.split(',').map(function(s){return s.trim();}).filter(Boolean);if(!hashes.length){toast('Укажи VK-ссылку или хеш');return;}el('w_probe').disabled=true;toast('Проверяю VK/TURN…');post('api/vkturn/candidate',{vk_hashes:hashes}).then(function(r){toast(r.probe_status==='active'?'Комната проверена и активирована':'Проверка не пройдена: '+(r.probe_error_code||'ошибка'));renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);renderWDTT();});};
  el('w_save').onclick=function(){
    var mvc=+el('w_mvc').value||0;
    if(mvc>=90000){toast('Укажи production versionCode APK, например 156. Тестовые 90xxx запрещены.');return;}
-   var hashes=el('w_hashes').value.split(',').map(function(s){return s.trim();}).filter(Boolean);
    var cl={};logins.forEach(function(lg){cl[lg]={password:el('w_pw_'+lg).value,wg:{private_key:el('w_pk_'+lg).value,peer_public_key:el('w_pub_'+lg).value.trim(),local_address:el('w_addr_'+lg).value.trim()}};});
-   post('api/vkturn',{min_version_code:mvc,server:el('w_server').value.trim(),vk_hashes:hashes,clients:cl}).then(function(){toast('WDTT сохранён');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});
+   post('api/vkturn',{min_version_code:mvc,server:el('w_server').value.trim(),clients:cl}).then(function(){toast('Настройки WDTT сохранены');renderWDTT();}).catch(function(e){toast('Ошибка: '+e.message);});
  };
 }).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
 
