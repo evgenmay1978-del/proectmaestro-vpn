@@ -52,7 +52,7 @@ private val wdttStageEvent = Regex(
 private val wdttErrorEvent = Regex(
     """__WDTT_EVENT__\|ERROR\|\{"code":"([^"\\]{1,128})","fatal":(true|false)\}""",
 )
-private val wdttCaptchaModes = setOf("wv", "rjs")
+private val wdttCaptchaModes = setOf("auto", "manual", "selected")
 
 internal fun parseWdttEvent(line: String): WdttEvent? {
     wdttStageEvent.matchEntire(line)?.let { match ->
