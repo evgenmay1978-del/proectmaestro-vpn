@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -155,6 +156,11 @@ func newPanelVKTurnServerWithProber(t *testing.T, cfg *VKTurnConfig, prober VKTu
 			t.Fatalf("seed store: %v", err)
 		}
 	}
+	return newPanelVKTurnServerWithStoreAndProber(t, vkStore, prober), vkStore
+}
+
+func newPanelVKTurnServerWithStoreAndProber(t *testing.T, vkStore *vkturnconf.Store, prober VKTurnProber) *httptest.Server {
+	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte("testpw"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +172,7 @@ func newPanelVKTurnServerWithProber(t *testing.T, cfg *VKTurnConfig, prober VKTu
 	s := New(st, nil, nil, nil, Config{
 		PanelPath: "/mp/", PanelPasswordHash: string(hash), VKTurn: vkStore, VKTurnProber: prober,
 	})
-	return httptest.NewServer(s.Handler()), vkStore
+	return httptest.NewServer(s.Handler())
 }
 
 func panelLogin(t *testing.T, srv *httptest.Server) (cookie, csrf string) {
@@ -562,5 +568,73 @@ func TestPanelHTMLUsesVerifiedWriteOnlyCandidateFlow(t *testing.T) {
 		if strings.Contains(panelHTML, forbidden) {
 			t.Fatalf("WDTT panel still contains direct active-room mutation marker %q", forbidden)
 		}
+	}
+}
+
+func TestPanelVKTurnCandidateMapsInvalidAndPersistenceErrors(t *testing.T) {
+	checkingPath := filepath.Join(t.TempDir(), "checking.json")
+	checkingStore, err := vkturnconf.OpenStore(checkingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkingStore.Set(validVKTurnConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checkingStore.StageCandidate([]string{"candidate-room-a"}, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := vkturnconf.OpenStore(checkingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidCalls := atomic.Int32{}
+	invalidServer := newPanelVKTurnServerWithStoreAndProber(t, restarted, vkTurnProberFunc(func(context.Context, []string) vkturnprobe.Result {
+		invalidCalls.Add(1)
+		return vkturnprobe.Result{OK: true, Stage: "TURN_ALLOCATED", Code: "OK"}
+	}))
+	defer invalidServer.Close()
+	cookie, csrf := panelLogin(t, invalidServer)
+	invalidResp := panelPost(t, invalidServer, "api/vkturn/candidate", cookie, csrf, map[string]any{"vk_hashes": []string{"short"}})
+	defer func() { _ = invalidResp.Body.Close() }()
+	if invalidResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid candidate during recoverable persisted checking state = %d, want 400", invalidResp.StatusCode)
+	}
+	if invalidCalls.Load() != 0 {
+		t.Fatal("invalid candidate reached provider probe")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vkturn.json")
+	persistStore, err := vkturnconf.OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistStore.Set(validVKTurnConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	persistServer := newPanelVKTurnServerWithStoreAndProber(t, persistStore, nil)
+	defer persistServer.Close()
+	persistCookie, persistCSRF := panelLogin(t, persistServer)
+	persistResp := panelPost(t, persistServer, "api/vkturn/candidate", persistCookie, persistCSRF, map[string]any{"vk_hashes": []string{"candidate-room-b"}})
+	defer func() { _ = persistResp.Body.Close() }()
+	if persistResp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("candidate persistence failure = %d, want 500", persistResp.StatusCode)
+	}
+	if got := persistStore.Get(); got == nil || got.ProbeStatus != vkturnconf.ProbeStatusActive {
+		t.Fatalf("persistence failure changed live state: %+v", got)
+	}
+}
+
+func TestPanelHTMLSeparatesActiveRoomFromLastProbeResult(t *testing.T) {
+	for _, required := range []string{"активная комната есть", "активной комнаты нет", "последняя проверка: ошибка"} {
+		if !strings.Contains(panelHTML, required) {
+			t.Fatalf("WDTT panel lacks distinct status marker %q", required)
+		}
+	}
+	if strings.Contains(panelHTML, "комната: ошибка") {
+		t.Fatal("WDTT panel still conflates a failed probe with active-room health")
 	}
 }

@@ -170,3 +170,28 @@ func TestRunnerRejectsMissingBinaryAndInvalidCandidateSet(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizeRejectsInvalidStageCodePairs(t *testing.T) {
+	invalid := []Result{
+		{OK: false, Stage: "FAILED", Code: "OK"},
+		{OK: false, Stage: "TLS", Code: "VK_AUTH_FAILED"},
+		{OK: false, Stage: "TURN_ALLOCATED", Code: "PROVIDER_UNAVAILABLE"},
+		{OK: false, Stage: "READY", Code: "INTERNAL"},
+	}
+	for _, result := range invalid {
+		if safe, ok := Sanitize(result); ok {
+			t.Fatalf("Sanitize(%#v) accepted impossible pair %#v", result, safe)
+		}
+	}
+	valid := []Result{
+		{OK: true, Stage: "TURN_ALLOCATED", Code: "OK"},
+		{OK: false, Stage: "TLS", Code: "TLS_TRUST_FAILED"},
+		{OK: false, Stage: "VK_AUTH", Code: "VK_CALL_UNAVAILABLE"},
+		{OK: false, Stage: "STARTING", Code: "PROBE_TIMEOUT"},
+	}
+	for _, result := range valid {
+		if safe, ok := Sanitize(result); !ok || safe != result {
+			t.Fatalf("Sanitize(%#v) rejected valid pair", result)
+		}
+	}
+}

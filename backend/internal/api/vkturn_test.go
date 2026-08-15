@@ -26,7 +26,7 @@ func validVKTurnConfig() *VKTurnConfig {
 			LocalAddress: "10.77.0." + string(rune('2'+i)) + "/32",
 		}}
 	}
-	return &VKTurnConfig{Enabled: true, MinVersionCode: 200, Server: "wdtt.example:443", VKHashes: []string{"vk-hash"}, Clients: clients}
+	return &VKTurnConfig{Enabled: true, MinVersionCode: 200, Server: "wdtt.example:443", VKHashes: []string{"vk-hash-1"}, Clients: clients}
 }
 
 func newVKTurnTestServer(t *testing.T, cfg *VKTurnConfig, customers ...*store.Customer) *httptest.Server {
