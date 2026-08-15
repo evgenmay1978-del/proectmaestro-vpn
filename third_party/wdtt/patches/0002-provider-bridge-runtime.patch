@@ -1,0 +1,535 @@
+diff --git a/app/src/main/assets/android-client/creds_vkcalls.go b/app/src/main/assets/android-client/creds_vkcalls.go
+index d445a01..15a4824 100644
+--- a/app/src/main/assets/android-client/creds_vkcalls.go
++++ b/app/src/main/assets/android-client/creds_vkcalls.go
+@@ -138,7 +138,7 @@ func getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (s
+ 	linkURL := neturl.QueryEscape("https://vk.com/call/join/" + link)
+ 	nameEnc := neturl.QueryEscape(name)
+ 
+-	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(),
++	client, err := newVerifiedHTTPClient(
+ 		tlsclient.WithTimeoutSeconds(20),
+ 		tlsclient.WithClientProfile(profiles.Chrome_146),
+ 		tlsclient.WithCookieJar(tlsclient.NewCookieJar()),
+diff --git a/app/src/main/assets/android-client/main.go b/app/src/main/assets/android-client/main.go
+index 1aed478..71d0837 100644
+--- a/app/src/main/assets/android-client/main.go
++++ b/app/src/main/assets/android-client/main.go
+@@ -81,6 +81,30 @@ func drainCaptchaResult() {
+ 
+ func main() {
+ 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
++	host := flag.String("turn", "", "переопределить IP TURN")
++	port := flag.String("port", "", "переопределить порт TURN")
++	listen := flag.String("listen", "127.0.0.1:9000", "локальный адрес")
++	vkHash := flag.String("vk", "", "хеши VK-звонков (через запятую)")
++	peerAddr := flag.String("peer", "", "адрес:порт VPS сервера")
++	numW := flag.Int("n", 24, "количество воркеров (кратно 12)")
++	deviceID := flag.String("device-id", "unknown", "уникальный ID устройства")
++	connPassword := flag.String("password", "", "пароль подключения")
++	vkAuthMode := flag.String("vk-auth-mode", "vkcalls", "режим получения VK TURN-кредов (vkcalls/legacy)")
++	captchaMode := flag.String("captcha-mode", "auto", "режим обхода капчи (auto/wv/rjs)")
++	fingerprint := flag.String("fingerprint", "chrome", "браузерный фингерпринт (chrome, safari, ios, android, firefox)")
++	clientIdsFlag := flag.String("client-ids", "", "ID клиентов VK через запятую")
++	obfsMode := flag.String("obfs", "audio", "режим обфускации (audio/video)")
++	providerProbeStdin := flag.Bool("provider-probe-stdin", false, "проверить VK/TURN из одного JSON в stdin")
++
++	flag.Parse()
++	activeVKAuthMode := setVKAuthMode(*vkAuthMode)
++	activeCaptchaMode := setCaptchaMode(*captchaMode)
++	if *fingerprint != "" {
++		SetActiveFingerprint(*fingerprint)
++	}
++	if *clientIdsFlag != "" {
++		SetActiveClientIds(*clientIdsFlag)
++	}
+ 
+ 	setupGlobalResolver()
+ 
+@@ -104,6 +128,16 @@ func main() {
+ 		case <-ctx.Done():
+ 		}
+ 	}()
++	if *providerProbeStdin {
++		eventOutputEnabled = false
++		probeCtx, probeCancel := context.WithTimeout(ctx, 45*time.Second)
++		defer probeCancel()
++		if err := runProviderProbe(probeCtx, os.Stdin, os.Stdout, lookupProviderRelayAddresses); err != nil {
++			log.Print("[PROBE] output unavailable")
++		}
++		return
++	}
++	emitStage("STARTING")
+ 
+ 	var pauseFlag int32
+ 
+@@ -141,30 +175,12 @@ func main() {
+ 		}
+ 	}()
+ 
+-	host := flag.String("turn", "", "переопределить IP TURN")
+-	port := flag.String("port", "", "переопределить порт TURN")
+-	listen := flag.String("listen", "127.0.0.1:9000", "локальный адрес")
+-	vkHash := flag.String("vk", "", "хеши VK-звонков (через запятую)")
+-	peerAddr := flag.String("peer", "", "адрес:порт VPS сервера")
+-	numW := flag.Int("n", 24, "количество воркеров (кратно 12)")
+-
+-	deviceID := flag.String("device-id", "unknown", "уникальный ID устройства")
+-	connPassword := flag.String("password", "", "пароль подключения")
+-	vkAuthMode := flag.String("vk-auth-mode", "vkcalls", "режим получения VK TURN-кредов (vkcalls/legacy)")
+-	captchaMode := flag.String("captcha-mode", "auto", "режим обхода капчи (auto/wv/rjs)")
+-	fingerprint := flag.String("fingerprint", "chrome", "браузерный фингерпринт (chrome, safari, ios, android, firefox)")
+-	clientIdsFlag := flag.String("client-ids", "", "ID клиентов VK через запятую")
+-	obfsMode := flag.String("obfs", "audio", "режим обфускации (audio/video)")
+-
+-	flag.Parse()
+-	activeVKAuthMode := setVKAuthMode(*vkAuthMode)
+-	activeCaptchaMode := setCaptchaMode(*captchaMode)
+-
+ 	if *peerAddr == "" || *vkHash == "" {
+ 		log.Fatal("[КЛИЕНТ] Нужны -peer и -vk")
+ 	}
+ 
+ 	cleanPeerAddr := strings.TrimSpace(*peerAddr)
++	emitStage("DNS")
+ 	var err error
+ 	var peer *net.UDPAddr
+ 	for i := 0; i < 15; i++ {
+@@ -178,13 +194,6 @@ func main() {
+ 		log.Fatalf("[КЛИЕНТ] Ошибка разбора пира: %v", err)
+ 	}
+ 
+-	if *fingerprint != "" {
+-		SetActiveFingerprint(*fingerprint)
+-	}
+-	if *clientIdsFlag != "" {
+-		SetActiveClientIds(*clientIdsFlag)
+-	}
+-
+ 	hashes := ParseHashes(*vkHash)
+ 	if len(hashes) == 0 {
+ 		log.Fatal("[КЛИЕНТ] Нет хешей VK")
+@@ -376,4 +385,5 @@ func main() {
+ 	close(configCh)
+ 	<-configDone
+ 	log.Println("[КЛИЕНТ] Все воркеры завершены")
++	emitStage("STOPPED")
+ }
+diff --git a/app/src/main/assets/android-client/provider_bridge.go b/app/src/main/assets/android-client/provider_bridge.go
+new file mode 100644
+index 0000000..6587f95
+--- /dev/null
++++ b/app/src/main/assets/android-client/provider_bridge.go
+@@ -0,0 +1,318 @@
++package main
++
++import (
++	"context"
++	"crypto/x509"
++	_ "embed"
++	"encoding/json"
++	"fmt"
++	"io"
++	"net"
++	"regexp"
++	"strconv"
++	"strings"
++	"time"
++
++	tlsclient "github.com/bogdanfinn/tls-client"
++	"github.com/pion/transport/v4/stdnet"
++	"github.com/pion/turn/v5"
++)
++
++const providerProbeStreamID = 909090
++
++var providerHashPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,256}$`)
++
++//go:embed provider_cacert.pem
++var embeddedProviderRoots []byte
++
++var providerStages = map[string]struct{}{
++	"STARTING":         {},
++	"DNS":              {},
++	"TLS":              {},
++	"VK_AUTH":          {},
++	"CAPTCHA_REQUIRED": {},
++	"TURN_ALLOCATED":   {},
++	"DTLS":             {},
++	"WRAP":             {},
++	"WIREGUARD":        {},
++	"READY":            {},
++	"FAILED":           {},
++	"STOPPED":          {},
++}
++
++var providerErrorCodes = map[string]struct{}{
++	"OK":                   {},
++	"INPUT_INVALID":        {},
++	"TLS_TRUST_FAILED":     {},
++	"VK_AUTH_FAILED":       {},
++	"CAPTCHA_REQUIRED":     {},
++	"TURN_ALLOCATE_FAILED": {},
++	"DTLS_FAILED":          {},
++	"WRAP_FAILED":          {},
++	"WIREGUARD_FAILED":     {},
++	"PROVIDER_UNAVAILABLE": {},
++	"INTERNAL":             {},
++}
++
++func verifiedRootPool(
++	systemPool func() (*x509.CertPool, error),
++	embeddedPEM []byte,
++) (*x509.CertPool, error) {
++	pool, err := systemPool()
++	if err != nil || pool == nil {
++		pool = x509.NewCertPool()
++	} else {
++		pool = pool.Clone()
++	}
++	if !pool.AppendCertsFromPEM(embeddedPEM) {
++		return nil, fmt.Errorf("embedded provider roots are invalid")
++	}
++	return pool, nil
++}
++
++func newVerifiedHTTPClient(options ...tlsclient.HttpClientOption) (tlsclient.HttpClient, error) {
++	pool, err := verifiedRootPool(x509.SystemCertPool, embeddedProviderRoots)
++	if err != nil {
++		return nil, err
++	}
++	options = append(options, tlsclient.WithTransportOptions(
++		&tlsclient.TransportOptions{RootCAs: pool},
++	))
++	return tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), options...)
++}
++
++func safeProviderStage(stage string) string {
++	if _, ok := providerStages[stage]; ok {
++		return stage
++	}
++	return "FAILED"
++}
++
++func safeProviderCode(code string) string {
++	if _, ok := providerErrorCodes[code]; ok {
++		return code
++	}
++	return "INTERNAL"
++}
++
++func formatStageEvent(stage string) string {
++	return fmt.Sprintf("__WDTT_EVENT__|STAGE|{\"stage\":%q}\n", safeProviderStage(stage))
++}
++
++func formatSafeError(code string, fatal bool) string {
++	return fmt.Sprintf(
++		"__WDTT_EVENT__|ERROR|{\"code\":%q,\"fatal\":%t}\n",
++		safeProviderCode(code),
++		fatal,
++	)
++}
++
++func emitStage(stage string) {
++	if eventOutputEnabled {
++		fmt.Print(formatStageEvent(stage))
++	}
++}
++
++func emitSafeError(code string, fatal bool) {
++	if eventOutputEnabled {
++		fmt.Print(formatSafeError(code, fatal))
++	}
++}
++
++type providerProbeError struct {
++	stage string
++	code  string
++	cause error
++}
++
++func newProviderProbeError(stage, code string, cause error) error {
++	return &providerProbeError{
++		stage: safeProviderStage(stage),
++		code:  safeProviderCode(code),
++		cause: cause,
++	}
++}
++
++func (e *providerProbeError) Error() string {
++	if e == nil {
++		return "provider probe failed"
++	}
++	return fmt.Sprintf("provider probe failed at %s (%s)", e.stage, e.code)
++}
++
++func classifyProviderFailure(err error) (string, string) {
++	if probeErr, ok := err.(*providerProbeError); ok {
++		return probeErr.stage, probeErr.code
++	}
++	lower := strings.ToLower(err.Error())
++	switch {
++	case strings.Contains(lower, "captcha"):
++		return "CAPTCHA_REQUIRED", "CAPTCHA_REQUIRED"
++	case strings.Contains(lower, "x509"),
++		strings.Contains(lower, "certificate"),
++		strings.Contains(lower, "tls"):
++		return "TLS", "TLS_TRUST_FAILED"
++	case strings.Contains(lower, "turn"), strings.Contains(lower, "relay"):
++		return "TURN_ALLOCATED", "TURN_ALLOCATE_FAILED"
++	case strings.Contains(lower, "auth"), strings.Contains(lower, "vk"):
++		return "VK_AUTH", "VK_AUTH_FAILED"
++	default:
++		return "FAILED", "PROVIDER_UNAVAILABLE"
++	}
++}
++
++type providerProbeRequest struct {
++	VKHash string `json:"vk_hash"`
++}
++
++type providerLookup func(context.Context, string) ([]string, error)
++
++func runProviderProbe(
++	ctx context.Context,
++	input io.Reader,
++	output io.Writer,
++	lookup providerLookup,
++) error {
++	decoder := json.NewDecoder(io.LimitReader(input, 4096))
++	decoder.DisallowUnknownFields()
++	var request providerProbeRequest
++	if err := decoder.Decode(&request); err != nil {
++		return writeProviderProbeResult(output, false, "STARTING", "INPUT_INVALID")
++	}
++	var extra any
++	if err := decoder.Decode(&extra); err != io.EOF {
++		return writeProviderProbeResult(output, false, "STARTING", "INPUT_INVALID")
++	}
++	hash := normalizeVKJoinHash(request.VKHash)
++	if !providerHashPattern.MatchString(hash) {
++		return writeProviderProbeResult(output, false, "STARTING", "INPUT_INVALID")
++	}
++	addresses, err := lookup(ctx, hash)
++	if err != nil {
++		stage, code := classifyProviderFailure(err)
++		return writeProviderProbeResult(output, false, stage, code)
++	}
++	for _, address := range addresses {
++		if usableProviderAddress(address) {
++			return writeProviderProbeResult(output, true, "TURN_ALLOCATED", "OK")
++		}
++	}
++	return writeProviderProbeResult(output, false, "TURN_ALLOCATED", "TURN_ALLOCATE_FAILED")
++}
++
++func writeProviderProbeResult(output io.Writer, ok bool, stage, code string) error {
++	_, err := fmt.Fprintf(
++		output,
++		"__WDTT_PROBE__|{\"ok\":%t,\"stage\":%q,\"code\":%q}\n",
++		ok,
++		safeProviderStage(stage),
++		safeProviderCode(code),
++	)
++	return err
++}
++
++func usableProviderAddress(raw string) bool {
++	address := normalizeProviderTURNAddress(raw)
++	host, portText, err := net.SplitHostPort(address)
++	if err != nil || strings.TrimSpace(host) == "" {
++		return false
++	}
++	port, err := strconv.Atoi(portText)
++	return err == nil && port > 0 && port <= 65535
++}
++
++func normalizeProviderTURNAddress(raw string) string {
++	clean := strings.Split(strings.TrimSpace(raw), "?")[0]
++	clean = strings.TrimPrefix(clean, "turn:")
++	clean = strings.TrimPrefix(clean, "turns:")
++	return clean
++}
++
++func lookupProviderRelayAddresses(ctx context.Context, hash string) ([]string, error) {
++	user, password, addresses, err := getVKCredsViaVKCallsPath(ctx, hash, providerProbeStreamID)
++	if err != nil {
++		stage, code := classifyProviderFailure(err)
++		return nil, newProviderProbeError(stage, code, err)
++	}
++	return allocateProviderRelay(ctx, user, password, addresses)
++}
++
++func allocateProviderRelay(
++	ctx context.Context,
++	username string,
++	password string,
++	addresses []string,
++) ([]string, error) {
++	var lastErr error
++	for _, rawAddress := range addresses {
++		address := normalizeProviderTURNAddress(rawAddress)
++		resolved, err := net.ResolveUDPAddr("udp", address)
++		if err != nil {
++			lastErr = err
++			continue
++		}
++		conn, err := net.DialUDP("udp", nil, resolved)
++		if err != nil {
++			lastErr = err
++			continue
++		}
++		deadline := time.Now().Add(20 * time.Second)
++		if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
++			deadline = contextDeadline
++		}
++		_ = conn.SetDeadline(deadline)
++
++		addressFamily := turn.RequestedAddressFamilyIPv6
++		if resolved.IP.To4() != nil {
++			addressFamily = turn.RequestedAddressFamilyIPv4
++		}
++		client, err := turn.NewClient(&turn.ClientConfig{
++			STUNServerAddr:         address,
++			TURNServerAddr:         address,
++			Conn:                   &connectedUDPConn{conn},
++			Net:                    new(stdnet.Net),
++			Username:               username,
++			Password:               password,
++			RequestedAddressFamily: addressFamily,
++			LoggerFactory:          &NullLoggerFactory{},
++		})
++		if err != nil {
++			_ = conn.Close()
++			lastErr = err
++			continue
++		}
++		if err = client.Listen(); err != nil {
++			client.Close()
++			_ = conn.Close()
++			lastErr = err
++			continue
++		}
++		relay, err := client.Allocate()
++		if err != nil {
++			client.Close()
++			_ = conn.Close()
++			lastErr = err
++			continue
++		}
++		relayAddress := relay.LocalAddr().String()
++		_ = relay.Close()
++		client.Close()
++		_ = conn.Close()
++		if usableProviderAddress(relayAddress) {
++			return []string{relayAddress}, nil
++		}
++		lastErr = fmt.Errorf("provider returned an unusable relay address")
++	}
++	if lastErr == nil {
++		lastErr = fmt.Errorf("provider returned no TURN addresses")
++	}
++	return nil, newProviderProbeError("TURN_ALLOCATED", "TURN_ALLOCATE_FAILED", lastErr)
++}
++
++func dispatcherHasActiveWorker(dispatcher *Dispatcher) bool {
++	if dispatcher == nil {
++		return false
++	}
++	workers := dispatcher.workers.Load()
++	return workers != nil && len(*workers) > 0
++}
+diff --git a/app/src/main/assets/android-client/session.go b/app/src/main/assets/android-client/session.go
+index 25c3fb9..eb29e2c 100644
+--- a/app/src/main/assets/android-client/session.go
++++ b/app/src/main/assets/android-client/session.go
+@@ -121,6 +121,7 @@ func RunSession(
+ 		return false, fmt.Errorf("TURN Allocate: %w", err)
+ 	}
+ 	defer relay.Close()
++	emitStage("TURN_ALLOCATED")
+ 
+ 	getStreamCache(creds.CacheStreamID).errorCount.Store(0)
+ 
+@@ -250,6 +251,7 @@ func RunSession(
+ 
+ 	hctx, hcancel := context.WithTimeout(sessCtx, 20*time.Second)
+ 	log.Printf("[ВОРКЕР #%d] [DTLS] Рукопожатие (Handshake)...", sessionID)
++	emitStage("DTLS")
+ 	err = dtlsConn.HandshakeContext(hctx)
+ 	hcancel()
+ 	<-handshakeSem
+@@ -264,11 +266,15 @@ func RunSession(
+ 		return false, fmt.Errorf("DTLS хендшейк: %w", err)
+ 	}
+ 	log.Printf("[ВОРКЕР #%d] [DTLS] Соединение установлено ✓", sessionID)
++	if useWrap {
++		emitStage("WRAP")
++	}
+ 
+ 	stats.ActiveConnections.Add(1)
+ 	defer stats.ActiveConnections.Add(-1)
+ 
+ 	if getConfig && configCh != nil {
++		emitStage("WIREGUARD")
+ 		conf, confErr := RequestConfig(dtlsConn, localPort, deviceID, password)
+ 		if confErr != nil {
+ 			errStr := confErr.Error()
+@@ -290,15 +296,18 @@ func RunSession(
+ 		}
+ 	}
+ 
+-	log.Printf("[ВОРКЕР #%d] [READY] Туннель готов к работе ✓", sessionID)
+-	emitReady()
+-
+ 	slot := &WorkerSlot{
+ 		ID:     sessionID,
+ 		SendCh: make(chan []byte, workerSendBuf),
+ 	}
+ 	d.Register(slot)
+ 	defer d.Unregister(slot)
++	if !dispatcherHasActiveWorker(d) {
++		return false, fmt.Errorf("регистрация воркера не подтверждена")
++	}
++	log.Printf("[ВОРКЕР #%d] [READY] Туннель готов к работе ✓", sessionID)
++	emitStage("READY")
++	emitReady()
+ 
+ 	var proxyWg sync.WaitGroup
+ 	proxyWg.Add(3)
+diff --git a/app/src/main/assets/android-client/vk_auth.go b/app/src/main/assets/android-client/vk_auth.go
+index f4f3a85..d79e60f 100644
+--- a/app/src/main/assets/android-client/vk_auth.go
++++ b/app/src/main/assets/android-client/vk_auth.go
+@@ -424,7 +424,7 @@ func fetchVkCreds(ctx context.Context, link string, streamID int) (string, strin
+ func getTokenChain(ctx context.Context, link string, streamID int, creds VKCredentials, jar tlsclient.CookieJar) (string, string, []string, error) {
+ 	profile := getRandomProfile()
+ 
+-	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(),
++	client, err := newVerifiedHTTPClient(
+ 		tlsclient.WithTimeoutSeconds(20),
+ 		tlsclient.WithClientProfile(profiles.Chrome_146),
+ 		tlsclient.WithCookieJar(jar),
+diff --git a/app/src/main/assets/android-client/worker_group.go b/app/src/main/assets/android-client/worker_group.go
+index 58d441d..ad056b9 100644
+--- a/app/src/main/assets/android-client/worker_group.go
++++ b/app/src/main/assets/android-client/worker_group.go
+@@ -64,12 +64,18 @@ func WorkerGroup(
+ 	log.Printf("[ГРУППА #%d] Запрос кредов (хеш: %s...)", groupID, shortHash)
+ 
+ 	credStreamID := groupID * 100
++	emitStage("TLS")
++	emitStage("VK_AUTH")
+ 	user, pass, turnURLs, err := GetCreds(ctx, hash, credStreamID)
+ 	var creds *Credentials
+ 	if err == nil {
+ 		creds = &Credentials{User: user, Pass: pass, TurnURLs: turnURLs, CacheStreamID: credStreamID}
+ 	} else {
+ 		log.Printf("[ГРУППА #%d] Ошибка кредов: %v", groupID, err)
++		stage, code := classifyProviderFailure(err)
++		emitStage(stage)
++		emitSafeError(code, false)
++		emitStage("FAILED")
+ 		return
+ 	}
+ 

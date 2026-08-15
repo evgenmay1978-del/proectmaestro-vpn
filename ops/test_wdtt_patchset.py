@@ -14,10 +14,14 @@ MANIFEST = BUNDLE / "SHA256SUMS"
 WORKFLOW = ROOT / ".github" / "workflows" / "wdtt-bin.yml"
 PIN_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_PATTERN = re.compile(r"^([0-9a-f]{64})  ([^\\]+)$")
-EXPECTED_RED_SERIES = ("patches/0001-provider-bridge-tests.patch",)
+EXPECTED_RED_SERIES = (
+    "patches/0001-provider-bridge-tests.patch",
+    "patches/0002-provider-bridge-runtime.patch",
+)
 EXPECTED_MANIFEST_PATHS = {
     "certs/cacert.pem",
     "patches/0001-provider-bridge-tests.patch",
+    "patches/0002-provider-bridge-runtime.patch",
     "series",
 }
 FORBIDDEN_TLS_BYPASSES = (
