@@ -401,7 +401,7 @@ func TestVKTurnRedactedContainsOnlyRoomCountsAndSafeProbeState(t *testing.T) {
 		t.Fatal(err)
 	}
 	const candidate = "candidateRedactionMarker"
-	if err := vkStore.StageCandidate([]string{candidate}, time.Unix(1700000000, 0)); err != nil {
+	if _, err := vkStore.StageCandidate([]string{candidate}, time.Unix(1700000000, 0)); err != nil {
 		t.Fatal(err)
 	}
 	s := New(nil, nil, nil, nil, Config{VKTurn: vkStore})

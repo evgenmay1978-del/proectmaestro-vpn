@@ -200,7 +200,8 @@ func (s *Server) panelVKTurnCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hashes := normalizeVKTurnCandidates(req.VKHashes)
-	if err := s.vkturn.StageCandidate(hashes, time.Now().UTC()); err != nil {
+	generation, err := s.vkturn.StageCandidate(hashes, time.Now().UTC())
+	if err != nil {
 		if cfg := s.vkturn.Get(); cfg != nil && cfg.ProbeStatus == vkturnconf.ProbeStatusChecking {
 			http.Error(w, "candidate probe already running", http.StatusConflict)
 			return
@@ -220,11 +221,11 @@ func (s *Server) panelVKTurnCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 	checkedAt := time.Now().UTC()
 	if result.OK {
-		if err := s.vkturn.PromoteCandidate(checkedAt); err != nil {
+		if err := s.vkturn.PromoteCandidate(generation, checkedAt); err != nil {
 			panelErrLog(w, http.StatusInternalServerError, "candidate state update failed", "promote vkturn candidate", err)
 			return
 		}
-	} else if err := s.vkturn.RejectCandidate(result.Code, checkedAt); err != nil {
+	} else if err := s.vkturn.RejectCandidate(generation, result.Code, checkedAt); err != nil {
 		panelErrLog(w, http.StatusInternalServerError, "candidate state update failed", "reject vkturn candidate", err)
 		return
 	}

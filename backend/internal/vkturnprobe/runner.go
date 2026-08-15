@@ -107,13 +107,23 @@ func (r Runner) Probe(ctx context.Context, hashes []string) Result {
 	if maxOutput <= 0 {
 		maxOutput = defaultOutputLimit
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	last := failure("FAILED", "PROVIDER_UNAVAILABLE")
 	for _, hash := range hashes {
+		if ctx.Err() != nil {
+			return failure("STARTING", "PROBE_TIMEOUT")
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, timeout)
 		result, providerResult := r.probeOne(probeCtx, hash, maxOutput)
+		candidateTimedOut := probeCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+		cancel()
+		if ctx.Err() != nil {
+			return failure("STARTING", "PROBE_TIMEOUT")
+		}
 		if !providerResult {
+			if candidateTimedOut && result.Code == "PROBE_TIMEOUT" {
+				last = result
+				continue
+			}
 			return result
 		}
 		if result.OK {

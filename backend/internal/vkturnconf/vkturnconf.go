@@ -51,6 +51,7 @@ const (
 	ProbeStatusActive   ProbeStatus = "active"
 	ProbeStatusChecking ProbeStatus = "checking"
 	ProbeStatusFailed   ProbeStatus = "failed"
+	candidateProbeLease             = 5 * time.Minute
 )
 
 // Config is the complete WDTT client configuration served by maestro-panel.
@@ -63,6 +64,7 @@ type Config struct {
 	CandidateVKHashes     []string          `json:"candidate_vk_hashes,omitempty"`
 	LastKnownGoodVKHashes []string          `json:"last_known_good_vk_hashes,omitempty"`
 	ProbeStatus           ProbeStatus       `json:"probe_status,omitempty"`
+	ProbeGeneration       uint64            `json:"probe_generation,omitempty"`
 	ProbeStartedAt        time.Time         `json:"probe_started_at,omitempty"`
 	ProbeCheckedAt        time.Time         `json:"probe_checked_at,omitempty"`
 	ProbeErrorCode        string            `json:"probe_error_code,omitempty"`
@@ -216,22 +218,26 @@ func (s *Store) Update(mutate func(cur *Config) *Config) error {
 
 // StageCandidate acquires the single probe lease without changing VKHashes,
 // which remains the active list served to every installed client.
-func (s *Store) StageCandidate(hashes []string, startedAt time.Time) error {
+func (s *Store) StageCandidate(hashes []string, startedAt time.Time) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cfg == nil {
-		return fmt.Errorf("vkturn: config is not initialized")
+		return 0, fmt.Errorf("vkturn: config is not initialized")
 	}
 	if startedAt.IsZero() {
-		return fmt.Errorf("vkturn: candidate start time is required")
+		return 0, fmt.Errorf("vkturn: candidate start time is required")
 	}
-	if s.cfg.ProbeStatus == ProbeStatusChecking {
-		return fmt.Errorf("vkturn: candidate probe already running")
+	if s.cfg.ProbeStatus == ProbeStatusChecking && startedAt.Before(s.cfg.ProbeStartedAt.Add(candidateProbeLease)) {
+		return 0, fmt.Errorf("vkturn: candidate probe already running")
 	}
 	if err := validateHashList("candidate_vk_hashes", hashes, true); err != nil {
-		return err
+		return 0, err
 	}
 	next := s.cfg.clone()
+	next.ProbeGeneration++
+	if next.ProbeGeneration == 0 {
+		next.ProbeGeneration = 1
+	}
 	next.CandidateVKHashes = append([]string(nil), hashes...)
 	next.LastKnownGoodVKHashes = append([]string(nil), next.VKHashes...)
 	next.ProbeStatus = ProbeStatusChecking
@@ -239,17 +245,23 @@ func (s *Store) StageCandidate(hashes []string, startedAt time.Time) error {
 	next.ProbeCheckedAt = time.Time{}
 	next.ProbeErrorCode = ""
 	if err := next.Validate(); err != nil {
-		return err
+		return 0, err
 	}
-	return s.persistLocked(next)
+	if err := s.persistLocked(next); err != nil {
+		return 0, err
+	}
+	return next.ProbeGeneration, nil
 }
 
 // PromoteCandidate atomically makes the successfully probed candidate active.
-func (s *Store) PromoteCandidate(checkedAt time.Time) error {
+func (s *Store) PromoteCandidate(generation uint64, checkedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking || len(s.cfg.CandidateVKHashes) == 0 {
 		return fmt.Errorf("vkturn: no candidate probe is active")
+	}
+	if generation == 0 || generation != s.cfg.ProbeGeneration {
+		return fmt.Errorf("vkturn: candidate probe lease is stale")
 	}
 	if checkedAt.IsZero() {
 		return fmt.Errorf("vkturn: candidate check time is required")
@@ -268,11 +280,14 @@ func (s *Store) PromoteCandidate(checkedAt time.Time) error {
 }
 
 // RejectCandidate records only a fixed safe code and keeps the active/LKG list.
-func (s *Store) RejectCandidate(code string, checkedAt time.Time) error {
+func (s *Store) RejectCandidate(generation uint64, code string, checkedAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking {
 		return fmt.Errorf("vkturn: no candidate probe is active")
+	}
+	if generation == 0 || generation != s.cfg.ProbeGeneration {
+		return fmt.Errorf("vkturn: candidate probe lease is stale")
 	}
 	if !validProbeErrorCode(code) {
 		return fmt.Errorf("vkturn: probe error code is invalid")
@@ -329,8 +344,9 @@ func writeConfigFile(path string, c *Config) error {
 	return os.Rename(tmp, path)
 }
 
-// Validate rejects partial configurations even when Enabled is false. This
-// makes flipping the operational switch safe and predictable.
+// Validate permits only the room list to be empty while disabled so a fresh
+// installation can save the complete base settings before its first verified
+// room is promoted. Enabling still requires an active room.
 func (c *Config) Validate() error {
 	if c == nil {
 		return fmt.Errorf("nil config")
@@ -349,7 +365,7 @@ func (c *Config) Validate() error {
 	if err != nil || portNumber < 1 || portNumber > 65535 {
 		return fmt.Errorf("server port is invalid")
 	}
-	if err := validateHashList("vk_hashes", c.VKHashes, true); err != nil {
+	if err := validateHashList("vk_hashes", c.VKHashes, c.Enabled); err != nil {
 		return err
 	}
 	status := c.ProbeStatus
@@ -365,7 +381,7 @@ func (c *Config) Validate() error {
 		if err := validateHashList("candidate_vk_hashes", c.CandidateVKHashes, true); err != nil {
 			return err
 		}
-		if c.ProbeStartedAt.IsZero() || !c.ProbeCheckedAt.IsZero() || c.ProbeErrorCode != "" {
+		if c.ProbeGeneration == 0 || c.ProbeStartedAt.IsZero() || !c.ProbeCheckedAt.IsZero() || c.ProbeErrorCode != "" {
 			return fmt.Errorf("checking probe state is incomplete")
 		}
 	case ProbeStatusFailed:
@@ -433,6 +449,9 @@ func validProbeErrorCode(code string) bool {
 func (c *Config) normalizeProbeState() {
 	if c.ProbeStatus == "" {
 		c.ProbeStatus = ProbeStatusActive
+	}
+	if c.ProbeStatus == ProbeStatusChecking && c.ProbeGeneration == 0 {
+		c.ProbeGeneration = 1
 	}
 	if len(c.LastKnownGoodVKHashes) == 0 {
 		c.LastKnownGoodVKHashes = append([]string(nil), c.VKHashes...)

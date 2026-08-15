@@ -117,7 +117,8 @@ func TestCandidateIsIsolatedPromotedAtomicallyAndRejectedSafely(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
-	if err := s.StageCandidate([]string{"hash-b"}, started); err != nil {
+	lease, err := s.StageCandidate([]string{"hash-b"}, started)
+	if err != nil {
 		t.Fatalf("StageCandidate: %v", err)
 	}
 	checking := s.Get()
@@ -131,7 +132,7 @@ func TestCandidateIsIsolatedPromotedAtomicallyAndRejectedSafely(t *testing.T) {
 	}
 
 	checked := started.Add(5 * time.Second)
-	if err := s.PromoteCandidate(checked); err != nil {
+	if err := s.PromoteCandidate(lease, checked); err != nil {
 		t.Fatalf("PromoteCandidate: %v", err)
 	}
 	promoted := s.Get()
@@ -143,11 +144,12 @@ func TestCandidateIsIsolatedPromotedAtomicallyAndRejectedSafely(t *testing.T) {
 		t.Fatalf("promoted state wrong: %+v", promoted)
 	}
 
-	if err := s.StageCandidate([]string{"hash-c"}, checked.Add(time.Second)); err != nil {
+	lease, err = s.StageCandidate([]string{"hash-c"}, checked.Add(time.Second))
+	if err != nil {
 		t.Fatal(err)
 	}
 	rejectedAt := checked.Add(2 * time.Second)
-	if err := s.RejectCandidate("TURN_ALLOCATION_FAILED", rejectedAt); err != nil {
+	if err := s.RejectCandidate(lease, "TURN_ALLOCATION_FAILED", rejectedAt); err != nil {
 		t.Fatalf("RejectCandidate: %v", err)
 	}
 	rejected := s.Get()
@@ -156,6 +158,20 @@ func TestCandidateIsIsolatedPromotedAtomicallyAndRejectedSafely(t *testing.T) {
 		len(rejected.CandidateVKHashes) != 0 || rejected.ProbeStatus != ProbeStatusFailed ||
 		rejected.ProbeErrorCode != "TURN_ALLOCATION_FAILED" || !rejected.ProbeCheckedAt.Equal(rejectedAt) {
 		t.Fatalf("rejected state wrong: %+v", rejected)
+	}
+}
+
+func TestDisabledBaseMayOmitRoomsButEnabledMayNot(t *testing.T) {
+	cfg := validStoreCfg()
+	cfg.Enabled = false
+	cfg.VKHashes = nil
+	if err := NewInMemory().Set(cfg); err != nil {
+		t.Fatalf("complete disabled base rejected: %v", err)
+	}
+
+	cfg.Enabled = true
+	if err := NewInMemory().Set(cfg); err == nil {
+		t.Fatal("enabled configuration accepted without an active room")
 	}
 }
 
@@ -170,7 +186,7 @@ func TestCandidateValidationAndFailureLeaveActiveUntouched(t *testing.T) {
 		{"a", "b", "c", "d", "e"},
 		{"bad\nvalue"},
 	} {
-		if err := s.StageCandidate(hashes, time.Now().UTC()); err == nil {
+		if _, err := s.StageCandidate(hashes, time.Now().UTC()); err == nil {
 			t.Fatalf("StageCandidate accepted invalid hashes: %#v", hashes)
 		}
 		if got := s.Get(); !reflect.DeepEqual(got.VKHashes, []string{"hash-a"}) || got.ProbeStatus != ProbeStatusActive {
@@ -178,10 +194,11 @@ func TestCandidateValidationAndFailureLeaveActiveUntouched(t *testing.T) {
 		}
 	}
 
-	if err := s.StageCandidate([]string{"hash-b"}, time.Now().UTC()); err != nil {
+	lease, err := s.StageCandidate([]string{"hash-b"}, time.Now().UTC())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RejectCandidate("bad\nsecret", time.Now().UTC()); err == nil {
+	if err := s.RejectCandidate(lease, "bad\nsecret", time.Now().UTC()); err == nil {
 		t.Fatal("RejectCandidate accepted an unsafe error code")
 	}
 	if got := s.Get(); got.ProbeStatus != ProbeStatusChecking || !reflect.DeepEqual(got.VKHashes, []string{"hash-a"}) {
@@ -199,7 +216,7 @@ func TestCandidateStatePersistsAndLegacyJSONDefaultsToActive(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Date(2026, 8, 15, 9, 0, 0, 0, time.UTC)
-	if err := s.StageCandidate([]string{"hash-b"}, started); err != nil {
+	if _, err := s.StageCandidate([]string{"hash-b"}, started); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := OpenStore(path)
@@ -237,6 +254,7 @@ func TestConcurrentCandidateLeaseSerializesStageAndPromotion(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := make(chan struct{})
+	leases := make(chan uint64, 1)
 	var successes atomic.Int32
 	var wg sync.WaitGroup
 	for _, hash := range []string{"hash-b", "hash-c", "hash-d", "hash-e"} {
@@ -245,8 +263,9 @@ func TestConcurrentCandidateLeaseSerializesStageAndPromotion(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			if s.StageCandidate([]string{hash}, time.Now().UTC()) == nil {
+			if lease, err := s.StageCandidate([]string{hash}, time.Now().UTC()); err == nil {
 				successes.Add(1)
+				leases <- lease
 			}
 		}()
 	}
@@ -260,7 +279,8 @@ func TestConcurrentCandidateLeaseSerializesStageAndPromotion(t *testing.T) {
 		!reflect.DeepEqual(checking.VKHashes, []string{"hash-a"}) {
 		t.Fatalf("serialized checking state wrong: %+v", checking)
 	}
-	if err := s.PromoteCandidate(time.Now().UTC()); err != nil {
+	lease := <-leases
+	if err := s.PromoteCandidate(lease, time.Now().UTC()); err != nil {
 		t.Fatalf("promotion after serialized stage: %v", err)
 	}
 	if got := s.Get(); got.ProbeStatus != ProbeStatusActive || !reflect.DeepEqual(got.VKHashes, checking.CandidateVKHashes) {
