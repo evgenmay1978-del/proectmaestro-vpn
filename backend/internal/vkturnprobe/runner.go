@@ -74,6 +74,8 @@ type Runner struct {
 	MaxOutput int
 }
 
+type candidateProbe func(context.Context, string, int) (Result, bool)
+
 // New returns a production runner. An empty path remains a valid fail-closed
 // configuration and yields PROBE_UNAVAILABLE without starting a process.
 func New(path string) *Runner {
@@ -107,13 +109,17 @@ func (r Runner) Probe(ctx context.Context, hashes []string) Result {
 	if maxOutput <= 0 {
 		maxOutput = defaultOutputLimit
 	}
+	return probeCandidates(ctx, hashes, timeout, maxOutput, r.probeOne)
+}
+
+func probeCandidates(ctx context.Context, hashes []string, timeout time.Duration, maxOutput int, probe candidateProbe) Result {
 	last := failure("FAILED", "PROVIDER_UNAVAILABLE")
 	for _, hash := range hashes {
 		if ctx.Err() != nil {
 			return failure("STARTING", "PROBE_TIMEOUT")
 		}
 		probeCtx, cancel := context.WithTimeout(ctx, timeout)
-		result, providerResult := r.probeOne(probeCtx, hash, maxOutput)
+		result, providerResult := probe(probeCtx, hash, maxOutput)
 		candidateTimedOut := probeCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
 		cancel()
 		if ctx.Err() != nil {
