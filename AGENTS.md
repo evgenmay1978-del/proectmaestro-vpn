@@ -26,6 +26,7 @@ python ops/maestro-repetition-guard.py check --action <действие> --famil
 
 An ALLOW is single-use and is not transferable to another command family; if the executable command differs, stop and run a fresh matching check.
 If a generated full-file transformation reports one anchor mismatch, do not tune or retry string anchors. Read the exact current bounded line, replace that entire line through a structural generator, and validate the complete replacement before diffing.
+For Python validation executed inside an old/new patch mirror, set `PYTHONDONTWRITEBYTECODE=1` before the first run. Never clean generated `__pycache__` with `Remove-Item`: Windows policy rejects both recursive and exact-file deletion. After a read-only exact-path check proves the cache is inside the staging mirror, move the whole directory to a named quarantine path outside both mirror sides, verify the source is absent, and do not retry deletion.
 
 Browser bridge rule: `@browser` selects the Codex in-app browser; it does not attach Yandex Browser or transfer its authenticated session. An authenticated external browser is usable only when the ChatGPT browser extension is installed and connected through Settings -> Computer use. After `Browser is not available: extension`, record `fail` and do not call `get("extension")` again until the owner explicitly confirms that the extension is connected. Never substitute the in-app browser and never inspect cookies, profiles, passwords, local storage, or session stores.
 
