@@ -31,15 +31,17 @@ class WdttEventParserTest {
         assertFalse(event.toString().contains("secret-marker"))
     }
 
-    @Test fun parsesExactLegacyCaptchaAndRedactsItsStringForm() {
-        val event = parseWdttEvent(
-            "CAPTCHA_SOLVE|wv|https://id.vk.com/captcha?state=secret-marker|session-secret-marker",
-        ) as WdttEvent.Captcha
+    @Test fun parsesAllExactLegacyNativeCaptchaModesAndRedactsTheirStringForm() {
+        listOf("auto", "manual", "selected").forEach { mode ->
+            val event = parseWdttEvent(
+                "CAPTCHA_SOLVE|$mode|https://id.vk.com/captcha?state=secret-marker|session-secret-marker",
+            ) as WdttEvent.Captcha
 
-        assertEquals("wv", event.request.mode)
-        assertEquals("https://id.vk.com/captcha?state=secret-marker", event.request.redirectUri)
-        assertEquals("session-secret-marker", event.request.sessionToken)
-        assertFalse(event.toString().contains("secret-marker"))
+            assertEquals(mode, event.request.mode)
+            assertEquals("https://id.vk.com/captcha?state=secret-marker", event.request.redirectUri)
+            assertEquals("session-secret-marker", event.request.sessionToken)
+            assertFalse(event.toString().contains("secret-marker"))
+        }
     }
 
     @Test fun rejectsMalformedUnknownAndUnsafeInput() {
@@ -50,10 +52,12 @@ class WdttEventParserTest {
             "__WDTT_EVENT__|STAGE|{\"stage\":\"READY\",\"extra\":true}",
             "__WDTT_EVENT__|ERROR|{\"code\":\"TLS_TRUST_FAILED\"}",
             "__WDTT_EVENT__|ERROR|{\"code\":\"TLS_TRUST_FAILED\",\"fatal\":\"true\"}",
-            "CAPTCHA_SOLVE|wv|http://id.vk.com/captcha|session",
-            "CAPTCHA_SOLVE|wv|https://user@id.vk.com/captcha|session",
-            "CAPTCHA_SOLVE|wv|https:///missing-host|session",
-            "CAPTCHA_SOLVE|wv|https://id.vk.com/captcha|",
+            "CAPTCHA_SOLVE|auto|http://id.vk.com/captcha|session",
+            "CAPTCHA_SOLVE|wv|https://id.vk.com/captcha|session",
+            "CAPTCHA_SOLVE|rjs|https://id.vk.com/captcha|session",
+            "CAPTCHA_SOLVE|auto|https://user@id.vk.com/captcha|session",
+            "CAPTCHA_SOLVE|auto|https:///missing-host|session",
+            "CAPTCHA_SOLVE|auto|https://id.vk.com/captcha|",
             "noise __WDTT_EVENT__|STAGE|{\"stage\":\"READY\"}",
         )
 
