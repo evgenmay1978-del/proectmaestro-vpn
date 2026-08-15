@@ -6,6 +6,9 @@ import io.nekohasekai.libbox.OutboundGroup
 import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.bg.WdttManager
+import com.maestrovpn.tv.bg.WdttPublicState
+import com.maestrovpn.tv.bg.WdttSafeErrorCode
+import com.maestrovpn.tv.bg.WdttStage
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
 import com.maestrovpn.tv.compose.model.Group
@@ -34,6 +37,51 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
+internal enum class WdttSelectionDecision {
+    WAIT,
+    SELECT,
+    FAIL,
+}
+
+internal fun decideWdttSelection(
+    started: Boolean,
+    state: WdttPublicState,
+): WdttSelectionDecision = when {
+    started && state.stage == WdttStage.READY -> WdttSelectionDecision.SELECT
+    state.captchaPending || state.stage == WdttStage.CAPTCHA_REQUIRED -> WdttSelectionDecision.WAIT
+    else -> WdttSelectionDecision.FAIL
+}
+
+internal fun wdttSafeRussianMessage(code: WdttSafeErrorCode): String = when (code) {
+    WdttSafeErrorCode.INPUT_INVALID -> "VK-туннель: неверная конфигурация"
+    WdttSafeErrorCode.TLS_TRUST_FAILED -> "VK-туннель: ошибка доверия TLS"
+    WdttSafeErrorCode.VK_AUTH_FAILED -> "VK-туннель: авторизация VK не выполнена"
+    WdttSafeErrorCode.CAPTCHA_REQUIRED -> "VK-туннель: проверка VK отменена или истекло время"
+    WdttSafeErrorCode.TURN_ALLOCATE_FAILED -> "VK-туннель: не удалось получить канал VK"
+    WdttSafeErrorCode.DTLS_FAILED -> "VK-туннель: защищённый канал не установлен"
+    WdttSafeErrorCode.WRAP_FAILED -> "VK-туннель: транспорт не запущен"
+    WdttSafeErrorCode.WIREGUARD_FAILED -> "VK-туннель: внутренний канал не запущен"
+    WdttSafeErrorCode.PROVIDER_UNAVAILABLE -> "VK-туннель: провайдер недоступен"
+    WdttSafeErrorCode.OK,
+    WdttSafeErrorCode.INTERNAL,
+    -> "VK-туннель: запуск не выполнен"
+}
+
+internal enum class WdttWatchdogAction {
+    HEALTHY,
+    RESTART_ONCE,
+    STOP,
+}
+
+internal fun nextWdttWatchdogAction(
+    state: WdttPublicState,
+    childRunning: Boolean,
+): WdttWatchdogAction = when {
+    childRunning -> WdttWatchdogAction.HEALTHY
+    state.stage == WdttStage.READY -> WdttWatchdogAction.RESTART_ONCE
+    else -> WdttWatchdogAction.STOP
+}
+
 // How long a protocol tapped while the VPN was OFF stays "armed". If the VPN comes up within this
 // window the pick is applied and cleared; otherwise it's DROPPED so it can never apply to an
 // unrelated later start (e.g. after VPN-consent was denied, or a protocol that never appears).
@@ -47,7 +95,6 @@ private const val PENDING_SELECT_TTL_MS = 60_000L
 private const val OLC_WATCHDOG_INTERVAL_MS = 8_000L
 private const val OLC_WATCHDOG_MAX_FAILS = 3
 private const val WDTT_WATCHDOG_INTERVAL_MS = 8_000L
-private const val WDTT_WATCHDOG_MAX_FAILS = 3
 
 // WDTT (vk-turn) cold-start self-warm. On a restricted cellular link — e.g. an emergency/drone
 // whitelist that permits only VK/OK/Yandex — the WDTT child's ANONYMOUS VK-Calls TURN join is
@@ -61,8 +108,6 @@ private const val WDTT_WATCHDOG_MAX_FAILS = 3
 // needs the child-side fixes) — it removes the common route/reputation warmup.
 private val WDTT_WARMUP_URLS = listOf("https://vk.com/", "https://api.vk.me/", "https://calls.okcdn.ru/")
 private const val WDTT_WARMUP_TIMEOUT_MS = 4_000L
-private const val WDTT_WARMUP_BACKOFF_MS = 1_500L
-private const val WDTT_START_ATTEMPTS = 2
 
 data class GroupsUiState(
     val groups: List<Group> = emptyList(),
@@ -315,8 +360,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     stopWdttWatchdog()
                 } else if (itemTag == WdttManager.OUTBOUND_TAG) {
                     refreshWdttCreds()
-                    if (!ensureWdttStartedWithWarmup()) {
-                        sendError(IllegalStateException("VK-туннель не поднялся (см. логи)"))
+                    if (!ensureWdttStartedForSelection()) {
                         return@launch
                     }
                     OlcrtcManager.stop()
@@ -432,8 +476,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     stopWdttWatchdog()
                 } else if (isWdtt) {
                     refreshWdttCreds()
-                    if (!ensureWdttStartedWithWarmup()) {
-                        sendError(IllegalStateException("VK-туннель не поднялся (см. логи)"))
+                    if (!ensureWdttStartedForSelection()) {
                         return@launch
                     }
                     OlcrtcManager.stop()
@@ -486,22 +529,26 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      * having to manually warm the VK route (open the VK app / connect on wifi first). Fires
      * [prewarmVkPath] in PARALLEL with the child start so the cold start gets the operator DPI/DNS
      * + VK IP-reputation priming for free (zero added latency — the warm's ~1s TLS handshake lands
-     * while the child is still spinning up its worker groups), and retries a small bounded number
-     * of times so a transient captcha / slow-net clears itself instead of forcing the user to
-     * re-tap. Not a cure for a hard persistent captcha wall (see the child-side fixes) — it removes
-     * the common route/reputation warmup. TV never reaches here: WDTT is hard-gated off on TV.
+     * while the child is still spinning up its worker groups). There is exactly one child-start
+     * attempt: CAPTCHA is handled by the explicit state-aware flow, never by a blind respawn.
+     * TV never reaches here: WDTT is hard-gated off on TV.
      */
-    private suspend fun ensureWdttStartedWithWarmup(): Boolean {
-        repeat(WDTT_START_ATTEMPTS) { attempt ->
-            val warm = viewModelScope.launch(Dispatchers.IO) { prewarmVkPath() }
-            if (WdttManager.ensureStarted()) {
-                warm.cancel()
-                return true
-            }
-            warm.join() // let the warm land before the retry so the next attempt benefits from it
-            if (attempt < WDTT_START_ATTEMPTS - 1) delay(WDTT_WARMUP_BACKOFF_MS)
+    private suspend fun ensureWdttStartedForSelection(): Boolean {
+        val warm = viewModelScope.launch(Dispatchers.IO) { prewarmVkPath() }
+        val started = try {
+            WdttManager.ensureStarted()
+        } finally {
+            warm.cancel()
         }
-        return false
+        return when (decideWdttSelection(started, WdttManager.state.value)) {
+            WdttSelectionDecision.SELECT -> true
+            WdttSelectionDecision.WAIT -> false
+            WdttSelectionDecision.FAIL -> {
+                val code = WdttManager.state.value.error ?: WdttSafeErrorCode.PROVIDER_UNAVAILABLE
+                sendError(IllegalStateException(wdttSafeRussianMessage(code)))
+                false
+            }
+        }
     }
 
     /**
@@ -544,26 +591,30 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     private fun startWdttWatchdog() {
         wdttWatchdog?.cancel()
         wdttWatchdog = viewModelScope.launch(Dispatchers.IO) {
-            var fails = 0
             while (isActive) {
                 delay(WDTT_WATCHDOG_INTERVAL_MS)
                 val guarding = _serviceStatus.value == Status.Started &&
                     (liveSelectedTag ?: WdttManager.OUTBOUND_TAG) == WdttManager.OUTBOUND_TAG
                 if (!guarding) break
-                if (WdttManager.isRunning) { fails = 0; continue }
-                if (++fails > WDTT_WATCHDOG_MAX_FAILS) {
-                    WdttManager.stop()
-                    sendError(IllegalStateException("VK-туннель упал и не восстанавливается — переключитесь на другой протокол"))
-                    break
-                }
-                Log.w("GroupsVM", "WDTT child died while selected — auto-respawning (attempt $fails)")
-                // Warm the VK route before respawning too: a child that died mid-session on the
-                // restricted link needs the same operator/VK priming to come back.
-                viewModelScope.launch(Dispatchers.IO) { prewarmVkPath() }
-                WdttManager.ensureStarted()
-                if (!isActive || _serviceStatus.value != Status.Started || liveSelectedTag != WdttManager.OUTBOUND_TAG) {
-                    WdttManager.stop()
-                    break
+                when (nextWdttWatchdogAction(WdttManager.state.value, WdttManager.isRunning)) {
+                    WdttWatchdogAction.HEALTHY -> continue
+                    WdttWatchdogAction.STOP -> {
+                        val code = WdttManager.state.value.error ?: WdttSafeErrorCode.PROVIDER_UNAVAILABLE
+                        sendError(IllegalStateException(wdttSafeRussianMessage(code)))
+                        break
+                    }
+                    WdttWatchdogAction.RESTART_ONCE -> {
+                        Log.w("GroupsVM", "WDTT ready child died; one bounded restart")
+                        if (!WdttManager.ensureStarted()) {
+                            val code = WdttManager.state.value.error ?: WdttSafeErrorCode.PROVIDER_UNAVAILABLE
+                            sendError(IllegalStateException(wdttSafeRussianMessage(code)))
+                            break
+                        }
+                        if (!isActive || _serviceStatus.value != Status.Started || liveSelectedTag != WdttManager.OUTBOUND_TAG) {
+                            WdttManager.stop()
+                            break
+                        }
+                    }
                 }
             }
         }

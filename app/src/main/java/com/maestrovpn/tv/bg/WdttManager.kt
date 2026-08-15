@@ -114,7 +114,7 @@ object WdttManager {
     private var stopEpoch = 0L
     private val lock = Any()
     private val mutablePublicState = MutableStateFlow(WdttPublicState(WdttStage.STOPPED))
-    internal val publicState: StateFlow<WdttPublicState> = mutablePublicState.asStateFlow()
+    internal val state: StateFlow<WdttPublicState> = mutablePublicState.asStateFlow()
 
     fun setCreds(
         peer: String?,
@@ -261,13 +261,20 @@ object WdttManager {
                         if (snapshot is WdttStartState.CaptchaRequired) {
                             activeCaptchaRequestId?.let { submitCaptchaResult(it, WdttCaptchaResult.Timeout) }
                         }
-                        synchronized(lock) { if (process === child) stopLocked() }
+                        if (snapshot is WdttStartState.Waiting) {
+                            publish(WdttStage.FAILED, WdttSafeErrorCode.PROVIDER_UNAVAILABLE)
+                        }
+                        synchronized(lock) { if (process === child) stopLocked(publishStopped = false) }
                         return false
                     }
                 }
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+            synchronized(lock) {
+                publish(WdttStage.FAILED, WdttSafeErrorCode.INTERNAL)
+                stopLocked(publishStopped = false)
+            }
             return false
         } finally {
             synchronized(lock) { starting = false }
@@ -303,7 +310,7 @@ object WdttManager {
         stopLocked()
     }
 
-    private fun stopLocked() {
+    private fun stopLocked(publishStopped: Boolean = true) {
         val child = process
         val writer = commandWriter
         process = null
@@ -323,7 +330,7 @@ object WdttManager {
         }
         writer?.close()
         startState = WdttStartState.Stopped(SystemClock.elapsedRealtime())
-        publish(WdttStage.STOPPED)
+        if (publishStopped) publish(WdttStage.STOPPED)
     }
 
     private fun drainEvents(child: Process, startedAt: Long) {
@@ -354,9 +361,12 @@ object WdttManager {
                 Log.w(TAG, "WDTT event stream closed")
             } finally {
                 synchronized(lock) {
-                    if (process === child && startState !is WdttStartState.Ready) {
-                        startState = WdttStartState.Stopped(startedAt)
-                        publish(WdttStage.STOPPED)
+                    if (process === child &&
+                        startState !is WdttStartState.Ready &&
+                        startState !is WdttStartState.Failed
+                    ) {
+                        startState = WdttStartState.Failed(startedAt, WdttSafeErrorCode.PROVIDER_UNAVAILABLE)
+                        publish(WdttStage.FAILED, WdttSafeErrorCode.PROVIDER_UNAVAILABLE)
                     }
                 }
             }
