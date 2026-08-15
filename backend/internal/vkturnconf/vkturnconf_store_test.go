@@ -62,6 +62,29 @@ func readTask7BaseConfig(path string) (*task7BaseConfig, error) {
 	if len(cfg.VKHashes) < 1 || len(cfg.VKHashes) > 4 {
 		return nil, errors.New("Task 7 base requires 1..4 persisted vk_hashes")
 	}
+	if cfg.MinVersionCode <= 0 || strings.TrimSpace(cfg.Server) == "" || len(cfg.Clients) != 3 {
+		return nil, errors.New("Task 7 base rejects incomplete configuration")
+	}
+	status := cfg.ProbeStatus
+	if status == "" {
+		status = ProbeStatusActive
+	}
+	switch status {
+	case ProbeStatusActive:
+		if len(cfg.CandidateVKHashes) != 0 || cfg.ProbeErrorCode != "" {
+			return nil, errors.New("Task 7 base rejects malformed active state")
+		}
+	case ProbeStatusChecking:
+		if len(cfg.CandidateVKHashes) == 0 || cfg.ProbeStartedAt.IsZero() || !cfg.ProbeCheckedAt.IsZero() || cfg.ProbeErrorCode != "" {
+			return nil, errors.New("Task 7 base rejects incomplete checking state")
+		}
+	case ProbeStatusFailed:
+		if len(cfg.CandidateVKHashes) != 0 || cfg.ProbeCheckedAt.IsZero() || !validProbeErrorCode(cfg.ProbeErrorCode) {
+			return nil, errors.New("Task 7 base rejects incomplete failed state")
+		}
+	default:
+		return nil, errors.New("Task 7 base rejects unknown probe status")
+	}
 	return &cfg, nil
 }
 
@@ -479,5 +502,187 @@ func TestStageCandidateReturnsTypedErrors(t *testing.T) {
 	}
 	if _, err := fileStore.StageCandidate([]string{"hash-room-b"}, time.Now().UTC()); !errors.Is(err, ErrCandidatePersistence) {
 		t.Fatalf("persistence error = %v", err)
+	}
+}
+
+func TestCandidateTransactionHoldsPathLockAcrossOwnerCheckAndWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vkturn.json")
+	ownerA, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ownerA.Set(validStoreCfg()); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 8, 15, 13, 0, 0, 0, time.UTC)
+	leaseA, err := ownerA.StageCandidate([]string{"hash-room-b"}, started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerB, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockObserved := make(chan error, 1)
+	releaseA := make(chan struct{})
+	ownerA.beforeCandidatePersist = func() {
+		unlock, err := tryAcquireConfigFileLock(configLockPath(path))
+		switch {
+		case err == nil:
+			_ = unlock()
+			lockObserved <- errors.New("candidate write boundary did not hold the path lock")
+		case !errors.Is(err, errConfigFileLocked):
+			lockObserved <- err
+		default:
+			lockObserved <- nil
+		}
+		<-releaseA
+	}
+	promoteDone := make(chan error, 1)
+	go func() { promoteDone <- ownerA.PromoteCandidate(leaseA, started.Add(time.Second)) }()
+	if err := <-lockObserved; err != nil {
+		close(releaseA)
+		<-promoteDone
+		t.Fatal(err)
+	}
+
+	bAttempted := make(chan struct{})
+	ownerB.beforePathLock = func() { close(bAttempted) }
+	type stageResult struct {
+		lease uint64
+		err   error
+	}
+	stageDone := make(chan stageResult, 1)
+	go func() {
+		lease, err := ownerB.StageCandidate([]string{"hash-room-c"}, started.Add(2*time.Second))
+		stageDone <- stageResult{lease: lease, err: err}
+	}()
+	<-bAttempted
+	close(releaseA)
+	if err := <-promoteDone; err != nil {
+		t.Fatalf("first owner promotion: %v", err)
+	}
+	staged := <-stageDone
+	if staged.err != nil || staged.lease == 0 {
+		t.Fatalf("second owner stage: lease=%d err=%v", staged.lease, staged.err)
+	}
+	fresh, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := fresh.Get()
+	if !reflect.DeepEqual(got.VKHashes, []string{"hash-room-b"}) ||
+		!reflect.DeepEqual(got.CandidateVKHashes, []string{"hash-room-c"}) ||
+		got.ProbeStatus != ProbeStatusChecking {
+		t.Fatalf("serialized transaction state wrong: %+v", got)
+	}
+}
+
+func TestAtomicWriteUsesUniqueTempAndPreservesForeignFixedTemp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vkturn.json")
+	foreignTemp := path + ".tmp"
+	const marker = "foreign-temp-must-survive"
+	if err := os.WriteFile(foreignTemp, []byte(marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(validStoreCfg()); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(foreignTemp)
+	if err != nil {
+		t.Fatalf("fixed foreign temp was removed or renamed: %v", err)
+	}
+	if string(b) != marker {
+		t.Fatalf("fixed foreign temp changed: %q", b)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, ".vkturn.json.tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("unique temp files leaked after commit: %#v", matches)
+	}
+}
+
+func TestStaleOwnerClearsRuntimeLeaseForImmediateRestage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vkturn.json")
+	oldOwner, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := oldOwner.Set(validStoreCfg()); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 8, 15, 14, 0, 0, 0, time.UTC)
+	oldLease, err := oldOwner.StageCandidate([]string{"hash-room-b"}, started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newOwner, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newOwner.StageCandidate([]string{"hash-room-c"}, started.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := oldOwner.PromoteCandidate(oldLease, started.Add(2*time.Second)); !errors.Is(err, ErrCandidateStale) {
+		t.Fatalf("old owner result = %v, want stale", err)
+	}
+	if _, err := oldOwner.StageCandidate([]string{"hash-room-d"}, started.Add(3*time.Second)); err != nil {
+		t.Fatalf("proven stale owner retained a false runtime lease: %v", err)
+	}
+}
+
+func TestDeprecatedProbeGenerationLoadsButIsNeverRewritten(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vkturn.json")
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(validStoreCfg()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.StageCandidate([]string{"hash-room-b"}, time.Date(2026, 8, 15, 15, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(b, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["probe_generation"] = float64(42)
+	b, err = json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("transitional generation was not accepted: %v", err)
+	}
+	lease, err := reloaded.StageCandidate([]string{"hash-room-c"}, time.Date(2026, 8, 15, 15, 0, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reloaded.RejectCandidate(lease, "TLS_TRUST_FAILED", time.Date(2026, 8, 15, 15, 0, 2, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	b, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"probe_generation"`) {
+		t.Fatal("deprecated generation was rewritten")
 	}
 }
