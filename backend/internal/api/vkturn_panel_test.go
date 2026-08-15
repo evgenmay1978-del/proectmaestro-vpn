@@ -2,16 +2,20 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnprobe"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -81,10 +85,10 @@ func TestVKTurnRedactedUnconfigured(t *testing.T) {
 // the existing value; a provided non-secret field replaces it; first-time setup on nil.
 func TestApplyVKTurnEditBlankKeepsSecrets(t *testing.T) {
 	cur := validVKTurnConfig() // secrets set, server "wdtt.example:443"
+	oldHash := cur.VKHashes[0]
 	sp := func(s string) *string { return &s }
 	var req vkTurnSaveReq
 	req.Server = sp("newhost:56000")
-	req.VKHashes = []string{"fresh"}
 	req.Clients = map[string]vkTurnClientReq{}
 	for _, l := range []string{"wapmix", "wapmixx", "wapmix2"} {
 		c := vkTurnClientReq{Password: sp("")} // blank → keep
@@ -92,7 +96,7 @@ func TestApplyVKTurnEditBlankKeepsSecrets(t *testing.T) {
 		req.Clients[l] = c
 	}
 	got := applyVKTurnEdit(cur, req)
-	if got.Server != "newhost:56000" || got.VKHashes[0] != "fresh" {
+	if got.Server != "newhost:56000" || got.VKHashes[0] != oldHash {
 		t.Fatalf("non-secret fields not applied: %+v", got)
 	}
 	if got.Clients["wapmix"].Password != "pass-wapmix" {
@@ -110,7 +114,39 @@ func TestApplyVKTurnEditBlankKeepsSecrets(t *testing.T) {
 
 // --- panel session helpers (login → cookie + CSRF, then authenticated POST) ---
 
+type vkTurnProberFunc func(context.Context, []string) vkturnprobe.Result
+
+func (f vkTurnProberFunc) Probe(ctx context.Context, hashes []string) vkturnprobe.Result {
+	return f(ctx, hashes)
+}
+
+type controlledVKTurnProber struct {
+	started chan []string
+	release chan vkturnprobe.Result
+	calls   atomic.Int32
+}
+
+func (p *controlledVKTurnProber) Probe(ctx context.Context, hashes []string) vkturnprobe.Result {
+	p.calls.Add(1)
+	copyOfHashes := append([]string(nil), hashes...)
+	select {
+	case p.started <- copyOfHashes:
+	case <-ctx.Done():
+		return vkturnprobe.Result{Stage: "STARTING", Code: "PROBE_TIMEOUT"}
+	}
+	select {
+	case result := <-p.release:
+		return result
+	case <-ctx.Done():
+		return vkturnprobe.Result{Stage: "STARTING", Code: "PROBE_TIMEOUT"}
+	}
+}
+
 func newPanelVKTurnServer(t *testing.T, cfg *VKTurnConfig) (*httptest.Server, *vkturnconf.Store) {
+	return newPanelVKTurnServerWithProber(t, cfg, nil)
+}
+
+func newPanelVKTurnServerWithProber(t *testing.T, cfg *VKTurnConfig, prober VKTurnProber) (*httptest.Server, *vkturnconf.Store) {
 	t.Helper()
 	vkStore := vkturnconf.NewInMemory()
 	if cfg != nil {
@@ -126,7 +162,9 @@ func newPanelVKTurnServer(t *testing.T, cfg *VKTurnConfig) (*httptest.Server, *v
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := New(st, nil, nil, nil, Config{PanelPath: "/mp/", PanelPasswordHash: string(hash), VKTurn: vkStore})
+	s := New(st, nil, nil, nil, Config{
+		PanelPath: "/mp/", PanelPasswordHash: string(hash), VKTurn: vkStore, VKTurnProber: prober,
+	})
 	return httptest.NewServer(s.Handler()), vkStore
 }
 
@@ -180,6 +218,7 @@ func TestPanelVKTurnSaveMergeToggleAndCSRF(t *testing.T) {
 	srv, vkStore := newPanelVKTurnServer(t, validVKTurnConfig()) // enabled, secrets set
 	defer srv.Close()
 	cookie, csrf := panelLogin(t, srv)
+	oldHash := vkStore.Get().VKHashes[0]
 
 	// Save with BLANK secrets + changed server/hash/min-version → secrets kept, fields applied.
 	clients := map[string]any{}
@@ -190,7 +229,7 @@ func TestPanelVKTurnSaveMergeToggleAndCSRF(t *testing.T) {
 		}}
 	}
 	resp := panelPost(t, srv, "api/vkturn", cookie, csrf, map[string]any{
-		"min_version_code": 156, "server": "newhost:56000", "vk_hashes": []string{"fresh-hash"}, "clients": clients,
+		"min_version_code": 156, "server": "newhost:56000", "clients": clients,
 	})
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -198,7 +237,7 @@ func TestPanelVKTurnSaveMergeToggleAndCSRF(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	got := vkStore.Get()
-	if got.Server != "newhost:56000" || got.VKHashes[0] != "fresh-hash" || got.MinVersionCode != 156 {
+	if got.Server != "newhost:56000" || got.VKHashes[0] != oldHash || got.MinVersionCode != 156 {
 		t.Fatalf("save did not apply public fields: %+v", got)
 	}
 	if got.Clients["wapmix"].Password != "pass-wapmix" || got.Clients["wapmix"].WG.PrivateKey != vkTurnTestKey {
@@ -228,6 +267,183 @@ func TestPanelVKTurnSaveMergeToggleAndCSRF(t *testing.T) {
 	_ = r3.Body.Close()
 	if r3.StatusCode != http.StatusForbidden {
 		t.Fatalf("missing CSRF must be 403, got %d", r3.StatusCode)
+	}
+}
+
+func TestPanelVKTurnRejectsDirectHashSaveBypass(t *testing.T) {
+	srv, vkStore := newPanelVKTurnServer(t, validVKTurnConfig())
+	defer srv.Close()
+	cookie, csrf := panelLogin(t, srv)
+	oldHash := vkStore.Get().VKHashes[0]
+
+	resp := panelPost(t, srv, "api/vkturn", cookie, csrf, map[string]any{
+		"vk_hashes": []string{"candidateMustBeProbed"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("direct active-room mutation must be rejected, got %d", resp.StatusCode)
+	}
+	if got := vkStore.Get().VKHashes[0]; got != oldHash {
+		t.Fatalf("rejected direct save changed active hash: got %q", got)
+	}
+}
+
+func TestPanelVKTurnCandidateIsolatedUntilProbeThenPromoted(t *testing.T) {
+	prober := &controlledVKTurnProber{
+		started: make(chan []string, 1),
+		release: make(chan vkturnprobe.Result, 1),
+	}
+	srv, vkStore := newPanelVKTurnServerWithProber(t, validVKTurnConfig(), prober)
+	defer srv.Close()
+	cookie, csrf := panelLogin(t, srv)
+	oldHash := vkStore.Get().VKHashes[0]
+	const candidate = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
+
+	type asyncResult struct {
+		resp *http.Response
+		err  error
+	}
+	responseCh := make(chan asyncResult, 1)
+	go func() {
+		body, _ := json.Marshal(map[string]any{
+			"vk_hashes": []string{"https://vk.ru/call/join/" + candidate},
+		})
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/mp/api/vkturn/candidate", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF", csrf)
+		req.AddCookie(&http.Cookie{Name: "mp_session", Value: cookie})
+		resp, err := http.DefaultClient.Do(req)
+		responseCh <- asyncResult{resp: resp, err: err}
+	}()
+
+	select {
+	case hashes := <-prober.started:
+		if len(hashes) != 1 || hashes[0] != candidate {
+			t.Fatalf("prober received %#v", hashes)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("candidate probe did not start")
+	}
+	during := vkStore.Get()
+	if during.VKHashes[0] != oldHash || len(during.CandidateVKHashes) != 1 || during.CandidateVKHashes[0] != candidate || during.ProbeStatus != vkturnconf.ProbeStatusChecking {
+		t.Fatalf("candidate was not isolated from active config: %+v", during)
+	}
+
+	second := panelPost(t, srv, "api/vkturn/candidate", cookie, csrf, map[string]any{
+		"vk_hashes": []string{"secondConcurrentCandidate"},
+	})
+	_ = second.Body.Close()
+	if second.StatusCode != http.StatusConflict {
+		t.Fatalf("second concurrent candidate status = %d, want 409", second.StatusCode)
+	}
+	if calls := prober.calls.Load(); calls != 1 {
+		t.Fatalf("concurrent request started %d probes, want 1", calls)
+	}
+
+	prober.release <- vkturnprobe.Result{OK: true, Stage: "TURN_ALLOCATED", Code: "OK"}
+	select {
+	case result := <-responseCh:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		defer func() { _ = result.resp.Body.Close() }()
+		if result.resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(result.resp.Body)
+			t.Fatalf("candidate status = %d: %s", result.resp.StatusCode, b)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("candidate request did not finish")
+	}
+	after := vkStore.Get()
+	if len(after.VKHashes) != 1 || after.VKHashes[0] != candidate || len(after.CandidateVKHashes) != 0 || after.LastKnownGoodVKHashes[0] != candidate || after.ProbeStatus != vkturnconf.ProbeStatusActive {
+		t.Fatalf("successful candidate was not promoted atomically: %+v", after)
+	}
+}
+
+func TestPanelVKTurnCandidateFailureRetainsActiveAndRedactsStatus(t *testing.T) {
+	const candidate = "candidateProviderFailure"
+	prober := vkTurnProberFunc(func(context.Context, []string) vkturnprobe.Result {
+		return vkturnprobe.Result{OK: false, Stage: "TLS", Code: "TLS_TRUST_FAILED"}
+	})
+	srv, vkStore := newPanelVKTurnServerWithProber(t, validVKTurnConfig(), prober)
+	defer srv.Close()
+	cookie, csrf := panelLogin(t, srv)
+	oldHash := vkStore.Get().VKHashes[0]
+
+	resp := panelPost(t, srv, "api/vkturn/candidate", cookie, csrf, map[string]any{
+		"vk_hashes": []string{candidate},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("failed candidate status = %d: %s", resp.StatusCode, b)
+	}
+	after := vkStore.Get()
+	if after.VKHashes[0] != oldHash || after.LastKnownGoodVKHashes[0] != oldHash || len(after.CandidateVKHashes) != 0 || after.ProbeStatus != vkturnconf.ProbeStatusFailed || after.ProbeErrorCode != "TLS_TRUST_FAILED" {
+		t.Fatalf("failed candidate changed active/LKG or lost safe status: %+v", after)
+	}
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{oldHash, candidate, "pass-wapmix", vkTurnTestKey} {
+		if strings.Contains(string(b), forbidden) {
+			t.Fatalf("candidate response leaked protected value %q", forbidden)
+		}
+	}
+}
+
+func TestVKTurnRedactedContainsOnlyRoomCountsAndSafeProbeState(t *testing.T) {
+	vkStore := vkturnconf.NewInMemory()
+	if err := vkStore.Set(validVKTurnConfig()); err != nil {
+		t.Fatal(err)
+	}
+	const candidate = "candidateRedactionMarker"
+	if err := vkStore.StageCandidate([]string{candidate}, time.Unix(1700000000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	s := New(nil, nil, nil, nil, Config{VKTurn: vkStore})
+	out := s.vkTurnRedacted()
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeHash := validVKTurnConfig().VKHashes[0]
+	for _, forbidden := range []string{activeHash, candidate, "pass-wapmix", vkTurnTestKey, "vk_hashes", "candidate_vk_hashes", "last_known_good_vk_hashes"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("redacted status leaked %q: %s", forbidden, encoded)
+		}
+	}
+	if out["probe_status"] != string(vkturnconf.ProbeStatusChecking) || out["active_count"] != 1 || out["candidate_count"] != 1 || out["last_known_good_count"] != 1 {
+		t.Fatalf("redacted probe status/counts missing: %#v", out)
+	}
+}
+
+func TestPanelVKTurnCandidateRequiresCSRFAndMissingRunnerFailsClosed(t *testing.T) {
+	srv, vkStore := newPanelVKTurnServer(t, validVKTurnConfig())
+	defer srv.Close()
+	cookie, csrf := panelLogin(t, srv)
+	oldHash := vkStore.Get().VKHashes[0]
+
+	missingCSRF := panelPost(t, srv, "api/vkturn/candidate", cookie, "", map[string]any{
+		"vk_hashes": []string{"candidateWithoutCSRF"},
+	})
+	_ = missingCSRF.Body.Close()
+	if missingCSRF.StatusCode != http.StatusForbidden {
+		t.Fatalf("candidate without CSRF status = %d", missingCSRF.StatusCode)
+	}
+
+	resp := panelPost(t, srv, "api/vkturn/candidate", cookie, csrf, map[string]any{
+		"vk_hashes": []string{"candidateWithoutRunner"},
+	})
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("missing runner should be a recorded failed candidate, got %d", resp.StatusCode)
+	}
+	after := vkStore.Get()
+	if after.VKHashes[0] != oldHash || after.ProbeStatus != vkturnconf.ProbeStatusFailed || after.ProbeErrorCode != "PROBE_UNAVAILABLE" {
+		t.Fatalf("missing runner did not fail closed: %+v", after)
 	}
 }
 
@@ -276,13 +492,14 @@ func TestPanelVKTurnRejectsPartialAndGuardsUnconfiguredToggle(t *testing.T) {
 		t.Fatalf("unauthenticated GET should be 401, got %d", r3.StatusCode)
 	}
 }
-func TestApplyVKTurnEditNormalizesFullVKCallURL(t *testing.T) {
+func TestApplyVKTurnEditCannotMutateActiveWithFullVKCallURL(t *testing.T) {
 	cur := validVKTurnConfig()
+	oldHash := cur.VKHashes[0]
 	const hash = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
 	got := applyVKTurnEdit(cur, vkTurnSaveReq{
 		VKHashes: []string{"https://vk.ru/call/join/" + hash},
 	})
-	if len(got.VKHashes) != 1 || got.VKHashes[0] != hash {
-		t.Fatalf("full VK call URL was not normalized: %#v", got.VKHashes)
+	if len(got.VKHashes) != 1 || got.VKHashes[0] != oldHash {
+		t.Fatalf("full save bypass changed active hash: %#v", got.VKHashes)
 	}
 }
