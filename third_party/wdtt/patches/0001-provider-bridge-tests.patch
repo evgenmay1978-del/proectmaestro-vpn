@@ -1,0 +1,146 @@
+diff --git a/app/src/main/assets/android-client/provider_bridge_test.go b/app/src/main/assets/android-client/provider_bridge_test.go
+new file mode 100644
+index 0000000..7bd2d52
+--- /dev/null
++++ b/app/src/main/assets/android-client/provider_bridge_test.go
+@@ -0,0 +1,140 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"crypto/ed25519"
++	"crypto/rand"
++	"crypto/x509"
++	"crypto/x509/pkix"
++	"encoding/pem"
++	"errors"
++	"math/big"
++	"strings"
++	"testing"
++	"time"
++)
++
++func newTestRoot(t *testing.T, commonName string, serial int64) (*x509.Certificate, []byte) {
++	t.Helper()
++	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
++	if err != nil {
++		t.Fatalf("generate test key: %v", err)
++	}
++	template := &x509.Certificate{
++		SerialNumber:          big.NewInt(serial),
++		Subject:               pkix.Name{CommonName: commonName},
++		NotBefore:             time.Unix(0, 0),
++		NotAfter:              time.Unix(4102444800, 0),
++		IsCA:                  true,
++		BasicConstraintsValid: true,
++		KeyUsage:              x509.KeyUsageCertSign,
++	}
++	der, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
++	if err != nil {
++		t.Fatalf("create test certificate: %v", err)
++	}
++	certificate, err := x509.ParseCertificate(der)
++	if err != nil {
++		t.Fatalf("parse test certificate: %v", err)
++	}
++	return certificate, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
++}
++
++func TestVerifiedRootPoolKeepsSystemRootsAndAddsEmbeddedRoots(t *testing.T) {
++	systemRoot, _ := newTestRoot(t, "system-root", 1)
++	_, embeddedPEM := newTestRoot(t, "embedded-root", 2)
++	systemPool := x509.NewCertPool()
++	systemPool.AddCert(systemRoot)
++
++	pool, err := verifiedRootPool(func() (*x509.CertPool, error) {
++		return systemPool, nil
++	}, embeddedPEM)
++	if err != nil {
++		t.Fatalf("verifiedRootPool: %v", err)
++	}
++	if got := len(pool.Subjects()); got != 2 {
++		t.Fatalf("root subjects = %d, want system + embedded = 2", got)
++	}
++}
++
++func TestVerifiedRootPoolRejectsInvalidEmbeddedBundle(t *testing.T) {
++	if _, err := verifiedRootPool(func() (*x509.CertPool, error) {
++		return x509.NewCertPool(), nil
++	}, []byte("not a PEM certificate")); err == nil {
++		t.Fatal("invalid embedded CA bundle was accepted")
++	}
++}
++
++func TestStructuredProviderEventsContainOnlyFixedSafeFields(t *testing.T) {
++	const secret = "secret-marker-never-emit"
++	stage := formatStageEvent("TLS")
++	failure := formatSafeError("TLS_TRUST_FAILED", true)
++	wantStage := "__WDTT_EVENT__|STAGE|{\"stage\":\"TLS\"}\n"
++	wantFailure := "__WDTT_EVENT__|ERROR|{\"code\":\"TLS_TRUST_FAILED\",\"fatal\":true}\n"
++	if stage != wantStage {
++		t.Fatalf("stage event = %q, want %q", stage, wantStage)
++	}
++	if failure != wantFailure {
++		t.Fatalf("failure event = %q, want %q", failure, wantFailure)
++	}
++	if strings.Contains(stage+failure, secret) {
++		t.Fatal("structured event leaked caller-controlled detail")
++	}
++}
++
++func TestProviderProbeReturnsOnlyRedactedSuccess(t *testing.T) {
++	const secretHash = "secret-room-hash"
++	input := strings.NewReader(`{"vk_hash":"` + secretHash + `"}`)
++	var output bytes.Buffer
++	lookup := func(_ context.Context, hash string) ([]string, error) {
++		if hash != secretHash {
++			t.Fatalf("lookup hash = %q", hash)
++		}
++		return []string{"turn:relay.example.test:3478?transport=udp"}, nil
++	}
++
++	if err := runProviderProbe(context.Background(), input, &output, lookup); err != nil {
++		t.Fatalf("runProviderProbe: %v", err)
++	}
++	want := "__WDTT_PROBE__|{\"ok\":true,\"stage\":\"TURN_ALLOCATED\",\"code\":\"OK\"}\n"
++	if got := output.String(); got != want {
++		t.Fatalf("probe output = %q, want %q", got, want)
++	}
++	if strings.Contains(output.String(), secretHash) {
++		t.Fatal("probe output leaked the room hash")
++	}
++}
++
++func TestProviderProbeRedactsDependencyError(t *testing.T) {
++	const secret = "provider-body-secret"
++	input := strings.NewReader(`{"vk_hash":"safeHash"}`)
++	var output bytes.Buffer
++	lookup := func(context.Context, string) ([]string, error) {
++		return nil, newProviderProbeError("TLS", "TLS_TRUST_FAILED", errors.New(secret))
++	}
++
++	if err := runProviderProbe(context.Background(), input, &output, lookup); err != nil {
++		t.Fatalf("runProviderProbe: %v", err)
++	}
++	want := "__WDTT_PROBE__|{\"ok\":false,\"stage\":\"TLS\",\"code\":\"TLS_TRUST_FAILED\"}\n"
++	if got := output.String(); got != want {
++		t.Fatalf("probe output = %q, want %q", got, want)
++	}
++	if strings.Contains(output.String(), secret) {
++		t.Fatal("probe output leaked a dependency error")
++	}
++}
++
++func TestReadyRequiresRegisteredWorker(t *testing.T) {
++	d := &Dispatcher{}
++	empty := make([]*WorkerSlot, 0)
++	d.workers.Store(&empty)
++	if dispatcherHasActiveWorker(d) {
++		t.Fatal("empty dispatcher reported an active worker")
++	}
++	d.Register(&WorkerSlot{ID: 1, SendCh: make(chan []byte, 1)})
++	if !dispatcherHasActiveWorker(d) {
++		t.Fatal("registered worker was not visible to readiness gate")
++	}
++}

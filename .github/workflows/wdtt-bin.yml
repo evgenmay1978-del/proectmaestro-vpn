@@ -5,12 +5,16 @@ on:
     paths:
       - .github/workflows/wdtt-bin.yml
       - version.properties
+      - ops/test_wdtt_patchset.py
       - ops/wdtt-canary/**
+      - third_party/wdtt/**
   pull_request:
     paths:
       - .github/workflows/wdtt-bin.yml
       - version.properties
+      - ops/test_wdtt_patchset.py
       - ops/wdtt-canary/**
+      - third_party/wdtt/**
   workflow_dispatch:
 
 jobs:
@@ -43,6 +47,21 @@ jobs:
           git clone --filter=blob:none https://github.com/amurcanov/proxy-turn-vk-android.git wdtt
           git -C wdtt checkout --detach "${{ steps.pin.outputs.ref }}"
           test "$(git -C wdtt rev-parse HEAD)" = "${{ steps.pin.outputs.ref }}"
+      - name: Verify and apply reviewed WDTT patchset
+        env:
+          WDTT_UPSTREAM_DIR: ${{ github.workspace }}/wdtt
+        run: |
+          set -euo pipefail
+          python -m unittest -v ops/test_wdtt_patchset.py
+          install -m 0644 third_party/wdtt/certs/cacert.pem \
+            wdtt/app/src/main/assets/android-client/provider_cacert.pem
+          while IFS= read -r patch_path; do
+            case "$patch_path" in
+              ''|'#'*) continue ;;
+            esac
+            git -C wdtt apply --check "$GITHUB_WORKSPACE/third_party/wdtt/$patch_path"
+            git -C wdtt apply "$GITHUB_WORKSPACE/third_party/wdtt/$patch_path"
+          done < third_party/wdtt/series
       - name: Test pinned Android client
         working-directory: wdtt/app/src/main/assets/android-client
         run: |
