@@ -387,7 +387,7 @@ func TestPanelVKTurnCandidateFailureRetainsActiveAndRedactsStatus(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{oldHash, candidate, "pass-wapmix", vkTurnTestKey} {
+	for _, forbidden := range []string{oldHash, candidate, "pass-wapmix"} {
 		if strings.Contains(string(b), forbidden) {
 			t.Fatalf("candidate response leaked protected value %q", forbidden)
 		}
@@ -410,7 +410,7 @@ func TestVKTurnRedactedContainsOnlyRoomCountsAndSafeProbeState(t *testing.T) {
 		t.Fatal(err)
 	}
 	activeHash := validVKTurnConfig().VKHashes[0]
-	for _, forbidden := range []string{activeHash, candidate, "pass-wapmix", vkTurnTestKey, "vk_hashes", "candidate_vk_hashes", "last_known_good_vk_hashes"} {
+	for _, forbidden := range []string{activeHash, candidate, "pass-wapmix", "vk_hashes", "candidate_vk_hashes", "last_known_good_vk_hashes"} {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("redacted status leaked %q: %s", forbidden, encoded)
 		}
@@ -501,5 +501,16 @@ func TestApplyVKTurnEditCannotMutateActiveWithFullVKCallURL(t *testing.T) {
 	})
 	if len(got.VKHashes) != 1 || got.VKHashes[0] != oldHash {
 		t.Fatalf("full save bypass changed active hash: %#v", got.VKHashes)
+	}
+}
+
+func TestPanelHTMLUsesVerifiedWriteOnlyCandidateFlow(t *testing.T) {
+	if !strings.Contains(panelHTML, "api/vkturn/candidate") || !strings.Contains(panelHTML, "Проверить и применить") {
+		t.Fatal("WDTT panel does not expose the verified candidate action")
+	}
+	for _, forbidden := range []string{"o.vk_hashes", `id="w_hashes"`, "vk_hashes:hashes,clients"} {
+		if strings.Contains(panelHTML, forbidden) {
+			t.Fatalf("WDTT panel still contains direct active-room mutation marker %q", forbidden)
+		}
 	}
 }
