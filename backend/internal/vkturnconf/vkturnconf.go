@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -162,6 +163,8 @@ type Store struct {
 	leaseNow              func() time.Duration
 	activeProbeGeneration uint64
 	probeLeaseUntil       time.Duration
+	beforePathLock         func() // deterministic transaction seam for package tests
+	beforeCandidatePersist func() // deterministic check/write seam for package tests
 }
 
 func newStore(path string) *Store {
@@ -186,6 +189,53 @@ func (s *Store) leaseTimeLocked() time.Duration {
 func (s *Store) clearProbeLeaseLocked() {
 	s.activeProbeGeneration = 0
 	s.probeLeaseUntil = 0
+}
+
+func configLockPath(path string) string { return path + ".lock" }
+
+func (s *Store) withPathLockLocked(fn func() error) (err error) {
+	if s.beforePathLock != nil {
+		s.beforePathLock()
+	}
+	if s.path == "" {
+		return fn()
+	}
+	unlock, err := acquireConfigFileLock(configLockPath(s.path))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if unlockErr := unlock(); err == nil && unlockErr != nil {
+			err = unlockErr
+		}
+	}()
+	return fn()
+}
+
+func (s *Store) refreshFromDiskLocked() error {
+	if s.path == "" {
+		return nil
+	}
+	b, err := os.ReadFile(s.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && s.cfg == nil {
+			return nil
+		}
+		return fmt.Errorf("read current vkturn config: %w", err)
+	}
+	disk, err := parse(b)
+	if err != nil {
+		return err
+	}
+	ownerMatches := s.cfg != nil && disk.ProbeStatus == ProbeStatusChecking &&
+		s.cfg.ProbeStatus == ProbeStatusChecking &&
+		disk.ProbeStartedAt.Equal(s.cfg.ProbeStartedAt) &&
+		sameStrings(disk.CandidateVKHashes, s.cfg.CandidateVKHashes)
+	if s.activeProbeGeneration != 0 && !ownerMatches {
+		s.clearProbeLeaseLocked()
+	}
+	s.cfg = disk
+	return nil
 }
 
 // OpenStore loads path and wraps it for runtime edits. An empty path means the
@@ -241,7 +291,7 @@ func (s *Store) Set(c *Config) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.persistLocked(cp)
+	return s.withPathLockLocked(func() error { return s.persistLocked(cp) })
 }
 
 // Update applies mutate to a clone of the live config entirely under the write
@@ -253,16 +303,20 @@ func (s *Store) Set(c *Config) error {
 func (s *Store) Update(mutate func(cur *Config) *Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	next := mutate(s.cfg.clone())
-	if next == nil {
-		return fmt.Errorf("vkturn: update produced no config")
-	}
-	next.normalizeProbeState()
-	if err := next.Validate(); err != nil {
-		return err
-	}
-	cp := next.clone()
-	return s.persistLocked(cp)
+	return s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		next := mutate(s.cfg.clone())
+		if next == nil {
+			return fmt.Errorf("vkturn: update produced no config")
+		}
+		next.normalizeProbeState()
+		if err := next.Validate(); err != nil {
+			return err
+		}
+		return s.persistLocked(next.clone())
+	})
 }
 
 // StageCandidate acquires the single probe lease without changing VKHashes,
@@ -276,123 +330,136 @@ func (s *Store) StageCandidate(hashes []string, startedAt time.Time) (uint64, er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cfg == nil {
-		return 0, fmt.Errorf("%w: config is not initialized", ErrCandidateInvalid)
-	}
-	leaseNow := s.leaseTimeLocked()
-	if s.activeProbeGeneration != 0 && leaseNow < s.probeLeaseUntil {
-		return 0, ErrCandidateBusy
-	}
-	next := s.cfg.clone()
-	next.CandidateVKHashes = append([]string(nil), hashes...)
-	next.LastKnownGoodVKHashes = append([]string(nil), next.VKHashes...)
-	next.ProbeStatus = ProbeStatusChecking
-	probeStartedAt := startedAt.UTC()
-	// ProbeStartedAt already belongs to the rollback-compatible schema. Make it
-	// a strictly increasing persisted owner marker so a late callback from a
-	// replaced Store/process cannot promote a newer candidate.
-	if !next.ProbeStartedAt.IsZero() && !probeStartedAt.After(next.ProbeStartedAt) {
-		probeStartedAt = next.ProbeStartedAt.Add(time.Nanosecond)
-	}
-	next.ProbeStartedAt = probeStartedAt
-	next.ProbeCheckedAt = time.Time{}
-	next.ProbeErrorCode = ""
-	if err := next.Validate(); err != nil {
-		return 0, fmt.Errorf("%w: %v", ErrCandidateInvalid, err)
-	}
-	generation := nextProbeGeneration()
-	if err := s.persistLocked(next); err != nil {
+	var generation uint64
+	err := s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		if s.cfg == nil {
+			return fmt.Errorf("%w: config is not initialized", ErrCandidateInvalid)
+		}
+		leaseNow := s.leaseTimeLocked()
+		if s.activeProbeGeneration != 0 && leaseNow < s.probeLeaseUntil {
+			return ErrCandidateBusy
+		}
+		next := s.cfg.clone()
+		next.CandidateVKHashes = append([]string(nil), hashes...)
+		next.LastKnownGoodVKHashes = append([]string(nil), next.VKHashes...)
+		next.ProbeStatus = ProbeStatusChecking
+		probeStartedAt := startedAt.UTC()
+		// ProbeStartedAt already belongs to the rollback-compatible schema. Make it
+		// a strictly increasing persisted owner marker so a late callback from a
+		// replaced Store/process cannot promote a newer candidate.
+		if !next.ProbeStartedAt.IsZero() && !probeStartedAt.After(next.ProbeStartedAt) {
+			probeStartedAt = next.ProbeStartedAt.Add(time.Nanosecond)
+		}
+		next.ProbeStartedAt = probeStartedAt
+		next.ProbeCheckedAt = time.Time{}
+		next.ProbeErrorCode = ""
+		if err := next.Validate(); err != nil {
+			return fmt.Errorf("%w: %v", ErrCandidateInvalid, err)
+		}
+		generation = nextProbeGeneration()
+		if err := s.persistLocked(next); err != nil {
+			return err
+		}
+		s.activeProbeGeneration = generation
+		s.probeLeaseUntil = leaseNow + candidateProbeLease
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrCandidateInvalid) || errors.Is(err, ErrCandidateBusy) {
+			return 0, err
+		}
 		return 0, fmt.Errorf("%w: %v", ErrCandidatePersistence, err)
 	}
-	s.activeProbeGeneration = generation
-	s.probeLeaseUntil = leaseNow + candidateProbeLease
 	return generation, nil
 }
 
 // PromoteCandidate atomically makes the successfully probed candidate active.
 func (s *Store) PromoteCandidate(generation uint64, checkedAt time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking || len(s.cfg.CandidateVKHashes) == 0 {
-		return ErrCandidateStale
-	}
-	if generation == 0 || generation != s.activeProbeGeneration {
-		return ErrCandidateStale
-	}
 	if checkedAt.IsZero() {
 		return fmt.Errorf("vkturn: candidate check time is required")
 	}
-	if err := s.verifyPersistedCandidateOwnerLocked(); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking || len(s.cfg.CandidateVKHashes) == 0 ||
+			generation == 0 || generation != s.activeProbeGeneration {
+			return ErrCandidateStale
+		}
+		next := s.cfg.clone()
+		next.VKHashes = append([]string(nil), next.CandidateVKHashes...)
+		next.LastKnownGoodVKHashes = append([]string(nil), next.CandidateVKHashes...)
+		next.CandidateVKHashes = nil
+		next.ProbeStatus = ProbeStatusActive
+		next.ProbeCheckedAt = checkedAt.UTC()
+		next.ProbeErrorCode = ""
+		if err := next.Validate(); err != nil {
+			return err
+		}
+		if s.beforeCandidatePersist != nil {
+			s.beforeCandidatePersist()
+		}
+		if err := s.persistLocked(next); err != nil {
+			return err
+		}
+		s.clearProbeLeaseLocked()
+		return nil
+	})
+	if errors.Is(err, ErrCandidateStale) {
 		return err
 	}
-	next := s.cfg.clone()
-	next.VKHashes = append([]string(nil), next.CandidateVKHashes...)
-	next.LastKnownGoodVKHashes = append([]string(nil), next.CandidateVKHashes...)
-	next.CandidateVKHashes = nil
-	next.ProbeStatus = ProbeStatusActive
-	next.ProbeCheckedAt = checkedAt.UTC()
-	next.ProbeErrorCode = ""
-	if err := next.Validate(); err != nil {
-		return err
-	}
-	if err := s.persistLocked(next); err != nil {
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrCandidatePersistence, err)
 	}
-	s.clearProbeLeaseLocked()
 	return nil
 }
 
 // RejectCandidate records only a fixed safe code and keeps the active/LKG list.
 func (s *Store) RejectCandidate(generation uint64, code string, checkedAt time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking {
-		return ErrCandidateStale
-	}
-	if generation == 0 || generation != s.activeProbeGeneration {
-		return ErrCandidateStale
-	}
 	if !validProbeErrorCode(code) {
 		return fmt.Errorf("vkturn: probe error code is invalid")
 	}
 	if checkedAt.IsZero() {
 		return fmt.Errorf("vkturn: candidate check time is required")
 	}
-	if err := s.verifyPersistedCandidateOwnerLocked(); err != nil {
-		return err
-	}
-	next := s.cfg.clone()
-	next.CandidateVKHashes = nil
-	next.LastKnownGoodVKHashes = append([]string(nil), next.VKHashes...)
-	next.ProbeStatus = ProbeStatusFailed
-	next.ProbeCheckedAt = checkedAt.UTC()
-	next.ProbeErrorCode = code
-	if err := next.Validate(); err != nil {
-		return err
-	}
-	if err := s.persistLocked(next); err != nil {
-		return fmt.Errorf("%w: %v", ErrCandidatePersistence, err)
-	}
-	s.clearProbeLeaseLocked()
-	return nil
-}
-
-func (s *Store) verifyPersistedCandidateOwnerLocked() error {
-	if s.path == "" {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.withPathLockLocked(func() error {
+		if err := s.refreshFromDiskLocked(); err != nil {
+			return err
+		}
+		if s.cfg == nil || s.cfg.ProbeStatus != ProbeStatusChecking ||
+			generation == 0 || generation != s.activeProbeGeneration {
+			return ErrCandidateStale
+		}
+		next := s.cfg.clone()
+		next.CandidateVKHashes = nil
+		next.LastKnownGoodVKHashes = append([]string(nil), next.VKHashes...)
+		next.ProbeStatus = ProbeStatusFailed
+		next.ProbeCheckedAt = checkedAt.UTC()
+		next.ProbeErrorCode = code
+		if err := next.Validate(); err != nil {
+			return err
+		}
+		if s.beforeCandidatePersist != nil {
+			s.beforeCandidatePersist()
+		}
+		if err := s.persistLocked(next); err != nil {
+			return err
+		}
+		s.clearProbeLeaseLocked()
 		return nil
+	})
+	if errors.Is(err, ErrCandidateStale) {
+		return err
 	}
-	b, err := os.ReadFile(s.path)
 	if err != nil {
-		return fmt.Errorf("%w: read current candidate state: %v", ErrCandidatePersistence, err)
-	}
-	disk, err := parse(b)
-	if err != nil {
-		return fmt.Errorf("%w: decode current candidate state: %v", ErrCandidatePersistence, err)
-	}
-	if disk.ProbeStatus != ProbeStatusChecking ||
-		!disk.ProbeStartedAt.Equal(s.cfg.ProbeStartedAt) ||
-		!sameStrings(disk.CandidateVKHashes, s.cfg.CandidateVKHashes) {
-		return ErrCandidateStale
+		return fmt.Errorf("%w: %v", ErrCandidatePersistence, err)
 	}
 	return nil
 }
@@ -411,7 +478,11 @@ func sameStrings(a, b []string) bool {
 
 func (s *Store) persistLocked(cp *Config) error {
 	if s.path != "" {
-		if err := writeConfigFile(s.path, cp); err != nil {
+		committed, err := writeConfigFile(s.path, cp)
+		if committed {
+			s.cfg = cp
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -420,32 +491,44 @@ func (s *Store) persistLocked(cp *Config) error {
 }
 
 // writeConfigFile writes c to a fresh 0600 temp then atomically renames it over
-// path. It creates the temp with O_EXCL (removing any stale leftover first) so the
-// secrets file is ALWAYS mode 0600 and is never written through a pre-planted
-// symlink — os.WriteFile would keep a pre-existing tmp's looser mode.
-func writeConfigFile(path string, c *Config) error {
+// path. It creates a unique temp file in the target directory, forces mode 0600,
+// fsyncs the file before rename and fsyncs the parent directory after rename.
+func writeConfigFile(path string, c *Config) (bool, error) {
 	disk := c.clone()
 	disk.encodeRollbackPlaceholder()
 	b, err := json.MarshalIndent(disk, "", "  ")
 	if err != nil {
-		return err
+		return false, err
 	}
-	tmp := path + ".tmp"
-	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return err
+		return false, err
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return false, err
 	}
 	if _, err := f.Write(b); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
+		return false, err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return false, err
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
+		return false, err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return false, err
+	}
+	if err := syncConfigDirectory(dir); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 // Validate permits only the room list to be empty while disabled so a fresh
