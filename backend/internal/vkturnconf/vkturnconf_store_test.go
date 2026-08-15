@@ -267,3 +267,47 @@ func TestConcurrentCandidateLeaseSerializesStageAndPromotion(t *testing.T) {
 		t.Fatalf("serialized promotion wrong: %+v", got)
 	}
 }
+
+func TestStalePersistedCandidateLeaseCanBeReplacedWithoutOldPromotion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vkturn.json")
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(validStoreCfg()); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 8, 15, 10, 0, 0, 0, time.UTC)
+	oldLease, err := s.StageCandidate([]string{"hash-b"}, started)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restarted.StageCandidate([]string{"hash-c"}, started.Add(candidateProbeLease-time.Second)); err == nil {
+		t.Fatal("live candidate lease was replaced before expiry")
+	}
+	newLease, err := restarted.StageCandidate([]string{"hash-c"}, started.Add(candidateProbeLease+time.Second))
+	if err != nil {
+		t.Fatalf("stale persisted lease was not recoverable: %v", err)
+	}
+	if oldLease == newLease {
+		t.Fatalf("replacement reused stale lease %d", oldLease)
+	}
+	if err := restarted.PromoteCandidate(oldLease, started.Add(candidateProbeLease+2*time.Second)); err == nil {
+		t.Fatal("stale probe result promoted the replacement candidate")
+	}
+	checking := restarted.Get()
+	if checking.ProbeStatus != ProbeStatusChecking || !reflect.DeepEqual(checking.CandidateVKHashes, []string{"hash-c"}) || !reflect.DeepEqual(checking.VKHashes, []string{"hash-a"}) {
+		t.Fatalf("stale result changed replacement state: %+v", checking)
+	}
+	if err := restarted.PromoteCandidate(newLease, started.Add(candidateProbeLease+3*time.Second)); err != nil {
+		t.Fatalf("replacement lease could not promote: %v", err)
+	}
+	if got := restarted.Get(); got.ProbeStatus != ProbeStatusActive || !reflect.DeepEqual(got.VKHashes, []string{"hash-c"}) {
+		t.Fatalf("replacement candidate was not promoted: %+v", got)
+	}
+}

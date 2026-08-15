@@ -37,6 +37,11 @@ func TestProbeHelperProcess(t *testing.T) {
 		} else {
 			fmt.Print("__WDTT_PROBE__|{\"ok\":false,\"stage\":\"VK_AUTH\",\"code\":\"VK_CALL_UNAVAILABLE\"}\n")
 		}
+	case "first-timeout-then-success":
+		if request.VKHash == "firstSafeHash" {
+			time.Sleep(250 * time.Millisecond)
+		}
+		fmt.Print("__WDTT_PROBE__|{\"ok\":true,\"stage\":\"TURN_ALLOCATED\",\"code\":\"OK\"}\n")
 	case "malformed":
 		fmt.Print("not-a-probe-result\n")
 	case "extra":
@@ -101,6 +106,15 @@ func TestRunnerTriesBoundedCandidatesUntilOneWorks(t *testing.T) {
 	got := runner.Probe(context.Background(), []string{"firstSafeHash", "secondSafeHash"})
 	if !got.OK || got.Stage != "TURN_ALLOCATED" || got.Code != "OK" {
 		t.Fatalf("Probe() = %#v", got)
+	}
+}
+
+func TestRunnerGivesEachCandidateItsOwnTimeout(t *testing.T) {
+	runner := helperRunner(t, "first-timeout-then-success")
+	runner.Timeout = 50 * time.Millisecond
+	got := runner.Probe(context.Background(), []string{"firstSafeHash", "secondSafeHash"})
+	if !got.OK || got.Stage != "TURN_ALLOCATED" || got.Code != "OK" {
+		t.Fatalf("Probe() after first candidate timeout = %#v", got)
 	}
 }
 

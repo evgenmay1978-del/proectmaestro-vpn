@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -501,6 +502,55 @@ func TestApplyVKTurnEditCannotMutateActiveWithFullVKCallURL(t *testing.T) {
 	})
 	if len(got.VKHashes) != 1 || got.VKHashes[0] != oldHash {
 		t.Fatalf("full save bypass changed active hash: %#v", got.VKHashes)
+	}
+}
+
+func TestPanelVKTurnCanBootstrapDisabledBaseBeforeVerifiedCandidate(t *testing.T) {
+	prober := vkTurnProberFunc(func(context.Context, []string) vkturnprobe.Result {
+		return vkturnprobe.Result{OK: true, Stage: "TURN_ALLOCATED", Code: "OK"}
+	})
+	srv, vkStore := newPanelVKTurnServerWithProber(t, nil, prober)
+	defer srv.Close()
+	cookie, csrf := panelLogin(t, srv)
+
+	clients := map[string]any{}
+	for i, login := range []string{"wapmix", "wapmixx", "wapmix2"} {
+		clients[login] = map[string]any{
+			"password": "bootstrap-" + login,
+			"wg": map[string]any{
+				"private_key":    vkTurnTestKey,
+				"peer_public_key": vkTurnTestKey,
+				"local_address":   "10.88.0." + string(rune('2'+i)) + "/32",
+			},
+		}
+	}
+	baseResp := panelPost(t, srv, "api/vkturn", cookie, csrf, map[string]any{
+		"min_version_code": 156,
+		"server":           "bootstrap.example:56000",
+		"clients":          clients,
+	})
+	defer func() { _ = baseResp.Body.Close() }()
+	if baseResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(baseResp.Body)
+		t.Fatalf("bootstrap base status = %d: %s", baseResp.StatusCode, body)
+	}
+	base := vkStore.Get()
+	if base == nil || base.Enabled || len(base.VKHashes) != 0 {
+		t.Fatalf("bootstrap base must stay disabled without an active room: %+v", base)
+	}
+
+	const candidate = "bootstrapCandidateHash"
+	candidateResp := panelPost(t, srv, "api/vkturn/candidate", cookie, csrf, map[string]any{
+		"vk_hashes": []string{candidate},
+	})
+	defer func() { _ = candidateResp.Body.Close() }()
+	if candidateResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(candidateResp.Body)
+		t.Fatalf("bootstrap candidate status = %d: %s", candidateResp.StatusCode, body)
+	}
+	after := vkStore.Get()
+	if after.Enabled || after.ProbeStatus != vkturnconf.ProbeStatusActive || !reflect.DeepEqual(after.VKHashes, []string{candidate}) {
+		t.Fatalf("bootstrap candidate was not promoted while disabled: %+v", after)
 	}
 }
 
