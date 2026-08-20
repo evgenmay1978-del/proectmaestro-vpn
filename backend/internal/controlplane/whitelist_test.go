@@ -30,8 +30,8 @@ func validPreset() controlplane.CompatibilityPreset {
 
 func validApprovedEdges() []controlplane.ApprovedEdge {
 	return []controlplane.ApprovedEdge{
-		{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.11", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
-		{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
+		{ID: "edge-b", TransportProfileID: "profile-a", Address: "1.1.1.11", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
+		{ID: "edge-a", TransportProfileID: "profile-a", Address: "8.8.8.12", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
 	}
 }
 
@@ -99,7 +99,7 @@ func TestTransportReleaseFreezesProfilePresetAndCanonicalEdges(t *testing.T) {
 
 	profile.PublicHost = "mutated.example.invalid"
 	preset.Capabilities[0] = "mutated"
-	edges[0].Address = "198.51.100.99"
+	edges[0].Address = "9.9.9.99"
 
 	frozenProfile := release.Profile()
 	frozenPreset := release.Preset()
@@ -108,14 +108,14 @@ func TestTransportReleaseFreezesProfilePresetAndCanonicalEdges(t *testing.T) {
 		t.Fatalf("release did not freeze profile/preset: profile=%#v preset=%#v", frozenProfile, frozenPreset)
 	}
 	gotAddresses := []string{frozenEdges[0].Address, frozenEdges[1].Address}
-	wantAddresses := []string{"203.0.113.12", "203.0.113.11"}
+	wantAddresses := []string{"8.8.8.12", "1.1.1.11"}
 	if !reflect.DeepEqual(gotAddresses, wantAddresses) {
 		t.Fatalf("edge order=%v, want ID-canonical %v", gotAddresses, wantAddresses)
 	}
 
 	frozenPreset.Capabilities[0] = "caller-mutated"
-	frozenEdges[0].Address = "198.51.100.100"
-	if release.Preset().Capabilities[0] != "vless-encryption" || release.ApprovedEdges()[0].Address != "203.0.113.12" {
+	frozenEdges[0].Address = "9.9.9.100"
+	if release.Preset().Capabilities[0] != "vless-encryption" || release.ApprovedEdges()[0].Address != "8.8.8.12" {
 		t.Fatal("release getters exposed mutable slices")
 	}
 }
@@ -179,6 +179,9 @@ func TestTransportReleaseRejectsPresetMixingAndUnsafePublicMaterial(t *testing.T
 		{name: "double encoded traversal", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
 			profile.SecretPath = "/static/%252e%252e/admin"
 		}},
+		{name: "double encoded separator", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/%252Fadmin"
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -195,8 +198,32 @@ func TestTransportReleaseRejectsPresetMixingAndUnsafePublicMaterial(t *testing.T
 		})
 	}
 }
+func TestTransportReleaseRejectsReservedEdgeRanges(t *testing.T) {
+	addresses := []string{
+		"100.64.0.1",
+		"192.0.0.9",
+		"192.0.2.1",
+		"192.88.99.1",
+		"198.18.0.1",
+		"198.51.100.1",
+		"203.0.113.1",
+	}
+	for _, address := range addresses {
+		t.Run(address, func(t *testing.T) {
+			edges := validApprovedEdges()
+			edges[0].Address = address
+			if _, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
+				ID: "release-a", Profile: validProfile(), Preset: validPreset(),
+				State: controlplane.TransportReleasePublished, ApprovedEdges: edges,
+			}); err == nil {
+				t.Fatalf("release accepted reserved edge address %q", address)
+			}
+		})
+	}
+}
+
 func TestEdgeCandidateApprovalPreservesCandidateIdentity(t *testing.T) {
-	candidate := controlplane.EdgeCandidate{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.11"}
+	candidate := controlplane.EdgeCandidate{ID: "edge-a", TransportProfileID: "profile-a", Address: "1.1.1.11"}
 	approved, err := candidate.Approve(time.Unix(10, 0), "evidence-a")
 	if err != nil {
 		t.Fatalf("Approve: %v", err)

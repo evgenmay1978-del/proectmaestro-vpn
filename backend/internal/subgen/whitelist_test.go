@@ -34,8 +34,8 @@ func reviewedFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlpl
 		ID: "release-a", Profile: profile, Preset: preset,
 		State: controlplane.TransportReleasePublished,
 		ApprovedEdges: []controlplane.ApprovedEdge{
-			{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.11", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
-			{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
+			{ID: "edge-b", TransportProfileID: "profile-a", Address: "1.1.1.11", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
+			{ID: "edge-a", TransportProfileID: "profile-a", Address: "8.8.8.12", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
 		},
 	})
 	if err != nil {
@@ -98,7 +98,7 @@ func TestRenderWhiteListSubscriptionUsesFrozenReleaseAndDeterministicApprovedEdg
 		t.Fatalf("active node count=%d, want 2", len(result.WhiteListNodes))
 	}
 	gotAddresses := []string{result.WhiteListNodes[0].Address, result.WhiteListNodes[1].Address}
-	if !reflect.DeepEqual(gotAddresses, []string{"203.0.113.12", "203.0.113.11"}) {
+	if !reflect.DeepEqual(gotAddresses, []string{"8.8.8.12", "1.1.1.11"}) {
 		t.Fatalf("node order=%v, want edge-ID canonical order", gotAddresses)
 	}
 	for _, node := range result.WhiteListNodes {
@@ -127,6 +127,20 @@ func TestRenderWhiteListSubscriptionRejectsCrossAccountWithoutDroppingOrdinary(t
 	}
 	if result.Diagnostic == nil || result.Diagnostic.Code != DiagnosticAccountMismatch {
 		t.Fatalf("cross-account diagnostic=%#v", result.Diagnostic)
+	}
+}
+
+func TestRenderWhiteListSubscriptionRejectsEmptyOrdinaryOutputBeforeAddingNodes(t *testing.T) {
+	entitlement, release := reviewedFixture(t)
+	for _, output := range []string{"", " \t\n"} {
+		ordinary := OrdinarySubscription{AccountID: "account-alpha", Identity: "ordinary", Output: output}
+		result := RenderWhiteListSubscription(ordinary, entitlement, release)
+		if result.Ordinary != ordinary || len(result.WhiteListNodes) != 0 {
+			t.Fatalf("invalid ordinary output published additive nodes: %#v", result)
+		}
+		if result.Diagnostic == nil || string(result.Diagnostic.Code) != "INVALID_ORDINARY" {
+			t.Fatalf("invalid ordinary diagnostic=%#v", result.Diagnostic)
+		}
 	}
 }
 
