@@ -38,7 +38,7 @@ type WhiteListNode struct {
 // Android tasks. WhiteListNodes is always an array, including when access is OFF.
 type WhiteListSubscriptionResult struct {
 	Ordinary       OrdinarySubscription `json:"ordinary"`
-	WhiteListNodes []WhiteListNode       `json:"white_list_nodes"`
+	WhiteListNodes []WhiteListNode      `json:"white_list_nodes"`
 }
 
 // RenderWhiteListSubscription preserves the ordinary subscription verbatim and

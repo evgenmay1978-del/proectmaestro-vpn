@@ -159,11 +159,11 @@ func (release TransportRelease) ApprovedEdges() []ApprovedEdge {
 // WhiteListEntitlement is the per-account additive right. Its zero value is a
 // safe disabled value, so omitted records cannot accidentally grant access.
 type WhiteListEntitlement struct {
-	accountID               string
-	transportProfileID      string
-	compatibilityPresetID   string
-	transportReleaseID      string
-	state                   EntitlementState
+	accountID             string
+	transportProfileID    string
+	compatibilityPresetID string
+	transportReleaseID    string
+	state                 EntitlementState
 }
 
 func NewWhiteListEntitlement(accountID string) (WhiteListEntitlement, error) {
