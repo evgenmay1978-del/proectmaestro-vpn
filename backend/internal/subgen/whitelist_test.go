@@ -115,17 +115,27 @@ func TestRenderWhiteListSubscriptionRejectsMismatchedActiveRelease(t *testing.T)
 }
 
 func containsJSONKey(raw []byte, key string) bool {
-	var value map[string]any
+	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return false
 	}
-	for k, v := range value {
-		if k == key {
-			return true
+	var walk func(any) bool
+	walk = func(current any) bool {
+		switch typed := current.(type) {
+		case map[string]any:
+			for candidate, nested := range typed {
+				if candidate == key || walk(nested) {
+					return true
+				}
+			}
+		case []any:
+			for _, nested := range typed {
+				if walk(nested) {
+					return true
+				}
+			}
 		}
-		if nested, ok := json.Marshal(v); ok == nil && containsJSONKey(nested, key) {
-			return true
-		}
+		return false
 	}
-	return false
+	return walk(value)
 }

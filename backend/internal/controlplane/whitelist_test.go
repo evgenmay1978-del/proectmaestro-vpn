@@ -47,6 +47,41 @@ func TestWhiteListEntitlementActivationPinsAdditiveReferences(t *testing.T) {
 	}
 }
 
+func TestWhiteListEntitlementRepresentsEveryExplicitState(t *testing.T) {
+	disabled, err := controlplane.NewWhiteListEntitlement("account-alpha")
+	if err != nil {
+		t.Fatalf("NewWhiteListEntitlement: %v", err)
+	}
+	seed, err := disabled.Activate("profile-a", "preset-a", "release-a")
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	states := []controlplane.EntitlementState{
+		controlplane.EntitlementDisabled,
+		controlplane.EntitlementProvisioning,
+		controlplane.EntitlementActive,
+		controlplane.EntitlementGrace,
+		controlplane.EntitlementSuspended,
+		controlplane.EntitlementError,
+		controlplane.EntitlementExpired,
+	}
+	for _, state := range states {
+		got, err := seed.WithState(state)
+		if err != nil {
+			t.Fatalf("WithState(%q): %v", state, err)
+		}
+		if got.State() != state {
+			t.Errorf("WithState(%q) state = %q", state, got.State())
+		}
+		if got.Active() != (state == controlplane.EntitlementActive) {
+			t.Errorf("WithState(%q) active = %v", state, got.Active())
+		}
+		if got.AccountID() != "account-alpha" || got.TransportProfileID() != "profile-a" ||
+			got.CompatibilityPresetID() != "preset-a" || got.TransportReleaseID() != "release-a" {
+			t.Errorf("WithState(%q) discarded pinned references: %#v", state, got)
+		}
+	}
+}
 func TestTransportReleaseIsImmutableAndCanonical(t *testing.T) {
 	edges := []controlplane.ApprovedEdge{
 		{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
