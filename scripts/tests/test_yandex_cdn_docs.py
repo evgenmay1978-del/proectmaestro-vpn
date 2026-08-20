@@ -112,6 +112,17 @@ class RedactionTests(unittest.TestCase):
         host_port = 'cdn.' + 'example.' + 'test' + ':' + '443'
         self.assert_preview_redacts(f'origin={address} next={host_port}', address, host_port)
 
+    def test_public_evidence_url_preserves_markdown_and_sensitive_url_redacts(self):
+        module = renderer()
+        public_host = 'github.' + 'com'
+        public_url = 'https' + '://' + public_host + '/example/project/issues/1'
+        public_source = f'[evidence]({public_url}), next.'
+        self.assertEqual(public_source, module.safe_preview(public_source))
+        private_host = 'private-gateway.' + 'example.' + 'test'
+        private_url = 'https' + '://' + private_host + '/private-path'
+        private_source = f'endpoint `({private_url})`, next.'
+        self.assertEqual('endpoint `(<REDACTED>)`, next.', module.safe_preview(private_source))
+
     def test_pem_requires_the_matching_punctuated_end_label(self):
         delayed = ('-----BEGIN OPENSSH PRIVATE KEY (TEST)-----\nfirst-private\n'
                    '-----END CERTIFICATE-----\nstill-private\n'
@@ -232,6 +243,25 @@ class SecrecyScanTests(unittest.TestCase):
             errors = validator().scan_secrecy(root, docs)
             for name in ('CONTEXT_HANDOFF.md', 'DERIVATIVE.md', 'BASELINE_MANIFEST.json', 'tool.py'):
                 self.assertTrue(any(name in error for error in errors), (name, errors))
+
+
+    def test_bare_hostname_rejected_but_public_evidence_host_allowed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            docs = root / 'docs' / 'yandex-cdn-whitelist'
+            docs.mkdir(parents=True)
+            bare_host = 'production-node.' + 'example.' + 'test'
+            public_host = 'github.' + 'com'
+            public_url = 'https' + '://' + public_host + '/example/project'
+            (root / 'AGENTS.md').write_text('safe\n', encoding='utf8')
+            (root / 'CONTEXT.md').write_text('safe\n', encoding='utf8')
+            (root / 'CONTEXT_HANDOFF.md').write_text('safe\n', encoding='utf8')
+            (docs / 'MASTER_REQUIREMENTS.md').write_text('excluded source\n', encoding='utf8')
+            (docs / 'BARE.md').write_text(f'{bare_host}\n', encoding='utf8')
+            (docs / 'PUBLIC.md').write_text(f'[evidence]({public_url}).\n', encoding='utf8')
+            errors = validator().scan_secrecy(root, docs)
+            self.assertTrue(any('BARE.md' in error for error in errors), errors)
+            self.assertFalse(any('PUBLIC.md' in error for error in errors), errors)
 
 
 if __name__ == '__main__':

@@ -2,12 +2,15 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_REL = Path('docs/yandex-cdn-whitelist')
 MANIFEST_REL = DOCS_REL / 'BASELINE_MANIFEST.json'
 ROOT_GOVERNANCE = ('AGENTS.md', 'CONTEXT.md', 'CONTEXT_HANDOFF.md')
 SENSITIVE_KEY = r'(?:authorization|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|token|password|passwd|secret|client[_ -]?secret|api[_ -]?key|private[_ -]?key|credential)'
+SENSITIVE_QUERY_KEYS = frozenset({'authorization', 'accesstoken', 'authtoken', 'refreshtoken', 'token', 'password', 'passwd', 'secret', 'clientsecret', 'apikey', 'privatekey', 'credential'})
+PUBLIC_EVIDENCE_HOSTS = frozenset({'github.com', 'githubusercontent.com', 'raw.githubusercontent.com', 'objects.githubusercontent.com'})
 PEM = re.compile(r'-----BEGIN (?P<label>[A-Z0-9][A-Z0-9 ._+,:/()\-]{0,120})-----[\s\S]*?(?:-----END (?P=label)-----|\Z)')
 JSON_SECRET = re.compile(rf'(?is)(?P<prefix>["\']{SENSITIVE_KEY}["\']\s*:\s*)(?P<quote>["\'])(?:\\.|(?!(?P=quote))[\s\S])*(?P=quote)')
 ASSIGN_SECRET = re.compile(rf'(?im)(?P<prefix>\b{SENSITIVE_KEY}\b\s*[:=]\s*)(?P<value>[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*)')
@@ -19,6 +22,38 @@ UUID = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 IPV4 = re.compile(r'(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\w.])')
 HOST_PORT = re.compile(r'(?i)\b(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?):\d{1,5}\b')
 HOSTNAME = re.compile(r'(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:[a-z]{2,63})\b')
+URL_TRAILING_PUNCTUATION = ".,;:!?)]}`"
+
+
+def split_url_token(value):
+    core = value
+    while core and core[-1] in URL_TRAILING_PUNCTUATION:
+        core = core[:-1]
+    return core, value[len(core):]
+
+
+def is_public_evidence_host(value):
+    return value.lower().rstrip('.') in PUBLIC_EVIDENCE_HOSTS
+
+
+def is_public_evidence_url(value):
+    core, _ = split_url_token(value)
+    try:
+        parsed = urlsplit(core)
+        port = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme.lower() != 'https' or not parsed.hostname or port is not None:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    if not is_public_evidence_host(parsed.hostname):
+        return False
+    for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
+        normalized = re.sub(r'[\s_-]+', '', key.lower())
+        if normalized in SENSITIVE_QUERY_KEYS:
+            return False
+    return True
 
 
 def redact_text(value):
@@ -26,13 +61,27 @@ def redact_text(value):
     value = JSON_SECRET.sub(lambda match: match.group('prefix') + match.group('quote') + '<REDACTED>' + match.group('quote'), value)
     value = ASSIGN_SECRET.sub(lambda match: match.group('prefix') + '<REDACTED>', value)
     value = BEARER.sub('Bearer <REDACTED>', value)
-    value = URL.sub('<REDACTED>', value)
+    public_urls = {}
+
+    def redact_url(match):
+        token = match.group(0)
+        core, suffix = split_url_token(token)
+        if is_public_evidence_url(core):
+            placeholder = f'PUBLIC_EVIDENCE_URL_{len(public_urls)}'
+            public_urls[placeholder] = core
+            return placeholder + suffix
+        return '<REDACTED>' + suffix
+
+    value = URL.sub(redact_url, value)
     value = URL_CREDENTIALS.sub('<REDACTED>', value)
     value = QUERY_SECRET.sub(lambda match: match.group(1) + '<REDACTED>', value)
     value = UUID.sub('<REDACTED>', value)
     value = IPV4.sub('<REDACTED>', value)
     value = HOST_PORT.sub('<REDACTED>', value)
-    return HOSTNAME.sub('<REDACTED>', value)
+    value = HOSTNAME.sub(lambda match: match.group(0) if is_public_evidence_host(match.group(0)) else '<REDACTED>', value)
+    for placeholder, url in public_urls.items():
+        value = value.replace(placeholder, url)
+    return value
 
 
 def safe_preview(value, limit=320):
@@ -42,6 +91,7 @@ def safe_preview(value, limit=320):
 def canonical_bytes(raw):
     """Normalize UTF-8 text to LF before size, hash, and preview."""
     return raw.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+
 
 def canonical_paths(root=ROOT):
     root = Path(root).resolve()
