@@ -2,14 +2,14 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_REL = Path('docs/yandex-cdn-whitelist')
 MANIFEST_REL = DOCS_REL / 'BASELINE_MANIFEST.json'
 ROOT_GOVERNANCE = ('AGENTS.md', 'CONTEXT.md', 'CONTEXT_HANDOFF.md')
 SENSITIVE_KEY = r'(?:authorization|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|token|password|passwd|secret|client[_ -]?secret|api[_ -]?key|private[_ -]?key|credential)'
-SENSITIVE_QUERY_KEYS = frozenset({'authorization', 'accesstoken', 'authtoken', 'refreshtoken', 'token', 'password', 'passwd', 'secret', 'clientsecret', 'apikey', 'privatekey', 'credential'})
+
 PUBLIC_EVIDENCE_HOSTS = frozenset({'github.com', 'githubusercontent.com', 'raw.githubusercontent.com', 'objects.githubusercontent.com'})
 PEM = re.compile(r'-----BEGIN (?P<label>[A-Z0-9][A-Z0-9 ._+,:/()\-]{0,120})-----[\s\S]*?(?:-----END (?P=label)-----|\Z)')
 JSON_SECRET = re.compile(rf'(?is)(?P<prefix>["\']{SENSITIVE_KEY}["\']\s*:\s*)(?P<quote>["\'])(?:\\.|(?!(?P=quote))[\s\S])*(?P=quote)')
@@ -45,21 +45,16 @@ def is_public_evidence_url(value):
         return False
     if parsed.scheme.lower() != 'https' or not parsed.hostname or port is not None:
         return False
-    if parsed.username is not None or parsed.password is not None:
+    if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
         return False
     if not is_public_evidence_host(parsed.hostname):
         return False
-    for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
-        normalized = re.sub(r'[\s_-]+', '', key.lower())
-        if normalized in SENSITIVE_QUERY_KEYS:
-            return False
     return True
 
 
 def redact_text(value):
     value = PEM.sub('<REDACTED>', value)
     value = JSON_SECRET.sub(lambda match: match.group('prefix') + match.group('quote') + '<REDACTED>' + match.group('quote'), value)
-    value = ASSIGN_SECRET.sub(lambda match: match.group('prefix') + '<REDACTED>', value)
     value = BEARER.sub('Bearer <REDACTED>', value)
     public_urls = {}
 
@@ -73,6 +68,7 @@ def redact_text(value):
         return '<REDACTED>' + suffix
 
     value = URL.sub(redact_url, value)
+    value = ASSIGN_SECRET.sub(lambda match: match.group('prefix') + '<REDACTED>', value)
     value = URL_CREDENTIALS.sub('<REDACTED>', value)
     value = QUERY_SECRET.sub(lambda match: match.group(1) + '<REDACTED>', value)
     value = UUID.sub('<REDACTED>', value)

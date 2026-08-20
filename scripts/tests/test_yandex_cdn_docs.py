@@ -123,6 +123,15 @@ class RedactionTests(unittest.TestCase):
         private_source = f'endpoint `({private_url})`, next.'
         self.assertEqual('endpoint `(<REDACTED>)`, next.', module.safe_preview(private_source))
 
+    def test_allowlisted_public_url_rejects_query_and_fragment(self):
+        module = renderer()
+        public_host = 'github.' + 'com'
+        public_url = 'https' + '://' + public_host + '/example/project/issues/1'
+        signed_url = public_url + '?' + 'X-Amz-' + 'Signature=' + 'synthetic'
+        fragment_url = public_url + '#' + 'access_' + 'token=' + 'synthetic'
+        source = f'signed [{signed_url}], fragment ({fragment_url}).'
+        self.assertEqual('signed [<REDACTED>], fragment (<REDACTED>).', module.safe_preview(source))
+
     def test_pem_requires_the_matching_punctuated_end_label(self):
         delayed = ('-----BEGIN OPENSSH PRIVATE KEY (TEST)-----\nfirst-private\n'
                    '-----END CERTIFICATE-----\nstill-private\n'
