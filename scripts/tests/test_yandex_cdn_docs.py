@@ -17,6 +17,9 @@ class T(unittest.TestCase):
   for p in (DOCS/'adr').glob('ADR-*.md'):
    x=p.read_text(encoding='utf8');self.assertIn('Status: proposed',x);[self.assertIn(h,x) for h in HEAD];decisions.append(x.split('## Decision',1)[1].split('## Evidence',1)[0].strip())
   self.assertEqual(17,len(set(decisions)))
+ def test_each_adr_has_topic_specific_target(self):
+  targets=('sidecar/reconciler boundary','3x-ui raw-field preservation','pinned Xray provenance','capability preset versioning','idle downlink recovery','immutable release pointer','opaque stats identity','desired-state user reconciliation','edge approval evidence','additive subscription rendering','server-side counter source','epoch-scoped cumulative delta','immutable financial ledger','entitlement-only suspension','official-prefix origin policy','gated canary progression','scoped immutable rollback')
+  for i,target in enumerate(targets,1):self.assertIn('## Topic-specific target\n'+target,(DOCS/'adr'/f'ADR-{i:04d}.md').read_text(encoding='utf8'))
  def test_no_raw_ipv4_outside_master(self):
   files=[ROOT/'AGENTS.md',ROOT/'CONTEXT.md',*DOCS.rglob('*.md'),*(ROOT/'scripts').rglob('*.py')]
   for p in files:
