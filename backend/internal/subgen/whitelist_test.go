@@ -9,7 +9,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
-func whiteListFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlplane.TransportProfile, controlplane.CompatibilityPreset, controlplane.TransportRelease) {
+func reviewedFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlplane.TransportRelease) {
 	t.Helper()
 	entitlement, err := controlplane.NewWhiteListEntitlement("account-alpha")
 	if err != nil {
@@ -24,23 +24,24 @@ func whiteListFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlp
 		OriginRouteID: "origin-route-a", CompatibilityPresetID: "preset-a",
 	}
 	preset := controlplane.CompatibilityPreset{
-		ID: "preset-a", Version: 1, ProtectionLevel: "advanced",
+		ID: "preset-a", Version: 1, Kind: "MAESTRO_ADVANCED", ProtectionLevel: "advanced",
 		Capabilities: []string{"vless-encryption", "xhttp-get-body"},
+		CoreRange:    "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
+		Protocol: "vless", Network: "xhttp", Port: 443, TLS: true,
+		Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
 	}
 	release, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
-		ID:                    "release-a",
-		TransportProfileID:    "profile-a",
-		CompatibilityPresetID: "preset-a",
-		State:                 controlplane.TransportReleasePublished,
+		ID: "release-a", Profile: profile, Preset: preset,
+		State: controlplane.TransportReleasePublished,
 		ApprovedEdges: []controlplane.ApprovedEdge{
-			{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
-			{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.11", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
+			{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.11", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
+			{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
 		},
 	})
 	if err != nil {
 		t.Fatalf("NewTransportRelease: %v", err)
 	}
-	return entitlement, profile, preset, release
+	return entitlement, release
 }
 
 func TestRenderWhiteListSubscriptionLeavesOrdinaryOutputByteExactWhenDisabled(t *testing.T) {
@@ -48,17 +49,10 @@ func TestRenderWhiteListSubscriptionLeavesOrdinaryOutputByteExactWhenDisabled(t 
 	if err != nil {
 		t.Fatalf("NewWhiteListEntitlement: %v", err)
 	}
-	ordinary := OrdinarySubscription{Identity: "ordinary-subscription-alpha", Output: "opaque\nordinary\noutput\n"}
-
-	result, err := RenderWhiteListSubscription(ordinary, entitlement, controlplane.TransportProfile{}, controlplane.CompatibilityPreset{}, controlplane.TransportRelease{})
-	if err != nil {
-		t.Fatalf("RenderWhiteListSubscription(disabled): %v", err)
-	}
-	if result.Ordinary != ordinary {
-		t.Fatalf("ordinary subscription changed: got %#v want %#v", result.Ordinary, ordinary)
-	}
-	if len(result.WhiteListNodes) != 0 {
-		t.Fatalf("disabled entitlement rendered %d CDN nodes", len(result.WhiteListNodes))
+	ordinary := OrdinarySubscription{AccountID: "account-alpha", Identity: "ordinary-subscription-alpha", Output: "opaque\nordinary\noutput\n"}
+	result := RenderWhiteListSubscription(ordinary, entitlement, controlplane.TransportRelease{})
+	if result.Ordinary != ordinary || len(result.WhiteListNodes) != 0 || result.Diagnostic != nil {
+		t.Fatalf("disabled rendering changed ordinary access: %#v", result)
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -66,51 +60,93 @@ func TestRenderWhiteListSubscriptionLeavesOrdinaryOutputByteExactWhenDisabled(t 
 	}
 	want := `{"ordinary":{"identity":"ordinary-subscription-alpha","output":"opaque\nordinary\noutput\n"},"white_list_nodes":[]}`
 	if string(raw) != want {
-		t.Fatalf("disabled API contract = %s, want %s", raw, want)
+		t.Fatalf("disabled API contract=%s, want %s", raw, want)
 	}
 }
 
-func TestRenderWhiteListSubscriptionAddsOnlyDeterministicApprovedNodesWhenActive(t *testing.T) {
-	entitlement, profile, preset, release := whiteListFixture(t)
-	ordinary := OrdinarySubscription{Identity: "ordinary-subscription-alpha", Output: "opaque-existing-output"}
-
-	result, err := RenderWhiteListSubscription(ordinary, entitlement, profile, preset, release)
-	if err != nil {
-		t.Fatalf("RenderWhiteListSubscription(active): %v", err)
+func TestRenderWhiteListSubscriptionLeavesOrdinaryForEveryNonActiveState(t *testing.T) {
+	active, release := reviewedFixture(t)
+	ordinary := OrdinarySubscription{AccountID: "account-alpha", Identity: "ordinary", Output: "payload"}
+	states := []controlplane.EntitlementState{
+		controlplane.EntitlementDisabled,
+		controlplane.EntitlementProvisioning,
+		controlplane.EntitlementGrace,
+		controlplane.EntitlementSuspended,
+		controlplane.EntitlementError,
+		controlplane.EntitlementExpired,
 	}
-	if result.Ordinary != ordinary {
-		t.Fatalf("active rendering replaced ordinary subscription: got %#v want %#v", result.Ordinary, ordinary)
+	for _, state := range states {
+		entitlement, err := active.WithState(state)
+		if err != nil {
+			t.Fatalf("WithState(%q): %v", state, err)
+		}
+		result := RenderWhiteListSubscription(ordinary, entitlement, release)
+		if result.Ordinary != ordinary || len(result.WhiteListNodes) != 0 || result.Diagnostic != nil {
+			t.Errorf("state %q changed ordinary access: %#v", state, result)
+		}
+	}
+}
+
+func TestRenderWhiteListSubscriptionUsesFrozenReleaseAndDeterministicApprovedEdges(t *testing.T) {
+	entitlement, release := reviewedFixture(t)
+	ordinary := OrdinarySubscription{AccountID: "account-alpha", Identity: "ordinary-subscription-alpha", Output: "opaque-existing-output"}
+	result := RenderWhiteListSubscription(ordinary, entitlement, release)
+	if result.Ordinary != ordinary || result.Diagnostic != nil {
+		t.Fatalf("active rendering changed ordinary subscription: %#v", result)
 	}
 	if len(result.WhiteListNodes) != 2 {
-		t.Fatalf("active node count = %d, want 2", len(result.WhiteListNodes))
+		t.Fatalf("active node count=%d, want 2", len(result.WhiteListNodes))
 	}
 	gotAddresses := []string{result.WhiteListNodes[0].Address, result.WhiteListNodes[1].Address}
-	if !reflect.DeepEqual(gotAddresses, []string{"203.0.113.11", "203.0.113.12"}) {
-		t.Fatalf("node order = %v, want canonical address order", gotAddresses)
+	if !reflect.DeepEqual(gotAddresses, []string{"203.0.113.12", "203.0.113.11"}) {
+		t.Fatalf("node order=%v, want edge-ID canonical order", gotAddresses)
 	}
 	for _, node := range result.WhiteListNodes {
 		if node.Protocol != "vless" || node.Network != "xhttp" || node.Port != 443 || !node.TLS ||
-			node.ServerName != profile.PublicHost || node.Host != profile.PublicHost || node.Path != profile.SecretPath ||
+			node.ServerName != "cdn.example.invalid" || node.Host != "cdn.example.invalid" || node.Path != "/static/test/segment.ts/opaque" ||
 			node.Mode != "packet-up" || node.UplinkHTTPMethod != "GET" || node.UplinkDataPlacement != "body" ||
-			node.TransportProfileID != profile.ID || node.CompatibilityPresetID != preset.ID || node.TransportReleaseID != release.ID() {
-			t.Fatalf("unexpected CDN node contract: %#v", node)
+			node.TransportProfileID != "profile-a" || node.CompatibilityPresetID != "preset-a" || node.TransportReleaseID != "release-a" {
+			t.Fatalf("unexpected frozen CDN node contract: %#v", node)
 		}
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatalf("marshal active result: %v", err)
 	}
-	if containsJSONKey(raw, "origin_route_id") || containsJSONKey(raw, "data_plane_instance_id") {
-		t.Fatalf("public subscription contract exposed origin routing: %s", raw)
+	if containsJSONKey(raw, "account_id") || containsJSONKey(raw, "origin_route_id") || containsJSONKey(raw, "data_plane_instance_id") {
+		t.Fatalf("public subscription contract exposed internal routing/ownership: %s", raw)
 	}
 }
 
-func TestRenderWhiteListSubscriptionRejectsMismatchedActiveRelease(t *testing.T) {
-	entitlement, profile, preset, release := whiteListFixture(t)
-	profile.ID = "profile-other"
-	_, err := RenderWhiteListSubscription(OrdinarySubscription{Identity: "ordinary", Output: "payload"}, entitlement, profile, preset, release)
-	if err == nil {
-		t.Fatal("active entitlement accepted a release/profile mismatch")
+func TestRenderWhiteListSubscriptionRejectsCrossAccountWithoutDroppingOrdinary(t *testing.T) {
+	entitlement, release := reviewedFixture(t)
+	ordinary := OrdinarySubscription{AccountID: "account-other", Identity: "ordinary-other", Output: "ordinary-payload"}
+	result := RenderWhiteListSubscription(ordinary, entitlement, release)
+	if result.Ordinary != ordinary || len(result.WhiteListNodes) != 0 {
+		t.Fatalf("cross-account failure dropped/changed ordinary output: %#v", result)
+	}
+	if result.Diagnostic == nil || result.Diagnostic.Code != DiagnosticAccountMismatch {
+		t.Fatalf("cross-account diagnostic=%#v", result.Diagnostic)
+	}
+}
+
+func TestRenderWhiteListSubscriptionReleaseMismatchFailsOnlyAdditiveNodes(t *testing.T) {
+	entitlement, release := reviewedFixture(t)
+	entitlement, err := entitlement.WithState(controlplane.EntitlementSuspended)
+	if err != nil {
+		t.Fatalf("WithState: %v", err)
+	}
+	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-other")
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+	ordinary := OrdinarySubscription{AccountID: "account-alpha", Identity: "ordinary", Output: "ordinary-payload"}
+	result := RenderWhiteListSubscription(ordinary, entitlement, release)
+	if result.Ordinary != ordinary || len(result.WhiteListNodes) != 0 {
+		t.Fatalf("release mismatch dropped/changed ordinary output: %#v", result)
+	}
+	if result.Diagnostic == nil || result.Diagnostic.Code != DiagnosticReleaseMismatch {
+		t.Fatalf("release mismatch diagnostic=%#v", result.Diagnostic)
 	}
 }
 

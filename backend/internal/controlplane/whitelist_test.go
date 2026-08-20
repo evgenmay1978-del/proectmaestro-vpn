@@ -8,46 +8,48 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
+func validProfile() controlplane.TransportProfile {
+	return controlplane.TransportProfile{
+		ID:                    "profile-a",
+		PublicHost:            "cdn.example.invalid",
+		SecretPath:            "/static/test/segment.ts/opaque",
+		OriginRouteID:         "origin-route-a",
+		CompatibilityPresetID: "preset-a",
+	}
+}
+
+func validPreset() controlplane.CompatibilityPreset {
+	return controlplane.CompatibilityPreset{
+		ID: "preset-a", Version: 1, Kind: "MAESTRO_ADVANCED", ProtectionLevel: "advanced",
+		Capabilities: []string{"vless-encryption", "xhttp-get-body"},
+		CoreRange:    "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
+		Protocol: "vless", Network: "xhttp", Port: 443, TLS: true,
+		Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
+	}
+}
+
+func validApprovedEdges() []controlplane.ApprovedEdge {
+	return []controlplane.ApprovedEdge{
+		{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.11", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
+		{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
+	}
+}
+
 func TestWhiteListEntitlementDefaultsDisabled(t *testing.T) {
 	var zero controlplane.WhiteListEntitlement
-	if zero.State() != controlplane.EntitlementDisabled {
-		t.Fatalf("zero-value state = %q, want %q", zero.State(), controlplane.EntitlementDisabled)
+	if zero.State() != controlplane.EntitlementDisabled || zero.Active() {
+		t.Fatalf("zero-value entitlement granted access: state=%q active=%v", zero.State(), zero.Active())
 	}
-	if zero.Active() {
-		t.Fatal("zero-value entitlement is active; white-list access must default OFF")
-	}
-
 	entitlement, err := controlplane.NewWhiteListEntitlement("account-alpha")
 	if err != nil {
 		t.Fatalf("NewWhiteListEntitlement: %v", err)
 	}
 	if entitlement.State() != controlplane.EntitlementDisabled || entitlement.Active() {
-		t.Fatalf("new entitlement state = %q active=%v, want disabled", entitlement.State(), entitlement.Active())
+		t.Fatalf("new entitlement state=%q active=%v, want disabled", entitlement.State(), entitlement.Active())
 	}
 }
 
-func TestWhiteListEntitlementActivationPinsAdditiveReferences(t *testing.T) {
-	disabled, err := controlplane.NewWhiteListEntitlement("account-alpha")
-	if err != nil {
-		t.Fatalf("NewWhiteListEntitlement: %v", err)
-	}
-	active, err := disabled.Activate("profile-a", "preset-a", "release-a")
-	if err != nil {
-		t.Fatalf("Activate: %v", err)
-	}
-	if disabled.Active() {
-		t.Fatal("Activate mutated the disabled value")
-	}
-	if !active.Active() || active.State() != controlplane.EntitlementActive {
-		t.Fatalf("active state = %q active=%v", active.State(), active.Active())
-	}
-	if active.AccountID() != "account-alpha" || active.TransportProfileID() != "profile-a" ||
-		active.CompatibilityPresetID() != "preset-a" || active.TransportReleaseID() != "release-a" {
-		t.Fatalf("activation did not pin account/profile/preset/release: %#v", active)
-	}
-}
-
-func TestWhiteListEntitlementRepresentsEveryExplicitState(t *testing.T) {
+func TestWhiteListEntitlementRepresentsEveryExplicitStateAndRejectsUnknown(t *testing.T) {
 	disabled, err := controlplane.NewWhiteListEntitlement("account-alpha")
 	if err != nil {
 		t.Fatalf("NewWhiteListEntitlement: %v", err)
@@ -70,51 +72,72 @@ func TestWhiteListEntitlementRepresentsEveryExplicitState(t *testing.T) {
 		if err != nil {
 			t.Fatalf("WithState(%q): %v", state, err)
 		}
-		if got.State() != state {
-			t.Errorf("WithState(%q) state = %q", state, got.State())
-		}
-		if got.Active() != (state == controlplane.EntitlementActive) {
-			t.Errorf("WithState(%q) active = %v", state, got.Active())
+		if got.State() != state || got.Active() != (state == controlplane.EntitlementActive) {
+			t.Errorf("WithState(%q): state=%q active=%v", state, got.State(), got.Active())
 		}
 		if got.AccountID() != "account-alpha" || got.TransportProfileID() != "profile-a" ||
 			got.CompatibilityPresetID() != "preset-a" || got.TransportReleaseID() != "release-a" {
 			t.Errorf("WithState(%q) discarded pinned references: %#v", state, got)
 		}
 	}
+	if _, err := seed.WithState(controlplane.EntitlementState("UNKNOWN")); err == nil {
+		t.Fatal("WithState accepted an unknown lifecycle state")
+	}
 }
 
-func TestTransportReleaseIsImmutableAndCanonical(t *testing.T) {
-	edges := []controlplane.ApprovedEdge{
-		{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
-		{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.11", ApprovedAt: time.Unix(10, 0), EvidenceRef: "evidence-a"},
-	}
+func TestTransportReleaseFreezesProfilePresetAndCanonicalEdges(t *testing.T) {
+	profile := validProfile()
+	preset := validPreset()
+	edges := validApprovedEdges()
 	release, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
-		ID:                    "release-a",
-		TransportProfileID:    "profile-a",
-		CompatibilityPresetID: "preset-a",
-		State:                 controlplane.TransportReleasePublished,
-		ApprovedEdges:         edges,
+		ID: "release-a", Profile: profile, Preset: preset,
+		State: controlplane.TransportReleasePublished, ApprovedEdges: edges,
 	})
 	if err != nil {
 		t.Fatalf("NewTransportRelease: %v", err)
 	}
 
+	profile.PublicHost = "mutated.example.invalid"
+	preset.Capabilities[0] = "mutated"
 	edges[0].Address = "198.51.100.99"
-	firstRead := release.ApprovedEdges()
-	wantAddresses := []string{"203.0.113.11", "203.0.113.12"}
-	gotAddresses := []string{firstRead[0].Address, firstRead[1].Address}
+
+	frozenProfile := release.Profile()
+	frozenPreset := release.Preset()
+	frozenEdges := release.ApprovedEdges()
+	if frozenProfile.PublicHost != "cdn.example.invalid" || frozenPreset.Capabilities[0] != "vless-encryption" {
+		t.Fatalf("release did not freeze profile/preset: profile=%#v preset=%#v", frozenProfile, frozenPreset)
+	}
+	gotAddresses := []string{frozenEdges[0].Address, frozenEdges[1].Address}
+	wantAddresses := []string{"203.0.113.12", "203.0.113.11"}
 	if !reflect.DeepEqual(gotAddresses, wantAddresses) {
-		t.Fatalf("canonical release addresses = %v, want %v", gotAddresses, wantAddresses)
+		t.Fatalf("edge order=%v, want ID-canonical %v", gotAddresses, wantAddresses)
 	}
 
-	firstRead[0].Address = "198.51.100.100"
-	secondRead := release.ApprovedEdges()
-	if secondRead[0].Address != "203.0.113.11" {
-		t.Fatalf("release exposed mutable edge slice: %q", secondRead[0].Address)
+	frozenPreset.Capabilities[0] = "caller-mutated"
+	frozenEdges[0].Address = "198.51.100.100"
+	if release.Preset().Capabilities[0] != "vless-encryption" || release.ApprovedEdges()[0].Address != "203.0.113.12" {
+		t.Fatal("release getters exposed mutable slices")
 	}
-	if release.ID() != "release-a" || release.TransportProfileID() != "profile-a" ||
-		release.CompatibilityPresetID() != "preset-a" || release.State() != controlplane.TransportReleasePublished {
-		t.Fatalf("release identity changed: id=%q profile=%q preset=%q state=%q", release.ID(), release.TransportProfileID(), release.CompatibilityPresetID(), release.State())
+}
+
+func TestTransportReleaseRejectsDuplicateAddressAndMalformedPublicMaterial(t *testing.T) {
+	profile := validProfile()
+	preset := validPreset()
+	edges := validApprovedEdges()
+	edges[1].Address = edges[0].Address
+	if _, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
+		ID: "release-a", Profile: profile, Preset: preset,
+		State: controlplane.TransportReleasePublished, ApprovedEdges: edges,
+	}); err == nil {
+		t.Fatal("release accepted duplicate edge address")
+	}
+
+	profile.PublicHost = "https://internal.example.invalid/path"
+	if _, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
+		ID: "release-a", Profile: profile, Preset: preset,
+		State: controlplane.TransportReleasePublished, ApprovedEdges: validApprovedEdges(),
+	}); err == nil {
+		t.Fatal("release accepted malformed public host")
 	}
 }
 
@@ -124,10 +147,8 @@ func TestEdgeCandidateApprovalPreservesCandidateIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
-	if approved.ID != candidate.ID || approved.TransportProfileID != candidate.TransportProfileID || approved.Address != candidate.Address {
-		t.Fatalf("approved edge lost candidate identity: %#v", approved)
-	}
-	if approved.ApprovedAt != time.Unix(10, 0) || approved.EvidenceRef != "evidence-a" {
-		t.Fatalf("approval evidence not retained: %#v", approved)
+	if approved.ID != candidate.ID || approved.TransportProfileID != candidate.TransportProfileID || approved.Address != candidate.Address ||
+		approved.ApprovedAt != time.Unix(10, 0) || approved.EvidenceRef != "evidence-a" {
+		t.Fatalf("approved edge lost identity/evidence: %#v", approved)
 	}
 }

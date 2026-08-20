@@ -2,6 +2,8 @@ package controlplane
 
 import (
 	"errors"
+	"net"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -31,12 +33,24 @@ type TransportProfile struct {
 	CompatibilityPresetID string
 }
 
-// CompatibilityPreset pins a versioned set of client/core capabilities.
+// CompatibilityPreset is the versioned client/core and wire contract frozen
+// into every immutable transport release.
 type CompatibilityPreset struct {
-	ID              string
-	Version         int
-	ProtectionLevel string
-	Capabilities    []string
+	ID                  string
+	Version             int
+	Kind                string
+	ProtectionLevel     string
+	Capabilities        []string
+	CoreRange           string
+	ClientRanges        []string
+	FixtureRefs         []string
+	Protocol            string
+	Network             string
+	Port                int
+	TLS                 bool
+	Mode                string
+	UplinkHTTPMethod    string
+	UplinkDataPlacement string
 }
 
 // OriginRoute is an opaque control-plane route to one isolated data plane.
@@ -65,7 +79,7 @@ type ApprovedEdge struct {
 
 // Approve returns a new approved value and leaves the candidate unchanged.
 func (candidate EdgeCandidate) Approve(approvedAt time.Time, evidenceRef string) (ApprovedEdge, error) {
-	if blank(candidate.ID) || blank(candidate.TransportProfileID) || blank(candidate.Address) || approvedAt.IsZero() || blank(evidenceRef) {
+	if blank(candidate.ID) || blank(candidate.TransportProfileID) || !validEdgeAddress(candidate.Address) || approvedAt.IsZero() || blank(evidenceRef) {
 		return ApprovedEdge{}, errors.New("controlplane: incomplete edge approval")
 	}
 	return ApprovedEdge{
@@ -87,27 +101,28 @@ const (
 	TransportReleaseRetired   TransportReleaseState = "RETIRED"
 )
 
-// TransportReleaseSpec is copied by NewTransportRelease. Mutating the spec or
-// its edge slice after construction cannot change the release.
+// TransportReleaseSpec is copied by NewTransportRelease. Mutating any caller
+// owned profile, preset or edge slice after construction cannot change release
+// output.
 type TransportReleaseSpec struct {
-	ID                    string
-	TransportProfileID    string
-	CompatibilityPresetID string
-	State                 TransportReleaseState
-	ApprovedEdges         []ApprovedEdge
+	ID            string
+	Profile       TransportProfile
+	Preset        CompatibilityPreset
+	State         TransportReleaseState
+	ApprovedEdges []ApprovedEdge
 }
 
 // TransportRelease is an immutable, canonical snapshot used by renderers.
 type TransportRelease struct {
-	id                    string
-	transportProfileID    string
-	compatibilityPresetID string
-	state                 TransportReleaseState
-	approvedEdges         []ApprovedEdge
+	id            string
+	profile       TransportProfile
+	preset        CompatibilityPreset
+	state         TransportReleaseState
+	approvedEdges []ApprovedEdge
 }
 
 func NewTransportRelease(spec TransportReleaseSpec) (TransportRelease, error) {
-	if blank(spec.ID) || blank(spec.TransportProfileID) || blank(spec.CompatibilityPresetID) || !validTransportReleaseState(spec.State) {
+	if blank(spec.ID) || !validTransportReleaseState(spec.State) || !validProfile(spec.Profile) || !validPreset(spec.Preset) || spec.Profile.CompatibilityPresetID != spec.Preset.ID {
 		return TransportRelease{}, errors.New("controlplane: invalid transport release")
 	}
 	if spec.State == TransportReleasePublished && len(spec.ApprovedEdges) == 0 {
@@ -115,15 +130,20 @@ func NewTransportRelease(spec TransportReleaseSpec) (TransportRelease, error) {
 	}
 
 	edges := append([]ApprovedEdge(nil), spec.ApprovedEdges...)
-	seen := make(map[string]struct{}, len(edges))
+	seenIDs := make(map[string]struct{}, len(edges))
+	seenAddresses := make(map[string]struct{}, len(edges))
 	for _, edge := range edges {
-		if blank(edge.ID) || blank(edge.Address) || edge.TransportProfileID != spec.TransportProfileID || edge.ApprovedAt.IsZero() || blank(edge.EvidenceRef) {
+		if blank(edge.ID) || !validEdgeAddress(edge.Address) || edge.TransportProfileID != spec.Profile.ID || edge.ApprovedAt.IsZero() || blank(edge.EvidenceRef) {
 			return TransportRelease{}, errors.New("controlplane: invalid approved edge")
 		}
-		if _, exists := seen[edge.ID]; exists {
-			return TransportRelease{}, errors.New("controlplane: duplicate approved edge")
+		if _, exists := seenIDs[edge.ID]; exists {
+			return TransportRelease{}, errors.New("controlplane: duplicate approved edge id")
 		}
-		seen[edge.ID] = struct{}{}
+		if _, exists := seenAddresses[edge.Address]; exists {
+			return TransportRelease{}, errors.New("controlplane: duplicate approved edge address")
+		}
+		seenIDs[edge.ID] = struct{}{}
+		seenAddresses[edge.Address] = struct{}{}
 	}
 	sort.Slice(edges, func(i, j int) bool {
 		if edges[i].ID == edges[j].ID {
@@ -133,23 +153,27 @@ func NewTransportRelease(spec TransportReleaseSpec) (TransportRelease, error) {
 	})
 
 	return TransportRelease{
-		id:                    spec.ID,
-		transportProfileID:    spec.TransportProfileID,
-		compatibilityPresetID: spec.CompatibilityPresetID,
-		state:                 spec.State,
-		approvedEdges:         edges,
+		id:            spec.ID,
+		profile:       spec.Profile,
+		preset:        clonePreset(spec.Preset),
+		state:         spec.State,
+		approvedEdges: edges,
 	}, nil
 }
 
 func (release TransportRelease) ID() string { return release.id }
 
-func (release TransportRelease) TransportProfileID() string { return release.transportProfileID }
+func (release TransportRelease) TransportProfileID() string { return release.profile.ID }
 
-func (release TransportRelease) CompatibilityPresetID() string {
-	return release.compatibilityPresetID
-}
+func (release TransportRelease) CompatibilityPresetID() string { return release.preset.ID }
 
 func (release TransportRelease) State() TransportReleaseState { return release.state }
+
+// Profile returns the immutable public profile snapshot.
+func (release TransportRelease) Profile() TransportProfile { return release.profile }
+
+// Preset returns a defensive copy of the immutable preset snapshot.
+func (release TransportRelease) Preset() CompatibilityPreset { return clonePreset(release.preset) }
 
 // ApprovedEdges returns a defensive copy of the canonical edge order.
 func (release TransportRelease) ApprovedEdges() []ApprovedEdge {
@@ -222,6 +246,67 @@ func (entitlement WhiteListEntitlement) CompatibilityPresetID() string {
 
 func (entitlement WhiteListEntitlement) TransportReleaseID() string {
 	return entitlement.transportReleaseID
+}
+
+func clonePreset(preset CompatibilityPreset) CompatibilityPreset {
+	preset.Capabilities = append([]string(nil), preset.Capabilities...)
+	preset.ClientRanges = append([]string(nil), preset.ClientRanges...)
+	preset.FixtureRefs = append([]string(nil), preset.FixtureRefs...)
+	return preset
+}
+
+func validProfile(profile TransportProfile) bool {
+	return !blank(profile.ID) && validPublicHost(profile.PublicHost) && validSecretPath(profile.SecretPath) &&
+		!blank(profile.OriginRouteID) && !blank(profile.CompatibilityPresetID)
+}
+
+func validPreset(preset CompatibilityPreset) bool {
+	return !blank(preset.ID) && preset.Version > 0 && !blank(preset.Kind) && !blank(preset.ProtectionLevel) &&
+		allNonBlank(preset.Capabilities) && !blank(preset.CoreRange) && allNonBlank(preset.ClientRanges) && allNonBlank(preset.FixtureRefs) &&
+		preset.Protocol == "vless" && preset.Network == "xhttp" && preset.Port == 443 && preset.TLS &&
+		preset.Mode == "packet-up" && preset.UplinkHTTPMethod == "GET" && preset.UplinkDataPlacement == "body"
+}
+
+func validPublicHost(host string) bool {
+	if host != strings.TrimSpace(host) || len(host) == 0 || len(host) > 253 || strings.ContainsAny(host, ":/?#") {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, char := range label {
+			if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validSecretPath(value string) bool {
+	return len(value) > 1 && strings.HasPrefix(value, "/") && !strings.ContainsAny(value, "?#") && path.Clean(value) == value
+}
+
+func validEdgeAddress(value string) bool {
+	parsed := net.ParseIP(value)
+	return parsed != nil && parsed.To4() != nil && parsed.String() == value
+}
+
+func allNonBlank(values []string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	for _, value := range values {
+		if blank(value) {
+			return false
+		}
+	}
+	return true
 }
 
 func validEntitlementState(state EntitlementState) bool {
