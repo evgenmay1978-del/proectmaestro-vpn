@@ -1,5 +1,11 @@
-# Implementation plan
+# Vertical implementation plan
+Status: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.
 
-1. Audit/restore proof/baseline. 2. Immutable sidecar candidate on each node shape. 3. Direct/CDN/subscription tests. 4. Client matrix and mobile recovery. 5. Per-user metering and shadow ledger. 6. Panel/edge registry. 7. Canary and explicit production gates.
+## Materialized policy
+Proceed audit/restore proof, isolated release skeleton, one non-production user, CDN tests, per-user stats, shadow metering/billing, panel reconciliation on four nodes, then approved canary. Each slice must be reversible and independently observable.
 
-Every node applies an independent immutable release through desired state; no direct production edit.
+## Gates and safety
+Ordinary VPN, existing identity, subscription, balances, panel and TV/mobile behaviour remain non-regression boundaries. Work starts only in an isolated branch/process/config/release. Any live inventory, backup/restore, service/origin/firewall/database change, client switch, charging, OTA, reboot or deletion is a stop gate requiring explicit owner approval. Sensitive origin context is referenced by MASTER section, never repeated here.
+
+## Evidence rule
+Record source, date, redacted release/checksum and outcome before changing status. WDTT, qWDTT, CSQTT and olcRTC remain deferred.

@@ -1,3 +1,11 @@
-# Rollback
+# Rollback policy
+Status: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.
 
-Select prior immutable release and edge set, disable only affected entitlement, return billing to shadow and retain usage/ledger/ordinary VPN. The validated sidecar rollback target is under five minutes.
+## Materialized policy
+Rollback selects a prior immutable release, unpublishes edge, disables one entitlement or returns billing to shadow. It preserves ordinary VPN, usage, ledger, balance, identity and unrelated nodes. No duration or fallback is claimed until approved isolated/live evidence exists.
+
+## Gates and safety
+Ordinary VPN, existing identity, subscription, balances, panel and TV/mobile behaviour remain non-regression boundaries. Work starts only in an isolated branch/process/config/release. Any live inventory, backup/restore, service/origin/firewall/database change, client switch, charging, OTA, reboot or deletion is a stop gate requiring explicit owner approval. Sensitive origin context is referenced by MASTER section, never repeated here.
+
+## Evidence rule
+Record source, date, redacted release/checksum and outcome before changing status. WDTT, qWDTT, CSQTT and olcRTC remain deferred.

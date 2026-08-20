@@ -1,12 +1,12 @@
 # Yandex CDN white-list task
 
-Requirements: [`MASTER_REQUIREMENTS`](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md). Vocabulary: [`CONTEXT.md`](CONTEXT.md). Task docs: [`docs/yandex-cdn-whitelist`](docs/yandex-cdn-whitelist/).
+Navigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](CONTEXT.md), [SPEC](docs/yandex-cdn-whitelist/SPEC.md), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done (§50)](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), and [handoff](docs/yandex-cdn-whitelist/HANDOFF.md).
 
-Invariants: ordinary VPN unchanged; entitlement OFF by default and additive; initial implementation is isolated; multi-node target covers S1/S2/S3/S4; no production restart/update/migration/firewall/UUID/URI/client/OTA/real charge; no secrets in Git/logs/docs; WDTT/qWDTT/CSQTT/OLCTRC out of scope.
+Invariants: ordinary VPN is unchanged; White-List Entitlement defaults OFF and is additive; initial work is isolated; mandatory target is independently reconciled S1/S2/S3/S4 nodes; no production restart/update/migration/firewall/UUID/URI/client/OTA/real charging; no secrets in Git/logs/docs; WDTT/qWDTT/CSQTT/olcRTC are out of scope.
 
 Local checks: `python -m unittest scripts.tests.test_yandex_cdn_docs`; `python scripts/validate_yandex_cdn_docs.py`; `python scripts/render_redacted_baseline.py`.
 
-Stop gates: live backup/restore, sidecar deployment, CDN origin switch, production Xray/3x-ui/firewall/DB, real-client switch, charging, OTA, reboot and deletion require explicit owner approval.
+Stop gates: live inventory, backup/restore, sidecar deployment, CDN origin switch, production Xray/3x-ui/firewall/DB, real-client switch, charging, OTA, reboot, deletion, and push require explicit owner approval. Sensitive owner-supplied test context remains only in MASTER_REQUIREMENTS; derivative docs/logs must cite sections rather than repeat literals.
 
 ---
 
