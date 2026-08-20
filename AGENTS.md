@@ -1,6 +1,6 @@
 # Yandex CDN white-list task
 
-Navigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](CONTEXT.md), [SPEC](docs/yandex-cdn-whitelist/SPEC.md), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done (§50)](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), and [handoff](docs/yandex-cdn-whitelist/HANDOFF.md).
+Navigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](CONTEXT.md), [SPEC](docs/yandex-cdn-whitelist/SPEC.md), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [handoff](docs/yandex-cdn-whitelist/HANDOFF.md).
 
 Invariants: ordinary VPN is unchanged; White-List Entitlement defaults OFF and is additive; initial work is isolated; mandatory target is independently reconciled S1/S2/S3/S4 nodes; no production restart/update/migration/firewall/UUID/URI/client/OTA/real charging; no secrets in Git/logs/docs; WDTT/qWDTT/CSQTT/olcRTC are out of scope.
 

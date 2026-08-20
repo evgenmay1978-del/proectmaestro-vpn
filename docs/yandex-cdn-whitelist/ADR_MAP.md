@@ -21,3 +21,5 @@ Status: target-only. Proposed decisions require evidence and stop-gate approval.
 - [ADR-0017](adr/ADR-0017.md): rollback
 
 Wayfinder rule: missing audit/test evidence blocks a decision; an ADR never substitutes for a live validation or owner approval.
+
+See [Definition of Done](DEFINITION_OF_DONE.md) and [terminology note](TERMINOLOGY.md).

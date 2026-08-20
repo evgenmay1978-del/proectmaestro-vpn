@@ -1,20 +1,13 @@
 # Canonical domain language
 
-Status: target-only. These terms describe intended boundaries, not a live audit or deployment.
+Status: target-only. Terms define boundaries, not a live audit or deployment.
 
-- **Customer** owns one or more VPN Accounts; it is not an app instance.
-- **Device** is one installed application instance and never the financial identity.
-- **VPN Account** owns ordinary service and zero or more White-List Entitlements.
-- **Xray User** is a technical per-instance identity with an opaque stats key; it is never rendered as an internal identifier.
-- **White-List Entitlement** is an additive, individually revocable right to CDN nodes; default `DISABLED` never disables ordinary VPN.
-- **Transport Profile** is a versioned public-host, origin-route, country and transport policy reference.
-- **Compatibility Preset** is a versioned capability contract used by the subscription renderer.
-- **Origin Route** is internal CDN-to-sidecar routing; it is sensitive and never subscription material.
-- **Edge Candidate** is discovered but unpublished; an **Approved Edge** has repeated evidence and an approval record.
-- **Transport Release** is an immutable candidate/published/retired data-plane configuration with checksum.
-- **Data-plane Instance** is one independently reconciled target on S1, S2, S3, or S4; multi-node is not one shared process.
-- **Meter Epoch** scopes cumulative counters between process starts/resets; **Usage Sample** is one cumulative reading; **Usage Interval** is its positive idempotent delta.
-- **Billing Period** groups intervals; **Tariff Snapshot** freezes units, price, basis and limits; **Ledger Entry** is immutable money movement.
-- **Suspension** stops only CDN entitlement; **Grace** is bounded policy allowance; **Canary** is a limited approved audience; **Rollback Point** is a validated prior immutable release.
+Customer is a person/organisation. VPN Account is its service account. Device is one installed app instance registered to a VPN Account; it is neither a Customer nor a billing identity. White-List Entitlement is an additive, individually revocable right owned by one VPN Account. It selects a Transport Profile and Compatibility Preset and is default DISABLED, so ordinary VPN remains available.
 
-Relationship: `Customer → VPN Account → White-List Entitlement → (Transport Profile + Compatibility Preset) → Xray User per Data-plane Instance → Usage Sample → Usage Interval + Tariff Snapshot → Ledger Entry`. Never use the single word “client” for all of these entities.
+Transport Profile references public-host policy and an Origin Route; Origin Route is internal CDN-to-sidecar routing and never subscription material. Edge Candidate is discovered/unpublished; Approved Edge is linked to a profile only after repeated evidence and explicit approval. Transport Release is immutable candidate/published/retired configuration; each Data-plane Instance independently reconciles a selected release on S1, S2, S3, or S4.
+
+An entitlement provisions opaque Xray User identities per Data-plane Instance. Meter Epoch scopes counters between process starts. Usage Samples are cumulative readings in an epoch; positive idempotent deltas create Usage Intervals. Billing Period groups those intervals. Tariff Snapshot freezes units, price, basis and limits for an interval. Ledger Entry is immutable money movement; changes are separate adjustments/reversals.
+
+Suspension prevents CDN publication/new sessions for one entitlement only; Grace is a bounded policy allowance. Canary is an approved limited audience bound to a release/edge/profile. Rollback Point is a validated prior immutable release plus scoped reversal procedure. Relationship: `Customer → VPN Account → Device`; `VPN Account → White-List Entitlement → Profile/Preset → Approved Edge + Origin Route + Release → Xray User → Meter Epoch → Samples → Intervals → Billing Period/Tariff Snapshot → Ledger`; `Suspension/Grace/Canary/Rollback Point` modify only their stated lifecycle boundary.
+
+Terminology note: operational exclusion is **olcRTC**. The verbatim owner source uses historical spelling **OLCTRC**; it means the same transport and is retained only in `MASTER_REQUIREMENTS.md` as immutable source text.

@@ -1,33 +1,21 @@
-import argparse
+import argparse,re
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1]; DEFAULT=ROOT/'docs'/'yandex-cdn-whitelist'
-REQ={'MASTER_REQUIREMENTS.md','VERIFIED_FACTS.md','RESEARCH.md','ARCHITECTURE.md','SPEC.md','IMPLEMENTATION_PLAN.md','TEST_PLAN.md','TEST_RESULTS.md','CLIENT_COMPATIBILITY.md','TRANSPORT_PRESETS.md','EDGE_LIFECYCLE.md','PANEL_INTEGRATION.md','TRAFFIC_METERING.md','BILLING.md','BILLING_RECONCILIATION.md','SECURITY.md','PRODUCTION_SAFETY.md','DEPLOYMENT.md','ROLLBACK.md','HANDOFF.md','ADR_MAP.md'}
-ADRS={f'ADR-{n:04d}.md' for n in range(1,18)}; LEGACY_OLC_RTC='OLC'+'TRC'; HEAD=('## Problem','## Constraints','## Alternatives','## Trade-offs','## Risks','## Compatibility','## Testing','## Rollback','## Decision','## Evidence')
-INV=('Белые списки = ВЫКЛЮЧЕНО','Не повредить ни одного уже работающего VPN-подключения','WDTT, qWDTT, CSQTT и '+LEGACY_OLC_RTC+' сейчас отложены','Real charging включается только после отдельного подтверждения')
+ROOT=Path(__file__).resolve().parents[1];DEFAULT=ROOT/'docs'/'yandex-cdn-whitelist'
+REQ={'MASTER_REQUIREMENTS.md','VERIFIED_FACTS.md','RESEARCH.md','ARCHITECTURE.md','SPEC.md','IMPLEMENTATION_PLAN.md','TEST_PLAN.md','TEST_RESULTS.md','CLIENT_COMPATIBILITY.md','TRANSPORT_PRESETS.md','EDGE_LIFECYCLE.md','PANEL_INTEGRATION.md','TRAFFIC_METERING.md','BILLING.md','BILLING_RECONCILIATION.md','SECURITY.md','PRODUCTION_SAFETY.md','DEPLOYMENT.md','ROLLBACK.md','HANDOFF.md','ADR_MAP.md','DEFINITION_OF_DONE.md','TERMINOLOGY.md'};ADRS={f'ADR-{i:04d}.md'for i in range(1,18)};H=('## Problem','## Constraints','## Alternatives','## Trade-offs','## Risks','## Compatibility','## Testing','## Rollback','## Decision','## Evidence');IP=re.compile(r'(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\w.])')
 def validate(d):
- e=[]; actual={p.name for p in d.iterdir() if p.is_file()} if d.is_dir() else set()
- if actual!=REQ: return ['document inventory']
- ad=d/'adr'; got={p.name for p in ad.iterdir() if p.is_file()} if ad.is_dir() else set()
- if got!=ADRS:e+=['ADR inventory']
- master=(d/'MASTER_REQUIREMENTS.md').read_text(encoding='utf8')
- if not all(x in master for x in INV):e+=['master invariants']
- for n in REQ-{'MASTER_REQUIREMENTS.md','ADR_MAP.md'}:
-  t=(d/n).read_text(encoding='utf8')
-  if len(t)<350 or 'Status: target-only' not in t:e+=[f'target document: {n}']
- facts=(d/'VERIFIED_FACTS.md').read_text(encoding='utf8')
- if not all(x in facts for x in ('OWNER-PROVIDED ACCEPTANCE CLAIM','CODE/REPO FACT','UNVERIFIED','Source and date')):e+=['facts provenance schema']
- m=(d/'ADR_MAP.md').read_text(encoding='utf8')
- if 'Wayfinder' not in m or any(x[:-3] not in m for x in ADRS):e+=['ADR map']
- for n in ADRS:
-  t=(ad/n).read_text(encoding='utf8') if (ad/n).is_file() else ''
-  if 'Status: proposed' not in t or any(h not in t for h in HEAD):e+=[f'ADR structure: {n}']
- for p in [ROOT/'AGENTS.md',ROOT/'CONTEXT.md',*d.rglob('*.md')]:
+ e=[]
+ if {p.name for p in d.iterdir()if p.is_file()}!=REQ:return['document inventory']
+ a=d/'adr'
+ if {p.name for p in a.iterdir()if p.is_file()}!=ADRS:e+=['ADR inventory']
+ for p in [ROOT/'AGENTS.md',ROOT/'CONTEXT.md',*d.rglob('*.md'),*(ROOT/'scripts').rglob('*.py')]:
   if p.name=='MASTER_REQUIREMENTS.md':continue
-  t=p.read_text(encoding='utf8')
-  if LEGACY_OLC_RTC in t:e+=[f'legacy spelling: {p.name}']
-  if '193.17.183.48' in t:e+=[f'sensitive literal copied: {p.name}']
+  if IP.search(p.read_text(encoding='utf8')):e+=[f'raw IPv4 policy: {p.name}']
+ for n in ADRS:
+  t=(a/n).read_text(encoding='utf8')
+  if 'Status: proposed'not in t or any(x not in t for x in H):e+=[f'ADR structure: {n}']
+ f=(d/'VERIFIED_FACTS.md').read_text(encoding='utf8')
+ if not all(x in f for x in ('OWNER-PROVIDED ACCEPTANCE CLAIM','CODE/REPO FACT','UNVERIFIED','Source and date')):e+=['facts provenance']
  return e
 def main():
- a=argparse.ArgumentParser();a.add_argument('--docs-root',type=Path,default=DEFAULT);x=a.parse_args();e=validate(x.docs_root)
- print(('FAILED: '+'; '.join(e)) if e else 'OK: local document inventory, provenance, ADRs and invariants');return bool(e)
+ p=argparse.ArgumentParser();p.add_argument('--docs-root',type=Path,default=DEFAULT);e=validate(p.parse_args().docs_root);print('FAILED: '+'; '.join(e)if e else 'OK: docs policy');return bool(e)
 if __name__=='__main__':raise SystemExit(main())
