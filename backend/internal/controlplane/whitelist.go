@@ -3,10 +3,12 @@ package controlplane
 import (
 	"errors"
 	"net"
+	"net/url"
 	"path"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // EntitlementState is the independent lifecycle of white-list access. It is
@@ -52,6 +54,19 @@ type CompatibilityPreset struct {
 	UplinkHTTPMethod    string
 	UplinkDataPlacement string
 }
+
+const (
+	PresetKindMaestroAdvanced    = "MAESTRO_ADVANCED"
+	PresetVersionMaestroAdvanced = 1
+
+	maestroAdvancedProtectionLevel = "advanced"
+	maestroAdvancedCoreRange       = "xray>=26.7.28"
+)
+
+var (
+	maestroAdvancedCapabilities = []string{"vless-encryption", "xhttp-get-body"}
+	maestroAdvancedClientRanges = []string{"maestrovpn>=154"}
+)
 
 // OriginRoute is an opaque control-plane route to one isolated data plane.
 // The actual origin address remains outside subscription rendering.
@@ -261,14 +276,15 @@ func validProfile(profile TransportProfile) bool {
 }
 
 func validPreset(preset CompatibilityPreset) bool {
-	return !blank(preset.ID) && preset.Version > 0 && !blank(preset.Kind) && !blank(preset.ProtectionLevel) &&
-		allNonBlank(preset.Capabilities) && !blank(preset.CoreRange) && allNonBlank(preset.ClientRanges) && allNonBlank(preset.FixtureRefs) &&
+	return !blank(preset.ID) && preset.Version == PresetVersionMaestroAdvanced && preset.Kind == PresetKindMaestroAdvanced &&
+		preset.ProtectionLevel == maestroAdvancedProtectionLevel && equalStrings(preset.Capabilities, maestroAdvancedCapabilities) &&
+		preset.CoreRange == maestroAdvancedCoreRange && equalStrings(preset.ClientRanges, maestroAdvancedClientRanges) && allNonBlank(preset.FixtureRefs) &&
 		preset.Protocol == "vless" && preset.Network == "xhttp" && preset.Port == 443 && preset.TLS &&
 		preset.Mode == "packet-up" && preset.UplinkHTTPMethod == "GET" && preset.UplinkDataPlacement == "body"
 }
 
 func validPublicHost(host string) bool {
-	if host != strings.TrimSpace(host) || len(host) == 0 || len(host) > 253 || strings.ContainsAny(host, ":/?#") {
+	if host != strings.TrimSpace(host) || len(host) == 0 || len(host) > 253 || strings.ContainsAny(host, ":/?#") || net.ParseIP(host) != nil {
 		return false
 	}
 	labels := strings.Split(host, ".")
@@ -289,12 +305,37 @@ func validPublicHost(host string) bool {
 }
 
 func validSecretPath(value string) bool {
-	return len(value) > 1 && strings.HasPrefix(value, "/") && !strings.ContainsAny(value, "?#") && path.Clean(value) == value
+	if len(value) <= 1 || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "?#\\") || path.Clean(value) != value {
+		return false
+	}
+	decoded, err := url.PathUnescape(value)
+	if err != nil || strings.ContainsAny(decoded, "?#\\") {
+		return false
+	}
+	for _, char := range decoded {
+		if unicode.IsSpace(char) || unicode.IsControl(char) || char == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func validEdgeAddress(value string) bool {
 	parsed := net.ParseIP(value)
-	return parsed != nil && parsed.To4() != nil && parsed.String() == value
+	return parsed != nil && parsed.To4() != nil && parsed.String() == value && parsed.IsGlobalUnicast() &&
+		!parsed.IsPrivate() && !parsed.IsLoopback() && !parsed.IsLinkLocalUnicast() && !parsed.IsUnspecified() && !parsed.IsMulticast()
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func allNonBlank(values []string) bool {
