@@ -95,3 +95,7 @@ TV-геометрию и ветки `isTv`.
 
 Если состояние проекта, ветка, коммит, PR, выполненные проверки или следующий
 шаг материально изменились, перед завершением обновить `CONTEXT_HANDOFF.md`.
+
+### PowerShell regex generation guard
+
+When a generated Python or PowerShell regex contains both quote types, use a single-quoted here-string as the whole-block template. Write it to an external new mirror, inspect it, and generate the patch from old/new mirrors; never embed that regex in a quoted PowerShell expression. Keep synthetic URL/token fixtures in named in-memory test data and keep owner-supplied endpoints or credentials out of derivative docs and secrecy scans.

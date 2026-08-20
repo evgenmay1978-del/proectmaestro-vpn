@@ -1,22 +1,89 @@
-import hashlib,json,re
+import hashlib
+import json
+import re
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1];DOCS=ROOT/'docs'/'yandex-cdn-whitelist'
-PEM=re.compile(r'-----BEGIN (?P<label>[A-Z0-9][A-Z0-9 ]{0,80})-----[\s\S]*?(?:-----END (?P=label)-----|\Z)')
-BEARER=re.compile(r'(?is)(authorization\s*["\']?\s*[:=]\s*["\']?\s*bearer\s+).*?(?=(?:["\']\s*[,}])|\r?\n|\Z)')
-URI=re.compile(r'(?i)(?:vless|vmess|trojan|hysteria2|hysteria|ss|tuic|wireguard|wg|csqtt|wdtt|olcrtc)://[^\s]+');UUID=re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',re.I);ASSIGN=re.compile(r'(?im)((?:token|password|secret|private[_ -]?key)\s*[:=]\s*)[^\r\n]+')
-def redact_text(v):return UUID.sub('<REDACTED>',URI.sub('<REDACTED>',ASSIGN.sub(r'\1<REDACTED>',BEARER.sub(r'\1<REDACTED>',PEM.sub('<REDACTED>',v)))))
-def safe_preview(v,limit=320):return redact_text(v)[:limit]
-def paths():return [ROOT/'AGENTS.md',ROOT/'CONTEXT.md']+sorted(DOCS.rglob('*.md'))
-def build_manifest():
- return {'kind':'local-redacted-baseline','files':[{'path':str(p.relative_to(ROOT)).replace('\\','/'),'bytes':len(b:=p.read_bytes()),'sha256':hashlib.sha256(b).hexdigest(),'preview':safe_preview(b.decode('utf8'))}for p in paths()]}
-def validate_manifest(m):
- expected=[str(p.relative_to(ROOT)).replace('\\','/')for p in paths()]
- if set(m)!={'kind','files'}or m.get('kind')!='local-redacted-baseline'or not isinstance(m.get('files'),list):return False
- rows=m['files'];got=[x.get('path')if isinstance(x,dict)else None for x in rows]
- if got!=expected or len(set(got))!=len(got):return False
- for x,p in zip(rows,paths()):
-  b=p.read_bytes()
-  if set(x)!={'path','bytes','sha256','preview'}or not isinstance(x['bytes'],int)or not isinstance(x['sha256'],str)or not isinstance(x['preview'],str)or x['bytes']!=len(b)or x['sha256']!=hashlib.sha256(b).hexdigest()or x['preview']!=safe_preview(b.decode('utf8')):return False
- return True
-def main():print(json.dumps(build_manifest(),ensure_ascii=True,indent=2));return 0
-if __name__=='__main__':raise SystemExit(main())
+
+ROOT = Path(__file__).resolve().parents[1]
+DOCS_REL = Path('docs/yandex-cdn-whitelist')
+MANIFEST_REL = DOCS_REL / 'BASELINE_MANIFEST.json'
+ROOT_GOVERNANCE = ('AGENTS.md', 'CONTEXT.md', 'CONTEXT_HANDOFF.md')
+SENSITIVE_KEY = r'(?:authorization|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|token|password|passwd|secret|client[_ -]?secret|api[_ -]?key|private[_ -]?key|credential)'
+PEM = re.compile(r'-----BEGIN (?P<label>[A-Z0-9][A-Z0-9 ._+,:/()\-]{0,120})-----[\s\S]*?(?:-----END (?P=label)-----|\Z)')
+JSON_SECRET = re.compile(rf'(?is)(?P<prefix>["\']{SENSITIVE_KEY}["\']\s*:\s*)(?P<quote>["\'])(?:\\.|(?!(?P=quote))[\s\S])*(?P=quote)')
+ASSIGN_SECRET = re.compile(rf'(?im)(?P<prefix>\b{SENSITIVE_KEY}\b\s*[:=]\s*)(?P<value>[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*)')
+BEARER = re.compile(r'(?i)\bbearer[ \t]+[A-Za-z0-9._~+/=\-]+')
+URL = re.compile(r'(?i)\b[a-z][a-z0-9+.-]{1,20}://[^\s<>"\']+')
+URL_CREDENTIALS = re.compile(r'(?i)\b[^\s/@:]+:[^\s/@]+@(?:[a-z0-9-]+\.)*[a-z0-9-]+')
+QUERY_SECRET = re.compile(rf'(?i)([?&]{SENSITIVE_KEY}=)[^&#\s]+')
+UUID = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', re.I)
+IPV4 = re.compile(r'(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?![\w.])')
+HOST_PORT = re.compile(r'(?i)\b(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?):\d{1,5}\b')
+HOSTNAME = re.compile(r'(?i)\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:[a-z]{2,63})\b')
+
+
+def redact_text(value):
+    value = PEM.sub('<REDACTED>', value)
+    value = JSON_SECRET.sub(lambda match: match.group('prefix') + match.group('quote') + '<REDACTED>' + match.group('quote'), value)
+    value = ASSIGN_SECRET.sub(lambda match: match.group('prefix') + '<REDACTED>', value)
+    value = BEARER.sub('Bearer <REDACTED>', value)
+    value = URL.sub('<REDACTED>', value)
+    value = URL_CREDENTIALS.sub('<REDACTED>', value)
+    value = QUERY_SECRET.sub(lambda match: match.group(1) + '<REDACTED>', value)
+    value = UUID.sub('<REDACTED>', value)
+    value = IPV4.sub('<REDACTED>', value)
+    value = HOST_PORT.sub('<REDACTED>', value)
+    return HOSTNAME.sub('<REDACTED>', value)
+
+
+def safe_preview(value, limit=320):
+    return redact_text(value)[:limit]
+
+
+def canonical_paths(root=ROOT):
+    root = Path(root).resolve()
+    docs = root / DOCS_REL
+    paths = [root / name for name in ROOT_GOVERNANCE]
+    paths.extend(path for path in docs.rglob('*.md') if path != root / MANIFEST_REL)
+    if any(not path.is_file() for path in paths):
+        raise FileNotFoundError('canonical baseline path is missing')
+    return sorted(paths, key=lambda path: path.relative_to(root).as_posix())
+
+
+def build_manifest(root=ROOT):
+    root = Path(root).resolve()
+    rows = []
+    for path in canonical_paths(root):
+        raw = path.read_bytes()
+        rows.append({'path': path.relative_to(root).as_posix(), 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(), 'preview': safe_preview(raw.decode('utf8'))})
+    return {'kind': 'local-redacted-baseline', 'files': rows}
+
+
+def validate_manifest(manifest, root=ROOT):
+    try:
+        if not isinstance(manifest, dict) or list(manifest) != ['kind', 'files']:
+            return False
+        if manifest['kind'] != 'local-redacted-baseline' or not isinstance(manifest['files'], list):
+            return False
+        expected = build_manifest(root)
+        rows = manifest['files']
+        if any(not isinstance(row, dict) for row in rows):
+            return False
+        if any(list(row) != ['path', 'bytes', 'sha256', 'preview'] for row in rows):
+            return False
+        if any(isinstance(row['bytes'], bool) or not isinstance(row['bytes'], int) for row in rows):
+            return False
+        paths = [row['path'] for row in rows]
+        if any(not isinstance(path, str) for path in paths) or len(paths) != len(set(paths)):
+            return False
+        return manifest == expected
+    except (KeyError, OSError, TypeError, UnicodeError):
+        return False
+
+
+def main():
+    print(json.dumps(build_manifest(), ensure_ascii=True, indent=2))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
