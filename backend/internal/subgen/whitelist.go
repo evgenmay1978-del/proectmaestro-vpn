@@ -38,6 +38,7 @@ type WhiteListNode struct {
 type DiagnosticCode string
 
 const (
+	DiagnosticInvalidOrdinary DiagnosticCode = "INVALID_ORDINARY"
 	DiagnosticAccountMismatch DiagnosticCode = "ACCOUNT_MISMATCH"
 	DiagnosticReleaseMismatch DiagnosticCode = "RELEASE_MISMATCH"
 	DiagnosticInvalidRelease  DiagnosticCode = "INVALID_RELEASE"
@@ -72,7 +73,10 @@ func RenderWhiteListSubscription(
 	if !entitlement.Active() {
 		return result
 	}
-	if strings.TrimSpace(ordinary.AccountID) == "" || strings.TrimSpace(ordinary.Identity) == "" || ordinary.AccountID != entitlement.AccountID() {
+	if strings.TrimSpace(ordinary.AccountID) == "" || strings.TrimSpace(ordinary.Identity) == "" || strings.TrimSpace(ordinary.Output) == "" {
+		return withDiagnostic(result, DiagnosticInvalidOrdinary)
+	}
+	if ordinary.AccountID != entitlement.AccountID() {
 		return withDiagnostic(result, DiagnosticAccountMismatch)
 	}
 	if entitlement.TransportProfileID() != release.TransportProfileID() ||

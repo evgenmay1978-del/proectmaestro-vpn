@@ -308,13 +308,37 @@ func validSecretPath(value string) bool {
 	if len(value) <= 1 || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "?#\\") || path.Clean(value) != value {
 		return false
 	}
-	decoded, err := url.PathUnescape(value)
-	if err != nil || strings.ContainsAny(decoded, "?#\\") {
+	decoded := value
+	const decodeBudget = 4
+	for pass := 0; pass < decodeBudget; pass++ {
+		if !validDecodedSecretPath(decoded) {
+			return false
+		}
+		next, err := url.PathUnescape(decoded)
+		if err != nil {
+			return false
+		}
+		if next == decoded {
+			return true
+		}
+		decoded = next
+	}
+	next, err := url.PathUnescape(decoded)
+	return err == nil && next == decoded && validDecodedSecretPath(decoded)
+}
+
+func validDecodedSecretPath(value string) bool {
+	if len(value) <= 1 || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "?#\\") || path.Clean(value) != value {
 		return false
 	}
-	for _, char := range decoded {
-		if unicode.IsSpace(char) || unicode.IsControl(char) || char == 0x7f {
+	for _, segment := range strings.Split(strings.TrimPrefix(value, "/"), "/") {
+		if segment == "" || segment == "." || segment == ".." {
 			return false
+		}
+		for _, char := range segment {
+			if unicode.IsSpace(char) || unicode.IsControl(char) || char == 0x7f {
+				return false
+			}
 		}
 	}
 	return true
@@ -322,8 +346,36 @@ func validSecretPath(value string) bool {
 
 func validEdgeAddress(value string) bool {
 	parsed := net.ParseIP(value)
-	return parsed != nil && parsed.To4() != nil && parsed.String() == value && parsed.IsGlobalUnicast() &&
-		!parsed.IsPrivate() && !parsed.IsLoopback() && !parsed.IsLinkLocalUnicast() && !parsed.IsUnspecified() && !parsed.IsMulticast()
+	if parsed == nil || parsed.To4() == nil || parsed.String() != value || !parsed.IsGlobalUnicast() {
+		return false
+	}
+	octets := parsed.To4()
+	return !isReservedIPv4(octets[0], octets[1], octets[2])
+}
+
+func isReservedIPv4(first, second, third byte) bool {
+	switch {
+	case first == 0, first == 10, first == 127, first >= 224:
+		return true
+	case first == 100 && second >= 64 && second <= 127:
+		return true
+	case first == 169 && second == 254:
+		return true
+	case first == 172 && second >= 16 && second <= 31:
+		return true
+	case first == 192 && second == 0 && (third == 0 || third == 2):
+		return true
+	case first == 192 && second == 88 && third == 99:
+		return true
+	case first == 192 && second == 168:
+		return true
+	case first == 198 && (second == 18 || second == 19 || (second == 51 && third == 100)):
+		return true
+	case first == 203 && second == 0 && third == 113:
+		return true
+	default:
+		return false
+	}
 }
 
 func equalStrings(left, right []string) bool {
