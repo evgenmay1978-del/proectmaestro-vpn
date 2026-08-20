@@ -53,6 +53,11 @@ type CompatibilityPreset struct {
 	Mode                string
 	UplinkHTTPMethod    string
 	UplinkDataPlacement string
+	ALPN                []string
+	Fingerprint         string
+	ExtraJSON           string
+	LabelPrefix         string
+	DomainFallback      bool
 }
 
 const (
@@ -61,11 +66,15 @@ const (
 
 	maestroAdvancedProtectionLevel = "advanced"
 	maestroAdvancedCoreRange       = "xray>=26.7.28"
+	maestroAdvancedFingerprint     = "firefox"
+	maestroAdvancedExtraJSON       = "{}"
+	maestroAdvancedLabelPrefix     = "БС/Yandex"
 )
 
 var (
 	maestroAdvancedCapabilities = []string{"vless-encryption", "xhttp-get-body"}
 	maestroAdvancedClientRanges = []string{"maestrovpn>=154"}
+	maestroAdvancedALPN         = []string{"h2"}
 )
 
 // OriginRoute is an opaque control-plane route to one isolated data plane.
@@ -195,6 +204,13 @@ func (release TransportRelease) ApprovedEdges() []ApprovedEdge {
 	return append([]ApprovedEdge(nil), release.approvedEdges...)
 }
 
+// WhiteListCredential is the per-account public client material required to
+// render a complete VLESS node. It never belongs to a transport preset.
+type WhiteListCredential struct {
+	ClientID         string
+	ClientEncryption string
+}
+
 // WhiteListEntitlement is the per-account additive right. Its zero value is a
 // safe disabled value, so omitted records cannot accidentally grant access.
 type WhiteListEntitlement struct {
@@ -202,6 +218,7 @@ type WhiteListEntitlement struct {
 	transportProfileID    string
 	compatibilityPresetID string
 	transportReleaseID    string
+	credential            WhiteListCredential
 	state                 EntitlementState
 }
 
@@ -214,13 +231,14 @@ func NewWhiteListEntitlement(accountID string) (WhiteListEntitlement, error) {
 
 // Activate returns a new entitlement pinned to one profile, preset and
 // immutable release. It does not mutate the disabled value.
-func (entitlement WhiteListEntitlement) Activate(profileID, presetID, releaseID string) (WhiteListEntitlement, error) {
-	if blank(entitlement.accountID) || blank(profileID) || blank(presetID) || blank(releaseID) {
+func (entitlement WhiteListEntitlement) Activate(profileID, presetID, releaseID string, credential WhiteListCredential) (WhiteListEntitlement, error) {
+	if blank(entitlement.accountID) || blank(profileID) || blank(presetID) || blank(releaseID) || !validWhiteListCredential(credential) {
 		return WhiteListEntitlement{}, errors.New("controlplane: incomplete entitlement activation")
 	}
 	entitlement.transportProfileID = profileID
 	entitlement.compatibilityPresetID = presetID
 	entitlement.transportReleaseID = releaseID
+	entitlement.credential = credential
 	entitlement.state = EntitlementActive
 	return entitlement, nil
 }
@@ -231,7 +249,7 @@ func (entitlement WhiteListEntitlement) WithState(state EntitlementState) (White
 	if blank(entitlement.accountID) || !validEntitlementState(state) {
 		return WhiteListEntitlement{}, errors.New("controlplane: invalid entitlement state")
 	}
-	if state == EntitlementActive && (blank(entitlement.transportProfileID) || blank(entitlement.compatibilityPresetID) || blank(entitlement.transportReleaseID)) {
+	if state == EntitlementActive && (blank(entitlement.transportProfileID) || blank(entitlement.compatibilityPresetID) || blank(entitlement.transportReleaseID) || !validWhiteListCredential(entitlement.credential)) {
 		return WhiteListEntitlement{}, errors.New("controlplane: active entitlement has incomplete release pin")
 	}
 	entitlement.state = state
@@ -263,10 +281,15 @@ func (entitlement WhiteListEntitlement) TransportReleaseID() string {
 	return entitlement.transportReleaseID
 }
 
+func (entitlement WhiteListEntitlement) Credential() WhiteListCredential {
+	return entitlement.credential
+}
+
 func clonePreset(preset CompatibilityPreset) CompatibilityPreset {
 	preset.Capabilities = append([]string(nil), preset.Capabilities...)
 	preset.ClientRanges = append([]string(nil), preset.ClientRanges...)
 	preset.FixtureRefs = append([]string(nil), preset.FixtureRefs...)
+	preset.ALPN = append([]string(nil), preset.ALPN...)
 	return preset
 }
 
@@ -280,7 +303,9 @@ func validPreset(preset CompatibilityPreset) bool {
 		preset.ProtectionLevel == maestroAdvancedProtectionLevel && equalStrings(preset.Capabilities, maestroAdvancedCapabilities) &&
 		preset.CoreRange == maestroAdvancedCoreRange && equalStrings(preset.ClientRanges, maestroAdvancedClientRanges) && allNonBlank(preset.FixtureRefs) &&
 		preset.Protocol == "vless" && preset.Network == "xhttp" && preset.Port == 443 && preset.TLS &&
-		preset.Mode == "packet-up" && preset.UplinkHTTPMethod == "GET" && preset.UplinkDataPlacement == "body"
+		preset.Mode == "packet-up" && preset.UplinkHTTPMethod == "GET" && preset.UplinkDataPlacement == "body" &&
+		equalStrings(preset.ALPN, maestroAdvancedALPN) && preset.Fingerprint == maestroAdvancedFingerprint &&
+		preset.ExtraJSON == maestroAdvancedExtraJSON && preset.LabelPrefix == maestroAdvancedLabelPrefix && preset.DomainFallback
 }
 
 func validPublicHost(host string) bool {
@@ -384,6 +409,40 @@ func equalStrings(left, right []string) bool {
 	}
 	for index := range left {
 		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func validWhiteListCredential(credential WhiteListCredential) bool {
+	return validUUID(credential.ClientID) && validOpaqueCredential(credential.ClientEncryption)
+}
+
+func validUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, char := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if char != '-' {
+				return false
+			}
+			continue
+		}
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func validOpaqueCredential(value string) bool {
+	if blank(value) || len(value) > 2048 {
+		return false
+	}
+	for _, char := range value {
+		if unicode.IsSpace(char) || unicode.IsControl(char) || char == 0x7f {
 			return false
 		}
 	}

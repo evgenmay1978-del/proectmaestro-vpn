@@ -25,6 +25,14 @@ func validPreset() controlplane.CompatibilityPreset {
 		CoreRange:    "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
 		Protocol: "vless", Network: "xhttp", Port: 443, TLS: true,
 		Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
+		ALPN: []string{"h2"}, Fingerprint: "firefox", ExtraJSON: "{}", LabelPrefix: "БС/Yandex", DomainFallback: true,
+	}
+}
+
+func validCredential() controlplane.WhiteListCredential {
+	return controlplane.WhiteListCredential{
+		ClientID:         "11111111-1111-4111-8111-111111111111",
+		ClientEncryption: "mlkem768x25519plus.native.0rtt.test-client-material",
 	}
 }
 
@@ -54,7 +62,7 @@ func TestWhiteListEntitlementRepresentsEveryExplicitStateAndRejectsUnknown(t *te
 	if err != nil {
 		t.Fatalf("NewWhiteListEntitlement: %v", err)
 	}
-	seed, err := disabled.Activate("profile-a", "preset-a", "release-a")
+	seed, err := disabled.Activate("profile-a", "preset-a", "release-a", validCredential())
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
@@ -76,7 +84,7 @@ func TestWhiteListEntitlementRepresentsEveryExplicitStateAndRejectsUnknown(t *te
 			t.Errorf("WithState(%q): state=%q active=%v", state, got.State(), got.Active())
 		}
 		if got.AccountID() != "account-alpha" || got.TransportProfileID() != "profile-a" ||
-			got.CompatibilityPresetID() != "preset-a" || got.TransportReleaseID() != "release-a" {
+			got.CompatibilityPresetID() != "preset-a" || got.TransportReleaseID() != "release-a" || got.Credential() != validCredential() {
 			t.Errorf("WithState(%q) discarded pinned references: %#v", state, got)
 		}
 	}

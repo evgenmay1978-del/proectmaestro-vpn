@@ -11,13 +11,20 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
+func reviewedCredential() controlplane.WhiteListCredential {
+	return controlplane.WhiteListCredential{
+		ClientID:         "11111111-1111-4111-8111-111111111111",
+		ClientEncryption: "mlkem768x25519plus.native.0rtt.test-client-material",
+	}
+}
+
 func reviewedFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlplane.TransportRelease) {
 	t.Helper()
 	entitlement, err := controlplane.NewWhiteListEntitlement("account-alpha")
 	if err != nil {
 		t.Fatalf("NewWhiteListEntitlement: %v", err)
 	}
-	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-a")
+	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-a", reviewedCredential())
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
@@ -31,6 +38,7 @@ func reviewedFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlpl
 		CoreRange:    "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
 		Protocol: "vless", Network: "xhttp", Port: 443, TLS: true,
 		Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
+		ALPN: []string{"h2"}, Fingerprint: "firefox", ExtraJSON: "{}", LabelPrefix: "БС/Yandex", DomainFallback: true,
 	}
 	release, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
 		ID: "release-a", Profile: profile, Preset: preset,
@@ -96,8 +104,8 @@ func TestRenderWhiteListSubscriptionUsesFrozenReleaseAndDeterministicApprovedEdg
 	if result.Ordinary != ordinary || result.Diagnostic != nil {
 		t.Fatalf("active rendering changed ordinary subscription: %#v", result)
 	}
-	if len(result.WhiteListNodes) != 2 {
-		t.Fatalf("active node count=%d, want 2", len(result.WhiteListNodes))
+	if len(result.WhiteListNodes) != 3 {
+		t.Fatalf("active node count=%d, want two edges plus domain fallback", len(result.WhiteListNodes))
 	}
 	gotAddresses := []string{result.WhiteListNodes[0].Address, result.WhiteListNodes[1].Address}
 	if !reflect.DeepEqual(gotAddresses, []string{"8.8.8.12", "1.1.1.11"}) {
@@ -209,7 +217,7 @@ func TestRenderWhiteListSubscriptionReleaseMismatchFailsOnlyAdditiveNodes(t *tes
 	if err != nil {
 		t.Fatalf("WithState: %v", err)
 	}
-	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-other")
+	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-other", entitlement.Credential())
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
