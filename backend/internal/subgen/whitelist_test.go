@@ -2,7 +2,9 @@ package subgen
 
 import (
 	"encoding/json"
+	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,6 +117,63 @@ func TestRenderWhiteListSubscriptionUsesFrozenReleaseAndDeterministicApprovedEdg
 	}
 	if containsJSONKey(raw, "account_id") || containsJSONKey(raw, "origin_route_id") || containsJSONKey(raw, "data_plane_instance_id") {
 		t.Fatalf("public subscription contract exposed internal routing/ownership: %s", raw)
+	}
+}
+
+func TestRenderedActiveNodesContainCompletePublicContractAndDomainFallback(t *testing.T) {
+	entitlement, release := reviewedFixture(t)
+	ordinary := OrdinarySubscription{AccountID: "account-alpha", Identity: "ordinary-subscription-alpha", Output: "opaque-existing-output"}
+	result := RenderWhiteListSubscription(ordinary, entitlement, release)
+	if len(result.WhiteListNodes) != 3 {
+		t.Errorf("active node count=%d, want two approved edges plus domain fallback", len(result.WhiteListNodes))
+	}
+	for index, node := range result.WhiteListNodes {
+		raw, err := json.Marshal(node)
+		if err != nil {
+			t.Fatalf("marshal node: %v", err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatalf("unmarshal node: %v", err)
+		}
+		for _, key := range []string{"client_id", "encryption", "security", "alpn", "fingerprint", "extra", "label", "domain_fallback"} {
+			if _, ok := fields[key]; !ok {
+				t.Errorf("node %d missing required public field %q: %s", index, key, raw)
+			}
+		}
+		if got, _ := fields["client_id"].(string); got != "11111111-1111-4111-8111-111111111111" {
+			t.Errorf("node %d client_id=%q", index, got)
+		}
+		if got, _ := fields["encryption"].(string); got != "mlkem768x25519plus.native.0rtt.test-client-material" {
+			t.Errorf("node %d encryption=%q", index, got)
+		}
+		if got, _ := fields["security"].(string); got != "tls" {
+			t.Errorf("node %d security=%q", index, got)
+		}
+		if got, _ := fields["fingerprint"].(string); got != "firefox" {
+			t.Errorf("node %d fingerprint=%q", index, got)
+		}
+		if got, _ := fields["label"].(string); !strings.HasPrefix(got, "БС/Yandex ") {
+			t.Errorf("node %d label=%q", index, got)
+		}
+		alpn, _ := fields["alpn"].([]any)
+		if len(alpn) != 1 || alpn[0] != "h2" {
+			t.Errorf("node %d alpn=%#v", index, fields["alpn"])
+		}
+		encodedExtra, _ := fields["extra"].(string)
+		extra, err := url.QueryUnescape(encodedExtra)
+		if err != nil || !json.Valid([]byte(extra)) {
+			t.Errorf("node %d extra is not URL-encoded JSON: %q", index, encodedExtra)
+		}
+	}
+	if len(result.WhiteListNodes) >= 3 {
+		fallback := result.WhiteListNodes[2]
+		raw, _ := json.Marshal(fallback)
+		var fields map[string]any
+		_ = json.Unmarshal(raw, &fields)
+		if fallback.Address != "cdn.example.invalid" || fields["domain_fallback"] != true {
+			t.Errorf("domain fallback=%#v", fallback)
+		}
 	}
 }
 
