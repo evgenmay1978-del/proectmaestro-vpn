@@ -1,3 +1,15 @@
+# Yandex CDN white-list task
+
+Requirements: [`MASTER_REQUIREMENTS`](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md). Vocabulary: [`CONTEXT.md`](CONTEXT.md). Task docs: [`docs/yandex-cdn-whitelist`](docs/yandex-cdn-whitelist/).
+
+Invariants: ordinary VPN unchanged; entitlement OFF by default and additive; initial implementation is isolated; multi-node target covers S1/S2/S3/S4; no production restart/update/migration/firewall/UUID/URI/client/OTA/real charge; no secrets in Git/logs/docs; WDTT/qWDTT/CSQTT/OLCTRC out of scope.
+
+Local checks: `python -m unittest scripts.tests.test_yandex_cdn_docs`; `python scripts/validate_yandex_cdn_docs.py`; `python scripts/render_redacted_baseline.py`.
+
+Stop gates: live backup/restore, sidecar deployment, CDN origin switch, production Xray/3x-ui/firewall/DB, real-client switch, charging, OTA, reboot and deletion require explicit owner approval.
+
+---
+
 # MaestroVPN — точка входа для Codex и других агентов
 
 Перед любой работой в этом репозитории:
@@ -56,6 +68,10 @@ python ops/maestro-repetition-guard.py check --action <действие> --famil
   ручные hunks. Считать фактический текущий файл, построить новый желаемый файл
   вне worktree, получить generated diff из сравнения этих двух файлов, проверить
   его отдельно и применить один раз;
+
+#### Windows generated-patch path rule
+
+If a generated patch is needed on Windows, never build it from absolute drive paths and then rewrite quoted `a/C:\...` headers. Create external `old/<repo-relative-path>` and `new/<repo-relative-path>` mirror trees; run `git diff --no-index --src-prefix=a/ --dst-prefix=b/ -- old/<repo-relative-path> new/<repo-relative-path>` from their common parent; inspect headers; then use `git apply --check --recount -p2 <patch>` before one `git apply --recount -p2 <patch>`. After one absolute-path normalization failure, record it and move to this method; do not tune quoting, slash conversion, prefix stripping, or header text.
 - для существующего исходника запрещены `--unidiff-zero` и hunks без устойчивого
   контекста функции/типа;
 - после применения патча до staging показать целиком изменённую функцию или
