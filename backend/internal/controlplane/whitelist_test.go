@@ -141,6 +141,51 @@ func TestTransportReleaseRejectsDuplicateAddressAndMalformedPublicMaterial(t *te
 	}
 }
 
+func TestTransportReleaseRejectsPresetMixingAndUnsafePublicMaterial(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*controlplane.TransportProfile, *controlplane.CompatibilityPreset, *[]controlplane.ApprovedEdge)
+	}{
+		{name: "mixed preset capabilities", mutate: func(_ *controlplane.TransportProfile, preset *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			preset.Capabilities = []string{"xhttp-get-body"}
+		}},
+		{name: "downgraded protection", mutate: func(_ *controlplane.TransportProfile, preset *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			preset.ProtectionLevel = "compatibility"
+		}},
+		{name: "numeric public host", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.PublicHost = "203.0.113.7"
+		}},
+		{name: "private edge", mutate: func(_ *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, edges *[]controlplane.ApprovedEdge) {
+			(*edges)[0].Address = "10.0.0.7"
+		}},
+		{name: "loopback edge", mutate: func(_ *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, edges *[]controlplane.ApprovedEdge) {
+			(*edges)[0].Address = "127.0.0.1"
+		}},
+		{name: "space in path", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/bad path"
+		}},
+		{name: "invalid path escape", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/%ZZ"
+		}},
+		{name: "escaped backslash", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/%5Cpath"
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			profile := validProfile()
+			preset := validPreset()
+			edges := validApprovedEdges()
+			test.mutate(&profile, &preset, &edges)
+			if _, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
+				ID: "release-a", Profile: profile, Preset: preset,
+				State: controlplane.TransportReleasePublished, ApprovedEdges: edges,
+			}); err == nil {
+				t.Fatal("release accepted mixed preset or unsafe public material")
+			}
+		})
+	}
+}
 func TestEdgeCandidateApprovalPreservesCandidateIdentity(t *testing.T) {
 	candidate := controlplane.EdgeCandidate{ID: "edge-a", TransportProfileID: "profile-a", Address: "203.0.113.11"}
 	approved, err := candidate.Approve(time.Unix(10, 0), "evidence-a")
