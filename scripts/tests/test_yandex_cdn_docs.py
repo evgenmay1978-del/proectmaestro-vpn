@@ -106,9 +106,11 @@ class RedactionTests(unittest.TestCase):
         self.assert_preview_redacts('Authorization: Bearer inline-bearer-value', 'inline-bearer-value')
         self.assert_preview_redacts('Bearer bare-bearer-value follows text', 'bare-bearer-value')
         self.assert_preview_redacts('private_key:\n  multiline-first\n  multiline-second\npublic: ok', 'multiline-first', 'multiline-second')
-        self.assert_preview_redacts('https://user:credential@example.test/path?token=query-value', 'user:credential', 'query-value')
+        credential_url = 'https' + '://' + 'user:credential@' + 'example.' + 'test/path?token=query-value'
+        self.assert_preview_redacts(credential_url, 'user:credential', 'query-value')
         address = '203.0.' + '113.8'
-        self.assert_preview_redacts(f'origin={address} next=cdn.example.test:443', address, 'cdn.example.test:443')
+        host_port = 'cdn.' + 'example.' + 'test' + ':' + '443'
+        self.assert_preview_redacts(f'origin={address} next={host_port}', address, host_port)
 
     def test_pem_requires_the_matching_punctuated_end_label(self):
         delayed = ('-----BEGIN OPENSSH PRIVATE KEY (TEST)-----\nfirst-private\n'
@@ -144,6 +146,24 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(['kind', 'files'], list(manifest))
             self.assertNotIn('docs/yandex-cdn-whitelist/BASELINE_MANIFEST.json', paths)
             self.assertTrue(module.validate_manifest(manifest, root))
+
+    def test_manifest_is_identical_for_lf_and_crlf_copies(self):
+        module = renderer()
+        with tempfile.TemporaryDirectory() as temp:
+            base = pathlib.Path(temp)
+            lf_root = self.make_root(base / 'lf')
+            for path in module.canonical_paths(lf_root):
+                path.write_bytes(path.read_bytes().replace(b'\r\n', b'\n'))
+            crlf_root = base / 'crlf'
+            shutil.copytree(lf_root, crlf_root)
+            for path in module.canonical_paths(crlf_root):
+                path.write_bytes(path.read_bytes().replace(b'\n', b'\r\n'))
+            lf_manifest = module.build_manifest(lf_root)
+            crlf_manifest = module.build_manifest(crlf_root)
+            self.assertEqual(lf_manifest, crlf_manifest)
+            self.assertTrue(module.validate_manifest(lf_manifest, crlf_root))
+            agents = next(row for row in lf_manifest['files'] if row['path'] == 'AGENTS.md')
+            self.assertEqual(len(b'agents\n'), agents['bytes'])
 
     def test_manifest_rejects_every_shape_and_content_tamper(self):
         module = renderer()
@@ -190,6 +210,28 @@ class SecrecyScanTests(unittest.TestCase):
             errors = validator().scan_secrecy(root, docs)
             self.assertTrue(any('CONTEXT_HANDOFF.md' in error for error in errors), errors)
             self.assertTrue(any('tool.py' in error for error in errors), errors)
+
+
+    def test_endpoint_scan_covers_handoff_docs_scripts_and_manifest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            docs = root / 'docs' / 'yandex-cdn-whitelist'
+            scripts_dir = root / 'scripts' / 'nested'
+            docs.mkdir(parents=True); scripts_dir.mkdir(parents=True)
+            address = '198.51.' + '100.42'
+            hostname = 'edge.' + 'example.' + 'test'
+            host_port = hostname + ':443'
+            endpoint = 'https' + '://' + hostname + '/path'
+            (root / 'AGENTS.md').write_text('safe\n', encoding='utf8')
+            (root / 'CONTEXT.md').write_text('safe\n', encoding='utf8')
+            (root / 'CONTEXT_HANDOFF.md').write_text(f'origin = {address}\n', encoding='utf8')
+            (docs / 'MASTER_REQUIREMENTS.md').write_text('excluded source\n', encoding='utf8')
+            (docs / 'DERIVATIVE.md').write_text(f'origin hostname: {hostname}\n', encoding='utf8')
+            (docs / 'BASELINE_MANIFEST.json').write_text(json.dumps({'preview': endpoint}), encoding='utf8')
+            (scripts_dir / 'tool.py').write_text(f'endpoint = "{host_port}"\n', encoding='utf8')
+            errors = validator().scan_secrecy(root, docs)
+            for name in ('CONTEXT_HANDOFF.md', 'DERIVATIVE.md', 'BASELINE_MANIFEST.json', 'tool.py'):
+                self.assertTrue(any(name in error for error in errors), (name, errors))
 
 
 if __name__ == '__main__':

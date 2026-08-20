@@ -349,7 +349,7 @@ deploy/restart, bot/panel/customer mutation, DNS/TLS cutover и OTA. S1 пока
   продления и изменения без повторных клиентов, двойных списаний, разных сроков
   или конфликтующих реквизитов.
 - Старые установленные приложения должны продолжать использовать существующий
-  публичный адрес `https://wapmixx.ru:8911`; аварийное переключение не должно
+  публичный адрес `<REDACTED> аварийное переключение не должно
   требовать ручной перенастройки каждого клиента.
 - Нужны резервные панели управления, внешняя проверка здоровья, понятный статус
   синхронизации и безопасный возврат после аварии.
@@ -357,7 +357,7 @@ deploy/restart, bot/panel/customer mutation, DNS/TLS cutover и OTA. S1 пока
 ### Подтверждённое текущее ограничение
 
 - S1 сейчас является control-plane SPOF: на нём `maestro-panel`, основной
-  `customers.json`/`orders.json`, 3x-ui и nginx для `wapmixx.ru:8911`.
+  `customers.json`/`orders.json`, 3x-ui и nginx для `<REDACTED>`.
 - Зашифрованные on-change/hourly backups и recovery runbook защищают от потери
   данных, но это восстановление с RTO/RPO, а не работающий multi-panel HA.
 - Android сохраняет last-good конфигурацию при неудачном `/sub`, поэтому уже
@@ -373,7 +373,7 @@ deploy/restart, bot/panel/customer mutation, DNS/TLS cutover и OTA. S1 пока
 
 - На S2/S3/S4 должны работать одинаковые stateless-панели с публичным TLS на
   `:8911`; установленный парк продолжает обращаться к
-  `https://wapmixx.ru:8911`.
+  `<REDACTED>
 - Публичная A-запись должна содержать только активный и полностью готовый узел.
   Слепой multi-A запрещён. Переключение выполняет сериализованный workflow в уже
   используемом GitHub Actions через SpaceWeb API после независимых повторных
@@ -542,7 +542,7 @@ Android downgrade. Локальный Gradle/APK не запускать: тяж
 - 1.0.154 не содержит исправления duplicate confirmation и prompt/download
   coordination; они разрабатываются только в `codex/mobile-4d-deck`.
 - Последняя read-only проверка: GitHub latest/main — 1.0.154; public Yandex
-  manifest — 1.0.153, public APK 1.0.154 — 404; panel и S1:22 недоступны по
+  manifest — 1.0.153, public APK 1.0.154 — 404; panel и <REDACTED> недоступны по
   timeout. Перед следующим OTA всё проверить заново.
 
 ### Уже проверенные исправления
@@ -758,7 +758,7 @@ Back-поведение должны остаться без изменений.
 «Яндекс» в проекте означает public Yandex Object Storage bucket
 `maestro-apk`, не магазин приложений. Штатный sync выполняется на S1 сервисом
 `maestro-update-mirror.service`; repeatable gate — `ops/verify-ota.sh --sync`,
-затем `ops/verify-ota.sh`. Из текущей среды S1:22 и panel `:8911` недоступны по
+затем `ops/verify-ota.sh`. Из текущей среды <REDACTED> и panel `:8911` недоступны по
 таймауту; публичный Yandex manifest прочитан успешно.
 
 ### Следующее обязательное решение владельца
@@ -818,7 +818,7 @@ latest Release, запуск `maestro-update-mirror.service` и изменени
 mobile-eye-runtime-assets`:
 
 - Actions run: `31274629481`;
-- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31274629481`;
+- URL: `<REDACTED>
 - workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
 - exact run HEAD: `dcc3d59717f21caff74c77ddb70472cfddcf3906`;
 - result: **PASS**;
@@ -838,7 +838,7 @@ mobile-eye-runtime-assets`:
 актуальную память проекта. Release/OTA не запускались.
 
 - Actions run: `31275136685`;
-- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31275136685`;
+- URL: `<REDACTED>
 - workflow/task: `android-test.yml` / `android`;
 - exact run HEAD: `10ee9b71c68c51423b500231ca2df0bcff9f709f`;
 - result: `completed / success`;
@@ -897,7 +897,7 @@ TV, backend, API, VPN runtime, GitHub Release, production signing и OTA не
 ### Актуальный тестовый APK
 
 - GitHub Actions run: `31273024061`;
-- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31273024061`;
+- URL: `<REDACTED>
 - workflow/task: `android-test.yml` / `android`;
 - exact HEAD: `db94ee0884f244f81c3e7cf7d7b332018e72e8c0`;
 - result: `completed / success`; блокирующие `:app:assembleOtherDebug` и
@@ -960,7 +960,7 @@ OTA по-прежнему требует отдельного явного ра�
 Тяжёлый контроль выполнен только на GitHub:
 
 - Actions run: `31272014651`;
-- URL: `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/31272014651`;
+- URL: `<REDACTED>
 - workflow/task: `android-test.yml` / `mobile-eye-runtime-assets`;
 - result: `completed / success`;
 - exact run HEAD: `8bbcce6332a4721615de4573a1055a636da295d9`;
@@ -1155,7 +1155,7 @@ production signing/release/OTA и `main` не менять.
   digest `sha256:64aadd731303732a1def8c5fb01db95510197ef730eb2514db10cf377100ac25`,
   хранится до `2026-10-31T19:57:38Z`;
 - единственная актуальная ссылка:
-  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30764526376/artifacts/8838559790`;
+  `<REDACTED>
 - runtime теперь рисует зарегистрированную emerald-мозаику ровно один раз, живую анатомию
   глаза — только внутри общей 70/30 апертуры, а при полном закрытии оставляет ту же мозаику
   и единый шов `3 px / 0.18`; отдельные bronze squint/closed frames, повторная mosaic paint
@@ -1191,7 +1191,7 @@ production signing/release/OTA и `main` не менять.
   digest `sha256:1a1d016cd6f87600efbb8f64aaeae2249f20e8fe07022b44376f9129b466507f`,
   срок хранения до `2026-10-31T17:18:02Z`;
 - единственная актуальная страница артефакта:
-  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30758563590/artifacts/8836764415`;
+  `<REDACTED>
 - этот APK последовательно включает: full-window/top registration из `ede03afa`, полное
   непрозрачное замещение закрытого века мозаикой из `0a116af2` и стабильные семь подписей
   дуги (`АВТО`, `VLESS`, `HYSTERIA2`, `ANYTLS`, `NAIVE PROXY`, `WDTT`, `WEBRTC`) из
@@ -1221,7 +1221,7 @@ production signing/release/OTA и `main` не менять.
   digest `sha256:543eb8ce1553ab48809c897783a1e487bc9f5b2dcff5f3f5b5bf0d8d67c4ce7e`,
   срок хранения до `2026-10-31T15:51:01Z`;
 - прямая страница артефакта:
-  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30755278589/artifacts/8835762207`;
+  `<REDACTED>
 - eye fit, iris/pupil/catchlight, gaze, touch и blink timing не менялись. Изменён только
   профиль замещения: к фазе `0.5` мозаика непрозрачно покрывает полный eye-state вне щели;
 - CI-only draft PR `#77` закрыт, **не смержен**. TV, backend, VPN-runtime, Release и OTA
@@ -1243,7 +1243,7 @@ production signing/release/OTA и `main` не менять.
   digest `sha256:92b5298f46b0fa58e4b4fbc2f08bf15b2929fffb1760016121948a5fdeb2367f`,
   срок хранения до `2026-10-31T14:54:28Z`;
 - прямая страница артефакта:
-  `https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/30753147169/artifacts/8835149771`;
+  `<REDACTED>
 - CI-only draft PR `#76` закрыт после успешной сборки, **не смержен**. Release, OTA,
   backend, VPN-runtime и TV не трогались.
 
@@ -1577,7 +1577,7 @@ SHA, запустить GitHub Actions `assembleOtherDebug` + `testOtherDebugUni
   - `6608f0d` — durable docs handoff перед CI;
   - `8d1a431` — исправление импорта Compose `zIndex` после CI run №238.
 - Ветка отправлена в `origin/codex/mobile-4d-interface`; открыт draft PR
-  [№74](https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/74).
+  [№74](<REDACTED>
 - Исходный worktree `work/proectmaestro-vpn` не использовать для реализации. Его ложный
   `M ops/phone-screen-sim.py` связан с CRLF; отдельный implementation-worktree создан именно
   для чистой работы.
@@ -1880,7 +1880,7 @@ Codex/Claude. Сначала проверить volatile-факты команд
   (`design: add mobile 4D redraw assets`). Текущий HEAD может быть новее из-за
   обновления документации — всегда проверять `git rev-parse HEAD`.
 - Открыт draft PR
-  [№73](https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/73):
+  [№73](<REDACTED>
   `design: mobile 4D references and 15-layer redraw pack`.
 - Ветка и PR содержат документацию, визуальные референсы и исходный арт.
   **Android-код, backend, TV, release, OTA и workflow в этой ветке не менялись.**
@@ -2073,7 +2073,7 @@ interactive mobile UI
 
 - Ветка: `codex/ha-rqlite-task2`.
 - Проверенный implementation HEAD: `ef58eb6a8ac307f79688cc69aeca00bb99af940f`.
-- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Draft PR: `#82` — `<REDACTED>
 - Exact-SHA GitHub Actions run: `31480737818`, conclusion `success`.
 - Job `Go and isolated rqlite` подтвердил Go format/test/race/vet и полный
   rqlite lifecycle.
@@ -2106,7 +2106,7 @@ rqlite, DNS, TLS, панели, VPN-конфиги и bot process этим check
 
 - Ветка: `codex/ha-rqlite-task2`.
 - Проверенный HEAD: `c02c0728085bcfe2651849ba99eb480130c49118`.
-- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Draft PR: `#82` — `<REDACTED>
 - Exact-SHA workflow run: `31486611114`, job `93763353148`, conclusion
   `success`.
 - Успешны format, backend tests, race, vet, harness contract, запуск реального
@@ -2199,7 +2199,7 @@ DNS, TLS, панели, Telegram-боты, OTA и четыре VPN-сервер�
 - Проверенный implementation HEAD:
   `2e460f79ba4b92cdad182987af5f4a1ec4565247`.
 - Draft PR: `#82` —
-  `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+  `<REDACTED>
 - Финальный exact-SHA GitHub Actions run: `31491787642`, job `93779767990`,
   conclusion `success`.
 - Успешны backend tests, race, vet, rqlite harness contract, запуск

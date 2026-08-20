@@ -39,6 +39,10 @@ def safe_preview(value, limit=320):
     return redact_text(value)[:limit]
 
 
+def canonical_bytes(raw):
+    """Normalize UTF-8 text to LF before size, hash, and preview."""
+    return raw.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+
 def canonical_paths(root=ROOT):
     root = Path(root).resolve()
     docs = root / DOCS_REL
@@ -53,7 +57,7 @@ def build_manifest(root=ROOT):
     root = Path(root).resolve()
     rows = []
     for path in canonical_paths(root):
-        raw = path.read_bytes()
+        raw = canonical_bytes(path.read_bytes())
         rows.append({'path': path.relative_to(root).as_posix(), 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(), 'preview': safe_preview(raw.decode('utf8'))})
     return {'kind': 'local-redacted-baseline', 'files': rows}
 

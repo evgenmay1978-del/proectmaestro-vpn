@@ -17,6 +17,13 @@ SECRET_PATTERNS = (
     re.compile(r'(?im)^\s*(?:(?:[-*]\s*)|(?:(?:url|uri|endpoint|origin)\s*[:=]\s*["\']?))?https?://[^/\s:@]+:[^/\s@]+@[^\r\n]*$'),
     re.compile(r'(?im)^\s*(?:(?:[-*]\s*)|(?:(?:url|uri|endpoint|origin)\s*[:=]\s*["\']?))?https?://[^\r\n]*[?&](?:token|password|secret|api[_ -]?key)=[^&#\s]+[^\r\n]*$'),
 )
+ENDPOINT_PATTERNS = (
+    IPV4,
+    re.compile(r'(?i)\b[a-z][a-z0-9+.-]{1,20}://[^\s<>"\']+'),
+    re.compile(r'(?i)(?<![\w.-])(?:localhost|[a-z][a-z0-9-]{1,62}|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}):\d{1,5}\b'),
+    re.compile(r'(?i)\b(?:host(?:name)?|origin|server|endpoint|domain|sni|address)\b[^\r\n]{0,24}?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?!(?:md|py|go|kt|json|ya?ml|sh|ps1|xml|gradle|properties|txt|html|css|js|ts)\b)[a-z]{2,63}\b'),
+)
+
 def renderer_module():
     path = Path(__file__).with_name('render_redacted_baseline.py')
     spec = importlib.util.spec_from_file_location('render_redacted_baseline_for_validator', path)
@@ -28,7 +35,7 @@ def renderer_module():
 
 def secrecy_paths(root, docs_root):
     candidates = [root / 'AGENTS.md', root / 'CONTEXT.md', root / 'CONTEXT_HANDOFF.md']
-    candidates.extend(path for path in docs_root.rglob('*.md') if path.name != 'MASTER_REQUIREMENTS.md')
+    candidates.extend(path for path in docs_root.rglob('*') if path.is_file() and path.name != 'MASTER_REQUIREMENTS.md' and path.suffix.lower() in {'.md', '.json', '.yaml', '.yml'})
     scripts = root / 'scripts'
     if scripts.is_dir():
         candidates.extend(path for path in scripts.rglob('*') if path.is_file() and path.suffix.lower() in {'.py', '.sh', '.ps1', '.json', '.yaml', '.yml'})
@@ -42,10 +49,11 @@ def scan_secrecy(root, docs_root):
     errors = []
     for path in secrecy_paths(Path(root), Path(docs_root)):
         text = path.read_text(encoding='utf8')
-        if any(pattern.search(text) for pattern in SECRET_PATTERNS):
+        if path.suffix.lower() == '.py':
+            text = '\n'.join(line for line in text.splitlines() if 're.compile(' not in line)
+        if any(pattern.search(text) for pattern in (*SECRET_PATTERNS, *ENDPOINT_PATTERNS)):
             errors.append(f'sensitive literal: {path.relative_to(root)}')
     return errors
-
 
 def validate(docs_root, root=ROOT):
     root = Path(root).resolve(); docs_root = Path(docs_root).resolve(); errors = []
@@ -54,10 +62,6 @@ def validate(docs_root, root=ROOT):
     adr_root = docs_root / 'adr'
     if not adr_root.is_dir() or {path.name for path in adr_root.iterdir() if path.is_file()} != ADRS:
         errors.append('ADR inventory')
-    raw_ip_paths = [root / 'AGENTS.md', root / 'CONTEXT.md', *docs_root.rglob('*.md'), *(root / 'scripts').rglob('*.py')]
-    for path in raw_ip_paths:
-        if path.name != 'MASTER_REQUIREMENTS.md' and path.is_file() and IPV4.search(path.read_text(encoding='utf8')):
-            errors.append(f'raw IPv4 policy: {path.name}')
     for name in ADRS:
         path = adr_root / name
         if path.is_file():

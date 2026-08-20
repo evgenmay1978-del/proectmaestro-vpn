@@ -3,261 +3,261 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "bytes": 9674,
-      "sha256": "e36e46979297057cb78500206c4b1d41646ac0d00c939d27711f9ca0f44e0224",
-      "preview": "# Yandex CDN white-list task\r\n\r\nNavigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](<REDACTED>), [SPEC](docs/yandex-cdn-whitelist/<REDACTED>), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [han"
+      "bytes": 9573,
+      "sha256": "fd65a3d49e194c98447f7e190e3136342788d241e5ceef4e4ffe46841ec9a1ba",
+      "preview": "# Yandex CDN white-list task\n\nNavigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](<REDACTED>), [SPEC](docs/yandex-cdn-whitelist/<REDACTED>), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [hando"
     },
     {
       "path": "CONTEXT.md",
-      "bytes": 2322,
-      "sha256": "8540ff3e5e29139c335a0eaaa28c62791b8ffcee9ef92c2093cd44608bbe9b97",
-      "preview": "# Canonical domain language\r\n\r\nStatus: target-only. Terms define boundaries, not a live audit or deployment.\r\n\r\nCustomer is a person/organisation. VPN Account is its service account. Device is one installed app instance registered to a VPN Account; it is neither a Customer nor a billing identity. White-List Entitlement"
+      "bytes": 2309,
+      "sha256": "f99a51261eddcb2e767c9720bde004280135959741b44923c2ecb4e684612418",
+      "preview": "# Canonical domain language\n\nStatus: target-only. Terms define boundaries, not a live audit or deployment.\n\nCustomer is a person/organisation. VPN Account is its service account. Device is one installed app instance registered to a VPN Account; it is neither a Customer nor a billing identity. White-List Entitlement is "
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 238139,
-      "sha256": "6b6f716ba7dd788d93f1576f849d08a58e0df06bda6f3b7f640a60ac138e21c7",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\r\n\r\n## 0AAAAA. APPLY-AGENT PAYLOAD BOUNDARY FINAL GREEN; TASK 12 DRIVERS NEXT (13.08.2026)\r\n\r\n- Authoritative review surface remains draft PR #82 on branch\r\n  `codex/ha-rqlite-task2`. The node-service payload-isolation subplan is GREEN\r\n  through exact SHA `d20ad659d6"
+      "bytes": 233951,
+      "sha256": "f9bf9dc95c2dcf77618f71ce9d4f129591aa5e491b6a913eefefb57e17b6f09d",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAA. APPLY-AGENT PAYLOAD BOUNDARY FINAL GREEN; TASK 12 DRIVERS NEXT (13.08.2026)\n\n- Authoritative review surface remains draft PR #82 on branch\n  `codex/ha-rqlite-task2`. The node-service payload-isolation subplan is GREEN\n  through exact SHA `d20ad659d6fca1dc"
     },
     {
       "path": "docs/yandex-cdn-whitelist/ADR_MAP.md",
-      "bytes": 1047,
-      "sha256": "aaa2c32bb4ea9e24c265799f422892335528b5caba6f2a5ebc7db91e56b43b82",
-      "preview": "# ADR / Wayfinder map\r\n\r\nStatus: target-only. Proposed decisions require evidence and stop-gate approval.\r\n\r\n- [ADR-0001](adr/<REDACTED>): data-plane\r\n- [ADR-0002](adr/<REDACTED>): 3x-ui isolation\r\n- [ADR-0003](adr/<REDACTED>): Xray version\r\n- [ADR-0004](adr/<REDACTED>): presets\r\n- [ADR-0005](adr/<REDACTED>): idle\r\n- ["
+      "bytes": 1022,
+      "sha256": "a36f9d8260e04bcc3eac4d61504537e7dcc20593b2287bec401974f721346c6c",
+      "preview": "# ADR / Wayfinder map\n\nStatus: target-only. Proposed decisions require evidence and stop-gate approval.\n\n- [ADR-0001](adr/<REDACTED>): data-plane\n- [ADR-0002](adr/<REDACTED>): 3x-ui isolation\n- [ADR-0003](adr/<REDACTED>): Xray version\n- [ADR-0004](adr/<REDACTED>): presets\n- [ADR-0005](adr/<REDACTED>): idle\n- [ADR-0006]"
     },
     {
       "path": "docs/yandex-cdn-whitelist/ARCHITECTURE.md",
-      "bytes": 1070,
-      "sha256": "a3f9f4fc9eefc3e7f7d31b6e81094d78a792f4d096ac4e27f3ecf3e1ead75796",
-      "preview": "# Target architecture\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nPanel desired state is reconciled independently on S1/S2/S3/S4 into isolated immutable sidecars. CDN route reaches a selected si"
+      "bytes": 1059,
+      "sha256": "791c9209d23068868e2cfe3ec269baa4e7e4399456f90533fac0587369b803e1",
+      "preview": "# Target architecture\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nPanel desired state is reconciled independently on S1/S2/S3/S4 into isolated immutable sidecars. CDN route reaches a selected sideca"
     },
     {
       "path": "docs/yandex-cdn-whitelist/BILLING.md",
-      "bytes": 1096,
-      "sha256": "646b87fee87cd370409f29c8b950b24a7add41ba5a5f98ef0110a069298fc6d6",
-      "preview": "# Billing policy model\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nStore bytes and money as integers/fixed point. Effective price precedence is individual override, tariff, profile, global defau"
+      "bytes": 1085,
+      "sha256": "74e66194e369fc2b1f41907f62ffcd25535c325548c986684a4a264a2658a89a",
+      "preview": "# Billing policy model\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nStore bytes and money as integers/fixed point. Effective price precedence is individual override, tariff, profile, global default; "
     },
     {
       "path": "docs/yandex-cdn-whitelist/BILLING_RECONCILIATION.md",
-      "bytes": 1075,
-      "sha256": "53cec633060543d6bb11232a285d7ec29e44278a067e6b1c4398754e8875b161",
-      "preview": "# Billing reconciliation\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nCompare intervals, instance totals, available aggregate cost, probe/service/heartbeat traffic and ledger revenue with epoch c"
+      "bytes": 1064,
+      "sha256": "ffbcacc53abf6a06ab1538818d439205cc7acd7a60b19bebbe200f038931748e",
+      "preview": "# Billing reconciliation\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nCompare intervals, instance totals, available aggregate cost, probe/service/heartbeat traffic and ledger revenue with epoch cover"
     },
     {
       "path": "docs/yandex-cdn-whitelist/CLIENT_COMPATIBILITY.md",
-      "bytes": 1098,
-      "sha256": "03b6da8ac034fc8ac7a06bf5e7e8f6124bb25416ee8f3becc80551d21e8d10d4",
-      "preview": "# Client compatibility matrix\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nMaestroVPN, Karing, Incy and Happ start UNVERIFIED. A versioned preset may be SUPPORTED only after import, refresh, TCP/"
+      "bytes": 1087,
+      "sha256": "eb00cbe7f5f503f5022b0fc0510842f033a7dbf9c2766cccc1dbb5456ecece95",
+      "preview": "# Client compatibility matrix\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nMaestroVPN, Karing, Incy and Happ start UNVERIFIED. A versioned preset may be SUPPORTED only after import, refresh, TCP/UDP/"
     },
     {
       "path": "docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md",
-      "bytes": 1038,
-      "sha256": "d07317c47afb252e063b7a5b5214df7586222556aead8ddeb4f10fcfd3cf1295",
-      "preview": "# Definition of Done navigation\r\n\r\nStatus: target-only. This page is a navigation aid, not a completion assertion.\r\n\r\nThe authoritative acceptance list remains the byte-for-byte owner source in `MASTER_REQUIREMENTS.md`. Its `50. DEFINITION OF DONE` delimiter is plain source text rather than a Markdown heading, so it in"
+      "bytes": 1032,
+      "sha256": "fed6b3d06e00e7a38478586d72582c7846ca05e949f7f11092e2ebceafd889dd",
+      "preview": "# Definition of Done navigation\n\nStatus: target-only. This page is a navigation aid, not a completion assertion.\n\nThe authoritative acceptance list remains the byte-for-byte owner source in `MASTER_REQUIREMENTS.md`. Its `50. DEFINITION OF DONE` delimiter is plain source text rather than a Markdown heading, so it intent"
     },
     {
       "path": "docs/yandex-cdn-whitelist/DEPLOYMENT.md",
-      "bytes": 1102,
-      "sha256": "97fca7d2c84ef14e09d76d5d4e373b73955b9d6613b40605280e96091d9583fd",
-      "preview": "# Deployment target and release lifecycle\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nCandidate release holds pinned binary/config/manifests/checksums/validation/rollback metadata. Promotion is "
+      "bytes": 1091,
+      "sha256": "5f908462e1f0c9d7848d84ec63fbce89ba9bae097f5184e2e22609269a4ded4e",
+      "preview": "# Deployment target and release lifecycle\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nCandidate release holds pinned binary/config/manifests/checksums/validation/rollback metadata. Promotion is atom"
     },
     {
       "path": "docs/yandex-cdn-whitelist/EDGE_LIFECYCLE.md",
-      "bytes": 1071,
-      "sha256": "5220ff18cc1107f1098881b34cb96ecbff93cbf974920bc8c476bc40704b0bda",
-      "preview": "# Edge lifecycle\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nState progression is DISCOVERED, PROBING, CANDIDATE, APPROVED, DEGRADED/QUARANTINED, RETIRED. Approval requires repeated time-separat"
+      "bytes": 1060,
+      "sha256": "4500ed6ae1f5af6a8487deb06af6e5bbd20a7724e64cbeae9157130c06c3ef57",
+      "preview": "# Edge lifecycle\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nState progression is DISCOVERED, PROBING, CANDIDATE, APPROVED, DEGRADED/QUARANTINED, RETIRED. Approval requires repeated time-separated T"
     },
     {
       "path": "docs/yandex-cdn-whitelist/HANDOFF.md",
-      "bytes": 1221,
-      "sha256": "b49c3b034b15983a08bb829e2ac86a49e62f003ed51e7364e3ef9619a2507750",
-      "preview": "# Handoff\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nTask 1 changes only docs and local tooling. It conveys no standing approval for any live audit. A live read-only audit may start only when t"
+      "bytes": 1211,
+      "sha256": "251ee3726d4a3b145dc7b29f4ba6e88e59b442256a64e8be75f7d588ac3ee5ca",
+      "preview": "# Handoff\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nTask 1 changes only docs and local tooling. It conveys no standing approval for any live audit. A live read-only audit may start only when the o"
     },
     {
       "path": "docs/yandex-cdn-whitelist/IMPLEMENTATION_PLAN.md",
-      "bytes": 1067,
-      "sha256": "3b200b28fd2ce235540b80c1d6c8a491d1160cad201c10283efe429c4ba16186",
-      "preview": "# Vertical implementation plan\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nProceed audit/restore proof, isolated release skeleton, one non-production user, CDN tests, per-user stats, shadow mete"
+      "bytes": 1056,
+      "sha256": "c3dd74ef7673121848665eda1b7ee02f16eef90ca4a76f07302fb8dc042c39d2",
+      "preview": "# Vertical implementation plan\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nProceed audit/restore proof, isolated release skeleton, one non-production user, CDN tests, per-user stats, shadow metering"
     },
     {
       "path": "docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md",
-      "bytes": 78256,
-      "sha256": "b61fc2031c9d70fb1e442b56d1a11559fae9b890122d8e262a0f831e75be33f2",
-      "preview": "# CODEX BOOTSTRAP MASTER TASK\r\n# MaestroVPN / Maestro Panel\r\n# Yandex Cloud CDN White-List Transport\r\n# Per-Client Management + Per-GB Billing\r\n# Production-Safe Engineering Program\r\n\r\n\u0422\u044b \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0448\u044c \u0441 \u0440\u0435\u0430\u043b\u044c\u043d\u043e\u0439 \u0441\u0438\u0441\u0442\u0435\u043c\u043e\u0439 MaestroVPN, Maestro Panel, backend,\r\n\u0431\u043e\u0442\u0430\u043c\u0438, \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u043c\u0438, 3x-ui, Xray, \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430\u043c\u0438 \u0438 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u043c\u0438 \u043a\u043b\u0438\u0435\u043d\u0442"
+      "bytes": 75599,
+      "sha256": "98c4b62326da95bf450d197000f914542595c4d63298c74ec7a74d77766d0c5f",
+      "preview": "# CODEX BOOTSTRAP MASTER TASK\n# MaestroVPN / Maestro Panel\n# Yandex Cloud CDN White-List Transport\n# Per-Client Management + Per-GB Billing\n# Production-Safe Engineering Program\n\n\u0422\u044b \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0448\u044c \u0441 \u0440\u0435\u0430\u043b\u044c\u043d\u043e\u0439 \u0441\u0438\u0441\u0442\u0435\u043c\u043e\u0439 MaestroVPN, Maestro Panel, backend,\n\u0431\u043e\u0442\u0430\u043c\u0438, \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u043c\u0438, 3x-ui, Xray, \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430\u043c\u0438 \u0438 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u043c\u0438 \u043a\u043b\u0438\u0435\u043d\u0442\u0430\u043c\u0438.\n\n\u042d"
     },
     {
       "path": "docs/yandex-cdn-whitelist/PANEL_INTEGRATION.md",
-      "bytes": 1092,
-      "sha256": "d3164a88e6d6a473986426eeb5c6da8b33d81d0f1dad0acc4174bc9d2a50a8dd",
-      "preview": "# Panel integration contract\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nPanel intent adds entitlement, profile, preset, approved edge, release, usage, tariff, limits, suspension and audit contr"
+      "bytes": 1081,
+      "sha256": "7a458f22d073d4ab104c9152ad8c6c24b02f3948c1665e489bda06b7b2a79fa6",
+      "preview": "# Panel integration contract\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nPanel intent adds entitlement, profile, preset, approved edge, release, usage, tariff, limits, suspension and audit controls "
     },
     {
       "path": "docs/yandex-cdn-whitelist/PRODUCTION_SAFETY.md",
-      "bytes": 1106,
-      "sha256": "eaa565d3ddd817cf6443a39b680b0563991f72040bb5b863ffcdf412cbf916e9",
-      "preview": "# Production safety rules\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nTask 1 has no live audit, backup, restore, deployment, restart, migration or firewall change. Before a live mutation: approv"
+      "bytes": 1095,
+      "sha256": "700361fa2ee916087fbc5b477e712350e0bba348c4ea5b383eecb154eae0d409",
+      "preview": "# Production safety rules\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nTask 1 has no live audit, backup, restore, deployment, restart, migration or firewall change. Before a live mutation: approved b"
     },
     {
       "path": "docs/yandex-cdn-whitelist/RESEARCH.md",
-      "bytes": 1053,
-      "sha256": "035c306c1c002d60e129eb27d74b3ee97bc366ac64085fb2037c59601e2ae1c2",
-      "preview": "# Research protocol\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nRecover source-of-truth and upstream semantics through approved read-only evidence. Classify each statement in VERIFIED_FACTS; con"
+      "bytes": 1042,
+      "sha256": "5e660b587e56be1d7a95fdabe8a3a3d216a74e5c42ad6662f1027f533d25a0b8",
+      "preview": "# Research protocol\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nRecover source-of-truth and upstream semantics through approved read-only evidence. Classify each statement in VERIFIED_FACTS; contrad"
     },
     {
       "path": "docs/yandex-cdn-whitelist/ROLLBACK.md",
-      "bytes": 1082,
-      "sha256": "19cf9e5ad5b36d396a6588b694d63f91aa177c3a88e13a0ee96e736ecb7f0675",
-      "preview": "# Rollback policy\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nRollback selects a prior immutable release, unpublishes edge, disables one entitlement or returns billing to shadow. It preserves or"
+      "bytes": 1071,
+      "sha256": "e228d5fef3b1f5d603b147e106b023a89deb59b032a092635d236f67cdcec0af",
+      "preview": "# Rollback policy\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nRollback selects a prior immutable release, unpublishes edge, disables one entitlement or returns billing to shadow. It preserves ordina"
     },
     {
       "path": "docs/yandex-cdn-whitelist/SECURITY.md",
-      "bytes": 1083,
-      "sha256": "029cae2a110d81a56dcd8e57c55921dcdf05f8e4bad312dbe8260be824313f35",
-      "preview": "# Security boundaries\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nExclude secrets, private/decryption material, customer identity, full URI, payload and sensitive origin context from Git/logs/re"
+      "bytes": 1072,
+      "sha256": "4690f8e92d50519170d8590d536abdb31b32bdb3c4c0391b85ff2566f3dbbc4a",
+      "preview": "# Security boundaries\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nExclude secrets, private/decryption material, customer identity, full URI, payload and sensitive origin context from Git/logs/report"
     },
     {
       "path": "docs/yandex-cdn-whitelist/SPEC.md",
-      "bytes": 1092,
-      "sha256": "e3e78a4c26d9f9d43062005617257b0c843f9fd73f096ce3b0732ef8ca50de8f",
-      "preview": "# White-list transport specification\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nEntitlement states are DISABLED, PROVISIONING, ACTIVE, GRACE, SUSPENDED, ERROR and EXPIRED. ACTIVE additively ren"
+      "bytes": 1081,
+      "sha256": "4497d5bf7614e7c26043e6407866c3e5ec3ad6e6ebd7381c0eba30d28ccce22f",
+      "preview": "# White-list transport specification\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nEntitlement states are DISABLED, PROVISIONING, ACTIVE, GRACE, SUSPENDED, ERROR and EXPIRED. ACTIVE additively renders"
     },
     {
       "path": "docs/yandex-cdn-whitelist/TERMINOLOGY.md",
-      "bytes": 520,
-      "sha256": "aec24b877cb8e52262f35f355ed0eccb8199753d8ad1b6f2288e181b26c071c2",
-      "preview": "# Terminology compatibility note\r\n\r\nStatus: target-only. Operational documentation uses **olcRTC**. `MASTER_REQUIREMENTS.md` is intentionally byte-for-byte verbatim owner input and contains the historical spelling **OLCTRC**; both names refer to the same excluded transport. Do not normalise or edit the master source. O"
+      "bytes": 517,
+      "sha256": "8ebc80986a1632e2458f9f1b7936f9bb1ea5605b3cf63805329b8c2d94c6b757",
+      "preview": "# Terminology compatibility note\n\nStatus: target-only. Operational documentation uses **olcRTC**. `MASTER_REQUIREMENTS.md` is intentionally byte-for-byte verbatim owner input and contains the historical spelling **OLCTRC**; both names refer to the same excluded transport. Do not normalise or edit the master source. Out"
     },
     {
       "path": "docs/yandex-cdn-whitelist/TEST_PLAN.md",
-      "bytes": 1084,
-      "sha256": "d1bdf89cf38b8143b4705f0b0d82035d0d343a4ef050421cf613faff88692e28",
-      "preview": "# Test plan and gates\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nRequire schema/config validation, isolated start, direct and CDN probes, subscription escaping/reimport, per-user stats, client "
+      "bytes": 1073,
+      "sha256": "74f5101d206e033a72cf5f9c26d73d72afe23c045b87ae87ca02188f4be35f2a",
+      "preview": "# Test plan and gates\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nRequire schema/config validation, isolated start, direct and CDN probes, subscription escaping/reimport, per-user stats, client matr"
     },
     {
       "path": "docs/yandex-cdn-whitelist/TEST_RESULTS.md",
-      "bytes": 1097,
-      "sha256": "c776c31947b82047f958895454169fa3d3f8f57e5fbdbcb56e99ba5361e90faa",
-      "preview": "# Test results register\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nNo transport/server/CDN/client/backup/billing/canary test is claimed complete. Future records require test ID, release/checksu"
+      "bytes": 1086,
+      "sha256": "6dc39072002479fa8bb2da3cdc13088efdb808a57a4881cd2fd5a0d95648fa56",
+      "preview": "# Test results register\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nNo transport/server/CDN/client/backup/billing/canary test is claimed complete. Future records require test ID, release/checksum, i"
     },
     {
       "path": "docs/yandex-cdn-whitelist/TRAFFIC_METERING.md",
-      "bytes": 1101,
-      "sha256": "7636d7d3401c393b9cee1b097732614c294d5057b692a76d8862f6f84730ddf1",
-      "preview": "# Traffic metering design\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nLocally bound per-Xray-User cumulative counters emit instance, epoch, opaque identity and stable event ID. Central writer de"
+      "bytes": 1090,
+      "sha256": "1fa701c10bb22eb5fb65883aa38f0ad54975e2ccebe9eb1d9003e1d2069cab42",
+      "preview": "# Traffic metering design\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nLocally bound per-Xray-User cumulative counters emit instance, epoch, opaque identity and stable event ID. Central writer dedupl"
     },
     {
       "path": "docs/yandex-cdn-whitelist/TRANSPORT_PRESETS.md",
-      "bytes": 1084,
-      "sha256": "d0df058b2172559c3b134bb715a32efd086cd0ab0d1a63b4e34b1bb6c67846b1",
-      "preview": "# Transport preset policy\r\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\r\n\r\n## Materialized policy\r\nMAESTRO_ADVANCED, GENERIC_XHTTP_GET_COMPAT and EXPERIMENTAL_RESUMABLE are distinct versioned contracts. Each declares core/c"
+      "bytes": 1073,
+      "sha256": "f1a2d9236ee1865e0161432c0ad0cad969ae7a83ffd16cf276dd61f7c4b08d9b",
+      "preview": "# Transport preset policy\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nMAESTRO_ADVANCED, GENERIC_XHTTP_GET_COMPAT and EXPERIMENTAL_RESUMABLE are distinct versioned contracts. Each declares core/clien"
     },
     {
       "path": "docs/yandex-cdn-whitelist/VERIFIED_FACTS.md",
-      "bytes": 1810,
-      "sha256": "c29130dda4a8527d99fed9e2f39e8bee3c7d3564f1ffdb1e7f8f07c2251e6253",
-      "preview": "# Verified facts and provenance register\r\n\r\nStatus: target-only. This register does not call any server, CDN, client, backup, billing path, or edge \u201cverified\u201d without dated, cited evidence.\r\n\r\n| Class | Meaning | Permitted wording |\r\n| --- | --- | --- |\r\n| OWNER-PROVIDED ACCEPTANCE CLAIM | Owner/master requirement. | O"
+      "bytes": 1790,
+      "sha256": "05c06e6447cad8b501d23263d84c59543e9a2bc16e0773ab753ebd81e8f492d8",
+      "preview": "# Verified facts and provenance register\n\nStatus: target-only. This register does not call any server, CDN, client, backup, billing path, or edge \u201cverified\u201d without dated, cited evidence.\n\n| Class | Meaning | Permitted wording |\n| --- | --- | --- |\n| OWNER-PROVIDED ACCEPTANCE CLAIM | Owner/master requirement. | Owner-p"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0001.md",
-      "bytes": 1532,
-      "sha256": "b83a3af62cc7a012713763db8b7fc5982d9aeb976edf20b78229f0c142f6b584",
-      "preview": "# ADR-0001 \u2014 sidecar/reconciler boundary\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nsidecar/reconciler boundary\r\n\r\n## Problem\r\nChoose a safe target for sidecar/reconciler boundary without coupling it to ordinary VPN or c"
+      "bytes": 1497,
+      "sha256": "9f4e3b4019c0de2e532c76f4eb6202d0a58f639f4fa4627a294bbee50b0d5793",
+      "preview": "# ADR-0001 \u2014 sidecar/reconciler boundary\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nsidecar/reconciler boundary\n\n## Problem\nChoose a safe target for sidecar/reconciler boundary without coupling it to ordinary VPN or claiming "
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0002.md",
-      "bytes": 1520,
-      "sha256": "bae9c4c4a059c7d270791f9a2348940aad70557212fa539d60d0f4b64b374972",
-      "preview": "# ADR-0002 \u2014 3x-ui raw-field preservation\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\n3x-ui raw-field preservation\r\n\r\n## Problem\r\nChoose a safe target for 3x-ui raw-field preservation without coupling it to ordinary VPN o"
+      "bytes": 1485,
+      "sha256": "6d6d3e627a4d86aae888baa8e727e2dccfd89c26d3730dfcbc2fefb3d781d4b8",
+      "preview": "# ADR-0002 \u2014 3x-ui raw-field preservation\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\n3x-ui raw-field preservation\n\n## Problem\nChoose a safe target for 3x-ui raw-field preservation without coupling it to ordinary VPN or claimi"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0003.md",
-      "bytes": 1485,
-      "sha256": "3f413a71a38c8882a3f39cd80c1b1eb94175c9c771e96af9def98ee49702f84d",
-      "preview": "# ADR-0003 \u2014 pinned Xray provenance\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\npinned Xray provenance\r\n\r\n## Problem\r\nChoose a safe target for pinned Xray provenance without coupling it to ordinary VPN or claiming unobser"
+      "bytes": 1450,
+      "sha256": "ae6d9b98d3f4e3f778d35627a63e0af4bb5ddc155976f0ff5fe7c669e3b97b44",
+      "preview": "# ADR-0003 \u2014 pinned Xray provenance\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\npinned Xray provenance\n\n## Problem\nChoose a safe target for pinned Xray provenance without coupling it to ordinary VPN or claiming unobserved beha"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0004.md",
-      "bytes": 1521,
-      "sha256": "37b6148ce2e9c191644a3b146de69cc270fe94554f6804519a9f7c61d9c20407",
-      "preview": "# ADR-0004 \u2014 capability preset versioning\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\ncapability preset versioning\r\n\r\n## Problem\r\nChoose a safe target for capability preset versioning without coupling it to ordinary VPN o"
+      "bytes": 1486,
+      "sha256": "d97c3813c934d20175c0017fe58a41a32716d9b987f87e14c202b85d4fba8580",
+      "preview": "# ADR-0004 \u2014 capability preset versioning\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ncapability preset versioning\n\n## Problem\nChoose a safe target for capability preset versioning without coupling it to ordinary VPN or claimi"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0005.md",
-      "bytes": 1503,
-      "sha256": "6d014d8ff2f61174bd5d485d777c8dafec0d42a1aeb52a5c602a52f13c88c87a",
-      "preview": "# ADR-0005 \u2014 idle downlink recovery\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nidle downlink recovery\r\n\r\n## Problem\r\nChoose a safe target for idle downlink recovery without coupling it to ordinary VPN or claiming unobser"
+      "bytes": 1468,
+      "sha256": "f74da1d517d0e13e00814d6661cb90d615f0a7c3171bfae486f698ebd0ffd383",
+      "preview": "# ADR-0005 \u2014 idle downlink recovery\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nidle downlink recovery\n\n## Problem\nChoose a safe target for idle downlink recovery without coupling it to ordinary VPN or claiming unobserved beha"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0006.md",
-      "bytes": 1568,
-      "sha256": "a6e4f45a7b15de2aa57525bfc821d3d537f6a91e1b217d38249406e5d8e6600b",
-      "preview": "# ADR-0006 \u2014 immutable release pointer\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nimmutable release pointer\r\n\r\n## Problem\r\nChoose a safe target for immutable release pointer without coupling it to ordinary VPN or claimin"
+      "bytes": 1533,
+      "sha256": "0a50d231af8f7ec597f013683a7ea8b583bbca040e924abd78b2437a103f149d",
+      "preview": "# ADR-0006 \u2014 immutable release pointer\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nimmutable release pointer\n\n## Problem\nChoose a safe target for immutable release pointer without coupling it to ordinary VPN or claiming unobse"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0007.md",
-      "bytes": 1511,
-      "sha256": "6f019826d41628e64a5bf0fc297f4f48a9e6e5fe6dcfa6365e2741fb460922a9",
-      "preview": "# ADR-0007 \u2014 opaque stats identity\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nopaque stats identity\r\n\r\n## Problem\r\nChoose a safe target for opaque stats identity without coupling it to ordinary VPN or claiming unobserved"
+      "bytes": 1476,
+      "sha256": "a8a9c9251f010c3ec2d2369df702cb9a27e1f3d27968ca8c12b6d686787974bd",
+      "preview": "# ADR-0007 \u2014 opaque stats identity\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nopaque stats identity\n\n## Problem\nChoose a safe target for opaque stats identity without coupling it to ordinary VPN or claiming unobserved behavio"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0008.md",
-      "bytes": 1586,
-      "sha256": "2cd4aa7649863dfecbe54e9a5f8f0c3df90c5f765a99635294e2c3d5314f52b5",
-      "preview": "# ADR-0008 \u2014 desired-state user reconciliation\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\ndesired-state user reconciliation\r\n\r\n## Problem\r\nChoose a safe target for desired-state user reconciliation without coupling it to"
+      "bytes": 1551,
+      "sha256": "53838707ec9f4de04d550ffdc2121a9e9ec82d136724ac0339f8f7253b33e57f",
+      "preview": "# ADR-0008 \u2014 desired-state user reconciliation\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ndesired-state user reconciliation\n\n## Problem\nChoose a safe target for desired-state user reconciliation without coupling it to ordinar"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0009.md",
-      "bytes": 1486,
-      "sha256": "6dff691cc4d7e668790f9c8028799c25d0a00b4f2b84e9a70cc494105d158567",
-      "preview": "# ADR-0009 \u2014 edge approval evidence\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nedge approval evidence\r\n\r\n## Problem\r\nChoose a safe target for edge approval evidence without coupling it to ordinary VPN or claiming unobser"
+      "bytes": 1451,
+      "sha256": "a8704b6ed772647ae31724425887f5853a6e2f082b6c3cee65ca2468da942d5c",
+      "preview": "# ADR-0009 \u2014 edge approval evidence\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nedge approval evidence\n\n## Problem\nChoose a safe target for edge approval evidence without coupling it to ordinary VPN or claiming unobserved beha"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0010.md",
-      "bytes": 1532,
-      "sha256": "4e75eaeedd44d92a65a7c0b258da178520e87cfd37f4e129649cfaf23c83ecb8",
-      "preview": "# ADR-0010 \u2014 additive subscription rendering\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nadditive subscription rendering\r\n\r\n## Problem\r\nChoose a safe target for additive subscription rendering without coupling it to ordin"
+      "bytes": 1497,
+      "sha256": "af0373c2f311ac1d1beb0deaf5322fc1072aba374e94bb3d514d1f6e22fa00d6",
+      "preview": "# ADR-0010 \u2014 additive subscription rendering\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nadditive subscription rendering\n\n## Problem\nChoose a safe target for additive subscription rendering without coupling it to ordinary VPN "
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0011.md",
-      "bytes": 1522,
-      "sha256": "5e3f27bc2ea26ed02baccb43c263946f3ff15b9ab01dda8d0baaac6821cc4642",
-      "preview": "# ADR-0011 \u2014 server-side counter source\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nserver-side counter source\r\n\r\n## Problem\r\nChoose a safe target for server-side counter source without coupling it to ordinary VPN or clai"
+      "bytes": 1487,
+      "sha256": "4b64b42636ebd6411caeb3e18e1756bba43ca75d745c3b5a1e738ed7d7d5a075",
+      "preview": "# ADR-0011 \u2014 server-side counter source\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nserver-side counter source\n\n## Problem\nChoose a safe target for server-side counter source without coupling it to ordinary VPN or claiming uno"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0012.md",
-      "bytes": 1534,
-      "sha256": "b3ac5c0116c9e8e682251975ebd03a034d5f9c7b64a6497224f1b94185cccf77",
-      "preview": "# ADR-0012 \u2014 epoch-scoped cumulative delta\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nepoch-scoped cumulative delta\r\n\r\n## Problem\r\nChoose a safe target for epoch-scoped cumulative delta without coupling it to ordinary VP"
+      "bytes": 1499,
+      "sha256": "79998cffe2dec3d9e9de353c211b65a51cc0a0d8039e020573f96e71a13e86af",
+      "preview": "# ADR-0012 \u2014 epoch-scoped cumulative delta\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nepoch-scoped cumulative delta\n\n## Problem\nChoose a safe target for epoch-scoped cumulative delta without coupling it to ordinary VPN or cla"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0013.md",
-      "bytes": 1534,
-      "sha256": "f28bed776cbae9acb3757b7f830d79f14d7a8b456cbf879b9bc37fa9ac4adb9b",
-      "preview": "# ADR-0013 \u2014 immutable financial ledger\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nimmutable financial ledger\r\n\r\n## Problem\r\nChoose a safe target for immutable financial ledger without coupling it to ordinary VPN or clai"
+      "bytes": 1499,
+      "sha256": "a96f7133754f6c0e12c6aea0f47f61957dd7b50ca6cf3129ad0f95f1c2d02e07",
+      "preview": "# ADR-0013 \u2014 immutable financial ledger\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nimmutable financial ledger\n\n## Problem\nChoose a safe target for immutable financial ledger without coupling it to ordinary VPN or claiming uno"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0014.md",
-      "bytes": 1543,
-      "sha256": "b86214a2e5137245ad3248ddd981949627b9f801e4bb694f41bf80bb89832076",
-      "preview": "# ADR-0014 \u2014 entitlement-only suspension\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nentitlement-only suspension\r\n\r\n## Problem\r\nChoose a safe target for entitlement-only suspension without coupling it to ordinary VPN or c"
+      "bytes": 1508,
+      "sha256": "4ec0d1072ae756a83e67acbf4fd94da1ab1fa862dcc57a58a65e484017f8dc7d",
+      "preview": "# ADR-0014 \u2014 entitlement-only suspension\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nentitlement-only suspension\n\n## Problem\nChoose a safe target for entitlement-only suspension without coupling it to ordinary VPN or claiming "
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0015.md",
-      "bytes": 1522,
-      "sha256": "304d4fe6fa591eb434ee772692e40c84565a2d8fbd58c8fb8fc9bc30cb743af7",
-      "preview": "# ADR-0015 \u2014 official-prefix origin policy\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nofficial-prefix origin policy\r\n\r\n## Problem\r\nChoose a safe target for official-prefix origin policy without coupling it to ordinary VP"
+      "bytes": 1487,
+      "sha256": "c54cb487951104b4729dd3e7247b8678318084980f019d9b1752b61632e5e339",
+      "preview": "# ADR-0015 \u2014 official-prefix origin policy\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nofficial-prefix origin policy\n\n## Problem\nChoose a safe target for official-prefix origin policy without coupling it to ordinary VPN or cla"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0016.md",
-      "bytes": 1495,
-      "sha256": "ebe9801320954978f3aa6d088678261594865c2ca5e8d6835a8e5ac9b424dacc",
-      "preview": "# ADR-0016 \u2014 gated canary progression\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\ngated canary progression\r\n\r\n## Problem\r\nChoose a safe target for gated canary progression without coupling it to ordinary VPN or claiming u"
+      "bytes": 1460,
+      "sha256": "d6dc284b2635c31a03b87d1ed910ce37c647faa944f5450dcf213ad60a6694a6",
+      "preview": "# ADR-0016 \u2014 gated canary progression\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ngated canary progression\n\n## Problem\nChoose a safe target for gated canary progression without coupling it to ordinary VPN or claiming unobserve"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0017.md",
-      "bytes": 1552,
-      "sha256": "edd0da11d40040d834f957ca90e6bcf5b45c2e968df51446f3e595322da7680c",
-      "preview": "# ADR-0017 \u2014 scoped immutable rollback\r\n\r\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\r\n\r\n## Topic-specific target\r\nscoped immutable rollback\r\n\r\n## Problem\r\nChoose a safe target for scoped immutable rollback without coupling it to ordinary VPN or claimin"
+      "bytes": 1517,
+      "sha256": "35e77da4dfdafc8af156dff6fe72a48a9a1691b3eca94e41bdeb4687b059d186",
+      "preview": "# ADR-0017 \u2014 scoped immutable rollback\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nscoped immutable rollback\n\n## Problem\nChoose a safe target for scoped immutable rollback without coupling it to ordinary VPN or claiming unobse"
     }
   ]
 }
