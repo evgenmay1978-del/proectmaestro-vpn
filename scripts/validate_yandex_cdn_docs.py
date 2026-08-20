@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT = ROOT / 'docs' / 'yandex-cdn-whitelist'
+TRACKED_PLAN_REL = Path('docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md')
 REQ = {'MASTER_REQUIREMENTS.md','VERIFIED_FACTS.md','RESEARCH.md','ARCHITECTURE.md','SPEC.md','IMPLEMENTATION_PLAN.md','TEST_PLAN.md','TEST_RESULTS.md','CLIENT_COMPATIBILITY.md','TRANSPORT_PRESETS.md','EDGE_LIFECYCLE.md','PANEL_INTEGRATION.md','TRAFFIC_METERING.md','BILLING.md','BILLING_RECONCILIATION.md','SECURITY.md','PRODUCTION_SAFETY.md','DEPLOYMENT.md','ROLLBACK.md','HANDOFF.md','ADR_MAP.md','DEFINITION_OF_DONE.md','TERMINOLOGY.md','BASELINE_MANIFEST.json'}
 ADRS = {f'ADR-{i:04d}.md' for i in range(1, 18)}
 HEADINGS = ('## Problem','## Constraints','## Alternatives','## Trade-offs','## Risks','## Compatibility','## Testing','## Rollback','## Decision','## Evidence')
@@ -31,7 +32,7 @@ def renderer_module():
 
 
 def secrecy_paths(root, docs_root):
-    candidates = [root / 'AGENTS.md', root / 'CONTEXT.md', root / 'CONTEXT_HANDOFF.md']
+    candidates = [root / 'AGENTS.md', root / 'CONTEXT.md', root / 'CONTEXT_HANDOFF.md', root / TRACKED_PLAN_REL]
     candidates.extend(path for path in docs_root.rglob('*') if path.is_file() and path.name != 'MASTER_REQUIREMENTS.md' and path.suffix.lower() in {'.md', '.json', '.yaml', '.yml'})
     scripts = root / 'scripts'
     if scripts.is_dir():

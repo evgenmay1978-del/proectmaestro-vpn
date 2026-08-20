@@ -145,9 +145,11 @@ class ManifestTests(unittest.TestCase):
     def make_root(self, base):
         root = pathlib.Path(base)
         (root / 'docs' / 'yandex-cdn-whitelist' / 'adr').mkdir(parents=True)
+        (root / 'docs' / 'superpowers' / 'plans').mkdir(parents=True)
         for relative, text in (
             ('AGENTS.md', 'agents\n'), ('CONTEXT.md', 'context\n'),
             ('CONTEXT_HANDOFF.md', 'handoff\n'),
+            ('docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md', 'plan\n'),
             ('docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md', 'master\n'),
             ('docs/yandex-cdn-whitelist/SPEC.md', 'spec\n'),
             ('docs/yandex-cdn-whitelist/adr/ADR-0001.md', 'adr\n'),
@@ -165,6 +167,7 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(sorted(paths), paths)
             self.assertEqual(['kind', 'files'], list(manifest))
             self.assertNotIn('docs/yandex-cdn-whitelist/BASELINE_MANIFEST.json', paths)
+            self.assertIn('docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md', paths)
             self.assertTrue(module.validate_manifest(manifest, root))
 
     def test_manifest_is_identical_for_lf_and_crlf_copies(self):
@@ -206,6 +209,9 @@ class ManifestTests(unittest.TestCase):
             shutil.copytree(DOCS, temp_root / 'docs' / 'yandex-cdn-whitelist')
             for name in ('AGENTS.md', 'CONTEXT.md', 'CONTEXT_HANDOFF.md'):
                 shutil.copy2(ROOT / name, temp_root / name)
+            plan_relative = pathlib.Path('docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md')
+            (temp_root / plan_relative).parent.mkdir(parents=True)
+            shutil.copy2(ROOT / plan_relative, temp_root / plan_relative)
             command = [sys.executable, 'scripts/validate_yandex_cdn_docs.py', '--root', str(temp_root), '--docs-root', str(temp_root / 'docs' / 'yandex-cdn-whitelist')]
             good = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
             self.assertEqual(0, good.returncode, good.stdout + good.stderr)
@@ -252,6 +258,27 @@ class SecrecyScanTests(unittest.TestCase):
             errors = validator().scan_secrecy(root, docs)
             for name in ('CONTEXT_HANDOFF.md', 'DERIVATIVE.md', 'BASELINE_MANIFEST.json', 'tool.py'):
                 self.assertTrue(any(name in error for error in errors), (name, errors))
+
+
+    def test_exact_tracked_plan_path_scans_endpoint_and_credential(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            docs = root / 'docs' / 'yandex-cdn-whitelist'
+            plan = root / 'docs' / 'superpowers' / 'plans' / '2026-08-20-yandex-cdn-whitelist.md'
+            docs.mkdir(parents=True); plan.parent.mkdir(parents=True)
+            (root / 'AGENTS.md').write_text('safe\n', encoding='utf8')
+            (root / 'CONTEXT.md').write_text('safe\n', encoding='utf8')
+            (root / 'CONTEXT_HANDOFF.md').write_text('safe\n', encoding='utf8')
+            (docs / 'MASTER_REQUIREMENTS.md').write_text('excluded source\n', encoding='utf8')
+            hostname = 'private-plan.' + 'example.' + 'test'
+            endpoint = 'https' + '://' + hostname + '/path\n'
+            credential_key = 'pass' + 'word'
+            credential = credential_key + ' = "' + 'synthetic-value' + '"\n'
+            for label, payload in (('endpoint', endpoint), ('credential', credential)):
+                with self.subTest(label=label):
+                    plan.write_text(payload, encoding='utf8')
+                    errors = validator().scan_secrecy(root, docs)
+                    self.assertTrue(any(plan.name in error for error in errors), errors)
 
 
     def test_bare_hostname_rejected_but_public_evidence_host_allowed(self):

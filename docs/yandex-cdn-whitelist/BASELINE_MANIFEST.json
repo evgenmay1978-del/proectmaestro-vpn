@@ -20,6 +20,12 @@
       "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAAA. YANDEX CDN WHITE-LIST TASK 1 FINAL LOCAL GREEN (20.08.2026)\n\n- \u0412\u0435\u0442\u043a\u0430 `codex/yandex-cdn-whitelist`; \u0444\u0438\u043d\u0430\u043b\u044c\u043d\u044b\u0439 implementation/security SHA Task 1 \u2014\n  `018ac708f8274a7bb767788d333c4b411246b683`, \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0439 plan commit \u2014 `2a5cbb4`.\n- \u041b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0435 gates: `python "
     },
     {
+      "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
+      "bytes": 4669,
+      "sha256": "79612ef8463f0029eaf8ee5b47883470dc97a55f6fa1b281352b478fa7da7d48",
+      "preview": "# Yandex Cloud CDN White-List Transport \u2014 execution plan\n\n## Authority and constraints\n\n- Binding requirements: `docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md`, created verbatim from the owner request in Task 1.\n- Production is read-only. Do not restart/update 3x-ui or Xray, modify existing UUIDs/inbounds/ports/fire"
+    },
+    {
       "path": "docs/yandex-cdn-whitelist/ADR_MAP.md",
       "bytes": 1022,
       "sha256": "a36f9d8260e04bcc3eac4d61504537e7dcc20593b2287bec401974f721346c6c",

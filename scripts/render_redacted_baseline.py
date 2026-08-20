@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 DOCS_REL = Path('docs/yandex-cdn-whitelist')
 MANIFEST_REL = DOCS_REL / 'BASELINE_MANIFEST.json'
+TRACKED_PLAN_REL = Path('docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md')
 ROOT_GOVERNANCE = ('AGENTS.md', 'CONTEXT.md', 'CONTEXT_HANDOFF.md')
 SENSITIVE_KEY = r'(?:authorization|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|token|password|passwd|secret|client[_ -]?secret|api[_ -]?key|private[_ -]?key|credential)'
 
@@ -93,6 +94,7 @@ def canonical_paths(root=ROOT):
     root = Path(root).resolve()
     docs = root / DOCS_REL
     paths = [root / name for name in ROOT_GOVERNANCE]
+    paths.append(root / TRACKED_PLAN_REL)
     paths.extend(path for path in docs.rglob('*.md') if path != root / MANIFEST_REL)
     if any(not path.is_file() for path in paths):
         raise FileNotFoundError('canonical baseline path is missing')
