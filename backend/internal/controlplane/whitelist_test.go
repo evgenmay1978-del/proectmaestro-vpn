@@ -170,6 +170,15 @@ func TestTransportReleaseRejectsPresetMixingAndUnsafePublicMaterial(t *testing.T
 		{name: "escaped backslash", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
 			profile.SecretPath = "/static/%5Cpath"
 		}},
+		{name: "encoded dot traversal", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/%2e%2e/admin"
+		}},
+		{name: "encoded separator", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/%2Fadmin"
+		}},
+		{name: "double encoded traversal", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/%252e%252e/admin"
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
