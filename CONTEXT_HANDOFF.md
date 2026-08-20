@@ -237,7 +237,7 @@ deploy/restart, bot/panel/customer mutation, DNS/TLS cutover и OTA. S1 пока
 
 ## 0W. INCIDENT: восстановление replacement S1 (10.08.2026)
 
-- Replacement S1 подтверждён как Litnets `srv_142257` / `193.17.183.48`.
+- Replacement S1 подтверждён как Litnets `srv_142257` / `<redacted-endpoint>`.
   После переустановки и переноса провайдером в Испанию VPS имеет статус `On`.
   10.08.2026 новый root-пароль проверен прямым SSH-входом; сам пароль нигде в
   репозитории не хранится. Новый host key после переустановки ожидаемо отличается

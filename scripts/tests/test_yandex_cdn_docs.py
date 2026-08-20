@@ -29,6 +29,6 @@ class T(unittest.TestCase):
  def test_manifest_schema_hashes_and_tamper(self):
   m=module();manifest=m.build_manifest();self.assertTrue(m.validate_manifest(manifest));manifest['files'][0]['sha256']='0'*64;self.assertFalse(m.validate_manifest(manifest))
  def test_redactor_redacts_before_preview_inline_bearer_and_open_pem(self):
-  m=module();secret='very secret token beyond preview';source='prefix Authorization="Bearer '+secret+'" suffix\n-----BEGIN PRIVATE KEY-----\nprivate material beyond cutoff'
-  preview=m.safe_preview(source,len(source));self.assertNotIn(secret,preview);self.assertNotIn('private material',preview);self.assertIn('<REDACTED>',preview)
+  m=module();secret='very secret token beyond preview';source='{"Authorization":"Bearer '+secret+'"}\n-----BEGIN PRIVATE KEY-----\nmismatch -----END CERTIFICATE-----\nprivate material beyond cutoff\n-----END PRIVATE KEY-----'+'x'*400)
+  preview=m.safe_preview(source,320);self.assertEqual(320,len(preview));self.assertNotIn(secret,preview);self.assertNotIn('private material',preview);self.assertIn('<REDACTED>',preview)
 if __name__=='__main__':unittest.main()
