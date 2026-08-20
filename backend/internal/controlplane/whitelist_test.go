@@ -82,6 +82,7 @@ func TestWhiteListEntitlementRepresentsEveryExplicitState(t *testing.T) {
 		}
 	}
 }
+
 func TestTransportReleaseIsImmutableAndCanonical(t *testing.T) {
 	edges := []controlplane.ApprovedEdge{
 		{ID: "edge-b", TransportProfileID: "profile-a", Address: "203.0.113.12", ApprovedAt: time.Unix(20, 0), EvidenceRef: "evidence-b"},
