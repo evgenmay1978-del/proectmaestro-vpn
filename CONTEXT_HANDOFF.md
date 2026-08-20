@@ -1,5 +1,15 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAA. YANDEX CDN WHITE-LIST TASK 1 FINAL LOCAL GREEN (20.08.2026)
+
+- Ветка `codex/yandex-cdn-whitelist`; финальный implementation/security SHA Task 1 —
+  `018ac708f8274a7bb767788d333c4b411246b683`, отдельный plan commit — `2a5cbb4`.
+- Локальные gates: `python -m unittest scripts.tests.test_yandex_cdn_docs` —
+  `15/15 OK`; `python scripts/validate_yandex_cdn_docs.py` — `OK: docs policy`;
+  `python -m py_compile` для renderer/validator/tests — exit `0`.
+- Production, network и push остаются **NO-GO**. Серверы/CDN/GitHub не менялись;
+  owner endpoints, credentials и secrets в derivative docs не переносились.
+
 ## 0AAAAA. APPLY-AGENT PAYLOAD BOUNDARY FINAL GREEN; TASK 12 DRIVERS NEXT (13.08.2026)
 
 - Authoritative review surface remains draft PR #82 on branch
