@@ -274,6 +274,10 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 	if !bytes.Contains(config, []byte(`"port":18081`)) || bytes.Contains(config, []byte("18080")) ||
 		!bytes.Contains(config, []byte(`"listen":"127.0.0.1","port":18082,"protocol":"dokodemo-door"`)) ||
 		!bytes.Contains(config, []byte(`"services":["HandlerService","StatsService"]`)) ||
+		!bytes.Contains(config, []byte(`"security":"tls"`)) ||
+		!bytes.Contains(config, []byte(`"verifyPeerCertInNames":["maestro-metering-client"]`)) ||
+		!bytes.Contains(config, []byte(`/etc/maestro-xray-cdn/api-mtls/client-ca.crt`)) ||
+		!bytes.Contains(unit, []byte(`ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls`)) ||
 		!bytes.Contains(config, []byte(`/var/log/maestro-xray-cdn/access.log`)) ||
 		!bytes.Contains(config, []byte(`/var/log/maestro-xray-cdn/error.log`)) ||
 		!bytes.Contains(unit, []byte("maestro-xray-cdn.service")) || bytes.Contains(unit, []byte("18080")) ||
@@ -298,6 +302,32 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), secret) {
 				t.Fatal("validation error leaked secret value")
+			}
+		})
+	}
+}
+
+func TestAPIControlBoundaryRejectsUnauthenticatedConfiguration(t *testing.T) {
+	config := release.DefaultConfigTemplate()
+	withoutTLS := bytes.Replace(config, []byte(`"security":"tls"`), []byte(`"security":"none"`), 1)
+	withoutClientIdentity := bytes.Replace(
+		config,
+		[]byte(`"verifyPeerCertInNames":["maestro-metering-client"]`),
+		[]byte(`"verifyPeerCertInNames":[]`),
+		1,
+	)
+	withoutClientCA := bytes.Replace(config, []byte(`,"usage":"verify"`), []byte{}, 1)
+	for name, raw := range map[string][]byte{
+		"tls disabled": withoutTLS,
+		"client identity missing": withoutClientIdentity,
+		"client CA verification missing": withoutClientCA,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if bytes.Equal(raw, config) {
+				t.Fatal("negative fixture did not change the config")
+			}
+			if err := release.ValidateConfigTemplate(raw); err == nil {
+				t.Fatal("unauthenticated HandlerService boundary accepted")
 			}
 		})
 	}
@@ -442,6 +472,29 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		}
 		if err := release.ValidateReleaseDirectory(dir); err == nil {
 			t.Fatal("world-writable manifest accepted")
+		}
+	})
+	t.Run("special mode bits", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("POSIX mode contract is covered by Linux CI")
+		}
+		for name, target := range map[string]struct {
+			path func(string) string
+			mode os.FileMode
+		}{
+			"setuid xray": {path: func(dir string) string { return filepath.Join(dir, "xray") }, mode: 0o700 | os.ModeSetuid},
+			"setgid xray": {path: func(dir string) string { return filepath.Join(dir, "xray") }, mode: 0o700 | os.ModeSetgid},
+			"sticky release dir": {path: func(dir string) string { return dir }, mode: 0o700 | os.ModeSticky},
+		} {
+			t.Run(name, func(t *testing.T) {
+				dir := write(t)
+				if err := os.Chmod(target.path(dir), target.mode); err != nil {
+					t.Fatalf("chmod special mode: %v", err)
+				}
+				if err := release.ValidateReleaseDirectory(dir); err == nil {
+					t.Fatal("release with special mode bit accepted")
+				}
+			})
 		}
 	})
 }
