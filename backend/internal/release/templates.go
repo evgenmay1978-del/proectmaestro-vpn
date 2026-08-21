@@ -167,8 +167,13 @@ func decodeCanonicalJSON(raw []byte, destination any) error {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return ErrInvalidRelease
 	}
-	canonical, err := json.Marshal(destination)
-	if err != nil || !bytes.Equal(canonical, raw) {
+	var canonical bytes.Buffer
+	encoder := json.NewEncoder(&canonical)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(destination); err != nil {
+		return ErrInvalidRelease
+	}
+	if !bytes.Equal(bytes.TrimSuffix(canonical.Bytes(), []byte{'\n'}), raw) {
 		return ErrInvalidRelease
 	}
 	return nil
