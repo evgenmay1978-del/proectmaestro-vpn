@@ -2,6 +2,7 @@ package release_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -25,11 +26,11 @@ func transportForProfile(t *testing.T, id, profileID string) controlplane.Transp
 	preset := controlplane.CompatibilityPreset{
 		ID: presetID, Version: 1, Kind: "MAESTRO_ADVANCED", ProtectionLevel: "advanced",
 		Capabilities: []string{"vless-encryption", "xhttp-get-body"},
-		CoreRange: "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
+		CoreRange:    "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
 		Protocol: "vless", Network: "xhttp", Port: 443, TLS: true,
 		Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
 		ALPN: []string{"h2"}, Fingerprint: "firefox",
-		ExtraJSON: `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id"}`,
+		ExtraJSON:   `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id"}`,
 		LabelPrefix: "БС/Yandex", DomainFallback: true,
 	}
 	transport, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
@@ -49,6 +50,15 @@ func candidateForProfile(t *testing.T, id, profileID string, generation uint64) 
 	t.Helper()
 	spec := candidateSpec(t, id, generation)
 	spec.Transport = transportForProfile(t, id, profileID)
+	gates := make(map[string]string)
+	for _, gate := range release.RequiredValidationGates() {
+		gates[gate] = strings.Repeat("b", 64)
+	}
+	evidence, err := release.BuildValidationEvidence(spec, gates)
+	if err != nil {
+		t.Fatalf("BuildValidationEvidence: %v", err)
+	}
+	spec.ValidationEvidence = evidence
 	value, err := release.NewCandidate(spec)
 	if err != nil {
 		t.Fatalf("NewCandidate: %v", err)
@@ -114,8 +124,8 @@ func TestRuntimeMaterializationIsSeparateDeterministicAndSealed(t *testing.T) {
 	}
 	templateBefore := candidateSpec(t, "release-a", 1).ConfigJSON
 	material := map[string]string{
-		"public_host": "runtime.example.invalid",
-		"secret_path": "/static/runtime/segment.ts/opaque",
+		"public_host":       "runtime.example.invalid",
+		"secret_path":       "/static/runtime/segment.ts/opaque",
 		"server_decryption": "synthetic-runtime-material",
 	}
 	first, err := value.MaterializeRuntimeConfig(material)
@@ -294,6 +304,38 @@ func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *
 	})
 }
 
+func TestDirectoryEvidenceIsBoundToManifestAndBinary(t *testing.T) {
+	spec := candidateSpec(t, "release-a", 1)
+	candidate, err := release.NewCandidate(spec)
+	if err != nil {
+		t.Fatalf("NewCandidate: %v", err)
+	}
+	manifest := candidate.Manifest()
+	manifest.CandidateSHA256 = strings.Repeat("c", 64)
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("Marshal manifest: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), manifestJSON, 0o400); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	for name, data := range artifactBytes(spec) {
+		mode := os.FileMode(0o400)
+		if name == "xray" {
+			mode = 0o500
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, mode); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("seal dir: %v", err)
+	}
+	if err := release.ValidateReleaseDirectory(dir); err == nil {
+		t.Fatal("validation evidence detached from manifest candidate digest")
+	}
+}
 func TestValidationErrorsExposeStableNonSecretReasonCodes(t *testing.T) {
 	type reasoned interface{ ReasonCode() string }
 	err := release.ValidateReleaseDirectory("")

@@ -18,8 +18,8 @@ import (
 
 func validTransport(t *testing.T, id string) controlplane.TransportRelease {
 	t.Helper()
-	profileID := "profile-" + id
-	presetID := "preset-" + id
+	profileID := "profile-main"
+	presetID := "preset-main"
 	profile := controlplane.TransportProfile{
 		ID: profileID, PublicHost: "cdn.example.invalid",
 		SecretPath: "/static/test/segment.ts/opaque", OriginRouteID: "origin-" + id,
@@ -28,11 +28,11 @@ func validTransport(t *testing.T, id string) controlplane.TransportRelease {
 	preset := controlplane.CompatibilityPreset{
 		ID: presetID, Version: 1, Kind: "MAESTRO_ADVANCED", ProtectionLevel: "advanced",
 		Capabilities: []string{"vless-encryption", "xhttp-get-body"},
-		CoreRange: "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
+		CoreRange:    "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
 		Protocol: "vless", Network: "xhttp", Port: 443, TLS: true,
 		Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
 		ALPN: []string{"h2"}, Fingerprint: "firefox",
-		ExtraJSON: `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id"}`,
+		ExtraJSON:   `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id"}`,
 		LabelPrefix: "БС/Yandex", DomainFallback: true,
 	}
 	transport, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
@@ -50,14 +50,27 @@ func validTransport(t *testing.T, id string) controlplane.TransportRelease {
 
 func candidateSpec(t *testing.T, id string, generation uint64) release.CandidateSpec {
 	t.Helper()
-	return release.CandidateSpec{
+	binary := append([]byte{0x7f, 'E', 'L', 'F'}, bytes.Repeat([]byte{0}, 60)...)
+	binaryDigest := sha256.Sum256(binary)
+	spec := release.CandidateSpec{
 		Transport: validTransport(t, id), Generation: generation,
 		XrayVersion: "26.7.28", XrayCommit: strings.Repeat("a", 40),
-		XrayBinary: []byte("abc"), ConfigJSON: release.DefaultConfigTemplate(),
-		SystemdUnit: release.DefaultSystemdTemplate(), RollbackJSON: release.DefaultRollbackTemplate(),
+		XraySource:       "https://github.com/XTLS/Xray-core/releases/download/v26.7.28/Xray-linux-64.zip",
+		XrayBinarySHA256: hex.EncodeToString(binaryDigest[:]), XrayBinary: binary,
+		ConfigJSON: release.DefaultConfigTemplate(), SystemdUnit: release.DefaultSystemdTemplate(),
+		RollbackJSON: release.DefaultRollbackTemplate(),
 	}
+	gates := make(map[string]string)
+	for _, gate := range release.RequiredValidationGates() {
+		gates[gate] = strings.Repeat("b", 64)
+	}
+	evidence, err := release.BuildValidationEvidence(spec, gates)
+	if err != nil {
+		t.Fatalf("BuildValidationEvidence: %v", err)
+	}
+	spec.ValidationEvidence = evidence
+	return spec
 }
-
 func mustCandidate(t *testing.T, id string, generation uint64) release.Release {
 	t.Helper()
 	value, err := release.NewCandidate(candidateSpec(t, id, generation))
@@ -68,14 +81,18 @@ func mustCandidate(t *testing.T, id string, generation uint64) release.Release {
 }
 
 func artifactBytes(spec release.CandidateSpec) map[string][]byte {
+	evidence, err := json.Marshal(spec.ValidationEvidence)
+	if err != nil {
+		panic(err)
+	}
 	return map[string][]byte{
-		"config.json": spec.ConfigJSON,
+		"config.json":              spec.ConfigJSON,
 		"maestro-xray-cdn.service": spec.SystemdUnit,
-		"rollback.json": spec.RollbackJSON,
-		"xray": spec.XrayBinary,
+		"rollback.json":            spec.RollbackJSON,
+		"validation-report.json":   evidence,
+		"xray":                     spec.XrayBinary,
 	}
 }
-
 func TestCandidateManifestIsDeterministicChecksummedAndDefensivelyCopied(t *testing.T) {
 	spec := candidateSpec(t, "release-a", 7)
 	first, err := release.NewCandidate(spec)
@@ -98,7 +115,7 @@ func TestCandidateManifestIsDeterministicChecksummedAndDefensivelyCopied(t *test
 	for _, artifact := range manifest.Artifacts {
 		paths = append(paths, artifact.Path)
 	}
-	if strings.Join(paths, ",") != "config.json,maestro-xray-cdn.service,rollback.json,xray" {
+	if strings.Join(paths, ",") != "config.json,maestro-xray-cdn.service,rollback.json,validation-report.json,xray" {
 		t.Fatalf("artifact order = %v", paths)
 	}
 	var xraySHA string
@@ -107,7 +124,8 @@ func TestCandidateManifestIsDeterministicChecksummedAndDefensivelyCopied(t *test
 			xraySHA = artifact.SHA256
 		}
 	}
-	if xraySHA != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" {
+	expectedXraySHA := sha256.Sum256(spec.XrayBinary)
+	if xraySHA != hex.EncodeToString(expectedXraySHA[:]) {
 		t.Fatalf("xray checksum = %q", xraySHA)
 	}
 	before := append([]byte(nil), first.CanonicalManifest()...)
@@ -140,10 +158,10 @@ func TestManifestParserRejectsNonCanonicalUnsafeAndTamperedContent(t *testing.T)
 		}
 	}
 	cases := map[string][]byte{
-		"trailing newline": append(append([]byte(nil), canonical...), '\n'),
-		"unknown field": unknown,
+		"trailing newline":     append(append([]byte(nil), canonical...), '\n'),
+		"unknown field":        unknown,
 		"unsafe artifact path": unsafePath,
-		"non-lowercase hash": upperHash,
+		"non-lowercase hash":   upperHash,
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -273,14 +291,14 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 	}
 	if !bytes.Contains(config, []byte(`"port":18081`)) || bytes.Contains(config, []byte("18080")) ||
 		!bytes.Contains(config, []byte(`"listen":"127.0.0.1","port":18082,"protocol":"dokodemo-door"`)) ||
-		!bytes.Contains(config, []byte(`"services":["HandlerService","StatsService"]`)) ||
+		!bytes.Contains(config, []byte(`"services":["StatsService"]`)) ||
 		!bytes.Contains(config, []byte(`"security":"tls"`)) ||
 		!bytes.Contains(config, []byte(`"verifyPeerCertInNames":["maestro-metering-client"]`)) ||
 		!bytes.Contains(config, []byte(`/etc/maestro-xray-cdn/api-mtls/client-ca.crt`)) ||
 		!bytes.Contains(unit, []byte(`ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls`)) ||
-		!bytes.Contains(config, []byte(`/var/log/maestro-xray-cdn/access.log`)) ||
+		!bytes.Contains(config, []byte(`"access":"none"`)) ||
 		!bytes.Contains(config, []byte(`/var/log/maestro-xray-cdn/error.log`)) ||
-		!bytes.Contains(unit, []byte("maestro-xray-cdn.service")) || bytes.Contains(unit, []byte("18080")) ||
+		!bytes.Contains(unit, []byte("maestro-xray-cdn.service")) || !bytes.Contains(unit, []byte(release.RuntimeConfigPath)) || bytes.Contains(unit, []byte("/current/config.json")) || bytes.Contains(unit, []byte("18080")) ||
 		!bytes.Contains(unit, []byte("LogsDirectory=maestro-xray-cdn")) ||
 		!bytes.Contains(unit, []byte("LogsDirectoryMode=0750")) ||
 		!bytes.Contains(rollback, []byte(`"fallback_probe_port":18080`)) {
@@ -291,8 +309,8 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 	leakedUnit := append(append([]byte(nil), unit...), []byte("\nEnvironment=API_TOKEN="+secret+"\n")...)
 	badRollback := bytes.Replace(rollback, []byte("18080"), []byte("18081"), 1)
 	for name, validate := range map[string]func() error{
-		"config secret": func() error { return release.ValidateConfigTemplate(leakedConfig) },
-		"unit secret": func() error { return release.ValidateSystemdTemplate(leakedUnit) },
+		"config secret":    func() error { return release.ValidateConfigTemplate(leakedConfig) },
+		"unit secret":      func() error { return release.ValidateSystemdTemplate(leakedUnit) },
 		"fallback changed": func() error { return release.ValidateRollbackTemplate(badRollback) },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -318,8 +336,8 @@ func TestAPIControlBoundaryRejectsUnauthenticatedConfiguration(t *testing.T) {
 	)
 	withoutClientCA := bytes.Replace(config, []byte(`,"usage":"verify"`), []byte{}, 1)
 	for name, raw := range map[string][]byte{
-		"tls disabled": withoutTLS,
-		"client identity missing": withoutClientIdentity,
+		"tls disabled":                   withoutTLS,
+		"client identity missing":        withoutClientIdentity,
 		"client CA verification missing": withoutClientCA,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -327,7 +345,7 @@ func TestAPIControlBoundaryRejectsUnauthenticatedConfiguration(t *testing.T) {
 				t.Fatal("negative fixture did not change the config")
 			}
 			if err := release.ValidateConfigTemplate(raw); err == nil {
-				t.Fatal("unauthenticated HandlerService boundary accepted")
+				t.Fatal("unauthenticated metering boundary accepted")
 			}
 		})
 	}
@@ -358,10 +376,11 @@ func TestCatalogRejectsStaleCandidatePromotion(t *testing.T) {
 func TestManifestRejectsArtifactSizesBeyondPathLimits(t *testing.T) {
 	candidate := mustCandidate(t, "release-a", 1)
 	limits := map[string]int64{
-		"config.json": 1 << 20,
+		"config.json":              1 << 20,
 		"maestro-xray-cdn.service": 64 << 10,
-		"rollback.json": 64 << 10,
-		"xray": 256 << 20,
+		"rollback.json":            64 << 10,
+		"validation-report.json":   64 << 10,
+		"xray":                     256 << 20,
 	}
 	for path, limit := range limits {
 		t.Run(path, func(t *testing.T) {
@@ -391,17 +410,20 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 	write := func(t *testing.T) string {
 		t.Helper()
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "manifest.json"), candidate.CanonicalManifest(), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "manifest.json"), candidate.CanonicalManifest(), 0o400); err != nil {
 			t.Fatalf("write manifest: %v", err)
 		}
 		for name, data := range artifactBytes(spec) {
-			mode := os.FileMode(0o600)
+			mode := os.FileMode(0o400)
 			if name == "xray" {
-				mode = 0o700
+				mode = 0o500
 			}
 			if err := os.WriteFile(filepath.Join(dir, name), data, mode); err != nil {
 				t.Fatalf("write %s: %v", name, err)
 			}
+		}
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatalf("seal release dir: %v", err)
 		}
 		return dir
 	}
@@ -412,6 +434,9 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 	})
 	t.Run("unexpected", func(t *testing.T) {
 		dir := write(t)
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatalf("unseal fixture dir: %v", err)
+		}
 		if err := os.WriteFile(filepath.Join(dir, "unexpected"), []byte("x"), 0o600); err != nil {
 			t.Fatalf("write unexpected: %v", err)
 		}
@@ -424,6 +449,9 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 			t.Skip("symlink semantics are covered by Linux CI")
 		}
 		dir := write(t)
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatalf("unseal fixture dir: %v", err)
+		}
 		outside := filepath.Join(t.TempDir(), "outside")
 		if err := os.WriteFile(outside, []byte("abc"), 0o600); err != nil {
 			t.Fatalf("write outside fixture: %v", err)
@@ -482,8 +510,8 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 			path func(string) string
 			mode os.FileMode
 		}{
-			"setuid xray": {path: func(dir string) string { return filepath.Join(dir, "xray") }, mode: 0o700 | os.ModeSetuid},
-			"setgid xray": {path: func(dir string) string { return filepath.Join(dir, "xray") }, mode: 0o700 | os.ModeSetgid},
+			"setuid xray":        {path: func(dir string) string { return filepath.Join(dir, "xray") }, mode: 0o700 | os.ModeSetuid},
+			"setgid xray":        {path: func(dir string) string { return filepath.Join(dir, "xray") }, mode: 0o700 | os.ModeSetgid},
 			"sticky release dir": {path: func(dir string) string { return dir }, mode: 0o700 | os.ModeSticky},
 		} {
 			t.Run(name, func(t *testing.T) {
@@ -514,8 +542,8 @@ func TestCandidateRejectsUnpinnedProvenanceAndUnsafeReleaseIdentity(t *testing.T
 			}
 		},
 		"floating version": func(spec *release.CandidateSpec) { spec.XrayVersion = "latest" },
-		"short commit": func(spec *release.CandidateSpec) { spec.XrayCommit = "abc" },
-		"empty binary": func(spec *release.CandidateSpec) { spec.XrayBinary = nil },
+		"short commit":     func(spec *release.CandidateSpec) { spec.XrayCommit = "abc" },
+		"empty binary":     func(spec *release.CandidateSpec) { spec.XrayBinary = nil },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
