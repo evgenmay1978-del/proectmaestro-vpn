@@ -16,7 +16,7 @@ func reviewedCredential() controlplane.WhiteListCredential {
 		ClientID:                 "11111111-1111-4111-8111-111111111111",
 		ClientEncryption:         "mlkem768x25519plus.native.0rtt.test-client-material",
 		ClientEncryptionRole:     "CLIENT",
-		ClientEncryptionProofRef: "fixture-vlessenc-client-a",
+		ClientEncryptionProofRef: "xray-vlessenc-client-v1:sha256:b150c646913ddf355a539ca3ae147919cbbae7141c3783d7860cfbbb9062424a",
 	}
 }
 

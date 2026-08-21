@@ -1,6 +1,9 @@
 package controlplane
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -436,7 +439,15 @@ func validAdvancedExtraJSON(raw string) bool {
 
 func validWhiteListCredential(credential WhiteListCredential) bool {
 	return validUUID(credential.ClientID) && credential.ClientEncryptionRole == "CLIENT" &&
-		validClientEncryption(credential.ClientEncryption) && validOpaqueCredential(credential.ClientEncryptionProofRef)
+		validClientEncryption(credential.ClientEncryption) && validClientEncryptionProof(credential)
+}
+
+func validClientEncryptionProof(credential WhiteListCredential) bool {
+	const proofPrefix = "xray-vlessenc-client-v1:sha256:"
+	canonical := "maestrovpn:vlessenc-client:v1\x00" + credential.ClientEncryptionRole + "\x00" + credential.ClientEncryption
+	digest := sha256.Sum256([]byte(canonical))
+	expected := proofPrefix + hex.EncodeToString(digest[:])
+	return subtle.ConstantTimeCompare([]byte(credential.ClientEncryptionProofRef), []byte(expected)) == 1
 }
 
 func validClientEncryption(value string) bool {
