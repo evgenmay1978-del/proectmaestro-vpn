@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-const defaultConfigTemplate = `{"log":{"access":"/var/log/maestro-xray-cdn/access.log","error":"/var/log/maestro-xray-cdn/error.log","loglevel":"warning"},"api":{"tag":"api","services":["HandlerService","StatsService"]},"inbounds":[{"listen":"0.0.0.0","port":18081,"protocol":"vless","settings":{"clients":[],"decryption":"<RUNTIME_SERVER_DECRYPTION>"},"streamSettings":{"network":"xhttp","xhttpSettings":{"host":"<RUNTIME_PUBLIC_HOST>","path":"<RUNTIME_SECRET_PATH>","mode":"packet-up"}},"tag":"maestro-cdn-in"},{"listen":"127.0.0.1","port":18082,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"},"tag":"api"}],"outbounds":[{"protocol":"freedom","tag":"direct"}],"routing":{"rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]},"policy":{"system":{"statsInboundUplink":true,"statsInboundDownlink":true}},"stats":{}}`
+const defaultConfigTemplate = `{"log":{"access":"/var/log/maestro-xray-cdn/access.log","error":"/var/log/maestro-xray-cdn/error.log","loglevel":"warning"},"api":{"tag":"api","services":["HandlerService","StatsService"]},"inbounds":[{"listen":"0.0.0.0","port":18081,"protocol":"vless","settings":{"clients":[],"decryption":"<RUNTIME_SERVER_DECRYPTION>"},"streamSettings":{"network":"xhttp","xhttpSettings":{"host":"<RUNTIME_PUBLIC_HOST>","path":"<RUNTIME_SECRET_PATH>","mode":"packet-up"}},"tag":"maestro-cdn-in"},{"listen":"127.0.0.1","port":18082,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"},"streamSettings":{"security":"tls","tlsSettings":{"certificates":[{"certificateFile":"/etc/maestro-xray-cdn/api-mtls/server.crt","keyFile":"/etc/maestro-xray-cdn/api-mtls/server.key"},{"certificateFile":"/etc/maestro-xray-cdn/api-mtls/client-ca.crt","usage":"verify"}],"verifyPeerCertInNames":["maestro-metering-client"]}},"tag":"api"}],"outbounds":[{"protocol":"freedom","tag":"direct"}],"routing":{"rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]},"policy":{"system":{"statsInboundUplink":true,"statsInboundDownlink":true}},"stats":{}}`
 
 const defaultSystemdTemplate = `[Unit]
 Description=MaestroVPN isolated Xray CDN sidecar (maestro-xray-cdn.service)
@@ -30,10 +30,12 @@ ExecStart=/opt/maestro-xray-cdn/current/xray run -config /opt/maestro-xray-cdn/c
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=1048576
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls
 ReadWritePaths=/run/maestro-xray-cdn /var/log/maestro-xray-cdn
 
 [Install]
@@ -88,14 +90,27 @@ type xrayAPIInboundSettings struct {
 }
 
 type xrayStreamSettings struct {
-	Network       string            `json:"network"`
-	XHTTPSettings xrayXHTTPSettings `json:"xhttpSettings"`
+	Network       string             `json:"network,omitempty"`
+	Security      string             `json:"security,omitempty"`
+	XHTTPSettings *xrayXHTTPSettings `json:"xhttpSettings,omitempty"`
+	TLSSettings   *xrayTLSSettings   `json:"tlsSettings,omitempty"`
 }
 
 type xrayXHTTPSettings struct {
 	Host string `json:"host"`
 	Path string `json:"path"`
 	Mode string `json:"mode"`
+}
+
+type xrayTLSSettings struct {
+	Certificates          []xrayTLSCertificate `json:"certificates"`
+	VerifyPeerCertInNames []string             `json:"verifyPeerCertInNames"`
+}
+
+type xrayTLSCertificate struct {
+	CertificateFile string `json:"certificateFile"`
+	KeyFile         string `json:"keyFile,omitempty"`
+	Usage           string `json:"usage,omitempty"`
 }
 
 type xrayOutbound struct {
@@ -149,7 +164,8 @@ func ValidateConfigTemplate(raw []byte) error {
 		publicInbound.Listen != "0.0.0.0" || publicInbound.Port != SidecarPort || publicInbound.Protocol != "vless" ||
 		publicInbound.Tag != "maestro-cdn-in" || len(publicSettings.Clients) != 0 ||
 		publicSettings.Decryption != "<RUNTIME_SERVER_DECRYPTION>" || publicInbound.StreamSettings == nil ||
-		publicInbound.StreamSettings.Network != "xhttp" ||
+		publicInbound.StreamSettings.Network != "xhttp" || publicInbound.StreamSettings.Security != "" ||
+		publicInbound.StreamSettings.XHTTPSettings == nil || publicInbound.StreamSettings.TLSSettings != nil ||
 		publicInbound.StreamSettings.XHTTPSettings.Host != "<RUNTIME_PUBLIC_HOST>" ||
 		publicInbound.StreamSettings.XHTTPSettings.Path != "<RUNTIME_SECRET_PATH>" ||
 		publicInbound.StreamSettings.XHTTPSettings.Mode != "packet-up" {
@@ -159,7 +175,7 @@ func ValidateConfigTemplate(raw []byte) error {
 	var apiSettings xrayAPIInboundSettings
 	if decodeCanonicalJSON(apiInbound.Settings, &apiSettings) != nil || apiInbound.Listen != "127.0.0.1" ||
 		apiInbound.Port != StatsAPIPort || apiInbound.Protocol != "dokodemo-door" || apiInbound.Tag != "api" ||
-		apiInbound.StreamSettings != nil || apiSettings.Address != "127.0.0.1" {
+		apiSettings.Address != "127.0.0.1" || !validAPIMTLS(apiInbound.StreamSettings) {
 		return ErrInvalidRelease
 	}
 	outbound := config.Outbounds[0]
@@ -216,6 +232,20 @@ func decodeCanonicalJSON(raw []byte, destination any) error {
 		return ErrInvalidRelease
 	}
 	return nil
+}
+
+func validAPIMTLS(stream *xrayStreamSettings) bool {
+	if stream == nil || stream.Network != "" || stream.Security != "tls" || stream.XHTTPSettings != nil ||
+		stream.TLSSettings == nil || len(stream.TLSSettings.Certificates) != 2 ||
+		!equalStrings(stream.TLSSettings.VerifyPeerCertInNames, []string{"maestro-metering-client"}) {
+		return false
+	}
+	server := stream.TLSSettings.Certificates[0]
+	clientCA := stream.TLSSettings.Certificates[1]
+	return server.CertificateFile == "/etc/maestro-xray-cdn/api-mtls/server.crt" &&
+		server.KeyFile == "/etc/maestro-xray-cdn/api-mtls/server.key" && server.Usage == "" &&
+		clientCA.CertificateFile == "/etc/maestro-xray-cdn/api-mtls/client-ca.crt" &&
+		clientCA.KeyFile == "" && clientCA.Usage == "verify"
 }
 
 func equalStrings(left, right []string) bool {

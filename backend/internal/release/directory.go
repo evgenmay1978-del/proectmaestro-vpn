@@ -70,6 +70,9 @@ func safeReleaseDirectoryMode(mode os.FileMode) bool {
 	if runtime.GOOS == "windows" {
 		return true
 	}
+	if hasUnsafeSpecialMode(mode) {
+		return false
+	}
 	permissions := mode.Perm()
 	return permissions&0o100 != 0 && permissions&0o022 == 0
 }
@@ -77,6 +80,9 @@ func safeReleaseDirectoryMode(mode os.FileMode) bool {
 func safeReleaseFileMode(name string, mode os.FileMode) bool {
 	if runtime.GOOS == "windows" {
 		return true
+	}
+	if hasUnsafeSpecialMode(mode) {
+		return false
 	}
 	permissions := mode.Perm()
 	if permissions&0o400 == 0 || permissions&0o022 != 0 {
@@ -86,4 +92,8 @@ func safeReleaseFileMode(name string, mode os.FileMode) bool {
 		return permissions&0o100 != 0
 	}
 	return permissions&0o111 == 0
+}
+
+func hasUnsafeSpecialMode(mode os.FileMode) bool {
+	return mode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0
 }
