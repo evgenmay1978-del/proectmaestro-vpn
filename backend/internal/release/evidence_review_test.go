@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -335,6 +336,9 @@ func TestTaskAEvidenceTrustPinsCanonicalSourceOrigin(t *testing.T) {
 }
 
 func TestTaskAPromotionRechecksEvidenceFreshness(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("promotion filesystem contract is covered by Linux CI")
+	}
 	observed := time.Now().UTC()
 	spec, trust, privateKey := taskASpec(t, "release-task-a-freshness")
 	evidence, err := release.BuildValidationEvidence(spec, taskASignedReports(t, spec, privateKey, observed))

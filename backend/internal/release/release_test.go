@@ -393,6 +393,9 @@ func TestManifestRejectsArtifactSizesBeyondPathLimits(t *testing.T) {
 }
 
 func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("sealed filesystem contract is covered by Linux CI")
+	}
 	spec := candidateSpec(t, "release-a", 1)
 	candidate, err := release.NewCandidate(spec)
 	if err != nil {

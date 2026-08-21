@@ -218,7 +218,7 @@ func TestCatalogJournalPreservesDraftAndRollbackStateAcrossRestart(t *testing.T)
 }
 
 func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS != "linux" {
 		t.Skip("POSIX inode and mode contract is covered by Linux CI")
 	}
 	spec := candidateSpec(t, "release-a", 1)
@@ -295,6 +295,9 @@ func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *
 }
 
 func TestDirectoryEvidenceIsBoundToManifestAndBinary(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("sealed filesystem contract is covered by Linux CI")
+	}
 	spec := candidateSpec(t, "release-a", 1)
 	candidate, err := release.NewCandidate(spec)
 	if err != nil {
