@@ -3,15 +3,16 @@ package release
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/subtle"
+	"debug/elf"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/url"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
@@ -71,68 +72,58 @@ type Manifest struct {
 	XraySource            string     `json:"xray_source"`
 	XrayBinarySHA256      string     `json:"xray_binary_sha256"`
 	CandidateSHA256       string     `json:"candidate_sha256"`
+	TransportSHA256       string     `json:"transport_sha256"`
+	RuntimeMaterialSHA256 string     `json:"runtime_material_sha256"`
+	EvidenceTrustSHA256   string     `json:"evidence_trust_sha256"`
 	RuntimeConfigPath     string     `json:"runtime_config_path"`
 	TargetPort            int        `json:"target_port"`
 	FallbackProbePort     int        `json:"fallback_probe_port"`
 	Artifacts             []Artifact `json:"artifacts"`
 }
 
-type ValidationEvidence struct {
-	SchemaVersion   int               `json:"schema_version"`
-	CandidateSHA256 string            `json:"candidate_sha256"`
-	Gates           map[string]string `json:"gates"`
-}
-
 type CandidateSpec struct {
-	Transport          controlplane.TransportRelease
-	Generation         uint64
-	XrayVersion        string
-	XrayCommit         string
-	XraySource         string
-	XrayBinarySHA256   string
-	ValidationEvidence ValidationEvidence
-	XrayBinary         []byte
-	ConfigJSON         []byte
-	SystemdUnit        []byte
-	RollbackJSON       []byte
+	Transport             controlplane.TransportRelease
+	Generation            uint64
+	XrayVersion           string
+	XrayCommit            string
+	XraySource            string
+	XrayBinarySHA256      string
+	RuntimeMaterialSHA256 string
+	EvidenceTrust         EvidenceTrust
+	ValidationEvidence    ValidationEvidence
+	XrayBinary            []byte
+	ConfigJSON            []byte
+	SystemdUnit           []byte
+	RollbackJSON          []byte
 }
 
 type Release struct {
-	manifest       Manifest
-	canonical      []byte
-	manifestSHA256 string
-	state          State
-	transport      controlplane.TransportRelease
-	configTemplate []byte
-}
-
-type candidateBinding struct {
-	SchemaVersion         int    `json:"schema_version"`
-	ReleaseID             string `json:"release_id"`
-	Generation            uint64 `json:"generation"`
-	TransportProfileID    string `json:"transport_profile_id"`
-	CompatibilityPresetID string `json:"compatibility_preset_id"`
-	XrayVersion           string `json:"xray_version"`
-	XrayCommit            string `json:"xray_commit"`
-	XraySource            string `json:"xray_source"`
-	XrayBinarySHA256      string `json:"xray_binary_sha256"`
-	ConfigSHA256          string `json:"config_sha256"`
-	SystemdSHA256         string `json:"systemd_sha256"`
-	RollbackSHA256        string `json:"rollback_sha256"`
+	manifest              Manifest
+	canonical             []byte
+	manifestSHA256        string
+	state                 State
+	transport             controlplane.TransportRelease
+	configTemplate        []byte
+	runtimeMaterialSHA256 string
 }
 
 func NewCandidate(spec CandidateSpec) (Release, error) {
 	if err := validateCandidateInputs(spec); err != nil {
 		return Release{}, err
 	}
-	candidateSHA, err := candidateDigest(spec)
-	if err != nil || subtle.ConstantTimeCompare([]byte(candidateSHA), []byte(spec.ValidationEvidence.CandidateSHA256)) != 1 {
+	candidateSHA, err := CandidateSHA256(spec)
+	if err != nil || !equalDigest(candidateSHA, spec.ValidationEvidence.CandidateSHA256) {
 		return Release{}, invalid("evidence_candidate_mismatch")
 	}
-	if err := validateEvidence(spec.ValidationEvidence); err != nil {
+	binding, err := bindingForSpec(spec)
+	if err != nil {
 		return Release{}, err
 	}
-	evidenceJSON, err := json.Marshal(spec.ValidationEvidence)
+	now := time.Now().UTC()
+	if err := validateEvidence(spec.ValidationEvidence, binding, spec.EvidenceTrust, &now); err != nil {
+		return Release{}, err
+	}
+	evidenceJSON, err := marshalCanonical(spec.ValidationEvidence)
 	if err != nil {
 		return Release{}, invalid("evidence_encode")
 	}
@@ -147,33 +138,24 @@ func NewCandidate(spec CandidateSpec) (Release, error) {
 		SchemaVersion: SchemaVersion, ReleaseID: spec.Transport.ID(), Generation: spec.Generation,
 		TransportProfileID: spec.Transport.TransportProfileID(), CompatibilityPresetID: spec.Transport.CompatibilityPresetID(),
 		XrayVersion: spec.XrayVersion, XrayCommit: spec.XrayCommit, XraySource: spec.XraySource,
-		XrayBinarySHA256: spec.XrayBinarySHA256, CandidateSHA256: candidateSHA, RuntimeConfigPath: RuntimeConfigPath,
+		XrayBinarySHA256: spec.XrayBinarySHA256, CandidateSHA256: candidateSHA,
+		TransportSHA256: binding.transportSHA, RuntimeMaterialSHA256: binding.runtimeSHA,
+		EvidenceTrustSHA256: binding.trustSHA, RuntimeConfigPath: RuntimeConfigPath,
 		TargetPort: SidecarPort, FallbackProbePort: FallbackProbePort, Artifacts: artifacts,
 	}
 	if err := validateManifest(manifest); err != nil {
 		return Release{}, err
 	}
-	canonical, err := json.Marshal(manifest)
+	canonical, err := marshalCanonical(manifest)
 	if err != nil || len(canonical) > maxManifestBytes {
 		return Release{}, invalid("manifest_encode")
 	}
 	return Release{
 		manifest: cloneManifest(manifest), canonical: append([]byte(nil), canonical...),
 		manifestSHA256: digestBytes(canonical), state: Candidate, transport: spec.Transport,
-		configTemplate: append([]byte(nil), spec.ConfigJSON...),
+		configTemplate:        append([]byte(nil), spec.ConfigJSON...),
+		runtimeMaterialSHA256: spec.RuntimeMaterialSHA256,
 	}, nil
-}
-
-func BuildValidationEvidence(spec CandidateSpec, gates map[string]string) (ValidationEvidence, error) {
-	digest, err := candidateDigest(spec)
-	if err != nil {
-		return ValidationEvidence{}, err
-	}
-	evidence := ValidationEvidence{SchemaVersion: 1, CandidateSHA256: digest, Gates: cloneMap(gates)}
-	if err := validateEvidence(evidence); err != nil {
-		return ValidationEvidence{}, err
-	}
-	return evidence, nil
 }
 
 func RequiredValidationGates() []string { return append([]string(nil), requiredGates...) }
@@ -182,44 +164,14 @@ func validateCandidateInputs(spec CandidateSpec) error {
 	if spec.Transport.State() != controlplane.TransportReleaseCandidate || spec.Generation == 0 ||
 		!validID(spec.Transport.ID()) || !validID(spec.Transport.TransportProfileID()) ||
 		!validID(spec.Transport.CompatibilityPresetID()) || !versionPattern.MatchString(spec.XrayVersion) ||
-		!validCommit(spec.XrayCommit) || !validPinnedSource(spec.XraySource) || len(spec.XrayBinary) < 4 ||
-		len(spec.XrayBinary) > maxBinaryBytes || !bytes.Equal(spec.XrayBinary[:4], []byte{0x7f, 'E', 'L', 'F'}) ||
-		ValidateConfigTemplate(spec.ConfigJSON) != nil || ValidateSystemdTemplate(spec.SystemdUnit) != nil ||
-		ValidateRollbackTemplate(spec.RollbackJSON) != nil {
+		!validCommit(spec.XrayCommit) || !validPinnedSource(spec.XraySource, spec.XrayCommit) ||
+		!validSHA256(spec.RuntimeMaterialSHA256) || validateELF(spec.XrayBinary) != nil ||
+		spec.EvidenceTrust.validate() != nil || ValidateConfigTemplate(spec.ConfigJSON) != nil ||
+		ValidateSystemdTemplate(spec.SystemdUnit) != nil || ValidateRollbackTemplate(spec.RollbackJSON) != nil {
 		return invalid("candidate_input_invalid")
 	}
-	if actual := digestBytes(spec.XrayBinary); !validSHA256(spec.XrayBinarySHA256) || subtle.ConstantTimeCompare([]byte(spec.XrayBinarySHA256), []byte(actual)) != 1 {
+	if actual := digestBytes(spec.XrayBinary); !validSHA256(spec.XrayBinarySHA256) || !equalDigest(spec.XrayBinarySHA256, actual) {
 		return invalid("xray_binary_digest_mismatch")
-	}
-	return nil
-}
-
-func candidateDigest(spec CandidateSpec) (string, error) {
-	if err := validateCandidateInputs(spec); err != nil {
-		return "", err
-	}
-	binding := candidateBinding{
-		SchemaVersion: SchemaVersion, ReleaseID: spec.Transport.ID(), Generation: spec.Generation,
-		TransportProfileID: spec.Transport.TransportProfileID(), CompatibilityPresetID: spec.Transport.CompatibilityPresetID(),
-		XrayVersion: spec.XrayVersion, XrayCommit: spec.XrayCommit, XraySource: spec.XraySource,
-		XrayBinarySHA256: spec.XrayBinarySHA256, ConfigSHA256: digestBytes(spec.ConfigJSON),
-		SystemdSHA256: digestBytes(spec.SystemdUnit), RollbackSHA256: digestBytes(spec.RollbackJSON),
-	}
-	raw, err := json.Marshal(binding)
-	if err != nil {
-		return "", invalid("candidate_binding_encode")
-	}
-	return digestBytes(raw), nil
-}
-
-func validateEvidence(evidence ValidationEvidence) error {
-	if evidence.SchemaVersion != 1 || !validSHA256(evidence.CandidateSHA256) || len(evidence.Gates) != len(requiredGates) {
-		return invalid("validation_evidence_invalid")
-	}
-	for _, gate := range requiredGates {
-		if !validSHA256(evidence.Gates[gate]) {
-			return invalid("validation_gate_missing")
-		}
 	}
 	return nil
 }
@@ -229,20 +181,11 @@ func ParseManifest(raw []byte) (Manifest, error) {
 		return Manifest{}, invalid("manifest_bytes_invalid")
 	}
 	var manifest Manifest
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
-		return Manifest{}, invalid("manifest_json_invalid")
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return Manifest{}, invalid("manifest_trailing_data")
+	if err := decodeCanonicalJSON(raw, &manifest); err != nil {
+		return Manifest{}, err
 	}
 	if err := validateManifest(manifest); err != nil {
 		return Manifest{}, err
-	}
-	canonical, err := json.Marshal(manifest)
-	if err != nil || !bytes.Equal(canonical, raw) {
-		return Manifest{}, invalid("manifest_not_canonical")
 	}
 	return cloneManifest(manifest), nil
 }
@@ -252,34 +195,59 @@ func (r Release) CanonicalManifest() []byte                { return append([]byt
 func (r Release) ManifestSHA256() string                   { return r.manifestSHA256 }
 func (r Release) State() State                             { return r.state }
 func (r Release) Transport() controlplane.TransportRelease { return r.transport }
-func (r Release) MaterializeRuntimeConfig(material map[string]string) ([]byte, error) {
-	return materializeRuntimeConfig(r.configTemplate, material)
+func (r Release) MaterializeRuntimeConfig(material RuntimeMaterial) ([]byte, error) {
+	return materializeRuntimeConfig(r.configTemplate, r.transport, r.manifest.TransportSHA256, r.runtimeMaterialSHA256, material)
 }
 
-func (r Release) VerifyArtifacts(artifacts map[string][]byte) error {
+func (r Release) ValidateRuntimeConfig(raw []byte) error {
+	return validateRuntimeConfig(raw, r.transport, r.manifest.TransportSHA256, r.runtimeMaterialSHA256)
+}
+
+func (r Release) VerifyArtifacts(_ map[string][]byte) error {
+	return invalid("evidence_trust_required")
+}
+
+func (r Release) VerifyArtifactsWithTrust(artifacts map[string][]byte, trust EvidenceTrust) error {
+	return r.verifyArtifactsWithTrustAt(artifacts, trust, nil)
+}
+
+func (r Release) verifyArtifactsWithTrustAt(artifacts map[string][]byte, trust EvidenceTrust, admissionTime *time.Time) error {
+	trustSHA, err := trust.SHA256()
+	if err != nil || !equalDigest(trustSHA, r.manifest.EvidenceTrustSHA256) {
+		return invalid("evidence_trust_mismatch")
+	}
 	if len(artifacts) != len(r.manifest.Artifacts) {
 		return invalid("artifact_set_mismatch")
 	}
+	var evidence ValidationEvidence
 	for _, artifact := range r.manifest.Artifacts {
 		data, ok := artifacts[artifact.Path]
-		if !ok || int64(len(data)) != artifact.Size || subtle.ConstantTimeCompare([]byte(digestBytes(data)), []byte(artifact.SHA256)) != 1 {
+		if !ok || int64(len(data)) != artifact.Size || !equalDigest(digestBytes(data), artifact.SHA256) {
 			return invalid("artifact_digest_mismatch")
 		}
 		if err := validateArtifactContent(artifact.Path, data); err != nil {
 			return err
 		}
-		switch artifact.Path {
-		case "validation-report.json":
-			var evidence ValidationEvidence
-			if err := decodeCanonicalJSON(data, &evidence); err != nil ||
-				subtle.ConstantTimeCompare([]byte(evidence.CandidateSHA256), []byte(r.manifest.CandidateSHA256)) != 1 {
-				return invalid("evidence_manifest_mismatch")
-			}
-		case "xray":
-			if subtle.ConstantTimeCompare([]byte(artifact.SHA256), []byte(r.manifest.XrayBinarySHA256)) != 1 {
-				return invalid("xray_manifest_mismatch")
+		if artifact.Path == "validation-report.json" {
+			if err := decodeCanonicalJSON(data, &evidence); err != nil {
+				return err
 			}
 		}
+	}
+	if xray, ok := artifacts["xray"]; !ok || !equalDigest(digestBytes(xray), r.manifest.XrayBinarySHA256) {
+		return invalid("xray_manifest_mismatch")
+	}
+	recomputedCandidate, err := candidateSHA256FromManifestArtifacts(r.manifest, artifacts)
+	if err != nil || !equalDigest(recomputedCandidate, r.manifest.CandidateSHA256) {
+		return invalid("candidate_manifest_mismatch")
+	}
+	expected := evidenceBinding{
+		candidateSHA: recomputedCandidate, transportSHA: r.manifest.TransportSHA256,
+		runtimeSHA: r.manifest.RuntimeMaterialSHA256, xraySHA: r.manifest.XrayBinarySHA256,
+		trustSHA: r.manifest.EvidenceTrustSHA256,
+	}
+	if err := validateEvidence(evidence, expected, trust, admissionTime); err != nil {
+		return err
 	}
 	return nil
 }
@@ -301,10 +269,11 @@ func validateManifest(manifest Manifest) error {
 	if manifest.SchemaVersion != SchemaVersion || manifest.Generation == 0 || !validID(manifest.ReleaseID) ||
 		!validID(manifest.TransportProfileID) || !validID(manifest.CompatibilityPresetID) ||
 		!versionPattern.MatchString(manifest.XrayVersion) || !validCommit(manifest.XrayCommit) ||
-		!validPinnedSource(manifest.XraySource) || !validSHA256(manifest.XrayBinarySHA256) ||
-		!validSHA256(manifest.CandidateSHA256) || manifest.RuntimeConfigPath != RuntimeConfigPath ||
-		manifest.TargetPort != SidecarPort || manifest.FallbackProbePort != FallbackProbePort ||
-		len(manifest.Artifacts) != len(allowedArtifactPaths()) {
+		!validPinnedSource(manifest.XraySource, manifest.XrayCommit) || !validSHA256(manifest.XrayBinarySHA256) ||
+		!validSHA256(manifest.CandidateSHA256) || !validSHA256(manifest.TransportSHA256) ||
+		!validSHA256(manifest.RuntimeMaterialSHA256) || !validSHA256(manifest.EvidenceTrustSHA256) ||
+		manifest.RuntimeConfigPath != RuntimeConfigPath || manifest.TargetPort != SidecarPort ||
+		manifest.FallbackProbePort != FallbackProbePort || len(manifest.Artifacts) != len(allowedArtifactPaths()) {
 		return invalid("manifest_fields_invalid")
 	}
 	allowed := allowedArtifactPaths()
@@ -343,15 +312,9 @@ func validateArtifactContent(path string, data []byte) error {
 		return ValidateRollbackTemplate(data)
 	case "validation-report.json":
 		var evidence ValidationEvidence
-		if err := decodeCanonicalJSON(data, &evidence); err != nil {
-			return err
-		}
-		return validateEvidence(evidence)
+		return decodeCanonicalJSON(data, &evidence)
 	case "xray":
-		if len(data) < 4 || len(data) > maxBinaryBytes || !bytes.Equal(data[:4], []byte{0x7f, 'E', 'L', 'F'}) {
-			return invalid("xray_binary_invalid")
-		}
-		return nil
+		return validateELF(data)
 	default:
 		return invalid("artifact_path_invalid")
 	}
@@ -363,12 +326,18 @@ func cloneManifest(manifest Manifest) Manifest {
 	return copy
 }
 
-func cloneMap(values map[string]string) map[string]string {
-	copy := make(map[string]string, len(values))
-	for key, value := range values {
-		copy[key] = value
+func marshalCanonical(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
 	}
-	return copy
+	result := buffer.Bytes()
+	if len(result) == 0 || result[len(result)-1] != '\n' {
+		return nil, errors.New("canonical JSON encoder omitted newline")
+	}
+	return append([]byte(nil), result[:len(result)-1]...), nil
 }
 
 func digestBytes(value []byte) string {
@@ -390,12 +359,69 @@ func validSHA256(value string) bool {
 	return len(value) == 64 && value == strings.ToLower(value) && err == nil && len(decoded) == sha256.Size
 }
 
-func validPinnedSource(value string) bool {
+func validPinnedHTTPS(value string) (*url.URL, bool) {
 	parsed, err := url.Parse(value)
-	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil &&
-		parsed.RawQuery == "" && parsed.Fragment == "" && !strings.HasSuffix(parsed.Path, "/latest")
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" ||
+		path.Clean(parsed.Path) != parsed.Path || strings.HasSuffix(parsed.Path, "/latest") {
+		return nil, false
+	}
+	return parsed, true
 }
 
+func validPinnedSource(value, commit string) bool {
+	parsed, ok := validPinnedHTTPS(value)
+	if !ok || !validCommit(commit) || parsed.Host != "github.com" || parsed.Port() != "" {
+		return false
+	}
+	prefix := "/XTLS/Xray-core/archive/" + commit
+	return parsed.Path == prefix+".zip" || parsed.Path == prefix+".tar.gz"
+}
+
+func validateELF(raw []byte) error {
+	if len(raw) == 0 || len(raw) > maxBinaryBytes {
+		return invalid("xray_binary_invalid")
+	}
+	value, err := elf.NewFile(bytes.NewReader(raw))
+	if err != nil || value.Data != elf.ELFDATA2LSB || value.Entry == 0 ||
+		(value.Type != elf.ET_EXEC && value.Type != elf.ET_DYN) ||
+		!supportedELFClassMachine(value.Class, value.Machine) {
+		return invalid("xray_binary_invalid")
+	}
+	hasExecutableEntry := false
+	for _, program := range value.Progs {
+		if program.Type != elf.PT_LOAD {
+			continue
+		}
+		if !validELFLoad(program, uint64(len(raw))) {
+			return invalid("xray_binary_invalid")
+		}
+		if program.Flags&elf.PF_X != 0 && program.Filesz > 0 &&
+			value.Entry >= program.Vaddr && value.Entry < program.Vaddr+program.Filesz {
+			hasExecutableEntry = true
+		}
+	}
+	if !hasExecutableEntry {
+		return invalid("xray_binary_invalid")
+	}
+	return nil
+}
+
+func supportedELFClassMachine(class elf.Class, machine elf.Machine) bool {
+	return class == elf.ELFCLASS32 && (machine == elf.EM_386 || machine == elf.EM_ARM) ||
+		class == elf.ELFCLASS64 && (machine == elf.EM_X86_64 || machine == elf.EM_AARCH64)
+}
+
+func validELFLoad(program *elf.Prog, rawSize uint64) bool {
+	if program.Memsz == 0 || program.Filesz > program.Memsz || program.Off > rawSize ||
+		program.Filesz > rawSize-program.Off || program.Vaddr > ^uint64(0)-program.Memsz {
+		return false
+	}
+	if program.Align > 1 && (program.Align&(program.Align-1) != 0 || program.Vaddr%program.Align != program.Off%program.Align) {
+		return false
+	}
+	return true
+}
 func (r Release) withState(state State) (Release, error) {
 	allowed := r.state == Draft && state == Candidate || r.state == Candidate && state == Published ||
 		r.state == Published && state == Retired || r.state == Retired && state == Published

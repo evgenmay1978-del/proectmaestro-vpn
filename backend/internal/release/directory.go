@@ -6,9 +6,29 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
-func ValidateReleaseDirectory(root string) error {
+func ValidateReleaseDirectory(_ string) error {
+	return invalid("evidence_trust_required")
+}
+
+func ValidateReleaseDirectoryWithTrust(root string, trust EvidenceTrust) error {
+	return validateReleaseDirectoryWithTrustAt(root, trust, nil)
+}
+
+func ValidateReleaseDirectoryForPromotionWithTrust(root string, trust EvidenceTrust, now time.Time) error {
+	if now.IsZero() {
+		return invalid("promotion_time_invalid")
+	}
+	now = now.UTC()
+	return validateReleaseDirectoryWithTrustAt(root, trust, &now)
+}
+
+func validateReleaseDirectoryWithTrustAt(root string, trust EvidenceTrust, admissionTime *time.Time) error {
+	if err := trust.validate(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(root) == "" {
 		return invalid("release_root_empty")
 	}
@@ -55,13 +75,17 @@ func ValidateReleaseDirectory(root string) error {
 		}
 		artifacts[artifact.Path] = value
 	}
-	return release.VerifyArtifacts(artifacts)
+	return release.verifyArtifactsWithTrustAt(artifacts, trust, admissionTime)
 }
 
 // PromoteSealedDirectory atomically moves a validated, immutable staging
 // directory into its final sibling path. The caller owns fsync of the parent
 // when crash durability beyond the journal contract is required.
-func PromoteSealedDirectory(staging, published string) error {
+func PromoteSealedDirectory(_, _ string) error {
+	return invalid("evidence_trust_required")
+}
+
+func PromoteSealedDirectoryWithTrust(staging, published string, trust EvidenceTrust) error {
 	stagingAbs, err := filepath.Abs(staging)
 	if err != nil {
 		return invalid("promotion_path_invalid")
@@ -73,7 +97,7 @@ func PromoteSealedDirectory(staging, published string) error {
 	if _, err := os.Lstat(publishedAbs); !os.IsNotExist(err) {
 		return invalid("promotion_destination_exists")
 	}
-	if err := ValidateReleaseDirectory(stagingAbs); err != nil {
+	if err := ValidateReleaseDirectoryForPromotionWithTrust(stagingAbs, trust, time.Now().UTC()); err != nil {
 		return err
 	}
 	before, err := os.Lstat(stagingAbs)

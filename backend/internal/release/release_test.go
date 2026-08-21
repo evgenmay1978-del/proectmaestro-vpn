@@ -50,21 +50,9 @@ func validTransport(t *testing.T, id string) controlplane.TransportRelease {
 
 func candidateSpec(t *testing.T, id string, generation uint64) release.CandidateSpec {
 	t.Helper()
-	binary := append([]byte{0x7f, 'E', 'L', 'F'}, bytes.Repeat([]byte{0}, 60)...)
-	binaryDigest := sha256.Sum256(binary)
-	spec := release.CandidateSpec{
-		Transport: validTransport(t, id), Generation: generation,
-		XrayVersion: "26.7.28", XrayCommit: strings.Repeat("a", 40),
-		XraySource:       "https://github.com/XTLS/Xray-core/releases/download/v26.7.28/Xray-linux-64.zip",
-		XrayBinarySHA256: hex.EncodeToString(binaryDigest[:]), XrayBinary: binary,
-		ConfigJSON: release.DefaultConfigTemplate(), SystemdUnit: release.DefaultSystemdTemplate(),
-		RollbackJSON: release.DefaultRollbackTemplate(),
-	}
-	gates := make(map[string]string)
-	for _, gate := range release.RequiredValidationGates() {
-		gates[gate] = strings.Repeat("b", 64)
-	}
-	evidence, err := release.BuildValidationEvidence(spec, gates)
+	spec, _, privateKey := taskASpec(t, id)
+	spec.Generation = generation
+	evidence, err := release.BuildValidationEvidence(spec, taskASignedReports(t, spec, privateKey, time.Now().UTC()))
 	if err != nil {
 		t.Fatalf("BuildValidationEvidence: %v", err)
 	}
@@ -179,8 +167,11 @@ func TestArtifactVerificationRejectsMissingExtraAndDigestMismatch(t *testing.T) 
 		t.Fatalf("NewCandidate: %v", err)
 	}
 	valid := artifactBytes(spec)
-	if err := candidate.VerifyArtifacts(valid); err != nil {
-		t.Fatalf("VerifyArtifacts valid: %v", err)
+	if err := candidate.VerifyArtifacts(valid); err == nil {
+		t.Fatal("VerifyArtifacts succeeded without external trust")
+	}
+	if err := candidate.VerifyArtifactsWithTrust(valid, spec.EvidenceTrust); err != nil {
+		t.Fatalf("VerifyArtifactsWithTrust valid: %v", err)
 	}
 	missing := artifactBytes(spec)
 	delete(missing, "rollback.json")
@@ -190,7 +181,7 @@ func TestArtifactVerificationRejectsMissingExtraAndDigestMismatch(t *testing.T) 
 	tampered["xray"] = []byte("changed")
 	for name, artifacts := range map[string]map[string][]byte{"missing": missing, "extra": extra, "tampered": tampered} {
 		t.Run(name, func(t *testing.T) {
-			if err := candidate.VerifyArtifacts(artifacts); err == nil {
+			if err := candidate.VerifyArtifactsWithTrust(artifacts, spec.EvidenceTrust); err == nil {
 				t.Fatal("invalid artifact set accepted")
 			}
 		})
@@ -433,7 +424,11 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		return dir
 	}
 	t.Run("valid", func(t *testing.T) {
-		if err := release.ValidateReleaseDirectory(write(t)); err != nil {
+		dir := write(t)
+		if err := release.ValidateReleaseDirectory(dir); err == nil {
+			t.Fatal("release directory validation succeeded without external trust")
+		}
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err != nil {
 			t.Fatalf("ValidateReleaseDirectory: %v", err)
 		}
 	})
@@ -445,7 +440,7 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		if err := os.WriteFile(filepath.Join(dir, "unexpected"), []byte("x"), 0o600); err != nil {
 			t.Fatalf("write unexpected: %v", err)
 		}
-		if err := release.ValidateReleaseDirectory(dir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 			t.Fatal("unexpected release file accepted")
 		}
 	})
@@ -467,7 +462,7 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		if err := os.Symlink(outside, filepath.Join(dir, "xray")); err != nil {
 			t.Fatalf("symlink: %v", err)
 		}
-		if err := release.ValidateReleaseDirectory(dir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 			t.Fatal("symlink artifact accepted")
 		}
 	})
@@ -479,7 +474,7 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		if err := os.Chmod(filepath.Join(dir, "xray"), 0o600); err != nil {
 			t.Fatalf("chmod xray: %v", err)
 		}
-		if err := release.ValidateReleaseDirectory(dir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 			t.Fatal("non-executable xray accepted")
 		}
 	})
@@ -491,7 +486,7 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		if err := os.Chmod(filepath.Join(dir, "config.json"), 0o620); err != nil {
 			t.Fatalf("chmod config: %v", err)
 		}
-		if err := release.ValidateReleaseDirectory(dir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 			t.Fatal("group-writable config accepted")
 		}
 	})
@@ -503,7 +498,7 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		if err := os.Chmod(filepath.Join(dir, "manifest.json"), 0o602); err != nil {
 			t.Fatalf("chmod manifest: %v", err)
 		}
-		if err := release.ValidateReleaseDirectory(dir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 			t.Fatal("world-writable manifest accepted")
 		}
 	})
@@ -524,7 +519,7 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 				if err := os.Chmod(target.path(dir), target.mode); err != nil {
 					t.Fatalf("chmod special mode: %v", err)
 				}
-				if err := release.ValidateReleaseDirectory(dir); err == nil {
+				if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 					t.Fatal("release with special mode bit accepted")
 				}
 			})

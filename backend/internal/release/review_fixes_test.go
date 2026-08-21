@@ -48,13 +48,10 @@ func transportForProfile(t *testing.T, id, profileID string) controlplane.Transp
 
 func candidateForProfile(t *testing.T, id, profileID string, generation uint64) release.Release {
 	t.Helper()
-	spec := candidateSpec(t, id, generation)
+	spec, _, privateKey := taskASpec(t, id)
+	spec.Generation = generation
 	spec.Transport = transportForProfile(t, id, profileID)
-	gates := make(map[string]string)
-	for _, gate := range release.RequiredValidationGates() {
-		gates[gate] = strings.Repeat("b", 64)
-	}
-	evidence, err := release.BuildValidationEvidence(spec, gates)
+	evidence, err := release.BuildValidationEvidence(spec, taskASignedReports(t, spec, privateKey, time.Now().UTC()))
 	if err != nil {
 		t.Fatalf("BuildValidationEvidence: %v", err)
 	}
@@ -114,36 +111,23 @@ func TestCatalogTransitionsNeverCrossTransportProfiles(t *testing.T) {
 }
 
 func TestRuntimeMaterializationIsSeparateDeterministicAndSealed(t *testing.T) {
-	type materializer interface {
-		MaterializeRuntimeConfig(map[string]string) ([]byte, error)
-	}
 	candidate := mustCandidate(t, "release-a", 1)
-	value, ok := any(candidate).(materializer)
-	if !ok {
-		t.Fatal("release has no runtime materialization boundary")
-	}
 	templateBefore := candidateSpec(t, "release-a", 1).ConfigJSON
-	material := map[string]string{
-		"public_host":       "runtime.example.invalid",
-		"secret_path":       "/static/runtime/segment.ts/opaque",
-		"server_decryption": "synthetic-runtime-material",
-	}
-	first, err := value.MaterializeRuntimeConfig(material)
+	material := release.RuntimeMaterial{ServerDecryption: taskARuntimeMaterial}
+	first, err := candidate.MaterializeRuntimeConfig(material)
 	if err != nil {
 		t.Fatalf("MaterializeRuntimeConfig: %v", err)
 	}
-	second, err := value.MaterializeRuntimeConfig(material)
+	second, err := candidate.MaterializeRuntimeConfig(material)
 	if err != nil || !bytes.Equal(first, second) {
 		t.Fatal("runtime materialization is not deterministic")
 	}
-	withUnknown := map[string]string{
-		"public_host": "runtime.example.invalid", "secret_path": "/static/runtime/segment.ts/opaque",
-		"server_decryption": "synthetic-runtime-material", "unexpected": "must-fail",
+	if _, err := candidate.MaterializeRuntimeConfig(release.RuntimeMaterial{ServerDecryption: "different-material"}); err == nil {
+		t.Fatal("runtime materialization accepted uncommitted material")
 	}
-	if _, err := value.MaterializeRuntimeConfig(withUnknown); err == nil {
-		t.Fatal("runtime materialization accepted an unknown field")
-	}
-	if bytes.Contains(first, []byte("<RUNTIME_")) || !bytes.Contains(first, []byte("runtime.example.invalid")) {
+	profile := candidate.Transport().Profile()
+	if bytes.Contains(first, []byte("<RUNTIME_")) || !bytes.Contains(first, []byte(profile.PublicHost)) ||
+		!bytes.Contains(first, []byte(profile.SecretPath)) || bytes.Contains(first, []byte("runtime.example.invalid")) {
 		t.Fatal("runtime config contains unresolved placeholders or missed material")
 	}
 	if !bytes.Contains(release.DefaultSystemdTemplate(), []byte("/run/maestro-xray-cdn/config.json")) ||
@@ -270,7 +254,7 @@ func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *
 		return dir
 	}
 	t.Run("sealed valid", func(t *testing.T) {
-		if err := release.ValidateReleaseDirectory(write(t, t.TempDir())); err != nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(write(t, t.TempDir()), spec.EvidenceTrust); err != nil {
 			t.Fatalf("ValidateReleaseDirectory: %v", err)
 		}
 	})
@@ -282,7 +266,7 @@ func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *
 		if err := os.Chmod(filepath.Join(dir, "config.json"), 0o600); err != nil {
 			t.Fatalf("chmod config: %v", err)
 		}
-		if err := release.ValidateReleaseDirectory(dir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 			t.Fatal("owner-writable published artifact accepted")
 		}
 	})
@@ -291,7 +275,7 @@ func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *
 		if err := os.Link(filepath.Join(dir, "xray"), filepath.Join(t.TempDir(), "linked-xray")); err != nil {
 			t.Fatalf("hardlink: %v", err)
 		}
-		if err := release.ValidateReleaseDirectory(dir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 			t.Fatal("hardlinked published artifact accepted")
 		}
 	})
@@ -303,7 +287,7 @@ func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *
 			t.Fatalf("symlink parent: %v", err)
 		}
 		linkedDir := filepath.Join(linkParent, filepath.Base(dir))
-		if err := release.ValidateReleaseDirectory(linkedDir); err == nil {
+		if err := release.ValidateReleaseDirectoryWithTrust(linkedDir, spec.EvidenceTrust); err == nil {
 			t.Fatal("release below symlink ancestor accepted")
 		}
 	})
@@ -342,7 +326,7 @@ func TestDirectoryEvidenceIsBoundToManifestAndBinary(t *testing.T) {
 			t.Errorf("restore release dir permissions: %v", err)
 		}
 	})
-	if err := release.ValidateReleaseDirectory(dir); err == nil {
+	if err := release.ValidateReleaseDirectoryWithTrust(dir, spec.EvidenceTrust); err == nil {
 		t.Fatal("validation evidence detached from manifest candidate digest")
 	}
 }
