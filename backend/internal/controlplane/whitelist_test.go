@@ -93,6 +93,37 @@ func TestWhiteListEntitlementRepresentsEveryExplicitStateAndRejectsUnknown(t *te
 	}
 }
 
+func TestActivateRejectsUnverifiedClientEncryptionMaterial(t *testing.T) {
+	disabled, err := controlplane.NewWhiteListEntitlement("account-alpha")
+	if err != nil {
+		t.Fatalf("NewWhiteListEntitlement: %v", err)
+	}
+	tests := []controlplane.WhiteListCredential{
+		{ClientID: "00000000-0000-0000-0000-000000000000", ClientEncryption: "mlkem768x25519plus.native.0rtt.client-material"},
+		{ClientID: validCredential().ClientID, ClientEncryption: "none"},
+		{ClientID: validCredential().ClientID, ClientEncryption: "opaque-legacy-token"},
+		{ClientID: validCredential().ClientID, ClientEncryption: "server-decryption-material"},
+	}
+	for _, credential := range tests {
+		if _, err := disabled.Activate("profile-a", "preset-a", "release-a", credential); err == nil {
+			t.Errorf("Activate accepted unverified or role-ambiguous credential: %#v", credential)
+		}
+	}
+}
+
+func TestTransportReleaseRejectsEmptyOrIncompleteAdvancedMetadata(t *testing.T) {
+	for _, extra := range []string{"{}", `{"sessionIDPlacement":"query"}`} {
+		preset := validPreset()
+		preset.ExtraJSON = extra
+		if _, err := controlplane.NewTransportRelease(controlplane.TransportReleaseSpec{
+			ID: "release-a", Profile: validProfile(), Preset: preset,
+			State: controlplane.TransportReleasePublished, ApprovedEdges: validApprovedEdges(),
+		}); err == nil {
+			t.Errorf("release accepted incomplete advanced metadata: %s", extra)
+		}
+	}
+}
+
 func TestTransportReleaseFreezesProfilePresetAndCanonicalEdges(t *testing.T) {
 	profile := validProfile()
 	preset := validPreset()
@@ -189,6 +220,9 @@ func TestTransportReleaseRejectsPresetMixingAndUnsafePublicMaterial(t *testing.T
 		}},
 		{name: "double encoded separator", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
 			profile.SecretPath = "/static/%252Fadmin"
+		}},
+		{name: "invalid utf8", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/%FF"
 		}},
 	}
 	for _, test := range tests {
