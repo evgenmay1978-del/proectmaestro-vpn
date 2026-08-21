@@ -262,6 +262,11 @@ func TestSealedDirectoryRejectsWritableHardlinkedAndSymlinkAncestorArtifacts(t *
 		if err := os.Chmod(dir, 0o500); err != nil {
 			t.Fatalf("seal dir: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := os.Chmod(dir, 0o700); err != nil {
+				t.Errorf("restore release dir permissions: %v", err)
+			}
+		})
 		return dir
 	}
 	t.Run("sealed valid", func(t *testing.T) {
@@ -332,6 +337,11 @@ func TestDirectoryEvidenceIsBoundToManifestAndBinary(t *testing.T) {
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatalf("seal dir: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Errorf("restore release dir permissions: %v", err)
+		}
+	})
 	if err := release.ValidateReleaseDirectory(dir); err == nil {
 		t.Fatal("validation evidence detached from manifest candidate digest")
 	}

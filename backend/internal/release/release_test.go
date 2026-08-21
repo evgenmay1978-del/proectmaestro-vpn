@@ -425,6 +425,11 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		if err := os.Chmod(dir, 0o500); err != nil {
 			t.Fatalf("seal release dir: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := os.Chmod(dir, 0o700); err != nil {
+				t.Errorf("restore release dir permissions: %v", err)
+			}
+		})
 		return dir
 	}
 	t.Run("valid", func(t *testing.T) {
