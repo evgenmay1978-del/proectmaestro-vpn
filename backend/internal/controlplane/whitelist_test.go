@@ -121,6 +121,12 @@ func TestActivateRejectsUnverifiedClientEncryptionMaterial(t *testing.T) {
 		{name: "illegal material character", mutate: func(value *controlplane.WhiteListCredential) {
 			value.ClientEncryption = "mlkem768x25519plus.native.0rtt.invalid/material-value"
 		}},
+		{name: "material proof mismatch", mutate: func(value *controlplane.WhiteListCredential) {
+			value.ClientEncryption = "mlkem768x25519plus.native.0rtt.different-client-material"
+		}},
+		{name: "forged proof", mutate: func(value *controlplane.WhiteListCredential) {
+			value.ClientEncryptionProofRef = "xray-vlessenc-client-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000"
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
