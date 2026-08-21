@@ -100,16 +100,36 @@ func TestActivateRejectsUnverifiedClientEncryptionMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWhiteListEntitlement: %v", err)
 	}
-	tests := []controlplane.WhiteListCredential{
-		{ClientID: "00000000-0000-0000-0000-000000000000", ClientEncryption: "mlkem768x25519plus.native.0rtt.client-material"},
-		{ClientID: validCredential().ClientID, ClientEncryption: "none"},
-		{ClientID: validCredential().ClientID, ClientEncryption: "opaque-legacy-token"},
-		{ClientID: validCredential().ClientID, ClientEncryption: "server-decryption-material"},
+	tests := []struct {
+		name   string
+		mutate func(*controlplane.WhiteListCredential)
+	}{
+		{name: "nil uuid", mutate: func(value *controlplane.WhiteListCredential) { value.ClientID = "00000000-0000-0000-0000-000000000000" }},
+		{name: "none", mutate: func(value *controlplane.WhiteListCredential) { value.ClientEncryption = "none" }},
+		{name: "opaque legacy", mutate: func(value *controlplane.WhiteListCredential) { value.ClientEncryption = "opaque-legacy-token" }},
+		{name: "server material", mutate: func(value *controlplane.WhiteListCredential) {
+			value.ClientEncryption = "mlkem768x25519plus.native.0rtt.server-decryption-material"
+		}},
+		{name: "server role", mutate: func(value *controlplane.WhiteListCredential) { value.ClientEncryptionRole = "SERVER" }},
+		{name: "missing proof", mutate: func(value *controlplane.WhiteListCredential) { value.ClientEncryptionProofRef = "" }},
+		{name: "bad prefix", mutate: func(value *controlplane.WhiteListCredential) {
+			value.ClientEncryption = "legacy.native.0rtt.abcdefghijklmnop"
+		}},
+		{name: "short material", mutate: func(value *controlplane.WhiteListCredential) {
+			value.ClientEncryption = "mlkem768x25519plus.native.0rtt.short"
+		}},
+		{name: "illegal material character", mutate: func(value *controlplane.WhiteListCredential) {
+			value.ClientEncryption = "mlkem768x25519plus.native.0rtt.invalid/material-value"
+		}},
 	}
-	for _, credential := range tests {
-		if _, err := disabled.Activate("profile-a", "preset-a", "release-a", credential); err == nil {
-			t.Errorf("Activate accepted unverified or role-ambiguous credential: %#v", credential)
-		}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			credential := validCredential()
+			test.mutate(&credential)
+			if _, err := disabled.Activate("profile-a", "preset-a", "release-a", credential); err == nil {
+				t.Fatalf("Activate accepted invalid credential: %#v", credential)
+			}
+		})
 	}
 }
 
@@ -225,6 +245,9 @@ func TestTransportReleaseRejectsPresetMixingAndUnsafePublicMaterial(t *testing.T
 		}},
 		{name: "invalid utf8", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
 			profile.SecretPath = "/static/%FF"
+		}},
+		{name: "raw invalid utf8", mutate: func(profile *controlplane.TransportProfile, _ *controlplane.CompatibilityPreset, _ *[]controlplane.ApprovedEdge) {
+			profile.SecretPath = "/static/\xff"
 		}},
 	}
 	for _, test := range tests {
