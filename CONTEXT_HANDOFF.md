@@ -2,13 +2,15 @@
 
 ## 0AAAAAAA. YANDEX CDN WHITE-LIST TASK 2 FINAL GREEN (21.08.2026)
 
-- Ветка `codex/yandex-cdn-whitelist`; проверенный implementation/security SHA Task 2 —
-  `e05b52104d805855a749b393b43a79db8fbf9f83`. Exact-SHA GitHub Actions run
-  `32436159029` завершён `success`: formatting, backend, race, vet и изолированный
+- Ветка `codex/yandex-cdn-whitelist`; implementation/security SHA Task 2 —
+  `e05b52104d805855a749b393b43a79db8fbf9f83`; финальный regression SHA —
+  `d1310f29f6199a82dc0f28f0f99e907b89e25142`. Exact-SHA GitHub Actions run
+  `32436553009` завершён `success`: formatting, backend, race, vet и изолированный
   rqlite/importer контур прошли.
 - RED `ed9fb596c771ad54bf01f0411097e1a7873e6af4` доказал отклонение nil/none/
-  opaque/server-role encryption material, пустого/неполного XHTTP metadata и
-  percent-decoded invalid UTF-8. Локальный RED падал только на этих новых gates.
+  opaque/server-role encryption material, пустого/неполного XHTTP metadata,
+  percent escapes и raw invalid UTF-8. Каждый credential gate затем закреплён
+  отдельной мутацией от валидного fixture. Локальный RED падал только на этих новых gates.
 - ACTIVE entitlement теперь требует отдельный client-side VLESS Encryption
   material с явной ролью `CLIENT` и provenance reference. В subscription не
   попадает server-decryption material. MAESTRO_ADVANCED требует непустые session/
