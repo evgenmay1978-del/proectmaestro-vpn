@@ -1,0 +1,8 @@
+{
+  "format_version":2, "cluster_hmac_key_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "snapshot_kind":"full", "captured_at":"2026-08-09T00:00:00Z",
+  "source_hashes":{"s2_bot":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+  "customers":[], "orders":[], "trials":[],
+  "bot_bindings":[{"bot_identity_hmac":"1111111111111111111111111111111111111111111111111111111111111111","token_fingerprint_hmac":"2222222222222222222222222222222222222222222222222222222222222222","credential_version":1,"schema_fingerprint":"bot-schema-v1"}],
+  "settings":[], "principals":[], "encrypted_secrets":[], "deletes":[],
+  "bot_poll_states":[], "pending_callbacks":[], "bot_credential_rotations":[]
+}

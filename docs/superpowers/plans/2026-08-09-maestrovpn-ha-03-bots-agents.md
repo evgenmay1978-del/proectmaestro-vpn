@@ -109,7 +109,8 @@ git commit -m "feat(controlplane): add desired state and fenced outbox"
 - Create: `backend/internal/applyagent/local_state_test.go`
 - Create: `backend/internal/applyagent/http.go`
 - Create: `backend/internal/applyagent/http_test.go`
-- Create: `backend/cmd/maestro-agent/main.go`
+- Deferred until Task 12 has at least one real local driver:
+  `backend/cmd/maestro-agent/main.go`
 
 **Interfaces:**
 - Produces: signed full `DesiredSnapshot`, dispatcher, `Agent.Apply`, private `/v1/apply`, signed `/v1/status`, `/livez`, `/readyz`, per-entry `ApplyReceipt`.
@@ -173,8 +174,8 @@ type LeaseVerifier interface {
     VerifyCurrentStrong(context.Context, nodeID, serviceID, holderID, snapshotSHA256 string, epoch, incarnation, fence int64) error
 }
 type Driver interface {
-    Inspect(context.Context, DesiredSnapshot) (AppliedState, error)
-    Prepare(context.Context, DesiredSnapshot) (PreparedChange, error)
+    Inspect(context.Context, MaterializedSnapshot) (AppliedState, error)
+    Prepare(context.Context, MaterializedSnapshot) (PreparedChange, error)
     Commit(context.Context, PreparedChange) (AppliedState, error)
     Rollback(context.Context, PreparedChange) error
 }
@@ -192,12 +193,44 @@ Listen only on configured management address, require client cert SAN mapped to 
 
 - [ ] **Step 6: Run race/security tests and commit**
 
-Run: `cd backend && go test -race ./internal/applyagent -count=1 && go vet ./internal/applyagent ./cmd/maestro-agent`
+Run: `cd backend && go test -race ./internal/applyagent -count=1 && go vet ./internal/applyagent`
 
 ```bash
-git add backend/internal/applyagent backend/cmd/maestro-agent
+git add backend/internal/applyagent
 git commit -m "feat(agent): add signed fenced apply protocol"
 ```
+
+#### Task 11 payload-boundary subplan — GREEN (12.08.2026)
+
+The approved node-service payload-isolation design and implementation subplan are
+GREEN through exact SHA `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`.
+Task 1 final GREEN `4572c7f2efb7e9ca7ed179d54164d01757d840e1`
+passed HA control-plane run `31623192987` and HA DR run `31623228487`.
+Task 2 final GREEN `efe6d6f40b9d2020c2aaee3c58f34eb5b358eed8`
+passed control-plane run `31630333917` and DR run `31630333923`.
+Task 3 policy RED `5ce1447ce467b384d54103ff09b589011d29562c`
+failed only at the missing workflow gate in control-plane run `31632212354`
+and DR run `31632212414`. Final Task 3 GREEN
+`d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2` passed control-plane run
+`31665206563` and DR run `31665206661`.
+
+The durable boundary is now:
+
+- the signed/encrypted `DesiredSnapshot` is authenticated and opened completely
+  before the first driver call;
+- drivers receive only `MaterializedSnapshot`, select exactly their configured
+  local service and return actual observed hashes;
+- no driver may open another node-service key ring, cache/log plaintext or expose
+  dependency error text; outward errors are fixed and safe;
+- CI rejects the old encrypted driver signatures and direct or propagated
+  production Body logging/serialization/error sinks, including `fmt.Errorf`,
+  `log`/`slog` receivers, helpers, aggregates and inline JSON encoders, after
+  proving the scanner on a synthetic forbidden fixture;
+- `cmd/maestro-agent` stays deferred until at least one real local Task 12 driver
+  exists. A no-op production runtime is forbidden.
+
+Production remains NO-GO. Repository GREEN does not authorize server access,
+deployment, restart, customer/bot/payment/DNS/OTA changes or protocol enablement.
 
 ### Task 12: Local x-ui, S2 and S3 olcRTC drivers; legacy writers become pre-cutover-only
 
@@ -237,6 +270,16 @@ git commit -m "feat(agent): add signed fenced apply protocol"
 **Interfaces:**
 - Produces: local-only x-ui S1/S3/S4 driver; separate full-snapshot `s2-hysteria2`, `s2-anytls`, `s2-naive` drivers; full-snapshot `s3-olcrtc` driver; signed versioned `AppliedImportAttestation` and `S2NaiveAdoptionManifest`, `NaiveAdoptionReport` and zero-unowned-imported-user cutover gate; new HA read-only drift report.
 - Consumes: existing `xui`, `server2` and olcRTC parsers/renderers only behind injected local command/filesystem interfaces, Plan 02's completed `import_runs` plus immutable imported rows, an exact hard-fenced read-only S2 Caddy snapshot, the signed `S2NaiveAdoptionManifest`, and absolute desired snapshots from Tasks 10–11.
+
+Every production driver consumes only the already authenticated
+`MaterializedSnapshot`. It is configured for one local service and rejects any
+other node/service or remote target before mutation. It reports hashes measured
+from the actual post-apply local state, never substitutes the desired/envelope
+digest as observation, never opens another node-service key ring, and never
+caches, logs or serializes plaintext. Parser, validator, process and filesystem
+failures map to fixed safe driver errors. Only after one such real driver is GREEN
+may Task 12 add concrete `cmd/maestro-agent` wiring; a no-op driver/runtime is not
+an acceptable intermediate production command.
 
 - [ ] **Step 1: Write x-ui driver RED tests**
 

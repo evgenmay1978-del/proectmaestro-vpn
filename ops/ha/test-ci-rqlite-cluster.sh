@@ -26,10 +26,25 @@ grep -qF '127.0.0.1:4401' "$HARNESS" || fail "first loopback HTTP endpoint is mi
 grep -qF '127.0.0.1:4403' "$HARNESS" || fail "second loopback HTTP endpoint is missing"
 grep -qF '127.0.0.1:4405' "$HARNESS" || fail "third loopback HTTP endpoint is missing"
 
+grep -qF 'start-mtls) start_cluster mtls' "$HARNESS" ||
+  fail "start-mtls command is missing"
+grep -qF -- '-http-verify-client' "$HARNESS" ||
+  fail "mTLS client verification flag is missing"
+grep -qF 'subjectAltName=IP:127.0.0.1' "$HARNESS" ||
+  fail "loopback server certificate SAN is missing"
+
 for node_id in ci-rqlite-1 ci-rqlite-2 ci-rqlite-3; do
   count="$(grep -cF -- "-node-id $node_id" "$HARNESS" || true)"
   [[ "$count" == 1 ]] || fail "node ID $node_id must appear exactly once"
 done
+
+bootstrap_count="$(grep -cF -- '-bootstrap-expect 3' "$HARNESS" || true)"
+join_flag_count="$(grep -cF -- '-join "$join_targets"' "$HARNESS" || true)"
+join_target_count="$(grep -cF 'join_targets="127.0.0.1:4402,127.0.0.1:4404,127.0.0.1:4406"' "$HARNESS" || true)"
+[[ "$bootstrap_count" == 3 ]] || fail "all three nodes must use bootstrap-expect 3"
+[[ "$join_flag_count" == 3 ]] || fail "all three nodes must use the shared join target list"
+[[ "$join_target_count" == 1 ]] ||
+  fail "the complete loopback join target list must be declared exactly once"
 
 executable_lines="$(grep -Ev '^[[:space:]]*(#|$)' "$HARNESS")"
 if grep -Eq '(^|[^[:alnum:]_])(ssh|scp|rsync)([^[:alnum:]_]|$)|/etc/|/var/lib/|0\.0\.0\.0' <<<"$executable_lines"; then
@@ -69,6 +84,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
+fake_bin="$test_temp/fake-bin"
+mkdir -p -- "$fake_bin"
+cat >"$fake_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+exit 22
+EOF
+chmod 0700 "$fake_bin/curl"
+failed_start_output=""
+if failed_start_output="$(PATH="$fake_bin:$PATH" bash "$HARNESS" start 2>&1)"; then
+  fail "start unexpectedly succeeded when the pinned download failed"
+fi
+[[ ! -e "$test_temp/maestro-rqlite-ci-root" ]] ||
+  fail "failed start left a stale cluster marker; output: ${failed_start_output:-<none>}"
+if compgen -G "$test_temp/maestro-rqlite-ci.*" >/dev/null; then
+  fail "failed start left a stale cluster root; output: ${failed_start_output:-<none>}"
+fi
+rm -rf -- "$fake_bin"
+
 bash "$HARNESS" start
 status_output="$(bash "$HARNESS" status)"
 printf '%s\n' "$status_output"
@@ -80,6 +113,12 @@ case "$cluster_root" in
   "$test_temp"/maestro-rqlite-ci.*) ;;
   *) fail "cluster root escaped the isolated runner temp" ;;
 esac
+
+plain_description="$cluster_root/plain-description.json"
+if bash "$HARNESS" describe-mtls --output "$plain_description" >/dev/null 2>&1; then
+  fail "describe-mtls accepted a plain cluster"
+fi
+[[ ! -e "$plain_description" ]] || fail "plain describe-mtls created an output"
 
 for node in 1 2 3; do
   [[ -f "$cluster_root/node${node}.pid" ]] || fail "node${node} PID file is missing"
@@ -93,7 +132,13 @@ expected_ids = {"ci-rqlite-1", "ci-rqlite-2", "ci-rqlite-3"}
 with urllib.request.urlopen(
     "http://127.0.0.1:4401/nodes?ver=2&timeout=5s", timeout=10
 ) as response:
-    nodes = json.load(response)
+    payload = json.load(response)
+if isinstance(payload, dict) and isinstance(payload.get("nodes"), list):
+    nodes = {node["id"]: node for node in payload["nodes"]}
+elif isinstance(payload, dict):
+    nodes = payload
+else:
+    raise SystemExit("nodes response is not an object")
 
 if set(nodes) != expected_ids:
     raise SystemExit(f"unexpected node IDs: {sorted(nodes)}")
@@ -148,5 +193,96 @@ fi
 rm -f -- "$test_temp/maestro-rqlite-ci-root"
 rm -rf -- "$outside_root"
 outside_root=""
+
+bash "$HARNESS" start-mtls
+mtls_status="$(bash "$HARNESS" status)"
+mtls_root="$(awk -F= '$1 == "root" { print $2 }' <<<"$mtls_status")"
+[[ -n "$mtls_root" ]] || fail "mTLS status did not report cluster root"
+mtls_root="$(realpath -e "$mtls_root")"
+case "$mtls_root" in
+  "$test_temp"/maestro-rqlite-ci.*) ;;
+  *) fail "mTLS cluster root escaped runner temp" ;;
+esac
+[[ "$(awk -F= '$1 == "mode" { print $2 }' <<<"$mtls_status")" == "mtls" ]] ||
+  fail "mTLS status did not report mode=mtls"
+
+for private_file in ca.key server.key client.key; do
+  [[ -f "$mtls_root/tls/$private_file" && ! -L "$mtls_root/tls/$private_file" ]] ||
+    fail "mTLS private file $private_file is missing or unsafe"
+  [[ "$(stat -c '%a' "$mtls_root/tls/$private_file")" == "600" ]] ||
+    fail "mTLS private file $private_file is not mode 0600"
+done
+for public_file in ca.crt server.crt client.crt; do
+  [[ -f "$mtls_root/tls/$public_file" && ! -L "$mtls_root/tls/$public_file" ]] ||
+    fail "mTLS certificate $public_file is missing or unsafe"
+  [[ "$(stat -c '%a' "$mtls_root/tls/$public_file")" == "600" ]] ||
+    fail "mTLS certificate $public_file is not mode 0600"
+done
+
+description="$mtls_root/mtls-description.json"
+bash "$HARNESS" describe-mtls --output "$description"
+[[ -f "$description" && ! -L "$description" ]] ||
+  fail "describe-mtls output is missing or unsafe"
+[[ "$(stat -c '%a' "$description")" == "600" ]] ||
+  fail "describe-mtls output is not mode 0600"
+python3 - "$description" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    "format_version": 1,
+    "nodes": [
+        {"node_id": "S2", "endpoint": "https://127.0.0.1:4401"},
+        {"node_id": "S3", "endpoint": "https://127.0.0.1:4403"},
+        {"node_id": "S4", "endpoint": "https://127.0.0.1:4405"},
+    ],
+    "ca": "tls/ca.crt",
+    "client_cert": "tls/client.crt",
+    "client_key": "tls/client.key",
+}
+if payload != expected:
+    raise SystemExit("describe-mtls payload mismatch")
+encoded = json.dumps(payload, sort_keys=True)
+for forbidden in ("ca.key", "server.key", "server.crt"):
+    if forbidden in encoded:
+        raise SystemExit("describe-mtls disclosed forbidden material")
+PY
+if bash "$HARNESS" describe-mtls --output "$description" >/dev/null 2>&1; then
+  fail "describe-mtls overwrote an existing output"
+fi
+
+if curl --fail --silent --show-error --max-time 3 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  "https://127.0.0.1:4401/readyz" >/dev/null 2>&1; then
+  fail "mTLS endpoint accepted a client without a certificate"
+fi
+curl --fail --silent --show-error --max-time 3 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  --cert "$mtls_root/tls/client.crt" \
+  --key "$mtls_root/tls/client.key" \
+  "https://127.0.0.1:4401/readyz" >/dev/null
+
+s4_pid="$(<"$mtls_root/node3.pid")"
+bash "$HARNESS" stop-node --node S4
+if kill -0 "$s4_pid" 2>/dev/null; then
+  fail "stop-node left S4 running"
+fi
+if curl --fail --silent --show-error --max-time 2 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  --cert "$mtls_root/tls/client.crt" \
+  --key "$mtls_root/tls/client.key" \
+  "https://127.0.0.1:4405/readyz" >/dev/null 2>&1
+then
+  fail "stopped S4 endpoint remained reachable"
+fi
+curl --fail --silent --show-error --max-time 3 \
+  --cacert "$mtls_root/tls/ca.crt" \
+  --cert "$mtls_root/tls/client.crt" \
+  --key "$mtls_root/tls/client.key" \
+  "https://127.0.0.1:4401/readyz" >/dev/null
+bash "$HARNESS" stop
+[[ ! -e "$mtls_root" ]] || fail "mTLS stop did not remove validated cluster root"
 
 printf 'ci-rqlite contract passed\n'

@@ -49,7 +49,7 @@ validated_root() {
 
 require_commands() {
   local command_name
-  for command_name in curl sha256sum tar mktemp realpath python3 readlink; do
+  for command_name in curl sha256sum tar mktemp realpath python3 readlink tail openssl stat; do
     command -v "$command_name" >/dev/null 2>&1 || fail "missing command: $command_name"
   done
 }
@@ -57,17 +57,30 @@ require_commands() {
 assert_ports_available() {
   python3 - <<'PY'
 import socket
+import time
 
-sockets = []
-try:
-    for port in (4401, 4402, 4403, 4404, 4405, 4406):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-        sock.bind(("127.0.0.1", port))
-        sockets.append(sock)
-finally:
-    for sock in sockets:
-        sock.close()
+
+def ports_available():
+    sockets = []
+    try:
+        for port in (4401, 4402, 4403, 4404, 4405, 4406):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sockets.append(sock)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+    except OSError:
+        return False
+    finally:
+        for sock in sockets:
+            sock.close()
+    return True
+
+
+deadline = time.monotonic() + 10
+while not ports_available():
+    if time.monotonic() >= deadline:
+        raise SystemExit("loopback CI ports remained occupied for 10 seconds")
+    time.sleep(0.25)
 PY
 }
 
@@ -94,12 +107,91 @@ write_pid() {
     fail "PID file for node${node} already exists"
 }
 
+write_cluster_mode() {
+  local root mode path
+  root="$1"
+  mode="$2"
+  [[ "$mode" == "plain" || "$mode" == "mtls" ]] || fail "invalid cluster mode"
+  path="$root/mode"
+  (set -o noclobber; printf '%s\n' "$mode" >"$path") 2>/dev/null ||
+    fail "cluster mode file could not be created atomically"
+}
+
+read_cluster_mode() {
+  local root path
+  local -a mode_lines=()
+  root="$1"
+  path="$root/mode"
+  [[ -f "$path" && ! -L "$path" ]] || fail "cluster mode file is missing or unsafe"
+  mapfile -t mode_lines <"$path"
+  [[ "${#mode_lines[@]}" -eq 1 &&
+    ("${mode_lines[0]}" == "plain" || "${mode_lines[0]}" == "mtls") ]] ||
+    fail "cluster mode file is invalid"
+  printf '%s\n' "${mode_lines[0]}"
+}
+
+prepare_mtls() {
+  local root tls
+  root="$1"
+  tls="$root/tls"
+  mkdir -p -- "$tls"
+  chmod 0700 "$tls"
+
+  openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+    -keyout "$tls/ca.key" -out "$tls/ca.crt" -days 2 \
+    -subj "/CN=MaestroVPN CI rqlite CA" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1
+
+  openssl req -newkey rsa:2048 -sha256 -nodes \
+    -keyout "$tls/server.key" -out "$tls/server.csr" \
+    -subj "/CN=127.0.0.1" >/dev/null 2>&1
+  cat >"$tls/server.ext" <<'EOF'
+[v3_req]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=IP:127.0.0.1
+EOF
+  openssl x509 -req -sha256 -days 2 \
+    -in "$tls/server.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
+    -CAcreateserial -out "$tls/server.crt" \
+    -extfile "$tls/server.ext" -extensions v3_req >/dev/null 2>&1
+
+  openssl req -newkey rsa:2048 -sha256 -nodes \
+    -keyout "$tls/client.key" -out "$tls/client.csr" \
+    -subj "/CN=maestro-import-ci" >/dev/null 2>&1
+  cat >"$tls/client.ext" <<'EOF'
+[v3_req]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=clientAuth
+EOF
+  openssl x509 -req -sha256 -days 2 \
+    -in "$tls/client.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" \
+    -CAcreateserial -out "$tls/client.crt" \
+    -extfile "$tls/client.ext" -extensions v3_req >/dev/null 2>&1
+
+  chmod 0600 "$tls"/*
+  openssl verify -CAfile "$tls/ca.crt" "$tls/server.crt" "$tls/client.crt" >/dev/null
+}
+
 wait_ready() {
-  local port pid attempt
+  local port pid mode root attempt
   port="$1"
   pid="$2"
+  mode="$3"
+  root="$4"
   for ((attempt = 1; attempt <= 120; attempt++)); do
-    if curl --fail --silent --show-error --max-time 2 \
+    if [[ "$mode" == "mtls" ]]; then
+      if curl --fail --silent --show-error --max-time 2 \
+        --cacert "$root/tls/ca.crt" \
+        --cert "$root/tls/client.crt" \
+        --key "$root/tls/client.key" \
+        "https://127.0.0.1:${port}/readyz" >/dev/null 2>&1; then
+        return 0
+      fi
+    elif curl --fail --silent --show-error --max-time 2 \
       "http://127.0.0.1:${port}/readyz" >/dev/null 2>&1; then
       return 0
     fi
@@ -110,20 +202,47 @@ wait_ready() {
 }
 
 verify_cluster() {
-  python3 - <<'PY'
+  local mode root scheme
+  mode="$1"
+  root="$2"
+  scheme="http"
+  [[ "$mode" == "plain" ]] || scheme="https"
+  CI_RQLITE_SCHEME="$scheme" CI_RQLITE_TLS_ROOT="$root/tls" python3 - <<'PY'
 import json
+import os
+import ssl
 import time
 import urllib.error
 import urllib.request
 
+scheme = os.environ["CI_RQLITE_SCHEME"]
+context = None
+if scheme == "https":
+    tls_root = os.environ["CI_RQLITE_TLS_ROOT"]
+    context = ssl.create_default_context(cafile=os.path.join(tls_root, "ca.crt"))
+    context.load_cert_chain(
+        certfile=os.path.join(tls_root, "client.crt"),
+        keyfile=os.path.join(tls_root, "client.key"),
+    )
+
 deadline = time.monotonic() + 30
 last_error = "cluster did not converge"
+last_nodes = {}
 while time.monotonic() < deadline:
     try:
         with urllib.request.urlopen(
-            "http://127.0.0.1:4401/nodes?ver=2&timeout=2s", timeout=5
+            f"{scheme}://127.0.0.1:4401/nodes?ver=2&timeout=2s",
+            timeout=5,
+            context=context,
         ) as response:
-            nodes = json.load(response)
+            payload = json.load(response)
+        if isinstance(payload, dict) and isinstance(payload.get("nodes"), list):
+            nodes = {node["id"]: node for node in payload["nodes"]}
+        elif isinstance(payload, dict):
+            nodes = payload
+        else:
+            raise RuntimeError("nodes response is not an object")
+        last_nodes = nodes
         if len(nodes) != 3:
             raise RuntimeError(f"node count is {len(nodes)}")
         if sum(bool(node.get("leader")) for node in nodes.values()) != 1:
@@ -135,12 +254,12 @@ while time.monotonic() < deadline:
 
         for port in (4401, 4403, 4405):
             request = urllib.request.Request(
-                f"http://127.0.0.1:{port}/db/request?associative=true&level=linearizable",
+                f"{scheme}://127.0.0.1:{port}/db/request?associative=true&level=linearizable",
                 data=json.dumps([["PRAGMA foreign_keys"]]).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(request, timeout=5) as response:
+            with urllib.request.urlopen(request, timeout=5, context=context) as response:
                 payload = json.load(response)
             value = payload["results"][0]["rows"][0]["foreign_keys"]
             if value != 1:
@@ -160,8 +279,15 @@ while time.monotonic() < deadline:
     print("leaders=1 voters=3")
     print("foreign_keys=1 endpoints=3")
     raise SystemExit(0)
-raise SystemExit(last_error)
+raise SystemExit(f"{last_error}; nodes={json.dumps(last_nodes, sort_keys=True)}")
 PY
+  if [[ "$mode" == "mtls" ]]; then
+    if curl --fail --silent --show-error --max-time 3 \
+      --cacert "$root/tls/ca.crt" \
+      "https://127.0.0.1:4401/readyz" >/dev/null 2>&1; then
+      fail "mTLS endpoint accepted a client without a certificate"
+    fi
+  fi
 }
 
 read_recorded_pid() {
@@ -185,8 +311,11 @@ read_recorded_pid() {
 }
 
 start_cluster() {
-  local base marker root archive expected_member binary pid
+  local mode base marker root archive expected_member binary pid join_targets
   local -a started_pids=()
+  local -a tls_args=()
+  mode="${1:-plain}"
+  [[ "$mode" == "plain" || "$mode" == "mtls" ]] || fail "invalid start mode"
   umask 077
   require_commands
   assert_ports_available
@@ -206,12 +335,22 @@ start_cluster() {
   }
 
   cleanup_failed_start() {
-    local status cleanup_pid attempt any_running validated_cleanup_root executable
-    status="$?"
+    local status="$1" cleanup_base="$2" cleanup_marker="$3" cleanup_root="$4"
+    local cleanup_pid attempt any_running resolved_cleanup_root executable node log_file
+    shift 4
+    local -a cleanup_pids=("$@")
+    local -a cleanup_marker_lines=()
     trap - EXIT
     if [[ "$status" -ne 0 ]]; then
-      executable="$root/bin/rqlited"
-      for cleanup_pid in "${started_pids[@]}"; do
+      for node in 1 2 3; do
+        log_file="$cleanup_root/node${node}.log"
+        if [[ -f "$log_file" && ! -L "$log_file" ]]; then
+          printf 'ci-rqlite: node%s startup log (last 80 lines)\n' "$node" >&2
+          tail -n 80 -- "$log_file" >&2 || true
+        fi
+      done
+      executable="$cleanup_root/bin/rqlited"
+      for cleanup_pid in "${cleanup_pids[@]}"; do
         if kill -0 "$cleanup_pid" 2>/dev/null &&
           [[ -f "$executable" && ! -L "$executable" ]] &&
           [[ "$(readlink -f -- "/proc/${cleanup_pid}/exe" 2>/dev/null)" == "$executable" ]]; then
@@ -220,7 +359,7 @@ start_cluster() {
       done
       for ((attempt = 1; attempt <= 40; attempt++)); do
         any_running=0
-        for cleanup_pid in "${started_pids[@]}"; do
+        for cleanup_pid in "${cleanup_pids[@]}"; do
           if kill -0 "$cleanup_pid" 2>/dev/null; then
             any_running=1
           fi
@@ -228,7 +367,7 @@ start_cluster() {
         [[ "$any_running" -eq 0 ]] && break
         sleep 0.25
       done
-      for cleanup_pid in "${started_pids[@]}"; do
+      for cleanup_pid in "${cleanup_pids[@]}"; do
         if kill -0 "$cleanup_pid" 2>/dev/null &&
           [[ -f "$executable" && ! -L "$executable" ]] &&
           [[ "$(readlink -f -- "/proc/${cleanup_pid}/exe" 2>/dev/null)" == "$executable" ]]; then
@@ -237,23 +376,52 @@ start_cluster() {
         wait "$cleanup_pid" 2>/dev/null || true
       done
       any_running=0
-      for cleanup_pid in "${started_pids[@]}"; do
+      for cleanup_pid in "${cleanup_pids[@]}"; do
         if kill -0 "$cleanup_pid" 2>/dev/null; then
           any_running=1
         fi
       done
-      if [[ "$any_running" -eq 0 ]] &&
-        validated_cleanup_root="$(validated_root 2>/dev/null)" &&
-        [[ "$validated_cleanup_root" == "$root" ]]; then
-        rm -rf -- "$root"
-        rm -f -- "$marker"
+      if [[ "$any_running" -eq 0 ]]; then
+        resolved_cleanup_root="$(realpath -e -- "$cleanup_root" 2>/dev/null || true)"
+        if [[ -f "$cleanup_marker" && ! -L "$cleanup_marker" ]]; then
+          mapfile -t cleanup_marker_lines <"$cleanup_marker" || true
+        fi
+        if [[ "$resolved_cleanup_root" == "$cleanup_root" && -d "$cleanup_root" && ! -L "$cleanup_root" &&
+          "${#cleanup_marker_lines[@]}" -eq 1 && "${cleanup_marker_lines[0]}" == "$cleanup_root" ]]; then
+          case "$cleanup_root" in
+            "$cleanup_base"/maestro-rqlite-ci.*)
+              rm -rf -- "$cleanup_root"
+              rm -f -- "$cleanup_marker"
+              ;;
+          esac
+        fi
       fi
     fi
     exit "$status"
   }
-  trap cleanup_failed_start EXIT
+
+  install_cleanup_trap() {
+    local trap_command trap_pid
+    printf -v trap_command 'cleanup_failed_start "$?" %q %q %q' "$base" "$marker" "$root"
+    for trap_pid in "${started_pids[@]}"; do
+      printf -v trap_command '%s %q' "$trap_command" "$trap_pid"
+    done
+    trap "$trap_command" EXIT
+  }
+
+  install_cleanup_trap
 
   mkdir -p -- "$root/bin" "$root/node1" "$root/node2" "$root/node3"
+  write_cluster_mode "$root" "$mode"
+  if [[ "$mode" == "mtls" ]]; then
+    prepare_mtls "$root"
+    tls_args=(
+      -http-cert "$root/tls/server.crt"
+      -http-key "$root/tls/server.key"
+      -http-ca-cert "$root/tls/ca.crt"
+      -http-verify-client
+    )
+  fi
   archive="$root/$ARCHIVE_NAME"
   curl --fail --silent --show-error --location \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -269,66 +437,172 @@ start_cluster() {
   tar -xOzf "$archive" "$expected_member" >"$binary"
   chmod 0700 "$binary"
   [[ -x "$binary" ]] || fail "rqlited binary is not executable"
+  join_targets="127.0.0.1:4402,127.0.0.1:4404,127.0.0.1:4406"
 
   "$binary" \
     -node-id ci-rqlite-1 \
     -http-addr 127.0.0.1:4401 \
     -raft-addr 127.0.0.1:4402 \
+    -bootstrap-expect 3 \
+    -bootstrap-expect-timeout 30s \
+    -join "$join_targets" \
+    -join-attempts 120 \
+    -join-interval 250ms \
     -fk \
+    "${tls_args[@]}" \
     "$root/node1" >"$root/node1.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
+  install_cleanup_trap
   write_pid "$root" 1 "$pid"
-  wait_ready 4401 "$pid"
 
   "$binary" \
     -node-id ci-rqlite-2 \
     -http-addr 127.0.0.1:4403 \
     -raft-addr 127.0.0.1:4404 \
-    -join 127.0.0.1:4402 \
-    -join-attempts 20 \
+    -bootstrap-expect 3 \
+    -bootstrap-expect-timeout 30s \
+    -join "$join_targets" \
+    -join-attempts 120 \
     -join-interval 250ms \
     -fk \
+    "${tls_args[@]}" \
     "$root/node2" >"$root/node2.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
+  install_cleanup_trap
   write_pid "$root" 2 "$pid"
 
   "$binary" \
     -node-id ci-rqlite-3 \
     -http-addr 127.0.0.1:4405 \
     -raft-addr 127.0.0.1:4406 \
-    -join 127.0.0.1:4402 \
-    -join-attempts 20 \
+    -bootstrap-expect 3 \
+    -bootstrap-expect-timeout 30s \
+    -join "$join_targets" \
+    -join-attempts 120 \
     -join-interval 250ms \
     -fk \
+    "${tls_args[@]}" \
     "$root/node3" >"$root/node3.log" 2>&1 &
   pid="$!"
   started_pids+=("$pid")
+  install_cleanup_trap
   write_pid "$root" 3 "$pid"
 
-  wait_ready 4403 "$(<"$root/node2.pid")"
-  wait_ready 4405 "$(<"$root/node3.pid")"
-  verify_cluster
+  wait_ready 4401 "$(<"$root/node1.pid")" "$mode" "$root"
+  wait_ready 4403 "$(<"$root/node2.pid")" "$mode" "$root"
+  wait_ready 4405 "$(<"$root/node3.pid")" "$mode" "$root"
+  verify_cluster "$mode" "$root"
   trap - EXIT
   printf 'ci-rqlite cluster started\n'
 }
 
-status_cluster() {
-  local root node pid
+
+describe_mtls() {
+  local root mode output parent resolved_parent basename
   root="$(validated_root)" || return
+  mode="$(read_cluster_mode "$root")" || return
+  [[ "$mode" == "mtls" ]] || fail "describe-mtls requires an mTLS cluster"
+  [[ "${1:-}" == "--output" && -n "${2:-}" && "$#" -eq 2 ]] ||
+    fail "describe-mtls --output FILE"
+  output="$2"
+  [[ ! -e "$output" && ! -L "$output" ]] || fail "describe-mtls output already exists"
+  parent="$(dirname -- "$output")"
+  resolved_parent="$(realpath -e -- "$parent")" ||
+    fail "describe-mtls output parent cannot be resolved"
+  basename="$(basename -- "$output")"
+  [[ "$output" == "$resolved_parent/$basename" ]] ||
+    fail "describe-mtls output path is not canonical"
+  case "$resolved_parent" in
+    "$root"|"$root"/*) ;;
+    *) fail "describe-mtls output escaped cluster root" ;;
+  esac
+
+  umask 077
+  (set -o noclobber; python3 - <<'PY' >"$output"
+import json
+
+payload = {
+    "format_version": 1,
+    "nodes": [
+        {"node_id": "S2", "endpoint": "https://127.0.0.1:4401"},
+        {"node_id": "S3", "endpoint": "https://127.0.0.1:4403"},
+        {"node_id": "S4", "endpoint": "https://127.0.0.1:4405"},
+    ],
+    "ca": "tls/ca.crt",
+    "client_cert": "tls/client.crt",
+    "client_key": "tls/client.key",
+}
+print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+PY
+  ) 2>/dev/null || fail "describe-mtls output could not be created atomically"
+  chmod 0600 "$output"
+  [[ -f "$output" && ! -L "$output" ]] || fail "describe-mtls output is unsafe"
+}
+status_cluster() {
+  local root mode node pid
+  root="$(validated_root)" || return
+  mode="$(read_cluster_mode "$root")" || return
   printf 'root=%s\n' "$root"
+  printf 'mode=%s\n' "$mode"
   for node in 1 2 3; do
     pid="$(read_recorded_pid "$root" "$node")" || return
     [[ -n "$pid" ]] || fail "node${node} is not running"
     printf 'node%s_pid=%s\n' "$node" "$pid"
   done
-  verify_cluster
+  verify_cluster "$mode" "$root"
+}
+
+stop_one_node() {
+  local root node_id node pid executable stopped_file attempt
+  root="$(validated_root)" || return
+  [[ "${1:-}" == "--node" && -n "${2:-}" && "$#" -eq 2 ]] ||
+    fail "stop-node --node S2|S3|S4"
+  node_id="$2"
+  case "$node_id" in
+    S2) node=1 ;;
+    S3) node=2 ;;
+    S4) node=3 ;;
+    *) fail "stop-node requires S2, S3 or S4" ;;
+  esac
+  executable="$root/bin/rqlited"
+  [[ -f "$executable" && ! -L "$executable" ]] ||
+    fail "cluster binary is missing or unsafe"
+  stopped_file="$root/node${node}.stopped"
+  [[ ! -e "$stopped_file" && ! -L "$stopped_file" ]] ||
+    fail "${node_id} already has a stop marker"
+  pid="$(read_recorded_pid "$root" "$node")" || return
+  [[ -n "$pid" ]] || fail "${node_id} is not running"
+  kill -TERM "$pid"
+  for ((attempt = 1; attempt <= 40; attempt++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.25
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    [[ "$(readlink -f -- "/proc/${pid}/exe")" == "$executable" ]] ||
+      fail "refusing to kill a reused PID"
+    kill -KILL "$pid"
+    for ((attempt = 1; attempt <= 20; attempt++)); do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
+  kill -0 "$pid" 2>/dev/null && fail "${node_id} did not stop"
+  (set -o noclobber; printf '%s\n' "$pid" >"$stopped_file") 2>/dev/null ||
+    fail "cannot create ${node_id} stop marker"
+  chmod 0600 "$stopped_file"
+  printf '%s stopped\n' "$node_id"
 }
 
 stop_cluster() {
-  local base marker root node pid attempt any_running executable
+  local base marker root node pid attempt any_running executable stopped_file
   local -a pids=()
+  local -a stopped_lines=() pid_lines=()
   base="$(runner_base)" || return
   marker="$base/$MARKER_NAME"
   if [[ ! -e "$marker" && ! -L "$marker" ]]; then
@@ -340,6 +614,19 @@ stop_cluster() {
   [[ -f "$executable" && ! -L "$executable" ]] || fail "cluster binary is missing or unsafe"
 
   for node in 1 2 3; do
+    stopped_file="$root/node${node}.stopped"
+    if [[ -e "$stopped_file" || -L "$stopped_file" ]]; then
+      [[ -f "$stopped_file" && ! -L "$stopped_file" &&
+        "$(stat -c '%a' "$stopped_file")" == "600" ]] ||
+        fail "unsafe stop marker for node${node}"
+      mapfile -t stopped_lines <"$stopped_file"
+      mapfile -t pid_lines <"$root/node${node}.pid"
+      [[ "${#stopped_lines[@]}" -eq 1 && "${#pid_lines[@]}" -eq 1 &&
+        "${stopped_lines[0]}" == "${pid_lines[0]}" &&
+        "${stopped_lines[0]}" =~ ^[1-9][0-9]*$ ]] ||
+        fail "invalid stop marker for node${node}"
+      continue
+    fi
     pid="$(read_recorded_pid "$root" "$node")" || return
     if [[ -n "$pid" ]]; then
       pids+=("$pid")
@@ -372,13 +659,16 @@ stop_cluster() {
 }
 
 usage() {
-  printf 'usage: %s start|status|stop\n' "${0##*/}" >&2
+  printf 'usage: %s start|start-mtls|status|describe-mtls --output FILE|stop-node --node S2|S3|S4|stop\n' "${0##*/}" >&2
   return 2
 }
 
 case "${1:-}" in
-  start) start_cluster ;;
+  start) start_cluster plain ;;
+  start-mtls) start_cluster mtls ;;
   status) status_cluster ;;
+  describe-mtls) shift; describe_mtls "$@" ;;
+  stop-node) shift; stop_one_node "$@" ;;
   stop) stop_cluster ;;
   *) usage ;;
 esac

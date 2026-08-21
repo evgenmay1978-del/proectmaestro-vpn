@@ -1,5 +1,240 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAA. APPLY-AGENT PAYLOAD BOUNDARY FINAL GREEN; TASK 12 DRIVERS NEXT (13.08.2026)
+
+- Authoritative review surface remains draft PR #82 on branch
+  `codex/ha-rqlite-task2`. The node-service payload-isolation subplan is GREEN
+  through exact SHA `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`.
+- Task 1 final GREEN is `4572c7f2efb7e9ca7ed179d54164d01757d840e1`:
+  HA control-plane run `31623192987` and HA DR run `31623228487` succeeded.
+  Task 2 final GREEN is `efe6d6f40b9d2020c2aaee3c58f34eb5b358eed8`:
+  control-plane run `31630333917` and DR run `31630333923` succeeded.
+- Task 3 policy RED is `5ce1447ce467b384d54103ff09b589011d29562c`:
+  control-plane run `31632212354` / job `94233541343` and DR run
+  `31632212414` / job `94233541741` failed only because the new deterministic
+  materialized-agent gate was not yet wired. Final Task 3 GREEN is
+  `d20ad659d6fca1dcb9d164ea56c39c71c1dca4f2`: control-plane run
+  `31665206563` / job `94338175192` and DR run `31665206661` / job
+  `94338175568` succeeded, including the hardened structural boundary policy,
+  complete sorted formatting/test scope, full backend, race, vet,
+  rqlite/importer/mTLS and DR restore/fencing/parity/quorum gates.
+- CI now rejects legacy `Driver.Inspect/Prepare(... DesiredSnapshot)`
+  signatures and direct or propagated apply-agent production
+  logging/serialization/error sinks for `MaterializedEntry.Body`, including
+  `fmt.Errorf`, `log`/`slog` receivers, helpers, aggregates and inline JSON
+  encoders. Its scanner first rejects an in-memory synthetic forbidden fixture.
+  Both HA workflows deterministically sort and format every Go file under
+  `internal/applyagent` and `internal/controlplane`, then test both packages.
+- Task 12 drivers consume only `MaterializedSnapshot`, select exactly their
+  configured local service, and return actual observed hashes. A driver must
+  never open another `(node_id, service_id)` key ring, cache/log plaintext or
+  expose raw dependency errors; only fixed safe errors may cross the boundary.
+  Plaintext ownership remains bounded and best-effort wiping is not a physical
+  memory-erasure guarantee.
+- `backend/cmd/maestro-agent` remains deliberately absent. Do not create a no-op
+  or dead production runtime. Add concrete runtime wiring only after at least one
+  real local Task 12 driver exists and its local-only/observed-hash contracts are
+  GREEN.
+- Scope/secrecy audit from pre-design base `ca27e26` through Task 3 found only
+  controlplane/applyagent tests and source, the two HA workflows, payload plan/
+  spec, `AGENTS.md` and repository policy. No app, deploy, server, customer,
+  bot, payment, DNS, OTA or protocol-policy mutation; no production address,
+  TLS verification bypass, authenticated URL or secret material was introduced.
+  Added URL data is synthetic only and no artifact upload was added.
+- Production remains **NO-GO (repository implementation only)**. Next authorized
+  repository work is Task 12 real local drivers, followed by concrete agent
+  runtime wiring, then a separately approved staged deployment. S1-S4, panels,
+  bots, customers, VPN services/protocols, Android/TV, Release, OTA and DNS were
+  not accessed or changed.
+
+## 0AAAA. HA DR TASK 4 GREEN; RESTORE FENCING/PARITY NEXT (12.08.2026)
+
+- Task 4 is complete on exact SHA
+  `11798300efd9781dd4ea62c66dfe9808e287f013`. GitHub Actions run
+  `31579056320`, job `94057725391`, passed every Python, shell, Go, race,
+  vet, rqlite, importer and mTLS step.
+- Exact RED workflow commit was
+  `d496a382ce9452522785271187b42f4107af9f52`; run `31578174830`, job
+  `94055155511`, failed only because `ops.ha.restore_api` did not exist.
+- The real shell E2E creates a populated source mTLS cluster, creates and
+  authenticates an encrypted backup, destroys the source, creates a different
+  empty three-node mTLS cluster, restores exactly once, and rejects a repeated
+  restore. The loader persists a no-clobber attempt marker before the one load.
+- Restore API requires exact S2/S3/S4 loopback HTTPS voters, CA and client
+  certificate/key, strong empty reads on all voters, one POST /db/load with no
+  retry, fixed unknown-outcome handling, and exact strong migration/table-count
+  readback on all three voters.
+- Next is Task 5 RED/GREEN real restored-cluster epoch fencing and importer
+  parity. Production remains NO-GO; no S1-S4, panel, bot, customer, VPN, DNS,
+  Android/TV, Release or OTA state was accessed or changed.
+
+## 0AAA. HA DR TASK 3 GREEN; FRESH-CLUSTER RESTORE NEXT (12.08.2026)
+
+- Active repository/branch/PR: `evgenmay1978-del/proectmaestro-vpn`,
+  `codex/ha-rqlite-task2`, draft PR #82. Work remains GitHub-first.
+- Task 3 is complete on exact SHA
+  `cc3bc341488ebd633f7190b981998806d083e393`. GitHub Actions run
+  `31577613693`, job `94053179993`, passed all steps, including the
+  `Test HA Python contracts` step that executes the real encrypted-backup
+  shell E2E.
+- `ops/ha/backup-rqlite.sh` now fetches a bounded DELETE-mode SQLite image
+  only over mandatory mTLS, creates canonical metadata/manifest, detached-signs
+  it, builds a deterministic exact-member tar, encrypts it, independently
+  decrypts and verifies it, then publishes by same-filesystem no-clobber
+  hardlink. Synthetic tests use only a private ephemeral GPG home.
+- The verifier was corrected to accept an exact 40-character Git SHA-1 and to
+  derive the backup watermark from the real migration column
+  `backup_watermarks.created_at_unix`; local RED was exact, then all 9 Python
+  tests passed.
+- Next exact step is Task 4 RED: strict restore API and shell orchestration into
+  a new empty three-node mTLS drill cluster. Do not deploy or connect to
+  production before Tasks 4-7 pass and a separate read-only S2/S3/S4 audit.
+- Production remains NO-GO: S1-S4, panels, Telegram bots, customers, VPN
+  services/protocols, DNS, Android/TV, Release and OTA were not changed.
+
+## 0AA. HA DR TASKS 1-2 GREEN; ENCRYPTED BACKUP CREATOR NEXT (12.08.2026)
+
+- Active repository/branch/PR: `evgenmay1978-del/proectmaestro-vpn`,
+  `codex/ha-rqlite-task2`, draft PR #82. Work remains GitHub-first.
+- Task 1 is complete on exact SHA
+  `e8f1e62e72af3a75ea557bba4e7138f2c442f941`.
+  GitHub Actions run `31573726939` passed every step: formatting, backend,
+  race, vet, rqlite integration, importer parity and production importer mTLS
+  proof. Ordered immutable migrations v1->v2 now upgrade an existing v1 prefix;
+  migration 2 seeds `cluster_restore_state`; restore advancement atomically
+  increments epoch, invalidates node/job leases and clears/increments Telegram
+  poller leases/fences. Exact RED evidence before GREEN:
+  `8f26cccea0fab1680ec00fa60e12b61174c2e768`, run `31571127021`,
+  job `94033164385`; ordered-upgrade RED `e1f5ccd930321bdcaac38a24aee51bb771d25188`,
+  run `31573100794`, job `94039113230`.
+- Task 2 is complete on exact SHA
+  `bb8b84b2cd22b35d07116c749fff1624a64668fd`.
+  GitHub Actions run `31574573939`, job `94043700861`, passed all Python,
+  Go/race/vet, rqlite/importer/mTLS steps. `ops/ha/verify_backup.py` verifies
+  canonical JSON, exact members, SQLite integrity/FKs, ordered schema identity,
+  restore epoch, table counts, receipt/watermark high-watermarks, image/key
+  hashes and exactly one trusted GPG `VALIDSIG`, using only fixed redacted
+  errors. Exact RED: tests `310d5a2f112df0675f69e86d911c0f003da09e66`;
+  workflow gate `74c6f9aa3cc243953bd1f03809f9a32fe96ea6e5`, run
+  `31574300317`, job `94042844652`, failed only because
+  `ops.ha.verify_backup` was absent.
+- The workflow update had to use the GitHub connector because local Git OAuth
+  lacks `workflow` scope. Do not retry that failed push family. The equivalent
+  local commit was cleanly skipped during rebase; local and remote head were
+  aligned at `74c6f9aa...` before Task 2 GREEN.
+- Next exact step is Task 3 RED in
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`:
+  add shell contracts for `backup-rqlite.sh`, synthetic DR identity and
+  `describe-mtls --output FILE`, then a separate GREEN encrypted backup
+  creator. Tasks 3-7, read-only S2/S3/S4 audit and all live rollout remain.
+- Production is still **NO-GO**. S1-S4, panels, Telegram bots, customers, VPN
+  services/protocols, DNS, Android/TV, Release and OTA were not connected to or
+  changed during Tasks 1-2.
+
+## 0Z. HA DR RESTORE DRILL TDD PLAN READY, code not started (12.08.2026)
+
+- Written spec approved by owner; detailed sequential TDD plan:
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`.
+- Seven tasks / 34 steps: migration 2 + restore epoch; strict manifest
+  verifier; authenticated encrypted backup; fresh-cluster loader; real
+  fencing/parity; exact-SHA workflow; scope/handoff.
+- Baseline: `ffa3f7f2a0c88b2c754a1949a72daa2d686a49bf`.
+- Execution is GitHub-first and sequential with separate RED/GREEN checkpoints.
+- This is documentation only. S1-S4, panels, bots, customers, VPN protocols,
+  DNS, Android/TV, Release and OTA remain unchanged.
+- Server work starts only after exact GREEN and read-only S2/S3/S4 audit.
+
+## 0Y. HA DR RESTORE DRILL DESIGN APPROVED, implementation not started (12.08.2026)
+
+- Владелец утвердил безопасный порядок: сначала полностью synthetic
+  GitHub Actions backup/restore/fencing proof; затем отдельный read-only аудит
+  S2/S3/S4; только после отчёта и отдельного разрешения — live deployment.
+- Утверждённая спецификация:
+  `docs/superpowers/specs/2026-08-12-maestrovpn-ha-dr-restore-drill-design.md`.
+- Focused scope: authenticated encrypted rqlite SQLite backup, strict offline
+  manifest verification, restore only into fresh empty three-node mandatory-mTLS
+  cluster, new monotonic restore epoch, invalidation of restored node/job/bot
+  leases, fake old-epoch consumer rejection, digest/shadow parity and failure
+  matrix. Все данные/PKI/GPG keys synthetic and ephemeral.
+- Официальный rqlite контракт подтверждает `GET /db/backup?fmt=delete` и
+  SQLite load into a freshly deployed cluster with no concurrent writes.
+- Этот checkpoint является design-only. DR code и server rollout ещё не
+  начаты. S1-S4, панели, Telegram-боты, клиенты, VPN-протоколы, DNS,
+  Android/TV, Release и OTA не изменялись.
+- Следующий обязательный gate по навыку brainstorming: владелец просматривает
+  committed spec; после явного подтверждения создаётся отдельный TDD
+  implementation plan. Production остаётся NO-GO.
+
+## 0X. HA PRODUCTION IMPORT FACTORY: Tasks 1–8 GREEN, production untouched (12.08.2026)
+
+- Рабочая ветка: `codex/ha-rqlite-task2`, draft PR #82. Работа ведётся
+  GitHub-first. Правильная локальная контрольная копия:
+  `C:\Users\User\Documents\Codex\2026-08-05\new-chat\mvpn-ha-task2`.
+  Перед любой локальной Git-командой сначала проверять `git rev-parse
+  --show-toplevel`: каталог `new-chat` сам по себе не является этой копией.
+  Слабый Windows-компьютер используется только для repetition guard, узких Git
+  metadata/diff-проверок и документации; локальные Go build/test запрещены.
+- Исполняемый план:
+  `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`.
+  Tasks 1–8 завершены TDD и exact-SHA GitHub Actions evidence.
+- Task 1 final GREEN: `97a0382362ba6a0b6540f486231a70c991c1fb16`,
+  run `31561449224`, job `94004424897`. Task 2 final GREEN:
+  `9cda13006450522fa5bf294d1879a9a6d8a5e0f3`, run `31561746986`, job
+  `94005317388`. Task 3 final GREEN:
+  `0417c5ae6d93336a6e218dd990dca90775033bba`, run `31562039927`, successful
+  rerun job `94006475476`.
+- Task 4 final GREEN: `3af348be54de434e72d428249159c793dc789e68`.
+  Production runtime допускает ровно HTTPS voters S2/S3/S4, проверяет
+  CA/clientAuth mTLS, immutable schema identity, versioned AES/HMAC bundle,
+  encrypted envelopes и все referenced key versions до первой мутации.
+- Task 5 final GREEN: `e08a47ca7c5db46bc3621a51490c8ed64bab658a`.
+  Applied-run evidence перечитывается linearizable и подписывается
+  канонической Ed25519-квитанцией без business/secret payload.
+- Task 6 final GREEN: `68cab97b42d165a1463a0ddea79161de7b87c699`,
+  run `31565041932`, job `94015025861`, все 17 шагов success. Боевой CLI
+  использует apply-only config/receipt/signing inputs; dry-run не читает их и
+  не открывает сеть. Receipt сохраняется resumable и atomically только после
+  точного перечитывания completed run.
+- Task 7 harness RED: `0bda98bdd76b04fb4e28260c9d4767036e3cee43`,
+  run `31565272610`, job `94015836417` упал только потому, что
+  `start-mtls` ещё отсутствовал. Первый полный real-binary GREEN:
+  `cbd441a411dbefac1142a14d643f0bd56307f09e`, run `31566361849`, job
+  `94018868088`, все 21 шага success.
+- Финальный усиленный exact code GREEN:
+  `153e5648d32f770a15bd5c9646c6e4d0031c384d`; Actions run `31566792857`,
+  job `94020137397`. Все 21 шага success: format, unit, race, vet, harness,
+  обычный real-rqlite, full+delta/fresh-full digest parity, shadow parity,
+  трёхузловой mandatory-mTLS, schema prep, сборка точного production binary,
+  отрицательные zero-write cases, valid apply, signed receipt, exact rerun и
+  cleanup. Self-review дополнительно обеспечил zeroing signer/key copies на
+  всех ошибках factory и атомарный no-clobber receipt (`RENAME_NOREPLACE` на
+  Linux, hard-link fallback на других ОС).
+- Task 8 scope/secrecy gate: compare от pre-Task-1 SHA
+  `c179e3e5b0e86e067217d65c0ba3a1105b16c07f` содержит 27 файлов только в
+  workflow/backend/tests/docs/HA harness; `app/**` и `deploy/**` отсутствуют,
+  `git diff --check` чист. Нет production IP/password, bot token, private key,
+  `InsecureSkipVerify`, production HTTP, SSH/DNS/OTA кода или production
+  `Migrator.Apply`. Единственный added HTTP — намеренно неверный
+  `synthetic.invalid` в отрицательном тесте; schema Apply существует только в
+  build-tagged подготовке изолированного mTLS test cluster.
+- Не повторять исправленные ошибки: regex с literal `$` формировать без JS
+  replacement expansion и после mutation перечитывать exact workflow;
+  форматирование проверять точным GitHub log/ограниченным gate, а не broad
+  локальным scan; tree SHA получать через `git fetch` и
+  `git show -s --format=%T FETCH_HEAD`; перед любой GitHub mutation/retry/долгой
+  операцией выполнять `python ops/maestro-repetition-guard.py check ...`.
+
+NO-GO (repository implementation only)
+
+S1-S4, panels, bots, customers, Android/TV, Release and OTA unchanged.
+
+Next gate: separate backup/restore design and empty-cluster restore drill.
+
+До отдельного GREEN backup/restore/fencing drill запрещены production import,
+deploy/restart, bot/panel/customer mutation, DNS/TLS cutover и OTA. S1 пока не
+трогать. После drill серверная реализация должна идти по отдельному плану,
+сначала S2/S3/S4, а S1 возвращается позднее только через controlled catch-up.
+
 ## 0W. INCIDENT: восстановление replacement S1 (10.08.2026)
 
 - Replacement S1 подтверждён как Litnets `srv_142257` / `193.17.183.48`.
@@ -1829,3 +2064,1191 @@ interactive mobile UI
 
 Не записывать сюда токены, пароли, приватные URL подписок, данные клиентов или
 непроверенные предположения.
+
+## HA control plane: GREEN checkpoint Plan 01 / Task 2 (11.08.2026)
+
+Репозиторная реализация изолированного трёхузлового rqlite CI-harness завершена.
+Продакшен, DNS, TLS, панели, Telegram-боты и четыре VPN-сервера этим checkpoint
+не изменялись; живой rqlite-кластер ещё не развёрнут.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный implementation HEAD: `ef58eb6a8ac307f79688cc69aeca00bb99af940f`.
+- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Exact-SHA GitHub Actions run: `31480737818`, conclusion `success`.
+- Job `Go and isolated rqlite` подтвердил Go format/test/race/vet и полный
+  rqlite lifecycle.
+- Контракт подтвердил один leader, три reachable voting-узла, `-fk` и
+  `PRAGMA foreign_keys=1` на каждом endpoint, безопасные start/status/stop,
+  повторный start после stop, fail-closed download, checksum pin, ограничение
+  данных runner-temp, отказ удалять out-of-scope marker/root и сохранение
+  постороннего PID.
+
+Зафиксированные причины, которые нельзя проходить повторно:
+
+1. EXIT status нужно передавать в cleanup до любых `local`-команд.
+2. EXIT-trap не может читать локальные переменные уже завершившейся функции;
+   безопасно экранированные root/marker/PID передаются литеральными аргументами.
+3. rqlite v10.1.0 возвращает `/nodes?ver=2` в wrapper-форме `{"nodes":[...]}`;
+   verifier нормализует её по стабильному `id`.
+4. Три новых voter стартуют одновременно с одинаковыми `-bootstrap-expect 3`
+   и полным списком трёх Raft-адресов.
+5. Проверка занятых loopback-портов использует `SO_REUSEADDR=1`, чтобы отличать
+   живой listener от нормального Linux `TIME_WAIT` после stop.
+
+Следующий безопасный шаг: Plan 01 / Task 3 — checksummed schema migrations и
+интеграционные тесты только на этом изолированном harness. До отдельного
+cutover-разрешения сохранять `legacy` единственным live/default режимом и не
+выполнять production import/deploy/DNS/TLS/bot/OTA mutations.
+## HA control plane: GREEN checkpoint Plan 01 / Task 3 + единая цена (11.08.2026)
+
+Task 3 завершён в репозитории и подтверждён точным GitHub Actions run. Production
+rqlite, DNS, TLS, панели, VPN-конфиги и bot process этим checkpoint не менялись.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный HEAD: `c02c0728085bcfe2651849ba99eb480130c49118`.
+- Draft PR: `#82` — `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Exact-SHA workflow run: `31486611114`, job `93763353148`, conclusion
+  `success`.
+- Успешны format, backend tests, race, vet, harness contract, запуск реального
+  трёхузлового rqlite, integration tests и stop/cleanup.
+- RED-доказательства до реализации:
+  - run `31484085387`: отсутствовали `NewMigrator` и `SchemaVersion`;
+  - run `31484546092`: отсутствовали мигратор и typed states;
+  - run `31486254959`: backend имел только 1m/2m вместо полной тарифной
+    шкалы.
+- Миграция `0001_control_plane.sql` содержит ровно 41 таблицу, 56
+  delimiter-separated statements, checksum migration, explicit `ON DELETE`,
+  immutable tariff/audit/order guards, payment/idempotency constraints,
+  S1–S4 seed state и проходит `PRAGMA foreign_key_check`.
+- `Migrator.Apply` повторяем, `Verify` fail-closed проверяет FK на трёх
+  voter endpoints, checksum, точный table set и FK integrity.
+- Каноническая цена теперь в legacy backend и HA seed одинакова:
+  1/2/3/6/12 месяцев = 400/800/1200/2400/4800 ₽; длительности
+  30/60/90/180/365 дней. Тест запрещает возврат к 300 ₽/месяц.
+
+### Read-only проверка живого S2-бота по сообщению владельца о 300 ₽
+
+- Фактический unit: `vpn_bot.service`.
+- Фактический entry point: `/opt/vpn_bot/bot_minimal.py`; старый
+  документированный путь `/root/vpn_bot` отсутствует.
+- Source mtime предшествует текущему старту unit, поэтому процесс загрузил
+  текущий файл.
+- В текущем source уже была шкала
+  400/800/1200/2400/4800 ₽ для 1/2/3/6/12 месяцев.
+- Агрегированная read-only проверка payment DB показала только суммы
+  400/800/1200 ₽; суммы 300 ₽ нет. Идентификаторы клиентов не читались и в
+  handoff не записывались.
+- Следовательно, 300 ₽ не воспроизводится в найденном живом S2-процессе.
+  Если владелец снова увидит 300 ₽, нужен скрин или точное имя Telegram-бота:
+  это может быть старое Telegram-сообщение с уже созданной inline-кнопкой либо
+  другая, пока не инвентаризированная копия.
+- На S4 bot unit/catalog не найден. S1 после переустановки не принял
+  сохранённый public-key доступ; S3 заблокирован строгой проверкой нового host
+  key. Эти защиты не обходить и не отключать. Production bot restart/deploy не
+  выполнялся.
+
+Зафиксированные ошибки команд, которые нельзя повторять:
+
+1. В PowerShell не помещать Python/SQL с кавычками и `*` в хрупкую
+   однострочную команду; использовать stdin here-string.
+2. Не использовать локальный `gh`, если он отсутствует в PATH; статусы CI
+   читать через подключённый GitHub commit-workflow API.
+3. Не использовать `$()` внутри двойных кавычек PowerShell для remote SSH:
+   локальная оболочка выполнит substitution. Использовать systemd properties
+   либо корректно изолированный remote script.
+4. SQL `ORDER BY tariff_version_id` сортирует `tariff_12m_v1` перед
+   `tariff_1m_v1`; тестовое ожидание должно повторять реальный lexical order.
+
+Следующий безопасный шаг по утверждённому плану: Plan 01 / Task 4,
+`Encrypted credentials and stable identifiers`, только в репозитории через
+RED → GREEN. До отдельного cutover-разрешения legacy остаётся единственным
+production write path; не выполнять live rqlite/import/DNS/TLS/panel/bot/OTA
+mutations.
+## HA control plane: GREEN checkpoint Plan 01 / Task 4 (11.08.2026)
+
+Plan 01 полностью завершён в репозитории; production не изменялся.
+
+- Implementation HEAD: `00244c722d7a08fac3c84d15f0c35f76753e2665`.
+- RED run `31487271087`: отсутствовали `NewSecretBox`, `SecretScope` и
+  связанные функции.
+- GREEN run `31487505121`, job `93766169546`: format, backend tests, race,
+  vet, harness, трёхузловой rqlite integration и cleanup успешны.
+- `SecretBox` использует AES-256-GCM только из Go standard library, свежий
+  nonce для каждого seal и length-delimited AAD с key version, owner type,
+  owner ID, field и secret kind.
+- Предыдущая key version может только decrypt; новые envelope всегда используют
+  current version. Отсутствующая referenced version делает readiness red.
+- Encryption key и HMAC key обязаны быть разными 32-byte ключами.
+- Lookup HMAC детерминирован и разделён по kind; ошибки не содержат plaintext,
+  nonce или ciphertext.
+- `NewID` проверен под 100 конкурентными goroutine; `CanonicalLoginKey`
+  стабилизирует login lookup и отказывает на пустом/control/oversize input.
+
+Следующий безопасный шаг: Plan 02 / Task 5,
+`Cluster-backed read models, settings, sessions and audit`, через отдельный
+RED → GREEN checkpoint в том же draft PR. Production legacy остаётся
+единственным live/default write path до отдельного cutover-разрешения.
+
+## HA control plane: GREEN checkpoint Plan 02 / Task 5 (11.08.2026)
+
+Task 5 завершён и проверен в репозитории. Production rqlite, legacy JSON/SQLite,
+DNS, TLS, панели, Telegram-боты, OTA и четыре VPN-сервера этим checkpoint не
+изменялись; legacy остаётся единственным live/default write path.
+
+- Ветка: `codex/ha-rqlite-task2`.
+- Проверенный implementation HEAD:
+  `2e460f79ba4b92cdad182987af5f4a1ec4565247`.
+- Draft PR: `#82` —
+  `https://github.com/evgenmay1978-del/proectmaestro-vpn/pull/82`.
+- Финальный exact-SHA GitHub Actions run: `31491787642`, job `93779767990`,
+  conclusion `success`.
+- Успешны backend tests, race, vet, rqlite harness contract, запуск
+  изолированного трёхузлового rqlite, integration tests и stop/cleanup.
+
+RED/GREEN доказательства:
+
+1. После исправления синтаксиса test fixtures run `31490144430`, job
+   `93774435519` дал содержательный RED только на отсутствующих `Service`,
+   `NewReadiness` и `ReadinessConfig`.
+2. Первая реализация прошла полный baseline GREEN в run `31491211843`.
+3. Дополнительный hardening RED run `31491501558`, job `93778854328`
+   доказал четыре реальные слабости: dependent setting writes не были
+   привязаны к успешному CAS; authorizer смотрел только первую роль;
+   readiness формировал два SELECT в одном statement; audit device claim не
+   был retry-idempotent.
+4. После production-исправлений финальный run `31491787642` полностью GREEN.
+
+Реализовано и проверено:
+
+- `Store`/`Service` используют только injected `rqlite.RQLite`, `SecretBox`,
+  clock и ID source; глобального mutable state нет.
+- `CustomerByToken` и `CustomerByLogin` выполняют linearizable lookup только
+  по kind-separated HMAC; raw token/login/device identity не попадают в SQL
+  или printable errors.
+- `ClaimDevice` одной rqlite-транзакцией делает DB-enforced limit,
+  `ON CONFLICT` idempotency и HMAC-only audit; повторная audit-запись имеет
+  `ON CONFLICT(event_id) DO NOTHING`.
+- Tariff snapshots читаются linearizable и копируются; caller не может
+  изменить следующий результат.
+- Настройки используют version CAS. Удаление/вставка members, encrypted
+  secret envelope и audit выполняются только через `EXISTS` на уже
+  committed next generation; конфликт не может частично изменить dependents.
+- Web session имеет абсолютный TTL 30 минут, Secure/HttpOnly/SameSite=Strict,
+  отдельный CSRF HMAC и revocation epoch. `owner` имеет полный явный набор,
+  `admin` — только read/provision, неизвестные роли default-deny; учитываются
+  все роли principal.
+- Read readiness проверяет schema checksum, referenced key versions, tariff
+  catalog, точное наличие required settings и commit age одним корректным
+  aggregate statement. Write readiness делает bounded upsert одной canary row
+  с nonce HMAC и linearizable post-commit comparison; rollback-only probe нет.
+- Исходная миграция по-прежнему содержит 41 таблицу и дополнена физическими
+  полями `principals.revocation_epoch`, `web_sessions.csrf_hmac`,
+  `web_sessions.revocation_epoch`, `health_write_canary.nonce_hmac`.
+
+Зафиксированные ошибки, которые нельзя повторять:
+
+1. Не создавать глубокие вложенные Go composite literals в fixtures;
+   использовать `rowsScript`/`resultsScript` и явные типы function args.
+2. Guard correction принимает точный флаг `--root-cause-code`; не изобретать
+   похожие имена параметров.
+3. В linked Windows worktree прямой `apply_patch` блокируется ACL: создавать
+   внешний patch, выполнять `git apply --check --unidiff-zero --recount`,
+   затем один `git apply`.
+4. Проверка plaintext не может запрещать substring `secret` в SQL, потому что
+   защищённая таблица называется `setting_secrets`; сравнивать точные args.
+5. Не соединять несколько SELECT через `;` внутри одного rqlite Statement.
+6. Успешный CAS первой statement сам по себе не откатывает последующие
+   statement при zero rows; каждый dependent write обязан иметь generation
+   gate внутри той же транзакции.
+
+Следующий безопасный шаг: Plan 02 / Task 6 — deterministic legacy snapshot
+importer и shadow digest, только в репозитории через RED → GREEN. Не выполнять
+production import/deploy/restart/DNS/TLS/panel/bot/OTA mutations до всех
+отдельных inventory/import/shadow/cutover gates утверждённого плана.
+
+## HA control plane: Plan 02 / Task 6 core RED checkpoint (11.08.2026)
+
+Task 6 начат только в репозитории; production import, rqlite writes, серверы,
+боты, DNS, OTA и клиентские данные не изменялись.
+
+- Ветка: `codex/ha-rqlite-task2`; Draft PR `#82`.
+- Test-only HEAD: `53144dcb68e29dc2f4ac23a6ebe4812ba6ef6128`.
+- Expected RED run: `31492975243`, job `93783663188`.
+- Старые backend/controlplane tests прошли; новый package
+  `backend/internal/importer` остановился только на отсутствующих production
+  символах `Snapshot`, `DecodeSnapshot`, `PlanOptions`, `Plan`.
+- Все пять JSON fixtures отдельно прошли `ConvertFrom-Json`; `git diff
+  --check` чист.
+
+Test-only контракт уже фиксирует:
+
+- fail-closed decode truncated JSON без эха входных bytes в ошибке;
+- точное сохранение login casing, absolute expiry, generation и encrypted
+  envelope bytes;
+- стабильный полный список collision blockers;
+- `pending+credited -> confirmed/pending` с exact уже сохранённым expiry и
+  marker `legacy_credit_preserved`, без второго credit;
+- unsupported bot schema как blocker;
+- сохранение public settings, principals/roles и encrypted secret references;
+- missing principal secret как blocker и отсутствие ciphertext в report.
+
+Следующий безопасный шаг: до production-кода добавить оставшиеся test-only
+контракты `Apply`/crash-resume/different-digest/delta/tombstone/full+delta/
+concurrent-resume/missing-delete-marker, получить второй содержательный RED,
+затем реализовывать минимальный importer. Текущие `import_runs/import_batches`
+не содержат parent/plan/target digest и потребуют проверяемого расширения схемы.
+
+## HA control plane: Plan 02 / Task 6 Apply + schema GREEN checkpoint (11.08.2026)
+
+Работа продолжена строго в `codex/ha-rqlite-task2`, draft PR `#82`. Никаких
+production import/deploy/restart/DNS/TLS/panel/bot/OTA/server writes не было.
+Legacy остаётся единственным live/default write path.
+
+### Полный Apply/resume/delta RED
+
+- Test-only commit: `cb44e19a3bd451e01532f316e952229e43c1ca31`.
+- GitHub RED: run `31494082958`, job `93787334728`.
+- Formatting и все существующие backend/controlplane пакеты прошли.
+- `backend/internal/importer` упал только на отсутствующих production symbols
+  `ApplyRun`, `RunProgress`, `TargetState`, `ApplyBatch`, `BatchReceipt`,
+  `ApplyCompletion`, а также ранее зафиксированных `Snapshot/PlanOptions`.
+- Test-only contract теперь включает exact-once retry, unknown outcome after
+  committed batch, crash at every batch boundary, different-digest conflict,
+  exact delta parent, explicit tombstone, full+delta=fresh-full digest,
+  concurrent resume и implicit-delete blocker.
+- Synthetic fixtures находятся в
+  `backend/internal/importer/testdata/full-then-delta/`; production/customer
+  bytes, tokens и private subscription URLs туда не попадали.
+
+### Минимальный importer core GREEN
+
+- Production commit: `f1ee4e941d373b8ffefe48c61b046fdc2379ca8f`.
+- GitHub GREEN: run `31494782931`, job `93789659960`.
+- Прошли `go test ./...`, race, vet, rqlite harness contract и изолированная
+  трёхузловая rqlite integration.
+- Реализованы строгий `DecodeSnapshot`, stable `Validate/Plan/Digest`, exact
+  casing/expiry/generation/encrypted-envelope preservation, deterministic
+  internal IDs, redacted immutable report, explicit/cascade tombstones и
+  `Apply` через транзакционный `ApplyStore` boundary.
+- `Apply` привязывает immutable `run_id + source_digest + plan_digest +
+  batch_index + batch_digest`, не повторяет committed receipt после transport
+  failure и сверяет final business digest.
+
+### Проверяемое расширение importer schema GREEN
+
+- Valid schema RED commit после syntax correction:
+  `747a51f159b57b3a185e788587b567d07d832b38`.
+- Valid RED run `31495446387`, job `93791871998`: unit/race/vet/harness были
+  green, rqlite integration упала ровно на старых колонках `import_runs`.
+- Schema GREEN commit:
+  `a853ee764f444eed2f2efb6cc367341e5b9068be`.
+- Final GREEN run `31495703008`, job `93792740664`: все шаги green, включая
+  3-node rqlite integration.
+- Неразвёрнутая schema v1 теперь хранит snapshot kind, source/plan/parent/
+  target digest, deterministic batch count и `(run_id,batch_index,
+  batch_digest)` с fail-closed CHECK constraints.
+
+### Зафиксированные ошибки и правильные повторения
+
+1. Windows `rg path/*_test.go` не расширяет glob. Использовать
+   `rg -g "*_test.go" PATTERN directory`.
+2. Первый schema RED patch вставил функцию внутрь предыдущего вызова из-за
+   неверного `unidiff-zero` anchor; это был invalid RED. Исправление вынесено
+   отдельным commit, после чего получен содержательный schema RED.
+3. Ручной hunk-count schema patch был неверен; первый `git apply --check`
+   остановил изменение. Правильный linked-worktree путь:
+   `git apply --check --unidiff-zero --recount PATCH`, отдельный guard check,
+   затем ровно один `git apply --unidiff-zero --recount PATCH`.
+
+### Следующий безопасный шаг
+
+Task 6 ещё не объявлять завершённым. Остаются production rqlite adapter для
+`ApplyStore` с реальными canonical business rows/receipts, explicit CLI
+`backend/cmd/maestro-import`, legacy trial salt protected-file gate и
+`ops/ha/shadow-verify.sh`. Сначала писать отдельные RED tests для adapter/CLI/
+shadow, затем GREEN через GitHub Actions. Не выполнять production import до
+inventory, snapshot, collision, shadow и отдельного owner cutover approval.
+
+## HA control plane: Plan 02 / Task 6 CLI + shadow GREEN checkpoint (11.08.2026)
+
+Работа по-прежнему только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer writes не было.
+
+### Fail-closed `maestro-import` CLI
+
+- CLI RED commit: `8abc81f2534a7bbe889a78d61d8ddcdb5684905f`.
+- Valid RED run `31496133093`, job `93794192769`: новый command package упал
+  только на отсутствующих `run`, exit constants и `applyConfig`.
+- CLI GREEN commit: `d91e73399f161330ed427577d5f0091f79d1af54`.
+- GREEN run `31496370525`, job `93795000410`: unit, race, vet, harness и
+  3-node rqlite integration прошли.
+- CLI требует явные `--snapshot`, `--report`, `--mode=dry-run|apply`; delta
+  дополнительно требует explicit parent snapshot/digest. Exit codes:
+  `0=clean`, `2=blockers`, `3=input/system`.
+- Report пишется atomically mode `0600` и содержит только redacted `Report`.
+- Apply до вызова store требует exact approved plan digest, stable run id,
+  protected key file и protected legacy-trial-salt file. Production `main`
+  пока имеет `factory=nil`, поэтому apply fail-closed до реального rqlite
+  adapter; dry-run уже полностью работает.
+
+### Offline redacted shadow verifier
+
+- Shadow test commits: `12502d96883d348599f74f7142d6f47d28d47bbe`,
+  `4648f70b424dbf88d1b5fef5972af3edae51e676`.
+- Valid RED run `31496825873`, job `93796538244`: harness упал ровно на
+  отсутствующем `ops/ha/shadow-verify.sh`.
+- Production commit: `5425878bbc34e3dbf90cbcc5a95e07862a5c5461`;
+  executable-mode fix `9795baea775124b7994939664baff7d027772967`.
+- Final GREEN run `31497241816`, job `93797939798`: shadow contract, unit,
+  race, vet, harness и 3-node integration прошли.
+- Script принимает только explicit `--legacy`, `--candidate`, `--salt-file`,
+  не содержит network-capable commands, строго валидирует versioned JSON,
+  нормализует protocol/node order, сравнивает counts, HMAC identities, exact
+  expiry/generation, protocol tags, node set, Maestro/Karing URL shape,
+  settings/principals fingerprints и exact OTA manifest.
+- Match -> `0`, mismatch -> `2`, invalid/system -> `3`; report содержит только
+  run-salt HMAC subject IDs и не выводит raw identity HMAC/URL/value bytes.
+
+### Новые зафиксированные ошибки
+
+1. Local OAuth push не имеет `workflow` scope. Не менять existing workflow
+   ради нового test step; запускать shell contract через обычный Go test,
+   который уже входит в `go test ./...`. Net workflow diff был возвращён до
+   успешного push.
+2. Windows worktree создаёт `.sh` как Git mode `100644`. После Linux
+   `Permission denied` правильное исправление: guard, затем
+   `git update-index --chmod=+x <scripts>`, mode-only commit и один retry.
+3. `git check-ignore` возвращает exit `1`, когда файл корректно НЕ ignored;
+   обрабатывать этот отрицательный результат явно, не считать ошибкой task.
+
+### Следующий безопасный шаг
+
+Task 6 ещё не завершён: нужен отдельный RED -> GREEN production rqlite
+`ApplyStore` adapter, который атомарно связывает реальные canonical business
+writes и receipts. Нельзя подменять его generic JSON staging или включать
+`factory` до tests на customer/order/settings/principal rows, unknown write
+outcome и recomputed business digest. После adapter — повторный полный GREEN,
+handoff/review; production import всё ещё запрещён до cutover gates.
+
+## HA control plane: Plan 02 / Task 6 real rqlite ApplyStore checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer mutations не
+выполнялись. CLI production factory всё ещё `nil` и fail-closed.
+
+### Canonical legacy values и schema
+
+- Order contract/model RED `e6ac3ce0fa61b042ebdab1db47a9db5e25dee948`,
+  GREEN `ad090febe0bc0677df2a5274475946bffcf20afd`; green run
+  `31499691823`, job `93805089568`.
+- Canonical schema RED `00b04c3e5c68c9a54b9dd5ffde3a375d6066b61b`,
+  GREEN `ada15a005c4d384c9f02f54f31bb187ec010fb63`, test correction
+  `69b18b55c941dc75fbc74df8262ec42494702607`; green run
+  `31500654537`, job `93809465011`.
+- Customers preserve exact `display_login`; subscription token/credential
+  envelopes stay protected; orders preserve unique `payment_code`, buyer
+  HMAC/scope, tariff version, amount/currency/duration, absolute times and
+  credited result generation.
+- Customer/order owner binding GREEN `a73f9676221bbe09172265f7f9f0ff82836b42f2`,
+  run `31501401007`, job `93812029942`.
+- Setting/principal protected owner binding GREEN
+  `37ffe96ada80cee64707a26aab09a2acd1bb4d15`; detached owner secrets больше не
+  создаются как generic operations.
+
+### Production `RQLiteApplyStore`
+
+- Core atomic batch GREEN `8b32d67c546f4ee244064558f99499c3b24777d9`;
+  run `31503058590`, job `93817685482`, all green.
+- Durable lifecycle GREEN `e9ed1ddfc748467e71ff223c6a97e9a6d5cf5558` и
+  recorder correction `c8e650cac5563e6bf5a7f6be9212b253050581bb`;
+  run `31504254201`, job `93821695468`, all green.
+- `CommitBatch` делает receipt `applying -> applied` и все typed canonical
+  writes в одной linearizable transaction. Неопределённый transport outcome
+  не повторяет write, а разрешается linearizable receipt read.
+- `BeginOrResume` связывает run/source/plan/parent/batch-count и receipts;
+  `Complete` требует полный непрерывный набор receipts.
+- `InspectTarget` пересчитывает deterministic SHA-256 по canonical business
+  rows и исключает importer bookkeeping.
+
+### Real three-node rqlite E2E
+
+- Первый E2E `923321df0d13f906b84ea90a15779f42f3cca0ee`.
+  Run `31504676834`, job `93823121685` выявил cross-package collision
+  тестового `payment_code`; production transaction не была причиной.
+- Fixture-isolation fix `b4c010288ddac4c5975619402006e9bec1553d52`.
+  Run `31505118200` полностью green: unit, race, vet, harness и настоящий
+  трёхузловой rqlite E2E.
+- E2E проверяет `customers`, `credentials`, `subscription_tokens`, `orders`,
+  `import_batches`, `import_runs`, business digest и durable lifecycle.
+- Protected setting/principal E2E
+  `90d5c3a9a9a46348145bcd61a19c8f5ae2f8b753`. Run `31505703054`, job
+  `93826610614`: обычные шаги green; integration записала и прочитала все
+  строки, но test-only assertion ожидал `float64`, а rqlite wire вернул
+  INTEGER строками.
+- Parser/test fix `45edd94`: `applyRowInt` строго принимает decimal INTEGER
+  string и отвергает нецелое; E2E использует тот же parser. Final GREEN run
+  `31506224995` полностью прошёл, включая настоящий трёхузловой rqlite.
+
+### Ошибки, которые нельзя повторять
+
+1. Integration packages используют один CI cluster: каждый UNIQUE fixture
+   обязан иметь package-scoped value до `Plan`, чтобы Source/Plan digest
+   оставались честными.
+2. Реальный rqlite INTEGER может приходить строкой с `Types=integer`;
+   проверять через `applyRowInt`, не сравнивать с `float64`.
+3. Нельзя добавлять Go-функцию по голому номеру строки как якобы EOF: дважды
+   test попал внутрь предыдущей функции. Использовать full-context patch с
+   видимой закрывающей скобкой и просматривать конец файла до commit.
+4. Windows linked worktree: внешний patch, `git apply --check --recount`,
+   отдельный guard, один `git apply --recount`; для zero-context также
+   `--unidiff-zero`.
+
+### Следующий безопасный шаг
+
+1. Сначала подтвердить полный green для `45edd94`.
+2. Task 6 не завершать и CLI factory не включать: production store пока
+   fail-closed для `trial`, `bot_binding`, `encrypted_secret`,
+   `bot_poll_state`, `pending_callback`, `bot_credential_rotation` и typed
+   tombstones/deletes.
+3. Не писать legacy bot/trial данные в несовместимые runtime tables. Сначала
+   RED schema/adapter tests на exact HMAC/version/fence/callback/rotation и
+   protected legacy trial salt, затем typed schema + transaction + E2E.
+4. После всех typed entities — fail-closed endpoint/auth/TLS CLI factory,
+   полный GitHub GREEN, review и отдельный cutover gate. До этого никакого
+   production import, deploy или переключения клиентов.
+
+## HA control plane: Task 6 typed Telegram bot route checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/customer mutations не
+выполнялись. CLI production factory всё ещё `nil` и fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `a3021e5e6b0495f3822912824a2ce3b93ae742a5`; GitHub Actions
+  run `31509153164`, job `93838265683` упал ровно на
+  `unsupported canonical import entity "bot_binding"`. Остальные
+  выполненные packages были green.
+- GREEN commit `6504cdbee19da9293d1f098eb0821388a2f95e78`.
+- Final GREEN run `31509885416`, job `93840733457`: formatting, unit,
+  race, vet, rqlite harness и настоящий изолированный трёхузловой rqlite
+  integration прошли.
+
+### Сохранённый контракт
+
+- Добавлена отдельная typed таблица `telegram_bot_routes`; generic JSON
+  staging не используется.
+- Сохраняются только stable `bot_identity_hmac`,
+  `token_fingerprint_hmac`, положительный `credential_version`,
+  `schema_fingerprint` и timestamp. Raw Telegram token/ID не сохраняются.
+- Повтор exact same version идемпотентен и не меняет timestamp; более новая
+  версия разрешена; downgrade и другой fingerprint/schema на той же версии
+  атомарно блокируются SQLite trigger.
+- Таблица включена в deterministic business digest импортера.
+
+### Следующий безопасный шаг
+
+Task 6 не завершать. Следующий отдельный RED -> GREEN slice — typed
+`bot_poll_state` с exact next update ID, credential route и captured fence;
+после него pending callbacks и credential rotations. Unsupported также
+остаются `trial`, standalone `encrypted_secret` и typed tombstones/deletes.
+
+## HA control plane: Task 6 hard-fenced bot poll state checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `9894e087e0ce6cd895707b6c09521635d6b4e6ae`; run
+  `31510900991`, job `93844161333` упал ровно на unsupported
+  `bot_poll_state`.
+- GREEN commit `2d140b7b6ad2be54e046aead2bb597e36a4c93a8`.
+- Final GREEN run `31511239698`, job `93845282625`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- `telegram_pollers` теперь keyed только stable `bot_identity_hmac` и
+  связан FK с `telegram_bot_routes`; raw bot ID/token не сохраняются.
+- Hard-fenced import хранит exact next update ID и captured lease fence без
+  активного node/lease. Offset и fence не могут уменьшиться.
+- Credential fingerprint/version проверяются атомарно по current route, но
+  не дублируются в poller state. Mismatch откатывает и state, и batch receipt.
+- Real rqlite E2E доказывает matching write, mismatch rollback и отсутствие
+  активного lease после импорта.
+
+### Следующий безопасный шаг
+
+Отдельный RED -> GREEN typed `pending_callback`, затем audited
+`bot_credential_rotation`. После них всё ещё остаются `trial`, standalone
+`encrypted_secret` и typed tombstones/deletes; Task 6 не завершён.
+
+## HA control plane: Task 6 imported pending callbacks checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `ccf06857f1f5e42bf8b15872d2ebdef711bde798`; run
+  `31511911286`, job `93847564660` упал ровно на unsupported
+  `pending_callback`.
+- GREEN commit `361d3f87c6b8745088b84b68b29aada832e709e4`.
+- Final GREEN run `31512251553`, job `93848707734`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Legacy callback не записывается в несовместимую runtime-таблицу:
+  используется отдельная typed `telegram_imported_callbacks`.
+- Exact callback/order/action/state сохраняются без raw bot ID/token;
+  credential fingerprint/version только атомарно сверяются с current route.
+- Разрешён только идемпотентный retry и `pending -> in_flight`; подмена
+  identity/order/action и state rollback блокируются.
+- Real rqlite E2E доказывает matching write и полный rollback callback плюс
+  batch receipt при чужом credential route.
+
+### Следующий безопасный шаг
+
+Typed immutable `bot_credential_rotation` с linear no-fork chain до current
+route. Затем остаются `trial`, standalone `encrypted_secret` и typed
+tombstones/deletes; Task 6 и production import всё ещё не завершены.
+
+## HA control plane: Task 6 audited bot rotations checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `b6d7252360c3c092cb1be10cbc36b1c1d65d49ec`; run
+  `31512957001`, job `93851034183` доказал две причины: fork chain не
+  блокировался, а `bot_credential_rotation` не поддерживался store.
+- GREEN commit `c4325d1c728bca1667e9b5dfe7b494a89c78b388`.
+- Final GREEN run `31513414491`, job `93852541374`: formatting, unit,
+  race, vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Plan требует одну linear rotation chain без fork/disconnected segment,
+  повторного fingerprint и cross-bot fingerprint collision; tail должен
+  точно совпасть с current credential route.
+- Typed `telegram_bot_credential_rotations` хранит только HMAC fingerprints,
+  monotonic versions и audit digest. Raw Telegram token/ID отсутствуют.
+- Уникальные old/new version блокируют fork на уровне DB; audit history
+  immutable и undeletable, exact retry идемпотентен.
+- Real rqlite E2E переносит route/poll/callback/rotation в одной transaction.
+
+### Следующий безопасный шаг
+
+Typed owner-bound standalone `encrypted_secret`, затем `trial` с отдельным
+protected legacy salt input и typed tombstones/deletes. Task 6 и production
+import всё ещё не завершены.
+
+## HA control plane: Task 6 standalone encrypted secret checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `f531f50402f9e55eaa9411fea54150fc722c8eaf`; run
+  `31514231930`, job `93855254096` доказал отсутствие owner collision blocker
+  и unsupported `encrypted_secret` в apply store.
+- Production GREEN commit `78840d74090416ca6ac981e5a75d5d340ee5ed26`.
+- Run `31514646876`, job `93856641018`: formatting, unit, race, vet и harness
+  прошли; integration обнаружил только конфликт одинакового тестового owner
+  tuple между пакетами на общем CI rqlite-кластере.
+- Test-only isolation commit `4f67220d9b0846479256475261c151d6c56fc3d9`.
+- Final GREEN run `31515049920`, job `93857990043`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- Standalone legacy secret хранится только в typed `imported_secrets` с
+  уникальным owner tuple `(owner_type, owner_source_key, field)`.
+- Сохраняются encrypted envelope, SHA-256 и key version; plaintext secret в
+  snapshot/report/typed SQL не появляется.
+- Secret row immutable и undeletable; exact retry идемпотентен, а подмена
+  owner/envelope/hash/version атомарно блокируется.
+- Таблица включена в deterministic business digest; real rqlite E2E проверяет
+  exact typed row и durable batch receipt.
+
+### Следующий безопасный шаг
+
+Отдельный RED -> GREEN `trial`: current и legacy HMAC сохраняются в typed
+identity row, а legacy trial salt принимается только отдельным защищённым
+входом и хранится как encrypted key-version-1 secret. Затем остаются typed
+tombstones/deletes; Task 6 и production import всё ещё не завершены.
+
+## HA control plane: Task 6 protected legacy trial checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`; production/server/bot/OTA/customer mutations не
+выполнялись, production CLI factory остаётся fail-closed.
+
+### RED -> GREEN evidence
+
+- RED commit `ab240319c4ea74095d55a33f6c9cda708307a51b`; run
+  `31516510313`, job `93862869458` упал ровно на отсутствующих
+  `TrialImportProtection` и protected constructor.
+- Production GREEN commit `feaa3e3bc3249fe744c2704831cf128b0a5f5515`.
+- Run `31517299065`, job `93865535656`: formatting, unit, race, vet и harness
+  прошли; integration compile обнаружил только package-local test helper,
+  ошибочно использованный из другого Go package.
+- Test-only fix commit `b7e1020a3a8b549b138cb8a76c55eb40fc7757d7`.
+- Final GREEN run `31517648635`, job `93866698171`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+
+### Сохранённый контракт
+
+- `imported_trial_identities` хранит только stable source key, legacy/current
+  HMAC, exact expiry, monotonic used flag и ссылку на protected lookup secret.
+- Legacy salt не входит в snapshot/report: store принимает только заранее
+  зашифрованный envelope key version 1; plaintext input fail-closed.
+- Salt хранится reserved typed row `legacy-trial-salt-v1` в
+  `imported_secrets`; salt row immutable, exact retry идемпотентен.
+- Trial identity запрещает HMAC/source collision, смену HMAC/expiry/key и
+  rollback `used=1 -> 0`; разрешены exact retry и `used=0 -> 1`.
+- Trial identity включена в deterministic business digest и проверена real
+  rqlite E2E вместе с durable batch receipt.
+
+### Следующий безопасный шаг
+
+Владелец подтвердил разделение operational tombstones и logical business
+digest. Focused design записывается в
+`docs/superpowers/specs/2026-08-11-maestrovpn-ha-import-delete-design.md`.
+После review отдельный RED -> GREEN slice реализует только explicit customer
+delete и derived encrypted-secret marker. Production import всё ещё запрещён.
+
+## HA control plane: Task 6 typed delete planning and registry checkpoint (11.08.2026)
+
+Работа остаётся только в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production/server/bot/OTA/DNS/customer mutations не
+выполнялись; production `maestro-import` apply factory остаётся nil/fail-closed.
+Утверждённая спецификация: `docs/superpowers/specs/2026-08-11-maestrovpn-ha-import-delete-design.md`
+(commit `b13ad0c`). Подробный план: `docs/superpowers/plans/2026-08-11-maestrovpn-ha-import-delete.md`
+(commit `8f96689`).
+
+### Task 1: deterministic typed delete planning
+
+- RED commit `2ffb2c5b50be48f9d02aca93d9c33c7ab78df706`; run
+  `31521572673`, job `93879595838` упал только на отсутствующих
+  `canonicalLegacyDigest` и typed полях `PlannedDelete`.
+- GREEN commit `3ff68364c274c0f5831d23cd558f9ea403365c8a`.
+- Final GREEN run `31522413319`, job `93882447316`: formatting, unit, race,
+  vet, harness и настоящий трёхузловой rqlite integration прошли.
+- Delete разрешён только для delta и explicit customer; exact parent digest,
+  prior customer digest, единственный source, отсутствие upsert/delete collision
+  и generation overflow проверяются до write.
+- Customer target/tombstone IDs, prior/next generation и derived owner-bound
+  encrypted-secret marker детерминированы. Delete operations несут полный
+  несекретный canonical JSON proof.
+
+### Task 2: lifecycle registry, receipts and logical digest
+
+- RED commit `78d8883c72a8e9e94ff1b367a0c9e438852f3ad7`; run
+  `31523217922`, job `93885166584` упал только на отсутствующих registry writes
+  и operational tombstones в business digest.
+- GREEN commit `9505da985ced8806afe71083654e7e3cee68b6ec`.
+- Final GREEN run `31524287056`, job `93888659664`: formatting, unit, race,
+  vet, harness, schema constraints и настоящий трёхузловой rqlite прошли.
+- `imported_entity_state` хранит только typed stable key, immutable target,
+  canonical SHA-256, lifecycle и timestamp; target substitution, state delete,
+  digest substitution при delete и `deleted -> active` fail closed.
+- `import_delete_receipts` immutable/undeletable, связан exact composite FK с
+  deleted registry state и exact `(run,batch,digest)`. Customer receipt trigger
+  требует deleted customer generation, disabled credentials, revoked tokens и
+  полный frozen target set.
+- Customer upsert атомарно пишет active registry для customer и consumed
+  encrypted-secret; standalone encrypted secret пишет immutable envelope и
+  active registry в той же batch transaction.
+- Canonical business digest исключает operational tombstones и import
+  bookkeeping; customer/credential/token/desired rows и imported secrets с
+  deleted registry state логически фильтруются. Orders остаются историческими.
+
+### Исправленные рабочие ошибки, не повторять
+
+- В этой Windows-среде локального `gh` нет: CI читать через GitHub connector.
+- Полный commit SHA всегда получать `git rev-parse HEAD`, никогда не достраивать
+  из короткого SHA.
+- Linked worktree shell требует escalation; patch mutation: внешний patch,
+  `git apply --check --recount`, новый guard и ровно один `git apply --recount`.
+- Если monolithic patch теряет актуальный context, не форсировать: записать
+  fail/correct и разделить на schema/store патчи с текущим контекстом.
+
+### Следующий безопасный шаг
+
+Task 3 RED -> GREEN: typed tombstone dispatch, atomic customer registry CAS,
+customer generation/status CAS, credential/token revoke, deterministic
+tombstone, frozen S1-S4 targets, derived secret receipt и clean-cluster
+`full(base)+delta == fresh-full` digest proof. До полного GitHub GREEN не
+включать production factory и не трогать серверы/ботов/OTA/клиентов.
+
+## HA control plane: Task 6 typed delete apply and parity checkpoint (11.08.2026)
+
+Focused delete plan завершён в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Локальный и remote HEAD после code verification:
+`800bb088e460579b4a23e5c981f3cde6bc27183c`. PR остаётся open, draft,
+mergeable; base `codex/mobile-4d-deck`.
+
+### RED -> GREEN evidence
+
+- RED commit `54f6dbfd1205b21be9ce521a1d2a9904a0f698bb`; run
+  `31526958387`, job `93897531010`: formatting прошёл, unit упал ровно на
+  `unsupported import tombstone entity "customer"` и `"encrypted_secret"`.
+- GREEN code commit `c4b0f849eb0ac86764a765dda3e5f29e712519c2`.
+- Git credential не имел OAuth `workflow` scope, поэтому code commit был
+  отправлен обычным Git, а parity workflow отдельным GitHub App commit
+  `3144607b12813fd70c0b2359d35fc00ef7917dd5`; проверка не ослаблялась.
+- Run `31527705051`, job `93900056197`: formatting, unit, race, vet, harness и
+  importer real-rqlite прошли; controlplane schema test остановился до своей
+  проверки из-за повторной пары test-only `(source_sha256,plan_sha256)`.
+- Test-only isolation commit `800bb088e460579b4a23e5c981f3cde6bc27183c`
+  заменил только три synthetic digest на уникальные `d/e/f`.
+- Final GREEN run `31528537528`, job `93902683167`: formatting, unit, race,
+  vet, harness, полный real-rqlite integration, reset/full+delta capture,
+  второй reset/fresh-full comparison и final stop прошли.
+
+### Сохранённый delete-контракт
+
+- Tombstone dispatcher принимает только `customer` и derived
+  `encrypted_secret`; неизвестные типы остаются fail-closed.
+- Customer delete proof строго связывает entity/key, exact 64-hex prior digest,
+  immutable target ID, prior/next generation и детерминированный tombstone ID.
+- Одна linearizable rqlite transaction выполняет строго: batch begin, registry
+  `active -> deleted` CAS, customer generation/status CAS, credential disable,
+  token revoke, deterministic tombstone, frozen targets из всех active desired
+  S1-S4 `maestro-core`, immutable receipt и batch finish.
+- Неверный `ExpectedPriorDigest` откатывает customer, registry, tombstone,
+  targets и batch receipt целиком. Receipt trigger также требует существующие
+  credential/token, их полный revoke и точный полный target set.
+- Derived customer-owned secret получает только registry transition и receipt
+  с `tombstone_id=NULL`; encrypted envelope остаётся в credential/token и не
+  попадает в receipt. Standalone `imported_secrets` не удаляются физически.
+- Operational tombstones/receipts/registry не входят в business digest;
+  logically deleted imported rows фильтруются. Два чистых трёхузловых кластера
+  доказали `base-full + delta == final-full` по exact 64-character digest.
+
+### Исправленные рабочие ошибки, не повторять
+
+- Workflow сначала искать через `rg --files .github/workflows`; фактический файл
+  здесь `.github/workflows/ha-control-plane.yml`.
+- `maestro-repetition-guard.py correct` требует `--old-family`, `--new-family`
+  и `--root-cause-code`.
+- Перед поиском importer-файлов использовать `rg --files`; не предполагать
+  `types.go`/`planner.go`.
+- Внешний файл для `git apply` обязан быть полноценным unified diff. Bare `@@`
+  понимает `apply_patch`, но не `git apply`; zero-context требует точных old/new
+  offsets и обязательного `--unidiff-zero`. Перед commit всегда читать итоговый
+  diff, чтобы блок не оказался внутри соседней Go-функции.
+- Тесты real-rqlite делят один кластер: каждый schema test обязан иметь
+  уникальную пару `(source_sha256,plan_sha256)`.
+- Если Git OAuth отклоняет workflow без scope, не ретраить ту же команду:
+  отправить code-only commit, обновить workflow GitHub App отдельным commit,
+  затем `git pull --ff-only` и проверять новый полный SHA.
+
+### Граница готовности и следующий безопасный шаг
+
+Production/server/bot/OTA/DNS/customer mutations не выполнялись. Реальные S1-S4
+не изменялись. `backend/cmd/maestro-import/main.go` всё ещё вызывает
+`run(..., nil)`, поэтому production apply factory остаётся nil/fail-closed.
+Завершён только focused typed-delete plan; parent Task 6 и весь HA проект не
+объявлять готовыми. Следом нужны redacted shadow verification, отдельное
+решение о production factory, backup/restore/cutover gates и лишь затем
+явно разрешённое развёртывание на серверах.
+
+## HA control plane: repository-only shadow export design (12.08.2026)
+
+Владелец подтвердил рекомендуемый следующий этап: воспроизводимая redacted
+shadow-сверка только в репозитории и изолированном GitHub Actions rqlite.
+Утверждённая спецификация:
+`docs/superpowers/specs/2026-08-12-maestrovpn-ha-shadow-export-design.md`.
+
+### Зафиксированное решение
+
+- Один versioned `ShadowExport` получает два чистых producer: из уже
+  проверенного `ImportPlan` и из canonical linearizable candidate rows.
+- Оба producer используют один строгий canonical encoder; существующий
+  `ops/ha/shadow-verify.sh` остаётся отдельным offline verifier.
+- Реальный proof использует только synthetic HMAC и существующий runner-local
+  трёхузловой rqlite: import -> legacy export -> candidate export -> exact
+  verifier match.
+- Live collectors, S1-S4, Telegram DB/credentials, production endpoints и
+  production `maestro-import` factory не входят в этот slice.
+
+### Следующий gate
+
+Design подтверждён владельцем. Детальный TDD implementation plan записан в
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-shadow-export.md`.
+Самопроверка выявила и закрыла на уровне плана прежнее ложное допущение:
+текущий `ImportPlan` не содержит public protocol/node topology, а customer
+import ещё не создаёт `desired_node_state`. Поэтому Task 1 сначала добавляет
+явные `protocol_tags/node_ids`, typed `desired_protocol_tags` и атомарную exact
+set replacement; подставлять одинаковые constants в два export запрещено.
+
+После выбора режима выполнения идти по плану Task 1 -> Task 5 через отдельные
+RED/GREEN checkpoints и exact-SHA GitHub runs. Даже после focused GREEN parent
+Task 6 остаётся открытым: live collectors, production factory и
+backup/restore/cutover gates не входят в этот slice.
+`backend/cmd/maestro-import/main.go` по-прежнему должен вызывать
+`run(..., nil)`; production остаётся
+`NO-GO (repository implementation only)`.
+
+## HA control plane: redacted shadow parity checkpoint (12.08.2026)
+
+Focused repository-only shadow export plan завершён в draft PR `#82`, branch
+`codex/ha-rqlite-task2`. Production остаётся `NO-GO`: реальные S1-S4, панели,
+боты, DNS/TLS, клиенты, Android/TV, release и OTA не изменялись. Production
+factory в `backend/cmd/maestro-import/main.go` по-прежнему строго вызывает
+`os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, nil))`.
+
+### RED -> GREEN evidence
+
+- Task 1 topology RED: `efac2b4f1d00f4a94d2fef4dc17718e62720ae5e`,
+  `5a46d6db890ee2aab3af7143cf98f9ff7514daa6` и real-rqlite assertion
+  `824f66a8e899621c216bae25dcfb2740e81eeedd`. Final GREEN:
+  `282ad26e97913ed46ebc20a52cd4c902deead72a`, run `31553828257`, job
+  `93981990550`, conclusion `success`.
+- Task 2 legacy shadow RED: `2cb28db3152889474da9577d3c2a1f8cd913dc27`;
+  run `31554223345`, job `93983181574` упал только на отсутствующих shadow API.
+  Final GREEN: `4514ba1af38d8ee211f7283b4d2d9121a3a2c108`, run
+  `31554949682`, job `93985336630`, conclusion `success`.
+- Task 3 candidate RED: `7c487287146d80176df9424944c62b3645df74ad`;
+  run `31555611991`, job `93987294414` упал только на отсутствующих
+  `ShadowProjection*`, `ShadowFromCandidate` и `ReadShadowProjection`.
+  Production GREEN: `4ea96a6537613c59d052ef8c923252444aac1427`;
+  strengthened proof assertion: `5c953d506f628ff05277147482a6c74047fcfe22`,
+  run `31556257270`, job `93989193594`, conclusion `success`.
+- Task 4 final proof SHA: `f6bacd671ebf20877276a7339f5e37c692068d7e`.
+  Exact run `31556743561`, job `93990616906`: formatting, unit, race, vet,
+  harness, ordinary real-rqlite, full+delta/fresh-full digest parity, dedicated
+  clean-cluster reset, `Prove redacted shadow export parity` и final cleanup —
+  все `success`, parity step не skipped.
+
+### Доказанный shadow-контракт
+
+- Legacy producer `ShadowFromPlan` строит export только из уже validated full
+  `ImportPlan`; candidate producer `ShadowFromCandidate` независимо вызывает
+  `RQLiteApplyStore.ReadShadowProjection` и получает business rows одним
+  `QueryLinearizable` batch без единого `Request`.
+- Candidate read связывает exact source digest с единственным applied run,
+  non-null target digest, полным числом applied batch receipts и независимо
+  пересчитанным canonical business digest. Missing/extra/duplicate relations,
+  inactive/deleted customer, disabled credential, revoked token, неполная
+  node/protocol topology, malformed order/settings/principal/OTA fail closed.
+- Оба producer сходятся только в строгой versioned `ShadowExport` модели и
+  общих canonical fingerprint/state helpers; candidate не читает legacy export,
+  а legacy producer не читает rqlite.
+- Dedicated clean-cluster test применил полный synthetic snapshot через
+  `Apply`, независимо создал оба `0600` export, исполнил настоящий
+  `ops/ha/shadow-verify.sh` и потребовал точный результат
+  `{"differences":[],"status":"match"}\n`.
+- Exact job-log scan дал zero occurrences для synthetic raw login, payment
+  code, двух nonce, трёх ciphertext и private URL marker. Export JSON,
+  verifier stdout/stderr и process error проверяются до вывода ошибки.
+
+### Финальный scope/security gate
+
+- `git diff --check` чист; focused slice не добавил SSH, curl collector,
+  `MAESTRO_CONTROL_PLANE` wiring или production factory в importer.
+- Diff относительно `codex/mobile-4d-deck` для `app/src/main`, `app/src/test`
+  и `app/src/androidTest` пуст: Android mobile и TV код/ассеты не затронуты.
+- Production import, server deploy/restart, customer mutation, bot payment,
+  OTA publication и live shadow comparison не выполнялись.
+
+### Исправленные рабочие ошибки, не повторять
+
+- Fixture OTA был расширен до полного synthetic manifest 154; все прежние
+  exact-JSON tests надо обновлять одновременно, не ослабляя byte comparison.
+- Production/test helper names должны быть уникальны; collision
+  `validShadowShapes` исправлялся отдельным rename и больше не повторяется.
+- Git HTTPS OAuth без `workflow` scope не может писать `.github/workflows`:
+  не ретраить push, применять GitHub App и затем синхронизировать branch.
+- Нельзя передавать workflow text с regex, содержащим `$'`, в JavaScript
+  `String.replace` replacement string: `$'` разворачивается в suffix и портит
+  YAML. Использовать проверенные `indexOf` + `slice` (или callback replacer),
+  затем fetch remote file и требовать ровно по одному semantic marker.
+- `controlplane.NewMigrator` уже создаёт synthetic tariff/nodes/services для
+  integration cluster; повторный seed вызывает UNIQUE failure. Перед seed
+  всегда проверять migration fixtures и переиспользовать их.
+
+### Граница завершения и следующий gate
+
+Focused plan
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-shadow-export.md` завершён,
+но parent Plan 02 Task 6 и вся production HA-система ещё не завершены.
+Следующий отдельный этап: design/RED/GREEN для production import factory,
+затем обязательные backup/restore, fencing, dry-run и cutover/rollback gates.
+До их утверждения и полного exact-SHA GREEN серверы, панели и Telegram-боты
+не развёртывать и production factory не включать.
+
+## HA control plane: production import factory design (12.08.2026)
+
+Владелец подтвердил рекомендуемый узкий следующий этап: production-capable
+import factory только в репозитории и isolated GitHub Actions, без изменений
+реальных S1-S4, клиентов, панелей, ботов, Android/TV, Release и OTA.
+Утверждённая спецификация:
+`docs/superpowers/specs/2026-08-12-maestrovpn-ha-production-import-factory-design.md`.
+
+Зафиксирован mandatory-mTLS target config ровно для S2/S3/S4, strict protected
+control-plane key bundle, exact legacy-trial-salt digest binding, read-only
+`Migrator.Verify` без автоматического schema apply, существующий resumable
+`importer.Apply` и подписанный Ed25519 applied-run receipt. Dry-run остаётся
+network/secret-free; production errors и artifacts не раскрывают секреты.
+
+Даже после реализации этого slice статус остаётся
+`NO-GO (repository implementation only)`. Реальные import/deploy/restart,
+backup/restore, legacy-writer fencing, live dry-run/final delta, shadow parity,
+canary и cutover/rollback требуют отдельных gates и явного разрешения.
+
+Следующий шаг по brainstorming gate: self-review этой спецификации, review
+владельца, затем отдельный TDD implementation plan. До его утверждения
+production factory code не менять.
+
+## HA control plane: production import factory implementation plan (12.08.2026)
+
+После подтверждённого design review создан и самопроверен TDD-план:
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`.
+
+План содержит восемь RED -> GREEN gates: snapshot format v2 с HMAC/salt
+binding; локальная аутентификация key bundle/envelopes/trial salt; verified
+schema identity; strict S2/S3/S4 mandatory-mTLS runtime; linearizable preflight
+всех target-referenced key versions; canonical Ed25519 applied-run receipt;
+production CLI wiring с resumable atomic receipt; real built-binary proof на
+test-only three-node mTLS rqlite и финальный scope/secrecy gate.
+
+Self-review дополнительно закрыл две ошибки до кода: delta не может потерять
+historical encryption key, уже referenced в rqlite; отрицательные mTLS cases
+выполняются на чистом prepared cluster до valid import и не используют restart,
+который удаляет harness state.
+
+Production code ещё не менялся. Статус остаётся
+`NO-GO (repository implementation only)`; S1-S4, панели, боты, клиенты,
+Android/TV, Release и OTA не затронуты. Следующий шаг — выбрать режим исполнения
+плана. Каждый behavior gate обязан иметь отдельные exact-SHA RED и GREEN
+GitHub Actions evidence.
+
+
+## 2026-08-12 production import factory checkpoint (Tasks 1-3 GREEN)
+
+Authoritative branch and review surface:
+
+- branch: `codex/ha-rqlite-task2`
+- draft PR: #82
+- work remains GitHub-first; the owner PC is used only for the lightweight repetition guard and exact `rg`/Git metadata checks
+- production S1-S4, panels, bots, customers, Android/TV, Release and OTA remain unchanged
+
+Completed production-factory plan stages:
+
+1. Task 1 snapshot protection metadata v2: final GREEN SHA `97a0382362ba6a0b6540f486231a70c991c1fb16`; run `31561449224`; job `94004424897`.
+2. Task 2 local key/envelope/trial-salt authentication: GREEN SHA `9cda13006450522fa5bf294d1879a9a6d8a5e0f3`; run `31561746986`; job `94005317388`.
+3. Task 3 immutable schema identity: GREEN SHA `0417c5ae6d93336a6e218dd990dca90775033bba`; run `31562039927`; successful second-attempt job `94006475476`.
+
+Every successful job above passed ordinary backend tests, race tests, vet, harness contract, isolated real-rqlite integration, full-plus-delta parity, fresh-full parity, shadow parity and cleanup.
+
+Task 3 first job attempt `94006186086` failed only in the pre-existing nondeterministic `TestConcurrentResumeAppliesEachBatchOnce` with `import run digest mismatch`; Task 3 controlplane race tests were already GREEN. The mandatory repetition guard allowed exactly one retry, and the retry passed the entire workflow. Do not rerun that historical job again.
+
+Current next step: Task 4 in `docs/superpowers/plans/2026-08-12-maestrovpn-ha-production-import-factory.md`: strict exactly-S2/S3/S4 HTTPS mandatory-mTLS runtime, all protected local validation before the first network request, `VerifyIdentity` only, and linearizable referenced-key-version readiness. Continue with RED tests first. Do not deploy to servers after Task 4; server dry-run remains forbidden until Tasks 1-7 are GREEN and a separate backup/restore plus fencing drill has passed.
+
+Operational note for Windows searches: pass globs through `rg -g "*.go" <pattern> <directory>`; do not append a Unix-style `directory/*.go` path because native Windows `rg` rejects it.
+
+## 2026-08-12 DR restore drill checkpoint (Tasks 1-5 GREEN)
+
+Authoritative review surface remains draft PR #82, branch
+`codex/ha-rqlite-task2`. Production remains
+`NO-GO (repository DR implementation only)`: S1-S4, panels, bots, customers,
+Android/TV, Release, OTA, DNS and production credentials were not accessed or
+changed.
+
+Exact completed evidence:
+
+- Task 1 GREEN SHA `e8f1e62e72af3a75ea557bba4e7138f2c442f941`,
+  run `31573726939`.
+- Task 2 GREEN SHA `bb8b84b2cd22b35d07116c749fff1624a64668fd`,
+  run `31574573939`.
+- Task 3 GREEN SHA `cc3bc341488ebd633f7190b981998806d083e393`,
+  run `31577613693`.
+- Task 4 GREEN SHA `11798300efd9781dd4ea62c66dfe9808e287f013`,
+  run `31579056320`, job `94057725391`.
+- Task 5 final GREEN SHA `3829a861832feea431849a5b0b9c2599de691d57`,
+  run `31585328200`, job `94077716333`. Every named step succeeded:
+  unit, race, vet, harness, real-rqlite, importer parity, shadow parity,
+  production mTLS importer and unconditional cleanup.
+
+Task 5 proves the exact built importer creates a signed synthetic source, an
+authenticated encrypted backup is independently verified, a fresh mTLS
+destination is restored once, business/schema/import/batch/shadow parity holds,
+and a repeated restore into the same root is rejected. Restore epoch advance and
+activation execute in separate test processes; the process terminates after
+advance, the restarted process observes the preserved inactive epoch, stale
+leases/old epoch are fenced, and current-epoch mutation is exact-once. After
+activation, loss of S4 preserves strong state plus idempotent write through
+active S2/S3; loss of S3 as well makes S2 reject a linearizable write.
+
+A deterministic regression was added for a real importer race exposed during
+verification: completed concurrent resume now refreshes target state after
+`BeginOrResume` before comparing the completed digest. RED:
+`8c4c992641346fc575df313b1d55c6952b552609`, run `31583987756`,
+job `94073414698`; GREEN fix `a264f481948b599b2767f3ebfe2095f4453bbf31`,
+run `31584173786`, job `94074003728`.
+
+Current next step is Task 6 in
+`docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`:
+add a dedicated repository-only exact-SHA DR workflow and strict policy test
+with no production secrets or artifact upload. Continue RED first. Production
+read-only audit is still forbidden until Tasks 1-7 are fully GREEN.
+
+
+## 2026-08-12 authenticated DR restore drill complete
+
+Plan `docs/superpowers/plans/2026-08-12-maestrovpn-ha-dr-restore-drill.md`
+is fully GREEN in draft PR #82 on branch `codex/ha-rqlite-task2`.
+
+Final code evidence:
+
+- exact code SHA: `e9c0bc74e963ab55c4e96214fb6a7de76d1b823e`
+- dedicated workflow: `HA DR restore drill`, run `31586579401`, job
+  `94081701920`, conclusion `success`
+- ordinary workflow on the same SHA: `HA control-plane checks`, run
+  `31586579375`, conclusion `success`
+- dedicated job steps all succeeded: pinned checkout/setup, baseline formatting
+  plus shell syntax, backend unit, race, vet, self-policy, authenticated backup
+  and tamper matrix, fresh restore fencing/parity/quorum, unconditional cleanup
+- workflow artifact list for run `31586579401` is empty
+
+Final scope/secrecy audit compared
+`ffa3f7f2a0c88b2c754a1949a72daa2d686a49bf..e9c0bc74e963ab55c4e96214fb6a7de76d1b823e`.
+There are no `app/**` or `deploy/**` changes. Added URLs are only loopback
+rqlite endpoints and `.invalid` synthetic fixtures. No production endpoint,
+DNS/OTA/SSH operation, `InsecureSkipVerify`, GitHub environment, repository
+secret, artifact upload or customer identity was introduced. Local Python
+verification ran 15 tests successfully and the workflow policy passed.
+
+Status remains: `NO-GO (repository DR implementation only)`. S1-S4, panels,
+bots, customers, VPN protocols, Android/TV, Release and OTA are unchanged.
+Repository GREEN does not authorize deployment.
+
+Next authorized gate is a separate read-only S2/S3/S4 readiness audit. It may
+inventory versions, ports, service topology, current panel/bot placement,
+backup availability and rollback prerequisites, but must not install, import,
+restart, rotate, write customer data or change traffic. Any staged production
+deployment still requires the audit evidence and explicit owner approval.
+
+
+## 2026-08-12 read-only production readiness audit — public summary
+
+Durable report:
+`docs/operations/ha-readiness-audit-2026-08-12.md`.
+
+One authenticated node was inventoried without mutations. Existing customer VPN,
+panel and bot services remained active, while the new HA control plane was not
+yet installed. Backup evidence, storage headroom and legacy file permissions
+must be resolved before a canary. No customer records or secrets were read.
+
+Two additional nodes are reachable, but their SSH identities are not yet
+independently verified. They were not trusted or accessed.
+
+Current status: `INCOMPLETE / PRODUCTION NO-GO`. Next step requires
+independent provider-console identity confirmation for both nodes, then the same
+read-only audit. Do not bypass strict host-key checking. No install, restart,
+import, customer, bot, DNS, TLS, OTA or traffic mutation occurred.
+
+## 2026-08-12 HA outbox and tombstone checkpoint (Task 10 GREEN)
+
+Authoritative review surface remains draft PR #82 on branch
+`codex/ha-rqlite-task2`. Exact GREEN SHA is
+`b68b90bf420fca49375ff3c20d45aa25e07972e2`.
+
+Task 10 now provides repository-only control-plane contracts for monotonic
+desired generations, encrypted desired payload hash verification, immutable
+same-generation operation identity, fenced leases, exact duplicate receipt
+readback, tombstone target acknowledgement, retention from the final required
+acknowledgement, and encrypted revoke propagation to every frozen required
+target with one outbox event per target.
+
+Exact verification evidence:
+
+- `HA control-plane checks`, run `31599320040` (run number 217): `success`;
+- `HA DR restore drill`, run `31599319926` (run number 21): `success`;
+- the successful workflows cover backend unit tests, race, vet, migrations,
+  isolated rqlite integration, importer parity and authenticated DR restore.
+
+Production status remains `NO-GO (repository implementation only)`. No server,
+panel, bot, customer, VPN protocol, Android/TV, Release, OTA, DNS or production
+credential was changed. The next repository task is Plan 03 Task 11: RED-first
+signed and fenced apply-agent protocol, dispatcher, local aggregate state and
+private hardened HTTP surface. Deployment remains forbidden until the remaining
+agent/driver/bot and rollout gates are GREEN and separately approved.
+
+## 2026-08-12 atomic repetition barrier checkpoint
+
+Owner correction exposed a process defect: guard checks had sometimes been
+combined with mutations/commit/push, an exit code had been treated as success
+without confirming the target, and context-free source patches had been reused
+after contextual failures. Feature work stopped until this was made durable.
+
+`AGENTS.md` and the permanent `project-master` skill now require: standalone
+guard checks; exactly one semantic action per allowance; immediate result
+inspection; `fail` as the next executable action after any unexpected result or
+owner correction; root-cause correction before one new attempt; no
+`--unidiff-zero` or context-free patch on existing source; full changed-boundary
+inspection before staging; and separate mutation, validation, add, commit and
+push actions. Repeated root cause now blocks feature work until both policies
+are updated.
+
+Resume point remains Plan 03 Task 11 on branch `codex/ha-rqlite-task2`, current
+HEAD before this policy commit `f251cdf3f3042f6aafd39b3c4c994cd757b58932`.
+Preserve the untracked RED test
+`backend/internal/applyagent/apply_result_test.go`; it is not yet validated or
+committed. Production remains NO-GO and was not accessed or changed.
+
+## 2026-08-12 Task 11 apply-result and monotonic-marker checkpoint
+
+This section supersedes the stale resume point immediately above. Authoritative
+review surface remains draft PR #82, branch `codex/ha-rqlite-task2`. Exact
+current GREEN SHA is `13bb17b24fa5b314f4f97d4fd7ba517a94b19a65`.
+
+Completed RED/GREEN evidence:
+
+- per-entry apply result RED SHA
+  `885d0f86d28ead67ff2cf05b63c2f4930a7d7c50`: `HA control-plane
+  checks` run 238 and `HA DR restore drill` run 42 failed at backend tests
+  after formatting passed;
+- per-entry result GREEN SHA
+  `705a81d02dfde6763cd9e97e4c2122f759c02478`: control-plane run 239
+  and DR run 43 succeeded;
+- monotonic local-marker RED SHA
+  `5a645e5f07b1c3e142b263610b856ade60d059f7`: DR run 44 failed at
+  backend tests;
+- monotonic local-marker GREEN SHA
+  `13bb17b24fa5b314f4f97d4fd7ba517a94b19a65`: control-plane run 241
+  and DR run 45 succeeded.
+
+The agent now returns canonical per-entry `DispatchResult` only after successful
+aggregate apply and local marker fsync; private `/v1/apply` returns that JSON to
+the dispatcher. It strong-verifies the lease, loads and validates the local
+marker before any driver call, rejects generation rollback and same-generation
+hash conflict, and fails closed on marker read error. The standalone RED test is
+committed; there is no longer an untracked test file.
+
+Task 11 is not complete. Confirmed P1 gap: `DesiredEntry.Payload` is still a
+`controlplane.Envelope`, `AgentConfig` has no payload opener/decryption key, and
+the `Driver` receives the encrypted `DesiredSnapshot` unchanged. No code in
+`backend/internal/applyagent` opens the envelope or enforces the planned AAD over
+node/service/customer/generation. `backend/cmd/maestro-agent` is also absent;
+do not create a dead runtime stub or begin Task 12 drivers over ciphertext.
+
+Next repository step: RED-first define a materialized plaintext snapshot boundary
+and injected fail-closed payload opener with exact AAD binding, authenticate and
+open every entry only after signature plus strong lease validation, ensure any
+open/hash/key-version failure makes zero driver calls, and re-run both GitHub HA
+workflows. After that, implement real Task 12 local drivers and wire
+`cmd/maestro-agent` to those concrete drivers. Production remains NO-GO; no
+server, customer, bot, VPN, Android/TV, OTA, DNS or production credential was
+accessed or changed.

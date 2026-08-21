@@ -1,0 +1,14 @@
+{
+  "format_version":2, "cluster_hmac_key_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "snapshot_kind":"delta", "parent_source_digest":"replaced-by-test", "captured_at":"2026-08-10T00:00:00Z",
+  "source_hashes":{"delta":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+  "customers":[
+    {"source_key":"customer-alpha","login":"Alpha","login_key_hmac":"1111111111111111111111111111111111111111111111111111111111111111","uuid_hmac":"2222222222222222222222222222222222222222222222222222222222222222","sub_id_hmac":"3333333333333333333333333333333333333333333333333333333333333333","token_hmac":"4444444444444444444444444444444444444444444444444444444444444444","credential_fingerprint_hmac":"5555555555555555555555555555555555555555555555555555555555555555","identity_secret_ref":"secret-alpha","protocol_tags":["vless"],"node_ids":["S2","S3","S4"],"expires_at_unix":2300000,"generation":2,"status":"active"},
+    {"source_key":"customer-gamma","login":"Gamma","login_key_hmac":"1212121212121212121212121212121212121212121212121212121212121212","uuid_hmac":"2323232323232323232323232323232323232323232323232323232323232323","sub_id_hmac":"3434343434343434343434343434343434343434343434343434343434343434","token_hmac":"4545454545454545454545454545454545454545454545454545454545454545","credential_fingerprint_hmac":"5656565656565656565656565656565656565656565656565656565656565656","identity_secret_ref":"secret-gamma","protocol_tags":["vless","anytls"],"node_ids":["S1","S2","S3","S4"],"expires_at_unix":2400000,"generation":1,"status":"active"}
+  ],
+  "orders":[], "trials":[], "bot_bindings":[], "settings":[], "principals":[],
+  "encrypted_secrets":[
+    {"secret_id":"secret-alpha","owner_type":"customer","owner_source_key":"customer-alpha","field":"identity","kind":"customer-identity","key_version":1,"nonce_b64":"AgMEBQYHCAkKCwwN","ciphertext_b64":"c3ludGhldGljLWFscGhhLXYy","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+    {"secret_id":"secret-gamma","owner_type":"customer","owner_source_key":"customer-gamma","field":"identity","kind":"customer-identity","key_version":1,"nonce_b64":"AwQFBgcICQoLDA0O","ciphertext_b64":"c3ludGhldGljLWdhbW1h","sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+  ],
+  "deletes":[{"entity":"customer","source_key":"customer-beta","explicit":true}], "bot_poll_states":[], "pending_callbacks":[], "bot_credential_rotations":[]
+}

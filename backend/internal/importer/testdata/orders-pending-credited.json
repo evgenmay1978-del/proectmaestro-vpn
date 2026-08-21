@@ -1,0 +1,24 @@
+{
+  "format_version": 2, "cluster_hmac_key_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "snapshot_kind": "full", "captured_at": "2026-08-09T00:00:00Z",
+  "source_hashes": {"s1_orders": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "customers": [{
+    "source_key":"s1:customer:order-owner", "login":"OrderOwner",
+    "login_key_hmac":"1010101010101010101010101010101010101010101010101010101010101010",
+    "uuid_hmac":"2020202020202020202020202020202020202020202020202020202020202020",
+    "sub_id_hmac":"3030303030303030303030303030303030303030303030303030303030303030",
+    "token_hmac":"4040404040404040404040404040404040404040404040404040404040404040",
+    "credential_fingerprint_hmac":"5050505050505050505050505050505050505050505050505050505050505050",
+    "identity_secret_ref":"secret-order-owner", "protocol_tags":["vless","hysteria2","anytls","naive"], "node_ids":["S1","S2","S3","S4"], "expires_at_unix":2200000, "generation":9, "status":"active"
+  }],
+  "orders": [
+    {"source_key":"legacy-order-credited", "customer_source_key":"s1:customer:order-owner", "buyer_scope":"customer_login", "buyer_key_hmac":"1010101010101010101010101010101010101010101010101010101010101010",
+     "tariff_version_id":"tariff_1m_v1", "amount_minor":40000, "currency":"RUB", "duration_days":30, "payment_code":"MCRD1", "created_at_unix":1000000,
+     "state":"pending", "credited":true, "stored_customer_expires_at_unix":2200000, "result_generation":9},
+    {"source_key":"legacy-order-uncredited", "customer_source_key":"s1:customer:order-owner", "buyer_scope":"customer_login", "buyer_key_hmac":"1010101010101010101010101010101010101010101010101010101010101010",
+     "tariff_version_id":"tariff_1m_v1", "amount_minor":40000, "currency":"RUB", "duration_days":30, "payment_code":"MUNCR", "created_at_unix":1000001,
+     "state":"pending", "credited":false, "stored_customer_expires_at_unix":2200000, "result_generation":0}
+  ],
+  "trials":[], "bot_bindings":[], "settings":[], "principals":[],
+  "encrypted_secrets":[{"secret_id":"secret-order-owner","owner_type":"customer","owner_source_key":"s1:customer:order-owner","field":"identity","kind":"customer-identity","key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"c3ludGhldGljLW9yZGVyLW93bmVy","sha256":"6060606060606060606060606060606060606060606060606060606060606060"}],
+  "deletes":[], "bot_poll_states":[], "pending_callbacks":[], "bot_credential_rotations":[]
+}
