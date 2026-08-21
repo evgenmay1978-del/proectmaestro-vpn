@@ -170,8 +170,8 @@ func TestCatalogJournalPreservesDraftAndRollbackStateAcrossRestart(t *testing.T)
 	type journaledCatalog interface {
 		AddDraft(release.CandidateSpec) (release.Catalog, error)
 		PromoteDraft(string) (release.Catalog, error)
-		Snapshot() ([]byte, error)
-		Restore([]byte, []release.Release) (release.Catalog, error)
+		Snapshot(release.LifecycleSigner) ([]byte, error)
+		Restore([]byte, []release.Release, release.LifecycleTrust, uint64) (release.Catalog, error)
 	}
 	catalog := release.NewCatalog()
 	journaled, ok := any(catalog).(journaledCatalog)
@@ -194,7 +194,8 @@ func TestCatalogJournalPreservesDraftAndRollbackStateAcrossRestart(t *testing.T)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
-	snapshot, err := any(published).(journaledCatalog).Snapshot()
+	signer, trust, _ := lifecycleCredentials(t)
+	snapshot, err := any(published).(journaledCatalog).Snapshot(signer)
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
@@ -206,7 +207,7 @@ func TestCatalogJournalPreservesDraftAndRollbackStateAcrossRestart(t *testing.T)
 	if err != nil {
 		t.Fatalf("read journal fixture: %v", err)
 	}
-	restored, err := any(release.NewCatalog()).(journaledCatalog).Restore(restoredBytes, []release.Release{draft})
+	restored, err := any(release.NewCatalog()).(journaledCatalog).Restore(restoredBytes, []release.Release{draft}, trust, 1)
 	if err != nil {
 		t.Fatalf("Restore: %v", err)
 	}

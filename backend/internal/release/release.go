@@ -466,9 +466,21 @@ func cloneRelease(r Release) Release {
 	return copy
 }
 
-type Catalog struct{ releases map[string]Release }
+type Catalog struct {
+	releases     map[string]Release
+	predecessors map[string]string
+	revision     uint64
+}
 
-func NewCatalog() Catalog { return Catalog{releases: make(map[string]Release)} }
+func NewCatalog() Catalog {
+	return Catalog{
+		releases:     make(map[string]Release),
+		predecessors: make(map[string]string),
+		revision:     1,
+	}
+}
+
+func (c Catalog) Revision() uint64 { return c.revision }
 
 func (c Catalog) AddDraft(spec CandidateSpec) (Catalog, error) {
 	candidate, err := NewCandidate(spec)
@@ -483,6 +495,9 @@ func (c Catalog) AddDraft(spec CandidateSpec) (Catalog, error) {
 }
 
 func (c Catalog) PromoteDraft(releaseID string) (Catalog, error) {
+	if err := validateCatalog(c); err != nil {
+		return Catalog{}, err
+	}
 	draft, exists := c.releases[releaseID]
 	if !exists || draft.state != Draft {
 		return Catalog{}, invalid("draft_not_found")
@@ -493,6 +508,9 @@ func (c Catalog) PromoteDraft(releaseID string) (Catalog, error) {
 	}
 	copy := c.clone()
 	copy.releases[releaseID] = candidate
+	if err := bumpCatalogRevision(&copy); err != nil {
+		return Catalog{}, err
+	}
 	return copy, nil
 }
 
@@ -504,6 +522,9 @@ func (c Catalog) AddCandidate(candidate Release) (Catalog, error) {
 }
 
 func (c Catalog) add(value Release) (Catalog, error) {
+	if err := validateCatalog(c); err != nil {
+		return Catalog{}, err
+	}
 	if !validID(value.manifest.ReleaseID) {
 		return Catalog{}, invalid("release_id_invalid")
 	}
@@ -520,15 +541,22 @@ func (c Catalog) add(value Release) (Catalog, error) {
 		}
 	}
 	copy.releases[value.manifest.ReleaseID] = cloneRelease(value)
+	if err := bumpCatalogRevision(&copy); err != nil {
+		return Catalog{}, err
+	}
 	return copy, nil
 }
 
 func (c Catalog) Publish(releaseID string) (Catalog, error) {
+	if err := validateCatalog(c); err != nil {
+		return Catalog{}, err
+	}
 	candidate, exists := c.releases[releaseID]
 	if !exists || candidate.state != Candidate {
 		return Catalog{}, invalid("candidate_not_found")
 	}
 	profileID := candidate.manifest.TransportProfileID
+	predecessorID := ""
 	for _, existing := range c.releases {
 		if existing.state == Published && existing.manifest.TransportProfileID == profileID && candidate.manifest.Generation <= existing.manifest.Generation {
 			return Catalog{}, invalid("generation_stale")
@@ -544,31 +572,31 @@ func (c Catalog) Publish(releaseID string) (Catalog, error) {
 			return Catalog{}, err
 		}
 		copy.releases[id] = retired
+		predecessorID = id
 	}
 	published, err := candidate.withState(Published)
 	if err != nil {
 		return Catalog{}, err
 	}
 	copy.releases[releaseID] = published
+	copy.predecessors[releaseID] = predecessorID
+	if err := bumpCatalogRevision(&copy); err != nil {
+		return Catalog{}, err
+	}
 	return copy, nil
 }
 
 func (c Catalog) Rollback(currentReleaseID string) (Catalog, string, error) {
+	if err := validateCatalog(c); err != nil {
+		return Catalog{}, "", err
+	}
 	current, exists := c.releases[currentReleaseID]
 	if !exists || current.state != Published {
 		return Catalog{}, "", invalid("published_not_found")
 	}
-	selectedID := ""
-	var selected Release
-	for id, value := range c.releases {
-		if value.state != Retired || value.manifest.TransportProfileID != current.manifest.TransportProfileID || value.manifest.Generation >= current.manifest.Generation {
-			continue
-		}
-		if selectedID == "" || value.manifest.Generation > selected.manifest.Generation {
-			selectedID, selected = id, value
-		}
-	}
-	if selectedID == "" {
+	selectedID, wasPublished := c.predecessors[currentReleaseID]
+	selected, selectedExists := c.releases[selectedID]
+	if !wasPublished || selectedID == "" || !selectedExists || selected.state != Retired {
 		return Catalog{}, "", invalid("rollback_point_missing")
 	}
 	copy := c.clone()
@@ -581,30 +609,44 @@ func (c Catalog) Rollback(currentReleaseID string) (Catalog, string, error) {
 		return Catalog{}, "", err
 	}
 	copy.releases[currentReleaseID], copy.releases[selectedID] = retiredCurrent, publishedSelected
+	if err := bumpCatalogRevision(&copy); err != nil {
+		return Catalog{}, "", err
+	}
 	return copy, selectedID, nil
 }
 
 func (c Catalog) CurrentForProfile(profileID string) (Release, bool) {
+	var current Release
+	found := false
 	for _, value := range c.releases {
 		if value.state == Published && value.manifest.TransportProfileID == profileID {
-			return cloneRelease(value), true
+			if found {
+				return Release{}, false
+			}
+			current, found = value, true
 		}
 	}
-	return Release{}, false
+	if !found {
+		return Release{}, false
+	}
+	return cloneRelease(current), true
 }
 
 func (c Catalog) Current() (Release, bool) {
-	ids := make([]string, 0, len(c.releases))
-	for id := range c.releases {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		if c.releases[id].state == Published {
-			return cloneRelease(c.releases[id]), true
+	var current Release
+	found := false
+	for _, value := range c.releases {
+		if value.state == Published {
+			if found {
+				return Release{}, false
+			}
+			current, found = value, true
 		}
 	}
-	return Release{}, false
+	if !found {
+		return Release{}, false
+	}
+	return cloneRelease(current), true
 }
 
 func (c Catalog) Get(releaseID string) (Release, bool) {
@@ -616,78 +658,16 @@ func (c Catalog) Get(releaseID string) (Release, bool) {
 }
 
 func (c Catalog) clone() Catalog {
-	copy := Catalog{releases: make(map[string]Release, len(c.releases))}
+	copy := Catalog{
+		releases:     make(map[string]Release, len(c.releases)),
+		predecessors: make(map[string]string, len(c.predecessors)),
+		revision:     c.revision,
+	}
 	for id, value := range c.releases {
 		copy.releases[id] = cloneRelease(value)
 	}
+	for id, predecessorID := range c.predecessors {
+		copy.predecessors[id] = predecessorID
+	}
 	return copy
-}
-
-type journal struct {
-	SchemaVersion int            `json:"schema_version"`
-	Entries       []journalEntry `json:"entries"`
-}
-
-type journalEntry struct {
-	ReleaseID          string `json:"release_id"`
-	ManifestSHA256     string `json:"manifest_sha256"`
-	TransportProfileID string `json:"transport_profile_id"`
-	Generation         uint64 `json:"generation"`
-	State              State  `json:"state"`
-}
-
-func (c Catalog) Snapshot() ([]byte, error) {
-	ids := make([]string, 0, len(c.releases))
-	for id := range c.releases {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	value := journal{SchemaVersion: 1, Entries: make([]journalEntry, 0, len(ids))}
-	for _, id := range ids {
-		r := c.releases[id]
-		value.Entries = append(value.Entries, journalEntry{
-			ReleaseID: id, ManifestSHA256: r.manifestSHA256, TransportProfileID: r.manifest.TransportProfileID,
-			Generation: r.manifest.Generation, State: r.state,
-		})
-	}
-	return json.Marshal(value)
-}
-
-func (c Catalog) Restore(raw []byte, releases []Release) (Catalog, error) {
-	var value journal
-	if len(raw) == 0 || len(raw) > maxManifestBytes || decodeCanonicalJSON(raw, &value) != nil || value.SchemaVersion != 1 {
-		return Catalog{}, invalid("journal_invalid")
-	}
-	available := make(map[string]Release, len(releases))
-	for _, r := range releases {
-		available[r.manifest.ReleaseID] = r
-	}
-	restored := NewCatalog()
-	lastID := ""
-	publishedProfiles := map[string]struct{}{}
-	for _, entry := range value.Entries {
-		if entry.ReleaseID <= lastID || !validID(entry.ReleaseID) || !validSHA256(entry.ManifestSHA256) {
-			return Catalog{}, invalid("journal_entry_invalid")
-		}
-		base, ok := available[entry.ReleaseID]
-		if !ok || base.manifestSHA256 != entry.ManifestSHA256 || base.manifest.TransportProfileID != entry.TransportProfileID || base.manifest.Generation != entry.Generation {
-			return Catalog{}, invalid("journal_binding_mismatch")
-		}
-		stateful, err := base.setState(entry.State)
-		if err != nil {
-			return Catalog{}, err
-		}
-		if entry.State == Published {
-			if _, exists := publishedProfiles[entry.TransportProfileID]; exists {
-				return Catalog{}, invalid("journal_multiple_published")
-			}
-			publishedProfiles[entry.TransportProfileID] = struct{}{}
-		}
-		restored.releases[entry.ReleaseID] = stateful
-		lastID = entry.ReleaseID
-	}
-	if len(restored.releases) != len(available) {
-		return Catalog{}, invalid("journal_release_set_mismatch")
-	}
-	return restored, nil
 }
