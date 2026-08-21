@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // EntitlementState is the independent lifecycle of white-list access. It is
@@ -67,7 +69,7 @@ const (
 	maestroAdvancedProtectionLevel = "advanced"
 	maestroAdvancedCoreRange       = "xray>=26.7.28"
 	maestroAdvancedFingerprint     = "firefox"
-	maestroAdvancedExtraJSON       = "{}"
+	maestroAdvancedExtraJSON       = `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id"}`
 	maestroAdvancedLabelPrefix     = "БС/Yandex"
 )
 
@@ -207,8 +209,10 @@ func (release TransportRelease) ApprovedEdges() []ApprovedEdge {
 // WhiteListCredential is the per-account public client material required to
 // render a complete VLESS node. It never belongs to a transport preset.
 type WhiteListCredential struct {
-	ClientID         string
-	ClientEncryption string
+	ClientID                 string
+	ClientEncryption         string
+	ClientEncryptionRole     string
+	ClientEncryptionProofRef string
 }
 
 // WhiteListEntitlement is the per-account additive right. Its zero value is a
@@ -305,7 +309,7 @@ func validPreset(preset CompatibilityPreset) bool {
 		preset.Protocol == "vless" && preset.Network == "xhttp" && preset.Port == 443 && preset.TLS &&
 		preset.Mode == "packet-up" && preset.UplinkHTTPMethod == "GET" && preset.UplinkDataPlacement == "body" &&
 		equalStrings(preset.ALPN, maestroAdvancedALPN) && preset.Fingerprint == maestroAdvancedFingerprint &&
-		preset.ExtraJSON == maestroAdvancedExtraJSON && preset.LabelPrefix == maestroAdvancedLabelPrefix && preset.DomainFallback
+		validAdvancedExtraJSON(preset.ExtraJSON) && preset.LabelPrefix == maestroAdvancedLabelPrefix && preset.DomainFallback
 }
 
 func validPublicHost(host string) bool {
@@ -353,7 +357,7 @@ func validSecretPath(value string) bool {
 }
 
 func validDecodedSecretPath(value string) bool {
-	if len(value) <= 1 || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "?#\\") || path.Clean(value) != value {
+	if !utf8.ValidString(value) || len(value) <= 1 || !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "?#\\") || path.Clean(value) != value {
 		return false
 	}
 	for _, segment := range strings.Split(strings.TrimPrefix(value, "/"), "/") {
@@ -361,7 +365,7 @@ func validDecodedSecretPath(value string) bool {
 			return false
 		}
 		for _, char := range segment {
-			if unicode.IsSpace(char) || unicode.IsControl(char) || char == 0x7f {
+			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.' || char == '~') {
 				return false
 			}
 		}
@@ -415,12 +419,45 @@ func equalStrings(left, right []string) bool {
 	return true
 }
 
+func validAdvancedExtraJSON(raw string) bool {
+	var metadata struct {
+		SessionIDPlacement string `json:"sessionIDPlacement"`
+		SessionIDKey       string `json:"sessionIDKey"`
+		SessionIDLength    int    `json:"sessionIDLength"`
+		SeqPlacement       string `json:"seqPlacement"`
+		SeqKey             string `json:"seqKey"`
+	}
+	if raw != maestroAdvancedExtraJSON || json.Unmarshal([]byte(raw), &metadata) != nil {
+		return false
+	}
+	return metadata.SessionIDPlacement == "query" && metadata.SessionIDKey == "auth" && metadata.SessionIDLength >= 8 &&
+		metadata.SeqPlacement == "query" && metadata.SeqKey == "chunk_id"
+}
+
 func validWhiteListCredential(credential WhiteListCredential) bool {
-	return validUUID(credential.ClientID) && validOpaqueCredential(credential.ClientEncryption)
+	return validUUID(credential.ClientID) && credential.ClientEncryptionRole == "CLIENT" &&
+		validClientEncryption(credential.ClientEncryption) && validOpaqueCredential(credential.ClientEncryptionProofRef)
+}
+
+func validClientEncryption(value string) bool {
+	const prefix = "mlkem768x25519plus.native.0rtt."
+	if !strings.HasPrefix(value, prefix) {
+		return false
+	}
+	material := strings.TrimPrefix(value, prefix)
+	if len(material) < 16 || strings.Contains(strings.ToLower(material), "server") || strings.Contains(strings.ToLower(material), "decryption") {
+		return false
+	}
+	for _, char := range material {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || char == '-' || char == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func validUUID(value string) bool {
-	if len(value) != 36 {
+	if len(value) != 36 || value == "00000000-0000-0000-0000-000000000000" {
 		return false
 	}
 	for index, char := range value {

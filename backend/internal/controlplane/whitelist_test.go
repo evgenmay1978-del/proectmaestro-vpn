@@ -25,14 +25,16 @@ func validPreset() controlplane.CompatibilityPreset {
 		CoreRange:    "xray>=26.7.28", ClientRanges: []string{"maestrovpn>=154"}, FixtureRefs: []string{"fixture-a"},
 		Protocol: "vless", Network: "xhttp", Port: 443, TLS: true,
 		Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
-		ALPN: []string{"h2"}, Fingerprint: "firefox", ExtraJSON: "{}", LabelPrefix: "БС/Yandex", DomainFallback: true,
+		ALPN: []string{"h2"}, Fingerprint: "firefox", ExtraJSON: `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id"}`, LabelPrefix: "БС/Yandex", DomainFallback: true,
 	}
 }
 
 func validCredential() controlplane.WhiteListCredential {
 	return controlplane.WhiteListCredential{
-		ClientID:         "11111111-1111-4111-8111-111111111111",
-		ClientEncryption: "mlkem768x25519plus.native.0rtt.test-client-material",
+		ClientID:                 "11111111-1111-4111-8111-111111111111",
+		ClientEncryption:         "mlkem768x25519plus.native.0rtt.test-client-material",
+		ClientEncryptionRole:     "CLIENT",
+		ClientEncryptionProofRef: "fixture-vlessenc-client-a",
 	}
 }
 
