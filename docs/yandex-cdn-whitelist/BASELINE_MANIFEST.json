@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 235616,
-      "sha256": "e7c641b5989528fadb5d865cc60b9448c8ae0f56104b3e7d12f2e51903de291d",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAAA. YANDEX CDN WHITE-LIST TASK 1 FINAL LOCAL GREEN (20.08.2026)\n\n- \u0412\u0435\u0442\u043a\u0430 `codex/yandex-cdn-whitelist`; \u0444\u0438\u043d\u0430\u043b\u044c\u043d\u044b\u0439 implementation/security SHA Task 1 \u2014\n  `018ac708f8274a7bb767788d333c4b411246b683`, \u043e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0439 plan commit \u2014 `2a5cbb4`.\n- \u041b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0435 gates: `python "
+      "bytes": 237682,
+      "sha256": "5956aec0a07ec75a5c9aea569e004a0e6d4e0d8e07723cbd1becaa308fed29e0",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAAAA. YANDEX CDN WHITE-LIST TASK 2 FINAL GREEN (21.08.2026)\n\n- \u0412\u0435\u0442\u043a\u0430 `codex/yandex-cdn-whitelist`; implementation/security SHA Task 2 \u2014\n  `e05b52104d805855a749b393b43a79db8fbf9f83`; regression SHA \u2014\n  `d1310f29f6199a82dc0f28f0f99e907b89e25142`; proof-binding "
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",

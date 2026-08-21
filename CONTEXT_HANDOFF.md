@@ -3,19 +3,22 @@
 ## 0AAAAAAA. YANDEX CDN WHITE-LIST TASK 2 FINAL GREEN (21.08.2026)
 
 - Ветка `codex/yandex-cdn-whitelist`; implementation/security SHA Task 2 —
-  `e05b52104d805855a749b393b43a79db8fbf9f83`; финальный regression SHA —
-  `d1310f29f6199a82dc0f28f0f99e907b89e25142`. Exact-SHA GitHub Actions run
-  `32436553009` завершён `success`: formatting, backend, race, vet и изолированный
+  `e05b52104d805855a749b393b43a79db8fbf9f83`; regression SHA —
+  `d1310f29f6199a82dc0f28f0f99e907b89e25142`; proof-binding GREEN SHA —
+  `cd87f29279233e6741072990ee3b78e9e713ef38`. Exact-SHA GitHub Actions run
+  `32437296183` завершён `success`: formatting, backend, race, vet и изолированный
   rqlite/importer контур прошли.
 - RED `ed9fb596c771ad54bf01f0411097e1a7873e6af4` доказал отклонение nil/none/
   opaque/server-role encryption material, пустого/неполного XHTTP metadata,
-  percent escapes и raw invalid UTF-8. Каждый credential gate затем закреплён
-  отдельной мутацией от валидного fixture. Локальный RED падал только на этих новых gates.
-- ACTIVE entitlement теперь требует отдельный client-side VLESS Encryption
-  material с явной ролью `CLIENT` и provenance reference. В subscription не
-  попадает server-decryption material. MAESTRO_ADVANCED требует непустые session/
-  sequence query metadata; secret path проходит bounded decode и строгую
-  URL-safe ASCII/UTF-8 validation.
+  percent escapes и raw invalid UTF-8. RED `151172e` отдельно доказал, что
+  изменение material при сохранённом proof и поддельный digest должны отклоняться.
+- ACTIVE entitlement требует client-side VLESS Encryption material с ролью
+  `CLIENT` и versioned proof `xray-vlessenc-client-v1:sha256:<digest>`. Digest
+  вычисляется по каноническим source/version, роли и material и сравнивается
+  constant-time; несовпадающий, поддельный, server-role и `none` proof закрывают
+  публикацию fail-closed. В subscription не попадает server-decryption material.
+- MAESTRO_ADVANCED требует непустые session/sequence query metadata; secret path
+  проходит bounded decode и строгую URL-safe ASCII/UTF-8 validation.
 - Renderer остаётся additive: при OFF/ошибке ordinary output сохраняется, CDN
   nodes не публикуются; при ACTIVE выдаются канонические approved edges и domain
   fallback с полным typed contract. Persistence migration, live panel/API,
