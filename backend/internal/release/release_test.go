@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -127,9 +128,14 @@ func TestManifestParserRejectsNonCanonicalUnsafeAndTamperedContent(t *testing.T)
 	unknown := append(append([]byte(nil), canonical[:len(canonical)-1]...), []byte(`,"unexpected":true}`)...)
 	unsafePath := bytes.Replace(canonical, []byte(`"config.json"`), []byte(`"../config.json"`), 1)
 	upperHash := append([]byte(nil), canonical...)
-	for index, value := range upperHash {
+	firstHash := candidate.Manifest().Artifacts[0].SHA256
+	hashOffset := bytes.Index(upperHash, []byte(firstHash))
+	if hashOffset < 0 {
+		t.Fatal("artifact hash missing from canonical manifest")
+	}
+	for index, value := range upperHash[hashOffset : hashOffset+len(firstHash)] {
 		if value >= 'a' && value <= 'f' {
-			upperHash[index] = value - ('a' - 'A')
+			upperHash[hashOffset+index] = value - ('a' - 'A')
 			break
 		}
 	}
@@ -266,9 +272,15 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 		t.Fatalf("ValidateRollbackTemplate: %v", err)
 	}
 	if !bytes.Contains(config, []byte(`"port":18081`)) || bytes.Contains(config, []byte("18080")) ||
+		!bytes.Contains(config, []byte(`"listen":"127.0.0.1","port":18082,"protocol":"dokodemo-door"`)) ||
+		!bytes.Contains(config, []byte(`"services":["HandlerService","StatsService"]`)) ||
+		!bytes.Contains(config, []byte(`/var/log/maestro-xray-cdn/access.log`)) ||
+		!bytes.Contains(config, []byte(`/var/log/maestro-xray-cdn/error.log`)) ||
 		!bytes.Contains(unit, []byte("maestro-xray-cdn.service")) || bytes.Contains(unit, []byte("18080")) ||
+		!bytes.Contains(unit, []byte("LogsDirectory=maestro-xray-cdn")) ||
+		!bytes.Contains(unit, []byte("LogsDirectoryMode=0750")) ||
 		!bytes.Contains(rollback, []byte(`"fallback_probe_port":18080`)) {
-		t.Fatalf("isolated/fallback template contract missing")
+		t.Fatalf("isolated api/log/fallback template contract missing")
 	}
 	secret := "synthetic-server-decryption-material"
 	leakedConfig := bytes.Replace(config, []byte("<RUNTIME_SERVER_DECRYPTION>"), []byte(secret), 1)
@@ -286,6 +298,55 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), secret) {
 				t.Fatal("validation error leaked secret value")
+			}
+		})
+	}
+}
+
+func TestCatalogRejectsStaleCandidatePromotion(t *testing.T) {
+	catalog, err := release.NewCatalog().AddCandidate(mustCandidate(t, "release-2", 2))
+	if err != nil {
+		t.Fatalf("AddCandidate current: %v", err)
+	}
+	published, err := catalog.Publish("release-2")
+	if err != nil {
+		t.Fatalf("Publish current: %v", err)
+	}
+	withStale, err := published.AddCandidate(mustCandidate(t, "release-1", 1))
+	if err != nil {
+		t.Fatalf("AddCandidate stale: %v", err)
+	}
+	if _, err := withStale.Publish("release-1"); err == nil {
+		t.Fatal("stale candidate replaced a newer published release")
+	}
+	current, ok := withStale.Current()
+	if !ok || current.Manifest().ReleaseID != "release-2" {
+		t.Fatal("rejected stale publication mutated the catalog")
+	}
+}
+
+func TestManifestRejectsArtifactSizesBeyondPathLimits(t *testing.T) {
+	candidate := mustCandidate(t, "release-a", 1)
+	limits := map[string]int64{
+		"config.json": 1 << 20,
+		"maestro-xray-cdn.service": 64 << 10,
+		"rollback.json": 64 << 10,
+		"xray": 256 << 20,
+	}
+	for path, limit := range limits {
+		t.Run(path, func(t *testing.T) {
+			manifest := candidate.Manifest()
+			for index := range manifest.Artifacts {
+				if manifest.Artifacts[index].Path == path {
+					manifest.Artifacts[index].Size = limit + 1
+				}
+			}
+			raw, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if _, err := release.ParseManifest(raw); err == nil {
+				t.Fatal("oversized artifact declaration accepted")
 			}
 		})
 	}
@@ -345,6 +406,42 @@ func TestReleaseDirectoryValidationRejectsUnexpectedAndSymlinkArtifacts(t *testi
 		}
 		if err := release.ValidateReleaseDirectory(dir); err == nil {
 			t.Fatal("symlink artifact accepted")
+		}
+	})
+	t.Run("non-executable xray", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("POSIX mode contract is covered by Linux CI")
+		}
+		dir := write(t)
+		if err := os.Chmod(filepath.Join(dir, "xray"), 0o600); err != nil {
+			t.Fatalf("chmod xray: %v", err)
+		}
+		if err := release.ValidateReleaseDirectory(dir); err == nil {
+			t.Fatal("non-executable xray accepted")
+		}
+	})
+	t.Run("group-writable config", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("POSIX mode contract is covered by Linux CI")
+		}
+		dir := write(t)
+		if err := os.Chmod(filepath.Join(dir, "config.json"), 0o620); err != nil {
+			t.Fatalf("chmod config: %v", err)
+		}
+		if err := release.ValidateReleaseDirectory(dir); err == nil {
+			t.Fatal("group-writable config accepted")
+		}
+	})
+	t.Run("world-writable manifest", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("POSIX mode contract is covered by Linux CI")
+		}
+		dir := write(t)
+		if err := os.Chmod(filepath.Join(dir, "manifest.json"), 0o602); err != nil {
+			t.Fatalf("chmod manifest: %v", err)
+		}
+		if err := release.ValidateReleaseDirectory(dir); err == nil {
+			t.Fatal("world-writable manifest accepted")
 		}
 	})
 }
