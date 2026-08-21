@@ -126,6 +126,13 @@ func TestRuntimeMaterializationIsSeparateDeterministicAndSealed(t *testing.T) {
 	if err != nil || !bytes.Equal(first, second) {
 		t.Fatal("runtime materialization is not deterministic")
 	}
+	withUnknown := map[string]string{
+		"public_host": "runtime.example.invalid", "secret_path": "/static/runtime/segment.ts/opaque",
+		"server_decryption": "synthetic-runtime-material", "unexpected": "must-fail",
+	}
+	if _, err := value.MaterializeRuntimeConfig(withUnknown); err == nil {
+		t.Fatal("runtime materialization accepted an unknown field")
+	}
 	if bytes.Contains(first, []byte("<RUNTIME_")) || !bytes.Contains(first, []byte("runtime.example.invalid")) {
 		t.Fatal("runtime config contains unresolved placeholders or missed material")
 	}
