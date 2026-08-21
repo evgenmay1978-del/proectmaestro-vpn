@@ -1,0 +1,48 @@
+name: Yandex CDN isolated release checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/yandex-cdn-release.yml'
+      - 'backend/internal/release/**'
+      - 'backend/cmd/maestro-release-validate/**'
+  push:
+    paths:
+      - '.github/workflows/yandex-cdn-release.yml'
+      - 'backend/internal/release/**'
+      - 'backend/cmd/maestro-release-validate/**'
+
+permissions:
+  contents: read
+
+jobs:
+  release-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+
+      - name: Verify release Go formatting
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          diff_file="$(mktemp)"
+          gofmt -d internal/release cmd/maestro-release-validate >"${diff_file}"
+          test ! -s "${diff_file}"
+
+      - name: Test isolated release contracts
+        working-directory: backend
+        run: go test ./internal/release ./cmd/maestro-release-validate
+
+      - name: Race-test isolated release contracts
+        working-directory: backend
+        run: go test -race ./internal/release ./cmd/maestro-release-validate
+
+      - name: Vet isolated release contracts
+        working-directory: backend
+        run: go vet ./internal/release ./cmd/maestro-release-validate
