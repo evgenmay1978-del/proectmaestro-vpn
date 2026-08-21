@@ -24,8 +24,6 @@ Type=simple
 User=maestro-xray-cdn
 Group=maestro-xray-cdn
 WorkingDirectory=/opt/maestro-xray-cdn/current
-RuntimeDirectory=maestro-xray-cdn
-RuntimeDirectoryMode=0750
 LogsDirectory=maestro-xray-cdn
 LogsDirectoryMode=0750
 ExecStartPre=/opt/maestro-xray-cdn/current/xray run -test -config /run/maestro-xray-cdn/config.json
@@ -38,8 +36,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls
-ReadWritePaths=/run/maestro-xray-cdn /var/log/maestro-xray-cdn
+ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls /run/maestro-xray-cdn /run/maestro-xray-cdn/config.json
+ReadWritePaths=/var/log/maestro-xray-cdn
 
 [Install]
 WantedBy=multi-user.target

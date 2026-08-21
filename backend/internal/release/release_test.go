@@ -316,6 +316,33 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 	}
 }
 
+func TestSystemdRuntimeConfigIsExternallyRootMaterializedAndReadOnly(t *testing.T) {
+	unit := string(release.DefaultSystemdTemplate())
+	for _, forbidden := range []string{
+		"\nRuntimeDirectory=",
+		"\nRuntimeDirectoryMode=",
+		"ReadWritePaths=/run/maestro-xray-cdn",
+	} {
+		if strings.Contains(unit, forbidden) {
+			t.Fatalf("systemd unit contains forbidden sidecar-writable runtime directive %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls /run/maestro-xray-cdn /run/maestro-xray-cdn/config.json",
+		"ReadWritePaths=/var/log/maestro-xray-cdn",
+		"ExecStartPre=/opt/maestro-xray-cdn/current/xray run -test -config " + release.RuntimeConfigPath,
+		"ExecStart=/opt/maestro-xray-cdn/current/xray run -config " + release.RuntimeConfigPath,
+	} {
+		if !strings.Contains(unit, required) {
+			t.Fatalf("systemd unit missing root-owned runtime contract %q", required)
+		}
+	}
+	const exactWritableLine = "\nReadWritePaths=/var/log/maestro-xray-cdn\n"
+	if strings.Count(unit, "\nReadWritePaths=") != 1 || !strings.Contains(unit, exactWritableLine) {
+		t.Fatalf("systemd unit must expose only the dedicated log directory as writable")
+	}
+}
+
 func TestAPIControlBoundaryRejectsUnauthenticatedConfiguration(t *testing.T) {
 	config := release.DefaultConfigTemplate()
 	withoutTLS := bytes.Replace(config, []byte(`"security":"tls"`), []byte(`"security":"none"`), 1)

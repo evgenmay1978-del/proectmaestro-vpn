@@ -7,11 +7,15 @@ on:
       - '.github/workflows/yandex-cdn-release.yml'
       - 'backend/internal/release/**'
       - 'backend/cmd/maestro-release-validate/**'
+      - 'ops/validate-yandex-cdn-release.ps1'
+      - 'ops/validate-yandex-cdn-release.sh'
   push:
     paths:
       - '.github/workflows/yandex-cdn-release.yml'
       - 'backend/internal/release/**'
       - 'backend/cmd/maestro-release-validate/**'
+      - 'ops/validate-yandex-cdn-release.ps1'
+      - 'ops/validate-yandex-cdn-release.sh'
 
 permissions:
   contents: read
@@ -20,12 +24,30 @@ jobs:
   release-contracts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
           cache: false
+
+      - name: Validate Bash release wrapper syntax
+        run: bash -n ops/validate-yandex-cdn-release.sh
+
+      - name: Validate PowerShell release wrapper syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath 'ops/validate-yandex-cdn-release.ps1').Path,
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -ne 0) {
+            $parseErrors | ForEach-Object { $_.Message }
+            exit 1
+          }
 
       - name: Verify release Go formatting
         working-directory: backend
@@ -37,11 +59,11 @@ jobs:
 
       - name: Test isolated release contracts
         working-directory: backend
-        run: go test ./internal/release ./cmd/maestro-release-validate
+        run: go test -count=1 ./internal/release ./cmd/maestro-release-validate
 
       - name: Race-test isolated release contracts
         working-directory: backend
-        run: go test -race ./internal/release ./cmd/maestro-release-validate
+        run: go test -count=1 -race ./internal/release ./cmd/maestro-release-validate
 
       - name: Vet isolated release contracts
         working-directory: backend
