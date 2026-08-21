@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-const defaultConfigTemplate = `{"log":{"loglevel":"warning"},"inbounds":[{"listen":"0.0.0.0","port":18081,"protocol":"vless","settings":{"clients":[],"decryption":"<RUNTIME_SERVER_DECRYPTION>"},"streamSettings":{"network":"xhttp","xhttpSettings":{"host":"<RUNTIME_PUBLIC_HOST>","path":"<RUNTIME_SECRET_PATH>","mode":"packet-up"}},"tag":"maestro-cdn-in"}],"outbounds":[{"protocol":"freedom","tag":"direct"}],"policy":{"system":{"statsInboundUplink":true,"statsInboundDownlink":true}},"stats":{}}`
+const defaultConfigTemplate = `{"log":{"access":"/var/log/maestro-xray-cdn/access.log","error":"/var/log/maestro-xray-cdn/error.log","loglevel":"warning"},"api":{"tag":"api","services":["HandlerService","StatsService"]},"inbounds":[{"listen":"0.0.0.0","port":18081,"protocol":"vless","settings":{"clients":[],"decryption":"<RUNTIME_SERVER_DECRYPTION>"},"streamSettings":{"network":"xhttp","xhttpSettings":{"host":"<RUNTIME_PUBLIC_HOST>","path":"<RUNTIME_SECRET_PATH>","mode":"packet-up"}},"tag":"maestro-cdn-in"},{"listen":"127.0.0.1","port":18082,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"},"tag":"api"}],"outbounds":[{"protocol":"freedom","tag":"direct"}],"routing":{"rules":[{"type":"field","inboundTag":["api"],"outboundTag":"api"}]},"policy":{"system":{"statsInboundUplink":true,"statsInboundDownlink":true}},"stats":{}}`
 
 const defaultSystemdTemplate = `[Unit]
 Description=MaestroVPN isolated Xray CDN sidecar (maestro-xray-cdn.service)
@@ -23,6 +23,8 @@ Group=maestro-xray-cdn
 WorkingDirectory=/opt/maestro-xray-cdn/current
 RuntimeDirectory=maestro-xray-cdn
 RuntimeDirectoryMode=0750
+LogsDirectory=maestro-xray-cdn
+LogsDirectoryMode=0750
 ExecStartPre=/opt/maestro-xray-cdn/current/xray run -test -config /opt/maestro-xray-cdn/current/config.json
 ExecStart=/opt/maestro-xray-cdn/current/xray run -config /opt/maestro-xray-cdn/current/config.json
 Restart=on-failure
@@ -48,32 +50,45 @@ func DefaultRollbackTemplate() []byte { return []byte(defaultRollbackTemplate) }
 
 type xrayConfig struct {
 	Log       xrayLog        `json:"log"`
+	API       xrayAPI        `json:"api"`
 	Inbounds  []xrayInbound  `json:"inbounds"`
 	Outbounds []xrayOutbound `json:"outbounds"`
+	Routing   xrayRouting    `json:"routing"`
 	Policy    xrayPolicy     `json:"policy"`
 	Stats     struct{}       `json:"stats"`
 }
 
 type xrayLog struct {
+	Access   string `json:"access"`
+	Error    string `json:"error"`
 	LogLevel string `json:"loglevel"`
 }
 
-type xrayInbound struct {
-	Listen         string             `json:"listen"`
-	Port           int                `json:"port"`
-	Protocol       string             `json:"protocol"`
-	Settings       xraySettings       `json:"settings"`
-	StreamSettings xrayStreamSettings `json:"streamSettings"`
-	Tag            string             `json:"tag"`
+type xrayAPI struct {
+	Tag      string   `json:"tag"`
+	Services []string `json:"services"`
 }
 
-type xraySettings struct {
+type xrayInbound struct {
+	Listen         string              `json:"listen"`
+	Port           int                 `json:"port"`
+	Protocol       string              `json:"protocol"`
+	Settings       json.RawMessage     `json:"settings"`
+	StreamSettings *xrayStreamSettings `json:"streamSettings,omitempty"`
+	Tag            string              `json:"tag"`
+}
+
+type xrayVLESSSettings struct {
 	Clients    []struct{} `json:"clients"`
 	Decryption string     `json:"decryption"`
 }
 
+type xrayAPIInboundSettings struct {
+	Address string `json:"address"`
+}
+
 type xrayStreamSettings struct {
-	Network      string           `json:"network"`
+	Network       string            `json:"network"`
 	XHTTPSettings xrayXHTTPSettings `json:"xhttpSettings"`
 }
 
@@ -86,6 +101,16 @@ type xrayXHTTPSettings struct {
 type xrayOutbound struct {
 	Protocol string `json:"protocol"`
 	Tag      string `json:"tag"`
+}
+
+type xrayRouting struct {
+	Rules []xrayRoutingRule `json:"rules"`
+}
+
+type xrayRoutingRule struct {
+	Type        string   `json:"type"`
+	InboundTags []string `json:"inboundTag"`
+	OutboundTag string   `json:"outboundTag"`
 }
 
 type xrayPolicy struct {
@@ -112,21 +137,35 @@ func ValidateConfigTemplate(raw []byte) error {
 	if err := decodeCanonicalJSON(raw, &config); err != nil {
 		return err
 	}
-	if config.Log.LogLevel != "warning" || len(config.Inbounds) != 1 || len(config.Outbounds) != 1 {
+	if config.Log.Access != "/var/log/maestro-xray-cdn/access.log" ||
+		config.Log.Error != "/var/log/maestro-xray-cdn/error.log" || config.Log.LogLevel != "warning" ||
+		config.API.Tag != "api" || !equalStrings(config.API.Services, []string{"HandlerService", "StatsService"}) ||
+		len(config.Inbounds) != 2 || len(config.Outbounds) != 1 || len(config.Routing.Rules) != 1 {
 		return ErrInvalidRelease
 	}
-	inbound := config.Inbounds[0]
-	if inbound.Listen != "0.0.0.0" || inbound.Port != SidecarPort || inbound.Protocol != "vless" ||
-		inbound.Tag != "maestro-cdn-in" || len(inbound.Settings.Clients) != 0 ||
-		inbound.Settings.Decryption != "<RUNTIME_SERVER_DECRYPTION>" ||
-		inbound.StreamSettings.Network != "xhttp" ||
-		inbound.StreamSettings.XHTTPSettings.Host != "<RUNTIME_PUBLIC_HOST>" ||
-		inbound.StreamSettings.XHTTPSettings.Path != "<RUNTIME_SECRET_PATH>" ||
-		inbound.StreamSettings.XHTTPSettings.Mode != "packet-up" {
+	publicInbound := config.Inbounds[0]
+	var publicSettings xrayVLESSSettings
+	if decodeCanonicalJSON(publicInbound.Settings, &publicSettings) != nil || publicSettings.Clients == nil ||
+		publicInbound.Listen != "0.0.0.0" || publicInbound.Port != SidecarPort || publicInbound.Protocol != "vless" ||
+		publicInbound.Tag != "maestro-cdn-in" || len(publicSettings.Clients) != 0 ||
+		publicSettings.Decryption != "<RUNTIME_SERVER_DECRYPTION>" || publicInbound.StreamSettings == nil ||
+		publicInbound.StreamSettings.Network != "xhttp" ||
+		publicInbound.StreamSettings.XHTTPSettings.Host != "<RUNTIME_PUBLIC_HOST>" ||
+		publicInbound.StreamSettings.XHTTPSettings.Path != "<RUNTIME_SECRET_PATH>" ||
+		publicInbound.StreamSettings.XHTTPSettings.Mode != "packet-up" {
+		return ErrInvalidRelease
+	}
+	apiInbound := config.Inbounds[1]
+	var apiSettings xrayAPIInboundSettings
+	if decodeCanonicalJSON(apiInbound.Settings, &apiSettings) != nil || apiInbound.Listen != "127.0.0.1" ||
+		apiInbound.Port != StatsAPIPort || apiInbound.Protocol != "dokodemo-door" || apiInbound.Tag != "api" ||
+		apiInbound.StreamSettings != nil || apiSettings.Address != "127.0.0.1" {
 		return ErrInvalidRelease
 	}
 	outbound := config.Outbounds[0]
-	if outbound.Protocol != "freedom" || outbound.Tag != "direct" ||
+	rule := config.Routing.Rules[0]
+	if outbound.Protocol != "freedom" || outbound.Tag != "direct" || rule.Type != "field" ||
+		!equalStrings(rule.InboundTags, []string{"api"}) || rule.OutboundTag != "api" ||
 		!config.Policy.System.StatsInboundUplink || !config.Policy.System.StatsInboundDownlink ||
 		bytes.Contains(raw, []byte("18080")) {
 		return ErrInvalidRelease
@@ -177,6 +216,18 @@ func decodeCanonicalJSON(raw []byte, destination any) error {
 		return ErrInvalidRelease
 	}
 	return nil
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func containsForbiddenSecretSyntax(raw []byte) bool {

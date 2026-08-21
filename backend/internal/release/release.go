@@ -19,6 +19,7 @@ import (
 const (
 	SchemaVersion     = 1
 	SidecarPort       = 18081
+	StatsAPIPort      = 18082
 	FallbackProbePort = 18080
 	maxManifestBytes  = 64 << 10
 	maxBinaryBytes    = 256 << 20
@@ -208,7 +209,8 @@ func validateManifest(manifest Manifest) error {
 	}
 	allowed := allowedArtifactPaths()
 	for index, artifact := range manifest.Artifacts {
-		if artifact.Path != allowed[index] || artifact.Size <= 0 || !validSHA256(artifact.SHA256) {
+		if artifact.Path != allowed[index] || artifact.Size <= 0 || artifact.Size > artifactSizeLimit(artifact.Path) ||
+			!validSHA256(artifact.SHA256) {
 			return ErrInvalidRelease
 		}
 	}
@@ -219,6 +221,18 @@ func allowedArtifactPaths() []string {
 	return []string{"config.json", "maestro-xray-cdn.service", "rollback.json", "xray"}
 }
 
+func artifactSizeLimit(path string) int64 {
+	switch path {
+	case "config.json":
+		return 1 << 20
+	case "maestro-xray-cdn.service", "rollback.json":
+		return 64 << 10
+	case "xray":
+		return maxBinaryBytes
+	default:
+		return 0
+	}
+}
 func validateArtifactContent(path string, data []byte) error {
 	switch path {
 	case "config.json":
@@ -328,6 +342,11 @@ func (catalog Catalog) Publish(releaseID string) (Catalog, error) {
 	candidate, exists := catalog.releases[releaseID]
 	if !exists || candidate.state != Candidate {
 		return Catalog{}, ErrInvalidRelease
+	}
+	for _, existing := range catalog.releases {
+		if existing.state == Published && candidate.manifest.Generation <= existing.manifest.Generation {
+			return Catalog{}, ErrInvalidRelease
+		}
 	}
 	copy := catalog.clone()
 	for id, existing := range copy.releases {

@@ -3,6 +3,7 @@ package release
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -11,7 +12,7 @@ func ValidateReleaseDirectory(root string) error {
 		return ErrInvalidRelease
 	}
 	rootInfo, err := os.Lstat(root)
-	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || !safeReleaseDirectoryMode(rootInfo.Mode()) {
 		return ErrInvalidRelease
 	}
 	entries, err := os.ReadDir(root)
@@ -27,7 +28,8 @@ func ValidateReleaseDirectory(root string) error {
 			return ErrInvalidRelease
 		}
 		info, err := os.Lstat(filepath.Join(root, entry.Name()))
-		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+			!safeReleaseFileMode(entry.Name(), info.Mode()) {
 			return ErrInvalidRelease
 		}
 	}
@@ -42,11 +44,7 @@ func ValidateReleaseDirectory(root string) error {
 	release := Release{manifest: manifest}
 	artifacts := make(map[string][]byte, len(manifest.Artifacts))
 	for _, artifact := range manifest.Artifacts {
-		limit := int64(1 << 20)
-		if artifact.Path == "xray" {
-			limit = maxBinaryBytes
-		}
-		value, err := boundedRead(filepath.Join(root, artifact.Path), limit)
+		value, err := boundedRead(filepath.Join(root, artifact.Path), artifactSizeLimit(artifact.Path))
 		if err != nil {
 			return err
 		}
@@ -57,7 +55,8 @@ func ValidateReleaseDirectory(root string) error {
 
 func boundedRead(path string, limit int64) ([]byte, error) {
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > limit {
+	if err != nil || limit <= 0 || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		!safeReleaseFileMode(filepath.Base(path), info.Mode()) || info.Size() <= 0 || info.Size() > limit {
 		return nil, ErrInvalidRelease
 	}
 	value, err := os.ReadFile(path)
@@ -65,4 +64,26 @@ func boundedRead(path string, limit int64) ([]byte, error) {
 		return nil, ErrInvalidRelease
 	}
 	return value, nil
+}
+
+func safeReleaseDirectoryMode(mode os.FileMode) bool {
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	permissions := mode.Perm()
+	return permissions&0o100 != 0 && permissions&0o022 == 0
+}
+
+func safeReleaseFileMode(name string, mode os.FileMode) bool {
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	permissions := mode.Perm()
+	if permissions&0o400 == 0 || permissions&0o022 != 0 {
+		return false
+	}
+	if name == "xray" {
+		return permissions&0o100 != 0
+	}
+	return permissions&0o111 == 0
 }
