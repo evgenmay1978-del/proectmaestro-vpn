@@ -36,16 +36,17 @@ const (
 )
 
 type ActivationStoreConfig struct {
-	Root               string
-	StoreID            string
-	TransportProfileID string
-	TrustedOwnerUID    uint32
-	EvidenceTrust      EvidenceTrust
-	LifecycleSigner    LifecycleSigner
-	LifecycleTrust     LifecycleTrust
-	MinimumRevision    uint64
-	Now                func() time.Time
-	PhaseHook          func(ActivationPhase) error
+	Root                     string
+	StoreID                  string
+	TransportProfileID       string
+	TrustedOwnerUID          uint32
+	EvidenceTrust            EvidenceTrust
+	HistoricalEvidenceTrusts []EvidenceTrust
+	LifecycleSigner          LifecycleSigner
+	LifecycleTrust           LifecycleTrust
+	MinimumRevision          uint64
+	Now                      func() time.Time
+	PhaseHook                func(ActivationPhase) error
 }
 
 type activationFilesystemAnchor struct {
@@ -58,7 +59,7 @@ type ActivationStore struct {
 	storeID            string
 	transportProfileID string
 	trustedOwnerUID    uint32
-	evidenceTrust      EvidenceTrust
+	evidenceTrusts     activationEvidenceTrustRegistry
 	lifecycleSigner    LifecycleSigner
 	lifecycleTrust     LifecycleTrust
 	minimumRevision    uint64
@@ -163,7 +164,8 @@ func freezeActivationStore(config ActivationStoreConfig) (*ActivationStore, erro
 		config.Now == nil {
 		return nil, invalid("activation_config_invalid")
 	}
-	if err := config.EvidenceTrust.validate(); err != nil {
+	evidenceTrusts, err := newActivationEvidenceTrustRegistry(config.EvidenceTrust, config.HistoricalEvidenceTrusts)
+	if err != nil {
 		return nil, err
 	}
 	if err := validateLifecycleSigner(config.LifecycleSigner); err != nil {
@@ -186,10 +188,7 @@ func freezeActivationStore(config ActivationStoreConfig) (*ActivationStore, erro
 		storeID:            config.StoreID,
 		transportProfileID: config.TransportProfileID,
 		trustedOwnerUID:    config.TrustedOwnerUID,
-		evidenceTrust: EvidenceTrust{
-			SchemaVersion: config.EvidenceTrust.SchemaVersion,
-			Keys:          cloneTrustKeys(config.EvidenceTrust.Keys),
-		},
+		evidenceTrusts:     evidenceTrusts,
 		lifecycleSigner: LifecycleSigner{
 			KeyID:      config.LifecycleSigner.KeyID,
 			PrivateKey: append(ed25519.PrivateKey(nil), config.LifecycleSigner.PrivateKey...),
@@ -231,6 +230,10 @@ func (store *ActivationStore) publishLocked(root *activationLockedRoot, base Cat
 	if candidate.State() != Candidate || manifest.TransportProfileID != store.transportProfileID {
 		return Catalog{}, invalid("activation_candidate_mismatch")
 	}
+	admissionTrust, err := store.evidenceTrusts.admission(manifest.EvidenceTrustSHA256)
+	if err != nil {
+		return Catalog{}, err
+	}
 	stagingName, err := store.activationStagingName(stagingDir)
 	if err != nil {
 		return Catalog{}, err
@@ -247,7 +250,7 @@ func (store *ActivationStore) publishLocked(root *activationLockedRoot, base Cat
 	if err != nil {
 		return Catalog{}, err
 	}
-	identity, err := root.activationInspectSealedRelease(stagingName, store.evidenceTrust, &now)
+	identity, err := root.activationInspectSealedRelease(stagingName, admissionTrust, &now)
 	if err != nil {
 		return Catalog{}, err
 	}
@@ -293,7 +296,7 @@ func (store *ActivationStore) publishLocked(root *activationLockedRoot, base Cat
 	if err := store.activationCallPhase(ActivationBeforeIntent); err != nil {
 		return Catalog{}, err
 	}
-	identity, err = root.activationPrepareSealedRelease(stagingName, store.evidenceTrust, &now)
+	identity, err = root.activationPrepareSealedRelease(stagingName, admissionTrust, &now)
 	if err != nil {
 		return Catalog{}, err
 	}
@@ -307,7 +310,7 @@ func (store *ActivationStore) publishLocked(root *activationLockedRoot, base Cat
 		return Catalog{}, err
 	}
 	promoted, err := root.activationPromoteSealedRelease(
-		stagingName, manifest.ReleaseID, store.evidenceTrust, now,
+		stagingName, manifest.ReleaseID, admissionTrust, now,
 		func() error { return store.activationCallPhase(ActivationBeforePromotion) },
 	)
 	if err != nil {
@@ -400,7 +403,11 @@ func (store *ActivationStore) rollbackLocked(root *activationLockedRoot, base Ca
 	if !ok || selected.Manifest().TransportProfileID != store.transportProfileID {
 		return Catalog{}, "", invalid("activation_transition_invalid")
 	}
-	identity, err := root.activationInspectSealedRelease(selectedID, store.evidenceTrust, nil)
+	selectedTrust, err := store.evidenceTrusts.resolve(selected.Manifest().EvidenceTrustSHA256)
+	if err != nil {
+		return Catalog{}, "", err
+	}
+	identity, err := root.activationInspectSealedRelease(selectedID, selectedTrust, nil)
 	if err != nil {
 		return Catalog{}, "", err
 	}
@@ -434,7 +441,7 @@ func (store *ActivationStore) rollbackLocked(root *activationLockedRoot, base Ca
 	if err := store.activationCallPhase(ActivationBeforeIntent); err != nil {
 		return Catalog{}, "", err
 	}
-	identity, err = root.activationPrepareSealedRelease(selectedID, store.evidenceTrust, nil)
+	identity, err = root.activationPrepareSealedRelease(selectedID, selectedTrust, nil)
 	if err != nil {
 		return Catalog{}, "", err
 	}
@@ -450,7 +457,7 @@ func (store *ActivationStore) rollbackLocked(root *activationLockedRoot, base Ca
 	if err := store.activationCallPhase(ActivationBeforePromotion); err != nil {
 		return Catalog{}, "", err
 	}
-	identity, err = root.activationInspectSealedRelease(selectedID, store.evidenceTrust, nil)
+	identity, err = root.activationInspectSealedRelease(selectedID, selectedTrust, nil)
 	if err != nil {
 		return Catalog{}, "", err
 	}
@@ -527,12 +534,6 @@ func (store *ActivationStore) recoverLocked(root *activationLockedRoot, availabl
 		return Catalog{}, err
 	}
 	if !transactionExists {
-		if err := root.activationRepairTemps(nil); err != nil {
-			return Catalog{}, err
-		}
-		if err := activationRequireNoTemps(root); err != nil {
-			return Catalog{}, err
-		}
 		journal, exists, err := root.activationReadRegular("journal.json", maxManifestBytes)
 		if err != nil {
 			return Catalog{}, err
@@ -547,9 +548,19 @@ func (store *ActivationStore) recoverLocked(root *activationLockedRoot, availabl
 		if err := store.activationValidatePointer(root, catalog); err != nil {
 			return Catalog{}, err
 		}
+		if err := root.activationRepairTemps(nil); err != nil {
+			return Catalog{}, err
+		}
+		if err := activationRequireNoTemps(root); err != nil {
+			return Catalog{}, err
+		}
 		return catalog, nil
 	}
 	intent, _, planned, err := store.activationVerifyIntent(transactionRaw, available)
+	if err != nil {
+		return Catalog{}, err
+	}
+	targetTrust, err := store.evidenceTrusts.resolve(intent.EvidenceTrustSHA256)
 	if err != nil {
 		return Catalog{}, err
 	}
@@ -605,7 +616,7 @@ func (store *ActivationStore) recoverLocked(root *activationLockedRoot, availabl
 		}
 		if stagingExists {
 			identity, err := root.activationPromoteSealedRelease(
-				intent.StagingName, intent.ToReleaseID, store.evidenceTrust, admissionTime, nil,
+				intent.StagingName, intent.ToReleaseID, targetTrust, admissionTime, nil,
 			)
 			if err != nil {
 				return Catalog{}, err
@@ -614,7 +625,7 @@ func (store *ActivationStore) recoverLocked(root *activationLockedRoot, availabl
 				return Catalog{}, err
 			}
 		} else {
-			identity, err := root.activationPrepareSealedRelease(intent.ToReleaseID, store.evidenceTrust, &admissionTime)
+			identity, err := root.activationPrepareSealedRelease(intent.ToReleaseID, targetTrust, &admissionTime)
 			if err != nil {
 				return Catalog{}, err
 			}
@@ -630,7 +641,7 @@ func (store *ActivationStore) recoverLocked(root *activationLockedRoot, availabl
 		if !targetExists {
 			return Catalog{}, invalid("activation_release_state_invalid")
 		}
-		identity, err := root.activationPrepareSealedRelease(intent.ToReleaseID, store.evidenceTrust, nil)
+		identity, err := root.activationPrepareSealedRelease(intent.ToReleaseID, targetTrust, nil)
 		if err != nil {
 			return Catalog{}, err
 		}
@@ -761,7 +772,11 @@ func (store *ActivationStore) activationValidatePointer(root *activationLockedRo
 	if !ok {
 		return invalid("activation_current_mismatch")
 	}
-	identity, err := root.activationInspectSealedRelease(expectedID, store.evidenceTrust, nil)
+	expectedTrust, err := store.evidenceTrusts.resolve(expected.Manifest().EvidenceTrustSHA256)
+	if err != nil {
+		return err
+	}
+	identity, err := root.activationInspectSealedRelease(expectedID, expectedTrust, nil)
 	if err != nil {
 		return err
 	}
@@ -819,9 +834,8 @@ func (store *ActivationStore) activationVerifyIntent(raw []byte, available []Rel
 		return activationIntent{}, Catalog{}, Catalog{}, invalid("activation_transaction_signature_invalid")
 	}
 	intent := signed.Intent
-	evidenceTrustSHA256, trustErr := store.evidenceTrust.SHA256()
 	admissionTime, timeErr := time.Parse(time.RFC3339Nano, intent.AdmissionTime)
-	if trustErr != nil || intent.TransportProfileID != store.transportProfileID ||
+	if intent.TransportProfileID != store.transportProfileID ||
 		(intent.Operation != "publish" && intent.Operation != "rollback") ||
 		intent.BaseRevision == 0 || intent.PlannedRevision <= intent.BaseRevision ||
 		len(intent.BaseJournal) == 0 || len(intent.BaseJournal) > maxManifestBytes ||
@@ -830,11 +844,13 @@ func (store *ActivationStore) activationVerifyIntent(raw []byte, available []Rel
 		!equalDigest(intent.PlannedJournalSHA256, digestBytes(intent.PlannedJournal)) ||
 		!validID(intent.ToReleaseID) || !validSHA256(intent.ManifestSHA256) ||
 		!validSHA256(intent.EvidenceTrustSHA256) ||
-		!equalDigest(intent.EvidenceTrustSHA256, evidenceTrustSHA256) ||
 		intent.ToTarget != activationTarget(intent.ToReleaseID) ||
 		timeErr != nil || admissionTime.Location() != time.UTC ||
 		admissionTime.Format(time.RFC3339Nano) != intent.AdmissionTime {
 		return activationIntent{}, Catalog{}, Catalog{}, invalid("activation_transaction_binding_mismatch")
+	}
+	if _, err := store.evidenceTrusts.resolve(intent.EvidenceTrustSHA256); err != nil {
+		return activationIntent{}, Catalog{}, Catalog{}, err
 	}
 	if intent.FromReleaseID == "" {
 		if intent.FromTarget != "" {
