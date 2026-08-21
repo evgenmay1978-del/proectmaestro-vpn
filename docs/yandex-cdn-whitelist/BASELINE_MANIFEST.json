@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 237682,
-      "sha256": "5956aec0a07ec75a5c9aea569e004a0e6d4e0d8e07723cbd1becaa308fed29e0",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAAAA. YANDEX CDN WHITE-LIST TASK 2 FINAL GREEN (21.08.2026)\n\n- \u0412\u0435\u0442\u043a\u0430 `codex/yandex-cdn-whitelist`; implementation/security SHA Task 2 \u2014\n  `e05b52104d805855a749b393b43a79db8fbf9f83`; regression SHA \u2014\n  `d1310f29f6199a82dc0f28f0f99e907b89e25142`; proof-binding "
+      "bytes": 240226,
+      "sha256": "807d1ecf71920e25fbcca0afed32d86391a1edd4c81560118dfe6eb7faa6a9d0",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAAAAA. YANDEX CDN WHITE-LIST TASK 3 FINAL GREEN (22.08.2026)\n\n- Authoritative review surface: \u0432\u0435\u0442\u043a\u0430 `codex/yandex-cdn-whitelist`, draft PR #91.\n  \u0424\u0438\u043d\u0430\u043b\u044c\u043d\u044b\u0439 implementation/security SHA Task 3 \u2014\n  `97e152674c3cfae3b767c464f0aa2e1368df35e5`.\n- Exact-SHA GitHub A"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",

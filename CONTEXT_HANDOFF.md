@@ -1,5 +1,35 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAAAA. YANDEX CDN WHITE-LIST TASK 3 FINAL GREEN (22.08.2026)
+
+- Authoritative review surface: ветка `codex/yandex-cdn-whitelist`, draft PR #91.
+  Финальный implementation/security SHA Task 3 —
+  `97e152674c3cfae3b767c464f0aa2e1368df35e5`.
+- Exact-SHA GitHub Actions run `32537644147`, job `96941437676`, завершён
+  `success`: pinned checkout/setup-go, Bash/PowerShell syntax, `gofmt`, focused
+  release tests, Linux `-race` и `go vet` прошли. Локально также прошли focused
+  release/control-plane integration tests, vet, gofmt и full-range diff check.
+- Task 3 добавляет только изолированный release-контур: подписанный 12-gate
+  evidence/trust contract, transport/runtime commitments, exact catalog
+  predecessor, подписанный transaction journal, Linux sealed atomic
+  activation/rollback/recovery, стабильный CLI, wrappers, systemd units и
+  exact-SHA CI.
+- Финальная trust-rotation правка разделяет active admission trust и bounded
+  immutable historical registry. Новые publish принимаются только активным
+  trust, а rollback/recovery выбирают ровно тот trust, SHA которого зафиксирован
+  в manifest/intent. Fallback/merge запрещены; при неизвестном historical trust
+  операция fail-closed, а cleanup не начинается до разрешения trust.
+- Независимые full-range spec и security review дали `READY`; незакрытых
+  Critical/Important замечаний нет. Документирующий коммит разрешён только после
+  повторной генерации baseline manifest и зелёных docs tests/validator.
+- Production остаётся **NO-GO**. Deploy, S1-S4, CDN/origin, firewall, базы,
+  billing, Android/TV, OTA, панели, боты, клиенты и запрещённые подсистемы не
+  подключались и не изменялись. Реальные evidence/key custody, client matrix,
+  metering/billing gates и rollout требуют отдельных owner-approved фаз.
+- Следующий безопасный шаг — только явно одобренная production-readiness фаза.
+  Локальный `normalize.patch` не читался, не изменялся и не должен попадать в
+  индекс или коммит.
+
 ## 0AAAAAAA. YANDEX CDN WHITE-LIST TASK 2 FINAL GREEN (21.08.2026)
 
 - Ветка `codex/yandex-cdn-whitelist`; implementation/security SHA Task 2 —
