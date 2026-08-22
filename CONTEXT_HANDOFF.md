@@ -1,6 +1,6 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0AAAAAAAAA. YANDEX CDN WHITE-LIST TASK 7 — CANONICAL GITHUB-FIRST EXECUTION (22.08.2026)
+## 0AAAAAAAAA. YANDEX CDN WHITE-LIST TASK 7 CI GREEN — CANONICAL GITHUB-FIRST EVIDENCE (23.08.2026)
 
 - Единственная каноническая рабочая и push-ветка —
   `codex/yandex-cdn-whitelist-task3-sync`; ею владеет один writer. Любые
@@ -10,21 +10,42 @@
   `tv-v1.0.157`, commit
   `9653636863cb65cc2ac95545d953d9c5e06db8bb`, APK SHA-256
   `0c51d1036c76b2d9a7347b59b9f967942159ec27738a2d6bcae099529695a148`.
-- Task 3 repository implementation зафиксирован коммитом `203278d`; фактический
-  опубликованный GitHub Task 4 commit —
-  `045cdbd94fa42197705a07da531a07f8ecfd3fa8`. Пять jobs на нём ещё не
-  объявлены прошедшими; PASS не заявляется до проверки всех результатов на
-  exact SHA.
-- Единственная следующая Android identity — test-only
+- Task 3 repository implementation зафиксирован коммитом `203278d`; Task 4
+  workflow publication — `045cdbd94fa42197705a07da531a07f8ecfd3fa8`.
+  Неизменяемый exact-SHA CI checkpoint —
+  `48fc85c7b5aa71665d5925afcf58335a5778f481`. GitHub Actions
+  [run `32599906234`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32599906234)
+  завершён `success`; все пять обязательных jobs прошли:
+  `format-unit` `97096515108`, `offline-replay` `97096610878`,
+  `rqlite-purge` `97096610879`, `race-vet` `97096610902`,
+  `android-test-apk` `97096743461`.
+- Test-only artifact: ID `9482712886`, имя
+  `maestrovpn-task7-test-48fc85c7b5aa71665d5925afcf58335a5778f481`,
+  размер `146160979` bytes, срок хранения до `2026-08-29T21:42:58Z`,
+  ZIP SHA-256
+  `4c12b6faa0ac98049d3a5e3ed2f98b9cc4125c6b544804c416ae93fed104e355`.
+- Проверенный APK
+  `MaestroVPN-TV-1.0.158-task7-test-debug.apk`: SHA-256
+  `737b9e07b6266354847dfecf2bab1a951dd8307a6288eadf9ad5a0c0d001b211`,
+  `applicationId=com.maestrovpn.tv`, `versionName=1.0.158-task7-test`,
+  `versionCode=1015800`, `debuggable=false`. APK Signature Scheme v1/v2
+  подтверждены; signer — Android Debug, certificate SHA-256
+  `b7d7e5ec836a4db0bed76acb466d3dbdfb6a8aea2c3ba0025a3a038802a94c5c`.
+  Debug signer означает только тестовый артефакт: это не production release/OTA
+  и не замена подписанной версии `1.0.157`.
+- Task 7 Android identity — test-only:
   `versionName 1.0.158-task7-test`, `versionCode 1015800`. Она не является
   production release/tag/OTA и не должна публиковаться пользователям.
 - Слабый локальный Windows-компьютер используется только для правок,
   repetition guard и узких Git/diff/static/unit checks. Полные, тяжёлые,
   `-race`, `vet`, real-rqlite и Android APK проверки выполняются в GitHub
   Actions на exact pushed SHA.
-- Следующее точное действие: опубликовать этот docs/manifest checkpoint в ту же
-  каноническую ветку, затем наблюдать все пять jobs до terminal state и
-  подтвердить, что каждый запущен на exact SHA этого checkpoint.
+- Task 7 repository/CI evidence GREEN на неизменяемом SHA
+  `48fc85c7b5aa71665d5925afcf58335a5778f481`.
+  Любой более поздний docs-only checkpoint только фиксирует эти доказательства
+  и не может объявляться протестированным code SHA. Следующая продуктовая фаза —
+  отдельно контролируемые read-only production inventory и backup/restore
+  readiness; deploy и cutover остаются NO-GO.
 - Production остаётся **NO-GO**. Текущее разрешение владельца охватывает только
   non-production push канонической ветки и GitHub Actions. Merge, tag,
   release/publish/signing, OTA, production deploy, серверные/клиентские/billing
