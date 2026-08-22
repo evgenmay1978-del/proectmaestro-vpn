@@ -3,12 +3,16 @@ package com.maestrovpn.tv.compose.screen.tvhome
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
 import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.database.ProfileManager
+import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.utils.MaestroSub
 import com.maestrovpn.tv.utils.httpGetStringTimed
+import com.maestrovpn.tv.whitelist.WhiteListClientInfoParser
+import com.maestrovpn.tv.whitelist.WhiteListDisplayModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -21,6 +25,7 @@ data class AccountInfo(
     val hasSubProfile: Boolean = false,
     /** дата окончания подписки «ДД.ММ.ГГГГ» из /info `expires` (RFC3339) — для строки аккаунта */
     val expiresDate: String? = null,
+    val whiteList: WhiteListDisplayModel? = null,
 )
 
 /** "2026-08-02T15:04:05Z"/"+03:00"-варианты → "02.08.2026"; мусор → null (строка просто короче). */
@@ -39,8 +44,10 @@ private fun formatExpires(raw: String?): String? {
  * (a throw there would crash the whole app — see the produceState gotcha).
  */
 @Composable
-fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
-    produceState(initialValue = AccountInfo(), refreshKey) {
+fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
+    val context = LocalContext.current
+    val isTelevision = DeviceFormFactor.isTelevision(context)
+    return produceState(initialValue = AccountInfo(), refreshKey, isTelevision) {
         value = runCatching {
             withContext(Dispatchers.IO) {
                 // hasSubProfile is true whenever a MaestroVPN sub profile exists locally — even if
@@ -92,7 +99,12 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
                     daysLeft = if (o.has("days_left")) o.getInt("days_left") else null,
                     hasSubProfile = hasSubProfile,
                     expiresDate = formatExpires(o.optString("expires").ifBlank { null }),
+                    whiteList = WhiteListClientInfoParser.parseInfoResponse(
+                        raw = json,
+                        isTelevision = isTelevision,
+                    ),
                 )
             }
         }.getOrDefault(AccountInfo())
     }
+}
