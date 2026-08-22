@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 3
+	SchemaVersion = 4
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -77,6 +77,7 @@ var expectedSchemaTables = []string{
 	"tombstones",
 	"trial_redemptions",
 	"web_sessions",
+	"whitelist_entitlement_identities",
 }
 
 type migration struct {
@@ -249,7 +250,7 @@ func (m *Migrator) readMigrationIdentities(ctx context.Context) ([]migrationIden
 
 func (m *Migrator) migrationRecordedExactly(ctx context.Context, item migration) (bool, error) {
 	results, err := m.db.QueryStrong(ctx, rqlite.Statement{
-		SQL: "SELECT version,checksum FROM schema_migrations WHERE version=?",
+		SQL:  "SELECT version,checksum FROM schema_migrations WHERE version=?",
 		Args: []any{item.Version},
 	})
 	if err != nil || len(results) != 1 {
@@ -269,6 +270,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 1, path: "migrations/0001_control_plane.sql"},
 		{version: 2, path: "migrations/0002_restore_epoch.sql"},
 		{version: 3, path: "migrations/0003_outbox_fencing.sql"},
+		{version: 4, path: "migrations/0004_whitelist_entitlement_identity.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {

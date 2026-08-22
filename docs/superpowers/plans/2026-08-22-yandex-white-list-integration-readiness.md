@@ -180,7 +180,18 @@ feat(readiness): validate offline acceptance evidence
 
 - [ ] **Step 1: Write RED cross-package and wrapper tests**
 
-The Go integration test must use the exported production-domain seams from `controlplane`, `subgen`, `shadowbilling`, and `whitelistapi/v1`. Cover OFF byte identity, ACTIVE additive rendering, suspension/revocation/release mismatch, edge rotation, cache regeneration, stable server-side billing identity, counter reset, out-of-order and duplicate replay, no ordinary-traffic billing, no real balance mutation, and private API fixture validation.
+The Go integration test must use production-domain seams from `controlplane`,
+`subgen`, `shadowbilling`, and `whitelistapi/v1`. Cover OFF byte identity,
+ACTIVE additive rendering, fixture-only inactive-state rendering and deterministic
+rerendering, release mismatch, edge rotation, persisted server-side billing
+identity, explicit counter-generation reset (reject a same-generation regression
+atomically, rebaseline only after a generation increment, then bill only the next
+positive delta), atomic out-of-order ignore (`100 -> late 50 -> 110` bills only
+`10`), duplicate replay,
+ordinary-identity rejection, and private API fixture validation. It must not
+claim production revocation, subscription-cache invalidation, or real-balance
+non-mutation: those three gates remain explicit `NOT_RUN`/`SCHEMA_ONLY` entries
+and keep readiness `NO_GO`.
 
 The Python test must require all nine filenames, executable Git modes, `set -euo pipefail`, cwd-independent path resolution, exact fixed suite selection, zero positional arguments, no `curl`, `wget`, SSH, socket/client library, endpoint variable, `eval`, production mutation command, or secret-like literal, and semantic `PASS` plus `NO_GO` output.
 

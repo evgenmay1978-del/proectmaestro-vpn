@@ -1,18 +1,38 @@
 package shadowbilling
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/testsupport/whitelistfixture"
+)
 
 func paidPolicy() Policy {
-	return Policy{
-		AccountID: "account-a", EntitlementID: "cdn-a", TransportID: "profile-a", BillingPeriodID: "period-1",
-		Unit: UnitGBDecimal, Basis: BasisUplinkPlusDownlink, IncludedBytes: 100,
+	entitlement, err := whitelistfixture.NewPersisted("account-a")
+	if err != nil {
+		panic(err)
+	}
+	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-a", controlplane.WhiteListCredential{
+		ClientID: "11111111-1111-4111-8111-111111111111", ClientEncryption: "mlkem768x25519plus.native.0rtt.test-client-material",
+		ClientEncryptionRole: "CLIENT", ClientEncryptionProofRef: "xray-vlessenc-client-v1:sha256:b150c646913ddf355a539ca3ae147919cbbae7141c3783d7860cfbbb9062424a",
+	})
+	if err != nil {
+		panic(err)
+	}
+	policy, err := NewPolicy(entitlement, PolicySpec{
+		BillingPeriodID: "period-1",
+		Unit:            UnitGBDecimal, Basis: BasisUplinkPlusDownlink, IncludedBytes: 100,
 		SoftLimitBytes: 150, HardLimitBytes: 200, GraceBytes: 10,
 		Prices: PriceOptions{Global: &Price{Mode: PricePaid, Currency: "RUB", MinorUnitsPerUnit: 25000}},
+	})
+	if err != nil {
+		panic(err)
 	}
+	return policy
 }
 
-func event(id, epoch string, up, down uint64) UsageEvent {
-	return UsageEvent{EventID: id, InstanceID: "s2-xray-a", MeterEpoch: epoch, XrayIdentity: "wl:opaque-a", UplinkBytes: up, DownlinkBytes: down}
+func event(policy Policy, id, epoch string, up, down uint64) UsageEvent {
+	return UsageEvent{EventID: id, InstanceID: "s2-xray-a", MeterEpoch: epoch, XrayIdentity: "wl:" + policy.EntitlementID(), UplinkBytes: up, DownlinkBytes: down}
 }
 
 // This catches a production change that charges a baseline, a replay, or the
@@ -22,11 +42,11 @@ func TestApplyUsesPositiveCumulativeDeltasAndDeduplicatesEvents(t *testing.T) {
 	policy := paidPolicy()
 	var decision Decision
 	var err error
-	state, decision, err = Apply(state, event("event-1", "epoch-1", 10, 90), policy)
+	state, decision, err = Apply(state, event(policy, "event-1", "epoch-1", 10, 90), policy)
 	if err != nil || decision.Interval != nil || decision.Diagnostic != DiagnosticEpochStarted {
 		t.Fatalf("first sample = %#v, %v; want baseline epoch start", decision, err)
 	}
-	state, decision, err = Apply(state, event("event-2", "epoch-1", 30, 180), policy)
+	state, decision, err = Apply(state, event(policy, "event-2", "epoch-1", 30, 180), policy)
 	if err != nil {
 		t.Fatalf("second sample: %v", err)
 	}
@@ -36,15 +56,15 @@ func TestApplyUsesPositiveCumulativeDeltasAndDeduplicatesEvents(t *testing.T) {
 	if decision.Ledger == nil || decision.Ledger.CalculatedAmount.Numerator != "1" || decision.Ledger.CalculatedAmount.Denominator != 4000 {
 		t.Fatalf("second ledger = %#v; want exact 1/4000 RUB minor units", decision.Ledger)
 	}
-	state, decision, err = Apply(state, event("event-2", "epoch-1", 30, 180), policy)
+	state, decision, err = Apply(state, event(policy, "event-2", "epoch-1", 30, 180), policy)
 	if err != nil || !decision.Replay || decision.Interval != nil || len(state.LedgerEntries()) != 1 {
 		t.Fatalf("replay = %#v, entries=%d, err=%v; want no duplicate", decision, len(state.LedgerEntries()), err)
 	}
-	state, decision, err = Apply(state, event("event-3", "epoch-1", 5, 8), policy)
+	state, decision, err = Apply(state, event(policy, "event-3", "epoch-1", 5, 8), policy)
 	if err != nil || decision.Interval != nil || decision.Diagnostic != DiagnosticCounterReset || len(state.LedgerEntries()) != 1 {
 		t.Fatalf("counter reset = %#v, entries=%d, err=%v; want safe rebaseline", decision, len(state.LedgerEntries()), err)
 	}
-	state, decision, err = Apply(state, event("event-4", "epoch-2", 1, 2), policy)
+	state, decision, err = Apply(state, event(policy, "event-4", "epoch-2", 1, 2), policy)
 	if err != nil || decision.Interval != nil || decision.Diagnostic != DiagnosticEpochStarted || len(state.LedgerEntries()) != 1 {
 		t.Fatalf("new epoch = %#v, entries=%d, err=%v; want safe baseline", decision, len(state.LedgerEntries()), err)
 	}
@@ -57,20 +77,21 @@ func TestApplyConsumesIncludedOnceAndOnlyRecommendsWhiteListSuspension(t *testin
 	policy := paidPolicy()
 	var decision Decision
 	var err error
-	state, _, err = Apply(state, event("event-1", "epoch-1", 0, 0), policy)
+	state, _, err = Apply(state, event(policy, "event-1", "epoch-1", 0, 0), policy)
 	if err != nil {
 		t.Fatalf("baseline: %v", err)
 	}
-	state, decision, err = Apply(state, event("event-2", "epoch-1", 0, 160), policy)
+	state, decision, err = Apply(state, event(policy, "event-2", "epoch-1", 0, 160), policy)
 	if err != nil || decision.Interval == nil || decision.Interval.BillableBytes != 60 || !decision.SoftLimitReached || decision.Suspension.Recommended {
 		t.Fatalf("included/soft interval = %#v, decision=%#v, err=%v", decision.Interval, decision, err)
 	}
-	state, decision, err = Apply(state, event("event-3", "epoch-1", 0, 220), policy)
-	if err != nil || decision.Interval == nil || decision.Interval.BillableBytes != 60 || !decision.Suspension.Recommended || decision.Suspension.EntitlementID != "cdn-a" || decision.Suspension.Reason != SuspensionHardLimit {
+	state, decision, err = Apply(state, event(policy, "event-3", "epoch-1", 0, 220), policy)
+	if err != nil || decision.Interval == nil || decision.Interval.BillableBytes != 60 || !decision.Suspension.Recommended || decision.Suspension.EntitlementID != policy.EntitlementID() || decision.Suspension.Reason != SuspensionHardLimit {
 		t.Fatalf("hard-limit interval = %#v, decision=%#v, err=%v", decision.Interval, decision, err)
 	}
-	if !state.WhiteListSuspended("cdn-a") || len(state.LedgerEntries()) != 2 {
-		t.Fatalf("suspension state=%t ledger=%d; want entitlement-only suspension with immutable history", state.WhiteListSuspended("cdn-a"), len(state.LedgerEntries()))
+	entitlementID := policy.EntitlementID()
+	if !state.WhiteListSuspended(entitlementID) || len(state.LedgerEntries()) != 2 {
+		t.Fatalf("suspension state=%t ledger=%d; want entitlement-only suspension with immutable history", state.WhiteListSuspended(entitlementID), len(state.LedgerEntries()))
 	}
 }
 
@@ -102,16 +123,16 @@ func TestApplySnapshotsTariffPerInterval(t *testing.T) {
 	policy.IncludedBytes = 0
 	policy.HardLimitBytes = 0
 	var err error
-	state, _, err = Apply(state, event("event-1", "epoch-1", 0, 0), policy)
+	state, _, err = Apply(state, event(policy, "event-1", "epoch-1", 0, 0), policy)
 	if err != nil {
 		t.Fatalf("baseline: %v", err)
 	}
-	state, _, err = Apply(state, event("event-2", "epoch-1", 0, 1000), policy)
+	state, _, err = Apply(state, event(policy, "event-2", "epoch-1", 0, 1000), policy)
 	if err != nil {
 		t.Fatalf("first interval: %v", err)
 	}
 	policy.Prices.Global = &Price{Mode: PricePaid, Currency: "RUB", MinorUnitsPerUnit: 40000}
-	state, _, err = Apply(state, event("event-3", "epoch-1", 0, 2000), policy)
+	state, _, err = Apply(state, event(policy, "event-3", "epoch-1", 0, 2000), policy)
 	if err != nil {
 		t.Fatalf("second interval: %v", err)
 	}

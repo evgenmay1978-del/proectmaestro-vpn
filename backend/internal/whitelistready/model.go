@@ -77,6 +77,8 @@ const (
 	CodeClientCheckSetInvalid    = "client_check_set_invalid"
 	CodeCompatibilityUnobserved  = "compatibility_unobserved"
 	CodeClientEvidenceIncomplete = "client_evidence_incomplete"
+	CodeProductionGateSetInvalid = "production_gate_set_invalid"
+	CodeProductionGateInvalid    = "production_gate_invalid"
 )
 
 type Fact struct {
@@ -122,12 +124,20 @@ type Observation struct {
 	Facts             []Fact            `json:"facts"`
 }
 
+type ProductionGate struct {
+	ID                string            `json:"id"`
+	VerificationState VerificationState `json:"verification_state"`
+	EvidenceClass     EvidenceClass     `json:"evidence_class"`
+	EvidenceRef       *string           `json:"evidence_ref"`
+}
+
 type EvidenceBundle struct {
 	SchemaVersion    int              `json:"schema_version"`
 	Binding          CandidateBinding `json:"binding"`
 	EvidenceClass    EvidenceClass    `json:"evidence_class"`
 	HarnessStatus    string           `json:"harness_status"`
 	ReleaseReadiness string           `json:"release_readiness"`
+	ProductionGates  []ProductionGate `json:"production_gates"`
 	Observations     []Observation    `json:"observations"`
 }
 
@@ -189,8 +199,14 @@ var requiredCases = map[string][]string{
 	"xray_counter_reset":     {"counter-reset"},
 	"billing_idempotency":    {"stable-identity", "idempotent"},
 	"duplicate_event_replay": {"duplicate-event", "out-of-order"},
-	"subscription_escaping":  {"base64", "plain", "utf8", "escaping", "long-uri", "qr", "refresh", "dedup", "reimport", "revocation", "cache-invalidation"},
+	"subscription_escaping":  {"base64", "plain", "utf8", "escaping", "long-uri", "qr", "refresh", "dedup", "reimport", "fixture-inactive-state-render", "fixture-state-rerender"},
 	"edge_rotation":          {"primary", "failover", "finite-fallback"},
+}
+
+var requiredProductionGates = []string{
+	"revocation_orchestration",
+	"subscription_cache_invalidation",
+	"real_balance_non_mutation",
 }
 
 var requiredClients = []string{"maestrovpn", "karing", "incy", "happ"}
@@ -208,3 +224,7 @@ func RequiredCaseIDs(suite string) []string { return append([]string(nil), requi
 func RequiredClients() []string { return append([]string(nil), requiredClients...) }
 
 func RequiredClientChecks() []string { return append([]string(nil), requiredClientChecks...) }
+
+func RequiredProductionGates() []string {
+	return append([]string(nil), requiredProductionGates...)
+}

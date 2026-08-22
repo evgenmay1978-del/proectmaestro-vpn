@@ -4,8 +4,8 @@ package controlplane
 
 import (
 	"context"
-	"sort"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -87,20 +87,71 @@ func TestDesiredProtocolTagsBindToExactDesiredNode(t *testing.T) {
 	}
 
 	mustRequest(t, ctx, db, rqlite.Statement{
-		SQL: "DELETE FROM desired_node_state WHERE customer_id=? AND node_id=? AND service_name=?",
+		SQL:  "DELETE FROM desired_node_state WHERE customer_id=? AND node_id=? AND service_name=?",
 		Args: []any{customerID, "S2", "maestro-core"},
 	})
 	result = mustStrongQuery(t, ctx, db, rqlite.Statement{
-		SQL: "SELECT protocol_tag FROM desired_protocol_tags WHERE customer_id=?",
+		SQL:  "SELECT protocol_tag FROM desired_protocol_tags WHERE customer_id=?",
 		Args: []any{customerID},
 	})
 	if len(result.Rows) != 0 {
 		t.Fatalf("desired protocol cascade rows = %#v", result.Rows)
 	}
 	mustRequest(t, ctx, db, rqlite.Statement{
-		SQL: "DELETE FROM customers WHERE customer_id=?",
+		SQL:  "DELETE FROM customers WHERE customer_id=?",
 		Args: []any{customerID},
 	})
+}
+
+func TestWhiteListIdentityDoesNotBlockTombstonePurge(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+	const (
+		customerID    = "whitelist-purge-customer"
+		entitlementID = "wl-ent-00000000000000000000000000000001"
+		tombstoneID   = "whitelist-purge-tombstone"
+	)
+	mustRequest(t, ctx, db,
+		rqlite.Statement{SQL: `
+			INSERT INTO customers(
+				customer_id,display_login,login_key_hmac,status,expires_at_unix,
+				generation,created_at_unix,updated_at_unix
+			) VALUES(?,?,?,?,?,?,?,?)
+		`, Args: []any{customerID, "WhitelistPurge", strings.Repeat("cd", 32), "active", 2_100_000, 1, 1_000_000, 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO whitelist_entitlement_identities(entitlement_id,customer_id,created_at_unix)
+			VALUES(?,?,?)
+		`, Args: []any{entitlementID, customerID, 1_000_000}},
+		rqlite.Statement{SQL: `
+			INSERT INTO tombstones(tombstone_id,customer_id,generation,reason,created_at_unix)
+			VALUES(?,?,1,'test-purge',1)
+		`, Args: []any{tombstoneID, customerID}},
+		rqlite.Statement{SQL: `
+			INSERT INTO tombstone_targets(tombstone_id,node_id,service_name,status,applied_at_unix)
+			SELECT ?,node_id,service_name,'applied',1 FROM node_services
+			WHERE desired_target=1 AND retired=0
+		`, Args: []any{tombstoneID}},
+	)
+
+	mustRequestFail(t, ctx, db, rqlite.Statement{
+		SQL:  "DELETE FROM whitelist_entitlement_identities WHERE entitlement_id=?",
+		Args: []any{entitlementID},
+	})
+
+	service, _ := testService(t, db)
+	if err := service.PurgeTombstone(ctx, TombstonePurgeCommand{
+		TombstoneID: tombstoneID, CustomerID: customerID,
+	}); err != nil {
+		t.Fatalf("PurgeTombstone with white-list identity: %v", err)
+	}
+	for _, table := range []string{"customers", "whitelist_entitlement_identities"} {
+		result := mustStrongQuery(t, ctx, db, rqlite.Statement{
+			SQL:  "SELECT COUNT(*) AS row_count FROM " + table + " WHERE customer_id=?",
+			Args: []any{customerID},
+		})
+		if got := fmt.Sprint(result.Rows); got != `[map[row_count:0]]` {
+			t.Fatalf("%s rows after purge = %s", table, got)
+		}
+	}
 }
 
 func TestImportSchemaBindsRunAndBatchDigests(t *testing.T) {
@@ -236,11 +287,11 @@ func TestImportSchemaPreservesHardFencedBotPollState(t *testing.T) {
 	}
 
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE telegram_pollers SET offset_value=? WHERE bot_identity_hmac=?",
+		SQL:  "UPDATE telegram_pollers SET offset_value=? WHERE bot_identity_hmac=?",
 		Args: []any{41, botIdentity},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE telegram_pollers SET offset_value=?,lease_fence=? WHERE bot_identity_hmac=?",
+		SQL:  "UPDATE telegram_pollers SET offset_value=?,lease_fence=? WHERE bot_identity_hmac=?",
 		Args: []any{43, 10, botIdentity},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
@@ -283,15 +334,15 @@ func TestImportSchemaPreservesPendingCallbackState(t *testing.T) {
 	}
 
 	mustRequest(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE telegram_imported_callbacks SET state='in_flight',updated_at_unix=? WHERE callback_hmac=?",
+		SQL:  "UPDATE telegram_imported_callbacks SET state='in_flight',updated_at_unix=? WHERE callback_hmac=?",
 		Args: []any{1_000_001, callbackHMAC},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE telegram_imported_callbacks SET state='pending' WHERE callback_hmac=?",
+		SQL:  "UPDATE telegram_imported_callbacks SET state='pending' WHERE callback_hmac=?",
 		Args: []any{callbackHMAC},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE telegram_imported_callbacks SET order_id='different-order' WHERE callback_hmac=?",
+		SQL:  "UPDATE telegram_imported_callbacks SET order_id='different-order' WHERE callback_hmac=?",
 		Args: []any{callbackHMAC},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
@@ -349,7 +400,7 @@ func TestImportSchemaPreservesImmutableBotCredentialRotation(t *testing.T) {
 			new_credential_version=excluded.new_credential_version
 	`, Args: []any{auditDigest, botIdentity, oldFingerprint, newFingerprint, 1, 2, 1_000_001}})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE telegram_bot_credential_rotations SET new_token_fingerprint_hmac=? WHERE audit_digest=?",
+		SQL:  "UPDATE telegram_bot_credential_rotations SET new_token_fingerprint_hmac=? WHERE audit_digest=?",
 		Args: []any{repeatHex("5"), auditDigest},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
@@ -359,7 +410,7 @@ func TestImportSchemaPreservesImmutableBotCredentialRotation(t *testing.T) {
 		) VALUES(?,?,?,?,?,?,?)
 	`, Args: []any{repeatHex("6"), botIdentity, oldFingerprint, repeatHex("5"), 1, 3, 1_000_001}})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "DELETE FROM telegram_bot_credential_rotations WHERE audit_digest=?",
+		SQL:  "DELETE FROM telegram_bot_credential_rotations WHERE audit_digest=?",
 		Args: []any{auditDigest},
 	})
 }
@@ -393,7 +444,7 @@ func TestImportEntityRegistryAndDeleteReceiptsAreFailClosed(t *testing.T) {
 	deleteState := func(sourceKey string) {
 		t.Helper()
 		mustRequest(t, ctx, db, rqlite.Statement{
-			SQL: "UPDATE imported_entity_state SET lifecycle='deleted',updated_at_unix=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+			SQL:  "UPDATE imported_entity_state SET lifecycle='deleted',updated_at_unix=? WHERE entity_kind='encrypted_secret' AND source_key=?",
 			Args: []any{1_000_001, sourceKey},
 		})
 	}
@@ -409,26 +460,26 @@ func TestImportEntityRegistryAndDeleteReceiptsAreFailClosed(t *testing.T) {
 
 	insertState("schema-secret-one", "schema-target-one", repeatHex("a"))
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_entity_state SET target_id=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+		SQL:  "UPDATE imported_entity_state SET target_id=? WHERE entity_kind='encrypted_secret' AND source_key=?",
 		Args: []any{"substituted-target", "schema-secret-one"},
 	})
 	deleteState("schema-secret-one")
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_entity_state SET lifecycle='active' WHERE entity_kind='encrypted_secret' AND source_key=?",
+		SQL:  "UPDATE imported_entity_state SET lifecycle='active' WHERE entity_kind='encrypted_secret' AND source_key=?",
 		Args: []any{"schema-secret-one"},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_entity_state SET canonical_sha256=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+		SQL:  "UPDATE imported_entity_state SET canonical_sha256=? WHERE entity_kind='encrypted_secret' AND source_key=?",
 		Args: []any{repeatHex("b"), "schema-secret-one"},
 	})
 	exactReceipt := insertReceipt("schema-secret-one", "schema-target-one", repeatHex("a"))
 	mustRequest(t, ctx, db, exactReceipt)
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE import_delete_receipts SET imported_at_unix=? WHERE entity_kind='encrypted_secret' AND source_key=?",
+		SQL:  "UPDATE import_delete_receipts SET imported_at_unix=? WHERE entity_kind='encrypted_secret' AND source_key=?",
 		Args: []any{1_000_002, "schema-secret-one"},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "DELETE FROM import_delete_receipts WHERE entity_kind='encrypted_secret' AND source_key=?",
+		SQL:  "DELETE FROM import_delete_receipts WHERE entity_kind='encrypted_secret' AND source_key=?",
 		Args: []any{"schema-secret-one"},
 	})
 
@@ -528,11 +579,11 @@ func TestImportSchemaPreservesImmutableStandaloneSecretEnvelope(t *testing.T) {
 		envelope, secretSHA, 1_000_000,
 	}})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_secrets SET secret_sha256=? WHERE secret_id=?",
+		SQL:  "UPDATE imported_secrets SET secret_sha256=? WHERE secret_id=?",
 		Args: []any{repeatHex("b"), secretID},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "DELETE FROM imported_secrets WHERE secret_id=?",
+		SQL:  "DELETE FROM imported_secrets WHERE secret_id=?",
 		Args: []any{secretID},
 	})
 }
@@ -578,23 +629,23 @@ func TestImportSchemaPreservesProtectedLegacyTrialIdentity(t *testing.T) {
 	}
 
 	mustRequest(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_trial_identities SET used=1 WHERE source_key=?",
+		SQL:  "UPDATE imported_trial_identities SET used=1 WHERE source_key=?",
 		Args: []any{"schema-trial-source"},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_trial_identities SET used=0 WHERE source_key=?",
+		SQL:  "UPDATE imported_trial_identities SET used=0 WHERE source_key=?",
 		Args: []any{"schema-trial-source"},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_trial_identities SET legacy_anchor_hmac=? WHERE source_key=?",
+		SQL:  "UPDATE imported_trial_identities SET legacy_anchor_hmac=? WHERE source_key=?",
 		Args: []any{repeatHex("4"), "schema-trial-source"},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_trial_identities SET current_hmac=? WHERE source_key=?",
+		SQL:  "UPDATE imported_trial_identities SET current_hmac=? WHERE source_key=?",
 		Args: []any{repeatHex("5"), "schema-trial-source"},
 	})
 	mustRequestFail(t, ctx, db, rqlite.Statement{
-		SQL: "UPDATE imported_trial_identities SET expires_at_unix=? WHERE source_key=?",
+		SQL:  "UPDATE imported_trial_identities SET expires_at_unix=? WHERE source_key=?",
 		Args: []any{2_000_001, "schema-trial-source"},
 	})
 }

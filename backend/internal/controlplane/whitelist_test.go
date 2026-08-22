@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/testsupport/whitelistfixture"
 )
 
 func validProfile() controlplane.TransportProfile {
@@ -50,20 +51,14 @@ func TestWhiteListEntitlementDefaultsDisabled(t *testing.T) {
 	if zero.State() != controlplane.EntitlementDisabled || zero.Active() {
 		t.Fatalf("zero-value entitlement granted access: state=%q active=%v", zero.State(), zero.Active())
 	}
-	entitlement, err := controlplane.NewWhiteListEntitlement("account-alpha")
-	if err != nil {
-		t.Fatalf("NewWhiteListEntitlement: %v", err)
-	}
+	entitlement := whitelistfixture.MustPersisted(t, "account-alpha")
 	if entitlement.State() != controlplane.EntitlementDisabled || entitlement.Active() {
 		t.Fatalf("new entitlement state=%q active=%v, want disabled", entitlement.State(), entitlement.Active())
 	}
 }
 
 func TestWhiteListEntitlementRepresentsEveryExplicitStateAndRejectsUnknown(t *testing.T) {
-	disabled, err := controlplane.NewWhiteListEntitlement("account-alpha")
-	if err != nil {
-		t.Fatalf("NewWhiteListEntitlement: %v", err)
-	}
+	disabled := whitelistfixture.MustPersisted(t, "account-alpha")
 	seed, err := disabled.Activate("profile-a", "preset-a", "release-a", validCredential())
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
@@ -96,10 +91,7 @@ func TestWhiteListEntitlementRepresentsEveryExplicitStateAndRejectsUnknown(t *te
 }
 
 func TestActivateRejectsUnverifiedClientEncryptionMaterial(t *testing.T) {
-	disabled, err := controlplane.NewWhiteListEntitlement("account-alpha")
-	if err != nil {
-		t.Fatalf("NewWhiteListEntitlement: %v", err)
-	}
+	disabled := whitelistfixture.MustPersisted(t, "account-alpha")
 	tests := []struct {
 		name   string
 		mutate func(*controlplane.WhiteListCredential)

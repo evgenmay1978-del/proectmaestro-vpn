@@ -3,7 +3,7 @@
     "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
     "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+    "catalog_sha256": "eaf2c1541dfcdfc0cdd1b9e73800a1b9856e6db0a5d2c6e91a3f8a3cf84c5fcb",
     "tool_version": "task7-harness-1.0.0",
     "core_version": "xray-fixture-25.8.3",
     "environment": "OFFLINE_FIXTURE",

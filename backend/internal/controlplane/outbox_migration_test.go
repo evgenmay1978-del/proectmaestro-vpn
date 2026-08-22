@@ -13,8 +13,8 @@ func TestOutboxFencingIsAdditiveMigrationThree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
-	if len(migrations) != 3 {
-		t.Fatalf("migration count=%d, want 3", len(migrations))
+	if len(migrations) < 3 {
+		t.Fatalf("migration count=%d, want at least 3", len(migrations))
 	}
 	if migrations[0].Path != "migrations/0001_control_plane.sql" ||
 		migrations[1].Path != "migrations/0002_restore_epoch.sql" ||

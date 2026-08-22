@@ -222,6 +222,8 @@ type WhiteListCredential struct {
 // safe disabled value, so omitted records cannot accidentally grant access.
 type WhiteListEntitlement struct {
 	accountID             string
+	entitlementID         string
+	persistedIdentity     bool
 	transportProfileID    string
 	compatibilityPresetID string
 	transportReleaseID    string
@@ -229,17 +231,25 @@ type WhiteListEntitlement struct {
 	state                 EntitlementState
 }
 
-func NewWhiteListEntitlement(accountID string) (WhiteListEntitlement, error) {
-	if blank(accountID) {
-		return WhiteListEntitlement{}, errors.New("controlplane: account id is required")
+const (
+	entitlementIDPrefix       = "wl-ent-"
+	entitlementIDEntropyBytes = 16
+)
+
+func whiteListEntitlementFromPersistedIdentity(accountID, entitlementID string) (WhiteListEntitlement, error) {
+	if !validAccountID(accountID) || !validEntitlementID(entitlementID) {
+		return WhiteListEntitlement{}, errors.New("controlplane: invalid persisted entitlement")
 	}
-	return WhiteListEntitlement{accountID: accountID, state: EntitlementDisabled}, nil
+	return WhiteListEntitlement{
+		accountID: accountID, entitlementID: entitlementID,
+		persistedIdentity: true, state: EntitlementDisabled,
+	}, nil
 }
 
 // Activate returns a new entitlement pinned to one profile, preset and
 // immutable release. It does not mutate the disabled value.
 func (entitlement WhiteListEntitlement) Activate(profileID, presetID, releaseID string, credential WhiteListCredential) (WhiteListEntitlement, error) {
-	if blank(entitlement.accountID) || blank(profileID) || blank(presetID) || blank(releaseID) || !validWhiteListCredential(credential) {
+	if !entitlement.persistedIdentity || !validAccountID(entitlement.accountID) || !validEntitlementID(entitlement.entitlementID) || blank(profileID) || blank(presetID) || blank(releaseID) || !validWhiteListCredential(credential) {
 		return WhiteListEntitlement{}, errors.New("controlplane: incomplete entitlement activation")
 	}
 	entitlement.transportProfileID = profileID
@@ -253,7 +263,7 @@ func (entitlement WhiteListEntitlement) Activate(profileID, presetID, releaseID 
 // WithState returns a new entitlement in an explicit lifecycle state while
 // preserving its pinned release references. ACTIVE requires a complete pin.
 func (entitlement WhiteListEntitlement) WithState(state EntitlementState) (WhiteListEntitlement, error) {
-	if blank(entitlement.accountID) || !validEntitlementState(state) {
+	if !entitlement.persistedIdentity || !validAccountID(entitlement.accountID) || !validEntitlementID(entitlement.entitlementID) || !validEntitlementState(state) {
 		return WhiteListEntitlement{}, errors.New("controlplane: invalid entitlement state")
 	}
 	if state == EntitlementActive && (blank(entitlement.transportProfileID) || blank(entitlement.compatibilityPresetID) || blank(entitlement.transportReleaseID) || !validWhiteListCredential(entitlement.credential)) {
@@ -272,6 +282,24 @@ func (entitlement WhiteListEntitlement) State() EntitlementState {
 
 func (entitlement WhiteListEntitlement) Active() bool {
 	return entitlement.State() == EntitlementActive
+}
+
+// EntitlementID is the stable opaque server-side identity used by metering,
+// ledger and panel projections. It never contains the raw account ID.
+func (entitlement WhiteListEntitlement) EntitlementID() string {
+	if !entitlement.persistedIdentity || !validEntitlementID(entitlement.entitlementID) {
+		return ""
+	}
+	return entitlement.entitlementID
+}
+
+// XrayIdentity is the exact per-entitlement counter identity. A never-activated
+// entitlement has no valid credential and therefore cannot be metered.
+func (entitlement WhiteListEntitlement) XrayIdentity() (string, bool) {
+	if !entitlement.persistedIdentity || !validEntitlementID(entitlement.entitlementID) || !validWhiteListCredential(entitlement.credential) {
+		return "", false
+	}
+	return "wl:" + entitlement.entitlementID, true
 }
 
 func (entitlement WhiteListEntitlement) AccountID() string { return entitlement.accountID }
@@ -525,6 +553,30 @@ func validTransportReleaseState(state TransportReleaseState) bool {
 	default:
 		return false
 	}
+}
+
+func validAccountID(value string) bool {
+	if len(value) == 0 || len(value) > 128 || value != strings.TrimSpace(value) || !utf8.ValidString(value) {
+		return false
+	}
+	for _, char := range value {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("._:-", char)) {
+			return false
+		}
+	}
+	return true
+}
+
+func validEntitlementID(value string) bool {
+	if !strings.HasPrefix(value, entitlementIDPrefix) {
+		return false
+	}
+	encoded := strings.TrimPrefix(value, entitlementIDPrefix)
+	if len(encoded) != entitlementIDEntropyBytes*2 || encoded != strings.ToLower(encoded) {
+		return false
+	}
+	decoded, err := hex.DecodeString(encoded)
+	return err == nil && len(decoded) == entitlementIDEntropyBytes
 }
 
 func blank(value string) bool { return strings.TrimSpace(value) == "" }

@@ -85,6 +85,19 @@ class DocumentationTests(unittest.TestCase):
             decisions.append(parsed['Decision'])
         self.assertEqual(17, len(set(decisions)))
 
+    def test_schema_v4_rollback_is_forward_only_and_snapshot_bound(self):
+        text = (DOCS / 'ROLLBACK.md').read_text(encoding='utf8').casefold()
+        for required in (
+            'schema v4',
+            'older v3 binary',
+            'must not be started',
+            'verified pre-v4 rqlite snapshot',
+            'fresh empty cluster',
+            'same-turn owner approval',
+            'production remains no-go',
+        ):
+            self.assertIn(required, text)
+
     def test_no_raw_ipv4_outside_master(self):
         files = [ROOT / 'AGENTS.md', ROOT / 'CONTEXT.md', *DOCS.rglob('*.md'), *(ROOT / 'scripts').rglob('*.py')]
         for path in files:

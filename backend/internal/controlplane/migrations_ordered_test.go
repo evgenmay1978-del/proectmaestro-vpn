@@ -2,8 +2,8 @@ package controlplane
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,7 +15,9 @@ func TestOrderedMigrationsExposeExactChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
-	if len(migrations) != 3 || migrations[0].Version != 1 || migrations[1].Version != 2 || migrations[2].Version != 3 {
+	if SchemaVersion != 4 || len(migrations) != 4 ||
+		migrations[0].Version != 1 || migrations[1].Version != 2 ||
+		migrations[2].Version != 3 || migrations[3].Version != 4 {
 		t.Fatalf("migrations=%#v", migrations)
 	}
 	identity, err := combinedMigrationChecksum(migrations)
@@ -50,18 +52,19 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 					{"version": json.Number("1"), "checksum": migrations[0].Checksum},
 					{"version": json.Number("2"), "checksum": migrations[1].Checksum},
 					{"version": json.Number("3"), "checksum": migrations[2].Checksum},
+					{"version": json.Number("4"), "checksum": migrations[3].Checksum},
 				}},
 				rqlite.Result{Rows: tableRows},
 				rqlite.Result{},
 			),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v1 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 2 {
-		t.Fatalf("requests=%d, want v2 and v3 transactions", len(db.requestCalls))
+	if len(db.requestCalls) != 3 {
+		t.Fatalf("requests=%d, want v2-v4 transactions", len(db.requestCalls))
 	}
 	call := db.requestCalls[0]
 	if call.level != rqlite.Linearizable || !call.transaction {
@@ -89,5 +92,19 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 	if len(v3Last.Args) != 3 || fmt.Sprint(v3Last.Args[0]) != "3" ||
 		fmt.Sprint(v3Last.Args[1]) != migrations[2].Checksum {
 		t.Fatalf("v3 migration receipt=%#v", v3Last)
+	}
+	v4 := db.requestCalls[2]
+	if v4.level != rqlite.Linearizable || !v4.transaction {
+		t.Fatalf("v4 request=%#v", v4)
+	}
+	v4SQL := strings.ToLower(statementsText(v4.statements))
+	if !strings.Contains(v4SQL, "create table whitelist_entitlement_identities") ||
+		!strings.Contains(v4SQL, "customer_id text not null unique") {
+		t.Fatalf("v4 migration transaction=%s", v4SQL)
+	}
+	v4Last := v4.statements[len(v4.statements)-1]
+	if len(v4Last.Args) != 3 || fmt.Sprint(v4Last.Args[0]) != "4" ||
+		fmt.Sprint(v4Last.Args[1]) != migrations[3].Checksum {
+		t.Fatalf("v4 migration receipt=%#v", v4Last)
 	}
 }

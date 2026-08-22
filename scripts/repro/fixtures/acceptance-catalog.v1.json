@@ -288,14 +288,35 @@
           "id": "counter-reset",
           "expected_facts": [
             {
-              "name": "delta_bytes",
+              "name": "ledger_unchanged",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            },
+            {
+              "name": "next_delta_bytes",
+              "kind": "INTEGER",
+              "integer_value": 15,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "reset_delta_bytes",
               "kind": "INTEGER",
               "integer_value": 0,
               "boolean_value": null,
               "text_value": null
             },
             {
-              "name": "reset_detected",
+              "name": "reset_generation",
+              "kind": "INTEGER",
+              "integer_value": 2,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "same_generation_rejected",
               "kind": "BOOLEAN",
               "integer_value": null,
               "boolean_value": true,
@@ -353,10 +374,24 @@
           "id": "out-of-order",
           "expected_facts": [
             {
-              "name": "monotonic_total",
+              "name": "late_sample_ignored",
               "kind": "BOOLEAN",
               "integer_value": null,
               "boolean_value": true,
+              "text_value": null
+            },
+            {
+              "name": "ledger_unchanged",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            },
+            {
+              "name": "next_delta_bytes",
+              "kind": "INTEGER",
+              "integer_value": 10,
+              "boolean_value": null,
               "text_value": null
             }
           ]
@@ -475,10 +510,10 @@
           ]
         },
         {
-          "id": "revocation",
+          "id": "fixture-inactive-state-render",
           "expected_facts": [
             {
-              "name": "revoked_removed",
+              "name": "inactive_state_omitted",
               "kind": "BOOLEAN",
               "integer_value": null,
               "boolean_value": true,
@@ -487,10 +522,10 @@
           ]
         },
         {
-          "id": "cache-invalidation",
+          "id": "fixture-state-rerender",
           "expected_facts": [
             {
-              "name": "cache_invalidated",
+              "name": "rerender_reflects_state",
               "kind": "BOOLEAN",
               "integer_value": null,
               "boolean_value": true,

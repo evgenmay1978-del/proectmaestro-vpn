@@ -69,6 +69,11 @@ func canonicalFixtureModels(t *testing.T) (Catalog, EvidenceBundle, ClientMatrix
 		HarnessStatus:    HarnessPass,
 		ReleaseReadiness: ReleaseNoGo,
 	}
+	for _, gateID := range RequiredProductionGates() {
+		evidence.ProductionGates = append(evidence.ProductionGates, ProductionGate{
+			ID: gateID, VerificationState: VerificationNotRun, EvidenceClass: EvidenceSchemaOnly,
+		})
+	}
 	for _, suite := range catalog.Suites {
 		for _, fixtureCase := range suite.Cases {
 			evidence.Observations = append(evidence.Observations, Observation{

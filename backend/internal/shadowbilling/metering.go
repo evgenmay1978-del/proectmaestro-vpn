@@ -7,12 +7,25 @@ import (
 	"errors"
 	"math/big"
 	"strings"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 var (
-	ErrMissingPaidPrice = errors.New("shadowbilling: paid price is required")
-	ErrInvalidInput     = errors.New("shadowbilling: invalid input")
+	ErrMissingPaidPrice        = errors.New("shadowbilling: paid price is required")
+	ErrInvalidInput            = errors.New("shadowbilling: invalid input")
+	ErrIdentityMismatch        = errors.New("shadowbilling: Xray identity mismatch")
+	ErrEventIDConflict         = errors.New("shadowbilling: EventID conflicts with the recorded payload or context")
+	ErrResetGenerationRequired = errors.New("shadowbilling: counter reset generation is required")
+	ErrOrderingModeMismatch    = errors.New("shadowbilling: counter ordering mode mismatch")
 )
+
+type EventIDConflictError struct {
+	EventID string
+}
+
+func (err *EventIDConflictError) Error() string { return ErrEventIDConflict.Error() }
+func (err *EventIDConflictError) Unwrap() error { return ErrEventIDConflict }
 
 type TrafficUnit string
 
@@ -86,13 +99,61 @@ func ResolvePrice(options PriceOptions) (ResolvedPrice, error) {
 	return ResolvedPrice{}, ErrMissingPaidPrice
 }
 
-type Policy struct {
-	AccountID, EntitlementID, TransportID, BillingPeriodID    string
+type PolicySpec struct {
+	BillingPeriodID                                           string
 	Unit                                                      TrafficUnit
 	Basis                                                     TrafficBasis
 	IncludedBytes, SoftLimitBytes, HardLimitBytes, GraceBytes uint64
 	Prices                                                    PriceOptions
 }
+
+type Policy struct {
+	accountID, entitlementID, transportID, billingPeriodID, expectedXrayIdentity string
+	Unit                                                                         TrafficUnit
+	Basis                                                                        TrafficBasis
+	IncludedBytes, SoftLimitBytes, HardLimitBytes, GraceBytes                    uint64
+	Prices                                                                       PriceOptions
+}
+
+// NewPolicy binds metering to identities issued by the white-list control
+// plane. Callers cannot substitute an ordinary VPN identity.
+func NewPolicy(entitlement controlplane.WhiteListEntitlement, spec PolicySpec) (Policy, error) {
+	identity, ok := entitlement.XrayIdentity()
+	if !ok {
+		return Policy{}, ErrInvalidInput
+	}
+	policy := Policy{
+		accountID: entitlement.AccountID(), entitlementID: entitlement.EntitlementID(),
+		transportID: entitlement.TransportProfileID(), billingPeriodID: spec.BillingPeriodID,
+		expectedXrayIdentity: identity,
+		Unit:                 spec.Unit, Basis: spec.Basis,
+		IncludedBytes: spec.IncludedBytes, SoftLimitBytes: spec.SoftLimitBytes,
+		HardLimitBytes: spec.HardLimitBytes, GraceBytes: spec.GraceBytes,
+		Prices: spec.Prices,
+	}
+	if !policy.validBinding() || policy.Unit.bytes() == 0 || (policy.Basis != BasisDownlinkOnly && policy.Basis != BasisUplinkPlusDownlink && policy.Basis != BasisFree) {
+		return Policy{}, ErrInvalidInput
+	}
+	if _, err := ResolvePrice(policy.Prices); err != nil {
+		return Policy{}, err
+	}
+	return policy, nil
+}
+
+func (policy Policy) AccountID() string       { return policy.accountID }
+func (policy Policy) EntitlementID() string   { return policy.entitlementID }
+func (policy Policy) TransportID() string     { return policy.transportID }
+func (policy Policy) BillingPeriodID() string { return policy.billingPeriodID }
+
+func (policy Policy) validBinding() bool {
+	for _, value := range []string{policy.accountID, policy.entitlementID, policy.transportID, policy.billingPeriodID, policy.expectedXrayIdentity} {
+		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) || strings.IndexByte(value, 0) >= 0 {
+			return false
+		}
+	}
+	return strings.HasPrefix(policy.entitlementID, "wl-ent-") && policy.expectedXrayIdentity == "wl:"+policy.entitlementID
+}
+
 type TariffSnapshot struct {
 	Unit                                                      TrafficUnit
 	Basis                                                     TrafficBasis
@@ -102,6 +163,11 @@ type TariffSnapshot struct {
 type UsageEvent struct {
 	EventID, InstanceID, MeterEpoch, XrayIdentity string
 	UplinkBytes, DownlinkBytes                    uint64
+}
+type OrderedUsageEvent struct {
+	UsageEvent
+	CounterGeneration uint64
+	SampleSequence    uint64
 }
 type ExactAmount struct {
 	Numerator   string
@@ -122,8 +188,10 @@ type LedgerEntry struct {
 type Diagnostic string
 
 const (
-	DiagnosticEpochStarted Diagnostic = "EPOCH_STARTED"
-	DiagnosticCounterReset Diagnostic = "COUNTER_RESET"
+	DiagnosticEpochStarted    Diagnostic = "EPOCH_STARTED"
+	DiagnosticCounterReset    Diagnostic = "COUNTER_RESET"
+	DiagnosticLateSample      Diagnostic = "LATE_SAMPLE"
+	DiagnosticOrderingStarted Diagnostic = "ORDERING_STARTED"
 )
 
 type SuspensionReason string
@@ -144,7 +212,23 @@ type Decision struct {
 	Suspension       SuspensionRecommendation
 }
 
-type counter struct{ up, down uint64 }
+type counter struct {
+	up, down             uint64
+	ordered              bool
+	generation, sequence uint64
+}
+
+type sampleOrder struct {
+	enabled              bool
+	generation, sequence uint64
+}
+
+type eventRecord struct {
+	event                                                                        UsageEvent
+	order                                                                        sampleOrder
+	accountID, entitlementID, transportID, billingPeriodID, expectedXrayIdentity string
+	tariff                                                                       TariffSnapshot
+}
 
 type meterKey struct {
 	instanceID string
@@ -157,7 +241,7 @@ type periodKey struct {
 	billingPeriodID string
 }
 type State struct {
-	seen               map[string]bool
+	seen               map[string]eventRecord
 	counters           map[meterKey]counter
 	included, measured map[periodKey]uint64
 	suspended          map[string]bool
@@ -165,7 +249,7 @@ type State struct {
 }
 
 func NewState() State {
-	return State{seen: map[string]bool{}, counters: map[meterKey]counter{}, included: map[periodKey]uint64{}, measured: map[periodKey]uint64{}, suspended: map[string]bool{}}
+	return State{seen: map[string]eventRecord{}, counters: map[meterKey]counter{}, included: map[periodKey]uint64{}, measured: map[periodKey]uint64{}, suspended: map[string]bool{}}
 }
 func (s State) LedgerEntries() []LedgerEntry               { return append([]LedgerEntry(nil), s.ledger...) }
 func (s State) WhiteListSuspended(entitlement string) bool { return s.suspended[entitlement] }
@@ -190,9 +274,29 @@ func (s State) clone() State {
 	return n
 }
 
+// Apply preserves the legacy inferred-reset behavior for existing callers.
 func Apply(state State, event UsageEvent, policy Policy) (State, Decision, error) {
-	if strings.TrimSpace(event.EventID) == "" || strings.TrimSpace(event.InstanceID) == "" || strings.TrimSpace(event.MeterEpoch) == "" || strings.TrimSpace(event.XrayIdentity) == "" || strings.TrimSpace(policy.AccountID) == "" || strings.TrimSpace(policy.EntitlementID) == "" || strings.TrimSpace(policy.TransportID) == "" || strings.TrimSpace(policy.BillingPeriodID) == "" || policy.Unit.bytes() == 0 {
+	return apply(state, event, policy, sampleOrder{})
+}
+
+// ApplyOrdered uses a producer-supplied monotonic generation and sequence.
+// Late samples are ignored atomically; a lower counter is accepted only after
+// an explicit generation increase.
+func ApplyOrdered(state State, event OrderedUsageEvent, policy Policy) (State, Decision, error) {
+	if event.CounterGeneration == 0 || event.SampleSequence == 0 {
 		return state, Decision{}, ErrInvalidInput
+	}
+	return apply(state, event.UsageEvent, policy, sampleOrder{
+		enabled: true, generation: event.CounterGeneration, sequence: event.SampleSequence,
+	})
+}
+
+func apply(state State, event UsageEvent, policy Policy, order sampleOrder) (State, Decision, error) {
+	if strings.TrimSpace(event.EventID) == "" || strings.TrimSpace(event.InstanceID) == "" || strings.TrimSpace(event.MeterEpoch) == "" || strings.TrimSpace(event.XrayIdentity) == "" || !policy.validBinding() || policy.Unit.bytes() == 0 {
+		return state, Decision{}, ErrInvalidInput
+	}
+	if event.XrayIdentity != policy.expectedXrayIdentity {
+		return state, Decision{}, ErrIdentityMismatch
 	}
 	price, err := ResolvePrice(policy.Prices)
 	if err != nil {
@@ -201,13 +305,56 @@ func Apply(state State, event UsageEvent, policy Policy) (State, Decision, error
 	if policy.Basis != BasisDownlinkOnly && policy.Basis != BasisUplinkPlusDownlink && policy.Basis != BasisFree {
 		return state, Decision{}, ErrInvalidInput
 	}
+	record := eventRecord{
+		event:     event,
+		order:     order,
+		accountID: policy.accountID, entitlementID: policy.entitlementID,
+		transportID: policy.transportID, billingPeriodID: policy.billingPeriodID,
+		expectedXrayIdentity: policy.expectedXrayIdentity,
+		tariff: TariffSnapshot{
+			policy.Unit, policy.Basis, policy.IncludedBytes, policy.SoftLimitBytes,
+			policy.HardLimitBytes, policy.GraceBytes, price,
+		},
+	}
+	if recorded, ok := state.seen[event.EventID]; ok {
+		if recorded == record {
+			return state, Decision{Replay: true}, nil
+		}
+		return state, Decision{}, &EventIDConflictError{EventID: event.EventID}
+	}
+
 	key := meterKey{event.InstanceID, event.MeterEpoch, event.XrayIdentity}
-	periodKey := periodKey{policy.EntitlementID, policy.BillingPeriodID}
-	if old, ok := state.counters[key]; ok && event.UplinkBytes >= old.up && event.DownlinkBytes >= old.down {
-		measured := event.DownlinkBytes - old.down
+	period := periodKey{policy.entitlementID, policy.billingPeriodID}
+	old, hasCounter := state.counters[key]
+	diagnostic := Diagnostic("")
+	switch {
+	case !hasCounter:
+		diagnostic = DiagnosticEpochStarted
+	case order.enabled:
+		switch {
+		case old.ordered && (order.generation < old.generation || (order.generation == old.generation && order.sequence <= old.sequence)):
+			return state, Decision{Diagnostic: DiagnosticLateSample}, nil
+		case old.ordered && order.generation > old.generation:
+			diagnostic = DiagnosticCounterReset
+		case old.ordered && (event.UplinkBytes < old.up || event.DownlinkBytes < old.down):
+			return state, Decision{}, ErrResetGenerationRequired
+		case !old.ordered:
+			diagnostic = DiagnosticOrderingStarted
+		}
+	case old.ordered:
+		return state, Decision{}, ErrOrderingModeMismatch
+	case event.UplinkBytes < old.up || event.DownlinkBytes < old.down:
+		diagnostic = DiagnosticCounterReset
+	}
+
+	var up, down, measured uint64
+	if hasCounter && diagnostic == "" {
+		up = event.UplinkBytes - old.up
+		down = event.DownlinkBytes - old.down
+		measured = down
 		if policy.Basis == BasisUplinkPlusDownlink {
 			var overflow bool
-			measured, overflow = checkedAdd(event.UplinkBytes-old.up, measured)
+			measured, overflow = checkedAdd(up, measured)
 			if overflow {
 				return state, Decision{}, ErrInvalidInput
 			}
@@ -215,32 +362,22 @@ func Apply(state State, event UsageEvent, policy Policy) (State, Decision, error
 		if policy.Basis == BasisFree {
 			measured = 0
 		}
-		if _, overflow := checkedAdd(state.measured[periodKey], measured); overflow {
+		if _, overflow := checkedAdd(state.measured[period], measured); overflow {
 			return state, Decision{}, ErrInvalidInput
 		}
 	}
+
 	next := state.clone()
-	if next.seen[event.EventID] {
-		return next, Decision{Replay: true}, nil
+	next.seen[event.EventID] = record
+	next.counters[key] = counter{
+		up: event.UplinkBytes, down: event.DownlinkBytes,
+		ordered: order.enabled, generation: order.generation, sequence: order.sequence,
 	}
-	next.seen[event.EventID] = true
-	old, ok := next.counters[key]
-	next.counters[key] = counter{event.UplinkBytes, event.DownlinkBytes}
-	if !ok {
-		return next, Decision{Diagnostic: DiagnosticEpochStarted}, nil
+	if diagnostic != "" {
+		return next, Decision{Diagnostic: diagnostic}, nil
 	}
-	if event.UplinkBytes < old.up || event.DownlinkBytes < old.down {
-		return next, Decision{Diagnostic: DiagnosticCounterReset}, nil
-	}
-	up, down := event.UplinkBytes-old.up, event.DownlinkBytes-old.down
-	measured := down
-	if policy.Basis == BasisUplinkPlusDownlink {
-		measured = up + down
-	}
-	if policy.Basis == BasisFree {
-		measured = 0
-	}
-	remaining, known := next.included[periodKey]
+
+	remaining, known := next.included[period]
 	if !known {
 		remaining = policy.IncludedBytes
 	}
@@ -252,16 +389,16 @@ func Apply(state State, event UsageEvent, policy Policy) (State, Decision, error
 		remaining -= used
 		used = 0
 	}
-	next.included[periodKey] = remaining
-	next.measured[periodKey] += measured
-	snap := TariffSnapshot{policy.Unit, policy.Basis, policy.IncludedBytes, policy.SoftLimitBytes, policy.HardLimitBytes, policy.GraceBytes, price}
-	interval := UsageInterval{event.EventID, policy.AccountID, policy.EntitlementID, policy.TransportID, policy.BillingPeriodID, event.InstanceID, event.MeterEpoch, event.XrayIdentity, up, down, used, snap}
+	next.included[period] = remaining
+	next.measured[period] += measured
+	snap := record.tariff
+	interval := UsageInterval{event.EventID, policy.accountID, policy.entitlementID, policy.transportID, policy.billingPeriodID, event.InstanceID, event.MeterEpoch, event.XrayIdentity, up, down, used, snap}
 	entry := LedgerEntry{event.EventID, interval, snap, exactAmount(used, price, policy.Unit)}
 	next.ledger = append(next.ledger, entry)
-	d := Decision{Interval: &interval, Ledger: &entry, SoftLimitReached: policy.SoftLimitBytes > 0 && next.measured[periodKey] >= policy.SoftLimitBytes}
-	if policy.HardLimitBytes > 0 && next.measured[periodKey] > policy.HardLimitBytes && next.measured[periodKey]-policy.HardLimitBytes > policy.GraceBytes {
-		next.suspended[policy.EntitlementID] = true
-		d.Suspension = SuspensionRecommendation{true, policy.EntitlementID, SuspensionHardLimit}
+	d := Decision{Interval: &interval, Ledger: &entry, SoftLimitReached: policy.SoftLimitBytes > 0 && next.measured[period] >= policy.SoftLimitBytes}
+	if policy.HardLimitBytes > 0 && next.measured[period] > policy.HardLimitBytes && next.measured[period]-policy.HardLimitBytes > policy.GraceBytes {
+		next.suspended[policy.entitlementID] = true
+		d.Suspension = SuspensionRecommendation{true, policy.entitlementID, SuspensionHardLimit}
 	}
 	return next, d, nil
 }

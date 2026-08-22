@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/testsupport/whitelistfixture"
 )
 
 func reviewedCredential() controlplane.WhiteListCredential {
@@ -22,11 +23,8 @@ func reviewedCredential() controlplane.WhiteListCredential {
 
 func reviewedFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlplane.TransportRelease) {
 	t.Helper()
-	entitlement, err := controlplane.NewWhiteListEntitlement("account-alpha")
-	if err != nil {
-		t.Fatalf("NewWhiteListEntitlement: %v", err)
-	}
-	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-a", reviewedCredential())
+	entitlement := whitelistfixture.MustPersisted(t, "account-alpha")
+	entitlement, err := entitlement.Activate("profile-a", "preset-a", "release-a", reviewedCredential())
 	if err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
@@ -57,10 +55,7 @@ func reviewedFixture(t *testing.T) (controlplane.WhiteListEntitlement, controlpl
 }
 
 func TestRenderWhiteListSubscriptionLeavesOrdinaryOutputByteExactWhenDisabled(t *testing.T) {
-	entitlement, err := controlplane.NewWhiteListEntitlement("account-alpha")
-	if err != nil {
-		t.Fatalf("NewWhiteListEntitlement: %v", err)
-	}
+	entitlement := whitelistfixture.MustPersisted(t, "account-alpha")
 	ordinary := OrdinarySubscription{AccountID: "account-alpha", Identity: "ordinary-subscription-alpha", Output: "opaque\nordinary\noutput\n"}
 	result := RenderWhiteListSubscription(ordinary, entitlement, controlplane.TransportRelease{})
 	if result.Ordinary != ordinary || len(result.WhiteListNodes) != 0 || result.Diagnostic != nil {

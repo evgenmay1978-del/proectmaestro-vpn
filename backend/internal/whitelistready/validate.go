@@ -163,6 +163,9 @@ func validateEvidence(catalog Catalog, catalogHash string, evidence EvidenceBund
 	if evidence.Binding.CatalogSHA256 != catalogHash {
 		return invalid(CodeCatalogHashMismatch)
 	}
+	if err := validateProductionGates(evidence.ProductionGates); err != nil {
+		return err
+	}
 	expected := make(map[string][]Fact)
 	for _, suite := range catalog.Suites {
 		for _, fixtureCase := range suite.Cases {
@@ -203,6 +206,33 @@ func validateEvidence(catalog Catalog, catalogHash string, evidence EvidenceBund
 		}
 		if !factsEqual(observation.Facts, expectedFacts) {
 			return invalid(CodeObservationFactsMismatch)
+		}
+	}
+	return nil
+}
+
+func validateProductionGates(gates []ProductionGate) error {
+	if len(gates) != len(requiredProductionGates) {
+		return invalid(CodeProductionGateSetInvalid)
+	}
+	required := make(map[string]struct{}, len(requiredProductionGates))
+	for _, gateID := range requiredProductionGates {
+		required[gateID] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(gates))
+	for _, gate := range gates {
+		if !safeID(gate.ID) {
+			return invalid(CodeProductionGateSetInvalid)
+		}
+		if _, duplicate := seen[gate.ID]; duplicate {
+			return invalid(CodeDuplicateID)
+		}
+		seen[gate.ID] = struct{}{}
+		if _, exists := required[gate.ID]; !exists {
+			return invalid(CodeProductionGateSetInvalid)
+		}
+		if gate.VerificationState != VerificationNotRun || gate.EvidenceClass != EvidenceSchemaOnly || gate.EvidenceRef != nil {
+			return invalid(CodeProductionGateInvalid)
 		}
 	}
 	return nil
@@ -438,7 +468,13 @@ func requiredFacts(caseID string) []Fact {
 	case "literal-edge-get":
 		return []Fact{boolean("literal_edge_used", true)}
 	case "counter-reset":
-		return []Fact{integer("delta_bytes", 0), boolean("reset_detected", true)}
+		return []Fact{
+			boolean("ledger_unchanged", true),
+			integer("next_delta_bytes", 15),
+			integer("reset_delta_bytes", 0),
+			integer("reset_generation", 2),
+			boolean("same_generation_rejected", true),
+		}
 	case "stable-identity":
 		return []Fact{boolean("identity_stable", true)}
 	case "idempotent":
@@ -446,7 +482,11 @@ func requiredFacts(caseID string) []Fact {
 	case "duplicate-event":
 		return []Fact{integer("applied_events", 1)}
 	case "out-of-order":
-		return []Fact{boolean("monotonic_total", true)}
+		return []Fact{
+			boolean("late_sample_ignored", true),
+			boolean("ledger_unchanged", true),
+			integer("next_delta_bytes", 10),
+		}
 	case "primary":
 		return []Fact{integer("selected_rank", 1)}
 	case "failover":
@@ -471,10 +511,10 @@ func requiredFacts(caseID string) []Fact {
 		return []Fact{boolean("deduplicated", true)}
 	case "reimport":
 		return []Fact{boolean("identity_preserved", true)}
-	case "revocation":
-		return []Fact{boolean("revoked_removed", true)}
-	case "cache-invalidation":
-		return []Fact{boolean("cache_invalidated", true)}
+	case "fixture-inactive-state-render":
+		return []Fact{boolean("inactive_state_omitted", true)}
+	case "fixture-state-rerender":
+		return []Fact{boolean("rerender_reflects_state", true)}
 	default:
 		return nil
 	}
@@ -612,9 +652,18 @@ func validCatalogJSONShape(value any) bool {
 }
 
 func validEvidenceJSONShape(value any) bool {
-	object, ok := exactObject(value, "schema_version", "binding", "evidence_class", "harness_status", "release_readiness", "observations")
+	object, ok := exactObject(value, "schema_version", "binding", "evidence_class", "harness_status", "release_readiness", "production_gates", "observations")
 	if !ok || !validBindingJSONShape(object["binding"]) {
 		return false
+	}
+	gates, ok := object["production_gates"].([]any)
+	if !ok {
+		return false
+	}
+	for _, gateValue := range gates {
+		if _, ok := exactObject(gateValue, "id", "verification_state", "evidence_class", "evidence_ref"); !ok {
+			return false
+		}
 	}
 	observations, ok := object["observations"].([]any)
 	if !ok {

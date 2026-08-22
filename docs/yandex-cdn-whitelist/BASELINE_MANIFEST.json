@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "bytes": 9573,
-      "sha256": "fd65a3d49e194c98447f7e190e3136342788d241e5ceef4e4ffe46841ec9a1ba",
+      "bytes": 10086,
+      "sha256": "72f92dffd5490af37f6dba400497042981ccce68a3fd721491defb94e7357f5f",
       "preview": "# Yandex CDN white-list task\n\nNavigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](<REDACTED>), [SPEC](docs/yandex-cdn-whitelist/<REDACTED>), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [hando"
     },
     {
@@ -111,9 +111,9 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/ROLLBACK.md",
-      "bytes": 1071,
-      "sha256": "e228d5fef3b1f5d603b147e106b023a89deb59b032a092635d236f67cdcec0af",
-      "preview": "# Rollback policy\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nRollback selects a prior immutable release, unpublishes edge, disables one entitlement or returns billing to shadow. It preserves ordina"
+      "bytes": 2374,
+      "sha256": "a0350a6fd7a6d01906bdadcfa062a816a73a7f7b1c0c4644509f22c36170e50d",
+      "preview": "# Rollback policy\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nRelease/config/entitlement rollback selects a prior immutable release,\nunpublishes edge, disables one entitlement or returns billing to "
     },
     {
       "path": "docs/yandex-cdn-whitelist/SECURITY.md",
