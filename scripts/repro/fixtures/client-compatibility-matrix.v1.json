@@ -1,0 +1,472 @@
+{
+  "binding": {
+    "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+    "tool_version": "task7-harness-1.0.0",
+    "core_version": "xray-fixture-25.8.3",
+    "environment": "OFFLINE_FIXTURE",
+    "observed_at": "2026-08-22T00:00:00Z"
+  },
+  "schema_version": 1,
+  "baseline_version": "1.0.157",
+  "clients": [
+    {
+      "id": "maestrovpn",
+      "app_version": "1.0.157",
+      "core_version": null,
+      "preset": null,
+      "verification_state": "NOT_RUN",
+      "compatibility_status": null,
+      "evidence_class": "SCHEMA_ONLY",
+      "evidence_ref": null,
+      "checks": [
+        {
+          "id": "import",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "refresh",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tls",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "client_encryption",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "xhttp_get",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tcp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "udp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "dns",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "speedtest",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "five_min_up_down",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "idle_90s_recovery",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "network_transitions",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "sleep_wake",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "cold_start",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "literal_edge",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "per_user_stats",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "billing_identity",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        }
+      ]
+    },
+    {
+      "id": "karing",
+      "app_version": null,
+      "core_version": null,
+      "preset": null,
+      "verification_state": "NOT_RUN",
+      "compatibility_status": null,
+      "evidence_class": "SCHEMA_ONLY",
+      "evidence_ref": null,
+      "checks": [
+        {
+          "id": "import",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "refresh",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tls",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "client_encryption",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "xhttp_get",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tcp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "udp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "dns",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "speedtest",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "five_min_up_down",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "idle_90s_recovery",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "network_transitions",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "sleep_wake",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "cold_start",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "literal_edge",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "per_user_stats",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "billing_identity",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        }
+      ]
+    },
+    {
+      "id": "incy",
+      "app_version": null,
+      "core_version": null,
+      "preset": null,
+      "verification_state": "NOT_RUN",
+      "compatibility_status": null,
+      "evidence_class": "SCHEMA_ONLY",
+      "evidence_ref": null,
+      "checks": [
+        {
+          "id": "import",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "refresh",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tls",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "client_encryption",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "xhttp_get",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tcp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "udp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "dns",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "speedtest",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "five_min_up_down",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "idle_90s_recovery",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "network_transitions",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "sleep_wake",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "cold_start",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "literal_edge",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "per_user_stats",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "billing_identity",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        }
+      ]
+    },
+    {
+      "id": "happ",
+      "app_version": null,
+      "core_version": null,
+      "preset": null,
+      "verification_state": "NOT_RUN",
+      "compatibility_status": null,
+      "evidence_class": "SCHEMA_ONLY",
+      "evidence_ref": null,
+      "checks": [
+        {
+          "id": "import",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "refresh",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tls",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "client_encryption",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "xhttp_get",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "tcp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "udp",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "dns",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "speedtest",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "five_min_up_down",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "idle_90s_recovery",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "network_transitions",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "sleep_wake",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "cold_start",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "literal_edge",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "per_user_stats",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        },
+        {
+          "id": "billing_identity",
+          "verification_state": "NOT_RUN",
+          "evidence_class": "SCHEMA_ONLY",
+          "evidence_ref": null
+        }
+      ]
+    }
+  ]
+}

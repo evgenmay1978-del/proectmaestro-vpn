@@ -1,0 +1,545 @@
+{
+  "schema_version": 1,
+  "suites": [
+    {
+      "id": "yandex_get_body",
+      "cases": [
+        {
+          "id": "body-1b",
+          "expected_facts": [
+            {
+              "name": "body_bytes",
+              "kind": "INTEGER",
+              "integer_value": 1,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "digest_match",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "body-1kib",
+          "expected_facts": [
+            {
+              "name": "body_bytes",
+              "kind": "INTEGER",
+              "integer_value": 1024,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "digest_match",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "body-64kib",
+          "expected_facts": [
+            {
+              "name": "body_bytes",
+              "kind": "INTEGER",
+              "integer_value": 65536,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "digest_match",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "body-256kib",
+          "expected_facts": [
+            {
+              "name": "body_bytes",
+              "kind": "INTEGER",
+              "integer_value": 262144,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "digest_match",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "body-typical",
+          "expected_facts": [
+            {
+              "name": "body_bytes",
+              "kind": "INTEGER",
+              "integer_value": 131072,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "digest_match",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "body-max",
+          "expected_facts": [
+            {
+              "name": "body_bytes",
+              "kind": "INTEGER",
+              "integer_value": 1048576,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "digest_match",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "auth-pass",
+          "expected_facts": [
+            {
+              "name": "authorization_result",
+              "kind": "TEXT",
+              "integer_value": null,
+              "boolean_value": null,
+              "text_value": "ALLOW"
+            }
+          ]
+        },
+        {
+          "id": "sequence-pass",
+          "expected_facts": [
+            {
+              "name": "sequence_preserved",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "cache-disabled",
+          "expected_facts": [
+            {
+              "name": "cache_disabled",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "invalid-host-rejected",
+          "expected_facts": [
+            {
+              "name": "rejected",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "invalid-path-rejected",
+          "expected_facts": [
+            {
+              "name": "rejected",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "invalid-status-rejected",
+          "expected_facts": [
+            {
+              "name": "rejected",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "latency-bounded",
+          "expected_facts": [
+            {
+              "name": "latency_ms",
+              "kind": "INTEGER",
+              "integer_value": 250,
+              "boolean_value": null,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "retry-bounded",
+          "expected_facts": [
+            {
+              "name": "retry_count",
+              "kind": "INTEGER",
+              "integer_value": 2,
+              "boolean_value": null,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "yandex_active_stream",
+      "cases": [
+        {
+          "id": "active-stream-5m",
+          "expected_facts": [
+            {
+              "name": "duration_seconds",
+              "kind": "INTEGER",
+              "integer_value": 300,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "bidirectional",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "yandex_idle_cutoff",
+      "cases": [
+        {
+          "id": "idle-90s-recovery",
+          "expected_facts": [
+            {
+              "name": "idle_seconds",
+              "kind": "INTEGER",
+              "integer_value": 90,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "recovered",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "yandex_literal_edge",
+      "cases": [
+        {
+          "id": "literal-edge-get",
+          "expected_facts": [
+            {
+              "name": "literal_edge_used",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "xray_counter_reset",
+      "cases": [
+        {
+          "id": "counter-reset",
+          "expected_facts": [
+            {
+              "name": "delta_bytes",
+              "kind": "INTEGER",
+              "integer_value": 0,
+              "boolean_value": null,
+              "text_value": null
+            },
+            {
+              "name": "reset_detected",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "billing_idempotency",
+      "cases": [
+        {
+          "id": "stable-identity",
+          "expected_facts": [
+            {
+              "name": "identity_stable",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "idempotent",
+          "expected_facts": [
+            {
+              "name": "charge_events",
+              "kind": "INTEGER",
+              "integer_value": 1,
+              "boolean_value": null,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "duplicate_event_replay",
+      "cases": [
+        {
+          "id": "duplicate-event",
+          "expected_facts": [
+            {
+              "name": "applied_events",
+              "kind": "INTEGER",
+              "integer_value": 1,
+              "boolean_value": null,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "out-of-order",
+          "expected_facts": [
+            {
+              "name": "monotonic_total",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "subscription_escaping",
+      "cases": [
+        {
+          "id": "base64",
+          "expected_facts": [
+            {
+              "name": "base64_valid",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "plain",
+          "expected_facts": [
+            {
+              "name": "plain_valid",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "utf8",
+          "expected_facts": [
+            {
+              "name": "utf8_preserved",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "escaping",
+          "expected_facts": [
+            {
+              "name": "escaping_preserved",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "long-uri",
+          "expected_facts": [
+            {
+              "name": "long_uri_preserved",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "qr",
+          "expected_facts": [
+            {
+              "name": "qr_round_trip",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "refresh",
+          "expected_facts": [
+            {
+              "name": "refresh_stable",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "dedup",
+          "expected_facts": [
+            {
+              "name": "deduplicated",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "reimport",
+          "expected_facts": [
+            {
+              "name": "identity_preserved",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "revocation",
+          "expected_facts": [
+            {
+              "name": "revoked_removed",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "cache-invalidation",
+          "expected_facts": [
+            {
+              "name": "cache_invalidated",
+              "kind": "BOOLEAN",
+              "integer_value": null,
+              "boolean_value": true,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "edge_rotation",
+      "cases": [
+        {
+          "id": "primary",
+          "expected_facts": [
+            {
+              "name": "selected_rank",
+              "kind": "INTEGER",
+              "integer_value": 1,
+              "boolean_value": null,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "failover",
+          "expected_facts": [
+            {
+              "name": "selected_rank",
+              "kind": "INTEGER",
+              "integer_value": 2,
+              "boolean_value": null,
+              "text_value": null
+            }
+          ]
+        },
+        {
+          "id": "finite-fallback",
+          "expected_facts": [
+            {
+              "name": "selected_rank",
+              "kind": "INTEGER",
+              "integer_value": 3,
+              "boolean_value": null,
+              "text_value": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

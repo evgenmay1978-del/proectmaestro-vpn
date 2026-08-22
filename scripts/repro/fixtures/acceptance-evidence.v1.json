@@ -1,0 +1,981 @@
+{
+  "schema_version": 1,
+  "binding": {
+    "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+    "tool_version": "task7-harness-1.0.0",
+    "core_version": "xray-fixture-25.8.3",
+    "environment": "OFFLINE_FIXTURE",
+    "observed_at": "2026-08-22T00:00:00Z"
+  },
+  "evidence_class": "FIXTURE_REPLAY",
+  "harness_status": "PASS",
+  "release_readiness": "NO_GO",
+  "observations": [
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "body-1b",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "body_bytes",
+          "kind": "INTEGER",
+          "integer_value": 1,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "digest_match",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "body-1kib",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "body_bytes",
+          "kind": "INTEGER",
+          "integer_value": 1024,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "digest_match",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "body-64kib",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "body_bytes",
+          "kind": "INTEGER",
+          "integer_value": 65536,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "digest_match",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "body-256kib",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "body_bytes",
+          "kind": "INTEGER",
+          "integer_value": 262144,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "digest_match",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "body-typical",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "body_bytes",
+          "kind": "INTEGER",
+          "integer_value": 131072,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "digest_match",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "body-max",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "body_bytes",
+          "kind": "INTEGER",
+          "integer_value": 1048576,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "digest_match",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "auth-pass",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "authorization_result",
+          "kind": "TEXT",
+          "integer_value": null,
+          "boolean_value": null,
+          "text_value": "ALLOW"
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "sequence-pass",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "sequence_preserved",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "cache-disabled",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "cache_disabled",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "invalid-host-rejected",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "rejected",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "invalid-path-rejected",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "rejected",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "invalid-status-rejected",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "rejected",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "latency-bounded",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "latency_ms",
+          "kind": "INTEGER",
+          "integer_value": 250,
+          "boolean_value": null,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_get_body",
+      "case_id": "retry-bounded",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "retry_count",
+          "kind": "INTEGER",
+          "integer_value": 2,
+          "boolean_value": null,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_active_stream",
+      "case_id": "active-stream-5m",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "duration_seconds",
+          "kind": "INTEGER",
+          "integer_value": 300,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "bidirectional",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_idle_cutoff",
+      "case_id": "idle-90s-recovery",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "idle_seconds",
+          "kind": "INTEGER",
+          "integer_value": 90,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "recovered",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "yandex_literal_edge",
+      "case_id": "literal-edge-get",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "literal_edge_used",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "xray_counter_reset",
+      "case_id": "counter-reset",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "delta_bytes",
+          "kind": "INTEGER",
+          "integer_value": 0,
+          "boolean_value": null,
+          "text_value": null
+        },
+        {
+          "name": "reset_detected",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "billing_idempotency",
+      "case_id": "stable-identity",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "identity_stable",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "billing_idempotency",
+      "case_id": "idempotent",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "charge_events",
+          "kind": "INTEGER",
+          "integer_value": 1,
+          "boolean_value": null,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "duplicate_event_replay",
+      "case_id": "duplicate-event",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "applied_events",
+          "kind": "INTEGER",
+          "integer_value": 1,
+          "boolean_value": null,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "duplicate_event_replay",
+      "case_id": "out-of-order",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "monotonic_total",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "base64",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "base64_valid",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "plain",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "plain_valid",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "utf8",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "utf8_preserved",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "escaping",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "escaping_preserved",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "long-uri",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "long_uri_preserved",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "qr",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "qr_round_trip",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "refresh",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "refresh_stable",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "dedup",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "deduplicated",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "reimport",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "identity_preserved",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "revocation",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "revoked_removed",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "subscription_escaping",
+      "case_id": "cache-invalidation",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "cache_invalidated",
+          "kind": "BOOLEAN",
+          "integer_value": null,
+          "boolean_value": true,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "edge_rotation",
+      "case_id": "primary",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "selected_rank",
+          "kind": "INTEGER",
+          "integer_value": 1,
+          "boolean_value": null,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "edge_rotation",
+      "case_id": "failover",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "selected_rank",
+          "kind": "INTEGER",
+          "integer_value": 2,
+          "boolean_value": null,
+          "text_value": null
+        }
+      ]
+    },
+    {
+      "suite_id": "edge_rotation",
+      "case_id": "finite-fallback",
+      "binding": {
+        "candidate_commit": "0123456789abcdef0123456789abcdef01234567",
+        "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "catalog_sha256": "2142341d7133617832cf990a063f9bbe207c95bc00020cb671d5fdd43e7dc5e6",
+        "tool_version": "task7-harness-1.0.0",
+        "core_version": "xray-fixture-25.8.3",
+        "environment": "OFFLINE_FIXTURE",
+        "observed_at": "2026-08-22T00:00:00Z"
+      },
+      "evidence_class": "FIXTURE_REPLAY",
+      "verification_state": "PASSED",
+      "facts": [
+        {
+          "name": "selected_rank",
+          "kind": "INTEGER",
+          "integer_value": 3,
+          "boolean_value": null,
+          "text_value": null
+        }
+      ]
+    }
+  ]
+}
