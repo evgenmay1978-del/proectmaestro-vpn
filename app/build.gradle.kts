@@ -52,6 +52,66 @@ fun getVersionProps(propName: String): String {
     return ""
 }
 
+val productionVersionCode = getVersionProps("VERSION_CODE").toInt()
+val productionVersionName = getVersionProps("VERSION_NAME")
+val task7ProductionBaselineVersionCode = 157
+val task7ProductionBaselineVersionName = "1.0.157"
+val task7TestVersionNameProperty = providers.gradleProperty("maestroTask7TestVersionName").orNull
+val task7TestVersionCodeProperty = providers.gradleProperty("maestroTask7TestVersionCode").orNull
+val task7TestOverrideActive =
+    task7TestVersionNameProperty != null || task7TestVersionCodeProperty != null
+
+require((task7TestVersionNameProperty == null) == (task7TestVersionCodeProperty == null)) {
+    "Task 7 test version name and code must be supplied together"
+}
+
+val task7TestVersionCode = task7TestVersionCodeProperty?.toIntOrNull()
+require(task7TestVersionCodeProperty == null || task7TestVersionCode != null) {
+    "Task 7 test version code must be a bounded integer"
+}
+
+if (task7TestOverrideActive) {
+    val task7TestVersionName = requireNotNull(task7TestVersionNameProperty)
+    val task7TestVersionCodeValue = requireNotNull(task7TestVersionCode)
+    require(task7TestVersionName.length in 1..64) {
+        "Task 7 test version name is out of bounds"
+    }
+    require(Regex("""[0-9]+\.[0-9]+\.[0-9]+-task7-test""").matches(task7TestVersionName)) {
+        "Task 7 test version name must end with -task7-test"
+    }
+    require(task7TestVersionName == "1.0.158-task7-test") {
+        "Task 7 test version name must be 1.0.158-task7-test"
+    }
+    require(task7TestVersionCodeValue == 1015800) {
+        "Task 7 test version code must be 1015800"
+    }
+    require(task7TestVersionName != productionVersionName) {
+        "Task 7 test version name must differ from source defaults"
+    }
+    require(task7TestVersionName != task7ProductionBaselineVersionName) {
+        "Task 7 test version name must differ from release baseline"
+    }
+    require(task7TestVersionCodeValue > productionVersionCode) {
+        "Task 7 test version code must be above source defaults"
+    }
+    require(task7TestVersionCodeValue > task7ProductionBaselineVersionCode) {
+        "Task 7 test version code must be above release baseline"
+    }
+}
+
+val releaseKeystorePassword = getProps("KEYSTORE_PASS")
+val releaseKeyAlias = getProps("ALIAS_NAME")
+val releaseKeyPassword = getProps("ALIAS_PASS")
+val releaseSigningConfigured =
+    listOf(releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).any { it.isNotEmpty() }
+if (task7TestOverrideActive) {
+    require(!releaseSigningConfigured) {
+        "Task 7 test APK must not use release signing"
+    }
+}
+
+val effectiveVersionName = task7TestVersionNameProperty ?: productionVersionName
+val effectiveVersionCode = task7TestVersionCode ?: productionVersionCode
 android {
     namespace = "com.maestrovpn.tv"
     compileSdk = 36
@@ -69,9 +129,9 @@ android {
         applicationId = "com.maestrovpn.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = getVersionProps("VERSION_CODE").toInt()
-        versionName = getVersionProps("VERSION_NAME")
-        base.archivesName.set("MaestroVPN-TV-${versionName}")
+        versionCode = effectiveVersionCode
+        versionName = effectiveVersionName
+        base.archivesName.set("MaestroVPN-TV-$effectiveVersionName")
         // backend the TV app hits for the claim-code → subscription exchange
         buildConfigField("String", "BACKEND_URL", "\"https://wapmixx.ru:8911\"")
         // Ship only ARM ABIs. Every real RU Android-TV box / phone is arm64-v8a or
@@ -86,9 +146,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("release.keystore")
-            storePassword = getProps("KEYSTORE_PASS")
-            keyAlias = getProps("ALIAS_NAME")
-            keyPassword = getProps("ALIAS_PASS")
+            storePassword = releaseKeystorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
         }
     }
 
@@ -106,7 +166,7 @@ android {
             // checked. Keep it — it is the only automated gate this pipeline has — but expect a
             // release to fail if lint finds a new FATAL issue; fix the issue, don't silence it.
             isDebuggable = false
-            if (getProps("KEYSTORE_PASS").isNotEmpty()) {
+            if (releaseKeystorePassword.isNotEmpty()) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }

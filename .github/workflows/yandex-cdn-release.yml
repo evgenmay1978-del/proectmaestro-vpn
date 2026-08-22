@@ -5,33 +5,72 @@ on:
   pull_request:
     paths:
       - '.github/workflows/yandex-cdn-release.yml'
-      - 'backend/internal/release/**'
+      - 'app/build.gradle.kts'
+      - 'version.properties'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
       - 'backend/cmd/maestro-release-validate/**'
+      - 'backend/cmd/maestro-whitelist-ready/**'
+      - 'backend/internal/controlplane/**'
+      - 'backend/internal/release/**'
+      - 'backend/internal/shadowbilling/**'
+      - 'backend/internal/subgen/**'
+      - 'backend/internal/testsupport/whitelistfixture/**'
+      - 'backend/internal/whitelistapi/**'
+      - 'backend/internal/whitelistready/**'
+      - 'docs/yandex-cdn-whitelist/**'
+      - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
+      - 'ops/ha/ci-rqlite-cluster.sh'
+      - 'ops/ha/test-ci-rqlite-cluster.sh'
       - 'ops/validate-yandex-cdn-release.ps1'
       - 'ops/validate-yandex-cdn-release.sh'
+      - 'scripts/repro/**'
+      - 'scripts/tests/test_yandex_cdn_*.py'
+      - 'scripts/validate_yandex_cdn_docs.py'
   push:
     paths:
       - '.github/workflows/yandex-cdn-release.yml'
-      - 'backend/internal/release/**'
+      - 'app/build.gradle.kts'
+      - 'version.properties'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
       - 'backend/cmd/maestro-release-validate/**'
+      - 'backend/cmd/maestro-whitelist-ready/**'
+      - 'backend/internal/controlplane/**'
+      - 'backend/internal/release/**'
+      - 'backend/internal/shadowbilling/**'
+      - 'backend/internal/subgen/**'
+      - 'backend/internal/testsupport/whitelistfixture/**'
+      - 'backend/internal/whitelistapi/**'
+      - 'backend/internal/whitelistready/**'
+      - 'docs/yandex-cdn-whitelist/**'
+      - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
+      - 'ops/ha/ci-rqlite-cluster.sh'
+      - 'ops/ha/test-ci-rqlite-cluster.sh'
       - 'ops/validate-yandex-cdn-release.ps1'
       - 'ops/validate-yandex-cdn-release.sh'
+      - 'scripts/repro/**'
+      - 'scripts/tests/test_yandex_cdn_*.py'
+      - 'scripts/validate_yandex_cdn_docs.py'
 
 permissions:
   contents: read
 
 jobs:
-  release-contracts:
+  format-unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
           cache: false
 
-      - name: Validate Bash release wrapper syntax
+      - name: Validate release wrapper syntax
         run: bash -n ops/validate-yandex-cdn-release.sh
 
       - name: Validate PowerShell release wrapper syntax
@@ -49,22 +88,303 @@ jobs:
             exit 1
           }
 
-      - name: Verify release Go formatting
+      - name: Verify Task 7 Go formatting
         working-directory: backend
         run: |
           set -euo pipefail
-          diff_file="$(mktemp)"
-          gofmt -d internal/release cmd/maestro-release-validate >"${diff_file}"
-          test ! -s "${diff_file}"
+          diff_output="$(gofmt -d \
+            internal/controlplane \
+            internal/subgen \
+            internal/shadowbilling \
+            internal/whitelistapi/v1 \
+            internal/release \
+            internal/whitelistready \
+            internal/testsupport/whitelistfixture \
+            cmd/maestro-release-validate \
+            cmd/maestro-whitelist-ready)"
+          if [ -n "$diff_output" ]; then
+            printf '%s\n' "$diff_output"
+            exit 1
+          fi
 
-      - name: Test isolated release contracts
+      - name: Test Task 7 Go packages
         working-directory: backend
-        run: go test -count=1 ./internal/release ./cmd/maestro-release-validate
+        run: |
+          set -euo pipefail
+          go test -count=1 \
+            ./internal/controlplane \
+            ./internal/subgen \
+            ./internal/shadowbilling \
+            ./internal/whitelistapi/v1 \
+            ./internal/release \
+            ./internal/whitelistready \
+            ./cmd/maestro-release-validate \
+            ./cmd/maestro-whitelist-ready \
+            ./internal/testsupport/whitelistfixture
 
-      - name: Race-test isolated release contracts
-        working-directory: backend
-        run: go test -count=1 -race ./internal/release ./cmd/maestro-release-validate
+      - name: Test Task 7 Python contracts and documentation
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.tests.test_yandex_cdn_docs \
+            scripts.tests.test_yandex_cdn_repro \
+            scripts.tests.test_yandex_cdn_ci
+          python scripts/validate_yandex_cdn_docs.py
+          git diff --check
 
-      - name: Vet isolated release contracts
+  race-vet:
+    needs: format-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+
+      - name: Race-test Task 7 Go packages
         working-directory: backend
-        run: go vet ./internal/release ./cmd/maestro-release-validate
+        run: |
+          set -euo pipefail
+          go test -count=1 -race \
+            ./internal/controlplane \
+            ./internal/subgen \
+            ./internal/shadowbilling \
+            ./internal/whitelistapi/v1 \
+            ./internal/release \
+            ./internal/whitelistready \
+            ./cmd/maestro-release-validate \
+            ./cmd/maestro-whitelist-ready \
+            ./internal/testsupport/whitelistfixture
+
+      - name: Vet Task 7 Go packages
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          go vet \
+            ./internal/controlplane \
+            ./internal/subgen \
+            ./internal/shadowbilling \
+            ./internal/whitelistapi/v1 \
+            ./internal/release \
+            ./internal/whitelistready \
+            ./cmd/maestro-release-validate \
+            ./cmd/maestro-whitelist-ready \
+            ./internal/testsupport/whitelistfixture
+
+  offline-replay:
+    needs: format-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOPROXY: "off"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+
+      - name: Replay all nine offline fixture suites
+        run: |
+          set -euo pipefail
+          scripts=(
+            scripts/repro/_run-white-list-suite.sh
+            scripts/repro/yandex-get-body.sh
+            scripts/repro/yandex-active-stream.sh
+            scripts/repro/yandex-idle-cutoff.sh
+            scripts/repro/yandex-literal-edge.sh
+            scripts/repro/xray-counter-reset.sh
+            scripts/repro/billing-idempotency.sh
+            scripts/repro/duplicate-event-replay.sh
+            scripts/repro/subscription-escaping.sh
+            scripts/repro/edge-rotation.sh
+          )
+          for script in "${scripts[@]}"; do
+            bash -n "$script"
+          done
+          for script in "${scripts[@]:1}"; do
+            output="$("$script")"
+            printf '%s\n' "$output"
+            printf '%s' "$output" | python -c '
+          import json
+          import sys
+          payload = json.loads(sys.stdin.read())
+          if payload["harness_status"] != "PASS":
+              raise SystemExit("harness_status_not_pass")
+          if payload["release_readiness"] != "NO_GO":
+              raise SystemExit("release_readiness_not_no_go")
+          '
+          done
+
+  rqlite-purge:
+    needs: format-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+
+      - name: Validate isolated rqlite harness
+        run: |
+          set -euo pipefail
+          bash -n ops/ha/ci-rqlite-cluster.sh
+          bash -n ops/ha/test-ci-rqlite-cluster.sh
+          bash ops/ha/test-ci-rqlite-cluster.sh
+
+      - name: Start isolated rqlite cluster
+        run: bash ops/ha/ci-rqlite-cluster.sh start
+
+      - name: Prove white-list identity permits tombstone purge
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS \
+            go test -tags=rqlite_integration \
+            ./internal/controlplane \
+            -run '^TestWhiteListIdentityDoesNotBlockTombstonePurge$' \
+            -count=1
+
+      - name: Stop isolated rqlite cluster
+        if: ${{ always() }}
+        run: bash ops/ha/ci-rqlite-cluster.sh stop
+
+  android-test-apk:
+    needs:
+      - format-unit
+      - race-vet
+      - offline-replay
+      - rqlite-purge
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: Read NDK pin
+        id: ndk
+        run: |
+          set -euo pipefail
+          source <(grep -E '^NDK_VERSION=' version.properties)
+          test -n "${NDK_VERSION:-}"
+          echo "version=${NDK_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned Android toolchain
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "ndk;${{ steps.ndk.outputs.version }}" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${{ steps.ndk.outputs.version }}" >> "$GITHUB_ENV"
+
+      - name: Fetch and verify exact libbox artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          readonly LIBBOX_RUN_ID='31758418005'
+          readonly LIBBOX_ARTIFACT_ID='9203846250'
+          readonly LIBBOX_ZIP_SHA256='baf1ae39b845601ef5291c92c9638261f4a9dfd7725d04ffd856431d48d42b37'
+          readonly LIBBOX_AAR_SHA256='c70ce917b331fd333d52b8e3c01eba2c2a343497f896fdf62c30436490a88f05'
+          metadata_path="${RUNNER_TEMP}/libbox-artifact.json"
+          zip_path="${RUNNER_TEMP}/libbox-artifact.zip"
+          extract_dir="${RUNNER_TEMP}/libbox-artifact"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${LIBBOX_ARTIFACT_ID}" > "$metadata_path"
+          python - "$metadata_path" "$LIBBOX_RUN_ID" "$LIBBOX_ARTIFACT_ID" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if artifact.get("id") != int(sys.argv[3]):
+              raise SystemExit("libbox_artifact_id_mismatch")
+          workflow_run = artifact.get("workflow_run") or {}
+          if workflow_run.get("id") != int(sys.argv[2]):
+              raise SystemExit("libbox_workflow_run_mismatch")
+          if artifact.get("expired") is not False:
+              raise SystemExit("libbox_artifact_expired")
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${LIBBOX_ARTIFACT_ID}/zip" > "$zip_path"
+          printf '%s  %s\n' "$LIBBOX_ZIP_SHA256" "$zip_path" | sha256sum -c -
+          mkdir -p "$extract_dir" app/libs
+          unzip -q "$zip_path" -d "$extract_dir"
+          mapfile -t aar_files < <(find "$extract_dir" -type f -name 'libbox.aar' -print)
+          if [ "${#aar_files[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one libbox.aar in pinned artifact." >&2
+            exit 1
+          fi
+          printf '%s  %s\n' "$LIBBOX_AAR_SHA256" "${aar_files[0]}" | sha256sum -c -
+          cp "${aar_files[0]}" app/libs/libbox.aar
+
+      - name: Build separately versioned Task 7 APK
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew \
+            :app:assembleOtherDebug \
+            -PmaestroTask7TestVersionName=1.0.158-task7-test \
+            -PmaestroTask7TestVersionCode=1015800 \
+            --stacktrace \
+            --no-daemon
+
+      - name: Verify Task 7 APK metadata and signer
+        id: apk
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find app/build/outputs/apk/other/debug -maxdepth 1 -type f -name '*.apk' -print)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Task 7 APK." >&2
+            exit 1
+          fi
+          apk="${apks[0]}"
+          test "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv'
+          test "$(apkanalyzer manifest version-name "$apk")" = '1.0.158-task7-test'
+          test "$(apkanalyzer manifest version-code "$apk")" = '1015800'
+          test "$(apkanalyzer manifest debuggable "$apk")" = 'false'
+          signer_report="${RUNNER_TEMP}/task7-apk-signer.txt"
+          apksigner verify --verbose --print-certs "$apk" | tee "$signer_report"
+          python - "$signer_report" <<'PY'
+          import pathlib
+          import sys
+
+          report = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+          if "CN=Android Debug" not in report:
+              raise SystemExit("task7_apk_not_debug_signed")
+          PY
+          sha256sum "$apk" | tee "${RUNNER_TEMP}/task7-apk.sha256"
+          echo "apk_path=${apk}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Task 7 APK artifact only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maestrovpn-task7-test-${{ github.sha }}
+          path: |
+            ${{ steps.apk.outputs.apk_path }}
+            ${{ runner.temp }}/task7-apk.sha256
+          if-no-files-found: error
+          retention-days: 7
