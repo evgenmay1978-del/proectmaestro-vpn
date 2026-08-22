@@ -1,5 +1,38 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAAAAA. YANDEX CDN WHITE-LIST TASK 7 — CANONICAL GITHUB-FIRST EXECUTION (22.08.2026)
+
+- Единственная каноническая рабочая и push-ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`; ею владеет один writer. Любые
+  другие ветки/worktree допускаются только для read-only review и не могут
+  становиться источником handoff или push.
+- Неизменяемый production baseline Android/TV: версия `1.0.157`, tag
+  `tv-v1.0.157`, commit
+  `9653636863cb65cc2ac95545d953d9c5e06db8bb`, APK SHA-256
+  `0c51d1036c76b2d9a7347b59b9f967942159ec27738a2d6bcae099529695a148`.
+- Task 3 repository implementation зафиксирован коммитом `203278d`; фактический
+  опубликованный GitHub Task 4 commit —
+  `045cdbd94fa42197705a07da531a07f8ecfd3fa8`. Пять jobs на нём ещё не
+  объявлены прошедшими; PASS не заявляется до проверки всех результатов на
+  exact SHA.
+- Единственная следующая Android identity — test-only
+  `versionName 1.0.158-task7-test`, `versionCode 1015800`. Она не является
+  production release/tag/OTA и не должна публиковаться пользователям.
+- Слабый локальный Windows-компьютер используется только для правок,
+  repetition guard и узких Git/diff/static/unit checks. Полные, тяжёлые,
+  `-race`, `vet`, real-rqlite и Android APK проверки выполняются в GitHub
+  Actions на exact pushed SHA.
+- Следующее точное действие: опубликовать этот docs/manifest checkpoint в ту же
+  каноническую ветку, затем наблюдать все пять jobs до terminal state и
+  подтвердить, что каждый запущен на exact SHA этого checkpoint.
+- Production остаётся **NO-GO**. Текущее разрешение владельца охватывает только
+  non-production push канонической ветки и GitHub Actions. Merge, tag,
+  release/publish/signing, OTA, production deploy, серверные/клиентские/billing
+  изменения и cutover требуют нового явного разрешения владельца.
+- Все нижние ссылки на `codex/yandex-cdn-whitelist`, draft PR #91 и любые
+  другие старые ветки/PR являются историческими и не задают текущую точку
+  продолжения.
+
 ## 0AAAAAAAA. YANDEX CDN WHITE-LIST TASK 3 FINAL GREEN (22.08.2026)
 
 - Authoritative review surface: ветка `codex/yandex-cdn-whitelist`, draft PR #91.

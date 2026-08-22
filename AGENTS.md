@@ -2,6 +2,29 @@
 
 Navigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](CONTEXT.md), [SPEC](docs/yandex-cdn-whitelist/SPEC.md), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [handoff](docs/yandex-cdn-whitelist/HANDOFF.md).
 
+Current execution contract (22.08.2026):
+
+- `codex/yandex-cdn-whitelist-task3-sync` is the sole canonical working/push
+  branch; one writer owns it. Alternate branches/worktrees are review-only and
+  must never become the handoff or push source.
+- The weak local Windows PC is used only for edits, repetition guard, narrow
+  Git/diff/static/unit checks. Heavy/full/race/vet/rqlite/Android APK validation
+  runs in GitHub Actions against the exact pushed SHA.
+- Immutable production Android/TV baseline: version `1.0.157`, tag
+  `tv-v1.0.157`, commit
+  `9653636863cb65cc2ac95545d953d9c5e06db8bb`, APK SHA-256
+  `0c51d1036c76b2d9a7347b59b9f967942159ec27738a2d6bcae099529695a148`.
+- The only next Android identity is test-only
+  `versionName 1.0.158-task7-test`, `versionCode 1015800`; it is never a
+  production tag/release/OTA.
+- After every completed top-level task, update `CONTEXT_HANDOFF.md` and the
+  redacted baseline manifest, verify them, commit, and push the canonical
+  branch so local and GitHub resolve to the same exact SHA.
+- Existing owner authorization covers non-production pushes and GitHub Actions
+  on the canonical branch only. Merge, tag, release/publish/signing, OTA,
+  production deploy/server/client/billing/cutover mutation require a new
+  explicit owner approval.
+
 Invariants: ordinary VPN is unchanged; White-List Entitlement defaults OFF and is additive; initial work is isolated; mandatory target is independently reconciled S1/S2/S3/S4 nodes; no production restart/update/migration/firewall/UUID/URI/client/OTA/real charging; no secrets in Git/logs/docs; WDTT/qWDTT/CSQTT/olcRTC are out of scope.
 
 Local checks: `python -m unittest scripts.tests.test_yandex_cdn_docs`; `python scripts/validate_yandex_cdn_docs.py`; `python scripts/render_redacted_baseline.py`.
