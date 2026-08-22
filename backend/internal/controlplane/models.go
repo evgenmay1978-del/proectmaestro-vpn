@@ -7,9 +7,9 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("controlplane: not found")
-	ErrConflict   = errors.New("controlplane: conflict")
-	ErrForbidden  = errors.New("controlplane: forbidden")
+	ErrNotFound    = errors.New("controlplane: not found")
+	ErrConflict    = errors.New("controlplane: conflict")
+	ErrForbidden   = errors.New("controlplane: forbidden")
 	ErrDeviceLimit = errors.New("controlplane: device limit reached")
 )
 

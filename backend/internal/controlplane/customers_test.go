@@ -14,10 +14,10 @@ import (
 func TestCustomerByTokenUsesHMACAndLinearizableRead(t *testing.T) {
 	const token = "raw-private-subscription-token"
 	db := &recordingRQLite{linear: []scriptedResult{rowsScript(map[string]any{
-		"customer_id":    "customer-1",
-		"status":         "active",
+		"customer_id":     "customer-1",
+		"status":          "active",
 		"expires_at_unix": 2_100_000,
-		"generation":     7,
+		"generation":      7,
 	})}}
 	service, secrets := testService(t, db)
 	customer, err := service.CustomerByToken(context.Background(), token)

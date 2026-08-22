@@ -17,15 +17,15 @@ const nodeLeaseTTLSeconds int64 = 90
 // DesiredState is one absolute encrypted service target. A generation is
 // immutable: retries may repeat its hash, but may never replace it.
 type DesiredState struct {
-	CustomerID   string
-	NodeID       string
-	ServiceName  string
-	OperationID  string
-	EventKind    string
-	Generation   int64
-	Payload      Envelope
+	CustomerID    string
+	NodeID        string
+	ServiceName   string
+	OperationID   string
+	EventKind     string
+	Generation    int64
+	Payload       Envelope
 	PayloadSHA256 string
-	Tombstone    bool
+	Tombstone     bool
 }
 
 type LeaseRequest struct {
