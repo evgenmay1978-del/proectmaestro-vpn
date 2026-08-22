@@ -266,7 +266,14 @@ class WorkflowGateContractTest(unittest.TestCase):
         self.assertIn("-PmaestroTask7TestVersionCode=1015800", source)
         self.assertIn("com.maestrovpn.tv", source)
         self.assertIn("apkanalyzer", source)
-        self.assertIn("apksigner", source)
+        self.assertIn(
+            'apksigner="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"', source
+        )
+        self.assertIn('test -x "$apksigner"', source)
+        self.assertIn(
+            '"$apksigner" verify --verbose --print-certs "$apk"', source
+        )
+        self.assertIsNone(re.search(r"(?m)^[ ]*apksigner(?:[ ]|$)", source))
         self.assertIn("Android Debug", source)
         self.assertIn("sha256sum", source)
         self.assertIn("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", source)

@@ -405,8 +405,10 @@ jobs:
           test "$(apkanalyzer manifest version-name "$apk")" = '1.0.158-task7-test'
           test "$(apkanalyzer manifest version-code "$apk")" = '1015800'
           test "$(apkanalyzer manifest debuggable "$apk")" = 'false'
+          apksigner="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
+          test -x "$apksigner"
           signer_report="${RUNNER_TEMP}/task7-apk-signer.txt"
-          apksigner verify --verbose --print-certs "$apk" | tee "$signer_report"
+          "$apksigner" verify --verbose --print-certs "$apk" | tee "$signer_report"
           python - "$signer_report" <<'PY'
           import pathlib
           import sys
