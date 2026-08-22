@@ -206,7 +206,23 @@ class WorkflowGateContractTest(unittest.TestCase):
     def test_offline_replay_runs_exact_wrappers_and_parses_pass_no_go_json(self) -> None:
         source = job_source(workflow_text(), "offline-replay")
         self.assertIn("needs: format-unit", source)
-        self.assertIn("GOPROXY: \"off\"", source)
+        prime = source.find("- name: Prime exact Go module cache")
+        replay = source.find("- name: Replay all nine offline fixture suites")
+        self.assertGreaterEqual(prime, 0)
+        self.assertGreaterEqual(replay, 0)
+        self.assertLess(prime, replay)
+        prime_source = source[prime:replay]
+        replay_source = source[replay:]
+        job_header = source[:prime]
+        self.assertNotIn("GOPROXY", job_header)
+        self.assertNotIn("GOSUMDB", job_header)
+        self.assertIn("go mod download", prime_source)
+        self.assertIn("go mod verify", prime_source)
+        self.assertNotIn("GOPROXY", prime_source)
+        self.assertNotIn("GOSUMDB", prime_source)
+        self.assertNotIn('"off"', prime_source)
+        self.assertIn("GOPROXY: \"off\"", replay_source)
+        self.assertIn("GOSUMDB: \"off\"", replay_source)
         self.assertIn("set -euo pipefail", source)
         self.assertIn("scripts/repro/_run-white-list-suite.sh", source)
         self.assertIn("bash -n", source)
