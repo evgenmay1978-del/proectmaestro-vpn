@@ -6,14 +6,20 @@ import kotlinx.coroutines.sync.withLock
 
 internal class WhiteListNetworkBinding(
     private val key: Any = Any(),
+    private val startListener: suspend (Any, (Network?) -> Unit) -> Unit = { listenerKey, listener ->
+        DefaultNetworkListener.start(listenerKey, listener)
+    },
+    private val stopListener: suspend (Any) -> Unit = { listenerKey ->
+        DefaultNetworkListener.stop(listenerKey)
+    },
 ) {
     private val lifecycle = Mutex()
     private var started = false
 
     suspend fun start(listener: (Network?) -> Unit) {
         lifecycle.withLock {
-            check(!started)
-            DefaultNetworkListener.start(key, listener)
+            if (started) return@withLock
+            startListener(key, listener)
             started = true
         }
     }
@@ -21,7 +27,7 @@ internal class WhiteListNetworkBinding(
     suspend fun stop() {
         lifecycle.withLock {
             if (!started) return@withLock
-            DefaultNetworkListener.stop(key)
+            stopListener(key)
             started = false
         }
     }

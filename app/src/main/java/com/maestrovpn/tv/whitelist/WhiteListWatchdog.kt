@@ -19,20 +19,59 @@ enum class WatchdogState {
     FALLBACK,
 }
 
+data class WatchdogNetworkTicket(
+    val epoch: Long,
+    val generation: Long,
+) {
+    init {
+        require(epoch >= 0)
+        require(generation > 0)
+    }
+}
+
+data class WatchdogScheduleTicket(
+    val network: WatchdogNetworkTicket,
+    val generation: Long,
+) {
+    init {
+        require(generation > 0)
+    }
+}
+
+data class WatchdogProbeTicket(
+    val network: WatchdogNetworkTicket,
+    val generation: Long,
+) {
+    init {
+        require(generation > 0)
+    }
+}
+
 data class WatchdogSnapshot(
     val state: WatchdogState,
     val edgeIndex: Int,
     val edgeCount: Int,
     val failures: Int,
-    val networkEpoch: Long?,
+    val networkTicket: WatchdogNetworkTicket?,
+    val scheduleTicket: WatchdogScheduleTicket?,
+    val probeTicket: WatchdogProbeTicket?,
+    val lastNetworkEpoch: Long?,
+    val generation: Long,
 ) {
     companion object {
-        fun stopped() = WatchdogSnapshot(
+        fun stopped(
+            lastNetworkEpoch: Long? = null,
+            generation: Long = 0,
+        ) = WatchdogSnapshot(
             state = WatchdogState.STOPPED,
             edgeIndex = 0,
             edgeCount = 0,
             failures = 0,
-            networkEpoch = null,
+            networkTicket = null,
+            scheduleTicket = null,
+            probeTicket = null,
+            lastNetworkEpoch = lastNetworkEpoch,
+            generation = generation,
         )
     }
 }
@@ -42,13 +81,13 @@ sealed interface WatchdogEvent {
 
     data class NetworkAvailable(val epoch: Long) : WatchdogEvent
 
-    data object NetworkLost : WatchdogEvent
+    data class NetworkLost(val ticket: WatchdogNetworkTicket) : WatchdogEvent
 
-    data object Timer : WatchdogEvent
+    data class Timer(val ticket: WatchdogScheduleTicket) : WatchdogEvent
 
-    data object ProbeSucceeded : WatchdogEvent
+    data class ProbeSucceeded(val ticket: WatchdogProbeTicket) : WatchdogEvent
 
-    data object ProbeFailed : WatchdogEvent
+    data class ProbeFailed(val ticket: WatchdogProbeTicket) : WatchdogEvent
 
     data object Wake : WatchdogEvent
 
@@ -56,9 +95,15 @@ sealed interface WatchdogEvent {
 }
 
 sealed interface WatchdogAction {
-    data class Schedule(val delayMillis: Long) : WatchdogAction
+    data class Schedule(
+        val delayMillis: Long,
+        val ticket: WatchdogScheduleTicket,
+    ) : WatchdogAction
 
-    data class Probe(val timeoutMillis: Long) : WatchdogAction
+    data class Probe(
+        val timeoutMillis: Long,
+        val ticket: WatchdogProbeTicket,
+    ) : WatchdogAction
 
     data class ControlledRedial(val edgeIndex: Int) : WatchdogAction
 
@@ -96,12 +141,12 @@ class WhiteListWatchdog(
         return when (event) {
             is WatchdogEvent.Start -> start(snapshot, event, jitterMillis)
             is WatchdogEvent.NetworkAvailable -> networkAvailable(snapshot, event, jitterMillis)
-            WatchdogEvent.NetworkLost -> networkLost(snapshot, jitterMillis)
-            WatchdogEvent.Timer -> timer(snapshot, jitterMillis)
-            WatchdogEvent.ProbeSucceeded -> probeSucceeded(snapshot, jitterMillis)
-            WatchdogEvent.ProbeFailed -> probeFailed(snapshot, jitterMillis)
+            is WatchdogEvent.NetworkLost -> networkLost(snapshot, event, jitterMillis)
+            is WatchdogEvent.Timer -> timer(snapshot, event, jitterMillis)
+            is WatchdogEvent.ProbeSucceeded -> probeSucceeded(snapshot, event, jitterMillis)
+            is WatchdogEvent.ProbeFailed -> probeFailed(snapshot, event, jitterMillis)
             WatchdogEvent.Wake -> wake(snapshot, jitterMillis)
-            WatchdogEvent.Stop -> stop(jitterMillis)
+            WatchdogEvent.Stop -> stop(snapshot, jitterMillis)
         }
     }
 
@@ -111,26 +156,17 @@ class WhiteListWatchdog(
         jitterMillis: Long,
     ): WhiteListWatchdogResult {
         require(jitterMillis == 0L)
-        require(snapshot == WatchdogSnapshot.stopped())
+        require(snapshot.state == WatchdogState.STOPPED)
         if (event.edgeCount < 1) {
             return WhiteListWatchdogResult(
-                snapshot = WatchdogSnapshot(
-                    state = WatchdogState.FALLBACK,
-                    edgeIndex = 0,
-                    edgeCount = 0,
-                    failures = 0,
-                    networkEpoch = null,
-                ),
+                snapshot = snapshot.copy(state = WatchdogState.FALLBACK),
                 actions = listOf(WatchdogAction.FallbackOrdinaryVpn),
             )
         }
         return WhiteListWatchdogResult(
-            snapshot = WatchdogSnapshot(
+            snapshot = snapshot.copy(
                 state = WatchdogState.WAITING_NETWORK,
-                edgeIndex = 0,
                 edgeCount = event.edgeCount,
-                failures = 0,
-                networkEpoch = null,
             ),
             actions = emptyList(),
         )
@@ -143,39 +179,55 @@ class WhiteListWatchdog(
     ): WhiteListWatchdogResult {
         require(snapshot.state !in setOf(WatchdogState.STOPPED, WatchdogState.FALLBACK))
         require(event.epoch >= 0)
-        if (snapshot.networkEpoch == event.epoch) {
-            return WhiteListWatchdogResult(snapshot, emptyList())
+        if (snapshot.networkTicket?.epoch == event.epoch) {
+            return noOp(snapshot)
+        }
+        if (snapshot.lastNetworkEpoch?.let { event.epoch <= it } == true) {
+            return noOp(snapshot)
         }
 
-        val schedule = WatchdogAction.Schedule(startupJitter(jitterMillis))
-        val next = snapshot.copy(
+        val networkGeneration = nextGeneration(snapshot.generation)
+        val network = WatchdogNetworkTicket(event.epoch, networkGeneration)
+        val scheduled = armSchedule(
+            snapshot = snapshot.copy(
+                networkTicket = network,
+                scheduleTicket = null,
+                probeTicket = null,
+                lastNetworkEpoch = event.epoch,
+                generation = networkGeneration,
+            ),
             state = WatchdogState.SCHEDULED,
-            networkEpoch = event.epoch,
+            delayMillis = startupJitter(jitterMillis),
         )
-        if (snapshot.networkEpoch == null) {
-            return WhiteListWatchdogResult(next, listOf(schedule))
+        if (snapshot.networkTicket == null) {
+            return scheduled
         }
-        return WhiteListWatchdogResult(
-            snapshot = next,
+        return scheduled.copy(
             actions = listOf(
                 WatchdogAction.CancelProbe,
                 WatchdogAction.ClearSession,
                 WatchdogAction.ControlledRedial(snapshot.edgeIndex),
-                schedule,
+                scheduled.actions.single(),
             ),
         )
     }
 
     private fun networkLost(
         snapshot: WatchdogSnapshot,
+        event: WatchdogEvent.NetworkLost,
         jitterMillis: Long,
     ): WhiteListWatchdogResult {
         require(jitterMillis == 0L)
+        if (event.ticket != snapshot.networkTicket) {
+            return noOp(snapshot)
+        }
         require(snapshot.state in ONLINE_STATES)
         return WhiteListWatchdogResult(
             snapshot = snapshot.copy(
                 state = WatchdogState.WAITING_NETWORK,
-                networkEpoch = null,
+                networkTicket = null,
+                scheduleTicket = null,
+                probeTicket = null,
             ),
             actions = listOf(WatchdogAction.CancelProbe),
         )
@@ -183,35 +235,58 @@ class WhiteListWatchdog(
 
     private fun timer(
         snapshot: WatchdogSnapshot,
+        event: WatchdogEvent.Timer,
         jitterMillis: Long,
     ): WhiteListWatchdogResult {
         require(jitterMillis == 0L)
+        if (event.ticket != snapshot.scheduleTicket || event.ticket.network != snapshot.networkTicket) {
+            return noOp(snapshot)
+        }
         require(snapshot.state == WatchdogState.SCHEDULED || snapshot.state == WatchdogState.BACKING_OFF)
+        val probeGeneration = nextGeneration(snapshot.generation)
+        val ticket = WatchdogProbeTicket(
+            network = requireNotNull(snapshot.networkTicket),
+            generation = probeGeneration,
+        )
         return WhiteListWatchdogResult(
-            snapshot = snapshot.copy(state = WatchdogState.PROBING),
-            actions = listOf(WatchdogAction.Probe(policy.probeTimeoutMillis)),
+            snapshot = snapshot.copy(
+                state = WatchdogState.PROBING,
+                scheduleTicket = null,
+                probeTicket = ticket,
+                generation = probeGeneration,
+            ),
+            actions = listOf(WatchdogAction.Probe(policy.probeTimeoutMillis, ticket)),
         )
     }
 
     private fun probeSucceeded(
         snapshot: WatchdogSnapshot,
+        event: WatchdogEvent.ProbeSucceeded,
         jitterMillis: Long,
     ): WhiteListWatchdogResult {
+        if (event.ticket != snapshot.probeTicket || event.ticket.network != snapshot.networkTicket) {
+            return noOp(snapshot)
+        }
         require(snapshot.state == WatchdogState.PROBING)
         require(jitterMillis in policy.intervalMinMillis..policy.intervalMaxMillis)
-        return WhiteListWatchdogResult(
+        return armSchedule(
             snapshot = snapshot.copy(
-                state = WatchdogState.SCHEDULED,
                 failures = 0,
+                probeTicket = null,
             ),
-            actions = listOf(WatchdogAction.Schedule(jitterMillis)),
+            state = WatchdogState.SCHEDULED,
+            delayMillis = jitterMillis,
         )
     }
 
     private fun probeFailed(
         snapshot: WatchdogSnapshot,
+        event: WatchdogEvent.ProbeFailed,
         jitterMillis: Long,
     ): WhiteListWatchdogResult {
+        if (event.ticket != snapshot.probeTicket || event.ticket.network != snapshot.networkTicket) {
+            return noOp(snapshot)
+        }
         require(jitterMillis == 0L)
         require(snapshot.state == WatchdogState.PROBING)
         val failureCount = snapshot.failures + 1
@@ -221,7 +296,9 @@ class WhiteListWatchdog(
                     snapshot = snapshot.copy(
                         state = WatchdogState.FALLBACK,
                         failures = failureCount,
-                        networkEpoch = null,
+                        networkTicket = null,
+                        scheduleTicket = null,
+                        probeTicket = null,
                     ),
                     actions = listOf(
                         WatchdogAction.CancelProbe,
@@ -231,36 +308,41 @@ class WhiteListWatchdog(
                 )
             }
             val nextEdge = snapshot.edgeIndex + 1
-            return WhiteListWatchdogResult(
+            val scheduled = armSchedule(
                 snapshot = snapshot.copy(
-                    state = WatchdogState.BACKING_OFF,
                     edgeIndex = nextEdge,
                     failures = 0,
+                    probeTicket = null,
                 ),
+                state = WatchdogState.BACKING_OFF,
+                delayMillis = backoffMillis(failureCount),
+            )
+            return scheduled.copy(
                 actions = listOf(
                     WatchdogAction.ClearSession,
                     WatchdogAction.ControlledRedial(nextEdge),
-                    WatchdogAction.Schedule(backoffMillis(failureCount)),
+                    scheduled.actions.single(),
                 ),
             )
         }
 
-        val schedule = WatchdogAction.Schedule(backoffMillis(failureCount))
-        val actions = if (failureCount == policy.redialAfterFailures) {
-            listOf(
+        val scheduled = armSchedule(
+            snapshot = snapshot.copy(
+                failures = failureCount,
+                probeTicket = null,
+            ),
+            state = WatchdogState.BACKING_OFF,
+            delayMillis = backoffMillis(failureCount),
+        )
+        if (failureCount != policy.redialAfterFailures) {
+            return scheduled
+        }
+        return scheduled.copy(
+            actions = listOf(
                 WatchdogAction.ClearSession,
                 WatchdogAction.ControlledRedial(snapshot.edgeIndex),
-                schedule,
-            )
-        } else {
-            listOf(schedule)
-        }
-        return WhiteListWatchdogResult(
-            snapshot = snapshot.copy(
-                state = WatchdogState.BACKING_OFF,
-                failures = failureCount,
+                scheduled.actions.single(),
             ),
-            actions = actions,
         )
     }
 
@@ -269,26 +351,71 @@ class WhiteListWatchdog(
         jitterMillis: Long,
     ): WhiteListWatchdogResult {
         require(snapshot.state !in setOf(WatchdogState.STOPPED, WatchdogState.FALLBACK))
-        if (snapshot.networkEpoch == null) {
-            return WhiteListWatchdogResult(snapshot, emptyList())
-        }
+        val previousNetwork = snapshot.networkTicket ?: return noOp(snapshot)
+        val networkGeneration = nextGeneration(snapshot.generation)
+        val network = previousNetwork.copy(generation = networkGeneration)
+        val scheduled = armSchedule(
+            snapshot = snapshot.copy(
+                networkTicket = network,
+                scheduleTicket = null,
+                probeTicket = null,
+                generation = networkGeneration,
+            ),
+            state = WatchdogState.SCHEDULED,
+            delayMillis = startupJitter(jitterMillis),
+        )
         val actions = buildList {
             if (snapshot.state == WatchdogState.PROBING) add(WatchdogAction.CancelProbe)
-            add(WatchdogAction.Schedule(startupJitter(jitterMillis)))
+            add(scheduled.actions.single())
         }
-        return WhiteListWatchdogResult(
-            snapshot = snapshot.copy(state = WatchdogState.SCHEDULED),
-            actions = actions,
-        )
+        return scheduled.copy(actions = actions)
     }
 
-    private fun stop(jitterMillis: Long): WhiteListWatchdogResult {
+    private fun stop(
+        snapshot: WatchdogSnapshot,
+        jitterMillis: Long,
+    ): WhiteListWatchdogResult {
         require(jitterMillis == 0L)
+        if (snapshot.state == WatchdogState.STOPPED) {
+            return noOp(snapshot)
+        }
         return WhiteListWatchdogResult(
-            snapshot = WatchdogSnapshot.stopped(),
+            snapshot = WatchdogSnapshot.stopped(
+                lastNetworkEpoch = snapshot.lastNetworkEpoch,
+                generation = snapshot.generation,
+            ),
             actions = listOf(WatchdogAction.CancelProbe, WatchdogAction.ClearSession),
         )
     }
+
+    private fun armSchedule(
+        snapshot: WatchdogSnapshot,
+        state: WatchdogState,
+        delayMillis: Long,
+    ): WhiteListWatchdogResult {
+        require(state == WatchdogState.SCHEDULED || state == WatchdogState.BACKING_OFF)
+        val generation = nextGeneration(snapshot.generation)
+        val ticket = WatchdogScheduleTicket(
+            network = requireNotNull(snapshot.networkTicket),
+            generation = generation,
+        )
+        return WhiteListWatchdogResult(
+            snapshot = snapshot.copy(
+                state = state,
+                scheduleTicket = ticket,
+                probeTicket = null,
+                generation = generation,
+            ),
+            actions = listOf(WatchdogAction.Schedule(delayMillis, ticket)),
+        )
+    }
+
+    private fun nextGeneration(current: Long): Long {
+        require(current < Long.MAX_VALUE)
+        return current + 1
+    }
+
+    private fun noOp(snapshot: WatchdogSnapshot) = WhiteListWatchdogResult(snapshot, emptyList())
 
     private fun startupJitter(jitterMillis: Long): Long = jitterMillis.coerceIn(0L, 2_000L)
 
@@ -310,28 +437,61 @@ class WhiteListWatchdog(
         require(snapshot.edgeCount >= 0)
         require(snapshot.edgeIndex >= 0)
         require(snapshot.failures >= 0)
-        require(snapshot.networkEpoch == null || snapshot.networkEpoch >= 0)
+        require(snapshot.lastNetworkEpoch == null || snapshot.lastNetworkEpoch >= 0)
+        require(snapshot.generation >= 0)
+        snapshot.networkTicket?.let {
+            require(it.generation <= snapshot.generation)
+            require(it.epoch == snapshot.lastNetworkEpoch)
+        }
+        snapshot.scheduleTicket?.let {
+            require(it.generation <= snapshot.generation)
+            require(it.network == snapshot.networkTicket)
+        }
+        snapshot.probeTicket?.let {
+            require(it.generation <= snapshot.generation)
+            require(it.network == snapshot.networkTicket)
+        }
         if (snapshot.edgeCount == 0) {
             require(snapshot.edgeIndex == 0)
         } else {
             require(snapshot.edgeIndex < snapshot.edgeCount)
         }
         when (snapshot.state) {
-            WatchdogState.STOPPED -> require(snapshot == WatchdogSnapshot.stopped())
+            WatchdogState.STOPPED -> {
+                require(snapshot.edgeCount == 0)
+                require(snapshot.failures == 0)
+                require(snapshot.networkTicket == null)
+                require(snapshot.scheduleTicket == null)
+                require(snapshot.probeTicket == null)
+            }
             WatchdogState.WAITING_NETWORK -> {
                 require(snapshot.edgeCount > 0)
-                require(snapshot.networkEpoch == null)
+                require(snapshot.networkTicket == null)
+                require(snapshot.scheduleTicket == null)
+                require(snapshot.probeTicket == null)
                 require(snapshot.failures < policy.advanceEdgeAfterFailures)
             }
             WatchdogState.SCHEDULED,
-            WatchdogState.PROBING,
             WatchdogState.BACKING_OFF,
             -> {
                 require(snapshot.edgeCount > 0)
-                require(snapshot.networkEpoch != null)
+                require(snapshot.networkTicket != null)
+                require(snapshot.scheduleTicket != null)
+                require(snapshot.probeTicket == null)
                 require(snapshot.failures < policy.advanceEdgeAfterFailures)
             }
-            WatchdogState.FALLBACK -> require(snapshot.networkEpoch == null)
+            WatchdogState.PROBING -> {
+                require(snapshot.edgeCount > 0)
+                require(snapshot.networkTicket != null)
+                require(snapshot.scheduleTicket == null)
+                require(snapshot.probeTicket != null)
+                require(snapshot.failures < policy.advanceEdgeAfterFailures)
+            }
+            WatchdogState.FALLBACK -> {
+                require(snapshot.networkTicket == null)
+                require(snapshot.scheduleTicket == null)
+                require(snapshot.probeTicket == null)
+            }
         }
     }
 
