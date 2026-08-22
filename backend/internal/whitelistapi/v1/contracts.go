@@ -188,7 +188,7 @@ func (amount ExactAmount) Validate() error {
 func (fixtures Fixtures) ValidateForAccount(accountID string) error {
 	if !validOpaqueID(accountID) || fixtures.Entitlement.validateForAccount(accountID) != nil ||
 		fixtures.Health.validateForAccount(accountID) != nil || fixtures.Usage.validateForAccount(accountID) != nil ||
-		validateLedgerPage(fixtures.Ledger, accountID) != nil || validateAuditPage(fixtures.Audit, accountID) != nil {
+		validateLedgerPage(fixtures.Ledger, accountID, MaxPageSize) != nil || validateAuditPage(fixtures.Audit, accountID, MaxPageSize) != nil {
 		return errInvalidContract
 	}
 	return nil
@@ -257,17 +257,22 @@ func (value AuditRecord) validateForAccount(accountID string) error {
 		len(value.Changes) == 0 || len(value.Changes) > 32 {
 		return errInvalidContract
 	}
+	seenFields := make(map[string]struct{}, len(value.Changes))
 	for _, change := range value.Changes {
 		if !allowedAuditFields[change.Field] || !validText(change.OldValue, true, 256) ||
 			!validText(change.NewValue, true, 256) || change.OldValue == change.NewValue {
 			return errInvalidContract
 		}
+		if _, exists := seenFields[change.Field]; exists {
+			return errInvalidContract
+		}
+		seenFields[change.Field] = struct{}{}
 	}
 	return nil
 }
 
-func validateLedgerPage(page Page[LedgerEntry], accountID string) error {
-	if len(page.Items) > MaxPageSize || !validOptionalCursor(page.NextCursor) {
+func validateLedgerPage(page Page[LedgerEntry], accountID string, maxItems int) error {
+	if maxItems < 1 || maxItems > MaxPageSize || len(page.Items) > maxItems || !validOptionalCursor(page.NextCursor) {
 		return errInvalidContract
 	}
 	for _, item := range page.Items {
@@ -278,8 +283,8 @@ func validateLedgerPage(page Page[LedgerEntry], accountID string) error {
 	return nil
 }
 
-func validateAuditPage(page Page[AuditRecord], accountID string) error {
-	if len(page.Items) > MaxPageSize || !validOptionalCursor(page.NextCursor) {
+func validateAuditPage(page Page[AuditRecord], accountID string, maxItems int) error {
+	if maxItems < 1 || maxItems > MaxPageSize || len(page.Items) > maxItems || !validOptionalCursor(page.NextCursor) {
 		return errInvalidContract
 	}
 	for _, item := range page.Items {

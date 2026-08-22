@@ -167,6 +167,41 @@ func TestHandlerRejectsCrossAccountOrInvalidProviderDataWithoutPartialJSON(t *te
 	}
 }
 
+func TestHandlerRejectsProviderPagesBeyondRequestedLimit(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+
+	for _, resource := range []string{"ledger", "audit"} {
+		t.Run(resource, func(t *testing.T) {
+			fixtures := validFixtures(now)
+			switch resource {
+			case "ledger":
+				second := fixtures.Ledger.Items[0]
+				second.ID = "ledger_2"
+				second.EventID = "event_2"
+				fixtures.Ledger.Items = append(fixtures.Ledger.Items, second)
+			case "audit":
+				second := fixtures.Audit.Items[0]
+				second.ID = "audit_2"
+				fixtures.Audit.Items = append(fixtures.Audit.Items, second)
+			}
+
+			reader := &fixtureReader{fixtures: fixtures}
+			handler, err := NewHandler(Config{BearerToken: testToken, Reader: reader})
+			if err != nil {
+				t.Fatal(err)
+			}
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, privateRequest(http.MethodGet, BasePath+"/accounts/acct_1/"+resource+"?limit=1", testToken))
+			if res.Code != http.StatusBadGateway {
+				t.Fatalf("provider page beyond requested limit status=%d body=%q", res.Code, res.Body.String())
+			}
+			if strings.Contains(res.Body.String(), "_2") || strings.Contains(res.Body.String(), "\"data\"") {
+				t.Fatalf("provider page leaked in error: %q", res.Body.String())
+			}
+		})
+	}
+}
+
 func privateRequest(method, target, token string) *http.Request {
 	req := httptest.NewRequest(method, target, nil)
 	req.RemoteAddr = "127.0.0.1:43123"

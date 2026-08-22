@@ -52,3 +52,31 @@ func TestDTOValidationEnforcesAccountScopeAndBounds(t *testing.T) {
 		t.Fatal("non-panel audit field accepted")
 	}
 }
+
+func TestHealthRejectsInvalidOptionalMeterTimestamp(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+
+	zero := validFixtures(now)
+	zeroSample := time.Time{}
+	zero.Health.LastMeterSampleAt = &zeroSample
+	if err := zero.ValidateForAccount("acct_1"); err == nil {
+		t.Fatal("zero last meter sample timestamp accepted")
+	}
+
+	nonUTC := validFixtures(now)
+	nonUTCSample := now.In(time.FixedZone("MSK", 3*60*60))
+	nonUTC.Health.LastMeterSampleAt = &nonUTCSample
+	if err := nonUTC.ValidateForAccount("acct_1"); err == nil {
+		t.Fatal("non-UTC last meter sample timestamp accepted")
+	}
+}
+
+func TestAuditRejectsDuplicateChangedFields(t *testing.T) {
+	fixtures := validFixtures(time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC))
+	fixtures.Audit.Items[0].Changes = append(fixtures.Audit.Items[0].Changes, AuditChange{
+		Field: "state", OldValue: "ACTIVE", NewValue: "DISABLED",
+	})
+	if err := fixtures.ValidateForAccount("acct_1"); err == nil {
+		t.Fatal("duplicate audit change field accepted")
+	}
+}

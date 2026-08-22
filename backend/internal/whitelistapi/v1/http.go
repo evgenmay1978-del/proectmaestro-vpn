@@ -108,7 +108,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var value Page[LedgerEntry]
 		value, err = h.reader.Ledger(r.Context(), accountID, page)
 		if err == nil {
-			err = validateLedgerPage(value, accountID)
+			err = validateLedgerPage(value, accountID, page.Limit)
 		}
 		data = value
 	case "audit":
@@ -120,7 +120,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var value Page[AuditRecord]
 		value, err = h.reader.Audit(r.Context(), accountID, page)
 		if err == nil {
-			err = validateAuditPage(value, accountID)
+			err = validateAuditPage(value, accountID, page.Limit)
 		}
 		data = value
 	}
