@@ -12,6 +12,14 @@ func TestSafeLocalPathRejectsNetworkDeviceAndTraversalForms(t *testing.T) {
 		`..\outside.json`,
 		`../outside.json`,
 		`/absolute/catalog.json`,
+		`\rooted\catalog.json`,
+		`//server/share/catalog.json`,
+		`c:drive-relative.json`,
+		`dir/../../outside.json`,
+		`dir\..\..\outside.json`,
+		`dir/../catalog.json`,
+		`dir\..\catalog.json`,
+		`file:\\server\share\catalog.json`,
 	}
 	for _, value := range tests {
 		if safeLocalPath(value) {

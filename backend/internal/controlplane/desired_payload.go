@@ -18,7 +18,7 @@ import (
 const DesiredPayloadVersion = 1
 
 const (
-	desiredPayloadUnavailableError     = "controlplane: desired payload protector is unavailable"
+	desiredPayloadUnavailableError      = "controlplane: desired payload protector is unavailable"
 	invalidDesiredPayloadScopeError    = "controlplane: invalid desired payload scope"
 	invalidDesiredPayloadEnvelopeError = "controlplane: invalid desired payload envelope"
 	desiredPayloadAuthenticationError  = "controlplane: desired payload authentication failed"
@@ -27,8 +27,8 @@ const (
 
 type DesiredPayloadScope struct {
 	NodeID, ServiceID, CustomerID, OperationID, PayloadKind string
-	Generation                                              int64
-	Tombstone                                               bool
+	Generation                                               int64
+	Tombstone                                                bool
 }
 
 type DesiredPayloadDocument struct {

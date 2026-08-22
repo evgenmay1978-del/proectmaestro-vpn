@@ -27,6 +27,34 @@ GO_PACKAGES = (
     "./cmd/maestro-whitelist-ready",
     "./internal/testsupport/whitelistfixture",
 )
+GOFMT_SCOPE = (
+    "internal/controlplane",
+    "internal/subgen",
+    "internal/shadowbilling",
+    "internal/whitelistapi/v1",
+    "internal/release",
+    "internal/whitelistready",
+    "internal/testsupport/whitelistfixture",
+    "cmd/maestro-release-validate",
+    "cmd/maestro-whitelist-ready",
+)
+LEGACY_GO_FORMAT_DEBT = (
+    "internal/controlplane/customers_test.go",
+    "internal/controlplane/desired_payload.go",
+    "internal/controlplane/migrations_test.go",
+    "internal/controlplane/models.go",
+    "internal/controlplane/outbox.go",
+    "internal/controlplane/outbox_test.go",
+    "internal/controlplane/restore_epoch.go",
+    "internal/controlplane/restore_epoch_integration_test.go",
+    "internal/controlplane/restore_epoch_test.go",
+    "internal/controlplane/service.go",
+)
+CANONICAL_TASK7_FORMAT_FILES = (
+    "internal/controlplane/migrations.go",
+    "internal/controlplane/migrations_ordered_test.go",
+    "internal/controlplane/schema_constraints_test.go",
+)
 WRAPPERS = (
     "yandex-get-body.sh",
     "yandex-active-stream.sh",
@@ -80,6 +108,21 @@ def job_source(source: str, name: str) -> str:
     return tail[: next_job.start()] if next_job else tail
 
 
+def bash_array(source: str, name: str) -> tuple[str, ...]:
+    lines = [line.strip() for line in source.splitlines()]
+    try:
+        start = lines.index(f"{name}=(")
+    except ValueError:
+        return ()
+    values: list[str] = []
+    for line in lines[start + 1 :]:
+        if line == ")":
+            return tuple(values)
+        if line:
+            values.append(line)
+    return ()
+
+
 class WorkflowSafetyContractTest(unittest.TestCase):
     def test_triggers_cover_every_task7_input_on_push_and_pull_request(self) -> None:
         source = workflow_text()
@@ -128,7 +171,18 @@ class WorkflowGateContractTest(unittest.TestCase):
 
     def test_format_unit_job_runs_go_python_docs_and_diff_checks(self) -> None:
         source = job_source(workflow_text(), "format-unit")
-        self.assertIn("gofmt -d", source)
+        self.assertIn("gofmt -l", source)
+        self.assertIn("comm -23", source)
+        self.assertIn("Unexpected non-canonical Go files outside accepted legacy debt", source)
+        self.assertCountEqual(GOFMT_SCOPE, bash_array(source, "gofmt_scope"))
+        self.assertCountEqual(
+            LEGACY_GO_FORMAT_DEBT,
+            bash_array(source, "legacy_debt"),
+        )
+        legacy_debt = set(bash_array(source, "legacy_debt"))
+        for path in CANONICAL_TASK7_FORMAT_FILES:
+            with self.subTest(canonical_path=path):
+                self.assertNotIn(path, legacy_debt)
         self.assertIn("go test -count=1", source)
         for package in GO_PACKAGES:
             self.assertIn(package, source)

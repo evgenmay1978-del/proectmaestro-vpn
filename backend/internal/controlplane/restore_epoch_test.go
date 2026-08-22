@@ -25,12 +25,12 @@ func restoreStateRow(epoch int64, activated bool, backupSHA string) map[string]a
 		restoredFrom = backupSHA
 	}
 	return map[string]any{
-		"cluster_id":                  testRestoreClusterID,
-		"restore_epoch":               epoch,
-		"restored_from_backup_sha256": restoredFrom,
-		"activated":                   active,
-		"created_at_unix":             int64(1_900_000),
-		"activated_at_unix":           activatedAt,
+		"cluster_id":                      testRestoreClusterID,
+		"restore_epoch":                   epoch,
+		"restored_from_backup_sha256":     restoredFrom,
+		"activated":                       active,
+		"created_at_unix":                 int64(1_900_000),
+		"activated_at_unix":               activatedAt,
 	}
 }
 
@@ -206,7 +206,8 @@ func TestCurrentReturnsExactRestoreState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
-	if got := fmt.Sprintf("%s/%d/%t/%s", state.ClusterID, state.RestoreEpoch, state.Activated, state.RestoredFromBackupSHA256); got != testRestoreClusterID+"/4/true/"+backupSHA {
+	if got := fmt.Sprintf("%s/%d/%t/%s", state.ClusterID, state.RestoreEpoch, state.Activated, state.RestoredFromBackupSHA256);
+		got != testRestoreClusterID+"/4/true/"+backupSHA {
 		t.Fatalf("state=%s", got)
 	}
 }

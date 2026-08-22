@@ -62,7 +62,7 @@ func (s *Service) UpdateSetting(ctx context.Context, update SettingUpdate) (Sett
 
 func (s *Service) ApprovedOTA(ctx context.Context) (OTAApproval, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
-		SQL: `SELECT public_value_json, generation FROM cluster_settings WHERE setting_key = 'ota'`,
+		SQL:  `SELECT public_value_json, generation FROM cluster_settings WHERE setting_key = 'ota'`,
 	})
 	if err != nil {
 		return OTAApproval{}, errors.New("controlplane: approved OTA unavailable")

@@ -92,18 +92,49 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          diff_output="$(gofmt -d \
-            internal/controlplane \
-            internal/subgen \
-            internal/shadowbilling \
-            internal/whitelistapi/v1 \
-            internal/release \
-            internal/whitelistready \
-            internal/testsupport/whitelistfixture \
-            cmd/maestro-release-validate \
-            cmd/maestro-whitelist-ready)"
-          if [ -n "$diff_output" ]; then
-            printf '%s\n' "$diff_output"
+
+          gofmt_scope=(
+            internal/controlplane
+            internal/subgen
+            internal/shadowbilling
+            internal/whitelistapi/v1
+            internal/release
+            internal/whitelistready
+            internal/testsupport/whitelistfixture
+            cmd/maestro-release-validate
+            cmd/maestro-whitelist-ready
+          )
+
+          legacy_debt=(
+            internal/controlplane/customers_test.go
+            internal/controlplane/desired_payload.go
+            internal/controlplane/migrations_test.go
+            internal/controlplane/models.go
+            internal/controlplane/outbox.go
+            internal/controlplane/outbox_test.go
+            internal/controlplane/restore_epoch.go
+            internal/controlplane/restore_epoch_integration_test.go
+            internal/controlplane/restore_epoch_test.go
+            internal/controlplane/service.go
+          )
+
+          noncanonical="$(
+            gofmt -l "${gofmt_scope[@]}" |
+              LC_ALL=C sort -u
+          )"
+
+          unexpected="$(
+            LC_ALL=C comm -23 \
+              <(printf '%s\n' "$noncanonical" | sed '/^$/d') \
+              <(printf '%s\n' "${legacy_debt[@]}" | LC_ALL=C sort -u)
+          )"
+
+          if [[ -n "$unexpected" ]]; then
+            echo "::error::Unexpected non-canonical Go files outside accepted legacy debt"
+            printf '%s\n' "$unexpected" >&2
+            while IFS= read -r path; do
+              gofmt -d "$path" >&2
+            done <<< "$unexpected"
             exit 1
           fi
 

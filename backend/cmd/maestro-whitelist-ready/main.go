@@ -109,9 +109,15 @@ func parseCommand(args []string) (command, bool) {
 }
 
 func safeLocalPath(value string) bool {
-	if value == "" || len(value) > 4096 || !utf8.ValidString(value) || value != strings.TrimSpace(value) || strings.Contains(value, "://") ||
-		!filepath.IsLocal(value) || filepath.VolumeName(value) != "" {
+	portable := strings.ReplaceAll(value, `\`, "/")
+	if value == "" || len(value) > 4096 || !utf8.ValidString(value) || value != strings.TrimSpace(value) ||
+		strings.Contains(portable, "://") || !filepath.IsLocal(portable) || filepath.VolumeName(value) != "" || hasWindowsDrivePrefix(value) {
 		return false
+	}
+	for _, component := range strings.Split(portable, "/") {
+		if component == ".." {
+			return false
+		}
 	}
 	for _, current := range value {
 		if unicode.IsControl(current) {
@@ -119,6 +125,14 @@ func safeLocalPath(value string) bool {
 		}
 	}
 	return true
+}
+
+func hasWindowsDrivePrefix(value string) bool {
+	if len(value) < 2 || value[1] != ':' {
+		return false
+	}
+	drive := value[0]
+	return (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')
 }
 
 func requiredSuite(value string) bool {

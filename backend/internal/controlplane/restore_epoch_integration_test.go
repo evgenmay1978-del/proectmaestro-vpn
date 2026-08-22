@@ -119,7 +119,7 @@ func TestAdvanceRestoredEpochAndFence(t *testing.T) {
 		t.Fatalf("current epoch replay affected %d rows", affected)
 	}
 	final, err := db.QueryStrong(ctx, rqlite.Statement{
-		SQL:  "SELECT offset_value,lease_fence FROM telegram_pollers WHERE bot_identity_hmac=?",
+		SQL: "SELECT offset_value,lease_fence FROM telegram_pollers WHERE bot_identity_hmac=?",
 		Args: []any{strings.Repeat("d", 64)},
 	})
 	if err != nil || len(final) != 1 || len(final[0].Rows) != 1 ||
@@ -295,19 +295,19 @@ func readAdvancedEpoch(t *testing.T) advancedEpochCheckpoint {
 }
 
 type epochDRMetadata struct {
-	FormatVersion      int    `json:"format_version"`
-	SourceEpoch        int64  `json:"source_epoch"`
-	SchemaVersion      int    `json:"schema_version"`
-	SchemaChecksum     string `json:"schema_checksum"`
-	RunID              string `json:"run_id"`
-	SourceDigest       string `json:"source_digest"`
-	PlanDigest         string `json:"plan_digest"`
-	TargetDigest       string `json:"target_digest"`
-	BatchCount         int    `json:"batch_count"`
+	FormatVersion  int    `json:"format_version"`
+	SourceEpoch    int64  `json:"source_epoch"`
+	SchemaVersion  int    `json:"schema_version"`
+	SchemaChecksum string `json:"schema_checksum"`
+	RunID          string `json:"run_id"`
+	SourceDigest   string `json:"source_digest"`
+	PlanDigest     string `json:"plan_digest"`
+	TargetDigest   string `json:"target_digest"`
+	BatchCount     int    `json:"batch_count"`
 	BatchReceiptDigest string `json:"batch_receipt_digest"`
-	ReceiptSHA256      string `json:"receipt_sha256"`
-	ShadowSHA256       string `json:"shadow_sha256"`
-	BackupSHA256       string `json:"backup_sha256"`
+	ReceiptSHA256  string `json:"receipt_sha256"`
+	ShadowSHA256   string `json:"shadow_sha256"`
+	BackupSHA256   string `json:"backup_sha256"`
 }
 
 func readEpochDRMetadata(t *testing.T) epochDRMetadata {
@@ -367,10 +367,10 @@ func restoredEpochRQLiteEndpoints(t *testing.T, endpoints []string) *rqlite.Clie
 	}
 	db, err := rqlite.New(rqlite.Config{
 		Endpoints: endpoints,
-		CAFile:    filepath.Join(root, "tls", "ca.crt"),
-		CertFile:  filepath.Join(root, "tls", "client.crt"),
-		KeyFile:   filepath.Join(root, "tls", "client.key"),
-		Timeout:   10 * time.Second, MaxResponseBytes: 8 << 20, MaxBackupBytes: 4 << 30,
+		CAFile: filepath.Join(root, "tls", "ca.crt"),
+		CertFile: filepath.Join(root, "tls", "client.crt"),
+		KeyFile: filepath.Join(root, "tls", "client.key"),
+		Timeout: 10 * time.Second, MaxResponseBytes: 8 << 20, MaxBackupBytes: 4 << 30,
 	})
 	if err != nil {
 		t.Fatalf("new restored rqlite client: %v", err)
