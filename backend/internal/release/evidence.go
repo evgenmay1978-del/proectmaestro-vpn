@@ -14,6 +14,46 @@ import (
 
 const evidenceMaxAge = 24 * time.Hour
 
+type EvidenceClass string
+
+const (
+	GateReportSchemaVersion = 2
+
+	EvidenceSchemaOnly         EvidenceClass = "SCHEMA_ONLY"
+	EvidenceFixtureReplay      EvidenceClass = "FIXTURE_REPLAY"
+	EvidenceIsolatedRealBinary EvidenceClass = "ISOLATED_REAL_BINARY"
+	EvidenceDeviceObserved     EvidenceClass = "DEVICE_OBSERVED"
+	EvidenceProductionObserved EvidenceClass = "PRODUCTION_OBSERVED"
+)
+
+var minimumEvidenceClassByGate = map[string]EvidenceClass{
+	"billing_identity":        EvidenceFixtureReplay,
+	"client_import":           EvidenceDeviceObserved,
+	"config_validation":       EvidenceSchemaOnly,
+	"direct_origin":           EvidenceIsolatedRealBinary,
+	"isolated_start":          EvidenceIsolatedRealBinary,
+	"literal_edge":            EvidenceIsolatedRealBinary,
+	"local_vless":             EvidenceIsolatedRealBinary,
+	"per_user_stats":          EvidenceIsolatedRealBinary,
+	"production_baseline":     EvidenceProductionObserved,
+	"subscription_regression": EvidenceFixtureReplay,
+	"xray_config_test":        EvidenceIsolatedRealBinary,
+	"yandex_get_body":         EvidenceIsolatedRealBinary,
+}
+
+var evidenceClassRank = map[EvidenceClass]int{
+	EvidenceSchemaOnly:         1,
+	EvidenceFixtureReplay:      2,
+	EvidenceIsolatedRealBinary: 3,
+	EvidenceDeviceObserved:     4,
+	EvidenceProductionObserved: 5,
+}
+
+func MinimumEvidenceClass(gateID string) (EvidenceClass, bool) {
+	value, ok := minimumEvidenceClassByGate[gateID]
+	return value, ok
+}
+
 type EvidenceTrustKey struct {
 	KeyID        string `json:"key_id"`
 	PublicKey    []byte `json:"public_key"`
@@ -102,38 +142,41 @@ func (trust EvidenceTrust) verifier(keyID string) (ed25519.PublicKey, string, bo
 }
 
 type GateReport struct {
-	SchemaVersion         int    `json:"schema_version"`
-	GateID                string `json:"gate_id"`
-	CandidateSHA256       string `json:"candidate_sha256"`
-	TransportSHA256       string `json:"transport_sha256"`
-	RuntimeMaterialSHA256 string `json:"runtime_material_sha256"`
-	XrayBinarySHA256      string `json:"xray_binary_sha256"`
-	Source                string `json:"source"`
-	ObservedAt            string `json:"observed_at"`
-	Outcome               string `json:"outcome"`
-	KeyID                 string `json:"key_id"`
-	Signature             string `json:"signature"`
+	SchemaVersion         int           `json:"schema_version"`
+	GateID                string        `json:"gate_id"`
+	EvidenceClass         EvidenceClass `json:"evidence_class"`
+	CandidateSHA256       string        `json:"candidate_sha256"`
+	TransportSHA256       string        `json:"transport_sha256"`
+	RuntimeMaterialSHA256 string        `json:"runtime_material_sha256"`
+	XrayBinarySHA256      string        `json:"xray_binary_sha256"`
+	Source                string        `json:"source"`
+	ObservedAt            string        `json:"observed_at"`
+	Outcome               string        `json:"outcome"`
+	KeyID                 string        `json:"key_id"`
+	Signature             string        `json:"signature"`
 }
 
 type unsignedGateReport struct {
-	SchemaVersion         int    `json:"schema_version"`
-	GateID                string `json:"gate_id"`
-	CandidateSHA256       string `json:"candidate_sha256"`
-	TransportSHA256       string `json:"transport_sha256"`
-	RuntimeMaterialSHA256 string `json:"runtime_material_sha256"`
-	XrayBinarySHA256      string `json:"xray_binary_sha256"`
-	Source                string `json:"source"`
-	ObservedAt            string `json:"observed_at"`
-	Outcome               string `json:"outcome"`
-	KeyID                 string `json:"key_id"`
+	SchemaVersion         int           `json:"schema_version"`
+	GateID                string        `json:"gate_id"`
+	EvidenceClass         EvidenceClass `json:"evidence_class"`
+	CandidateSHA256       string        `json:"candidate_sha256"`
+	TransportSHA256       string        `json:"transport_sha256"`
+	RuntimeMaterialSHA256 string        `json:"runtime_material_sha256"`
+	XrayBinarySHA256      string        `json:"xray_binary_sha256"`
+	Source                string        `json:"source"`
+	ObservedAt            string        `json:"observed_at"`
+	Outcome               string        `json:"outcome"`
+	KeyID                 string        `json:"key_id"`
 }
 
 func (report GateReport) CanonicalUnsignedPayload() ([]byte, error) {
-	if err := validateGateMetadata(report); err != nil {
+	if err := validateGateShape(report); err != nil {
 		return nil, err
 	}
 	return marshalCanonical(unsignedGateReport{
 		SchemaVersion: report.SchemaVersion, GateID: report.GateID,
+		EvidenceClass:   report.EvidenceClass,
 		CandidateSHA256: report.CandidateSHA256, TransportSHA256: report.TransportSHA256,
 		RuntimeMaterialSHA256: report.RuntimeMaterialSHA256,
 		XrayBinarySHA256:      report.XrayBinarySHA256, Source: report.Source,
@@ -278,8 +321,19 @@ func validateSignedGate(report GateReport, expected evidenceBinding, trust Evide
 }
 
 func validateGateMetadata(report GateReport) error {
+	if err := validateGateShape(report); err != nil {
+		return err
+	}
+	minimum, ok := MinimumEvidenceClass(report.GateID)
+	if !ok || !evidenceClassAtLeast(report.EvidenceClass, minimum) {
+		return invalid("validation_report_evidence_class")
+	}
+	return nil
+}
+
+func validateGateShape(report GateReport) error {
 	observed, err := time.Parse(time.RFC3339Nano, report.ObservedAt)
-	if report.SchemaVersion != 1 || !validGateID(report.GateID) ||
+	if report.SchemaVersion != GateReportSchemaVersion || !validGateID(report.GateID) || !validEvidenceClass(report.EvidenceClass) ||
 		!validSHA256(report.CandidateSHA256) || !validSHA256(report.TransportSHA256) ||
 		!validSHA256(report.RuntimeMaterialSHA256) || !validSHA256(report.XrayBinarySHA256) ||
 		!validImmutableEvidenceSource(report) || err != nil || observed.Location() != time.UTC ||
@@ -288,6 +342,17 @@ func validateGateMetadata(report GateReport) error {
 		return invalid("validation_report_invalid")
 	}
 	return nil
+}
+
+func validEvidenceClass(value EvidenceClass) bool {
+	_, ok := evidenceClassRank[value]
+	return ok
+}
+
+func evidenceClassAtLeast(actual, minimum EvidenceClass) bool {
+	actualRank, actualOK := evidenceClassRank[actual]
+	minimumRank, minimumOK := evidenceClassRank[minimum]
+	return actualOK && minimumOK && actualRank >= minimumRank
 }
 
 func validGateID(value string) bool {

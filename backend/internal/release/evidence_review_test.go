@@ -128,8 +128,13 @@ func taskASignedReports(t *testing.T, spec release.CandidateSpec, privateKey ed2
 	}
 	reports := make([]release.GateReport, 0, len(release.RequiredValidationGates()))
 	for _, gate := range release.RequiredValidationGates() {
+		evidenceClass, ok := release.MinimumEvidenceClass(gate)
+		if !ok {
+			t.Fatalf("MinimumEvidenceClass(%s) not found", gate)
+		}
 		report := release.GateReport{
-			SchemaVersion: 1, GateID: gate, CandidateSHA256: candidateSHA,
+			SchemaVersion: release.GateReportSchemaVersion, GateID: gate,
+			EvidenceClass: evidenceClass, CandidateSHA256: candidateSHA,
 			TransportSHA256: transportSHA, RuntimeMaterialSHA256: spec.RuntimeMaterialSHA256,
 			XrayBinarySHA256: spec.XrayBinarySHA256,
 			Source:           "https://evidence.example.invalid/immutable/" + candidateSHA + "/" + gate + ".json",
