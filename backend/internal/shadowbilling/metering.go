@@ -145,16 +145,27 @@ type Decision struct {
 }
 
 type counter struct{ up, down uint64 }
+
+type meterKey struct {
+	instanceID string
+	epochID    string
+	identity   string
+}
+
+type periodKey struct {
+	entitlementID   string
+	billingPeriodID string
+}
 type State struct {
 	seen               map[string]bool
-	counters           map[string]counter
-	included, measured map[string]uint64
+	counters           map[meterKey]counter
+	included, measured map[periodKey]uint64
 	suspended          map[string]bool
 	ledger             []LedgerEntry
 }
 
 func NewState() State {
-	return State{seen: map[string]bool{}, counters: map[string]counter{}, included: map[string]uint64{}, measured: map[string]uint64{}, suspended: map[string]bool{}}
+	return State{seen: map[string]bool{}, counters: map[meterKey]counter{}, included: map[periodKey]uint64{}, measured: map[periodKey]uint64{}, suspended: map[string]bool{}}
 }
 func (s State) LedgerEntries() []LedgerEntry               { return append([]LedgerEntry(nil), s.ledger...) }
 func (s State) WhiteListSuspended(entitlement string) bool { return s.suspended[entitlement] }
@@ -190,12 +201,29 @@ func Apply(state State, event UsageEvent, policy Policy) (State, Decision, error
 	if policy.Basis != BasisDownlinkOnly && policy.Basis != BasisUplinkPlusDownlink && policy.Basis != BasisFree {
 		return state, Decision{}, ErrInvalidInput
 	}
+	key := meterKey{event.InstanceID, event.MeterEpoch, event.XrayIdentity}
+	periodKey := periodKey{policy.EntitlementID, policy.BillingPeriodID}
+	if old, ok := state.counters[key]; ok && event.UplinkBytes >= old.up && event.DownlinkBytes >= old.down {
+		measured := event.DownlinkBytes - old.down
+		if policy.Basis == BasisUplinkPlusDownlink {
+			var overflow bool
+			measured, overflow = checkedAdd(event.UplinkBytes-old.up, measured)
+			if overflow {
+				return state, Decision{}, ErrInvalidInput
+			}
+		}
+		if policy.Basis == BasisFree {
+			measured = 0
+		}
+		if _, overflow := checkedAdd(state.measured[periodKey], measured); overflow {
+			return state, Decision{}, ErrInvalidInput
+		}
+	}
 	next := state.clone()
 	if next.seen[event.EventID] {
 		return next, Decision{Replay: true}, nil
 	}
 	next.seen[event.EventID] = true
-	key := event.InstanceID + "\x00" + event.MeterEpoch + "\x00" + event.XrayIdentity
 	old, ok := next.counters[key]
 	next.counters[key] = counter{event.UplinkBytes, event.DownlinkBytes}
 	if !ok {
@@ -212,7 +240,6 @@ func Apply(state State, event UsageEvent, policy Policy) (State, Decision, error
 	if policy.Basis == BasisFree {
 		measured = 0
 	}
-	periodKey := policy.EntitlementID + "\x00" + policy.BillingPeriodID
 	remaining, known := next.included[periodKey]
 	if !known {
 		remaining = policy.IncludedBytes
@@ -232,12 +259,19 @@ func Apply(state State, event UsageEvent, policy Policy) (State, Decision, error
 	entry := LedgerEntry{event.EventID, interval, snap, exactAmount(used, price, policy.Unit)}
 	next.ledger = append(next.ledger, entry)
 	d := Decision{Interval: &interval, Ledger: &entry, SoftLimitReached: policy.SoftLimitBytes > 0 && next.measured[periodKey] >= policy.SoftLimitBytes}
-	if policy.HardLimitBytes > 0 && next.measured[periodKey] > policy.HardLimitBytes+policy.GraceBytes {
+	if policy.HardLimitBytes > 0 && next.measured[periodKey] > policy.HardLimitBytes && next.measured[periodKey]-policy.HardLimitBytes > policy.GraceBytes {
 		next.suspended[policy.EntitlementID] = true
 		d.Suspension = SuspensionRecommendation{true, policy.EntitlementID, SuspensionHardLimit}
 	}
 	return next, d, nil
 }
+func checkedAdd(left, right uint64) (uint64, bool) {
+	if ^uint64(0)-left < right {
+		return 0, true
+	}
+	return left + right, false
+}
+
 func exactAmount(bytes uint64, price ResolvedPrice, unit TrafficUnit) ExactAmount {
 	if price.Price.Mode == PriceFree || bytes == 0 {
 		return ExactAmount{Numerator: "0", Denominator: 1, Currency: price.Price.Currency}
