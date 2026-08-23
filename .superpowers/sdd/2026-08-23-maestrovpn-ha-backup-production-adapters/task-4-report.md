@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status at review correction: implementation commit `7e0a7039a995cca6c1f3127a7505347f969ba0b3` is pushed; two independent-review corrections and bounded local verification are complete; replacement exact-SHA CI is pending.
+Status at CI diagnosis: review-correction commit `a714be9b67945c983755049cc5b24e66e2e5069f` is pushed and exact-SHA HA CI is still red only at the real rqlite integration step; bounded test-only annotation instrumentation is locally verified and awaits a new exact-SHA run.
 
 ## Scope and compatibility
 
@@ -126,3 +126,36 @@ Unit coverage asserts one mutation/one evidence read and no replay. Tagged integ
 - Implementation commit: `7e0a7039a995cca6c1f3127a7505347f969ba0b3`; the remote SHA was verified exact after push.
 - GitHub Actions run `32664247546`, job `97255074775` (`Go and isolated rqlite`) failed at step 12, `Test rqlite integration`.
 - The real three-voter runtime failure was not reproduced locally. The review-correction commit must be pushed and evaluated by a new exact-SHA HA run before CI can be called green.
+
+## Exact-SHA CI diagnostic instrumentation (2026-08-24)
+
+- Review-correction commit `a714be9b67945c983755049cc5b24e66e2e5069f` was pushed and its remote SHA was verified exact.
+- HA run `32668813584`, job `97266333388` (`Go and isolated rqlite`), again failed at step 12, `Test rqlite integration`.
+- All preceding unit, race, vet, harness, and cluster-start steps passed. Public check annotations exposed only generic exit code 1; public logs were unavailable.
+- The real three-voter failure was not reproduced locally, so no production defect or causal hypothesis is asserted.
+
+The tagged Task 4 integration tests now emit one GitHub `::error` workflow-command annotation only after a failure. The annotation contains a fixed case token, the exact operation/assertion stage, and one safe linearizable fingerprint: `last_sequence`, current-restore `max_sequence`, and whether the exact expected composite attempt row exists. It emits no raw row, SQL text, error, lease token, object key, digest, endpoint, or credential. Fingerprint collection uses a fresh bounded five-second context so an expired test context still leaves an exact stage annotation.
+
+The diagnostic helper RED command was:
+
+```powershell
+$env:GOMAXPROCS='1'; $env:GOMEMLIMIT='512MiB'; & 'C:\Users\User\Documents\Codex\2026-08-21\webcmd-plugin-webcmd-openai-curated-remote\task15-go125-gofmt-6084f26\full-extracted\go\bin\go.exe' test -p=1 -tags rqlite_integration ./internal/controlplane -run '^TestBackupRPOIntegrationFailureMessageIsStageSpecificAndSafe$' -count=1
+```
+
+After correcting only a malformed test literal, the intended RED was the undefined `backupRPOIntegrationFailureMessage` helper. The same focused command passed GREEN:
+
+```text
+ok github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane 0.041s
+```
+
+The complete rqlite-tagged controlplane test source compiled without starting a cluster:
+
+```powershell
+$env:GOMAXPROCS='1'; $env:GOMEMLIMIT='512MiB'; & 'C:\Users\User\Documents\Codex\2026-08-21\webcmd-plugin-webcmd-openai-curated-remote\task15-go125-gofmt-6084f26\full-extracted\go\bin\go.exe' test -p=1 -tags rqlite_integration ./internal/controlplane -run '^$' -count=1
+```
+
+```text
+ok github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane 0.048s [no tests to run]
+```
+
+No workflow YAML, production implementation, schema, migration, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed. The next exact-SHA HA run owns the real three-voter diagnostic evidence.
