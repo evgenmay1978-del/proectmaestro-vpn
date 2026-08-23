@@ -796,3 +796,435 @@ func mustRequestFail(t *testing.T, ctx context.Context, db rqlite.RQLite, statem
 func repeatHex(value string) string {
 	return strings.Repeat(value, 64)
 }
+
+func TestBackupRPOSchemaFreezesDurableColumnsAndSeed(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+
+	stateColumns := schemaColumnNames(t, mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: "PRAGMA table_info(backup_rpo_state)"}))
+	wantStateColumns := []string{
+		"dirty_generation",
+		"last_attempt_sequence",
+		"phase",
+		"restore_epoch",
+		"singleton_id",
+		"updated_at_unix",
+		"verified_at_unix",
+		"verified_backup_id",
+		"verified_generation",
+		"verified_manifest_version",
+		"verified_object_key",
+		"verified_object_sha256",
+		"verified_object_version",
+		"verified_size_bytes",
+	}
+	if fmt.Sprint(stateColumns) != fmt.Sprint(wantStateColumns) {
+		t.Fatalf("backup_rpo_state columns = %v, want %v", stateColumns, wantStateColumns)
+	}
+
+	attemptColumns := schemaColumnNames(t, mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: "PRAGMA table_info(backup_rpo_attempts)"}))
+	wantAttemptColumns := []string{
+		"adapter_contract_version",
+		"attempt_sequence",
+		"backup_id",
+		"capability_evidence_sha256",
+		"capability_expires_at_unix",
+		"capability_generation",
+		"captured_generation",
+		"created_at_unix",
+		"failure_code",
+		"lease_fence",
+		"lease_holder_id",
+		"lease_token",
+		"manifest_version",
+		"object_key",
+		"object_sha256",
+		"object_size_bytes",
+		"object_version",
+		"phase",
+		"restore_epoch",
+		"updated_at_unix",
+	}
+	if fmt.Sprint(attemptColumns) != fmt.Sprint(wantAttemptColumns) {
+		t.Fatalf("backup_rpo_attempts columns = %v, want %v", attemptColumns, wantAttemptColumns)
+	}
+
+	indexes := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: "PRAGMA index_list(backup_rpo_attempts)"})
+	hasRestoreScopedAttemptSequence := false
+	for _, index := range indexes.Rows {
+		if fmt.Sprint(index["unique"]) != "1" {
+			continue
+		}
+		indexName, ok := index["name"].(string)
+		if !ok || indexName == "" {
+			t.Fatalf("malformed backup_rpo_attempts index row: %#v", index)
+		}
+		indexInfo := mustStrongQuery(t, ctx, db, rqlite.Statement{
+			SQL: fmt.Sprintf("PRAGMA index_info(%q)", indexName),
+		})
+		indexColumns := make([]string, 0, len(indexInfo.Rows))
+		for _, column := range indexInfo.Rows {
+			columnName, ok := column["name"].(string)
+			if !ok || columnName == "" {
+				t.Fatalf("malformed backup_rpo_attempts index column: %#v", column)
+			}
+			indexColumns = append(indexColumns, columnName)
+		}
+		if fmt.Sprint(indexColumns) == "[restore_epoch attempt_sequence]" {
+			hasRestoreScopedAttemptSequence = true
+			break
+		}
+	}
+	if !hasRestoreScopedAttemptSequence {
+		t.Fatal("backup_rpo_attempts lacks UNIQUE(restore_epoch,attempt_sequence)")
+	}
+
+	leaseColumns := schemaColumnNames(t, mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: "PRAGMA table_info(cluster_job_leases)"}))
+	wantLeaseColumns := []string{
+		"acquired_at_unix",
+		"capability_evidence_sha256",
+		"capability_expires_at_unix",
+		"capability_generation",
+		"expires_at_unix",
+		"holder_id",
+		"job_name",
+		"lease_fence",
+		"lease_token",
+		"restore_epoch",
+	}
+	if fmt.Sprint(leaseColumns) != fmt.Sprint(wantLeaseColumns) {
+		t.Fatalf("cluster_job_leases columns = %v, want %v", leaseColumns, wantLeaseColumns)
+	}
+
+	seed := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT backup.restore_epoch, backup.dirty_generation,
+		       backup.verified_generation, backup.last_attempt_sequence,
+		       backup.phase
+		FROM backup_rpo_state AS backup
+		JOIN cluster_restore_state AS restore
+		  ON restore.restore_epoch = backup.restore_epoch
+		WHERE backup.singleton_id = 1
+		  AND backup.dirty_generation = 1
+		  AND backup.verified_generation = 0
+		  AND backup.last_attempt_sequence = 0
+		  AND backup.phase = 'dirty'
+		  AND backup.verified_backup_id IS NULL
+		  AND backup.verified_object_key IS NULL
+		  AND backup.verified_object_sha256 IS NULL
+		  AND backup.verified_object_version IS NULL
+		  AND backup.verified_size_bytes IS NULL
+		  AND backup.verified_manifest_version IS NULL
+		  AND backup.verified_at_unix IS NULL
+	`})
+	if got := fmt.Sprint(seed.Rows); got != "[map[dirty_generation:1 last_attempt_sequence:0 phase:dirty restore_epoch:1 verified_generation:0]]" {
+		t.Fatalf("backup RPO seed = %s", got)
+	}
+}
+
+func TestBackupRPOSchemaRejectsInconsistentStateAndUnfencedAttempts(t *testing.T) {
+	ctx, db := mustAppliedSchema(t)
+
+	type rejection struct {
+		name      string
+		statement rqlite.Statement
+	}
+
+	backupID := strings.Repeat("a", 32)
+	verifiedArgs := func(dirtyGeneration, verifiedGeneration int64) []any {
+		return []any{
+			dirtyGeneration,
+			verifiedGeneration,
+			int64(1),
+			backupID,
+			fmt.Sprintf("backups/g-%d/a-1-%s.tar.gpg", verifiedGeneration, backupID),
+			repeatHex("a"),
+			"version-1",
+			int64(4_096),
+			int64(2),
+			int64(1_000_000),
+		}
+	}
+	verifiedStatement := func(args []any) rqlite.Statement {
+		return rqlite.Statement{SQL: `
+			UPDATE backup_rpo_state
+			SET dirty_generation=?,
+			    verified_generation=?,
+			    last_attempt_sequence=?,
+			    verified_backup_id=?,
+			    verified_object_key=?,
+			    verified_object_sha256=?,
+			    verified_object_version=?,
+			    verified_size_bytes=?,
+			    verified_manifest_version=?,
+			    verified_at_unix=?
+			WHERE singleton_id=1
+		`, Args: args}
+	}
+
+	stateCases := []rejection{
+		{
+			name: "second-singleton-row",
+			statement: rqlite.Statement{SQL: `
+				INSERT INTO backup_rpo_state(
+					singleton_id,restore_epoch,dirty_generation,verified_generation,
+					last_attempt_sequence,phase,updated_at_unix
+				) VALUES(2,1,1,0,0,'dirty',1000000)
+			`},
+		},
+		{
+			name:      "verified-generation-exceeds-dirty",
+			statement: verifiedStatement(verifiedArgs(1, 2)),
+		},
+		{
+			name:      "invalid-state-phase",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET phase='invalid' WHERE singleton_id=1"},
+		},
+		{
+			name:      "negative-dirty-generation",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET dirty_generation=-1 WHERE singleton_id=1"},
+		},
+		{
+			name:      "negative-verified-generation",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET verified_generation=-1 WHERE singleton_id=1"},
+		},
+		{
+			name:      "negative-last-attempt-sequence",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET last_attempt_sequence=-1 WHERE singleton_id=1"},
+		},
+		{
+			name:      "zero-restore-epoch",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET restore_epoch=0 WHERE singleton_id=1"},
+		},
+		{
+			name:      "negative-restore-epoch",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET restore_epoch=-1 WHERE singleton_id=1"},
+		},
+		{
+			name:      "zero-updated-at",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET updated_at_unix=0 WHERE singleton_id=1"},
+		},
+		{
+			name:      "negative-updated-at",
+			statement: rqlite.Statement{SQL: "UPDATE backup_rpo_state SET updated_at_unix=-1 WHERE singleton_id=1"},
+		},
+	}
+
+	fullTuple := verifiedArgs(2, 1)
+	partialFields := []struct {
+		name  string
+		index int
+	}{
+		{name: "verified-generation", index: 1},
+		{name: "verified-backup-id", index: 3},
+		{name: "verified-object-key", index: 4},
+		{name: "verified-object-sha256", index: 5},
+		{name: "verified-object-version", index: 6},
+		{name: "verified-size-bytes", index: 7},
+		{name: "verified-manifest-version", index: 8},
+		{name: "verified-at-unix", index: 9},
+	}
+	for _, field := range partialFields {
+		args := append([]any(nil), fullTuple...)
+		args[field.index] = nil
+		stateCases = append(stateCases, rejection{
+			name:      "partial-tuple-missing-" + field.name,
+			statement: verifiedStatement(args),
+		})
+	}
+	for _, testCase := range []struct {
+		name  string
+		index int
+		value any
+	}{
+		{name: "uppercase-verified-sha256", index: 5, value: strings.Repeat("A", 64)},
+		{name: "short-verified-sha256", index: 5, value: strings.Repeat("a", 63)},
+		{name: "long-verified-sha256", index: 5, value: strings.Repeat("a", 65)},
+		{name: "nonhex-verified-sha256", index: 5, value: strings.Repeat("g", 64)},
+		{name: "whitespace-verified-sha256", index: 5, value: " " + strings.Repeat("a", 63)},
+		{name: "empty-verified-object-version", index: 6, value: ""},
+		{name: "whitespace-verified-object-version", index: 6, value: " version-1"},
+		{name: "latest-verified-object-version", index: 6, value: "latest"},
+		{name: "uppercase-latest-verified-object-version", index: 6, value: "LATEST"},
+		{name: "null-literal-verified-object-version", index: 6, value: "null"},
+		{name: "none-literal-verified-object-version", index: 6, value: "none"},
+		{name: "zero-verified-size", index: 7, value: int64(0)},
+		{name: "negative-verified-size", index: 7, value: int64(-1)},
+		{name: "zero-verified-manifest-version", index: 8, value: int64(0)},
+		{name: "negative-verified-manifest-version", index: 8, value: int64(-1)},
+		{name: "wrong-verified-manifest-version", index: 8, value: int64(1)},
+		{name: "zero-verified-at", index: 9, value: int64(0)},
+		{name: "negative-verified-at", index: 9, value: int64(-1)},
+		{name: "zero-last-attempt-with-verified-tuple", index: 2, value: int64(0)},
+		{name: "negative-last-attempt-with-verified-tuple", index: 2, value: int64(-1)},
+	} {
+		args := append([]any(nil), fullTuple...)
+		args[testCase.index] = testCase.value
+		stateCases = append(stateCases, rejection{
+			name:      testCase.name,
+			statement: verifiedStatement(args),
+		})
+	}
+	for _, testCase := range stateCases {
+		t.Run("state/"+testCase.name, func(t *testing.T) {
+			mustRequestFail(t, ctx, db, testCase.statement)
+		})
+	}
+
+	const attemptSQL = `
+		INSERT INTO backup_rpo_attempts(
+			restore_epoch,attempt_sequence,phase,backup_id,captured_generation,
+			object_key,object_sha256,object_version,object_size_bytes,
+			manifest_version,adapter_contract_version,capability_generation,
+			capability_evidence_sha256,capability_expires_at_unix,
+			lease_holder_id,lease_token,lease_fence,failure_code,
+			created_at_unix,updated_at_unix
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	`
+	attemptArgs := func(sequence int64, hexDigit string) []any {
+		attemptBackupID := strings.Repeat(hexDigit, 32)
+		return []any{
+			int64(1),
+			sequence,
+			"applied",
+			attemptBackupID,
+			int64(1),
+			fmt.Sprintf("backups/g-1/a-%d-%s.tar.gpg", sequence, attemptBackupID),
+			strings.Repeat(hexDigit, 64),
+			fmt.Sprintf("version-%d", sequence),
+			int64(4_096),
+			int64(2),
+			"yandex-s3-v1",
+			int64(1),
+			repeatHex("c"),
+			int64(2_000_000),
+			"node-s2",
+			fmt.Sprintf("lease-token-%d", sequence),
+			int64(1),
+			nil,
+			int64(1_000_000),
+			int64(1_000_001),
+		}
+	}
+	attemptStatement := func(args []any) rqlite.Statement {
+		return rqlite.Statement{SQL: attemptSQL, Args: args}
+	}
+
+	mustRequest(t, ctx, db, attemptStatement(attemptArgs(1, "a")))
+
+	attemptCases := []rejection{
+		{
+			name:      "globally-duplicate-attempt-sequence",
+			statement: attemptStatement(attemptArgs(1, "b")),
+		},
+	}
+	nextSequence := int64(10)
+	addAttemptCase := func(name string, index int, value any) {
+		args := attemptArgs(nextSequence, "b")
+		nextSequence++
+		args[index] = value
+		attemptCases = append(attemptCases, rejection{
+			name:      name,
+			statement: attemptStatement(args),
+		})
+	}
+	addAttemptCase("invalid-attempt-phase", 2, "invalid")
+	addAttemptCase("null-object-version-for-applied", 7, nil)
+	addAttemptCase("empty-object-version-for-applied", 7, "")
+	addAttemptCase("whitespace-object-version-for-applied", 7, " version-1")
+	addAttemptCase("latest-object-version-for-applied", 7, "latest")
+	addAttemptCase("uppercase-latest-object-version-for-applied", 7, "LATEST")
+	addAttemptCase("null-literal-object-version-for-applied", 7, "null")
+	addAttemptCase("none-literal-object-version-for-applied", 7, "none")
+	addAttemptCase("uppercase-object-sha256", 6, strings.Repeat("B", 64))
+	addAttemptCase("short-object-sha256", 6, strings.Repeat("b", 63))
+	addAttemptCase("long-object-sha256", 6, strings.Repeat("b", 65))
+	addAttemptCase("nonhex-object-sha256", 6, strings.Repeat("g", 64))
+	addAttemptCase("whitespace-object-sha256", 6, " " + strings.Repeat("b", 63))
+	addAttemptCase("uppercase-capability-sha256", 12, strings.Repeat("C", 64))
+	addAttemptCase("short-capability-sha256", 12, strings.Repeat("c", 63))
+	addAttemptCase("long-capability-sha256", 12, strings.Repeat("c", 65))
+	addAttemptCase("nonhex-capability-sha256", 12, strings.Repeat("g", 64))
+	addAttemptCase("whitespace-capability-sha256", 12, " " + strings.Repeat("c", 63))
+	addAttemptCase("wrong-adapter-contract", 10, "aws-s3-v1")
+	addAttemptCase("empty-adapter-contract", 10, "")
+	addAttemptCase("manifest-v1", 9, int64(1))
+	addAttemptCase("zero-restore-epoch", 0, int64(0))
+	addAttemptCase("negative-restore-epoch", 0, int64(-1))
+	addAttemptCase("zero-attempt-sequence", 1, int64(0))
+	addAttemptCase("negative-attempt-sequence", 1, int64(-1))
+	addAttemptCase("zero-captured-generation", 4, int64(0))
+	addAttemptCase("negative-captured-generation", 4, int64(-1))
+	addAttemptCase("zero-object-size", 8, int64(0))
+	addAttemptCase("negative-object-size", 8, int64(-1))
+	addAttemptCase("zero-manifest-version", 9, int64(0))
+	addAttemptCase("negative-manifest-version", 9, int64(-1))
+	addAttemptCase("zero-capability-generation", 11, int64(0))
+	addAttemptCase("negative-capability-generation", 11, int64(-1))
+	addAttemptCase("zero-capability-expiry", 13, int64(0))
+	addAttemptCase("negative-capability-expiry", 13, int64(-1))
+	addAttemptCase("empty-lease-holder", 14, "")
+	addAttemptCase("empty-lease-token", 15, "")
+	addAttemptCase("zero-lease-fence", 16, int64(0))
+	addAttemptCase("negative-lease-fence", 16, int64(-1))
+	addAttemptCase("zero-created-at", 18, int64(0))
+	addAttemptCase("negative-created-at", 18, int64(-1))
+	addAttemptCase("zero-updated-at", 19, int64(0))
+	addAttemptCase("negative-updated-at", 19, int64(-1))
+
+	for _, testCase := range attemptCases {
+		t.Run("attempt/"+testCase.name, func(t *testing.T) {
+			mustRequestFail(t, ctx, db, testCase.statement)
+		})
+	}
+
+	const leaseSQL = `
+		INSERT INTO cluster_job_leases(
+			job_name,holder_id,lease_token,acquired_at_unix,expires_at_unix,
+			restore_epoch,lease_fence,capability_generation,
+			capability_evidence_sha256,capability_expires_at_unix
+		) VALUES(?,?,?,?,?,?,?,?,?,?)
+	`
+	leaseArgs := func() []any {
+		return []any{
+			"backup-rpo",
+			"node-s2",
+			"backup-rpo-lease-token",
+			int64(1_000_000),
+			int64(1_000_100),
+			int64(1),
+			int64(1),
+			int64(1),
+			repeatHex("d"),
+			int64(1_000_200),
+		}
+	}
+	leaseStatement := func(args []any) rqlite.Statement {
+		return rqlite.Statement{SQL: leaseSQL, Args: args}
+	}
+	leaseCases := make([]rejection, 0, 16)
+	addLeaseCase := func(name string, index int, value any) {
+		args := leaseArgs()
+		args[index] = value
+		leaseCases = append(leaseCases, rejection{
+			name:      name,
+			statement: leaseStatement(args),
+		})
+	}
+	addLeaseCase("zero-restore-epoch", 5, int64(0))
+	addLeaseCase("negative-restore-epoch", 5, int64(-1))
+	addLeaseCase("zero-lease-fence", 6, int64(0))
+	addLeaseCase("negative-lease-fence", 6, int64(-1))
+	addLeaseCase("zero-capability-generation", 7, int64(0))
+	addLeaseCase("negative-capability-generation", 7, int64(-1))
+	addLeaseCase("uppercase-capability-sha256", 8, strings.Repeat("D", 64))
+	addLeaseCase("short-capability-sha256", 8, strings.Repeat("d", 63))
+	addLeaseCase("long-capability-sha256", 8, strings.Repeat("d", 65))
+	addLeaseCase("nonhex-capability-sha256", 8, strings.Repeat("g", 64))
+	addLeaseCase("whitespace-capability-sha256", 8, " " + strings.Repeat("d", 63))
+	addLeaseCase("zero-capability-expiry", 9, int64(0))
+	addLeaseCase("negative-capability-expiry", 9, int64(-1))
+	for _, testCase := range leaseCases {
+		t.Run("lease/"+testCase.name, func(t *testing.T) {
+			mustRequestFail(t, ctx, db, testCase.statement)
+		})
+	}
+}
