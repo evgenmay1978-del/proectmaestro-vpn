@@ -114,7 +114,7 @@ jobs:
       - name: Test DR workflow policy
         run: python ops/ha/test-dr-workflow-policy.py
 
-      - name: Test authenticated backup verification, worker races, and tamper matrix
+      - name: Test authenticated backup verification and tamper matrix
         run: |
           set -euo pipefail
           python -m unittest \
