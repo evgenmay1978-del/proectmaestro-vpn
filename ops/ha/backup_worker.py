@@ -896,7 +896,7 @@ def _stable_identity(info: os.stat_result) -> tuple[int, int, int, int]:
     )
 
 
-def _pinned_directory_supported() -> bool:
+def _detect_pinned_directory_support() -> bool:
     return (
         os.name == "posix"
         and hasattr(os, "O_DIRECTORY")
@@ -908,6 +908,12 @@ def _pinned_directory_supported() -> bool:
         )
     )
 
+_PINNED_DIRECTORY_SUPPORTED = _detect_pinned_directory_support()
+
+
+def _pinned_directory_supported() -> bool:
+    # Platform support is immutable; syscall wrappers must not select the path fallback.
+    return _PINNED_DIRECTORY_SUPPORTED
 
 def _directory_flags() -> int:
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
