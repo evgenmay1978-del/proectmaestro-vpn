@@ -114,10 +114,15 @@ jobs:
       - name: Test DR workflow policy
         run: python ops/ha/test-dr-workflow-policy.py
 
-      - name: Test authenticated backup verification and tamper matrix
+      - name: Test authenticated backup verification, worker races, and tamper matrix
         run: |
           set -euo pipefail
-          python -m unittest ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api
+          python -m unittest \
+            ops.ha.tests.test_verify_backup \
+            ops.ha.tests.test_restore_api \
+            ops.ha.tests.test_backup_worker \
+            ops.ha.tests.test_backup_worker_security \
+            ops.ha.tests.test_backup_worker_identity_races
           bash ops/ha/test-backup-rqlite.sh
 
       - name: Test fresh restore fencing parity and quorum
