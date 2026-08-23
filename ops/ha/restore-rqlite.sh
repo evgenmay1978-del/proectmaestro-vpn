@@ -129,7 +129,7 @@ verify_result="$work/verify-result.json"
 python3 -m ops.ha.verify_backup verify \
   --directory "$extract" --signer "$signer" --gpg-home "$gpg_home" \
   >"$verify_result" 2>/dev/null || fail
-[[ "$(<"$verify_result")" == '{"format_version":1,"status":"verified"}' ]] || fail
+[[ "$(<"$verify_result")" == '{"binding_status":"legacy-unbound","format_version":1,"rpo_eligible":false,"status":"verified"}' ]] || fail
 
 image="$extract/control-plane.sqlite3"
 [[ -f "$image" && ! -L "$image" && "$(stat -c '%a' "$image")" == "600" ]] || fail
