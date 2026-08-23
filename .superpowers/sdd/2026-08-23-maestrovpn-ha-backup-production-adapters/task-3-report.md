@@ -105,15 +105,24 @@ Reviewed every production source line and the complete tagged integration test. 
 
 `git diff --check` passed before staging.
 
-## Skipped and pending checks
+## Skipped local checks
 
-The owner's weak PC was not used to start a local three-voter rqlite cluster, run the race detector, or run repository-wide vet. Those checks are delegated to the existing exact-SHA GitHub Actions workflow `.github/workflows/ha-control-plane.yml` as required. CI evidence is pending the first implementation commit and explicit-refspec push.
+The owner's weak PC was not used to start a local three-voter rqlite cluster, run the race detector, or run repository-wide vet. The exact implementation SHA instead completed those checks in the existing GitHub Actions HA workflow.
 
 ## Risks
 
-- Real three-voter behavior, race detection, and vet remain pending until the exact-SHA CI run completes.
 - The adapter intentionally fails closed on any rqlite numeric representation outside the canonical accepted set; a backend representation change would surface as a fixed unavailable error instead of being coerced.
+- No unresolved implementation verification risk remains. The closeout commit changes this report only and does not alter the exact CI-tested source/test tree.
 
 ## CI evidence
 
-Pending exact implementation commit, remote SHA verification, and the existing `HA control-plane checks` workflow run. A report-only closeout commit will append the run URL/ID, job, required step outcomes, exact tested remote SHA, and final remote verification without changing production or test code.
+- Exact implementation commit and verified remote branch SHA: `54428e3bfa75725dc54abc649b3162684136e929`.
+- Remote ref: `origin/refs/heads/codex/yandex-cdn-whitelist-task3-sync`.
+- Workflow: `HA control-plane checks`, push event, run 359 / ID `32658818922`: https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32658818922
+- Run head SHA: `54428e3bfa75725dc54abc649b3162684136e929` (exact match); conclusion `success`.
+- Run interval: `2026-08-23T18:41:12Z` to `2026-08-23T18:43:05Z`.
+- Job: `Go and isolated rqlite`, ID `97241732633`: https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32658818922/job/97241732633 — conclusion `success`.
+- Required successful steps: `Check materialized agent boundary`, `Check Go formatting`, `Test backend`, `Race-test backend`, `Vet backend`, `Test rqlite harness contract`, `Start isolated rqlite cluster`, and `Test rqlite integration`.
+- Additional isolated-cluster steps, including `Start isolated three-node mTLS rqlite cluster` and the production importer mTLS proof, also completed successfully.
+
+The follow-up closeout commit contains this report update only. Its remote SHA is verified in the final handoff rather than embedded here, avoiding an impossible self-reference while preserving exact-SHA CI proof for every production and test file.
