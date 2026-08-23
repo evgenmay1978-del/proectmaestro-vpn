@@ -132,7 +132,6 @@ func mustIntegrationRQLite(t *testing.T) rqlite.RQLite {
 	return db
 }
 
-
 func TestVerifyIdentityReturnsExactCommittedVersionAndChecksum(t *testing.T) {
 	db := mustIntegrationRQLite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -163,7 +162,7 @@ func TestVerifyIdentityRejectsChangedChecksumWithoutApplying(t *testing.T) {
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
 			resultsScript(
 				rqlite.Result{Rows: []map[string]any{{
-					"version": int64(SchemaVersion),
+					"version":  int64(SchemaVersion),
 					"checksum": strings.Repeat("0", 64),
 				}}},
 				rqlite.Result{Rows: nil},
