@@ -46,3 +46,10 @@ The local toolchain was acquired from the official `go1.25.0.windows-amd64.zip` 
 - No production code was changed by Task 1.
 - `normalize.patch` and `.superpowers/sdd/2026-08-20-yandex-cdn-whitelist/task-4-report.md` were untouched.
 - This report is not committed or pushed by this action.
+
+## Fix round 1 — restore-scoped attempt sequence
+
+- Covering test accepts `attempt_sequence=1` at restore epoch 2 after epoch 1; duplicate `(restore_epoch=1, attempt_sequence=1)` remains rejected.
+- Command: Go 1.25 single-core focused `TestOrderedMigrations|TestBackupRPO`.
+- Result: expected RED, exit 1 only because SchemaVersion=4 and v5 is absent.
+- Self-review: test-only positive case prevents a global `UNIQUE(attempt_sequence)` while preserving composite uniqueness.

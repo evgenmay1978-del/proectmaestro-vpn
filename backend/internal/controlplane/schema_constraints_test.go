@@ -1109,6 +1109,9 @@ func TestBackupRPOSchemaRejectsInconsistentStateAndUnfencedAttempts(t *testing.T
 	}
 
 	mustRequest(t, ctx, db, attemptStatement(attemptArgs(1, "a")))
+	otherEpochSameSequence := attemptArgs(1, "b")
+	otherEpochSameSequence[0] = int64(2)
+	mustRequest(t, ctx, db, attemptStatement(otherEpochSameSequence))
 
 	attemptCases := []rejection{
 		{
