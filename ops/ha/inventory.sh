@@ -116,8 +116,8 @@ def read_fixture(root, root_descriptor, filename, expected_kind):
         opened_info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or not stat.S_ISREG(opened_info.st_mode):
             raise ValueError("fixture is not a regular file")
-        if identity(info) != identity(opened_info):
-            raise ValueError("fixture identity changed before open")
+        if content_fingerprint(info) != content_fingerprint(opened_info):
+            raise ValueError("fixture identity or metadata changed before open")
         if opened_info.st_size <= 0 or opened_info.st_size > MAX_FIXTURE_BYTES:
             raise ValueError("fixture size is outside the allowed range")
 
