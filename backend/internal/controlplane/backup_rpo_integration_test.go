@@ -54,6 +54,56 @@ func TestBackupRPOIntegrationFailureMessageIsStageSpecificAndSafe(t *testing.T) 
 	}
 }
 
+func TestBackupRPOIntegrationIsolationUsesUniqueEpochAndRestoresMigrationSeed(t *testing.T) {
+	prepare := backupRPOIntegrationPrepareStatements()
+	cleanup := backupRPOIntegrationCleanupStatements()
+	if len(prepare) != 3 || len(cleanup) != 3 {
+		t.Fatalf("prepare statements=%d cleanup statements=%d, want 3/3", len(prepare), len(cleanup))
+	}
+	if backupRPOIntegrationRestoreEpochFloor != 1_000_000 {
+		t.Fatalf("restore epoch floor=%d, want 1000000", backupRPOIntegrationRestoreEpochFloor)
+	}
+	normalizeSQL := func(statements []rqlite.Statement) string {
+		parts := make([]string, 0, len(statements))
+		for _, statement := range statements {
+			parts = append(parts, strings.Join(strings.Fields(strings.ToLower(statement.SQL)), " "))
+		}
+		return strings.Join(parts, "\n")
+	}
+	prepareSQL := normalizeSQL(prepare)
+	for _, required := range []string{
+		"delete from cluster_job_leases where job_name='backup-rpo'",
+		"select max(restore_epoch)+1 from backup_rpo_attempts",
+		"dirty_generation=1", "verified_generation=0", "last_attempt_sequence=0", "phase='dirty'",
+	} {
+		if !strings.Contains(prepareSQL, required) {
+			t.Fatalf("prepare SQL lacks %q: %s", required, prepareSQL)
+		}
+	}
+	if got := fmt.Sprint(prepare[1].Args); got != "[1000000 1000000]" {
+		t.Fatalf("unique epoch args=%s", got)
+	}
+	cleanupSQL := normalizeSQL(cleanup)
+	for _, required := range []string{
+		"delete from cluster_job_leases where job_name='backup-rpo'",
+		"restored_from_backup_sha256=null", "restore_epoch=?", "activated_at_unix=created_at_unix",
+		"dirty_generation=1", "verified_generation=0", "verified_backup_id=null",
+		"verified_object_key=null", "verified_object_sha256=null", "verified_object_version=null",
+		"verified_size_bytes=null", "verified_manifest_version=null", "verified_at_unix=null",
+		"last_attempt_sequence=0", "phase='dirty'",
+	} {
+		if !strings.Contains(cleanupSQL, required) {
+			t.Fatalf("cleanup SQL lacks %q: %s", required, cleanupSQL)
+		}
+	}
+	if got := fmt.Sprint(cleanup[1].Args); got != "[1]" {
+		t.Fatalf("cleanup restore epoch args=%s", got)
+	}
+	if strings.Contains(cleanupSQL, "delete from backup_rpo_attempts") {
+		t.Fatalf("cleanup bypasses append-only attempt evidence: %s", cleanupSQL)
+	}
+}
+
 type backupRPOIntegrationFailureTrace struct {
 	t        *testing.T
 	db       rqlite.RQLite
@@ -394,35 +444,73 @@ func integrationBackupRPOVerification(t *testing.T, identity BackupRPOAttemptIde
 	}
 }
 
+const backupRPOIntegrationRestoreEpochFloor int64 = 1_000_000
+
+func backupRPOIntegrationSeedStateStatement() rqlite.Statement {
+	return rqlite.Statement{SQL: `UPDATE backup_rpo_state
+		SET restore_epoch=(SELECT restore_epoch FROM cluster_restore_state WHERE singleton_id=1),
+			dirty_generation=1,
+			verified_generation=0,
+			verified_backup_id=NULL,
+			verified_object_key=NULL,
+			verified_object_sha256=NULL,
+			verified_object_version=NULL,
+			verified_size_bytes=NULL,
+			verified_manifest_version=NULL,
+			verified_at_unix=NULL,
+			last_attempt_sequence=0,
+			phase='dirty',
+			updated_at_unix=unixepoch()
+		WHERE singleton_id=1`}
+}
+
+func backupRPOIntegrationPrepareStatements() []rqlite.Statement {
+	return []rqlite.Statement{
+		{SQL: "DELETE FROM cluster_job_leases WHERE job_name='backup-rpo'"},
+		{SQL: `UPDATE cluster_restore_state
+			SET restore_epoch=MAX(
+				?,
+				COALESCE((SELECT MAX(restore_epoch)+1 FROM backup_rpo_attempts),?)
+			),
+				restored_from_backup_sha256=NULL,
+				activated=1,
+				activated_at_unix=COALESCE(activated_at_unix,unixepoch())
+			WHERE singleton_id=1`, Args: []any{
+			backupRPOIntegrationRestoreEpochFloor,
+			backupRPOIntegrationRestoreEpochFloor,
+		}},
+		backupRPOIntegrationSeedStateStatement(),
+	}
+}
+
+func backupRPOIntegrationCleanupStatements() []rqlite.Statement {
+	return []rqlite.Statement{
+		{SQL: "DELETE FROM cluster_job_leases WHERE job_name='backup-rpo'"},
+		{SQL: `UPDATE cluster_restore_state
+			SET restore_epoch=?,
+				restored_from_backup_sha256=NULL,
+				activated=1,
+				activated_at_unix=created_at_unix
+			WHERE singleton_id=1`, Args: []any{int64(1)}},
+		backupRPOIntegrationSeedStateStatement(),
+	}
+}
+
 func prepareBackupRPOIntegration(t *testing.T, ctx context.Context, db rqlite.RQLite) BackupRPOState {
 	t.Helper()
 	if err := NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("Apply migrations: %v", err)
 	}
-	if _, err := db.Request(ctx, rqlite.Linearizable, true,
-		rqlite.Statement{SQL: "DELETE FROM cluster_job_leases WHERE job_name='backup-rpo'"},
-		rqlite.Statement{SQL: `UPDATE cluster_restore_state
-			SET activated=1,activated_at_unix=COALESCE(activated_at_unix,unixepoch())
-			WHERE singleton_id=1`},
-		rqlite.Statement{SQL: `UPDATE backup_rpo_state
-			SET restore_epoch=(SELECT restore_epoch FROM cluster_restore_state WHERE singleton_id=1),
-				dirty_generation=CASE
-					WHEN dirty_generation=verified_generation THEN dirty_generation+1
-					ELSE dirty_generation
-				END,
-				phase='dirty',updated_at_unix=unixepoch()
-			WHERE singleton_id=1`},
+	if _, err := db.Request(
+		ctx, rqlite.Linearizable, true, backupRPOIntegrationPrepareStatements()...,
 	); err != nil {
 		t.Fatalf("prepare backup RPO state: %v", err)
 	}
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if _, err := db.Request(cleanupCtx, rqlite.Linearizable, true,
-			rqlite.Statement{SQL: "DELETE FROM cluster_job_leases WHERE job_name='backup-rpo'"},
-			rqlite.Statement{SQL: `UPDATE cluster_restore_state
-				SET activated=1,activated_at_unix=COALESCE(activated_at_unix,unixepoch())
-				WHERE singleton_id=1`},
+		if _, err := db.Request(
+			cleanupCtx, rqlite.Linearizable, true, backupRPOIntegrationCleanupStatements()...,
 		); err != nil {
 			t.Errorf("cleanup backup RPO integration state: %v", err)
 		}

@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status at CI diagnosis: review-correction commit `a714be9b67945c983755049cc5b24e66e2e5069f` is pushed and exact-SHA HA CI is still red only at the real rqlite integration step; bounded test-only annotation instrumentation is locally verified and awaits a new exact-SHA run.
+Status at CI isolation correction: authenticated exact-SHA evidence for diagnostic commit `f8effd2e8d4138256b1493f8b7bb7c3cb9d959a3` proves cross-test contamination after the Task 4 transitions passed; the test-only isolation correction and bounded local verification are complete, with replacement exact-SHA CI pending.
 
 ## Scope and compatibility
 
@@ -159,3 +159,33 @@ ok github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane 0
 ```
 
 No workflow YAML, production implementation, schema, migration, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed. The next exact-SHA HA run owns the real three-voter diagnostic evidence.
+
+## Authenticated exact-SHA isolation diagnosis and correction (2026-08-24)
+
+The authenticated HA job log for diagnostic commit `f8effd2e8d4138256b1493f8b7bb7c3cb9d959a3` proves that the Task 4 transition cases themselves passed. The later frozen-schema cases failed as follows:
+
+- `TestBackupRPOSchemaFreezesDurableColumnsAndSeed`, `schema_constraints_test.go:919`: `backup RPO seed = []`.
+- `TestBackupRPOSchemaRejectsInconsistentStateAndUnfencedAttempts`, `schema_constraints_test.go:1111`: statement 0 failed with `UNIQUE constraint failed: backup_rpo_attempts.restore_epoch, backup_rpo_attempts.attempt_sequence`.
+
+This is cross-test state contamination, not a production transition failure. The prior tagged integration cleanup removed the synthetic `backup-rpo` lease but left the singleton state verified/mutated and retained append-only attempt `(restore_epoch,attempt_sequence)` identities used later by schema-contract tests.
+
+Migration v5 remains frozen and its append-only trigger is not bypassed. Each Task 4 integration test now prepares a synthetic restore epoch at or above `1000000`, choosing one greater than every persisted attempt epoch. Its cleanup removes the synthetic lease and restores the exact migration seed visible to later tests: restore epoch `1`, dirty generation `1`, verified generation `0`, null verified tuple, last attempt sequence `0`, and phase `dirty`. Persisted attempts remain durable evidence under their isolated high restore epochs and cannot collide with schema tests at epochs `1` and `2` or with later Task 4 cases.
+
+The isolation contract RED command was:
+
+```powershell
+$env:GOMAXPROCS='1'; $env:GOMEMLIMIT='512MiB'; & 'C:\Users\User\Documents\Codex\2026-08-21\webcmd-plugin-webcmd-openai-curated-remote\task15-go125-gofmt-6084f26\full-extracted\go\bin\go.exe' test -p=1 -tags rqlite_integration ./internal/controlplane -run '^TestBackupRPOIntegrationIsolationUsesUniqueEpochAndRestoresMigrationSeed$' -count=1
+```
+
+RED was the expected undefined `backupRPOIntegrationPrepareStatements`, `backupRPOIntegrationCleanupStatements`, and `backupRPOIntegrationRestoreEpochFloor`. After the minimal tagged-test helper correction, the same command passed:
+
+```text
+ok github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane 0.054s
+```
+
+Additional bounded local evidence:
+
+- `go test -p=1 ./internal/controlplane -count=1`: passed in `0.069s`.
+- `go test -p=1 -tags rqlite_integration ./internal/controlplane -run '^$' -count=1`: passed in `0.049s` with no tests run.
+
+The real three-voter suite was not rerun locally. No production implementation, migration, schema assertion, workflow YAML, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed.
