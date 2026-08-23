@@ -1,5 +1,55 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAAAAAA. TASK 8 FIRST PRODUCTION-READINESS GATE GREEN — INVENTORY/DR FIXTURE PROOF (23.08.2026)
+
+- Единственная каноническая ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`; точный проверенный code SHA —
+  `87e8a71bd0494d01c88178e412d2a479dc9d17fd`. Локальная ветка и GitHub
+  синхронизированы; GitHub App использовался только для файлов workflow, после
+  чего идентичные деревья были объединены no-content merge и опубликованы в ту
+  же каноническую ветку.
+- Первый repository-safe slice Task 8 завершён. `ops/ha/inventory.sh` — только
+  offline fixture gate: обязательны `--fixture-root` и no-clobber `--output`,
+  принимаются ровно `legacy-backup.json` и `ha-backup.json`, выбирается ровно
+  одна реализация backup. Выход всегда маркирован `evidence_class=FIXTURE` и
+  `release_readiness=NO_GO`; live discovery, SSH, сеть и production credentials
+  отсутствуют; embedded Python не запускает external/live дочерние процессы.
+- Gate fail-closed: строгие exact-key/type/version JSON contracts, предел 4096
+  bytes, duplicate/UTF-8/trailing-data rejection, non-regular/symlink rejection,
+  pinned POSIX root descriptor, source/root identity checks, полный metadata
+  fingerprint до/после чтения, `O_EXCL` output и сохранение безопасного
+  owner-created `0600` partial при write failure. Linux CI обнаружил реальный
+  inode-reuse race; проверка `(device,inode)` заменена полным fingerprint и
+  regression теперь проходит.
+- GitHub Actions HA run
+  [32610785994](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32610785994),
+  job `97123407802`, завершён `success`: `34` Python contracts, shell backup/
+  restore contracts, full Go tests, `-race`, `vet`, isolated rqlite integration,
+  importer parity и production importer mTLS proof прошли.
+- На том же exact SHA повторно GREEN весь Yandex isolated release workflow:
+  [run `32610785955`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32610785955).
+  Успешны все пять jobs: `format-unit` `97123407693`, `rqlite-purge`
+  `97123499870`, `race-vet` `97123499886`, `offline-replay` `97123499901`,
+  `android-test-apk` `97123628498`. Production Android/TV baseline остаётся
+  неизменяемой версией `1.0.157`; это тестовый CI rebuild, не release/OTA.
+- CI последовательно закрыл три найденных рассинхрона: stale gofmt debt list,
+  Linux inode reuse при замене fixture и exact rqlite table expectation без
+  migration-v4 таблицы `whitelist_entitlement_identities`. Исправления
+  минимальны и получили независимые review без Critical/Important замечаний.
+- Слабый локальный Windows-компьютер использовался только для узких Python/
+  diff/Git проверок (`19` inventory tests, `10` platform skips). Все Linux,
+  rqlite, race/vet и Android проверки выполнены в GitHub Actions.
+- Это не live production inventory и не backup/restore drill. Следующий
+  repository-safe шаг — продолжить Task 8 по утверждённому HA operations/
+  cutover plan: подготовить redacted read-only production inventory и
+  backup/restore readiness tooling. Любое подключение к S1-S4, получение
+  production evidence, backup, deploy или cutover требует отдельного явного
+  разрешения владельца.
+- Production остаётся **NO-GO**. Merge в main, tag, release/signing, OTA,
+  серверные/клиентские/billing изменения и cutover не выполнялись. Локальные
+  `normalize.patch` и пользовательский `task-4-report.md` защищены и не входят
+  ни в один commit.
+
 ## 0AAAAAAAAA. YANDEX CDN WHITE-LIST TASK 7 CI GREEN — CANONICAL GITHUB-FIRST EVIDENCE (23.08.2026)
 
 - Единственная каноническая рабочая и push-ветка —
