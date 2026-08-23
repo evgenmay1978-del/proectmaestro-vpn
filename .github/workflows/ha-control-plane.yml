@@ -12,6 +12,7 @@ on:
     branches:
       - main
       - codex/mobile-4d-deck
+      - codex/yandex-cdn-whitelist-task3-sync
     paths:
       - 'backend/**'
       - 'ops/ha/**'
@@ -100,7 +101,11 @@ jobs:
       - name: Test HA Python contracts
         run: |
           set -euo pipefail
-          python -m unittest ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api
+          python -m unittest \
+            ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api \
+            ops.ha.tests.test_inventory \
+            ops.ha.tests.test_inventory_hardening \
+            ops.ha.tests.test_inventory_identity_races
           python ops/ha/test-dr-workflow-policy.py
           bash ops/ha/test-backup-rqlite.sh
           bash ops/ha/test-restore-rqlite.sh
