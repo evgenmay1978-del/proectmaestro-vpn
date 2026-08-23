@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 4
+	SchemaVersion = 5
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -29,6 +29,8 @@ var migrationFiles embed.FS
 var expectedSchemaTables = []string{
 	"active_order_guards",
 	"audit_events",
+	"backup_rpo_attempts",
+	"backup_rpo_state",
 	"backup_watermarks",
 	"cluster_job_leases",
 	"cluster_restore_state",
@@ -271,6 +273,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 2, path: "migrations/0002_restore_epoch.sql"},
 		{version: 3, path: "migrations/0003_outbox_fencing.sql"},
 		{version: 4, path: "migrations/0004_whitelist_entitlement_identity.sql"},
+		{version: 5, path: "migrations/0005_backup_rpo.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {

@@ -121,7 +121,7 @@ func TestWhiteListEntitlementMigrationFourIsAdditiveAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
-	if SchemaVersion != 4 || len(migrations) != 4 || migrations[3].Version != 4 || migrations[3].Path != "migrations/0004_whitelist_entitlement_identity.sql" {
+	if len(migrations) < 4 || migrations[3].Version != 4 || migrations[3].Path != "migrations/0004_whitelist_entitlement_identity.sql" {
 		t.Fatalf("schema=%d migrations=%#v", SchemaVersion, migrations)
 	}
 	sql := strings.ToLower(string(migrations[3].Data))
