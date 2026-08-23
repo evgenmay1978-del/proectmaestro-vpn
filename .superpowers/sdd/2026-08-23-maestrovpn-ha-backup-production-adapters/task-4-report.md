@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status at CI isolation correction: authenticated exact-SHA evidence for diagnostic commit `f8effd2e8d4138256b1493f8b7bb7c3cb9d959a3` proves cross-test contamination after the Task 4 transitions passed; the test-only isolation correction and bounded local verification are complete, with replacement exact-SHA CI pending.
+Status at exact-SHA GREEN closeout: isolation-fix commit `bfbaca288947f29743eefe09c9fbe803fe39e56e` passed the complete HA workflow in run `32673823686`, job `97278614026`; implementation, review corrections, authenticated RED diagnosis, and final three-voter evidence are complete.
 
 ## Scope and compatibility
 
@@ -113,13 +113,13 @@ Unit coverage asserts one mutation/one evidence read and no replay. Tagged integ
 
 - Local real three-voter rqlite integration was not run on the weak Windows PC.
 - Local race and vet runs were not run.
-- Exact-SHA GitHub Actions owns race, vet, and real three-voter integration evidence.
+- Exact-SHA GitHub Actions run `32673823686`, job `97278614026`, supplied the race, vet, and real three-voter integration evidence.
 
 ## Risks
 
-- Real rqlite SQL semantics remain gated on a new exact-SHA HA integration job; local evidence is focused/full controlplane unit coverage plus tagged compile.
-- The prior exact-SHA Linux HA run is red at the real rqlite integration step. Because that runtime was not reproduced locally, this report makes no causal claim that either review correction explains or resolves the CI failure.
-- The aggregate Windows unit suite continues to have the unrelated platform-sensitive failures noted above.
+- Real rqlite SQL semantics, race, vet, importer parity, shadow parity, and three-node mTLS/importer behavior passed the final exact-SHA HA job.
+- The authenticated RED was isolated to tagged-test state contamination and corrected without changing production transition behavior or frozen schema assertions.
+- The aggregate Windows unit suite continues to have the unrelated platform-sensitive failures noted above; Linux exact-SHA HA is authoritative for this closeout.
 
 ## Exact-SHA CI closeout
 
@@ -158,11 +158,11 @@ $env:GOMAXPROCS='1'; $env:GOMEMLIMIT='512MiB'; & 'C:\Users\User\Documents\Codex\
 ok github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane 0.048s [no tests to run]
 ```
 
-No workflow YAML, production implementation, schema, migration, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed. The next exact-SHA HA run owns the real three-voter diagnostic evidence.
+No workflow YAML, production implementation, schema, migration, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed. The authenticated diagnostic RED and final exact-SHA GREEN are recorded below.
 
 ## Authenticated exact-SHA isolation diagnosis and correction (2026-08-24)
 
-The authenticated HA job log for diagnostic commit `f8effd2e8d4138256b1493f8b7bb7c3cb9d959a3` proves that the Task 4 transition cases themselves passed. The later frozen-schema cases failed as follows:
+The authenticated HA job log for diagnostic commit `f8effd2e8d4138256b1493f8b7bb7c3cb9d959a3`, run `32672174692`, job `97274544281`, proves that the Task 4 transition cases themselves passed. The later frozen-schema cases failed as follows:
 
 - `TestBackupRPOSchemaFreezesDurableColumnsAndSeed`, `schema_constraints_test.go:919`: `backup RPO seed = []`.
 - `TestBackupRPOSchemaRejectsInconsistentStateAndUnfencedAttempts`, `schema_constraints_test.go:1111`: statement 0 failed with `UNIQUE constraint failed: backup_rpo_attempts.restore_epoch, backup_rpo_attempts.attempt_sequence`.
@@ -189,3 +189,13 @@ Additional bounded local evidence:
 - `go test -p=1 -tags rqlite_integration ./internal/controlplane -run '^$' -count=1`: passed in `0.049s` with no tests run.
 
 The real three-voter suite was not rerun locally. No production implementation, migration, schema assertion, workflow YAML, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed.
+
+## Final exact-SHA GREEN closeout (2026-08-24)
+
+- Implementation commit `7e0a7039a995cca6c1f3127a7505347f969ba0b3` introduced the exact durable attempt transitions.
+- Review-correction commit `a714be9b67945c983755049cc5b24e66e2e5069f` fixed both independent findings: applied-attempt supersession now preserves null or strictly valid VersionId evidence in known and committed-unknown paths, and the API uses an opaque VersionId boundary with defensive ETag-shape rejection.
+- Diagnostic commit `f8effd2e8d4138256b1493f8b7bb7c3cb9d959a3` produced authenticated RED run `32672174692`, job `97274544281`. Its Task 4 transitions passed; the exact later failures were the missing migration seed at `schema_constraints_test.go:919` and composite attempt collision at `schema_constraints_test.go:1111`.
+- Isolation-fix commit `bfbaca288947f29743eefe09c9fbe803fe39e56e` moved synthetic Task 4 attempts into fresh high restore epochs and restored the exact epoch-1 migration seed during cleanup without deleting append-only attempt evidence.
+- Replacement HA run `32673823686`, job `97278614026`, is GREEN for formatting, Python contracts, backend unit, race, vet, harness, isolated rqlite integration, importer parity, shadow parity, three-node mTLS/importer, and cleanup.
+
+The final exact-SHA evidence closes the Task 4 transition scope GREEN. No production/deploy/release/OTA/tag/merge/version `1.0.157` action was performed.
