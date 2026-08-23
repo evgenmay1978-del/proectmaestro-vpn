@@ -22,6 +22,18 @@ class BackupWorkerIdentityRaceTests(unittest.TestCase):
         bundle.chmod(0o600)
         return task, bundle
 
+    def test_syscall_instrumentation_keeps_pinned_capability(self):
+        original_listdir = os.listdir
+        original_unlink = os.unlink
+        original_rmdir = os.rmdir
+        self.assertTrue(worker._pinned_directory_supported())
+        with mock.patch.object(
+            worker.os, "listdir", wraps=original_listdir
+        ), mock.patch.object(
+            worker.os, "unlink", wraps=original_unlink
+        ), mock.patch.object(worker.os, "rmdir", wraps=original_rmdir):
+            self.assertTrue(worker._pinned_directory_supported())
+
     def test_validated_bundle_stays_bound_to_original_inode_after_path_replacement(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = self.make_root(Path(temporary), "runtime")
