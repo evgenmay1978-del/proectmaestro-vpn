@@ -87,8 +87,11 @@ CREATE TABLE backup_rpo_state (
             length(verified_object_version) > 0 AND
             verified_object_version = trim(verified_object_version) AND
             lower(verified_object_version) NOT IN ('latest','null','none') AND
+            verified_size_bytes IS NOT NULL AND
             verified_size_bytes > 0 AND
+            verified_manifest_version IS NOT NULL AND
             verified_manifest_version = 2 AND
+            verified_at_unix IS NOT NULL AND
             verified_at_unix > 0
         )
     )
@@ -149,6 +152,15 @@ CREATE TABLE backup_rpo_attempts (
     ),
     UNIQUE(restore_epoch, attempt_sequence)
 )
+
+-- maestro:statement
+CREATE TRIGGER backup_rpo_attempts_identity_immutable
+BEFORE UPDATE OF restore_epoch, attempt_sequence ON backup_rpo_attempts
+WHEN NEW.restore_epoch <> OLD.restore_epoch OR
+     NEW.attempt_sequence <> OLD.attempt_sequence
+BEGIN
+    SELECT RAISE(ABORT, 'backup RPO attempt identity is immutable');
+END
 
 -- maestro:statement
 CREATE TRIGGER backup_rpo_attempts_no_delete
