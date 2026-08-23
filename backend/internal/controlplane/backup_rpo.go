@@ -16,13 +16,26 @@ const (
 	BackupRPOJobName       = "backup-rpo"
 	BackupRPOPhaseDirty    = "dirty"
 	BackupRPOPhaseVerified = "verified"
+
+	BackupRPOAdapterYandexS3V1 = "yandex-s3-v1"
+	BackupRPOAttemptPending    = "pending"
+	BackupRPOAttemptApplying   = "applying"
+	BackupRPOAttemptApplied    = "applied"
+	BackupRPOAttemptUnknown    = "unknown"
+	BackupRPOAttemptVerified   = "verified"
+	BackupRPOAttemptSuperseded = "superseded"
+	BackupRPOAttemptFailed     = "failed"
+	BackupRPOFailureStaleFence = "stale-fence"
 )
 
 var (
-	errBackupRPOStateUnavailable  = errors.New("controlplane: backup RPO state unavailable")
-	errBackupRPORequestInvalid    = errors.New("controlplane: backup RPO lease request is invalid")
-	errBackupRPOLeaseUnavailable  = errors.New("controlplane: backup RPO lease unavailable")
-	errBackupRPOOutcomeUnresolved = errors.New("controlplane: backup RPO lease outcome is unresolved")
+	errBackupRPOStateUnavailable         = errors.New("controlplane: backup RPO state unavailable")
+	errBackupRPORequestInvalid           = errors.New("controlplane: backup RPO lease request is invalid")
+	errBackupRPOLeaseUnavailable         = errors.New("controlplane: backup RPO lease unavailable")
+	errBackupRPOOutcomeUnresolved        = errors.New("controlplane: backup RPO lease outcome is unresolved")
+	errBackupRPOAttemptRequestInvalid    = errors.New("controlplane: backup RPO attempt request is invalid")
+	errBackupRPOAttemptUnavailable       = errors.New("controlplane: backup RPO attempt unavailable")
+	errBackupRPOAttemptOutcomeUnresolved = errors.New("controlplane: backup RPO attempt outcome is unresolved")
 )
 
 type BackupRPOCapability struct {
@@ -72,6 +85,58 @@ type BackupRPOState struct {
 	DatabaseNowUnix     int64
 	Verified            *BackupRPOVerified
 	Lease               *BackupRPOLease
+}
+
+type BackupRPOAttemptIdentity struct {
+	HolderID               string
+	LeaseToken             string
+	RestoreEpoch           int64
+	LeaseFence             int64
+	Capability             BackupRPOCapability
+	CapturedGeneration     int64
+	AttemptSequence        int64
+	BackupID               string
+	ObjectKey              string
+	ObjectSHA256           string
+	ObjectSizeBytes        int64
+	ManifestVersion        int64
+	AdapterContractVersion string
+}
+
+type BackupRPOAttempt struct {
+	Identity        BackupRPOAttemptIdentity
+	Phase           string
+	ObjectVersion   string
+	FailureCode     string
+	CreatedAtUnix   int64
+	UpdatedAtUnix   int64
+	DatabaseNowUnix int64
+}
+
+type BackupRPOUploadOutcome struct {
+	Identity      BackupRPOAttemptIdentity
+	ObjectVersion string
+	Unknown       bool
+}
+
+type BackupRPOVerification struct {
+	Identity                   BackupRPOAttemptIdentity
+	ObjectVersion              string
+	FullReadback               bool
+	ReadbackSHA256             string
+	ReadbackSizeBytes          int64
+	ManifestAuthenticated      bool
+	ManifestVersion            int64
+	ManifestBackupID           string
+	ManifestCapturedGeneration int64
+	ManifestObjectKey          string
+	ManifestObjectSHA256       string
+	ManifestObjectSizeBytes    int64
+}
+
+type BackupRPOSupersedeRequest struct {
+	Identity     BackupRPOAttemptIdentity
+	CurrentLease BackupRPOLeaseRequest
 }
 
 type BackupRPOStore struct {
@@ -175,6 +240,284 @@ func (s *BackupRPOStore) RenewLease(ctx context.Context, request BackupRPOLeaseR
 		request.RestoreEpoch,
 	}}
 	return s.mutateLease(ctx, statement, request, request.ExpectedFence)
+}
+
+func (s *BackupRPOStore) RegisterAttempt(
+	ctx context.Context,
+	identity BackupRPOAttemptIdentity,
+) (BackupRPOAttempt, error) {
+	if s == nil || s.db == nil || !isValidBackupRPOAttemptIdentity(identity) {
+		return BackupRPOAttempt{}, errBackupRPOAttemptRequestInvalid
+	}
+	state := rqlite.Statement{SQL: `UPDATE backup_rpo_state AS b
+	SET last_attempt_sequence=?,updated_at_unix=unixepoch()
+	WHERE b.singleton_id=1 AND b.restore_epoch=? AND b.dirty_generation=?
+		AND b.last_attempt_sequence=?-1
+		AND EXISTS (
+			SELECT 1 FROM cluster_restore_state cr
+			WHERE cr.singleton_id=1 AND cr.activated=1 AND cr.restore_epoch=b.restore_epoch
+		)
+		AND EXISTS (
+			SELECT 1 FROM cluster_job_leases l
+			WHERE l.job_name='backup-rpo' AND l.holder_id=? AND l.lease_token=?
+				AND l.restore_epoch=? AND l.lease_fence=?
+				AND l.capability_generation=? AND l.capability_evidence_sha256=?
+				AND l.capability_expires_at_unix=?
+				AND l.expires_at_unix>unixepoch()
+				AND l.capability_expires_at_unix>unixepoch()
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM backup_rpo_attempts active
+			WHERE active.restore_epoch=b.restore_epoch
+				AND active.phase IN ('pending','applying','applied','unknown')
+		)
+	RETURNING last_attempt_sequence`, Args: []any{
+		identity.AttemptSequence, identity.RestoreEpoch, identity.CapturedGeneration,
+		identity.AttemptSequence, identity.HolderID, identity.LeaseToken,
+		identity.RestoreEpoch, identity.LeaseFence, identity.Capability.Generation,
+		identity.Capability.EvidenceSHA256, identity.Capability.ExpiresAtUnix,
+	}}
+	insert := rqlite.Statement{SQL: `INSERT INTO backup_rpo_attempts(
+		restore_epoch,attempt_sequence,phase,backup_id,captured_generation,
+		object_key,object_sha256,object_version,object_size_bytes,
+		manifest_version,adapter_contract_version,capability_generation,
+		capability_evidence_sha256,capability_expires_at_unix,
+		lease_holder_id,lease_token,lease_fence,failure_code,
+		created_at_unix,updated_at_unix
+	)
+	SELECT ?,?,'pending',?,?,?, ?,NULL,?,?,?,?,?,?, ?,?,?,NULL,unixepoch(),unixepoch()
+	FROM backup_rpo_state b
+	WHERE b.singleton_id=1 AND b.restore_epoch=? AND b.dirty_generation=?
+		AND b.last_attempt_sequence=? AND changes()=1
+	RETURNING ` + backupRPOAttemptColumns, Args: []any{
+		identity.RestoreEpoch, identity.AttemptSequence, identity.BackupID,
+		identity.CapturedGeneration, identity.ObjectKey, identity.ObjectSHA256,
+		identity.ObjectSizeBytes, identity.ManifestVersion, identity.AdapterContractVersion,
+		identity.Capability.Generation, identity.Capability.EvidenceSHA256,
+		identity.Capability.ExpiresAtUnix, identity.HolderID, identity.LeaseToken,
+		identity.LeaseFence, identity.RestoreEpoch, identity.CapturedGeneration,
+		identity.AttemptSequence,
+	}}
+	return s.mutateAttempt(ctx, identity, attemptExpectation{phase: BackupRPOAttemptPending, registered: true}, state, insert)
+}
+
+func (s *BackupRPOStore) MarkUploadStarted(
+	ctx context.Context,
+	identity BackupRPOAttemptIdentity,
+) (BackupRPOAttempt, error) {
+	if s == nil || s.db == nil || !isValidBackupRPOAttemptIdentity(identity) {
+		return BackupRPOAttempt{}, errBackupRPOAttemptRequestInvalid
+	}
+	statement := rqlite.Statement{SQL: `UPDATE backup_rpo_attempts AS a
+	SET phase='applying',updated_at_unix=unixepoch()
+	WHERE ` + backupRPOAttemptIdentityWhere("a") + ` AND a.phase='pending'
+		` + backupRPOAttemptLiveLeaseWhere("a") + `
+	RETURNING ` + backupRPOAttemptColumns, Args: backupRPOAttemptIdentityArgs(identity)}
+	return s.mutateAttempt(ctx, identity, attemptExpectation{phase: BackupRPOAttemptApplying}, statement)
+}
+
+func (s *BackupRPOStore) RecordUploadOutcome(
+	ctx context.Context,
+	outcome BackupRPOUploadOutcome,
+) (BackupRPOAttempt, error) {
+	if s == nil || s.db == nil || !isValidBackupRPOAttemptIdentity(outcome.Identity) ||
+		(outcome.Unknown && outcome.ObjectVersion != "") ||
+		(!outcome.Unknown && !validExactObjectVersion(outcome.ObjectVersion)) {
+		return BackupRPOAttempt{}, errBackupRPOAttemptRequestInvalid
+	}
+	phase := BackupRPOAttemptApplied
+	versionSQL := "object_version=?"
+	priorPhaseSQL := "a.phase IN ('applying','unknown')"
+	args := append([]any{outcome.ObjectVersion}, backupRPOAttemptIdentityArgs(outcome.Identity)...)
+	version := outcome.ObjectVersion
+	if outcome.Unknown {
+		phase = BackupRPOAttemptUnknown
+		versionSQL = "object_version=NULL"
+		priorPhaseSQL = "a.phase='applying'"
+		args = backupRPOAttemptIdentityArgs(outcome.Identity)
+		version = ""
+	}
+	statement := rqlite.Statement{SQL: `UPDATE backup_rpo_attempts AS a
+	SET phase='` + phase + `',` + versionSQL + `,failure_code=NULL,updated_at_unix=unixepoch()
+	WHERE ` + backupRPOAttemptIdentityWhere("a") + ` AND ` + priorPhaseSQL + `
+		` + backupRPOAttemptLiveLeaseWhere("a") + `
+	RETURNING ` + backupRPOAttemptColumns, Args: args}
+	return s.mutateAttempt(ctx, outcome.Identity, attemptExpectation{phase: phase, objectVersion: version}, statement)
+}
+
+func (s *BackupRPOStore) AcknowledgeVerified(
+	ctx context.Context,
+	proof BackupRPOVerification,
+) (BackupRPOAttempt, error) {
+	if s == nil || s.db == nil || !isValidBackupRPOVerification(proof) {
+		return BackupRPOAttempt{}, errBackupRPOAttemptRequestInvalid
+	}
+	identity := proof.Identity
+	stateArgs := []any{
+		identity.CapturedGeneration, identity.BackupID, identity.ObjectKey,
+		identity.ObjectSHA256, proof.ObjectVersion, identity.ObjectSizeBytes,
+		identity.ManifestVersion, identity.CapturedGeneration,
+		identity.RestoreEpoch, identity.CapturedGeneration, identity.CapturedGeneration,
+	}
+	stateArgs = append(stateArgs, backupRPOAttemptIdentityArgs(identity)...)
+	stateArgs = append(stateArgs, proof.ObjectVersion)
+	state := rqlite.Statement{SQL: `UPDATE backup_rpo_state AS b
+	SET verified_generation=?,verified_backup_id=?,verified_object_key=?,
+		verified_object_sha256=?,verified_object_version=?,verified_size_bytes=?,
+		verified_manifest_version=?,verified_at_unix=unixepoch(),
+		phase=CASE WHEN dirty_generation=? THEN 'verified' ELSE 'dirty' END,
+		updated_at_unix=unixepoch()
+	WHERE b.singleton_id=1 AND b.restore_epoch=? AND b.dirty_generation>=?
+		AND b.verified_generation<?
+		AND EXISTS (
+			SELECT 1 FROM backup_rpo_attempts a
+			WHERE ` + backupRPOAttemptIdentityWhere("a") + `
+				AND a.phase='applied' AND a.object_version=?
+				` + backupRPOAttemptLiveLeaseWhere("a") + `
+		)
+	RETURNING verified_generation,dirty_generation,phase`, Args: stateArgs}
+	attemptArgs := backupRPOAttemptIdentityArgs(identity)
+	attemptArgs = append(attemptArgs, proof.ObjectVersion)
+	attempt := rqlite.Statement{SQL: `UPDATE backup_rpo_attempts AS a
+	SET phase='verified',failure_code=NULL,updated_at_unix=unixepoch()
+	WHERE ` + backupRPOAttemptIdentityWhere("a") + `
+		AND a.phase='applied' AND a.object_version=? AND changes()=1
+	RETURNING ` + backupRPOAttemptColumns, Args: attemptArgs}
+	return s.mutateAttempt(ctx, identity, attemptExpectation{
+		phase: BackupRPOAttemptVerified, objectVersion: proof.ObjectVersion, acknowledged: true,
+	}, state, attempt)
+}
+
+func (s *BackupRPOStore) SupersedeStaleAttempt(
+	ctx context.Context,
+	request BackupRPOSupersedeRequest,
+) (BackupRPOAttempt, error) {
+	current := request.CurrentLease
+	if s == nil || s.db == nil || !isValidBackupRPOAttemptIdentity(request.Identity) ||
+		!validBackupRPORequest(current, true) || current.RestoreEpoch != request.Identity.RestoreEpoch ||
+		current.ExpectedFence <= request.Identity.LeaseFence {
+		return BackupRPOAttempt{}, errBackupRPOAttemptRequestInvalid
+	}
+	args := backupRPOAttemptIdentityArgs(request.Identity)
+	args = append(args,
+		current.HolderID, current.LeaseToken, current.RestoreEpoch, current.ExpectedFence,
+		current.Capability.Generation, current.Capability.EvidenceSHA256,
+		current.Capability.ExpiresAtUnix, request.Identity.LeaseFence,
+	)
+	statement := rqlite.Statement{SQL: `UPDATE backup_rpo_attempts AS a
+	SET phase='superseded',failure_code='stale-fence',updated_at_unix=unixepoch()
+	WHERE ` + backupRPOAttemptIdentityWhere("a") + `
+		AND a.phase IN ('pending','applying','applied','unknown')
+		AND EXISTS (
+			SELECT 1 FROM cluster_job_leases l
+			JOIN cluster_restore_state cr
+				ON cr.singleton_id=1 AND cr.activated=1 AND cr.restore_epoch=l.restore_epoch
+			JOIN backup_rpo_state b
+				ON b.singleton_id=1 AND b.restore_epoch=l.restore_epoch
+			WHERE l.job_name='backup-rpo' AND l.holder_id=? AND l.lease_token=?
+				AND l.restore_epoch=? AND l.lease_fence=?
+				AND l.capability_generation=? AND l.capability_evidence_sha256=?
+				AND l.capability_expires_at_unix=? AND l.lease_fence>?
+				AND l.lease_fence>a.lease_fence
+				AND l.expires_at_unix>unixepoch()
+				AND l.capability_expires_at_unix>unixepoch()
+		)
+	RETURNING ` + backupRPOAttemptColumns, Args: args}
+	return s.mutateAttempt(ctx, request.Identity, attemptExpectation{
+		phase: BackupRPOAttemptSuperseded, failureCode: BackupRPOFailureStaleFence,
+	}, statement)
+}
+
+type attemptExpectation struct {
+	phase         string
+	objectVersion string
+	failureCode   string
+	registered    bool
+	acknowledged  bool
+}
+
+func (s *BackupRPOStore) mutateAttempt(
+	ctx context.Context,
+	identity BackupRPOAttemptIdentity,
+	expected attemptExpectation,
+	statements ...rqlite.Statement,
+) (BackupRPOAttempt, error) {
+	results, err := s.db.Request(ctx, rqlite.Linearizable, true, statements...)
+	if err != nil {
+		if unknownBackupRPOOutcome(err) {
+			return s.resolveAttemptOutcome(ctx, identity, expected)
+		}
+		return BackupRPOAttempt{}, errBackupRPOAttemptUnavailable
+	}
+	if len(results) != len(statements) || len(results) == 0 {
+		return BackupRPOAttempt{}, errBackupRPOAttemptUnavailable
+	}
+	for _, result := range results {
+		if len(result.Rows) == 0 {
+			return BackupRPOAttempt{}, ErrConflict
+		}
+		if len(result.Rows) != 1 {
+			return BackupRPOAttempt{}, errBackupRPOAttemptUnavailable
+		}
+	}
+	attempt, ok := parseBackupRPOAttempt(results[len(results)-1].Rows[0])
+	if !ok || !attemptMatchesExpectation(attempt, identity, expected) {
+		return BackupRPOAttempt{}, errBackupRPOAttemptUnavailable
+	}
+	return attempt, nil
+}
+
+func (s *BackupRPOStore) resolveAttemptOutcome(
+	ctx context.Context,
+	identity BackupRPOAttemptIdentity,
+	expected attemptExpectation,
+) (BackupRPOAttempt, error) {
+	args := backupRPOAttemptIdentityArgs(identity)
+	args = append(args, expected.phase)
+	versionPredicate := "a.object_version IS NULL"
+	if expected.objectVersion != "" {
+		versionPredicate = "a.object_version=?"
+		args = append(args, expected.objectVersion)
+	}
+	failurePredicate := "a.failure_code IS NULL"
+	if expected.failureCode != "" {
+		failurePredicate = "a.failure_code=?"
+		args = append(args, expected.failureCode)
+	}
+	statePredicate := ""
+	if expected.registered {
+		statePredicate = ` AND EXISTS (
+			SELECT 1 FROM backup_rpo_state b
+			WHERE b.singleton_id=1 AND b.restore_epoch=a.restore_epoch
+				AND b.last_attempt_sequence>=a.attempt_sequence
+		)`
+	}
+	ackPredicate := ""
+	if expected.acknowledged {
+		ackPredicate = ` AND EXISTS (
+			SELECT 1 FROM backup_rpo_state b
+			WHERE b.singleton_id=1 AND b.restore_epoch=a.restore_epoch
+				AND b.verified_generation=a.captured_generation
+				AND b.verified_backup_id=a.backup_id
+				AND b.verified_object_key=a.object_key
+				AND b.verified_object_sha256=a.object_sha256
+				AND b.verified_object_version=a.object_version
+				AND b.verified_size_bytes=a.object_size_bytes
+				AND b.verified_manifest_version=a.manifest_version
+		)`
+	}
+	results, err := s.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT ` +
+		backupRPOAttemptColumns + ` FROM backup_rpo_attempts a
+	WHERE ` + backupRPOAttemptIdentityWhere("a") + ` AND a.phase=?
+		AND ` + versionPredicate + ` AND ` + failurePredicate + statePredicate + ackPredicate, Args: args})
+	if err != nil || len(results) != 1 || len(results[0].Rows) != 1 {
+		return BackupRPOAttempt{}, errBackupRPOAttemptOutcomeUnresolved
+	}
+	attempt, ok := parseBackupRPOAttempt(results[0].Rows[0])
+	if !ok || !attemptMatchesExpectation(attempt, identity, expected) {
+		return BackupRPOAttempt{}, errBackupRPOAttemptOutcomeUnresolved
+	}
+	return attempt, nil
 }
 
 func (s *BackupRPOStore) mutateLease(
@@ -537,6 +880,257 @@ func validObjectVersion(value string) bool {
 	default:
 		return true
 	}
+}
+
+const backupRPOAttemptColumns = `
+	restore_epoch,attempt_sequence,phase,backup_id,captured_generation,
+	object_key,object_sha256,object_version,object_size_bytes,
+	manifest_version,adapter_contract_version,capability_generation,
+	capability_evidence_sha256,capability_expires_at_unix,
+	lease_holder_id,lease_token,lease_fence,failure_code,
+	created_at_unix,updated_at_unix,unixepoch() AS database_now_unix`
+
+func backupRPOAttemptIdentityWhere(alias string) string {
+	return alias + `.restore_epoch=? AND ` + alias + `.attempt_sequence=?
+		AND ` + alias + `.captured_generation=? AND ` + alias + `.backup_id=?
+		AND ` + alias + `.object_key=? AND ` + alias + `.object_sha256=?
+		AND ` + alias + `.object_size_bytes=? AND ` + alias + `.manifest_version=?
+		AND ` + alias + `.adapter_contract_version=?
+		AND ` + alias + `.capability_generation=?
+		AND ` + alias + `.capability_evidence_sha256=?
+		AND ` + alias + `.capability_expires_at_unix=?
+		AND ` + alias + `.lease_holder_id=? AND ` + alias + `.lease_token=?
+		AND ` + alias + `.lease_fence=?`
+}
+
+func backupRPOAttemptIdentityArgs(identity BackupRPOAttemptIdentity) []any {
+	return []any{
+		identity.RestoreEpoch, identity.AttemptSequence, identity.CapturedGeneration,
+		identity.BackupID, identity.ObjectKey, identity.ObjectSHA256,
+		identity.ObjectSizeBytes, identity.ManifestVersion, identity.AdapterContractVersion,
+		identity.Capability.Generation, identity.Capability.EvidenceSHA256,
+		identity.Capability.ExpiresAtUnix, identity.HolderID, identity.LeaseToken,
+		identity.LeaseFence,
+	}
+}
+
+func backupRPOAttemptLiveLeaseWhere(alias string) string {
+	return `AND EXISTS (
+		SELECT 1 FROM cluster_job_leases l
+		JOIN cluster_restore_state cr
+			ON cr.singleton_id=1 AND cr.activated=1 AND cr.restore_epoch=l.restore_epoch
+		JOIN backup_rpo_state b
+			ON b.singleton_id=1 AND b.restore_epoch=l.restore_epoch
+		WHERE l.job_name='backup-rpo'
+			AND l.holder_id=` + alias + `.lease_holder_id
+			AND l.lease_token=` + alias + `.lease_token
+			AND l.restore_epoch=` + alias + `.restore_epoch
+			AND l.lease_fence=` + alias + `.lease_fence
+			AND l.capability_generation=` + alias + `.capability_generation
+			AND l.capability_evidence_sha256=` + alias + `.capability_evidence_sha256
+			AND l.capability_expires_at_unix=` + alias + `.capability_expires_at_unix
+			AND l.expires_at_unix>unixepoch()
+			AND l.capability_expires_at_unix>unixepoch()
+	)`
+}
+
+func isValidBackupRPOAttemptIdentity(identity BackupRPOAttemptIdentity) bool {
+	return identity.HolderID != "" && strings.TrimSpace(identity.HolderID) == identity.HolderID &&
+		identity.LeaseToken != "" && strings.TrimSpace(identity.LeaseToken) == identity.LeaseToken &&
+		identity.RestoreEpoch > 0 && identity.LeaseFence > 0 &&
+		identity.Capability.Generation > 0 &&
+		canonicalLowerHex(identity.Capability.EvidenceSHA256, 64) &&
+		identity.Capability.ExpiresAtUnix > 0 && identity.CapturedGeneration > 0 &&
+		identity.AttemptSequence > 0 && canonicalLowerHex(identity.BackupID, 32) &&
+		identity.ObjectKey != "" && strings.TrimSpace(identity.ObjectKey) == identity.ObjectKey &&
+		canonicalLowerHex(identity.ObjectSHA256, 64) && identity.ObjectSizeBytes > 0 &&
+		identity.ManifestVersion == 2 && identity.AdapterContractVersion == BackupRPOAdapterYandexS3V1
+}
+
+func validExactObjectVersion(value string) bool {
+	return validObjectVersion(value) && !canonicalLowerHex(value, 32) &&
+		!(len(value) == 34 && value[0] == '"' && value[len(value)-1] == '"' &&
+			canonicalLowerHex(value[1:len(value)-1], 32))
+}
+
+func isValidBackupRPOVerification(proof BackupRPOVerification) bool {
+	identity := proof.Identity
+	return isValidBackupRPOAttemptIdentity(identity) && validExactObjectVersion(proof.ObjectVersion) &&
+		proof.FullReadback && proof.ReadbackSHA256 == identity.ObjectSHA256 &&
+		proof.ReadbackSizeBytes == identity.ObjectSizeBytes && proof.ManifestAuthenticated &&
+		proof.ManifestVersion == 2 && proof.ManifestVersion == identity.ManifestVersion &&
+		proof.ManifestBackupID == identity.BackupID &&
+		proof.ManifestCapturedGeneration == identity.CapturedGeneration &&
+		proof.ManifestObjectKey == identity.ObjectKey &&
+		proof.ManifestObjectSHA256 == identity.ObjectSHA256 &&
+		proof.ManifestObjectSizeBytes == identity.ObjectSizeBytes
+}
+
+func parseBackupRPOAttempt(row map[string]any) (BackupRPOAttempt, bool) {
+	restoreEpoch, ok := strictBackupRPOIntegerAt(row, "restore_epoch")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	attemptSequence, ok := strictBackupRPOIntegerAt(row, "attempt_sequence")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	capturedGeneration, ok := strictBackupRPOIntegerAt(row, "captured_generation")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	objectSize, ok := strictBackupRPOIntegerAt(row, "object_size_bytes")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	manifestVersion, ok := strictBackupRPOIntegerAt(row, "manifest_version")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	capabilityGeneration, ok := strictBackupRPOIntegerAt(row, "capability_generation")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	capabilityExpires, ok := strictBackupRPOIntegerAt(row, "capability_expires_at_unix")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	leaseFence, ok := strictBackupRPOIntegerAt(row, "lease_fence")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	createdAt, ok := strictBackupRPOIntegerAt(row, "created_at_unix")
+	if !ok || createdAt <= 0 {
+		return BackupRPOAttempt{}, false
+	}
+	updatedAt, ok := strictBackupRPOIntegerAt(row, "updated_at_unix")
+	if !ok || updatedAt < createdAt {
+		return BackupRPOAttempt{}, false
+	}
+	databaseNow, ok := strictBackupRPOIntegerAt(row, "database_now_unix")
+	if !ok || databaseNow <= 0 {
+		return BackupRPOAttempt{}, false
+	}
+	phase, ok := exactBackupRPOStringAt(row, "phase")
+	if !ok || !validBackupRPOAttemptPhase(phase) {
+		return BackupRPOAttempt{}, false
+	}
+	backupID, ok := exactBackupRPOStringAt(row, "backup_id")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	objectKey, ok := exactBackupRPOStringAt(row, "object_key")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	objectSHA, ok := exactBackupRPOStringAt(row, "object_sha256")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	adapter, ok := exactBackupRPOStringAt(row, "adapter_contract_version")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	capabilitySHA, ok := exactBackupRPOStringAt(row, "capability_evidence_sha256")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	holderID, ok := exactBackupRPOStringAt(row, "lease_holder_id")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	leaseToken, ok := exactBackupRPOStringAt(row, "lease_token")
+	if !ok {
+		return BackupRPOAttempt{}, false
+	}
+	objectVersion, ok := optionalBackupRPOStringAt(row, "object_version")
+	if !ok || (objectVersion != "" && !validExactObjectVersion(objectVersion)) {
+		return BackupRPOAttempt{}, false
+	}
+	failureCode, ok := optionalBackupRPOStringAt(row, "failure_code")
+	if !ok || !validBackupRPOFailureCode(failureCode) {
+		return BackupRPOAttempt{}, false
+	}
+	identity := BackupRPOAttemptIdentity{
+		HolderID: holderID, LeaseToken: leaseToken, RestoreEpoch: restoreEpoch,
+		LeaseFence: leaseFence, Capability: BackupRPOCapability{
+			Generation: capabilityGeneration, EvidenceSHA256: capabilitySHA,
+			ExpiresAtUnix: capabilityExpires,
+		},
+		CapturedGeneration: capturedGeneration, AttemptSequence: attemptSequence,
+		BackupID: backupID, ObjectKey: objectKey, ObjectSHA256: objectSHA,
+		ObjectSizeBytes: objectSize, ManifestVersion: manifestVersion,
+		AdapterContractVersion: adapter,
+	}
+	if !isValidBackupRPOAttemptIdentity(identity) || !validBackupRPOAttemptLifecycle(phase, objectVersion) {
+		return BackupRPOAttempt{}, false
+	}
+	return BackupRPOAttempt{
+		Identity: identity, Phase: phase, ObjectVersion: objectVersion,
+		FailureCode: failureCode, CreatedAtUnix: createdAt, UpdatedAtUnix: updatedAt,
+		DatabaseNowUnix: databaseNow,
+	}, true
+}
+
+func optionalBackupRPOStringAt(row map[string]any, key string) (string, bool) {
+	value, exists := row[key]
+	if !exists {
+		return "", false
+	}
+	if value == nil {
+		return "", true
+	}
+	text, ok := value.(string)
+	return text, ok
+}
+
+func validBackupRPOAttemptPhase(phase string) bool {
+	switch phase {
+	case BackupRPOAttemptPending, BackupRPOAttemptApplying, BackupRPOAttemptApplied,
+		BackupRPOAttemptUnknown, BackupRPOAttemptVerified, BackupRPOAttemptSuperseded,
+		BackupRPOAttemptFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func validBackupRPOAttemptLifecycle(phase, objectVersion string) bool {
+	switch phase {
+	case BackupRPOAttemptPending, BackupRPOAttemptApplying, BackupRPOAttemptUnknown:
+		return objectVersion == ""
+	case BackupRPOAttemptApplied, BackupRPOAttemptVerified:
+		return objectVersion != ""
+	case BackupRPOAttemptSuperseded, BackupRPOAttemptFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func validBackupRPOFailureCode(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') && character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func attemptMatchesExpectation(
+	attempt BackupRPOAttempt,
+	identity BackupRPOAttemptIdentity,
+	expected attemptExpectation,
+) bool {
+	return attempt.Identity == identity && attempt.Phase == expected.phase &&
+		attempt.ObjectVersion == expected.objectVersion && attempt.FailureCode == expected.failureCode
 }
 
 func unknownBackupRPOOutcome(err error) bool {

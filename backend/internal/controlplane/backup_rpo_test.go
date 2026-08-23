@@ -16,6 +16,344 @@ const (
 	testBackupRPOObjectDigest     = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 )
 
+func validBackupRPOAttemptIdentity() BackupRPOAttemptIdentity {
+	return BackupRPOAttemptIdentity{
+		HolderID: "node-s2", LeaseToken: "lease-token-a", RestoreEpoch: 7,
+		LeaseFence: 3, Capability: BackupRPOCapability{
+			Generation: 5, EvidenceSHA256: testBackupRPOCapabilityDigest,
+			ExpiresAtUnix: 2_000_120,
+		},
+		CapturedGeneration: 9, AttemptSequence: 5,
+		BackupID:  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		ObjectKey: "backups/g-9/a-5.tar.gpg", ObjectSHA256: testBackupRPOObjectDigest,
+		ObjectSizeBytes: 4096, ManifestVersion: 2,
+		AdapterContractVersion: BackupRPOAdapterYandexS3V1,
+	}
+}
+
+func backupRPOAttemptRow(identity BackupRPOAttemptIdentity, phase string, version, failure any) map[string]any {
+	return map[string]any{
+		"restore_epoch": identity.RestoreEpoch, "attempt_sequence": identity.AttemptSequence,
+		"phase": phase, "backup_id": identity.BackupID,
+		"captured_generation": identity.CapturedGeneration,
+		"object_key":          identity.ObjectKey, "object_sha256": identity.ObjectSHA256,
+		"object_version": version, "object_size_bytes": identity.ObjectSizeBytes,
+		"manifest_version":           identity.ManifestVersion,
+		"adapter_contract_version":   identity.AdapterContractVersion,
+		"capability_generation":      identity.Capability.Generation,
+		"capability_evidence_sha256": identity.Capability.EvidenceSHA256,
+		"capability_expires_at_unix": identity.Capability.ExpiresAtUnix,
+		"lease_holder_id":            identity.HolderID, "lease_token": identity.LeaseToken,
+		"lease_fence": identity.LeaseFence, "failure_code": failure,
+		"created_at_unix": int64(2_000_000), "updated_at_unix": int64(2_000_001),
+		"database_now_unix": int64(2_000_002),
+	}
+}
+
+func validBackupRPOVerification() BackupRPOVerification {
+	identity := validBackupRPOAttemptIdentity()
+	return BackupRPOVerification{
+		Identity: identity, ObjectVersion: "version-9", FullReadback: true,
+		ReadbackSHA256: identity.ObjectSHA256, ReadbackSizeBytes: identity.ObjectSizeBytes,
+		ManifestAuthenticated: true, ManifestVersion: identity.ManifestVersion,
+		ManifestBackupID:           identity.BackupID,
+		ManifestCapturedGeneration: identity.CapturedGeneration,
+		ManifestObjectKey:          identity.ObjectKey, ManifestObjectSHA256: identity.ObjectSHA256,
+		ManifestObjectSizeBytes: identity.ObjectSizeBytes,
+	}
+}
+
+func TestBackupRPORegisterAttemptBurnsExactSequenceAndInsertsAtomically(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{"last_attempt_sequence": identity.AttemptSequence}}},
+		rqlite.Result{Rows: []map[string]any{backupRPOAttemptRow(identity, BackupRPOAttemptPending, nil, nil)}},
+	)}}
+	attempt, err := NewBackupRPOStore(db).RegisterAttempt(context.Background(), identity)
+	if err != nil || attempt.Phase != BackupRPOAttemptPending || attempt.Identity != identity {
+		t.Fatalf("attempt=%#v error=%v", attempt, err)
+	}
+	if len(db.requestCalls) != 1 || len(db.linearCalls) != 0 {
+		t.Fatalf("requests=%d reads=%d", len(db.requestCalls), len(db.linearCalls))
+	}
+	call := db.requestCalls[0]
+	if call.level != rqlite.Linearizable || !call.transaction || len(call.statements) != 2 {
+		t.Fatalf("call=%#v", call)
+	}
+	assertBackupRPORegistrationSQL(t, call, identity, []string{
+		"update backup_rpo_state", "last_attempt_sequence=?", "last_attempt_sequence=?-1",
+		"dirty_generation=?", "phase in ('pending','applying','applied','unknown')",
+		"insert into backup_rpo_attempts", "changes()=1", "'pending'", "returning",
+	})
+}
+
+func TestBackupRPORegisterAttemptRejectsOneActiveAttemptAndResolvesUnknownExactly(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	conflict := &recordingRQLite{requests: []scriptedResult{resultsScript(rqlite.Result{}, rqlite.Result{})}}
+	if _, err := NewBackupRPOStore(conflict).RegisterAttempt(context.Background(), identity); !errors.Is(err, ErrConflict) {
+		t.Fatalf("active attempt error=%v, want ErrConflict", err)
+	}
+	db := &recordingRQLite{
+		requests: []scriptedResult{{err: &rqlite.TransportError{
+			Operation: "request", UnknownOutcome: true, Err: errors.New("synthetic ambiguity"),
+		}}},
+		linear: []scriptedResult{rowsScript(backupRPOAttemptRow(identity, BackupRPOAttemptPending, nil, nil))},
+	}
+	attempt, err := NewBackupRPOStore(db).RegisterAttempt(context.Background(), identity)
+	if err != nil || attempt.Phase != BackupRPOAttemptPending {
+		t.Fatalf("attempt=%#v error=%v", attempt, err)
+	}
+	assertOneExactBackupRPOAttemptRead(t, db, identity, BackupRPOAttemptPending)
+	evidenceSQL := strings.ToLower(db.linearCalls[0].statements[0].SQL)
+	if !strings.Contains(evidenceSQL, "backup_rpo_state") ||
+		!strings.Contains(evidenceSQL, "last_attempt_sequence>=a.attempt_sequence") {
+		t.Fatalf("registration evidence lacks burned sequence proof: %s", evidenceSQL)
+	}
+}
+
+func TestBackupRPOMarkUploadStartedIsOneWayAndExactlyBound(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	db := &recordingRQLite{requests: []scriptedResult{rowsScript(
+		backupRPOAttemptRow(identity, BackupRPOAttemptApplying, nil, nil),
+	)}}
+	attempt, err := NewBackupRPOStore(db).MarkUploadStarted(context.Background(), identity)
+	if err != nil || attempt.Phase != BackupRPOAttemptApplying {
+		t.Fatalf("attempt=%#v error=%v", attempt, err)
+	}
+	assertBackupRPOAttemptSQL(t, db.requestCalls[0], identity, []string{
+		"set phase='applying'", "phase='pending'", "expires_at_unix>unixepoch()",
+	})
+	conflictDB := &recordingRQLite{requests: []scriptedResult{rowsScript()}}
+	if _, err := NewBackupRPOStore(conflictDB).MarkUploadStarted(context.Background(), identity); !errors.Is(err, ErrConflict) {
+		t.Fatalf("repeated upload start error=%v, want ErrConflict", err)
+	}
+}
+
+func TestBackupRPORecordUploadOutcomePersistsAppliedOrUnknownWithoutReplay(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	for _, test := range []struct {
+		name, phase, version, oldPhase string
+		unknown                        bool
+	}{
+		{name: "applied", phase: BackupRPOAttemptApplied, version: "version-9", oldPhase: "phase in ('applying','unknown')"},
+		{name: "unknown", phase: BackupRPOAttemptUnknown, unknown: true, oldPhase: "phase='applying'"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var rowVersion any
+			if test.version != "" {
+				rowVersion = test.version
+			}
+			db := &recordingRQLite{requests: []scriptedResult{rowsScript(
+				backupRPOAttemptRow(identity, test.phase, rowVersion, nil),
+			)}}
+			attempt, err := NewBackupRPOStore(db).RecordUploadOutcome(context.Background(), BackupRPOUploadOutcome{
+				Identity: identity, ObjectVersion: test.version, Unknown: test.unknown,
+			})
+			if err != nil || attempt.Phase != test.phase {
+				t.Fatalf("attempt=%#v error=%v", attempt, err)
+			}
+			assertBackupRPOAttemptSQL(t, db.requestCalls[0], identity, []string{test.oldPhase, "updated_at_unix=unixepoch()"})
+		})
+	}
+}
+
+func TestBackupRPORecordUploadOutcomeRejectsAmbiguityNullLatestAndETag(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	for _, outcome := range []BackupRPOUploadOutcome{
+		{Identity: identity},
+		{Identity: identity, Unknown: true, ObjectVersion: "version-9"},
+		{Identity: identity, ObjectVersion: "latest"},
+		{Identity: identity, ObjectVersion: "null"},
+		{Identity: identity, ObjectVersion: "0123456789abcdef0123456789abcdef"},
+	} {
+		db := &recordingRQLite{}
+		_, err := NewBackupRPOStore(db).RecordUploadOutcome(context.Background(), outcome)
+		if err == nil || err.Error() != "controlplane: backup RPO attempt request is invalid" || len(db.requestCalls) != 0 {
+			t.Fatalf("outcome=%#v error=%v requests=%d", outcome, err, len(db.requestCalls))
+		}
+	}
+}
+
+func TestBackupRPOAcknowledgeVerifiedUsesExactVersionReadbackAndManifestProof(t *testing.T) {
+	proof := validBackupRPOVerification()
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{
+			"verified_generation": proof.Identity.CapturedGeneration,
+			"dirty_generation":    proof.Identity.CapturedGeneration + 1, "phase": BackupRPOPhaseDirty,
+		}}},
+		rqlite.Result{Rows: []map[string]any{backupRPOAttemptRow(
+			proof.Identity, BackupRPOAttemptVerified, proof.ObjectVersion, nil,
+		)}},
+	)}}
+	attempt, err := NewBackupRPOStore(db).AcknowledgeVerified(context.Background(), proof)
+	if err != nil || attempt.Phase != BackupRPOAttemptVerified {
+		t.Fatalf("attempt=%#v error=%v", attempt, err)
+	}
+	call := db.requestCalls[0]
+	if !call.transaction || len(call.statements) != 2 {
+		t.Fatalf("call=%#v", call)
+	}
+	assertBackupRPOAttemptSQL(t, call, proof.Identity, []string{
+		"verified_generation=?", "verified_backup_id=?", "verified_object_key=?",
+		"verified_object_sha256=?", "verified_object_version=?", "verified_size_bytes=?",
+		"verified_manifest_version=?", "verified_at_unix=unixepoch()", "dirty_generation>=?",
+		"case when dirty_generation=? then 'verified' else 'dirty' end", "phase='applied'",
+		"set phase='verified'", "changes()=1", "expires_at_unix>unixepoch()",
+	})
+}
+
+func TestBackupRPOAcknowledgeVerifiedRejectsMissingOrMismatchedProof(t *testing.T) {
+	valid := validBackupRPOVerification()
+	for _, mutate := range []func(*BackupRPOVerification){
+		func(v *BackupRPOVerification) { v.FullReadback = false },
+		func(v *BackupRPOVerification) { v.ManifestAuthenticated = false },
+		func(v *BackupRPOVerification) { v.ObjectVersion = "latest" },
+		func(v *BackupRPOVerification) { v.ReadbackSHA256 = "0123456789abcdef0123456789abcdef" },
+		func(v *BackupRPOVerification) { v.ReadbackSizeBytes++ },
+		func(v *BackupRPOVerification) { v.ManifestVersion = 1 },
+		func(v *BackupRPOVerification) { v.ManifestBackupID = strings.Repeat("a", 32) },
+		func(v *BackupRPOVerification) { v.ManifestCapturedGeneration++ },
+		func(v *BackupRPOVerification) { v.ManifestObjectKey += ".other" },
+		func(v *BackupRPOVerification) { v.ManifestObjectSHA256 = strings.Repeat("e", 64) },
+		func(v *BackupRPOVerification) { v.ManifestObjectSizeBytes++ },
+	} {
+		proof := valid
+		mutate(&proof)
+		db := &recordingRQLite{}
+		_, err := NewBackupRPOStore(db).AcknowledgeVerified(context.Background(), proof)
+		if err == nil || err.Error() != "controlplane: backup RPO attempt request is invalid" || len(db.requestCalls) != 0 {
+			t.Fatalf("proof=%#v error=%v requests=%d", proof, err, len(db.requestCalls))
+		}
+	}
+}
+
+func TestBackupRPOSupersedeStaleAttemptRequiresExactNewerLease(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	current := validBackupRPOLeaseRequest()
+	current.HolderID, current.LeaseToken = "node-s3", "lease-token-new"
+	current.ExpectedFence = identity.LeaseFence + 1
+	db := &recordingRQLite{requests: []scriptedResult{rowsScript(
+		backupRPOAttemptRow(identity, BackupRPOAttemptSuperseded, nil, BackupRPOFailureStaleFence),
+	)}}
+	attempt, err := NewBackupRPOStore(db).SupersedeStaleAttempt(context.Background(), BackupRPOSupersedeRequest{
+		Identity: identity, CurrentLease: current,
+	})
+	if err != nil || attempt.Phase != BackupRPOAttemptSuperseded || attempt.FailureCode != BackupRPOFailureStaleFence {
+		t.Fatalf("attempt=%#v error=%v", attempt, err)
+	}
+	assertBackupRPOAttemptSQL(t, db.requestCalls[0], identity, []string{
+		"set phase='superseded'", "failure_code='stale-fence'",
+		"phase in ('pending','applying','applied','unknown')", "lease_fence>?",
+		"job_name='backup-rpo'", "holder_id=?", "lease_token=?", "expires_at_unix>unixepoch()",
+	})
+	current.ExpectedFence = identity.LeaseFence
+	invalidDB := &recordingRQLite{}
+	_, err = NewBackupRPOStore(invalidDB).SupersedeStaleAttempt(context.Background(), BackupRPOSupersedeRequest{
+		Identity: identity, CurrentLease: current,
+	})
+	if err == nil || err.Error() != "controlplane: backup RPO attempt request is invalid" || len(invalidDB.requestCalls) != 0 {
+		t.Fatalf("same-fence error=%v requests=%d", err, len(invalidDB.requestCalls))
+	}
+}
+
+func TestBackupRPOAttemptTransitionUnknownOutcomeReadsOnceAndMalformedRowsFailClosed(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	db := &recordingRQLite{
+		requests: []scriptedResult{{err: &rqlite.TransportError{
+			Operation: "request", UnknownOutcome: true, Err: errors.New("synthetic ambiguity"),
+		}}},
+		linear: []scriptedResult{rowsScript(backupRPOAttemptRow(identity, BackupRPOAttemptApplying, nil, nil))},
+	}
+	attempt, err := NewBackupRPOStore(db).MarkUploadStarted(context.Background(), identity)
+	if err != nil || attempt.Phase != BackupRPOAttemptApplying {
+		t.Fatalf("attempt=%#v error=%v", attempt, err)
+	}
+	assertOneExactBackupRPOAttemptRead(t, db, identity, BackupRPOAttemptApplying)
+
+	malformed := backupRPOAttemptRow(identity, BackupRPOAttemptApplying, nil, nil)
+	malformed["attempt_sequence"] = float64(identity.AttemptSequence)
+	malformedDB := &recordingRQLite{requests: []scriptedResult{rowsScript(malformed)}}
+	_, err = NewBackupRPOStore(malformedDB).MarkUploadStarted(context.Background(), identity)
+	if err == nil || err.Error() != "controlplane: backup RPO attempt unavailable" {
+		t.Fatalf("malformed error=%v", err)
+	}
+}
+
+func assertBackupRPORegistrationSQL(t *testing.T, call recordedCall, identity BackupRPOAttemptIdentity, fragments []string) {
+	t.Helper()
+	sql, args := "", ""
+	for _, statement := range call.statements {
+		sql += " " + strings.ToLower(statement.SQL)
+		args += " " + fmt.Sprint(statement.Args)
+	}
+	for _, fragment := range append([]string{
+		"restore_epoch", "attempt_sequence", "captured_generation", "backup_id",
+		"object_key", "object_sha256", "object_size_bytes", "manifest_version",
+		"adapter_contract_version", "capability_generation", "capability_evidence_sha256",
+		"capability_expires_at_unix", "lease_holder_id", "lease_token", "lease_fence",
+	}, fragments...) {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("registration SQL lacks %q: %s", fragment, sql)
+		}
+	}
+	for _, value := range []any{
+		identity.HolderID, identity.LeaseToken, identity.RestoreEpoch, identity.LeaseFence,
+		identity.Capability.Generation, identity.Capability.EvidenceSHA256, identity.Capability.ExpiresAtUnix,
+		identity.CapturedGeneration, identity.AttemptSequence, identity.BackupID,
+		identity.ObjectKey, identity.ObjectSHA256, identity.ObjectSizeBytes,
+		identity.ManifestVersion, identity.AdapterContractVersion,
+	} {
+		if !strings.Contains(args, fmt.Sprint(value)) {
+			t.Fatalf("registration args %s lack %v", args, value)
+		}
+	}
+}
+
+func assertBackupRPOAttemptSQL(t *testing.T, call recordedCall, identity BackupRPOAttemptIdentity, fragments []string) {
+	t.Helper()
+	sql, args := "", ""
+	for _, statement := range call.statements {
+		sql += " " + strings.ToLower(statement.SQL)
+		args += " " + fmt.Sprint(statement.Args)
+	}
+	for _, fragment := range append([]string{
+		"restore_epoch=?", "attempt_sequence=?", "captured_generation=?", "backup_id=?",
+		"object_key=?", "object_sha256=?", "object_size_bytes=?", "manifest_version=?",
+		"adapter_contract_version=?", "capability_generation=?", "capability_evidence_sha256=?",
+		"capability_expires_at_unix=?", "lease_holder_id=?", "lease_token=?", "lease_fence=?",
+	}, fragments...) {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("attempt SQL lacks %q: %s", fragment, sql)
+		}
+	}
+	for _, value := range []any{
+		identity.HolderID, identity.LeaseToken, identity.RestoreEpoch, identity.LeaseFence,
+		identity.Capability.Generation, identity.Capability.EvidenceSHA256, identity.Capability.ExpiresAtUnix,
+		identity.CapturedGeneration, identity.AttemptSequence, identity.BackupID,
+		identity.ObjectKey, identity.ObjectSHA256, identity.ObjectSizeBytes,
+		identity.ManifestVersion, identity.AdapterContractVersion,
+	} {
+		if !strings.Contains(args, fmt.Sprint(value)) {
+			t.Fatalf("attempt args %s lack %v", args, value)
+		}
+	}
+}
+
+func assertOneExactBackupRPOAttemptRead(t *testing.T, db *recordingRQLite, identity BackupRPOAttemptIdentity, phase string) {
+	t.Helper()
+	if len(db.requestCalls) != 1 || len(db.linearCalls) != 1 {
+		t.Fatalf("requests=%d reads=%d, want 1/1", len(db.requestCalls), len(db.linearCalls))
+	}
+	call := db.linearCalls[0]
+	if len(call.statements) != 1 {
+		t.Fatalf("evidence statements=%d", len(call.statements))
+	}
+	assertBackupRPOAttemptSQL(t, call, identity, []string{"from backup_rpo_attempts", "phase=?"})
+	if !strings.Contains(fmt.Sprint(call.statements[0].Args), phase) {
+		t.Fatalf("evidence args %v lack phase %q", call.statements[0].Args, phase)
+	}
+}
+
 func validBackupRPOStateRow() map[string]any {
 	return map[string]any{
 		"restore_epoch":                    int64(7),

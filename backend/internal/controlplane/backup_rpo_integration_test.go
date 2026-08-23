@@ -5,6 +5,7 @@ package controlplane
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -99,6 +100,129 @@ func TestBackupRPOLeaseIntegrationUnknownOutcomeUsesOneEvidenceRead(t *testing.T
 	}
 }
 
+func TestBackupRPOAttemptIntegrationRestartUnknownConcurrentDirtyAndOneActive(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db := mustIntegrationRQLite(t)
+	state := prepareBackupRPOIntegration(t, ctx, db)
+	leaseRequest := integrationBackupRPOLeaseRequest(state, "node-s2", "attempt-lifecycle-lease", 0)
+	lease, err := NewBackupRPOStore(db).AcquireLease(ctx, leaseRequest)
+	if err != nil {
+		t.Fatalf("AcquireLease: %v", err)
+	}
+	identity := integrationBackupRPOAttemptIdentity(state, lease)
+	if _, err := NewBackupRPOStore(db).RegisterAttempt(ctx, identity); err != nil {
+		t.Fatalf("RegisterAttempt: %v", err)
+	}
+	second := identity
+	second.AttemptSequence++
+	second.BackupID = fmt.Sprintf("%032x", second.AttemptSequence)
+	second.ObjectKey = fmt.Sprintf("backups/g-%d/a-%d.tar.gpg", second.CapturedGeneration, second.AttemptSequence)
+	if _, err := NewBackupRPOStore(db).RegisterAttempt(ctx, second); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second active attempt error=%v, want ErrConflict", err)
+	}
+
+	unknownDB := &committedUnknownRQLite{delegate: db}
+	started, err := NewBackupRPOStore(unknownDB).MarkUploadStarted(ctx, identity)
+	if err != nil || started.Phase != BackupRPOAttemptApplying {
+		t.Fatalf("committed-unknown start=%#v error=%v", started, err)
+	}
+	if unknownDB.requestCalls.Load() != 1 || unknownDB.linearCalls.Load() != 1 {
+		t.Fatalf("unknown start requests=%d reads=%d", unknownDB.requestCalls.Load(), unknownDB.linearCalls.Load())
+	}
+	if _, err := NewBackupRPOStore(db).RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
+		Identity: identity, Unknown: true,
+	}); err != nil {
+		t.Fatalf("RecordUploadOutcome unknown: %v", err)
+	}
+	if _, err := NewBackupRPOStore(db).MarkUploadStarted(ctx, identity); !errors.Is(err, ErrConflict) {
+		t.Fatalf("unknown attempt upload restart error=%v, want ErrConflict", err)
+	}
+	if _, err := NewBackupRPOStore(db).RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
+		Identity: identity, ObjectVersion: "version-integration-9",
+	}); err != nil {
+		t.Fatalf("RecordUploadOutcome reconciled: %v", err)
+	}
+	if _, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `
+		UPDATE backup_rpo_state SET dirty_generation=dirty_generation+1,phase='dirty',updated_at_unix=unixepoch()
+		WHERE singleton_id=1 AND restore_epoch=?`, Args: []any{identity.RestoreEpoch}}); err != nil {
+		t.Fatalf("concurrent dirty bump: %v", err)
+	}
+	proof := integrationBackupRPOVerification(identity, "version-integration-9")
+	if _, err := NewBackupRPOStore(db).AcknowledgeVerified(ctx, proof); err != nil {
+		t.Fatalf("AcknowledgeVerified: %v", err)
+	}
+	current, err := NewBackupRPOStore(db).Current(ctx)
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if current.VerifiedGeneration != identity.CapturedGeneration ||
+		current.DirtyGeneration != identity.CapturedGeneration+1 || current.Phase != BackupRPOPhaseDirty {
+		t.Fatalf("concurrent state=%#v", current)
+	}
+}
+
+func TestBackupRPOAttemptIntegrationNewerFenceSupersedesStaleAttempt(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db := mustIntegrationRQLite(t)
+	state := prepareBackupRPOIntegration(t, ctx, db)
+	firstRequest := integrationBackupRPOLeaseRequest(state, "node-s2", "stale-attempt-lease", 0)
+	first, err := NewBackupRPOStore(db).AcquireLease(ctx, firstRequest)
+	if err != nil {
+		t.Fatalf("first AcquireLease: %v", err)
+	}
+	identity := integrationBackupRPOAttemptIdentity(state, first)
+	if _, err := NewBackupRPOStore(db).RegisterAttempt(ctx, identity); err != nil {
+		t.Fatalf("RegisterAttempt: %v", err)
+	}
+	if _, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `
+		UPDATE cluster_job_leases SET acquired_at_unix=unixepoch()-1,expires_at_unix=unixepoch()
+		WHERE job_name='backup-rpo' AND lease_fence=?`, Args: []any{first.LeaseFence}}); err != nil {
+		t.Fatalf("expire stale lease: %v", err)
+	}
+	currentRequest := integrationBackupRPOLeaseRequest(
+		state, "node-s3", "newer-attempt-lease", first.LeaseFence,
+	)
+	current, err := NewBackupRPOStore(db).AcquireLease(ctx, currentRequest)
+	if err != nil {
+		t.Fatalf("newer AcquireLease: %v", err)
+	}
+	currentRequest.ExpectedFence = current.LeaseFence
+	attempt, err := NewBackupRPOStore(db).SupersedeStaleAttempt(ctx, BackupRPOSupersedeRequest{
+		Identity: identity, CurrentLease: currentRequest,
+	})
+	if err != nil || attempt.Phase != BackupRPOAttemptSuperseded ||
+		attempt.FailureCode != BackupRPOFailureStaleFence {
+		t.Fatalf("superseded=%#v error=%v", attempt, err)
+	}
+}
+
+func integrationBackupRPOAttemptIdentity(state BackupRPOState, lease BackupRPOLease) BackupRPOAttemptIdentity {
+	sequence := state.LastAttemptSequence + 1
+	return BackupRPOAttemptIdentity{
+		HolderID: lease.HolderID, LeaseToken: lease.LeaseToken,
+		RestoreEpoch: lease.RestoreEpoch, LeaseFence: lease.LeaseFence,
+		Capability: lease.Capability, CapturedGeneration: state.DirtyGeneration,
+		AttemptSequence: sequence, BackupID: fmt.Sprintf("%032x", sequence),
+		ObjectKey:    fmt.Sprintf("backups/g-%d/a-%d.tar.gpg", state.DirtyGeneration, sequence),
+		ObjectSHA256: testBackupRPOObjectDigest, ObjectSizeBytes: 4096,
+		ManifestVersion: 2, AdapterContractVersion: BackupRPOAdapterYandexS3V1,
+	}
+}
+
+func integrationBackupRPOVerification(identity BackupRPOAttemptIdentity, version string) BackupRPOVerification {
+	return BackupRPOVerification{
+		Identity: identity, ObjectVersion: version, FullReadback: true,
+		ReadbackSHA256: identity.ObjectSHA256, ReadbackSizeBytes: identity.ObjectSizeBytes,
+		ManifestAuthenticated: true, ManifestVersion: identity.ManifestVersion,
+		ManifestBackupID:           identity.BackupID,
+		ManifestCapturedGeneration: identity.CapturedGeneration,
+		ManifestObjectKey:          identity.ObjectKey, ManifestObjectSHA256: identity.ObjectSHA256,
+		ManifestObjectSizeBytes: identity.ObjectSizeBytes,
+	}
+}
+
 func prepareBackupRPOIntegration(t *testing.T, ctx context.Context, db rqlite.RQLite) BackupRPOState {
 	t.Helper()
 	if err := NewMigrator(db).Apply(ctx); err != nil {
@@ -111,7 +235,11 @@ func prepareBackupRPOIntegration(t *testing.T, ctx context.Context, db rqlite.RQ
 			WHERE singleton_id=1`},
 		rqlite.Statement{SQL: `UPDATE backup_rpo_state
 			SET restore_epoch=(SELECT restore_epoch FROM cluster_restore_state WHERE singleton_id=1),
-				updated_at_unix=unixepoch()
+				dirty_generation=CASE
+					WHEN dirty_generation=verified_generation THEN dirty_generation+1
+					ELSE dirty_generation
+				END,
+				phase='dirty',updated_at_unix=unixepoch()
 			WHERE singleton_id=1`},
 	); err != nil {
 		t.Fatalf("prepare backup RPO state: %v", err)
