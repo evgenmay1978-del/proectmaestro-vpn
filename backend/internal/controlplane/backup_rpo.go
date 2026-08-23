@@ -113,15 +113,34 @@ type BackupRPOAttempt struct {
 	DatabaseNowUnix int64
 }
 
+type BackupRPOVersionID struct {
+	value string
+}
+
+func NewBackupRPOVersionID(value string) (BackupRPOVersionID, error) {
+	if !validExactObjectVersion(value) {
+		return BackupRPOVersionID{}, errBackupRPOAttemptRequestInvalid
+	}
+	return BackupRPOVersionID{value: value}, nil
+}
+
+func (version BackupRPOVersionID) String() string {
+	return version.value
+}
+
+func (version BackupRPOVersionID) valid() bool {
+	return validExactObjectVersion(version.value)
+}
+
 type BackupRPOUploadOutcome struct {
-	Identity      BackupRPOAttemptIdentity
-	ObjectVersion string
-	Unknown       bool
+	Identity  BackupRPOAttemptIdentity
+	VersionID BackupRPOVersionID
+	Unknown   bool
 }
 
 type BackupRPOVerification struct {
 	Identity                   BackupRPOAttemptIdentity
-	ObjectVersion              string
+	VersionID                  BackupRPOVersionID
 	FullReadback               bool
 	ReadbackSHA256             string
 	ReadbackSizeBytes          int64
@@ -298,7 +317,9 @@ func (s *BackupRPOStore) RegisterAttempt(
 		identity.LeaseFence, identity.RestoreEpoch, identity.CapturedGeneration,
 		identity.AttemptSequence,
 	}}
-	return s.mutateAttempt(ctx, identity, attemptExpectation{phase: BackupRPOAttemptPending, registered: true}, state, insert)
+	return s.mutateAttempt(ctx, identity, attemptExpectation{
+		phase: BackupRPOAttemptPending, versionMode: attemptVersionMustBeNull, registered: true,
+	}, state, insert)
 }
 
 func (s *BackupRPOStore) MarkUploadStarted(
@@ -313,25 +334,29 @@ func (s *BackupRPOStore) MarkUploadStarted(
 	WHERE ` + backupRPOAttemptIdentityWhere("a") + ` AND a.phase='pending'
 		` + backupRPOAttemptLiveLeaseWhere("a") + `
 	RETURNING ` + backupRPOAttemptColumns, Args: backupRPOAttemptIdentityArgs(identity)}
-	return s.mutateAttempt(ctx, identity, attemptExpectation{phase: BackupRPOAttemptApplying}, statement)
+	return s.mutateAttempt(ctx, identity, attemptExpectation{
+		phase: BackupRPOAttemptApplying, versionMode: attemptVersionMustBeNull,
+	}, statement)
 }
 
 func (s *BackupRPOStore) RecordUploadOutcome(
 	ctx context.Context,
 	outcome BackupRPOUploadOutcome,
 ) (BackupRPOAttempt, error) {
+	version := outcome.VersionID.String()
 	if s == nil || s.db == nil || !isValidBackupRPOAttemptIdentity(outcome.Identity) ||
-		(outcome.Unknown && outcome.ObjectVersion != "") ||
-		(!outcome.Unknown && !validExactObjectVersion(outcome.ObjectVersion)) {
+		(outcome.Unknown && version != "") ||
+		(!outcome.Unknown && !outcome.VersionID.valid()) {
 		return BackupRPOAttempt{}, errBackupRPOAttemptRequestInvalid
 	}
 	phase := BackupRPOAttemptApplied
+	versionMode := attemptVersionMustEqual
 	versionSQL := "object_version=?"
 	priorPhaseSQL := "a.phase IN ('applying','unknown')"
-	args := append([]any{outcome.ObjectVersion}, backupRPOAttemptIdentityArgs(outcome.Identity)...)
-	version := outcome.ObjectVersion
+	args := append([]any{version}, backupRPOAttemptIdentityArgs(outcome.Identity)...)
 	if outcome.Unknown {
 		phase = BackupRPOAttemptUnknown
+		versionMode = attemptVersionMustBeNull
 		versionSQL = "object_version=NULL"
 		priorPhaseSQL = "a.phase='applying'"
 		args = backupRPOAttemptIdentityArgs(outcome.Identity)
@@ -342,7 +367,9 @@ func (s *BackupRPOStore) RecordUploadOutcome(
 	WHERE ` + backupRPOAttemptIdentityWhere("a") + ` AND ` + priorPhaseSQL + `
 		` + backupRPOAttemptLiveLeaseWhere("a") + `
 	RETURNING ` + backupRPOAttemptColumns, Args: args}
-	return s.mutateAttempt(ctx, outcome.Identity, attemptExpectation{phase: phase, objectVersion: version}, statement)
+	return s.mutateAttempt(ctx, outcome.Identity, attemptExpectation{
+		phase: phase, versionMode: versionMode, objectVersion: version,
+	}, statement)
 }
 
 func (s *BackupRPOStore) AcknowledgeVerified(
@@ -353,14 +380,15 @@ func (s *BackupRPOStore) AcknowledgeVerified(
 		return BackupRPOAttempt{}, errBackupRPOAttemptRequestInvalid
 	}
 	identity := proof.Identity
+	version := proof.VersionID.String()
 	stateArgs := []any{
 		identity.CapturedGeneration, identity.BackupID, identity.ObjectKey,
-		identity.ObjectSHA256, proof.ObjectVersion, identity.ObjectSizeBytes,
+		identity.ObjectSHA256, version, identity.ObjectSizeBytes,
 		identity.ManifestVersion, identity.CapturedGeneration,
 		identity.RestoreEpoch, identity.CapturedGeneration, identity.CapturedGeneration,
 	}
 	stateArgs = append(stateArgs, backupRPOAttemptIdentityArgs(identity)...)
-	stateArgs = append(stateArgs, proof.ObjectVersion)
+	stateArgs = append(stateArgs, version)
 	state := rqlite.Statement{SQL: `UPDATE backup_rpo_state AS b
 	SET verified_generation=?,verified_backup_id=?,verified_object_key=?,
 		verified_object_sha256=?,verified_object_version=?,verified_size_bytes=?,
@@ -377,14 +405,15 @@ func (s *BackupRPOStore) AcknowledgeVerified(
 		)
 	RETURNING verified_generation,dirty_generation,phase`, Args: stateArgs}
 	attemptArgs := backupRPOAttemptIdentityArgs(identity)
-	attemptArgs = append(attemptArgs, proof.ObjectVersion)
+	attemptArgs = append(attemptArgs, version)
 	attempt := rqlite.Statement{SQL: `UPDATE backup_rpo_attempts AS a
 	SET phase='verified',failure_code=NULL,updated_at_unix=unixepoch()
 	WHERE ` + backupRPOAttemptIdentityWhere("a") + `
 		AND a.phase='applied' AND a.object_version=? AND changes()=1
 	RETURNING ` + backupRPOAttemptColumns, Args: attemptArgs}
 	return s.mutateAttempt(ctx, identity, attemptExpectation{
-		phase: BackupRPOAttemptVerified, objectVersion: proof.ObjectVersion, acknowledged: true,
+		phase: BackupRPOAttemptVerified, versionMode: attemptVersionMustEqual,
+		objectVersion: version, acknowledged: true,
 	}, state, attempt)
 }
 
@@ -424,12 +453,22 @@ func (s *BackupRPOStore) SupersedeStaleAttempt(
 		)
 	RETURNING ` + backupRPOAttemptColumns, Args: args}
 	return s.mutateAttempt(ctx, request.Identity, attemptExpectation{
-		phase: BackupRPOAttemptSuperseded, failureCode: BackupRPOFailureStaleFence,
+		phase: BackupRPOAttemptSuperseded, versionMode: attemptVersionPreserveAnyValid,
+		failureCode: BackupRPOFailureStaleFence,
 	}, statement)
 }
 
+type attemptVersionExpectation uint8
+
+const (
+	attemptVersionMustBeNull attemptVersionExpectation = iota + 1
+	attemptVersionMustEqual
+	attemptVersionPreserveAnyValid
+)
+
 type attemptExpectation struct {
 	phase         string
+	versionMode   attemptVersionExpectation
 	objectVersion string
 	failureCode   string
 	registered    bool
@@ -474,10 +513,19 @@ func (s *BackupRPOStore) resolveAttemptOutcome(
 ) (BackupRPOAttempt, error) {
 	args := backupRPOAttemptIdentityArgs(identity)
 	args = append(args, expected.phase)
-	versionPredicate := "a.object_version IS NULL"
-	if expected.objectVersion != "" {
-		versionPredicate = "a.object_version=?"
+	versionPredicate := ""
+	switch expected.versionMode {
+	case attemptVersionMustBeNull:
+		versionPredicate = " AND a.object_version IS NULL"
+	case attemptVersionMustEqual:
+		if expected.objectVersion == "" {
+			return BackupRPOAttempt{}, errBackupRPOAttemptOutcomeUnresolved
+		}
+		versionPredicate = " AND a.object_version=?"
 		args = append(args, expected.objectVersion)
+	case attemptVersionPreserveAnyValid:
+	default:
+		return BackupRPOAttempt{}, errBackupRPOAttemptOutcomeUnresolved
 	}
 	failurePredicate := "a.failure_code IS NULL"
 	if expected.failureCode != "" {
@@ -508,8 +556,8 @@ func (s *BackupRPOStore) resolveAttemptOutcome(
 	}
 	results, err := s.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT ` +
 		backupRPOAttemptColumns + ` FROM backup_rpo_attempts a
-	WHERE ` + backupRPOAttemptIdentityWhere("a") + ` AND a.phase=?
-		AND ` + versionPredicate + ` AND ` + failurePredicate + statePredicate + ackPredicate, Args: args})
+	WHERE ` + backupRPOAttemptIdentityWhere("a") + ` AND a.phase=?` + versionPredicate + `
+		AND ` + failurePredicate + statePredicate + ackPredicate, Args: args})
 	if err != nil || len(results) != 1 || len(results[0].Rows) != 1 {
 		return BackupRPOAttempt{}, errBackupRPOAttemptOutcomeUnresolved
 	}
@@ -685,7 +733,7 @@ func parseBackupRPOVerified(row map[string]any, generation int64) (*BackupRPOVer
 		return nil, false
 	}
 	objectVersion, ok := exactBackupRPOStringAt(row, "verified_object_version")
-	if !ok || !validObjectVersion(objectVersion) {
+	if !ok || !validExactObjectVersion(objectVersion) {
 		return nil, false
 	}
 	size, ok := strictBackupRPOIntegerAt(row, "verified_size_bytes")
@@ -948,14 +996,42 @@ func isValidBackupRPOAttemptIdentity(identity BackupRPOAttemptIdentity) bool {
 }
 
 func validExactObjectVersion(value string) bool {
-	return validObjectVersion(value) && !canonicalLowerHex(value, 32) &&
-		!(len(value) == 34 && value[0] == '"' && value[len(value)-1] == '"' &&
-			canonicalLowerHex(value[1:len(value)-1], 32))
+	if !validObjectVersion(value) || value[0] == '"' || value[len(value)-1] == '"' ||
+		backupRPOLooksLikeMultipartETag(value) {
+		return false
+	}
+	return !backupRPOFoldedHex(value, 32) || value == strings.ToLower(value)
+}
+
+func backupRPOLooksLikeMultipartETag(value string) bool {
+	if len(value) <= 33 || value[32] != '-' || !backupRPOFoldedHex(value[:32], 32) {
+		return false
+	}
+	for _, digit := range value[33:] {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func backupRPOFoldedHex(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') &&
+			(character < 'a' || character > 'f') &&
+			(character < 'A' || character > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func isValidBackupRPOVerification(proof BackupRPOVerification) bool {
 	identity := proof.Identity
-	return isValidBackupRPOAttemptIdentity(identity) && validExactObjectVersion(proof.ObjectVersion) &&
+	return isValidBackupRPOAttemptIdentity(identity) && proof.VersionID.valid() &&
 		proof.FullReadback && proof.ReadbackSHA256 == identity.ObjectSHA256 &&
 		proof.ReadbackSizeBytes == identity.ObjectSizeBytes && proof.ManifestAuthenticated &&
 		proof.ManifestVersion == 2 && proof.ManifestVersion == identity.ManifestVersion &&
@@ -1129,8 +1205,20 @@ func attemptMatchesExpectation(
 	identity BackupRPOAttemptIdentity,
 	expected attemptExpectation,
 ) bool {
-	return attempt.Identity == identity && attempt.Phase == expected.phase &&
-		attempt.ObjectVersion == expected.objectVersion && attempt.FailureCode == expected.failureCode
+	if attempt.Identity != identity || attempt.Phase != expected.phase ||
+		attempt.FailureCode != expected.failureCode {
+		return false
+	}
+	switch expected.versionMode {
+	case attemptVersionMustBeNull:
+		return attempt.ObjectVersion == ""
+	case attemptVersionMustEqual:
+		return expected.objectVersion != "" && attempt.ObjectVersion == expected.objectVersion
+	case attemptVersionPreserveAnyValid:
+		return attempt.ObjectVersion == "" || validExactObjectVersion(attempt.ObjectVersion)
+	default:
+		return false
+	}
 }
 
 func unknownBackupRPOOutcome(err error) bool {

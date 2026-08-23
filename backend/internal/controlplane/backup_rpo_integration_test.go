@@ -139,7 +139,7 @@ func TestBackupRPOAttemptIntegrationRestartUnknownConcurrentDirtyAndOneActive(t 
 		t.Fatalf("unknown attempt upload restart error=%v, want ErrConflict", err)
 	}
 	if _, err := NewBackupRPOStore(db).RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
-		Identity: identity, ObjectVersion: "version-integration-9",
+		Identity: identity, VersionID: mustIntegrationBackupRPOVersionID(t, "version-integration-9"),
 	}); err != nil {
 		t.Fatalf("RecordUploadOutcome reconciled: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestBackupRPOAttemptIntegrationRestartUnknownConcurrentDirtyAndOneActive(t 
 		WHERE singleton_id=1 AND restore_epoch=?`, Args: []any{identity.RestoreEpoch}}); err != nil {
 		t.Fatalf("concurrent dirty bump: %v", err)
 	}
-	proof := integrationBackupRPOVerification(identity, "version-integration-9")
+	proof := integrationBackupRPOVerification(t, identity, "version-integration-9")
 	if _, err := NewBackupRPOStore(db).AcknowledgeVerified(ctx, proof); err != nil {
 		t.Fatalf("AcknowledgeVerified: %v", err)
 	}
@@ -175,6 +175,14 @@ func TestBackupRPOAttemptIntegrationNewerFenceSupersedesStaleAttempt(t *testing.
 	identity := integrationBackupRPOAttemptIdentity(state, first)
 	if _, err := NewBackupRPOStore(db).RegisterAttempt(ctx, identity); err != nil {
 		t.Fatalf("RegisterAttempt: %v", err)
+	}
+	if _, err := NewBackupRPOStore(db).MarkUploadStarted(ctx, identity); err != nil {
+		t.Fatalf("MarkUploadStarted: %v", err)
+	}
+	if _, err := NewBackupRPOStore(db).RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
+		Identity: identity, VersionID: mustIntegrationBackupRPOVersionID(t, "version-stale-applied"),
+	}); err != nil {
+		t.Fatalf("RecordUploadOutcome: %v", err)
 	}
 	if _, err := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `
 		UPDATE cluster_job_leases SET acquired_at_unix=unixepoch()-1,expires_at_unix=unixepoch()
@@ -211,9 +219,19 @@ func integrationBackupRPOAttemptIdentity(state BackupRPOState, lease BackupRPOLe
 	}
 }
 
-func integrationBackupRPOVerification(identity BackupRPOAttemptIdentity, version string) BackupRPOVerification {
+func mustIntegrationBackupRPOVersionID(t *testing.T, value string) BackupRPOVersionID {
+	t.Helper()
+	versionID, err := NewBackupRPOVersionID(value)
+	if err != nil {
+		t.Fatalf("NewBackupRPOVersionID: %v", err)
+	}
+	return versionID
+}
+
+func integrationBackupRPOVerification(t *testing.T, identity BackupRPOAttemptIdentity, version string) BackupRPOVerification {
+	t.Helper()
 	return BackupRPOVerification{
-		Identity: identity, ObjectVersion: version, FullReadback: true,
+		Identity: identity, VersionID: mustIntegrationBackupRPOVersionID(t, version), FullReadback: true,
 		ReadbackSHA256: identity.ObjectSHA256, ReadbackSizeBytes: identity.ObjectSizeBytes,
 		ManifestAuthenticated: true, ManifestVersion: identity.ManifestVersion,
 		ManifestBackupID:           identity.BackupID,

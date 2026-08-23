@@ -31,6 +31,14 @@ func validBackupRPOAttemptIdentity() BackupRPOAttemptIdentity {
 	}
 }
 
+func mustBackupRPOVersionID(value string) BackupRPOVersionID {
+	versionID, err := NewBackupRPOVersionID(value)
+	if err != nil {
+		panic(err)
+	}
+	return versionID
+}
+
 func backupRPOAttemptRow(identity BackupRPOAttemptIdentity, phase string, version, failure any) map[string]any {
 	return map[string]any{
 		"restore_epoch": identity.RestoreEpoch, "attempt_sequence": identity.AttemptSequence,
@@ -53,7 +61,7 @@ func backupRPOAttemptRow(identity BackupRPOAttemptIdentity, phase string, versio
 func validBackupRPOVerification() BackupRPOVerification {
 	identity := validBackupRPOAttemptIdentity()
 	return BackupRPOVerification{
-		Identity: identity, ObjectVersion: "version-9", FullReadback: true,
+		Identity: identity, VersionID: mustBackupRPOVersionID("version-9"), FullReadback: true,
 		ReadbackSHA256: identity.ObjectSHA256, ReadbackSizeBytes: identity.ObjectSizeBytes,
 		ManifestAuthenticated: true, ManifestVersion: identity.ManifestVersion,
 		ManifestBackupID:           identity.BackupID,
@@ -140,14 +148,16 @@ func TestBackupRPORecordUploadOutcomePersistsAppliedOrUnknownWithoutReplay(t *te
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var rowVersion any
+			versionID := BackupRPOVersionID{}
 			if test.version != "" {
 				rowVersion = test.version
+				versionID = mustBackupRPOVersionID(test.version)
 			}
 			db := &recordingRQLite{requests: []scriptedResult{rowsScript(
 				backupRPOAttemptRow(identity, test.phase, rowVersion, nil),
 			)}}
 			attempt, err := NewBackupRPOStore(db).RecordUploadOutcome(context.Background(), BackupRPOUploadOutcome{
-				Identity: identity, ObjectVersion: test.version, Unknown: test.unknown,
+				Identity: identity, VersionID: versionID, Unknown: test.unknown,
 			})
 			if err != nil || attempt.Phase != test.phase {
 				t.Fatalf("attempt=%#v error=%v", attempt, err)
@@ -157,14 +167,32 @@ func TestBackupRPORecordUploadOutcomePersistsAppliedOrUnknownWithoutReplay(t *te
 	}
 }
 
-func TestBackupRPORecordUploadOutcomeRejectsAmbiguityNullLatestAndETag(t *testing.T) {
+func TestBackupRPOVersionIDAcceptsOpaqueLowerHexAndRejectsETagShapes(t *testing.T) {
+	opaque := "0123456789abcdef0123456789abcdef"
+	versionID, err := NewBackupRPOVersionID(opaque)
+	if err != nil || versionID.String() != opaque {
+		t.Fatalf("versionID=%q error=%v", versionID.String(), err)
+	}
+	for _, value := range []string{
+		"0123456789ABCDEF0123456789ABCDEF",
+		"\"0123456789abcdef0123456789abcdef\"",
+		"0123456789abcdef0123456789abcdef-2",
+		"\"0123456789ABCDEF0123456789ABCDEF-12\"",
+		"", "latest", "null", "none",
+	} {
+		if _, err := NewBackupRPOVersionID(value); err == nil ||
+			err.Error() != "controlplane: backup RPO attempt request is invalid" {
+			t.Fatalf("NewBackupRPOVersionID(%q) error=%v", value, err)
+		}
+	}
+}
+
+func TestBackupRPORecordUploadOutcomeRejectsAmbiguousVersionProvenance(t *testing.T) {
 	identity := validBackupRPOAttemptIdentity()
 	for _, outcome := range []BackupRPOUploadOutcome{
 		{Identity: identity},
-		{Identity: identity, Unknown: true, ObjectVersion: "version-9"},
-		{Identity: identity, ObjectVersion: "latest"},
-		{Identity: identity, ObjectVersion: "null"},
-		{Identity: identity, ObjectVersion: "0123456789abcdef0123456789abcdef"},
+		{Identity: identity, Unknown: true, VersionID: mustBackupRPOVersionID("version-9")},
+		{Identity: identity, VersionID: BackupRPOVersionID{value: "latest"}},
 	} {
 		db := &recordingRQLite{}
 		_, err := NewBackupRPOStore(db).RecordUploadOutcome(context.Background(), outcome)
@@ -182,7 +210,7 @@ func TestBackupRPOAcknowledgeVerifiedUsesExactVersionReadbackAndManifestProof(t 
 			"dirty_generation":    proof.Identity.CapturedGeneration + 1, "phase": BackupRPOPhaseDirty,
 		}}},
 		rqlite.Result{Rows: []map[string]any{backupRPOAttemptRow(
-			proof.Identity, BackupRPOAttemptVerified, proof.ObjectVersion, nil,
+			proof.Identity, BackupRPOAttemptVerified, proof.VersionID.String(), nil,
 		)}},
 	)}}
 	attempt, err := NewBackupRPOStore(db).AcknowledgeVerified(context.Background(), proof)
@@ -207,7 +235,7 @@ func TestBackupRPOAcknowledgeVerifiedRejectsMissingOrMismatchedProof(t *testing.
 	for _, mutate := range []func(*BackupRPOVerification){
 		func(v *BackupRPOVerification) { v.FullReadback = false },
 		func(v *BackupRPOVerification) { v.ManifestAuthenticated = false },
-		func(v *BackupRPOVerification) { v.ObjectVersion = "latest" },
+		func(v *BackupRPOVerification) { v.VersionID = BackupRPOVersionID{} },
 		func(v *BackupRPOVerification) { v.ReadbackSHA256 = "0123456789abcdef0123456789abcdef" },
 		func(v *BackupRPOVerification) { v.ReadbackSizeBytes++ },
 		func(v *BackupRPOVerification) { v.ManifestVersion = 1 },
@@ -254,6 +282,51 @@ func TestBackupRPOSupersedeStaleAttemptRequiresExactNewerLease(t *testing.T) {
 	if err == nil || err.Error() != "controlplane: backup RPO attempt request is invalid" || len(invalidDB.requestCalls) != 0 {
 		t.Fatalf("same-fence error=%v requests=%d", err, len(invalidDB.requestCalls))
 	}
+}
+
+func TestBackupRPOSupersedeStaleAttemptPreservesAppliedVersionKnownAndUnknown(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	current := validBackupRPOLeaseRequest()
+	current.HolderID, current.LeaseToken = "node-s3", "lease-token-new"
+	current.ExpectedFence = identity.LeaseFence + 1
+	appliedVersion := "version-9"
+	row := backupRPOAttemptRow(
+		identity, BackupRPOAttemptSuperseded, appliedVersion, BackupRPOFailureStaleFence,
+	)
+
+	t.Run("known outcome", func(t *testing.T) {
+		db := &recordingRQLite{requests: []scriptedResult{rowsScript(row)}}
+		attempt, err := NewBackupRPOStore(db).SupersedeStaleAttempt(
+			context.Background(),
+			BackupRPOSupersedeRequest{Identity: identity, CurrentLease: current},
+		)
+		if err != nil || attempt.ObjectVersion != appliedVersion {
+			t.Fatalf("attempt=%#v error=%v", attempt, err)
+		}
+	})
+
+	t.Run("committed unknown outcome", func(t *testing.T) {
+		db := &recordingRQLite{
+			requests: []scriptedResult{{err: &rqlite.TransportError{
+				Operation: "request", UnknownOutcome: true, Err: errors.New("synthetic ambiguity"),
+			}}},
+			linear: []scriptedResult{rowsScript(row)},
+		}
+		attempt, err := NewBackupRPOStore(db).SupersedeStaleAttempt(
+			context.Background(),
+			BackupRPOSupersedeRequest{Identity: identity, CurrentLease: current},
+		)
+		if err != nil || attempt.ObjectVersion != appliedVersion {
+			t.Fatalf("attempt=%#v error=%v", attempt, err)
+		}
+		if len(db.requestCalls) != 1 || len(db.linearCalls) != 1 {
+			t.Fatalf("requests=%d reads=%d, want 1/1", len(db.requestCalls), len(db.linearCalls))
+		}
+		evidenceSQL := strings.ToLower(db.linearCalls[0].statements[0].SQL)
+		if strings.Contains(evidenceSQL, "object_version is null") {
+			t.Fatalf("supersede evidence incorrectly requires NULL version: %s", evidenceSQL)
+		}
+	})
 }
 
 func TestBackupRPOAttemptTransitionUnknownOutcomeReadsOnceAndMalformedRowsFailClosed(t *testing.T) {
