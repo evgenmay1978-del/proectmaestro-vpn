@@ -1,5 +1,65 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAAAAAAA. TASK 14 BACKUP WORKER / DR EXACT-SHA GREEN (23.08.2026)
+
+- Единственная каноническая ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`. Точный проверенный code SHA —
+  `0438aef3249acdca1b5f1db0ddb9cd47a9fbdee0`; локальная ветка и GitHub
+  синхронизированы. Более поздний docs-only commit не должен объявляться
+  протестированным code SHA.
+- Repository-safe Task 14 завершён: offline `backup_worker` использует fenced
+  lease, восстанавливается после crash, проверяет свежий versioned object
+  readback и выполняет безопасный cleanup. Manifest v2 подписывает identity
+  попытки, captured generation, lease fence и object key. `verified_generation`
+  может продвигаться только после exact key/version readback с совпавшими
+  ciphertext digest и подписанными полями активной fenced-попытки. Manifest v1
+  остаётся доступен только для исторической restore-проверки и не RPO-eligible.
+- HA control-plane GitHub Actions
+  [run `32633866437`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32633866437),
+  job `97180587425`, завершён `success` на exact SHA `0438aef...`: `75` Python
+  tests, DR policy, backup/restore shell contracts, Go tests, `-race`, `vet`,
+  isolated rqlite, importer parity и трёхузловой production-importer mTLS proof
+  прошли. В логе подтверждены `Ran 75 tests`, `DR workflow policy passed`,
+  `backup-rqlite contract passed`, `restore-rqlite contract passed` и
+  `ci-rqlite contract passed`.
+- Отдельный ручной HA DR restore drill
+  [run `32633958121`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32633958121),
+  job `97180810443`, завершён `success` на том же exact SHA: materialized agent
+  boundary, formatting/shell syntax, Go/race/vet, DR workflow policy,
+  authenticated backup/tamper matrix, fresh restore fencing/parity/quorum и
+  unconditional cleanup прошли.
+- Полностью GREEN Yandex isolated release workflow
+  [run `32633866431`](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32633866431)
+  на том же exact SHA. Успешны все пять jobs: `format-unit` `97180587329`,
+  `offline-replay` `97180678263`, `race-vet` `97180678269`, `rqlite-purge`
+  `97180678315`, `android-test-apk` `97180818513`. Android job установил pinned
+  toolchain, получил и проверил exact libbox artifact, собрал отдельную Task 7
+  версию, проверил APK metadata/signer и загрузил только тестовый artifact.
+- Test-only artifact: ID `9491880939`, имя
+  `maestrovpn-task7-test-0438aef3249acdca1b5f1db0ddb9cd47a9fbdee0`, размер
+  `146160969` bytes, срок хранения до `2026-08-30T10:38:45Z`. Production
+  Android/TV baseline остаётся неизменяемой версией `1.0.157`; этот artifact не
+  является release, signing, OTA или заменой production APK.
+- Linux CI последовательно закрыл обнаруженные расхождения: POSIX capability
+  detection теперь кэшируется под syscall wrappers; DR сохраняет стабильное имя
+  authenticated-backup шага; restore явно принимает legacy manifest-v1 status;
+  stale DR materialized-agent gofmt allowlist удалён и защищён ordered parity
+  regression; загрузка pinned rqlite release получила ограниченные timeout/retry
+  при сохранённых HTTPS pin и SHA-256 verification.
+- Слабый локальный Windows-компьютер использовался только для узких contract,
+  Python, diff и Git проверок. Полные Linux, Go, race/vet, real-rqlite, DR и
+  Android проверки выполнены в GitHub Actions на exact pushed SHA.
+- Production durable watermark store и versioned Yandex Object Storage adapter
+  ещё не реализованы; repository-only worker proof их не заменяет. Следующий
+  Task 15: durable `BackupRPOStore`, транзакционные dirty/verified generation,
+  lease/fence, versioned storage adapter и systemd exclusivity. Read-only
+  production inventory и любая работа с production выполняются только после
+  отдельного явного разрешения владельца.
+- Production остаётся **NO-GO**. S1-S4, customer/bot/billing, обычные VPN
+  пользователи, Android/TV release, OTA, DNS, deploy, backup, canary и cutover не
+  изменялись. Локальные `normalize.patch` и пользовательский `task-4-report.md`
+  защищены и не входят ни в один commit.
+
 ## 0AAAAAAAAAA. TASK 8 FIRST PRODUCTION-READINESS GATE GREEN — INVENTORY/DR FIXTURE PROOF (23.08.2026)
 
 - Единственная каноническая ветка остаётся
