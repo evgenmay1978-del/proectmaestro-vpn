@@ -100,6 +100,9 @@ jobs:
           set -euo pipefail
           python -m unittest \
             ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api \
+            ops.ha.tests.test_backup_worker \
+            ops.ha.tests.test_backup_worker_security \
+            ops.ha.tests.test_backup_worker_identity_races \
             ops.ha.tests.test_inventory \
             ops.ha.tests.test_inventory_hardening \
             ops.ha.tests.test_inventory_identity_races

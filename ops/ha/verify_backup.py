@@ -26,7 +26,7 @@ _ERROR = {
     "leak": "backup-verification:forbidden-content",
 }
 
-_METADATA_KEYS = {
+_BASE_METADATA_KEYS = {
     "format_version",
     "repository_commit_sha",
     "workflow_run_id",
@@ -36,7 +36,14 @@ _METADATA_KEYS = {
     "recipient_key_fingerprint",
     "nodes",
 }
-_MANIFEST_KEYS = _METADATA_KEYS | {
+_V2_BINDING_KEYS = {
+    "backup_id",
+    "attempt_sequence",
+    "captured_generation",
+    "lease_fence",
+    "object_key",
+}
+_DERIVED_MANIFEST_KEYS = {
     "schema",
     "source",
     "image",
@@ -44,6 +51,16 @@ _MANIFEST_KEYS = _METADATA_KEYS | {
     "table_counts",
     "receipts",
 }
+
+
+def _metadata_keys(format_version: Any) -> set[str] | None:
+    if type(format_version) is not int:
+        return None
+    if format_version == 1:
+        return set(_BASE_METADATA_KEYS)
+    if format_version == 2:
+        return set(_BASE_METADATA_KEYS | _V2_BINDING_KEYS)
+    return None
 _EXACT_FILES = {
     "control-plane.sqlite3",
     "application-keys.json",
@@ -86,6 +103,32 @@ def _canonical_hex(value: Any, length: int) -> bool:
     except ValueError:
         return False
     return True
+
+
+
+
+def _object_key(value: Any) -> bool:
+    if (
+        not isinstance(value, str)
+        or not 0 < len(value) <= 1_024
+        or value.startswith("/")
+        or "\\" in value
+        or not all(0x21 <= ord(character) <= 0x7E for character in value)
+    ):
+        return False
+    parts = value.split("/")
+    return all(part not in {"", ".", ".."} for part in parts)
+
+
+def _bound_object_key(
+    value: Any,
+    *,
+    backup_id: str,
+    captured_generation: int,
+    attempt_sequence: int,
+) -> bool:
+    tail = f"g-{captured_generation}/a-{attempt_sequence}-{backup_id}.tar.gpg"
+    return _object_key(value) and (value == tail or value.endswith("/" + tail))
 
 
 def _exact_keys(value: Any, keys: set[str]) -> bool:
@@ -188,13 +231,15 @@ def _inspect_image(path: Path) -> dict[str, Any]:
 
 
 def _validate_metadata(metadata: Any) -> None:
-    if not _exact_keys(metadata, _METADATA_KEYS):
+    if not isinstance(metadata, dict):
         _fail("input")
-    if metadata["format_version"] != 1:
+    format_version = metadata.get("format_version")
+    keys = _metadata_keys(format_version)
+    if keys is None or not _exact_keys(metadata, keys):
         _fail("input")
     if not _canonical_hex(metadata["repository_commit_sha"], 40):
         _fail("input")
-    if not isinstance(metadata["workflow_run_id"], int) or metadata["workflow_run_id"] <= 0:
+    if type(metadata["workflow_run_id"]) is not int or metadata["workflow_run_id"] <= 0:
         _fail("input")
     if not isinstance(metadata["rqlite_version"], str) or not metadata["rqlite_version"]:
         _fail("input")
@@ -207,6 +252,23 @@ def _validate_metadata(metadata: Any) -> None:
             _fail("input")
     if metadata["nodes"] != ["S2", "S3", "S4"]:
         _fail("input")
+    if format_version == 2:
+        if (
+            not _canonical_hex(metadata["backup_id"], 32)
+            or type(metadata["attempt_sequence"]) is not int
+            or metadata["attempt_sequence"] <= 0
+            or type(metadata["captured_generation"]) is not int
+            or metadata["captured_generation"] < 0
+            or type(metadata["lease_fence"]) is not int
+            or metadata["lease_fence"] <= 0
+            or not _bound_object_key(
+                metadata["object_key"],
+                backup_id=metadata["backup_id"],
+                captured_generation=metadata["captured_generation"],
+                attempt_sequence=metadata["attempt_sequence"],
+            )
+        ):
+            _fail("input")
 
 
 def build_manifest(image_path: Path | str, keys_path: Path | str, metadata: dict[str, Any]) -> dict[str, Any]:
@@ -261,7 +323,7 @@ def _verify_signature(
         mode = gpg_home.stat().st_mode
     except OSError:
         _fail("signature")
-    if not stat.S_ISDIR(mode) or stat.S_IMODE(mode) != 0o700:
+    if not stat.S_ISDIR(mode) or (os.name != "nt" and stat.S_IMODE(mode) != 0o700):
         _fail("signature")
     command = [
         "gpg",
@@ -326,10 +388,17 @@ def verify_bundle(
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         _fail("manifest")
-    if raw != _canonical(manifest) or not _exact_keys(manifest, _MANIFEST_KEYS):
+    metadata_keys = _metadata_keys(
+        manifest.get("format_version") if isinstance(manifest, dict) else None
+    )
+    if (
+        raw != _canonical(manifest)
+        or metadata_keys is None
+        or not _exact_keys(manifest, metadata_keys | _DERIVED_MANIFEST_KEYS)
+    ):
         _fail("manifest")
 
-    metadata = {key: manifest[key] for key in _METADATA_KEYS}
+    metadata = {key: manifest[key] for key in metadata_keys}
     _validate_metadata(metadata)
     _verify_signature(
         manifest_path,
@@ -345,7 +414,24 @@ def verify_bundle(
     )
     if manifest != expected:
         _fail("manifest")
-    return {"format_version": 1, "status": "verified"}
+    if metadata["format_version"] == 1:
+        return {
+            "binding_status": "legacy-unbound",
+            "format_version": 1,
+            "rpo_eligible": False,
+            "status": "verified",
+        }
+    return {
+        "backup_id": metadata["backup_id"],
+        "attempt_sequence": metadata["attempt_sequence"],
+        "binding_status": "signed-attempt",
+        "captured_generation": metadata["captured_generation"],
+        "format_version": 2,
+        "lease_fence": metadata["lease_fence"],
+        "object_key": metadata["object_key"],
+        "rpo_eligible": False,
+        "status": "verified",
+    }
 
 
 def _main() -> int:

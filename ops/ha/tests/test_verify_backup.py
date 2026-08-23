@@ -90,9 +90,8 @@ class VerifyBackupTests(unittest.TestCase):
 
     def _write_manifest(self, manifest):
         path = self.root / "manifest.json"
-        path.write_text(
-            json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
-            encoding="utf-8",
+        path.write_bytes(
+            (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
         )
         os.chmod(path, 0o600)
         signature = self.root / "manifest.sig"
@@ -119,6 +118,89 @@ class VerifyBackupTests(unittest.TestCase):
     def _valid_gpg(command):
         del command
         return 0, f"[GNUPG:] VALIDSIG {SIGNER} 2026-08-12 0 4 0 1 10 00 {SIGNER}\n", ""
+
+    def test_v1_remains_restore_verifiable_but_is_explicitly_unbound(self):
+        manifest = build_manifest(self.image, self.keys, self.metadata)
+        self._write_manifest(manifest)
+        self.assertEqual(
+            verify_bundle(self.root, SIGNER, self.gpg_home, run_gpg=self._valid_gpg),
+            {
+                "binding_status": "legacy-unbound",
+                "format_version": 1,
+                "rpo_eligible": False,
+                "status": "verified",
+            },
+        )
+
+    def test_v2_round_trip_binds_signed_attempt_identity(self):
+        metadata = dict(self.metadata)
+        metadata.update(
+            {
+                "format_version": 2,
+                "backup_id": "0123456789abcdef0123456789abcdef",
+                "attempt_sequence": 42,
+                "captured_generation": 103,
+                "lease_fence": 17,
+                "object_key": "private/cluster-a/g-103/a-42-0123456789abcdef0123456789abcdef.tar.gpg",
+            }
+        )
+        manifest = build_manifest(self.image, self.keys, metadata)
+        self._write_manifest(manifest)
+        self.assertEqual(
+            verify_bundle(self.root, SIGNER, self.gpg_home, run_gpg=self._valid_gpg),
+            {
+                "backup_id": metadata["backup_id"],
+                "attempt_sequence": 42,
+                "binding_status": "signed-attempt",
+                "captured_generation": 103,
+                "format_version": 2,
+                "lease_fence": 17,
+                "object_key": metadata["object_key"],
+                "rpo_eligible": False,
+                "status": "verified",
+            },
+        )
+
+    def test_v2_rejects_incomplete_or_unsafe_attempt_identity(self):
+        base = dict(self.metadata)
+        base.update(
+            {
+                "format_version": 2,
+                "backup_id": "0123456789abcdef0123456789abcdef",
+                "attempt_sequence": 42,
+                "captured_generation": 103,
+                "lease_fence": 17,
+                "object_key": "private/cluster-a/g-103/a-42-0123456789abcdef0123456789abcdef.tar.gpg",
+            }
+        )
+        invalid = (
+            {key: value for key, value in base.items() if key != "backup_id"},
+            {**base, "format_version": 3},
+            {**base, "backup_id": "not-random"},
+            {**base, "attempt_sequence": True},
+            {**base, "captured_generation": -1},
+            {**base, "lease_fence": 0},
+            {**base, "object_key": "../outside"},
+            {**base, "object_key": "/absolute"},
+            {**base, "object_key": "private//ambiguous"},
+            {**base, "object_key": "private/control\nkey"},
+            {
+                **base,
+                "object_key": "private/cluster-a/g-104/a-42-0123456789abcdef0123456789abcdef.tar.gpg",
+            },
+            {
+                **base,
+                "object_key": "private/cluster-a/g-103/a-43-0123456789abcdef0123456789abcdef.tar.gpg",
+            },
+            {
+                **base,
+                "object_key": "private/cluster-a/g-103/a-42-ffffffffffffffffffffffffffffffff.tar.gpg",
+            },
+        )
+        for metadata in invalid:
+            with self.subTest(metadata=metadata):
+                with self.assertRaises(BackupVerificationError):
+                    build_manifest(self.image, self.keys, metadata)
 
     def test_round_trip_manifest_is_canonical_and_image_derived(self):
         manifest = build_manifest(self.image, self.keys, self.metadata)

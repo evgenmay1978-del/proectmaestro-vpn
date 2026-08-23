@@ -15,6 +15,18 @@ keys_input=""
 output_input=""
 signer=""
 recipient=""
+manifest_version=""
+backup_id=""
+attempt_sequence=""
+captured_generation=""
+lease_fence=""
+object_key=""
+manifest_version_seen=0
+backup_id_seen=0
+attempt_sequence_seen=0
+captured_generation_seen=0
+lease_fence_seen=0
+object_key_seen=0
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --drill) drill=1; shift ;;
@@ -23,6 +35,12 @@ while [[ "$#" -gt 0 ]]; do
     --output) [[ "$#" -ge 2 ]] || fail; output_input="$2"; shift 2 ;;
     --signer) [[ "$#" -ge 2 ]] || fail; signer="$2"; shift 2 ;;
     --recipient) [[ "$#" -ge 2 ]] || fail; recipient="$2"; shift 2 ;;
+    --manifest-version) [[ "$#" -ge 2 && "$manifest_version_seen" -eq 0 ]] || fail; manifest_version_seen=1; manifest_version="$2"; shift 2 ;;
+    --backup-id) [[ "$#" -ge 2 && "$backup_id_seen" -eq 0 ]] || fail; backup_id_seen=1; backup_id="$2"; shift 2 ;;
+    --attempt-sequence) [[ "$#" -ge 2 && "$attempt_sequence_seen" -eq 0 ]] || fail; attempt_sequence_seen=1; attempt_sequence="$2"; shift 2 ;;
+    --captured-generation) [[ "$#" -ge 2 && "$captured_generation_seen" -eq 0 ]] || fail; captured_generation_seen=1; captured_generation="$2"; shift 2 ;;
+    --lease-fence) [[ "$#" -ge 2 && "$lease_fence_seen" -eq 0 ]] || fail; lease_fence_seen=1; lease_fence="$2"; shift 2 ;;
+    --object-key) [[ "$#" -ge 2 && "$object_key_seen" -eq 0 ]] || fail; object_key_seen=1; object_key="$2"; shift 2 ;;
     *) fail ;;
   esac
 done
@@ -30,6 +48,26 @@ done
   -n "$output_input" && "$signer" =~ ^[A-F0-9]{40}$ &&
   "$recipient" =~ ^[A-F0-9]{40}$ ]] || fail
 
+binding_option_count=$((manifest_version_seen + backup_id_seen + attempt_sequence_seen + captured_generation_seen + lease_fence_seen + object_key_seen))
+expected_object_tail="g-${captured_generation}/a-${attempt_sequence}-${backup_id}.tar.gpg"
+if [[ "$binding_option_count" -eq 0 ]]; then
+  manifest_version=1
+elif [[ "$binding_option_count" -eq 6 && "$manifest_version" == "2" &&
+  "$backup_id" =~ ^[a-f0-9]{32}$ &&
+  "$attempt_sequence" =~ ^[1-9][0-9]*$ &&
+  "$captured_generation" =~ ^(0|[1-9][0-9]*)$ &&
+  "$lease_fence" =~ ^[1-9][0-9]*$ &&
+  ${#object_key} -le 1024 &&
+  "$object_key" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ &&
+  "/$object_key/" != *"//"* &&
+  "/$object_key/" != *"/./"* &&
+  "/$object_key/" != *"/../"* ]]; then
+  [[ "$object_key" == "$expected_object_tail" ||
+    "$object_key" == */"$expected_object_tail" ]] || fail
+  :
+else
+  fail
+fi
 umask 077
 runner=""
 cluster=""
@@ -166,13 +204,16 @@ PY
 install -m 0600 -- "$keys" "$work/application-keys.json" || fail
 created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 metadata="$work/metadata.json"
-(python3 - "$metadata" "$commit_sha" "$run_id" "$created_at" "$signer" "$recipient" <<'PY'
+(python3 - "$metadata" "$commit_sha" "$run_id" "$created_at" "$signer" "$recipient" \
+  "$manifest_version" "$backup_id" "$attempt_sequence" "$captured_generation" "$lease_fence" "$object_key" <<'PY'
 import json
 import os
 import sys
 
+if len(sys.argv) != 13:
+    raise SystemExit(1)
 payload = {
-    "format_version": 1,
+    "format_version": int(sys.argv[7]),
     "repository_commit_sha": sys.argv[2],
     "workflow_run_id": int(sys.argv[3]),
     "rqlite_version": "10.1.0",
@@ -181,6 +222,16 @@ payload = {
     "recipient_key_fingerprint": sys.argv[6],
     "nodes": ["S2", "S3", "S4"],
 }
+if payload["format_version"] == 2:
+    payload.update(
+        {
+            "backup_id": sys.argv[8],
+            "attempt_sequence": int(sys.argv[9]),
+            "captured_generation": int(sys.argv[10]),
+            "lease_fence": int(sys.argv[11]),
+            "object_key": sys.argv[12],
+        }
+    )
 encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
 descriptor = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
@@ -290,7 +341,35 @@ PY
 
 result="$work/verify-result.json"
 python3 -m ops.ha.verify_backup verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   >"$result" 2>/dev/null || fail
-[[ "$(<"$result")" == '{"format_version":1,"status":"verified"}' ]] || fail
+python3 - "$result" "$metadata" <<'PY' || fail
+import json
+import pathlib
+import sys
+
+result = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+metadata = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+if metadata["format_version"] == 1:
+    expected = {
+        "binding_status": "legacy-unbound",
+        "format_version": 1,
+        "rpo_eligible": False,
+        "status": "verified",
+    }
+else:
+    expected = {
+        "backup_id": metadata["backup_id"],
+        "attempt_sequence": metadata["attempt_sequence"],
+        "binding_status": "signed-attempt",
+        "captured_generation": metadata["captured_generation"],
+        "format_version": 2,
+        "lease_fence": metadata["lease_fence"],
+        "object_key": metadata["object_key"],
+        "rpo_eligible": False,
+        "status": "verified",
+    }
+if result != expected:
+    raise SystemExit(1)
+PY
 
 [[ "$(stat -c '%d' "$work")" == "$(stat -c '%d' "$output_parent")" ]] || fail
 ln -- "$encrypted" "$output" || fail

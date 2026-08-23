@@ -29,6 +29,16 @@ for token in   '--drill'   'RUNNER_TEMP'   'realpath'   'umask 077'   'trap '   
 do
   grep -qF -- "$token" "$CREATOR" || fail "creator lacks required token: $token"
 done
+for token in \
+  '--manifest-version' \
+  '--backup-id' \
+  '--attempt-sequence' \
+  '--captured-generation' \
+  '--lease-fence' \
+  '--object-key'
+do
+  grep -qF -- "$token" "$CREATOR" || fail "creator lacks v2 binding option: $token"
+done
 
 if grep -qF -- '--location' "$CREATOR"; then
   fail "backup download must not follow redirects"
@@ -69,6 +79,19 @@ export RUNNER_TEMP="$sandbox"
 keys="$sandbox/application-keys.json"
 printf '%s\n' '{"format_version":1,"keys":[]}' >"$keys"
 chmod 0600 "$keys"
+backup_id="0123456789abcdef0123456789abcdef"
+attempt_sequence=42
+captured_generation=103
+lease_fence=17
+object_key="private/cluster-a/g-103/a-42-${backup_id}.tar.gpg"
+v2_args=(
+  --manifest-version 2
+  --backup-id "$backup_id"
+  --attempt-sequence "$attempt_sequence"
+  --captured-generation "$captured_generation"
+  --lease-fence "$lease_fence"
+  --object-key "$object_key"
+)
 output="$sandbox/backup.tar.gpg"
 
 if bash "$CREATOR"   --cluster-root "$sandbox" --keys "$keys" --output "$output"   --signer AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA   --recipient BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB >/dev/null 2>&1
@@ -121,7 +144,32 @@ export GNUPGHOME="$gpg_home"
 export MAESTRO_DR_COMMIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 export MAESTRO_DR_RUN_ID=123456
 
-bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" >/dev/null
+empty_binding_output="$sandbox/empty-binding.tar.gpg"
+if bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$empty_binding_output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
+  --manifest-version "" >/dev/null 2>&1
+then
+  fail "an explicitly supplied empty v2 option must not fall back to legacy v1"
+fi
+duplicate_binding_output="$sandbox/duplicate-binding.tar.gpg"
+if bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$duplicate_binding_output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
+  "${v2_args[@]}" --manifest-version 2 >/dev/null 2>&1
+then
+  fail "duplicate v2 binding options must be rejected"
+fi
+mismatched_key_output="$sandbox/mismatched-key.tar.gpg"
+if bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$mismatched_key_output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
+  --manifest-version 2 \
+  --backup-id "$backup_id" \
+  --attempt-sequence "$attempt_sequence" \
+  --captured-generation "$captured_generation" \
+  --lease-fence "$lease_fence" \
+  --object-key "private/cluster-a/g-104/a-42-${backup_id}.tar.gpg" >/dev/null 2>&1
+then
+  fail "object key must bind the exact generation, sequence, and backup id"
+fi
+
+bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
+  "${v2_args[@]}" >/dev/null
 [[ -f "$output" && ! -L "$output" ]] || fail "encrypted output is missing"
 [[ "$(stat -c '%a' "$output")" == "600" ]] || fail "encrypted output is not mode 0600"
 before="$(sha256sum "$output" | awk '{print $1}')"
@@ -147,6 +195,29 @@ for index in "${!expected_names[@]}"; do
   [[ "${observed_names[$index]}" == "${expected_names[$index]}" ]] ||
     fail "encrypted archive member order is invalid"
 done
+observed_manifest="$sandbox/observed-manifest.json"
+tar -xOf "$observed" manifest.json >"$observed_manifest"
+python3 - "$observed_manifest" "$backup_id" "$attempt_sequence" \
+  "$captured_generation" "$lease_fence" "$object_key" <<'PY' || fail "v2 manifest binding is invalid"
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    "backup_id": sys.argv[2],
+    "attempt_sequence": int(sys.argv[3]),
+    "captured_generation": int(sys.argv[4]),
+    "lease_fence": int(sys.argv[5]),
+    "object_key": sys.argv[6],
+}
+if manifest.get("format_version") != 2:
+    raise SystemExit(1)
+for key, value in expected.items():
+    if manifest.get(key) != value:
+        raise SystemExit(1)
+PY
+rm -f -- "$observed_manifest"
 rm -f -- "$observed"
 bash "$HARNESS" stop >/dev/null
 printf 'backup-rqlite contract passed\n'
