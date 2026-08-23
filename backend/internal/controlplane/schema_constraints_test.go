@@ -1231,3 +1231,123 @@ func TestBackupRPOSchemaRejectsInconsistentStateAndUnfencedAttempts(t *testing.T
 		})
 	}
 }
+
+func TestBackupRPOStateRejectsNullVerifiedScalarFields(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		index int
+	}{
+		{name: "verified-size-bytes", index: 4},
+		{name: "verified-manifest-version", index: 5},
+		{name: "verified-at-unix", index: 6},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, db := mustAppliedSchema(t)
+			backupID := strings.Repeat("e", 32)
+			args := []any{
+				backupID,
+				"backups/g-1/a-1-" + backupID + ".tar.gpg",
+				repeatHex("e"),
+				"version-1",
+				int64(4_096),
+				int64(2),
+				int64(1_000_000),
+			}
+			args[testCase.index] = nil
+
+			mustRequestFail(t, ctx, db, rqlite.Statement{SQL: `
+				UPDATE backup_rpo_state
+				SET dirty_generation=2,
+				    verified_generation=1,
+				    last_attempt_sequence=1,
+				    verified_backup_id=?,
+				    verified_object_key=?,
+				    verified_object_sha256=?,
+				    verified_object_version=?,
+				    verified_size_bytes=?,
+				    verified_manifest_version=?,
+				    verified_at_unix=?
+				WHERE singleton_id=1
+			`, Args: args})
+		})
+	}
+}
+
+func mustInsertPendingBackupRPOAttempt(t *testing.T, sequence int64, hexDigit string) (context.Context, rqlite.RQLite) {
+	t.Helper()
+	ctx, db := mustAppliedSchema(t)
+	backupID := strings.Repeat(hexDigit, 32)
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		INSERT INTO backup_rpo_attempts(
+			restore_epoch,attempt_sequence,phase,backup_id,captured_generation,
+			object_key,object_sha256,object_version,object_size_bytes,
+			manifest_version,adapter_contract_version,capability_generation,
+			capability_evidence_sha256,capability_expires_at_unix,
+			lease_holder_id,lease_token,lease_fence,failure_code,
+			created_at_unix,updated_at_unix
+		) VALUES(1,?,'pending',?,1,?,?,NULL,4096,2,'yandex-s3-v1',1,?,2000000,
+		         'node-s2',?,1,NULL,1000000,1000000)
+	`, Args: []any{
+		sequence,
+		backupID,
+		fmt.Sprintf("backups/g-1/a-%d-%s.tar.gpg", sequence, backupID),
+		strings.Repeat(hexDigit, 64),
+		repeatHex("c"),
+		fmt.Sprintf("lease-token-%d", sequence),
+	}})
+	return ctx, db
+}
+
+func TestBackupRPOAttemptIdentityCannotBeRekeyed(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		sequence  int64
+		hexDigit  string
+		statement rqlite.Statement
+	}{
+		{
+			name:     "restore-epoch",
+			sequence: 101,
+			hexDigit: "a",
+			statement: rqlite.Statement{SQL: `
+				UPDATE backup_rpo_attempts
+				SET restore_epoch=2
+				WHERE restore_epoch=1 AND attempt_sequence=101
+			`},
+		},
+		{
+			name:     "attempt-sequence",
+			sequence: 102,
+			hexDigit: "b",
+			statement: rqlite.Statement{SQL: `
+				UPDATE backup_rpo_attempts
+				SET attempt_sequence=202
+				WHERE restore_epoch=1 AND attempt_sequence=102
+			`},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, db := mustInsertPendingBackupRPOAttempt(t, testCase.sequence, testCase.hexDigit)
+			mustRequestFail(t, ctx, db, testCase.statement)
+		})
+	}
+}
+
+func TestBackupRPOAttemptLifecycleUpdatePreservesIdentity(t *testing.T) {
+	const sequence = int64(103)
+	ctx, db := mustInsertPendingBackupRPOAttempt(t, sequence, "d")
+	mustRequest(t, ctx, db, rqlite.Statement{SQL: `
+		UPDATE backup_rpo_attempts
+		SET phase='applied', object_version='version-103', updated_at_unix=1000001
+		WHERE restore_epoch=1 AND attempt_sequence=103
+	`})
+
+	result := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
+		SELECT restore_epoch,attempt_sequence,phase,object_version,updated_at_unix
+		FROM backup_rpo_attempts
+		WHERE restore_epoch=1 AND attempt_sequence=103
+	`})
+	if got := fmt.Sprint(result.Rows); got != "[map[attempt_sequence:103 object_version:version-103 phase:applied restore_epoch:1 updated_at_unix:1000001]]" {
+		t.Fatalf("updated backup RPO attempt = %s", got)
+	}
+}
