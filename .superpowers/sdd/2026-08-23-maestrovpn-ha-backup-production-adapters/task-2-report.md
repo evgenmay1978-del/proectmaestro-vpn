@@ -172,3 +172,157 @@ git ls-remote origin refs/heads/codex/yandex-cdn-whitelist-task3-sync
 ```
 
 The two full SHAs must match before remote synchronization is reported.
+
+## Fix round 1 — reviewer findings
+
+Date: 2026-08-23.
+
+### Findings fixed
+
+1. A verified `backup_rpo_state` row could set `verified_size_bytes`, `verified_manifest_version`, or `verified_at_unix` to SQL `NULL`. SQLite accepts a `CHECK` expression whose result is `NULL`, so the existing positive/equality comparisons were insufficient.
+2. `UNIQUE(restore_epoch, attempt_sequence)` plus the no-delete trigger did not burn an identity pair durably because an `UPDATE` could re-key the row and free the old pair.
+
+The minimal production change adds explicit `IS NOT NULL` predicates for those three verified scalar fields and a `BEFORE UPDATE OF restore_epoch, attempt_sequence` trigger whose `WHEN` clause rejects only actual identity-key changes. Phase, object-version, and timestamp lifecycle updates remain allowed.
+
+### Files changed in fix round 1
+
+- `backend/internal/controlplane/schema_constraints_test.go` — permanent behavioral coverage for all three nullable verified scalars, both identity-key updates, and one allowed phase/object-version update.
+- `backend/internal/controlplane/migrations/0005_backup_rpo.sql` — three explicit non-null predicates and the identity-key immutability trigger.
+- `.superpowers/sdd/2026-08-23-maestrovpn-ha-backup-production-adapters/task-2-report.md` — this fix-round evidence.
+
+Protected `normalize.patch` and `.superpowers/sdd/2026-08-20-yandex-cdn-whitelist/task-4-report.md` remained unstaged and unmodified by this task.
+
+### Strict TDD evidence
+
+The local machine must not start a three-node rqlite cluster. The tagged tests were therefore compiled locally and executed behaviorally through a scratch-only Python `sqlite3` bridge that applies the real repository migration file. The scratch harness is outside the repository and is not committed.
+
+Initial test selection without the build tag:
+
+```powershell
+& 'C:\Users\User\Documents\Codex\2026-08-05\new-chat\.tools\go1.25.0\go\bin\go.exe' test ./internal/controlplane -run '^TestBackupRPOSchemaRejectsInconsistentStateAndUnfencedAttempts$' -count=1
+```
+
+Result: `ok ... [no tests to run]`. The guard recorded this as a failure; inspection confirmed `//go:build rqlite_integration`.
+
+The corrected tagged runtime command reached the fixed local endpoints but no cluster was available:
+
+```powershell
+& 'C:\Users\User\Documents\Codex\2026-08-05\new-chat\.tools\go1.25.0\go\bin\go.exe' test -tags=rqlite_integration ./internal/controlplane -run '^TestBackupRPOSchemaRejectsInconsistentStateAndUnfencedAttempts$' -count=1
+```
+
+Result: failed at `controlplane: verify voter foreign keys: rqlite: request transport failed`. It was not retried. The owner prohibited starting rqlite on this PC and corrected the local gate to compile-only plus an isolated behavioral executor.
+
+Compile-only baseline after adding permanent Go tests:
+
+```powershell
+& 'C:\Users\User\Documents\Codex\2026-08-05\new-chat\.tools\go1.25.0\go\bin\go.exe' test -c -tags=rqlite_integration -o 'C:\Users\User\Documents\Codex\2026-08-23-task15-task2-fix1-red-controlplane.test.exe' ./internal/controlplane
+```
+
+Result: exit `0`.
+
+The test-only RED checkpoint was committed and pushed before production SQL changed:
+
+- commit `409437644a493f6c74c12c1c632c63dad0b09470`, title `test(ha): expose backup RPO schema gaps`;
+- `git push origin HEAD:refs/heads/codex/yandex-cdn-whitelist-task3-sync` succeeded;
+- `git ls-remote` matched the same full SHA.
+
+HA run `32652513522` failed at `Test rqlite integration`, but base run `32650871498` for `8d22a342282da8149b383b159dfa1789f51970d0` failed at the same step. That comparison was explicitly rejected as TDD evidence. Public job logs required repository admin access, and the browser runtime was unavailable; neither blocked route was retried.
+
+The corrected scratch behavioral harness command was:
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'
+python 'C:\Users\User\Documents\Codex\2026-08-23-task15-task2-sqlite-harness-01\verify_v5_backup_rpo.py' 'C:\Users\User\Documents\Codex\2026-08-05\new-chat\mvpn-yandex-cdn-whitelist-task3-sync\backend\internal\controlplane\migrations\0005_backup_rpo.sql'
+```
+
+Before the SQL fix it executed the real v5 statements and produced the required assertion-level RED:
+
+```text
+ASSERTION_LEVEL_RED=null-verified-size-bytes,null-verified-manifest-version,null-verified-at-unix,rekey-restore-epoch,rekey-attempt-sequence
+AssertionError: backup RPO v5 behavior gaps: null-verified-size-bytes, null-verified-manifest-version, null-verified-at-unix, rekey-restore-epoch, rekey-attempt-sequence
+EXPECTED_ASSERTION_LEVEL_RED_CONFIRMED
+```
+
+The same RED execution also proved the pending-to-applied phase/object-version update succeeded; otherwise it would have reported `allowed-lifecycle-update` and failed the expected-RED gate for the wrong reason.
+
+The generated SQL patch was inspected completely, passed `git apply --check --recount -p2`, and was applied exactly once. Running the identical harness afterward produced:
+
+```text
+ASSERTION_LEVEL_GREEN=all-null-and-identity-rejections-with-lifecycle-update
+```
+
+### Local GREEN commands and results
+
+Every Go command used Go `1.25.0` with `GOMAXPROCS=1`, `GOMEMLIMIT=512MiB`, `GOFLAGS=-p=1`, and the established external Go caches.
+
+```powershell
+& 'C:\Users\User\Documents\Codex\2026-08-05\new-chat\.tools\go1.25.0\go\bin\go.exe' test -c -tags=rqlite_integration -o 'C:\Users\User\Documents\Codex\2026-08-23-task15-task2-fix1-green-controlplane.test.exe' ./internal/controlplane
+```
+
+Result: exit `0`.
+
+```powershell
+& 'C:\Users\User\Documents\Codex\2026-08-05\new-chat\.tools\go1.25.0\go\bin\go.exe' test ./internal/controlplane -run 'TestOrderedMigrations|TestBackupRPO' -count=1
+```
+
+Result: `ok .../backend/internal/controlplane 0.049s`.
+
+```powershell
+& 'C:\Users\User\Documents\Codex\2026-08-05\new-chat\.tools\go1.25.0\go\bin\go.exe' test ./internal/controlplane -count=1
+```
+
+Result: `ok .../backend/internal/controlplane 0.053s`.
+
+`git diff --check` and the staged diff check both exited `0`. Migrations v1-v4 remained byte-identical:
+
+- v1 `0b24196b715b6acac0f253368fe77ec6066d5582` — `MATCH=True`;
+- v2 `2ebfe039f5048d6597ba907e6ea0fbc731e6c49a` — `MATCH=True`;
+- v3 `4f5343766ea7f53e5af36597358b4d15366dfcdd` — `MATCH=True`;
+- v4 `853a94f9c986ed801a25c49eb09d116ecda8982d` — `MATCH=True`.
+
+### Fix commit, remote SHA, and GitHub GREEN
+
+The minimal SQL fix commit is:
+
+- `95bfe9f230ea48b3c2544863d18712fa022dda88` — `fix(ha): enforce backup RPO invariants`.
+
+```powershell
+git push origin HEAD:refs/heads/codex/yandex-cdn-whitelist-task3-sync
+git rev-parse HEAD
+git ls-remote origin refs/heads/codex/yandex-cdn-whitelist-task3-sync
+```
+
+Result: the explicit-refspec push succeeded and both local and remote were exactly `95bfe9f230ea48b3c2544863d18712fa022dda88` before this report-only closeout commit.
+
+GitHub HA evidence on that exact code SHA:
+
+- run `32653849782`: `completed/success`;
+- job `97229458579`, `Go and isolated rqlite`: `completed/success`;
+- step `Test rqlite integration`: `completed/success`.
+
+The exact-SHA HA job also contains the repository formatting, unit, race, vet, harness-contract, and isolated-rqlite gates defined by the unchanged workflow. No workflow YAML was edited.
+
+### Migration and rollback compatibility after fix round 1
+
+- Migrations v1-v4 are unchanged byte-for-byte.
+- The v5 change is still additive relative to v4; safe defaults for every pre-existing non-backup `cluster_job_leases` row are unchanged.
+- The identity trigger is limited to changes of `restore_epoch` or `attempt_sequence`; a no-op assignment of the same keys and ordinary lifecycle updates are not blocked.
+- The verified tuple now rejects SQL `NULL` for all required scalar fields instead of relying on three-valued `CHECK` evaluation.
+- The v5 checksum changed between preview commits `8d22a34...`/`4094376...` and the corrected code commit `95bfe9f...`. No production migration was run and production remains NO-GO. Any disposable environment that applied the preview v5 must be reset or restored from a pre-v5 snapshot; deleting or editing the migration receipt in place is not an approved rollback.
+- Rolling a database that has applied corrected v5 back to a binary containing the preview v5 checksum fails closed by design. Operational rollback requires the corrected-v5-aware binary or a verified pre-v5 database restore under the existing write-freeze procedure.
+
+### Fix-round self-review
+
+- The production delta is twelve SQL lines: three explicit `IS NOT NULL` predicates and one nine-line trigger statement.
+- The attempt uniqueness remains exactly `UNIQUE(restore_epoch, attempt_sequence)`; the same sequence remains valid in a different restore epoch.
+- The trigger closes only the re-key escape hatch and leaves phase/object-version updates functional, as proved by both permanent Go coverage and the local real-SQL harness.
+- Frozen Task 1 expectations were strengthened, not weakened; no v1-v4 migration, workflow, production, deployment, release, OTA, tag, merge, or version `1.0.157` state changed.
+- No secrets, customer identifiers, production endpoints, or credentials were written to the harness, tests, migration, report, or command output.
+
+### Tests not run and remaining risks
+
+- Tagged rqlite integration tests were not executed locally because the owner prohibited starting a cluster on the weak PC. They compiled locally and passed on GitHub's isolated three-node cluster at the exact code SHA above.
+- Local `go test ./...`, `go test -race ./...`, and `go vet ./...` were not run under the owner-machine limits. The unchanged exact-SHA HA job completed successfully, including its broader backend/race/vet gates.
+- The scratch Python harness is an executor bridge, not a shipped test artifact; permanent behavior coverage is in `schema_constraints_test.go`.
+- No production database, Yandex Object Storage, systemd service, S1-S4 node, customer, billing, bot, Android/TV, release, deployment, OTA, tag, merge, or version mutation was accessed or performed.
+- Production remains NO-GO. Later adapter/store/wiring tasks and their rollout gates remain required.
