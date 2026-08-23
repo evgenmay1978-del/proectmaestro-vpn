@@ -11,6 +11,7 @@ from agent_payload_policy import main as assert_agent_payload_policy
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ha-dr-restore-drill.yml"
+CONTROL_WORKFLOW = ROOT / ".github" / "workflows" / "ha-control-plane.yml"
 
 REQUIRED_STEPS = (
     "Check Go formatting and shell syntax",
@@ -28,11 +29,39 @@ def fail(message: str) -> None:
     raise AssertionError(message)
 
 
+def materialized_agent_allowlist(text: str) -> tuple[str, ...]:
+    marker = "- name: Check materialized agent boundary"
+    start = text.find(marker)
+    if start < 0:
+        fail("workflow lacks the materialized agent boundary gate")
+    end = text.find("\n      - name:", start + len(marker))
+    if end < 0:
+        fail("materialized agent boundary gate is not bounded by a next step")
+
+    paths = []
+    for line in text[start:end].splitlines():
+        match = re.match(
+            r"\s*(internal/(?:applyagent|controlplane)/[^\s)]+\.go)",
+            line,
+        )
+        if match is not None:
+            paths.append(match.group(1))
+    if not paths:
+        fail("materialized agent boundary gate has no explicit allowlist")
+    return tuple(paths)
+
+
 def main() -> int:
     if not WORKFLOW.is_file():
         fail("dedicated DR workflow is absent")
+    if not CONTROL_WORKFLOW.is_file():
+        fail("HA control-plane workflow is absent")
     text = WORKFLOW.read_text(encoding="utf-8")
+    control_text = CONTROL_WORKFLOW.read_text(encoding="utf-8")
     lowered = text.lower()
+
+    if materialized_agent_allowlist(text) != materialized_agent_allowlist(control_text):
+        fail("materialized agent allowlist diverges from HA control-plane workflow")
 
     if not re.search(r"(?m)^permissions:\s*\n\s{2}contents:\s*read\s*$", text):
         fail("workflow permissions must be contents: read only")
