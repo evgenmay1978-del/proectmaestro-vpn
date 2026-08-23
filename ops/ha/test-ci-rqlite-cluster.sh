@@ -17,6 +17,18 @@ checksum_count="$(grep -cF '9dca2fc957ee9445bdb94c08ca0ccd1b761d33c7e6fd729c224d
 [[ "$version_count" == 1 ]] || fail "rqlite version pin must appear exactly once"
 [[ "$checksum_count" == 1 ]] || fail "rqlite checksum pin must appear exactly once"
 
+for token in \
+  '--connect-timeout 10' \
+  '--max-time 120' \
+  '--retry 3' \
+  '--retry-delay 1' \
+  '--retry-max-time 180' \
+  '--retry-all-errors'
+do
+  grep -qF -- "$token" "$HARNESS" ||
+    fail "rqlite download lacks bounded transport retry token: $token"
+done
+
 if grep -Eq 'curl[^|]*\|[[:space:]]*(sh|bash)' "$HARNESS"; then
   fail "download-and-execute pipeline is forbidden"
 fi

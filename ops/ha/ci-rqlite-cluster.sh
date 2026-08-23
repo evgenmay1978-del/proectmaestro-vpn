@@ -424,6 +424,9 @@ start_cluster() {
   fi
   archive="$root/$ARCHIVE_NAME"
   curl --fail --silent --show-error --location \
+    --connect-timeout 10 --max-time 120 \
+    --retry 3 --retry-delay 1 --retry-max-time 180 \
+    --retry-all-errors \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --output "$archive" "$DOWNLOAD_URL"
   printf '%s  %s\n' "$RQLITE_SHA256" "$archive" | sha256sum -c - >/dev/null
