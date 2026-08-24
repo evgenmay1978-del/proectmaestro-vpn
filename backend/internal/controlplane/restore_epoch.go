@@ -14,12 +14,12 @@ import (
 )
 
 type RestoreState struct {
-	ClusterID                string
-	RestoreEpoch             int64
-	RestoredFromBackupSHA256 string
-	Activated                bool
-	CreatedAtUnix            int64
-	ActivatedAtUnix          int64
+	ClusterID                    string
+	RestoreEpoch                 int64
+	RestoredFromBackupSHA256     string
+	Activated                    bool
+	CreatedAtUnix                int64
+	ActivatedAtUnix              int64
 }
 
 type RestoreEpochStore struct {
