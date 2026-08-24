@@ -123,3 +123,12 @@ TV-геометрию и ветки `isTv`.
 ### PowerShell regex generation guard
 
 When a generated Python or PowerShell regex contains both quote types, use a single-quoted here-string as the whole-block template. Write it to an external new mirror, inspect it, and generate the patch from old/new mirrors; never embed that regex in a quoted PowerShell expression. Keep synthetic URL/token fixtures in named in-memory test data and keep owner-supplied endpoints or credentials out of derivative docs and secrecy scans.
+
+### PowerShell exact-source transformation guard
+
+For an exact multiline source transformation, represent the input and output as
+explicit line arrays or as one single-quoted here-string, then serialize with
+`-join "`n"` and BOM-less UTF-8. A PowerShell single-quoted string treats
+backslashes literally: `\n` and `\r\n` are text, not line separators. Assert the
+exact match/replacement count, inspect the generated mirror, and only then build
+the old/new patch; after this root cause, do not tune another escaped fragment.
