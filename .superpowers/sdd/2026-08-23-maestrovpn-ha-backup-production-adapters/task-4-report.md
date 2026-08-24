@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status after final independent review: isolation-fix commit `bfbaca288947f29743eefe09c9fbe803fe39e56e` remains exact-SHA GREEN in HA run `32673823686`, job `97278614026`. The additional test-only committed-unknown cleanup, epoch-exhaustion, and cleanup-diagnostic corrections are locally GREEN and await a replacement exact-SHA HA run.
+Status at final exact-SHA GREEN closeout: final-review fix commit `dcddf47e6f11e83e5da9dc97c2dd6cdaaa564fd8` passed HA run `32677121595`, job `97287185481`, with 26 successful steps and no non-success steps. Implementation, all independent-review corrections, isolation diagnosis, and final three-voter evidence are complete.
 
 ## Scope and compatibility
 
@@ -113,7 +113,7 @@ Unit coverage asserts one mutation/one evidence read and no replay. Tagged integ
 
 - Local real three-voter rqlite integration was not run on the weak Windows PC.
 - Local race and vet runs were not run.
-- Exact-SHA GitHub Actions run `32673823686`, job `97278614026`, supplied the race, vet, and real three-voter integration evidence.
+- Final exact-SHA GitHub Actions run `32677121595`, job `97287185481`, supplied the race, vet, and real three-voter integration evidence with 26 successful steps and no non-success steps.
 
 ## Risks
 
@@ -226,4 +226,6 @@ Additional bounded local evidence:
 - `go test -tags rqlite_integration ./internal/controlplane -run '^$' -count=1`: passed in `0.047s` with no tests run.
 - `git diff --check -- backend/internal/controlplane/backup_rpo_integration_test.go`: passed.
 
-Self-review confirmed cleanup registration precedes every ambiguous prepare mutation, epoch exhaustion rolls back the transaction, the shared trace prevents duplicate annotations, and append-only attempt evidence remains untouched. The local real three-voter suite, race, and vet were not rerun; the prior exact-SHA HA GREEN remains the latest remote evidence until this test-only correction receives its own exact-SHA run. No workflow YAML, production implementation, schema, migration, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed.
+Final-review fix commit `dcddf47e6f11e83e5da9dc97c2dd6cdaaa564fd8` passed exact-SHA HA run `32677121595`, job `97287185481`: 26 steps succeeded and no step had a non-success conclusion. This replacement run includes formatting, Python contracts, backend unit, race, vet, harness, isolated real-rqlite integration, importer parity, shadow parity, three-node mTLS/importer, and cleanup.
+
+Self-review confirmed cleanup registration precedes every ambiguous prepare mutation, epoch exhaustion rolls back the transaction, the shared trace prevents duplicate annotations, and append-only attempt evidence remains untouched. The local real three-voter suite, race, and vet were not rerun; final exact-SHA HA now supplies those checks. No workflow YAML, production implementation, schema, migration, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed.
