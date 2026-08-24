@@ -75,13 +75,46 @@ Second review GREEN evidence:
 
 The first full regression after the phase fix exposed the old synthetic failed-CAS fixture's missing phase column. That fixture now includes verified_generation, phase, and the production phase/generation CHECK; its focused test and the full package then passed.
 
-## Safety and Deferred Verification
+## Final Gate Closure
 
+Final implementation code SHA: e9c1c773bba99e6b68f7ef4503f4a9e157524be9.
+
+Local RED evidence:
+- The actual migration-v1-v6 SQLite proof seeded a valid verified backup state and failed because the helper incremented dirty_generation without changing phase; SQLite rejected the transaction with the migration-v5 phase/generation CHECK.
+- The failed-CAS regression separately proved the earlier setting generation-only gate could mutate winner members, secret, and audit while leaving backup dirty generation unchanged.
+
+Local GREEN evidence:
+- Focused verified-state actual-schema regression: PASS (0.578s).
+- Actual-schema four-flow/five-state matrix: PASS, 20/20 cases (5.439s).
+- Focused failed-CAS SQLite regression: PASS (0.369s).
+- Full backend/internal/controlplane regression package: PASS (6.178s).
+- rqlite_integration tagged compile: PASS (0.068s, no tests to run).
+- Cached git diff check: PASS.
+
+GitHub final verification:
+- HA workflow run 32698556348: SUCCESS.
+- HA job 97345308261: SUCCESS, 26/26 steps.
+- Yandex isolated release workflow run 32698556317: SUCCESS.
+- format-unit job 97345308153: SUCCESS.
+- offline-replay job 97345453295: SUCCESS.
+- race-vet job 97345453347: SUCCESS.
+- rqlite-purge job 97345453396: SUCCESS.
+- android-test-apk job 97345699081: SUCCESS.
+- Android build, metadata, signer, and artifact steps: SUCCESS.
+
+Fresh independent final review:
+- Specification compliance: PASS.
+- Code quality: APPROVED.
+- Findings: no Critical, Important, or Minor issues.
+
+## Safety and Version
+
+- Baseline application version remains 1.0.157; no version bump was made.
 - Protected normalize.patch and the Task 4 report were not edited or staged by this task.
-- No production, server, Telegram bot, OTA, release, cutover, or workflow mutation was performed.
-- Broad repository tests, race, vet, and live multi-voter rqlite verification remain GitHub-owned because the local computer is intentionally kept to focused checks.
-- Exact commit SHA is reported in the task handoff; a commit cannot embed its own final SHA without changing that SHA.
+- No production, server, Telegram bot, OTA, release, cutover, or workflow mutation was performed; the recorded GitHub runs were verification only.
 
-## Commit
+## Commits
 
-Required title: feat(ha): mark core mutations backup-dirty atomically
+Implementation title: feat(ha): mark core mutations backup-dirty atomically
+Final implementation code SHA: e9c1c773bba99e6b68f7ef4503f4a9e157524be9
+Report-only closure title: docs(ha): close task 5 dirty-generation gate
