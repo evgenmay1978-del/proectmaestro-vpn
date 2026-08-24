@@ -16,8 +16,13 @@ func TestDeleteKeepsTombstoneUntilEveryRequiredServiceAcknowledges(t *testing.T)
 		rqlite.Result{RowsAffected: 1},
 		rqlite.Result{RowsAffected: 4},
 		rqlite.Result{RowsAffected: 4},
-		rqlite.Result{RowsAffected: 0},
 		rqlite.Result{RowsAffected: 4},
+		rqlite.Result{Rows: []map[string]any{{"dirty_generation": int64(2)}}},
+		rqlite.Result{},
+		rqlite.Result{Rows: []map[string]any{{
+			"generation": int64(9), "reason": "owner-delete",
+			"customer_status": "deleted", "target_count": int64(4),
+		}}},
 	)}}
 	service, _ := testService(t, db)
 
@@ -40,7 +45,7 @@ func TestDeleteKeepsTombstoneUntilEveryRequiredServiceAcknowledges(t *testing.T)
 			t.Fatalf("tombstone transaction lacks %q: %s", required, sql)
 		}
 	}
-	for _, required := range []string{"update desired_node_state", "insert into outbox_events"} {
+	for _, required := range []string{"on conflict(customer_id,node_id,service_name) do update", "insert into outbox_events"} {
 		if !strings.Contains(sql, required) {
 			t.Fatalf("tombstone transaction lacks revoke propagation %q: %s", required, sql)
 		}
@@ -56,6 +61,7 @@ func TestPermanentRetirementRequiresAuditedOwnerCAS(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
 		rqlite.Result{Rows: []map[string]any{{"retired": int64(1)}}},
 		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{Rows: []map[string]any{{"dirty_generation": int64(2)}}},
 		rqlite.Result{RowsAffected: 3},
 	)}}
 	service, _ := testService(t, db)

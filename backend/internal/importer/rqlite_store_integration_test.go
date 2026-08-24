@@ -19,6 +19,42 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
+type task6CommittedUnknownRQLite struct {
+	rqlite.RQLite
+	injectNext bool
+}
+
+func (db *task6CommittedUnknownRQLite) Request(
+	ctx context.Context,
+	level rqlite.Consistency,
+	transaction bool,
+	statements ...rqlite.Statement,
+) ([]rqlite.Result, error) {
+	results, err := db.RQLite.Request(ctx, level, transaction, statements...)
+	if err != nil || !db.injectNext {
+		return results, err
+	}
+	db.injectNext = false
+	return nil, &rqlite.TransportError{
+		Operation: "request response", UnknownOutcome: true, Err: context.DeadlineExceeded,
+	}
+}
+
+func task6IntegrationDirtyGeneration(t *testing.T, ctx context.Context, db rqlite.RQLite) int64 {
+	t.Helper()
+	results, err := db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: "SELECT dirty_generation FROM backup_rpo_state WHERE singleton_id=1",
+	})
+	if err != nil || len(results) != 1 || len(results[0].Rows) != 1 {
+		t.Fatalf("read backup dirty generation: %#v, %v", results, err)
+	}
+	generation, ok := applyRowInt(results[0].Rows[0]["dirty_generation"])
+	if !ok {
+		t.Fatalf("backup dirty generation is malformed: %#v", results[0].Rows[0])
+	}
+	return generation
+}
+
 func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	db, err := rqlite.New(rqlite.Config{
 		Endpoints: []string{
@@ -36,6 +72,8 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
+	dirtyBefore := task6IntegrationDirtyGeneration(t, ctx, db)
+	task6DB := &task6CommittedUnknownRQLite{RQLite: db}
 
 	snapshot := decodeFixture(t, "orders-pending-credited.json")
 	snapshot.Orders[0].PaymentCode = "MCRD-RQLITE-E2E"
@@ -58,7 +96,7 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		RunID: "importer-integration-run-v1", PlanDigest: plan.PlanDigest, Index: 0,
 		Digest: digestBatch(selected), Operations: selected,
 	}
-	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
+	store, err := NewRQLiteApplyStore(task6DB, func() time.Time { return time.Unix(1_500_000, 0) })
 	if err != nil {
 		t.Fatalf("NewRQLiteApplyStore: %v", err)
 	}
@@ -72,12 +110,26 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	if !progress.New && !progress.Completed && len(progress.AppliedBatchDigests) == 0 {
 		t.Fatal("run was neither created nor resumed")
 	}
+	if dirty := task6IntegrationDirtyGeneration(t, ctx, db); dirty != dirtyBefore {
+		t.Fatalf("BeginOrResume dirty generation=%d, want %d", dirty, dirtyBefore)
+	}
+	task6DB.injectNext = true
 	receipt, err := store.CommitBatch(ctx, batch)
 	if err != nil {
 		t.Fatalf("CommitBatch: %v", err)
 	}
-	if receipt.Digest != batch.Digest {
+	if receipt.Digest != batch.Digest || !receipt.AlreadyApplied {
 		t.Fatalf("receipt = %#v", receipt)
+	}
+	if dirty := task6IntegrationDirtyGeneration(t, ctx, db); dirty != dirtyBefore+1 {
+		t.Fatalf("committed-unknown batch dirty generation=%d, want %d", dirty, dirtyBefore+1)
+	}
+	replayedReceipt, err := store.CommitBatch(ctx, batch)
+	if err != nil || replayedReceipt.Digest != batch.Digest || !replayedReceipt.AlreadyApplied {
+		t.Fatalf("CommitBatch replay receipt=%#v error=%v", replayedReceipt, err)
+	}
+	if dirty := task6IntegrationDirtyGeneration(t, ctx, db); dirty != dirtyBefore+1 {
+		t.Fatalf("batch replay dirty generation=%d, want %d", dirty, dirtyBefore+1)
 	}
 	target, err := store.InspectTarget(ctx)
 	if err != nil {
@@ -86,11 +138,21 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	if target.Empty || target.BusinessDigest == "" {
 		t.Fatalf("target = %#v", target)
 	}
-	if err := store.Complete(ctx, ApplyCompletion{
+	completion := ApplyCompletion{
 		RunID: batch.RunID, SourceDigest: plan.SourceDigest,
 		PlanDigest: plan.PlanDigest, TargetDigest: target.BusinessDigest,
-	}); err != nil {
+	}
+	if err := store.Complete(ctx, completion); err != nil {
 		t.Fatalf("Complete: %v", err)
+	}
+	if dirty := task6IntegrationDirtyGeneration(t, ctx, db); dirty != dirtyBefore+2 {
+		t.Fatalf("completed run dirty generation=%d, want %d", dirty, dirtyBefore+2)
+	}
+	if err := store.Complete(ctx, completion); err != nil {
+		t.Fatalf("Complete replay: %v", err)
+	}
+	if dirty := task6IntegrationDirtyGeneration(t, ctx, db); dirty != dirtyBefore+2 {
+		t.Fatalf("completion replay dirty generation=%d, want %d", dirty, dirtyBefore+2)
 	}
 
 	results, err := db.QueryLinearizable(ctx,
@@ -254,28 +316,28 @@ func TestRQLiteApplyStoreWritesBotRoutePollStateAndPendingCallback(t *testing.T)
 	snapshot.BotBindings[0].TokenFingerprintHMAC = strings.Repeat("5", 64)
 	snapshot.BotBindings[0].CredentialVersion = 2
 	snapshot.BotCredentialRotations = []LegacyBotCredentialRotation{{
-		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:         snapshot.BotBindings[0].BotIdentityHMAC,
 		OldTokenFingerprintHMAC: oldFingerprint,
 		NewTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
-		OldCredentialVersion: 1,
-		NewCredentialVersion: 2,
-		AuditDigest: strings.Repeat("6", 64),
+		OldCredentialVersion:    1,
+		NewCredentialVersion:    2,
+		AuditDigest:             strings.Repeat("6", 64),
 	}}
 	snapshot.BotPollStates = []LegacyBotPollState{{
-		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:             snapshot.BotBindings[0].BotIdentityHMAC,
 		CurrentTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
-		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
-		NextUpdateID: 42,
-		CapturedFence: 11,
+		CredentialVersion:           snapshot.BotBindings[0].CredentialVersion,
+		NextUpdateID:                42,
+		CapturedFence:               11,
 	}}
 	snapshot.PendingCallbacks = []LegacyCallback{{
-		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:      snapshot.BotBindings[0].BotIdentityHMAC,
 		TokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
-		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
-		CallbackHMAC: strings.Repeat("4", 64),
-		OrderID: "legacy-order-callback",
-		Action: "confirm",
-		State: "pending",
+		CredentialVersion:    snapshot.BotBindings[0].CredentialVersion,
+		CallbackHMAC:         strings.Repeat("4", 64),
+		OrderID:              "legacy-order-callback",
+		Action:               "confirm",
+		State:                "pending",
 	}}
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
@@ -340,11 +402,11 @@ WHERE audit_digest=?`, Args: []any{snapshot.BotCredentialRotations[0].AuditDiges
 
 	mismatchSnapshot := decodeFixture(t, "bot-bindings-v1.json")
 	mismatchSnapshot.BotPollStates = []LegacyBotPollState{{
-		BotIdentityHMAC: mismatchSnapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:             mismatchSnapshot.BotBindings[0].BotIdentityHMAC,
 		CurrentTokenFingerprintHMAC: strings.Repeat("3", 64),
-		CredentialVersion: mismatchSnapshot.BotBindings[0].CredentialVersion,
-		NextUpdateID: 43,
-		CapturedFence: 12,
+		CredentialVersion:           mismatchSnapshot.BotBindings[0].CredentialVersion,
+		NextUpdateID:                43,
+		CapturedFence:               12,
 	}}
 	mismatchPlan, mismatchReport := Plan(mismatchSnapshot, testPlanOptions())
 	if len(mismatchReport.Blockers) != 0 {
@@ -388,13 +450,13 @@ WHERE audit_digest=?`, Args: []any{snapshot.BotCredentialRotations[0].AuditDiges
 
 	callbackMismatchSnapshot := decodeFixture(t, "bot-bindings-v1.json")
 	callbackMismatchSnapshot.PendingCallbacks = []LegacyCallback{{
-		BotIdentityHMAC: callbackMismatchSnapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:      callbackMismatchSnapshot.BotBindings[0].BotIdentityHMAC,
 		TokenFingerprintHMAC: strings.Repeat("3", 64),
-		CredentialVersion: callbackMismatchSnapshot.BotBindings[0].CredentialVersion,
-		CallbackHMAC: snapshot.PendingCallbacks[0].CallbackHMAC,
-		OrderID: "legacy-order-callback",
-		Action: "confirm",
-		State: "in_flight",
+		CredentialVersion:    callbackMismatchSnapshot.BotBindings[0].CredentialVersion,
+		CallbackHMAC:         snapshot.PendingCallbacks[0].CallbackHMAC,
+		OrderID:              "legacy-order-callback",
+		Action:               "confirm",
+		State:                "in_flight",
 	}}
 	callbackMismatchPlan, callbackMismatchReport := Plan(callbackMismatchSnapshot, testPlanOptions())
 	if len(callbackMismatchReport.Blockers) != 0 {
@@ -414,14 +476,14 @@ WHERE audit_digest=?`, Args: []any{snapshot.BotCredentialRotations[0].AuditDiges
 		t.Fatalf("mismatch callback operations = %#v", callbackMismatchOperations)
 	}
 	callbackMismatchBatch := ApplyBatch{
-		RunID: "importer-integration-bot-callback-mismatch-v1",
+		RunID:      "importer-integration-bot-callback-mismatch-v1",
 		PlanDigest: callbackMismatchPlan.PlanDigest, Index: 0,
 		Digest: digestBatch(callbackSelected), Operations: callbackSelected,
 	}
 	if _, err := store.BeginOrResume(ctx, ApplyRun{
 		RunID: callbackMismatchBatch.RunID, SnapshotKind: "full",
 		SourceDigest: callbackMismatchPlan.SourceDigest,
-		PlanDigest: callbackMismatchPlan.PlanDigest, BatchCount: 1,
+		PlanDigest:   callbackMismatchPlan.PlanDigest, BatchCount: 1,
 	}); err != nil {
 		t.Fatalf("callback mismatch BeginOrResume: %v", err)
 	}
@@ -537,7 +599,7 @@ WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
 func TestRQLiteApplyStoreCustomerDeleteRollsBackWrongProofThenCommits(t *testing.T) {
 	db, err := rqlite.New(rqlite.Config{
 		Endpoints: []string{"http://127.0.0.1:4401", "http://127.0.0.1:4403", "http://127.0.0.1:4405"},
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("rqlite.New: %v", err)
@@ -672,7 +734,7 @@ func TestRQLiteImportDeleteDigestPhase(t *testing.T) {
 	}
 	db, err := rqlite.New(rqlite.Config{
 		Endpoints: []string{"http://127.0.0.1:4401", "http://127.0.0.1:4403", "http://127.0.0.1:4405"},
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("rqlite.New: %v", err)
@@ -793,19 +855,19 @@ func TestVerifyRestoredBusinessParity(t *testing.T) {
 }
 
 type restoredDRMetadata struct {
-	FormatVersion       int    `json:"format_version"`
-	SourceEpoch         int64  `json:"source_epoch"`
-	SchemaVersion       int    `json:"schema_version"`
-	SchemaChecksum      string `json:"schema_checksum"`
-	RunID               string `json:"run_id"`
-	SourceDigest        string `json:"source_digest"`
-	PlanDigest          string `json:"plan_digest"`
-	TargetDigest        string `json:"target_digest"`
-	BatchCount          int    `json:"batch_count"`
-	BatchReceiptDigest  string `json:"batch_receipt_digest"`
-	ReceiptSHA256       string `json:"receipt_sha256"`
-	ShadowSHA256        string `json:"shadow_sha256"`
-	BackupSHA256        string `json:"backup_sha256"`
+	FormatVersion      int    `json:"format_version"`
+	SourceEpoch        int64  `json:"source_epoch"`
+	SchemaVersion      int    `json:"schema_version"`
+	SchemaChecksum     string `json:"schema_checksum"`
+	RunID              string `json:"run_id"`
+	SourceDigest       string `json:"source_digest"`
+	PlanDigest         string `json:"plan_digest"`
+	TargetDigest       string `json:"target_digest"`
+	BatchCount         int    `json:"batch_count"`
+	BatchReceiptDigest string `json:"batch_receipt_digest"`
+	ReceiptSHA256      string `json:"receipt_sha256"`
+	ShadowSHA256       string `json:"shadow_sha256"`
+	BackupSHA256       string `json:"backup_sha256"`
 }
 
 func readRestoredDRMetadata(t *testing.T) restoredDRMetadata {
@@ -873,10 +935,10 @@ func restoredDRRQLite(t *testing.T) *rqlite.Client {
 		Endpoints: []string{
 			"https://127.0.0.1:4401", "https://127.0.0.1:4403", "https://127.0.0.1:4405",
 		},
-		CAFile: filepath.Join(root, "tls", "ca.crt"),
+		CAFile:   filepath.Join(root, "tls", "ca.crt"),
 		CertFile: filepath.Join(root, "tls", "client.crt"),
-		KeyFile: filepath.Join(root, "tls", "client.key"),
-		Timeout: 10 * time.Second, MaxResponseBytes: 8 << 20, MaxBackupBytes: 4 << 30,
+		KeyFile:  filepath.Join(root, "tls", "client.key"),
+		Timeout:  10 * time.Second, MaxResponseBytes: 8 << 20, MaxBackupBytes: 4 << 30,
 	})
 	if err != nil {
 		t.Fatalf("new restored rqlite client: %v", err)

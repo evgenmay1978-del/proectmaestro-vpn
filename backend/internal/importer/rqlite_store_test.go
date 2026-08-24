@@ -594,12 +594,12 @@ func TestBusinessDigestUsesLogicalImportedEntityProjection(t *testing.T) {
 		t.Fatal("operational tombstones remained in canonical business digest")
 	}
 	wantFragments := map[string][]string{
-		"customers":           {"from customers c", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=c.customer_id", "lifecycle='deleted'"},
-		"credentials":         {"from credentials c", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=c.customer_id", "lifecycle='deleted'"},
-		"subscription_tokens": {"from subscription_tokens t", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=t.customer_id", "lifecycle='deleted'"},
-		"desired_node_state":  {"from desired_node_state d", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=d.customer_id", "lifecycle='deleted'"},
+		"customers":             {"from customers c", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=c.customer_id", "lifecycle='deleted'"},
+		"credentials":           {"from credentials c", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=c.customer_id", "lifecycle='deleted'"},
+		"subscription_tokens":   {"from subscription_tokens t", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=t.customer_id", "lifecycle='deleted'"},
+		"desired_node_state":    {"from desired_node_state d", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=d.customer_id", "lifecycle='deleted'"},
 		"desired_protocol_tags": {"from desired_protocol_tags p", "not exists", "imported_entity_state", "entity_kind='customer'", "target_id=p.customer_id", "lifecycle='deleted'"},
-		"imported_secrets":    {"from imported_secrets i", "not exists", "imported_entity_state", "entity_kind='encrypted_secret'", "target_id=i.secret_id", "lifecycle='deleted'"},
+		"imported_secrets":      {"from imported_secrets i", "not exists", "imported_entity_state", "entity_kind='encrypted_secret'", "target_id=i.secret_id", "lifecycle='deleted'"},
 	}
 	for table, fragments := range wantFragments {
 		sqlText, exists := queries[table]
@@ -642,7 +642,7 @@ func TestRQLiteApplyStoreCompleteRequiresEveryAppliedReceipt(t *testing.T) {
 	if err := store.Complete(context.Background(), completion); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if len(db.requests) != 1 || len(db.requests[0].statements) != 1 {
+	if len(db.requests) != 1 || len(db.requests[0].statements) != 2 {
 		t.Fatalf("completion requests = %#v", db.requests)
 	}
 	statement := db.requests[0].statements[0]
@@ -718,11 +718,11 @@ func TestRQLiteApplyStoreCommitsBotCredentialRouteAsTypedRow(t *testing.T) {
 func TestRQLiteApplyStoreCommitsBotPollStateAsTypedRow(t *testing.T) {
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.BotPollStates = []LegacyBotPollState{{
-		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:             snapshot.BotBindings[0].BotIdentityHMAC,
 		CurrentTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
-		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
-		NextUpdateID: 42,
-		CapturedFence: 11,
+		CredentialVersion:           snapshot.BotBindings[0].CredentialVersion,
+		NextUpdateID:                42,
+		CapturedFence:               11,
 	}}
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
@@ -791,13 +791,13 @@ func TestRQLiteApplyStoreCommitsBotPollStateAsTypedRow(t *testing.T) {
 func TestRQLiteApplyStoreCommitsPendingCallbackAsTypedRow(t *testing.T) {
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.PendingCallbacks = []LegacyCallback{{
-		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:      snapshot.BotBindings[0].BotIdentityHMAC,
 		TokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
-		CredentialVersion: snapshot.BotBindings[0].CredentialVersion,
-		CallbackHMAC: strings.Repeat("4", 64),
-		OrderID: "legacy-order-callback",
-		Action: "confirm",
-		State: "pending",
+		CredentialVersion:    snapshot.BotBindings[0].CredentialVersion,
+		CallbackHMAC:         strings.Repeat("4", 64),
+		OrderID:              "legacy-order-callback",
+		Action:               "confirm",
+		State:                "pending",
 	}}
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
@@ -870,12 +870,12 @@ func TestRQLiteApplyStoreCommitsBotCredentialRotationAsTypedRow(t *testing.T) {
 	snapshot.BotBindings[0].TokenFingerprintHMAC = strings.Repeat("3", 64)
 	snapshot.BotBindings[0].CredentialVersion = 2
 	snapshot.BotCredentialRotations = []LegacyBotCredentialRotation{{
-		BotIdentityHMAC: snapshot.BotBindings[0].BotIdentityHMAC,
+		BotIdentityHMAC:         snapshot.BotBindings[0].BotIdentityHMAC,
 		OldTokenFingerprintHMAC: oldFingerprint,
 		NewTokenFingerprintHMAC: snapshot.BotBindings[0].TokenFingerprintHMAC,
-		OldCredentialVersion: 1,
-		NewCredentialVersion: 2,
-		AuditDigest: strings.Repeat("4", 64),
+		OldCredentialVersion:    1,
+		NewCredentialVersion:    2,
+		AuditDigest:             strings.Repeat("4", 64),
 	}}
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
@@ -1128,36 +1128,35 @@ func canonicalTrialBatch(t *testing.T) ApplyBatch {
 
 func legacyTrialFixture() LegacyTrial {
 	return LegacyTrial{
-		SourceKey: "legacy-trial-owner",
+		SourceKey:        "legacy-trial-owner",
 		LegacyAnchorHMAC: strings.Repeat("2", 64),
-		CurrentHMAC: strings.Repeat("3", 64),
-		Used: false,
-		ExpiresAtUnix: 2_000_000,
+		CurrentHMAC:      strings.Repeat("3", 64),
+		Used:             false,
+		ExpiresAtUnix:    2_000_000,
 	}
 }
 
 func protectedTrialImportFixture() TrialImportProtection {
 	return TrialImportProtection{
-		KeyVersion: 1,
+		KeyVersion:            1,
 		EncryptedSaltEnvelope: `{"key_version":1,"nonce_b64":"AAECAwQFBgcICQoL","ciphertext_b64":"cHJvdGVjdGVkLXRyaWFsLXNhbHQ="}`,
-		SaltSHA256: strings.Repeat("8", 64),
+		SaltSHA256:            strings.Repeat("8", 64),
 	}
 }
 
 func standaloneEncryptedSecret() LegacyEncryptedSecret {
 	return LegacyEncryptedSecret{
-		SecretID: "secret-standalone-wb",
-		OwnerType: "legacy_service",
+		SecretID:       "secret-standalone-wb",
+		OwnerType:      "legacy_service",
 		OwnerSourceKey: "s3-wb",
-		Field: "token",
-		Kind: "bearer",
-		KeyVersion: 1,
-		NonceB64: "AAECAwQFBgcICQoL",
-		CiphertextB64: "c3ludGhldGljLWVuY3J5cHRlZA==",
-		SHA256: strings.Repeat("a", 64),
+		Field:          "token",
+		Kind:           "bearer",
+		KeyVersion:     1,
+		NonceB64:       "AAECAwQFBgcICQoL",
+		CiphertextB64:  "c3ludGhldGljLWVuY3J5cHRlZA==",
+		SHA256:         strings.Repeat("a", 64),
 	}
 }
-
 
 func TestReadReferencedKeyVersionsUsesOneLinearizableRead(t *testing.T) {
 	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{
@@ -1208,7 +1207,6 @@ func TestReadReferencedKeyVersionsRejectsMalformedRowsWithoutMutation(t *testing
 	}
 }
 
-
 func TestRQLiteApplyStoreAcceptsRotatedProtectedTrialSaltVersion(t *testing.T) {
 	protection := protectedTrialImportFixture()
 	protection.KeyVersion = 7
@@ -1227,20 +1225,19 @@ func TestRQLiteApplyStoreAcceptsRotatedProtectedTrialSaltVersion(t *testing.T) {
 	}
 }
 
-
 func TestReadAppliedRunEvidenceRequiresOneCompletedExactRun(t *testing.T) {
 	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{
 		{
 			Rows: []map[string]any{{
-				"import_run_id": "synthetic-run",
-				"snapshot_kind": "full",
-				"source_sha256": strings.Repeat("1", 64),
-				"plan_sha256": strings.Repeat("2", 64),
+				"import_run_id":        "synthetic-run",
+				"snapshot_kind":        "full",
+				"source_sha256":        strings.Repeat("1", 64),
+				"plan_sha256":          strings.Repeat("2", 64),
 				"parent_source_sha256": nil,
-				"target_sha256": strings.Repeat("3", 64),
-				"batch_count": int64(2),
-				"status": "applied",
-				"completed_at_unix": int64(2_000_000),
+				"target_sha256":        strings.Repeat("3", 64),
+				"batch_count":          int64(2),
+				"status":               "applied",
+				"completed_at_unix":    int64(2_000_000),
 			}},
 		},
 		{
@@ -1272,15 +1269,15 @@ func TestReadAppliedRunEvidenceRequiresOneCompletedExactRun(t *testing.T) {
 
 func TestReadAppliedRunEvidenceRejectsMissingExtraOrMismatchedBatches(t *testing.T) {
 	runRow := map[string]any{
-		"import_run_id": "synthetic-run",
-		"snapshot_kind": "delta",
-		"source_sha256": strings.Repeat("1", 64),
-		"plan_sha256": strings.Repeat("2", 64),
+		"import_run_id":        "synthetic-run",
+		"snapshot_kind":        "delta",
+		"source_sha256":        strings.Repeat("1", 64),
+		"plan_sha256":          strings.Repeat("2", 64),
 		"parent_source_sha256": strings.Repeat("4", 64),
-		"target_sha256": strings.Repeat("3", 64),
-		"batch_count": int64(2),
-		"status": "applied",
-		"completed_at_unix": int64(2_000_000),
+		"target_sha256":        strings.Repeat("3", 64),
+		"batch_count":          int64(2),
+		"status":               "applied",
+		"completed_at_unix":    int64(2_000_000),
 	}
 	cases := []struct {
 		name    string

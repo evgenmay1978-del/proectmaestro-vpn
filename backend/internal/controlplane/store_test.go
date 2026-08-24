@@ -282,6 +282,10 @@ func TestSessionCookieContract(t *testing.T) {
 	if strings.Contains(args, cookie.Value) || strings.Contains(args, session.CSRFToken) {
 		t.Fatal("raw session or CSRF token reached durable SQL")
 	}
+	sql := strings.ToLower(statementsText(db.requestCalls[0].statements))
+	if strings.Contains(sql, "backup_rpo_state") {
+		t.Fatalf("CreateSession dirtied backup state: %s", sql)
+	}
 }
 
 func TestRevocationEpochInvalidatesExistingSession(t *testing.T) {

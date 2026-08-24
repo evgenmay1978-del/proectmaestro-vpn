@@ -126,6 +126,9 @@ func TestReadinessSuccessfulCanaryDoesNotGrowRows(t *testing.T) {
 	if !containsAll(sql, "health_write_canary", "ON CONFLICT", "generation") {
 		t.Fatalf("canary does not use bounded upsert: %s", sql)
 	}
+	if strings.Contains(strings.ToLower(sql), "backup_rpo_state") {
+		t.Fatalf("health canary dirtied backup state: %s", sql)
+	}
 }
 
 func containsAll(value string, values ...string) bool {

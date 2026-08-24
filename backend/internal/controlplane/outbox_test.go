@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	testDesiredSHA  = "f5f8197e669855d4ced22399d9e922b4c9b66ba020c63f121a57df4d693e7015"
-	testObservedSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testDesiredSHA     = "f5f8197e669855d4ced22399d9e922b4c9b66ba020c63f121a57df4d693e7015"
+	testObservedSHA    = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	testConflictingSHA = "943a5f37cc56e5f10ba27f2eab99bbe5461222ea5ccfeaa2a34e603e691708ff"
 )
 
@@ -28,7 +28,7 @@ func desiredFixture(generation int64, digest string) DesiredState {
 // a newer absolute expiry and credential snapshot.
 func TestDesiredGenerationNeverMovesBackward(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
-		rqlite.Result{}, rqlite.Result{},
+		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 	)}}
 	service, _ := testService(t, db)
 
@@ -49,7 +49,7 @@ func TestDesiredGenerationNeverMovesBackward(t *testing.T) {
 // would make two agents apply different truth under one generation number.
 func TestSameGenerationDifferentPayloadHashConflicts(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
-		rqlite.Result{}, rqlite.Result{},
+		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 	)}}
 	service, _ := testService(t, db)
 
@@ -60,8 +60,9 @@ func TestSameGenerationDifferentPayloadHashConflicts(t *testing.T) {
 		t.Fatalf("same-generation hash conflict error=%v, want ErrConflict", err)
 	}
 	sql := strings.ToLower(statementsText(db.requestCalls[0].statements))
-	if !strings.Contains(sql, "excluded.desired_sha256 = desired_node_state.desired_sha256") {
-		t.Fatalf("desired transaction lacks same-generation hash equality: %s", sql)
+	if !strings.Contains(sql, "excluded.generation > desired_node_state.generation") ||
+		!strings.Contains(sql, "select d.generation,d.desired_sha256") {
+		t.Fatalf("desired transaction lacks strict CAS and exact replay evidence: %s", sql)
 	}
 }
 
@@ -89,6 +90,9 @@ func TestLeaseFenceMonotonicallyIncreases(t *testing.T) {
 		if !strings.Contains(sql, required) {
 			t.Fatalf("lease transaction lacks %q: %s", required, sql)
 		}
+	}
+	if strings.Contains(sql, "dirty_generation") {
+		t.Fatalf("node lease churn dirtied backup state: %s", sql)
 	}
 }
 
@@ -138,13 +142,16 @@ func TestReconcileRepairsMissingOutboxFromDesiredSnapshot(t *testing.T) {
 		strings.Contains(sql, "from node_apply_receipts") {
 		t.Fatalf("reconcile is not driven only by desired truth: %s", sql)
 	}
+	if strings.Contains(sql, "backup_rpo_state") {
+		t.Fatalf("derived reconciliation dirtied backup state: %s", sql)
+	}
 }
 
 // Break caught: treating a fenced/down required node as optional would purge
 // credentials before that node has acknowledged the tombstone.
 func TestFencedOrDownRequiredNodeBlocksTombstonePurge(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
-		rqlite.Result{RowsAffected: 0},
+		rqlite.Result{RowsAffected: 0}, rqlite.Result{},
 	)}}
 	service, _ := testService(t, db)
 	err := service.PurgeTombstone(context.Background(), TombstonePurgeCommand{

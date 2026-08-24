@@ -681,6 +681,9 @@ func TestBackupRPOAcquireLeaseUsesOneFencedDBTimeTransaction(t *testing.T) {
 					t.Fatalf("AcquireLease SQL lacks %q: %s", required, sql)
 				}
 			}
+			if strings.Contains(sql, "set dirty_generation") {
+				t.Fatalf("backup lease churn dirtied business state: %s", sql)
+			}
 		})
 	}
 }

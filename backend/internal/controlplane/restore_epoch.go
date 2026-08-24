@@ -14,12 +14,12 @@ import (
 )
 
 type RestoreState struct {
-	ClusterID                    string
-	RestoreEpoch                 int64
-	RestoredFromBackupSHA256     string
-	Activated                    bool
-	CreatedAtUnix                int64
-	ActivatedAtUnix              int64
+	ClusterID                string
+	RestoreEpoch             int64
+	RestoredFromBackupSHA256 string
+	Activated                bool
+	CreatedAtUnix            int64
+	ActivatedAtUnix          int64
 }
 
 type RestoreEpochStore struct {
@@ -55,35 +55,84 @@ func (s *RestoreEpochStore) AdvanceAfterRestore(ctx context.Context, expected in
 			SET restore_epoch = ?, restored_from_backup_sha256 = ?, activated = 0,
 				created_at_unix = ?, activated_at_unix = NULL
 			WHERE singleton_id = 1 AND restore_epoch = ? AND activated = 1
+			  AND EXISTS(SELECT 1 FROM backup_rpo_state
+			      WHERE singleton_id=1 AND restore_epoch=?)
 			RETURNING cluster_id,restore_epoch,restored_from_backup_sha256,
 				activated,created_at_unix,activated_at_unix`,
-			Args: []any{next, digest, now, expected}},
+			Args: []any{next, digest, now, expected, expected}},
+		{SQL: `UPDATE backup_rpo_attempts
+			SET phase='superseded',failure_code='restore-epoch',updated_at_unix=?
+			WHERE restore_epoch=? AND phase IN ('pending','applying','applied','unknown')
+			  AND ` + gate, Args: []any{now, expected, next, digest}},
+		{SQL: `UPDATE backup_rpo_state
+			SET restore_epoch=?,dirty_generation=1,verified_generation=0,
+				verified_backup_id=NULL,verified_object_key=NULL,
+				verified_object_sha256=NULL,verified_object_version=NULL,
+				verified_size_bytes=NULL,verified_manifest_version=NULL,
+				verified_at_unix=NULL,last_attempt_sequence=0,
+				phase='dirty',updated_at_unix=?
+			WHERE singleton_id=1 AND restore_epoch=? AND ` + gate + `
+			RETURNING restore_epoch,dirty_generation,verified_generation,
+				last_attempt_sequence,phase`, Args: []any{next, now, expected, next, digest}},
 		{SQL: "DELETE FROM node_leases WHERE " + gate, Args: []any{next, digest}},
 		{SQL: "DELETE FROM cluster_job_leases WHERE " + gate, Args: []any{next, digest}},
 		{SQL: `UPDATE telegram_pollers
 			SET node_id=NULL, lease_token=NULL, lease_expires_at_unix=0,
 				lease_fence=lease_fence+1, updated_at_unix=?
-			WHERE ` + gate, Args: []any{now, next, digest}},
+			WHERE ` + gate + ` AND (node_id IS NOT NULL OR lease_token IS NOT NULL
+				OR lease_expires_at_unix<>0)`, Args: []any{now, next, digest}},
+		{SQL: `INSERT INTO backup_rpo_state(
+			singleton_id,restore_epoch,dirty_generation,verified_generation,
+			last_attempt_sequence,phase,updated_at_unix)
+			SELECT 0,1,1,0,0,'dirty',1
+			WHERE NOT EXISTS(
+				SELECT 1 FROM cluster_restore_state c
+				JOIN backup_rpo_state b ON b.singleton_id=1
+				WHERE c.singleton_id=1 AND c.restore_epoch=? AND c.activated=0
+				  AND c.restored_from_backup_sha256=?
+				  AND b.restore_epoch=? AND b.dirty_generation=1
+				  AND b.verified_generation=0 AND b.last_attempt_sequence=0
+				  AND b.phase='dirty' AND b.verified_backup_id IS NULL
+				  AND b.verified_object_key IS NULL AND b.verified_object_sha256 IS NULL
+				  AND b.verified_object_version IS NULL AND b.verified_size_bytes IS NULL
+				  AND b.verified_manifest_version IS NULL AND b.verified_at_unix IS NULL
+				  AND NOT EXISTS(SELECT 1 FROM backup_rpo_attempts
+				      WHERE restore_epoch=? AND phase IN ('pending','applying','applied','unknown'))
+				  AND NOT EXISTS(SELECT 1 FROM node_leases)
+				  AND NOT EXISTS(SELECT 1 FROM cluster_job_leases)
+				  AND NOT EXISTS(SELECT 1 FROM telegram_pollers
+				      WHERE node_id IS NOT NULL OR lease_token IS NOT NULL OR lease_expires_at_unix<>0)
+			)`, Args: []any{next, digest, next, expected}},
 	}
 	results, err := s.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	if err != nil {
 		if unknownRestoreOutcome(err) {
-			state, readErr := s.Current(ctx)
-			if readErr == nil && state.RestoreEpoch == next && !state.Activated &&
-				state.RestoredFromBackupSHA256 == digest {
+			state, readErr := s.advancedPostcondition(ctx, expected, next, digest)
+			if readErr == nil {
 				return state, nil
 			}
 			return RestoreState{}, errors.New("controlplane: restore epoch outcome is unresolved")
 		}
 		return RestoreState{}, errors.New("controlplane: advance restore epoch")
 	}
-	if len(results) != 4 {
+	if len(results) != 7 || results[6].RowsAffected != 0 || len(results[6].Rows) != 0 {
 		return RestoreState{}, errors.New("controlplane: restore transition result count is invalid")
 	}
 	state, err := exactRestoreState(results[:1])
 	if err != nil || state.RestoreEpoch != next || state.Activated ||
 		state.RestoredFromBackupSHA256 != digest {
 		return RestoreState{}, errors.New("controlplane: restore epoch compare-and-swap failed")
+	}
+	backup, ok := firstRow(results[2:3])
+	backupEpoch, epochOK := rowInt64(backup, "restore_epoch")
+	dirtyGeneration, dirtyOK := rowInt64(backup, "dirty_generation")
+	verifiedGeneration, verifiedOK := rowInt64(backup, "verified_generation")
+	lastAttempt, attemptOK := rowInt64(backup, "last_attempt_sequence")
+	phase, phaseOK := rowString(backup, "phase")
+	if !ok || !epochOK || !dirtyOK || !verifiedOK || !attemptOK || !phaseOK ||
+		backupEpoch != next || dirtyGeneration != 1 || verifiedGeneration != 0 ||
+		lastAttempt != 0 || phase != BackupRPOPhaseDirty {
+		return RestoreState{}, errors.New("controlplane: backup RPO restore handoff failed")
 	}
 	return state, nil
 }
@@ -122,6 +171,72 @@ func restoreStateSelect() rqlite.Statement {
 	return rqlite.Statement{SQL: `SELECT cluster_id,restore_epoch,restored_from_backup_sha256,
 		activated,created_at_unix,activated_at_unix
 		FROM cluster_restore_state WHERE singleton_id = 1`}
+}
+
+func (s *RestoreEpochStore) advancedPostcondition(
+	ctx context.Context,
+	expected int64,
+	next int64,
+	digest string,
+) (RestoreState, error) {
+	results, err := s.db.QueryLinearizable(ctx, restoreAdvanceEvidenceSelect(expected, next, digest))
+	if err != nil {
+		return RestoreState{}, errors.New("controlplane: read restore handoff evidence")
+	}
+	state, err := exactRestoreState(results)
+	if err != nil || state.RestoreEpoch != next || state.Activated ||
+		state.RestoredFromBackupSHA256 != digest {
+		return RestoreState{}, errors.New("controlplane: restore handoff evidence is invalid")
+	}
+	row := results[0].Rows[0]
+	backupEpoch, epochOK := rowInt64(row, "backup_restore_epoch")
+	dirtyGeneration, dirtyOK := rowInt64(row, "dirty_generation")
+	verifiedGeneration, verifiedOK := rowInt64(row, "verified_generation")
+	lastAttempt, attemptOK := rowInt64(row, "last_attempt_sequence")
+	phase, phaseOK := rowString(row, "phase")
+	activeAttempts, activeOK := rowInt64(row, "active_attempts")
+	nodeLeases, nodeOK := rowInt64(row, "node_leases")
+	jobLeases, jobOK := rowInt64(row, "job_leases")
+	leasedPollers, pollerOK := rowInt64(row, "leased_pollers")
+	if !epochOK || !dirtyOK || !verifiedOK || !attemptOK || !phaseOK ||
+		!activeOK || !nodeOK || !jobOK || !pollerOK || backupEpoch != next ||
+		dirtyGeneration != 1 || verifiedGeneration != 0 || lastAttempt != 0 ||
+		phase != BackupRPOPhaseDirty || activeAttempts != 0 || nodeLeases != 0 ||
+		jobLeases != 0 || leasedPollers != 0 {
+		return RestoreState{}, errors.New("controlplane: restore handoff evidence is incomplete")
+	}
+	return state, nil
+}
+
+func restoreAdvanceEvidenceSelect(expected int64, next int64, digest string) rqlite.Statement {
+	return rqlite.Statement{SQL: `SELECT
+		c.cluster_id,c.restore_epoch,c.restored_from_backup_sha256,
+		c.activated,c.created_at_unix,c.activated_at_unix,
+		b.restore_epoch AS backup_restore_epoch,b.dirty_generation,
+		b.verified_generation,b.last_attempt_sequence,b.phase,
+		(SELECT COUNT(*) FROM backup_rpo_attempts
+		 WHERE restore_epoch=? AND phase IN ('pending','applying','applied','unknown')) AS active_attempts,
+		(SELECT COUNT(*) FROM node_leases) AS node_leases,
+		(SELECT COUNT(*) FROM cluster_job_leases) AS job_leases,
+		(SELECT COUNT(*) FROM telegram_pollers
+		 WHERE node_id IS NOT NULL OR lease_token IS NOT NULL OR lease_expires_at_unix<>0) AS leased_pollers
+		FROM cluster_restore_state c
+		JOIN backup_rpo_state b ON b.singleton_id=1
+		WHERE c.singleton_id=1 AND c.restore_epoch=? AND c.activated=0
+		  AND c.restored_from_backup_sha256=?
+		  AND b.restore_epoch=? AND b.dirty_generation=1
+		  AND b.verified_generation=0 AND b.last_attempt_sequence=0 AND b.phase='dirty'
+		  AND b.verified_backup_id IS NULL AND b.verified_object_key IS NULL
+		  AND b.verified_object_sha256 IS NULL AND b.verified_object_version IS NULL
+		  AND b.verified_size_bytes IS NULL AND b.verified_manifest_version IS NULL
+		  AND b.verified_at_unix IS NULL
+		  AND NOT EXISTS(SELECT 1 FROM backup_rpo_attempts
+		      WHERE restore_epoch=? AND phase IN ('pending','applying','applied','unknown'))
+		  AND NOT EXISTS(SELECT 1 FROM node_leases)
+		  AND NOT EXISTS(SELECT 1 FROM cluster_job_leases)
+		  AND NOT EXISTS(SELECT 1 FROM telegram_pollers
+		      WHERE node_id IS NOT NULL OR lease_token IS NOT NULL OR lease_expires_at_unix<>0)`,
+		Args: []any{expected, next, digest, next, expected}}
 }
 
 func exactRestoreState(results []rqlite.Result) (RestoreState, error) {

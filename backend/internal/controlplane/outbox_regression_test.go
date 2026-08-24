@@ -24,17 +24,19 @@ func TestDesiredPayloadHashMustMatchEnvelope(t *testing.T) {
 
 func TestSameGenerationSameHashDoesNotRewriteOperation(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
-		rqlite.Result{Rows: []map[string]any{{
-			"generation": int64(5), "desired_sha256": testDesiredSHA,
-		}}}, rqlite.Result{RowsAffected: 0},
+		rqlite.Result{},
+		rqlite.Result{RowsAffected: 0},
+		rqlite.Result{},
+		rqlite.Result{Rows: []map[string]any{task6DesiredEvidence()}},
 	)}}
 	service, _ := testService(t, db)
 	if err := service.UpsertDesired(context.Background(), desiredFixture(5, testDesiredSHA)); err != nil {
 		t.Fatalf("same generation/hash retry: %v", err)
 	}
 	sql := strings.ToLower(db.requestCalls[0].statements[0].SQL)
-	if strings.Contains(sql, "operation_id=excluded.operation_id") {
-		t.Fatalf("same-generation retry can rewrite operation identity: %s", sql)
+	if !strings.Contains(sql, "where excluded.generation > desired_node_state.generation") ||
+		strings.Contains(sql, "or excluded.generation = desired_node_state.generation") {
+		t.Fatalf("same-generation retry is not a strict write no-op: %s", sql)
 	}
 }
 
@@ -90,7 +92,9 @@ func TestAppliedTombstoneReceiptAcknowledgesRequiredTarget(t *testing.T) {
 }
 
 func TestTombstoneRetentionStartsAfterLastRequiredAck(t *testing.T) {
-	db := &recordingRQLite{requests: []scriptedResult{resultsScript(rqlite.Result{RowsAffected: 0})}}
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{RowsAffected: 0}, rqlite.Result{},
+	)}}
 	service, _ := testService(t, db)
 	err := service.PurgeTombstone(context.Background(), TombstonePurgeCommand{
 		TombstoneID: "tombstone-1", CustomerID: "customer-1",

@@ -25,12 +25,12 @@ func restoreStateRow(epoch int64, activated bool, backupSHA string) map[string]a
 		restoredFrom = backupSHA
 	}
 	return map[string]any{
-		"cluster_id":                      testRestoreClusterID,
-		"restore_epoch":                   epoch,
-		"restored_from_backup_sha256":     restoredFrom,
-		"activated":                       active,
-		"created_at_unix":                 int64(1_900_000),
-		"activated_at_unix":               activatedAt,
+		"cluster_id":                  testRestoreClusterID,
+		"restore_epoch":               epoch,
+		"restored_from_backup_sha256": restoredFrom,
+		"activated":                   active,
+		"created_at_unix":             int64(1_900_000),
+		"activated_at_unix":           activatedAt,
 	}
 }
 
@@ -39,8 +39,17 @@ func TestAdvanceAfterRestoreRaisesEpochAndInvalidatesEveryLease(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
 		rqlite.Result{Rows: []map[string]any{restoreStateRow(8, false, backupSHA)}},
 		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{RowsAffected: 1, Rows: []map[string]any{{
+			"restore_epoch":         int64(8),
+			"dirty_generation":      int64(1),
+			"verified_generation":   int64(0),
+			"last_attempt_sequence": int64(0),
+			"phase":                 "dirty",
+		}}},
 		rqlite.Result{RowsAffected: 1},
 		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{},
 	)}}
 
 	state, err := NewRestoreEpochStore(db).AdvanceAfterRestore(
@@ -60,7 +69,7 @@ func TestAdvanceAfterRestoreRaisesEpochAndInvalidatesEveryLease(t *testing.T) {
 	}
 	call := db.requestCalls[0]
 	if call.level != rqlite.Linearizable || !call.transaction ||
-		len(call.statements) != 4 {
+		len(call.statements) != 7 {
 		t.Fatalf("request=%#v", call)
 	}
 	joined := strings.ToLower(statementsText(call.statements))
@@ -100,10 +109,11 @@ func TestAdvanceAfterRestoreRejectsStaleEpochWithoutUngatedStatements(t *testing
 	}
 	for index, statement := range db.requestCalls[0].statements[1:] {
 		sql := strings.ToLower(statement.SQL)
-		if !strings.Contains(sql, "exists") ||
-			!strings.Contains(sql, "cluster_restore_state") ||
-			!strings.Contains(sql, "restore_epoch") ||
-			!strings.Contains(sql, "activated = 0") {
+		compact := strings.Join(strings.Fields(sql), "")
+		if !strings.Contains(compact, "exists") ||
+			!strings.Contains(compact, "cluster_restore_state") ||
+			!strings.Contains(compact, "restore_epoch") ||
+			!strings.Contains(compact, "activated=0") {
 			t.Fatalf("dependent statement %d is not epoch gated: %s", index+1, statement.SQL)
 		}
 	}
@@ -117,7 +127,7 @@ func TestAdvanceAfterRestoreResolvesUnknownOutcomeByExactRead(t *testing.T) {
 			UnknownOutcome: true,
 			Err:            errors.New("synthetic ambiguity"),
 		}}},
-		linear: []scriptedResult{rowsScript(restoreStateRow(10, false, backupSHA))},
+		linear: []scriptedResult{rowsScript(task6ReviewRestoreHandoffRow(10, backupSHA))},
 	}
 	state, err := NewRestoreEpochStore(db).AdvanceAfterRestore(
 		context.Background(),
@@ -206,8 +216,7 @@ func TestCurrentReturnsExactRestoreState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
-	if got := fmt.Sprintf("%s/%d/%t/%s", state.ClusterID, state.RestoreEpoch, state.Activated, state.RestoredFromBackupSHA256);
-		got != testRestoreClusterID+"/4/true/"+backupSHA {
+	if got := fmt.Sprintf("%s/%d/%t/%s", state.ClusterID, state.RestoreEpoch, state.Activated, state.RestoredFromBackupSHA256); got != testRestoreClusterID+"/4/true/"+backupSHA {
 		t.Fatalf("state=%s", got)
 	}
 }

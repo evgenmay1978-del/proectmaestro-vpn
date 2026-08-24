@@ -17,15 +17,15 @@ const nodeLeaseTTLSeconds int64 = 90
 // DesiredState is one absolute encrypted service target. A generation is
 // immutable: retries may repeat its hash, but may never replace it.
 type DesiredState struct {
-	CustomerID   string
-	NodeID       string
-	ServiceName  string
-	OperationID  string
-	EventKind    string
-	Generation   int64
-	Payload      Envelope
+	CustomerID    string
+	NodeID        string
+	ServiceName   string
+	OperationID   string
+	EventKind     string
+	Generation    int64
+	Payload       Envelope
 	PayloadSHA256 string
-	Tombstone    bool
+	Tombstone     bool
 }
 
 type LeaseRequest struct {
@@ -102,43 +102,66 @@ SELECT ?,?,?,?,?,?,'pending',?,?,?
 FROM node_services
 WHERE node_id=? AND service_name=? AND desired_target=1 AND retired=0
 ON CONFLICT(customer_id,node_id,service_name) DO UPDATE SET
-generation=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.generation ELSE desired_node_state.generation END,
-desired_envelope=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.desired_envelope ELSE desired_node_state.desired_envelope END,
-desired_sha256=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.desired_sha256 ELSE desired_node_state.desired_sha256 END,
-status=CASE WHEN excluded.generation>desired_node_state.generation THEN 'pending' ELSE desired_node_state.status END,
-updated_at_unix=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.updated_at_unix ELSE desired_node_state.updated_at_unix END,
-tombstone=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.tombstone ELSE desired_node_state.tombstone END,
-operation_id=CASE WHEN excluded.generation>desired_node_state.generation THEN excluded.operation_id ELSE desired_node_state.operation_id END
-WHERE excluded.generation > desired_node_state.generation OR
-      (excluded.generation = desired_node_state.generation AND
-       excluded.desired_sha256 = desired_node_state.desired_sha256)
+generation=excluded.generation,
+desired_envelope=excluded.desired_envelope,
+desired_sha256=excluded.desired_sha256,
+status='pending',
+updated_at_unix=excluded.updated_at_unix,
+tombstone=excluded.tombstone,
+operation_id=excluded.operation_id
+WHERE excluded.generation > desired_node_state.generation
 RETURNING generation,desired_sha256`, Args: []any{
 			desired.CustomerID, desired.NodeID, desired.ServiceName, desired.Generation,
 			payload, desired.PayloadSHA256, now, tombstone, desired.OperationID,
 			desired.NodeID, desired.ServiceName,
 		}},
-		rqlite.Statement{SQL: `INSERT OR IGNORE INTO outbox_events(
+		rqlite.Statement{SQL: `INSERT INTO outbox_events(
 event_id,aggregate_type,aggregate_id,generation,event_type,payload_envelope,payload_sha256,
 status,available_at_unix,attempts,created_at_unix,node_id,service_name,operation_id,event_kind)
 SELECT ?,'desired_node_state',?,?,?,?,?,'pending',?,0,?,?,?,?,?
 FROM desired_node_state
-WHERE customer_id=? AND node_id=? AND service_name=? AND generation=? AND desired_sha256=?`, Args: []any{
+WHERE customer_id=? AND node_id=? AND service_name=? AND generation=? AND desired_sha256=?
+  AND operation_id=? AND tombstone=? AND changes()=1`, Args: []any{
 			eventID, aggregateID, desired.Generation, desired.EventKind, payload,
 			desired.PayloadSHA256, now, now, desired.NodeID, desired.ServiceName,
 			desired.OperationID, desired.EventKind, desired.CustomerID, desired.NodeID,
 			desired.ServiceName, desired.Generation, desired.PayloadSHA256,
+			desired.OperationID, tombstone,
+		}},
+		backupRPODirtyGenerationStatement(now),
+		rqlite.Statement{SQL: `SELECT d.generation,d.desired_sha256,d.operation_id,d.tombstone,
+o.event_kind,o.payload_sha256
+FROM desired_node_state d
+JOIN outbox_events o ON o.operation_id=d.operation_id AND o.node_id=d.node_id
+ AND o.service_name=d.service_name AND o.generation=d.generation
+WHERE d.customer_id=? AND d.node_id=? AND d.service_name=? AND d.generation=?
+  AND d.desired_sha256=? AND d.operation_id=? AND d.tombstone=?
+  AND o.event_kind=? AND o.payload_sha256=?`, Args: []any{
+			desired.CustomerID, desired.NodeID, desired.ServiceName, desired.Generation,
+			desired.PayloadSHA256, desired.OperationID, tombstone,
+			desired.EventKind, desired.PayloadSHA256,
 		}},
 	)
 	if err != nil {
 		return errors.New("controlplane: desired state unavailable")
 	}
-	row, ok := firstRow(results)
+	if len(results) != 4 {
+		return errors.New("controlplane: desired state result count is invalid")
+	}
+	row, ok := firstRow(results[3:])
 	if !ok {
 		return ErrConflict
 	}
 	generation, generationOK := rowInt64(row, "generation")
 	digest, digestOK := rowString(row, "desired_sha256")
-	if !generationOK || !digestOK || generation != desired.Generation || digest != desired.PayloadSHA256 {
+	operationID, operationOK := rowString(row, "operation_id")
+	storedTombstone, tombstoneOK := rowInt64(row, "tombstone")
+	eventKind, eventKindOK := rowString(row, "event_kind")
+	payloadSHA256, payloadOK := rowString(row, "payload_sha256")
+	if !generationOK || !digestOK || !operationOK || !tombstoneOK || !eventKindOK || !payloadOK ||
+		generation != desired.Generation || digest != desired.PayloadSHA256 ||
+		operationID != desired.OperationID || storedTombstone != int64(tombstone) ||
+		eventKind != desired.EventKind || payloadSHA256 != desired.PayloadSHA256 {
 		return ErrConflict
 	}
 	return nil
@@ -234,14 +257,17 @@ RETURNING receipt_id`, Args: []any{
 			receipt.NodeIncarnation, receipt.LeaseFence, receipt.Generation,
 			receipt.DesiredSHA256, receipt.OperationID,
 		}},
+		backupRPODirtyGenerationStatement(s.clock.Now().Unix()),
 		rqlite.Statement{SQL: `UPDATE desired_node_state SET status='applied',updated_at_unix=unixepoch()
 WHERE customer_id=? AND node_id=? AND service_name=? AND generation=? AND desired_sha256=?
+AND status<>'applied'
 AND EXISTS(SELECT 1 FROM node_apply_receipts WHERE receipt_id=?)`, Args: []any{
 			receipt.CustomerID, receipt.NodeID, receipt.ServiceName, receipt.Generation,
 			receipt.DesiredSHA256, receipt.ReceiptID,
 		}},
 		rqlite.Statement{SQL: `UPDATE outbox_events SET status='applied'
 WHERE operation_id=? AND node_id=? AND service_name=? AND generation=?
+AND status<>'applied'
 AND EXISTS(SELECT 1 FROM node_apply_receipts WHERE receipt_id=?)`, Args: []any{
 			receipt.OperationID, receipt.NodeID, receipt.ServiceName, receipt.Generation, receipt.ReceiptID,
 		}},
@@ -366,8 +392,8 @@ WHERE customer_id=?
             WHERE tt.tombstone_id=? AND tt.node_id=ns.node_id
               AND tt.service_name=ns.service_name AND tt.status='applied'))`, Args: []any{
 		command.CustomerID, command.TombstoneID, command.TombstoneID, command.TombstoneID,
-	}})
-	if err != nil || len(results) != 1 {
+	}}, backupRPODirtyGenerationStatement(s.clock.Now().Unix()))
+	if err != nil || len(results) != 2 {
 		return errors.New("controlplane: tombstone purge unavailable")
 	}
 	if results[0].RowsAffected != 1 {

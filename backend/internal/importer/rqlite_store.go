@@ -25,9 +25,9 @@ type RQLiteApplyStore struct {
 // TrialImportProtection contains only the already encrypted legacy lookup
 // salt. Plaintext salt is never part of an import plan, report or SQL args.
 type TrialImportProtection struct {
-	KeyVersion             int
+	KeyVersion            int
 	EncryptedSaltEnvelope string
-	SaltSHA256             string
+	SaltSHA256            string
 }
 
 const legacyTrialSaltSecretID = "legacy-trial-salt-v1"
@@ -65,8 +65,6 @@ func NewRQLiteApplyStoreWithTrialProtection(
 	store.trialProtection = &copyProtection
 	return store, nil
 }
-
-
 
 func (s *RQLiteApplyStore) ReadAppliedRunEvidence(
 	ctx context.Context,
@@ -661,11 +659,30 @@ func runRowMatches(row map[string]any, run ApplyRun) bool {
 		plan == run.PlanDigest && parent == run.ParentDigest && count == int64(run.BatchCount)
 }
 
+func backupRPODirtyGenerationStatement(updatedAtUnix int64) rqlite.Statement {
+	return rqlite.Statement{
+		SQL: `UPDATE backup_rpo_state AS b
+SET dirty_generation = b.dirty_generation + 1,
+phase = 'dirty',
+	updated_at_unix = ?
+WHERE b.singleton_id = 1
+	AND changes() > 0
+	AND EXISTS (
+		SELECT 1 FROM cluster_restore_state AS cr
+		WHERE cr.singleton_id = 1 AND cr.activated = 1
+			AND cr.restore_epoch = b.restore_epoch
+	)
+RETURNING dirty_generation`,
+		Args: []any{updatedAtUnix},
+	}
+}
+
 func (s *RQLiteApplyStore) Complete(ctx context.Context, completion ApplyCompletion) error {
 	if completion.RunID == "" || len(completion.SourceDigest) != 64 ||
 		len(completion.PlanDigest) != 64 || len(completion.TargetDigest) != 64 {
 		return errors.New("invalid import completion")
 	}
+	nowUnix := s.now().Unix()
 	_, writeErr := s.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
 		SQL: `UPDATE import_runs SET status='applied',target_sha256=?,completed_at_unix=?
 WHERE import_run_id=? AND source_sha256=? AND plan_sha256=? AND status='applying'
@@ -676,11 +693,11 @@ AND (batch_count=0 OR (
     AND (SELECT MAX(batch_index) FROM import_batches WHERE import_run_id=? AND status='applied')=batch_count-1
 ))`,
 		Args: []any{
-			completion.TargetDigest, s.now().Unix(), completion.RunID,
+			completion.TargetDigest, nowUnix, completion.RunID,
 			completion.SourceDigest, completion.PlanDigest, completion.RunID,
 			completion.RunID, completion.RunID, completion.RunID,
 		},
-	})
+	}, backupRPODirtyGenerationStatement(nowUnix))
 	results, readErr := s.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT source_sha256,plan_sha256,target_sha256,status
 FROM import_runs WHERE import_run_id=?`, Args: []any{completion.RunID},
@@ -742,7 +759,8 @@ func (s *RQLiteApplyStore) CommitBatch(ctx context.Context, batch ApplyBatch) (B
 		}
 		statements = append(statements, operationStatements...)
 	}
-	statements = append(statements, finishBatchStatement(batch, s.now().Unix()))
+	nowUnix := s.now().Unix()
+	statements = append(statements, finishBatchStatement(batch, nowUnix), backupRPODirtyGenerationStatement(nowUnix))
 
 	_, writeErr := s.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	resolved, exists, readErr := s.readBatchReceipt(ctx, batch.RunID, batch.Index)
@@ -1465,7 +1483,7 @@ ON CONFLICT(principal_id) DO UPDATE SET
     login_key_hmac=excluded.login_key_hmac,status=excluded.status`,
 		Args: append([]any{principal.InternalID, principal.LoginKeyHMAC, principal.Status, nowUnix}, gate...),
 	}, {
-		SQL: `DELETE FROM principal_roles WHERE principal_id=? AND ` + batchWriteGate,
+		SQL:  `DELETE FROM principal_roles WHERE principal_id=? AND ` + batchWriteGate,
 		Args: append([]any{principal.InternalID}, gate...),
 	}}
 	for _, role := range principal.Roles {

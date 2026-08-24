@@ -17,6 +17,7 @@ type sqliteBackupRPOFlowResult struct {
 	Phase              string `json:"phase"`
 	AuditCount         int64  `json:"audit_count"`
 	EntityValue        int64  `json:"entity_value"`
+	RelatedValue       int64  `json:"related_value"`
 }
 
 func TestCoreMutationFlowsHonorBackupRPOStateSQLite(t *testing.T) {
@@ -31,7 +32,7 @@ func TestCoreMutationFlowsHonorBackupRPOStateSQLite(t *testing.T) {
 		}
 	}
 
-	for _, flow := range []string{"claim", "setting", "revoke", "whitelist"} {
+	for _, flow := range []string{"claim", "setting", "revoke", "whitelist", "desired"} {
 		statements := captureBackupRPOFlowStatements(t, flow)
 		for _, state := range []string{"dirty", "verified", "inactive", "mismatched", "noop"} {
 			t.Run(flow+"/"+state, func(t *testing.T) {
@@ -51,20 +52,24 @@ func TestCoreMutationFlowsHonorBackupRPOStateSQLite(t *testing.T) {
 				}
 
 				if state == "noop" {
-					wantEntity := map[string]int64{"claim": 3, "setting": 2, "revoke": -1, "whitelist": 1}[flow]
-					if result.AuditCount != 0 || result.EntityValue != wantEntity {
+					wantEntity := map[string]int64{"claim": 3, "setting": 2, "revoke": -1, "whitelist": 1, "desired": 1}[flow]
+					if result.AuditCount != 0 || result.EntityValue != wantEntity ||
+						(flow == "desired" && result.RelatedValue != 1) {
 						t.Fatalf("no-op state = (audit=%d,entity=%d), want (0,%d)", result.AuditCount, result.EntityValue, wantEntity)
 					}
 					return
 				}
 
 				wantAudit := int64(1)
-				if flow == "whitelist" {
+				if flow == "whitelist" || flow == "desired" {
 					wantAudit = 0
 				}
-				wantEntity := map[string]int64{"claim": 1, "setting": 2, "revoke": 1, "whitelist": 1}[flow]
+				wantEntity := map[string]int64{"claim": 1, "setting": 2, "revoke": 1, "whitelist": 1, "desired": 1}[flow]
 				if result.AuditCount != wantAudit || result.EntityValue != wantEntity {
 					t.Fatalf("business state = (audit=%d,entity=%d), want (%d,%d)", result.AuditCount, result.EntityValue, wantAudit, wantEntity)
+				}
+				if flow == "desired" && result.RelatedValue != 1 {
+					t.Fatalf("desired outbox count=%d, want 1", result.RelatedValue)
 				}
 			})
 		}
@@ -112,6 +117,16 @@ func captureBackupRPOFlowStatements(t *testing.T, flow string) []rqlite.Statemen
 		service, _ := testService(t, db)
 		if _, err := service.EnsureWhiteListEntitlement(context.Background(), "account-a"); err != nil {
 			t.Fatalf("capture EnsureWhiteListEntitlement: %v", err)
+		}
+	case "desired":
+		db = &recordingRQLite{requests: []scriptedResult{resultsScript(
+			rqlite.Result{Rows: []map[string]any{{"generation": int64(5), "desired_sha256": testDesiredSHA}}},
+			rqlite.Result{RowsAffected: 1}, rqlite.Result{},
+			rqlite.Result{Rows: []map[string]any{task6DesiredEvidence()}},
+		)}}
+		service, _ := testService(t, db)
+		if err := service.UpsertDesired(context.Background(), desiredFixture(5, testDesiredSHA)); err != nil {
+			t.Fatalf("capture UpsertDesired: %v", err)
 		}
 	default:
 		t.Fatalf("unknown flow %q", flow)
@@ -213,6 +228,31 @@ elif flow == "whitelist":
             "INSERT INTO whitelist_entitlement_identities(entitlement_id,customer_id,created_at_unix) VALUES (?,?,1)",
             (transaction[0]["args"][0], "account-a"),
         )
+elif flow == "desired":
+    seed_customer("customer-1")
+    connection.execute(
+        "INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix) VALUES (?,?,?,?,?)",
+        ("s2", "S2", 1, 1, 1),
+    )
+    connection.execute(
+        "INSERT INTO node_services(node_id,service_name,desired_target,apply_enabled,fenced,retired,updated_at_unix) "
+        "VALUES (?,?,?,?,?,?,?)",
+        ("s2", "xui", 1, 1, 0, 0, 1),
+    )
+    if state == "noop":
+        desired_args = transaction[0]["args"]
+        outbox_args = transaction[1]["args"]
+        connection.execute(
+            "INSERT INTO desired_node_state(customer_id,node_id,service_name,generation,desired_envelope,desired_sha256,"
+            "status,updated_at_unix,tombstone,operation_id) VALUES (?,?,?,?,?,?,'pending',?,?,?)",
+            desired_args[:9],
+        )
+        connection.execute(
+            "INSERT INTO outbox_events(event_id,aggregate_type,aggregate_id,generation,event_type,payload_envelope,"
+            "payload_sha256,status,available_at_unix,attempts,created_at_unix,node_id,service_name,operation_id,event_kind) "
+            "VALUES (?,'desired_node_state',?,?,?,?,?,'pending',?,0,?,?,?,?,?)",
+            outbox_args[:12],
+        )
 
 if state != "dirty":
     connection.execute(
@@ -248,8 +288,14 @@ elif flow == "setting":
 elif flow == "revoke":
     row = connection.execute("SELECT revocation_epoch FROM principals WHERE principal_id='principal-1'").fetchone()
     entity_value = row[0] if row else -1
-else:
+elif flow == "whitelist":
     entity_value = connection.execute("SELECT COUNT(*) FROM whitelist_entitlement_identities WHERE customer_id='account-a'").fetchone()[0]
+    related_value = -1
+else:
+    entity_value = connection.execute("SELECT COUNT(*) FROM desired_node_state WHERE customer_id='customer-1'").fetchone()[0]
+    related_value = connection.execute("SELECT COUNT(*) FROM outbox_events WHERE operation_id='operation-1'").fetchone()[0]
+if flow != "desired":
+    related_value = -1
 
 json.dump(
     {
@@ -259,6 +305,7 @@ json.dump(
         "phase": phase,
         "audit_count": audit_count,
         "entity_value": entity_value,
+        "related_value": related_value,
     },
     sys.stdout,
     sort_keys=True,
