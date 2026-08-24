@@ -16,6 +16,46 @@ const (
 	testBackupRPOObjectDigest     = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 )
 
+func TestBackupRPODirtyGenerationStatementIsTransactionLocalAndRestoreBound(t *testing.T) {
+	statement := backupRPODirtyGenerationStatement(2_000_000)
+	sql := strings.ToLower(statement.SQL)
+	for _, required := range []string{
+		"update backup_rpo_state", "dirty_generation", "dirty_generation + 1",
+		"changes() > 0", "cluster_restore_state", "activated = 1", "restore_epoch",
+		"returning dirty_generation",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("dirty-generation statement lacks %q: %s", required, statement.SQL)
+		}
+	}
+	if len(statement.Args) != 1 || statement.Args[0] != int64(2_000_000) {
+		t.Fatalf("dirty-generation args = %#v", statement.Args)
+	}
+}
+
+func assertBackupDirtyImmediatelyAfter(t *testing.T, statements []rqlite.Statement, authoritativeIndex int) {
+	t.Helper()
+	if authoritativeIndex < 0 || authoritativeIndex+1 >= len(statements) {
+		t.Fatalf("authoritative statement %d has no following dirty statement: %#v", authoritativeIndex, statements)
+	}
+	dirtyCount := 0
+	for index, statement := range statements {
+		sql := strings.ToLower(statement.SQL)
+		if strings.Contains(sql, "update backup_rpo_state") && strings.Contains(sql, "dirty_generation") {
+			dirtyCount++
+			if index != authoritativeIndex+1 {
+				t.Fatalf("dirty statement index = %d, want %d", index, authoritativeIndex+1)
+			}
+			if !strings.Contains(sql, "changes() > 0") {
+				t.Fatalf("dirty statement is not gated by preceding mutation: %s", statement.SQL)
+			}
+		}
+	}
+	if dirtyCount != 1 {
+		t.Fatalf("dirty statement count = %d, want 1", dirtyCount)
+	}
+}
+
 func validBackupRPOAttemptIdentity() BackupRPOAttemptIdentity {
 	return BackupRPOAttemptIdentity{
 		HolderID: "node-s2", LeaseToken: "lease-token-a", RestoreEpoch: 7,

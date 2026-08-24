@@ -14,17 +14,18 @@ const (
 	task7PersistedEntitlementID2 = "wl-ent-00000000000000000000000000000002"
 )
 
-func entitlementIdentityRows(accountID, entitlementID string) scriptedResult {
+func entitlementIdentityRows(accountID, entitlementID string, inserted int64) scriptedResult {
 	return resultsScript(
-		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{RowsAffected: inserted},
+		rqlite.Result{RowsAffected: inserted},
 		rqlite.Result{Rows: []map[string]any{{"customer_id": accountID, "entitlement_id": entitlementID}}},
 	)
 }
 
 func TestEnsureWhiteListEntitlementPersistsOneImmutableIdentityPerAccount(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{
-		entitlementIdentityRows("account-a", task7PersistedEntitlementID),
-		entitlementIdentityRows("account-a", task7PersistedEntitlementID),
+		entitlementIdentityRows("account-a", task7PersistedEntitlementID, 1),
+		entitlementIdentityRows("account-a", task7PersistedEntitlementID, 0),
 	}}
 	service, _ := testService(t, db)
 
@@ -43,11 +44,12 @@ func TestEnsureWhiteListEntitlementPersistsOneImmutableIdentityPerAccount(t *tes
 		t.Fatalf("request calls=%d, want 2", len(db.requestCalls))
 	}
 	for _, call := range db.requestCalls {
-		if call.level != rqlite.Linearizable || !call.transaction || len(call.statements) != 2 {
+		if call.level != rqlite.Linearizable || !call.transaction || len(call.statements) != 3 {
 			t.Fatalf("non-atomic ensure call: %#v", call)
 		}
+		assertBackupDirtyImmediatelyAfter(t, call.statements, 0)
 		if !strings.Contains(strings.ToLower(call.statements[0].SQL), "on conflict do nothing") ||
-			!strings.Contains(strings.ToLower(call.statements[1].SQL), "where c.customer_id = ?") {
+			!strings.Contains(strings.ToLower(call.statements[2].SQL), "where c.customer_id = ?") {
 			t.Fatalf("unexpected ensure SQL: %#v", call.statements)
 		}
 	}
@@ -55,8 +57,8 @@ func TestEnsureWhiteListEntitlementPersistsOneImmutableIdentityPerAccount(t *tes
 
 func TestEnsureWhiteListEntitlementRetriesOnlyOpaqueIDCollision(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{
-		resultsScript(rqlite.Result{RowsAffected: 0}, rqlite.Result{Rows: []map[string]any{{"customer_id": "account-a", "entitlement_id": nil}}}),
-		entitlementIdentityRows("account-a", task7PersistedEntitlementID2),
+		resultsScript(rqlite.Result{RowsAffected: 0}, rqlite.Result{}, rqlite.Result{Rows: []map[string]any{{"customer_id": "account-a", "entitlement_id": nil}}}),
+		entitlementIdentityRows("account-a", task7PersistedEntitlementID2, 1),
 	}}
 	service, _ := testService(t, db)
 	entitlement, err := service.EnsureWhiteListEntitlement(context.Background(), "account-a")
@@ -98,9 +100,9 @@ func TestWhiteListEntitlementPersistenceFailsClosedOnMissingOrMalformedRows(t *t
 		name    string
 		results scriptedResult
 	}{
-		{name: "missing customer", results: resultsScript(rqlite.Result{}, rqlite.Result{})},
-		{name: "malformed id", results: resultsScript(rqlite.Result{}, rqlite.Result{Rows: []map[string]any{{"customer_id": "account-a", "entitlement_id": "bad"}}})},
-		{name: "multiple rows", results: resultsScript(rqlite.Result{}, rqlite.Result{Rows: []map[string]any{
+		{name: "missing customer", results: resultsScript(rqlite.Result{}, rqlite.Result{}, rqlite.Result{})},
+		{name: "malformed id", results: resultsScript(rqlite.Result{}, rqlite.Result{}, rqlite.Result{Rows: []map[string]any{{"customer_id": "account-a", "entitlement_id": "bad"}}})},
+		{name: "multiple rows", results: resultsScript(rqlite.Result{}, rqlite.Result{}, rqlite.Result{Rows: []map[string]any{
 			{"customer_id": "account-a", "entitlement_id": task7PersistedEntitlementID},
 			{"customer_id": "account-a", "entitlement_id": task7PersistedEntitlementID2},
 		}})},

@@ -95,29 +95,34 @@ FROM tariff_versions WHERE active = 1 ORDER BY duration_days, tariff_version_id`
 	return tariffs, nil
 }
 
-func (s *Store) updateSetting(ctx context.Context, update SettingUpdate) (SettingResult, error) {
-	if strings.TrimSpace(update.Key) == "" || update.ExpectedGeneration < 0 || !json.Valid([]byte(update.PublicValueJSON)) {
+func validSettingUpdate(update SettingUpdate) bool {
+	return strings.TrimSpace(update.Key) != "" && update.ExpectedGeneration >= 0 && json.Valid([]byte(update.PublicValueJSON))
+}
+
+func (s *Store) updateSetting(ctx context.Context, update SettingUpdate, mutationToken string) (SettingResult, error) {
+	if !validSettingUpdate(update) || mutationToken == "" {
 		return SettingResult{}, errors.New("controlplane: invalid setting update")
 	}
 	now := s.clock.Now().Unix()
 	next := update.ExpectedGeneration + 1
 	statements := []rqlite.Statement{{
-		SQL: `INSERT INTO cluster_settings(setting_key, public_value_json, generation, updated_at_unix)
-SELECT ?, ?, ?, ?
+		SQL: `INSERT INTO cluster_settings(setting_key, public_value_json, generation, updated_at_unix, last_mutation_token)
+SELECT ?, ?, ?, ?, ?
 WHERE COALESCE((SELECT generation FROM cluster_settings WHERE setting_key = ?), 0) = ?
 ON CONFLICT(setting_key) DO UPDATE SET public_value_json = excluded.public_value_json,
-generation = excluded.generation, updated_at_unix = excluded.updated_at_unix
+generation = excluded.generation, updated_at_unix = excluded.updated_at_unix,
+last_mutation_token = excluded.last_mutation_token
 WHERE cluster_settings.generation = ?
 RETURNING generation`,
-		Args: []any{update.Key, update.PublicValueJSON, next, now, update.Key, update.ExpectedGeneration, update.ExpectedGeneration},
-	}, {
+		Args: []any{update.Key, update.PublicValueJSON, next, now, mutationToken, update.Key, update.ExpectedGeneration, update.ExpectedGeneration},
+	}, backupRPOSettingDirtyGenerationStatement(now, update.Key, next, mutationToken), {
 		SQL: `DELETE FROM setting_members WHERE setting_key = ? AND EXISTS
-(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)`,
-		Args: []any{update.Key, update.Key, next},
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?)`,
+		Args: []any{update.Key, update.Key, next, mutationToken},
 	}}
 	if len(update.Members) > 0 {
 		values := make([]string, 0, len(update.Members))
-		args := make([]any, 0, len(update.Members)*6)
+		args := make([]any, 0, len(update.Members)*7)
 		for _, member := range update.Members {
 			canonical, err := CanonicalLoginKey(member)
 			if err != nil {
@@ -125,8 +130,8 @@ RETURNING generation`,
 			}
 			memberHMAC := s.secrets.LookupHMAC("setting-member:"+update.Key, []byte(canonical))
 			values = append(values, `SELECT ?, ?, ?, ? WHERE EXISTS
-(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)`)
-			args = append(args, update.Key, memberHMAC, `{"enabled":true}`, next, update.Key, next)
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?)`)
+			args = append(args, update.Key, memberHMAC, `{"enabled":true}`, next, update.Key, next, mutationToken)
 		}
 		statements = append(statements, rqlite.Statement{
 			SQL: `INSERT INTO setting_members(setting_key, member_key, member_value_json, generation) ` +
@@ -136,7 +141,8 @@ member_value_json = excluded.member_value_json, generation = excluded.generation
 		})
 	} else {
 		statements = append(statements, rqlite.Statement{
-			SQL: `SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?`, Args: []any{update.Key, next},
+			SQL:  `SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?`,
+			Args: []any{update.Key, next, mutationToken},
 		})
 	}
 	if update.Secret != nil {
@@ -148,15 +154,16 @@ member_value_json = excluded.member_value_json, generation = excluded.generation
 		statements = append(statements, rqlite.Statement{
 			SQL: `INSERT INTO setting_secrets(setting_key, secret_envelope, secret_sha256, key_version, updated_at_unix)
 SELECT ?, ?, ?, ?, ? WHERE EXISTS
-(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?)
 ON CONFLICT(setting_key) DO UPDATE SET secret_envelope = excluded.secret_envelope,
 secret_sha256 = excluded.secret_sha256, key_version = excluded.key_version, updated_at_unix = excluded.updated_at_unix`,
-			Args: []any{update.Key, envelopeBytes, hex.EncodeToString(digest[:]), update.Secret.KeyVersion, now, update.Key, next},
+			Args: []any{update.Key, envelopeBytes, hex.EncodeToString(digest[:]), update.Secret.KeyVersion, now, update.Key, next, mutationToken},
 		})
 	} else {
 		statements = append(statements, rqlite.Statement{
 			SQL: `DELETE FROM setting_secrets WHERE setting_key = ? AND EXISTS
-(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)`, Args: []any{update.Key, update.Key, next},
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?)`,
+			Args: []any{update.Key, update.Key, next, mutationToken},
 		})
 	}
 	actorHMAC := s.secrets.LookupHMAC("audit-actor", []byte(update.Actor))
@@ -164,9 +171,9 @@ secret_sha256 = excluded.secret_sha256, key_version = excluded.key_version, upda
 	statements = append(statements, rqlite.Statement{
 		SQL: `INSERT INTO audit_events(event_id, actor_hmac, action, resource_type, resource_id_hmac, created_at_unix)
 SELECT ?, ?, 'setting.update', 'cluster_setting', ?, ? WHERE EXISTS
-(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ?)
+(SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?)
 ON CONFLICT(event_id) DO NOTHING`,
-		Args: []any{auditID("setting", update.Key, next, now), actorHMAC, resourceHMAC, now, update.Key, next},
+		Args: []any{auditID("setting", update.Key, next, now), actorHMAC, resourceHMAC, now, update.Key, next, mutationToken},
 	})
 	results, err := s.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	if err != nil {

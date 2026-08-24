@@ -34,20 +34,30 @@ WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = 
    OR (SELECT COUNT(*) FROM devices WHERE customer_id = ? AND revoked = 0) < ?
 ON CONFLICT(customer_id, device_key_hmac) DO UPDATE SET
 platform = excluded.platform, last_seen_at_unix = excluded.last_seen_at_unix, revoked = 0
-RETURNING device_id`,
+WHERE devices.platform IS NOT excluded.platform
+	OR devices.last_seen_at_unix IS NOT excluded.last_seen_at_unix
+	OR devices.revoked <> 0`,
 		Args: []any{deviceID, customerID, deviceHMAC, platform, now, now, customerID, deviceHMAC, customerID, limit},
-	}, {
+	}, backupRPODirtyGenerationStatement(now), {
 		SQL: `INSERT INTO audit_events(event_id, actor_hmac, action, resource_type, resource_id_hmac, created_at_unix)
 SELECT ?, ?, 'device.claim', 'device', ?, ?
 WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0)
 ON CONFLICT(event_id) DO NOTHING`,
 		Args: []any{auditID("device", deviceHMAC, 0, now), actorHMAC, resourceHMAC, now, customerID, deviceHMAC},
+	}, {
+		SQL: `SELECT device_id FROM devices
+WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0
+LIMIT 1`,
+		Args: []any{customerID, deviceHMAC},
 	}}
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	if err != nil {
 		return DeviceClaim{}, errors.New("controlplane: device claim unavailable")
 	}
-	row, ok := firstRow(results)
+	if len(results) != len(statements) {
+		return DeviceClaim{}, errors.New("controlplane: invalid device claim result")
+	}
+	row, ok := firstRow(results[3:4])
 	if !ok {
 		return DeviceClaim{}, ErrDeviceLimit
 	}

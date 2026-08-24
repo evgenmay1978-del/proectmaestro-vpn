@@ -57,7 +57,14 @@ func (s *Service) Tariffs(ctx context.Context) ([]Tariff, error) {
 }
 
 func (s *Service) UpdateSetting(ctx context.Context, update SettingUpdate) (SettingResult, error) {
-	return s.store.updateSetting(ctx, update)
+	if !validSettingUpdate(update) {
+		return SettingResult{}, errors.New("controlplane: invalid setting update")
+	}
+	mutationToken, err := s.ids.NewID("setting-mut")
+	if err != nil {
+		return SettingResult{}, errors.New("controlplane: generate setting mutation token")
+	}
+	return s.store.updateSetting(ctx, update, mutationToken)
 }
 
 func (s *Service) ApprovedOTA(ctx context.Context) (OTAApproval, error) {
@@ -172,19 +179,34 @@ func (s *Service) RevokeSessions(ctx context.Context, principalID, actor string)
 	actorHMAC := s.store.secrets.LookupHMAC("audit-actor", []byte(actor))
 	resourceHMAC := s.store.secrets.LookupHMAC("audit-resource", []byte(principalID))
 	statements := []rqlite.Statement{{
-		SQL:  `UPDATE principals SET revocation_epoch = revocation_epoch + 1 WHERE principal_id = ?`,
+		SQL:  `UPDATE principals SET revocation_epoch = revocation_epoch + 1 WHERE principal_id = ? RETURNING revocation_epoch`,
 		Args: []any{principalID},
-	}, {
-		SQL:  `UPDATE web_sessions SET revoked_at_unix = ? WHERE principal_id = ? AND revoked_at_unix IS NULL`,
-		Args: []any{now, principalID},
+	}, backupRPODirtyGenerationStatement(now), {
+		SQL: `UPDATE web_sessions SET revoked_at_unix = ?
+WHERE principal_id = ? AND revoked_at_unix IS NULL
+	AND EXISTS (SELECT 1 FROM principals WHERE principal_id = ? AND revocation_epoch > 0)`,
+		Args: []any{now, principalID, principalID},
 	}, {
 		SQL: `INSERT INTO audit_events(event_id, actor_hmac, action, resource_type, resource_id_hmac, created_at_unix)
-VALUES (?, ?, 'session.revoke_all', 'principal', ?, ?)
+SELECT ?, ?, 'session.revoke_all', 'principal', ?, ?
+WHERE EXISTS (SELECT 1 FROM principals WHERE principal_id = ? AND revocation_epoch > 0)
 ON CONFLICT(event_id) DO NOTHING`,
-		Args: []any{auditID("revoke", principalID, 0, now), actorHMAC, resourceHMAC, now},
+		Args: []any{auditID("revoke", principalID, 0, now), actorHMAC, resourceHMAC, now, principalID},
 	}}
-	if _, err := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...); err != nil {
+	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)
+	if err != nil {
 		return errors.New("controlplane: revoke sessions unavailable")
+	}
+	if len(results) != len(statements) {
+		return errors.New("controlplane: invalid revoke sessions result")
+	}
+	row, ok := firstRow(results[:1])
+	if !ok {
+		return ErrNotFound
+	}
+	epoch, ok := rowInt64(row, "revocation_epoch")
+	if !ok || epoch <= 0 {
+		return errors.New("controlplane: invalid revoke sessions result")
 	}
 	return nil
 }

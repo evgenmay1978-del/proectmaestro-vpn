@@ -38,6 +38,53 @@ var (
 	errBackupRPOAttemptOutcomeUnresolved = errors.New("controlplane: backup RPO attempt outcome is unresolved")
 )
 
+// backupRPODirtyGenerationStatement must be placed immediately after the
+// authoritative business mutation in the same rqlite transaction. SQLite's
+// changes() then proves that mutation changed durable state before the backup
+// generation advances.
+func backupRPODirtyGenerationStatement(updatedAtUnix int64) rqlite.Statement {
+	return rqlite.Statement{
+		SQL: `UPDATE backup_rpo_state AS b
+SET dirty_generation = b.dirty_generation + 1,
+phase = 'dirty',
+	updated_at_unix = ?
+WHERE b.singleton_id = 1
+	AND changes() > 0
+	AND EXISTS (
+		SELECT 1 FROM cluster_restore_state AS cr
+		WHERE cr.singleton_id = 1 AND cr.activated = 1
+			AND cr.restore_epoch = b.restore_epoch
+	)
+RETURNING dirty_generation`,
+		Args: []any{updatedAtUnix},
+	}
+}
+
+// backupRPOSettingDirtyGenerationStatement keeps the immediate changes()
+// proof and additionally binds the dirty marker to this setting request's CAS.
+func backupRPOSettingDirtyGenerationStatement(updatedAtUnix int64, settingKey string, generation int64, mutationToken string) rqlite.Statement {
+	return rqlite.Statement{
+		SQL: `UPDATE backup_rpo_state AS b
+SET dirty_generation = b.dirty_generation + 1,
+phase = 'dirty',
+	updated_at_unix = ?
+WHERE b.singleton_id = 1
+	AND changes() > 0
+	AND EXISTS (
+		SELECT 1 FROM cluster_settings AS cs
+		WHERE cs.setting_key = ? AND cs.generation = ?
+			AND cs.last_mutation_token = ?
+	)
+	AND EXISTS (
+		SELECT 1 FROM cluster_restore_state AS cr
+		WHERE cr.singleton_id = 1 AND cr.activated = 1
+			AND cr.restore_epoch = b.restore_epoch
+	)
+RETURNING dirty_generation`,
+		Args: []any{updatedAtUnix, settingKey, generation, mutationToken},
+	}
+}
+
 type BackupRPOCapability struct {
 	Generation     int64
 	EvidenceSHA256 string

@@ -60,8 +60,10 @@ func TestCustomerByTokenNeverSendsPlainTokenToSQLOrError(t *testing.T) {
 func TestClaimDeviceAtomicallyEnforcesLimitAndStoresOnlyHMAC(t *testing.T) {
 	const rawDevice = "raw-device-identity"
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
-		rqlite.Result{Rows: []map[string]any{{"device_id": "device-1"}}},
 		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{Rows: []map[string]any{{"device_id": "device-1"}}},
 	)}}
 	service, _ := testService(t, db)
 	claim, err := service.ClaimDevice(context.Background(), "customer-1", rawDevice, "android", 3)
@@ -74,6 +76,7 @@ func TestClaimDeviceAtomicallyEnforcesLimitAndStoresOnlyHMAC(t *testing.T) {
 	if len(db.requestCalls) != 1 || !db.requestCalls[0].transaction {
 		t.Fatal("device claim was not one transaction")
 	}
+	assertBackupDirtyImmediatelyAfter(t, db.requestCalls[0].statements, 0)
 	joined := statementsText(db.requestCalls[0].statements)
 	if !strings.Contains(joined, "COUNT") || !strings.Contains(joined, "ON CONFLICT") ||
 		!strings.Contains(joined, "audit_events") {
@@ -84,9 +87,42 @@ func TestClaimDeviceAtomicallyEnforcesLimitAndStoresOnlyHMAC(t *testing.T) {
 			t.Fatal("raw device identity reached SQL")
 		}
 	}
-	auditSQL := db.requestCalls[0].statements[1].SQL
+	auditSQL := db.requestCalls[0].statements[2].SQL
 	if !strings.Contains(auditSQL, "ON CONFLICT(event_id) DO NOTHING") {
 		t.Fatalf("device claim audit is not retry-idempotent: %s", auditSQL)
+	}
+}
+
+func TestClaimDeviceNoopReplayAndLimitRejectionCannotMarkDirty(t *testing.T) {
+	tests := []struct {
+		name      string
+		finalRows []map[string]any
+		wantErr   error
+	}{
+		{name: "exact idempotent replay", finalRows: []map[string]any{{"device_id": "device-1"}}},
+		{name: "limit rejection", wantErr: ErrDeviceLimit},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+				rqlite.Result{RowsAffected: 0}, rqlite.Result{}, rqlite.Result{},
+				rqlite.Result{Rows: test.finalRows},
+			)}}
+			service, _ := testService(t, db)
+			claim, err := service.ClaimDevice(context.Background(), "customer-1", "same-device", "android", 3)
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("ClaimDevice error = %v, want %v", err, test.wantErr)
+			}
+			if test.wantErr == nil && claim.DeviceID != "device-1" {
+				t.Fatalf("idempotent replay claim = %#v", claim)
+			}
+			statements := db.requestCalls[0].statements
+			assertBackupDirtyImmediatelyAfter(t, statements, 0)
+			authoritativeSQL := strings.ToLower(statements[0].SQL)
+			if !strings.Contains(authoritativeSQL, "do update set") || !strings.Contains(authoritativeSQL, "where devices.") {
+				t.Fatalf("exact no-op replay is not suppressed by authoritative SQL: %s", statements[0].SQL)
+			}
+		})
 	}
 }
 
@@ -94,8 +130,10 @@ func TestConcurrentSameDeviceClaimIsIdempotent(t *testing.T) {
 	db := &recordingRQLite{}
 	db.requestFn = func(_ []rqlite.Statement) ([]rqlite.Result, error) {
 		return []rqlite.Result{
-			{Rows: []map[string]any{{"device_id": "same-device"}}},
 			{RowsAffected: 1},
+			{RowsAffected: 1},
+			{RowsAffected: 1},
+			{Rows: []map[string]any{{"device_id": "same-device"}}},
 		}, nil
 	}
 	service, _ := testService(t, db)

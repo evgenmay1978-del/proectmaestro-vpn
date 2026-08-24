@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -39,17 +40,22 @@ func (db *fixtureDB) Request(
 	transaction bool,
 	statements ...rqlite.Statement,
 ) ([]rqlite.Result, error) {
-	if level != rqlite.Linearizable || !transaction || len(statements) != 2 ||
-		len(statements[0].Args) != 3 || len(statements[1].Args) != 1 {
+	if level != rqlite.Linearizable || !transaction || len(statements) != 3 ||
+		len(statements[0].Args) != 3 || len(statements[1].Args) != 1 || len(statements[2].Args) != 1 {
 		return nil, errors.New("whitelistfixture: unexpected persistence request")
+	}
+	dirtySQL := strings.ToLower(statements[1].SQL)
+	if !strings.Contains(dirtySQL, "update backup_rpo_state") || !strings.Contains(dirtySQL, "changes() > 0") {
+		return nil, errors.New("whitelistfixture: unexpected dirty-generation statement")
 	}
 	entitlementID, idOK := statements[0].Args[0].(string)
 	insertAccountID, insertOK := statements[0].Args[2].(string)
-	selectAccountID, selectOK := statements[1].Args[0].(string)
+	selectAccountID, selectOK := statements[2].Args[0].(string)
 	if !idOK || !insertOK || !selectOK || insertAccountID != db.accountID || selectAccountID != db.accountID {
 		return nil, errors.New("whitelistfixture: unexpected persistence binding")
 	}
 	return []rqlite.Result{
+		{RowsAffected: 1},
 		{RowsAffected: 1},
 		{Rows: []map[string]any{{"customer_id": db.accountID, "entitlement_id": entitlementID}}},
 	}, nil

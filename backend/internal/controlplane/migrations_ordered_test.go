@@ -15,7 +15,7 @@ func TestOrderedMigrationsExposeExactChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
-	requireExactV5MigrationChain(t, migrations)
+	requireExactV6MigrationChain(t, migrations)
 	identity, err := combinedMigrationChecksum(migrations)
 	if err != nil || len(identity) != 64 {
 		t.Fatalf("combined identity=%q err=%v", identity, err)
@@ -27,7 +27,7 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireExactV5MigrationChain(t, migrations)
+	requireExactV6MigrationChain(t, migrations)
 	db := &recordingRQLite{
 		strong: []scriptedResult{
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
@@ -44,13 +44,13 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 				rqlite.Result{},
 			),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v1 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 4 {
-		t.Fatalf("requests=%d, want v2-v5 transactions", len(db.requestCalls))
+	if len(db.requestCalls) != 5 {
+		t.Fatalf("requests=%d, want v2-v6 transactions", len(db.requestCalls))
 	}
 
 	v2 := db.requestCalls[0]
@@ -117,14 +117,28 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 		fmt.Sprint(v5Last.Args[1]) != migrations[4].Checksum {
 		t.Fatalf("v5 migration receipt=%#v", v5Last)
 	}
+	v6 := db.requestCalls[4]
+	if v6.level != rqlite.Linearizable || !v6.transaction {
+		t.Fatalf("v6 request=%#v", v6)
+	}
+	v6SQL := strings.ToLower(statementsText(v6.statements))
+	if !strings.Contains(v6SQL, "alter table cluster_settings") ||
+		!strings.Contains(v6SQL, "last_mutation_token") {
+		t.Fatalf("v6 migration transaction=%s", v6SQL)
+	}
+	v6Last := v6.statements[len(v6.statements)-1]
+	if len(v6Last.Args) != 3 || fmt.Sprint(v6Last.Args[0]) != "6" ||
+		fmt.Sprint(v6Last.Args[1]) != migrations[5].Checksum {
+		t.Fatalf("v6 migration receipt=%#v", v6Last)
+	}
 }
 
-func TestOrderedMigrationsUpgradeExactV4PrefixAppliesOnlyV5(t *testing.T) {
+func TestOrderedMigrationsUpgradeExactV4PrefixAppliesV5AndV6(t *testing.T) {
 	migrations, err := loadMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireExactV5MigrationChain(t, migrations)
+	requireExactV6MigrationChain(t, migrations)
 	db := &recordingRQLite{
 		strong: []scriptedResult{
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
@@ -141,13 +155,13 @@ func TestOrderedMigrationsUpgradeExactV4PrefixAppliesOnlyV5(t *testing.T) {
 				rqlite.Result{},
 			),
 		},
-		requests: []scriptedResult{resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v4 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 1 {
-		t.Fatalf("requests=%d, want only v5", len(db.requestCalls))
+	if len(db.requestCalls) != 2 {
+		t.Fatalf("requests=%d, want v5 and v6", len(db.requestCalls))
 	}
 	v5 := db.requestCalls[0]
 	if v5.level != rqlite.Linearizable || !v5.transaction {
@@ -172,19 +186,77 @@ func TestOrderedMigrationsUpgradeExactV4PrefixAppliesOnlyV5(t *testing.T) {
 			t.Fatalf("v5 migration transaction is missing %q: %s", required, v5SQL)
 		}
 	}
-	last := v5.statements[len(v5.statements)-1]
-	if len(last.Args) != 3 || fmt.Sprint(last.Args[0]) != "5" ||
-		fmt.Sprint(last.Args[1]) != migrations[4].Checksum {
-		t.Fatalf("v5 receipt=%#v", last)
+	v5Last := v5.statements[len(v5.statements)-1]
+	if len(v5Last.Args) != 3 || fmt.Sprint(v5Last.Args[0]) != "5" ||
+		fmt.Sprint(v5Last.Args[1]) != migrations[4].Checksum {
+		t.Fatalf("v5 receipt=%#v", v5Last)
+	}
+
+	v6 := db.requestCalls[1]
+	if v6.level != rqlite.Linearizable || !v6.transaction {
+		t.Fatalf("v6 request=%#v", v6)
+	}
+	v6SQL := strings.ToLower(statementsText(v6.statements))
+	if !strings.Contains(v6SQL, "alter table cluster_settings") ||
+		!strings.Contains(v6SQL, "last_mutation_token") {
+		t.Fatalf("v6 migration transaction=%s", v6SQL)
+	}
+	v6Last := v6.statements[len(v6.statements)-1]
+	if len(v6Last.Args) != 3 || fmt.Sprint(v6Last.Args[0]) != "6" ||
+		fmt.Sprint(v6Last.Args[1]) != migrations[5].Checksum {
+		t.Fatalf("v6 receipt=%#v", v6Last)
 	}
 }
 
-func TestOrderedMigrationsExactV5PrefixIsNoOp(t *testing.T) {
+func TestOrderedMigrationsExactV5PrefixAppliesOnlyV6(t *testing.T) {
 	migrations, err := loadMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireExactV5MigrationChain(t, migrations)
+	requireExactV6MigrationChain(t, migrations)
+	db := &recordingRQLite{
+		strong: []scriptedResult{
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			rowsScript(map[string]any{"name": "schema_migrations"}),
+			rowsScript(migrationIdentityRows(migrations[:5])...),
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			rowsScript(map[string]any{"foreign_keys": int64(1)}),
+			resultsScript(
+				rqlite.Result{Rows: migrationIdentityRows(migrations)},
+				rqlite.Result{Rows: expectedTableRows()},
+				rqlite.Result{},
+			),
+		},
+		requests: []scriptedResult{resultsScript()},
+	}
+	if err := NewMigrator(db).Apply(context.Background()); err != nil {
+		t.Fatalf("Apply v5 prefix: %v", err)
+	}
+	if len(db.requestCalls) != 1 {
+		t.Fatalf("exact v5 prefix performed %d migration transaction(s), want one", len(db.requestCalls))
+	}
+	v6 := db.requestCalls[0]
+	v6SQL := strings.ToLower(statementsText(v6.statements))
+	if !strings.Contains(v6SQL, "alter table cluster_settings") ||
+		!strings.Contains(v6SQL, "last_mutation_token") {
+		t.Fatalf("v6 migration transaction=%s", v6SQL)
+	}
+	last := v6.statements[len(v6.statements)-1]
+	if len(last.Args) != 3 || fmt.Sprint(last.Args[0]) != "6" ||
+		fmt.Sprint(last.Args[1]) != migrations[5].Checksum {
+		t.Fatalf("v6 receipt=%#v", last)
+	}
+}
+
+func TestOrderedMigrationsExactV6PrefixIsNoOp(t *testing.T) {
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireExactV6MigrationChain(t, migrations)
 	db := &recordingRQLite{
 		strong: []scriptedResult{
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
@@ -203,24 +275,26 @@ func TestOrderedMigrationsExactV5PrefixIsNoOp(t *testing.T) {
 		},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
-		t.Fatalf("Apply v5 prefix: %v", err)
+		t.Fatalf("Apply v6 prefix: %v", err)
 	}
 	if len(db.requestCalls) != 0 {
-		t.Fatalf("exact v5 prefix performed %d migration transaction(s)", len(db.requestCalls))
+		t.Fatalf("exact v6 prefix performed %d migration transaction(s)", len(db.requestCalls))
 	}
 }
 
-func requireExactV5MigrationChain(t *testing.T, migrations []migration) {
+func requireExactV6MigrationChain(t *testing.T, migrations []migration) {
 	t.Helper()
-	if SchemaVersion != 5 || len(migrations) != 5 ||
-		migrations[0].Version != 1 || migrations[1].Version != 2 ||
-		migrations[2].Version != 3 || migrations[3].Version != 4 ||
-		migrations[4].Version != 5 {
+	if SchemaVersion != 6 || len(migrations) != 6 {
 		t.Fatalf(
-			"migration v5 is absent or chain is not exactly v1-v5: SchemaVersion=%d migrations=%#v",
+			"migration chain is not exactly v1-v6: SchemaVersion=%d migrations=%#v",
 			SchemaVersion,
 			migrations,
 		)
+	}
+	for index, item := range migrations {
+		if item.Version != index+1 {
+			t.Fatalf("migration chain version[%d]=%d, want %d", index, item.Version, index+1)
+		}
 	}
 }
 

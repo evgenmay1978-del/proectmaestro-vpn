@@ -58,28 +58,31 @@ func (s *Store) ensureWhiteListEntitlement(
 	accountID string,
 	candidateID string,
 ) (WhiteListEntitlement, bool, error) {
-	results, err := s.db.Request(ctx, rqlite.Linearizable, true,
-		rqlite.Statement{
+	now := s.clock.Now().Unix()
+	statements := []rqlite.Statement{
+		{
 			SQL: `INSERT INTO whitelist_entitlement_identities(entitlement_id, customer_id, created_at_unix)
 SELECT ?, customer_id, ? FROM customers WHERE customer_id = ?
 ON CONFLICT DO NOTHING`,
-			Args: []any{candidateID, s.clock.Now().Unix(), accountID},
+			Args: []any{candidateID, now, accountID},
 		},
-		rqlite.Statement{
+		backupRPODirtyGenerationStatement(now),
+		{
 			SQL: `SELECT c.customer_id, wei.entitlement_id
 FROM customers c
 LEFT JOIN whitelist_entitlement_identities wei ON wei.customer_id = c.customer_id
 WHERE c.customer_id = ?`,
 			Args: []any{accountID},
 		},
-	)
+	}
+	results, err := s.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	if err != nil {
 		return WhiteListEntitlement{}, false, err
 	}
-	if len(results) != 2 {
+	if len(results) != len(statements) {
 		return WhiteListEntitlement{}, false, errors.New("controlplane: invalid white-list entitlement response")
 	}
-	rows := results[1].Rows
+	rows := results[2].Rows
 	if len(rows) == 0 {
 		return WhiteListEntitlement{}, false, ErrNotFound
 	}
@@ -105,7 +108,6 @@ WHERE c.customer_id = ?`,
 	entitlement, err := whiteListEntitlementFromPersistedIdentity(persistedAccountID, persistedEntitlementID)
 	return entitlement, false, err
 }
-
 func (s *Store) whiteListEntitlementByID(ctx context.Context, entitlementID string) (WhiteListEntitlement, error) {
 	results, err := s.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL:  `SELECT customer_id, entitlement_id FROM whitelist_entitlement_identities WHERE entitlement_id = ?`,

@@ -193,6 +193,7 @@ func TestMutableSettingsUseVersionCASAndAudit(t *testing.T) {
 	if len(db.requestCalls) != 1 || !db.requestCalls[0].transaction {
 		t.Fatalf("setting update was not one transaction: %#v", db.requestCalls)
 	}
+	assertBackupDirtyImmediatelyAfter(t, db.requestCalls[0].statements, 0)
 	joined := statementsText(db.requestCalls[0].statements)
 	for _, required := range []string{"cluster_settings", "setting_members", "audit_events", "generation"} {
 		if !strings.Contains(joined, required) {
@@ -234,6 +235,7 @@ func TestSettingSecretReferenceCASIsAtomic(t *testing.T) {
 	if len(db.requestCalls) != 1 || !db.requestCalls[0].transaction {
 		t.Fatal("setting public value and secret reference were not atomic")
 	}
+	assertBackupDirtyImmediatelyAfter(t, db.requestCalls[0].statements, 0)
 	joined := statementsText(db.requestCalls[0].statements)
 	if !strings.Contains(joined, "setting_secrets") || !strings.Contains(joined, "audit_events") {
 		t.Fatalf("secret transaction incomplete: %s", joined)
@@ -291,7 +293,10 @@ func TestRevocationEpochInvalidatesExistingSession(t *testing.T) {
 			}),
 			resultsScript(rqlite.Result{Rows: nil}),
 		},
-		requests: []scriptedResult{resultsScript(rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1})},
+		requests: []scriptedResult{resultsScript(
+			rqlite.Result{Rows: []map[string]any{{"revocation_epoch": 2}}},
+			rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1},
+		)},
 	}
 	service, _ := testService(t, db)
 	if _, err := service.Authorize(context.Background(), "session-token", "csrf-token", PermissionPaymentDecide); err != nil {
@@ -306,6 +311,28 @@ func TestRevocationEpochInvalidatesExistingSession(t *testing.T) {
 	joined := statementsText(db.requestCalls[0].statements)
 	if !strings.Contains(joined, "revocation_epoch") || !strings.Contains(joined, "audit_events") {
 		t.Fatalf("revocation transaction incomplete: %s", joined)
+	}
+	assertBackupDirtyImmediatelyAfter(t, db.requestCalls[0].statements, 0)
+}
+
+func TestRevokeSessionsMissingPrincipalCannotCommitAuditOnlySuccess(t *testing.T) {
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
+	)}}
+	service, _ := testService(t, db)
+	err := service.RevokeSessions(context.Background(), "missing-principal", "owner")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("RevokeSessions error = %v, want ErrNotFound", err)
+	}
+	if len(db.requestCalls) != 1 || !db.requestCalls[0].transaction {
+		t.Fatalf("revoke was not one transaction: %#v", db.requestCalls)
+	}
+	statements := db.requestCalls[0].statements
+	assertBackupDirtyImmediatelyAfter(t, statements, 0)
+	for index, statement := range statements[2:] {
+		if !containsAll(statement.SQL, "WHERE", "principals", "principal_id") {
+			t.Fatalf("dependent revoke statement %d is not principal-gated: %s", index+2, statement.SQL)
+		}
 	}
 }
 
@@ -350,10 +377,65 @@ func TestSettingCASGatesEveryDependentMutation(t *testing.T) {
 		t.Fatalf("UpdateSetting: %v", err)
 	}
 	statements := db.requestCalls[0].statements
-	for index, statement := range statements[1:] {
-		if !containsAll(statement.SQL, "SELECT 1 FROM cluster_settings", "generation = ?") {
-			t.Fatalf("dependent statement %d is not gated by successful CAS: %s", index+1, statement.SQL)
+	assertBackupDirtyImmediatelyAfter(t, statements, 0)
+	mutationToken, ok := statements[0].Args[4].(string)
+	if !ok || !strings.HasPrefix(mutationToken, "setting-mut_") {
+		t.Fatalf("CAS mutation token = %#v", statements[0].Args[4])
+	}
+	if !strings.Contains(statements[0].SQL, "last_mutation_token") {
+		t.Fatalf("CAS does not persist mutation token: %s", statements[0].SQL)
+	}
+	if !containsAll(statements[1].SQL, "changes() > 0", "last_mutation_token = ?") ||
+		!statementHasStringArg(statements[1], mutationToken) {
+		t.Fatalf("dirty statement lacks exact CAS token proof: %#v", statements[1])
+	}
+	for index, statement := range statements[2:] {
+		if !containsAll(statement.SQL, "SELECT 1 FROM cluster_settings", "generation = ?", "last_mutation_token = ?") ||
+			!statementHasStringArg(statement, mutationToken) {
+			t.Fatalf("dependent statement %d is not gated by successful CAS token: %s", index+2, statement.SQL)
 		}
+	}
+}
+
+func statementHasStringArg(statement rqlite.Statement, want string) bool {
+	for _, arg := range statement.Args {
+		if value, ok := arg.(string); ok && value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSettingFailedCASCannotMarkBackupDirty(t *testing.T) {
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
+	)}}
+	service, _ := testService(t, db)
+	_, err := service.UpdateSetting(context.Background(), SettingUpdate{
+		Key: "ota", ExpectedGeneration: 7, PublicValueJSON: `{"version_code":155}`, Actor: "owner",
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("UpdateSetting error = %v, want ErrConflict", err)
+	}
+	assertBackupDirtyImmediatelyAfter(t, db.requestCalls[0].statements, 0)
+}
+
+func TestReadOnlyCallsNeverOpenDirtyMutationTransaction(t *testing.T) {
+	db := &recordingRQLite{linear: []scriptedResult{
+		rowsScript(map[string]any{
+			"customer_id": "customer-1", "status": "active", "expires_at_unix": int64(2_100_000), "generation": int64(7),
+		}),
+		rowsScript(map[string]any{"customer_id": "account-a", "entitlement_id": task7PersistedEntitlementID}),
+	}}
+	service, _ := testService(t, db)
+	if _, err := service.CustomerByToken(context.Background(), "token"); err != nil {
+		t.Fatalf("CustomerByToken: %v", err)
+	}
+	if _, err := service.WhiteListEntitlementByID(context.Background(), task7PersistedEntitlementID); err != nil {
+		t.Fatalf("WhiteListEntitlementByID: %v", err)
+	}
+	if len(db.requestCalls) != 0 {
+		t.Fatalf("read-only calls opened mutation transactions: %#v", db.requestCalls)
 	}
 }
 
