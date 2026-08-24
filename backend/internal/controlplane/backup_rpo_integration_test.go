@@ -73,6 +73,7 @@ func TestBackupRPOIntegrationIsolationUsesUniqueEpochAndRestoresMigrationSeed(t 
 	prepareSQL := normalizeSQL(prepare)
 	for _, required := range []string{
 		"delete from cluster_job_leases where job_name='backup-rpo'",
+		"coalesce((select max(restore_epoch) from backup_rpo_attempts),0) >= ? then null",
 		"select max(restore_epoch)+1 from backup_rpo_attempts",
 		"dirty_generation=1", "verified_generation=0", "last_attempt_sequence=0", "phase='dirty'",
 	} {
@@ -80,8 +81,8 @@ func TestBackupRPOIntegrationIsolationUsesUniqueEpochAndRestoresMigrationSeed(t 
 			t.Fatalf("prepare SQL lacks %q: %s", required, prepareSQL)
 		}
 	}
-	if got := fmt.Sprint(prepare[1].Args); got != "[1000000 1000000]" {
-		t.Fatalf("unique epoch args=%s", got)
+	if got := fmt.Sprint(prepare[1].Args); got != "[9223372036854775807 1000000 1000000]" {
+		t.Fatalf("guarded unique epoch args=%s", got)
 	}
 	cleanupSQL := normalizeSQL(cleanup)
 	for _, required := range []string{
@@ -104,12 +105,125 @@ func TestBackupRPOIntegrationIsolationUsesUniqueEpochAndRestoresMigrationSeed(t 
 	}
 }
 
+func TestBackupRPOIntegrationCommittedUnknownPreparationRestoresMigrationSeed(t *testing.T) {
+	type seedState struct {
+		restoreEpoch        int64
+		dirtyGeneration     int64
+		verifiedGeneration  int64
+		lastAttemptSequence int64
+		phase               string
+	}
+	seed := seedState{
+		restoreEpoch: 1, dirtyGeneration: 1, verifiedGeneration: 0,
+		lastAttemptSequence: 0, phase: "dirty",
+	}
+	current := seed
+	var cleanups []func()
+	var cleanupErrors []error
+	requestNumber := 0
+	db := &recordingRQLite{}
+	db.requestFn = func(statements []rqlite.Statement) ([]rqlite.Result, error) {
+		requestNumber++
+		switch requestNumber {
+		case 1:
+			if len(cleanups) != 1 {
+				t.Errorf("cleanup registrations=%d before prepare request, want 1", len(cleanups))
+			}
+			current = seedState{
+				restoreEpoch:    backupRPOIntegrationRestoreEpochFloor,
+				dirtyGeneration: 1, verifiedGeneration: 0,
+				lastAttemptSequence: 0, phase: "dirty",
+			}
+			return nil, &rqlite.TransportError{
+				Operation: "request", UnknownOutcome: true,
+				Err: errors.New("synthetic committed prepare ambiguity"),
+			}
+		case 2:
+			want := backupRPOIntegrationCleanupStatements()
+			if len(statements) != len(want) {
+				t.Errorf("cleanup statements=%d, want %d", len(statements), len(want))
+				return nil, nil
+			}
+			for i := range want {
+				if statements[i].SQL != want[i].SQL || fmt.Sprint(statements[i].Args) != fmt.Sprint(want[i].Args) {
+					t.Errorf("cleanup statement %d=%#v, want %#v", i, statements[i], want[i])
+				}
+			}
+			current = seed
+			return nil, nil
+		default:
+			t.Errorf("unexpected request %d", requestNumber)
+			return nil, nil
+		}
+	}
+
+	_, err := prepareBackupRPOIntegrationAfterMigrations(
+		context.Background(), db,
+		func(cleanup func()) { cleanups = append(cleanups, cleanup) },
+		func(cleanupErr error) { cleanupErrors = append(cleanupErrors, cleanupErr) },
+	)
+	var transportErr *rqlite.TransportError
+	if !errors.As(err, &transportErr) || !transportErr.UnknownOutcome {
+		t.Fatalf("prepare error=%v, want committed unknown outcome", err)
+	}
+	if current.restoreEpoch != backupRPOIntegrationRestoreEpochFloor {
+		t.Fatalf("committed prepare state=%#v", current)
+	}
+	if len(cleanups) != 1 {
+		t.Fatalf("cleanup registrations=%d, want 1", len(cleanups))
+	}
+	cleanups[0]()
+	if len(cleanupErrors) != 0 {
+		t.Fatalf("cleanup errors=%v", cleanupErrors)
+	}
+	if current != seed {
+		t.Fatalf("cleanup state=%#v, want exact seed %#v", current, seed)
+	}
+}
+
+func TestBackupRPOIntegrationFailureTraceAnnotatesCleanupOnce(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		firstStage  string
+		secondStage string
+		wantStage   string
+	}{
+		{name: "cleanup-only", firstStage: "cleanup", secondStage: "cleanup", wantStage: "cleanup"},
+		{name: "body-and-cleanup", firstStage: "register-attempt", secondStage: "cleanup", wantStage: "register-attempt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := &recordingRQLite{linear: []scriptedResult{
+				resultsScript(rqlite.Result{Rows: []map[string]any{{
+					"last_attempt_sequence": int64(0), "max_attempt_sequence": int64(0),
+					"expected_attempt_exists": int64(0),
+				}}}),
+			}}
+			var output strings.Builder
+			trace := newBackupRPOIntegrationFailureTrace(t, db, "diagnostic-dedup")
+			trace.annotationWriter = &output
+			trace.annotateFailure(tc.firstStage, nil)
+			trace.annotateFailure(tc.secondStage, nil)
+			if got := strings.Count(output.String(), "::error title=Task 4 rqlite integration::"); got != 1 {
+				t.Fatalf("annotations=%d output=%q, want 1", got, output.String())
+			}
+			if !strings.Contains(output.String(), "stage="+tc.wantStage+" ") {
+				t.Fatalf("annotation=%q, want stage %q", output.String(), tc.wantStage)
+			}
+			if len(db.linearCalls) != 1 {
+				t.Fatalf("fingerprint reads=%d, want 1", len(db.linearCalls))
+			}
+		})
+	}
+}
+
 type backupRPOIntegrationFailureTrace struct {
-	t        *testing.T
-	db       rqlite.RQLite
-	caseID   string
-	stage    string
-	identity *BackupRPOAttemptIdentity
+	t                *testing.T
+	db               rqlite.RQLite
+	caseID           string
+	stage            string
+	identity         *BackupRPOAttemptIdentity
+	annotationWriter io.Writer
+	annotated        atomic.Bool
 }
 
 func newBackupRPOIntegrationFailureTrace(
@@ -119,7 +233,7 @@ func newBackupRPOIntegrationFailureTrace(
 ) *backupRPOIntegrationFailureTrace {
 	t.Helper()
 	return &backupRPOIntegrationFailureTrace{
-		t: t, db: db, caseID: caseID, stage: "initialize",
+		t: t, db: db, caseID: caseID, stage: "initialize", annotationWriter: os.Stderr,
 	}
 }
 
@@ -135,10 +249,24 @@ func (trace *backupRPOIntegrationFailureTrace) report() {
 	if !trace.t.Failed() {
 		return
 	}
+	trace.annotateFailure(trace.stage, trace.identity)
+}
+
+func (trace *backupRPOIntegrationFailureTrace) annotateFailure(
+	stage string,
+	identity *BackupRPOAttemptIdentity,
+) {
+	if !trace.annotated.CompareAndSwap(false, true) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	fmt.Fprintf(os.Stderr, "::error title=Task 4 rqlite integration::%s\n",
-		backupRPOIntegrationFailureMessage(ctx, trace.db, trace.caseID, trace.stage, trace.identity))
+	writer := trace.annotationWriter
+	if writer == nil {
+		writer = os.Stderr
+	}
+	fmt.Fprintf(writer, "::error title=Task 4 rqlite integration::%s\n",
+		backupRPOIntegrationFailureMessage(ctx, trace.db, trace.caseID, stage, identity))
 }
 
 func backupRPOIntegrationFailureMessage(
@@ -281,7 +409,7 @@ func TestBackupRPOAttemptIntegrationRestartUnknownConcurrentDirtyAndOneActive(t 
 	trace := newBackupRPOIntegrationFailureTrace(t, db, "restart-unknown-concurrent-dirty")
 	defer trace.report()
 	trace.setStage("prepare", nil)
-	state := prepareBackupRPOIntegration(t, ctx, db)
+	state := prepareBackupRPOIntegration(t, ctx, db, trace)
 	trace.setStage("acquire-lease", nil)
 	leaseRequest := integrationBackupRPOLeaseRequest(state, "node-s2", "attempt-lifecycle-lease", 0)
 	lease, err := NewBackupRPOStore(db).AcquireLease(ctx, leaseRequest)
@@ -358,7 +486,7 @@ func TestBackupRPOAttemptIntegrationNewerFenceSupersedesStaleAttempt(t *testing.
 	trace := newBackupRPOIntegrationFailureTrace(t, db, "newer-fence-supersedes-stale")
 	defer trace.report()
 	trace.setStage("prepare", nil)
-	state := prepareBackupRPOIntegration(t, ctx, db)
+	state := prepareBackupRPOIntegration(t, ctx, db, trace)
 	trace.setStage("acquire-first-lease", nil)
 	firstRequest := integrationBackupRPOLeaseRequest(state, "node-s2", "stale-attempt-lease", 0)
 	first, err := NewBackupRPOStore(db).AcquireLease(ctx, firstRequest)
@@ -444,7 +572,10 @@ func integrationBackupRPOVerification(t *testing.T, identity BackupRPOAttemptIde
 	}
 }
 
-const backupRPOIntegrationRestoreEpochFloor int64 = 1_000_000
+const (
+	backupRPOIntegrationRestoreEpochFloor int64 = 1_000_000
+	backupRPOIntegrationMaxRestoreEpoch   int64 = 1<<63 - 1
+)
 
 func backupRPOIntegrationSeedStateStatement() rqlite.Statement {
 	return rqlite.Statement{SQL: `UPDATE backup_rpo_state
@@ -468,14 +599,18 @@ func backupRPOIntegrationPrepareStatements() []rqlite.Statement {
 	return []rqlite.Statement{
 		{SQL: "DELETE FROM cluster_job_leases WHERE job_name='backup-rpo'"},
 		{SQL: `UPDATE cluster_restore_state
-			SET restore_epoch=MAX(
-				?,
-				COALESCE((SELECT MAX(restore_epoch)+1 FROM backup_rpo_attempts),?)
-			),
+			SET restore_epoch=CASE
+				WHEN COALESCE((SELECT MAX(restore_epoch) FROM backup_rpo_attempts),0) >= ? THEN NULL
+				ELSE MAX(
+					?,
+					COALESCE((SELECT MAX(restore_epoch)+1 FROM backup_rpo_attempts),?)
+				)
+			END,
 				restored_from_backup_sha256=NULL,
 				activated=1,
 				activated_at_unix=COALESCE(activated_at_unix,unixepoch())
 			WHERE singleton_id=1`, Args: []any{
+			backupRPOIntegrationMaxRestoreEpoch,
 			backupRPOIntegrationRestoreEpochFloor,
 			backupRPOIntegrationRestoreEpochFloor,
 		}},
@@ -496,30 +631,58 @@ func backupRPOIntegrationCleanupStatements() []rqlite.Statement {
 	}
 }
 
-func prepareBackupRPOIntegration(t *testing.T, ctx context.Context, db rqlite.RQLite) BackupRPOState {
+func prepareBackupRPOIntegration(
+	t *testing.T,
+	ctx context.Context,
+	db rqlite.RQLite,
+	traces ...*backupRPOIntegrationFailureTrace,
+) BackupRPOState {
 	t.Helper()
 	if err := NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("Apply migrations: %v", err)
 	}
-	if _, err := db.Request(
-		ctx, rqlite.Linearizable, true, backupRPOIntegrationPrepareStatements()...,
-	); err != nil {
-		t.Fatalf("prepare backup RPO state: %v", err)
+	cleanupTrace := newBackupRPOIntegrationFailureTrace(t, db, t.Name())
+	if len(traces) == 1 && traces[0] != nil {
+		cleanupTrace = traces[0]
 	}
-	t.Cleanup(func() {
+	state, err := prepareBackupRPOIntegrationAfterMigrations(
+		ctx, db, t.Cleanup,
+		func(cleanupErr error) {
+			t.Errorf("cleanup backup RPO integration state: %v", cleanupErr)
+			cleanupTrace.annotateFailure("cleanup", nil)
+		},
+	)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	return state
+}
+
+func prepareBackupRPOIntegrationAfterMigrations(
+	ctx context.Context,
+	db rqlite.RQLite,
+	registerCleanup func(func()),
+	reportCleanupFailure func(error),
+) (BackupRPOState, error) {
+	registerCleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if _, err := db.Request(
 			cleanupCtx, rqlite.Linearizable, true, backupRPOIntegrationCleanupStatements()...,
 		); err != nil {
-			t.Errorf("cleanup backup RPO integration state: %v", err)
+			reportCleanupFailure(err)
 		}
 	})
+	if _, err := db.Request(
+		ctx, rqlite.Linearizable, true, backupRPOIntegrationPrepareStatements()...,
+	); err != nil {
+		return BackupRPOState{}, fmt.Errorf("prepare backup RPO state: %w", err)
+	}
 	state, err := NewBackupRPOStore(db).Current(ctx)
 	if err != nil {
-		t.Fatalf("Current: %v", err)
+		return BackupRPOState{}, fmt.Errorf("Current: %w", err)
 	}
-	return state
+	return state, nil
 }
 
 func integrationBackupRPOLeaseRequest(

@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 
-Status at exact-SHA GREEN closeout: isolation-fix commit `bfbaca288947f29743eefe09c9fbe803fe39e56e` passed the complete HA workflow in run `32673823686`, job `97278614026`; implementation, review corrections, authenticated RED diagnosis, and final three-voter evidence are complete.
+Status after final independent review: isolation-fix commit `bfbaca288947f29743eefe09c9fbe803fe39e56e` remains exact-SHA GREEN in HA run `32673823686`, job `97278614026`. The additional test-only committed-unknown cleanup, epoch-exhaustion, and cleanup-diagnostic corrections are locally GREEN and await a replacement exact-SHA HA run.
 
 ## Scope and compatibility
 
@@ -199,3 +199,31 @@ The real three-voter suite was not rerun locally. No production implementation, 
 - Replacement HA run `32673823686`, job `97278614026`, is GREEN for formatting, Python contracts, backend unit, race, vet, harness, isolated rqlite integration, importer parity, shadow parity, three-node mTLS/importer, and cleanup.
 
 The final exact-SHA evidence closes the Task 4 transition scope GREEN. No production/deploy/release/OTA/tag/merge/version `1.0.157` action was performed.
+
+## Final independent review isolation hardening (2026-08-24)
+
+The final independent review found three tagged-test isolation and diagnostic gaps; no production transition behavior or migration changed.
+
+1. Cleanup registration followed the prepare transaction. A prepare request that committed and then returned an unknown transport outcome could therefore call `Fatalf` before `t.Cleanup` existed. Cleanup is now registered immediately after migrations and before the first prepare request. A synthetic committed-unknown test proves the high restore epoch is committed, the cleanup was already registered, and invoking it issues the exact migration-seed restoration statements.
+2. The synthetic restore-epoch allocator used unchecked `MAX(restore_epoch)+1`. It now binds an explicit signed `MaxInt64` ceiling. Exhaustion selects `NULL` for the non-null restore epoch inside the same transaction, producing a deterministic constraint failure and rollback instead of promoting the value to SQLite `REAL`.
+3. Deferred body diagnostics run before `t.Cleanup`. Cleanup failures now call the same safe annotation path directly. An atomic one-shot gate ensures a cleanup-only failure is annotated while a body failure followed by a cleanup failure produces only the original body-stage annotation.
+
+The focused RED/GREEN command was:
+
+```powershell
+$env:GOMAXPROCS='1'; $env:GOMEMLIMIT='512MiB'; & 'C:\Users\User\Documents\Codex\2026-08-21\webcmd-plugin-webcmd-openai-curated-remote\task15-go125-gofmt-6084f26\full-extracted\go\bin\go.exe' test -tags rqlite_integration ./internal/controlplane -run 'TestBackupRPOIntegration(IsolationUsesUniqueEpochAndRestoresMigrationSeed|CommittedUnknownPreparationRestoresMigrationSeed|FailureTraceAnnotatesCleanupOnce)$' -count=1
+```
+
+After correcting two test-fixture-only issues (a missing multiline composite-literal comma and use of the row helper where a result helper was required), intended RED failed only on the undefined post-migration preparation helper and annotation writer/one-shot methods. The minimal GREEN implementation passed:
+
+```text
+ok github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane 0.045s
+```
+
+Additional bounded local evidence:
+
+- `go test ./internal/controlplane -count=1`: passed in `0.063s`.
+- `go test -tags rqlite_integration ./internal/controlplane -run '^$' -count=1`: passed in `0.047s` with no tests run.
+- `git diff --check -- backend/internal/controlplane/backup_rpo_integration_test.go`: passed.
+
+Self-review confirmed cleanup registration precedes every ambiguous prepare mutation, epoch exhaustion rolls back the transaction, the shared trace prevents duplicate annotations, and append-only attempt evidence remains untouched. The local real three-voter suite, race, and vet were not rerun; the prior exact-SHA HA GREEN remains the latest remote evidence until this test-only correction receives its own exact-SHA run. No workflow YAML, production implementation, schema, migration, deploy/release/OTA/tag/version file, protected 2026-08-20 report, or `normalize.patch` was changed.
