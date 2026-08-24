@@ -55,6 +55,11 @@ func task6IntegrationDirtyGeneration(t *testing.T, ctx context.Context, db rqlit
 	return generation
 }
 
+func task6RegisterIntegrationBackupSeedCleanup(t *testing.T, db rqlite.RQLite) *task6IntegrationBackupCleanup {
+	t.Helper()
+	return task6CaptureIntegrationBackupCleanup(t, db)
+}
+
 func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	db, err := rqlite.New(rqlite.Config{
 		Endpoints: []string{
@@ -72,6 +77,7 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
+	backupCleanup := task6RegisterIntegrationBackupSeedCleanup(t, db)
 	dirtyBefore := task6IntegrationDirtyGeneration(t, ctx, db)
 	task6DB := &task6CommittedUnknownRQLite{RQLite: db}
 
@@ -96,6 +102,12 @@ func TestRQLiteApplyStoreWritesCanonicalRowsAndDurableReceipt(t *testing.T) {
 		RunID: "importer-integration-run-v1", PlanDigest: plan.PlanDigest, Index: 0,
 		Digest: digestBatch(selected), Operations: selected,
 	}
+	backupCleanup.Expect(task6BackupRPOCleanupExpectation{
+		DirtyGenerationDelta: 4, UpdatedAtUnix: 1_500_000,
+		Receipt: task6ImportRunReceipt{
+			RunID: batch.RunID, SourceDigest: plan.SourceDigest, PlanDigest: plan.PlanDigest, Status: "applied",
+		},
+	})
 	store, err := NewRQLiteApplyStore(task6DB, func() time.Time { return time.Unix(1_500_000, 0) })
 	if err != nil {
 		t.Fatalf("NewRQLiteApplyStore: %v", err)
@@ -310,6 +322,7 @@ func TestRQLiteApplyStoreWritesBotRoutePollStateAndPendingCallback(t *testing.T)
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
+	backupCleanup := task6RegisterIntegrationBackupSeedCleanup(t, db)
 
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	oldFingerprint := snapshot.BotBindings[0].TokenFingerprintHMAC
@@ -351,6 +364,12 @@ func TestRQLiteApplyStoreWritesBotRoutePollStateAndPendingCallback(t *testing.T)
 		RunID: "importer-integration-bot-poll-state-v1", PlanDigest: plan.PlanDigest, Index: 0,
 		Digest: digestBatch(operations), Operations: operations,
 	}
+	backupCleanup.Expect(task6BackupRPOCleanupExpectation{
+		DirtyGenerationDelta: 1, UpdatedAtUnix: 1_500_000,
+		Receipt: task6ImportRunReceipt{
+			RunID: batch.RunID, SourceDigest: plan.SourceDigest, PlanDigest: plan.PlanDigest, Status: "applying",
+		},
+	})
 	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_500_000, 0) })
 	if err != nil {
 		t.Fatalf("NewRQLiteApplyStore: %v", err)
@@ -517,6 +536,7 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
+	backupCleanup := task6RegisterIntegrationBackupSeedCleanup(t, db)
 
 	trial := legacyTrialFixture()
 	trial.SourceKey = "integration-legacy-trial-v1"
@@ -546,6 +566,12 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 		RunID: "importer-integration-protected-trial-v1", PlanDigest: plan.PlanDigest, Index: 0,
 		Digest: digestBatch(selected), Operations: selected,
 	}
+	backupCleanup.Expect(task6BackupRPOCleanupExpectation{
+		DirtyGenerationDelta: 1, UpdatedAtUnix: 1_500_000,
+		Receipt: task6ImportRunReceipt{
+			RunID: batch.RunID, SourceDigest: plan.SourceDigest, PlanDigest: plan.PlanDigest, Status: "applying",
+		},
+	})
 	protection := protectedTrialImportFixture()
 	store, err := NewRQLiteApplyStoreWithTrialProtection(
 		db, func() time.Time { return time.Unix(1_500_000, 0) }, protection,
@@ -609,12 +635,19 @@ func TestRQLiteApplyStoreCustomerDeleteRollsBackWrongProofThenCommits(t *testing
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
+	backupCleanup := task6RegisterIntegrationBackupSeedCleanup(t, db)
 	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_600_000, 0) })
 	if err != nil {
 		t.Fatalf("NewRQLiteApplyStore: %v", err)
 	}
 	base := decodeFixture(t, "full-then-delta/base-full.json")
 	basePlan := plannedFixtureFromSnapshot(t, base, testPlanOptions())
+	backupCleanup.Expect(task6BackupRPOCleanupExpectation{
+		DirtyGenerationDelta: 3, UpdatedAtUnix: 1_600_000,
+		Receipt: task6ImportRunReceipt{
+			RunID: "importer-delete-base-run-v1", SourceDigest: basePlan.SourceDigest, PlanDigest: basePlan.PlanDigest, Status: "applied",
+		},
+	})
 	commitIntegrationPlan(t, ctx, store, basePlan, "importer-delete-base-run-v1")
 	delta := preparedDelta(t, base, basePlan)
 	options := testPlanOptions()
@@ -744,6 +777,7 @@ func TestRQLiteImportDeleteDigestPhase(t *testing.T) {
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatalf("migrate schema: %v", err)
 	}
+	backupCleanup := task6RegisterIntegrationBackupSeedCleanup(t, db)
 	store, err := NewRQLiteApplyStore(db, func() time.Time { return time.Unix(1_700_000, 0) })
 	if err != nil {
 		t.Fatalf("NewRQLiteApplyStore: %v", err)
@@ -753,6 +787,12 @@ func TestRQLiteImportDeleteDigestPhase(t *testing.T) {
 	case "delta":
 		base := decodeFixture(t, "full-then-delta/base-full.json")
 		basePlan := plannedFixtureFromSnapshot(t, base, testPlanOptions())
+		backupCleanup.Expect(task6BackupRPOCleanupExpectation{
+			DirtyGenerationDelta: 4, UpdatedAtUnix: 1_700_000,
+			Receipt: task6ImportRunReceipt{
+				RunID: "importer-parity-base-run-v1", SourceDigest: basePlan.SourceDigest, PlanDigest: basePlan.PlanDigest, Status: "applied",
+			},
+		})
 		commitIntegrationPlan(t, ctx, store, basePlan, "importer-parity-base-run-v1")
 		delta := preparedDelta(t, base, basePlan)
 		options := testPlanOptions()
@@ -787,6 +827,12 @@ func TestRQLiteImportDeleteDigestPhase(t *testing.T) {
 		}
 	case "fresh":
 		finalPlan := plannedFixture(t, "full-then-delta/final-full.json", testPlanOptions())
+		backupCleanup.Expect(task6BackupRPOCleanupExpectation{
+			DirtyGenerationDelta: 2, UpdatedAtUnix: 1_700_000,
+			Receipt: task6ImportRunReceipt{
+				RunID: "importer-parity-fresh-run-v1", SourceDigest: finalPlan.SourceDigest, PlanDigest: finalPlan.PlanDigest, Status: "applied",
+			},
+		})
 		target := commitIntegrationPlan(t, ctx, store, finalPlan, "importer-parity-fresh-run-v1")
 		proofBytes, err := os.ReadFile(proofPath)
 		if err != nil {
