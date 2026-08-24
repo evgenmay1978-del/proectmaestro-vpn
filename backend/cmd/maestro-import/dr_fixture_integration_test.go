@@ -60,14 +60,6 @@ func preparePopulatedExactDRV4(t *testing.T, ctx context.Context, db rqlite.RQLi
 		}
 	}
 	if _, err := db.Request(ctx, rqlite.Linearizable, true,
-		rqlite.Statement{SQL: `INSERT INTO customers(
-			customer_id,display_login,login_key_hmac,status,expires_at_unix,
-			generation,created_at_unix,updated_at_unix)
-			VALUES('dr-v4-preserved-customer','dr-v4-preserved-customer',?,
-			'active',9999999999,4,4,4)`, Args: []any{strings.Repeat("4", 64)}},
-		rqlite.Statement{SQL: `INSERT INTO whitelist_entitlement_identities(
-			entitlement_id,customer_id,created_at_unix)
-			VALUES(?,'dr-v4-preserved-customer',4)`, Args: []any{"wl-ent-" + strings.Repeat("4", 32)}},
 		rqlite.Statement{SQL: `INSERT INTO cluster_job_leases(
 			job_name,holder_id,lease_token,acquired_at_unix,expires_at_unix)
 			VALUES('dr-v4-preserved-job','dr-v4-holder','dr-v4-lease',4,4000)`},
@@ -132,9 +124,6 @@ func verifyDRV4UpgradePreservedAndSeeded(t *testing.T, ctx context.Context, db r
 	t.Helper()
 	proof, err := db.QueryStrong(ctx,
 		rqlite.Statement{SQL: "SELECT version FROM schema_migrations ORDER BY version"},
-		rqlite.Statement{SQL: `SELECT c.status,c.generation,w.entitlement_id
-			FROM customers c JOIN whitelist_entitlement_identities w ON w.customer_id=c.customer_id
-			WHERE c.customer_id='dr-v4-preserved-customer'`},
 		rqlite.Statement{SQL: `SELECT holder_id,lease_token,restore_epoch,lease_fence,
 			capability_generation,capability_evidence_sha256,capability_expires_at_unix
 			FROM cluster_job_leases WHERE job_name='dr-v4-preserved-job'`},
@@ -148,9 +137,9 @@ func verifyDRV4UpgradePreservedAndSeeded(t *testing.T, ctx context.Context, db r
 		rqlite.Statement{SQL: `SELECT last_mutation_token FROM cluster_settings
 			WHERE setting_key='dr-v4-preserved-setting'`},
 	)
-	if err != nil || len(proof) != 6 || len(proof[0].Rows) != controlplane.SchemaVersion ||
+	if err != nil || len(proof) != 5 || len(proof[0].Rows) != controlplane.SchemaVersion ||
 		len(proof[1].Rows) != 1 || len(proof[2].Rows) != 1 || len(proof[3].Rows) != 1 ||
-		len(proof[4].Rows) != 1 || len(proof[5].Rows) != 1 {
+		len(proof[4].Rows) != 1 {
 		t.Fatalf("v4 upgrade proof shape mismatch: %#v, %v", proof, err)
 	}
 	for index, row := range proof[0].Rows {
@@ -158,11 +147,7 @@ func verifyDRV4UpgradePreservedAndSeeded(t *testing.T, ctx context.Context, db r
 			t.Fatalf("upgraded migration journal[%d]=%#v", index, row)
 		}
 	}
-	customer, lease, backup := proof[1].Rows[0], proof[2].Rows[0], proof[3].Rows[0]
-	if customer["status"] != "active" || fmt.Sprint(customer["generation"]) != "4" ||
-		customer["entitlement_id"] != "wl-ent-"+strings.Repeat("4", 32) {
-		t.Fatalf("v4 customer/identity not preserved: %#v", customer)
-	}
+	lease, backup := proof[1].Rows[0], proof[2].Rows[0]
 	if lease["holder_id"] != "dr-v4-holder" || lease["lease_token"] != "dr-v4-lease" ||
 		fmt.Sprint(lease["restore_epoch"]) != "0" || fmt.Sprint(lease["lease_fence"]) != "0" ||
 		fmt.Sprint(lease["capability_generation"]) != "0" || lease["capability_evidence_sha256"] != nil ||
@@ -182,8 +167,36 @@ func verifyDRV4UpgradePreservedAndSeeded(t *testing.T, ctx context.Context, db r
 			t.Fatalf("v5 backup singleton retained %s: %#v", field, backup)
 		}
 	}
-	if fmt.Sprint(proof[4].Rows[0]["count"]) != "0" || proof[5].Rows[0]["last_mutation_token"] != "" {
-		t.Fatalf("v5/v6 seed defaults mismatch: attempts=%#v setting=%#v", proof[4].Rows[0], proof[5].Rows[0])
+	if fmt.Sprint(proof[3].Rows[0]["count"]) != "0" || proof[4].Rows[0]["last_mutation_token"] != "" {
+		t.Fatalf("v5/v6 seed defaults mismatch: attempts=%#v setting=%#v", proof[3].Rows[0], proof[4].Rows[0])
+	}
+}
+
+func clearDRV4MigrationProof(t *testing.T, ctx context.Context, db rqlite.RQLite) {
+	t.Helper()
+	results, err := db.Request(ctx, rqlite.Linearizable, true,
+		rqlite.Statement{SQL: `DELETE FROM cluster_job_leases
+			WHERE job_name='dr-v4-preserved-job' AND holder_id='dr-v4-holder'
+			AND lease_token='dr-v4-lease' AND acquired_at_unix=4 AND expires_at_unix=4000
+			AND restore_epoch=0 AND lease_fence=0 AND capability_generation=0
+			AND capability_evidence_sha256 IS NULL AND capability_expires_at_unix=0`},
+		rqlite.Statement{SQL: `DELETE FROM cluster_settings
+			WHERE setting_key='dr-v4-preserved-setting' AND public_value_json='{"source":"v4"}'
+			AND generation=4 AND updated_at_unix=4 AND last_mutation_token=''`},
+	)
+	if err != nil {
+		t.Fatalf("clear v4 migration proof: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("v4 migration proof cleanup result count=%d", len(results))
+	}
+	for index, result := range results {
+		if result.RowsAffected != 1 {
+			t.Fatalf(
+				"v4 migration proof cleanup[%d] affected=%d, want 1",
+				index, result.RowsAffected,
+			)
+		}
 	}
 }
 
@@ -223,6 +236,18 @@ func TestPrepareSyntheticDRSource(t *testing.T) {
 	store, err := importer.NewRQLiteApplyStore(db, time.Now)
 	if err != nil {
 		t.Fatalf("new source store: %v", err)
+	}
+	populatedTarget, err := store.InspectTarget(ctx)
+	if err != nil || populatedTarget.Empty {
+		t.Fatalf("populated v4 upgrade was not visible to importer: %#v, %v", populatedTarget, err)
+	}
+	clearDRV4MigrationProof(t, ctx, db)
+	emptyTarget, err := store.InspectTarget(ctx)
+	if err != nil || !emptyTarget.Empty || emptyTarget.AppliedSourceDigest != "" {
+		t.Fatalf(
+			"v4 migration proof cleanup did not restore a fresh import target: %#v, %v",
+			emptyTarget, err,
+		)
 	}
 	files := prepareProductionProofFiles(t, root)
 	const runID = "dr-source-proof-v1"
