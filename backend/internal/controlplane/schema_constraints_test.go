@@ -895,28 +895,12 @@ func TestBackupRPOSchemaFreezesDurableColumnsAndSeed(t *testing.T) {
 		t.Fatalf("cluster_job_leases columns = %v, want %v", leaseColumns, wantLeaseColumns)
 	}
 
-	seed := mustStrongQuery(t, ctx, db, rqlite.Statement{SQL: `
-		SELECT backup.restore_epoch, backup.dirty_generation,
-		       backup.verified_generation, backup.last_attempt_sequence,
-		       backup.phase
-		FROM backup_rpo_state AS backup
-		JOIN cluster_restore_state AS restore
-		  ON restore.restore_epoch = backup.restore_epoch
-		WHERE backup.singleton_id = 1
-		  AND backup.dirty_generation = 1
-		  AND backup.verified_generation = 0
-		  AND backup.last_attempt_sequence = 0
-		  AND backup.phase = 'dirty'
-		  AND backup.verified_backup_id IS NULL
-		  AND backup.verified_object_key IS NULL
-		  AND backup.verified_object_sha256 IS NULL
-		  AND backup.verified_object_version IS NULL
-		  AND backup.verified_size_bytes IS NULL
-		  AND backup.verified_manifest_version IS NULL
-		  AND backup.verified_at_unix IS NULL
-	`})
-	if got := fmt.Sprint(seed.Rows); got != "[map[dirty_generation:1 last_attempt_sequence:0 phase:dirty restore_epoch:1 verified_generation:0]]" {
-		t.Fatalf("backup RPO seed = %s", got)
+	seed := executeTask6ReviewSQLite(t, "fresh_backup_rpo_seed", nil)
+	if seed.FreshRestoreEpoch != 1 || seed.FreshDirty != 1 || seed.FreshVerified != 0 ||
+		seed.FreshLastAttempt != 0 || seed.FreshPhase != "dirty" || seed.FreshSeeds != 1 {
+		t.Fatalf("fresh backup RPO seed=(epoch=%d dirty=%d verified=%d last=%d phase=%q count=%d)",
+			seed.FreshRestoreEpoch, seed.FreshDirty, seed.FreshVerified,
+			seed.FreshLastAttempt, seed.FreshPhase, seed.FreshSeeds)
 	}
 }
 

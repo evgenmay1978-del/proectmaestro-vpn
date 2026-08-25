@@ -15,6 +15,7 @@ type task6ReviewSQLiteResult struct {
 	FirstError          string `json:"first_error"`
 	ReplayError         string `json:"replay_error"`
 	RestoreError        string `json:"restore_error"`
+	MutationError       string `json:"mutation_error"`
 	CustomerStatus      string `json:"customer_status"`
 	CustomerGeneration  int64  `json:"customer_generation"`
 	FirstTargetCount    int64  `json:"first_target_count"`
@@ -33,6 +34,14 @@ type task6ReviewSQLiteResult struct {
 	NodeLeaseCount      int64  `json:"node_lease_count"`
 	JobLeaseCount       int64  `json:"job_lease_count"`
 	PollerLeaseToken    string `json:"poller_lease_token"`
+	ContaminatedDirty   int64  `json:"contaminated_dirty_generation"`
+	ContaminatedSeeds   int64  `json:"contaminated_seed_count"`
+	FreshRestoreEpoch   int64  `json:"fresh_restore_epoch"`
+	FreshDirty          int64  `json:"fresh_dirty_generation"`
+	FreshVerified       int64  `json:"fresh_verified_generation"`
+	FreshLastAttempt    int64  `json:"fresh_last_attempt_sequence"`
+	FreshPhase          string `json:"fresh_phase"`
+	FreshSeeds          int64  `json:"fresh_seed_count"`
 }
 
 // Break caught: a schema-invalid customer state or a replay gate backed by the
@@ -105,6 +114,26 @@ func TestAdvanceAfterRestoreBackupEpochMismatchRollsBackSQLite(t *testing.T) {
 	}
 }
 
+// Break caught: the live schema package first purges a tombstone, which is a
+// durable business mutation and therefore advances backup_rpo_state from the
+// migration seed. Seed verification must execute the real migrations in a
+// separate fresh database instead of depending on shared test order.
+func TestBackupRPOMigrationSeedProofIsFreshAfterPurgeMutationSQLite(t *testing.T) {
+	result := executeTask6ReviewSQLite(t, "purge_seed_order", captureTask6ReviewPurgeStatements(t))
+	if result.MutationError != "" {
+		t.Fatalf("purge mutation failed: %s", result.MutationError)
+	}
+	if result.ContaminatedDirty != 2 || result.ContaminatedSeeds != 0 {
+		t.Fatalf("contaminated state=(dirty=%d seeds=%d), want (2,0)", result.ContaminatedDirty, result.ContaminatedSeeds)
+	}
+	if result.FreshRestoreEpoch != 1 || result.FreshDirty != 1 || result.FreshVerified != 0 ||
+		result.FreshLastAttempt != 0 || result.FreshPhase != "dirty" || result.FreshSeeds != 1 {
+		t.Fatalf("fresh seed=(epoch=%d dirty=%d verified=%d last=%d phase=%q count=%d), want (1,1,0,0,dirty,1)",
+			result.FreshRestoreEpoch, result.FreshDirty, result.FreshVerified,
+			result.FreshLastAttempt, result.FreshPhase, result.FreshSeeds)
+	}
+}
+
 func captureTask6ReviewTombstoneStatements(t *testing.T) []rqlite.Statement {
 	t.Helper()
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
@@ -131,6 +160,24 @@ func captureTask6ReviewRestoreStatements(t *testing.T) []rqlite.Statement {
 	_, _ = NewRestoreEpochStore(db).AdvanceAfterRestore(context.Background(), 1, strings.Repeat("f", 64))
 	if len(db.requestCalls) != 1 {
 		t.Fatalf("captured restore requests=%d, want 1", len(db.requestCalls))
+	}
+	return append([]rqlite.Statement(nil), db.requestCalls[0].statements...)
+}
+
+func captureTask6ReviewPurgeStatements(t *testing.T) []rqlite.Statement {
+	t.Helper()
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{RowsAffected: 1},
+		rqlite.Result{Rows: []map[string]any{{"dirty_generation": int64(2)}}},
+	)}}
+	service, _ := testService(t, db)
+	if err := service.PurgeTombstone(context.Background(), TombstonePurgeCommand{
+		TombstoneID: "whitelist-purge-tombstone", CustomerID: "whitelist-purge-customer",
+	}); err != nil {
+		t.Fatalf("capture PurgeTombstone: %v", err)
+	}
+	if len(db.requestCalls) != 1 {
+		t.Fatalf("captured purge requests=%d, want 1", len(db.requestCalls))
 	}
 	return append([]rqlite.Statement(nil), db.requestCalls[0].statements...)
 }
@@ -195,6 +242,27 @@ def run_transaction(statements=None):
     except Exception as error:
         connection.rollback()
         return str(error)
+
+def backup_seed_rows(database):
+    return database.execute(
+        "SELECT backup.restore_epoch,backup.dirty_generation,backup.verified_generation,"
+        "backup.last_attempt_sequence,backup.phase FROM backup_rpo_state AS backup "
+        "JOIN cluster_restore_state AS restore ON restore.restore_epoch=backup.restore_epoch "
+        "WHERE backup.singleton_id=1 AND backup.dirty_generation=1 "
+        "AND backup.verified_generation=0 AND backup.last_attempt_sequence=0 "
+        "AND backup.phase='dirty' AND backup.verified_backup_id IS NULL "
+        "AND backup.verified_object_key IS NULL AND backup.verified_object_sha256 IS NULL "
+        "AND backup.verified_object_version IS NULL AND backup.verified_size_bytes IS NULL "
+        "AND backup.verified_manifest_version IS NULL AND backup.verified_at_unix IS NULL"
+    ).fetchall()
+
+def fresh_database():
+    fresh = sqlite3.connect(":memory:", isolation_level=None)
+    fresh.create_function("unixepoch", 0, lambda: 2000000)
+    fresh.execute("PRAGMA foreign_keys=ON")
+    for statement in payload["schema"]:
+        fresh.execute(statement["sql"], statement.get("args") or []).fetchall()
+    return fresh
 
 if payload["mode"] == "tombstone":
     connection.execute(
@@ -271,6 +339,50 @@ elif payload["mode"] in ("tombstone_zero_targets", "tombstone_desired_conflict")
         "outbox_count": connection.execute("SELECT COUNT(*) FROM outbox_events WHERE operation_id='tombstone-review'").fetchone()[0],
         "dirty_generation": connection.execute("SELECT dirty_generation FROM backup_rpo_state WHERE singleton_id=1").fetchone()[0],
         "existing_generation": existing[0] if existing else 0,
+    }
+elif payload["mode"] in ("fresh_backup_rpo_seed", "purge_seed_order"):
+    mutation_error = ""
+    if payload["mode"] == "purge_seed_order":
+        connection.create_function("unixepoch", 0, lambda: 10000000)
+        connection.execute(
+            "INSERT INTO customers(customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix) "
+            "VALUES ('whitelist-purge-customer','WhitelistPurge',?,'active',2100000,1,1000000,1000000)",
+            ("cd" * 32,),
+        )
+        connection.execute(
+            "INSERT INTO whitelist_entitlement_identities(entitlement_id,customer_id,created_at_unix) "
+            "VALUES ('wl-ent-00000000000000000000000000000001','whitelist-purge-customer',1000000)"
+        )
+        connection.execute(
+            "INSERT INTO tombstones(tombstone_id,customer_id,generation,reason,created_at_unix) "
+            "VALUES ('whitelist-purge-tombstone','whitelist-purge-customer',1,'test-purge',1)"
+        )
+        connection.execute(
+            "INSERT INTO tombstone_targets(tombstone_id,node_id,service_name,status,applied_at_unix) "
+            "SELECT 'whitelist-purge-tombstone',node_id,service_name,'applied',1 FROM node_services "
+            "WHERE desired_target=1 AND retired=0"
+        )
+        mutation_error = run_transaction()
+    contaminated_dirty = connection.execute(
+        "SELECT dirty_generation FROM backup_rpo_state WHERE singleton_id=1"
+    ).fetchone()[0]
+    contaminated_seeds = len(backup_seed_rows(connection))
+    fresh = fresh_database()
+    fresh_rows = backup_seed_rows(fresh)
+    fresh_state = fresh.execute(
+        "SELECT restore_epoch,dirty_generation,verified_generation,last_attempt_sequence,phase "
+        "FROM backup_rpo_state WHERE singleton_id=1"
+    ).fetchone()
+    result = {
+        "mutation_error": mutation_error,
+        "contaminated_dirty_generation": contaminated_dirty,
+        "contaminated_seed_count": contaminated_seeds,
+        "fresh_restore_epoch": fresh_state[0],
+        "fresh_dirty_generation": fresh_state[1],
+        "fresh_verified_generation": fresh_state[2],
+        "fresh_last_attempt_sequence": fresh_state[3],
+        "fresh_phase": fresh_state[4],
+        "fresh_seed_count": len(fresh_rows),
     }
 else:
     connection.execute(
