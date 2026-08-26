@@ -38,7 +38,7 @@ func NewPinnedShellBundleCreator(
 	config.ScriptPath = procDescriptorPath(4)
 	config.VerifyScriptPath = procDescriptorPath(5)
 	config.KeysPath = procDescriptorPath(6)
-	config.GPGHome = procDescriptorPath(7)
+	config.GPGHomeFD = procDescriptorPath(7)
 	config.GPGPath = procDescriptorPath(8)
 	config.PythonPath = procDescriptorPath(9)
 	runtime, err := newPinnedBundleRuntime(inputs.RuntimeDir, config.RuntimeDir)
@@ -49,6 +49,7 @@ func NewPinnedShellBundleCreator(
 	if err != nil {
 		return nil, err
 	}
+	creator.gpgHomeFile = inputs.GPGHome
 	creator.commandFiles = []*os.File{
 		inputs.RuntimeDir,
 		inputs.Script,
@@ -73,7 +74,6 @@ func NewPinnedShellManifestVerifier(
 	config.VerifyScriptPath = procDescriptorPath(4)
 	config.GPGPath = procDescriptorPath(5)
 	config.PythonPath = procDescriptorPath(6)
-	config.GPGHome = procDescriptorPath(7)
 	runtime, err := newPinnedManifestVerificationRuntime(inputs.RuntimeDir, config.RuntimeDir)
 	if err != nil {
 		return nil, ErrInvalidConfig
@@ -82,6 +82,7 @@ func NewPinnedShellManifestVerifier(
 	if err != nil {
 		return nil, err
 	}
+	verifier.gpgHomeFile = inputs.GPGHome
 	verifier.decryptLeadFile = inputs.RuntimeDir
 	verifier.commandFiles = []*os.File{
 		inputs.VerifyScript,
@@ -90,6 +91,21 @@ func NewPinnedShellManifestVerifier(
 		inputs.GPGHome,
 	}
 	return verifier, nil
+}
+
+func pinnedDirectoryMatchesPath(path string, pinned *os.File) bool {
+	if pinned == nil {
+		return true
+	}
+	pathInfo, err := os.Lstat(path)
+	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.IsDir() {
+		return false
+	}
+	pinnedInfo, err := pinned.Stat()
+	if err != nil || !pinnedInfo.IsDir() {
+		return false
+	}
+	return os.SameFile(pathInfo, pinnedInfo)
 }
 
 func procDescriptorPath(descriptor int) string {

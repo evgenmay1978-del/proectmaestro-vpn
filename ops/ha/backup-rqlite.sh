@@ -154,16 +154,27 @@ remove_worker_partial() {
   fi
 }
 
+assert_worker_gpg_home_identity() {
+  [[ "$worker" -eq 1 && -n "$gpg_home" && -n "$gpg_home_fd" && -n "$gpg_home_identity" ]] || fail
+  local canonical_identity descriptor_identity
+  canonical_identity="$(stat -Lc '%d:%i:%u:%g:%a' "$gpg_home")" || fail
+  descriptor_identity="$(stat -Lc '%d:%i:%u:%g:%a' "$gpg_home_fd")" || fail
+  [[ "$canonical_identity" == "$gpg_home_identity" &&
+    "$descriptor_identity" == "$gpg_home_identity" ]] || fail
+}
+
 run_worker_gpg_output() {
   local target="$1"
   shift
   [[ "$worker" -eq 1 && -n "$work" ]] || fail
   case "$target" in "$work"/*) ;; *) fail ;; esac
   [[ ! -e "$target" && ! -L "$target" ]] || fail
+  assert_worker_gpg_home_identity
   if ! (set -o noclobber; "$@" >"$target") 2>/dev/null; then
     remove_worker_partial "$target"
     fail
   fi
+  assert_worker_gpg_home_identity
   [[ -f "$target" && ! -L "$target" &&
     "$(stat -c '%u' "$target")" == "$current_uid" &&
     "$(stat -c '%g' "$target")" == "$current_gid" &&
@@ -368,11 +379,19 @@ verification_stage="W20"
   [[ "$worker_gpg" == "/proc/self/fd/8" && "$worker_python" == "/proc/self/fd/9" ]] || fail
   [[ -f "$worker_gpg" && -x "$worker_gpg" &&
     -f "$worker_python" && -x "$worker_python" ]] || fail
-  gpg_home="${GNUPGHOME:-}"
-  [[ "$gpg_home" == "/proc/self/fd/7" && -d "$gpg_home" &&
+  gpg_home_input="${GNUPGHOME:-}"
+  gpg_home="$(realpath -e -- "$gpg_home_input")" || fail
+  [[ "$gpg_home" == "$gpg_home_input" && -d "$gpg_home" && ! -L "$gpg_home" &&
     "$(stat -Lc '%a' "$gpg_home")" == "700" &&
     "$(stat -Lc '%u' "$gpg_home")" == "$current_uid" &&
     "$(stat -Lc '%g' "$gpg_home")" == "$current_gid" ]] || fail
+  gpg_home_fd="${MAESTRO_BACKUP_GPG_HOME_FD:-}"
+  [[ "$gpg_home_fd" == "/proc/self/fd/7" && -d "$gpg_home_fd" &&
+    "$(stat -Lc '%a' "$gpg_home_fd")" == "700" &&
+    "$(stat -Lc '%u' "$gpg_home_fd")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$gpg_home_fd")" == "$current_gid" ]] || fail
+  gpg_home_identity="$(stat -Lc '%d:%i:%u:%g:%a' "$gpg_home_fd")" || fail
+  assert_worker_gpg_home_identity
   python_command=("$worker_python")
   gpg_command=("$worker_gpg" --no-options --no-auto-key-retrieve --homedir "$gpg_home")
   verify_gpg_executable="$worker_gpg"
@@ -586,7 +605,9 @@ PY
 
 verification_stage="P80"
 result="$work/verify-result.json"
+assert_worker_gpg_home_identity
 "${verify_command[@]}" verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   --gpg-executable "$verify_gpg_executable"   >"$result" 2>/dev/null || fail
+assert_worker_gpg_home_identity
 verification_stage="P90"
 "${python_command[@]}" - "$result" "$metadata" "$manifest" "$worker" "$restore_epoch" <<'PY' || fail
 import json

@@ -53,6 +53,7 @@ type ShellManifestVerifier struct {
 	commands        commandRunner
 	decryptLeadFile *os.File
 	commandFiles    []*os.File
+	gpgHomeFile     *os.File
 }
 
 var _ AuthenticatedManifestVerifier = (*ShellManifestVerifier)(nil)
@@ -84,7 +85,8 @@ func (verifier *ShellManifestVerifier) VerifyAuthenticatedManifest(
 	reader io.Reader,
 	expectation ManifestExpectation,
 ) error {
-	if verifier == nil || reader == nil || !validManifestExpectationForPrefix(verifier.config.Prefix, expectation) {
+	if verifier == nil || reader == nil || !validManifestExpectationForPrefix(verifier.config.Prefix, expectation) ||
+		!pinnedDirectoryMatchesPath(verifier.config.GPGHome, verifier.gpgHomeFile) {
 		return ErrManifestInvalid
 	}
 	limits := ManifestVerifierLimits{
@@ -109,6 +111,9 @@ func (verifier *ShellManifestVerifier) VerifyAuthenticatedManifest(
 	if err := verifier.commands.Run(ctx, verifier.decryptSpec(encrypted, archive)); err != nil {
 		return ErrManifestInvalid
 	}
+	if !pinnedDirectoryMatchesPath(verifier.config.GPGHome, verifier.gpgHomeFile) {
+		return ErrManifestInvalid
+	}
 	if err := task.SealArchive(); err != nil {
 		return ErrManifestInvalid
 	}
@@ -124,6 +129,9 @@ func (verifier *ShellManifestVerifier) VerifyAuthenticatedManifest(
 		return ErrManifestInvalid
 	}
 	if err := verifier.commands.Run(ctx, verifier.verifySpec(directory, extraFiles, result)); err != nil {
+		return ErrManifestInvalid
+	}
+	if !pinnedDirectoryMatchesPath(verifier.config.GPGHome, verifier.gpgHomeFile) {
 		return ErrManifestInvalid
 	}
 	raw, err := task.ReadResult()

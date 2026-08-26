@@ -98,7 +98,8 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
             'exec 7<"$gpg_home"',
             'exec 8<"$gpg_binary"',
             'exec 9<"$python_binary"',
-            'GNUPGHOME=/proc/self/fd/7',
+            'GNUPGHOME="$gpg_home"',
+            'MAESTRO_BACKUP_GPG_HOME_FD=/proc/self/fd/7',
             'MAESTRO_BACKUP_GPG=/proc/self/fd/8',
             'MAESTRO_BACKUP_PYTHON=/proc/self/fd/9',
             '"/proc/self/fd/4" --worker',
@@ -129,6 +130,23 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         self.assertIn("run_worker_gpg_output", self.source)
         self.assertIn('rm -f -- "$target"', self.source)
         self.assertIn("set -o noclobber", self.source)
+
+    def test_worker_keeps_canonical_gpg_home_bound_to_fd7_identity(self):
+        self.assertIn('gpg_home_input="${GNUPGHOME:-}"', self.worker)
+        self.assertIn(
+            'gpg_home="$(realpath -e -- "$gpg_home_input")" || fail', self.worker
+        )
+        self.assertIn('[[ "$gpg_home" == "$gpg_home_input"', self.worker)
+        self.assertIn(
+            'gpg_home_fd="${MAESTRO_BACKUP_GPG_HOME_FD:-}"', self.worker
+        )
+        self.assertIn('[[ "$gpg_home_fd" == "/proc/self/fd/7"', self.worker)
+        self.assertIn('assert_worker_gpg_home_identity', self.source)
+        self.assertIn('GNUPGHOME="$gpg_home"', self.full_worker_e2e)
+        self.assertIn(
+            'MAESTRO_BACKUP_GPG_HOME_FD=/proc/self/fd/7', self.full_worker_e2e
+        )
+        self.assertNotIn('GNUPGHOME=/proc/self/fd/7', self.full_worker_e2e)
 
     def test_full_worker_e2e_exposes_only_fixed_failure_stage_codes(self):
         self.assertIn(

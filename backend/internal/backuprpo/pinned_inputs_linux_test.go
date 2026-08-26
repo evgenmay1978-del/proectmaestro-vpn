@@ -68,6 +68,7 @@ func TestPinnedConstructorsUseStableCommandDescriptors(t *testing.T) {
 
 	creatorConfig := creatorConfigFixture()
 	creatorConfig.RuntimeDir = runtimePath
+	creatorConfig.GPGHome = gpgHome.Name()
 	order := []string{}
 	creator, err := NewPinnedShellBundleCreator(
 		creatorConfig,
@@ -83,10 +84,14 @@ func TestPinnedConstructorsUseStableCommandDescriptors(t *testing.T) {
 	if creator.config.ScriptPath != "/proc/self/fd/4" ||
 		creator.config.VerifyScriptPath != "/proc/self/fd/5" ||
 		creator.config.KeysPath != "/proc/self/fd/6" ||
-		creator.config.GPGHome != "/proc/self/fd/7" ||
+		creator.config.GPGHome != gpgHome.Name() ||
+		creator.config.GPGHomeFD != "/proc/self/fd/7" ||
 		creator.config.GPGPath != "/proc/self/fd/8" ||
 		creator.config.PythonPath != "/proc/self/fd/9" {
 		t.Fatalf("creator paths = %#v", creator.config)
+	}
+	if creator.gpgHomeFile != gpgHome || !pinnedDirectoryMatchesPath(creator.config.GPGHome, creator.gpgHomeFile) {
+		t.Fatal("creator did not retain the canonical-home inode witness")
 	}
 	creatorSpec := creator.commandSpec(pinnedPreparedTaskFixture{}, BundleRequest{})
 	if len(creatorSpec.ExtraFiles) != 7 || creatorSpec.ExtraFiles[0] != runtimeFile ||
@@ -97,12 +102,14 @@ func TestPinnedConstructorsUseStableCommandDescriptors(t *testing.T) {
 	creatorEnv := strings.Join(creatorSpec.Env, "\n")
 	if !strings.Contains(creatorEnv, "MAESTRO_BACKUP_GPG=/proc/self/fd/8") ||
 		!strings.Contains(creatorEnv, "MAESTRO_BACKUP_PYTHON=/proc/self/fd/9") ||
-		!strings.Contains(creatorEnv, "GNUPGHOME=/proc/self/fd/7") {
+		!strings.Contains(creatorEnv, "GNUPGHOME="+gpgHome.Name()) ||
+		!strings.Contains(creatorEnv, "MAESTRO_BACKUP_GPG_HOME_FD=/proc/self/fd/7") {
 		t.Fatalf("creator env = %q", creatorSpec.Env)
 	}
 
 	verifierConfig := manifestVerifierConfigFixture()
 	verifierConfig.RuntimeDir = runtimePath
+	verifierConfig.GPGHome = gpgHome.Name()
 	verifier, err := NewPinnedShellManifestVerifier(
 		verifierConfig,
 		PinnedManifestInputs{
@@ -116,18 +123,32 @@ func TestPinnedConstructorsUseStableCommandDescriptors(t *testing.T) {
 	if verifier.config.VerifyScriptPath != "/proc/self/fd/4" ||
 		verifier.config.GPGPath != "/proc/self/fd/5" ||
 		verifier.config.PythonPath != "/proc/self/fd/6" ||
-		verifier.config.GPGHome != "/proc/self/fd/7" {
+		verifier.config.GPGHome != gpgHome.Name() {
 		t.Fatalf("verifier paths = %#v", verifier.config)
+	}
+	if verifier.gpgHomeFile != gpgHome || !pinnedDirectoryMatchesPath(verifier.config.GPGHome, verifier.gpgHomeFile) {
+		t.Fatal("verifier did not retain the canonical-home inode witness")
 	}
 	decryptSpec := verifier.decryptSpec(nil, io.Discard)
 	if len(decryptSpec.ExtraFiles) != 5 || decryptSpec.ExtraFiles[0] != runtimeFile ||
-		decryptSpec.ExtraFiles[1] != verifyScript {
+		decryptSpec.ExtraFiles[1] != verifyScript || decryptSpec.ExtraFiles[4] != gpgHome {
 		t.Fatalf("decrypt extra files = %v", decryptSpec.ExtraFiles)
 	}
 	verifySpec := verifier.verifySpec("/proc/self/fd/3", []*os.File{payload}, io.Discard)
 	if len(verifySpec.ExtraFiles) != 5 || verifySpec.ExtraFiles[0] != payload ||
-		verifySpec.ExtraFiles[1] != verifyScript {
+		verifySpec.ExtraFiles[1] != verifyScript || verifySpec.ExtraFiles[4] != gpgHome {
 		t.Fatalf("verify extra files = %v", verifySpec.ExtraFiles)
+	}
+
+	movedGPGHome := filepath.Join(base, "gnupg-moved")
+	if err := os.Rename(gpgHome.Name(), movedGPGHome); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(gpgHome.Name(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if pinnedDirectoryMatchesPath(creator.config.GPGHome, creator.gpgHomeFile) || pinnedDirectoryMatchesPath(verifier.config.GPGHome, verifier.gpgHomeFile) {
+		t.Fatal("replaced canonical GPG home still matched pinned inode")
 	}
 
 	movedRuntime := filepath.Join(base, "runtime-moved")
@@ -243,6 +264,7 @@ func TestPinnedBundleCreatorLaunchesWorkerWithFD3ThroughFD9(t *testing.T) {
 
 	config := creatorConfigFixture()
 	config.RuntimeDir = runtimePath
+	config.GPGHome = gpgHome.Name()
 	config.CommandTimeout = 5 * time.Second
 	order := []string{}
 	creator, err := NewPinnedShellBundleCreator(

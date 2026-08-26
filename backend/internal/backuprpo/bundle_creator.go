@@ -76,6 +76,7 @@ type ShellBundleCreatorConfig struct {
 	VerifyScriptPath     string
 	KeysPath             string
 	GPGHome              string
+	GPGHomeFD            string
 	GPGPath              string
 	PythonPath           string
 	SignerFingerprint    string
@@ -121,6 +122,7 @@ type ShellBundleCreator struct {
 	runtime      bundleRuntime
 	commands     commandRunner
 	commandFiles []*os.File
+	gpgHomeFile  *os.File
 }
 
 func NewShellBundleCreator(config ShellBundleCreatorConfig, source BackupSource) (*ShellBundleCreator, error) {
@@ -144,7 +146,8 @@ func newShellBundleCreator(
 }
 
 func (creator *ShellBundleCreator) Create(ctx context.Context, request BundleRequest) (Bundle, error) {
-	if creator == nil || !validBundleRequestForPrefix(request, creator.config.Prefix) {
+	if creator == nil || !validBundleRequestForPrefix(request, creator.config.Prefix) ||
+		!pinnedDirectoryMatchesPath(creator.config.GPGHome, creator.gpgHomeFile) {
 		return nil, ErrUnsafeRuntime
 	}
 	task, err := creator.runtime.Prepare(request)
@@ -165,6 +168,9 @@ func (creator *ShellBundleCreator) Create(ctx context.Context, request BundleReq
 	}
 	if err := creator.commands.Run(ctx, creator.commandSpec(task, request)); err != nil {
 		return nil, ErrCommandFailed
+	}
+	if !pinnedDirectoryMatchesPath(creator.config.GPGHome, creator.gpgHomeFile) {
+		return nil, ErrUnsafeRuntime
 	}
 	if err := task.RemoveImage(); err != nil {
 		return nil, ErrUnsafeRuntime
@@ -209,7 +215,8 @@ func (output *readinessOutput) Write(data []byte) (int, error) {
 }
 
 func (creator *ShellBundleCreator) CheckReadiness(ctx context.Context) error {
-	if creator == nil || creator.commands == nil || !validShellBundleCreatorConfig(creator.config) {
+	if creator == nil || creator.commands == nil || !validShellBundleCreatorConfig(creator.config) ||
+		!pinnedDirectoryMatchesPath(creator.config.GPGHome, creator.gpgHomeFile) {
 		return ErrCommandFailed
 	}
 	baseEnv := []string{
@@ -257,7 +264,8 @@ func (creator *ShellBundleCreator) CheckReadiness(ctx context.Context) error {
 			ExtraFiles: append([]*os.File(nil), creator.commandFiles...),
 			Stdout:     output, Timeout: creator.config.CommandTimeout,
 		})
-		if err != nil || output.overflow || !gpgOutputHasFingerprint(output.builder.String(), check.fingerprint) {
+		if err != nil || !pinnedDirectoryMatchesPath(creator.config.GPGHome, creator.gpgHomeFile) ||
+			output.overflow || !gpgOutputHasFingerprint(output.builder.String(), check.fingerprint) {
 			return ErrCommandFailed
 		}
 	}
@@ -307,6 +315,7 @@ func (creator *ShellBundleCreator) commandSpec(task preparedTask, request Bundle
 			"PATH=/usr/bin:/bin",
 			"LANG=C",
 			"GNUPGHOME=" + creator.config.GPGHome,
+			"MAESTRO_BACKUP_GPG_HOME_FD=" + creator.config.GPGHomeFD,
 			"MAESTRO_BACKUP_GPG=" + creator.config.GPGPath,
 			"MAESTRO_BACKUP_PYTHON=" + creator.config.PythonPath,
 			"MAESTRO_BACKUP_COMMIT_SHA=" + creator.config.RepositoryCommitSHA,
@@ -324,6 +333,7 @@ func validShellBundleCreatorConfig(config ShellBundleCreatorConfig) bool {
 		!validPOSIXAbsolute(config.VerifyScriptPath) ||
 		!validPOSIXAbsolute(config.KeysPath) ||
 		!validPOSIXAbsolute(config.GPGHome) ||
+		(config.GPGHomeFD != "" && config.GPGHomeFD != procDescriptorPath(7)) ||
 		!validPOSIXAbsolute(config.GPGPath) ||
 		!validPOSIXAbsolute(config.PythonPath) ||
 		!canonicalUpperHex(config.SignerFingerprint, 40) ||
