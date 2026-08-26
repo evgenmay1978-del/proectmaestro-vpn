@@ -1,5 +1,8 @@
 [Unit]
 Description=Hourly MaestroVPN control-plane backup
+Before=maestro-ha-backup.service maestro-ha-backup.timer
+Conflicts=maestro-ha-backup.service maestro-ha-backup.timer
+ConditionPathExists=/etc/maestro/control-plane-mode.env
 
 [Timer]
 OnCalendar=hourly
