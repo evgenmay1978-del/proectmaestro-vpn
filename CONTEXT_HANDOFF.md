@@ -1,5 +1,44 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAAAAAAAA. TASK 8 PRODUCTION BACKUP WORKER EXACT-SHA GREEN (26.08.2026)
+
+- Единственная каноническая ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`. Точный independently reviewed и
+  проверенный code SHA — `8cd34f28e4d71156b41aaf97d821313ec1fbe7e2`.
+  Более поздний docs-only commit не является новым проверенным code SHA.
+- Task 8 focused production-adapters plan завершён: one-shot worker выполняет
+  bounded capability/lease/resume/create/mark-before-PUT/exact-readback/offline
+  auth/ack цикл; unknown outcomes остаются dirty и не вызывают blind retry
+  mutating rqlite request или начатого object PUT.
+- Strict versioned config не принимает inline secrets, unknown keys, public или
+  insecure endpoints/files, unsafe prefixes и unbounded limits. Manifest-v2
+  worker mode создаёт ровно один encrypted candidate; drill behavior сохранён.
+- Bundle descriptor pinning и Linux runtime fail-closed проверяют owner/mode,
+  link count, device/inode, replacement, ожидаемый file set, size, verifier
+  identity и redacted output. Verified cleanup выполняет no-clobber tombstone,
+  ordered durable unlink/rmdir/root sync и безопасно повторяет final root sync
+  после crash/error без reupload.
+- Независимый exact-head review: specification `PASS`, code quality/security
+  `APPROVED`, actionable findings `0`.
+- GitHub HA run
+  [32999753382](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/32999753382),
+  job `98278165821`, завершён `success` на exact SHA: 26/26 steps.
+- Yandex isolated validation run
+  [33000187245](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33000187245)
+  на том же SHA завершён `success`: `format-unit` `98279679095`,
+  `rqlite-purge` `98280283126`, `offline-replay` `98280283155`, `race-vet`
+  `98280283167`, `android-test-apk` `98281234848`; все 50/50 steps успешны.
+- Production Android/TV baseline остаётся `1.0.157`. Workflow dispatch был
+  только isolated repository validation: merge, tag, signing, release, OTA,
+  production backup/upload, systemd, deploy, S1-S4 и cutover не выполнялись.
+- Следующий repository-only этап — Task 9: inert HA/legacy systemd templates и
+  policy tests для bidirectional exclusivity и безопасного legacy early exit.
+  Запрещены `systemctl`, запись в `/etc`, credentials, enablement и deployment.
+- Слабый Windows-компьютер используется только для узких проверок и правок;
+  тяжёлые Linux/race/vet/rqlite/Android проверки выполняются в GitHub Actions.
+  Защищённые `normalize.patch` и пользовательский `task-4-report.md` не
+  изменялись и не входят в commits.
+
 ## 0AAAAAAAAAAA. TASK 14 BACKUP WORKER / DR EXACT-SHA GREEN (23.08.2026)
 
 - Единственная каноническая ветка —
