@@ -107,6 +107,7 @@ description=""
 verify_command=()
 python_command=()
 gpg_command=()
+verify_gpg_executable=""
 image_fd=""
 
 cleanup() {
@@ -278,6 +279,7 @@ PY
   python_command=(python3)
   gpg_command=(gpg --homedir "$gpg_home")
   verify_command=(python3 -m ops.ha.verify_backup)
+  verify_gpg_executable=gpg
 else
   image_source="$image_input"
   runtime="/proc/self/fd/3"
@@ -361,6 +363,7 @@ else
     "$(stat -Lc '%g' "$gpg_home")" == "$current_gid" ]] || fail
   python_command=("$worker_python")
   gpg_command=("$worker_gpg" --no-options --no-auto-key-retrieve --homedir "$gpg_home")
+  verify_gpg_executable="$worker_gpg"
   commit_sha="${MAESTRO_BACKUP_COMMIT_SHA:-}"
   run_id="${MAESTRO_BACKUP_RUN_ID:-}"
   [[ "$commit_sha" =~ ^[a-f0-9]{40}$ && "$run_id" =~ ^[1-9][0-9]*$ ]] || fail
@@ -561,7 +564,7 @@ with tarfile.open(archive, "r:") as bundle:
 PY
 
 result="$work/verify-result.json"
-"${verify_command[@]}" verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   >"$result" 2>/dev/null || fail
+"${verify_command[@]}" verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   --gpg-executable "$verify_gpg_executable"   >"$result" 2>/dev/null || fail
 "${python_command[@]}" - "$result" "$metadata" "$manifest" "$worker" "$restore_epoch" <<'PY' || fail
 import json
 import pathlib

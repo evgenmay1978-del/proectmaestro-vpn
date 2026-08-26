@@ -470,6 +470,23 @@ class VerifyBackupTests(unittest.TestCase):
             self.assertEqual(_default_gpg(command), (0, "", ""))
         self.assertEqual(run.call_args.kwargs["pass_fds"], (3,))
 
+    def test_default_gpg_preserves_two_digit_worker_descriptor_set(self):
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+        command = [
+            "/proc/self/fd/8",
+            "--no-options",
+            "--homedir",
+            "/proc/self/fd/7",
+            "--verify",
+            "/proc/self/fd/10/verify/manifest.sig",
+            "/proc/self/fd/10/verify/manifest.json",
+        ]
+        with mock.patch(
+            "ops.ha.verify_backup.subprocess.run", return_value=completed
+        ) as run:
+            self.assertEqual(_default_gpg(command), (0, "", ""))
+        self.assertEqual(run.call_args.kwargs["pass_fds"], (7, 8, 10))
+
 
 if __name__ == "__main__":
     unittest.main()

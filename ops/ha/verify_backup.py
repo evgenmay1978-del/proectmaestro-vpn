@@ -325,9 +325,11 @@ def _inherited_proc_fds(command: list[str]) -> tuple[int, ...]:
     for argument in command:
         if not isinstance(argument, str):
             continue
-        match = re.match(r"^/proc/self/fd/([3-9][0-9]*)(?:/|$)", argument)
+        match = re.match(r"^/proc/self/fd/([1-9][0-9]*)(?:/|$)", argument)
         if match is not None:
-            inherited.add(int(match.group(1)))
+            descriptor = int(match.group(1))
+            if descriptor >= 3:
+                inherited.add(descriptor)
     return tuple(sorted(inherited))
 
 

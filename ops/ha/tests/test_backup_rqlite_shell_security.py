@@ -39,6 +39,10 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         self.assertIn(
             'verify_command=("$worker_python" "$verify_script")', self.worker
         )
+        self.assertIn('verify_gpg_executable="$worker_gpg"', self.worker)
+        self.assertIn(
+            '--gpg-executable "$verify_gpg_executable"', self.common
+        )
         self.assertNotIn("python3", self.worker)
 
     def test_worker_preserves_exact_fd3_through_fd9_contract(self):
