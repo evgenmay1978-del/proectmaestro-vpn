@@ -1052,8 +1052,9 @@ func (task *linuxManifestVerificationTask) Abort() {
 	var payloadFD int = -1
 	var payloadNames []string
 	if manifestNamePresent(names, manifestPayloadName) {
-		payloadFD, payloadStat, openErr := openManifestDirectoryAt(taskFD, manifestPayloadName, task.runtime.uid)
-		if openErr != nil ||
+		var payloadStat unix.Stat_t
+		payloadFD, payloadStat, err = openManifestDirectoryAt(taskFD, manifestPayloadName, task.runtime.uid)
+		if err != nil ||
 			(task.payloadInitial != nil &&
 				linuxDirectoryIdentityFromStat(&payloadStat) != linuxDirectoryIdentityFromStat(task.payloadInitial)) {
 			if payloadFD >= 0 {
