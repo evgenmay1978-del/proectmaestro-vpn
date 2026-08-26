@@ -667,7 +667,7 @@ if result != expected:
 PY
 
 verification_stage="P99"
-[[ "$(stat -c '%d' "$work")" == "$(stat -c '%d' "$output_parent")" ]] || fail
+[[ "$(stat -Lc '%d' "$work")" == "$(stat -Lc '%d' "$output_parent")" ]] || fail
 ln -- "$encrypted" "$output" || fail
 rm -f -- "$encrypted"
 [[ -f "$output" && ! -L "$output" && "$(stat -c '%a' "$output")" == "600" ]] || fail

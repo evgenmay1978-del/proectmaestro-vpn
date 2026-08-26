@@ -1,5 +1,9 @@
+import os
 import pathlib
 import re
+import stat
+import sys
+import tempfile
 import unittest
 
 
@@ -148,6 +152,31 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         )
         self.assertNotIn('GNUPGHOME=/proc/self/fd/7', self.full_worker_e2e)
 
+    def test_publish_device_check_dereferences_pinned_task_directory(self):
+        self.assertIn(
+            '[[ "$(stat -Lc \'%d\' "$work")" == '
+            '"$(stat -Lc \'%d\' "$output_parent")" ]] || fail',
+            self.common,
+        )
+        self.assertNotIn(
+            'stat -c \'%d\' "$output_parent"',
+            self.common,
+        )
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs")
+    def test_proc_fd_directory_witness_is_a_symlink_to_the_pinned_inode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                witness = f"/proc/self/fd/{descriptor}"
+                target = os.stat(directory)
+                self.assertTrue(stat.S_ISLNK(os.lstat(witness).st_mode))
+                dereferenced = os.stat(witness)
+                self.assertEqual(dereferenced.st_dev, target.st_dev)
+                self.assertEqual(dereferenced.st_ino, target.st_ino)
+            finally:
+                os.close(descriptor)
+
     def test_full_worker_e2e_exposes_only_fixed_failure_stage_codes(self):
         self.assertIn(
             "MAESTRO_BACKUP_DIAGNOSTICS=stage-v1", self.full_worker_e2e
@@ -207,7 +236,7 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
             ('verification_stage="P70"', '"${python_command[@]}" - "$decrypted" "$verify"'),
             ('verification_stage="P80"', 'result="$work/verify-result.json"'),
             ('verification_stage="P90"', '"${python_command[@]}" - "$result"'),
-            ('verification_stage="P99"', '[[ "$(stat -c \'%d\' "$work")"'),
+            ('verification_stage="P99"', '[[ "$(stat -Lc \'%d\' "$work")"'),
         )
         for marker, command in boundaries:
             self.assertIn(f"{marker}\n{command}", self.source)
