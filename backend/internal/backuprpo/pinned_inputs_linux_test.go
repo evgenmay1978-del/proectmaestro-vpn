@@ -4,6 +4,7 @@ package backuprpo
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -205,6 +206,67 @@ func TestPinnedManifestSpecsResolveEveryDescriptorWithRealProcesses(t *testing.T
 	if result.String() != "verified" {
 		t.Fatalf("result = %q", result.String())
 	}
+}
+
+func TestPinnedBundleCreatorLaunchesWorkerWithFD3ThroughFD9(t *testing.T) {
+	base := t.TempDir()
+	runtimePath := filepath.Join(base, "runtime")
+	runtimeFile := openPinnedInputFixture(t, runtimePath, true)
+	gpgHome := openPinnedInputFixture(t, filepath.Join(base, "gnupg"), true)
+	verifyScript := openPinnedInputFixture(t, filepath.Join(base, "verify.py"), false)
+	keysPath := filepath.Join(base, "keys.json")
+	keys := openPinnedInputFixture(t, keysPath, false)
+	if err := os.Chmod(keysPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gpg := openPinnedCommandFixture(t, filepath.Join(base, "gpg"), "exit 97")
+	marker := filepath.Join(base, "fd-contract-reached")
+	python := openPinnedCommandFixture(
+		t,
+		filepath.Join(base, "python"),
+		"for descriptor in 8 9; do test -e \"/proc/self/fd/$descriptor\"; done\n"+
+			": > "+shellSingleQuoteForTest(marker)+"\nexit 91",
+	)
+	repositoryScript, err := os.ReadFile(filepath.Join("..", "..", "..", "ops", "ha", "backup-rqlite.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(base, "backup-rqlite.sh")
+	if err := os.WriteFile(scriptPath, repositoryScript, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	backupScript, err := os.Open(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backupScript.Close() })
+
+	config := creatorConfigFixture()
+	config.RuntimeDir = runtimePath
+	config.CommandTimeout = 5 * time.Second
+	order := []string{}
+	creator, err := NewPinnedShellBundleCreator(
+		config,
+		&recordingBackupSource{order: &order},
+		PinnedBundleInputs{
+			RuntimeDir: runtimeFile, Script: backupScript, VerifyScript: verifyScript,
+			Keys: keys, GPGHome: gpgHome, GPG: gpg, Python: python,
+		},
+	)
+	if err != nil {
+		t.Fatalf("new pinned creator: %v", err)
+	}
+
+	if _, err := creator.Create(context.Background(), bundleRequestFixture()); !errors.Is(err, ErrCommandFailed) {
+		t.Fatalf("Create error = %v, want controlled fake-python failure", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("worker did not accept and preserve fd3..fd9 before invoking python: %v", err)
+	}
+}
+
+func shellSingleQuoteForTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func unixCloseForTest(fd int) {

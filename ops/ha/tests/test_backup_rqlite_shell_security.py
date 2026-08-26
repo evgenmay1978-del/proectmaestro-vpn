@@ -34,6 +34,48 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         )
         self.assertNotIn("python3", self.worker)
 
+    def test_worker_preserves_exact_fd3_through_fd9_contract(self):
+        for token in (
+            'image_source="$image_input"',
+            'runtime="/proc/self/fd/3"',
+            '[[ "$0" == "/proc/self/fd/4" ]] || fail',
+            '[[ "$image_input" == "$runtime/task-$backup_id/control-plane.sqlite3" ]] || fail',
+            '[[ "$keys_input" == "/proc/self/fd/6" ]] || fail',
+            '[[ "$verify_script_input" == "/proc/self/fd/5" ]] || fail',
+            '[[ "$output_input" == "$runtime/task-$backup_id/backup.bundle" ]] || fail',
+            'exec {task_fd}<"$task_input_dir" || fail',
+            'task_dir="/proc/self/fd/$task_fd"',
+            'image_source="$task_dir/control-plane.sqlite3"',
+            'output="$task_dir/backup.bundle"',
+        ):
+            self.assertIn(token, self.worker)
+        for operational in (
+            "image_source",
+            "keys",
+            "verify_script",
+            "output_parent",
+            "output",
+        ):
+            self.assertIsNone(
+                re.search(rf'(?m)^\s*{operational}="\$\(realpath\b', self.worker),
+                f"{operational} must retain its pinned descriptor path",
+            )
+
+    def test_worker_validates_descriptor_identity_without_using_resolved_paths(self):
+        self.assertIn(
+            'runtime_resolved="$(realpath -e -- "$runtime")" || fail', self.worker
+        )
+        self.assertIn(
+            'task_resolved="$(realpath -e -- "$task_input_dir")" || fail',
+            self.worker,
+        )
+        self.assertIn(
+            '[[ "$task_resolved" == "$runtime_resolved/task-$backup_id" ]] || fail',
+            self.worker,
+        )
+        self.assertIn('[[ "$task_identity" == "$(stat -Lc ', self.worker)
+        self.assertIn('"$task_dir")" ]] || fail', self.worker)
+
     def test_worker_gpg_is_offline_and_all_common_calls_are_indirect(self):
         self.assertIn(
             'gpg_command=("$worker_gpg" --no-options --no-auto-key-retrieve '

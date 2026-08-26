@@ -118,10 +118,16 @@ cleanup() {
     esac
   fi
   if [[ -n "$work" && -n "$runner" && -d "$work" && ! -L "$work" ]]; then
-    resolved="$(realpath -e -- "$work" 2>/dev/null || true)"
-    case "$resolved" in
-      "$runner"/maestro-rqlite-backup.*) rm -rf -- "$resolved" ;;
-    esac
+    if [[ "$worker" -eq 1 ]]; then
+      case "$work" in
+        "$runner"/maestro-rqlite-backup.*) rm -rf -- "$work" ;;
+      esac
+    else
+      resolved="$(realpath -e -- "$work" 2>/dev/null || true)"
+      case "$resolved" in
+        "$runner"/maestro-rqlite-backup.*) rm -rf -- "$resolved" ;;
+      esac
+    fi
   fi
   exit "$status"
 }
@@ -273,22 +279,42 @@ PY
   gpg_command=(gpg --homedir "$gpg_home")
   verify_command=(python3 -m ops.ha.verify_backup)
 else
-  image_source="$(realpath -e -- "$image_input")" || fail
-  [[ "$image_source" == "$image_input" && -f "$image_source" && ! -L "$image_source" &&
-    "$(basename -- "$image_source")" == "control-plane.sqlite3" ]] || fail
-  task_dir="$(realpath -e -- "$(dirname -- "$image_source")")" || fail
-  [[ "$image_source" == "$task_dir/control-plane.sqlite3" &&
-    "$(basename -- "$task_dir")" == "task-$backup_id" &&
-    "$(stat -c '%a' "$task_dir")" == "700" &&
-    "$(stat -c '%u' "$task_dir")" == "$current_uid" &&
-    "$(stat -c '%g' "$task_dir")" == "$current_gid" ]] || fail
+  image_source="$image_input"
+  runtime="/proc/self/fd/3"
+  [[ "$0" == "/proc/self/fd/4" ]] || fail
+  [[ "$image_input" == "$runtime/task-$backup_id/control-plane.sqlite3" ]] || fail
+  [[ "$keys_input" == "/proc/self/fd/6" ]] || fail
+  [[ "$verify_script_input" == "/proc/self/fd/5" ]] || fail
+  [[ "$output_input" == "$runtime/task-$backup_id/backup.bundle" ]] || fail
+  [[ -d "$runtime" && -f "$0" && -x "$0" &&
+    "$(stat -Lc '%a' "$runtime")" == "700" &&
+    "$(stat -Lc '%u' "$runtime")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$runtime")" == "$current_gid" ]] || fail
+
+  runtime_resolved="$(realpath -e -- "$runtime")" || fail
+  task_input_dir="$runtime/task-$backup_id"
+  task_resolved="$(realpath -e -- "$task_input_dir")" || fail
+  [[ "$task_resolved" == "$runtime_resolved/task-$backup_id" ]] || fail
+  [[ -d "$task_input_dir" && ! -L "$task_input_dir" &&
+    "$(stat -Lc '%a' "$task_input_dir")" == "700" &&
+    "$(stat -Lc '%u' "$task_input_dir")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$task_input_dir")" == "$current_gid" ]] || fail
+  task_identity="$(stat -Lc '%d:%i:%u:%g:%a' "$task_input_dir")" || fail
+  exec {task_fd}<"$task_input_dir" || fail
+  task_dir="/proc/self/fd/$task_fd"
+  [[ "$task_identity" == "$(stat -Lc '%d:%i:%u:%g:%a' "$task_dir")" ]] || fail
+
+  image_input_identity="$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_source")" || fail
+  image_source="$task_dir/control-plane.sqlite3"
+  [[ -f "$image_source" && ! -L "$image_source" &&
+    "$image_input_identity" == "$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_source")" ]] || fail
   owner_marker="$task_dir/.maestro-backup-owner"
   [[ -f "$owner_marker" && ! -L "$owner_marker" &&
-    "$(stat -c '%a' "$owner_marker")" == "600" &&
-    "$(stat -c '%u' "$owner_marker")" == "$current_uid" &&
-    "$(stat -c '%g' "$owner_marker")" == "$current_gid" &&
-    "$(stat -c '%h' "$owner_marker")" == "1" &&
-    "$(stat -c '%s' "$owner_marker")" == "33" &&
+    "$(stat -Lc '%a' "$owner_marker")" == "600" &&
+    "$(stat -Lc '%u' "$owner_marker")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$owner_marker")" == "$current_gid" &&
+    "$(stat -Lc '%h' "$owner_marker")" == "1" &&
+    "$(stat -Lc '%s' "$owner_marker")" == "33" &&
     "$(<"$owner_marker")" == "$backup_id" ]] || fail
   shopt -s nullglob dotglob
   task_entries=("$task_dir"/*)
@@ -296,30 +322,32 @@ else
   [[ "${#task_entries[@]}" -eq 2 &&
     "${task_entries[0]}" == "$owner_marker" &&
     "${task_entries[1]}" == "$image_source" ]] || fail
-  [[ "$(stat -c '%a' "$image_source")" == "600" &&
-    "$(stat -c '%u' "$image_source")" == "$current_uid" &&
-    "$(stat -c '%g' "$image_source")" == "$current_gid" &&
-    "$(stat -c '%h' "$image_source")" == "1" ]] || fail
+  [[ "$(stat -Lc '%a' "$image_source")" == "600" &&
+    "$(stat -Lc '%u' "$image_source")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$image_source")" == "$current_gid" &&
+    "$(stat -Lc '%h' "$image_source")" == "1" &&
+    "$task_identity" == "$(stat -Lc '%d:%i:%u:%g:%a' "$task_input_dir")" &&
+    "$task_identity" == "$(stat -Lc '%d:%i:%u:%g:%a' "$task_dir")" &&
+    "$image_input_identity" == "$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_input")" ]] || fail
 
-  keys="$(realpath -e -- "$keys_input")" || fail
-  [[ "$keys" == "$keys_input" && -f "$keys" && ! -L "$keys" &&
-    "$(stat -c '%a' "$keys")" == "600" &&
-    "$(stat -c '%u' "$keys")" == "$current_uid" &&
-    "$(stat -c '%g' "$keys")" == "$current_gid" &&
-    "$(stat -c '%h' "$keys")" == "1" ]] || fail
+  keys="$keys_input"
+  [[ -f "$keys" &&
+    "$(stat -Lc '%a' "$keys")" == "600" &&
+    "$(stat -Lc '%u' "$keys")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$keys")" == "$current_gid" &&
+    "$(stat -Lc '%h' "$keys")" == "1" ]] || fail
 
-  verify_script="$(realpath -e -- "$verify_script_input")" || fail
-  [[ "$verify_script" == "$verify_script_input" && -f "$verify_script" && ! -L "$verify_script" &&
-    "$(stat -c '%u' "$verify_script")" == "$current_uid" &&
-    "$(stat -c '%g' "$verify_script")" == "$current_gid" &&
-    "$(stat -c '%h' "$verify_script")" == "1" ]] || fail
-  verify_mode="$(stat -c '%a' "$verify_script")"
+  verify_script="$verify_script_input"
+  [[ -f "$verify_script" &&
+    "$(stat -Lc '%u' "$verify_script")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$verify_script")" == "$current_gid" &&
+    "$(stat -Lc '%h' "$verify_script")" == "1" ]] || fail
+  verify_mode="$(stat -Lc '%a' "$verify_script")"
   [[ "$verify_mode" =~ ^[0-7]{3,4}$ && $((8#$verify_mode & 8#22)) -eq 0 ]] || fail
 
-  output_parent="$(realpath -e -- "$(dirname -- "$output_input")")" || fail
-  output="$output_parent/$(basename -- "$output_input")"
-  [[ "$output_parent" == "$task_dir" && "$output" == "$task_dir/backup.bundle" &&
-    "$output" == "$output_input" && ! -e "$output" && ! -L "$output" ]] || fail
+  output_parent="$task_dir"
+  output="$task_dir/backup.bundle"
+  [[ ! -e "$output" && ! -L "$output" ]] || fail
 
   worker_gpg="${MAESTRO_BACKUP_GPG:-}"
   worker_python="${MAESTRO_BACKUP_PYTHON:-}"
@@ -339,7 +367,7 @@ else
 
   runner="$task_dir"
   work="$(mktemp -d "$runner/maestro-rqlite-backup.XXXXXX")" || fail
-  work="$(realpath -e -- "$work")" || fail
+  case "$work" in "$runner"/maestro-rqlite-backup.*) ;; *) fail ;; esac
   [[ -d "$work" && ! -L "$work" && "$(stat -c '%a' "$work")" == "700" ]] || fail
 
   exec {image_fd}<"$image_source" || fail
