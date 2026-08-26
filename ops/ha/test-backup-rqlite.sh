@@ -25,7 +25,7 @@ if grep -Eq 'curl[^|]*\|[[:space:]]*(sh|bash)|(^|[^[:alnum:]_])(ssh|scp|rsync)([
   fail "remote shell or download-and-execute is forbidden"
 fi
 
-for token in   '--drill'   'RUNNER_TEMP'   'realpath'   'umask 077'   'trap '   'mktemp -d'   'fmt=delete'   "--proto '=https'"   "--proto-redir '=https'"   '--max-redirs 0'   '--connect-timeout'   '--max-time'   '--cacert'   '--cert'   '--key'   'SQLite format 3'   '--detach-sign'   '--encrypt'   '--sort=name'   '--mtime=@0'   '--owner=0'   '--group=0'   '--numeric-owner'   'ops.ha.verify_backup'   'noclobber'
+for token in   '--drill'   '--worker'   '--image'   '--verify-script'   '--restore-epoch'   'RUNNER_TEMP'   'realpath'   'umask 077'   'trap '   'mktemp -d'   'fmt=delete'   "--proto '=https'"   "--proto-redir '=https'"   '--max-redirs 0'   '--connect-timeout'   '--max-time'   '--cacert'   '--cert'   '--key'   'SQLite format 3'   '--detach-sign'   '--encrypt'   '--sort=name'   '--mtime=@0'   '--owner=0'   '--group=0'   '--numeric-owner'   'ops.ha.verify_backup'   'noclobber'
 do
   grep -qF -- "$token" "$CREATOR" || fail "creator lacks required token: $token"
 done
@@ -81,9 +81,9 @@ printf '%s\n' '{"format_version":1,"keys":[]}' >"$keys"
 chmod 0600 "$keys"
 backup_id="0123456789abcdef0123456789abcdef"
 attempt_sequence=42
-captured_generation=103
+captured_generation=1
 lease_fence=17
-object_key="private/cluster-a/g-103/a-42-${backup_id}.tar.gpg"
+object_key="private/cluster-a/g-${captured_generation}/a-42-${backup_id}.tar.gpg"
 v2_args=(
   --manifest-version 2
   --backup-id "$backup_id"
@@ -144,6 +144,169 @@ export GNUPGHOME="$gpg_home"
 export MAESTRO_DR_COMMIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 export MAESTRO_DR_RUN_ID=123456
 
+worker_generation=103
+worker_epoch=7
+worker_task="$sandbox/task-$backup_id"
+mkdir -m 0700 -- "$worker_task"
+printf '%s\n' "$backup_id" >"$worker_task/.maestro-backup-owner"
+chmod 0600 "$worker_task/.maestro-backup-owner"
+worker_image="$worker_task/control-plane.sqlite3"
+python3 - "$worker_image" "$worker_generation" "$worker_epoch" <<'PY'
+import os
+import pathlib
+import sqlite3
+import sys
+
+path = pathlib.Path(sys.argv[1])
+generation = int(sys.argv[2])
+epoch = int(sys.argv[3])
+db = sqlite3.connect(path)
+db.executescript(
+    """
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, checksum TEXT NOT NULL);
+    CREATE TABLE cluster_restore_state(
+      singleton_id INTEGER PRIMARY KEY, cluster_id TEXT NOT NULL,
+      restore_epoch INTEGER NOT NULL, restored_from_backup_sha256 TEXT,
+      activated INTEGER NOT NULL, created_at_unix INTEGER NOT NULL,
+      activated_at_unix INTEGER
+    );
+    CREATE TABLE backup_rpo_state(
+      singleton_id INTEGER PRIMARY KEY, restore_epoch INTEGER NOT NULL,
+      dirty_generation INTEGER NOT NULL
+    );
+    CREATE TABLE import_runs(import_run_id TEXT PRIMARY KEY, completed_at_unix INTEGER);
+    CREATE TABLE import_batches(import_run_id TEXT, batch_index INTEGER, applied_at_unix INTEGER);
+    CREATE TABLE backup_watermarks(
+      backup_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL,
+      backup_sha256 TEXT NOT NULL, destination TEXT NOT NULL,
+      status TEXT NOT NULL, created_at_unix INTEGER NOT NULL,
+      verified_at_unix INTEGER
+    );
+    """
+)
+db.execute("INSERT INTO schema_migrations VALUES(1, ?)", ("a" * 64,))
+db.execute(
+    "INSERT INTO cluster_restore_state VALUES(1, ?, ?, NULL, 1, 100, 100)",
+    ("c" * 64, epoch),
+)
+db.execute("INSERT INTO backup_rpo_state VALUES(1, ?, ?)", (epoch, generation))
+db.execute("INSERT INTO import_runs VALUES('worker-run', 200)")
+db.execute("INSERT INTO import_batches VALUES('worker-run', 3, 201)")
+db.execute(
+    "INSERT INTO backup_watermarks VALUES('worker-backup', 1, ?, 'worker', 'verified', 202, 204)",
+    ("d" * 64,),
+)
+db.commit()
+db.close()
+os.chmod(path, 0o600)
+PY
+
+worker_commit="$(git -C "$ROOT" rev-parse HEAD)"
+run_worker() {
+  local task="$1" id="$2" epoch="$3"
+  local image="$task/control-plane.sqlite3"
+  local candidate="$task/backup.bundle"
+  local key="private/cluster-a/g-${worker_generation}/a-${attempt_sequence}-${id}.tar.gpg"
+  env -u RUNNER_TEMP \
+    GNUPGHOME="$gpg_home" \
+    MAESTRO_BACKUP_COMMIT_SHA="$worker_commit" \
+    MAESTRO_BACKUP_RUN_ID=654321 \
+    bash "$CREATOR" --worker \
+      --image "$image" --keys "$keys" --output "$candidate" \
+      --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
+      --manifest-version 2 --backup-id "$id" \
+      --attempt-sequence "$attempt_sequence" \
+      --captured-generation "$worker_generation" \
+      --restore-epoch "$epoch" --lease-fence "$lease_fence" \
+      --object-key "$key" --verify-script "$ROOT/ops/ha/verify_backup.py"
+}
+
+run_worker "$worker_task" "$backup_id" "$worker_epoch" >/dev/null
+worker_output="$worker_task/backup.bundle"
+[[ -f "$worker_output" && ! -L "$worker_output" &&
+  "$(stat -c '%a' "$worker_output")" == "600" &&
+  "$(stat -c '%h' "$worker_output")" == "1" ]] ||
+  fail "worker candidate is not a pinned mode-0600 regular file"
+mapfile -t worker_names < <(find "$worker_task" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+expected_worker_names=(.maestro-backup-owner backup.bundle control-plane.sqlite3)
+[[ "${worker_names[*]}" == "${expected_worker_names[*]}" ]] ||
+  fail "worker left unexpected task members"
+worker_before="$(sha256sum "$worker_output" | awk '{print $1}')"
+if run_worker "$worker_task" "$backup_id" "$worker_epoch" >/dev/null 2>&1; then
+  fail "worker overwrote an existing candidate"
+fi
+worker_after="$(sha256sum "$worker_output" | awk '{print $1}')"
+[[ "$worker_before" == "$worker_after" ]] || fail "worker changed existing candidate"
+
+worker_observed="$sandbox/worker-observed.tar"
+gpg --homedir "$gpg_home" --batch --no-tty --output "$worker_observed" \
+  --decrypt "$worker_output" >/dev/null 2>&1 || fail "worker candidate is not decryptable"
+worker_manifest="$sandbox/worker-manifest.json"
+tar -xOf "$worker_observed" manifest.json >"$worker_manifest"
+python3 - "$worker_manifest" "$backup_id" "$attempt_sequence" "$worker_generation" \
+  "$worker_epoch" "$lease_fence" <<'PY' || fail "worker manifest binding is invalid"
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    "backup_id": sys.argv[2],
+    "attempt_sequence": int(sys.argv[3]),
+    "captured_generation": int(sys.argv[4]),
+    "lease_fence": int(sys.argv[6]),
+}
+if manifest.get("format_version") != 2:
+    raise SystemExit(1)
+for key, value in expected.items():
+    if manifest.get(key) != value:
+        raise SystemExit(1)
+source = manifest.get("source")
+if source.get("dirty_generation") != int(sys.argv[4]) or source.get("restore_epoch") != int(sys.argv[5]):
+    raise SystemExit(1)
+PY
+rm -f -- "$worker_manifest" "$worker_observed"
+
+wrong_epoch_id="1123456789abcdef0123456789abcdef"
+wrong_epoch_task="$sandbox/task-$wrong_epoch_id"
+mkdir -m 0700 -- "$wrong_epoch_task"
+printf '%s\n' "$wrong_epoch_id" >"$wrong_epoch_task/.maestro-backup-owner"
+chmod 0600 "$wrong_epoch_task/.maestro-backup-owner"
+cp -- "$worker_image" "$wrong_epoch_task/control-plane.sqlite3"
+chmod 0600 "$wrong_epoch_task/control-plane.sqlite3"
+if run_worker "$wrong_epoch_task" "$wrong_epoch_id" 8 >/dev/null 2>&1; then
+  fail "worker accepted a restore epoch that differs from the signed image"
+fi
+[[ ! -e "$wrong_epoch_task/backup.bundle" ]] || fail "wrong epoch published a candidate"
+
+hardlink_id="2123456789abcdef0123456789abcdef"
+hardlink_task="$sandbox/task-$hardlink_id"
+mkdir -m 0700 -- "$hardlink_task"
+printf '%s\n' "$hardlink_id" >"$hardlink_task/.maestro-backup-owner"
+chmod 0600 "$hardlink_task/.maestro-backup-owner"
+ln -- "$worker_image" "$hardlink_task/control-plane.sqlite3"
+if run_worker "$hardlink_task" "$hardlink_id" "$worker_epoch" >/dev/null 2>&1; then
+  fail "worker accepted a hard-linked image"
+fi
+[[ ! -e "$hardlink_task/backup.bundle" ]] || fail "hard-linked image published a candidate"
+
+symlink_id="3123456789abcdef0123456789abcdef"
+symlink_task="$sandbox/task-$symlink_id"
+mkdir -m 0700 -- "$symlink_task"
+printf '%s\n' "$symlink_id" >"$symlink_task/.maestro-backup-owner"
+chmod 0600 "$symlink_task/.maestro-backup-owner"
+ln -s -- "$worker_image" "$symlink_task/control-plane.sqlite3"
+if run_worker "$symlink_task" "$symlink_id" "$worker_epoch" >/dev/null 2>&1; then
+  fail "worker accepted a symlink image"
+fi
+[[ ! -e "$symlink_task/backup.bundle" ]] || fail "symlink image published a candidate"
+
+if env -u RUNNER_TEMP GNUPGHOME="$gpg_home" \
+  MAESTRO_BACKUP_COMMIT_SHA="$worker_commit" MAESTRO_BACKUP_RUN_ID=654321 \
+  bash "$CREATOR" --worker --drill >/dev/null 2>&1; then
+  fail "worker accepted both mutually exclusive modes"
+fi
 empty_binding_output="$sandbox/empty-binding.tar.gpg"
 if bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --output "$empty_binding_output"   --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
   --manifest-version "" >/dev/null 2>&1
@@ -163,7 +326,7 @@ if bash "$CREATOR" --drill   --cluster-root "$cluster_root" --keys "$keys" --out
   --attempt-sequence "$attempt_sequence" \
   --captured-generation "$captured_generation" \
   --lease-fence "$lease_fence" \
-  --object-key "private/cluster-a/g-104/a-42-${backup_id}.tar.gpg" >/dev/null 2>&1
+  --object-key "private/cluster-a/g-$((captured_generation + 1))/a-42-${backup_id}.tar.gpg" >/dev/null 2>&1
 then
   fail "object key must bind the exact generation, sequence, and backup id"
 fi

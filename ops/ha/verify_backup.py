@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import stat
@@ -108,13 +109,7 @@ def _canonical_hex(value: Any, length: int) -> bool:
 
 
 def _object_key(value: Any) -> bool:
-    if (
-        not isinstance(value, str)
-        or not 0 < len(value) <= 1_024
-        or value.startswith("/")
-        or "\\" in value
-        or not all(0x21 <= ord(character) <= 0x7E for character in value)
-    ):
+    if not isinstance(value, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}", value) is None:
         return False
     parts = value.split("/")
     return all(part not in {"", ".", ".."} for part in parts)
@@ -155,7 +150,7 @@ def _single_row(connection: sqlite3.Connection, sql: str) -> sqlite3.Row:
     return rows[0]
 
 
-def _inspect_image(path: Path) -> dict[str, Any]:
+def _inspect_image(path: Path, format_version: int) -> dict[str, Any]:
     connection = _open_image(path)
     try:
         integrity = connection.execute("PRAGMA integrity_check").fetchall()
@@ -182,9 +177,29 @@ def _inspect_image(path: Path) -> dict[str, Any]:
             "SELECT cluster_id,restore_epoch FROM cluster_restore_state "
             "WHERE singleton_id=1",
         )
-        cluster_id, epoch = restore["cluster_id"], int(restore["restore_epoch"])
-        if not _canonical_hex(cluster_id, 64) or epoch <= 0:
+        cluster_id = restore["cluster_id"]
+        epoch = restore["restore_epoch"]
+        if not _canonical_hex(cluster_id, 64) or type(epoch) is not int or epoch <= 0:
             _fail("sqlite")
+        source = {"cluster_id": cluster_id, "restore_epoch": epoch}
+
+        if format_version == 2:
+            rpo_state = _single_row(
+                connection,
+                "SELECT restore_epoch,dirty_generation FROM backup_rpo_state "
+                "WHERE singleton_id=1",
+            )
+            rpo_epoch = rpo_state["restore_epoch"]
+            dirty_generation = rpo_state["dirty_generation"]
+            if (
+                type(rpo_epoch) is not int
+                or rpo_epoch <= 0
+                or rpo_epoch != epoch
+                or type(dirty_generation) is not int
+                or dirty_generation < 0
+            ):
+                _fail("sqlite")
+            source["dirty_generation"] = dirty_generation
 
         names = [
             row[0]
@@ -215,7 +230,7 @@ def _inspect_image(path: Path) -> dict[str, Any]:
                 "checksum": identity,
                 "migrations": migration_items,
             },
-            "source": {"cluster_id": cluster_id, "restore_epoch": epoch},
+            "source": source,
             "table_counts": counts,
             "receipts": {
                 "import_completed_at_high_watermark": int(import_high or 0),
@@ -283,7 +298,12 @@ def build_manifest(image_path: Path | str, keys_path: Path | str, metadata: dict
             _fail("input")
     if image.name != "control-plane.sqlite3" or keys.name != "application-keys.json":
         _fail("input")
-    inspected = _inspect_image(image)
+    inspected = _inspect_image(image, metadata["format_version"])
+    if (
+        metadata["format_version"] == 2
+        and metadata["captured_generation"] != inspected["source"]["dirty_generation"]
+    ):
+        _fail("input")
     image_item = {"filename": image.name, "size": image.stat().st_size, "sha256": _sha256(image)}
     members = sorted(
         [
@@ -300,6 +320,17 @@ def build_manifest(image_path: Path | str, keys_path: Path | str, metadata: dict
     }
 
 
+def _inherited_proc_fds(command: list[str]) -> tuple[int, ...]:
+    inherited: set[int] = set()
+    for argument in command:
+        if not isinstance(argument, str):
+            continue
+        match = re.match(r"^/proc/self/fd/([3-9][0-9]*)(?:/|$)", argument)
+        if match is not None:
+            inherited.add(int(match.group(1)))
+    return tuple(sorted(inherited))
+
+
 def _default_gpg(command: list[str]) -> tuple[int, str, str]:
     completed = subprocess.run(
         command,
@@ -308,6 +339,7 @@ def _default_gpg(command: list[str]) -> tuple[int, str, str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=30,
+        pass_fds=_inherited_proc_fds(command),
     )
     return completed.returncode, completed.stdout, completed.stderr
 
@@ -317,6 +349,7 @@ def _verify_signature(
     signature: Path,
     fingerprint: str,
     gpg_home: Path,
+    gpg_executable: str,
     run_gpg: RunGPG,
 ) -> None:
     try:
@@ -326,11 +359,13 @@ def _verify_signature(
     if not stat.S_ISDIR(mode) or (os.name != "nt" and stat.S_IMODE(mode) != 0o700):
         _fail("signature")
     command = [
-        "gpg",
+        gpg_executable,
+        "--no-options",
         "--homedir",
         str(gpg_home),
         "--batch",
         "--no-tty",
+        "--no-auto-key-retrieve",
         "--status-fd",
         "1",
         "--verify",
@@ -350,15 +385,29 @@ def _verify_signature(
         _fail("signature")
 
 
+def _valid_gpg_executable(value: Any) -> bool:
+    if value == "gpg":
+        return True
+    if not isinstance(value, str) or not value.startswith("/") or len(value) > 4096 or "\x00" in value:
+        return False
+    parts = value.split("/")[1:]
+    return bool(parts) and all(part not in {"", ".", ".."} for part in parts)
+
+
 def verify_bundle(
     directory: Path | str,
     trusted_signer_fingerprint: str,
     gpg_home: Path | str,
     *,
+    gpg_executable: str = "gpg",
     run_gpg: RunGPG = _default_gpg,
 ) -> dict[str, Any]:
     root, home = Path(directory), Path(gpg_home)
-    if not isinstance(trusted_signer_fingerprint, str) or len(trusted_signer_fingerprint) != 40:
+    if (
+        not isinstance(trusted_signer_fingerprint, str)
+        or len(trusted_signer_fingerprint) != 40
+        or not _valid_gpg_executable(gpg_executable)
+    ):
         _fail("signature")
     try:
         entries = list(root.iterdir())
@@ -405,6 +454,7 @@ def verify_bundle(
         root / "manifest.sig",
         trusted_signer_fingerprint,
         home,
+        gpg_executable,
         run_gpg,
     )
     expected = build_manifest(
@@ -426,9 +476,11 @@ def verify_bundle(
         "attempt_sequence": metadata["attempt_sequence"],
         "binding_status": "signed-attempt",
         "captured_generation": metadata["captured_generation"],
+        "dirty_generation": manifest["source"]["dirty_generation"],
         "format_version": 2,
         "lease_fence": metadata["lease_fence"],
         "object_key": metadata["object_key"],
+        "restore_epoch": manifest["source"]["restore_epoch"],
         "rpo_eligible": False,
         "status": "verified",
     }
@@ -445,13 +497,20 @@ def _main() -> int:
     verify.add_argument("--directory", required=True)
     verify.add_argument("--signer", required=True)
     verify.add_argument("--gpg-home", required=True)
+    verify.add_argument("--gpg-executable", default="gpg")
     args = parser.parse_args()
     try:
         if args.command == "build":
             metadata = json.loads(Path(args.metadata).read_text(encoding="utf-8"))
             print(_canonical(build_manifest(args.image, args.keys, metadata)).decode(), end="")
         else:
-            print(json.dumps(verify_bundle(args.directory, args.signer, args.gpg_home), separators=(",", ":")))
+            result = verify_bundle(
+                args.directory,
+                args.signer,
+                args.gpg_home,
+                gpg_executable=args.gpg_executable,
+            )
+            print(json.dumps(result, separators=(",", ":")))
     except (BackupVerificationError, OSError, json.JSONDecodeError) as error:
         print(str(error))
         return 1

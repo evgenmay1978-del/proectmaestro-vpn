@@ -523,7 +523,7 @@ class BackupWorkerStateMachineTests(unittest.TestCase):
             )
         self.assertEqual(verified.last_attempt_sequence, 1)
 
-    def test_proven_not_sent_clears_attempt_but_unknown_does_not(self):
+    def test_upload_started_not_sent_retains_exact_attempt_for_reconciliation(self):
         applying = applying_state(phase=worker.AttemptPhase.APPLYING)
         unknown = worker.record_upload_outcome(
             applying,
@@ -540,10 +540,19 @@ class BackupWorkerStateMachineTests(unittest.TestCase):
             outcome=worker.UploadOutcome.NOT_SENT,
             db_now_unix=2_010,
         )
-        self.assertIsNone(not_sent.attempt)
-        self.assertEqual(not_sent.verified_generation, 3)
+        self.assertEqual(not_sent.attempt, applying.attempt)
+        self.assertEqual(not_sent.dirty_generation, applying.dirty_generation)
+        self.assertEqual(
+            worker.decide(
+                not_sent,
+                lease=lease(),
+                capabilities=ready_capabilities(),
+                db_now_unix=2_011,
+            ).action,
+            worker.WorkerAction.VERIFY,
+        )
 
-    def test_missing_remote_object_retries_with_a_new_attempt(self):
+    def test_missing_remote_object_retains_attempt_and_prevents_blind_recapture(self):
         current = applying_state(phase=worker.AttemptPhase.UNKNOWN)
         missing = worker.record_readback(
             current,
@@ -556,7 +565,8 @@ class BackupWorkerStateMachineTests(unittest.TestCase):
             ),
             db_now_unix=2_010,
         )
-        self.assertIsNone(missing.attempt)
+        self.assertEqual(missing.attempt, current.attempt)
+        self.assertEqual(missing.dirty_generation, current.dirty_generation)
         self.assertEqual(
             worker.decide(
                 missing,
@@ -564,7 +574,7 @@ class BackupWorkerStateMachineTests(unittest.TestCase):
                 capabilities=ready_capabilities(),
                 db_now_unix=2_011,
             ).action,
-            worker.WorkerAction.CREATE,
+            worker.WorkerAction.VERIFY,
         )
 
     def test_new_attempt_cannot_reuse_previous_verified_backup_identity(self):
@@ -691,6 +701,18 @@ class BackupWorkerStateMachineTests(unittest.TestCase):
                 captured_generation=5,
                 attempt_sequence=1,
             )
+        with self.assertRaisesRegex(
+            worker.BackupWorkerError,
+            "^backup-worker:invalid-state$",
+        ):
+            worker.PreparedBackup(
+                backup_id="c" * 32,
+                object_key="private!/cluster-a/g-5/a-1-" + ("c" * 32) + ".tar.gpg",
+                object_digest=HEX_A,
+                captured_generation=5,
+                attempt_sequence=1,
+            )
+
 
     def test_legacy_unbound_verification_never_makes_rpo_green(self):
         legacy = state(dirty=3, verified=3, verified_at=1_000)

@@ -38,6 +38,7 @@ type ObjectMetadata struct {
 	SHA256             string
 	SizeBytes          int64
 	CapturedGeneration int64
+	RestoreEpoch       int64
 	AttemptSequence    int64
 	BackupID           string
 	ManifestVersion    int64
@@ -62,15 +63,17 @@ type ReconcileRequest struct {
 }
 
 type ManifestExpectation struct {
-	Key       string
-	VersionID VersionID
-	Metadata  ObjectMetadata
+	Key          string
+	VersionID    VersionID
+	Metadata     ObjectMetadata
+	RestoreEpoch int64
 }
 
 type Readback struct {
 	VersionID             VersionID
 	SHA256                string
 	SizeBytes             int64
+	RestoreEpoch          int64
 	ManifestAuthenticated bool
 }
 
@@ -90,22 +93,61 @@ func (version VersionID) String() string {
 }
 
 func BuildObjectKey(capturedGeneration, attemptSequence int64, backupID string) (string, error) {
+	return BuildObjectKeyWithPrefix("backup-rpo", capturedGeneration, attemptSequence, backupID)
+}
+
+func BuildObjectKeyWithPrefix(prefix string, capturedGeneration, attemptSequence int64, backupID string) (string, error) {
 	if capturedGeneration <= 0 || attemptSequence <= 0 || !canonicalLowerHex(backupID, 32) {
 		return "", ErrInvalidRequest
 	}
-	return "backup-rpo/g-" + decimal(capturedGeneration) + "/a-" + decimal(attemptSequence) + "/" + backupID + ".bundle", nil
+	tail := "g-" + decimal(capturedGeneration) + "/a-" + decimal(attemptSequence) + "-" + backupID + ".tar.gpg"
+	key := tail
+	if prefix != "" {
+		if !validObjectPrefix(prefix) {
+			return "", ErrInvalidRequest
+		}
+		key = prefix + "/" + tail
+	}
+	if len(key) > 1024 {
+		return "", ErrInvalidRequest
+	}
+	return key, nil
+}
+
+func validObjectPrefix(prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	if len(prefix) > 1024 || !asciiAlphaNumeric(prefix[0]) || prefix[len(prefix)-1] == '/' {
+		return false
+	}
+	for _, segment := range strings.Split(prefix, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	for _, character := range prefix {
+		if character > 127 || (!asciiAlphaNumeric(byte(character)) && character != '.' && character != '_' && character != '-' && character != '/') {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiAlphaNumeric(character byte) bool {
+	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9')
 }
 
 func isValidObjectMetadata(metadata ObjectMetadata) bool {
 	return canonicalLowerHex(metadata.SHA256, 64) &&
 		metadata.SizeBytes > 0 && metadata.SizeBytes <= MaxObjectBytes &&
-		metadata.CapturedGeneration > 0 && metadata.AttemptSequence > 0 &&
+		metadata.CapturedGeneration > 0 && metadata.RestoreEpoch > 0 && metadata.AttemptSequence > 0 &&
 		canonicalLowerHex(metadata.BackupID, 32) && metadata.ManifestVersion == 2 &&
 		metadata.LeaseFence > 0
 }
 
-func validBoundKey(key string, metadata ObjectMetadata) bool {
-	expected, err := BuildObjectKey(metadata.CapturedGeneration, metadata.AttemptSequence, metadata.BackupID)
+func validBoundKey(prefix, key string, metadata ObjectMetadata) bool {
+	expected, err := BuildObjectKeyWithPrefix(prefix, metadata.CapturedGeneration, metadata.AttemptSequence, metadata.BackupID)
 	return err == nil && key == expected
 }
 

@@ -5,8 +5,9 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
-from ops.ha.verify_backup import BackupVerificationError, build_manifest, verify_bundle
+from ops.ha.verify_backup import BackupVerificationError, _default_gpg, build_manifest, verify_bundle
 
 
 HEX_A = "a" * 64
@@ -59,6 +60,11 @@ class VerifyBackupTests(unittest.TestCase):
               created_at_unix INTEGER NOT NULL,
               activated_at_unix INTEGER
             );
+            CREATE TABLE backup_rpo_state(
+              singleton_id INTEGER PRIMARY KEY,
+              restore_epoch INTEGER NOT NULL,
+              dirty_generation INTEGER NOT NULL
+            );
             CREATE TABLE import_runs(
               import_run_id TEXT PRIMARY KEY, completed_at_unix INTEGER
             );
@@ -78,6 +84,7 @@ class VerifyBackupTests(unittest.TestCase):
             INSERT INTO schema_migrations VALUES(2, '""" + HEX_B + """');
             INSERT INTO cluster_restore_state
               VALUES(1, '""" + ("c" * 64) + """', 7, NULL, 1, 100, 100);
+            INSERT INTO backup_rpo_state VALUES(1, 7, 103);
             INSERT INTO import_runs VALUES('run-2', 200);
             INSERT INTO import_batches VALUES('run-2', 3, 201);
             INSERT INTO backup_watermarks
@@ -87,6 +94,69 @@ class VerifyBackupTests(unittest.TestCase):
         db.commit()
         db.close()
         os.chmod(self.image, 0o600)
+
+    def _replace_with_pre_v5_image(self):
+        self.image.unlink()
+        db = sqlite3.connect(self.image)
+        db.executescript(
+            """
+            PRAGMA foreign_keys=ON;
+            CREATE TABLE schema_migrations(
+              version INTEGER PRIMARY KEY, checksum TEXT NOT NULL
+            );
+            CREATE TABLE cluster_restore_state(
+              singleton_id INTEGER PRIMARY KEY,
+              cluster_id TEXT NOT NULL,
+              restore_epoch INTEGER NOT NULL,
+              restored_from_backup_sha256 TEXT,
+              activated INTEGER NOT NULL,
+              created_at_unix INTEGER NOT NULL,
+              activated_at_unix INTEGER
+            );
+            CREATE TABLE import_runs(
+              import_run_id TEXT PRIMARY KEY, completed_at_unix INTEGER
+            );
+            CREATE TABLE import_batches(
+              import_run_id TEXT, batch_index INTEGER, applied_at_unix INTEGER
+            );
+            CREATE TABLE backup_watermarks(
+              backup_id TEXT PRIMARY KEY,
+              schema_version INTEGER NOT NULL,
+              backup_sha256 TEXT NOT NULL,
+              destination TEXT NOT NULL,
+              status TEXT NOT NULL,
+              created_at_unix INTEGER NOT NULL,
+              verified_at_unix INTEGER
+            );
+            INSERT INTO schema_migrations VALUES(1, '""" + HEX_A + """');
+            INSERT INTO schema_migrations VALUES(2, '""" + HEX_B + """');
+            INSERT INTO schema_migrations VALUES(3, '""" + ("c" * 64) + """');
+            INSERT INTO schema_migrations VALUES(4, '""" + ("d" * 64) + """');
+            INSERT INTO cluster_restore_state
+              VALUES(1, '""" + ("e" * 64) + """', 7, NULL, 1, 100, 100);
+            INSERT INTO import_runs VALUES('run-2', 200);
+            INSERT INTO import_batches VALUES('run-2', 3, 201);
+            INSERT INTO backup_watermarks
+              VALUES('backup-1', 4, '""" + ("f" * 64) + """', 'drill', 'verified', 202, 204);
+            """
+        )
+        db.commit()
+        db.close()
+        os.chmod(self.image, 0o600)
+
+    def _v2_metadata(self):
+        metadata = dict(self.metadata)
+        metadata.update(
+            {
+                "format_version": 2,
+                "backup_id": "0123456789abcdef0123456789abcdef",
+                "attempt_sequence": 42,
+                "captured_generation": 103,
+                "lease_fence": 17,
+                "object_key": "private/cluster-a/g-103/a-42-0123456789abcdef0123456789abcdef.tar.gpg",
+            }
+        )
+        return metadata
 
     def _write_manifest(self, manifest):
         path = self.root / "manifest.json"
@@ -119,8 +189,13 @@ class VerifyBackupTests(unittest.TestCase):
         del command
         return 0, f"[GNUPG:] VALIDSIG {SIGNER} 2026-08-12 0 4 0 1 10 00 {SIGNER}\n", ""
 
-    def test_v1_remains_restore_verifiable_but_is_explicitly_unbound(self):
+    def test_v1_signed_manifest_accepts_pre_v5_image_without_backup_rpo_state(self):
+        self._replace_with_pre_v5_image()
         manifest = build_manifest(self.image, self.keys, self.metadata)
+        self.assertEqual(
+            manifest["source"],
+            {"cluster_id": "e" * 64, "restore_epoch": 7},
+        )
         self._write_manifest(manifest)
         self.assertEqual(
             verify_bundle(self.root, SIGNER, self.gpg_home, run_gpg=self._valid_gpg),
@@ -153,13 +228,56 @@ class VerifyBackupTests(unittest.TestCase):
                 "attempt_sequence": 42,
                 "binding_status": "signed-attempt",
                 "captured_generation": 103,
+                "dirty_generation": 103,
                 "format_version": 2,
                 "lease_fence": 17,
                 "object_key": metadata["object_key"],
+                "restore_epoch": 7,
                 "rpo_eligible": False,
                 "status": "verified",
             },
         )
+
+    def test_v2_rejects_captured_generation_that_differs_from_image_state(self):
+        metadata = dict(self.metadata)
+        metadata.update(
+            {
+                "format_version": 2,
+                "backup_id": "0123456789abcdef0123456789abcdef",
+                "attempt_sequence": 42,
+                "captured_generation": 102,
+                "lease_fence": 17,
+                "object_key": "private/cluster-a/g-102/a-42-0123456789abcdef0123456789abcdef.tar.gpg",
+            }
+        )
+        with self.assertRaisesRegex(
+            BackupVerificationError,
+            "^backup-verification:invalid-input$",
+        ):
+            build_manifest(self.image, self.keys, metadata)
+
+    def test_v2_rejects_backup_rpo_restore_epoch_mismatch(self):
+        db = sqlite3.connect(self.image)
+        try:
+            db.execute(
+                "UPDATE backup_rpo_state SET restore_epoch=6 WHERE singleton_id=1"
+            )
+            db.commit()
+        finally:
+            db.close()
+        with self.assertRaisesRegex(
+            BackupVerificationError,
+            "^backup-verification:invalid-sqlite$",
+        ):
+            build_manifest(self.image, self.keys, self._v2_metadata())
+
+    def test_v2_rejects_pre_v5_image_without_backup_rpo_state(self):
+        self._replace_with_pre_v5_image()
+        with self.assertRaisesRegex(
+            BackupVerificationError,
+            "^backup-verification:invalid-sqlite$",
+        ):
+            build_manifest(self.image, self.keys, self._v2_metadata())
 
     def test_v2_rejects_incomplete_or_unsafe_attempt_identity(self):
         base = dict(self.metadata)
@@ -184,6 +302,7 @@ class VerifyBackupTests(unittest.TestCase):
             {**base, "object_key": "/absolute"},
             {**base, "object_key": "private//ambiguous"},
             {**base, "object_key": "private/control\nkey"},
+            {**base, "object_key": "private!/cluster-a/g-103/a-42-0123456789abcdef0123456789abcdef.tar.gpg"},
             {
                 **base,
                 "object_key": "private/cluster-a/g-104/a-42-0123456789abcdef0123456789abcdef.tar.gpg",
@@ -205,7 +324,10 @@ class VerifyBackupTests(unittest.TestCase):
     def test_round_trip_manifest_is_canonical_and_image_derived(self):
         manifest = build_manifest(self.image, self.keys, self.metadata)
         self.assertEqual(manifest["format_version"], 1)
-        self.assertEqual(manifest["source"]["restore_epoch"], 7)
+        self.assertEqual(
+            manifest["source"],
+            {"cluster_id": "c" * 64, "restore_epoch": 7},
+        )
         self.assertEqual(manifest["nodes"], ["S2", "S3", "S4"])
         self.assertEqual(
             manifest["image"]["sha256"],
@@ -214,6 +336,16 @@ class VerifyBackupTests(unittest.TestCase):
         self.assertEqual(manifest["table_counts"], sorted(manifest["table_counts"], key=lambda item: item["table"]))
         encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n"
         self.assertNotIn(str(self.root), encoded)
+
+    def test_v2_rejects_signed_dirty_generation_that_differs_from_image(self):
+        manifest = build_manifest(self.image, self.keys, self._v2_metadata())
+        manifest["source"]["dirty_generation"] = 102
+        self._write_manifest(manifest)
+        with self.assertRaisesRegex(
+            BackupVerificationError,
+            "^backup-verification:invalid-manifest$",
+        ):
+            verify_bundle(self.root, SIGNER, self.gpg_home, run_gpg=self._valid_gpg)
 
     def test_rejects_unknown_missing_duplicate_or_noncanonical_manifest_field(self):
         manifest = build_manifest(self.image, self.keys, self.metadata)
@@ -288,6 +420,55 @@ class VerifyBackupTests(unittest.TestCase):
         rendered = str(caught.exception)
         self.assertNotIn(MARKER, rendered)
         self.assertNotIn(str(self.root), rendered)
+
+    def test_gpg_command_is_exact_offline_and_uses_configured_executable(self):
+        manifest = build_manifest(self.image, self.keys, self.metadata)
+        self._write_manifest(manifest)
+        commands = []
+
+        def exact_gpg(command):
+            commands.append(command)
+            return self._valid_gpg(command)
+
+        verify_bundle(
+            self.root,
+            SIGNER,
+            self.gpg_home,
+            gpg_executable="/opt/maestro/bin/gpg",
+            run_gpg=exact_gpg,
+        )
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(
+            commands[0],
+            [
+                "/opt/maestro/bin/gpg",
+                "--no-options",
+                "--homedir",
+                str(self.gpg_home),
+                "--batch",
+                "--no-tty",
+                "--no-auto-key-retrieve",
+                "--status-fd",
+                "1",
+                "--verify",
+                str(self.root / "manifest.sig"),
+                str(self.root / "manifest.json"),
+            ],
+        )
+
+    def test_default_gpg_preserves_proc_directory_descriptor(self):
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+        command = [
+            "/usr/bin/gpg",
+            "--verify",
+            "/proc/self/fd/3/manifest.sig",
+            "/proc/self/fd/3/manifest.json",
+        ]
+        with mock.patch(
+            "ops.ha.verify_backup.subprocess.run", return_value=completed
+        ) as run:
+            self.assertEqual(_default_gpg(command), (0, "", ""))
+        self.assertEqual(run.call_args.kwargs["pass_fds"], (3,))
 
 
 if __name__ == "__main__":

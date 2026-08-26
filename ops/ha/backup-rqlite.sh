@@ -10,69 +10,104 @@ fail() {
 }
 
 drill=0
+worker=0
 cluster_input=""
+image_input=""
 keys_input=""
 output_input=""
+verify_script_input=""
 signer=""
 recipient=""
 manifest_version=""
 backup_id=""
 attempt_sequence=""
 captured_generation=""
+restore_epoch=""
 lease_fence=""
 object_key=""
+cluster_seen=0
+image_seen=0
+keys_seen=0
+output_seen=0
+verify_script_seen=0
+signer_seen=0
+recipient_seen=0
 manifest_version_seen=0
 backup_id_seen=0
 attempt_sequence_seen=0
 captured_generation_seen=0
+restore_epoch_seen=0
 lease_fence_seen=0
 object_key_seen=0
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --drill) drill=1; shift ;;
-    --cluster-root) [[ "$#" -ge 2 ]] || fail; cluster_input="$2"; shift 2 ;;
-    --keys) [[ "$#" -ge 2 ]] || fail; keys_input="$2"; shift 2 ;;
-    --output) [[ "$#" -ge 2 ]] || fail; output_input="$2"; shift 2 ;;
-    --signer) [[ "$#" -ge 2 ]] || fail; signer="$2"; shift 2 ;;
-    --recipient) [[ "$#" -ge 2 ]] || fail; recipient="$2"; shift 2 ;;
-    --manifest-version) [[ "$#" -ge 2 && "$manifest_version_seen" -eq 0 ]] || fail; manifest_version_seen=1; manifest_version="$2"; shift 2 ;;
-    --backup-id) [[ "$#" -ge 2 && "$backup_id_seen" -eq 0 ]] || fail; backup_id_seen=1; backup_id="$2"; shift 2 ;;
-    --attempt-sequence) [[ "$#" -ge 2 && "$attempt_sequence_seen" -eq 0 ]] || fail; attempt_sequence_seen=1; attempt_sequence="$2"; shift 2 ;;
-    --captured-generation) [[ "$#" -ge 2 && "$captured_generation_seen" -eq 0 ]] || fail; captured_generation_seen=1; captured_generation="$2"; shift 2 ;;
-    --lease-fence) [[ "$#" -ge 2 && "$lease_fence_seen" -eq 0 ]] || fail; lease_fence_seen=1; lease_fence="$2"; shift 2 ;;
-    --object-key) [[ "$#" -ge 2 && "$object_key_seen" -eq 0 ]] || fail; object_key_seen=1; object_key="$2"; shift 2 ;;
+    --drill) drill=$((drill + 1)); shift ;;
+    --worker) worker=$((worker + 1)); shift ;;
+    --cluster-root) [[ "$#" -ge 2 ]] || fail; cluster_seen=$((cluster_seen + 1)); cluster_input="$2"; shift 2 ;;
+    --image) [[ "$#" -ge 2 ]] || fail; image_seen=$((image_seen + 1)); image_input="$2"; shift 2 ;;
+    --keys) [[ "$#" -ge 2 ]] || fail; keys_seen=$((keys_seen + 1)); keys_input="$2"; shift 2 ;;
+    --output) [[ "$#" -ge 2 ]] || fail; output_seen=$((output_seen + 1)); output_input="$2"; shift 2 ;;
+    --verify-script) [[ "$#" -ge 2 ]] || fail; verify_script_seen=$((verify_script_seen + 1)); verify_script_input="$2"; shift 2 ;;
+    --signer) [[ "$#" -ge 2 ]] || fail; signer_seen=$((signer_seen + 1)); signer="$2"; shift 2 ;;
+    --recipient) [[ "$#" -ge 2 ]] || fail; recipient_seen=$((recipient_seen + 1)); recipient="$2"; shift 2 ;;
+    --manifest-version) [[ "$#" -ge 2 ]] || fail; manifest_version_seen=$((manifest_version_seen + 1)); manifest_version="$2"; shift 2 ;;
+    --backup-id) [[ "$#" -ge 2 ]] || fail; backup_id_seen=$((backup_id_seen + 1)); backup_id="$2"; shift 2 ;;
+    --attempt-sequence) [[ "$#" -ge 2 ]] || fail; attempt_sequence_seen=$((attempt_sequence_seen + 1)); attempt_sequence="$2"; shift 2 ;;
+    --captured-generation) [[ "$#" -ge 2 ]] || fail; captured_generation_seen=$((captured_generation_seen + 1)); captured_generation="$2"; shift 2 ;;
+    --restore-epoch) [[ "$#" -ge 2 ]] || fail; restore_epoch_seen=$((restore_epoch_seen + 1)); restore_epoch="$2"; shift 2 ;;
+    --lease-fence) [[ "$#" -ge 2 ]] || fail; lease_fence_seen=$((lease_fence_seen + 1)); lease_fence="$2"; shift 2 ;;
+    --object-key) [[ "$#" -ge 2 ]] || fail; object_key_seen=$((object_key_seen + 1)); object_key="$2"; shift 2 ;;
     *) fail ;;
   esac
 done
-[[ "$drill" -eq 1 && -n "$cluster_input" && -n "$keys_input" &&
-  -n "$output_input" && "$signer" =~ ^[A-F0-9]{40}$ &&
+
+[[ "$drill" -eq 1 && "$worker" -eq 0 || "$drill" -eq 0 && "$worker" -eq 1 ]] || fail
+[[ "$keys_seen" -ge 1 && "$output_seen" -ge 1 && "$signer_seen" -ge 1 && "$recipient_seen" -ge 1 &&
+  -n "$keys_input" && -n "$output_input" && "$signer" =~ ^[A-F0-9]{40}$ &&
   "$recipient" =~ ^[A-F0-9]{40}$ ]] || fail
 
 binding_option_count=$((manifest_version_seen + backup_id_seen + attempt_sequence_seen + captured_generation_seen + lease_fence_seen + object_key_seen))
 expected_object_tail="g-${captured_generation}/a-${attempt_sequence}-${backup_id}.tar.gpg"
-if [[ "$binding_option_count" -eq 0 ]]; then
-  manifest_version=1
-elif [[ "$binding_option_count" -eq 6 && "$manifest_version" == "2" &&
-  "$backup_id" =~ ^[a-f0-9]{32}$ &&
-  "$attempt_sequence" =~ ^[1-9][0-9]*$ &&
-  "$captured_generation" =~ ^(0|[1-9][0-9]*)$ &&
-  "$lease_fence" =~ ^[1-9][0-9]*$ &&
-  ${#object_key} -le 1024 &&
+valid_v2_binding=0
+if [[ "$binding_option_count" -eq 6 &&
+  "$manifest_version_seen" -eq 1 && "$manifest_version" == "2" &&
+  "$backup_id_seen" -eq 1 && "$backup_id" =~ ^[a-f0-9]{32}$ &&
+  "$attempt_sequence_seen" -eq 1 && "$attempt_sequence" =~ ^[1-9][0-9]*$ &&
+  "$captured_generation_seen" -eq 1 && "$captured_generation" =~ ^(0|[1-9][0-9]*)$ &&
+  "$lease_fence_seen" -eq 1 && "$lease_fence" =~ ^[1-9][0-9]*$ &&
+  "$object_key_seen" -eq 1 && ${#object_key} -le 1024 &&
   "$object_key" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ &&
   "/$object_key/" != *"//"* &&
   "/$object_key/" != *"/./"* &&
-  "/$object_key/" != *"/../"* ]]; then
-  [[ "$object_key" == "$expected_object_tail" ||
-    "$object_key" == */"$expected_object_tail" ]] || fail
-  :
+  "/$object_key/" != *"/../"* &&
+  ( "$object_key" == "$expected_object_tail" || "$object_key" == */"$expected_object_tail" ) ]]; then
+  valid_v2_binding=1
+fi
+
+if [[ "$drill" -eq 1 ]]; then
+  [[ "$cluster_seen" -ge 1 && -n "$cluster_input" && "$image_seen" -eq 0 &&
+    "$verify_script_seen" -eq 0 && "$restore_epoch_seen" -eq 0 ]] || fail
+  if [[ "$binding_option_count" -eq 0 ]]; then
+    manifest_version=1
+  else
+    [[ "$valid_v2_binding" -eq 1 ]] || fail
+  fi
 else
-  fail
+  [[ "$cluster_seen" -eq 0 && "$image_seen" -eq 1 && -n "$image_input" &&
+    "$keys_seen" -eq 1 && "$output_seen" -eq 1 && "$verify_script_seen" -eq 1 &&
+    -n "$verify_script_input" && "$signer_seen" -eq 1 && "$recipient_seen" -eq 1 &&
+    "$restore_epoch_seen" -eq 1 && "$restore_epoch" =~ ^[1-9][0-9]*$ &&
+    "$captured_generation" =~ ^[1-9][0-9]*$ && "$valid_v2_binding" -eq 1 ]] || fail
 fi
 umask 077
 runner=""
 cluster=""
 work=""
 description=""
+verify_command=()
+python_command=()
+gpg_command=()
+image_fd=""
 
 cleanup() {
   local status="$?" resolved
@@ -92,10 +127,44 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command_name in curl gpg tar python3 realpath mktemp stat install ln date; do
+remove_worker_partial() {
+  local target="$1"
+  case "$target" in "$work"/*) ;; *) fail ;; esac
+  if [[ -e "$target" || -L "$target" ]]; then
+    [[ -f "$target" && ! -L "$target" ]] || fail
+    chmod 0600 -- "$target" 2>/dev/null || true
+    rm -f -- "$target"
+  fi
+}
+
+run_worker_gpg_output() {
+  local target="$1"
+  shift
+  [[ "$worker" -eq 1 && -n "$work" ]] || fail
+  case "$target" in "$work"/*) ;; *) fail ;; esac
+  [[ ! -e "$target" && ! -L "$target" ]] || fail
+  if ! (set -o noclobber; "$@" >"$target") 2>/dev/null; then
+    remove_worker_partial "$target"
+    fail
+  fi
+  [[ -f "$target" && ! -L "$target" &&
+    "$(stat -c '%u' "$target")" == "$current_uid" &&
+    "$(stat -c '%g' "$target")" == "$current_gid" &&
+    "$(stat -c '%h' "$target")" == "1" ]] || fail
+  chmod 0600 -- "$target" || fail
+}
+
+for command_name in tar realpath mktemp stat install ln date id; do
   command -v "$command_name" >/dev/null 2>&1 || fail
 done
-[[ -f "$HARNESS" && ! -L "$HARNESS" ]] || fail
+current_uid="$(id -u)"
+current_gid="$(id -g)"
+if [[ "$drill" -eq 1 ]]; then
+  command -v curl >/dev/null 2>&1 || fail
+  for command_name in gpg tar python3; do
+    command -v "$command_name" >/dev/null 2>&1 || fail
+  done
+  [[ -f "$HARNESS" && ! -L "$HARNESS" ]] || fail
 
 runner="$(realpath -e -- "${RUNNER_TEMP:-}")" || fail
 [[ -d "$runner" && ! -L "$runner" ]] || fail
@@ -200,11 +269,108 @@ with path.open("rb") as handle:
     if handle.read(16) != b"SQLite format 3\x00":
         raise SystemExit(1)
 PY
+  python_command=(python3)
+  gpg_command=(gpg --homedir "$gpg_home")
+  verify_command=(python3 -m ops.ha.verify_backup)
+else
+  image_source="$(realpath -e -- "$image_input")" || fail
+  [[ "$image_source" == "$image_input" && -f "$image_source" && ! -L "$image_source" &&
+    "$(basename -- "$image_source")" == "control-plane.sqlite3" ]] || fail
+  task_dir="$(realpath -e -- "$(dirname -- "$image_source")")" || fail
+  [[ "$image_source" == "$task_dir/control-plane.sqlite3" &&
+    "$(basename -- "$task_dir")" == "task-$backup_id" &&
+    "$(stat -c '%a' "$task_dir")" == "700" &&
+    "$(stat -c '%u' "$task_dir")" == "$current_uid" &&
+    "$(stat -c '%g' "$task_dir")" == "$current_gid" ]] || fail
+  owner_marker="$task_dir/.maestro-backup-owner"
+  [[ -f "$owner_marker" && ! -L "$owner_marker" &&
+    "$(stat -c '%a' "$owner_marker")" == "600" &&
+    "$(stat -c '%u' "$owner_marker")" == "$current_uid" &&
+    "$(stat -c '%g' "$owner_marker")" == "$current_gid" &&
+    "$(stat -c '%h' "$owner_marker")" == "1" &&
+    "$(stat -c '%s' "$owner_marker")" == "33" &&
+    "$(<"$owner_marker")" == "$backup_id" ]] || fail
+  shopt -s nullglob dotglob
+  task_entries=("$task_dir"/*)
+  shopt -u nullglob dotglob
+  [[ "${#task_entries[@]}" -eq 2 &&
+    "${task_entries[0]}" == "$owner_marker" &&
+    "${task_entries[1]}" == "$image_source" ]] || fail
+  [[ "$(stat -c '%a' "$image_source")" == "600" &&
+    "$(stat -c '%u' "$image_source")" == "$current_uid" &&
+    "$(stat -c '%g' "$image_source")" == "$current_gid" &&
+    "$(stat -c '%h' "$image_source")" == "1" ]] || fail
+
+  keys="$(realpath -e -- "$keys_input")" || fail
+  [[ "$keys" == "$keys_input" && -f "$keys" && ! -L "$keys" &&
+    "$(stat -c '%a' "$keys")" == "600" &&
+    "$(stat -c '%u' "$keys")" == "$current_uid" &&
+    "$(stat -c '%g' "$keys")" == "$current_gid" &&
+    "$(stat -c '%h' "$keys")" == "1" ]] || fail
+
+  verify_script="$(realpath -e -- "$verify_script_input")" || fail
+  [[ "$verify_script" == "$verify_script_input" && -f "$verify_script" && ! -L "$verify_script" &&
+    "$(stat -c '%u' "$verify_script")" == "$current_uid" &&
+    "$(stat -c '%g' "$verify_script")" == "$current_gid" &&
+    "$(stat -c '%h' "$verify_script")" == "1" ]] || fail
+  verify_mode="$(stat -c '%a' "$verify_script")"
+  [[ "$verify_mode" =~ ^[0-7]{3,4}$ && $((8#$verify_mode & 8#22)) -eq 0 ]] || fail
+
+  output_parent="$(realpath -e -- "$(dirname -- "$output_input")")" || fail
+  output="$output_parent/$(basename -- "$output_input")"
+  [[ "$output_parent" == "$task_dir" && "$output" == "$task_dir/backup.bundle" &&
+    "$output" == "$output_input" && ! -e "$output" && ! -L "$output" ]] || fail
+
+  worker_gpg="${MAESTRO_BACKUP_GPG:-}"
+  worker_python="${MAESTRO_BACKUP_PYTHON:-}"
+  [[ "$worker_gpg" == "/proc/self/fd/8" && "$worker_python" == "/proc/self/fd/9" ]] || fail
+  [[ -f "$worker_gpg" && -x "$worker_gpg" &&
+    -f "$worker_python" && -x "$worker_python" ]] || fail
+  gpg_home="${GNUPGHOME:-}"
+  [[ "$gpg_home" == "/proc/self/fd/7" && -d "$gpg_home" &&
+    "$(stat -Lc '%a' "$gpg_home")" == "700" &&
+    "$(stat -Lc '%u' "$gpg_home")" == "$current_uid" &&
+    "$(stat -Lc '%g' "$gpg_home")" == "$current_gid" ]] || fail
+  python_command=("$worker_python")
+  gpg_command=("$worker_gpg" --no-options --no-auto-key-retrieve --homedir "$gpg_home")
+  commit_sha="${MAESTRO_BACKUP_COMMIT_SHA:-}"
+  run_id="${MAESTRO_BACKUP_RUN_ID:-}"
+  [[ "$commit_sha" =~ ^[a-f0-9]{40}$ && "$run_id" =~ ^[1-9][0-9]*$ ]] || fail
+
+  runner="$task_dir"
+  work="$(mktemp -d "$runner/maestro-rqlite-backup.XXXXXX")" || fail
+  work="$(realpath -e -- "$work")" || fail
+  [[ -d "$work" && ! -L "$work" && "$(stat -c '%a' "$work")" == "700" ]] || fail
+
+  exec {image_fd}<"$image_source" || fail
+  image_fd_path="/proc/self/fd/$image_fd"
+  image_identity="$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_source")" || fail
+  [[ "$image_identity" == "$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_fd_path")" ]] || fail
+  image="$work/control-plane.sqlite3"
+  install -m 0600 -- "$image_fd_path" "$image" || fail
+  [[ "$image_identity" == "$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_source")" &&
+    "$image_identity" == "$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_fd_path")" ]] || fail
+  exec {image_fd}<&-
+  image_fd=""
+  "${python_command[@]}" - "$image" <<'PY' || fail
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+size = path.stat().st_size
+if size < 16 or size > 536_870_912:
+    raise SystemExit(1)
+with path.open("rb") as handle:
+    if handle.read(16) != b"SQLite format 3\x00":
+        raise SystemExit(1)
+PY
+  verify_command=("$worker_python" "$verify_script")
+fi
 
 install -m 0600 -- "$keys" "$work/application-keys.json" || fail
 created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 metadata="$work/metadata.json"
-(python3 - "$metadata" "$commit_sha" "$run_id" "$created_at" "$signer" "$recipient" \
+("${python_command[@]}" - "$metadata" "$commit_sha" "$run_id" "$created_at" "$signer" "$recipient" \
   "$manifest_version" "$backup_id" "$attempt_sequence" "$captured_generation" "$lease_fence" "$object_key" <<'PY'
 import json
 import os
@@ -241,23 +407,29 @@ PY
 chmod 0600 "$metadata"
 
 manifest="$work/manifest.json"
-(set -o noclobber; python3 -m ops.ha.verify_backup build   --image "$image" --keys "$work/application-keys.json" --metadata "$metadata"   >"$manifest") 2>/dev/null || fail
+(set -o noclobber; "${verify_command[@]}" build   --image "$image" --keys "$work/application-keys.json" --metadata "$metadata"   >"$manifest") 2>/dev/null || fail
 chmod 0600 "$manifest"
 
 signature="$work/manifest.sig"
 gpg_sign=(
-  gpg
-  --homedir "$gpg_home"
+  "${gpg_command[@]}"
   --batch
   --no-tty
   --pinentry-mode loopback
   --passphrase ''
   --local-user "$signer"
-  --output "$signature"
-  --detach-sign
-  "$manifest"
 )
-"${gpg_sign[@]}" >/dev/null 2>&1 || fail
+if [[ "$worker" -eq 1 ]]; then
+  gpg_sign+=(--output -)
+else
+  gpg_sign+=(--output "$signature")
+fi
+gpg_sign+=(--detach-sign "$manifest")
+if [[ "$worker" -eq 1 ]]; then
+  run_worker_gpg_output "$signature" "${gpg_sign[@]}"
+else
+  "${gpg_sign[@]}" >/dev/null 2>&1 || fail
+fi
 chmod 0600 "$signature"
 
 archive="$work/backup.tar"
@@ -281,25 +453,46 @@ chmod 0600 "$archive"
 
 encrypted="$work/backup.tar.gpg"
 gpg_encrypt=(
-  gpg
-  --homedir "$gpg_home"
+  "${gpg_command[@]}"
   --batch
   --no-tty
   --trust-model always
   --recipient "$recipient"
-  --output "$encrypted"
-  --encrypt
-  "$archive"
 )
-"${gpg_encrypt[@]}" >/dev/null 2>&1 || fail
+if [[ "$worker" -eq 1 ]]; then
+  gpg_encrypt+=(--output -)
+else
+  gpg_encrypt+=(--output "$encrypted")
+fi
+gpg_encrypt+=(--encrypt "$archive")
+if [[ "$worker" -eq 1 ]]; then
+  run_worker_gpg_output "$encrypted" "${gpg_encrypt[@]}"
+else
+  "${gpg_encrypt[@]}" >/dev/null 2>&1 || fail
+fi
 chmod 0600 "$encrypted"
 
 verify="$work/verify"
 mkdir -m 0700 -- "$verify"
 decrypted="$work/decrypted.tar"
-gpg --homedir "$gpg_home" --batch --no-tty --output "$decrypted"   --decrypt "$encrypted" >/dev/null 2>&1 || fail
+gpg_decrypt=(
+  "${gpg_command[@]}"
+  --batch
+  --no-tty
+)
+if [[ "$worker" -eq 1 ]]; then
+  gpg_decrypt+=(--output -)
+else
+  gpg_decrypt+=(--output "$decrypted")
+fi
+gpg_decrypt+=(--decrypt "$encrypted")
+if [[ "$worker" -eq 1 ]]; then
+  run_worker_gpg_output "$decrypted" "${gpg_decrypt[@]}"
+else
+  "${gpg_decrypt[@]}" >/dev/null 2>&1 || fail
+fi
 chmod 0600 "$decrypted"
-python3 - "$decrypted" "$verify" <<'PY' || fail
+"${python_command[@]}" - "$decrypted" "$verify" <<'PY' || fail
 import os
 import pathlib
 import shutil
@@ -340,14 +533,34 @@ with tarfile.open(archive, "r:") as bundle:
 PY
 
 result="$work/verify-result.json"
-python3 -m ops.ha.verify_backup verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   >"$result" 2>/dev/null || fail
-python3 - "$result" "$metadata" <<'PY' || fail
+"${verify_command[@]}" verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   >"$result" 2>/dev/null || fail
+"${python_command[@]}" - "$result" "$metadata" "$manifest" "$worker" "$restore_epoch" <<'PY' || fail
 import json
 import pathlib
 import sys
 
-result = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-metadata = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+
+def strict_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate")
+        value[key] = item
+    return value
+
+
+result = json.loads(
+    pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"),
+    object_pairs_hook=strict_object,
+)
+metadata = json.loads(
+    pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"),
+    object_pairs_hook=strict_object,
+)
+manifest = json.loads(
+    pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"),
+    object_pairs_hook=strict_object,
+)
 if metadata["format_version"] == 1:
     expected = {
         "binding_status": "legacy-unbound",
@@ -356,17 +569,24 @@ if metadata["format_version"] == 1:
         "status": "verified",
     }
 else:
+    source = manifest.get("source")
+    if not isinstance(source, dict):
+        raise SystemExit(1)
     expected = {
         "backup_id": metadata["backup_id"],
         "attempt_sequence": metadata["attempt_sequence"],
         "binding_status": "signed-attempt",
         "captured_generation": metadata["captured_generation"],
+        "dirty_generation": source.get("dirty_generation"),
         "format_version": 2,
         "lease_fence": metadata["lease_fence"],
         "object_key": metadata["object_key"],
+        "restore_epoch": source.get("restore_epoch"),
         "rpo_eligible": False,
         "status": "verified",
     }
+    if sys.argv[4] == "1" and expected["restore_epoch"] != int(sys.argv[5]):
+        raise SystemExit(1)
 if result != expected:
     raise SystemExit(1)
 PY

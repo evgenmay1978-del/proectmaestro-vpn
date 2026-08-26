@@ -424,7 +424,7 @@ func TestBackupRPOAttemptIntegrationRestartUnknownConcurrentDirtyAndOneActive(t 
 	second := identity
 	second.AttemptSequence++
 	second.BackupID = fmt.Sprintf("%032x", second.AttemptSequence)
-	second.ObjectKey = fmt.Sprintf("backups/g-%d/a-%d.tar.gpg", second.CapturedGeneration, second.AttemptSequence)
+	second.ObjectKey = fmt.Sprintf("backups/g-%d/a-%d-%s.tar.gpg", second.CapturedGeneration, second.AttemptSequence, second.BackupID)
 	trace.setStage("reject-second-active", &second)
 	if _, err := NewBackupRPOStore(db).RegisterAttempt(ctx, second); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second active attempt error=%v, want ErrConflict", err)
@@ -539,12 +539,13 @@ func TestBackupRPOAttemptIntegrationNewerFenceSupersedesStaleAttempt(t *testing.
 
 func integrationBackupRPOAttemptIdentity(state BackupRPOState, lease BackupRPOLease) BackupRPOAttemptIdentity {
 	sequence := state.LastAttemptSequence + 1
+	backupID := fmt.Sprintf("%032x", sequence)
 	return BackupRPOAttemptIdentity{
 		HolderID: lease.HolderID, LeaseToken: lease.LeaseToken,
 		RestoreEpoch: lease.RestoreEpoch, LeaseFence: lease.LeaseFence,
 		Capability: lease.Capability, CapturedGeneration: state.DirtyGeneration,
-		AttemptSequence: sequence, BackupID: fmt.Sprintf("%032x", sequence),
-		ObjectKey:    fmt.Sprintf("backups/g-%d/a-%d.tar.gpg", state.DirtyGeneration, sequence),
+		AttemptSequence: sequence, BackupID: backupID,
+		ObjectKey:    fmt.Sprintf("backups/g-%d/a-%d-%s.tar.gpg", state.DirtyGeneration, sequence, backupID),
 		ObjectSHA256: testBackupRPOObjectDigest, ObjectSizeBytes: 4096,
 		ManifestVersion: 2, AdapterContractVersion: BackupRPOAdapterYandexS3V1,
 	}
@@ -566,6 +567,7 @@ func integrationBackupRPOVerification(t *testing.T, identity BackupRPOAttemptIde
 		ReadbackSHA256: identity.ObjectSHA256, ReadbackSizeBytes: identity.ObjectSizeBytes,
 		ManifestAuthenticated: true, ManifestVersion: identity.ManifestVersion,
 		ManifestBackupID:           identity.BackupID,
+		ManifestRestoreEpoch:       identity.RestoreEpoch,
 		ManifestCapturedGeneration: identity.CapturedGeneration,
 		ManifestObjectKey:          identity.ObjectKey, ManifestObjectSHA256: identity.ObjectSHA256,
 		ManifestObjectSizeBytes: identity.ObjectSizeBytes,

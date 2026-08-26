@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	testBody       = "hello world"
-	testSHA256     = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-	testContentMD5 = "XrY7u+Ae7tCTyyK7j1rNww=="
-	testBackupID   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	testObjectKey  = "backup-rpo/g-9/a-5/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bundle"
+	testBody         = "hello world"
+	testSHA256       = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+	testContentMD5   = "XrY7u+Ae7tCTyyK7j1rNww=="
+	testBackupID     = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testObjectKey    = "backup-rpo/g-9/a-5-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gpg"
+	testRestoreEpoch = int64(7)
 )
 
 func TestNewYandexS3RejectsUnsafeConfiguration(t *testing.T) {
@@ -35,6 +36,11 @@ func TestNewYandexS3RejectsUnsafeConfiguration(t *testing.T) {
 		{name: "endpoint query", mutate: func(c *YandexS3Config) { c.Endpoint = "https://storage.example.invalid/?token=secret" }},
 		{name: "empty region", mutate: func(c *YandexS3Config) { c.Region = "" }},
 		{name: "spaced region", mutate: func(c *YandexS3Config) { c.Region = " ru-central1 " }},
+		{name: "leading slash prefix", mutate: func(c *YandexS3Config) { c.Prefix = "/backup-rpo" }},
+		{name: "trailing slash prefix", mutate: func(c *YandexS3Config) { c.Prefix = "backup-rpo/" }},
+		{name: "empty prefix segment", mutate: func(c *YandexS3Config) { c.Prefix = "backup//rpo" }},
+		{name: "parent prefix segment", mutate: func(c *YandexS3Config) { c.Prefix = "backup/../rpo" }},
+		{name: "unsafe prefix character", mutate: func(c *YandexS3Config) { c.Prefix = "backup rpo" }},
 		{name: "uppercase bucket", mutate: func(c *YandexS3Config) { c.Bucket = "Backup-Bucket" }},
 		{name: "ip bucket", mutate: func(c *YandexS3Config) { c.Bucket = "192.0.2.1" }},
 		{name: "empty access key", mutate: func(c *YandexS3Config) { c.AccessKeyID = "" }},
@@ -103,6 +109,19 @@ func TestBuildObjectKeyBindsAttemptAndRejectsUnsafeIdentity(t *testing.T) {
 	key, err := BuildObjectKey(9, 5, testBackupID)
 	if err != nil || key != testObjectKey {
 		t.Fatalf("BuildObjectKey = %q, %v", key, err)
+	}
+	rootKey, err := BuildObjectKeyWithPrefix("", 9, 5, testBackupID)
+	if err != nil || rootKey != "g-9/a-5-"+testBackupID+".tar.gpg" {
+		t.Fatalf("root key = %q, %v", rootKey, err)
+	}
+	prefixedKey, err := BuildObjectKeyWithPrefix("private/cluster-a", 9, 5, testBackupID)
+	if err != nil || prefixedKey != "private/cluster-a/g-9/a-5-"+testBackupID+".tar.gpg" {
+		t.Fatalf("prefixed key = %q, %v", prefixedKey, err)
+	}
+	for _, prefix := range []string{"/private", "private/", "private//cluster", "private/../cluster", "private cluster", "private!", strings.Repeat("a", 1000)} {
+		if _, err := BuildObjectKeyWithPrefix(prefix, 9, 5, testBackupID); !errors.Is(err, ErrInvalidRequest) {
+			t.Fatalf("BuildObjectKeyWithPrefix(%q) error = %v", prefix, err)
+		}
 	}
 	for _, tc := range []struct {
 		generation int64
@@ -187,6 +206,7 @@ func TestPutImmutablePrehashesRewindsAndSendsExactMetadata(t *testing.T) {
 		"backup-id":           testBackupID,
 		"manifest-version":    "2",
 		"lease-fence":         "3",
+		"restore-epoch":       "7",
 	}
 	if !equalMetadata(put.metadata, wantMetadata) {
 		t.Fatalf("metadata = %#v, want %#v", put.metadata, wantMetadata)
@@ -202,7 +222,9 @@ func TestPutImmutableRejectsBoundsDigestAndUnsafeKeyBeforeS3(t *testing.T) {
 		mutate func(*ObjectMetadata)
 	}{
 		{name: "wrong key", key: "backup-rpo/shared.bundle", body: testBody},
+		{name: "caller prefix override", key: "private/cluster-a/g-9/a-5-" + testBackupID + ".tar.gpg", body: testBody},
 		{name: "wrong size", key: testObjectKey, body: testBody, mutate: func(m *ObjectMetadata) { m.SizeBytes = 10 }},
+		{name: "zero restore epoch", key: testObjectKey, body: testBody, mutate: func(m *ObjectMetadata) { m.RestoreEpoch = 0 }},
 		{name: "wrong digest", key: testObjectKey, body: testBody, mutate: func(m *ObjectMetadata) { m.SHA256 = strings.Repeat("a", 64) }},
 		{name: "empty", key: testObjectKey, body: "", mutate: func(m *ObjectMetadata) { m.SizeBytes = 0; m.SHA256 = strings.Repeat("0", 64) }},
 		{name: "over one gib", key: testObjectKey, body: "", mutate: func(m *ObjectMetadata) { m.SizeBytes = MaxObjectBytes + 1 }},
@@ -268,7 +290,7 @@ func TestGetExactStreamsBoundedBodyAndVerifiesManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetExact: %v", err)
 	}
-	if readback.VersionID != version || readback.SHA256 != testSHA256 || readback.SizeBytes != 11 || !readback.ManifestAuthenticated {
+	if readback.VersionID != version || readback.SHA256 != testSHA256 || readback.SizeBytes != 11 || readback.RestoreEpoch != testRestoreEpoch || !readback.ManifestAuthenticated {
 		t.Fatalf("readback = %#v", readback)
 	}
 	if !body.isClosed() {
@@ -307,6 +329,11 @@ func TestGetExactFailsClosedOnReadbackBoundaries(t *testing.T) {
 		{name: "missing metadata", output: func(b *trackedBody) *s3.GetObjectOutput {
 			o := validGetOutput(b, "opaque-version-1")
 			delete(o.Metadata, "lease-fence")
+			return o
+		}, want: ErrObjectMismatch},
+		{name: "wrong restore epoch", output: func(b *trackedBody) *s3.GetObjectOutput {
+			o := validGetOutput(b, "opaque-version-1")
+			o.Metadata["restore-epoch"] = "6"
 			return o
 		}, want: ErrObjectMismatch},
 		{name: "extra metadata", output: func(b *trackedBody) *s3.GetObjectOutput {
@@ -626,6 +653,7 @@ func validYandexS3Config() YandexS3Config {
 		Endpoint:        "https://storage.example.invalid",
 		Region:          "ru-central1",
 		Bucket:          "backup-bucket",
+		Prefix:          "backup-rpo",
 		AccessKeyID:     "SYNTHETIC-ACCESS-KEY",
 		SecretAccessKey: "synthetic-secret-key",
 	}
@@ -636,6 +664,7 @@ func validMetadata() ObjectMetadata {
 		SHA256:             testSHA256,
 		SizeBytes:          11,
 		CapturedGeneration: 9,
+		RestoreEpoch:       testRestoreEpoch,
 		AttemptSequence:    5,
 		BackupID:           testBackupID,
 		ManifestVersion:    2,
@@ -653,7 +682,7 @@ func validExactRequest(t *testing.T, version string) ExactObjectRequest {
 }
 
 func validManifestExpectation(version VersionID) ManifestExpectation {
-	return ManifestExpectation{Key: testObjectKey, VersionID: version, Metadata: validMetadata()}
+	return ManifestExpectation{Key: testObjectKey, VersionID: version, Metadata: validMetadata(), RestoreEpoch: testRestoreEpoch}
 }
 
 func mustVersionID(t *testing.T, raw string) VersionID {
@@ -687,6 +716,7 @@ func validGetOutput(body io.ReadCloser, version string) *s3.GetObjectOutput {
 			"backup-id":           testBackupID,
 			"manifest-version":    "2",
 			"lease-fence":         "3",
+			"restore-epoch":       "7",
 		},
 		VersionId: ptrTo(version),
 	}

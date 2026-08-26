@@ -134,6 +134,11 @@ type BackupRPOState struct {
 	Lease               *BackupRPOLease
 }
 
+type BackupRPOCycle struct {
+	State         BackupRPOState
+	ActiveAttempt *BackupRPOAttempt
+}
+
 type BackupRPOAttemptIdentity struct {
 	HolderID               string
 	LeaseToken             string
@@ -195,6 +200,7 @@ type BackupRPOVerification struct {
 	ManifestVersion            int64
 	ManifestBackupID           string
 	ManifestCapturedGeneration int64
+	ManifestRestoreEpoch       int64
 	ManifestObjectKey          string
 	ManifestObjectSHA256       string
 	ManifestObjectSizeBytes    int64
@@ -226,6 +232,21 @@ func (s *BackupRPOStore) Current(ctx context.Context) (BackupRPOState, error) {
 		return BackupRPOState{}, errBackupRPOStateUnavailable
 	}
 	return state, nil
+}
+
+func (s *BackupRPOStore) CurrentCycle(ctx context.Context) (BackupRPOCycle, error) {
+	if s == nil || s.db == nil {
+		return BackupRPOCycle{}, errBackupRPOStateUnavailable
+	}
+	results, err := s.db.QueryLinearizable(ctx, backupRPOCycleSelect())
+	if err != nil {
+		return BackupRPOCycle{}, errBackupRPOStateUnavailable
+	}
+	cycle, ok := parseBackupRPOCycle(results)
+	if !ok {
+		return BackupRPOCycle{}, errBackupRPOStateUnavailable
+	}
+	return cycle, nil
 }
 
 func (s *BackupRPOStore) AcquireLease(ctx context.Context, request BackupRPOLeaseRequest) (BackupRPOLease, error) {
@@ -702,6 +723,90 @@ func backupRPOStateSelect() rqlite.Statement {
 	WHERE b.singleton_id=1`}
 }
 
+func backupRPOCycleSelect() rqlite.Statement {
+	return rqlite.Statement{SQL: `SELECT
+		b.restore_epoch,b.dirty_generation,b.verified_generation,
+		b.verified_backup_id,b.verified_object_key,b.verified_object_sha256,
+		b.verified_object_version,b.verified_size_bytes,b.verified_manifest_version,
+		b.verified_at_unix,b.last_attempt_sequence,b.phase,b.updated_at_unix,
+		unixepoch() AS database_now_unix,
+		l.job_name AS lease_job_name,l.holder_id AS lease_holder_id,
+		l.lease_token AS lease_token,l.acquired_at_unix AS lease_acquired_at_unix,
+		l.expires_at_unix AS lease_expires_at_unix,l.restore_epoch AS lease_restore_epoch,
+		l.lease_fence AS lease_fence,
+		l.capability_generation AS lease_capability_generation,
+		l.capability_evidence_sha256 AS lease_capability_evidence_sha256,
+		l.capability_expires_at_unix AS lease_capability_expires_at_unix,
+		a.restore_epoch AS attempt_restore_epoch,a.attempt_sequence AS attempt_attempt_sequence,
+		a.phase AS attempt_phase,a.backup_id AS attempt_backup_id,
+		a.captured_generation AS attempt_captured_generation,a.object_key AS attempt_object_key,
+		a.object_sha256 AS attempt_object_sha256,a.object_version AS attempt_object_version,
+		a.object_size_bytes AS attempt_object_size_bytes,a.manifest_version AS attempt_manifest_version,
+		a.adapter_contract_version AS attempt_adapter_contract_version,a.capability_generation AS attempt_capability_generation,
+		a.capability_evidence_sha256 AS attempt_capability_evidence_sha256,a.capability_expires_at_unix AS attempt_capability_expires_at_unix,
+		a.lease_holder_id AS attempt_lease_holder_id,a.lease_token AS attempt_lease_token,
+		a.lease_fence AS attempt_lease_fence,a.failure_code AS attempt_failure_code,
+		a.created_at_unix AS attempt_created_at_unix,a.updated_at_unix AS attempt_updated_at_unix
+	FROM backup_rpo_state b
+	JOIN cluster_restore_state cr
+		ON cr.singleton_id=1 AND cr.activated=1 AND cr.restore_epoch=b.restore_epoch
+	LEFT JOIN cluster_job_leases l ON l.job_name='backup-rpo'
+	LEFT JOIN backup_rpo_attempts a
+		ON a.restore_epoch=b.restore_epoch
+		AND a.phase IN ('pending','applying','applied','unknown')
+	WHERE b.singleton_id=1`}
+}
+
+var backupRPOCycleAttemptFields = []string{
+	"restore_epoch", "attempt_sequence", "phase", "backup_id",
+	"captured_generation", "object_key", "object_sha256", "object_version",
+	"object_size_bytes", "manifest_version", "adapter_contract_version",
+	"capability_generation", "capability_evidence_sha256", "capability_expires_at_unix",
+	"lease_holder_id", "lease_token", "lease_fence", "failure_code",
+	"created_at_unix", "updated_at_unix",
+}
+
+func parseBackupRPOCycle(results []rqlite.Result) (BackupRPOCycle, bool) {
+	state, ok := parseBackupRPOState(results)
+	if !ok {
+		return BackupRPOCycle{}, false
+	}
+	row := results[0].Rows[0]
+	attemptRow := make(map[string]any, len(backupRPOCycleAttemptFields)+1)
+	allNil := true
+	for _, field := range backupRPOCycleAttemptFields {
+		value, exists := row["attempt_"+field]
+		if !exists {
+			return BackupRPOCycle{}, false
+		}
+		if value != nil {
+			allNil = false
+		}
+		attemptRow[field] = value
+	}
+	cycle := BackupRPOCycle{State: state}
+	if allNil {
+		return cycle, true
+	}
+	attemptRow["database_now_unix"] = row["database_now_unix"]
+	attempt, ok := parseBackupRPOAttempt(attemptRow)
+	if !ok || attempt.FailureCode != "" ||
+		attempt.Identity.RestoreEpoch != state.RestoreEpoch ||
+		attempt.Identity.AttemptSequence != state.LastAttemptSequence ||
+		attempt.Identity.CapturedGeneration <= state.VerifiedGeneration ||
+		attempt.Identity.CapturedGeneration > state.DirtyGeneration ||
+		attempt.DatabaseNowUnix != state.DatabaseNowUnix {
+		return BackupRPOCycle{}, false
+	}
+	switch attempt.Phase {
+	case BackupRPOAttemptPending, BackupRPOAttemptApplying, BackupRPOAttemptApplied, BackupRPOAttemptUnknown:
+	default:
+		return BackupRPOCycle{}, false
+	}
+	cycle.ActiveAttempt = &attempt
+	return cycle, true
+}
+
 func parseBackupRPOState(results []rqlite.Result) (BackupRPOState, bool) {
 	if len(results) != 1 || len(results[0].Rows) != 1 {
 		return BackupRPOState{}, false
@@ -1029,6 +1134,42 @@ func backupRPOAttemptLiveLeaseWhere(alias string) string {
 	)`
 }
 
+func validBackupRPOObjectKey(value string, capturedGeneration, attemptSequence int64, backupID string) bool {
+	if len(value) == 0 || len(value) > 1024 || capturedGeneration <= 0 || attemptSequence <= 0 || !canonicalLowerHex(backupID, 32) {
+		return false
+	}
+	tail := "g-" + strconv.FormatInt(capturedGeneration, 10) + "/a-" + strconv.FormatInt(attemptSequence, 10) + "-" + backupID + ".tar.gpg"
+	if value == tail {
+		return true
+	}
+	suffix := "/" + tail
+	if !strings.HasSuffix(value, suffix) {
+		return false
+	}
+	return validBackupRPOObjectPrefix(strings.TrimSuffix(value, suffix))
+}
+
+func validBackupRPOObjectPrefix(prefix string) bool {
+	if prefix == "" || !backupRPOASCIIAlphaNumeric(prefix[0]) || prefix[len(prefix)-1] == '/' {
+		return false
+	}
+	for _, segment := range strings.Split(prefix, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	for _, character := range prefix {
+		if character > 127 || (!backupRPOASCIIAlphaNumeric(byte(character)) && character != '.' && character != '_' && character != '-' && character != '/') {
+			return false
+		}
+	}
+	return true
+}
+
+func backupRPOASCIIAlphaNumeric(character byte) bool {
+	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9')
+}
+
 func isValidBackupRPOAttemptIdentity(identity BackupRPOAttemptIdentity) bool {
 	return identity.HolderID != "" && strings.TrimSpace(identity.HolderID) == identity.HolderID &&
 		identity.LeaseToken != "" && strings.TrimSpace(identity.LeaseToken) == identity.LeaseToken &&
@@ -1037,7 +1178,7 @@ func isValidBackupRPOAttemptIdentity(identity BackupRPOAttemptIdentity) bool {
 		canonicalLowerHex(identity.Capability.EvidenceSHA256, 64) &&
 		identity.Capability.ExpiresAtUnix > 0 && identity.CapturedGeneration > 0 &&
 		identity.AttemptSequence > 0 && canonicalLowerHex(identity.BackupID, 32) &&
-		identity.ObjectKey != "" && strings.TrimSpace(identity.ObjectKey) == identity.ObjectKey &&
+		validBackupRPOObjectKey(identity.ObjectKey, identity.CapturedGeneration, identity.AttemptSequence, identity.BackupID) &&
 		canonicalLowerHex(identity.ObjectSHA256, 64) && identity.ObjectSizeBytes > 0 &&
 		identity.ManifestVersion == 2 && identity.AdapterContractVersion == BackupRPOAdapterYandexS3V1
 }
@@ -1083,6 +1224,7 @@ func isValidBackupRPOVerification(proof BackupRPOVerification) bool {
 		proof.ReadbackSizeBytes == identity.ObjectSizeBytes && proof.ManifestAuthenticated &&
 		proof.ManifestVersion == 2 && proof.ManifestVersion == identity.ManifestVersion &&
 		proof.ManifestBackupID == identity.BackupID &&
+		proof.ManifestRestoreEpoch == identity.RestoreEpoch &&
 		proof.ManifestCapturedGeneration == identity.CapturedGeneration &&
 		proof.ManifestObjectKey == identity.ObjectKey &&
 		proof.ManifestObjectSHA256 == identity.ObjectSHA256 &&

@@ -47,6 +47,7 @@ _ERROR = {
 PUBLIC_ERRORS = frozenset(_ERROR.values())
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _BACKUP_ID = re.compile(r"[0-9a-f]{32}\Z")
+_OBJECT_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}\Z")
 _RUNTIME_ID = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 _TASK_PREFIX: Final = "task-"
 
@@ -89,13 +90,7 @@ def _runtime_id(value: object) -> bool:
 
 
 def _object_key(value: object) -> bool:
-    if (
-        not isinstance(value, str)
-        or not 0 < len(value) <= 1_024
-        or value.startswith("/")
-        or "\\" in value
-        or not all(0x21 <= ord(character) <= 0x7E for character in value)
-    ):
+    if not isinstance(value, str) or _OBJECT_KEY.fullmatch(value) is None:
         return False
     return all(part not in {"", ".", ".."} for part in value.split("/"))
 
@@ -668,7 +663,7 @@ def record_upload_outcome(
     if object_key is not None or object_version_id is not None:
         raise _fail("receipt")
     if outcome is UploadOutcome.NOT_SENT:
-        return replace(state, attempt=None)
+        return state
     return replace(state, attempt=replace(attempt, phase=AttemptPhase.UNKNOWN))
 
 
@@ -697,7 +692,7 @@ def record_readback(
     ):
         raise _fail("receipt")
     if result.status is ReadbackStatus.MISSING:
-        return replace(state, attempt=None)
+        return state
     if result.status is not ReadbackStatus.VERIFIED:
         raise _fail("receipt")
     if (

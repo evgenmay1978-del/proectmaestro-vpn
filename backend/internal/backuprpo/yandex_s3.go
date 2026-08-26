@@ -24,11 +24,12 @@ const (
 	metadataSHA256                   = "maestro-sha256"
 	metadataSizeBytes                = "size-bytes"
 	metadataCapturedGeneration       = "captured-generation"
+	metadataRestoreEpoch             = "restore-epoch"
 	metadataAttemptSequence          = "attempt-sequence"
 	metadataBackupID                 = "backup-id"
 	metadataManifestVersion          = "manifest-version"
 	metadataLeaseFence               = "lease-fence"
-	metadataFieldCount               = 7
+	metadataFieldCount               = 8
 	maxListKeys                int32 = 100
 	maxListPages                     = 10
 	maxListedEntries                 = 1000
@@ -38,6 +39,7 @@ type YandexS3Config struct {
 	Endpoint        string
 	Region          string
 	Bucket          string
+	Prefix          string
 	AccessKeyID     string
 	SecretAccessKey string
 }
@@ -51,6 +53,7 @@ type s3API interface {
 
 type YandexS3 struct {
 	bucket   string
+	prefix   string
 	client   s3API
 	verifier AuthenticatedManifestVerifier
 }
@@ -92,7 +95,7 @@ func newYandexS3WithClient(config YandexS3Config, client s3API, verifier Authent
 	if !isValidYandexS3Config(config) || client == nil || verifier == nil {
 		return nil, ErrInvalidConfig
 	}
-	return &YandexS3{bucket: config.Bucket, client: client, verifier: verifier}, nil
+	return &YandexS3{bucket: config.Bucket, prefix: config.Prefix, client: client, verifier: verifier}, nil
 }
 
 func (store *YandexS3) CheckVersioning(ctx context.Context) error {
@@ -113,7 +116,7 @@ func (store *YandexS3) CheckVersioning(ctx context.Context) error {
 
 func (store *YandexS3) PutImmutable(ctx context.Context, request PutRequest) (VersionID, error) {
 	if store == nil || store.client == nil || request.Body == nil ||
-		!isValidObjectMetadata(request.Metadata) || !validBoundKey(request.Key, request.Metadata) {
+		!isValidObjectMetadata(request.Metadata) || !validBoundKey(store.prefix, request.Key, request.Metadata) {
 		return VersionID{}, ErrInvalidRequest
 	}
 	contentMD5, err := prehashAndRewind(request)
@@ -146,7 +149,8 @@ func (store *YandexS3) PutImmutable(ctx context.Context, request PutRequest) (Ve
 }
 
 func (store *YandexS3) GetExact(ctx context.Context, request ExactObjectRequest) (Readback, error) {
-	if !isValidExactObjectRequest(request) {
+	if store == nil || store.client == nil || store.verifier == nil ||
+		!isValidExactObjectRequest(store.prefix, request) {
 		return Readback{}, ErrInvalidRequest
 	}
 	if err := store.CheckVersioning(ctx); err != nil {
@@ -189,7 +193,7 @@ func (store *YandexS3) getExact(ctx context.Context, request ExactObjectRequest)
 	counter := &byteCounter{}
 	bounded := io.LimitReader(output.Body, MaxObjectBytes+1)
 	verifiedStream := io.TeeReader(bounded, io.MultiWriter(hasher, counter))
-	expectation := ManifestExpectation{Key: request.Key, VersionID: request.VersionID, Metadata: request.Metadata}
+	expectation := ManifestExpectation{Key: request.Key, VersionID: request.VersionID, Metadata: request.Metadata, RestoreEpoch: request.Metadata.RestoreEpoch}
 	if err := store.verifier.VerifyAuthenticatedManifest(ctx, verifiedStream, expectation); err != nil {
 		return Readback{}, ErrManifestInvalid
 	}
@@ -202,13 +206,14 @@ func (store *YandexS3) getExact(ctx context.Context, request ExactObjectRequest)
 	}
 	return Readback{
 		VersionID: request.VersionID, SHA256: digest, SizeBytes: counter.count,
+		RestoreEpoch:          request.Metadata.RestoreEpoch,
 		ManifestAuthenticated: true,
 	}, nil
 }
 
 func (store *YandexS3) ReconcileUnknownPut(ctx context.Context, request ReconcileRequest) (VersionID, error) {
 	if store == nil || store.client == nil || !isValidObjectMetadata(request.Metadata) ||
-		!validBoundKey(request.Key, request.Metadata) {
+		!validBoundKey(store.prefix, request.Key, request.Metadata) {
 		return VersionID{}, ErrInvalidRequest
 	}
 	if err := store.CheckVersioning(ctx); err != nil {
@@ -318,6 +323,7 @@ func objectMetadata(metadata ObjectMetadata) map[string]string {
 		metadataSHA256:             metadata.SHA256,
 		metadataSizeBytes:          decimal(metadata.SizeBytes),
 		metadataCapturedGeneration: decimal(metadata.CapturedGeneration),
+		metadataRestoreEpoch:       decimal(metadata.RestoreEpoch),
 		metadataAttemptSequence:    decimal(metadata.AttemptSequence),
 		metadataBackupID:           metadata.BackupID,
 		metadataManifestVersion:    decimal(metadata.ManifestVersion),
@@ -338,8 +344,8 @@ func metadataMatches(actual map[string]string, expected ObjectMetadata) bool {
 	return true
 }
 
-func isValidExactObjectRequest(request ExactObjectRequest) bool {
-	return isValidObjectMetadata(request.Metadata) && validBoundKey(request.Key, request.Metadata) &&
+func isValidExactObjectRequest(prefix string, request ExactObjectRequest) bool {
+	return isValidObjectMetadata(request.Metadata) && validBoundKey(prefix, request.Key, request.Metadata) &&
 		validVersionID(request.VersionID.String())
 }
 
@@ -349,7 +355,7 @@ func isValidYandexS3Config(config YandexS3Config) bool {
 		endpoint.Path != "" || endpoint.RawPath != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" {
 		return false
 	}
-	return validRegion(config.Region) && validBucket(config.Bucket) &&
+	return validRegion(config.Region) && validBucket(config.Bucket) && validObjectPrefix(config.Prefix) &&
 		config.AccessKeyID != "" && strings.TrimSpace(config.AccessKeyID) == config.AccessKeyID &&
 		config.SecretAccessKey != "" &&
 		strings.TrimSpace(config.SecretAccessKey) == config.SecretAccessKey
