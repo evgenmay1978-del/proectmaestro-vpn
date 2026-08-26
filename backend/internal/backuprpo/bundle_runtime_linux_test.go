@@ -112,6 +112,38 @@ func TestLinuxBundleRuntimeRemoveExistingCleansAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestLinuxBundleRuntimeRemoveExistingRetriesRootSyncAfterUnlink(t *testing.T) {
+	root, runtime, request := linuxRuntimeFixture(t)
+	task := createLinuxCandidate(t, runtime, request, []byte("encrypted-bundle"))
+	taskPath := filepath.Dir(task.OutputPath())
+	cleanupPath := filepath.Join(root, ".cleanup-"+request.BackupID)
+	concrete := runtime.(*linuxBundleRuntime)
+	originalSync := concrete.fsyncRoot
+	syncCalls := 0
+	concrete.fsyncRoot = func(fd int) error {
+		syncCalls++
+		if syncCalls == 2 {
+			return errors.New("injected root fsync failure")
+		}
+		return originalSync(fd)
+	}
+
+	if err := runtime.RemoveExisting(request.BackupID); !errors.Is(err, ErrUnsafeRuntime) {
+		t.Fatalf("first RemoveExisting error=%v", err)
+	}
+	for _, path := range []string{taskPath, cleanupPath} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("path %q survived rmdir: %v", path, err)
+		}
+	}
+	if err := runtime.RemoveExisting(request.BackupID); err != nil {
+		t.Fatalf("retry RemoveExisting: %v", err)
+	}
+	if syncCalls != 3 {
+		t.Fatalf("root fsync calls=%d, want 3", syncCalls)
+	}
+}
+
 func TestLinuxBundleRuntimeRemoveExistingResumesQuarantineResidues(t *testing.T) {
 	for _, residue := range []string{"full", "marker-only", "empty"} {
 		t.Run(residue, func(t *testing.T) {

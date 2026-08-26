@@ -26,6 +26,7 @@ type linuxBundleRuntime struct {
 	root         linuxDirectoryIdentity
 	uid          uint32
 	pinnedRootFD int
+	fsyncRoot    func(int) error
 }
 
 type linuxDirectoryIdentity struct {
@@ -72,6 +73,7 @@ func newSecureBundleRuntime(rootPath string) (bundleRuntime, error) {
 		root:         linuxDirectoryIdentityFromStat(&stat),
 		uid:          uid,
 		pinnedRootFD: -1,
+		fsyncRoot:    unix.Fsync,
 	}, nil
 }
 
@@ -89,6 +91,7 @@ func newPinnedBundleRuntime(root *os.File, rootPath string) (bundleRuntime, erro
 		root:         linuxDirectoryIdentityFromStat(&stat),
 		uid:          uid,
 		pinnedRootFD: int(root.Fd()),
+		fsyncRoot:    unix.Fsync,
 	}, nil
 }
 
@@ -296,6 +299,9 @@ func (runtime *linuxBundleRuntime) RemoveExisting(backupID string) error {
 		return ErrUnsafeRuntime
 	}
 	if !sourceExists && !cleanupExists {
+		if runtime.syncRoot(rootFD) != nil {
+			return ErrUnsafeRuntime
+		}
 		return nil
 	}
 
@@ -315,7 +321,7 @@ func (runtime *linuxBundleRuntime) RemoveExisting(backupID string) error {
 			rootFD,
 			cleanupName,
 			unix.RENAME_NOREPLACE,
-		); renameErr != nil || unix.Fsync(rootFD) != nil {
+		); renameErr != nil || runtime.syncRoot(rootFD) != nil {
 			unix.Close(taskFD)
 			return ErrUnsafeRuntime
 		}
@@ -385,7 +391,17 @@ func (runtime *linuxBundleRuntime) removeQuarantinedTask(
 		!linuxDirectoryEntryMatches(rootFD, taskName, taskFD, runtime.uid) {
 		return ErrUnsafeRuntime
 	}
-	if unix.Unlinkat(rootFD, taskName, unix.AT_REMOVEDIR) != nil || unix.Fsync(rootFD) != nil {
+	if unix.Unlinkat(rootFD, taskName, unix.AT_REMOVEDIR) != nil || runtime.syncRoot(rootFD) != nil {
+		return ErrUnsafeRuntime
+	}
+	return nil
+}
+
+func (runtime *linuxBundleRuntime) syncRoot(rootFD int) error {
+	if runtime == nil || runtime.fsyncRoot == nil {
+		return ErrUnsafeRuntime
+	}
+	if err := runtime.fsyncRoot(rootFD); err != nil {
 		return ErrUnsafeRuntime
 	}
 	return nil
