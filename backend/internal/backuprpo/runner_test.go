@@ -38,6 +38,16 @@ func (source *sequenceIDs) NewID() (string, error) {
 	return value, nil
 }
 
+type memoryCapabilityGate struct {
+	calls *[]string
+	err   error
+}
+
+func (gate *memoryCapabilityGate) Check(context.Context) error {
+	*gate.calls = append(*gate.calls, "capability")
+	return gate.err
+}
+
 type memoryCycleStore struct {
 	now               int64
 	state             controlplane.BackupRPOState
@@ -256,12 +266,14 @@ func runnerFixture(t *testing.T, state controlplane.BackupRPOState) (*Runner, *m
 	bundles := &memoryBundles{calls: &calls, payload: []byte("authenticated-encrypted-bundle")}
 	runner := &Runner{
 		Store: store, Objects: objects, Bundles: bundles,
-		IDs: &sequenceIDs{values: []string{"lease-token", runnerBackupIDFixture, "fedcba9876543210fedcba9876543210", "11111111111111111111111111111111"}},
-		Now: func() time.Time { return time.Unix(store.now, 0) },
+		Capabilities: &memoryCapabilityGate{calls: &calls},
+		IDs:          &sequenceIDs{values: []string{"lease-token", runnerBackupIDFixture, "fedcba9876543210fedcba9876543210", "11111111111111111111111111111111"}},
+		Now:          func() time.Time { return time.Unix(store.now, 0) },
 		Config: RunnerConfig{
 			HolderID: "worker-s2", Prefix: "backup-rpo", LeaseTTL: 60 * time.Second,
 			CapabilityTTL: 120 * time.Second, Deadline: time.Second, MaxTransitions: 32,
 			CapabilityGeneration: 1, CapabilityEvidenceSHA256: strings.Repeat("a", 64),
+			CapabilityIssuedAtUnix: store.now, CapabilityExpiresAtUnix: store.now + 120,
 			MaxBundleBytes: 1 << 20,
 		},
 	}
@@ -387,6 +399,61 @@ func TestRunnerAppliedResumeUsesExactReadbackWithoutBundle(t *testing.T) {
 	}
 }
 
+func TestRunnerOneShotRestartReusesLiveSameHolderLeaseWithoutFreshToken(t *testing.T) {
+	tests := []struct {
+		name          string
+		phase         string
+		wantPut       int
+		wantReconcile int
+		wantGet       int
+		wantOpen      int
+	}{
+		{name: "pending", phase: controlplane.BackupRPOAttemptPending, wantPut: 1, wantGet: 1, wantOpen: 1},
+		{name: "applying", phase: controlplane.BackupRPOAttemptApplying, wantReconcile: 1, wantGet: 1},
+		{name: "applied", phase: controlplane.BackupRPOAttemptApplied, wantGet: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, store, objects, bundles, calls := runnerFixture(t, dirtyState())
+			liveLease(store, 7, "durable-lease-token")
+			seedAttempt(store, test.phase, 7, "durable-lease-token")
+			runner.IDs = &sequenceIDs{}
+
+			result := runner.Run(context.Background())
+
+			if result.Code != ResultVerified {
+				t.Fatalf("code = %q, want %q; calls=%s", result.Code, ResultVerified, strings.Join(*calls, ","))
+			}
+			if objects.putCalls != test.wantPut || objects.reconcile != test.wantReconcile ||
+				objects.getCalls != test.wantGet || bundles.createCall != 0 || bundles.openCall != test.wantOpen {
+				t.Fatalf("put=%d reconcile=%d get=%d create=%d open=%d", objects.putCalls, objects.reconcile, objects.getCalls, bundles.createCall, bundles.openCall)
+			}
+			if got := strings.Join(*calls, ","); !strings.Contains(got, "capability,current,renew,cycle") {
+				t.Fatalf("same-holder restart did not renew the durable lease: %s", got)
+			}
+		})
+	}
+}
+
+func TestRunnerOneShotRestartRejectsForeignLiveLeaseWithoutMintingIdentity(t *testing.T) {
+	runner, store, objects, bundles, calls := runnerFixture(t, dirtyState())
+	liveLease(store, 7, "foreign-lease-token")
+	store.state.Lease.HolderID = "backup-worker-foreign"
+	runner.IDs = &sequenceIDs{}
+
+	result := runner.Run(context.Background())
+
+	if result.Code != ResultStaleLease {
+		t.Fatalf("code = %q, want %q; calls=%s", result.Code, ResultStaleLease, strings.Join(*calls, ","))
+	}
+	if objects.putCalls != 0 || objects.getCalls != 0 || bundles.createCall != 0 || bundles.openCall != 0 {
+		t.Fatalf("foreign lease reached external work: put=%d get=%d create=%d open=%d", objects.putCalls, objects.getCalls, bundles.createCall, bundles.openCall)
+	}
+	if got := strings.Join(*calls, ","); got != "capability,current" {
+		t.Fatalf("calls = %s, want capability,current", got)
+	}
+}
+
 func TestRunnerPendingMissingPinnedBundleFailsClosedWithoutRecaptureOrPut(t *testing.T) {
 	runner, store, objects, bundles, _ := runnerFixture(t, dirtyState())
 	liveLease(store, 1, "lease-token")
@@ -456,12 +523,51 @@ func TestRunnerConcurrentDirtyBumpAcknowledgesOnlyCapturedGeneration(t *testing.
 
 func TestRunnerCapabilityLossHappensBeforeLeaseOrCapture(t *testing.T) {
 	runner, _, objects, bundles, calls := runnerFixture(t, dirtyState())
-	objects.checkErr = ErrVersioningRequired
+	runner.Capabilities.(*memoryCapabilityGate).err = ErrVersioningRequired
 
 	result := runner.Run(context.Background())
 
-	if result.Code != ResultCapabilityUnavailable || bundles.createCall != 0 || strings.Join(*calls, ",") != "capability" {
+	if result.Code != ResultCapabilityUnavailable || objects.putCalls != 0 || bundles.createCall != 0 || strings.Join(*calls, ",") != "capability" {
 		t.Fatalf("result=%q create=%d calls=%s", result.Code, bundles.createCall, strings.Join(*calls, ","))
+	}
+}
+
+func TestRunnerKeepsExternallyIssuedCapabilityExpiryWithoutRestamping(t *testing.T) {
+	state := dirtyState()
+	state.VerifiedGeneration = state.DirtyGeneration
+	state.Phase = controlplane.BackupRPOPhaseVerified
+	runner, store, _, _, _ := runnerFixture(t, state)
+	wantExpiry := store.now + 90
+	runner.Config.CapabilityExpiresAtUnix = wantExpiry
+
+	result := runner.Run(context.Background())
+
+	if result.Code != ResultNoop || store.state.Lease == nil {
+		t.Fatalf("result=%q lease=%#v", result.Code, store.state.Lease)
+	}
+	if got := store.state.Lease.Capability.ExpiresAtUnix; got != wantExpiry {
+		t.Fatalf("capability expiry = %d, want externally issued %d", got, wantExpiry)
+	}
+}
+
+func TestRunnerRejectsStaleOrFutureCapabilityBeforeReadinessAndLease(t *testing.T) {
+	tests := map[string]func(*RunnerConfig, int64){
+		"future issued":         func(config *RunnerConfig, now int64) { config.CapabilityIssuedAtUnix = now + 1 },
+		"insufficient validity": func(config *RunnerConfig, now int64) { config.CapabilityExpiresAtUnix = now + 59 },
+		"duration exceeds ttl": func(config *RunnerConfig, now int64) {
+			config.CapabilityIssuedAtUnix = now - 1
+			config.CapabilityExpiresAtUnix = now + 120
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			runner, store, _, bundles, calls := runnerFixture(t, dirtyState())
+			mutate(&runner.Config, store.now)
+			result := runner.Run(context.Background())
+			if result.Code != ResultCapabilityUnavailable || bundles.createCall != 0 || len(*calls) != 0 {
+				t.Fatalf("result=%q create=%d calls=%s", result.Code, bundles.createCall, strings.Join(*calls, ","))
+			}
+		})
 	}
 }
 
@@ -614,6 +720,7 @@ func TestPublicTransitionMatrixMatchesRunnerActions(t *testing.T) {
 			name: "lease-unavailable",
 			setup: func(_ *Runner, store *memoryCycleStore) {
 				liveLease(store, 11, "different-token")
+				store.state.Lease.HolderID = "worker-other"
 			},
 		},
 	}

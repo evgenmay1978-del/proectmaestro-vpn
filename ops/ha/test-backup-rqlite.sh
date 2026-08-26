@@ -205,21 +205,31 @@ PY
 worker_commit="$(git -C "$ROOT" rev-parse HEAD)"
 run_worker() {
   local task="$1" id="$2" epoch="$3"
+  local gpg_binary python_binary
   local image="$task/control-plane.sqlite3"
   local candidate="$task/backup.bundle"
   local key="private/cluster-a/g-${worker_generation}/a-${attempt_sequence}-${id}.tar.gpg"
-  env -u RUNNER_TEMP \
-    GNUPGHOME="$gpg_home" \
-    MAESTRO_BACKUP_COMMIT_SHA="$worker_commit" \
-    MAESTRO_BACKUP_RUN_ID=654321 \
-    bash "$CREATOR" --worker \
-      --image "$image" --keys "$keys" --output "$candidate" \
-      --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
-      --manifest-version 2 --backup-id "$id" \
-      --attempt-sequence "$attempt_sequence" \
-      --captured-generation "$worker_generation" \
-      --restore-epoch "$epoch" --lease-fence "$lease_fence" \
-      --object-key "$key" --verify-script "$ROOT/ops/ha/verify_backup.py"
+  gpg_binary="$(realpath -e -- "$(command -v gpg)")" || fail "gpg executable is unavailable"
+  python_binary="$(realpath -e -- "$(command -v python3)")" || fail "python3 executable is unavailable"
+  (
+    exec 7<"$gpg_home"
+    exec 8<"$gpg_binary"
+    exec 9<"$python_binary"
+    env -u RUNNER_TEMP \
+      GNUPGHOME=/proc/self/fd/7 \
+      MAESTRO_BACKUP_GPG=/proc/self/fd/8 \
+      MAESTRO_BACKUP_PYTHON=/proc/self/fd/9 \
+      MAESTRO_BACKUP_COMMIT_SHA="$worker_commit" \
+      MAESTRO_BACKUP_RUN_ID=654321 \
+      bash "$CREATOR" --worker \
+        --image "$image" --keys "$keys" --output "$candidate" \
+        --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
+        --manifest-version 2 --backup-id "$id" \
+        --attempt-sequence "$attempt_sequence" \
+        --captured-generation "$worker_generation" \
+        --restore-epoch "$epoch" --lease-fence "$lease_fence" \
+        --object-key "$key" --verify-script "$ROOT/ops/ha/verify_backup.py"
+  )
 }
 
 run_worker "$worker_task" "$backup_id" "$worker_epoch" >/dev/null

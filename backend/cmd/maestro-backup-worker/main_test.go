@@ -16,6 +16,7 @@ func validConfigJSON(t *testing.T) string {
 	root := "/var/lib/maestro-test"
 	return fmt.Sprintf(`{
         "version": 1,
+        "holder_id": "backup-worker-node-a",
         "rqlite_endpoints": ["https://127.0.0.1:4001", "https://10.0.0.2:4001"],
         "rqlite_credentials_file": "%s/rqlite-credentials.json",
         "rqlite_ca_file": "%s/rqlite-ca.pem",
@@ -71,6 +72,27 @@ func TestDecodeWorkerConfigAcceptsStrictVersionOne(t *testing.T) {
 	}
 	if len(config.RQLiteEndpoints) != 2 {
 		t.Fatalf("rqlite endpoints = %d, want 2", len(config.RQLiteEndpoints))
+	}
+	if config.HolderID != "backup-worker-node-a" {
+		t.Fatalf("holder id = %q, want stable configured identity", config.HolderID)
+	}
+}
+
+func TestDecodeWorkerConfigRequiresStrictStableHolderID(t *testing.T) {
+	valid := validConfigJSON(t)
+	tests := map[string]string{
+		"missing": strings.Replace(valid, `        "holder_id": "backup-worker-node-a",
+`, "", 1),
+		"uppercase":    strings.Replace(valid, "backup-worker-node-a", "backup-worker-Node-a", 1),
+		"whitespace":   strings.Replace(valid, "backup-worker-node-a", " backup-worker-node-a", 1),
+		"empty suffix": strings.Replace(valid, "backup-worker-node-a", "backup-worker-", 1),
+	}
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeWorkerConfig(strings.NewReader(raw)); !errors.Is(err, errConfig) {
+				t.Fatalf("error = %v, want errConfig", err)
+			}
+		})
 	}
 }
 

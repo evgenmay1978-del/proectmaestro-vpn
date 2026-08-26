@@ -119,6 +119,10 @@ type IdentitySource interface {
 	NewID() (string, error)
 }
 
+type CapabilityGate interface {
+	Check(context.Context) error
+}
+
 type RunnerConfig struct {
 	HolderID                 string
 	Prefix                   string
@@ -128,16 +132,19 @@ type RunnerConfig struct {
 	MaxTransitions           int
 	CapabilityGeneration     int64
 	CapabilityEvidenceSHA256 string
+	CapabilityIssuedAtUnix   int64
+	CapabilityExpiresAtUnix  int64
 	MaxBundleBytes           int64
 }
 
 type Runner struct {
-	Store   CycleStore
-	Objects ObjectStore
-	Bundles BundleFactory
-	IDs     IdentitySource
-	Now     func() time.Time
-	Config  RunnerConfig
+	Store        CycleStore
+	Objects      ObjectStore
+	Bundles      BundleFactory
+	Capabilities CapabilityGate
+	IDs          IdentitySource
+	Now          func() time.Time
+	Config       RunnerConfig
 }
 
 func (runner *Runner) Run(parent context.Context) Result {
@@ -147,22 +154,31 @@ func (runner *Runner) Run(parent context.Context) Result {
 	ctx, cancel := context.WithTimeout(parent, runner.Config.Deadline)
 	defer cancel()
 
-	if err := runner.Objects.CheckVersioning(ctx); err != nil {
-		return Result{Code: classifyObjectFailure(err)}
-	}
 	now := runner.Now().Unix()
-	if now <= 0 {
+	capability, ok := runner.capabilityAt(now)
+	if !ok {
 		return Result{Code: ResultCapabilityUnavailable}
 	}
-	leaseToken, err := runner.IDs.NewID()
-	if err != nil || !validRuntimeIdentity(leaseToken) {
-		return Result{Code: ResultCapabilityUnavailable}
+	if err := runner.Capabilities.Check(ctx); err != nil {
+		return Result{Code: resultForContext(ctx, ResultCapabilityUnavailable)}
 	}
 	state, err := runner.Store.Current(ctx)
 	if err != nil {
 		return Result{Code: resultForContext(ctx, ResultCapabilityUnavailable)}
 	}
-	lease, leaseRequest, code := runner.obtainLease(ctx, state, leaseToken, now)
+	if _, ok := runner.capabilityAt(state.DatabaseNowUnix); !ok {
+		return Result{Code: ResultCapabilityUnavailable}
+	}
+	leaseToken := ""
+	if state.Lease != nil && state.Lease.Live {
+		leaseToken = state.Lease.LeaseToken
+	} else {
+		leaseToken, err = runner.IDs.NewID()
+	}
+	if err != nil || !validRuntimeIdentity(leaseToken) {
+		return Result{Code: ResultCapabilityUnavailable}
+	}
+	lease, leaseRequest, code := runner.obtainLease(ctx, state, leaseToken, capability)
 	if code != "" {
 		return Result{Code: code}
 	}
@@ -392,19 +408,13 @@ func (runner *Runner) obtainLease(
 	ctx context.Context,
 	state controlplane.BackupRPOState,
 	token string,
-	now int64,
+	capability controlplane.BackupRPOCapability,
 ) (controlplane.BackupRPOLease, controlplane.BackupRPOLeaseRequest, ResultCode) {
-	capability := controlplane.BackupRPOCapability{
-		Generation:     runner.Config.CapabilityGeneration,
-		EvidenceSHA256: runner.Config.CapabilityEvidenceSHA256,
-		ExpiresAtUnix:  now + int64(runner.Config.CapabilityTTL/time.Second),
-	}
 	if state.Lease != nil && state.Lease.Live {
 		if state.Lease.HolderID != runner.Config.HolderID ||
 			state.Lease.LeaseToken != token ||
 			state.Lease.RestoreEpoch != state.RestoreEpoch ||
-			state.Lease.Capability.Generation != capability.Generation ||
-			state.Lease.Capability.EvidenceSHA256 != capability.EvidenceSHA256 {
+			state.Lease.Capability != capability {
 			return controlplane.BackupRPOLease{}, controlplane.BackupRPOLeaseRequest{}, ResultStaleLease
 		}
 		request := leaseRequestFor(*state.Lease, runner.Config.LeaseTTL)
@@ -492,7 +502,7 @@ func validRunnerReadback(readback Readback, version VersionID, identity controlp
 }
 
 func validRunner(runner *Runner) bool {
-	if runner == nil || runner.Store == nil || runner.Objects == nil ||
+	if runner == nil || runner.Store == nil || runner.Objects == nil || runner.Capabilities == nil ||
 		runner.Bundles == nil || runner.IDs == nil || runner.Now == nil {
 		return false
 	}
@@ -504,6 +514,8 @@ func validRunner(runner *Runner) bool {
 		config.MaxTransitions < 1 || config.MaxTransitions > 64 ||
 		config.CapabilityGeneration <= 0 ||
 		!canonicalLowerHex(config.CapabilityEvidenceSHA256, 64) ||
+		config.CapabilityIssuedAtUnix <= 0 ||
+		config.CapabilityExpiresAtUnix <= config.CapabilityIssuedAtUnix ||
 		config.MaxBundleBytes <= 0 || config.MaxBundleBytes > MaxObjectBytes ||
 		config.LeaseTTL%time.Second != 0 ||
 		config.CapabilityTTL%time.Second != 0 {
@@ -511,6 +523,22 @@ func validRunner(runner *Runner) bool {
 	}
 	_, err := BuildObjectKeyWithPrefix(config.Prefix, 1, 1, strings.Repeat("a", 32))
 	return err == nil
+}
+
+func (runner *Runner) capabilityAt(now int64) (controlplane.BackupRPOCapability, bool) {
+	config := runner.Config
+	leaseSeconds := int64(config.LeaseTTL / time.Second)
+	capabilitySeconds := int64(config.CapabilityTTL / time.Second)
+	if now <= 0 || config.CapabilityIssuedAtUnix > now ||
+		config.CapabilityExpiresAtUnix-config.CapabilityIssuedAtUnix > capabilitySeconds ||
+		config.CapabilityExpiresAtUnix-now < leaseSeconds {
+		return controlplane.BackupRPOCapability{}, false
+	}
+	return controlplane.BackupRPOCapability{
+		Generation:     config.CapabilityGeneration,
+		EvidenceSHA256: config.CapabilityEvidenceSHA256,
+		ExpiresAtUnix:  config.CapabilityExpiresAtUnix,
+	}, true
 }
 
 func validRuntimeIdentity(value string) bool {

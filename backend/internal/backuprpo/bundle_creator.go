@@ -3,6 +3,7 @@ package backuprpo
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -10,6 +11,10 @@ import (
 	"strings"
 	"time"
 )
+
+var errReadinessProbeComplete = errors.New("backuprpo: readiness probe complete")
+
+const maxReadinessOutputBytes = 4096
 
 type backupClient interface {
 	Backup(context.Context, io.Writer) error
@@ -35,6 +40,30 @@ func (source *RQLiteBackupSource) Capture(ctx context.Context, writer io.Writer)
 		return ErrBackupSource
 	}
 	if err := source.client.Backup(ctx, writer); err != nil {
+		return ErrBackupSource
+	}
+	return nil
+}
+
+type readinessProbeWriter struct {
+	seen bool
+}
+
+func (writer *readinessProbeWriter) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	writer.seen = true
+	return 0, errReadinessProbeComplete
+}
+
+func (source *RQLiteBackupSource) CheckReadiness(ctx context.Context) error {
+	if source == nil || source.client == nil {
+		return ErrBackupSource
+	}
+	probe := &readinessProbeWriter{}
+	err := source.client.Backup(ctx, probe)
+	if !probe.seen || !errors.Is(err, errReadinessProbeComplete) {
 		return ErrBackupSource
 	}
 	return nil
@@ -157,6 +186,102 @@ func (creator *ShellBundleCreator) OpenExisting(_ context.Context, request Bundl
 		return nil, ErrUnsafeRuntime
 	}
 	return bundle, nil
+}
+
+type readinessOutput struct {
+	builder  strings.Builder
+	overflow bool
+}
+
+func (output *readinessOutput) Write(data []byte) (int, error) {
+	remaining := maxReadinessOutputBytes - output.builder.Len()
+	if remaining <= 0 {
+		output.overflow = true
+		return len(data), nil
+	}
+	if len(data) > remaining {
+		_, _ = output.builder.Write(data[:remaining])
+		output.overflow = true
+		return len(data), nil
+	}
+	_, _ = output.builder.Write(data)
+	return len(data), nil
+}
+
+func (creator *ShellBundleCreator) CheckReadiness(ctx context.Context) error {
+	if creator == nil || creator.commands == nil || !validShellBundleCreatorConfig(creator.config) {
+		return ErrCommandFailed
+	}
+	baseEnv := []string{
+		"PATH=/usr/bin:/bin",
+		"LANG=C",
+		"GNUPGHOME=" + creator.config.GPGHome,
+	}
+	checks := []struct {
+		path        string
+		args        []string
+		fingerprint string
+	}{
+		{
+			path: creator.config.GPGPath,
+			args: []string{
+				"--batch", "--no-tty", "--no-options", "--no-auto-key-retrieve",
+				"--homedir", creator.config.GPGHome, "--with-colons", "--fingerprint",
+				"--list-secret-keys", creator.config.SignerFingerprint,
+			},
+			fingerprint: creator.config.SignerFingerprint,
+		},
+		{
+			path: creator.config.GPGPath,
+			args: []string{
+				"--batch", "--no-tty", "--no-options", "--no-auto-key-retrieve",
+				"--homedir", creator.config.GPGHome, "--with-colons", "--fingerprint",
+				"--list-keys", creator.config.RecipientFingerprint,
+			},
+			fingerprint: creator.config.RecipientFingerprint,
+		},
+		{
+			path: creator.config.GPGPath,
+			args: []string{
+				"--batch", "--no-tty", "--no-options", "--no-auto-key-retrieve",
+				"--homedir", creator.config.GPGHome, "--with-colons", "--fingerprint",
+				"--list-secret-keys", creator.config.RecipientFingerprint,
+			},
+			fingerprint: creator.config.RecipientFingerprint,
+		},
+	}
+	for _, check := range checks {
+		output := &readinessOutput{}
+		err := creator.commands.Run(ctx, CommandSpec{
+			Path: check.path, Args: check.args, Env: append([]string(nil), baseEnv...),
+			ExtraFiles: append([]*os.File(nil), creator.commandFiles...),
+			Stdout:     output, Timeout: creator.config.CommandTimeout,
+		})
+		if err != nil || output.overflow || !gpgOutputHasFingerprint(output.builder.String(), check.fingerprint) {
+			return ErrCommandFailed
+		}
+	}
+	if err := creator.commands.Run(ctx, CommandSpec{
+		Path:       creator.config.PythonPath,
+		Args:       []string{creator.config.VerifyScriptPath, "--help"},
+		Env:        append([]string(nil), baseEnv...),
+		ExtraFiles: append([]*os.File(nil), creator.commandFiles...),
+		Stdout:     io.Discard,
+		Timeout:    creator.config.CommandTimeout,
+	}); err != nil {
+		return ErrCommandFailed
+	}
+	return nil
+}
+
+func gpgOutputHasFingerprint(output string, fingerprint string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) > 9 && fields[0] == "fpr" && fields[9] == fingerprint {
+			return true
+		}
+	}
+	return false
 }
 
 func (creator *ShellBundleCreator) commandSpec(task preparedTask, request BundleRequest) CommandSpec {

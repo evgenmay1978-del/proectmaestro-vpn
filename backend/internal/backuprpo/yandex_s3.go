@@ -1,6 +1,7 @@
 package backuprpo
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
@@ -33,6 +34,9 @@ const (
 	maxListKeys                int32 = 100
 	maxListPages                     = 10
 	maxListedEntries                 = 1000
+	maxReadinessProbeBytes     int64 = 64 << 10
+	readinessProbeSuffix             = ".maestro-capability/read-write-probe"
+	nonMutatingProbeContentMD5       = "AAAAAAAAAAAAAAAAAAAAAA=="
 )
 
 type YandexS3Config struct {
@@ -42,6 +46,13 @@ type YandexS3Config struct {
 	Prefix          string
 	AccessKeyID     string
 	SecretAccessKey string
+}
+
+type ObjectReadinessProbe struct {
+	Key       string
+	VersionID VersionID
+	SHA256    string
+	SizeBytes int64
 }
 
 type s3API interface {
@@ -112,6 +123,73 @@ func (store *YandexS3) CheckVersioning(ctx context.Context) error {
 		return ErrVersioningRequired
 	}
 	return nil
+}
+
+type codedS3Error interface {
+	ErrorCode() string
+}
+
+func (store *YandexS3) CheckReadWriteReadiness(ctx context.Context, probe ObjectReadinessProbe) error {
+	if store == nil || store.client == nil || !validObjectReadinessProbe(store.prefix, probe) {
+		return ErrStorageUnavailable
+	}
+	if err := store.CheckVersioning(ctx); err != nil {
+		return err
+	}
+	output, err := store.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: ptrTo(store.bucket), Key: ptrTo(probe.Key), VersionId: ptrTo(probe.VersionID.String()),
+	})
+	if err != nil {
+		if output != nil && output.Body != nil {
+			_ = output.Body.Close()
+		}
+		return ErrStorageUnavailable
+	}
+	if output == nil || output.Body == nil || valueOrZero(output.DeleteMarker) ||
+		output.ContentLength == nil || *output.ContentLength != probe.SizeBytes ||
+		output.VersionId == nil || *output.VersionId != probe.VersionID.String() {
+		if output != nil && output.Body != nil {
+			_ = output.Body.Close()
+		}
+		return ErrStorageUnavailable
+	}
+	hasher := sha256.New()
+	read, readErr := io.Copy(hasher, io.LimitReader(output.Body, maxReadinessProbeBytes+1))
+	closeErr := output.Body.Close()
+	if readErr != nil || closeErr != nil || read != probe.SizeBytes ||
+		hex.EncodeToString(hasher.Sum(nil)) != probe.SHA256 {
+		return ErrStorageUnavailable
+	}
+
+	_, putErr := store.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: ptrTo(store.bucket), Key: ptrTo(probe.Key),
+		Body: bytes.NewReader(nil), ContentLength: ptrTo(int64(0)),
+		ContentMD5: ptrTo(nonMutatingProbeContentMD5), IfNoneMatch: ptrTo("*"),
+	})
+	if putErr == nil {
+		return ErrStorageUnavailable
+	}
+	var coded codedS3Error
+	if !errors.As(putErr, &coded) {
+		return ErrStorageUnavailable
+	}
+	switch coded.ErrorCode() {
+	case "BadDigest", "PreconditionFailed":
+		return nil
+	default:
+		return ErrStorageUnavailable
+	}
+}
+
+func validObjectReadinessProbe(prefix string, probe ObjectReadinessProbe) bool {
+	expectedKey := readinessProbeSuffix
+	if prefix != "" {
+		expectedKey = prefix + "/" + readinessProbeSuffix
+	}
+	return probe.Key == expectedKey &&
+		probe.VersionID.String() != "" &&
+		canonicalLowerHex(probe.SHA256, 64) &&
+		probe.SizeBytes > 0 && probe.SizeBytes <= maxReadinessProbeBytes
 }
 
 func (store *YandexS3) PutImmutable(ctx context.Context, request PutRequest) (VersionID, error) {

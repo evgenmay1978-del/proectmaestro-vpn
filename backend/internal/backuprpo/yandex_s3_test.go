@@ -23,6 +23,11 @@ const (
 	testRestoreEpoch = int64(7)
 )
 
+type capabilityProbeError struct{ code string }
+
+func (err capabilityProbeError) Error() string     { return "synthetic capability probe response" }
+func (err capabilityProbeError) ErrorCode() string { return err.code }
+
 func TestNewYandexS3RejectsUnsafeConfiguration(t *testing.T) {
 	t.Parallel()
 	valid := validYandexS3Config()
@@ -167,6 +172,81 @@ func TestCheckVersioningRequiresEnabledAndRedactsProviderErrors(t *testing.T) {
 			}
 			if got := fake.snapshot().versioningBuckets; len(got) != 1 || got[0] != "backup-bucket" {
 				t.Fatalf("versioning buckets = %#v", got)
+			}
+		})
+	}
+}
+
+func TestCheckReadWriteReadinessUsesExactReadAndGuaranteedNonMutatingWriteProbe(t *testing.T) {
+	probeVersion := mustObjectVersion("capability-probe-version-1")
+	probe := ObjectReadinessProbe{
+		Key: "backup-rpo/.maestro-capability/read-write-probe", VersionID: probeVersion,
+		SHA256: testSHA256, SizeBytes: int64(len(testBody)),
+	}
+	for _, responseCode := range []string{"PreconditionFailed", "BadDigest"} {
+		t.Run(responseCode, func(t *testing.T) {
+			fake := &fakeS3{
+				getFn: func(input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+					return &s3.GetObjectOutput{
+						Body: io.NopCloser(strings.NewReader(testBody)), ContentLength: ptrTo(int64(len(testBody))),
+						VersionId: input.VersionId,
+					}, nil
+				},
+				putFn: func(input *s3.PutObjectInput) (*s3.PutObjectOutput, error) {
+					if valueOrZero(input.IfNoneMatch) != "*" || valueOrZero(input.ContentMD5) != "AAAAAAAAAAAAAAAAAAAAAA==" ||
+						valueOrZero(input.ContentLength) != 0 {
+						t.Fatalf("write probe was not fail-closed: %#v", input)
+					}
+					return nil, capabilityProbeError{code: responseCode}
+				},
+			}
+			store := mustTestStore(t, fake, acceptManifestVerifier{})
+
+			if err := store.CheckReadWriteReadiness(context.Background(), probe); err != nil {
+				t.Fatalf("CheckReadWriteReadiness: %v", err)
+			}
+			snapshot := fake.snapshot()
+			if got := strings.Join(snapshot.events, ","); got != "versioning,get,put" {
+				t.Fatalf("events = %s", got)
+			}
+			if len(snapshot.gets) != 1 || snapshot.gets[0].key != probe.Key || snapshot.gets[0].version != probeVersion.String() {
+				t.Fatalf("exact probe read = %#v", snapshot.gets)
+			}
+			if len(snapshot.puts) != 1 || snapshot.puts[0].key != probe.Key || len(snapshot.puts[0].body) != 0 {
+				t.Fatalf("non-mutating write probe = %#v", snapshot.puts)
+			}
+		})
+	}
+}
+
+func TestCheckReadWriteReadinessRejectsUnauthorizedOrUnexpectedlySuccessfulWriteProbe(t *testing.T) {
+	probe := ObjectReadinessProbe{
+		Key:       "backup-rpo/.maestro-capability/read-write-probe",
+		VersionID: mustObjectVersion("capability-probe-version-1"),
+		SHA256:    testSHA256, SizeBytes: int64(len(testBody)),
+	}
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "unauthorized", err: capabilityProbeError{code: "AccessDenied"}},
+		{name: "unexpected success"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeS3{
+				getFn: func(input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+					return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(testBody)), ContentLength: ptrTo(int64(len(testBody))), VersionId: input.VersionId}, nil
+				},
+				putFn: func(*s3.PutObjectInput) (*s3.PutObjectOutput, error) {
+					if test.err != nil {
+						return nil, test.err
+					}
+					return &s3.PutObjectOutput{VersionId: ptrTo("must-never-exist")}, nil
+				},
+			}
+			store := mustTestStore(t, fake, acceptManifestVerifier{})
+			if err := store.CheckReadWriteReadiness(context.Background(), probe); !errors.Is(err, ErrStorageUnavailable) {
+				t.Fatalf("error = %v, want ErrStorageUnavailable", err)
 			}
 		})
 	}

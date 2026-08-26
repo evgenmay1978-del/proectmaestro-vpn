@@ -97,12 +97,25 @@ func (runtime *runtimeFixture) Pin(_ BundleRequest, _ int64) (Bundle, error) {
 type commandFixture struct {
 	order *[]string
 	spec  CommandSpec
+	specs []CommandSpec
 	err   error
 }
 
 func (command *commandFixture) Run(_ context.Context, spec CommandSpec) error {
 	*command.order = append(*command.order, "command")
 	command.spec = spec
+	command.specs = append(command.specs, spec)
+	joined := strings.Join(spec.Args, " ")
+	if spec.Stdout != nil && strings.Contains(joined, "--list-secret-keys") {
+		fingerprint := strings.Repeat("A", 40)
+		if strings.Contains(joined, strings.Repeat("B", 40)) {
+			fingerprint = strings.Repeat("B", 40)
+		}
+		_, _ = io.WriteString(spec.Stdout, "sec:u:2048:1:0000000000000000:0:0:::::::\nfpr:::::::::"+fingerprint+":\n")
+	}
+	if spec.Stdout != nil && strings.Contains(joined, "--list-keys") && !strings.Contains(joined, "--list-secret-keys") {
+		_, _ = io.WriteString(spec.Stdout, "pub:u:2048:1:1111111111111111:0:0:::::::\nfpr:::::::::"+strings.Repeat("B", 40)+":\n")
+	}
 	return command.err
 }
 
@@ -181,6 +194,53 @@ func TestRQLiteBackupSourceDelegatesExactlyOnceAndRedactsFailure(t *testing.T) {
 	err = source.Capture(context.Background(), io.Discard)
 	if !errors.Is(err, ErrBackupSource) || strings.Contains(err.Error(), "secret") || client.calls != 2 {
 		t.Fatalf("redacted error=%q calls=%d", err, client.calls)
+	}
+}
+
+func TestRQLiteBackupSourceReadinessUsesBackupEndpointWithoutCapturingImage(t *testing.T) {
+	client := &backupOnlyClient{}
+	source, err := NewRQLiteBackupSource(client)
+	if err != nil {
+		t.Fatalf("NewRQLiteBackupSource: %v", err)
+	}
+	if err := source.CheckReadiness(context.Background()); err != nil {
+		t.Fatalf("CheckReadiness: %v", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("backup endpoint calls = %d, want 1", client.calls)
+	}
+
+	client.err = errors.New("backup TLS identity unavailable")
+	if err := source.CheckReadiness(context.Background()); !errors.Is(err, ErrBackupSource) {
+		t.Fatalf("error = %v, want ErrBackupSource", err)
+	}
+}
+
+func TestShellBundleCreatorReadinessChecksPinnedSignerRecipientAndVerifierWithoutCapture(t *testing.T) {
+	creator, _, runtime, command, order := creatorFixture(t)
+
+	if err := creator.CheckReadiness(context.Background()); err != nil {
+		t.Fatalf("CheckReadiness: %v", err)
+	}
+	if runtime.prepare != 0 || runtime.pin != 0 {
+		t.Fatalf("readiness touched bundle runtime: prepare=%d pin=%d", runtime.prepare, runtime.pin)
+	}
+	if got := strings.Join(*order, ","); got != "command,command,command,command" {
+		t.Fatalf("order = %s", got)
+	}
+	if len(command.specs) != 4 {
+		t.Fatalf("commands = %d, want 4", len(command.specs))
+	}
+	want := []string{
+		"--list-secret-keys " + strings.Repeat("A", 40),
+		"--list-keys " + strings.Repeat("B", 40),
+		"--list-secret-keys " + strings.Repeat("B", 40),
+		"/opt/maestro/verify_backup.py --help",
+	}
+	for index, token := range want {
+		if got := strings.Join(command.specs[index].Args, " "); !strings.Contains(got, token) {
+			t.Fatalf("command %d = %s, want token %s", index, got, token)
+		}
 	}
 }
 

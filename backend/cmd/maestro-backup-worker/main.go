@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,12 +25,15 @@ import (
 const (
 	configVersion        = 1
 	credentialVersion    = 1
-	capabilityVersion    = 1
+	capabilityVersion    = 2
 	maxConfigBytes       = int64(64 << 10)
 	maxCredentialBytes   = int64(16 << 10)
 	maxCapabilityBytes   = int64(16 << 10)
+	maxCapabilityFile    = int64(128 << 20)
+	maxCapabilityProbe   = int64(64 << 10)
 	pinnedYandexEndpoint = "https://storage.yandexcloud.net"
 	pinnedYandexRegion   = "ru-central1"
+	readinessProbeSuffix = ".maestro-capability/read-write-probe"
 )
 
 var (
@@ -39,7 +43,8 @@ var (
 )
 
 type workerConfig struct {
-	Version int `json:"version"`
+	Version  int    `json:"version"`
+	HolderID string `json:"holder_id"`
 
 	RQLiteEndpoints       []string `json:"rqlite_endpoints"`
 	RQLiteCredentialsFile string   `json:"rqlite_credentials_file"`
@@ -95,9 +100,47 @@ type yandexCredentials struct {
 }
 
 type capabilityEvidence struct {
-	Version    int    `json:"version"`
-	Generation int64  `json:"generation"`
-	SHA256     string `json:"sha256"`
+	Version       int   `json:"version"`
+	Generation    int64 `json:"generation"`
+	IssuedAtUnix  int64 `json:"issued_at_unix"`
+	ExpiresAtUnix int64 `json:"expires_at_unix"`
+
+	RQLiteEndpoints  []string `json:"rqlite_endpoints"`
+	RQLiteCASHA256   string   `json:"rqlite_ca_sha256"`
+	RQLiteCertSHA256 string   `json:"rqlite_cert_sha256"`
+	RQLiteKeySHA256  string   `json:"rqlite_key_sha256"`
+
+	YandexEndpoint       string `json:"yandex_endpoint"`
+	YandexRegion         string `json:"yandex_region"`
+	YandexBucket         string `json:"yandex_bucket"`
+	YandexPrefix         string `json:"yandex_prefix"`
+	ObjectProbeKey       string `json:"object_probe_key"`
+	ObjectProbeVersionID string `json:"object_probe_version_id"`
+	ObjectProbeSHA256    string `json:"object_probe_sha256"`
+	ObjectProbeSizeBytes int64  `json:"object_probe_size_bytes"`
+
+	SignerFingerprint    string `json:"signer_fingerprint"`
+	RecipientFingerprint string `json:"recipient_fingerprint"`
+	VerifyScriptSHA256   string `json:"verify_script_sha256"`
+	GPGSHA256            string `json:"gpg_sha256"`
+	PythonSHA256         string `json:"python_sha256"`
+}
+
+type capabilityBindings struct {
+	RQLiteCASHA256     string
+	RQLiteCertSHA256   string
+	RQLiteKeySHA256    string
+	VerifyScriptSHA256 string
+	GPGSHA256          string
+	PythonSHA256       string
+}
+
+type capabilityMaterial struct {
+	Generation     int64
+	IssuedAtUnix   int64
+	ExpiresAtUnix  int64
+	EvidenceSHA256 string
+	Probe          backuprpo.ObjectReadinessProbe
 }
 
 type secureFileClass uint8
@@ -121,6 +164,37 @@ type cryptoIdentitySource struct{}
 
 func (cryptoIdentitySource) NewID() (string, error) {
 	return randomHex(16)
+}
+
+type localReadinessChecker interface {
+	CheckReadiness(context.Context) error
+}
+
+type objectReadinessChecker interface {
+	CheckReadWriteReadiness(context.Context, backuprpo.ObjectReadinessProbe) error
+}
+
+type productionCapabilityGate struct {
+	rqlite  localReadinessChecker
+	objects objectReadinessChecker
+	crypto  localReadinessChecker
+	probe   backuprpo.ObjectReadinessProbe
+}
+
+func (gate productionCapabilityGate) Check(ctx context.Context) error {
+	if gate.rqlite == nil || gate.objects == nil || gate.crypto == nil {
+		return errOperational
+	}
+	if err := gate.rqlite.CheckReadiness(ctx); err != nil {
+		return errOperational
+	}
+	if err := gate.objects.CheckReadWriteReadiness(ctx, gate.probe); err != nil {
+		return errOperational
+	}
+	if err := gate.crypto.CheckReadiness(ctx); err != nil {
+		return errOperational
+	}
+	return nil
 }
 
 func main() {
@@ -300,6 +374,7 @@ func walkJSONValue(decoder *json.Decoder) error {
 
 func validateWorkerConfig(config workerConfig) error {
 	if config.Version != configVersion ||
+		!validHolderID(config.HolderID) ||
 		!validRQLiteEndpoints(config.RQLiteEndpoints) ||
 		config.YandexEndpoint != pinnedYandexEndpoint ||
 		config.YandexRegion != pinnedYandexRegion ||
@@ -342,6 +417,24 @@ func validateWorkerConfig(config workerConfig) error {
 		return errConfig
 	}
 	return nil
+}
+
+func validHolderID(value string) bool {
+	const prefix = "backup-worker-"
+	if !strings.HasPrefix(value, prefix) || len(value) <= len(prefix) || len(value) > 64 {
+		return false
+	}
+	suffix := value[len(prefix):]
+	if !asciiLowerDigit(suffix[0]) || !asciiLowerDigit(suffix[len(suffix)-1]) || strings.Contains(suffix, "--") {
+		return false
+	}
+	for _, character := range suffix {
+		if !((character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func validRQLiteEndpoints(endpoints []string) bool {
@@ -534,6 +627,55 @@ func pinWorkerInputs(config workerConfig) (*pinnedWorkerInputs, error) {
 	return inputs, nil
 }
 
+func capabilityBindingsForInputs(inputs *pinnedWorkerInputs) (capabilityBindings, error) {
+	if inputs == nil {
+		return capabilityBindings{}, errUnsafeRuntime
+	}
+	bindings := capabilityBindings{}
+	var err error
+	bindings.RQLiteCASHA256, err = hashPinnedFile(inputs.rqliteCA)
+	if err != nil {
+		return capabilityBindings{}, errUnsafeRuntime
+	}
+	bindings.RQLiteCertSHA256, err = hashPinnedFile(inputs.rqliteCert)
+	if err != nil {
+		return capabilityBindings{}, errUnsafeRuntime
+	}
+	bindings.RQLiteKeySHA256, err = hashPinnedFile(inputs.rqliteKey)
+	if err != nil {
+		return capabilityBindings{}, errUnsafeRuntime
+	}
+	bindings.VerifyScriptSHA256, err = hashPinnedFile(inputs.verifyScript)
+	if err != nil {
+		return capabilityBindings{}, errUnsafeRuntime
+	}
+	bindings.GPGSHA256, err = hashPinnedFile(inputs.gpg)
+	if err != nil {
+		return capabilityBindings{}, errUnsafeRuntime
+	}
+	bindings.PythonSHA256, err = hashPinnedFile(inputs.python)
+	if err != nil {
+		return capabilityBindings{}, errUnsafeRuntime
+	}
+	return bindings, nil
+}
+
+func hashPinnedFile(file *os.File) (string, error) {
+	if file == nil {
+		return "", errUnsafeRuntime
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", errUnsafeRuntime
+	}
+	digest := sha256.New()
+	size, copyErr := io.Copy(digest, io.LimitReader(file, maxCapabilityFile+1))
+	_, seekErr := file.Seek(0, io.SeekStart)
+	if copyErr != nil || seekErr != nil || size <= 0 || size > maxCapabilityFile {
+		return "", errUnsafeRuntime
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
 func buildProductionWorker(ctx context.Context, config workerConfig) (oneShotWorker, error) {
 	if err := validateWorkerConfig(config); err != nil {
 		return nil, errConfig
@@ -557,9 +699,17 @@ func buildProductionWorker(ctx context.Context, config workerConfig) (oneShotWor
 	if err != nil {
 		return nil, err
 	}
-	capability, err := loadCapabilityEvidence(config.CapabilityEvidenceFile)
+	evidence, err := loadCapabilityEvidence(config.CapabilityEvidenceFile)
 	if err != nil {
 		return nil, err
+	}
+	bindings, err := capabilityBindingsForInputs(inputs)
+	if err != nil {
+		return nil, errUnsafeRuntime
+	}
+	capability, err := validateCapabilityEvidence(config, evidence, bindings)
+	if err != nil {
+		return nil, errConfig
 	}
 	client, err := rqlite.New(rqlite.Config{
 		Endpoints:        append([]string(nil), config.RQLiteEndpoints...),
@@ -647,25 +797,30 @@ func buildProductionWorker(ctx context.Context, config workerConfig) (oneShotWor
 	if err != nil {
 		return nil, errUnsafeRuntime
 	}
-	holderID, err := randomHex(16)
-	if err != nil {
-		return nil, errUnsafeRuntime
+	capabilities := &productionCapabilityGate{
+		rqlite:  source,
+		objects: objects,
+		crypto:  bundles,
+		probe:   capability.Probe,
 	}
 	runner := &backuprpo.Runner{
-		Store:   controlplane.NewBackupRPOStore(client),
-		Objects: objects,
-		Bundles: bundles,
-		IDs:     cryptoIdentitySource{},
-		Now:     time.Now,
+		Store:        controlplane.NewBackupRPOStore(client),
+		Objects:      objects,
+		Bundles:      bundles,
+		Capabilities: capabilities,
+		IDs:          cryptoIdentitySource{},
+		Now:          time.Now,
 		Config: backuprpo.RunnerConfig{
-			HolderID:                 "backup-worker-" + holderID,
+			HolderID:                 config.HolderID,
 			Prefix:                   config.YandexPrefix,
 			LeaseTTL:                 time.Duration(config.LeaseTTLSeconds) * time.Second,
 			CapabilityTTL:            time.Duration(config.CapabilityTTLSeconds) * time.Second,
 			Deadline:                 time.Duration(config.DeadlineSeconds) * time.Second,
 			MaxTransitions:           config.MaxTransitions,
+			CapabilityIssuedAtUnix:   capability.IssuedAtUnix,
+			CapabilityExpiresAtUnix:  capability.ExpiresAtUnix,
 			CapabilityGeneration:     capability.Generation,
-			CapabilityEvidenceSHA256: capability.SHA256,
+			CapabilityEvidenceSHA256: capability.EvidenceSHA256,
 			MaxBundleBytes:           config.MaxBundleBytes,
 		},
 	}
@@ -716,13 +871,100 @@ func loadCapabilityEvidence(filePath string) (capabilityEvidence, error) {
 	if err != nil {
 		return capabilityEvidence{}, errUnsafeRuntime
 	}
+	return decodeCapabilityEvidence(bytes.NewReader(raw))
+}
+
+func decodeCapabilityEvidence(reader io.Reader) (capabilityEvidence, error) {
 	var evidence capabilityEvidence
-	if err := decodeStrictJSON(bytes.NewReader(raw), maxCapabilityBytes, &evidence); err != nil ||
-		evidence.Version != capabilityVersion || evidence.Generation <= 0 ||
-		!validLowerHex(evidence.SHA256, 64) {
+	if err := decodeStrictJSON(reader, maxCapabilityBytes, &evidence); err != nil {
+		return capabilityEvidence{}, errConfig
+	}
+	if _, err := capabilityProbeFromEvidence(evidence); err != nil {
 		return capabilityEvidence{}, errConfig
 	}
 	return evidence, nil
+}
+
+func capabilityProbeFromEvidence(evidence capabilityEvidence) (backuprpo.ObjectReadinessProbe, error) {
+	if evidence.Version != capabilityVersion || evidence.Generation <= 0 ||
+		evidence.IssuedAtUnix <= 0 || evidence.ExpiresAtUnix <= evidence.IssuedAtUnix ||
+		!validRQLiteEndpoints(evidence.RQLiteEndpoints) ||
+		!validLowerHex(evidence.RQLiteCASHA256, 64) ||
+		!validLowerHex(evidence.RQLiteCertSHA256, 64) ||
+		!validLowerHex(evidence.RQLiteKeySHA256, 64) ||
+		evidence.YandexEndpoint != pinnedYandexEndpoint ||
+		evidence.YandexRegion != pinnedYandexRegion ||
+		!validBucket(evidence.YandexBucket) ||
+		!validObjectPrefix(evidence.YandexPrefix) ||
+		evidence.ObjectProbeKey == "" ||
+		!validLowerHex(evidence.ObjectProbeSHA256, 64) ||
+		evidence.ObjectProbeSizeBytes <= 0 || evidence.ObjectProbeSizeBytes > maxCapabilityProbe ||
+		!validUpperHex(evidence.SignerFingerprint, 40) ||
+		!validUpperHex(evidence.RecipientFingerprint, 40) ||
+		!validLowerHex(evidence.VerifyScriptSHA256, 64) ||
+		!validLowerHex(evidence.GPGSHA256, 64) ||
+		!validLowerHex(evidence.PythonSHA256, 64) {
+		return backuprpo.ObjectReadinessProbe{}, errConfig
+	}
+	version, err := backuprpo.NewVersionID(evidence.ObjectProbeVersionID)
+	if err != nil {
+		return backuprpo.ObjectReadinessProbe{}, errConfig
+	}
+	return backuprpo.ObjectReadinessProbe{
+		Key:       evidence.ObjectProbeKey,
+		VersionID: version,
+		SHA256:    evidence.ObjectProbeSHA256,
+		SizeBytes: evidence.ObjectProbeSizeBytes,
+	}, nil
+}
+
+func validateCapabilityEvidence(
+	config workerConfig,
+	evidence capabilityEvidence,
+	bindings capabilityBindings,
+) (capabilityMaterial, error) {
+	probe, err := capabilityProbeFromEvidence(evidence)
+	if err != nil ||
+		!equalStringSlices(evidence.RQLiteEndpoints, config.RQLiteEndpoints) ||
+		evidence.RQLiteCASHA256 != bindings.RQLiteCASHA256 ||
+		evidence.RQLiteCertSHA256 != bindings.RQLiteCertSHA256 ||
+		evidence.RQLiteKeySHA256 != bindings.RQLiteKeySHA256 ||
+		evidence.YandexEndpoint != config.YandexEndpoint ||
+		evidence.YandexRegion != config.YandexRegion ||
+		evidence.YandexBucket != config.YandexBucket ||
+		evidence.YandexPrefix != config.YandexPrefix ||
+		evidence.ObjectProbeKey != pathpkg.Join(config.YandexPrefix, readinessProbeSuffix) ||
+		evidence.SignerFingerprint != config.SignerFingerprint ||
+		evidence.RecipientFingerprint != config.RecipientFingerprint ||
+		evidence.VerifyScriptSHA256 != bindings.VerifyScriptSHA256 ||
+		evidence.GPGSHA256 != bindings.GPGSHA256 ||
+		evidence.PythonSHA256 != bindings.PythonSHA256 {
+		return capabilityMaterial{}, errConfig
+	}
+	canonical, err := json.Marshal(evidence)
+	if err != nil {
+		return capabilityMaterial{}, errConfig
+	}
+	digest := sha256.Sum256(canonical)
+	return capabilityMaterial{
+		Generation:     evidence.Generation,
+		IssuedAtUnix:   evidence.IssuedAtUnix,
+		ExpiresAtUnix:  evidence.ExpiresAtUnix,
+		EvidenceSHA256: hex.EncodeToString(digest[:]),
+		Probe:          probe,
+	}, nil
+}
+
+func equalStringSlices(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func validSensitiveText(value string, minimum int, maximum int) bool {
