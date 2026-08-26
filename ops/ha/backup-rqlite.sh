@@ -4,8 +4,18 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 HARNESS="$ROOT/ops/ha/ci-rqlite-cluster.sh"
 
+verification_stage="A00"
+
 fail() {
-  printf 'backup-rqlite: verification failed\n' >&2
+  if [[ "${MAESTRO_BACKUP_DIAGNOSTICS:-}" == "stage-v1" ]]; then
+    case "$verification_stage" in
+      A00|W10|W20|W30|W40|P10|P20|P30|P40|P50|P60|P70|P80|P90|P99) ;;
+      *) verification_stage="X00" ;;
+    esac
+    printf 'backup-rqlite: verification failed [stage=%s]\n' "$verification_stage" >&2
+  else
+    printf 'backup-rqlite: verification failed\n' >&2
+  fi
   exit 1
 }
 
@@ -281,6 +291,7 @@ PY
   verify_command=(python3 -m ops.ha.verify_backup)
   verify_gpg_executable=gpg
 else
+verification_stage="W10"
   image_source="$image_input"
   runtime="/proc/self/fd/3"
   [[ "$0" == "/proc/self/fd/4" ]] || fail
@@ -351,6 +362,7 @@ else
   output="$task_dir/backup.bundle"
   [[ ! -e "$output" && ! -L "$output" ]] || fail
 
+verification_stage="W20"
   worker_gpg="${MAESTRO_BACKUP_GPG:-}"
   worker_python="${MAESTRO_BACKUP_PYTHON:-}"
   [[ "$worker_gpg" == "/proc/self/fd/8" && "$worker_python" == "/proc/self/fd/9" ]] || fail
@@ -368,11 +380,13 @@ else
   run_id="${MAESTRO_BACKUP_RUN_ID:-}"
   [[ "$commit_sha" =~ ^[a-f0-9]{40}$ && "$run_id" =~ ^[1-9][0-9]*$ ]] || fail
 
+verification_stage="W30"
   runner="$task_dir"
   work="$(mktemp -d "$runner/maestro-rqlite-backup.XXXXXX")" || fail
   case "$work" in "$runner"/maestro-rqlite-backup.*) ;; *) fail ;; esac
   [[ -d "$work" && ! -L "$work" && "$(stat -c '%a' "$work")" == "700" ]] || fail
 
+verification_stage="W40"
   exec {image_fd}<"$image_source" || fail
   image_fd_path="/proc/self/fd/$image_fd"
   image_identity="$(stat -Lc '%d:%i:%u:%g:%a:%h:%s:%Y:%Z' "$image_source")" || fail
@@ -398,6 +412,7 @@ PY
   verify_command=("$worker_python" "$verify_script")
 fi
 
+verification_stage="P10"
 install -m 0600 -- "$keys" "$work/application-keys.json" || fail
 created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 metadata="$work/metadata.json"
@@ -437,10 +452,12 @@ PY
 ) 2>/dev/null || fail
 chmod 0600 "$metadata"
 
+verification_stage="P20"
 manifest="$work/manifest.json"
 (set -o noclobber; "${verify_command[@]}" build   --image "$image" --keys "$work/application-keys.json" --metadata "$metadata"   >"$manifest") 2>/dev/null || fail
 chmod 0600 "$manifest"
 
+verification_stage="P30"
 signature="$work/manifest.sig"
 gpg_sign=(
   "${gpg_command[@]}"
@@ -463,6 +480,7 @@ else
 fi
 chmod 0600 "$signature"
 
+verification_stage="P40"
 archive="$work/backup.tar"
 tar_args=(
   tar
@@ -482,6 +500,7 @@ tar_args=(
 "${tar_args[@]}" >/dev/null 2>&1 || fail
 chmod 0600 "$archive"
 
+verification_stage="P50"
 encrypted="$work/backup.tar.gpg"
 gpg_encrypt=(
   "${gpg_command[@]}"
@@ -503,6 +522,7 @@ else
 fi
 chmod 0600 "$encrypted"
 
+verification_stage="P60"
 verify="$work/verify"
 mkdir -m 0700 -- "$verify"
 decrypted="$work/decrypted.tar"
@@ -523,6 +543,7 @@ else
   "${gpg_decrypt[@]}" >/dev/null 2>&1 || fail
 fi
 chmod 0600 "$decrypted"
+verification_stage="P70"
 "${python_command[@]}" - "$decrypted" "$verify" <<'PY' || fail
 import os
 import pathlib
@@ -563,8 +584,10 @@ with tarfile.open(archive, "r:") as bundle:
             shutil.copyfileobj(source, output, 1024 * 1024)
 PY
 
+verification_stage="P80"
 result="$work/verify-result.json"
 "${verify_command[@]}" verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   --gpg-executable "$verify_gpg_executable"   >"$result" 2>/dev/null || fail
+verification_stage="P90"
 "${python_command[@]}" - "$result" "$metadata" "$manifest" "$worker" "$restore_epoch" <<'PY' || fail
 import json
 import pathlib
@@ -622,6 +645,7 @@ if result != expected:
     raise SystemExit(1)
 PY
 
+verification_stage="P99"
 [[ "$(stat -c '%d' "$work")" == "$(stat -c '%d' "$output_parent")" ]] || fail
 ln -- "$encrypted" "$output" || fail
 rm -f -- "$encrypted"

@@ -227,6 +227,7 @@ run_worker() {
     exec 8<"$gpg_binary"
     exec 9<"$python_binary"
     env -u RUNNER_TEMP \
+      MAESTRO_BACKUP_DIAGNOSTICS=stage-v1 \
       GNUPGHOME=/proc/self/fd/7 \
       MAESTRO_BACKUP_GPG=/proc/self/fd/8 \
       MAESTRO_BACKUP_PYTHON=/proc/self/fd/9 \

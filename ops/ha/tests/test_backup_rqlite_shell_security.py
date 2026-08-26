@@ -11,7 +11,9 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = SCRIPT.read_text(encoding="utf-8")
-        cls.worker_start = cls.source.index("else\n  image_source=")
+        cls.worker_start = cls.source.index(
+            'else\nverification_stage="W10"\n  image_source='
+        )
         cls.common_start = cls.source.index(
             '\ninstall -m 0600 -- "$keys"', cls.worker_start
         )
@@ -127,6 +129,70 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         self.assertIn("run_worker_gpg_output", self.source)
         self.assertIn('rm -f -- "$target"', self.source)
         self.assertIn("set -o noclobber", self.source)
+
+    def test_full_worker_e2e_exposes_only_fixed_failure_stage_codes(self):
+        self.assertIn(
+            "MAESTRO_BACKUP_DIAGNOSTICS=stage-v1", self.full_worker_e2e
+        )
+        failure_start = self.source.index("fail() {")
+        failure_handler = self.source[
+            failure_start : self.source.index("\n}\n", failure_start)
+        ]
+        allowed = (
+            "A00",
+            "W10",
+            "W20",
+            "W30",
+            "W40",
+            "P10",
+            "P20",
+            "P30",
+            "P40",
+            "P50",
+            "P60",
+            "P70",
+            "P80",
+            "P90",
+            "P99",
+            "X00",
+        )
+        self.assertIn(
+            "A00|W10|W20|W30|W40|P10|P20|P30|P40|P50|P60|P70|P80|P90|P99)",
+            failure_handler,
+        )
+        self.assertIn('verification_stage="X00"', failure_handler)
+        self.assertIn(
+            "backup-rqlite: verification failed [stage=%s]", failure_handler
+        )
+        self.assertNotRegex(
+            failure_handler,
+            r"\$(?:image|keys|output|signer|recipient|object_key|gpg_home)",
+        )
+        assigned = set(
+            re.findall(
+                r'^verification_stage="([A-Z][0-9]{2})"$', self.source, re.M
+            )
+        )
+        self.assertEqual(assigned, set(allowed) - {"X00"})
+
+        boundaries = (
+            ('verification_stage="W10"', '  image_source="$image_input"'),
+            ('verification_stage="W20"', '  worker_gpg="${MAESTRO_BACKUP_GPG:-}"'),
+            ('verification_stage="W30"', '  runner="$task_dir"'),
+            ('verification_stage="W40"', '  exec {image_fd}<"$image_source" || fail'),
+            ('verification_stage="P10"', 'install -m 0600 -- "$keys"'),
+            ('verification_stage="P20"', 'manifest="$work/manifest.json"'),
+            ('verification_stage="P30"', 'signature="$work/manifest.sig"'),
+            ('verification_stage="P40"', 'archive="$work/backup.tar"'),
+            ('verification_stage="P50"', 'encrypted="$work/backup.tar.gpg"'),
+            ('verification_stage="P60"', 'verify="$work/verify"'),
+            ('verification_stage="P70"', '"${python_command[@]}" - "$decrypted" "$verify"'),
+            ('verification_stage="P80"', 'result="$work/verify-result.json"'),
+            ('verification_stage="P90"', '"${python_command[@]}" - "$result"'),
+            ('verification_stage="P99"', '[[ "$(stat -c \'%d\' "$work")"'),
+        )
+        for marker, command in boundaries:
+            self.assertIn(f"{marker}\n{command}", self.source)
 
     def test_drill_keeps_path_commands_and_original_tool_argv(self):
         self.assertIn("gpg tar python3", self.source)
