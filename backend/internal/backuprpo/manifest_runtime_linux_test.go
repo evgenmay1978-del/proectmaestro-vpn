@@ -250,7 +250,25 @@ func TestLinuxManifestRuntimePinsBoundedFilesAndExtractsExactPayload(t *testing.
 
 	task.Abort()
 	if _, err := os.Lstat(taskDirectory); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("task directory survived safe Abort: %v", err)
+		survivors := make([]string, 0)
+		topEntries, topReadErr := os.ReadDir(taskDirectory)
+		if topReadErr == nil {
+			for _, entry := range topEntries {
+				survivors = append(survivors, entry.Name())
+				if entry.Name() != manifestTestPayloadName {
+					continue
+				}
+				payloadEntries, payloadReadErr := os.ReadDir(filepath.Join(taskDirectory, entry.Name()))
+				if payloadReadErr != nil {
+					survivors = append(survivors, manifestTestPayloadName+"/<unreadable>")
+					continue
+				}
+				for _, payloadEntry := range payloadEntries {
+					survivors = append(survivors, manifestTestPayloadName+"/"+payloadEntry.Name())
+				}
+			}
+		}
+		t.Fatalf("task directory survived safe Abort: %v; top_read_ok=%t; survivors=%v", err, topReadErr == nil, survivors)
 	}
 }
 
