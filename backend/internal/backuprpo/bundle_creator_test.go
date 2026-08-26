@@ -72,8 +72,11 @@ type runtimeFixture struct {
 	pinned     Bundle
 	prepareErr error
 	pinErr     error
+	removeErr  error
 	prepare    int
 	pin        int
+	remove     int
+	removedID  string
 }
 
 func (runtime *runtimeFixture) Prepare(_ BundleRequest) (preparedTask, error) {
@@ -92,6 +95,13 @@ func (runtime *runtimeFixture) Pin(_ BundleRequest, _ int64) (Bundle, error) {
 		return nil, runtime.pinErr
 	}
 	return runtime.pinned, nil
+}
+
+func (runtime *runtimeFixture) RemoveExisting(backupID string) error {
+	*runtime.order = append(*runtime.order, "remove-existing")
+	runtime.remove++
+	runtime.removedID = backupID
+	return runtime.removeErr
 }
 
 type commandFixture struct {
@@ -306,6 +316,36 @@ func TestShellBundleCreatorOpenExistingNeverRecapturesOrRunsCommand(t *testing.T
 
 	if got := strings.Join(*order, ","); got != "pin" || runtime.prepare != 0 || command.spec.Path != "" {
 		t.Fatalf("order=%s prepare=%d command=%#v", got, runtime.prepare, command.spec)
+	}
+}
+
+func TestShellBundleCreatorRemoveExistingValidatesDelegatesAndRedacts(t *testing.T) {
+	creator, _, runtime, _, order := creatorFixture(t)
+	backupID := strings.Repeat("a", 32)
+
+	if err := creator.RemoveExisting(context.Background(), backupID); err != nil {
+		t.Fatalf("RemoveExisting: %v", err)
+	}
+	if runtime.remove != 1 || runtime.removedID != backupID || strings.Join(*order, ",") != "remove-existing" {
+		t.Fatalf("remove=%d id=%q order=%v", runtime.remove, runtime.removedID, *order)
+	}
+
+	for _, invalid := range []string{"", strings.Repeat("A", 32), "../" + backupID, backupID + "/x"} {
+		if err := creator.RemoveExisting(context.Background(), invalid); !errors.Is(err, ErrUnsafeRuntime) {
+			t.Fatalf("invalid %q: err=%v", invalid, err)
+		}
+	}
+	if runtime.remove != 1 {
+		t.Fatalf("invalid IDs delegated: remove=%d", runtime.remove)
+	}
+
+	runtime.removeErr = errors.New("secret path /runtime/task")
+	err := creator.RemoveExisting(context.Background(), backupID)
+	if !errors.Is(err, ErrUnsafeRuntime) {
+		t.Fatalf("runtime error=%v", err)
+	}
+	if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "/runtime") {
+		t.Fatalf("runtime error leaked dependency output: %q", err)
 	}
 }
 

@@ -110,6 +110,7 @@ type preparedTask interface {
 type bundleRuntime interface {
 	Prepare(BundleRequest) (preparedTask, error)
 	Pin(BundleRequest, int64) (Bundle, error)
+	RemoveExisting(string) error
 }
 
 type commandRunner interface {
@@ -192,6 +193,16 @@ func (creator *ShellBundleCreator) OpenExisting(_ context.Context, request Bundl
 		return nil, ErrUnsafeRuntime
 	}
 	return bundle, nil
+}
+
+func (creator *ShellBundleCreator) RemoveExisting(_ context.Context, backupID string) error {
+	if creator == nil || !canonicalLowerHex(backupID, 32) {
+		return ErrUnsafeRuntime
+	}
+	if err := creator.runtime.RemoveExisting(backupID); err != nil {
+		return ErrUnsafeRuntime
+	}
+	return nil
 }
 
 type readinessOutput struct {

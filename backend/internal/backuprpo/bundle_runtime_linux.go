@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	bundleOwnerMarker = ".maestro-backup-owner"
-	bundleImageName   = "control-plane.sqlite3"
-	bundleOutputName  = "backup.bundle"
+	bundleOwnerMarker   = ".maestro-backup-owner"
+	bundleImageName     = "control-plane.sqlite3"
+	bundleOutputName    = "backup.bundle"
+	bundleCleanupPrefix = ".cleanup-"
 )
 
 type linuxBundleRuntime struct {
@@ -272,6 +273,204 @@ func (runtime *linuxBundleRuntime) Pin(request BundleRequest, maximum int64) (Bu
 		return nil, ErrUnsafeRuntime
 	}
 	return file, nil
+}
+
+func (runtime *linuxBundleRuntime) RemoveExisting(backupID string) error {
+	if runtime == nil || !canonicalLowerHex(backupID, 32) {
+		return ErrUnsafeRuntime
+	}
+	rootFD, _, err := runtime.openRoot()
+	if err != nil {
+		return ErrUnsafeRuntime
+	}
+	defer unix.Close(rootFD)
+
+	sourceName := "task-" + backupID
+	cleanupName := bundleCleanupPrefix + backupID
+	sourceExists, err := linuxPathExistsAt(rootFD, sourceName)
+	if err != nil {
+		return ErrUnsafeRuntime
+	}
+	cleanupExists, err := linuxPathExistsAt(rootFD, cleanupName)
+	if err != nil || sourceExists && cleanupExists {
+		return ErrUnsafeRuntime
+	}
+	if !sourceExists && !cleanupExists {
+		return nil
+	}
+
+	taskName := cleanupName
+	if sourceExists {
+		taskFD, _, openErr := runtime.openTask(rootFD, sourceName)
+		if openErr != nil {
+			return ErrUnsafeRuntime
+		}
+		if validateErr := validateLinuxRemovalCandidate(taskFD, backupID, runtime.uid, false); validateErr != nil {
+			unix.Close(taskFD)
+			return ErrUnsafeRuntime
+		}
+		if renameErr := unix.Renameat2(
+			rootFD,
+			sourceName,
+			rootFD,
+			cleanupName,
+			unix.RENAME_NOREPLACE,
+		); renameErr != nil || unix.Fsync(rootFD) != nil {
+			unix.Close(taskFD)
+			return ErrUnsafeRuntime
+		}
+		if !linuxDirectoryEntryMatches(rootFD, cleanupName, taskFD, runtime.uid) {
+			unix.Close(taskFD)
+			return ErrUnsafeRuntime
+		}
+		stillExists, existsErr := linuxPathExistsAt(rootFD, sourceName)
+		if existsErr != nil || stillExists {
+			unix.Close(taskFD)
+			return ErrUnsafeRuntime
+		}
+		removeErr := runtime.removeQuarantinedTask(rootFD, taskName, taskFD, backupID)
+		closeErr := unix.Close(taskFD)
+		if removeErr != nil || closeErr != nil {
+			return ErrUnsafeRuntime
+		}
+		return nil
+	}
+
+	taskFD, _, err := runtime.openTask(rootFD, taskName)
+	if err != nil {
+		return ErrUnsafeRuntime
+	}
+	removeErr := runtime.removeQuarantinedTask(rootFD, taskName, taskFD, backupID)
+	closeErr := unix.Close(taskFD)
+	if removeErr != nil || closeErr != nil {
+		return ErrUnsafeRuntime
+	}
+	return nil
+}
+
+func (runtime *linuxBundleRuntime) removeQuarantinedTask(
+	rootFD int,
+	taskName string,
+	taskFD int,
+	backupID string,
+) error {
+	if runtime == nil || !linuxDirectoryEntryMatches(rootFD, taskName, taskFD, runtime.uid) {
+		return ErrUnsafeRuntime
+	}
+	if err := validateLinuxRemovalCandidate(taskFD, backupID, runtime.uid, true); err != nil {
+		return ErrUnsafeRuntime
+	}
+	names, err := linuxDirectoryNames(taskFD)
+	if err != nil {
+		return ErrUnsafeRuntime
+	}
+	if exactLinuxNames(names, bundleOwnerMarker, bundleOutputName) {
+		if err := validateLinuxRemovalBundle(taskFD, runtime.uid); err != nil ||
+			unix.Unlinkat(taskFD, bundleOutputName, 0) != nil ||
+			unix.Fsync(taskFD) != nil {
+			return ErrUnsafeRuntime
+		}
+		names = []string{bundleOwnerMarker}
+	}
+	if exactLinuxNames(names, bundleOwnerMarker) {
+		if err := validateLinuxOwnerMarker(taskFD, backupID, runtime.uid); err != nil ||
+			unix.Unlinkat(taskFD, bundleOwnerMarker, 0) != nil ||
+			unix.Fsync(taskFD) != nil {
+			return ErrUnsafeRuntime
+		}
+		names = nil
+	}
+	currentNames, err := linuxDirectoryNames(taskFD)
+	if err != nil || len(names) != 0 || len(currentNames) != 0 ||
+		!linuxDirectoryEntryMatches(rootFD, taskName, taskFD, runtime.uid) {
+		return ErrUnsafeRuntime
+	}
+	if unix.Unlinkat(rootFD, taskName, unix.AT_REMOVEDIR) != nil || unix.Fsync(rootFD) != nil {
+		return ErrUnsafeRuntime
+	}
+	return nil
+}
+
+func linuxPathExistsAt(parentFD int, name string) (bool, error) {
+	var stat unix.Stat_t
+	err := unix.Fstatat(parentFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, unix.ENOENT) {
+		return false, nil
+	}
+	return false, ErrUnsafeRuntime
+}
+
+func validateLinuxRemovalCandidate(
+	taskFD int,
+	backupID string,
+	uid uint32,
+	allowResidue bool,
+) error {
+	names, err := linuxDirectoryNames(taskFD)
+	if err != nil {
+		return ErrUnsafeRuntime
+	}
+	if exactLinuxNames(names, bundleOwnerMarker, bundleOutputName) {
+		if validateLinuxOwnerMarker(taskFD, backupID, uid) != nil ||
+			validateLinuxRemovalBundle(taskFD, uid) != nil {
+			return ErrUnsafeRuntime
+		}
+		return nil
+	}
+	if allowResidue && exactLinuxNames(names, bundleOwnerMarker) {
+		return validateLinuxOwnerMarker(taskFD, backupID, uid)
+	}
+	if allowResidue && len(names) == 0 {
+		return nil
+	}
+	return ErrUnsafeRuntime
+}
+
+func validateLinuxRemovalBundle(taskFD int, uid uint32) error {
+	var before unix.Stat_t
+	if unix.Fstatat(taskFD, bundleOutputName, &before, unix.AT_SYMLINK_NOFOLLOW) != nil ||
+		!trustedLinuxFile(&before, uid) ||
+		before.Size <= 0 ||
+		before.Size > MaxObjectBytes {
+		return ErrUnsafeRuntime
+	}
+	fd, err := unix.Openat(
+		taskFD,
+		bundleOutputName,
+		unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC,
+		0,
+	)
+	if err != nil {
+		return ErrUnsafeRuntime
+	}
+	defer unix.Close(fd)
+	var opened unix.Stat_t
+	if unix.Fstat(fd, &opened) != nil || !sameLinuxFileStat(&before, &opened) {
+		return ErrUnsafeRuntime
+	}
+	var after unix.Stat_t
+	if unix.Fstatat(taskFD, bundleOutputName, &after, unix.AT_SYMLINK_NOFOLLOW) != nil ||
+		!sameLinuxFileStat(&opened, &after) {
+		return ErrUnsafeRuntime
+	}
+	return nil
+}
+
+func linuxDirectoryEntryMatches(parentFD int, name string, directoryFD int, uid uint32) bool {
+	var opened unix.Stat_t
+	var current unix.Stat_t
+	return unix.Fstat(directoryFD, &opened) == nil &&
+		unix.Fstatat(parentFD, name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil &&
+		trustedLinuxDirectory(&opened, uid) &&
+		trustedLinuxDirectory(&current, uid) &&
+		opened.Dev == current.Dev &&
+		opened.Ino == current.Ino &&
+		opened.Mode == current.Mode &&
+		opened.Uid == current.Uid &&
+		opened.Gid == current.Gid
 }
 
 func (runtime *linuxBundleRuntime) openRoot() (int, unix.Stat_t, error) {
@@ -575,7 +774,12 @@ func writeAllLinux(fd int, payload []byte) error {
 }
 
 func linuxDirectoryNames(fd int) ([]string, error) {
-	duplicate, err := unix.Dup(fd)
+	duplicate, err := unix.Openat(
+		fd,
+		".",
+		unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC,
+		0,
+	)
 	if err != nil {
 		return nil, ErrUnsafeRuntime
 	}

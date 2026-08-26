@@ -113,6 +113,7 @@ type BundleRequest struct {
 type BundleFactory interface {
 	Create(context.Context, BundleRequest) (Bundle, error)
 	OpenExisting(context.Context, BundleRequest) (Bundle, error)
+	RemoveExisting(context.Context, string) error
 }
 
 type IdentitySource interface {
@@ -221,6 +222,11 @@ func (runner *Runner) Run(parent context.Context) Result {
 
 		attempt := cycle.ActiveAttempt
 		if attempt == nil {
+			if cycle.State.Verified != nil {
+				if cleanupErr := runner.Bundles.RemoveExisting(ctx, cycle.State.Verified.BackupID); cleanupErr != nil {
+					return Result{Code: resultForBundleError(ctx, cleanupErr), Transitions: transition}
+				}
+			}
 			if cycle.State.DirtyGeneration <= cycle.State.VerifiedGeneration {
 				return Result{Code: ResultNoop, Transitions: transition}
 			}
@@ -388,6 +394,10 @@ func (runner *Runner) Run(parent context.Context) Result {
 			}
 			if _, acknowledgeErr := runner.Store.AcknowledgeVerified(ctx, proof); acknowledgeErr != nil {
 				return Result{Code: resultForContext(ctx, ResultInvalidTransition), Transitions: transition}
+			}
+			closePinned()
+			if cleanupErr := runner.Bundles.RemoveExisting(ctx, identity.BackupID); cleanupErr != nil {
+				return Result{Code: resultForBundleError(ctx, cleanupErr), Transitions: transition}
 			}
 			return Result{Code: ResultVerified, Transitions: transition}
 

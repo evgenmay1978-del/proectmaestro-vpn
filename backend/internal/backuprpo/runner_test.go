@@ -54,6 +54,7 @@ type memoryCycleStore struct {
 	attempt           *controlplane.BackupRPOAttempt
 	calls             *[]string
 	markStartedErr    error
+	acknowledgeErr    error
 	registerInvisible bool
 	bumpAfterRegister bool
 }
@@ -145,6 +146,9 @@ func (store *memoryCycleStore) RecordUploadOutcome(_ context.Context, outcome co
 
 func (store *memoryCycleStore) AcknowledgeVerified(_ context.Context, proof controlplane.BackupRPOVerification) (controlplane.BackupRPOAttempt, error) {
 	store.add("ack")
+	if store.acknowledgeErr != nil {
+		return controlplane.BackupRPOAttempt{}, store.acknowledgeErr
+	}
 	if proof.ManifestRestoreEpoch != proof.Identity.RestoreEpoch || proof.ManifestCapturedGeneration != proof.Identity.CapturedGeneration {
 		return controlplane.BackupRPOAttempt{}, errors.New("bad proof")
 	}
@@ -154,6 +158,9 @@ func (store *memoryCycleStore) AcknowledgeVerified(_ context.Context, proof cont
 		store.state.Phase = controlplane.BackupRPOPhaseVerified
 	} else {
 		store.state.Phase = controlplane.BackupRPOPhaseDirty
+	}
+	store.state.Verified = &controlplane.BackupRPOVerified{
+		BackupID: proof.Identity.BackupID,
 	}
 	store.attempt = nil
 	return attempt, nil
@@ -228,8 +235,12 @@ type memoryBundles struct {
 	payload    []byte
 	createErr  error
 	openErr    error
+	removeErr  error
 	createCall int
 	openCall   int
+	removeCall int
+	removedIDs []string
+	lastBundle *byteBundle
 }
 
 func (bundles *memoryBundles) Create(_ context.Context, _ BundleRequest) (Bundle, error) {
@@ -238,7 +249,9 @@ func (bundles *memoryBundles) Create(_ context.Context, _ BundleRequest) (Bundle
 	if bundles.createErr != nil {
 		return nil, bundles.createErr
 	}
-	return &byteBundle{Reader: bytes.NewReader(bundles.payload)}, nil
+	bundle := &byteBundle{Reader: bytes.NewReader(bundles.payload)}
+	bundles.lastBundle = bundle
+	return bundle, nil
 }
 
 func (bundles *memoryBundles) OpenExisting(_ context.Context, _ BundleRequest) (Bundle, error) {
@@ -247,7 +260,19 @@ func (bundles *memoryBundles) OpenExisting(_ context.Context, _ BundleRequest) (
 	if bundles.openErr != nil {
 		return nil, bundles.openErr
 	}
-	return &byteBundle{Reader: bytes.NewReader(bundles.payload)}, nil
+	bundle := &byteBundle{Reader: bytes.NewReader(bundles.payload)}
+	bundles.lastBundle = bundle
+	return bundle, nil
+}
+
+func (bundles *memoryBundles) RemoveExisting(_ context.Context, backupID string) error {
+	*bundles.calls = append(*bundles.calls, "remove-existing")
+	bundles.removeCall++
+	bundles.removedIDs = append(bundles.removedIDs, backupID)
+	if bundles.lastBundle != nil && !bundles.lastBundle.closed {
+		return errors.New("remove called before bundle close")
+	}
+	return bundles.removeErr
 }
 
 func mustObjectVersion(value string) VersionID {
@@ -341,16 +366,122 @@ func TestRunnerDirtyCycleCreatesRegistersUploadsReadsExactAndAcknowledges(t *tes
 	if result.Code != ResultVerified {
 		t.Fatalf("code = %q, want %q", result.Code, ResultVerified)
 	}
-	if objects.putCalls != 1 || objects.getCalls != 1 || objects.reconcile != 0 || bundles.createCall != 1 {
-		t.Fatalf("external calls put=%d get=%d reconcile=%d create=%d", objects.putCalls, objects.getCalls, objects.reconcile, bundles.createCall)
+	if objects.putCalls != 1 || objects.getCalls != 1 || objects.reconcile != 0 || bundles.createCall != 1 || bundles.removeCall != 1 {
+		t.Fatalf("external calls put=%d get=%d reconcile=%d create=%d remove=%d", objects.putCalls, objects.getCalls, objects.reconcile, bundles.createCall, bundles.removeCall)
 	}
 	if store.state.VerifiedGeneration != 2 || store.state.Phase != controlplane.BackupRPOPhaseVerified {
 		t.Fatalf("state = %#v", store.state)
 	}
+	if len(bundles.removedIDs) != 1 || bundles.removedIDs[0] != runnerBackupIDFixture {
+		t.Fatalf("removed IDs = %#v", bundles.removedIDs)
+	}
 	got := strings.Join(*calls, ",")
-	want := "capability,current,acquire,cycle,create,register,cycle,mark-upload-started,put,record-applied,cycle,get,ack"
+	want := "capability,current,acquire,cycle,create,register,cycle,mark-upload-started,put,record-applied,cycle,get,ack,remove-existing"
 	if got != want {
 		t.Fatalf("calls = %s\nwant  = %s", got, want)
+	}
+}
+
+func TestRunnerAcknowledgeFailureRetainsLocalBundle(t *testing.T) {
+	runner, store, _, bundles, calls := runnerFixture(t, dirtyState())
+	store.acknowledgeErr = errors.New("unknown database outcome")
+
+	result := runner.Run(context.Background())
+
+	if result.Code != ResultInvalidTransition {
+		t.Fatalf("code = %q, want %q", result.Code, ResultInvalidTransition)
+	}
+	if bundles.removeCall != 0 {
+		t.Fatalf("remove calls = %d, want 0", bundles.removeCall)
+	}
+	if store.attempt == nil || store.attempt.Phase != controlplane.BackupRPOAttemptApplied {
+		t.Fatalf("attempt = %#v, want applied", store.attempt)
+	}
+	if strings.Contains(strings.Join(*calls, ","), "remove-existing") {
+		t.Fatalf("ambiguous acknowledgment removed local evidence: %v", *calls)
+	}
+}
+
+func TestRunnerCleanupFailureAfterAcknowledgeRetriesWithoutReupload(t *testing.T) {
+	runner, store, objects, bundles, _ := runnerFixture(t, dirtyState())
+	bundles.removeErr = ErrUnsafeRuntime
+
+	first := runner.Run(context.Background())
+	if first.Code != ResultUnsafeRuntime || bundles.removeCall != 1 {
+		t.Fatalf("first result=%q remove=%d", first.Code, bundles.removeCall)
+	}
+	if store.state.Verified == nil || store.state.Verified.BackupID != runnerBackupIDFixture {
+		t.Fatalf("verified state = %#v", store.state.Verified)
+	}
+	if objects.putCalls != 1 || objects.getCalls != 1 {
+		t.Fatalf("first object calls put=%d get=%d", objects.putCalls, objects.getCalls)
+	}
+
+	bundles.removeErr = nil
+	second := runner.Run(context.Background())
+	if second.Code != ResultNoop || bundles.removeCall != 2 {
+		t.Fatalf("second result=%q remove=%d", second.Code, bundles.removeCall)
+	}
+	if objects.putCalls != 1 || objects.getCalls != 1 {
+		t.Fatalf("cleanup retry repeated object work: put=%d get=%d", objects.putCalls, objects.getCalls)
+	}
+}
+
+func TestRunnerNoActiveVerifiedRetryRemovesBeforeNoop(t *testing.T) {
+	state := dirtyState()
+	state.VerifiedGeneration = state.DirtyGeneration
+	state.Phase = controlplane.BackupRPOPhaseVerified
+	state.Verified = &controlplane.BackupRPOVerified{BackupID: strings.Repeat("2", 32)}
+	runner, _, objects, bundles, calls := runnerFixture(t, state)
+
+	result := runner.Run(context.Background())
+
+	if result.Code != ResultNoop || bundles.removeCall != 1 {
+		t.Fatalf("result=%q remove=%d", result.Code, bundles.removeCall)
+	}
+	if objects.putCalls != 0 || objects.getCalls != 0 || bundles.createCall != 0 || bundles.openCall != 0 {
+		t.Fatalf("cleanup retry performed object work")
+	}
+	if got := strings.Join(*calls, ","); got != "capability,current,acquire,cycle,remove-existing" {
+		t.Fatalf("calls = %s", got)
+	}
+}
+
+func TestRunnerNoActiveDirtyRemovesVerifiedBeforeCreate(t *testing.T) {
+	state := dirtyState()
+	state.Verified = &controlplane.BackupRPOVerified{BackupID: strings.Repeat("4", 32)}
+	runner, _, _, bundles, calls := runnerFixture(t, state)
+	runner.Config.MaxTransitions = 1
+
+	_ = runner.Run(context.Background())
+
+	if bundles.removeCall != 1 || bundles.createCall != 1 {
+		t.Fatalf("remove=%d create=%d", bundles.removeCall, bundles.createCall)
+	}
+	if got := strings.Join(*calls, ","); got != "capability,current,acquire,cycle,remove-existing,create,register" {
+		t.Fatalf("calls = %s", got)
+	}
+}
+
+func TestRunnerVerifiedCleanupFailureReturnsUnsafeAndRetries(t *testing.T) {
+	state := dirtyState()
+	state.VerifiedGeneration = state.DirtyGeneration
+	state.Phase = controlplane.BackupRPOPhaseVerified
+	state.Verified = &controlplane.BackupRPOVerified{BackupID: strings.Repeat("5", 32)}
+	runner, _, objects, bundles, _ := runnerFixture(t, state)
+	bundles.removeErr = ErrUnsafeRuntime
+
+	first := runner.Run(context.Background())
+	if first.Code != ResultUnsafeRuntime || bundles.removeCall != 1 {
+		t.Fatalf("first result=%q remove=%d", first.Code, bundles.removeCall)
+	}
+	bundles.removeErr = nil
+	second := runner.Run(context.Background())
+	if second.Code != ResultNoop || bundles.removeCall != 2 {
+		t.Fatalf("second result=%q remove=%d", second.Code, bundles.removeCall)
+	}
+	if objects.putCalls != 0 || objects.getCalls != 0 || bundles.createCall != 0 || bundles.openCall != 0 {
+		t.Fatalf("cleanup retry performed object work")
 	}
 }
 

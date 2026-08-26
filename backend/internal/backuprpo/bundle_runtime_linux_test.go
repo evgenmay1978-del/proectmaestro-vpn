@@ -72,6 +72,156 @@ func createLinuxCandidate(t *testing.T, runtime bundleRuntime, request BundleReq
 	return task
 }
 
+func TestLinuxDirectoryNamesUsesIndependentCursor(t *testing.T) {
+	_, runtime, request := linuxRuntimeFixture(t)
+	task := createLinuxCandidate(t, runtime, request, []byte("encrypted-bundle"))
+	directory, err := os.Open(filepath.Dir(task.OutputPath()))
+	if err != nil {
+		t.Fatalf("open task directory: %v", err)
+	}
+	defer directory.Close()
+
+	first, firstErr := linuxDirectoryNames(int(directory.Fd()))
+	second, secondErr := linuxDirectoryNames(int(directory.Fd()))
+	if firstErr != nil || secondErr != nil {
+		t.Fatalf("directory reads: first=%v second=%v", firstErr, secondErr)
+	}
+	for name, names := range map[string][]string{"first": first, "second": second} {
+		if !exactLinuxNames(names, bundleOwnerMarker, bundleOutputName) {
+			t.Fatalf("%s names=%v", name, names)
+		}
+	}
+}
+
+func TestLinuxBundleRuntimeRemoveExistingCleansAndIsIdempotent(t *testing.T) {
+	root, runtime, request := linuxRuntimeFixture(t)
+	task := createLinuxCandidate(t, runtime, request, []byte("encrypted-bundle"))
+	taskPath := filepath.Dir(task.OutputPath())
+	cleanupPath := filepath.Join(root, ".cleanup-"+request.BackupID)
+
+	if err := runtime.RemoveExisting(request.BackupID); err != nil {
+		t.Fatalf("RemoveExisting: %v", err)
+	}
+	for _, path := range []string{taskPath, cleanupPath} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("path %q survived: %v", path, err)
+		}
+	}
+	if err := runtime.RemoveExisting(request.BackupID); err != nil {
+		t.Fatalf("idempotent RemoveExisting: %v", err)
+	}
+}
+
+func TestLinuxBundleRuntimeRemoveExistingResumesQuarantineResidues(t *testing.T) {
+	for _, residue := range []string{"full", "marker-only", "empty"} {
+		t.Run(residue, func(t *testing.T) {
+			root, runtime, request := linuxRuntimeFixture(t)
+			task := createLinuxCandidate(t, runtime, request, []byte("encrypted-bundle"))
+			taskPath := filepath.Dir(task.OutputPath())
+			cleanupPath := filepath.Join(root, ".cleanup-"+request.BackupID)
+			if err := os.Rename(taskPath, cleanupPath); err != nil {
+				t.Fatalf("quarantine: %v", err)
+			}
+			if residue == "marker-only" || residue == "empty" {
+				if err := os.Remove(filepath.Join(cleanupPath, bundleOutputName)); err != nil {
+					t.Fatalf("remove bundle residue: %v", err)
+				}
+			}
+			if residue == "empty" {
+				if err := os.Remove(filepath.Join(cleanupPath, bundleOwnerMarker)); err != nil {
+					t.Fatalf("remove marker residue: %v", err)
+				}
+			}
+
+			if err := runtime.RemoveExisting(request.BackupID); err != nil {
+				t.Fatalf("RemoveExisting residue %s: %v", residue, err)
+			}
+			if _, err := os.Lstat(cleanupPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("cleanup residue survived: %v", err)
+			}
+		})
+	}
+}
+
+func TestLinuxBundleRuntimeRemoveExistingRejectsUnsafeEvidence(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string, string, string, preparedTask)
+	}{
+		{"source and quarantine", func(t *testing.T, _, cleanupPath, _ string, _ preparedTask) {
+			if err := os.Mkdir(cleanupPath, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"bundle only", func(t *testing.T, _, _, taskPath string, _ preparedTask) {
+			if err := os.Remove(filepath.Join(taskPath, bundleOwnerMarker)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"wrong marker", func(t *testing.T, _, _, taskPath string, _ preparedTask) {
+			if err := os.WriteFile(filepath.Join(taskPath, bundleOwnerMarker), []byte(strings.Repeat("f", 32)+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"unexpected file", func(t *testing.T, _, _, taskPath string, _ preparedTask) {
+			if err := os.WriteFile(filepath.Join(taskPath, "unexpected"), []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"symlink bundle", func(t *testing.T, root, _ string, taskPath string, task preparedTask) {
+			target := filepath.Join(root, "held-bundle")
+			if err := os.Rename(task.OutputPath(), target); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(taskPath, bundleOutputName)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"hard linked bundle", func(t *testing.T, root, _ string, _ string, task preparedTask) {
+			if err := os.Link(task.OutputPath(), filepath.Join(root, "outside-link")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"group readable bundle", func(t *testing.T, _, _ string, _ string, task preparedTask) {
+			if err := os.Chmod(task.OutputPath(), 0o640); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"group readable task", func(t *testing.T, _, _, taskPath string, _ preparedTask) {
+			if err := os.Chmod(taskPath, 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"quarantine bundle only", func(t *testing.T, _, cleanupPath, taskPath string, _ preparedTask) {
+			if err := os.Rename(taskPath, cleanupPath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(cleanupPath, bundleOwnerMarker)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, runtime, request := linuxRuntimeFixture(t)
+			task := createLinuxCandidate(t, runtime, request, []byte("encrypted-bundle"))
+			taskPath := filepath.Dir(task.OutputPath())
+			cleanupPath := filepath.Join(root, ".cleanup-"+request.BackupID)
+			test.mutate(t, root, cleanupPath, taskPath, task)
+
+			err := runtime.RemoveExisting(request.BackupID)
+			if !errors.Is(err, ErrUnsafeRuntime) || strings.Contains(err.Error(), root) {
+				t.Fatalf("error=%q", err)
+			}
+			_, sourceErr := os.Lstat(taskPath)
+			_, cleanupErr := os.Lstat(cleanupPath)
+			if errors.Is(sourceErr, os.ErrNotExist) && errors.Is(cleanupErr, os.ErrNotExist) {
+				t.Fatal("unsafe evidence was deleted")
+			}
+		})
+	}
+}
+
 func TestLinuxBundleRuntimePinsDescriptorAcrossPathReplacement(t *testing.T) {
 	_, runtime, request := linuxRuntimeFixture(t)
 	task := createLinuxCandidate(t, runtime, request, []byte("original-encrypted-bundle"))
