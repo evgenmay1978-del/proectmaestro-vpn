@@ -605,9 +605,13 @@ PY
 
 verification_stage="P80"
 result="$work/verify-result.json"
-assert_worker_gpg_home_identity
+if [[ "$worker" -eq 1 ]]; then
+  assert_worker_gpg_home_identity
+fi
 "${verify_command[@]}" verify   --directory "$verify" --signer "$signer" --gpg-home "$gpg_home"   --gpg-executable "$verify_gpg_executable"   >"$result" 2>/dev/null || fail
-assert_worker_gpg_home_identity
+if [[ "$worker" -eq 1 ]]; then
+  assert_worker_gpg_home_identity
+fi
 verification_stage="P90"
 "${python_command[@]}" - "$result" "$metadata" "$manifest" "$worker" "$restore_epoch" <<'PY' || fail
 import json

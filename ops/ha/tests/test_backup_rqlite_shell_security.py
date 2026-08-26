@@ -152,6 +152,22 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         )
         self.assertNotIn('GNUPGHOME=/proc/self/fd/7', self.full_worker_e2e)
 
+    def test_common_verifier_checks_gpg_home_identity_only_for_worker(self):
+        p80_start = self.common.index('verification_stage="P80"')
+        p90_start = self.common.index('verification_stage="P90"', p80_start)
+        p80 = self.common[p80_start:p90_start]
+        guarded_check = (
+            'if [[ "$worker" -eq 1 ]]; then\n'
+            '  assert_worker_gpg_home_identity\n'
+            'fi'
+        )
+        verifier = '"${verify_command[@]}" verify '
+
+        self.assertEqual(p80.count('assert_worker_gpg_home_identity'), 2)
+        self.assertEqual(p80.count(guarded_check), 2)
+        self.assertLess(p80.index(guarded_check), p80.index(verifier))
+        self.assertGreater(p80.rindex(guarded_check), p80.index(verifier))
+
     def test_publish_device_check_dereferences_pinned_task_directory(self):
         self.assertIn(
             '[[ "$(stat -Lc \'%d\' "$work")" == '
