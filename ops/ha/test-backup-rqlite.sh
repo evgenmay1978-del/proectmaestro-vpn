@@ -202,16 +202,27 @@ db.close()
 os.chmod(path, 0o600)
 PY
 
+worker_creator="$sandbox/backup-rqlite-worker"
+install -m 0700 -- "$CREATOR" "$worker_creator"
+[[ -f "$worker_creator" && ! -L "$worker_creator" &&
+  "$(stat -c '%a' "$worker_creator")" == "700" &&
+  "$(stat -c '%u' "$worker_creator")" == "$(id -u)" &&
+  "$(stat -c '%g' "$worker_creator")" == "$(id -g)" &&
+  "$(stat -c '%h' "$worker_creator")" == "1" ]] ||
+  fail "worker creator install fixture is unsafe"
 worker_commit="$(git -C "$ROOT" rev-parse HEAD)"
 run_worker() {
   local task="$1" id="$2" epoch="$3"
   local gpg_binary python_binary
-  local image="$task/control-plane.sqlite3"
-  local candidate="$task/backup.bundle"
   local key="private/cluster-a/g-${worker_generation}/a-${attempt_sequence}-${id}.tar.gpg"
+  [[ "$task" == "$sandbox/task-$id" ]] || fail "worker task is outside pinned runtime"
   gpg_binary="$(realpath -e -- "$(command -v gpg)")" || fail "gpg executable is unavailable"
   python_binary="$(realpath -e -- "$(command -v python3)")" || fail "python3 executable is unavailable"
   (
+    exec 3<"$sandbox"
+    exec 4<"$worker_creator"
+    exec 5<"$ROOT/ops/ha/verify_backup.py"
+    exec 6<"$keys"
     exec 7<"$gpg_home"
     exec 8<"$gpg_binary"
     exec 9<"$python_binary"
@@ -221,14 +232,15 @@ run_worker() {
       MAESTRO_BACKUP_PYTHON=/proc/self/fd/9 \
       MAESTRO_BACKUP_COMMIT_SHA="$worker_commit" \
       MAESTRO_BACKUP_RUN_ID=654321 \
-      bash "$CREATOR" --worker \
-        --image "$image" --keys "$keys" --output "$candidate" \
+      "/proc/self/fd/4" --worker \
+        --image "/proc/self/fd/3/task-$id/control-plane.sqlite3" \
+        --keys /proc/self/fd/6 --output "/proc/self/fd/3/task-$id/backup.bundle" \
         --signer "${fingerprints[0]}" --recipient "${fingerprints[1]}" \
         --manifest-version 2 --backup-id "$id" \
         --attempt-sequence "$attempt_sequence" \
         --captured-generation "$worker_generation" \
         --restore-epoch "$epoch" --lease-fence "$lease_fence" \
-        --object-key "$key" --verify-script "$ROOT/ops/ha/verify_backup.py"
+        --object-key "$key" --verify-script /proc/self/fd/5
   )
 }
 

@@ -4,6 +4,7 @@ import unittest
 
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "backup-rqlite.sh"
+FULL_E2E = pathlib.Path(__file__).resolve().parents[1] / "test-backup-rqlite.sh"
 
 
 class BackupRqliteShellSecurityTests(unittest.TestCase):
@@ -19,6 +20,12 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         cls.drill = cls.source[
             cls.source.index('if [[ "$drill" -eq 1 ]]; then') : cls.worker_start
         ]
+        cls.full_e2e_source = FULL_E2E.read_text(encoding="utf-8")
+        full_worker_start = cls.full_e2e_source.index("run_worker() {")
+        full_worker_end = cls.full_e2e_source.index(
+            "\n}\n\nrun_worker ", full_worker_start
+        )
+        cls.full_worker_e2e = cls.full_e2e_source[full_worker_start:full_worker_end]
 
     def test_worker_uses_exact_pinned_python_and_gpg_descriptors(self):
         self.assertIn('worker_gpg="${MAESTRO_BACKUP_GPG:-}"', self.worker)
@@ -75,6 +82,34 @@ class BackupRqliteShellSecurityTests(unittest.TestCase):
         )
         self.assertIn('[[ "$task_identity" == "$(stat -Lc ', self.worker)
         self.assertIn('"$task_dir")" ]] || fail', self.worker)
+
+    def test_full_worker_e2e_invokes_actual_creator_with_fd3_through_fd9(self):
+        for token in (
+            'exec 3<"$sandbox"',
+            'exec 4<"$worker_creator"',
+            'exec 5<"$ROOT/ops/ha/verify_backup.py"',
+            'exec 6<"$keys"',
+            'exec 7<"$gpg_home"',
+            'exec 8<"$gpg_binary"',
+            'exec 9<"$python_binary"',
+            'GNUPGHOME=/proc/self/fd/7',
+            'MAESTRO_BACKUP_GPG=/proc/self/fd/8',
+            'MAESTRO_BACKUP_PYTHON=/proc/self/fd/9',
+            '"/proc/self/fd/4" --worker',
+            '--image "/proc/self/fd/3/task-$id/control-plane.sqlite3"',
+            '--keys /proc/self/fd/6',
+            '--output "/proc/self/fd/3/task-$id/backup.bundle"',
+            '--verify-script /proc/self/fd/5',
+        ):
+            self.assertIn(token, self.full_worker_e2e)
+        self.assertNotIn('bash "$CREATOR" --worker', self.full_worker_e2e)
+        self.assertIn(
+            'worker_creator="$sandbox/backup-rqlite-worker"', self.full_e2e_source
+        )
+        self.assertIn(
+            'install -m 0700 -- "$CREATOR" "$worker_creator"',
+            self.full_e2e_source,
+        )
 
     def test_worker_gpg_is_offline_and_all_common_calls_are_indirect(self):
         self.assertIn(
