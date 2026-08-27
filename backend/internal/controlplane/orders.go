@@ -304,16 +304,16 @@ VALUES(?,'confirm',?,?,?,'payment_confirmed',?,'applying',NULL,unixepoch(),NULL)
 			Args: []any{"order:" + command.OrderID, command.IdempotencyKey, requestHash, command.OrderID, operationID},
 		}, {
 			SQL: `INSERT INTO payments(payment_id,order_id,provider,provider_event_id,receipt_ref,amount_minor,currency,confirmed_at_unix)
-SELECT ?,o.order_id,?,NULL,?,o.amount_minor,o.currency,unixepoch() FROM orders o
+SELECT ?,o.order_id,?,NULL,?,o.amount_minor,o.currency,? FROM orders o
 WHERE o.order_id=? AND o.tariff_version_id=? AND o.payment_state='payment_claimed' AND o.decision IS NULL`,
-			Args: []any{paymentID, provider, command.PaymentReference, command.OrderID, command.TariffVersionID},
+			Args: []any{paymentID, provider, command.PaymentReference, prepared.DBNow, command.OrderID, command.TariffVersionID},
 		}, {
 			SQL: `UPDATE orders SET payment_state='confirmed',provisioning_state='pending',decision='confirmed',
-confirmed_at_unix=unixepoch(),result_expires_at_unix=?,result_generation=?,operation_id=?
+confirmed_at_unix=?,result_expires_at_unix=?,result_generation=?,operation_id=?
 WHERE order_id=? AND tariff_version_id=? AND payment_state='payment_claimed' AND decision IS NULL
 AND EXISTS(SELECT 1 FROM idempotency_requests WHERE scope=? AND command_type='confirm'
 AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying')`,
-			Args: []any{result.ExpiresAtUnix, result.Generation, operationID, command.OrderID, command.TariffVersionID,
+			Args: []any{prepared.DBNow, result.ExpiresAtUnix, result.Generation, operationID, command.OrderID, command.TariffVersionID,
 				"order:" + command.OrderID, command.IdempotencyKey, requestHash, operationID},
 		}, {
 			SQL: `UPDATE customers SET status='active',expires_at_unix=?,generation=?,updated_at_unix=unixepoch()
