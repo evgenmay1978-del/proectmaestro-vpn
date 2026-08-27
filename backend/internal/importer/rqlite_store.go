@@ -1383,8 +1383,8 @@ func (s *RQLiteApplyStore) orderStatements(batch ApplyBatch, operation ApplyOper
 		paymentState = "confirmed"
 	}
 	provisioningState := order.ProvisioningState
-	if provisioningState == "paid" {
-		provisioningState = "applied"
+	if provisioningState == "paid" || provisioningState == "applied" {
+		provisioningState = "ready"
 	}
 	var customerID any
 	if order.CustomerInternalID != "" {
@@ -1397,22 +1397,29 @@ func (s *RQLiteApplyStore) orderStatements(batch ApplyBatch, operation ApplyOper
 	if order.ResultGeneration > 0 {
 		resultGeneration = order.ResultGeneration
 	}
+	var decision, confirmedAt any
+	if paymentState == "confirmed" {
+		decision = "confirmed"
+		confirmedAt = order.CreatedAtUnix
+	}
 	operationID := sha256Hex([]byte("import-order-operation\x00" + order.InternalID))
 	args := []any{
 		order.InternalID, order.PaymentCode, order.BuyerScope, order.BuyerKeyHMAC,
 		customerID, order.TariffVersionID, order.AmountMinor, order.Currency,
 		order.DurationDays, order.CreatedAtUnix, order.ExpiresAtUnix,
-		paymentState, provisioningState, resultExpiry, resultGeneration, operationID,
+		paymentState, provisioningState, decision, confirmedAt, resultExpiry, resultGeneration, operationID,
 	}
 	args = append(args, batchGateArgs(batch)...)
 	return []rqlite.Statement{{
 		SQL: `INSERT INTO orders(
     order_id,payment_code,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
     amount_minor,currency,duration_days,created_at_unix,expires_at_unix,
-    payment_state,provisioning_state,result_expires_at_unix,result_generation,operation_id
-) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+    payment_state,provisioning_state,decision,confirmed_at_unix,
+    result_expires_at_unix,result_generation,operation_id
+) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
 ON CONFLICT(order_id) DO UPDATE SET
     payment_state=excluded.payment_state,provisioning_state=excluded.provisioning_state,
+    decision=excluded.decision,confirmed_at_unix=excluded.confirmed_at_unix,
     result_expires_at_unix=excluded.result_expires_at_unix,
     result_generation=excluded.result_generation`,
 		Args: args,

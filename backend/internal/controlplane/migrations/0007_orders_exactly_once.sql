@@ -22,6 +22,9 @@ DROP TRIGGER terminal_order_releases_guards
 DROP TRIGGER payments_match_order
 
 -- maestro:statement
+DROP TRIGGER idempotency_applied_resource
+
+-- maestro:statement
 ALTER TABLE active_order_guards RENAME TO active_order_guards_v1
 
 -- maestro:statement
@@ -43,8 +46,8 @@ CREATE TABLE orders (
     duration_days INTEGER NOT NULL CHECK(duration_days > 0),
     created_at_unix INTEGER NOT NULL CHECK(created_at_unix >= 0),
     expires_at_unix INTEGER NOT NULL CHECK(expires_at_unix = created_at_unix + 86400),
-    payment_state TEXT NOT NULL CHECK(payment_state IN ('created','payment_claimed','confirmed','canceled','expired')),
-    provisioning_state TEXT NOT NULL CHECK(provisioning_state IN ('none','pending','ready','degraded','failed')),
+    payment_state TEXT NOT NULL CHECK(payment_state IN ('created','payment_claimed','confirmed','canceled','expired','pending','claimed','rejected')),
+    provisioning_state TEXT NOT NULL CHECK(provisioning_state IN ('none','pending','ready','degraded','failed','applied')),
     decision TEXT CHECK(decision IN ('confirmed','rejected','expired','cancelled')),
     confirmed_at_unix INTEGER,
     result_expires_at_unix INTEGER,
@@ -139,6 +142,25 @@ DROP TABLE payments_v1
 DROP TABLE orders_v1
 
 -- maestro:statement
+CREATE TRIGGER idempotency_applied_resource
+BEFORE INSERT ON idempotency_requests
+WHEN NEW.status = 'applied' AND (
+    NEW.response_json IS NULL OR
+    (NEW.decision = 'payment_confirmed' AND NOT EXISTS (
+        SELECT 1 FROM payments WHERE payment_id = NEW.resource_id
+    )) OR
+    (NEW.decision = 'customer_desired' AND NOT EXISTS (
+        SELECT 1 FROM customers WHERE customer_id = NEW.resource_id
+    )) OR
+    (NEW.decision = 'outbox_applied' AND NOT EXISTS (
+        SELECT 1 FROM outbox_events WHERE event_id = NEW.resource_id
+    ))
+)
+BEGIN
+    SELECT RAISE(ABORT, 'applied idempotency result is not durable');
+END
+
+-- maestro:statement
 ALTER TABLE operations ADD COLUMN lease_holder_id TEXT
 
 -- maestro:statement
@@ -159,7 +181,9 @@ BEFORE UPDATE OF payment_state ON orders
 WHEN NOT (
     NEW.payment_state = OLD.payment_state OR
     (OLD.payment_state = 'created' AND NEW.payment_state IN ('payment_claimed','confirmed','canceled','expired')) OR
-    (OLD.payment_state = 'payment_claimed' AND NEW.payment_state IN ('confirmed','canceled'))
+    (OLD.payment_state = 'payment_claimed' AND NEW.payment_state IN ('confirmed','canceled')) OR
+    (OLD.payment_state = 'pending' AND NEW.payment_state IN ('claimed','confirmed','rejected')) OR
+    (OLD.payment_state = 'claimed' AND NEW.payment_state IN ('confirmed','rejected'))
 )
 BEGIN
     SELECT RAISE(ABORT, 'invalid payment transition');
@@ -171,7 +195,7 @@ BEFORE UPDATE OF provisioning_state ON orders
 WHEN NOT (
     NEW.provisioning_state = OLD.provisioning_state OR
     (OLD.provisioning_state = 'none' AND NEW.provisioning_state = 'pending') OR
-    (OLD.provisioning_state = 'pending' AND NEW.provisioning_state IN ('ready','degraded','failed')) OR
+    (OLD.provisioning_state = 'pending' AND NEW.provisioning_state IN ('applied','ready','degraded','failed')) OR
     (OLD.provisioning_state IN ('degraded','failed') AND NEW.provisioning_state = 'pending')
 )
 BEGIN
@@ -182,7 +206,7 @@ END
 CREATE TRIGGER orders_decision_consistency
 BEFORE UPDATE OF decision ON orders
 WHEN NEW.decision IS NOT NULL AND (
-    OLD.decision IS NOT NULL OR
+    (OLD.decision IS NOT NULL AND NEW.decision <> OLD.decision) OR
     (NEW.decision = 'confirmed' AND NEW.payment_state <> 'confirmed') OR
     (NEW.decision = 'cancelled' AND NEW.payment_state <> 'canceled') OR
     (NEW.decision = 'expired' AND NEW.payment_state <> 'expired')
@@ -200,8 +224,8 @@ WHEN NOT EXISTS (
       AND buyer_scope = NEW.buyer_scope
       AND buyer_key_hmac = NEW.buyer_key_hmac
       AND (
-          payment_state = 'payment_claimed' OR
-          (payment_state = 'created' AND expires_at_unix > NEW.created_at_unix)
+          payment_state IN ('payment_claimed','claimed') OR
+          (payment_state IN ('created','pending') AND expires_at_unix > NEW.created_at_unix)
       )
 )
 BEGIN
@@ -211,7 +235,8 @@ END
 -- maestro:statement
 CREATE TRIGGER terminal_order_releases_guards
 AFTER UPDATE OF payment_state ON orders
-WHEN OLD.payment_state IN ('created','payment_claimed') AND NEW.payment_state IN ('confirmed','canceled','expired')
+WHEN (OLD.payment_state IN ('created','payment_claimed') AND NEW.payment_state IN ('confirmed','canceled','expired'))
+  OR (OLD.payment_state IN ('pending','claimed') AND NEW.payment_state IN ('confirmed','rejected'))
 BEGIN
     DELETE FROM active_order_guards WHERE order_id = NEW.order_id;
 END

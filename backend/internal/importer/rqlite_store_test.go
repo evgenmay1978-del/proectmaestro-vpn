@@ -198,10 +198,14 @@ func TestRQLiteApplyStoreCommitsCanonicalRowsAndReceiptAtomically(t *testing.T) 
 	if request.level != rqlite.Linearizable || !request.transaction {
 		t.Fatalf("write request is not one linearizable transaction: %#v", request)
 	}
+	var orderStatement *rqlite.Statement
 	var sqlText strings.Builder
-	for _, statement := range request.statements {
+	for index, statement := range request.statements {
 		sqlText.WriteString(statement.SQL)
 		sqlText.WriteByte('\n')
+		if strings.Contains(strings.ToLower(statement.SQL), "insert into orders(") {
+			orderStatement = &request.statements[index]
+		}
 	}
 	gotSQL := strings.ToLower(sqlText.String())
 	for _, required := range []string{
@@ -216,6 +220,16 @@ func TestRQLiteApplyStoreCommitsCanonicalRowsAndReceiptAtomically(t *testing.T) 
 		if strings.Contains(gotSQL, forbidden) {
 			t.Fatalf("transaction used generic staging %q:\n%s", forbidden, gotSQL)
 		}
+	}
+	if orderStatement == nil {
+		t.Fatal("canonical order statement missing")
+	}
+	orderSQL := strings.ToLower(orderStatement.SQL)
+	if !strings.Contains(orderSQL, "payment_state,provisioning_state,decision,confirmed_at_unix") || len(orderStatement.Args) < 21 {
+		t.Fatalf("Task 7 canonical order fields missing: %#v", orderStatement)
+	}
+	if got, want := fmt.Sprint(orderStatement.Args[11:17]), "[confirmed pending confirmed 1000000 2200000 9]"; got != want {
+		t.Fatalf("Task 7 canonical order args=%s, want %s", got, want)
 	}
 }
 

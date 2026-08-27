@@ -677,7 +677,9 @@ func TestStaleSweeperFenceCannotExpireAfterLeaseHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first lease: %v", err)
 	}
-	task7Request(t, db, rqlite.Statement{SQL: "UPDATE cluster_job_leases SET expires_at_unix=unixepoch()-1 WHERE job_name='expiry-sweeper'"})
+	task7Request(t, db, rqlite.Statement{SQL: `UPDATE cluster_job_leases
+SET acquired_at_unix=unixepoch()-2,expires_at_unix=unixepoch()-1
+WHERE job_name='expiry-sweeper'`})
 	second, err := service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: "new-worker"})
 	if err != nil || second.LeaseFence <= first.LeaseFence {
 		t.Fatalf("handoff=%#v err=%v first=%#v", second, err, first)

@@ -326,6 +326,43 @@ func requireV7MigrationRequest(t *testing.T, call recordedCall, migration migrat
 		!strings.Contains(sql, "task7_expiry_operation_fence") {
 		t.Fatalf("v7 migration transaction=%s", sql)
 	}
+	statementIndex := func(needle string) int {
+		for index, statement := range call.statements {
+			if strings.Contains(strings.ToLower(statement.SQL), needle) {
+				return index
+			}
+		}
+		return -1
+	}
+	dropGuard := statementIndex("drop trigger idempotency_applied_resource")
+	renamePayments := statementIndex("alter table payments rename to payments_v1")
+	dropOldPayments := statementIndex("drop table payments_v1")
+	recreateGuard := statementIndex("create trigger idempotency_applied_resource")
+	if dropGuard < 0 || renamePayments < 0 || dropOldPayments < 0 || recreateGuard < 0 ||
+		!(dropGuard < renamePayments && dropOldPayments < recreateGuard) {
+		t.Fatalf("v7 does not transactionally preserve the durable payment replay guard: %s", sql)
+	}
+	ordersTable := ""
+	for _, statement := range call.statements {
+		candidate := strings.ToLower(statement.SQL)
+		if strings.HasPrefix(strings.TrimSpace(candidate), "create table orders (") {
+			ordersTable = candidate
+			break
+		}
+	}
+	if ordersTable == "" {
+		t.Fatal("v7 orders table definition missing")
+	}
+	for _, legacyState := range []string{"'pending'", "'claimed'", "'rejected'", "'applied'"} {
+		if !strings.Contains(ordersTable, legacyState) {
+			t.Fatalf("v7 orders table dropped legacy state %s: %s", legacyState, ordersTable)
+		}
+	}
+	for _, task7State := range []string{"'created'", "'payment_claimed'", "'canceled'", "'expired'", "'ready'", "'degraded'"} {
+		if !strings.Contains(ordersTable, task7State) {
+			t.Fatalf("v7 orders table missing Task 7 state %s: %s", task7State, ordersTable)
+		}
+	}
 	last := call.statements[len(call.statements)-1]
 	if len(last.Args) != 3 || fmt.Sprint(last.Args[0]) != "7" ||
 		fmt.Sprint(last.Args[1]) != migration.Checksum {

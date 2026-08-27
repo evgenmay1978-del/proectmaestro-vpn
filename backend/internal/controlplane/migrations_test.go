@@ -116,6 +116,62 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 	}
 }
 
+func TestTask7MigrationPreservesDurablePaymentReplayGuard(t *testing.T) {
+	db := mustIntegrationRQLite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	const (
+		customerID = "task7-migration-sentinel-customer"
+		orderID    = "task7-migration-sentinel-order"
+		paymentID  = "task7-migration-sentinel-payment"
+	)
+	_, err := db.Request(ctx, rqlite.Linearizable, true,
+		rqlite.Statement{SQL: `INSERT INTO customers(
+customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
+VALUES(?,?,?,'active',2000000,1,1000000,1000000)`, Args: []any{customerID, customerID, strings.Repeat("a", 64)}},
+		rqlite.Statement{SQL: `INSERT INTO orders(
+order_id,payment_code,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
+amount_minor,currency,duration_days,created_at_unix,expires_at_unix,payment_state,
+provisioning_state,decision,confirmed_at_unix,result_expires_at_unix,result_generation,operation_id)
+VALUES(?,?,?, ?,?,'tariff_1m_v1',40000,'RUB',30,1000000,1086400,'confirmed',
+'ready','confirmed',1000100,2000000,1,?)`, Args: []any{orderID, "T7MIG", "migration", strings.Repeat("b", 64), customerID, "task7-migration-sentinel-order-op"}},
+		rqlite.Statement{SQL: `INSERT INTO payments(
+payment_id,order_id,provider,provider_event_id,receipt_ref,amount_minor,currency,confirmed_at_unix)
+VALUES(?,?,'migration',NULL,NULL,40000,'RUB',1000100)`, Args: []any{paymentID, orderID}},
+		rqlite.Statement{SQL: `INSERT INTO idempotency_requests(
+scope,command_type,idempotency_key,request_hash,resource_id,decision,operation_id,status,
+response_json,created_at_unix,applied_at_unix)
+VALUES('migration','legacy-payment','sentinel',?,?, 'payment_confirmed',?,'applied','{}',1000100,1000100)`,
+			Args: []any{strings.Repeat("c", 64), paymentID, "task7-migration-sentinel-replay-op"}},
+	)
+	if err != nil {
+		t.Fatalf("insert durable replay sentinel: %v", err)
+	}
+	if err := NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatalf("replay Apply: %v", err)
+	}
+	results, err := db.QueryStrong(ctx,
+		rqlite.Statement{SQL: `SELECT sql FROM sqlite_master
+WHERE type='trigger' AND name='idempotency_applied_resource'`},
+		rqlite.Statement{SQL: `SELECT COUNT(*) AS n FROM idempotency_requests
+WHERE scope='migration' AND command_type='legacy-payment' AND idempotency_key='sentinel'`},
+	)
+	if err != nil || len(results) != 2 || len(results[0].Rows) != 1 || len(results[1].Rows) != 1 {
+		t.Fatalf("query replay guard/sentinel: results=%#v err=%v", results, err)
+	}
+	triggerSQL, ok := results[0].Rows[0]["sql"].(string)
+	if !ok || !strings.Contains(triggerSQL, "FROM payments WHERE") || strings.Contains(triggerSQL, "payments_v1") {
+		t.Fatalf("durable replay trigger targets wrong table: %q", triggerSQL)
+	}
+	count, ok := rowInt64(results[1].Rows[0], "n")
+	if !ok || count != 1 {
+		t.Fatalf("durable replay sentinel count=%#v", results[1].Rows[0]["n"])
+	}
+}
+
 func mustIntegrationRQLite(t *testing.T) rqlite.RQLite {
 	t.Helper()
 	db, err := rqlite.New(rqlite.Config{
@@ -131,7 +187,6 @@ func mustIntegrationRQLite(t *testing.T) rqlite.RQLite {
 	}
 	return db
 }
-
 
 func TestVerifyIdentityReturnsExactCommittedVersionAndChecksum(t *testing.T) {
 	db := mustIntegrationRQLite(t)
@@ -163,7 +218,7 @@ func TestVerifyIdentityRejectsChangedChecksumWithoutApplying(t *testing.T) {
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
 			resultsScript(
 				rqlite.Result{Rows: []map[string]any{{
-					"version": int64(SchemaVersion),
+					"version":  int64(SchemaVersion),
 					"checksum": strings.Repeat("0", 64),
 				}}},
 				rqlite.Result{Rows: nil},
