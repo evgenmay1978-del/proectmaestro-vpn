@@ -518,10 +518,7 @@ func TestRunnerCleanupFailureAfterAcknowledgeRetriesWithoutReupload(t *testing.T
 }
 
 func TestRunnerNoActiveVerifiedRetryRemovesBeforeNoop(t *testing.T) {
-	state := dirtyState()
-	state.VerifiedGeneration = state.DirtyGeneration
-	state.Phase = controlplane.BackupRPOPhaseVerified
-	state.Verified = &controlplane.BackupRPOVerified{BackupID: strings.Repeat("2", 32)}
+	state := verifiedState(3599)
 	runner, _, objects, bundles, calls := runnerFixture(t, state)
 
 	result := runner.Run(context.Background())
@@ -554,10 +551,7 @@ func TestRunnerNoActiveDirtyRemovesVerifiedBeforeCreate(t *testing.T) {
 }
 
 func TestRunnerVerifiedCleanupFailureReturnsUnsafeAndRetries(t *testing.T) {
-	state := dirtyState()
-	state.VerifiedGeneration = state.DirtyGeneration
-	state.Phase = controlplane.BackupRPOPhaseVerified
-	state.Verified = &controlplane.BackupRPOVerified{BackupID: strings.Repeat("5", 32)}
+	state := verifiedState(3599)
 	runner, _, objects, bundles, _ := runnerFixture(t, state)
 	bundles.removeErr = ErrUnsafeRuntime
 
@@ -754,9 +748,7 @@ func TestRunnerCapabilityLossHappensBeforeLeaseOrCapture(t *testing.T) {
 }
 
 func TestRunnerKeepsExternallyIssuedCapabilityExpiryWithoutRestamping(t *testing.T) {
-	state := dirtyState()
-	state.VerifiedGeneration = state.DirtyGeneration
-	state.Phase = controlplane.BackupRPOPhaseVerified
+	state := verifiedState(3599)
 	runner, store, _, _, _ := runnerFixture(t, state)
 	wantExpiry := store.now + 90
 	runner.Config.CapabilityExpiresAtUnix = wantExpiry
