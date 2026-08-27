@@ -428,6 +428,35 @@ class BackupSystemdPolicyTests(unittest.TestCase):
         self.assertIn("os.read(", source)
         self.assertNotIn("path.read_bytes()", source)
 
+    def test_cutover_reader_rejects_hardlinked_evidence(self):
+        policy = load_policy()
+        states = {
+            name: {"active": False, "enabled": False, "masked": True}
+            for name in LEGACY_UNIT_NAMES
+        }
+        safe = {
+            "version": 1,
+            "control_plane_mode": "rqlite",
+            "ha_enable_requested": True,
+            "legacy_units": states,
+        }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence_path = Path(temporary) / "cutover.json"
+            hardlink_path = Path(temporary) / "cutover-hardlink.json"
+            evidence_path.write_text(json.dumps(safe), encoding="utf-8")
+            evidence_path.chmod(0o600)
+            try:
+                os.link(evidence_path, hardlink_path)
+            except OSError as error:
+                self.skipTest(f"hard links are unavailable: {error}")
+
+            with self.assertRaisesRegex(
+                AssertionError,
+                "^backup-systemd-policy:unsafe-cutover$",
+            ):
+                policy.read_cutover_evidence(str(evidence_path))
+
     @unittest.skipUnless(os.name == "posix", "descriptor replacement proof is POSIX-only")
     def test_cutover_reader_pins_original_file_across_path_replacement(self):
         policy = load_policy()

@@ -11,7 +11,13 @@ TRACKED_PLAN_REL = Path('docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.
 ROOT_GOVERNANCE = ('AGENTS.md', 'CONTEXT.md', 'CONTEXT_HANDOFF.md')
 SENSITIVE_KEY = r'(?:authorization|access[_ -]?token|auth[_ -]?token|refresh[_ -]?token|token|password|passwd|secret|client[_ -]?secret|api[_ -]?key|private[_ -]?key|credential)'
 
-PUBLIC_EVIDENCE_HOSTS = frozenset({'github.com', 'githubusercontent.com', 'raw.githubusercontent.com', 'objects.githubusercontent.com'})
+PUBLIC_EVIDENCE_HOSTS = frozenset({
+    'api.github.com',
+    'github.com',
+    'githubusercontent.com',
+    'objects.githubusercontent.com',
+    'raw.githubusercontent.com',
+})
 PEM = re.compile(r'-----BEGIN (?P<label>[A-Z0-9][A-Z0-9 ._+,:/()\-]{0,120})-----[\s\S]*?(?:-----END (?P=label)-----|\Z)')
 JSON_SECRET = re.compile(rf'(?is)(?P<prefix>["\']{SENSITIVE_KEY}["\']\s*:\s*)(?P<quote>["\'])(?:\\.|(?!(?P=quote))[\s\S])*(?P=quote)')
 ASSIGN_SECRET = re.compile(rf'(?im)(?P<prefix>\b{SENSITIVE_KEY}\b\s*[:=]\s*)(?P<value>[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*)')

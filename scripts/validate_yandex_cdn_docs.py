@@ -1,7 +1,9 @@
 import argparse
 import importlib.util
+import io
 import json
 import re
+import tokenize
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +16,8 @@ IPV4 = re.compile(r'(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]
 HOST_PORT = re.compile(r'(?i)(?<![\w.-])(?:localhost|[a-z][a-z0-9-]{1,62}|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}):\d{1,5}\b')
 BARE_HOSTNAME = re.compile(r'(?i)(?<![\w.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|net|org|ru|io|dev|app|cloud|online|site|pro|xyz|me|info|biz|co|test|internal|local|su)(?![\w.-])')
 SECRET_PATTERNS = (
-    re.compile(r'(?im)^\s*["\']?(?:token|password|passwd|secret|client[_ -]?secret|api[_ -]?key|private[_ -]?key|credential)["\']?\s*[:=]\s*["\'][^"\'\r\n]{4,}["\']\s*[,};]?\s*$'),
+    re.compile(r'(?im)(?:^\s*|[;{,]\s*)["\']?(?:token|password|passwd|secret|client[_ -]?secret|api[_ -]?key|private[_ -]?key|credential)["\']?\s*[:=]\s*["\'][^"\'\r\n]{4,}["\']\s*[,}]?(?=\s*(?:;|(?:#|//)[^\r\n]*$|$))'),
+    re.compile(r'(?<![A-Za-z0-9_])(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})(?![A-Za-z0-9_])'),
     re.compile(r'(?im)^\s*(?:authorization\s*[:=]\s*)?bearer\s+[A-Za-z0-9._~+/=\-]{8,}\s*$'),
     re.compile(r'(?im)^\s*-----BEGIN [^\r\n]*PRIVATE KEY[^\r\n]*-----\s*$'),
     re.compile(r'(?im)^\s*(?:(?:[-*]\s*)|(?:(?:url|uri|endpoint|origin)\s*[:=]\s*["\']?))?https?://[^/\s:@]+:[^/\s@]+@[^\r\n]*$'),
@@ -55,14 +58,32 @@ def contains_endpoint_literal(text, renderer):
     return False
 
 
+def python_endpoint_text(value):
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(value).readline)
+        return "\n".join(
+            token.string
+            for token in tokens
+            if token.type in {tokenize.STRING, tokenize.COMMENT}
+        )
+    except (IndentationError, tokenize.TokenError):
+        return value
+
+
+def python_secret_text(value):
+    return value
+
+
 def scan_secrecy(root, docs_root):
     errors = []
     renderer = renderer_module()
     for path in secrecy_paths(Path(root), Path(docs_root)):
         text = path.read_text(encoding='utf8')
+        endpoint_text = text
         if path.suffix.lower() == '.py':
-            text = '\n'.join(line for line in text.splitlines() if 're.compile(' not in line)
-        if any(pattern.search(text) for pattern in SECRET_PATTERNS) or contains_endpoint_literal(text, renderer):
+            text = python_secret_text(text)
+            endpoint_text = python_endpoint_text(endpoint_text)
+        if any(pattern.search(text) for pattern in SECRET_PATTERNS) or contains_endpoint_literal(endpoint_text, renderer):
             errors.append(f'sensitive literal: {path.relative_to(root)}')
     return errors
 

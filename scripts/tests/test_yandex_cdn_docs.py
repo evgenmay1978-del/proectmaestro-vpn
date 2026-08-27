@@ -312,6 +312,93 @@ class SecrecyScanTests(unittest.TestCase):
             self.assertTrue(any('BARE.md' in error for error in errors), errors)
             self.assertFalse(any('PUBLIC.md' in error for error in errors), errors)
 
+    def test_python_attributes_and_public_github_api_are_not_endpoints(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            docs = root / "docs" / "yandex-cdn-whitelist"
+            scripts_dir = root / "scripts"
+            docs.mkdir(parents=True); scripts_dir.mkdir()
+            (root / "AGENTS.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT_HANDOFF.md").write_text("safe\n", encoding="utf8")
+            (docs / "MASTER_REQUIREMENTS.md").write_text("excluded source\n", encoding="utf8")
+            public_api = "https" + "://" + "api.github." + "com"
+            python_source = (
+                "PATTERN = re.compile(\n"
+                "    r'safe'\n"
+                ")\n"
+                "def guard(node):\n"
+                "    return node." + "test\n"
+                f'API = "{public_api}"\n'
+            )
+            (scripts_dir / "tool.py").write_text(python_source, encoding="utf8")
+            errors = validator().scan_secrecy(root, docs)
+            self.assertFalse(any("tool.py" in error for error in errors), errors)
+
+    def test_re_compile_call_cannot_hide_same_line_secret(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            docs = root / "docs" / "yandex-cdn-whitelist"
+            scripts_dir = root / "scripts"
+            docs.mkdir(parents=True); scripts_dir.mkdir()
+            (root / "AGENTS.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT_HANDOFF.md").write_text("safe\n", encoding="utf8")
+            (docs / "MASTER_REQUIREMENTS.md").write_text("excluded source\n", encoding="utf8")
+            secret_key = "to" + "ken"
+            secret_value = "synthetic-secret-value"
+            cases = (
+                ("before", f'{secret_key} = "{secret_value}"; re.compile("safe")\n'),
+                ("after", f're.compile("safe"); {secret_key} = "{secret_value}"\n'),
+            )
+            for label, python_source in cases:
+                with self.subTest(label=label):
+                    (scripts_dir / "tool.py").write_text(python_source, encoding="utf8")
+                    errors = validator().scan_secrecy(root, docs)
+                    self.assertTrue(any("tool.py" in error for error in errors), errors)
+
+    def test_re_compile_call_cannot_hide_secret_argument(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            docs = root / "docs" / "yandex-cdn-whitelist"
+            scripts_dir = root / "scripts"
+            docs.mkdir(parents=True); scripts_dir.mkdir()
+            (root / "AGENTS.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT_HANDOFF.md").write_text("safe\n", encoding="utf8")
+            (docs / "MASTER_REQUIREMENTS.md").write_text("excluded source\n", encoding="utf8")
+            synthetic_token = "github_" + "pat_" + ("A" * 82)
+            python_source = f'LEAK = re.compile("{synthetic_token}")\n'
+            (scripts_dir / "tool.py").write_text(python_source, encoding="utf8")
+
+            errors = validator().scan_secrecy(root, docs)
+
+            self.assertTrue(any("tool.py" in error for error in errors), errors)
+
+    def test_indented_and_commented_secret_assignments_are_scanned(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            docs = root / "docs" / "yandex-cdn-whitelist"
+            scripts_dir = root / "scripts"
+            docs.mkdir(parents=True); scripts_dir.mkdir()
+            (root / "AGENTS.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT.md").write_text("safe\n", encoding="utf8")
+            (root / "CONTEXT_HANDOFF.md").write_text("safe\n", encoding="utf8")
+            (docs / "MASTER_REQUIREMENTS.md").write_text("excluded source\n", encoding="utf8")
+            secret_key = "pass" + "word"
+            secret_value = "synthetic-secret-value"
+            cases = (
+                ("indented", f'if True:\n    {secret_key} = "{secret_value}"\n'),
+                ("inline-comment", f'{secret_key} = "{secret_value}"  # fixture\n'),
+            )
+            for label, python_source in cases:
+                with self.subTest(label=label):
+                    (scripts_dir / "tool.py").write_text(python_source, encoding="utf8")
+                    errors = validator().scan_secrecy(root, docs)
+                    self.assertTrue(any("tool.py" in error for error in errors), errors)
+
+
+
 
 if __name__ == '__main__':
     unittest.main()

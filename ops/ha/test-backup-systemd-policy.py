@@ -321,7 +321,7 @@ def read_cutover_evidence(path_text: str) -> Mapping[str, object]:
         metadata = os.fstat(descriptor)
         if (
             not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
+            or metadata.st_nlink not in (0, 1)
             or metadata.st_size <= 0
             or metadata.st_size > MAX_CUTOVER_EVIDENCE_BYTES
         ):
