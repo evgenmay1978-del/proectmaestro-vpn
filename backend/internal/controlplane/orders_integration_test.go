@@ -100,6 +100,25 @@ func (db *task7ConfirmLoserGate) QueryLinearizable(ctx context.Context, statemen
 	return results, nil
 }
 
+type task7DelayedConfirmRequest struct {
+	rqlite.RQLite
+	delay time.Duration
+	once  sync.Once
+}
+
+func (db *task7DelayedConfirmRequest) Request(ctx context.Context, level rqlite.Consistency, tx bool, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	for _, statement := range statements {
+		sql := strings.ToLower(statement.SQL)
+		if strings.Contains(sql, "insert into idempotency_requests") && strings.Contains(sql, "'confirm'") {
+			db.once.Do(func() {
+				time.Sleep(db.delay)
+			})
+			break
+		}
+	}
+	return db.RQLite.Request(ctx, level, tx, statements...)
+}
+
 func task7Context(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -566,6 +585,41 @@ func TestExpiredCustomerRenewsFromConfirmedAt(t *testing.T) {
 	}
 	if result.ExpiresAtUnix != now+30*86400 {
 		t.Fatalf("expiry=%d want %d", result.ExpiresAtUnix, now+30*86400)
+	}
+}
+
+func TestExpiredCustomerDelayedConfirmUsesPersistedConfirmedAt(t *testing.T) {
+	db := task7DB(t)
+	now := task7Now(t, db)
+	customerID := task7SeedCustomer(t, db, "expired", now-10, 91)
+	service := task7Service(t, db)
+	order := task7Create(t, service, customerID, "telegram_user", "70091", "bot-a")
+	task7Claim(t, service, order.OrderID)
+	delayedService := task7Service(t, &task7DelayedConfirmRequest{RQLite: db, delay: 2100 * time.Millisecond})
+	result, err := delayedService.ConfirmPayment(task7Context(t), task7Confirm(order.OrderID, "renew-delayed", "receipt-delayed"))
+	if err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	row := task7Row(t, db, rqlite.Statement{SQL: `SELECT
+c.expires_at_unix,
+o.confirmed_at_unix AS order_confirmed_at_unix,
+p.confirmed_at_unix AS payment_confirmed_at_unix
+FROM customers c
+JOIN orders o ON o.customer_id=c.customer_id
+JOIN payments p ON p.order_id=o.order_id
+WHERE o.order_id=?`, Args: []any{order.OrderID}})
+	customerExpiry, customerOK := rowInt64(row, "expires_at_unix")
+	orderConfirmed, orderOK := rowInt64(row, "order_confirmed_at_unix")
+	paymentConfirmed, paymentOK := rowInt64(row, "payment_confirmed_at_unix")
+	if !customerOK || !orderOK || !paymentOK {
+		t.Fatalf("invalid confirmation row: %#v", row)
+	}
+	if orderConfirmed != paymentConfirmed {
+		t.Fatalf("confirmation timestamps differ: order=%d payment=%d", orderConfirmed, paymentConfirmed)
+	}
+	wantExpiry := orderConfirmed + 30*86400
+	if result.ExpiresAtUnix != wantExpiry || customerExpiry != wantExpiry {
+		t.Fatalf("expiry must use persisted confirmation time: result=%d customer=%d want=%d", result.ExpiresAtUnix, customerExpiry, wantExpiry)
 	}
 }
 
