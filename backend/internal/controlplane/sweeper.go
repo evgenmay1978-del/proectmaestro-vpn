@@ -64,8 +64,7 @@ WHERE singleton_id=1 AND activated=1
 ON CONFLICT(job_name) DO UPDATE SET
 holder_id=excluded.holder_id,lease_token=excluded.lease_token,acquired_at_unix=excluded.acquired_at_unix,
 expires_at_unix=excluded.expires_at_unix,
-lease_fence=cluster_job_leases.lease_fence+CASE
-WHEN cluster_job_leases.holder_id<>excluded.holder_id OR cluster_job_leases.expires_at_unix<=unixepoch() THEN 1 ELSE 0 END
+lease_fence=cluster_job_leases.lease_fence+1
 WHERE cluster_job_leases.holder_id=excluded.holder_id OR cluster_job_leases.expires_at_unix<=unixepoch()
 RETURNING lease_fence`,
 		Args: []any{workerID, leaseToken, int64(expiryLeaseTTL / time.Second)},
