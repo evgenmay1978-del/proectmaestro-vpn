@@ -505,7 +505,7 @@ func TestBackupRPOAttemptIntegrationHourlyRefreshBoundaryAndConcurrentDirty(t *t
 		t.Fatalf("baseline MarkUploadStarted: %v", err)
 	}
 	if _, err := store.RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
-		Identity: baseline,
+		Identity:  baseline,
 		VersionID: mustIntegrationBackupRPOVersionID(t, "version-hourly-baseline"),
 	}); err != nil {
 		t.Fatalf("baseline RecordUploadOutcome: %v", err)
@@ -574,7 +574,7 @@ func TestBackupRPOAttemptIntegrationHourlyRefreshBoundaryAndConcurrentDirty(t *t
 		t.Fatalf("hourly MarkUploadStarted: %v", err)
 	}
 	if _, err := store.RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
-		Identity: refresh,
+		Identity:  refresh,
 		VersionID: mustIntegrationBackupRPOVersionID(t, "version-hourly-refresh"),
 	}); err != nil {
 		t.Fatalf("hourly RecordUploadOutcome: %v", err)
