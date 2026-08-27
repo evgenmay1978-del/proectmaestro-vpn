@@ -76,13 +76,6 @@ ON CONFLICT(customer_id) DO UPDATE SET status='expired',expires_at_unix=17000000
 tariff_version_id,tariff_code,duration_days,amount_minor,currency,active,created_at_unix)
 VALUES(?, ?,30,40000,'RUB',1,1)
 ON CONFLICT(tariff_version_id) DO UPDATE SET active=1`, Args: []any{tariffVersion, "task7-imported-order-tariff"}},
-		rqlite.Statement{SQL: `INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix)
-VALUES('task7-import-node','task7-import-node',0,1,1)
-ON CONFLICT(node_id) DO UPDATE SET enabled=1`},
-		rqlite.Statement{SQL: `INSERT INTO node_services(
-node_id,service_name,desired_target,apply_enabled,fenced,retired,updated_at_unix)
-VALUES('task7-import-node','maestro-core',1,1,0,0,1)
-ON CONFLICT(node_id,service_name) DO UPDATE SET desired_target=1,apply_enabled=1,fenced=0,retired=0`},
 	)
 	if err != nil {
 		t.Fatalf("seed import dependencies: %v", err)
@@ -93,14 +86,14 @@ ON CONFLICT(node_id,service_name) DO UPDATE SET desired_target=1,apply_enabled=1
 			InternalID: createdOrderID, SourceKey: createdOrderID, CustomerInternalID: customerID,
 			BuyerScope: "anonymous", BuyerKeyHMAC: strings.Repeat("8", 64), TariffVersionID: tariffVersion,
 			AmountMinor: 40000, Currency: "RUB", DurationDays: 30, PaymentCode: "TASK7-CREATED",
-			CreatedAtUnix: 1800000000, ExpiresAtUnix: 4000000000,
+			CreatedAtUnix: 2100000000, ExpiresAtUnix: 2100086400,
 			PaymentState: "created", ProvisioningState: "pending", ImportState: "created",
 		},
 		{
 			InternalID: claimedOrderID, SourceKey: claimedOrderID, CustomerInternalID: customerID,
 			BuyerScope: "anonymous", BuyerKeyHMAC: strings.Repeat("9", 64), TariffVersionID: tariffVersion,
 			AmountMinor: 40000, Currency: "RUB", DurationDays: 30, PaymentCode: "TASK7-CLAIMED",
-			CreatedAtUnix: 1800000000, ExpiresAtUnix: 4000000000,
+			CreatedAtUnix: 2100000000, ExpiresAtUnix: 2100086400,
 			PaymentState: "claimed", ProvisioningState: "pending", ImportState: "claimed",
 		},
 	}
