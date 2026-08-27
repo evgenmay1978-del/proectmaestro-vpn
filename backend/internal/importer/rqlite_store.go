@@ -1376,10 +1376,12 @@ func (s *RQLiteApplyStore) orderStatements(batch ApplyBatch, operation ApplyOper
 		return nil, errors.New("invalid canonical order operation")
 	}
 	paymentState := order.PaymentState
-	if paymentState == "created" {
-		paymentState = "pending"
-	}
-	if paymentState == "paid" {
+	switch paymentState {
+	case "created", "pending":
+		paymentState = "created"
+	case "payment_claimed", "claimed":
+		paymentState = "payment_claimed"
+	case "paid":
 		paymentState = "confirmed"
 	}
 	provisioningState := order.ProvisioningState
