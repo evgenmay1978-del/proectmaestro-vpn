@@ -6,6 +6,13 @@
 
 **Architecture:** Репозиторий сначала строит и испытывает immutable artifacts на изолированном rqlite-кластере. Production workflows существуют только за GitHub protected environments и exact-SHA gates. DNS всегда содержит один ready A-record; TLS заранее валиден на каждом candidate. Cutover начинается с write-freeze и доказанного hard fence, а после первой rqlite business-write rollback остаётся только внутри rqlite truth.
 
+Focused durable-backup references:
+
+- [production backup adapter implementation plan](./2026-08-23-maestrovpn-ha-backup-production-adapters.md)
+- [repository-safe operations contract](../../../ops/ha/README.md)
+- [exact-SHA GitHub evidence](../../../CONTEXT_HANDOFF.md), recorded only after
+  all required runs complete
+
 **Tech Stack:** Go 1.25, Python 3 standard library, Bash, systemd/nginx, rqlite v10.1.0, GnuPG, OpenSSL/certbot DNS-01, GitHub Actions, SpaceWeb JSON-RPC, existing Yandex Object Storage.
 
 ## Global Constraints

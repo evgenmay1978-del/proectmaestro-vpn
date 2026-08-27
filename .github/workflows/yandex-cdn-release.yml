@@ -11,6 +11,8 @@ on:
       - 'backend/go.sum'
       - 'backend/cmd/maestro-release-validate/**'
       - 'backend/cmd/maestro-whitelist-ready/**'
+      - 'backend/cmd/maestro-backup-worker/**'
+      - 'backend/internal/backuprpo/**'
       - 'backend/internal/controlplane/**'
       - 'backend/internal/release/**'
       - 'backend/internal/shadowbilling/**'
@@ -18,9 +20,17 @@ on:
       - 'backend/internal/testsupport/whitelistfixture/**'
       - 'backend/internal/whitelistapi/**'
       - 'backend/internal/whitelistready/**'
+      - 'deploy/ha/**'
+      - 'deploy/maestro-backup.service'
+      - 'deploy/maestro-backup.timer'
+      - 'deploy/maestro-backup-onchange.path'
+      - 'deploy/maestro-backup.sh'
       - 'docs/yandex-cdn-whitelist/**'
       - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
       - 'ops/ha/ci-rqlite-cluster.sh'
+      - 'ops/ha/test-backup-systemd-policy.py'
+      - 'ops/ha/tests/test_backup_systemd_policy.py'
+      - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - 'ops/ha/test-ci-rqlite-cluster.sh'
       - 'ops/validate-yandex-cdn-release.ps1'
       - 'ops/validate-yandex-cdn-release.sh'
@@ -36,6 +46,8 @@ on:
       - 'backend/go.sum'
       - 'backend/cmd/maestro-release-validate/**'
       - 'backend/cmd/maestro-whitelist-ready/**'
+      - 'backend/cmd/maestro-backup-worker/**'
+      - 'backend/internal/backuprpo/**'
       - 'backend/internal/controlplane/**'
       - 'backend/internal/release/**'
       - 'backend/internal/shadowbilling/**'
@@ -43,9 +55,17 @@ on:
       - 'backend/internal/testsupport/whitelistfixture/**'
       - 'backend/internal/whitelistapi/**'
       - 'backend/internal/whitelistready/**'
+      - 'deploy/ha/**'
+      - 'deploy/maestro-backup.service'
+      - 'deploy/maestro-backup.timer'
+      - 'deploy/maestro-backup-onchange.path'
+      - 'deploy/maestro-backup.sh'
       - 'docs/yandex-cdn-whitelist/**'
       - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
       - 'ops/ha/ci-rqlite-cluster.sh'
+      - 'ops/ha/test-backup-systemd-policy.py'
+      - 'ops/ha/tests/test_backup_systemd_policy.py'
+      - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - 'ops/ha/test-ci-rqlite-cluster.sh'
       - 'ops/validate-yandex-cdn-release.ps1'
       - 'ops/validate-yandex-cdn-release.sh'
@@ -103,6 +123,8 @@ jobs:
             internal/testsupport/whitelistfixture
             cmd/maestro-release-validate
             cmd/maestro-whitelist-ready
+            internal/backuprpo
+            cmd/maestro-backup-worker
           )
 
           legacy_debt=(

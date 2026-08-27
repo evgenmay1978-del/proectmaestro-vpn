@@ -5,8 +5,17 @@ on:
   pull_request:
     paths:
       - 'backend/**'
+      - 'backend/internal/backuprpo/**'
+      - 'backend/cmd/maestro-backup-worker/**'
       - 'ops/ha/**'
       - 'deploy/ha/**'
+      - 'deploy/maestro-backup.service'
+      - 'deploy/maestro-backup.timer'
+      - 'deploy/maestro-backup-onchange.path'
+      - 'deploy/maestro-backup.sh'
+      - 'ops/ha/test-backup-systemd-policy.py'
+      - 'ops/ha/tests/test_backup_systemd_policy.py'
+      - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - '.github/workflows/ha-control-plane.yml'
   push:
     branches:
@@ -15,8 +24,17 @@ on:
       - codex/yandex-cdn-whitelist-task3-sync
     paths:
       - 'backend/**'
+      - 'backend/internal/backuprpo/**'
+      - 'backend/cmd/maestro-backup-worker/**'
       - 'ops/ha/**'
       - 'deploy/ha/**'
+      - 'deploy/maestro-backup.service'
+      - 'deploy/maestro-backup.timer'
+      - 'deploy/maestro-backup-onchange.path'
+      - 'deploy/maestro-backup.sh'
+      - 'ops/ha/test-backup-systemd-policy.py'
+      - 'ops/ha/tests/test_backup_systemd_policy.py'
+      - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - '.github/workflows/ha-control-plane.yml'
 
 permissions:
@@ -91,7 +109,11 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          gofmt -d cmd/maestro-import/production_integration_test.go internal/rqlite/*.go |
+          gofmt -d \
+            cmd/maestro-import/production_integration_test.go \
+            internal/rqlite/*.go \
+            internal/backuprpo/*.go \
+            cmd/maestro-backup-worker/*.go |
             tee /tmp/ha-gofmt.diff
           test ! -s /tmp/ha-gofmt.diff
 
@@ -102,6 +124,7 @@ jobs:
             ops.ha.tests.test_verify_backup ops.ha.tests.test_restore_api \
             ops.ha.tests.test_backup_worker \
             ops.ha.tests.test_backup_worker_security \
+            ops.ha.tests.test_backup_rqlite_shell_security \
             ops.ha.tests.test_backup_worker_identity_races \
             ops.ha.tests.test_inventory \
             ops.ha.tests.test_inventory_hardening \
@@ -110,13 +133,20 @@ jobs:
           bash ops/ha/test-backup-rqlite.sh
           bash ops/ha/test-restore-rqlite.sh
 
+      - name: Test durable backup adapter policy
+        run: |
+          set -euo pipefail
+          python -m unittest ops.ha.tests.test_backup_systemd_policy ops.ha.tests.test_dr_workflow_policy_contract
+          python ops/ha/test-backup-systemd-policy.py
+          bash -n ops/ha/backup-rqlite.sh deploy/maestro-backup.sh
+
       - name: Test backend
         working-directory: backend
-        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test ./...
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 ./...
 
       - name: Race-test backend
         working-directory: backend
-        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -race ./...
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 -race ./...
 
       - name: Vet backend
         working-directory: backend
@@ -127,12 +157,12 @@ jobs:
           bash -n ops/ha/test-ci-rqlite-cluster.sh
           bash ops/ha/test-ci-rqlite-cluster.sh
 
-      - name: Start isolated rqlite cluster
+      - name: Start isolated three-voter rqlite cluster
         run: bash ops/ha/ci-rqlite-cluster.sh start
 
       - name: Test rqlite integration
         working-directory: backend
-        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -tags=rqlite_integration ./...
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 -tags=rqlite_integration ./...
 
       - name: Reset rqlite for importer delta parity
         run: |

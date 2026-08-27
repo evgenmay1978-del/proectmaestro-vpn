@@ -5,15 +5,36 @@ on:
   pull_request:
     paths:
       - 'backend/**'
+      - 'backend/internal/backuprpo/**'
+      - 'backend/cmd/maestro-backup-worker/**'
       - 'ops/ha/**'
+      - 'deploy/ha/**'
+      - 'deploy/maestro-backup.service'
+      - 'deploy/maestro-backup.timer'
+      - 'deploy/maestro-backup-onchange.path'
+      - 'deploy/maestro-backup.sh'
+      - 'ops/ha/test-backup-systemd-policy.py'
+      - 'ops/ha/tests/test_backup_systemd_policy.py'
+      - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - '.github/workflows/ha-dr-restore-drill.yml'
   push:
     branches:
       - main
       - codex/mobile-4d-deck
+      - codex/yandex-cdn-whitelist-task3-sync
     paths:
       - 'backend/**'
+      - 'backend/internal/backuprpo/**'
+      - 'backend/cmd/maestro-backup-worker/**'
       - 'ops/ha/**'
+      - 'deploy/ha/**'
+      - 'deploy/maestro-backup.service'
+      - 'deploy/maestro-backup.timer'
+      - 'deploy/maestro-backup-onchange.path'
+      - 'deploy/maestro-backup.sh'
+      - 'ops/ha/test-backup-systemd-policy.py'
+      - 'ops/ha/tests/test_backup_systemd_policy.py'
+      - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - '.github/workflows/ha-dr-restore-drill.yml'
 
 permissions:
@@ -88,7 +109,11 @@ jobs:
         run: |
           set -euo pipefail
           cd backend
-          gofmt -d cmd/maestro-import/production_integration_test.go internal/rqlite/*.go |
+          gofmt -d \
+            cmd/maestro-import/production_integration_test.go \
+            internal/rqlite/*.go \
+            internal/backuprpo/*.go \
+            cmd/maestro-backup-worker/*.go |
             tee /tmp/ha-dr-gofmt.diff
           test ! -s /tmp/ha-dr-gofmt.diff
           cd ..
@@ -98,11 +123,11 @@ jobs:
 
       - name: Test backend
         working-directory: backend
-        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test ./...
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 ./...
 
       - name: Race-test backend
         working-directory: backend
-        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -race ./...
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 -race ./...
 
       - name: Vet backend
         working-directory: backend
@@ -110,6 +135,13 @@ jobs:
 
       - name: Test DR workflow policy
         run: python ops/ha/test-dr-workflow-policy.py
+
+      - name: Test durable backup adapter policy
+        run: |
+          set -euo pipefail
+          python -m unittest ops.ha.tests.test_backup_systemd_policy ops.ha.tests.test_dr_workflow_policy_contract
+          python ops/ha/test-backup-systemd-policy.py
+          bash -n ops/ha/backup-rqlite.sh deploy/maestro-backup.sh
 
       - name: Test authenticated backup verification and tamper matrix
         run: |
@@ -119,6 +151,7 @@ jobs:
             ops.ha.tests.test_restore_api \
             ops.ha.tests.test_backup_worker \
             ops.ha.tests.test_backup_worker_security \
+            ops.ha.tests.test_backup_rqlite_shell_security \
             ops.ha.tests.test_backup_worker_identity_races
           bash ops/ha/test-backup-rqlite.sh
 
