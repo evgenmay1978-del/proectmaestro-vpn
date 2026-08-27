@@ -69,8 +69,8 @@ func TestImportedNonterminalOrdersRemainActionable(t *testing.T) {
 	_, err = db.Request(ctx, rqlite.Linearizable, true,
 		rqlite.Statement{SQL: `INSERT INTO customers(
 customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
-VALUES(?,?,?,'expired',1700000000,4,1,1)
-ON CONFLICT(customer_id) DO UPDATE SET status='expired',expires_at_unix=1700000000,generation=4`,
+VALUES(?,?,?,'active',2100000000,4,1,1)
+ON CONFLICT(customer_id) DO UPDATE SET status='active',expires_at_unix=2100000000,generation=4`,
 			Args: []any{customerID, "task7-imported-order-customer", strings.Repeat("7", 64)}},
 		rqlite.Statement{SQL: `INSERT INTO tariff_versions(
 tariff_version_id,tariff_code,duration_days,amount_minor,currency,active,created_at_unix)
