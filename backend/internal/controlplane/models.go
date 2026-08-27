@@ -7,10 +7,13 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("controlplane: not found")
-	ErrConflict   = errors.New("controlplane: conflict")
-	ErrForbidden  = errors.New("controlplane: forbidden")
+	ErrNotFound    = errors.New("controlplane: not found")
+	ErrConflict    = errors.New("controlplane: conflict")
+	ErrForbidden   = errors.New("controlplane: forbidden")
 	ErrDeviceLimit = errors.New("controlplane: device limit reached")
+	ErrUnavailable = errors.New("controlplane: unavailable")
+	ErrLeaseHeld   = errors.New("controlplane: expiry lease held")
+	ErrLeaseLost   = errors.New("controlplane: expiry lease lost")
 )
 
 type Customer struct {
@@ -26,6 +29,82 @@ type Tariff struct {
 	DurationDays int
 	AmountMinor  int64
 	Currency     string
+}
+
+// CreateOrderCommand contains caller identity and a tariff-version reference.
+// Caller-supplied terms are compatibility inputs only; tariff_versions wins.
+type CreateOrderCommand struct {
+	TariffVersionID string
+	CustomerID      string
+	BuyerScope      string
+	BuyerIdentity   string
+	OriginBotID     string
+	ChatIdentity    string
+	Actor           string
+	Channel         string
+	SourceEventID   string
+	AmountMinor     int64
+	Currency        string
+	DurationSeconds int64
+}
+
+type ClaimPaymentCommand struct {
+	OrderID       string
+	Actor         string
+	Channel       string
+	SourceEventID string
+}
+
+type ConfirmPaymentCommand struct {
+	OrderID             string
+	IdempotencyKey      string
+	PaymentReference    string
+	Provider            string
+	TariffVersionID     string
+	Actor               string
+	Channel             string
+	SourceEventID       string
+	ProposedPaymentID   string
+	ProposedOperationID string
+	OccurredAt          time.Time
+}
+
+type CancelOrderCommand struct {
+	OrderID        string
+	IdempotencyKey string
+	Actor          string
+	Channel        string
+}
+
+type OrderView struct {
+	OrderID         string
+	AmountMinor     int64
+	Currency        string
+	DurationSeconds int64
+	OriginBotID     string
+	PaymentState    PaymentState
+}
+
+type ConfirmPaymentResult struct {
+	OrderID       string `json:"order_id"`
+	OperationID   string `json:"operation_id"`
+	ExpiresAtUnix int64  `json:"expires_at_unix"`
+	Generation    int64  `json:"generation"`
+}
+
+type ExpirySweepCommand struct {
+	WorkerID string
+}
+
+type ExpiryLease struct {
+	WorkerID   string
+	LeaseFence int64
+}
+
+type ExpirySweepResult struct {
+	CustomersExpired int64
+	OperationID      string
+	LeaseFence       int64
 }
 
 type SettingUpdate struct {

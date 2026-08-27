@@ -20,19 +20,22 @@ type Envelope struct {
 type PaymentState string
 
 const (
-	PaymentPending   PaymentState = "pending"
-	PaymentClaimed   PaymentState = "claimed"
+	PaymentPending   PaymentState = "created"
+	PaymentClaimed   PaymentState = "payment_claimed"
 	PaymentConfirmed PaymentState = "confirmed"
-	PaymentRejected  PaymentState = "rejected"
+	PaymentRejected  PaymentState = "canceled"
+	PaymentCanceled  PaymentState = "canceled"
+	PaymentExpired   PaymentState = "expired"
 )
 
 // ProvisioningState is the durable provisioning lifecycle of an order.
 type ProvisioningState string
 
 const (
+	ProvisioningNone     ProvisioningState = "none"
 	ProvisioningPending  ProvisioningState = "pending"
-	ProvisioningApplying ProvisioningState = "applying"
-	ProvisioningApplied  ProvisioningState = "applied"
+	ProvisioningApplying ProvisioningState = "degraded"
+	ProvisioningApplied  ProvisioningState = "ready"
 	ProvisioningFailed   ProvisioningState = "failed"
 )
 

@@ -85,10 +85,10 @@ func task7DB(t *testing.T) rqlite.RQLite {
 	if err := NewMigrator(db).Apply(task7Context(t)); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
-	fixture := []rqlite.Statement{{SQL: `INSERT INTO tariff_versions(
+	fixture := []rqlite.Statement{{SQL: `DELETE FROM cluster_job_leases WHERE job_name='expiry-sweeper'`}, {SQL: `INSERT INTO tariff_versions(
 tariff_version_id,tariff_code,duration_days,amount_minor,currency,active,created_at_unix)
 VALUES('tariff_1m_v1','one-month',30,40000,'RUB',1,1)
-ON CONFLICT(tariff_version_id) DO UPDATE SET active=1`}}
+ON CONFLICT(tariff_version_id) DO NOTHING`}}
 	for index, nodeID := range []string{"S1", "S2", "S3", "S4"} {
 		enabled, applyEnabled, fenced := 1, 1, 0
 		if nodeID == "S1" {

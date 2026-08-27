@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 6
+	SchemaVersion = 7
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -275,6 +275,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 4, path: "migrations/0004_whitelist_entitlement_identity.sql"},
 		{version: 5, path: "migrations/0005_backup_rpo.sql"},
 		{version: 6, path: "migrations/0006_setting_mutation_token.sql"},
+		{version: 7, path: "migrations/0007_orders_exactly_once.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {

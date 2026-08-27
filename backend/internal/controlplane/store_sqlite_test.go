@@ -121,11 +121,11 @@ func TestSettingMutationTokenMigrationSixIsAdditive(t *testing.T) {
 		t.Fatalf("load migrations: %v", err)
 	}
 
-	if SchemaVersion != 6 {
-		t.Fatalf("SchemaVersion = %d, want 6", SchemaVersion)
+	if SchemaVersion < 6 {
+		t.Fatalf("SchemaVersion = %d, want at least 6", SchemaVersion)
 	}
-	if len(migrations) != 6 {
-		t.Fatalf("migration count = %d, want 6", len(migrations))
+	if len(migrations) < 6 {
+		t.Fatalf("migration count = %d, want at least 6", len(migrations))
 	}
 
 	migration := migrations[5]
