@@ -36,7 +36,7 @@ func projectionFromPlanForTest(t *testing.T, plan ImportPlan) ShadowProjection {
 			InternalID: customer.InternalID, LoginKeyHMAC: customer.LoginKeyHMAC,
 			Status: customer.Status, ExpiresAtUnix: customer.ExpiresAtUnix,
 			Generation: customer.Generation, CredentialEnabled: true, TokenRevoked: false,
-			Nodes: append([]string(nil), customer.NodeIDs...),
+			Nodes:        append([]string(nil), customer.NodeIDs...),
 			ProtocolTags: append([]string(nil), customer.ProtocolTags...),
 		})
 	}
@@ -94,6 +94,34 @@ func TestShadowFromCandidateMatchesLegacyExport(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidate export differs from legacy export:\n got %#v\nwant %#v", got, want)
+	}
+}
+
+func TestShadowCandidateCanonicalOrderStatesPreserveLegacyExport(t *testing.T) {
+	plan, projection := validShadowProjection(t)
+	if len(projection.Orders) < 2 {
+		t.Fatalf("projection orders=%d, want at least 2", len(projection.Orders))
+	}
+	wantStates := map[string]string{
+		projection.Orders[0].InternalID: "pending:" + projection.Orders[0].ProvisioningState,
+		projection.Orders[1].InternalID: "claimed:" + projection.Orders[1].ProvisioningState,
+	}
+	projection.Orders[0].PaymentState = "created"
+	projection.Orders[1].PaymentState = "payment_claimed"
+
+	got, err := ShadowFromCandidate(
+		context.Background(), fakeShadowCandidateSource{projection: projection},
+		plan.SourceDigest, validShadowShapes(),
+	)
+	if err != nil {
+		t.Fatalf("ShadowFromCandidate canonical states: %v", err)
+	}
+	gotStates := make(map[string]string, len(got.Orders))
+	for _, order := range got.Orders {
+		gotStates[order.IdentityDigest] = order.State
+	}
+	if !reflect.DeepEqual(gotStates, wantStates) {
+		t.Fatalf("canonical candidate states=%#v, want legacy export states %#v", gotStates, wantStates)
 	}
 }
 
