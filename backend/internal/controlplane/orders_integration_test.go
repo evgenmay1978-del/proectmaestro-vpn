@@ -762,6 +762,36 @@ WHERE job_name='expiry-sweeper'`})
 	}
 }
 
+func TestStaleSweeperSameWorkerEpochCannotExpireAfterReacquire(t *testing.T) {
+	db := task7DB(t)
+	task7Activate(t, db)
+	task7Request(t, db, rqlite.Statement{SQL: "DELETE FROM cluster_job_leases WHERE job_name='expiry-sweeper'"})
+	service := task7Service(t, db)
+	first, err := service.acquireExpiryLease(task7Context(t), "same-worker")
+	if err != nil {
+		t.Fatalf("first lease: %v", err)
+	}
+	second, err := service.acquireExpiryLease(task7Context(t), "same-worker")
+	if err != nil {
+		t.Fatalf("reacquire lease: %v", err)
+	}
+	if second.LeaseFence <= first.LeaseFence {
+		t.Fatalf("same-worker reacquire fence=%d, want greater than stale fence=%d", second.LeaseFence, first.LeaseFence)
+	}
+	customerID := task7SeedCustomer(t, db, "active", task7Now(t, db)-1, 45)
+	before := task7Snapshot(t, db)
+	_, err = service.ExpireDueCustomers(task7Context(t), first)
+	if !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("stale same-worker epoch error=%v, want ErrLeaseLost", err)
+	}
+	if got := task7Int(t, db, "SELECT generation AS n FROM customers WHERE customer_id=?", customerID); got != 45 {
+		t.Fatalf("stale same-worker epoch generation=%d, want 45", got)
+	}
+	if after := task7Snapshot(t, db); after != before {
+		t.Fatalf("stale same-worker epoch changed counts: before=%#v after=%#v", before, after)
+	}
+}
+
 func TestSweeperNoQuorumDoesNoSideEffect(t *testing.T) {
 	db := task7DB(t)
 	task7Activate(t, db)
