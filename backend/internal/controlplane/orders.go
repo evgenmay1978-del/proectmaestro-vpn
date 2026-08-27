@@ -250,6 +250,7 @@ func (s *Service) ConfirmPayment(ctx context.Context, command ConfirmPaymentComm
 	if err := s.expireCreatedOrder(ctx, command.OrderID); err != nil && !errors.Is(err, ErrConflict) {
 		return ConfirmPaymentResult{}, err
 	}
+	var lastStatementErr *rqlite.StatementError
 	for attempt := 0; attempt < orderDecisionRetries; attempt++ {
 		prepared, prepErr := s.prepareConfirm(ctx, command)
 		if prepErr != nil {
@@ -375,8 +376,9 @@ AND operation_id=? AND status='applying'`,
 		if !errors.As(requestErr, &statementErr) {
 			return ConfirmPaymentResult{}, ErrUnavailable
 		}
+		lastStatementErr = statementErr
 	}
-	return ConfirmPaymentResult{}, ErrConflict
+	return ConfirmPaymentResult{}, orderDecisionConflict(lastStatementErr)
 }
 
 func (s *Service) CancelOrder(ctx context.Context, command CancelOrderCommand) (OrderView, error) {
@@ -764,6 +766,14 @@ func (s *Service) orderAuditDetails(eventID string, metadata orderAuditMetadata)
 	}
 	digest := sha256.Sum256(envelopeBytes)
 	return envelopeBytes, hex.EncodeToString(digest[:]), nil
+}
+
+func orderDecisionConflict(err error) error {
+	var statementErr *rqlite.StatementError
+	if errors.As(err, &statementErr) {
+		return errors.Join(ErrConflict, statementErr)
+	}
+	return ErrConflict
 }
 
 func isUnknownWrite(err error) bool {

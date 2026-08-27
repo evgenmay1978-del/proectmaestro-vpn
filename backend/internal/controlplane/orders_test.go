@@ -3,8 +3,12 @@ package controlplane
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
 func TestActorChannelSourceEventAndTimeDoNotChangeHash(t *testing.T) {
@@ -35,5 +39,20 @@ func TestActorChannelSourceEventAndTimeDoNotChangeHash(t *testing.T) {
 	}
 	if gotFirst != want || gotSecond != want {
 		t.Fatalf("hashes=(%q,%q), want %q", gotFirst, gotSecond, want)
+	}
+}
+
+func TestOrderDecisionConflictPreservesStatementEvidence(t *testing.T) {
+	statementErr := &rqlite.StatementError{Index: 7, Message: "synthetic guard failure"}
+	err := orderDecisionConflict(statementErr)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("error=%v, want ErrConflict", err)
+	}
+	var preserved *rqlite.StatementError
+	if !errors.As(err, &preserved) || preserved != statementErr {
+		t.Fatalf("statement error not preserved: %v", err)
+	}
+	if !strings.Contains(err.Error(), "statement 7 failed: synthetic guard failure") {
+		t.Fatalf("statement evidence missing: %v", err)
 	}
 }
