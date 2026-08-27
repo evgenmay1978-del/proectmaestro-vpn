@@ -1,5 +1,63 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAAAAAAAAA. TASK 11 HOURLY BACKUP RPO REFRESH EXACT-SHA GREEN (27.08.2026)
+
+- Единственная каноническая ветка —
+  `codex/yandex-cdn-whitelist-task3-sync`. Точный проверенный code SHA —
+  `cb7aa40cf3e37602830c33b593b939baac38dc8b`. Более поздний docs-only
+  commit не должен объявляться новым проверенным code SHA.
+- Закрыт P1 разрыв RPO: clean verified generation больше не остаётся без новой
+  резервной копии неограниченно. При DB-age `3599` секунд worker делает NOOP,
+  при `3600+` атомарно создаёт same-generation attempt с sequence `+1`, новым
+  backup ID/object и полным immutable readback/ack циклом.
+- Решение использует только время rqlite `unixepoch()`, а не локальные часы
+  worker. SQL register/ack сохраняют точные lease/fence/capability/restore
+  проверки, не сжигают sequence до границы и fail-closed при конкурентном
+  повышении dirty generation.
+- Missing/future verified timestamp и несогласованные phase/generation теперь
+  дают `invalid-transition` до любого локального cleanup. Независимые security
+  и exact-head quality reviews подтвердили закрытие найденного P1 и отсутствие
+  оставшихся P0/P1/P2.
+- Добавлен deterministic real-rqlite integration proof границ `3599/3600`,
+  same-generation sequence increment, обновлённых object metadata/timestamp и
+  конкурентного dirty bump. Python backup-worker contract содержит ту же
+  точную часовую границу.
+- GitHub HA DR restore drill
+  [33056785828](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33056785828),
+  job `98465448408`, завершён `success`: 16/16 steps.
+- GitHub HA control-plane checks
+  [33056785893](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33056785893),
+  job `98465448697`, завершён `success`: 27/27 steps.
+- Yandex isolated release checks
+  [33056785862](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33056785862)
+  на том же exact SHA завершены `success`: `format-unit` `98465448288`,
+  `offline-replay` `98465703213`, `rqlite-purge` `98465703336`, `race-vet`
+  `98465703378`, `android-test-apk` `98465991985`; все 50/50 steps успешны.
+- Test-only artifact: ID `9640260473`, имя
+  `maestrovpn-task7-test-cb7aa40cf3e37602830c33b593b939baac38dc8b`,
+  размер `146160957` bytes, срок хранения до `2026-09-03T09:13:20Z`.
+  Production Android/TV baseline остаётся `1.0.157`; artifact не является
+  release, signing, OTA или production APK.
+- Production по-прежнему **NO-GO**: deploy, systemd, S1-S4, DNS/TLS, CDN,
+  панель, оба Telegram-бота, реальные платежи/списания, canary, cutover и OTA
+  не изменялись. Новая HA/Yandex-конфигурация серверов: `0/4`.
+- Оценка готовности: repository/code+CI примерно `60–70%`; полностью
+  настроенный пользовательский production-сервис примерно `30–40%`.
+- Следующий repository-only этап — Plan 02 Task 7: exactly-once
+  order/payment claim-confirm-cancel и fenced expiry. Затем Task 8/9
+  trial/compat/subscription/RBAC, Plan 03 Task 12/13 server drivers/runtime и
+  единый crash-safe engine двух Telegram-ботов, после чего Task 15–18
+  node artifacts, SpaceWeb DNS failover, DNS-01 TLS, fault/cutover/rollback.
+- До live rollout обязательны восстановленные и проверенные credentials/state
+  обоих ботов, подтверждённые host keys, Yandex/SpaceWeb/signing access,
+  коммерческие правила GB/GiB/цены/лимитов и отдельные owner approvals на
+  mutation, canary, real charging и OTA. После canary обязателен 48-часовой
+  observation gate; ordinary VPN и rollback `<5m` должны остаться GREEN.
+- Слабый Windows-компьютер используется только для узких правок; тяжёлые
+  Go/race/vet/rqlite/Android проверки выполняются на GitHub. Защищённые
+  `normalize.patch` и пользовательский `task-4-report.md` не изменялись и не
+  входят в commits.
+
 ## 0AAAAAAAAAAAA. TASK 8 PRODUCTION BACKUP WORKER EXACT-SHA GREEN (26.08.2026)
 
 - Единственная каноническая ветка —

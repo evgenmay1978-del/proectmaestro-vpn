@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 256869,
-      "sha256": "c2fb10a55d3d096a0f6fb8aa3aca4a9a56dae6dd8cd05e470e588fd414043bd3",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAAAAAAAAA. TASK 8 PRODUCTION BACKUP WORKER EXACT-SHA GREEN (26.08.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u043a\u0430\u043d\u043e\u043d\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0432\u0435\u0442\u043a\u0430 \u2014\n  `codex/yandex-cdn-whitelist-task3-sync`. \u0422\u043e\u0447\u043d\u044b\u0439 independently reviewed \u0438\n  \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u044b\u0439 code SHA \u2014 `8cd34f28e4d71156b41aaf97d821313ec1fbe7e2`.\n  \u0411\u043e\u043b\u0435"
+      "bytes": 261654,
+      "sha256": "598b482a978a65ea375eab1a1b0627e260aee3a7ad792d0d1a651bd9dc193f50",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0AAAAAAAAAAAAA. TASK 11 HOURLY BACKUP RPO REFRESH EXACT-SHA GREEN (27.08.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u043a\u0430\u043d\u043e\u043d\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0432\u0435\u0442\u043a\u0430 \u2014\n  `codex/yandex-cdn-whitelist-task3-sync`. \u0422\u043e\u0447\u043d\u044b\u0439 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u044b\u0439 code SHA \u2014\n  `cb7aa40cf3e37602830c33b593b939baac38dc8b`. \u0411\u043e\u043b\u0435\u0435 \u043f\u043e\u0437\u0434\u043d\u0438\u0439 docs-only\n  co"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
