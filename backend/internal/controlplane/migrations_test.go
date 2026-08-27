@@ -4,6 +4,8 @@ package controlplane
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -128,10 +130,15 @@ func TestTask7MigrationPreservesDurablePaymentReplayGuard(t *testing.T) {
 		orderID    = "task7-migration-sentinel-order"
 		paymentID  = "task7-migration-sentinel-payment"
 	)
+	loginDigest := sha256.Sum256([]byte(customerID))
+	loginKeyHMAC := hex.EncodeToString(loginDigest[:])
+	if loginKeyHMAC == strings.Repeat("a", 64) {
+		t.Fatal("migration sentinel collides with schema constraint fixture")
+	}
 	_, err := db.Request(ctx, rqlite.Linearizable, true,
 		rqlite.Statement{SQL: `INSERT INTO customers(
 customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
-VALUES(?,?,?,'active',2000000,1,1000000,1000000)`, Args: []any{customerID, customerID, strings.Repeat("a", 64)}},
+VALUES(?,?,?,'active',2000000,1,1000000,1000000)`, Args: []any{customerID, customerID, loginKeyHMAC}},
 		rqlite.Statement{SQL: `INSERT INTO orders(
 order_id,payment_code,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
 amount_minor,currency,duration_days,created_at_unix,expires_at_unix,payment_state,

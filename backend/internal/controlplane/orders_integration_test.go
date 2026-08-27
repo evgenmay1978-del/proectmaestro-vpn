@@ -72,6 +72,34 @@ func (db task7NoQuorum) Backup(ctx context.Context, writer io.Writer) error {
 	return db.delegate.Backup(ctx, writer)
 }
 
+type task7ConfirmLoserGate struct {
+	rqlite.RQLite
+	reached chan struct{}
+	release <-chan struct{}
+	once    sync.Once
+}
+
+func (db *task7ConfirmLoserGate) QueryLinearizable(ctx context.Context, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	results, err := db.RQLite.QueryLinearizable(ctx, statements...)
+	if err != nil || len(statements) != 1 ||
+		!strings.Contains(strings.ToLower(statements[0].SQL), "from idempotency_requests") {
+		return results, err
+	}
+	blocked := false
+	db.once.Do(func() {
+		blocked = true
+		close(db.reached)
+	})
+	if blocked {
+		select {
+		case <-db.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return results, nil
+}
+
 func task7Context(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -312,6 +340,45 @@ FROM outbox_events WHERE operation_id=?`, first.OperationID) != 4 ||
 		task7Int(t, db, `SELECT COUNT(*) AS n FROM outbox_events
 WHERE operation_id=? AND node_id='S1' AND service_name='maestro-core'`, first.OperationID) != 1 {
 		t.Fatal("outbox is not unique per target or omitted fenced/down S1")
+	}
+}
+
+func TestConcurrentConfirmLoserReresolvesSavedWinner(t *testing.T) {
+	db := task7DB(t)
+	customerID := task7SeedCustomer(t, db, "active", task7Now(t, db)+600, 71)
+	winner := task7Service(t, db)
+	order := task7Create(t, winner, customerID, "telegram_user", "concurrent-loser", "bot-a")
+	task7Claim(t, winner, order.OrderID)
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	loser := task7Service(t, &task7ConfirmLoserGate{RQLite: db, reached: reached, release: release})
+	command := task7Confirm(order.OrderID, "concurrent-loser", "receipt-concurrent-loser")
+	loserResults := make(chan ConfirmPaymentResult, 1)
+	loserErrors := make(chan error, 1)
+	go func() {
+		result, err := loser.ConfirmPayment(task7Context(t), command)
+		loserResults <- result
+		loserErrors <- err
+	}()
+	select {
+	case <-reached:
+	case <-time.After(10 * time.Second):
+		close(release)
+		t.Fatal("loser did not finish its empty idempotency lookup")
+	}
+	winnerResult, err := winner.ConfirmPayment(task7Context(t), command)
+	close(release)
+	if err != nil {
+		t.Fatalf("winner confirm: %v", err)
+	}
+	select {
+	case loserErr := <-loserErrors:
+		loserResult := <-loserResults
+		if loserErr != nil || loserResult != winnerResult {
+			t.Fatalf("loser result=%#v err=%v, want saved %#v", loserResult, loserErr, winnerResult)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("loser did not re-resolve the committed winner")
 	}
 }
 
