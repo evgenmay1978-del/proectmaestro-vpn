@@ -176,7 +176,7 @@ WHERE operation_id=? AND status='applying'`, Args: []any{operationID},
 	if isUnknownWrite(requestErr) {
 		return ErrUnavailable
 	}
-	return ErrConflict
+	return orderDecisionConflict(requestErr)
 }
 
 func (s *Service) ExpireDueCustomers(ctx context.Context, lease ExpiryLease) (ExpirySweepResult, error) {
@@ -289,7 +289,7 @@ WHERE operation_id=? AND status='applying'`, Args: []any{operationID},
 	if isUnknownWrite(requestErr) {
 		return ExpirySweepResult{}, ErrUnavailable
 	}
-	return ExpirySweepResult{}, ErrConflict
+	return ExpirySweepResult{}, orderDecisionConflict(requestErr)
 }
 
 func (s *Service) expiryTargets(rows []map[string]any, customers []expiryCustomer, operationID string) ([]expiryDesiredTarget, error) {

@@ -254,6 +254,9 @@ func (s *Service) ConfirmPayment(ctx context.Context, command ConfirmPaymentComm
 	for attempt := 0; attempt < orderDecisionRetries; attempt++ {
 		prepared, prepErr := s.prepareConfirm(ctx, command)
 		if prepErr != nil {
+			if saved, found, resolveErr := s.resolveConfirm(ctx, command.OrderID, command.IdempotencyKey, requestHash); found || resolveErr != nil {
+				return saved, resolveErr
+			}
 			return ConfirmPaymentResult{}, prepErr
 		}
 		paymentID, idErr := s.ids.NewID("payment")
