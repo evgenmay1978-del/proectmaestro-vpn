@@ -160,7 +160,13 @@ func (store *memoryCycleStore) AcknowledgeVerified(_ context.Context, proof cont
 		store.state.Phase = controlplane.BackupRPOPhaseDirty
 	}
 	store.state.Verified = &controlplane.BackupRPOVerified{
-		BackupID: proof.Identity.BackupID,
+		BackupID:        proof.Identity.BackupID,
+		ObjectKey:       proof.Identity.ObjectKey,
+		ObjectSHA256:    proof.Identity.ObjectSHA256,
+		ObjectVersion:   proof.VersionID.String(),
+		SizeBytes:       proof.Identity.ObjectSizeBytes,
+		ManifestVersion: proof.Identity.ManifestVersion,
+		VerifiedAtUnix:  store.now,
 	}
 	store.attempt = nil
 	return attempt, nil
@@ -309,6 +315,23 @@ func dirtyState() controlplane.BackupRPOState {
 	return controlplane.BackupRPOState{RestoreEpoch: 4, DirtyGeneration: 2, VerifiedGeneration: 1, LastAttemptSequence: 0, Phase: controlplane.BackupRPOPhaseDirty, UpdatedAtUnix: 1_699_999_999, DatabaseNowUnix: 1_700_000_000}
 }
 
+func verifiedState(ageSeconds int64) controlplane.BackupRPOState {
+	state := dirtyState()
+	state.VerifiedGeneration = state.DirtyGeneration
+	state.LastAttemptSequence = 1
+	state.Phase = controlplane.BackupRPOPhaseVerified
+	state.Verified = &controlplane.BackupRPOVerified{
+		BackupID:        strings.Repeat("9", 32),
+		ObjectKey:       "backup-rpo/g-2/a-1-" + strings.Repeat("9", 32) + ".tar.gpg",
+		ObjectSHA256:    strings.Repeat("9", 64),
+		ObjectVersion:   "version-prior",
+		SizeBytes:       4096,
+		ManifestVersion: 2,
+		VerifiedAtUnix:  state.DatabaseNowUnix - ageSeconds,
+	}
+	return state
+}
+
 func seedAttempt(store *memoryCycleStore, phase string, fence int64, token string) {
 	payload := storePayload(store)
 	digest := sha256.Sum256(payload)
@@ -340,10 +363,9 @@ func liveLease(store *memoryCycleStore, fence int64, token string) {
 }
 
 func TestRunnerCleanCycleIsNoopAfterCapabilityAndFencedLease(t *testing.T) {
-	state := dirtyState()
-	state.VerifiedGeneration = state.DirtyGeneration
-	state.Phase = controlplane.BackupRPOPhaseVerified
+	state := verifiedState(3599)
 	runner, _, objects, bundles, calls := runnerFixture(t, state)
+	runner.Now = func() time.Time { return time.Unix(state.DatabaseNowUnix+1, 0) }
 
 	result := runner.Run(context.Background())
 
@@ -353,8 +375,76 @@ func TestRunnerCleanCycleIsNoopAfterCapabilityAndFencedLease(t *testing.T) {
 	if objects.putCalls != 0 || objects.getCalls != 0 || bundles.createCall != 0 {
 		t.Fatalf("clean cycle mutated external state: put=%d get=%d create=%d", objects.putCalls, objects.getCalls, bundles.createCall)
 	}
-	if got := strings.Join(*calls, ","); got != "capability,current,acquire,cycle" {
+	if got := strings.Join(*calls, ","); got != "capability,current,acquire,cycle,remove-existing" {
 		t.Fatalf("calls = %s", got)
+	}
+}
+
+func TestRunnerCleanCycleAtHourlyBoundaryCreatesVerifiedBackup(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		age  int64
+	}{
+		{name: "boundary", age: 3600},
+		{name: "past-boundary", age: 3601},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner, store, objects, bundles, calls := runnerFixture(t, verifiedState(test.age))
+
+			result := runner.Run(context.Background())
+
+			if result.Code != ResultVerified {
+				t.Fatalf("code = %q, want %q", result.Code, ResultVerified)
+			}
+			if objects.putCalls != 1 || objects.getCalls != 1 || bundles.createCall != 1 {
+				t.Fatalf("hourly refresh external calls: put=%d get=%d create=%d", objects.putCalls, objects.getCalls, bundles.createCall)
+			}
+			if store.state.Verified == nil {
+				t.Fatal("verified evidence is nil")
+			}
+			if store.state.Verified.BackupID != runnerBackupIDFixture || store.state.Verified.ObjectVersion != testVersion || store.state.Verified.VerifiedAtUnix != store.now {
+				t.Fatalf("verified evidence = %+v", *store.state.Verified)
+			}
+			const wantCalls = "capability,current,acquire,cycle,remove-existing,create,register,cycle,mark-upload-started,put,record-applied,cycle,get,ack,remove-existing"
+			if got := strings.Join(*calls, ","); got != wantCalls {
+				t.Fatalf("calls = %s, want %s", got, wantCalls)
+			}
+		})
+	}
+}
+
+func TestRunnerCleanCycleRejectsMissingFutureOrInconsistentVerifiedState(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutate    func(*controlplane.BackupRPOState)
+		wantCalls string
+	}{
+		{name: "missing-evidence", mutate: func(state *controlplane.BackupRPOState) {
+			state.Verified = nil
+		}, wantCalls: "capability,current,acquire,cycle"},
+		{name: "future-timestamp", mutate: func(state *controlplane.BackupRPOState) {
+			state.Verified.VerifiedAtUnix = state.DatabaseNowUnix + 1
+		}, wantCalls: "capability,current,acquire,cycle"},
+		{name: "inconsistent-phase", mutate: func(state *controlplane.BackupRPOState) {
+			state.Phase = controlplane.BackupRPOPhaseDirty
+		}, wantCalls: "capability,current,acquire,cycle"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := verifiedState(3600)
+			test.mutate(&state)
+			runner, _, objects, bundles, calls := runnerFixture(t, state)
+			result := runner.Run(context.Background())
+			if result.Code != ResultInvalidTransition {
+				t.Fatalf("code = %q, want %q", result.Code, ResultInvalidTransition)
+			}
+			if objects.putCalls != 0 || objects.getCalls != 0 || bundles.createCall != 0 {
+				t.Fatalf("invalid clean state mutated external state: put=%d get=%d create=%d", objects.putCalls, objects.getCalls, bundles.createCall)
+			}
+			if got := strings.Join(*calls, ","); got != test.wantCalls {
+				t.Fatalf("calls = %s, want %s", got, test.wantCalls)
+			}
+		})
 	}
 }
 
@@ -744,6 +834,8 @@ from ops.ha.tests.test_backup_worker import applying_state, bound_state, lease, 
 ready = ready_capabilities()
 rows = {
     "no-attempt-clean": decide(bound_state(generation=3), lease=lease(), capabilities=ready, db_now_unix=2_000).action.value,
+    "no-attempt-clean-recent": decide(bound_state(generation=3, verified_at=1_000), lease=lease(), capabilities=ready, db_now_unix=4_599).action.value,
+    "no-attempt-clean-boundary": decide(bound_state(generation=3, verified_at=1_000), lease=lease(), capabilities=ready, db_now_unix=4_600).action.value,
     "no-attempt-dirty": decide(state(dirty=5, verified=3), lease=lease(), capabilities=ready, db_now_unix=2_000).action.value,
     "pending": decide(applying_state(phase=AttemptPhase.PENDING), lease=lease(), capabilities=ready, db_now_unix=2_003).action.value,
     "applying": decide(applying_state(phase=AttemptPhase.APPLYING), lease=lease(), capabilities=ready, db_now_unix=2_003).action.value,
@@ -770,15 +862,17 @@ print(json.dumps({
 		t.Fatalf("decode python contract: %v", err)
 	}
 	wantTransitions := map[string]string{
-		"no-attempt-clean":       "wait",
-		"no-attempt-dirty":       "create",
-		"pending":                "upload",
-		"applying":               "verify",
-		"applied":                "verify",
-		"unknown":                "verify",
-		"newer-fence":            "supersede",
-		"capability-unavailable": "blocked",
-		"lease-unavailable":      "blocked",
+		"no-attempt-clean":          "wait",
+		"no-attempt-clean-recent":   "wait",
+		"no-attempt-clean-boundary": "create",
+		"no-attempt-dirty":          "create",
+		"pending":                   "upload",
+		"applying":                  "verify",
+		"applied":                   "verify",
+		"unknown":                   "verify",
+		"newer-fence":               "supersede",
+		"capability-unavailable":    "blocked",
+		"lease-unavailable":         "blocked",
 	}
 	if !reflect.DeepEqual(pythonContract.Transitions, wantTransitions) {
 		t.Fatalf("python transition matrix = %#v, want %#v", pythonContract.Transitions, wantTransitions)

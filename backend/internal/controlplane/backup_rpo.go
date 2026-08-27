@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	BackupRPOJobName       = "backup-rpo"
-	BackupRPOPhaseDirty    = "dirty"
-	BackupRPOPhaseVerified = "verified"
+	BackupRPOJobName                     = "backup-rpo"
+	BackupRPOPhaseDirty                  = "dirty"
+	BackupRPOPhaseVerified               = "verified"
+	BackupRPOMaxVerifiedAgeSeconds int64 = 60 * 60
 
 	BackupRPOAdapterYandexS3V1 = "yandex-s3-v1"
 	BackupRPOAttemptPending    = "pending"
@@ -340,6 +341,21 @@ func (s *BackupRPOStore) RegisterAttempt(
 	SET last_attempt_sequence=?,updated_at_unix=unixepoch()
 	WHERE b.singleton_id=1 AND b.restore_epoch=? AND b.dirty_generation=?
 		AND b.last_attempt_sequence=?-1
+		AND (
+			(b.dirty_generation>b.verified_generation AND b.phase='dirty')
+			OR (
+				b.dirty_generation=b.verified_generation
+				AND b.phase='verified'
+				AND b.verified_backup_id IS NOT NULL
+				AND b.verified_object_key IS NOT NULL
+				AND b.verified_object_sha256 IS NOT NULL
+				AND b.verified_object_version IS NOT NULL
+				AND b.verified_size_bytes>0
+				AND b.verified_manifest_version=2
+				AND b.verified_at_unix>0
+				AND b.verified_at_unix<=unixepoch()-?
+			)
+		)
 		AND EXISTS (
 			SELECT 1 FROM cluster_restore_state cr
 			WHERE cr.singleton_id=1 AND cr.activated=1 AND cr.restore_epoch=b.restore_epoch
@@ -360,8 +376,9 @@ func (s *BackupRPOStore) RegisterAttempt(
 		)
 	RETURNING last_attempt_sequence`, Args: []any{
 		identity.AttemptSequence, identity.RestoreEpoch, identity.CapturedGeneration,
-		identity.AttemptSequence, identity.HolderID, identity.LeaseToken,
-		identity.RestoreEpoch, identity.LeaseFence, identity.Capability.Generation,
+		identity.AttemptSequence, BackupRPOMaxVerifiedAgeSeconds,
+		identity.HolderID, identity.LeaseToken, identity.RestoreEpoch,
+		identity.LeaseFence, identity.Capability.Generation,
 		identity.Capability.EvidenceSHA256, identity.Capability.ExpiresAtUnix,
 	}}
 	insert := rqlite.Statement{SQL: `INSERT INTO backup_rpo_attempts(
@@ -453,7 +470,9 @@ func (s *BackupRPOStore) AcknowledgeVerified(
 		identity.CapturedGeneration, identity.BackupID, identity.ObjectKey,
 		identity.ObjectSHA256, version, identity.ObjectSizeBytes,
 		identity.ManifestVersion, identity.CapturedGeneration,
-		identity.RestoreEpoch, identity.CapturedGeneration, identity.CapturedGeneration,
+		identity.RestoreEpoch, identity.CapturedGeneration,
+		identity.AttemptSequence, identity.CapturedGeneration,
+		identity.CapturedGeneration, BackupRPOMaxVerifiedAgeSeconds,
 	}
 	stateArgs = append(stateArgs, backupRPOAttemptIdentityArgs(identity)...)
 	stateArgs = append(stateArgs, version)
@@ -464,7 +483,13 @@ func (s *BackupRPOStore) AcknowledgeVerified(
 		phase=CASE WHEN dirty_generation=? THEN 'verified' ELSE 'dirty' END,
 		updated_at_unix=unixepoch()
 	WHERE b.singleton_id=1 AND b.restore_epoch=? AND b.dirty_generation>=?
-		AND b.verified_generation<?
+		AND b.last_attempt_sequence=?
+		AND (
+			b.verified_generation<?
+			OR (b.verified_generation=?
+				AND b.verified_at_unix>0
+				AND b.verified_at_unix<=unixepoch()-?)
+		)
 		AND EXISTS (
 			SELECT 1 FROM backup_rpo_attempts a
 			WHERE ` + backupRPOAttemptIdentityWhere("a") + `
@@ -793,9 +818,13 @@ func parseBackupRPOCycle(results []rqlite.Result) (BackupRPOCycle, bool) {
 	if !ok || attempt.FailureCode != "" ||
 		attempt.Identity.RestoreEpoch != state.RestoreEpoch ||
 		attempt.Identity.AttemptSequence != state.LastAttemptSequence ||
-		attempt.Identity.CapturedGeneration <= state.VerifiedGeneration ||
+		attempt.Identity.CapturedGeneration < state.VerifiedGeneration ||
 		attempt.Identity.CapturedGeneration > state.DirtyGeneration ||
 		attempt.DatabaseNowUnix != state.DatabaseNowUnix {
+		return BackupRPOCycle{}, false
+	}
+	if attempt.Identity.CapturedGeneration == state.VerifiedGeneration &&
+		!backupRPOHourlyRefreshDue(state) {
 		return BackupRPOCycle{}, false
 	}
 	switch attempt.Phase {
@@ -805,6 +834,13 @@ func parseBackupRPOCycle(results []rqlite.Result) (BackupRPOCycle, bool) {
 	}
 	cycle.ActiveAttempt = &attempt
 	return cycle, true
+}
+
+func backupRPOHourlyRefreshDue(state BackupRPOState) bool {
+	return state.Verified != nil &&
+		state.Verified.VerifiedAtUnix > 0 &&
+		state.Verified.VerifiedAtUnix <= state.DatabaseNowUnix &&
+		state.DatabaseNowUnix-state.Verified.VerifiedAtUnix >= BackupRPOMaxVerifiedAgeSeconds
 }
 
 func parseBackupRPOState(results []rqlite.Result) (BackupRPOState, bool) {

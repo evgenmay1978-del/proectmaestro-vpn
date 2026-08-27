@@ -136,6 +136,41 @@ func TestBackupRPORegisterAttemptBurnsExactSequenceAndInsertsAtomically(t *testi
 	})
 }
 
+func TestBackupRPORegisterAttemptRequiresDirtyOrHourlyDueState(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{"last_attempt_sequence": identity.AttemptSequence}}},
+		rqlite.Result{Rows: []map[string]any{backupRPOAttemptRow(identity, BackupRPOAttemptPending, nil, nil)}},
+	)}}
+	if _, err := NewBackupRPOStore(db).RegisterAttempt(context.Background(), identity); err != nil {
+		t.Fatalf("RegisterAttempt: %v", err)
+	}
+	if len(db.requestCalls) != 1 || len(db.requestCalls[0].statements) != 2 {
+		t.Fatalf("request calls=%#v", db.requestCalls)
+	}
+	stateSQL := strings.ToLower(db.requestCalls[0].statements[0].SQL)
+	for _, required := range []string{
+		"dirty_generation>b.verified_generation",
+		"dirty_generation=b.verified_generation",
+		"b.phase='dirty'",
+		"b.phase='verified'",
+		"b.verified_at_unix<=unixepoch()-?",
+	} {
+		if !strings.Contains(stateSQL, required) {
+			t.Fatalf("registration state SQL lacks %q: %s", required, stateSQL)
+		}
+	}
+	forceAfterBindings := 0
+	for _, arg := range db.requestCalls[0].statements[0].Args {
+		if fmt.Sprint(arg) == "3600" {
+			forceAfterBindings++
+		}
+	}
+	if forceAfterBindings != 1 {
+		t.Fatalf("hourly force-after bindings = %d, want 1: %#v", forceAfterBindings, db.requestCalls[0].statements[0].Args)
+	}
+}
+
 func TestBackupRPORegisterAttemptRejectsOneActiveAttemptAndResolvesUnknownExactly(t *testing.T) {
 	identity := validBackupRPOAttemptIdentity()
 	conflict := &recordingRQLite{requests: []scriptedResult{resultsScript(rqlite.Result{}, rqlite.Result{})}}
@@ -269,6 +304,50 @@ func TestBackupRPOAcknowledgeVerifiedUsesExactVersionReadbackAndManifestProof(t 
 		"case when dirty_generation=? then 'verified' else 'dirty' end", "phase='applied'",
 		"set phase='verified'", "changes()=1", "expires_at_unix>unixepoch()",
 	})
+}
+
+func TestBackupRPOAcknowledgeVerifiedSQLAllowsSameGenerationOnlyForLatestSequence(t *testing.T) {
+	proof := validBackupRPOVerification()
+	proof.Identity.AttemptSequence = 17
+	proof.Identity.ObjectKey = "backups/g-9/a-17-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gpg"
+	proof.ManifestObjectKey = proof.Identity.ObjectKey
+	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
+		rqlite.Result{Rows: []map[string]any{{
+			"verified_generation": proof.Identity.CapturedGeneration,
+			"dirty_generation":    proof.Identity.CapturedGeneration,
+			"phase":               BackupRPOPhaseVerified,
+		}}},
+		rqlite.Result{Rows: []map[string]any{backupRPOAttemptRow(
+			proof.Identity, BackupRPOAttemptVerified, proof.VersionID.String(), nil,
+		)}},
+	)}}
+	attempt, err := NewBackupRPOStore(db).AcknowledgeVerified(context.Background(), proof)
+	if err != nil || attempt.Identity != proof.Identity || attempt.Phase != BackupRPOAttemptVerified {
+		t.Fatalf("attempt=%#v error=%v", attempt, err)
+	}
+	if len(db.requestCalls) != 1 || len(db.requestCalls[0].statements) != 2 {
+		t.Fatalf("request calls=%#v", db.requestCalls)
+	}
+	stateSQL := strings.ToLower(db.requestCalls[0].statements[0].SQL)
+	for _, required := range []string{
+		"b.verified_generation<?",
+		"b.verified_generation=?",
+		"b.last_attempt_sequence=?",
+		"b.verified_at_unix<=unixepoch()-?",
+	} {
+		if !strings.Contains(stateSQL, required) {
+			t.Fatalf("acknowledgment state SQL lacks %q: %s", required, stateSQL)
+		}
+	}
+	sequenceBindings := 0
+	for _, arg := range db.requestCalls[0].statements[0].Args {
+		if fmt.Sprint(arg) == "17" {
+			sequenceBindings++
+		}
+	}
+	if sequenceBindings != 2 {
+		t.Fatalf("latest sequence bindings = %d, want 2: %#v", sequenceBindings, db.requestCalls[0].statements[0].Args)
+	}
 }
 
 func TestBackupRPOAcknowledgeVerifiedRejectsMissingOrMismatchedProof(t *testing.T) {
@@ -633,6 +712,36 @@ func TestBackupRPOCurrentCycleReturnsStateAndActiveAttemptAtomically(t *testing.
 	}
 }
 
+func TestBackupRPOCurrentCycleAllowsSameGenerationRefreshOnlyWhenHourlyDue(t *testing.T) {
+	identity := validBackupRPOAttemptIdentity()
+	sameGenerationRow := func(verifiedAt int64) map[string]any {
+		row := backupRPOCycleRow(&identity, BackupRPOAttemptApplying, nil, nil)
+		row["verified_generation"] = identity.CapturedGeneration
+		row["verified_object_key"] = "backups/g-9/a-4-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gpg"
+		row["verified_at_unix"] = verifiedAt
+		row["phase"] = BackupRPOPhaseVerified
+		return row
+	}
+
+	overdueDB := &recordingRQLite{linear: []scriptedResult{rowsScript(sameGenerationRow(1_996_400))}}
+	cycle, err := NewBackupRPOStore(overdueDB).CurrentCycle(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentCycle at 3600-second boundary: %v", err)
+	}
+	if cycle.ActiveAttempt == nil || cycle.ActiveAttempt.Identity != identity {
+		t.Fatalf("active attempt=%#v, want same-generation refresh %#v", cycle.ActiveAttempt, identity)
+	}
+	if cycle.State.Verified == nil || cycle.State.Verified.VerifiedAtUnix != 1_996_400 {
+		t.Fatalf("verified state=%#v", cycle.State.Verified)
+	}
+
+	recentDB := &recordingRQLite{linear: []scriptedResult{rowsScript(sameGenerationRow(1_996_401))}}
+	_, err = NewBackupRPOStore(recentDB).CurrentCycle(context.Background())
+	if err == nil || err.Error() != "controlplane: backup RPO state unavailable" {
+		t.Fatalf("recent same-generation attempt error=%v", err)
+	}
+}
+
 func TestBackupRPOCurrentCycleReturnsNilWithoutAnActiveAttempt(t *testing.T) {
 	db := &recordingRQLite{linear: []scriptedResult{rowsScript(backupRPOCycleRow(nil, "", nil, nil))}}
 	cycle, err := NewBackupRPOStore(db).CurrentCycle(context.Background())
@@ -649,15 +758,17 @@ func TestBackupRPOCurrentCycleFailsClosedOnDuplicateMalformedOrReadError(t *test
 	duplicateRow := backupRPOCycleRow(&identity, BackupRPOAttemptApplying, nil, nil)
 	malformed := backupRPOCycleRow(&identity, BackupRPOAttemptApplying, nil, nil)
 	malformed["attempt_object_sha256"] = strings.Repeat("D", 64)
-	staleGeneration := backupRPOCycleRow(&identity, BackupRPOAttemptApplying, nil, nil)
-	staleGeneration["attempt_captured_generation"] = int64(8)
+	behindVerified := identity
+	behindVerified.CapturedGeneration = 7
+	behindVerified.ObjectKey = "backups/g-7/a-5-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gpg"
+	staleGeneration := backupRPOCycleRow(&behindVerified, BackupRPOAttemptApplying, nil, nil)
 	cases := []struct {
 		name string
 		db   *recordingRQLite
 	}{
 		{name: "duplicate active", db: &recordingRQLite{linear: []scriptedResult{rowsScript(duplicateRow, duplicateRow)}}},
 		{name: "malformed active", db: &recordingRQLite{linear: []scriptedResult{rowsScript(malformed)}}},
-		{name: "already verified generation", db: &recordingRQLite{linear: []scriptedResult{rowsScript(staleGeneration)}}},
+		{name: "behind verified generation", db: &recordingRQLite{linear: []scriptedResult{rowsScript(staleGeneration)}}},
 		{name: "backend read", db: &recordingRQLite{linear: []scriptedResult{{err: errors.New("raw holder token")}}}},
 	}
 	for _, test := range cases {

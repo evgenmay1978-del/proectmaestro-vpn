@@ -71,15 +71,17 @@ func PublicContract() ContractMatrix {
 			FailureUnsafeCutover,
 		},
 		Transitions: map[string]string{
-			"no-attempt-clean":       "wait",
-			"no-attempt-dirty":       "create",
-			"pending":                "upload",
-			"applying":               "verify",
-			"applied":                "verify",
-			"unknown":                "verify",
-			"newer-fence":            "supersede",
-			"capability-unavailable": "blocked",
-			"lease-unavailable":      "blocked",
+			"no-attempt-clean":          "wait",
+			"no-attempt-clean-recent":   "wait",
+			"no-attempt-clean-boundary": "create",
+			"no-attempt-dirty":          "create",
+			"pending":                   "upload",
+			"applying":                  "verify",
+			"applied":                   "verify",
+			"unknown":                   "verify",
+			"newer-fence":               "supersede",
+			"capability-unavailable":    "blocked",
+			"lease-unavailable":         "blocked",
 		},
 	}
 }
@@ -222,18 +224,38 @@ func (runner *Runner) Run(parent context.Context) Result {
 
 		attempt := cycle.ActiveAttempt
 		if attempt == nil {
+			cleanRecent := false
+			switch {
+			case cycle.State.DirtyGeneration < cycle.State.VerifiedGeneration:
+				return Result{Code: ResultInvalidTransition, Transitions: transition}
+			case cycle.State.DirtyGeneration == cycle.State.VerifiedGeneration:
+				verified := cycle.State.Verified
+				if cycle.State.Phase != controlplane.BackupRPOPhaseVerified ||
+					verified == nil ||
+					verified.VerifiedAtUnix <= 0 ||
+					verified.VerifiedAtUnix > cycle.State.DatabaseNowUnix {
+					return Result{Code: ResultInvalidTransition, Transitions: transition}
+				}
+				if cycle.State.DatabaseNowUnix-verified.VerifiedAtUnix <
+					controlplane.BackupRPOMaxVerifiedAgeSeconds {
+					cleanRecent = true
+				}
+			default:
+				if cycle.State.Phase != controlplane.BackupRPOPhaseDirty {
+					return Result{Code: ResultInvalidTransition, Transitions: transition}
+				}
+			}
+			if cycle.State.DirtyGeneration <= 0 ||
+				cycle.State.LastAttemptSequence == math.MaxInt64 {
+				return Result{Code: ResultInvalidTransition, Transitions: transition}
+			}
 			if cycle.State.Verified != nil {
 				if cleanupErr := runner.Bundles.RemoveExisting(ctx, cycle.State.Verified.BackupID); cleanupErr != nil {
 					return Result{Code: resultForBundleError(ctx, cleanupErr), Transitions: transition}
 				}
 			}
-			if cycle.State.DirtyGeneration <= cycle.State.VerifiedGeneration {
+			if cleanRecent {
 				return Result{Code: ResultNoop, Transitions: transition}
-			}
-			if cycle.State.Phase != controlplane.BackupRPOPhaseDirty ||
-				cycle.State.DirtyGeneration <= 0 ||
-				cycle.State.LastAttemptSequence == math.MaxInt64 {
-				return Result{Code: ResultInvalidTransition, Transitions: transition}
 			}
 			backupID, idErr := runner.IDs.NewID()
 			if idErr != nil || !canonicalLowerHex(backupID, 32) {

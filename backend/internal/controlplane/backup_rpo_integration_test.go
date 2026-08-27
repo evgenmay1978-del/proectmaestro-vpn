@@ -479,6 +479,143 @@ func TestBackupRPOAttemptIntegrationRestartUnknownConcurrentDirtyAndOneActive(t 
 	}
 }
 
+func TestBackupRPOAttemptIntegrationHourlyRefreshBoundaryAndConcurrentDirty(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db := mustIntegrationRQLite(t)
+	state := prepareBackupRPOIntegration(t, ctx, db)
+	fixedNow := state.DatabaseNowUnix + 1
+	fixedDB := fixedUnixEpochRQLite{RQLite: db, now: fixedNow}
+	store := NewBackupRPOStore(fixedDB)
+
+	leaseRequest := integrationBackupRPOLeaseRequest(
+		state, "node-hourly", "hourly-refresh-lease", 0,
+	)
+	lease, err := store.AcquireLease(ctx, leaseRequest)
+	if err != nil {
+		t.Fatalf("AcquireLease: %v", err)
+	}
+
+	baseline := integrationBackupRPOAttemptIdentity(state, lease)
+	if _, err := store.RegisterAttempt(ctx, baseline); err != nil {
+		t.Fatalf("baseline RegisterAttempt: %v", err)
+	}
+	if _, err := store.MarkUploadStarted(ctx, baseline); err != nil {
+		t.Fatalf("baseline MarkUploadStarted: %v", err)
+	}
+	if _, err := store.RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
+		Identity: baseline,
+		VersionID: mustIntegrationBackupRPOVersionID(t, "version-hourly-baseline"),
+	}); err != nil {
+		t.Fatalf("baseline RecordUploadOutcome: %v", err)
+	}
+	if _, err := store.AcknowledgeVerified(
+		ctx,
+		integrationBackupRPOVerification(t, baseline, "version-hourly-baseline"),
+	); err != nil {
+		t.Fatalf("baseline AcknowledgeVerified: %v", err)
+	}
+
+	current, err := NewBackupRPOStore(db).Current(ctx)
+	if err != nil {
+		t.Fatalf("Current baseline: %v", err)
+	}
+	if current.DirtyGeneration != current.VerifiedGeneration ||
+		current.LastAttemptSequence != baseline.AttemptSequence {
+		t.Fatalf("baseline state=%#v", current)
+	}
+
+	setVerifiedAge := func(age int64) {
+		t.Helper()
+		results, updateErr := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+			SQL: `UPDATE backup_rpo_state
+				SET verified_at_unix=?,updated_at_unix=?
+				WHERE singleton_id=1 AND restore_epoch=?
+				  AND dirty_generation=verified_generation
+				  AND last_attempt_sequence=?
+				RETURNING verified_at_unix`,
+			Args: []any{
+				fixedNow - age,
+				fixedNow,
+				current.RestoreEpoch,
+				current.LastAttemptSequence,
+			},
+		})
+		if updateErr != nil || len(results) != 1 || len(results[0].Rows) != 1 {
+			t.Fatalf("set verified age %d: results=%#v error=%v", age, results, updateErr)
+		}
+	}
+
+	setVerifiedAge(BackupRPOMaxVerifiedAgeSeconds - 1)
+	refresh := integrationBackupRPOAttemptIdentity(current, lease)
+	if _, err := store.RegisterAttempt(ctx, refresh); !errors.Is(err, ErrConflict) {
+		t.Fatalf("3599-second RegisterAttempt error=%v, want ErrConflict", err)
+	}
+	afterRecent, err := NewBackupRPOStore(db).CurrentCycle(ctx)
+	if err != nil {
+		t.Fatalf("CurrentCycle after recent rejection: %v", err)
+	}
+	if afterRecent.State.LastAttemptSequence != baseline.AttemptSequence ||
+		afterRecent.ActiveAttempt != nil {
+		t.Fatalf("recent rejection mutated state=%#v", afterRecent)
+	}
+
+	current = afterRecent.State
+	setVerifiedAge(BackupRPOMaxVerifiedAgeSeconds)
+	refresh = integrationBackupRPOAttemptIdentity(current, lease)
+	registered, err := store.RegisterAttempt(ctx, refresh)
+	if err != nil ||
+		registered.Identity.AttemptSequence != baseline.AttemptSequence+1 ||
+		registered.Identity.CapturedGeneration != baseline.CapturedGeneration {
+		t.Fatalf("hourly RegisterAttempt=%#v error=%v", registered, err)
+	}
+	if _, err := store.MarkUploadStarted(ctx, refresh); err != nil {
+		t.Fatalf("hourly MarkUploadStarted: %v", err)
+	}
+	if _, err := store.RecordUploadOutcome(ctx, BackupRPOUploadOutcome{
+		Identity: refresh,
+		VersionID: mustIntegrationBackupRPOVersionID(t, "version-hourly-refresh"),
+	}); err != nil {
+		t.Fatalf("hourly RecordUploadOutcome: %v", err)
+	}
+
+	dirtyResults, dirtyErr := db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{
+		SQL: `UPDATE backup_rpo_state
+			SET dirty_generation=dirty_generation+1,phase='dirty',updated_at_unix=?
+			WHERE singleton_id=1 AND restore_epoch=?
+			  AND last_attempt_sequence=?
+			RETURNING dirty_generation`,
+		Args: []any{fixedNow, refresh.RestoreEpoch, refresh.AttemptSequence},
+	})
+	if dirtyErr != nil || len(dirtyResults) != 1 || len(dirtyResults[0].Rows) != 1 {
+		t.Fatalf("concurrent dirty bump: results=%#v error=%v", dirtyResults, dirtyErr)
+	}
+
+	acknowledged, err := store.AcknowledgeVerified(
+		ctx,
+		integrationBackupRPOVerification(t, refresh, "version-hourly-refresh"),
+	)
+	if err != nil || acknowledged.Phase != BackupRPOAttemptVerified {
+		t.Fatalf("hourly AcknowledgeVerified=%#v error=%v", acknowledged, err)
+	}
+
+	final, err := NewBackupRPOStore(db).Current(ctx)
+	if err != nil {
+		t.Fatalf("Current final: %v", err)
+	}
+	if final.VerifiedGeneration != refresh.CapturedGeneration ||
+		final.DirtyGeneration != refresh.CapturedGeneration+1 ||
+		final.Phase != BackupRPOPhaseDirty ||
+		final.LastAttemptSequence != refresh.AttemptSequence ||
+		final.Verified == nil ||
+		final.Verified.BackupID != refresh.BackupID ||
+		final.Verified.ObjectVersion != "version-hourly-refresh" ||
+		final.Verified.VerifiedAtUnix != fixedNow {
+		t.Fatalf("hourly final state=%#v", final)
+	}
+}
+
 func TestBackupRPOAttemptIntegrationNewerFenceSupersedesStaleAttempt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -701,6 +838,25 @@ func integrationBackupRPOLeaseRequest(
 			ExpiresAtUnix: state.DatabaseNowUnix + 600,
 		},
 	}
+}
+
+type fixedUnixEpochRQLite struct {
+	rqlite.RQLite
+	now int64
+}
+
+func (db fixedUnixEpochRQLite) Request(
+	ctx context.Context,
+	consistency rqlite.Consistency,
+	transaction bool,
+	statements ...rqlite.Statement,
+) ([]rqlite.Result, error) {
+	fixed := append([]rqlite.Statement(nil), statements...)
+	clock := fmt.Sprintf("%d", db.now)
+	for index := range fixed {
+		fixed[index].SQL = strings.ReplaceAll(fixed[index].SQL, "unixepoch()", clock)
+	}
+	return db.RQLite.Request(ctx, consistency, transaction, fixed...)
 }
 
 type committedUnknownRQLite struct {
