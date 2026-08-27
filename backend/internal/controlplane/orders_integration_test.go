@@ -388,8 +388,16 @@ func TestConfirmVersusCancelHasOneTerminalWinner(t *testing.T) {
 	var confirmErr, cancelErr error
 	var wait sync.WaitGroup
 	wait.Add(2)
-	go func() { defer wait.Done(); <-start; _, confirmErr = service.ConfirmPayment(task7Context(t), task7Confirm(order.OrderID, "race-confirm", "receipt-race")) }()
-	go func() { defer wait.Done(); <-start; _, cancelErr = service.CancelOrder(task7Context(t), CancelOrderCommand{OrderID: order.OrderID, IdempotencyKey: "race-cancel", Actor: "owner", Channel: "web"}) }()
+	go func() {
+		defer wait.Done()
+		<-start
+		_, confirmErr = service.ConfirmPayment(task7Context(t), task7Confirm(order.OrderID, "race-confirm", "receipt-race"))
+	}()
+	go func() {
+		defer wait.Done()
+		<-start
+		_, cancelErr = service.CancelOrder(task7Context(t), CancelOrderCommand{OrderID: order.OrderID, IdempotencyKey: "race-cancel", Actor: "owner", Channel: "web"})
+	}()
 	close(start)
 	wait.Wait()
 	if (confirmErr == nil) == (cancelErr == nil) {
@@ -448,7 +456,12 @@ func TestDuplicatePaidClaimCreatesOneOwnerEvent(t *testing.T) {
 	var wait sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wait.Add(1)
-		go func() { defer wait.Done(); if _, err := service.MarkPaymentClaimed(task7Context(t), ClaimPaymentCommand{OrderID: order.OrderID, Actor: "buyer", Channel: "telegram"}); err != nil { t.Errorf("claim: %v", err) } }()
+		go func() {
+			defer wait.Done()
+			if _, err := service.MarkPaymentClaimed(task7Context(t), ClaimPaymentCommand{OrderID: order.OrderID, Actor: "buyer", Channel: "telegram"}); err != nil {
+				t.Errorf("claim: %v", err)
+			}
+		}()
 	}
 	wait.Wait()
 	if task7Int(t, db, "SELECT COUNT(*) AS n FROM telegram_delivery_outbox WHERE dedupe_key=?", "owner-claim:"+order.OrderID) != 1 {
@@ -562,7 +575,11 @@ func TestExpireVersusConfirmHasOneTerminalWinner(t *testing.T) {
 		}
 		_, confirmErr = service.ConfirmPayment(task7Context(t), task7Confirm(orderID, "expire-confirm", "receipt-expire"))
 	}()
-	go func() { defer wait.Done(); <-start; _, sweepErr = service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: "worker-expire-race"}) }()
+	go func() {
+		defer wait.Done()
+		<-start
+		_, sweepErr = service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: "worker-expire-race"})
+	}()
 	close(start)
 	wait.Wait()
 	if sweepErr != nil && !errors.Is(sweepErr, ErrLeaseHeld) {
@@ -605,8 +622,18 @@ func TestExpirySweepVersusRenewLatestGenerationWins(t *testing.T) {
 	start := make(chan struct{})
 	var wait sync.WaitGroup
 	wait.Add(2)
-	go func() { defer wait.Done(); <-start; _, _ = service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: "worker-renew-race"}) }()
-	go func() { defer wait.Done(); <-start; if _, err := service.ConfirmPayment(task7Context(t), task7Confirm(order.OrderID, "renew-race", "receipt-renew-race")); err != nil { t.Errorf("confirm: %v", err) } }()
+	go func() {
+		defer wait.Done()
+		<-start
+		_, _ = service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: "worker-renew-race"})
+	}()
+	go func() {
+		defer wait.Done()
+		<-start
+		if _, err := service.ConfirmPayment(task7Context(t), task7Confirm(order.OrderID, "renew-race", "receipt-renew-race")); err != nil {
+			t.Errorf("confirm: %v", err)
+		}
+	}()
 	close(start)
 	wait.Wait()
 	row := task7Row(t, db, rqlite.Statement{SQL: "SELECT status,generation FROM customers WHERE customer_id=?", Args: []any{customerID}})
@@ -625,7 +652,11 @@ func TestSweeperLeaseHasOneActiveHolder(t *testing.T) {
 	start := make(chan struct{})
 	errs := make(chan error, 2)
 	for _, worker := range []string{"worker-one", "worker-two"} {
-		go func(worker string) { <-start; _, err := service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: worker}); errs <- err }(worker)
+		go func(worker string) {
+			<-start
+			_, err := service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: worker})
+			errs <- err
+		}(worker)
 	}
 	close(start)
 	first, second := <-errs, <-errs
