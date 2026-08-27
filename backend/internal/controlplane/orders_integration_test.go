@@ -440,6 +440,28 @@ func TestLostResponseAfterCommitReturnsSavedResultAfterRestart(t *testing.T) {
 	}
 }
 
+func TestCancelReplayReturnsIdenticalCanonicalView(t *testing.T) {
+	db := task7DB(t)
+	customerID := task7SeedCustomer(t, db, "active", task7Now(t, db)+600, 2)
+	service := task7Service(t, db)
+	order := task7Create(t, service, customerID, "telegram_user", "70009", "bot-a")
+	command := CancelOrderCommand{
+		OrderID: order.OrderID, IdempotencyKey: "cancel-replay-shape",
+		Actor: "owner", Channel: "web",
+	}
+	first, err := service.CancelOrder(task7Context(t), command)
+	if err != nil {
+		t.Fatalf("first cancel: %v", err)
+	}
+	replay, err := service.CancelOrder(task7Context(t), command)
+	if err != nil {
+		t.Fatalf("cancel replay: %v", err)
+	}
+	if replay != first {
+		t.Fatalf("cancel replay=%#v, want first response %#v", replay, first)
+	}
+}
+
 func TestTwoDifferentPaidOrdersBothExtendExpiry(t *testing.T) {
 	db := task7DB(t)
 	now := task7Now(t, db)
