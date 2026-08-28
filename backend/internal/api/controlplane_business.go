@@ -13,16 +13,20 @@ import (
 )
 
 type ServiceBusinessConfig struct {
-	SubBaseURL  string
-	SBPPhone    string
-	PayURL      string
-	TrialDays   int
+	SubBaseURL   string
+	SBPPhone     string
+	PayURL       string
+	TrialDays    int
 	WBRoomSender controlplane.ExternalActionSender
 	WorkerID     string
 }
 
 type externalActionRunner interface {
 	ExecuteExternalAction(context.Context, controlplane.ExternalActionCommand, string, controlplane.ExternalActionSender) (controlplane.ExternalActionResult, error)
+}
+
+type wbRoomAssigner interface {
+	AssignWBRoom(context.Context, string, string, string) error
 }
 
 // ServiceBusiness is the only Business implementation used by the rqlite
@@ -33,16 +37,21 @@ type ServiceBusiness struct {
 	externalActions externalActionRunner
 	wbSender        controlplane.ExternalActionSender
 	workerID        string
+	wbRooms         wbRoomAssigner
 }
 
 func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig) *ServiceBusiness {
 	if cfg.TrialDays <= 0 {
 		cfg.TrialDays = 2
 	}
-	return &ServiceBusiness{
+	business := &ServiceBusiness{
 		service: service, cfg: cfg, externalActions: service,
 		wbSender: cfg.WBRoomSender, workerID: strings.TrimSpace(cfg.WorkerID),
 	}
+	if service != nil {
+		business.wbRooms = service
+	}
+	return business
 }
 
 type serviceBusinessError struct {
@@ -585,7 +594,7 @@ func (b *ServiceBusiness) SetWBToken(ctx context.Context, command SetSecretComma
 }
 
 func (b *ServiceBusiness) RequestWBRoom(ctx context.Context, command RequestWBRoomCommand) (ExternalActionView, error) {
-	if b == nil || b.externalActions == nil || b.wbSender == nil || b.workerID == "" {
+	if b == nil || b.externalActions == nil || b.wbSender == nil || b.workerID == "" || b.wbRooms == nil {
 		return ExternalActionView{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
 	if strings.TrimSpace(command.Login) == "" || strings.TrimSpace(command.ActionKey) == "" || strings.TrimSpace(command.IdempotencyKey) == "" {
@@ -605,6 +614,11 @@ func (b *ServiceBusiness) RequestWBRoom(ctx context.Context, command RequestWBRo
 		}
 		_ = json.Unmarshal(action.Response, &response)
 		view.Room = response.Room
+	}
+	if action.State == "succeeded" && strings.TrimSpace(view.Room) != "" {
+		if err := b.wbRooms.AssignWBRoom(ctx, command.Login, view.Room, command.IdempotencyKey); err != nil {
+			return ExternalActionView{}, businessError(err)
+		}
 	}
 	return view, nil
 }
