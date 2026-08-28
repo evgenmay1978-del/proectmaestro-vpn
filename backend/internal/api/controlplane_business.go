@@ -13,24 +13,36 @@ import (
 )
 
 type ServiceBusinessConfig struct {
-	SubBaseURL string
-	SBPPhone   string
-	PayURL     string
-	TrialDays  int
+	SubBaseURL  string
+	SBPPhone    string
+	PayURL      string
+	TrialDays   int
+	WBRoomSender controlplane.ExternalActionSender
+	WorkerID     string
+}
+
+type externalActionRunner interface {
+	ExecuteExternalAction(context.Context, controlplane.ExternalActionCommand, string, controlplane.ExternalActionSender) (controlplane.ExternalActionResult, error)
 }
 
 // ServiceBusiness is the only Business implementation used by the rqlite
 // runtime. Every mutation delegates to a canonical controlplane.Service command.
 type ServiceBusiness struct {
-	service *controlplane.Service
-	cfg     ServiceBusinessConfig
+	service         *controlplane.Service
+	cfg             ServiceBusinessConfig
+	externalActions externalActionRunner
+	wbSender        controlplane.ExternalActionSender
+	workerID        string
 }
 
 func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig) *ServiceBusiness {
 	if cfg.TrialDays <= 0 {
 		cfg.TrialDays = 2
 	}
-	return &ServiceBusiness{service: service, cfg: cfg}
+	return &ServiceBusiness{
+		service: service, cfg: cfg, externalActions: service,
+		wbSender: cfg.WBRoomSender, workerID: strings.TrimSpace(cfg.WorkerID),
+	}
 }
 
 type serviceBusinessError struct {
@@ -573,13 +585,16 @@ func (b *ServiceBusiness) SetWBToken(ctx context.Context, command SetSecretComma
 }
 
 func (b *ServiceBusiness) RequestWBRoom(ctx context.Context, command RequestWBRoomCommand) (ExternalActionView, error) {
-	if err := b.available(); err != nil {
-		return ExternalActionView{}, err
+	if b == nil || b.externalActions == nil || b.wbSender == nil || b.workerID == "" {
+		return ExternalActionView{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
+	}
+	if strings.TrimSpace(command.Login) == "" || strings.TrimSpace(command.ActionKey) == "" || strings.TrimSpace(command.IdempotencyKey) == "" {
+		return ExternalActionView{}, businessError(controlplane.ErrForbidden)
 	}
 	request, _ := json.Marshal(map[string]string{"login": command.Login})
-	action, err := b.service.PrepareExternalAction(ctx, controlplane.ExternalActionCommand{
+	action, err := b.externalActions.ExecuteExternalAction(ctx, controlplane.ExternalActionCommand{
 		Type: "wb.room", ResourceID: command.Login, ActionKey: command.ActionKey, Request: request,
-	})
+	}, b.workerID, b.wbSender)
 	if err != nil {
 		return ExternalActionView{}, businessError(err)
 	}
