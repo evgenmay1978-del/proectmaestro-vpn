@@ -45,13 +45,13 @@ type ShadowProjectionSetting struct {
 }
 
 type ShadowProjectionPrincipal struct {
-	InternalID          string
-	LoginKeyHMAC        string
-	Status              string
-	Roles               []string
-	VerifierSHA256      string
-	VerifierKeyVersion  int
-	CredentialActive    bool
+	InternalID         string
+	LoginKeyHMAC       string
+	Status             string
+	Roles              []string
+	VerifierSHA256     string
+	VerifierKeyVersion int
+	CredentialActive   bool
 }
 
 type ShadowCandidateSource interface {
@@ -87,7 +87,7 @@ func ShadowFromCandidate(
 		SchemaVersion: 1, SettingsFingerprint: settingsFingerprint,
 		PrincipalsFingerprint: principalsFingerprint, OTA: ota,
 		Customers: make([]ShadowCustomer, 0, len(projection.Customers)),
-		Orders: make([]ShadowOrder, 0, len(projection.Orders)),
+		Orders:    make([]ShadowOrder, 0, len(projection.Orders)),
 	}
 	customerIDs := make(map[string]struct{}, len(projection.Customers))
 	identities := make(map[string]struct{}, len(projection.Customers))
@@ -117,7 +117,14 @@ func ShadowFromCandidate(
 	}
 	orderIDs := make(map[string]struct{}, len(projection.Orders))
 	for _, order := range projection.Orders {
-		state := order.PaymentState + ":" + order.ProvisioningState
+		paymentState := order.PaymentState
+		switch paymentState {
+		case "created":
+			paymentState = "pending"
+		case "payment_claimed":
+			paymentState = "claimed"
+		}
+		state := paymentState + ":" + order.ProvisioningState
 		if !validShadowHex64(order.InternalID) || !validShadowOrderState(state) || order.ResultExpiresAtUnix < 0 {
 			return ShadowExport{}, ErrShadowExportInvalid
 		}
