@@ -52,10 +52,11 @@ func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig
 		cfg.TrialDays = 2
 	}
 	business := &ServiceBusiness{
-		service: service, subscriptions: service, cfg: cfg, externalActions: service,
+		service: service, cfg: cfg, externalActions: service,
 		wbSender: cfg.WBRoomSender, workerID: strings.TrimSpace(cfg.WorkerID),
 	}
 	if service != nil {
+		business.subscriptions = service
 		business.wbRooms = service
 	}
 	return business
@@ -357,9 +358,13 @@ func (b *ServiceBusiness) SubscriptionSnapshot(ctx context.Context, token string
 	if b == nil || b.subscriptions == nil {
 		return SubscriptionSnapshot{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
-	customer, document, err := b.subscriptions.BusinessSubscriptionDocument(ctx, token)
+	customer, _, err := b.subscriptions.BusinessSubscriptionDocument(ctx, token)
 	if err != nil {
 		return SubscriptionSnapshot{}, businessError(err)
+	}
+	document, _, err := renderControlPlaneSubscription(customer, b.cfg.SubscriptionTopology, subscriptionRenderOptions{})
+	if err != nil {
+		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
 	}
 	return SubscriptionSnapshot{Customer: b.customerView(customer), Document: document}, nil
 }
