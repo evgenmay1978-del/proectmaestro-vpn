@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	goruntime "runtime"
 	"strings"
@@ -76,9 +77,18 @@ func buildRQLitePanelRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("rqlite runtime: service unavailable: %w", err)
 	}
+	wbSender, err := api.NewWBRoomSender(service, &http.Client{Timeout: 10 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("rqlite runtime: WB provider unavailable: %w", err)
+	}
+	workerID, err := dependencies.ids.NewID("worker")
+	if err != nil {
+		return nil, fmt.Errorf("rqlite runtime: worker identity unavailable: %w", err)
+	}
 	business := api.NewServiceBusiness(service, api.ServiceBusinessConfig{
 		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
 		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,
+		WBRoomSender: wbSender, WorkerID: workerID,
 	})
 	server := api.NewControlPlane(business, apiConfig)
 	return &panelRuntime{mode: "rqlite", business: business, handler: server.Handler()}, nil
