@@ -56,7 +56,7 @@ func (s *countingExternalSender) Post(context.Context, []byte) ([]byte, error) {
 	return []byte(`{"room":"wb-1"}`), nil
 }
 
-func TestExternalActionCrashBoundariesPostAtMostOnce(t *testing.T) {
+func TestExternalActionCrashBoundariesMemoryModel(t *testing.T) {
 	for _, point := range []ExternalActionCrashPoint{
 		CrashBeforeAttemptMarker,
 		CrashAfterAttemptMarker,
@@ -85,7 +85,7 @@ func TestExternalActionCrashBoundariesPostAtMostOnce(t *testing.T) {
 	}
 }
 
-func TestExternalActionStaleLeaseCannotSend(t *testing.T) {
+func TestExternalActionStaleLeaseMemoryModel(t *testing.T) {
 	store := newMemoryExternalActions()
 	store.staleLease = true
 	sender := &countingExternalSender{}
@@ -101,7 +101,7 @@ func TestExternalActionStaleLeaseCannotSend(t *testing.T) {
 	}
 }
 
-func TestExternalActionReplacementUsesNewKey(t *testing.T) {
+func TestExternalActionReplacementMemoryModel(t *testing.T) {
 	store := newMemoryExternalActions()
 	sender := &countingExternalSender{}
 	executor := NewExternalActionExecutor(store, sender)
