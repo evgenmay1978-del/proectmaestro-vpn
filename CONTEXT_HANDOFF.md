@@ -1,5 +1,43 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. HA PLAN 02 TASK 8 — REVIEW FIX CHECKPOINT (29.08.2026)
+
+- Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
+  Последний проверенный root code checkpoint —
+  `33b602b016ef260c1d34d448d282f18bbf99f6ec`; это НЕ accepted Task 8.
+  Перед продолжением перепроверить live HEAD/status и существующего исполнителя.
+- Task 8 остаётся на исправлении первого review round. Авторитетный список —
+  [15 замечаний](.superpowers/sdd/2026-08-09-maestrovpn-ha-02-business-api/task-8-review-findings-round-1.md).
+  Finding 1 (запрет plaintext rqlite) принят scoped re-review.
+  Finding 2 улучшен в `e41858c`, но ещё открыт: inactive/expired `/info`,
+  legacy HTTP 402 для expired `/sub`, `Cache-Control: no-store` у info/helpers.
+- В `33b602b` исправлены findings 8/15: существующие customer mutations
+  сохраняют canonical access и first/replay; reset devices сохраняет
+  suspended/deleted status. Focused real-SQLite/migrations tests GREEN:
+  `24.600s`; standalone-checkpoint проверка с overlay, исключающим RED7,
+  GREEN `22.901s`. Независимое принятие этих исправлений ещё впереди.
+  Полная ordinary suite и exact-SHA GitHub CI этого checkpoint ещё не заявлены GREEN.
+- Finding 7 (transactional trial anti-abuse + imported legacy identity)
+  остаётся в работе. Не stage/не удалять незавершённый файл исполнителя
+  `backend/internal/controlplane/task8_trial_integrity_sql_test.go`.
+  Findings 3/4/5/6/9/10/11/12/13/14 также не закрыты; Task 9 не начинать
+  вместо исправления load-bearing замечаний Task 8.
+- Присланные владельцем guide и два JSON сохранены как
+  [обезличенный XHTTP/CDN reference](docs/yandex-cdn-whitelist/references/XHTTP_USER_REFERENCE.md).
+  Это входные материалы, НЕ проверенная production-конфигурация; сторонние
+  UUID/IP/domains/ключи/URL подписки и GitHub token туда не копировались.
+- `AGENTS.md` и постоянный project-master дополнены проверенными правилами
+  обнаружения существующих путей и preflight Python-зависимостей/UTF-8.
+  Четыре прежние gofmt-only правки входят в следующий repository checkpoint.
+- Следующий шаг: зафиксировать docs/format checkpoint, проверить точный
+  pushed SHA в GitHub, затем продолжить finding 7 и оставшийся finding 2.
+  Один writer владеет branch/ledger; не запускать дублирующего исполнителя.
+- Production остаётся **NO-GO**; Android/TV baseline **1.0.157** неизменяем.
+  S1-S4, CDN/DNS/TLS, боты, реальные оплаты, deploy, release/signing и OTA
+  этим repository-only этапом не изменяются. Исторические проценты ниже
+  не являются новой оценкой готовности. Завершённый Task 7 и его exact-SHA
+  evidence ниже остаются исторической принятой базой, не подтверждением Task 8.
+
 ## 0AAAAAAAAAAAAAA. HA PLAN 02 TASK 7 ACCEPTED AFTER REVIEW + RE-REVIEW (28.08.2026)
 
 - Единственная каноническая рабочая и push-ветка остаётся

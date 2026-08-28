@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-type wbTokenReaderStub struct { calls int }
+type wbTokenReaderStub struct{ calls int }
 
 func (r *wbTokenReaderStub) ReadSettingSecret(context.Context, string) ([]byte, error) {
 	r.calls++
@@ -17,6 +17,7 @@ func (r *wbTokenReaderStub) ReadSettingSecret(context.Context, string) ([]byte, 
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
+
 func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 func TestWBRoomSenderUsesRQLiteTokenAndProviderContract(t *testing.T) {
@@ -30,7 +31,9 @@ func TestWBRoomSenderUsesRQLiteTokenAndProviderContract(t *testing.T) {
 		}
 		body, _ := io.ReadAll(request.Body)
 		var payload map[string]string
-		if err := json.Unmarshal(body, &payload); err != nil { t.Fatal(err) }
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
 		if payload["roomType"] != "ROOM_TYPE_ALL_ON_SCREEN" || payload["roomPrivacy"] != "ROOM_PRIVACY_FREE" {
 			t.Fatalf("provider payload=%s", body)
 		}
@@ -40,9 +43,17 @@ func TestWBRoomSenderUsesRQLiteTokenAndProviderContract(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"roomId":"room-123"}`)), Header: make(http.Header)}, nil
 	})}
 	sender, err := NewWBRoomSender(reader, client)
-	if err != nil { t.Fatalf("NewWBRoomSender: %v", err) }
+	if err != nil {
+		t.Fatalf("NewWBRoomSender: %v", err)
+	}
 	response, err := sender.Post(context.Background(), []byte(`{"login":"alice"}`))
-	if err != nil { t.Fatalf("Post: %v", err) }
-	if string(response) != `{"room":"room-123"}` { t.Fatalf("response=%s", response) }
-	if reader.calls != 1 { t.Fatalf("token reads=%d", reader.calls) }
+	if err != nil {
+		t.Fatalf("Post: %v", err)
+	}
+	if string(response) != `{"room":"room-123"}` {
+		t.Fatalf("response=%s", response)
+	}
+	if reader.calls != 1 {
+		t.Fatalf("token reads=%d", reader.calls)
+	}
 }

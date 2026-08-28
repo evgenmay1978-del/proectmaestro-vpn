@@ -32,7 +32,9 @@ func NewWBRoomSender(secrets settingSecretReader, client *http.Client) (*WBRoomS
 }
 
 func (s *WBRoomSender) Post(ctx context.Context, request []byte) ([]byte, error) {
-	var input struct { Login string `json:"login"` }
+	var input struct {
+		Login string `json:"login"`
+	}
 	if s == nil || s.secrets == nil || s.client == nil || json.Unmarshal(request, &input) != nil || strings.TrimSpace(input.Login) == "" {
 		return nil, errors.New("api: invalid WB room request")
 	}
@@ -44,18 +46,24 @@ func (s *WBRoomSender) Post(ctx context.Context, request []byte) ([]byte, error)
 		"roomType": "ROOM_TYPE_ALL_ON_SCREEN", "roomPrivacy": "ROOM_PRIVACY_FREE",
 	})
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, wbRoomProviderURL, bytes.NewReader(payload))
-	if err != nil { return nil, errors.New("api: build WB room request") }
+	if err != nil {
+		return nil, errors.New("api: build WB room request")
+	}
 	httpRequest.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("User-Agent", "MaestroVPN-ControlPlane/1")
 	response, err := s.client.Do(httpRequest)
-	if err != nil { return nil, errors.New("api: WB room provider unavailable") }
+	if err != nil {
+		return nil, errors.New("api: WB room provider unavailable")
+	}
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, wbRoomResponseLimit+1))
 	if err != nil || len(body) > wbRoomResponseLimit || response.StatusCode != http.StatusOK {
 		return nil, errors.New("api: WB room provider rejected request")
 	}
-	var provider struct { RoomID string `json:"roomId"` }
+	var provider struct {
+		RoomID string `json:"roomId"`
+	}
 	if json.Unmarshal(body, &provider) != nil || strings.TrimSpace(provider.RoomID) == "" {
 		return nil, errors.New("api: WB room provider response is invalid")
 	}

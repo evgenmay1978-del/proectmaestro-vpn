@@ -92,6 +92,14 @@ python ops/maestro-repetition-guard.py check --action <действие> --famil
   вне worktree, получить generated diff из сравнения этих двух файлов, проверить
   его отдельно и применить один раз;
 
+#### File discovery before content search
+
+For an unfamiliar file or directory, first run `rg --files` from a confirmed existing project root, optionally filtered by a filename glob. Pass only exact returned paths to content searches. A remembered or plausible name is a search term, not a verified path. If the expected directory is absent, return to its nearest confirmed parent and discover paths there; do not guess a sibling file.
+
+#### Python validator preflight
+
+After `ModuleNotFoundError`, check `importlib.util.find_spec` for the missing module in the exact candidate interpreter before retrying the full command. An alternate runtime is not evidence that the dependency exists. Use a verified isolated dependency directory when needed; on Windows run UTF-8 repository/skill validators with `python -X utf8`.
+
 #### Windows generated-patch path rule
 
 If a generated patch is needed on Windows, never build it from absolute drive paths and then rewrite quoted `a/C:\...` headers. Create external `old/<repo-relative-path>` and `new/<repo-relative-path>` mirror trees; run `git diff --no-index --src-prefix=a/ --dst-prefix=b/ -- old/<repo-relative-path> new/<repo-relative-path>` from their common parent; inspect headers; then use `git apply --check --recount -p2 <patch>` before one `git apply --recount -p2 <patch>`. After one absolute-path normalization failure, record it and move to this method; do not tune quoting, slash conversion, prefix stripping, or header text.

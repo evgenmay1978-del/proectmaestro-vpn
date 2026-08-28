@@ -87,14 +87,20 @@ func TestServiceExecuteExternalActionAcquiresFencePostsOnceAndReplaysResponse(t 
 			jobNamePresent = jobNamePresent || containsStatementArg(statement, "external-action:wb.room")
 		}
 	}
-	if !jobNamePresent { t.Fatal("durable external-action:wb.room lease key missing") }
+	if !jobNamePresent {
+		t.Fatal("durable external-action:wb.room lease key missing")
+	}
 	if strings.Contains(joined, "alice") || strings.Contains(joined, "wb-1") {
 		t.Fatalf("external action SQL leaked plaintext request/response: %s", joined)
 	}
 }
 
 func containsStatementArg(statement rqlite.Statement, want string) bool {
-	for _, arg := range statement.Args { if actual, ok := arg.(string); ok && actual == want { return true } }
+	for _, arg := range statement.Args {
+		if actual, ok := arg.(string); ok && actual == want {
+			return true
+		}
+	}
 	return false
 }
 
