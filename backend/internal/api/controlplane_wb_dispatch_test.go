@@ -27,13 +27,27 @@ type wbSenderStub struct{}
 
 func (wbSenderStub) Post(context.Context, []byte) ([]byte, error) { return nil, nil }
 
+type wbRoomAssignerSpy struct {
+	calls, login, room, idempotency string
+}
+
+func (s *wbRoomAssignerSpy) AssignWBRoom(_ context.Context, login, room, idempotency string) error {
+	s.calls = "called"
+	s.login = login
+	s.room = room
+	s.idempotency = idempotency
+	return nil
+}
+
 func TestServiceBusinessRequestWBRoomExecutesDurableProvider(t *testing.T) {
 	runner := &wbActionRunnerSpy{}
 	sender := wbSenderStub{}
+	assigner := &wbRoomAssignerSpy{}
 	business := &ServiceBusiness{
 		externalActions: runner,
 		wbSender:        sender,
 		workerID:        "panel-s2",
+		wbRooms:         assigner,
 	}
 	view, err := business.RequestWBRoom(context.Background(), RequestWBRoomCommand{
 		Login: "alice", ActionKey: "wb-action-key-1", IdempotencyKey: "wb-idempotency-1",
@@ -53,5 +67,8 @@ func TestServiceBusinessRequestWBRoomExecutesDurableProvider(t *testing.T) {
 	}
 	if view.ID != "wb-action-1" || view.State != "succeeded" || view.Room != "room-1" {
 		t.Fatalf("view = %#v", view)
+	}
+	if assigner.calls != "called" || assigner.login != "alice" || assigner.room != "room-1" || assigner.idempotency != "wb-idempotency-1" {
+		t.Fatalf("room assignment = %#v", assigner)
 	}
 }
