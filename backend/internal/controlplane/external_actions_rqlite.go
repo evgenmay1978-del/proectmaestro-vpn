@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -61,7 +62,10 @@ WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.Ac
 	case "applied":
 		result.State = "succeeded"
 	}
-	return result, nil
+	if result.State == "succeeded" {
+		result.Response, err = s.openResponse(results, command)
+	}
+	return result, err
 }
 
 func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
@@ -100,7 +104,12 @@ func (s *RQLiteExternalActions) Finish(ctx context.Context, command ExternalActi
 	if err != nil {
 		return ExternalActionResult{}, errors.New("controlplane: encode external action response")
 	}
-	return s.transition(ctx, command, "applied", envelopeBytes)
+	result, err := s.transition(ctx, command, "applied", envelopeBytes)
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
+	result.Response = append([]byte(nil), response...)
+	return result, nil
 }
 
 func (s *RQLiteExternalActions) MarkUnknown(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
@@ -131,7 +140,6 @@ WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.Ac
 	default:
 		return ExternalActionResult{}, ErrConflict
 	}
-	result.Response = append([]byte(nil), response...)
 	return result, nil
 }
 
@@ -148,4 +156,40 @@ func externalActionResult(results []rqlite.Result) (ExternalActionResult, error)
 		}
 	}
 	return ExternalActionResult{}, ErrNotFound
+}
+
+func (s *RQLiteExternalActions) openResponse(results []rqlite.Result, command ExternalActionCommand) ([]byte, error) {
+	for i := len(results) - 1; i >= 0; i-- {
+		for _, row := range results[i].Rows {
+			value, ok := row["response_envelope"]
+			if !ok || value == nil {
+				continue
+			}
+			var encoded []byte
+			switch actual := value.(type) {
+			case string:
+				decoded, err := base64.StdEncoding.DecodeString(actual)
+				if err != nil {
+					return nil, ErrUnavailable
+				}
+				encoded = decoded
+			case []byte:
+				encoded = append([]byte(nil), actual...)
+			default:
+				return nil, ErrUnavailable
+			}
+			var envelope Envelope
+			if err := json.Unmarshal(encoded, &envelope); err != nil {
+				return nil, ErrUnavailable
+			}
+			plaintext, err := s.service.store.secrets.Open(SecretScope{
+				OwnerType: "external-action", OwnerID: command.ActionKey, Field: "response", Kind: command.Type,
+			}, envelope)
+			if err != nil {
+				return nil, ErrUnavailable
+			}
+			return plaintext, nil
+		}
+	}
+	return nil, ErrUnavailable
 }

@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -18,8 +19,9 @@ func TestServiceExecuteExternalActionAcquiresFencePostsOnceAndReplaysResponse(t 
 		sql := strings.ToLower(statements[0].SQL)
 		switch {
 		case strings.Contains(sql, "insert into cluster_job_leases"):
+			leaseToken, _ := statements[0].Args[2].(string)
 			return []rqlite.Result{{}, {Rows: []map[string]any{{
-				"holder_id": "panel-a", "lease_token": "generated-lease", "lease_fence": int64(7), "expires_at_unix": int64(2_000_030),
+				"holder_id": "panel-a", "lease_token": leaseToken, "lease_fence": int64(7), "expires_at_unix": int64(2_000_030),
 			}}}}, nil
 		case strings.Contains(sql, "insert or ignore into external_actions"):
 			if state == "" {
@@ -35,7 +37,10 @@ func TestServiceExecuteExternalActionAcquiresFencePostsOnceAndReplaysResponse(t 
 			status, _ := statements[0].Args[0].(string)
 			if state == "applying" {
 				state = status
-				responseEnvelope = statements[0].Args[1]
+				switch encoded := statements[0].Args[1].(type) {
+				case []byte:
+					responseEnvelope = base64.StdEncoding.EncodeToString(encoded)
+				}
 			}
 			return serviceActionResults(state, responseEnvelope), nil
 		default:
@@ -69,16 +74,28 @@ func TestServiceExecuteExternalActionAcquiresFencePostsOnceAndReplaysResponse(t 
 	}
 	joined := strings.ToLower(joinedRequestSQL(db))
 	for _, required := range []string{
-		"insert into cluster_job_leases", "external-action:wb.room", "lease_fence",
+		"insert into cluster_job_leases", "lease_fence",
 		"insert or ignore into external_actions", "set status='applying'", "status=?",
 	} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("durable external action SQL missing %q: %s", required, joined)
 		}
 	}
+	jobNamePresent := false
+	for _, call := range db.requestCalls {
+		for _, statement := range call.statements {
+			jobNamePresent = jobNamePresent || containsStatementArg(statement, "external-action:wb.room")
+		}
+	}
+	if !jobNamePresent { t.Fatal("durable external-action:wb.room lease key missing") }
 	if strings.Contains(joined, "alice") || strings.Contains(joined, "wb-1") {
 		t.Fatalf("external action SQL leaked plaintext request/response: %s", joined)
 	}
+}
+
+func containsStatementArg(statement rqlite.Statement, want string) bool {
+	for _, arg := range statement.Args { if actual, ok := arg.(string); ok && actual == want { return true } }
+	return false
 }
 
 func serviceActionResults(state string, response any) []rqlite.Result {
