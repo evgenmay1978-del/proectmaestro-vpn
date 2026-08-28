@@ -441,8 +441,7 @@ AND operation_id=? AND status='applying'`,
 	}}
 	_, requestErr := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	if requestErr == nil {
-		order.View.PaymentState = PaymentCanceled
-		return order.View, nil
+		return OrderView{OrderID: command.OrderID, PaymentState: PaymentCanceled}, nil
 	}
 	if resolved, found, resolveErr := s.resolveCancel(ctx, command.OrderID, command.IdempotencyKey, requestHash); found || resolveErr != nil {
 		return resolved, resolveErr
