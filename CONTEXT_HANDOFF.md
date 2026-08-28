@@ -1,5 +1,38 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0AAAAAAAAAAAAAA. HA PLAN 02 TASK 7 ACCEPTED AFTER REVIEW + RE-REVIEW (28.08.2026)
+
+- Единственная каноническая рабочая и push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`; один writer владеет branch и
+  repetition ledger. Точный принятый и независимо перепроверенный **code SHA** —
+  `6b46af934280c99f822cfda42d7915c487264134`. Последующий docs-only handoff
+  commit не является новым проверенным code SHA; это точная база Task 8.
+- Plan 02 Task 7 завершён и принят после независимого review и повторного
+  re-review: exactly-once create/claim/confirm/cancel, protected durable replay,
+  active-order guards и fenced order/customer expiry transitions доказаны на
+  реальном трёхузловом rqlite контуре.
+- Review fixes закрыли пять подтверждённых границ: новая epoch/fence при
+  same-ID lease reacquisition; единый канонический confirmation timestamp;
+  canonical importer states при legacy shadow compatibility на export boundary;
+  стабильный полный cancellation replay result; детерминированный
+  per-customer expiry operation identity без ослабления unique guard.
+- Exact-SHA GitHub evidence на `6b46af934280c99f822cfda42d7915c487264134`
+  полностью GREEN: HA run `33132197198`, job `98724058478`; DR run
+  `33132197220`; Yandex run `33132197199`, jobs `98724058315`, `98724175475`,
+  `98724175481`, `98724175511`, `98724401569`.
+- Production остаётся **NO-GO** и не затрагивалась: S1-S4, systemd, DNS/TLS,
+  CDN, панели, оба Telegram-бота, клиенты, реальные платежи/списания, release,
+  signing и OTA не изменялись. Неизменяемый Android/TV production baseline —
+  `1.0.157`.
+- Следующий точный repository-only этап — Plan 02 Task 8: composition-root,
+  runtime/API/panel wiring методов Task 7, exclusive rqlite runtime mode,
+  отключение legacy reconciler и legacy hard-delete paths в rqlite mode.
+  Эти runtime-границы намеренно не относятся к Task 7 и не должны исправляться
+  задним числом в его accepted code SHA.
+- Защищённые owner-файлы
+  `.superpowers/sdd/2026-08-20-yandex-cdn-whitelist/task-4-report.md` и
+  `normalize.patch` должны оставаться неизменёнными и unstaged.
+
 ## 0AAAAAAAAAAAAA. TASK 11 HOURLY BACKUP RPO REFRESH EXACT-SHA GREEN (27.08.2026)
 
 - Единственная каноническая ветка —
