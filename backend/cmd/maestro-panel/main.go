@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,7 +43,11 @@ func atoi(s string, def int) int {
 	return def
 }
 
-type panelRuntime struct{}
+type panelRuntime struct {
+	mode     string
+	business api.Business
+	handler  http.Handler
+}
 
 type runtimeFactories struct {
 	legacy func(context.Context) (*panelRuntime, error)
@@ -62,6 +67,40 @@ func buildRuntime(ctx context.Context, mode string, factories runtimeFactories) 
 
 func main() {
 	listen := env("MAESTRO_LISTEN", "127.0.0.1:8910")
+	switch mode := strings.TrimSpace(os.Getenv("MAESTRO_CONTROL_PLANE")); mode {
+	case "rqlite":
+		runtimeConfig, err := readRQLiteRuntimeConfig(os.Getenv)
+		if err != nil {
+			log.Fatalf("configure rqlite runtime: %v", err)
+		}
+		runtimeInstance, err := buildRQLitePanelRuntime(
+			context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), productionRQLiteRuntimeDependencies(),
+		)
+		if err != nil {
+			log.Fatalf("build rqlite runtime: %v", err)
+		}
+		srv := &http.Server{
+			Addr: listen, Handler: runtimeInstance.handler, ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			log.Printf("maestro-panel listening on %s (rqlite control plane)", listen)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("serve: %v", err)
+			}
+		}()
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		<-sig
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownContext)
+		return
+	case "", "legacy":
+		// The unchanged legacy composition root begins below.
+	default:
+		log.Fatalf("unsupported MAESTRO_CONTROL_PLANE mode %q", mode)
+	}
+
 	storePath := env("MAESTRO_STORE", "/var/lib/maestro/customers.json")
 
 	st, err := store.Open(storePath)
