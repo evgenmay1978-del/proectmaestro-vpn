@@ -185,3 +185,161 @@ Per task authority, no local race, heavy, real-RQLite or Android suite was run. 
 - Task 9: URL/RBAC/public-host work only; it was intentionally excluded here.
 - Plan 03: local agents consume `s3-olcrtc` desired/outbox state; Task 8 does not execute systemd/S3/SSH directly.
 - Production remains **NO-GO** until the broader approved rollout gates are completed.
+
+## Review round 1, finding 2: subscription compatibility completion
+
+Date: 2026-08-29
+Scope: finding 2 only; local repository-GREEN, not a production authorization.
+Starting HEAD: `ba07125031e547c6bb2970919049592a3cdd5982`
+Completion code: `e41858c8016f8bf9eebd7023fb7d54598a28f219` (`fix(api): preserve HA subscription request semantics`)
+
+This bounded continuation builds on the already committed renderer wiring (`3d0fe22`), frozen renderer (`e27b8cd`) and subscription info/helpers correction (`ba07125`). It does not redo those fixes, the separate HTTPS runtime fix (`0c9cf3f`), or other review findings.
+
+### Remaining defect and frozen behavior
+
+- The real rqlite composition root had not supplied the frozen subscription topology. It now passes a public-endpoint-only environment topology into `ServiceBusinessConfig.SubscriptionTopology`; customer credentials still come exclusively from canonical cluster access.
+- Runtime configuration reuses the existing legacy environment names and defaults for S1 VLESS, S2 Hysteria2, optional Naive, optional AnyTLS, and optional S3/S4 VLESS. S3/S4 retain the existing two-variable enablement conditions (panel-base-URL presence plus VLESS-server presence). Presence checks do not construct or contact legacy panels.
+- Frozen `provisionS3`/`provisionS4` code explicitly reuses the primary VLESS UUID (the relevant source was inspected at lines 779-870). Therefore S3/S4 use the existing canonical `vless` credential, not invented per-node credential keys. Missing customer VLESS credentials suppress all three VLESS nodes; stale UUIDs in shared topology cannot be published.
+- The real HA HTTP adapter now carries request options into the renderer without changing the frozen `Business` method signature or the public JSON snapshot shape. `ContentType` is internal metadata (`json:"-"`). Existing info/helpers dispatch remains on its already-fixed path.
+- The renderer preserves the frozen AWG minimum-version gate, the Naive/Cronet gate for unrecognized SFA clients, the DNS fake-IP kill switch, exact case-sensitive `app=karing` / `format=links` selection, plain-text share-link content type and `no-store`. Share-link selection precedes the Naive JSON gate, as in the frozen API.
+- Android mobile and TV `1.0.157` request fixtures retain the frozen generated document byte-for-byte. No generator, selector, outbound, protocol, release or OTA implementation was changed. WG/OLC/VK are not newly enabled by runtime topology; no credentials are minted by rendering.
+- Shared topology is cloned before binding customer access and applying per-request gates. No legacy store, Provisioner, SSH, panel connection or local fallback was introduced.
+
+### Exact code boundary and self-review
+
+The code commit contains exactly eight files (416 insertions, 15 deletions):
+
+- `backend/internal/api/controlplane_subscription_compat.go`
+- `backend/internal/api/controlplane_business.go`
+- `backend/internal/api/controlplane_port.go`
+- `backend/internal/api/controlplane_public_admin.go`
+- `backend/internal/api/controlplane_subscription_request_test.go`
+- `backend/cmd/maestro-panel/runtime_rqlite.go`
+- `backend/cmd/maestro-panel/runtime_subscription.go`
+- `backend/cmd/maestro-panel/runtime_subscription_test.go`
+
+The complete staged contextual diff was reviewed. The existing five-file source delta is confined to runtime injection, request-aware dispatch/rendering and internal content-type metadata; three new files supply the environment adapter and focused tests. Staged path equality against the eight-file allowlist and `git diff --cached --check` both passed. The renderer and runtime tests use synthetic fixture data only.
+
+### Behavioral RED
+
+Working directory for all Go commands below: canonical repository `backend`. Portable Go 1.25.0, `GOMAXPROCS=2`, `GOTOOLCHAIN=local`; ordinary focused tests only.
+
+Before the production fix, the following combined command exited 1:
+
+```powershell
+$env:GOMAXPROCS = "2"
+$env:GOTOOLCHAIN = "local"
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./internal/api ./cmd/maestro-panel -run 'TestControlPlaneSubscription(PreservesFrozenRequestSemantics|MissingCredentialsDoNotPublishTopologyIdentity)|TestRQLiteRuntimeSubscriptionUsesFrozenEnvironmentTopology' -count=1
+```
+
+The valid API portion of that exact output was:
+
+```text
+--- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics (0.00s)
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/installed_mobile (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/installed_tv (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/older_sfa (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/stock_core (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/plain_karing (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/malformed_sfa (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/karing_links (0.00s)
+        controlplane_subscription_request_test.go:95: content type="application/json", want "text/plain; charset=utf-8"
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/format_links (0.00s)
+        controlplane_subscription_request_test.go:95: content type="application/json", want "text/plain; charset=utf-8"
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/case_sensitive_app (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+    --- FAIL: TestControlPlaneSubscriptionPreservesFrozenRequestSemantics/fakeip_kill_switch (0.00s)
+        controlplane_subscription_request_test.go:98: HTTP subscription differs from frozen legacy client document
+--- FAIL: TestControlPlaneSubscriptionMissingCredentialsDoNotPublishTopologyIdentity (0.00s)
+    controlplane_subscription_request_test.go:132: missing customer credential still published UUID at tag "vless-s3"
+FAIL
+FAIL	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api	0.059s
+```
+
+The first runtime portion also returned 503, but was **not accepted as runtime RED evidence**: the initial SQL double returned an envelope as raw JSON instead of the base64 BLOB representation that canonical `openCustomerSecret` actually consumes. The subsequent first GREEN attempt passed API but retained the same runtime 503. The fixture was corrected to base64-encode the sealed JSON envelope and to prove `runtime.business.CustomerByToken` succeeds before rendering. No production decryption, access check or expected behavior was weakened.
+
+For an independent valid runtime RED, only the new `SubscriptionTopology: rqliteSubscriptionTopologyFromEnvironment()` injection line was reversibly removed using a generated contextual patch. All corrected canonical-access preflight checks passed, and this command exited 1 at the subscription assertion:
+
+```powershell
+$env:GOMAXPROCS = "2"
+$env:GOTOOLCHAIN = "local"
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./cmd/maestro-panel -run '^TestRQLiteRuntimeSubscriptionUsesFrozenEnvironmentTopology$' -count=1
+```
+
+```text
+--- FAIL: TestRQLiteRuntimeSubscriptionUsesFrozenEnvironmentTopology (0.00s)
+    --- FAIL: TestRQLiteRuntimeSubscriptionUsesFrozenEnvironmentTopology/configured (0.00s)
+        runtime_subscription_test.go:66: subscription status=503
+    --- FAIL: TestRQLiteRuntimeSubscriptionUsesFrozenEnvironmentTopology/optional_servers_absent (0.00s)
+        runtime_subscription_test.go:66: subscription status=503
+    --- FAIL: TestRQLiteRuntimeSubscriptionUsesFrozenEnvironmentTopology/node_enablement_absent (0.00s)
+        runtime_subscription_test.go:66: subscription status=503
+FAIL
+FAIL	github.com/evgenmay1978-del/proectmaestro-vpn/backend/cmd/maestro-panel	0.065s
+FAIL
+```
+
+The same checked contextual patch was then applied forward to restore the injection line. This proves that the real runtime composition, not only an isolated renderer helper, needs and now receives the topology.
+
+### Focused GREEN and full affected-package verification
+
+After restoring the wiring and correcting the SQL fixture, the exact combined focused command above exited 0:
+
+```text
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api	0.084s
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/cmd/maestro-panel	0.066s
+```
+
+The HTTP request matrix covers installed mobile/TV 157, older SFA, stock core, plain Karing, malformed SFA, both link selectors, selector case sensitivity and the fake-IP kill switch. It compares exact frozen `subgen.GenerateSingbox` / `subgen.ShareLinks` bytes, response headers and topology immutability. A separate assertion rejects topology UUID leakage when customer credentials are absent. The real runtime + canonical service + crypto + HTTP test covers configured topology, missing optional server settings and missing S3/S4 enablement settings; only the remote SQL read boundary is doubled, with mutations rejected.
+
+Final canonical verification after gofmt exited 0:
+
+```powershell
+$env:GOMAXPROCS = "2"
+$env:GOTOOLCHAIN = "local"
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./internal/api ./internal/controlplane ./internal/subgen ./cmd/maestro-panel -count=1
+```
+
+```text
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api	0.708s
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane	10.696s
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen	0.057s
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/cmd/maestro-panel	0.069s
+```
+
+Final exact-file formatting/whitespace commands:
+
+```powershell
+$ownedSourceFiles = @(
+    'backend/internal/api/controlplane_subscription_compat.go',
+    'backend/internal/api/controlplane_business.go',
+    'backend/internal/api/controlplane_port.go',
+    'backend/internal/api/controlplane_public_admin.go',
+    'backend/internal/api/controlplane_subscription_request_test.go',
+    'backend/cmd/maestro-panel/runtime_rqlite.go',
+    'backend/cmd/maestro-panel/runtime_subscription.go',
+    'backend/cmd/maestro-panel/runtime_subscription_test.go'
+)
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\gofmt.exe" -l @ownedSourceFiles
+git diff --check -- @ownedSourceFiles
+git diff --cached --check
+```
+
+All exited 0; gofmt printed no file paths and both whitespace checks printed no errors. Git emitted its existing LF-to-CRLF working-copy warnings only. A preceding gofmt gate had detected CRLF inserted when Git applied source patches; a read-only gofmt diff confirmed line endings were the sole difference, and gofmt was run on exactly these eight files before the final package verification.
+
+### Editing integrity and remaining gates
+
+- Production changes used full old/new temporary mirrors created with `apply_patch Add File`, generated contextual `git diff --no-index` patches, explicit LF serialization, `git apply --check --recount --whitespace=error -p2`, then `git apply --recount --whitespace=error -p2`. No hand-counted, zero-context or canonical overwrite edit was used. The prior unverified implementer draft was not applied.
+- The first test-patch serializer used CRLF; Git whitespace warnings were recorded, then the affected new tests were formatted. Later generated patches used explicit LF. The final canonical source gate above also corrected Git working-copy CRLF. Repetition-guard failure/correction records were kept for these mechanical issues and the runtime fixture; failed command families were not blindly retried.
+- Root-owned `progress.md`, protected `task-4-report.md` and `normalize.patch` were not edited or staged. Existing unrelated Go/EOL/gofmt dirt was preserved. No broad add/reset/checkout/cleanup was used.
+- A report-only apply preflight caught an extra EOF newline introduced by the initial full-file mirror serialization. Canonical report content was unchanged; exact EOF mirrors regenerated the contextual patch. No context or whitespace check was bypassed.
+- No push, production/server action, release/OTA change, secrets output, real-customer output or external write occurred.
+- Ordinary API/controlplane/subgen/panel packages are GREEN at code SHA `e41858c8016f8bf9eebd7023fb7d54598a28f219`. Independent review and any exact-SHA GitHub heavy/race/real-rqlite/Android gates remain with the root agent. This evidence closes the bounded local implementation for finding 2, not other findings or the broader production NO-GO.
