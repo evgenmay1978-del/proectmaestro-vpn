@@ -27,7 +27,7 @@ func (s *Service) DeleteCustomer(ctx context.Context, command DeleteCustomerComm
 func (s *Service) ResetDevices(ctx context.Context, command ResetDevicesCommand) error {
 	_, err := s.mutateCustomer(ctx, customerMutation{
 		commandType: "customer.reset-devices", login: command.Login, idempotency: command.IdempotencyKey,
-		status: "active", resetDevices: true,
+		resetDevices: true,
 	})
 	return err
 }

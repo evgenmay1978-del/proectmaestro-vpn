@@ -136,6 +136,12 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 	if !exists && !mutation.allowCreate {
 		return Customer{}, ErrNotFound
 	}
+	if exists {
+		current.Access, err = s.customerAccess(ctx, current.ID)
+		if err != nil {
+			return Customer{}, err
+		}
+	}
 	if !exists {
 		current.ID, err = s.ids.NewID("customer")
 		if err != nil {
@@ -146,7 +152,9 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 
 	next := current
 	next.Generation = current.Generation + 1
-	next.Status = mutation.status
+	if mutation.status != "" {
+		next.Status = mutation.status
+	}
 	now := s.clock.Now().Unix()
 	switch mutation.commandType {
 	case "customer.provision", "trial.redeem":
@@ -194,8 +202,8 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 		return Customer{}, ErrUnavailable
 	}
 	result, err := customerMutationResponse(results, requestHash)
-	if err == nil && !exists {
-		result.Access = access.Access
+	if err == nil {
+		result.Access = next.Access
 	}
 	return result, err
 }

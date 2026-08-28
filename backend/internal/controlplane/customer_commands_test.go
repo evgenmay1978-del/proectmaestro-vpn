@@ -1,7 +1,10 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +83,7 @@ func canonicalMutationDB(existing bool) *recordingRQLite {
 			"customer_id": "customer_1", "status": "active",
 			"expires_at_unix": int64(2_500_000), "generation": int64(1),
 		}))
+		linear = append(linear, rowsScript(canonicalMutationAccessRows()...))
 	} else {
 		linear = append(linear, rowsScript())
 	}
@@ -115,4 +119,26 @@ func joinedRequestSQL(db *recordingRQLite) string {
 		}
 	}
 	return strings.Join(statements, "\n")
+}
+
+func canonicalMutationAccessRows() []map[string]any {
+	secrets, err := NewSecretBox(1, map[int][]byte{1: bytes.Repeat([]byte{0x61}, 32)}, bytes.Repeat([]byte{0x62}, 32))
+	if err != nil {
+		panic(err)
+	}
+	seal := func(field, kind, raw string) string {
+		envelope, err := secrets.Seal(SecretScope{OwnerType: "customer", OwnerID: "customer_1", Field: field, Kind: kind}, []byte(raw))
+		if err != nil {
+			panic(err)
+		}
+		encoded, err := json.Marshal(envelope)
+		if err != nil {
+			panic(err)
+		}
+		return base64.StdEncoding.EncodeToString(encoded)
+	}
+	return []map[string]any{{
+		"token_envelope": seal("token", "subscription", "fixture-subscription"),
+		"protocol":       "vless", "secret_envelope": seal("credential", "vless", "fixture-vless"),
+	}}
 }
