@@ -374,14 +374,14 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok " + BuildCommit))
 	})
 	mux.HandleFunc("/sub/", s.handleControlPlaneSub)
-	mux.HandleFunc("/claim", s.controlPlaneNotFound)
-	mux.HandleFunc("/order/tariffs", s.controlPlaneUnavailable)
-	mux.HandleFunc("/order/paid-claim", s.controlPlaneUnavailable)
-	mux.HandleFunc("/order", s.controlPlaneUnavailable)
-	mux.HandleFunc("/order/", s.controlPlaneUnavailable)
-	mux.HandleFunc("/trial", s.controlPlaneUnavailable)
+	mux.HandleFunc("/claim", s.handleControlPlaneClaim)
+	mux.HandleFunc("/order/tariffs", s.handleControlPlaneTariffs)
+	mux.HandleFunc("/order/paid-claim", s.handleControlPlanePaymentClaim)
+	mux.HandleFunc("/order", s.handleControlPlaneCreateOrder)
+	mux.HandleFunc("/order/", s.handleControlPlaneOrder)
+	mux.HandleFunc("/trial", s.handleControlPlaneTrial)
 	if s.cfg.UpdateDir != "" {
-		mux.HandleFunc("/update/", s.controlPlaneUnavailable)
+		mux.HandleFunc("/update/", s.handleControlPlaneOTA)
 	}
 	if s.cfg.ReportDir != "" {
 		mux.HandleFunc("/report", func(w http.ResponseWriter, _ *http.Request) {
@@ -390,21 +390,21 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 	}
 
 	if s.cfg.AdminToken != "" {
-		mux.HandleFunc("/admin/provision", s.controlPlaneAdmin(s.controlPlaneUnavailable))
+		mux.HandleFunc("/admin/provision", s.controlPlaneAdmin(s.handleControlPlaneProvision))
 		mux.HandleFunc("/admin/extend", s.controlPlaneAdmin(s.handleControlPlaneExtend))
 		mux.HandleFunc("/admin/renew", s.controlPlaneAdmin(s.handleControlPlaneRenew))
-		mux.HandleFunc("/admin/set-expiry", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/reset-devices", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/customer", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/backfill-anytls", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/backfill-s3", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/backfill-s4", s.controlPlaneAdmin(s.controlPlaneUnavailable))
+		mux.HandleFunc("/admin/set-expiry", s.controlPlaneAdmin(s.handleControlPlaneSetExpiry))
+		mux.HandleFunc("/admin/reset-devices", s.controlPlaneAdmin(s.handleControlPlaneResetDevices))
+		mux.HandleFunc("/admin/customer", s.controlPlaneAdmin(s.handleControlPlaneCustomer))
+		mux.HandleFunc("/admin/backfill-anytls", s.controlPlaneAdmin(s.controlPlaneReconcile("anytls")))
+		mux.HandleFunc("/admin/backfill-s3", s.controlPlaneAdmin(s.controlPlaneReconcile("s3")))
+		mux.HandleFunc("/admin/backfill-s4", s.controlPlaneAdmin(s.controlPlaneReconcile("s4")))
 		mux.HandleFunc("/admin/bulk-import", s.controlPlaneAdmin(s.handleControlPlaneBulkImport))
-		mux.HandleFunc("/admin/migrate-anytls-s2", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/order/confirm", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/order/cancel", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/olcrtc", s.controlPlaneAdmin(s.controlPlaneUnavailable))
-		mux.HandleFunc("/admin/olcrtc/room", s.controlPlaneAdmin(s.controlPlaneUnavailable))
+		mux.HandleFunc("/admin/migrate-anytls-s2", s.controlPlaneAdmin(s.handleControlPlaneMigrate))
+		mux.HandleFunc("/admin/order/confirm", s.controlPlaneAdmin(s.handleControlPlaneConfirmOrder))
+		mux.HandleFunc("/admin/order/cancel", s.controlPlaneAdmin(s.handleControlPlaneCancelOrder))
+		mux.HandleFunc("/admin/olcrtc", s.controlPlaneAdmin(s.handleControlPlaneOLCRTC))
+		mux.HandleFunc("/admin/olcrtc/room", s.controlPlaneAdmin(s.handleControlPlaneOLCRTCRoom))
 	}
 	s.registerControlPlanePanel(mux)
 	return mux
@@ -490,38 +490,8 @@ func decodeControlPlaneMutation(w http.ResponseWriter, r *http.Request, target a
 	return true
 }
 
-func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *http.Request) {
-	if strings.HasSuffix(r.URL.Path, "/helpers") {
-		writeControlPlaneJSON(w, http.StatusOK, map[string]any{})
-		return
-	}
-	s.controlPlaneUnavailable(w, r)
-}
-
 func (s *ControlPlaneServer) controlPlaneNotFound(w http.ResponseWriter, _ *http.Request) {
 	writeControlPlaneJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-}
-
-func (s *ControlPlaneServer) controlPlaneUnavailable(w http.ResponseWriter, _ *http.Request) {
-	writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
-}
-
-func (s *ControlPlaneServer) registerControlPlanePanel(mux *http.ServeMux) {
-	prefix := s.cfg.PanelPath
-	if prefix == "" || s.cfg.PanelPasswordHash == "" {
-		return
-	}
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-	for _, suffix := range []string{
-		"", "api/login", "api/logout", "api/me", "api/password", "api/customers",
-		"api/customer", "api/stats", "api/action", "api/olcrtc", "api/olcrtc/room",
-		"api/olcrtc/login", "api/olcrtc/wbtoken", "api/olcrtc/wbroom", "api/vkturn",
-		"api/vkturn/enabled",
-	} {
-		mux.HandleFunc(prefix+suffix, s.controlPlaneUnavailable)
-	}
 }
 
 func controlPlanePanelActions() []string {
