@@ -50,6 +50,50 @@ func TestTask8SettingMutationIsIdempotentAndPublishesOLCRTC(t *testing.T) {
 	}
 }
 
+func TestAssignWBRoomUsesCanonicalOLCRTCTransaction(t *testing.T) {
+	update := SettingUpdate{
+		Key: "olcrtc", ExpectedGeneration: 3,
+		PublicValueJSON: `{"provider":"wbstream","room":"room-1"}`,
+		Members:         []string{"alice"}, Actor: "panel",
+		CommandType: "setting.olcrtc.wbroom", IdempotencyKey: "wb-idempotency-1",
+		TargetMembers: []string{"alice"},
+	}
+	db := &recordingRQLite{
+		linear: []scriptedResult{
+			resultsScript(
+				rqlite.Result{Rows: []map[string]any{{"public_value_json": `{}`, "generation": int64(3)}}},
+				rqlite.Result{}, rqlite.Result{},
+			),
+			resultsScript(rqlite.Result{}),
+		},
+		requests: []scriptedResult{resultsScript(
+			rqlite.Result{},
+			rqlite.Result{Rows: []map[string]any{{"generation": int64(4)}}},
+			rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
+			rqlite.Result{}, rqlite.Result{},
+			rqlite.Result{Rows: []map[string]any{{
+				"request_hash": expectedSettingRequestHash(t, update), "status": "applied", "response_json": `{"generation":4}`,
+			}}},
+		)},
+	}
+	service, _ := testService(t, db)
+	if err := service.AssignWBRoom(context.Background(), "alice", "room-1", "wb-idempotency-1"); err != nil {
+		t.Fatalf("AssignWBRoom: %v", err)
+	}
+	if len(db.requestCalls) != 1 || !db.requestCalls[0].transaction {
+		t.Fatalf("room assignment calls = %#v, want one transaction", db.requestCalls)
+	}
+	joined := strings.ToLower(joinedRequestSQL(db))
+	for _, fragment := range []string{"cluster_settings", "idempotency_requests", "desired_node_state", "outbox_events", "s3-olcrtc"} {
+		if !strings.Contains(joined, fragment) {
+			t.Fatalf("room assignment transaction missing %q: %s", fragment, joined)
+		}
+	}
+	if !statementsHaveArg(db.requestCalls[0].statements, "wb-idempotency-1") {
+		t.Fatal("room assignment transaction omitted idempotency key")
+	}
+}
+
 func TestTask8SettingReplayReturnsSavedResponseWithoutMutation(t *testing.T) {
 	db := &recordingRQLite{linear: []scriptedResult{rowsScript(map[string]any{
 		"request_hash": expectedSettingRequestHash(t, SettingUpdate{
