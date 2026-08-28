@@ -86,6 +86,37 @@ func TestRQLiteModeRejectsIncompleteTLSCryptoConfiguration(t *testing.T) {
 	}
 }
 
+func TestRQLiteModeRejectsNonHTTPSEndpoints(t *testing.T) {
+	for _, endpoints := range []string{
+		"http://s2.internal:4001,https://s3.internal:4001,https://s4.internal:4001",
+		"https://s2.internal:4001,ftp://s3.internal:4001,https://s4.internal:4001",
+		"https://s2.internal:4001,s3.internal:4001,https://s4.internal:4001",
+	} {
+		t.Run(endpoints, func(t *testing.T) {
+			environment := completeRQLiteEnvironment()
+			environment["MAESTRO_RQLITE_ENDPOINTS"] = endpoints
+			factoryCalls := 0
+
+			_, err := buildConfiguredRuntime(context.Background(), mapGetenv(environment), configuredRuntimeFactories{
+				legacy: func(context.Context) (*panelRuntime, error) {
+					factoryCalls++
+					return &panelRuntime{}, nil
+				},
+				rqlite: func(context.Context, rqliteRuntimeConfig) (*panelRuntime, error) {
+					factoryCalls++
+					return &panelRuntime{}, nil
+				},
+			})
+			if err == nil {
+				t.Fatalf("non-HTTPS endpoints %q did not fail startup", endpoints)
+			}
+			if factoryCalls != 0 {
+				t.Fatalf("non-HTTPS endpoints constructed %d runtime(s), want 0", factoryCalls)
+			}
+		})
+	}
+}
+
 func TestConfiguredRuntimeDefaultsToLegacyOnly(t *testing.T) {
 	legacyCalls := 0
 	rqliteCalls := 0

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -57,6 +58,10 @@ func readRQLiteRuntimeConfig(getenv func(string) string) (rqliteRuntimeConfig, e
 	for _, rawEndpoint := range rawEndpoints {
 		endpoint := strings.TrimSpace(rawEndpoint)
 		if endpoint == "" {
+			return rqliteRuntimeConfig{}, errInvalidRQLiteRuntime
+		}
+		parsed, parseErr := url.Parse(endpoint)
+		if parseErr != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" {
 			return rqliteRuntimeConfig{}, errInvalidRQLiteRuntime
 		}
 		if _, duplicate := seen[endpoint]; duplicate {
