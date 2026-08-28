@@ -244,6 +244,22 @@ VALUES(?,?,?,?,?,?,?,?)`, Args: []any{id, id, hex.EncodeToString(login[:]), stat
 	return id
 }
 
+func task7SeedNamedCustomer(t *testing.T, db rqlite.RQLite, name, status string, expiry, generation int64) string {
+	t.Helper()
+	id := "customer_" + task7Name(t, name)
+	login := sha256.Sum256([]byte(id))
+	now := task7Now(t, db)
+	task7Request(t, db, rqlite.Statement{SQL: `INSERT INTO customers(
+customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
+VALUES(?,?,?,?,?,?,?,?)`, Args: []any{id, id, hex.EncodeToString(login[:]), status, expiry, generation, now - 100, now}})
+	return id
+}
+
+func task7ExpectedExpiryCustomerOperationID(customerID string, generation int64) string {
+	digest := sha256.Sum256([]byte(fmt.Sprintf("expiry-customers\x00%s\x00%d", customerID, generation)))
+	return "expiry_customer_" + hex.EncodeToString(digest[:16])
+}
+
 func task7Create(t *testing.T, service *Service, customerID, scope, buyer, bot string) OrderView {
 	t.Helper()
 	order, err := service.CreateOrder(task7Context(t), CreateOrderCommand{
@@ -752,6 +768,46 @@ func TestCustomerExpirySweepRevokesEveryServiceOnce(t *testing.T) {
 	}
 	if task7Int(t, db, "SELECT generation AS n FROM customers WHERE customer_id=?", customerID) != 21 {
 		t.Fatal("customer generation did not increment once")
+	}
+}
+
+func TestCustomerExpiryBatchUsesCustomerScopedOperationIdentity(t *testing.T) {
+	db := task7DB(t)
+	task7Activate(t, db)
+	due := task7Now(t, db) - 10_000
+	const priorGeneration int64 = 80
+	first := task7SeedNamedCustomer(t, db, "same-generation-a", "active", due, priorGeneration)
+	second := task7SeedNamedCustomer(t, db, "same-generation-b", "active", due, priorGeneration)
+	service := task7Service(t, db)
+
+	result, err := service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: "worker-same-generation"})
+	if err != nil {
+		t.Fatalf("same-generation sweep: %v", err)
+	}
+	if result.CustomersExpired < 2 {
+		t.Fatalf("same-generation result=%#v", result)
+	}
+
+	nextGeneration := priorGeneration + 1
+	operationIDs := make([]string, 0, 2)
+	for _, customerID := range []string{first, second} {
+		operationID := task7ExpectedExpiryCustomerOperationID(customerID, nextGeneration)
+		operationIDs = append(operationIDs, operationID)
+		if task7Int(t, db, "SELECT COUNT(*) AS n FROM customers WHERE customer_id=? AND status='expired' AND generation=?", customerID, nextGeneration) != 1 ||
+			task7Int(t, db, "SELECT COUNT(*) AS n FROM outbox_events WHERE operation_id=? AND aggregate_id LIKE ? AND generation=? AND event_kind='revoke'", operationID, customerID+":%", nextGeneration) != 4 {
+			t.Fatalf("customer %q did not receive one deterministic four-target revoke", customerID)
+		}
+	}
+	if task7Int(t, db, "SELECT COUNT(*) AS n FROM operations WHERE operation_id IN (?,?) AND status='applied'", operationIDs[0], operationIDs[1]) != 2 ||
+		task7Int(t, db, "SELECT COUNT(*) AS n FROM operation_batches WHERE operation_id IN (?,?) AND status='applied'", operationIDs[0], operationIDs[1]) != 2 {
+		t.Fatal("same-generation customers did not use two applied customer-scoped operations")
+	}
+	before := task7Int(t, db, "SELECT COUNT(*) AS n FROM outbox_events WHERE operation_id IN (?,?)", operationIDs[0], operationIDs[1])
+	if _, err := service.RunExpirySweep(task7Context(t), ExpirySweepCommand{WorkerID: "worker-same-generation"}); err != nil {
+		t.Fatalf("same-generation retry: %v", err)
+	}
+	if after := task7Int(t, db, "SELECT COUNT(*) AS n FROM outbox_events WHERE operation_id IN (?,?)", operationIDs[0], operationIDs[1]); after != before {
+		t.Fatalf("same-generation retry outbox count=%d, want %d", after, before)
 	}
 }
 
