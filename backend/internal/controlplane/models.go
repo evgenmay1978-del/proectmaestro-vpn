@@ -115,6 +115,10 @@ type SettingUpdate struct {
 	Members            []string
 	Secret             *Envelope
 	Actor              string
+	CommandType        string
+	IdempotencyKey     string
+	RequestFingerprint string
+	TargetMembers      []string
 }
 
 type SettingResult struct {

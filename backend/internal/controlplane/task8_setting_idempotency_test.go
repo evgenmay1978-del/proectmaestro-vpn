@@ -10,19 +10,22 @@ import (
 )
 
 func TestTask8SettingMutationIsIdempotentAndPublishesOLCRTC(t *testing.T) {
-	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
-		rqlite.Result{},
-		rqlite.Result{Rows: []map[string]any{{"generation": int64(4)}}},
-		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
-		rqlite.Result{}, rqlite.Result{},
-		rqlite.Result{Rows: []map[string]any{{
-			"request_hash": "saved-hash", "status": "applied", "response_json": `{"generation":4}`,
-		}}},
-	)}}
+	db := &recordingRQLite{
+		linear: []scriptedResult{resultsScript(rqlite.Result{})},
+		requests: []scriptedResult{resultsScript(
+			rqlite.Result{},
+			rqlite.Result{Rows: []map[string]any{{"generation": int64(4)}}},
+			rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
+			rqlite.Result{}, rqlite.Result{},
+			rqlite.Result{Rows: []map[string]any{{
+				"request_hash": "8f8bc4d8545eca430bf6ac1a6508ad2a5d72c0cf25dca9b10d916ae847c9e31e", "status": "applied", "response_json": `{"generation":4}`,
+			}}},
+		)}}
 	service, _ := testService(t, db)
 	result, err := service.UpdateSetting(context.Background(), SettingUpdate{
 		Key: "olcrtc", ExpectedGeneration: 3, PublicValueJSON: `{"room":"room-1"}`,
 		Actor: "owner", CommandType: "setting.olcrtc.room", IdempotencyKey: "idem-room-1",
+		TargetMembers: []string{"alice"},
 	})
 	if err != nil {
 		t.Fatalf("UpdateSetting: %v", err)

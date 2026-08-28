@@ -60,6 +60,23 @@ func (s *Service) UpdateSetting(ctx context.Context, update SettingUpdate) (Sett
 	if !validSettingUpdate(update) {
 		return SettingResult{}, errors.New("controlplane: invalid setting update")
 	}
+	if update.CommandType != "" || update.IdempotencyKey != "" {
+		if strings.TrimSpace(update.CommandType) == "" || strings.TrimSpace(update.IdempotencyKey) == "" {
+			return SettingResult{}, errors.New("controlplane: incomplete setting idempotency")
+		}
+		requestHash, err := settingRequestHash(update)
+		if err != nil {
+			return SettingResult{}, err
+		}
+		if replay, found, err := s.resolveSettingMutation(ctx, update, requestHash); found || err != nil {
+			return replay, err
+		}
+		mutationToken, err := s.ids.NewID("setting-mut")
+		if err != nil {
+			return SettingResult{}, errors.New("controlplane: generate setting mutation token")
+		}
+		return s.store.updateSettingIdempotent(ctx, update, mutationToken, requestHash)
+	}
 	mutationToken, err := s.ids.NewID("setting-mut")
 	if err != nil {
 		return SettingResult{}, errors.New("controlplane: generate setting mutation token")
@@ -69,7 +86,7 @@ func (s *Service) UpdateSetting(ctx context.Context, update SettingUpdate) (Sett
 
 func (s *Service) ApprovedOTA(ctx context.Context) (OTAApproval, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
-		SQL:  `SELECT public_value_json, generation FROM cluster_settings WHERE setting_key = 'ota'`,
+		SQL: `SELECT public_value_json, generation FROM cluster_settings WHERE setting_key = 'ota'`,
 	})
 	if err != nil {
 		return OTAApproval{}, errors.New("controlplane: approved OTA unavailable")

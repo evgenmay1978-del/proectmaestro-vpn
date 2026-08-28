@@ -455,8 +455,12 @@ func (b *ServiceBusiness) UpdateSetting(ctx context.Context, command UpdateSetti
 	if err := b.available(); err != nil {
 		return SettingView{}, err
 	}
+	if strings.TrimSpace(command.IdempotencyKey) == "" {
+		return SettingView{}, businessError(controlplane.ErrForbidden)
+	}
 	result, err := b.service.UpdateSetting(ctx, controlplane.SettingUpdate{
 		Key: command.Key, ExpectedGeneration: command.ExpectedVersion, PublicValueJSON: string(command.Value), Actor: "panel",
+		CommandType: "setting." + command.Key + ".update", IdempotencyKey: command.IdempotencyKey,
 	})
 	if err != nil {
 		return SettingView{}, businessError(err)
@@ -491,6 +495,9 @@ func (b *ServiceBusiness) SetOLCRTCRoom(ctx context.Context, command SetOLCRTCRo
 	if err := b.available(); err != nil {
 		return SettingView{}, err
 	}
+	if strings.TrimSpace(command.IdempotencyKey) == "" {
+		return SettingView{}, businessError(controlplane.ErrForbidden)
+	}
 	setting, err := b.service.ReadBusinessSetting(ctx, "olcrtc")
 	if err != nil && !errors.Is(err, controlplane.ErrNotFound) {
 		return SettingView{}, businessError(err)
@@ -502,6 +509,8 @@ func (b *ServiceBusiness) SetOLCRTCRoom(ctx context.Context, command SetOLCRTCRo
 	value, _ := json.Marshal(map[string]string{"room": command.Room, "provider": command.Provider})
 	result, err := b.service.UpdateSetting(ctx, controlplane.SettingUpdate{
 		Key: "olcrtc", ExpectedGeneration: command.ExpectedVersion, PublicValueJSON: string(value), Members: members, Actor: "panel",
+		CommandType: "setting.olcrtc.room", IdempotencyKey: command.IdempotencyKey,
+		TargetMembers: append([]string(nil), members...),
 	})
 	if err != nil {
 		return SettingView{}, businessError(err)
@@ -512,6 +521,9 @@ func (b *ServiceBusiness) SetOLCRTCRoom(ctx context.Context, command SetOLCRTCRo
 func (b *ServiceBusiness) SetOLCRTCGrant(ctx context.Context, command SetOLCRTCGrantCommand) (SettingView, error) {
 	if err := b.available(); err != nil {
 		return SettingView{}, err
+	}
+	if strings.TrimSpace(command.IdempotencyKey) == "" {
+		return SettingView{}, businessError(controlplane.ErrForbidden)
 	}
 	setting, err := b.service.ReadBusinessSetting(ctx, "olcrtc")
 	if err != nil {
@@ -526,6 +538,8 @@ func (b *ServiceBusiness) SetOLCRTCGrant(ctx context.Context, command SetOLCRTCG
 	}
 	result, err := b.service.UpdateSetting(ctx, controlplane.SettingUpdate{
 		Key: "olcrtc", ExpectedGeneration: command.ExpectedVersion, PublicValueJSON: string(setting.PublicValueJSON), Members: members, Actor: "panel",
+		CommandType: "setting.olcrtc.grant", IdempotencyKey: command.IdempotencyKey,
+		TargetMembers: []string{command.Login},
 	})
 	if err != nil {
 		return SettingView{}, businessError(err)
@@ -551,7 +565,10 @@ func (b *ServiceBusiness) SetWBToken(ctx context.Context, command SetSecretComma
 	if err := b.available(); err != nil {
 		return err
 	}
-	_, err := b.service.UpdateSecretSetting(ctx, "wbstream", command.Secret, "panel", command.ExpectedVersion)
+	if strings.TrimSpace(command.IdempotencyKey) == "" {
+		return businessError(controlplane.ErrForbidden)
+	}
+	_, err := b.service.UpdateSecretSettingIdempotent(ctx, "wbstream", command.Secret, "panel", command.ExpectedVersion, "setting.wbstream.token", command.IdempotencyKey)
 	return businessError(err)
 }
 
@@ -648,7 +665,10 @@ func (b *ServiceBusiness) MigrateServiceEndpoint(ctx context.Context, command Mi
 	if err := b.available(); err != nil {
 		return OperationView{}, err
 	}
-	count, err := b.service.MigrateBusinessServiceEndpoint(ctx, command.Service, command.Endpoint, "panel")
+	if strings.TrimSpace(command.IdempotencyKey) == "" {
+		return OperationView{}, businessError(controlplane.ErrForbidden)
+	}
+	count, err := b.service.MigrateBusinessServiceEndpointIdempotent(ctx, command.Service, command.Endpoint, "panel", command.IdempotencyKey)
 	if err != nil {
 		return OperationView{}, businessError(err)
 	}

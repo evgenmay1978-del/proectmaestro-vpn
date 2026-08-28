@@ -202,6 +202,24 @@ func (s *Service) UpdateSecretSetting(ctx context.Context, key, raw, actor strin
 	})
 }
 
+func (s *Service) UpdateSecretSettingIdempotent(
+	ctx context.Context, key, raw, actor string, expected int64, commandType, idempotencyKey string,
+) (SettingResult, error) {
+	if strings.TrimSpace(key) == "" || strings.TrimSpace(raw) == "" ||
+		strings.TrimSpace(commandType) == "" || strings.TrimSpace(idempotencyKey) == "" {
+		return SettingResult{}, errors.New("controlplane: invalid idempotent secret setting")
+	}
+	envelope, err := s.store.secrets.Seal(SecretScope{OwnerType: "setting", OwnerID: key, Field: "secret", Kind: key}, []byte(raw))
+	if err != nil {
+		return SettingResult{}, err
+	}
+	return s.UpdateSetting(ctx, SettingUpdate{
+		Key: key, ExpectedGeneration: expected, PublicValueJSON: `{}`, Secret: &envelope, Actor: actor,
+		CommandType: commandType, IdempotencyKey: idempotencyKey,
+		RequestFingerprint: s.store.secrets.LookupHMAC("setting-secret-request:"+key, []byte(raw)),
+	})
+}
+
 func (s *Service) ListBusinessOrders(ctx context.Context, status string) ([]BusinessOrder, error) {
 	statement := rqlite.Statement{SQL: `
 SELECT o.order_id,o.payment_code,o.amount_minor,o.currency,o.duration_days,o.payment_state,
@@ -319,6 +337,28 @@ func (s *Service) MigrateBusinessServiceEndpoint(ctx context.Context, serviceNam
 	}
 	value, _ := json.Marshal(map[string]string{"endpoint": endpoint})
 	if _, err := s.UpdateSetting(ctx, SettingUpdate{Key: key, ExpectedGeneration: current.Generation, PublicValueJSON: string(value), Actor: actor}); err != nil {
+		return 0, err
+	}
+	return s.ReconcileBusinessService(ctx, serviceName)
+}
+
+func (s *Service) MigrateBusinessServiceEndpointIdempotent(
+	ctx context.Context, serviceName, endpoint, actor, idempotencyKey string,
+) (int, error) {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return 0, errors.New("controlplane: missing migration idempotency key")
+	}
+	key := "service_endpoint." + strings.TrimSpace(serviceName)
+	current, err := s.ReadBusinessSetting(ctx, key)
+	if errors.Is(err, ErrNotFound) {
+		current = BusinessSetting{Generation: 0}
+	} else if err != nil {
+		return 0, err
+	}
+	value, _ := json.Marshal(map[string]string{"endpoint": endpoint})
+	if _, err := s.UpdateSetting(ctx, SettingUpdate{Key: key, ExpectedGeneration: current.Generation,
+		PublicValueJSON: string(value), Actor: actor, CommandType: "setting.service_endpoint.migrate",
+		IdempotencyKey: idempotencyKey}); err != nil {
 		return 0, err
 	}
 	return s.ReconcileBusinessService(ctx, serviceName)
