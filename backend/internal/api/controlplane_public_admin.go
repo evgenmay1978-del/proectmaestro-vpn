@@ -177,17 +177,34 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 		return
 	}
 	if info {
-		writeControlPlaneJSON(w, http.StatusOK, snapshot.Customer)
+		writeControlPlaneSubInfo(w, snapshot.Customer)
 		return
 	}
 	if helpers {
-		writeControlPlaneJSON(w, http.StatusOK, map[string]any{"customer": snapshot.Customer, "document": snapshot.Document})
+		writeControlPlaneJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(snapshot.Document)
+}
+
+func writeControlPlaneSubInfo(w http.ResponseWriter, customer CustomerView) {
+	untilExpiry := time.Until(customer.Expires)
+	daysLeft := int(untilExpiry / (24 * time.Hour))
+	if untilExpiry > 0 && untilExpiry%(24*time.Hour) != 0 {
+		daysLeft++
+	}
+	if daysLeft < 0 {
+		daysLeft = 0
+	}
+	writeControlPlaneJSON(w, http.StatusOK, map[string]any{
+		"login":     customer.Login,
+		"expires":   customer.Expires,
+		"days_left": daysLeft,
+		"active":    customer.Active,
+	})
 }
 
 func (s *ControlPlaneServer) handleControlPlaneOTA(w http.ResponseWriter, r *http.Request) {
