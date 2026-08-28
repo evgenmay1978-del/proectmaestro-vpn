@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -39,6 +40,24 @@ func atoi(s string, def int) int {
 		return n
 	}
 	return def
+}
+
+type panelRuntime struct{}
+
+type runtimeFactories struct {
+	legacy func(context.Context) (*panelRuntime, error)
+	rqlite func(context.Context) (*panelRuntime, error)
+}
+
+func buildRuntime(ctx context.Context, mode string, factories runtimeFactories) (*panelRuntime, error) {
+	switch mode {
+	case "", "legacy":
+		return factories.legacy(ctx)
+	case "rqlite":
+		return factories.rqlite(ctx)
+	default:
+		return nil, fmt.Errorf("unsupported MAESTRO_CONTROL_PLANE mode %q", mode)
+	}
 }
 
 func main() {
