@@ -7,9 +7,9 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("controlplane: not found")
-	ErrConflict   = errors.New("controlplane: conflict")
-	ErrForbidden  = errors.New("controlplane: forbidden")
+	ErrNotFound    = errors.New("controlplane: not found")
+	ErrConflict    = errors.New("controlplane: conflict")
+	ErrForbidden   = errors.New("controlplane: forbidden")
 	ErrDeviceLimit = errors.New("controlplane: device limit reached")
 	ErrUnavailable = errors.New("controlplane: unavailable")
 	ErrLeaseHeld   = errors.New("controlplane: expiry lease held")
@@ -21,6 +21,7 @@ type Customer struct {
 	Status        string
 	ExpiresAtUnix int64
 	Generation    int64
+	Access        CustomerAccess
 }
 
 type Tariff struct {

@@ -168,6 +168,15 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 		return Customer{}, errors.New("controlplane: invalid customer expiry")
 	}
 
+	var access customerAccessMint
+	if !exists {
+		access, err = s.mintCustomerAccess(next.ID)
+		if err != nil {
+			return Customer{}, err
+		}
+		next.Access = access.Access
+	}
+
 	operationID, err := s.ids.NewID("operation")
 	if err != nil {
 		return Customer{}, errors.New("controlplane: generate operation identifier")
@@ -176,7 +185,7 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 	if err != nil {
 		return Customer{}, err
 	}
-	statements, err := s.customerMutationStatements(scope, canonical, mutation, requestHash, current, next, exists, operationID, targets, now)
+	statements, err := s.customerMutationStatements(scope, canonical, mutation, requestHash, current, next, exists, operationID, targets, access, now)
 	if err != nil {
 		return Customer{}, err
 	}
@@ -184,7 +193,11 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 	if err != nil {
 		return Customer{}, ErrUnavailable
 	}
-	return customerMutationResponse(results, requestHash)
+	result, err := customerMutationResponse(results, requestHash)
+	if err == nil && !exists {
+		result.Access = access.Access
+	}
+	return result, err
 }
 
 func customerMutationHash(mutation customerMutation, canonical string) (string, error) {
@@ -228,7 +241,15 @@ WHERE scope=? AND command_type=? AND idempotency_key=?`,
 		return Customer{}, true, ErrUnavailable
 	}
 	customer, err := decodeStoredCustomer(responseJSON)
-	return customer, true, err
+	if err != nil {
+		return Customer{}, true, err
+	}
+	access, err := s.customerAccess(ctx, customer.ID)
+	if err != nil {
+		return Customer{}, true, err
+	}
+	customer.Access = access
+	return customer, true, nil
 }
 
 func (s *Service) customerForMutation(ctx context.Context, canonical string) (Customer, bool, error) {
@@ -273,10 +294,14 @@ WHERE desired_target=1 AND retired=0 ORDER BY node_id,service_name`,
 		if tombstone || customer.Status != "active" {
 			kind = "customer-revoked"
 		}
+		payload := map[string]any{"expires_at_unix": customer.ExpiresAtUnix, "status": customer.Status}
+		if access := accessPayload(customer.Access); access != nil {
+			payload["access"] = access
+		}
 		envelope, digest, sealErr := s.store.secrets.SealDesiredPayload(DesiredPayloadScope{
 			NodeID: nodeID, ServiceID: serviceName, CustomerID: customer.ID, Generation: customer.Generation,
 			OperationID: operationID, PayloadKind: kind, Tombstone: tombstone,
-		}, map[string]any{"expires_at_unix": customer.ExpiresAtUnix, "status": customer.Status})
+		}, payload)
 		if sealErr != nil {
 			return nil, sealErr
 		}
@@ -301,6 +326,7 @@ func (s *Service) customerMutationStatements(
 	exists bool,
 	operationID string,
 	targets []desiredTarget,
+	access customerAccessMint,
 	now int64,
 ) ([]rqlite.Statement, error) {
 	loginHMAC := s.store.secrets.LookupHMAC("customer-login", []byte(canonical))
@@ -340,6 +366,7 @@ WHERE customer_id=? AND generation=? AND `
 SELECT ?,?,?,?,?,?,?,? WHERE ` + guard,
 			Args: append([]any{next.ID, mutation.login, loginHMAC, next.Status, next.ExpiresAtUnix, next.Generation, now, now}, guardArgs...),
 		})
+		statements = append(statements, access.statements(next, now, guard, guardArgs, s.store.secrets)...)
 	}
 	if mutation.trialAnchor != "" {
 		redemptionID, err := s.ids.NewID("trial")
