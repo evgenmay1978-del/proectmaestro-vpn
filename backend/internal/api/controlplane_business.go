@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
 type ServiceBusinessConfig struct {
@@ -19,10 +20,15 @@ type ServiceBusinessConfig struct {
 	TrialDays    int
 	WBRoomSender controlplane.ExternalActionSender
 	WorkerID     string
+	SubscriptionTopology subgen.Customer
 }
 
 type externalActionRunner interface {
 	ExecuteExternalAction(context.Context, controlplane.ExternalActionCommand, string, controlplane.ExternalActionSender) (controlplane.ExternalActionResult, error)
+}
+
+type subscriptionDocumentSource interface {
+	BusinessSubscriptionDocument(context.Context, string) (controlplane.BusinessCustomer, json.RawMessage, error)
 }
 
 type wbRoomAssigner interface {
@@ -33,6 +39,7 @@ type wbRoomAssigner interface {
 // runtime. Every mutation delegates to a canonical controlplane.Service command.
 type ServiceBusiness struct {
 	service         *controlplane.Service
+	subscriptions   subscriptionDocumentSource
 	cfg             ServiceBusinessConfig
 	externalActions externalActionRunner
 	wbSender        controlplane.ExternalActionSender
@@ -45,7 +52,7 @@ func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig
 		cfg.TrialDays = 2
 	}
 	business := &ServiceBusiness{
-		service: service, cfg: cfg, externalActions: service,
+		service: service, subscriptions: service, cfg: cfg, externalActions: service,
 		wbSender: cfg.WBRoomSender, workerID: strings.TrimSpace(cfg.WorkerID),
 	}
 	if service != nil {
@@ -347,10 +354,10 @@ func (b *ServiceBusiness) CancelOrder(ctx context.Context, command CancelOrderCo
 }
 
 func (b *ServiceBusiness) SubscriptionSnapshot(ctx context.Context, token string) (SubscriptionSnapshot, error) {
-	if err := b.available(); err != nil {
-		return SubscriptionSnapshot{}, err
+	if b == nil || b.subscriptions == nil {
+		return SubscriptionSnapshot{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
-	customer, document, err := b.service.BusinessSubscriptionDocument(ctx, token)
+	customer, document, err := b.subscriptions.BusinessSubscriptionDocument(ctx, token)
 	if err != nil {
 		return SubscriptionSnapshot{}, businessError(err)
 	}
