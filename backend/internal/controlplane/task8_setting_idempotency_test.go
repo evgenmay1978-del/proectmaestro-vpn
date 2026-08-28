@@ -72,7 +72,7 @@ func TestAssignWBRoomUsesCanonicalOLCRTCTransaction(t *testing.T) {
 			rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 			rqlite.Result{}, rqlite.Result{},
 			rqlite.Result{Rows: []map[string]any{{
-				"request_hash": expectedSettingRequestHash(t, update), "status": "applied", "response_json": `{"generation":4}`,
+				"request_hash": "2e0c6cd8c15ebb954ca83f7caa9ee141c8e423026285bfd870e46f9c50f9de74", "status": "applied", "response_json": `{"generation":4}`,
 			}}},
 		)},
 	}
