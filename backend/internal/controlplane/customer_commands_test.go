@@ -11,22 +11,23 @@ import (
 
 func TestCustomerWriteCommandsUseOneCanonicalTransaction(t *testing.T) {
 	tests := []struct {
-		name string
-		call func(context.Context, *Service) error
+		name   string
+		exists bool
+		call   func(context.Context, *Service) error
 	}{
-		{"provision", func(ctx context.Context, service *Service) error {
+		{"provision", false, func(ctx context.Context, service *Service) error {
 			_, err := service.ProvisionCustomer(ctx, ProvisionCustomerCommand{Login: "Alice", Days: 30, IdempotencyKey: "provision-1"})
 			return err
 		}},
-		{"extend", func(ctx context.Context, service *Service) error {
+		{"extend", true, func(ctx context.Context, service *Service) error {
 			_, err := service.ExtendCustomer(ctx, ExtendCustomerCommand{Login: "Alice", Days: 7, IdempotencyKey: "extend-1"})
 			return err
 		}},
-		{"renew", func(ctx context.Context, service *Service) error {
+		{"renew", true, func(ctx context.Context, service *Service) error {
 			_, err := service.RenewCustomer(ctx, RenewCustomerCommand{Login: "Alice", Days: 30, IdempotencyKey: "renew-1"})
 			return err
 		}},
-		{"set-expiry", func(ctx context.Context, service *Service) error {
+		{"set-expiry", true, func(ctx context.Context, service *Service) error {
 			_, err := service.SetCustomerExpiry(ctx, SetExpiryCommand{Login: "Alice", ExpiresAt: time.Unix(3_000_000, 0), IdempotencyKey: "expiry-1"})
 			return err
 		}},
@@ -34,7 +35,7 @@ func TestCustomerWriteCommandsUseOneCanonicalTransaction(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			db := &recordingRQLite{requestFn: canonicalCustomerResult}
+			db := canonicalMutationDB(test.exists)
 			service, _ := testService(t, db)
 			if err := test.call(context.Background(), service); err != nil {
 				t.Fatalf("command: %v", err)
@@ -60,7 +61,7 @@ func TestExtendAndRenewUseDistinctExpiryRules(t *testing.T) {
 		}, "max(expires_at_unix"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			db := &recordingRQLite{requestFn: canonicalCustomerResult}
+			db := canonicalMutationDB(true)
 			service, _ := testService(t, db)
 			if err := test.call(context.Background(), service); err != nil {
 				t.Fatalf("command: %v", err)
@@ -70,6 +71,20 @@ func TestExtendAndRenewUseDistinctExpiryRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+func canonicalMutationDB(existing bool) *recordingRQLite {
+	linear := []scriptedResult{rowsScript()}
+	if existing {
+		linear = append(linear, rowsScript(map[string]any{
+			"customer_id": "customer_1", "status": "active",
+			"expires_at_unix": int64(2_500_000), "generation": int64(1),
+		}))
+	} else {
+		linear = append(linear, rowsScript())
+	}
+	linear = append(linear, rowsScript(map[string]any{"node_id": "s1", "service_name": "x-ui"}))
+	return &recordingRQLite{linear: linear, requestFn: canonicalCustomerResult}
 }
 
 func canonicalCustomerResult(_ []rqlite.Statement) ([]rqlite.Result, error) {

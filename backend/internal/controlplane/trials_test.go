@@ -10,7 +10,7 @@ import (
 )
 
 func TestRedeemTrialIsOneCanonicalTransaction(t *testing.T) {
-	db := &recordingRQLite{requestFn: canonicalCustomerResult}
+	db := canonicalMutationDB(false)
 	service, _ := testService(t, db)
 	got, err := service.RedeemTrial(context.Background(), RedeemTrialCommand{
 		Login: "Alice", Anchor: "anchor-1", DRMIdentity: "drm-1", Days: 7, IdempotencyKey: "trial-1",
@@ -33,9 +33,8 @@ func TestRedeemTrialIsOneCanonicalTransaction(t *testing.T) {
 }
 
 func TestRedeemTrialQuorumFailureHasNoLocalPendingLedger(t *testing.T) {
-	db := &recordingRQLite{requestFn: func(_ []rqlite.Statement) ([]rqlite.Result, error) {
-		return nil, errors.New("quorum unavailable")
-	}}
+	db := canonicalMutationDB(false)
+	db.requestFn = func(_ []rqlite.Statement) ([]rqlite.Result, error) { return nil, errors.New("quorum unavailable") }
 	service, _ := testService(t, db)
 	_, err := service.RedeemTrial(context.Background(), RedeemTrialCommand{
 		Login: "Alice", Anchor: "anchor-1", DRMIdentity: "drm-1", Days: 7, IdempotencyKey: "trial-1",

@@ -31,9 +31,8 @@ func TestCustomerStateCommandsAreCanonicalAndDeleteIsLogical(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			db := &recordingRQLite{requestFn: func(_ []rqlite.Statement) ([]rqlite.Result, error) {
-				return canonicalCustomerResult(nil)
-			}}
+			db := canonicalMutationDB(true)
+			db.requestFn = func(_ []rqlite.Statement) ([]rqlite.Result, error) { return canonicalCustomerResult(nil) }
 			service, _ := testService(t, db)
 			if err := test.call(context.Background(), service); err != nil {
 				t.Fatalf("command: %v", err)
