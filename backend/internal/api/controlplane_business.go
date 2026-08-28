@@ -14,12 +14,12 @@ import (
 )
 
 type ServiceBusinessConfig struct {
-	SubBaseURL   string
-	SBPPhone     string
-	PayURL       string
-	TrialDays    int
-	WBRoomSender controlplane.ExternalActionSender
-	WorkerID     string
+	SubBaseURL           string
+	SBPPhone             string
+	PayURL               string
+	TrialDays            int
+	WBRoomSender         controlplane.ExternalActionSender
+	WorkerID             string
 	SubscriptionTopology subgen.Customer
 }
 
@@ -355,6 +355,10 @@ func (b *ServiceBusiness) CancelOrder(ctx context.Context, command CancelOrderCo
 }
 
 func (b *ServiceBusiness) SubscriptionSnapshot(ctx context.Context, token string) (SubscriptionSnapshot, error) {
+	return b.subscriptionSnapshotForRequest(ctx, token, subscriptionRenderOptions{})
+}
+
+func (b *ServiceBusiness) subscriptionSnapshotForRequest(ctx context.Context, token string, options subscriptionRenderOptions) (SubscriptionSnapshot, error) {
 	if b == nil || b.subscriptions == nil {
 		return SubscriptionSnapshot{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
@@ -362,11 +366,11 @@ func (b *ServiceBusiness) SubscriptionSnapshot(ctx context.Context, token string
 	if err != nil {
 		return SubscriptionSnapshot{}, businessError(err)
 	}
-	document, _, err := renderControlPlaneSubscription(customer, b.cfg.SubscriptionTopology, subscriptionRenderOptions{})
+	document, contentType, err := renderControlPlaneSubscription(customer, b.cfg.SubscriptionTopology, options)
 	if err != nil {
 		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
 	}
-	return SubscriptionSnapshot{Customer: b.customerView(customer), Document: document}, nil
+	return SubscriptionSnapshot{Customer: b.customerView(customer), Document: document, ContentType: contentType}, nil
 }
 
 func (b *ServiceBusiness) TouchDevice(ctx context.Context, command TouchDeviceCommand) (DeviceDecision, error) {

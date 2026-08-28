@@ -1,21 +1,49 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
-type subscriptionRenderOptions struct{}
+type subscriptionRenderOptions struct {
+	ClientRequest bool
+	UserAgent     string
+	Links         bool
+}
 
-func renderControlPlaneSubscription(customer controlplane.BusinessCustomer, topology subgen.Customer, _ subscriptionRenderOptions) (json.RawMessage, string, error) {
+// The optional request-aware adapter leaves the frozen Business port and
+// non-HTTP subscription consumers source-compatible.
+type requestSubscriptionSource interface {
+	subscriptionSnapshotForRequest(context.Context, string, subscriptionRenderOptions) (SubscriptionSnapshot, error)
+}
+
+func renderControlPlaneSubscription(customer controlplane.BusinessCustomer, topology subgen.Customer, options subscriptionRenderOptions) (json.RawMessage, string, error) {
 	configured := topology
 	configured.Name = customer.Login
 	configured.VLESS = configuredVLESS(topology.VLESS, customer.Access.Credentials["vless"])
 	configured.Hy2 = configuredHy2(topology.Hy2, customer.Login, customer.Access.Credentials["hysteria2"])
 	configured.Naive = configuredNaive(topology.Naive, customer.Login, customer.Access.Credentials["naive"])
 	configured.AnyTLS = configuredAnyTLS(topology.AnyTLS, customer.Access.Credentials["anytls"])
+	// Frozen provisionS3/provisionS4 reuse the customer's primary VLESS UUID.
+	configured.VLESS3 = configuredVLESS(topology.VLESS3, customer.Access.Credentials["vless"])
+	configured.VLESS4 = configuredVLESS(topology.VLESS4, customer.Access.Credentials["vless"])
+	if options.ClientRequest {
+		configured.DNSFakeIP = !dnsFakeIPOff
+		if configured.WG != nil && appVersionCode(options.UserAgent) < awgMinVC {
+			configured.WG = nil
+		}
+	}
+	// Share links retain Naive even for third-party clients: each link is
+	// independently usable. The Cronet gate applies only to a sing-box document.
+	if options.Links {
+		return json.RawMessage(subgen.ShareLinks(configured)), "text/plain; charset=utf-8", nil
+	}
+	if options.ClientRequest && appVersionCode(options.UserAgent) == 0 {
+		configured.Naive = nil
+	}
 	document, err := subgen.GenerateSingbox(configured)
 	return json.RawMessage(document), "application/json", err
 }

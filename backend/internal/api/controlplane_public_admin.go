@@ -171,7 +171,17 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 		s.controlPlaneNotFound(w, r)
 		return
 	}
-	snapshot, err := s.business.SubscriptionSnapshot(r.Context(), rest)
+	var snapshot SubscriptionSnapshot
+	var err error
+	if source, ok := s.business.(requestSubscriptionSource); ok && !info && !helpers {
+		query := r.URL.Query()
+		snapshot, err = source.subscriptionSnapshotForRequest(r.Context(), rest, subscriptionRenderOptions{
+			ClientRequest: true, UserAgent: r.UserAgent(),
+			Links: query.Get("app") == "karing" || query.Get("format") == "links",
+		})
+	} else {
+		snapshot, err = s.business.SubscriptionSnapshot(r.Context(), rest)
+	}
 	if err != nil {
 		writeControlPlaneBusinessError(w, err)
 		return
@@ -184,7 +194,11 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 		writeControlPlaneJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	contentType := snapshot.ContentType
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(snapshot.Document)

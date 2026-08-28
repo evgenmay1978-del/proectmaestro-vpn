@@ -182,9 +182,10 @@ type CancelOrderCommand struct {
 }
 
 type SubscriptionSnapshot struct {
-	Customer CustomerView    `json:"customer"`
-	Document json.RawMessage `json:"document"`
-	Cached   bool            `json:"cached,omitempty"`
+	ContentType string          `json:"-"`
+	Customer    CustomerView    `json:"customer"`
+	Document    json.RawMessage `json:"document"`
+	Cached      bool            `json:"cached,omitempty"`
 }
 
 type TouchDeviceCommand struct {

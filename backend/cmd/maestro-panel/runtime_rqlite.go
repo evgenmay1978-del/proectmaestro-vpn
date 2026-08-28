@@ -89,6 +89,7 @@ func buildRQLitePanelRuntime(
 		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
 		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,
 		WBRoomSender: wbSender, WorkerID: workerID,
+		SubscriptionTopology: rqliteSubscriptionTopologyFromEnvironment(),
 	})
 	server := api.NewControlPlane(business, apiConfig)
 	return &panelRuntime{mode: "rqlite", business: business, handler: server.Handler()}, nil
