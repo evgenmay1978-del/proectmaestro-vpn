@@ -67,7 +67,7 @@ func TestExternalActionCrashBoundariesMemoryModel(t *testing.T) {
 			store := newMemoryExternalActions()
 			sender := &countingExternalSender{}
 			executor := NewExternalActionExecutor(store, sender)
-			command := ExternalActionCommand{Type: "wb.create-room", ResourceID: "alice", ActionKey: "action-1", WorkerID: "panel-a", LeaseToken: "lease-1", Request: []byte(`{"login":"alice"}`)}
+			command := ExternalActionCommand{Type: "wb.create-room", ResourceID: "alice", ActionKey: "action-1", WorkerID: "panel-a", LeaseToken: "lease-1", LeaseFence: 1, Request: []byte(`{"login":"alice"}`)}
 			crashed := false
 			hook := func(actual ExternalActionCrashPoint) error {
 				if !crashed && actual == point {
@@ -91,7 +91,7 @@ func TestExternalActionStaleLeaseMemoryModel(t *testing.T) {
 	sender := &countingExternalSender{}
 	executor := NewExternalActionExecutor(store, sender)
 	_, err := executor.Execute(context.Background(), ExternalActionCommand{
-		Type: "wb.create-room", ResourceID: "alice", ActionKey: "action-1", WorkerID: "stale", LeaseToken: "old", Request: []byte(`{}`),
+		Type: "wb.create-room", ResourceID: "alice", ActionKey: "action-1", WorkerID: "stale", LeaseToken: "old", LeaseFence: 1, Request: []byte(`{}`),
 	}, nil)
 	if !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("Execute error = %v, want ErrLeaseLost", err)
@@ -105,11 +105,12 @@ func TestExternalActionReplacementMemoryModel(t *testing.T) {
 	store := newMemoryExternalActions()
 	sender := &countingExternalSender{}
 	executor := NewExternalActionExecutor(store, sender)
-	first := ExternalActionCommand{Type: "wb.create-room", ResourceID: "alice", ActionKey: "action-1", WorkerID: "panel-a", LeaseToken: "lease-1", Request: []byte(`{}`)}
+	first := ExternalActionCommand{Type: "wb.create-room", ResourceID: "alice", ActionKey: "action-1", WorkerID: "panel-a", LeaseToken: "lease-1", LeaseFence: 1, Request: []byte(`{}`)}
 	if _, err := executor.Execute(context.Background(), first, nil); err != nil {
 		t.Fatalf("first Execute: %v", err)
 	}
 	replacement := first
+	replacement.LeaseFence = 2
 	replacement.ActionKey = "action-2"
 	replacement.ReplacesActionKey = first.ActionKey
 	if _, err := executor.Execute(context.Background(), replacement, nil); err != nil {

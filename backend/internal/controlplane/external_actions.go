@@ -12,6 +12,7 @@ type ExternalActionCommand struct {
 	ReplacesActionKey string
 	WorkerID          string
 	LeaseToken        string
+	LeaseFence        int64
 	Request           []byte
 }
 
@@ -56,7 +57,7 @@ func (e *ExternalActionExecutor) Execute(
 	hook func(ExternalActionCrashPoint) error,
 ) (ExternalActionResult, error) {
 	if e == nil || e.store == nil || e.sender == nil || command.Type == "" || command.ResourceID == "" ||
-		command.ActionKey == "" || command.WorkerID == "" || command.LeaseToken == "" {
+		command.ActionKey == "" || command.WorkerID == "" || command.LeaseToken == "" || command.LeaseFence <= 0 {
 		return ExternalActionResult{}, errors.New("controlplane: invalid external action")
 	}
 	prepared, err := e.store.Prepare(ctx, command)

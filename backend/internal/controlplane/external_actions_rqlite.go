@@ -51,7 +51,17 @@ WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.Ac
 	if err != nil {
 		return ExternalActionResult{}, ErrUnavailable
 	}
-	return externalActionResult(results)
+	result, err := externalActionResult(results)
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
+	switch result.State {
+	case "applying":
+		result.State = "attempt_started"
+	case "applied":
+		result.State = "succeeded"
+	}
+	return result, nil
 }
 
 func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
@@ -60,8 +70,8 @@ func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command Extern
 	results, err := s.service.store.db.Request(ctx, rqlite.Linearizable, true,
 		rqlite.Statement{SQL: `UPDATE external_actions SET status='applying',attempts=attempts+1,updated_at_unix=?
 WHERE action_type=? AND idempotency_key=? AND status='pending' AND EXISTS (
- SELECT 1 FROM cluster_job_leases WHERE job_name=? AND holder_id=? AND lease_token=? AND expires_at_unix>unixepoch()
-)`, Args: []any{now, command.Type, command.ActionKey, jobName, command.WorkerID, command.LeaseToken}},
+ SELECT 1 FROM cluster_job_leases WHERE job_name=? AND holder_id=? AND lease_token=? AND lease_fence=? AND expires_at_unix>unixepoch()
+)`, Args: []any{now, command.Type, command.ActionKey, jobName, command.WorkerID, command.LeaseToken, command.LeaseFence}},
 		rqlite.Statement{SQL: `SELECT action_id,status,response_envelope FROM external_actions
 WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.ActionKey}},
 	)

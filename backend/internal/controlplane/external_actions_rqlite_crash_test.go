@@ -29,7 +29,7 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 			}
 			return actionFixtureResults(key, fixture.states[key]), nil
 		}
-		if strings.Contains(sql, "status='applying'") {
+		if strings.Contains(sql, "set status='applying'") {
 			key, _ := statements[0].Args[2].(string)
 			if fixture.allowStart && fixture.states[key] == "pending" {
 				fixture.states[key] = "applying"
