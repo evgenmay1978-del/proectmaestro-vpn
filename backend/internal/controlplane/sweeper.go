@@ -2,8 +2,11 @@ package controlplane
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -178,6 +181,11 @@ WHERE operation_id=? AND status='applying'`, Args: []any{operationID},
 	return orderDecisionConflict(requestErr)
 }
 
+func expiryCustomerOperationID(customerID string, generation int64) string {
+	digest := sha256.Sum256([]byte("expiry-customers\x00" + customerID + "\x00" + strconv.FormatInt(generation, 10)))
+	return "expiry_customer_" + hex.EncodeToString(digest[:16])
+}
+
 func (s *Service) ExpireDueCustomers(ctx context.Context, lease ExpiryLease) (ExpirySweepResult, error) {
 	results, err := s.store.db.QueryLinearizable(ctx,
 		rqlite.Statement{SQL: `SELECT customer_id,generation FROM customers
@@ -203,22 +211,20 @@ WHERE desired_target=1 AND retired=0 ORDER BY node_id,service_name`},
 		}
 		customers = append(customers, expiryCustomer{CustomerID: customerID, PriorGeneration: generation, ExpiredGeneration: generation + 1})
 	}
-	operationID, err := s.ids.NewID("expiry-customers")
-	if err != nil {
-		return ExpirySweepResult{}, errors.New("controlplane: generate customer expiry operation")
-	}
-	targets, err := s.expiryTargets(results[1].Rows, customers, operationID)
-	if err != nil {
-		return ExpirySweepResult{}, err
-	}
-	now := s.clock.Now().Unix()
-	statements := []rqlite.Statement{{
-		SQL: `INSERT INTO operations(operation_id,operation_type,resource_type,resource_id,status,
-requested_by_hmac,created_at_unix,updated_at_unix,lease_holder_id,lease_fence)
-VALUES(?,'expiry-customers','customer','due-batch','applying',?,unixepoch(),unixepoch(),?,?)`,
-		Args: []any{operationID, s.auditActor(lease.WorkerID), lease.WorkerID, lease.LeaseFence},
-	}}
+	sweepResult := ExpirySweepResult{LeaseFence: lease.LeaseFence}
 	for _, customer := range customers {
+		operationID := expiryCustomerOperationID(customer.CustomerID, customer.ExpiredGeneration)
+		targets, targetErr := s.expiryTargets(results[1].Rows, []expiryCustomer{customer}, operationID)
+		if targetErr != nil {
+			return sweepResult, targetErr
+		}
+		now := s.clock.Now().Unix()
+		statements := []rqlite.Statement{{
+			SQL: `INSERT INTO operations(operation_id,operation_type,resource_type,resource_id,status,
+requested_by_hmac,created_at_unix,updated_at_unix,lease_holder_id,lease_fence)
+VALUES(?,'expiry-customers','customer',?,'applying',?,unixepoch(),unixepoch(),?,?)`,
+			Args: []any{operationID, customer.CustomerID, s.auditActor(lease.WorkerID), lease.WorkerID, lease.LeaseFence},
+		}}
 		statements = append(statements, rqlite.Statement{
 			SQL: `UPDATE customers SET status='expired',generation=?,updated_at_unix=unixepoch()
 WHERE customer_id=? AND status='active' AND generation=? AND expires_at_unix<=unixepoch()`,
@@ -229,9 +235,6 @@ SELECT ?,?,?,'applying',unixepoch() WHERE changes()=1`,
 			Args: []any{customer.CustomerID, operationID, customer.ExpiredGeneration},
 		}, backupRPODirtyGenerationStatement(now))
 		for _, target := range targets {
-			if target.CustomerID != customer.CustomerID {
-				continue
-			}
 			statements = append(statements, rqlite.Statement{
 				SQL: `INSERT INTO desired_node_state(customer_id,node_id,service_name,generation,desired_envelope,
 desired_sha256,status,updated_at_unix,tombstone,operation_id)
@@ -263,32 +266,36 @@ ON CONFLICT(event_id) DO NOTHING`,
 					operationID, customer.ExpiredGeneration},
 			})
 		}
-	}
-	statements = append(statements, rqlite.Statement{
-		SQL: `UPDATE operation_batches SET status='applied'
+		statements = append(statements, rqlite.Statement{
+			SQL: `UPDATE operation_batches SET status='applied'
 WHERE operation_id=? AND status='applying'`, Args: []any{operationID},
-	}, rqlite.Statement{
-		SQL: `UPDATE operations SET status='applied',updated_at_unix=unixepoch()
+		}, rqlite.Statement{
+			SQL: `UPDATE operations SET status='applied',updated_at_unix=unixepoch()
 WHERE operation_id=? AND status='applying'`, Args: []any{operationID},
-	})
-	_, requestErr := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)
-	if requestErr == nil {
+		})
+		_, requestErr := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)
 		count, resolveErr := s.expiryOperationCount(ctx, operationID)
-		if resolveErr != nil {
-			return ExpirySweepResult{}, resolveErr
+		if requestErr == nil {
+			if resolveErr != nil {
+				return sweepResult, resolveErr
+			}
+		} else if resolveErr != nil || count == 0 {
+			if lost, leaseErr := s.expiryLeaseLost(ctx, lease); leaseErr == nil && lost {
+				return sweepResult, ErrLeaseLost
+			}
+			if isUnknownWrite(requestErr) {
+				return sweepResult, ErrUnavailable
+			}
+			return sweepResult, orderDecisionConflict(requestErr)
 		}
-		return ExpirySweepResult{CustomersExpired: count, OperationID: operationID, LeaseFence: lease.LeaseFence}, nil
+		if count > 0 {
+			sweepResult.CustomersExpired += count
+			if sweepResult.OperationID == "" {
+				sweepResult.OperationID = operationID
+			}
+		}
 	}
-	if count, resolveErr := s.expiryOperationCount(ctx, operationID); resolveErr == nil && count > 0 {
-		return ExpirySweepResult{CustomersExpired: count, OperationID: operationID, LeaseFence: lease.LeaseFence}, nil
-	}
-	if lost, leaseErr := s.expiryLeaseLost(ctx, lease); leaseErr == nil && lost {
-		return ExpirySweepResult{}, ErrLeaseLost
-	}
-	if isUnknownWrite(requestErr) {
-		return ExpirySweepResult{}, ErrUnavailable
-	}
-	return ExpirySweepResult{}, orderDecisionConflict(requestErr)
+	return sweepResult, nil
 }
 
 func (s *Service) expiryTargets(rows []map[string]any, customers []expiryCustomer, operationID string) ([]expiryDesiredTarget, error) {
