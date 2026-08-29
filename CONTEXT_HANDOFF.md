@@ -12,43 +12,38 @@
   использовать этот checkpoint. Исторические evidence snapshots не являются
   разрешением на обращение к прежнему узлу.
 
-## 0. HA PLAN 02 TASK 8 — REVIEW FIX CHECKPOINT (29.08.2026)
+## 0. HA PLAN 02 TASK 8 — FINDING 6 LOCAL CLOSURE (29.08.2026)
 
 - Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
-  Последний проверенный root code checkpoint —
-  `33b602b016ef260c1d34d448d282f18bbf99f6ec`; это НЕ accepted Task 8.
-  Перед продолжением перепроверить live HEAD/status и существующего исполнителя.
-- Task 8 остаётся на исправлении первого review round. Авторитетный список —
-  [15 замечаний](.superpowers/sdd/2026-08-09-maestrovpn-ha-02-business-api/task-8-review-findings-round-1.md).
-  Finding 1 (запрет plaintext rqlite) принят scoped re-review.
-  Finding 2 улучшен в `e41858c`, но ещё открыт: inactive/expired `/info`,
-  legacy HTTP 402 для expired `/sub`, `Cache-Control: no-store` у info/helpers.
-- В `33b602b` исправлены findings 8/15: существующие customer mutations
-  сохраняют canonical access и first/replay; reset devices сохраняет
-  suspended/deleted status. Focused real-SQLite/migrations tests GREEN:
-  `24.600s`; standalone-checkpoint проверка с overlay, исключающим RED7,
-  GREEN `22.901s`. Независимое принятие этих исправлений ещё впереди.
-  Полная ordinary suite и exact-SHA GitHub CI этого checkpoint ещё не заявлены GREEN.
-- Finding 7 (transactional trial anti-abuse + imported legacy identity)
-  остаётся в работе. Не stage/не удалять незавершённый файл исполнителя
-  `backend/internal/controlplane/task8_trial_integrity_sql_test.go`.
-  Findings 3/4/5/6/9/10/11/12/13/14 также не закрыты; Task 9 не начинать
-  вместо исправления load-bearing замечаний Task 8.
-- Присланные владельцем guide и два JSON сохранены как
-  [обезличенный XHTTP/CDN reference](docs/yandex-cdn-whitelist/references/XHTTP_USER_REFERENCE.md).
-  Это входные материалы, НЕ проверенная production-конфигурация; сторонние
-  UUID/IP/domains/ключи/URL подписки и GitHub token туда не копировались.
-- `AGENTS.md` и постоянный project-master дополнены проверенными правилами
-  обнаружения существующих путей и preflight Python-зависимостей/UTF-8.
-  Четыре прежние gofmt-only правки входят в следующий repository checkpoint.
-- Следующий шаг: зафиксировать docs/format checkpoint, проверить точный
-  pushed SHA в GitHub, затем продолжить finding 7 и оставшийся finding 2.
-  Один writer владеет branch/ledger; не запускать дублирующего исполнителя.
+  Проверенный local/remote checkpoint до pending F6 commit —
+  `57603ac69c52ef9871f2d9c54536fc9c301969c2`. Точный F6 code SHA должен быть
+  записан только после exact allowlist commit и проверки remote equality.
+- Finding 6 локально закрыт: legacy Android/TV `1.0.157` `/order` принимает
+  `sub_token`/`login`, известные active/expired identity продлеваются, unknown
+  identity сохраняет first-time fallback, token имеет приоритет над login.
+  `suspended` намеренно является admin-ban: HTTP 403 до любых мутаций.
+- First-time purchase атомарно создаёт inert expired customer, sealed token,
+  четыре canonical credentials и order. До оплаты нет desired/outbox. Explicit
+  `Idempotency-Key` хранится byte-for-byte и durable связывается с mode,
+  customer, tariff и HMAC supplied identity; keyless taps остаются независимыми.
+  Saved replay пересчитывает request hash и fail-closed отвергает подмену.
+- Public order остаётся pending до receipt-gated provisioning; paid view выдаёт
+  тот же или новый `/sub/<token>`. `paid-claim` возвращает точный
+  `{"status":"awaiting_confirm"}`. DB-time, missing-singleton rollback и
+  committed-unknown exact-read/no-write-retry границы сохранены.
+- Независимые Spec и Quality reviews вернули APPROVED. Финальный fresh full
+  regression GREEN: API `1.506s`, controlplane `253.279s`, panel `0.185s`.
+  Root повторно проверил пять критических binding/race тестов: GREEN `37.087s`.
+  Реальный SQLite gate доказал, что исчезновение customer перед keyless Request
+  даёт non-200, одну write-попытку и byte-exact нулевую durable mutation.
+- Findings 2/4/7/8/12/13/14/15 приняты ранее. Finding 6 станет принятым только
+  после commit/push, local=remote и трёх GREEN exact-SHA workflows. Открытый
+  nonfrozen порядок после этого: **F10 -> F5 -> F9**. Findings 3/11 (OLCRTC) и
+  WDTT заморожены по указанию владельца.
 - Production остаётся **NO-GO**; Android/TV baseline **1.0.157** неизменяем.
   S1-S4, CDN/DNS/TLS, боты, реальные оплаты, deploy, release/signing и OTA
-  этим repository-only этапом не изменяются. Исторические проценты ниже
-  не являются новой оценкой готовности. Завершённый Task 7 и его exact-SHA
-  evidence ниже остаются исторической принятой базой, не подтверждением Task 8.
+  этим repository-only этапом не изменялись. Защищённые owner-файлы
+  `task-4-report.md` и `normalize.patch` не stage/не изменять.
 
 ## 0AAAAAAAAAAAAAA. HA PLAN 02 TASK 7 ACCEPTED AFTER REVIEW + RE-REVIEW (28.08.2026)
 

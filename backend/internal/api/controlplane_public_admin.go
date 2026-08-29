@@ -56,13 +56,16 @@ func (s *ControlPlaneServer) handleControlPlaneTariffs(w http.ResponseWriter, r 
 
 func (s *ControlPlaneServer) handleControlPlaneCreateOrder(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Tariff string `json:"tariff"`
+		Tariff   string `json:"tariff"`
+		SubToken string `json:"sub_token"`
+		Login    string `json:"login"`
 	}
 	if !decodeControlPlanePublicMutation(w, r, &request) {
 		return
 	}
 	order, err := s.business.CreateOrder(r.Context(), CreateOrderCommand{
-		Tariff: request.Tariff, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		Tariff: request.Tariff, SubToken: request.SubToken, Login: request.Login,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
 		writeControlPlaneBusinessError(w, err)
@@ -105,14 +108,14 @@ func (s *ControlPlaneServer) handleControlPlanePaymentClaim(w http.ResponseWrite
 	if !ok {
 		return
 	}
-	order, err := s.business.MarkPaymentClaimed(r.Context(), ClaimPaymentCommand{
+	_, err := s.business.MarkPaymentClaimed(r.Context(), ClaimPaymentCommand{
 		OrderID: request.OrderID, IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		writeControlPlaneBusinessError(w, err)
 		return
 	}
-	writeControlPlaneJSON(w, http.StatusOK, order)
+	writeControlPlaneJSON(w, http.StatusOK, map[string]string{"status": "awaiting_confirm"})
 }
 
 func (s *ControlPlaneServer) handleControlPlaneTrial(w http.ResponseWriter, r *http.Request) {

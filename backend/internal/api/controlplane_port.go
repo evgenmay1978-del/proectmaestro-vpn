@@ -136,6 +136,8 @@ type OTAManifestView struct {
 
 type CreateOrderCommand struct {
 	Tariff         string
+	SubToken       string
+	Login          string
 	IdempotencyKey string
 }
 

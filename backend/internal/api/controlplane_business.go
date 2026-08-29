@@ -254,8 +254,13 @@ func (b *ServiceBusiness) CreateOrder(ctx context.Context, command CreateOrderCo
 	if version == "" {
 		return OrderView{}, businessError(controlplane.ErrNotFound)
 	}
-	created, err := b.service.CreateOrder(ctx, controlplane.CreateOrderCommand{
-		TariffVersionID: version, BuyerScope: "legacy-http", BuyerIdentity: command.IdempotencyKey,
+	identity, err := b.legacyOrderIdentity(ctx, command)
+	if err != nil {
+		return OrderView{}, err
+	}
+	created, err := b.service.CreatePurchaseOrder(ctx, controlplane.PurchaseOrderCommand{
+		TariffVersionID: version, CustomerID: identity.CustomerID, IdempotencyKey: command.IdempotencyKey,
+		IdentitySource: identity.Source, IdentityHMAC: identity.HMAC,
 		Actor: "legacy-http", Channel: "legacy-http", SourceEventID: command.IdempotencyKey,
 	})
 	if err != nil {
@@ -265,18 +270,80 @@ func (b *ServiceBusiness) CreateOrder(ctx context.Context, command CreateOrderCo
 	if err != nil {
 		return OrderView{}, businessError(err)
 	}
-	return b.orderView(ctx, order), nil
+	return b.creationOrderView(order), nil
+}
+
+type legacyOrderIdentityBinding struct {
+	CustomerID string
+	Source     string
+	HMAC       string
+}
+
+func (b *ServiceBusiness) legacyOrderIdentity(ctx context.Context, command CreateOrderCommand) (legacyOrderIdentityBinding, error) {
+	if token := strings.TrimSpace(command.SubToken); token != "" {
+		binding := legacyOrderIdentityBinding{Source: controlplane.PurchaseOrderIdentitySubToken}
+		digest, err := b.service.PurchaseOrderIdentityHMAC(binding.Source, command.SubToken)
+		if err != nil {
+			return legacyOrderIdentityBinding{}, businessError(err)
+		}
+		binding.HMAC = digest
+		customer, err := b.service.BusinessCustomerByToken(ctx, token)
+		if err == nil {
+			if customer.Status != "active" && customer.Status != "expired" {
+				// Suspension is an administrator ban, unlike expiry; purchases cannot bypass it.
+				return legacyOrderIdentityBinding{}, businessError(controlplane.ErrForbidden)
+			}
+			binding.CustomerID = customer.ID
+			return binding, nil
+		}
+		if errors.Is(err, controlplane.ErrNotFound) {
+			// Frozen clients treat an unknown supplied token as a first-time order.
+			return binding, nil
+		}
+		return legacyOrderIdentityBinding{}, businessError(err)
+	}
+	if login := strings.TrimSpace(command.Login); login != "" {
+		binding := legacyOrderIdentityBinding{Source: controlplane.PurchaseOrderIdentityLogin}
+		digest, err := b.service.PurchaseOrderIdentityHMAC(binding.Source, command.Login)
+		if err != nil {
+			return legacyOrderIdentityBinding{}, businessError(err)
+		}
+		binding.HMAC = digest
+		customer, err := b.service.BusinessCustomerByLogin(ctx, login)
+		if err == nil {
+			if customer.Status != "active" && customer.Status != "expired" {
+				// Legacy disabled-account reactivation is intentionally not part of purchasing.
+				return legacyOrderIdentityBinding{}, businessError(controlplane.ErrForbidden)
+			}
+			binding.CustomerID = customer.ID
+			return binding, nil
+		}
+		if errors.Is(err, controlplane.ErrNotFound) {
+			return binding, nil
+		}
+		return legacyOrderIdentityBinding{}, businessError(err)
+	}
+	binding := legacyOrderIdentityBinding{Source: controlplane.PurchaseOrderIdentityNone}
+	digest, err := b.service.PurchaseOrderIdentityHMAC(binding.Source, "")
+	if err != nil {
+		return legacyOrderIdentityBinding{}, businessError(err)
+	}
+	binding.HMAC = digest
+	return binding, nil
 }
 
 func (b *ServiceBusiness) OrderByID(ctx context.Context, orderID string) (OrderView, error) {
 	if err := b.available(); err != nil {
 		return OrderView{}, err
 	}
+	if _, err := b.service.OrderByID(ctx, orderID); err != nil {
+		return OrderView{}, businessError(err)
+	}
 	order, err := b.service.BusinessOrderByID(ctx, orderID)
 	if err != nil {
 		return OrderView{}, businessError(err)
 	}
-	return b.orderView(ctx, order), nil
+	return b.publicOrderView(ctx, order)
 }
 
 func (b *ServiceBusiness) ListOrders(ctx context.Context, filter OrderFilter) ([]OrderView, error) {
@@ -289,7 +356,7 @@ func (b *ServiceBusiness) ListOrders(ctx context.Context, filter OrderFilter) ([
 	}
 	views := make([]OrderView, 0, len(orders))
 	for _, order := range orders {
-		views = append(views, b.orderView(ctx, order))
+		views = append(views, b.rawOrderView(order))
 	}
 	return views, nil
 }
@@ -298,27 +365,28 @@ func (b *ServiceBusiness) MarkPaymentClaimed(ctx context.Context, command ClaimP
 	if err := b.available(); err != nil {
 		return OrderView{}, err
 	}
-	result, err := b.service.MarkPaymentClaimed(ctx, controlplane.ClaimPaymentCommand{
+	claimed, err := b.service.MarkPaymentClaimed(ctx, controlplane.ClaimPaymentCommand{
 		OrderID: command.OrderID, Actor: "legacy-http", Channel: "legacy-http", SourceEventID: command.IdempotencyKey,
 	})
 	if err != nil {
 		return OrderView{}, businessError(err)
 	}
-	order, err := b.service.BusinessOrderByID(ctx, result.OrderID)
-	if err != nil {
-		return OrderView{}, businessError(err)
-	}
-	return b.orderView(ctx, order), nil
+	return OrderView{OrderID: claimed.OrderID, Status: "awaiting_confirm", PaymentState: string(claimed.PaymentState)}, nil
 }
 
 func (b *ServiceBusiness) ConfirmPayment(ctx context.Context, command ConfirmPaymentCommand) (ConfirmPaymentResult, error) {
 	if err := b.available(); err != nil {
 		return ConfirmPaymentResult{}, err
 	}
+	pending, err := b.service.BusinessOrderByID(ctx, command.OrderID)
+	if err != nil {
+		return ConfirmPaymentResult{}, businessError(err)
+	}
 	confirmed, err := b.service.ConfirmPayment(ctx, controlplane.ConfirmPaymentCommand{
 		OrderID: command.OrderID, IdempotencyKey: command.IdempotencyKey,
 		PaymentReference: command.IdempotencyKey, Provider: "manual-sbp", Actor: command.Actor,
 		Channel: "legacy-http", SourceEventID: command.IdempotencyKey,
+		TariffVersionID: pending.TariffVersionID,
 	})
 	if err != nil {
 		return ConfirmPaymentResult{}, businessError(err)
@@ -332,7 +400,7 @@ func (b *ServiceBusiness) ConfirmPayment(ctx context.Context, command ConfirmPay
 		return ConfirmPaymentResult{}, businessError(err)
 	}
 	return ConfirmPaymentResult{
-		Order: b.orderView(ctx, order), Customer: b.customerView(customer),
+		Order: b.rawOrderView(order), Customer: b.customerView(customer),
 		Operation: OperationView{ID: confirmed.OperationID, State: "pending"},
 	}, nil
 }
@@ -351,7 +419,7 @@ func (b *ServiceBusiness) CancelOrder(ctx context.Context, command CancelOrderCo
 	if err != nil {
 		return OrderView{}, businessError(err)
 	}
-	return b.orderView(ctx, order), nil
+	return b.rawOrderView(order), nil
 }
 
 func (b *ServiceBusiness) SubscriptionSnapshot(ctx context.Context, token string) (SubscriptionSnapshot, error) {
@@ -778,20 +846,41 @@ func (b *ServiceBusiness) subscriptionURL(token string) string {
 	return strings.TrimRight(b.cfg.SubBaseURL, "/") + "/sub/" + token
 }
 
-func (b *ServiceBusiness) orderView(ctx context.Context, order controlplane.BusinessOrder) OrderView {
-	view := OrderView{
+func (b *ServiceBusiness) rawOrderView(order controlplane.BusinessOrder) OrderView {
+	return OrderView{
 		OrderID: order.OrderID, Code: order.Code, RUB: int(order.AmountMinor / 100), Days: order.DurationDays,
 		Tariff: order.TariffVersionID, SBPPhone: b.cfg.SBPPhone, PayURL: b.cfg.PayURL,
 		Status: string(order.PaymentState), PaymentState: string(order.PaymentState),
 		ProvisioningState: order.ProvisioningState, ResultGeneration: order.ResultGeneration,
 	}
-	if visibility, err := b.service.LegacyOrderVisibility(ctx, order.OrderID); err == nil && visibility == "paid" && order.CustomerID != "" {
-		customer, customerErr := b.service.BusinessCustomerByID(ctx, order.CustomerID)
-		if customerErr == nil {
-			view.SubURL = b.subscriptionURL(customer.Access.SubscriptionToken)
-		}
-	}
+}
+
+func (b *ServiceBusiness) creationOrderView(order controlplane.BusinessOrder) OrderView {
+	view := b.rawOrderView(order)
+	view.Status = "pending"
+	view.PaymentState = string(controlplane.PaymentPending)
+	view.ProvisioningState = string(controlplane.ProvisioningNone)
+	view.ResultGeneration = 0
+	view.SubURL = ""
 	return view
+}
+
+func (b *ServiceBusiness) publicOrderView(ctx context.Context, order controlplane.BusinessOrder) (OrderView, error) {
+	view := b.rawOrderView(order)
+	visibility, err := b.service.LegacyOrderVisibility(ctx, order.OrderID)
+	if err != nil {
+		return OrderView{}, businessError(err)
+	}
+	view.Status = visibility
+	if visibility != "paid" {
+		return view, nil
+	}
+	customer, err := b.service.BusinessCustomerByID(ctx, order.CustomerID)
+	if err != nil {
+		return OrderView{}, businessError(err)
+	}
+	view.SubURL = b.subscriptionURL(customer.Access.SubscriptionToken)
+	return view, nil
 }
 
 type olcrtcSettingMutation struct {

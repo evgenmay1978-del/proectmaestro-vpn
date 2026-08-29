@@ -28,6 +28,7 @@ type orderRecord struct {
 	View                OrderView
 	CustomerID          string
 	TariffVersionID     string
+	OperationID         string
 	ExpiresAtUnix       int64
 	CustomerPriorExpiry int64
 	CustomerExpiry      int64
@@ -545,12 +546,20 @@ WHERE o.order_id=? AND o.tariff_version_id=? AND c.status IN ('active','expired'
 }
 
 func (s *Service) confirmTargets(ctx context.Context, prepared orderRecord, operationID string) ([]desiredTarget, error) {
+	access, err := s.customerAccess(ctx, prepared.CustomerID)
+	if err != nil {
+		return nil, err
+	}
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT node_id,service_name FROM node_services
 WHERE desired_target=1 AND retired=0 ORDER BY node_id,service_name`,
 	})
 	if err != nil || len(results) != 1 || len(results[0].Rows) == 0 {
 		return nil, ErrUnavailable
+	}
+	payload := map[string]any{"expires_at_unix": prepared.CustomerExpiry, "status": "active"}
+	if canonical := accessPayload(access); canonical != nil {
+		payload["access"] = canonical
 	}
 	targets := make([]desiredTarget, 0, len(results[0].Rows))
 	for _, row := range results[0].Rows {
@@ -563,7 +572,7 @@ WHERE desired_target=1 AND retired=0 ORDER BY node_id,service_name`,
 			NodeID: nodeID, ServiceID: serviceName, CustomerID: prepared.CustomerID,
 			Generation: prepared.CustomerGeneration, OperationID: operationID,
 			PayloadKind: "customer-active", Tombstone: false,
-		}, map[string]any{"expires_at_unix": prepared.CustomerExpiry, "status": "active"})
+		}, payload)
 		if sealErr != nil {
 			return nil, sealErr
 		}
@@ -641,7 +650,7 @@ WHERE scope=? AND command_type='cancel' AND idempotency_key=?`,
 func (s *Service) queryOrder(ctx context.Context, orderID string) (orderRecord, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT order_id,customer_id,tariff_version_id,amount_minor,currency,duration_days,
-expires_at_unix,payment_state,origin_bot_id,origin_chat_key_hmac,unixepoch() AS db_now
+expires_at_unix,payment_state,operation_id,origin_bot_id,origin_chat_key_hmac,unixepoch() AS db_now
 FROM orders WHERE order_id=?`, Args: []any{orderID},
 	})
 	if err != nil {
@@ -694,12 +703,13 @@ func orderRecordFromRow(row map[string]any) (orderRecord, bool) {
 		return orderRecord{}, false
 	}
 	originBot, _ := optionalString(row, "origin_bot_id")
+	operationID, _ := optionalString(row, "operation_id")
 	originChat, _ := optionalString(row, "origin_chat_key_hmac")
 	return orderRecord{
 		View: OrderView{OrderID: orderID, AmountMinor: amount, Currency: currency,
 			DurationSeconds: durationDays * 86400, OriginBotID: originBot, PaymentState: PaymentState(paymentState)},
 		CustomerID: customerID, TariffVersionID: tariffVersion, ExpiresAtUnix: expires,
-		DBNow: dbNow, OriginChatHMAC: originChat,
+		OperationID: operationID, DBNow: dbNow, OriginChatHMAC: originChat,
 	}, true
 }
 

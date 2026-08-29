@@ -720,3 +720,72 @@ Finding 4 is accepted with real-adapter local evidence, independent Spec PASS /
 Quality APPROVED review and exact-SHA GitHub CI. Findings 5, 6, 9 and 10 remain
 open. OLCRTC findings 3/11 and WDTT remain frozen. Android/TV 1.0.157 and all
 production/server/release/OTA state remain unchanged.
+
+## Finding 6 local closure: legacy order and purchase compatibility
+
+Date: 2026-08-29
+
+The frozen Android/TV 1.0.157 order request now reaches the canonical HA
+purchase path without changing the frozen clients. `/order` accepts legacy
+`sub_token` and `login`; token has priority. Known active/expired customers are
+renewed, while an unknown supplied identity preserves the first-time fallback.
+Suspended customers are intentionally treated as an administrator ban and fail
+with HTTP 403 before any mutation.
+
+First-time purchase creates an inert expired customer, sealed subscription
+token, all four canonical credentials and an order in one rqlite transaction.
+No desired state or outbox event is emitted before payment. Explicit nonblank
+`Idempotency-Key` values are stored byte-for-byte; whitespace-only remains
+keyless, and every keyless tap remains a distinct purchase intent. Durable
+request binding includes mode, customer, immutable tariff version, identity
+source and a domain-separated SecretBox HMAC of the normalized supplied
+identity. Raw token/login values are not persisted or logged. Applied replay
+recomputes the canonical hash from the protected saved response and fails
+closed on a consistently swapped response/resource tuple.
+
+The public compatibility lifecycle is preserved: creation is pending;
+`paid-claim` returns exactly `{"status":"awaiting_confirm"}`; confirmation
+remains pending until the canonical apply receipt satisfies paid visibility;
+only then is the existing or newly minted `/sub/<token>` returned. Canceled and
+expired orders remain hidden. Visibility/customer read failures propagate as
+typed unavailable errors. Confirmation desired payloads carry canonical access
+material. Admin list/confirm/cancel views retain raw canonical states.
+
+The implementation uses database `unixepoch()` for expiry decisions, atomic
+postconditions for customer/access/order/audit/backup state, and one exact
+linearizable resolution after a possibly committed write. It does not blind
+retry a mutating rqlite request. A real SQLite gate test deletes an already
+resolved existing customer immediately before the atomic keyless Request and
+proves non-200, exactly one write attempt, and byte-exact unchanged durable row
+counts plus backup dirty generation/phase/timestamp.
+
+The exact local semantic boundary is eleven files:
+
+- `backend/internal/api/controlplane_business.go`
+- `backend/internal/api/controlplane_port.go`
+- `backend/internal/api/controlplane_public_admin.go`
+- `backend/internal/api/controlplane_public_idempotency_test.go`
+- `backend/internal/controlplane/orders.go`
+- `backend/internal/controlplane/purchase_orders.go`
+- `backend/internal/controlplane/legacy_order_compatibility_api_test.go`
+- `backend/internal/controlplane/purchase_order_outcomes_api_test.go`
+- `backend/internal/controlplane/legacy_order_ship_blockers_api_test.go`
+- `backend/internal/controlplane/legacy_order_binding_review_api_test.go`
+- `backend/internal/controlplane/legacy_order_keyless_race_api_test.go`
+
+Final local verification is GREEN:
+
+- fresh full regression: API `1.506s`, controlplane `253.279s`, panel `0.185s`;
+- root rerun of five critical exact-key, identity-binding, corruption,
+  suspended-ban and keyless-race tests: `37.087s`;
+- `gofmt -d` and scoped diff checks: clean;
+- independent Specification review: APPROVED;
+- independent Quality review: APPROVED after its proposed race blocker was
+  disproved by the real SQLite gate and transaction-local `changes()>0` proof.
+
+This is a local closure only. Finding 6 is not accepted until the exact
+allowlist commit is pushed, local and remote SHAs match, and HA control-plane,
+HA DR restore and Yandex isolated release workflows are all GREEN on that same
+code SHA. Findings 5, 9 and 10 remain open; the safe nonfrozen order is
+F10 -> F5 -> F9. Findings 3/11 (OLCRTC) and WDTT remain frozen. No production,
+server, release, OTA, bot, payment or Android/TV 1.0.157 mutation occurred.

@@ -15,6 +15,7 @@ type publicIdempotencyBusiness struct {
 	derivations     map[string]string
 	derivationCalls map[string]int
 	orderIDs        []string
+	orderCommands   []CreateOrderCommand
 }
 
 func newPublicIdempotencyBusiness() *publicIdempotencyBusiness {
@@ -43,9 +44,26 @@ func (business *publicIdempotencyBusiness) LegacyPublicIdempotencyKey(route stri
 
 func (business *publicIdempotencyBusiness) CreateOrder(_ context.Context, command CreateOrderCommand) (OrderView, error) {
 	business.record("/order", command.IdempotencyKey)
+	business.orderCommands = append(business.orderCommands, command)
 	orderID := fmt.Sprintf("ord-%d", len(business.orderIDs)+1)
 	business.orderIDs = append(business.orderIDs, orderID)
 	return OrderView{OrderID: orderID, Status: "pending"}, nil
+}
+
+func TestControlPlaneCreateOrderAcceptsInstalledAppSubToken(t *testing.T) {
+	business := newPublicIdempotencyBusiness()
+	handler := NewControlPlane(business, Config{}).Handler()
+
+	request := httptest.NewRequest(http.MethodPost, "/order", strings.NewReader(`{"tariff":"1m","sub_token":"existing-token"}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q, want 200", response.Code, response.Body.String())
+	}
+	if len(business.orderCommands) != 1 || business.orderCommands[0].SubToken != "existing-token" {
+		t.Fatalf("order commands=%+v, want exact installed-app sub_token", business.orderCommands)
+	}
 }
 
 func (business *publicIdempotencyBusiness) MarkPaymentClaimed(_ context.Context, command ClaimPaymentCommand) (OrderView, error) {
