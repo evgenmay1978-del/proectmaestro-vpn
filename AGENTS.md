@@ -159,3 +159,26 @@ exact match/replacement count, inspect the generated mirror, and only then build
 the old/new patch; after this root cause, do not tune another escaped fragment.
 
 For tab-prefixed exact-line checks, construct the tab as [char]9 (for example [string]::Concat([char]9, $literal)); never rely on backtick escapes inside single-quoted PowerShell strings.
+
+### Windows native rg glob guard
+
+On Windows PowerShell, never pass a wildcard path such as `path/*.go` to native
+`rg`: PowerShell does not expand it and `rg` receives a nonexistent literal
+path. Pass the verified directory as a path and use `-g '*.go'` or
+`--glob '*.go'`.
+
+### PowerShell exact-line array guard
+
+When a PowerShell array element is built by concatenating `[char]9` or another
+prefix with a literal, wrap every concatenation in parentheses or use
+`[string]::Concat`. An unparenthesized comma/`+` expression can split one
+intended line into multiple array elements. Assert the array count and exact
+element lengths before using it as a structural preflight.
+
+### Production adapter compatibility test guard
+
+A fake `Business`, handler, store, or port test cannot close a compatibility
+finding when the production adapter adds authorization, status, expiry, cache,
+or rendering gates. Closure requires the public boundary through the real
+production adapter and real migrations/storage (or an explicitly proven exact
+equivalent), with both positive and negative states asserted.

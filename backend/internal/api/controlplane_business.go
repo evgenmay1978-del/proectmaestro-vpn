@@ -27,8 +27,8 @@ type externalActionRunner interface {
 	ExecuteExternalAction(context.Context, controlplane.ExternalActionCommand, string, controlplane.ExternalActionSender) (controlplane.ExternalActionResult, error)
 }
 
-type subscriptionDocumentSource interface {
-	BusinessSubscriptionDocument(context.Context, string) (controlplane.BusinessCustomer, json.RawMessage, error)
+type subscriptionCustomerSource interface {
+	BusinessCustomerByToken(context.Context, string) (controlplane.BusinessCustomer, error)
 }
 
 type wbRoomAssigner interface {
@@ -39,7 +39,7 @@ type wbRoomAssigner interface {
 // runtime. Every mutation delegates to a canonical controlplane.Service command.
 type ServiceBusiness struct {
 	service         *controlplane.Service
-	subscriptions   subscriptionDocumentSource
+	subscriptions   subscriptionCustomerSource
 	cfg             ServiceBusinessConfig
 	externalActions externalActionRunner
 	wbSender        controlplane.ExternalActionSender
@@ -362,15 +362,23 @@ func (b *ServiceBusiness) subscriptionSnapshotForRequest(ctx context.Context, to
 	if b == nil || b.subscriptions == nil {
 		return SubscriptionSnapshot{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
-	customer, _, err := b.subscriptions.BusinessSubscriptionDocument(ctx, token)
+	customer, err := b.subscriptions.BusinessCustomerByToken(ctx, token)
 	if err != nil {
 		return SubscriptionSnapshot{}, businessError(err)
+	}
+	snapshot := SubscriptionSnapshot{Customer: b.customerView(customer)}
+	if !snapshot.Customer.Active {
+		return snapshot, nil
+	}
+	if len(customer.Access.Credentials) == 0 {
+		return SubscriptionSnapshot{}, businessError(controlplane.ErrForbidden)
 	}
 	document, contentType, err := renderControlPlaneSubscription(customer, b.cfg.SubscriptionTopology, options)
 	if err != nil {
 		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
 	}
-	return SubscriptionSnapshot{Customer: b.customerView(customer), Document: document, ContentType: contentType}, nil
+	snapshot.Document, snapshot.ContentType = document, contentType
+	return snapshot, nil
 }
 
 func (b *ServiceBusiness) TouchDevice(ctx context.Context, command TouchDeviceCommand) (DeviceDecision, error) {

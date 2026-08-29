@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "bytes": 14801,
-      "sha256": "4bde4faafe62e919c8dfc42c1fb97760a3b346fcbe34bdd6a5b4507420f4d80e",
+      "bytes": 15895,
+      "sha256": "a2a7e8567327e4409667150db1f14fb03b51300c08881490b07e3bda3c401c83",
       "preview": "# Yandex CDN white-list task\n\nNavigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](<REDACTED>), [SPEC](docs/yandex-cdn-whitelist/<REDACTED>), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [hando"
     },
     {

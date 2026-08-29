@@ -608,3 +608,41 @@ reported the exact source SHA above.
 The reviewed workflow-seal CI correction is accepted. No production, server,
 release, OTA, OLCRTC or WDTT mutation occurred. Findings 2, 4, 5, 6, 9 and 10
 remain the open Task 8 review set pending fresh owner verification.
+
+## Finding 2 final closure: real subscription status path
+
+Date: 2026-08-29
+
+The first owner rerun of the existing endpoint compatibility test was GREEN,
+but independent review rejected it because its fake `Business` returned an
+inactive snapshot directly. The production `ServiceBusiness` first called
+`BusinessSubscriptionDocument`, whose activity/expiry authorization returned
+HTTP 403 before `/info` and the HTTP 402 gate could execute.
+
+A new public-handler test applies the real migrations to SQLite, constructs the
+real secret box, store, service and `ServiceBusiness`, and seeds live, inactive
+and expired customers with sealed tokens and VLESS credentials. Its first valid
+RED kept the live control at 200 and proved all inactive/expired endpoints were
+403: `/info` should be 200, while base `/sub` and `/helpers` should be 402.
+
+The production adapter now reads canonical customer metadata by token first.
+Unknown tokens retain their original error, an active customer without
+credentials remains fail-closed, and only active customers with credentials
+reach the renderer. Inactive/expired snapshots contain only the public
+`CustomerView`, so no document or credential is exposed before the HTTP layer
+returns legacy-compatible status.
+
+Fresh verification exited 0:
+
+- real ServiceBusiness/migrations/SQLite focused test: 9.134s, then 9.196s;
+- focused subscription API tests: 0.093s;
+- complete `internal/api`: 0.996s;
+- complete `internal/controlplane`: 118.343s;
+- `gofmt -l` empty and scoped `git diff --check` clean.
+
+Independent re-review returned Spec PASS and Quality APPROVED with no findings.
+Durable instructions now forbid fake-only owner closure where production
+adapters add policy gates and record the Windows native-`rg` glob and
+PowerShell array-concatenation rules discovered during this fix. Findings
+4, 5, 6, 9 and 10 remain open. OLCRTC findings 3/11 and WDTT remain frozen;
+production/server/OTA and Android/TV 1.0.157 were unchanged.

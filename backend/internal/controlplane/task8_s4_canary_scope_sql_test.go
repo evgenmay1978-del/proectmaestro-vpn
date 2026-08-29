@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -17,6 +19,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
 func TestServiceBusinessS4CanaryReconcilesOnlySelectedCustomerSQL(t *testing.T) {
@@ -68,6 +71,85 @@ FROM outbox_events WHERE node_id='S4' AND service_name='s4' ORDER BY event_id`})
 	}}
 	if !reflect.DeepEqual(got[0].Rows, want) {
 		t.Fatalf("S4 canary outbox rows=%#v, want %#v", got[0].Rows, want)
+	}
+}
+
+func TestServiceBusinessSubscriptionStatusUsesMetadataBeforeDocumentAuthorizationSQLite(t *testing.T) {
+	ctx := context.Background()
+	db := newS4CanarySQLite(t)
+	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatalf("apply real migrations: %v", err)
+	}
+	box, err := controlplane.NewSecretBox(1, map[int][]byte{1: bytes.Repeat([]byte{1}, 32)}, bytes.Repeat([]byte{2}, 32))
+	if err != nil {
+		t.Fatalf("new secret box: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	clock := s4CanaryClock{value: now}
+	store, err := controlplane.NewStore(db, box, clock)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	service, err := controlplane.NewService(store, s4CanaryIDs{}, clock)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	db.must(t, rqlite.Statement{SQL: `INSERT INTO node_services(node_id,service_name,desired_target,apply_enabled,fenced,retired,updated_at_unix)
+VALUES ('S4','s4',1,1,0,0,2000000)`})
+	customers := []struct {
+		id, status, digest string
+		expires            time.Time
+		wantActive         bool
+		wantDays           int
+	}{
+		{"live", "active", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", now.Add(48 * time.Hour), true, 2},
+		{"inactive", "suspended", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", now.Add(48 * time.Hour), false, 2},
+		{"expired", "active", "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", now.Add(-time.Hour), false, 0},
+	}
+	for _, customer := range customers {
+		seedS4CanaryCustomer(t, db, box, customer.id, customer.id, customer.id+"-operation", customer.id+"-envelope", customer.digest)
+		db.must(t, rqlite.Statement{SQL: `UPDATE customers SET status=?,expires_at_unix=? WHERE customer_id=?`, Args: []any{customer.status, customer.expires.Unix(), customer.id}})
+	}
+
+	business := api.NewServiceBusiness(service, api.ServiceBusinessConfig{SubscriptionTopology: subgen.Customer{
+		VLESS: &subgen.VLESSCreds{Server: "vless.example.test", Port: 443, SNI: "cdn.example.test", PublicKey: "public-key", ShortID: "0123456789abcdef", Flow: "xtls-rprx-vision", Fingerprint: "chrome"},
+	}})
+	handler := api.NewControlPlane(business, api.Config{}).Handler()
+	for _, customer := range customers {
+		t.Run(customer.id+"-info", func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/sub/"+customer.id+"-token/info", nil))
+			if response.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%q, want %d", response.Code, response.Body.String(), http.StatusOK)
+			}
+			if response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("cache control=%q, want no-store", response.Header().Get("Cache-Control"))
+			}
+			var info struct {
+				Active   bool `json:"active"`
+				DaysLeft int  `json:"days_left"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &info); err != nil {
+				t.Fatalf("decode info: %v", err)
+			}
+			if info.Active != customer.wantActive || info.DaysLeft != customer.wantDays {
+				t.Fatalf("info=%+v, want active=%v days_left=%d", info, customer.wantActive, customer.wantDays)
+			}
+		})
+	}
+	for _, customer := range customers[1:] {
+		for _, suffix := range []string{"", "/helpers"} {
+			t.Run(customer.id+suffix, func(t *testing.T) {
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/sub/"+customer.id+"-token"+suffix, nil))
+				if response.Code != http.StatusPaymentRequired {
+					t.Fatalf("status=%d body=%q, want %d", response.Code, response.Body.String(), http.StatusPaymentRequired)
+				}
+				if response.Header().Get("Cache-Control") != "no-store" {
+					t.Fatalf("cache control=%q, want no-store", response.Header().Get("Cache-Control"))
+				}
+			})
+		}
 	}
 }
 

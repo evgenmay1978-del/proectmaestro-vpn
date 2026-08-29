@@ -136,11 +136,11 @@ func TestControlPlaneSubscriptionMissingCredentialsDoNotPublishTopologyIdentity(
 
 type subscriptionRequestSource struct{ customer controlplane.BusinessCustomer }
 
-func (source subscriptionRequestSource) BusinessSubscriptionDocument(_ context.Context, token string) (controlplane.BusinessCustomer, json.RawMessage, error) {
+func (source subscriptionRequestSource) BusinessCustomerByToken(_ context.Context, token string) (controlplane.BusinessCustomer, error) {
 	if token != "fixture-token" {
-		return controlplane.BusinessCustomer{}, nil, fmt.Errorf("unexpected fixture token")
+		return controlplane.BusinessCustomer{}, fmt.Errorf("unexpected fixture token")
 	}
-	return source.customer, json.RawMessage(`{"metadata":"must-not-be-rendered"}`), nil
+	return source.customer, nil
 }
 
 func subscriptionRequestTopology() subgen.Customer {

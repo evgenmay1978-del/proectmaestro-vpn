@@ -13,12 +13,15 @@ type subscriptionDocumentStub struct {
 	token string
 }
 
-func (s *subscriptionDocumentStub) BusinessSubscriptionDocument(_ context.Context, token string) (controlplane.BusinessCustomer, json.RawMessage, error) {
+func (s *subscriptionDocumentStub) BusinessCustomerByToken(_ context.Context, token string) (controlplane.BusinessCustomer, error) {
 	s.token = token
 	return controlplane.BusinessCustomer{
-		Customer: controlplane.Customer{Access: controlplane.CustomerAccess{Credentials: map[string]string{"vless": "customer-vless-uuid"}}},
-		Login:    "alice",
-	}, json.RawMessage(`{"credentials":{"vless":"customer-vless-uuid"}}`), nil
+		Customer: controlplane.Customer{
+			Status: "active", ExpiresAtUnix: 4102444800,
+			Access: controlplane.CustomerAccess{Credentials: map[string]string{"vless": "customer-vless-uuid"}},
+		},
+		Login: "alice",
+	}, nil
 }
 
 func TestServiceBusinessSubscriptionSnapshotRendersConfiguredTopology(t *testing.T) {
