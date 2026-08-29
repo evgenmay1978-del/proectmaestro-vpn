@@ -11,12 +11,19 @@ import (
 
 type durableExternalActionFixture struct {
 	states     map[string]string
+	bindings   map[string]externalActionFixtureBinding
 	allowStart bool
+}
+
+type externalActionFixtureBinding struct {
+	actionType, resourceID, requestHash string
 }
 
 func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLiteExternalActions, *durableExternalActionFixture) {
 	t.Helper()
-	fixture := &durableExternalActionFixture{states: make(map[string]string), allowStart: allowStart}
+	fixture := &durableExternalActionFixture{
+		states: make(map[string]string), bindings: make(map[string]externalActionFixtureBinding), allowStart: allowStart,
+	}
 	db := &recordingRQLite{requestFn: func(statements []rqlite.Statement) ([]rqlite.Result, error) {
 		if len(statements) < 2 {
 			return nil, errors.New("unexpected external action transaction")
@@ -24,17 +31,23 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 		sql := strings.ToLower(statements[0].SQL)
 		if strings.Contains(sql, "insert or ignore into external_actions") {
 			key, _ := statements[0].Args[3].(string)
+			actionType, _ := statements[0].Args[1].(string)
+			resourceID, _ := statements[0].Args[2].(string)
+			requestHash, _ := statements[0].Args[5].(string)
 			if _, ok := fixture.states[key]; !ok {
 				fixture.states[key] = "pending"
+				fixture.bindings[key] = externalActionFixtureBinding{
+					actionType: actionType, resourceID: resourceID, requestHash: requestHash,
+				}
 			}
-			return actionFixtureResults(key, fixture.states[key]), nil
+			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key]), nil
 		}
 		if strings.Contains(sql, "set status='applying'") {
 			key, _ := statements[0].Args[2].(string)
 			if fixture.allowStart && fixture.states[key] == "pending" {
 				fixture.states[key] = "applying"
 			}
-			return actionFixtureResults(key, fixture.states[key]), nil
+			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key]), nil
 		}
 		if strings.Contains(sql, "update external_actions set status=?") {
 			status, _ := statements[0].Args[0].(string)
@@ -42,7 +55,7 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 			if fixture.states[key] == "applying" {
 				fixture.states[key] = status
 			}
-			return actionFixtureResults(key, fixture.states[key]), nil
+			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key]), nil
 		}
 		return nil, errors.New("unexpected external action SQL")
 	}}
@@ -54,8 +67,15 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 	return persistence, fixture
 }
 
-func actionFixtureResults(key, state string) []rqlite.Result {
-	return []rqlite.Result{{}, {Rows: []map[string]any{{"action_id": "action-" + key, "status": state}}}}
+func actionFixtureResults(key, state string, binding externalActionFixtureBinding) []rqlite.Result {
+	return []rqlite.Result{{}, {Rows: []map[string]any{{
+		"action_id":       "action-" + key,
+		"action_type":     binding.actionType,
+		"resource_id":     binding.resourceID,
+		"idempotency_key": key,
+		"request_sha256":  binding.requestHash,
+		"status":          state,
+	}}}}
 }
 
 func TestExternalActionCrashBoundariesPostAtMostOnce(t *testing.T) {

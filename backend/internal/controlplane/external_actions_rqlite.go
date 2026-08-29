@@ -12,6 +12,11 @@ import (
 )
 
 type RQLiteExternalActions struct{ service *Service }
+type externalActionBinding struct {
+	resourceKeyHMAC     string
+	requestHMAC         string
+	legacyRequestSHA256 string
+}
 
 func NewRQLiteExternalActions(service *Service) (*RQLiteExternalActions, error) {
 	if service == nil || service.store == nil {
@@ -23,6 +28,10 @@ func NewRQLiteExternalActions(service *Service) (*RQLiteExternalActions, error) 
 func (s *RQLiteExternalActions) Prepare(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
 	if command.Type == "" || command.ResourceID == "" || command.ActionKey == "" {
 		return ExternalActionResult{}, errors.New("controlplane: invalid external action")
+	}
+	binding, err := s.binding(command)
+	if err != nil {
+		return ExternalActionResult{}, err
 	}
 	actionID, err := s.service.ids.NewID("external_action")
 	if err != nil {
@@ -38,21 +47,25 @@ func (s *RQLiteExternalActions) Prepare(ctx context.Context, command ExternalAct
 	if err != nil {
 		return ExternalActionResult{}, errors.New("controlplane: encode external action request")
 	}
-	digest := sha256.Sum256(command.Request)
 	now := s.service.clock.Now().Unix()
 	results, err := s.service.store.db.Request(ctx, rqlite.Linearizable, true,
 		rqlite.Statement{SQL: `INSERT OR IGNORE INTO external_actions(action_id,action_type,resource_id,idempotency_key,
 request_envelope,request_sha256,status,attempts,created_at_unix,updated_at_unix)
 VALUES(?,?,?,?,?,?,'pending',0,?,?)`, Args: []any{
-			actionID, command.Type, command.ResourceID, command.ActionKey, envelopeBytes, hex.EncodeToString(digest[:]), now, now,
+			actionID, command.Type, binding.resourceKeyHMAC, command.ActionKey, envelopeBytes, binding.requestHMAC, now, now,
 		}},
-		rqlite.Statement{SQL: `SELECT action_id,status,response_envelope FROM external_actions
-WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.ActionKey}},
+		externalActionPrepareRead(command),
 	)
 	if err != nil {
+		results, err = s.service.store.db.QueryLinearizable(ctx, externalActionPrepareRead(command))
+		if err != nil {
+			return ExternalActionResult{}, ErrUnavailable
+		}
+	}
+	result, err := externalActionBoundResult(results, command, binding)
+	if errors.Is(err, ErrNotFound) {
 		return ExternalActionResult{}, ErrUnavailable
 	}
-	result, err := externalActionResult(results)
 	if err != nil {
 		return ExternalActionResult{}, err
 	}
@@ -66,6 +79,11 @@ WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.Ac
 		result.Response, err = s.openResponse(results, command)
 	}
 	return result, err
+}
+
+func externalActionPrepareRead(command ExternalActionCommand) rqlite.Statement {
+	return rqlite.Statement{SQL: `SELECT action_id,action_type,resource_id,idempotency_key,request_sha256,status,response_envelope FROM external_actions
+WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.ActionKey}}
 }
 
 func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
@@ -141,6 +159,53 @@ WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.Ac
 		return ExternalActionResult{}, ErrConflict
 	}
 	return result, nil
+}
+
+func (s *RQLiteExternalActions) binding(command ExternalActionCommand) (externalActionBinding, error) {
+	legacyDigest := sha256.Sum256(command.Request)
+	binding := externalActionBinding{
+		resourceKeyHMAC: s.service.store.secrets.LookupHMAC(
+			"external-action-resource:"+command.Type, []byte(command.ResourceID),
+		),
+		requestHMAC: s.service.store.secrets.LookupHMAC(
+			"external-action-request:"+command.Type, command.Request,
+		),
+		legacyRequestSHA256: hex.EncodeToString(legacyDigest[:]),
+	}
+	if len(binding.resourceKeyHMAC) != 64 || len(binding.requestHMAC) != 64 {
+		return externalActionBinding{}, ErrUnavailable
+	}
+	return binding, nil
+}
+
+func externalActionBoundResult(
+	results []rqlite.Result, command ExternalActionCommand, binding externalActionBinding,
+) (ExternalActionResult, error) {
+	for i := len(results) - 1; i >= 0; i-- {
+		if len(results[i].Rows) == 0 {
+			continue
+		}
+		row := results[i].Rows[0]
+		id, idOK := rowString(row, "action_id")
+		actionType, typeOK := rowString(row, "action_type")
+		resourceID, resourceOK := rowString(row, "resource_id")
+		actionKey, keyOK := rowString(row, "idempotency_key")
+		requestHash, requestOK := rowString(row, "request_sha256")
+		status, statusOK := rowString(row, "status")
+		if !idOK || !typeOK || !resourceOK || !keyOK || !requestOK || !statusOK {
+			return ExternalActionResult{}, ErrUnavailable
+		}
+		if actionType != command.Type || actionKey != command.ActionKey {
+			return ExternalActionResult{}, ErrConflict
+		}
+		current := resourceID == binding.resourceKeyHMAC && requestHash == binding.requestHMAC
+		legacy := resourceID == command.ResourceID && requestHash == binding.legacyRequestSHA256
+		if !current && !legacy {
+			return ExternalActionResult{}, ErrConflict
+		}
+		return ExternalActionResult{ID: id, State: status}, nil
+	}
+	return ExternalActionResult{}, ErrNotFound
 }
 
 func externalActionResult(results []rqlite.Result) (ExternalActionResult, error) {
