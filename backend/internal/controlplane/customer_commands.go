@@ -60,18 +60,19 @@ type RedeemTrialCommand struct {
 }
 
 type customerMutation struct {
-	commandType  string
-	login        string
-	idempotency  string
-	days         int
-	expiresAt    int64
-	status       string
-	allowCreate  bool
-	requireNew   bool
-	resetDevices bool
-	tombstone    bool
-	trialAnchor  string
-	trialDevice  string
+	commandType   string
+	login         string
+	idempotency   string
+	days          int
+	expiresAt     int64
+	status        string
+	allowCreate   bool
+	requireNew    bool
+	resetDevices  bool
+	tombstone     bool
+	trialAnchor   string
+	trialDevice   string
+	trialIdentity *trialMutationIdentity
 }
 
 type storedCustomerResponse struct {
@@ -192,6 +193,12 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 	targets, err := s.customerMutationTargets(ctx, next, operationID, mutation.tombstone)
 	if err != nil {
 		return Customer{}, err
+	}
+	if mutation.trialAnchor != "" {
+		mutation.trialIdentity, err = s.trialIdentityForMutation(ctx, mutation.trialAnchor, mutation.trialDevice)
+		if err != nil {
+			return Customer{}, err
+		}
 	}
 	statements, err := s.customerMutationStatements(scope, canonical, mutation, requestHash, current, next, exists, operationID, targets, access, now)
 	if err != nil {
@@ -338,12 +345,18 @@ func (s *Service) customerMutationStatements(
 	now int64,
 ) ([]rqlite.Statement, error) {
 	loginHMAC := s.store.secrets.LookupHMAC("customer-login", []byte(canonical))
-	statements := []rqlite.Statement{{
+	claim := rqlite.Statement{
 		SQL: `INSERT OR IGNORE INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,
 resource_id,decision,operation_id,status,created_at_unix)
-VALUES(?,?,?,?,?,?,?,'applying',?)`,
+SELECT ?,?,?,?,?,?,?,'applying',?`,
 		Args: []any{scope, mutation.commandType, mutation.idempotency, requestHash, next.ID, next.Status, operationID, now},
-	}}
+	}
+	if mutation.trialIdentity != nil {
+		eligible, args := mutation.trialIdentity.eligibility()
+		claim.SQL += " WHERE " + eligible
+		claim.Args = append(claim.Args, args...)
+	}
+	statements := []rqlite.Statement{claim}
 	guard := `EXISTS (SELECT 1 FROM idempotency_requests WHERE scope=? AND command_type=?
 AND idempotency_key=? AND request_hash=? AND status='applying')`
 	guardArgs := []any{scope, mutation.commandType, mutation.idempotency, requestHash}
@@ -381,13 +394,26 @@ SELECT ?,?,?,?,?,?,?,? WHERE ` + guard,
 		if err != nil {
 			return nil, errors.New("controlplane: generate trial redemption")
 		}
-		anchorHMAC := s.store.secrets.LookupHMAC("trial-anchor", []byte(mutation.trialAnchor))
-		deviceHMAC := s.store.secrets.LookupHMAC("trial-device", []byte(mutation.trialDevice))
+		if mutation.trialIdentity == nil {
+			return nil, ErrUnavailable
+		}
+		identity := mutation.trialIdentity
+		deviceHMAC := identity.deviceHMAC
+		if deviceHMAC == "" {
+			// A missing DRM identity must not put all clients into one bucket.
+			deviceHMAC = identity.anchorHMAC
+		}
 		statements = append(statements, rqlite.Statement{
 			SQL: `INSERT INTO trial_redemptions(redemption_id,customer_id,trial_code_hmac,device_key_hmac,redeemed_at_unix,duration_days)
-SELECT ?,?,?,?,?,? WHERE ` + guard + ` AND NOT EXISTS
-(SELECT 1 FROM trial_redemptions WHERE trial_code_hmac=? OR device_key_hmac=?)`,
-			Args: append([]any{redemptionID, next.ID, anchorHMAC, deviceHMAC, now, mutation.days}, append(guardArgs, anchorHMAC, deviceHMAC)...),
+SELECT ?,?,?,?,?,? WHERE ` + guard,
+			Args: append([]any{redemptionID, next.ID, identity.anchorHMAC, deviceHMAC, now, mutation.days}, guardArgs...),
+		}, rqlite.Statement{
+			// The status CHECK aborts the whole transaction if a claimed trial
+			// did not insert exactly one redemption (including RAISE(IGNORE)).
+			SQL: `UPDATE idempotency_requests SET status='trial-redemption-rejected'
+WHERE scope=? AND command_type=? AND idempotency_key=? AND request_hash=?
+AND status='applying' AND changes()<>1`,
+			Args: guardArgs,
 		})
 	}
 	if mutation.resetDevices {
