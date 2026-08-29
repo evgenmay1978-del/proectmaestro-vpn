@@ -587,3 +587,24 @@ A third exact-SHA commit/push and all three GitHub workflow results are still
 required before this CI correction is accepted. Findings 2, 4, 5, 6, 9 and
 10 remain open. OLCRTC findings 3/11 and WDTT remain frozen; Android/TV
 version 1.0.157 and production/server state remain unchanged.
+
+## Third exact-SHA CI result: accepted
+
+Date: 2026-08-29
+Source SHA: `55961f4d1b9b5f7d5c1e4ad23850038d836b7f9d`
+
+The local and remote branch SHA matched exactly after push. All required
+workflows completed successfully on that source SHA:
+
+- HA control-plane run `33247164525`: GREEN;
+- HA DR restore drill run `33247164516`: GREEN;
+- Yandex isolated release run `33247272977`: GREEN.
+
+The seal-only push touched `ops/ha/test-dr-workflow-policy.py`, which is not in
+the Yandex workflow's push path filter. The enabled `workflow_dispatch` entry
+was therefore used once against the same branch head; the resulting run
+reported the exact source SHA above.
+
+The reviewed workflow-seal CI correction is accepted. No production, server,
+release, OTA, OLCRTC or WDTT mutation occurred. Findings 2, 4, 5, 6, 9 and 10
+remain the open Task 8 review set pending fresh owner verification.
