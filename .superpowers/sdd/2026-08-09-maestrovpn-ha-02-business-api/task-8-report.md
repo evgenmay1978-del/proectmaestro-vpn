@@ -700,3 +700,23 @@ Fresh root verification passed:
 - `gofmt -d` empty and exact six-file `git diff --check` clean.
 
 Independent re-review returned Spec PASS and Quality APPROVED with no findings.
+
+The pending acceptance gates are now satisfied by the exact-SHA result below.
+
+## Finding 4 exact-SHA CI result: accepted
+
+Date: 2026-08-29
+Source SHA: `d31151ea0186d2f1cc3fc5d26a8edfdf7d110994`
+
+The local branch and remote `codex/yandex-cdn-whitelist-task3-sync` both
+resolved to the exact source SHA above after push. All three push-triggered
+workflows completed successfully against that SHA:
+
+- HA control-plane checks run `33253519738`: GREEN;
+- HA DR restore drill run `33253519741`: GREEN;
+- Yandex CDN isolated release checks run `33253519743`: GREEN.
+
+Finding 4 is accepted with real-adapter local evidence, independent Spec PASS /
+Quality APPROVED review and exact-SHA GitHub CI. Findings 5, 6, 9 and 10 remain
+open. OLCRTC findings 3/11 and WDTT remain frozen. Android/TV 1.0.157 and all
+production/server/release/OTA state remain unchanged.
