@@ -12,13 +12,12 @@
   использовать этот checkpoint. Исторические evidence snapshots не являются
   разрешением на обращение к прежнему узлу.
 
-## 0. HA PLAN 02 TASK 8 — FINDING 6 LOCAL CLOSURE (29.08.2026)
+## 0. HA PLAN 02 TASK 8 — FINDING 6 ACCEPTED EXACT-SHA (29.08.2026)
 
 - Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
-  Проверенный local/remote checkpoint до pending F6 commit —
-  `57603ac69c52ef9871f2d9c54536fc9c301969c2`. Точный F6 code SHA должен быть
-  записан только после exact allowlist commit и проверки remote equality.
-- Finding 6 локально закрыт: legacy Android/TV `1.0.157` `/order` принимает
+  Принятый F6 code SHA — `4a6f3a9c87e424c433821162dcd992b47d888bdc`;
+  local и remote refs byte-exact совпадают.
+- Finding 6 принят: legacy Android/TV `1.0.157` `/order` принимает
   `sub_token`/`login`, известные active/expired identity продлеваются, unknown
   identity сохраняет first-time fallback, token имеет приоритет над login.
   `suspended` намеренно является admin-ban: HTTP 403 до любых мутаций.
@@ -36,10 +35,16 @@
   Root повторно проверил пять критических binding/race тестов: GREEN `37.087s`.
   Реальный SQLite gate доказал, что исчезновение customer перед keyless Request
   даёт non-200, одну write-попытку и byte-exact нулевую durable mutation.
-- Findings 2/4/7/8/12/13/14/15 приняты ранее. Finding 6 станет принятым только
-  после commit/push, local=remote и трёх GREEN exact-SHA workflows. Открытый
-  nonfrozen порядок после этого: **F10 -> F5 -> F9**. Findings 3/11 (OLCRTC) и
-  WDTT заморожены по указанию владельца.
+- Перед exact-SHA gate исправлены только старые HA/rqlite fixtures: они теперь
+  создают sealed subscription token и четыре canonical credentials
+  (`anytls`, `hysteria2`, `naive`, `vless`) с корректными scopes/AAD/HMAC.
+  Production `ConfirmPayment` остаётся fail-closed и не генерирует access.
+- Три exact-SHA workflow на `4a6f3a9c87e424c433821162dcd992b47d888bdc`
+  GREEN: HA control-plane `33267058716`, HA DR restore `33267058720`,
+  Yandex isolated release `33267058711`.
+- Findings 2/4/6/7/8/12/13/14/15 приняты. Открытый nonfrozen порядок:
+  **F10 -> F5 -> F9**. Findings 3/11 (OLCRTC) и WDTT заморожены по указанию
+  владельца.
 - Production остаётся **NO-GO**; Android/TV baseline **1.0.157** неизменяем.
   S1-S4, CDN/DNS/TLS, боты, реальные оплаты, deploy, release/signing и OTA
   этим repository-only этапом не изменялись. Защищённые owner-файлы

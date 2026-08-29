@@ -783,9 +783,19 @@ Final local verification is GREEN:
 - independent Quality review: APPROVED after its proposed race blocker was
   disproved by the real SQLite gate and transaction-local `changes()>0` proof.
 
-This is a local closure only. Finding 6 is not accepted until the exact
-allowlist commit is pushed, local and remote SHAs match, and HA control-plane,
-HA DR restore and Yandex isolated release workflows are all GREEN on that same
-code SHA. Findings 5, 9 and 10 remain open; the safe nonfrozen order is
+Finding 6 is accepted on exact code SHA
+`4a6f3a9c87e424c433821162dcd992b47d888bdc`; local and remote refs match.
+The pre-gate correction was fixture-only: legacy HA/rqlite tests now seed one
+sealed subscription token and the four canonical protocol credentials
+(`anytls`, `hysteria2`, `naive`, `vless`) with correct scopes, AAD and HMAC.
+Production `ConfirmPayment` remains fail-closed and never invents access.
+
+Exact-SHA GitHub evidence is GREEN:
+
+- HA control-plane run `33267058716`;
+- HA DR restore run `33267058720`;
+- Yandex isolated release run `33267058711`.
+
+Findings 5, 9 and 10 remain open; the safe nonfrozen order is
 F10 -> F5 -> F9. Findings 3/11 (OLCRTC) and WDTT remain frozen. No production,
 server, release, OTA, bot, payment or Android/TV 1.0.157 mutation occurred.

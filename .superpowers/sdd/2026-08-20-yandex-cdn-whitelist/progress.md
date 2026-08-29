@@ -14,4 +14,4 @@ Task 5: fix round 1/5 (3 addressed, 0 open; commits 588cbce..d7aba2c)
 Task 5: complete (commits bb146a0..d7aba2c, review clean)
 Task 6: fix round 1/5 (2 Important addressed, 0 open; commit cf5014a)
 Task 6: complete (commits bbb22b8..cf5014a, review clean)
-HA Plan 02 Task 8 review: findings 2/4/7/8/12/13/14/15 accepted; finding 6 local GREEN and independently APPROVED, pending exact allowlist commit/push and three exact-SHA workflows; remaining nonfrozen order F10 -> F5 -> F9; OLCRTC 3/11 and WDTT frozen; production NO-GO.
+HA Plan 02 Task 8 review: findings 2/4/6/7/8/12/13/14/15 accepted; F6 exact SHA 4a6f3a9c87e424c433821162dcd992b47d888bdc with GREEN runs 33267058716/33267058720/33267058711; remaining nonfrozen order F10 -> F5 -> F9; OLCRTC 3/11 and WDTT frozen; production NO-GO.
