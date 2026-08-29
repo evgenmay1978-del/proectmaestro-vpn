@@ -182,6 +182,39 @@ func TestTask8ExistingMutationsKeepAbsoluteAccessSQLite(t *testing.T) {
 	}
 }
 
+func TestTask8ConcurrentSameIdempotencyReturnsCommittedAccessSQLite(t *testing.T) {
+	db, service := newCustomerIntegritySQLite(t)
+	ctx := context.Background()
+	command := ProvisionCustomerCommand{Login: "Concurrent", Days: 30, IdempotencyKey: "same-command"}
+	var winner Customer
+	var winnerState []rqlite.Result
+	db.beforeRequest = func() {
+		var err error
+		winner, err = service.ProvisionCustomer(ctx, command)
+		if err != nil {
+			t.Fatalf("concurrent winner: %v", err)
+		}
+		winnerState = db.snapshot(t)
+	}
+	candidate, err := service.ProvisionCustomer(ctx, command)
+	if err != nil {
+		t.Fatalf("concurrent replay: %v", err)
+	}
+	if winner.ID == "" || candidate.ID != winner.ID {
+		t.Fatal("concurrent replay did not resolve the committed customer")
+	}
+	if !reflect.DeepEqual(candidate, winner) {
+		t.Error("concurrent replay returned uncommitted access")
+	}
+	if !reflect.DeepEqual(winnerState, db.snapshot(t)) {
+		t.Error("concurrent replay changed durable state")
+	}
+	replayed, err := service.ProvisionCustomer(ctx, command)
+	if err != nil || !reflect.DeepEqual(replayed, winner) {
+		t.Error("later replay differs from the committed response")
+	}
+}
+
 func assertIntegrityDesired(t *testing.T, db *customerIntegritySQLite, service *Service, customer Customer, status string, expires, generation int64, tombstone bool) {
 	t.Helper()
 	results := db.must(t,

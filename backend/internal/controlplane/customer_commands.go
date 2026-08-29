@@ -209,8 +209,13 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 		return Customer{}, ErrUnavailable
 	}
 	result, err := customerMutationResponse(results, requestHash)
-	if err == nil {
+	if err != nil {
+		return result, err
+	}
+	if result.ID == next.ID {
 		result.Access = next.Access
+	} else {
+		result.Access, err = s.customerAccess(ctx, result.ID)
 	}
 	return result, err
 }
@@ -358,8 +363,16 @@ SELECT ?,?,?,?,?,?,?,'applying',?`,
 	}
 	statements := []rqlite.Statement{claim}
 	guard := `EXISTS (SELECT 1 FROM idempotency_requests WHERE scope=? AND command_type=?
-AND idempotency_key=? AND request_hash=? AND status='applying')`
-	guardArgs := []any{scope, mutation.commandType, mutation.idempotency, requestHash}
+AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying')`
+	guardArgs := []any{scope, mutation.commandType, mutation.idempotency, requestHash, operationID}
+	customerWriteAssertion := rqlite.Statement{
+		// The status CHECK aborts the whole transaction when this operation owns
+		// the claim but its optimistic customer write changed anything except one row.
+		SQL: `UPDATE idempotency_requests SET status='customer-mutation-rejected'
+WHERE scope=? AND command_type=? AND idempotency_key=? AND request_hash=?
+AND operation_id=? AND status='applying' AND changes()<>1`,
+		Args: guardArgs,
+	}
 	if exists {
 		var sql string
 		var args []any
@@ -381,12 +394,14 @@ WHERE customer_id=? AND generation=? AND `
 			SQL:  sql + guard,
 			Args: append(args, guardArgs...),
 		})
+		statements = append(statements, customerWriteAssertion)
 	} else {
 		statements = append(statements, rqlite.Statement{
 			SQL: `INSERT INTO customers(customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
 SELECT ?,?,?,?,?,?,?,? WHERE ` + guard,
 			Args: append([]any{next.ID, mutation.login, loginHMAC, next.Status, next.ExpiresAtUnix, next.Generation, now, now}, guardArgs...),
 		})
+		statements = append(statements, customerWriteAssertion)
 		statements = append(statements, access.statements(next, now, guard, guardArgs, s.store.secrets)...)
 	}
 	if mutation.trialAnchor != "" {
@@ -412,7 +427,7 @@ SELECT ?,?,?,?,?,? WHERE ` + guard,
 			// did not insert exactly one redemption (including RAISE(IGNORE)).
 			SQL: `UPDATE idempotency_requests SET status='trial-redemption-rejected'
 WHERE scope=? AND command_type=? AND idempotency_key=? AND request_hash=?
-AND status='applying' AND changes()<>1`,
+AND operation_id=? AND status='applying' AND changes()<>1`,
 			Args: guardArgs,
 		})
 	}
@@ -449,12 +464,12 @@ SELECT ?,'customer',?,?,?, ?,?,'pending',?,0,? WHERE ` + guard + ` AND EXISTS
 	}
 	statements = append(statements,
 		rqlite.Statement{SQL: `UPDATE idempotency_requests SET status='applied',response_json=?,applied_at_unix=?
-WHERE scope=? AND command_type=? AND idempotency_key=? AND request_hash=? AND status='applying'
+WHERE scope=? AND command_type=? AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying'
 AND EXISTS (SELECT 1 FROM customers WHERE customer_id=? AND generation=?)`, Args: []any{
-			string(responseBytes), now, scope, mutation.commandType, mutation.idempotency, requestHash, next.ID, next.Generation,
+			string(responseBytes), now, scope, mutation.commandType, mutation.idempotency, requestHash, operationID, next.ID, next.Generation,
 		}},
 		rqlite.Statement{SQL: `DELETE FROM idempotency_requests WHERE scope=? AND command_type=? AND idempotency_key=?
-AND request_hash=? AND status='applying'`, Args: guardArgs},
+AND request_hash=? AND operation_id=? AND status='applying'`, Args: guardArgs},
 		rqlite.Statement{SQL: `SELECT request_hash,status,response_json FROM idempotency_requests
 WHERE scope=? AND command_type=? AND idempotency_key=?`, Args: []any{scope, mutation.commandType, mutation.idempotency}},
 	)

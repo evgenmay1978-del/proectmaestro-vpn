@@ -299,6 +299,25 @@ func (s *Service) BusinessSubscriptionDocument(ctx context.Context, rawToken str
 }
 
 func (s *Service) ReconcileBusinessService(ctx context.Context, serviceName string) (int, error) {
+	return s.reconcileBusinessService(ctx, serviceName, nil)
+}
+
+func (s *Service) ReconcileBusinessServiceForCustomerIDs(ctx context.Context, serviceName string, customerIDs []string) (int, error) {
+	if len(customerIDs) == 0 {
+		return 0, errors.New("controlplane: missing reconcile customers")
+	}
+	ids := make([]string, 0, len(customerIDs))
+	for _, customerID := range customerIDs {
+		customerID = strings.TrimSpace(customerID)
+		if customerID == "" {
+			return 0, errors.New("controlplane: invalid reconcile customer")
+		}
+		ids = append(ids, customerID)
+	}
+	return s.reconcileBusinessService(ctx, serviceName, ids)
+}
+
+func (s *Service) reconcileBusinessService(ctx context.Context, serviceName string, customerIDs []string) (int, error) {
 	serviceName = strings.TrimSpace(serviceName)
 	if serviceName == "" {
 		return 0, errors.New("controlplane: invalid service")
@@ -316,8 +335,16 @@ ORDER BY node_id`, Args: []any{serviceName}})
 		if !ok {
 			return 0, ErrUnavailable
 		}
-		if _, err := s.ReconcileNode(ctx, ReconcileNodeCommand{NodeID: nodeID, ServiceName: serviceName}); err != nil {
-			return count, err
+		if len(customerIDs) == 0 {
+			if _, err := s.ReconcileNode(ctx, ReconcileNodeCommand{NodeID: nodeID, ServiceName: serviceName}); err != nil {
+				return count, err
+			}
+		} else {
+			for _, customerID := range customerIDs {
+				if _, err := s.ReconcileNode(ctx, ReconcileNodeCommand{NodeID: nodeID, ServiceName: serviceName, CustomerID: customerID}); err != nil {
+					return count, err
+				}
+			}
 		}
 		count++
 	}

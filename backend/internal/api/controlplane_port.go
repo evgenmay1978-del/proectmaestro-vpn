@@ -257,6 +257,7 @@ type ResetDevicesCommand struct {
 
 type ReconcileServicesCommand struct {
 	Login          string
+	Logins         []string
 	Service        string
 	IdempotencyKey string
 }
@@ -391,9 +392,7 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 		mux.HandleFunc("/update/", s.handleControlPlaneOTA)
 	}
 	if s.cfg.ReportDir != "" {
-		mux.HandleFunc("/report", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNoContent)
-		})
+		mux.HandleFunc("/report", s.handleControlPlaneReport)
 	}
 
 	if s.cfg.AdminToken != "" {
@@ -405,7 +404,7 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 		mux.HandleFunc("/admin/customer", s.controlPlaneAdmin(s.handleControlPlaneCustomer))
 		mux.HandleFunc("/admin/backfill-anytls", s.controlPlaneAdmin(s.controlPlaneReconcile("anytls")))
 		mux.HandleFunc("/admin/backfill-s3", s.controlPlaneAdmin(s.controlPlaneReconcile("s3")))
-		mux.HandleFunc("/admin/backfill-s4", s.controlPlaneAdmin(s.controlPlaneReconcile("s4")))
+		mux.HandleFunc("/admin/backfill-s4", s.controlPlaneAdmin(s.handleControlPlaneBackfillS4))
 		mux.HandleFunc("/admin/bulk-import", s.controlPlaneAdmin(s.handleControlPlaneBulkImport))
 		mux.HandleFunc("/admin/migrate-anytls-s2", s.controlPlaneAdmin(s.handleControlPlaneMigrate))
 		mux.HandleFunc("/admin/order/confirm", s.controlPlaneAdmin(s.handleControlPlaneConfirmOrder))

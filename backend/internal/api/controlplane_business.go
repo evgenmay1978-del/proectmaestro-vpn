@@ -467,10 +467,25 @@ func (b *ServiceBusiness) ReconcileServices(ctx context.Context, command Reconci
 	if err := b.available(); err != nil {
 		return OperationView{}, err
 	}
-	if _, err := b.service.BusinessCustomerByLogin(ctx, command.Login); err != nil {
-		return OperationView{}, businessError(err)
+	logins := append([]string(nil), command.Logins...)
+	if strings.TrimSpace(command.Login) != "" {
+		logins = append(logins, command.Login)
 	}
-	count, err := b.service.ReconcileBusinessService(ctx, command.Service)
+	customerIDs := make([]string, 0, len(logins))
+	for _, login := range logins {
+		customer, err := b.service.BusinessCustomerByLogin(ctx, login)
+		if err != nil {
+			return OperationView{}, businessError(err)
+		}
+		customerIDs = append(customerIDs, customer.ID)
+	}
+	var count int
+	var err error
+	if len(customerIDs) == 0 {
+		count, err = b.service.ReconcileBusinessService(ctx, command.Service)
+	} else {
+		count, err = b.service.ReconcileBusinessServiceForCustomerIDs(ctx, command.Service, customerIDs)
+	}
 	if err != nil {
 		return OperationView{}, businessError(err)
 	}
@@ -711,7 +726,11 @@ func (b *ServiceBusiness) MigrateServiceEndpoint(ctx context.Context, command Mi
 	if strings.TrimSpace(command.IdempotencyKey) == "" {
 		return OperationView{}, businessError(controlplane.ErrForbidden)
 	}
-	count, err := b.service.MigrateBusinessServiceEndpointIdempotent(ctx, command.Service, command.Endpoint, "panel", command.IdempotencyKey)
+	endpoint := strings.TrimSpace(command.Endpoint)
+	if endpoint == "" && command.Service == "anytls" && b.cfg.SubscriptionTopology.AnyTLS != nil {
+		endpoint = strings.TrimSpace(b.cfg.SubscriptionTopology.AnyTLS.Server)
+	}
+	count, err := b.service.MigrateBusinessServiceEndpointIdempotent(ctx, command.Service, endpoint, "panel", command.IdempotencyKey)
 	if err != nil {
 		return OperationView{}, businessError(err)
 	}

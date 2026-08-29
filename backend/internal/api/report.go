@@ -37,6 +37,14 @@ var reportMu sync.Mutex
 // append-only as one JSON object per line in a per-day file. Best-effort: a storage
 // error still returns 204 so a device never loops retrying a report it can't deliver.
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	handleCompatibilityReport(s.cfg.ReportDir, w, r)
+}
+
+func (s *ControlPlaneServer) handleControlPlaneReport(w http.ResponseWriter, r *http.Request) {
+	handleCompatibilityReport(s.cfg.ReportDir, w, r)
+}
+
+func handleCompatibilityReport(reportDir string, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -69,9 +77,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reportMu.Lock()
-	if mkErr := os.MkdirAll(s.cfg.ReportDir, 0o755); mkErr == nil {
+	if mkErr := os.MkdirAll(reportDir, 0o755); mkErr == nil {
 		day := time.Now().UTC().Format("2006-01-02")
-		path := filepath.Join(s.cfg.ReportDir, "reports-"+day+".jsonl")
+		path := filepath.Join(reportDir, "reports-"+day+".jsonl")
 		if f, oErr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); oErr == nil {
 			_, _ = f.Write(append(line, '\n'))
 			_ = f.Close()

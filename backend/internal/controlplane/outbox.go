@@ -17,15 +17,15 @@ const nodeLeaseTTLSeconds int64 = 90
 // DesiredState is one absolute encrypted service target. A generation is
 // immutable: retries may repeat its hash, but may never replace it.
 type DesiredState struct {
-	CustomerID   string
-	NodeID       string
-	ServiceName  string
-	OperationID  string
-	EventKind    string
-	Generation   int64
-	Payload      Envelope
+	CustomerID    string
+	NodeID        string
+	ServiceName   string
+	OperationID   string
+	EventKind     string
+	Generation    int64
+	Payload       Envelope
 	PayloadSHA256 string
-	Tombstone    bool
+	Tombstone     bool
 }
 
 type LeaseRequest struct {
@@ -62,6 +62,7 @@ type ApplyReceipt struct {
 type ReconcileNodeCommand struct {
 	NodeID      string
 	ServiceName string
+	CustomerID  string
 }
 
 type TombstonePurgeCommand struct {
@@ -348,6 +349,7 @@ func (s *Service) ReconcileNode(ctx context.Context, command ReconcileNodeComman
 		strings.TrimSpace(command.ServiceName) == "" {
 		return 0, errors.New("controlplane: invalid reconcile command")
 	}
+	customerID := strings.TrimSpace(command.CustomerID)
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `
 INSERT INTO outbox_events(
 event_id,aggregate_type,aggregate_id,generation,event_type,payload_envelope,payload_sha256,
@@ -359,12 +361,13 @@ SELECT 'reconcile:'||d.operation_id||':'||d.node_id||':'||d.service_name||':'||d
 FROM desired_node_state d
 JOIN node_services ns ON ns.node_id=d.node_id AND ns.service_name=d.service_name
 WHERE d.node_id=? AND d.service_name=? AND d.operation_id IS NOT NULL
+  AND (?='' OR d.customer_id=?)
   AND ns.desired_target=1 AND ns.retired=0
   AND NOT EXISTS(SELECT 1 FROM outbox_events o
       WHERE o.operation_id=d.operation_id AND o.node_id=d.node_id
         AND o.service_name=d.service_name AND o.generation=d.generation
         AND o.event_kind='customer_desired')
-ON CONFLICT DO NOTHING`, Args: []any{command.NodeID, command.ServiceName}})
+ON CONFLICT DO NOTHING`, Args: []any{command.NodeID, command.ServiceName, customerID, customerID}})
 	if err != nil || len(results) != 1 {
 		return 0, errors.New("controlplane: reconcile unavailable")
 	}

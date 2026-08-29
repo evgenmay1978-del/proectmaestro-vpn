@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -231,12 +233,27 @@ func (s *ControlPlaneServer) handleControlPlaneOTA(w http.ResponseWriter, r *htt
 	if !requireControlPlaneMethod(w, r, http.MethodGet) {
 		return
 	}
-	manifest, err := s.business.ApprovedOTA(r.Context())
-	if err != nil {
-		writeControlPlaneBusinessError(w, err)
+	name := strings.TrimPrefix(r.URL.Path, "/update/")
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		s.controlPlaneNotFound(w, r)
 		return
 	}
-	writeControlPlaneJSON(w, http.StatusOK, manifest)
+	if name == "update.json" {
+		manifest, err := s.business.ApprovedOTA(r.Context())
+		if err != nil {
+			writeControlPlaneBusinessError(w, err)
+			return
+		}
+		writeControlPlaneJSON(w, http.StatusOK, manifest)
+		return
+	}
+	if !strings.HasSuffix(name, ".apk") {
+		s.controlPlaneNotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, filepath.Join(s.cfg.UpdateDir, name))
 }
 
 func (s *ControlPlaneServer) handleControlPlaneProvision(w http.ResponseWriter, r *http.Request) {
@@ -311,14 +328,12 @@ func (s *ControlPlaneServer) handleControlPlaneCustomer(w http.ResponseWriter, r
 
 func (s *ControlPlaneServer) controlPlaneReconcile(service string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var request struct {
-			Login string `json:"login"`
-		}
-		if !decodeControlPlaneMutation(w, r, &request) {
+		var request struct{}
+		if !decodeControlPlaneCompatibilityMutation(w, r, &request) {
 			return
 		}
 		view, err := s.business.ReconcileServices(r.Context(), ReconcileServicesCommand{
-			Login: request.Login, Service: service, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+			Service: service, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		})
 		if err != nil {
 			writeControlPlaneBusinessError(w, err)
@@ -328,11 +343,29 @@ func (s *ControlPlaneServer) controlPlaneReconcile(service string) http.HandlerF
 	}
 }
 
+func (s *ControlPlaneServer) handleControlPlaneBackfillS4(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Logins []string `json:"logins"`
+	}
+	if !decodeControlPlaneCompatibilityMutation(w, r, &request) {
+		return
+	}
+	view, err := s.business.ReconcileServices(r.Context(), ReconcileServicesCommand{
+		Logins: append([]string(nil), request.Logins...), Service: "s4",
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+	})
+	if err != nil {
+		writeControlPlaneBusinessError(w, err)
+		return
+	}
+	writeControlPlaneJSON(w, http.StatusOK, view)
+}
+
 func (s *ControlPlaneServer) handleControlPlaneMigrate(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Endpoint string `json:"endpoint"`
 	}
-	if !decodeControlPlaneMutation(w, r, &request) {
+	if !decodeControlPlaneCompatibilityMutation(w, r, &request) {
 		return
 	}
 	view, err := s.business.MigrateServiceEndpoint(r.Context(), MigrateEndpointCommand{
@@ -343,6 +376,29 @@ func (s *ControlPlaneServer) handleControlPlaneMigrate(w http.ResponseWriter, r 
 		return
 	}
 	writeControlPlaneJSON(w, http.StatusOK, view)
+}
+
+func decodeControlPlaneCompatibilityMutation(w http.ResponseWriter, r *http.Request, target any) bool {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeControlPlaneJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return false
+	}
+	if strings.TrimSpace(r.Header.Get("Idempotency-Key")) == "" {
+		writeControlPlaneJSON(w, http.StatusPreconditionRequired, map[string]string{"error": "Idempotency-Key required"})
+		return false
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil && err != io.EOF {
+		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return false
+	}
+	return true
 }
 
 func (s *ControlPlaneServer) handleControlPlaneConfirmOrder(w http.ResponseWriter, r *http.Request) {

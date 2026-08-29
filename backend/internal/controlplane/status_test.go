@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
 func TestCustomerStateCommandsAreCanonicalAndDeleteIsLogical(t *testing.T) {
@@ -32,7 +30,6 @@ func TestCustomerStateCommandsAreCanonicalAndDeleteIsLogical(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := canonicalMutationDB(true)
-			db.requestFn = func(_ []rqlite.Statement) ([]rqlite.Result, error) { return canonicalCustomerResult(nil) }
 			service, _ := testService(t, db)
 			if err := test.call(context.Background(), service); err != nil {
 				t.Fatalf("command: %v", err)

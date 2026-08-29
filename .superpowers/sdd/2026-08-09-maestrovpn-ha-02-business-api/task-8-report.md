@@ -343,3 +343,183 @@ All exited 0; gofmt printed no file paths and both whitespace checks printed no 
 - A report-only apply preflight caught an extra EOF newline introduced by the initial full-file mirror serialization. Canonical report content was unchanged; exact EOF mirrors regenerated the contextual patch. No context or whitespace check was bypassed.
 - No push, production/server action, release/OTA change, secrets output, real-customer output or external write occurred.
 - Ordinary API/controlplane/subgen/panel packages are GREEN at code SHA `e41858c8016f8bf9eebd7023fb7d54598a28f219`. Independent review and any exact-SHA GitHub heavy/race/real-rqlite/Android gates remain with the root agent. This evidence closes the bounded local implementation for finding 2, not other findings or the broader production NO-GO.
+
+## Review round 1, findings 12–14: OTA, backfill bodies and compatibility reports
+
+Date: 2026-08-29
+Scope: findings 12, 13 and 14 only. OLCRTC and WDTT were explicitly excluded and were not changed.
+Base HEAD: `66d041dbda95dacc00c2ff880948f65b2ae1c4b1`
+State at handoff: local changes intentionally unstaged and uncommitted; no push, deploy or production action.
+
+### Root causes and minimal compatibility fixes
+
+- **Finding 12 — APK delivery:** the HA catch-all `/update/` handler called `ApprovedOTA` for every path, so the manifest's `/update/<version>.apk` URL returned manifest JSON. The adapter now keeps `/update/update.json` on the canonical approval read, but serves only traversal-safe bare `.apk` filenames from the already-configured `UpdateDir` using `http.ServeFile`. This restores byte delivery, Range/resume, `application/vnd.android.package-archive`, one-day APK cache and the frozen path checks.
+- **Finding 13 — body compatibility:** AnyTLS/S3 backfill and AnyTLS migration now accept the frozen empty body; S4 accepts an empty body or the frozen optional `{"logins":[...]}` canary object. A dedicated decoder retains POST and `Idempotency-Key` requirements for authenticated HA writes, the 1 MiB bound, unknown-field rejection, malformed JSON rejection and exactly one JSON document. S4 logins are carried intact in `ReconcileServicesCommand.Logins`; the real adapter validates supplied canonical logins. Empty migration bodies resolve the current configured AnyTLS server from the frozen subscription environment topology instead of requiring a new request field.
+- **Finding 14 — report persistence:** the HA route no longer returns unconditional 204. Both legacy and HA adapters call the same frozen report implementation: POST only, 64 KiB bounded JSON, field sanitization/clipping, server timestamp, serialized append and a fixed per-day `reports-YYYY-MM-DD.jsonl` path under `ReportDir`. Storage remains best-effort 204 as required.
+- No credential, customer, generator, OLCRTC, WDTT, release, OTA publication or external state was accessed or mutated. Tests use synthetic APK/report bytes and Go-owned temporary directories only.
+
+### Exact owned source boundary
+
+- `backend/internal/api/controlplane_port.go`
+- `backend/internal/api/controlplane_public_admin.go`
+- `backend/internal/api/controlplane_business.go`
+- `backend/internal/api/report.go`
+- `backend/internal/api/controlplane_compatibility_contract_test.go`
+
+Existing protected and unrelated dirt was preserved. The staging area remained empty throughout this bounded work.
+
+### Behavioral RED
+
+Working directory: canonical repository `backend`. Portable Go 1.25.0; ordinary focused test only.
+
+```powershell
+$env:GOMAXPROCS = "2"
+$env:GOTOOLCHAIN = "local"
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./internal/api -run "TestControlPlane(OTAUsesFrozenAPKByteRangeAndPathContract|BackfillAndMigrationPreserveFrozenBodies|ReportValidatesAndPersistsUnderReportDir)$" -count=1
+```
+
+The exact corrected frozen-login fixture produced this expected exit 1 before production edits:
+
+```text
+--- FAIL: TestControlPlaneOTAUsesFrozenAPKByteRangeAndPathContract (0.01s)
+    controlplane_compatibility_contract_test.go:44: APK range status=200 body="{\"version\":\"1.0.157\",\"url\":\"/update/1.0.157.apk\",\"sha256\":\"fixture-sha\"}\n"
+--- FAIL: TestControlPlaneBackfillAndMigrationPreserveFrozenBodies (0.01s)
+    --- FAIL: TestControlPlaneBackfillAndMigrationPreserveFrozenBodies/anytls_empty (0.00s)
+        controlplane_compatibility_contract_test.go:86: status=400 body="{\"error\":\"invalid json\"}\n"
+    --- FAIL: TestControlPlaneBackfillAndMigrationPreserveFrozenBodies/s3_empty (0.00s)
+        controlplane_compatibility_contract_test.go:86: status=400 body="{\"error\":\"invalid json\"}\n"
+    --- FAIL: TestControlPlaneBackfillAndMigrationPreserveFrozenBodies/s4_empty (0.00s)
+        controlplane_compatibility_contract_test.go:86: status=400 body="{\"error\":\"invalid json\"}\n"
+    --- FAIL: TestControlPlaneBackfillAndMigrationPreserveFrozenBodies/s4_canary (0.00s)
+        controlplane_compatibility_contract_test.go:86: status=400 body="{\"error\":\"invalid json\"}\n"
+    --- FAIL: TestControlPlaneBackfillAndMigrationPreserveFrozenBodies/migration_empty (0.00s)
+        controlplane_compatibility_contract_test.go:86: status=400 body="{\"error\":\"invalid json\"}\n"
+    --- FAIL: TestControlPlaneBackfillAndMigrationPreserveFrozenBodies/anytls_unknown_field (0.00s)
+        controlplane_compatibility_contract_test.go:127: status=200 body="{\"id\":\"invalid-anytls-unknown-field\",\"state\":\"accepted\"}\n"
+--- FAIL: TestControlPlaneReportValidatesAndPersistsUnderReportDir (0.00s)
+    controlplane_compatibility_contract_test.go:148: open C:\Users\User\AppData\Local\Temp\TestControlPlaneReportValidatesAndPersistsUnderReportDir1060740004\001\reports: The system cannot find the file specified.
+FAIL
+FAIL	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api	0.086s
+FAIL
+```
+
+The RED proves all three root causes independently: APK requests returned manifest JSON/status 200, empty legacy admin bodies returned 400 (while an AnyTLS body field was wrongly accepted), and no report directory/file was created. The S4 fixture was corrected before production edits after the frozen `BackfillS4` source proved that canary logins are compared literally; no invented normalization was retained.
+
+### GREEN and affected-package verification
+
+The identical focused command exited 0:
+
+```text
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api	0.082s
+```
+
+The focused contract exercises a real HA HTTP handler and covers:
+
+- manifest URL followed by ranged APK bytes, content type/content range and traversal rejection;
+- empty AnyTLS/S3/S4/migration bodies, S4 canary logins, unknown fields, damaged JSON and trailing documents;
+- valid report persistence/sanitization/path containment, wrong method, malformed JSON, 64 KiB rejection and no append on rejected requests.
+
+Complete ordinary affected API package:
+
+```powershell
+$env:GOMAXPROCS = "2"
+$env:GOTOOLCHAIN = "local"
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./internal/api -count=1
+```
+
+```text
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api	0.782s
+```
+
+Complete ordinary panel composition package:
+
+```powershell
+$env:GOMAXPROCS = "2"
+$env:GOTOOLCHAIN = "local"
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./cmd/maestro-panel -count=1
+```
+
+```text
+ok  	github.com/evgenmay1978-del/proectmaestro-vpn/backend/cmd/maestro-panel	0.072s
+```
+
+Final exact-file hygiene:
+
+```powershell
+$owned = @(
+    'backend/internal/api/controlplane_port.go',
+    'backend/internal/api/controlplane_public_admin.go',
+    'backend/internal/api/controlplane_business.go',
+    'backend/internal/api/report.go',
+    'backend/internal/api/controlplane_compatibility_contract_test.go'
+)
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\gofmt.exe" -l @owned
+git diff --check -- @owned
+git diff --cached --name-only
+```
+
+The formatting command printed no paths, the whitespace check printed no errors, and the staging check printed no paths. Existing Git LF-to-CRLF working-copy warnings are unchanged repository configuration, not source-format failures.
+
+Per task authority, no local race, heavy, real-RQLite, Android or release/OTA suite was run. Those remain separate exact-SHA CI work after owner review and an explicit commit/push decision.
+
+## Accepted dirty-closure checkpoint: findings 7, 8, 12, 14 and 15
+
+Date: 2026-08-29
+Scope: checkpoint for independently accepted findings 7, 8, 12, 14 and 15.
+Finding 13 was provisionally accepted here, but the later combined review
+reopened it because the real adapter discarded the requested login scope.
+Findings 2, 4, 5, 6, 9 and 10 remain open; finding 10 is not accepted and was
+not changed. OLCRTC findings 3/11 and WDTT remain frozen.
+No production, server, network, release, OTA or remote mutation occurred.
+
+Fresh local verification (working directory backend, Go 1.25.0,
+GOMAXPROCS=2, GOTOOLCHAIN=local) exited 0:
+
+Commands:
+go test ./internal/controlplane -run '^TestTask8(TrialDuplicateIdentityPreservesAllStateSQLite|TrialIdentityClaimAfterReadsIsAtomicSQLite|TrialCustomerGenerationRaceRollsBackSQLite|TrialRequiresOneRedemptionSQLite|TrialWithoutDRMDoesNotShareIdentitySQLite|TrialEmptyAnchorCannotBypassRedemptionSQLite|TrialDerivesLegacyDeviceFromAnchorSQLite|TrialUnrelatedImportedIdentityRemainsEligibleSQLite|ExistingMutationsKeepAbsoluteAccessSQLite|ConcurrentSameIdempotencyReturnsCommittedAccessSQLite|ResetDevicesPreservesInactiveStatusSQLite)$' -count=1
+go test ./internal/api -run '^TestControlPlane(OTAUsesFrozenAPKByteRangeAndPathContract|BackfillAndMigrationPreserveFrozenBodies|ReportValidatesAndPersistsUnderReportDir)$' -count=1
+go test ./internal/api -count=1
+go test ./cmd/maestro-panel -count=1
+
+The API commands reported ok in 0.085s, 0.870s and the panel command
+reported ok in 0.065s; the focused real-SQL command exited 0. gofmt -l
+printed no paths after formatting only the five changed control-plane files.
+The final staged-diff whitespace and allowlist checks are recorded with the
+commit checkpoint; protected owner dirt remains unstaged.
+
+## Finding 13 corrected closure: S4 canary customer scope
+
+Date: 2026-08-29
+
+The independent combined review reopened finding 13: the HTTP adapter accepted
+`Logins`, verified that those customers existed, and then invoked the
+service-wide reconcile path. A real `ServiceBusiness` + migrations + SQLite
+test seeded Alice and Bob for S4. Before the production change, this exact test
+failed because an Alice-only canary created durable outbox rows for both Alice
+and Bob:
+
+```powershell
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./internal/controlplane -run '^TestServiceBusinessS4CanaryReconcilesOnlySelectedCustomerSQL$' -count=1
+```
+
+The canonical adapter now resolves all requested logins to customer IDs before
+any reconcile write. The scoped service method preserves the existing
+service-wide method for callers without a filter and passes each selected
+customer ID into `ReconcileNode`. The outbox insertion uses a parameterized
+`d.customer_id` predicate, so non-selected desired rows cannot be enqueued.
+
+The focused test then passed in 4.300s. Fresh package verification also exited
+0:
+
+```powershell
+& "$env:TEMP\maestro-gofmt-go1.25.0-windows-amd64\toolchain\go\bin\go.exe" test ./internal/controlplane ./internal/api -count=1
+```
+
+The control-plane package passed in 89.443s and API in 0.844s. `gofmt -l`
+printed no paths for the four scoped files, and `git diff --check` exited 0
+with only the repository's existing LF-to-CRLF warnings. Independent re-review
+returned Spec PASS and Quality APPROVED with no actionable findings.
+
+Findings 2, 4, 5, 6, 9 and 10 remain open. OLCRTC findings 3/11 and WDTT remain
+frozen. Android/TV production version 1.0.157 and all production/server state
+were unchanged.

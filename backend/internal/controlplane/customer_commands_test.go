@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -91,11 +92,21 @@ func canonicalMutationDB(existing bool) *recordingRQLite {
 	return &recordingRQLite{linear: linear, requestFn: canonicalCustomerResult}
 }
 
-func canonicalCustomerResult(_ []rqlite.Statement) ([]rqlite.Result, error) {
-	return []rqlite.Result{{Rows: []map[string]any{{
-		"customer_id": "customer_1", "display_login": "Alice", "status": "active",
-		"expires_at_unix": int64(3_000_000), "generation": int64(2),
-	}}}}, nil
+func canonicalCustomerResult(statements []rqlite.Statement) ([]rqlite.Result, error) {
+	for _, statement := range statements {
+		if !strings.Contains(statement.SQL, "UPDATE idempotency_requests SET status='applied'") || len(statement.Args) < 6 {
+			continue
+		}
+		responseJSON, responseOK := statement.Args[0].(string)
+		requestHash, hashOK := statement.Args[5].(string)
+		if !responseOK || !hashOK {
+			continue
+		}
+		return []rqlite.Result{{Rows: []map[string]any{{
+			"request_hash": requestHash, "status": "applied", "response_json": responseJSON,
+		}}}}, nil
+	}
+	return nil, errors.New("canonical fixture missing applied idempotency result")
 }
 
 func assertCanonicalCustomerTransaction(t *testing.T, db *recordingRQLite, command string) {

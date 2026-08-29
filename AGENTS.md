@@ -92,6 +92,14 @@ python ops/maestro-repetition-guard.py check --action <действие> --famil
   вне worktree, получить generated diff из сравнения этих двух файлов, проверить
   его отдельно и применить один раз;
 
+#### Bounded instruction bootstrap
+
+Apply the 200-line output bound to bootstrap and skill/reference reads too. Do not combine instruction files in one exec result. Bound output at the outer functions.exec layer as well as the nested command; after truncation, read only the missing portion of one file, never rerun the full combined read.
+
+#### Sandbox apply_patch ACL fallback
+
+If `apply_patch` returns `helper_unknown_error: apply deny-read ACLs` even for a verified writable external mirror, record `fail` and do not retry `apply_patch` or broaden permissions. Use one escalated exact-line structural generator only on the external `new/` mirror, require exactly one bounded match, inspect the changed region, generate a contextual old/new diff, then run separate `git apply --check` and one `git apply` against the canonical worktree. Never use this exception to shell-edit the canonical file directly.
+
 #### File discovery before content search
 
 For an unfamiliar file or directory, first run `rg --files` from a confirmed existing project root, optionally filtered by a filename glob. Pass only exact returned paths to content searches. A remembered or plausible name is a search term, not a verified path. If the expected directory is absent, return to its nearest confirmed parent and discover paths there; do not guess a sibling file.
@@ -137,6 +145,10 @@ TV-геометрию и ветки `isTv`.
 
 When a generated Python or PowerShell regex contains both quote types, use a single-quoted here-string as the whole-block template. Write it to an external new mirror, inspect it, and generate the patch from old/new mirrors; never embed that regex in a quoted PowerShell expression. Keep synthetic URL/token fixtures in named in-memory test data and keep owner-supplied endpoints or credentials out of derivative docs and secrecy scans.
 
+### PowerShell exact-line patch preflight guard
+
+For an exact-line presence/removal preflight used to generate a patch, do not use regex. Read the source as a line array and count every required line with literal case-sensitive equality (`Where-Object { $_ -ceq $literal }` or an explicit `foreach`), especially lines containing `$`, quotes, or backslashes; assert the exact count before any removal or insertion.
+
 ### PowerShell exact-source transformation guard
 
 For an exact multiline source transformation, represent the input and output as
@@ -145,3 +157,5 @@ explicit line arrays or as one single-quoted here-string, then serialize with
 backslashes literally: `\n` and `\r\n` are text, not line separators. Assert the
 exact match/replacement count, inspect the generated mirror, and only then build
 the old/new patch; after this root cause, do not tune another escaped fragment.
+
+For tab-prefixed exact-line checks, construct the tab as [char]9 (for example [string]::Concat([char]9, $literal)); never rely on backtick escapes inside single-quoted PowerShell strings.

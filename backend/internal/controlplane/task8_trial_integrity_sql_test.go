@@ -116,6 +116,27 @@ func TestTask8TrialIdentityClaimAfterReadsIsAtomicSQLite(t *testing.T) {
 	}
 }
 
+func TestTask8TrialCustomerGenerationRaceRollsBackSQLite(t *testing.T) {
+	db, service := newCustomerIntegritySQLite(t)
+	seedIntegrityCustomer(t, service)
+	var winnerState []rqlite.Result
+	db.beforeRequest = func() {
+		if _, err := service.ExtendCustomer(context.Background(), ExtendCustomerCommand{Login: "Existing", Days: 1, IdempotencyKey: "concurrent-winner"}); err != nil {
+			t.Fatalf("concurrent winner: %v", err)
+		}
+		winnerState = db.snapshot(t)
+	}
+	_, err := service.RedeemTrial(context.Background(), RedeemTrialCommand{Login: "Existing", Anchor: "candidate-anchor", DRMIdentity: "candidate-device", Days: 7, IdempotencyKey: "stale-trial"})
+	if winnerState == nil {
+		t.Fatal("candidate never reached its transaction")
+	}
+	if err == nil {
+		t.Error("stale trial succeeded without applying its customer generation")
+	}
+	if !reflect.DeepEqual(winnerState, db.snapshot(t)) {
+		t.Error("stale trial mutated the committed winner state")
+	}
+}
 func TestTask8TrialRequiresOneRedemptionSQLite(t *testing.T) {
 	db, service := newCustomerIntegritySQLite(t)
 	seedIntegrityCustomer(t, service)
