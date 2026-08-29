@@ -18,6 +18,8 @@ type durableExternalActionFixture struct {
 type externalActionFixtureBinding struct {
 	actionType, resourceID, requestHash string
 	replacesActionID, replacesActionKey string
+	attemptWorkerID, attemptLeaseToken  string
+	attemptLeaseFence                   int64
 }
 
 func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLiteExternalActions, *durableExternalActionFixture) {
@@ -46,22 +48,50 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 				fixture.states[key] = "pending"
 				fixture.bindings[key] = binding
 			}
-			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key]), nil
+			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key], 1), nil
 		}
 		if strings.Contains(sql, "set status='applying'") {
-			key, _ := statements[0].Args[2].(string)
+			key, _ := statements[0].Args[5].(string)
+			affected := int64(0)
 			if fixture.allowStart && fixture.states[key] == "pending" {
 				fixture.states[key] = "applying"
+				binding := fixture.bindings[key]
+				binding.attemptWorkerID, _ = statements[0].Args[1].(string)
+				binding.attemptLeaseToken, _ = statements[0].Args[2].(string)
+				binding.attemptLeaseFence, _ = statements[0].Args[3].(int64)
+				fixture.bindings[key] = binding
+				affected = 1
 			}
-			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key]), nil
+			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key], affected), nil
 		}
-		if strings.Contains(sql, "update external_actions set status=?") {
-			status, _ := statements[0].Args[0].(string)
-			key, _ := statements[0].Args[4].(string)
-			if fixture.states[key] == "applying" {
-				fixture.states[key] = status
+		if strings.Contains(sql, "set status='applied'") {
+			key, _ := statements[0].Args[3].(string)
+			workerID, _ := statements[0].Args[11].(string)
+			leaseToken, _ := statements[0].Args[12].(string)
+			leaseFence, _ := statements[0].Args[13].(int64)
+			binding := fixture.bindings[key]
+			affected := int64(0)
+			if fixture.states[key] == "applying" && binding.attemptWorkerID == workerID &&
+				binding.attemptLeaseToken == leaseToken && binding.attemptLeaseFence == leaseFence {
+				fixture.states[key] = "applied"
+				affected = 1
 			}
-			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key]), nil
+			return actionFixtureResults(key, fixture.states[key], binding, affected), nil
+		}
+		if strings.Contains(sql, "set status='unknown'") {
+			key, _ := statements[0].Args[2].(string)
+			workerID, _ := statements[0].Args[11].(string)
+			leaseToken, _ := statements[0].Args[12].(string)
+			leaseFence, _ := statements[0].Args[13].(int64)
+			binding := fixture.bindings[key]
+			exact := binding.attemptWorkerID == workerID && binding.attemptLeaseToken == leaseToken && binding.attemptLeaseFence == leaseFence
+			legacy := binding.attemptWorkerID == "" && binding.attemptLeaseToken == "" && binding.attemptLeaseFence == 0
+			affected := int64(0)
+			if fixture.states[key] == "applying" && (exact || legacy || leaseFence > binding.attemptLeaseFence) {
+				fixture.states[key] = "unknown"
+				affected = 1
+			}
+			return actionFixtureResults(key, fixture.states[key], binding, affected), nil
 		}
 		return nil, errors.New("unexpected external action SQL")
 	}}
@@ -73,7 +103,7 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 	return persistence, fixture
 }
 
-func actionFixtureResults(key, state string, binding externalActionFixtureBinding) []rqlite.Result {
+func actionFixtureResults(key, state string, binding externalActionFixtureBinding, affected int64) []rqlite.Result {
 	row := map[string]any{
 		"action_id":           "action-" + key,
 		"action_type":         binding.actionType,
@@ -83,12 +113,20 @@ func actionFixtureResults(key, state string, binding externalActionFixtureBindin
 		"status":              state,
 		"replaces_action_id":  nil,
 		"replaces_action_key": nil,
+		"attempt_worker_id":   nil,
+		"attempt_lease_token": nil,
+		"attempt_lease_fence": nil,
 	}
 	if binding.replacesActionID != "" {
 		row["replaces_action_id"] = binding.replacesActionID
 		row["replaces_action_key"] = binding.replacesActionKey
 	}
-	return []rqlite.Result{{}, {Rows: []map[string]any{row}}}
+	if binding.attemptWorkerID != "" {
+		row["attempt_worker_id"] = binding.attemptWorkerID
+		row["attempt_lease_token"] = binding.attemptLeaseToken
+		row["attempt_lease_fence"] = binding.attemptLeaseFence
+	}
+	return []rqlite.Result{{RowsAffected: affected}, {Rows: []map[string]any{row}}}
 }
 
 func TestExternalActionCrashBoundariesPostAtMostOnce(t *testing.T) {

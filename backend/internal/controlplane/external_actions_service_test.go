@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 func TestServiceExecuteExternalActionAcquiresFencePostsOnceAndReplaysResponse(t *testing.T) {
 	var state string
 	var responseEnvelope any
+	var binding serviceActionBinding
+	var attemptWorkerID, attemptLeaseToken string
+	var attemptLeaseFence int64
 	db := &recordingRQLite{requestFn: func(statements []rqlite.Statement) ([]rqlite.Result, error) {
 		if len(statements) == 0 {
 			t.Fatal("empty transaction")
@@ -24,25 +28,39 @@ func TestServiceExecuteExternalActionAcquiresFencePostsOnceAndReplaysResponse(t 
 				"holder_id": "panel-a", "lease_token": leaseToken, "lease_fence": int64(7), "expires_at_unix": int64(2_000_030),
 			}}}}, nil
 		case strings.Contains(sql, "insert or ignore into external_actions"):
+			affected := int64(0)
 			if state == "" {
 				state = "pending"
+				affected = 1
+				binding = serviceActionBinding{
+					actionType:  fmt.Sprint(statements[0].Args[1]),
+					resourceID:  fmt.Sprint(statements[0].Args[2]),
+					actionKey:   fmt.Sprint(statements[0].Args[3]),
+					requestHash: fmt.Sprint(statements[0].Args[5]),
+				}
 			}
-			return serviceActionResults(state, responseEnvelope), nil
+			return serviceActionResults(state, responseEnvelope, binding, attemptWorkerID, attemptLeaseToken, attemptLeaseFence, affected), nil
 		case strings.Contains(sql, "set status='applying'"):
+			affected := int64(0)
 			if state == "pending" {
 				state = "applying"
+				affected = 1
+				attemptWorkerID, _ = statements[0].Args[1].(string)
+				attemptLeaseToken, _ = statements[0].Args[2].(string)
+				attemptLeaseFence, _ = statements[0].Args[3].(int64)
 			}
-			return serviceActionResults(state, responseEnvelope), nil
-		case strings.Contains(sql, "update external_actions set status=?"):
-			status, _ := statements[0].Args[0].(string)
+			return serviceActionResults(state, responseEnvelope, binding, attemptWorkerID, attemptLeaseToken, attemptLeaseFence, affected), nil
+		case strings.Contains(sql, "set status='applied'"):
+			affected := int64(0)
 			if state == "applying" {
-				state = status
-				switch encoded := statements[0].Args[1].(type) {
+				state = "applied"
+				affected = 1
+				switch encoded := statements[0].Args[0].(type) {
 				case []byte:
 					responseEnvelope = base64.StdEncoding.EncodeToString(encoded)
 				}
 			}
-			return serviceActionResults(state, responseEnvelope), nil
+			return serviceActionResults(state, responseEnvelope, binding, attemptWorkerID, attemptLeaseToken, attemptLeaseFence, affected), nil
 		default:
 			t.Fatalf("unexpected SQL: %s", statements[0].SQL)
 			return nil, nil
@@ -75,7 +93,8 @@ func TestServiceExecuteExternalActionAcquiresFencePostsOnceAndReplaysResponse(t 
 	joined := strings.ToLower(joinedRequestSQL(db))
 	for _, required := range []string{
 		"insert into cluster_job_leases", "lease_fence",
-		"insert or ignore into external_actions", "set status='applying'", "status=?",
+		"insert or ignore into external_actions", "set status='applying'", "set status='applied'",
+		"attempt_worker_id", "attempt_lease_token", "attempt_lease_fence",
 	} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("durable external action SQL missing %q: %s", required, joined)
@@ -104,10 +123,32 @@ func containsStatementArg(statement rqlite.Statement, want string) bool {
 	return false
 }
 
-func serviceActionResults(state string, response any) []rqlite.Result {
-	row := map[string]any{"action_id": "external_action_1", "status": state}
-	if response != nil {
-		row["response_envelope"] = response
+type serviceActionBinding struct {
+	actionType, resourceID, actionKey, requestHash string
+}
+
+func serviceActionResults(
+	state string, response any, binding serviceActionBinding,
+	workerID, leaseToken string, leaseFence, rowsAffected int64,
+) []rqlite.Result {
+	row := map[string]any{
+		"action_id":           "external_action_1",
+		"action_type":         binding.actionType,
+		"resource_id":         binding.resourceID,
+		"idempotency_key":     binding.actionKey,
+		"request_sha256":      binding.requestHash,
+		"status":              state,
+		"response_envelope":   response,
+		"replaces_action_id":  nil,
+		"replaces_action_key": nil,
+		"attempt_worker_id":   nil,
+		"attempt_lease_token": nil,
+		"attempt_lease_fence": nil,
 	}
-	return []rqlite.Result{{}, {Rows: []map[string]any{row}}}
+	if workerID != "" {
+		row["attempt_worker_id"] = workerID
+		row["attempt_lease_token"] = leaseToken
+		row["attempt_lease_fence"] = leaseFence
+	}
+	return []rqlite.Result{{RowsAffected: rowsAffected}, {Rows: []map[string]any{row}}}
 }

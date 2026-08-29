@@ -90,7 +90,8 @@ func (s *RQLiteExternalActions) Prepare(ctx context.Context, command ExternalAct
 func externalActionPrepareRead(command ExternalActionCommand) rqlite.Statement {
 	return rqlite.Statement{SQL: `SELECT action.action_id,action.action_type,action.resource_id,
 action.idempotency_key,action.request_sha256,action.status,action.response_envelope,
-action.replaces_action_id,predecessor.idempotency_key AS replaces_action_key
+action.replaces_action_id,predecessor.idempotency_key AS replaces_action_key,
+action.attempt_worker_id,action.attempt_lease_token,action.attempt_lease_fence
 FROM external_actions action
 LEFT JOIN external_actions predecessor ON predecessor.action_id=action.replaces_action_id
 WHERE action.action_type=? AND action.idempotency_key=?`, Args: []any{command.Type, command.ActionKey}}
@@ -117,31 +118,45 @@ AND predecessor.resource_id=? AND predecessor.request_sha256=? AND predecessor.i
 }
 
 func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
+	binding, err := s.attemptBinding(command)
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
 	jobName := "external-action:" + command.Type
 	now := s.service.clock.Now().Unix()
+	predicate, predicateArgs := externalActionMutationPredicate(command, binding)
+	args := []any{now, command.WorkerID, command.LeaseToken, command.LeaseFence}
+	args = append(args, predicateArgs...)
+	args = append(args, jobName, command.WorkerID, command.LeaseToken, command.LeaseFence)
 	results, err := s.service.store.db.Request(ctx, rqlite.Linearizable, true,
-		rqlite.Statement{SQL: `UPDATE external_actions SET status='applying',attempts=attempts+1,updated_at_unix=?
-WHERE action_type=? AND idempotency_key=? AND status='pending' AND EXISTS (
- SELECT 1 FROM cluster_job_leases WHERE job_name=? AND holder_id=? AND lease_token=? AND lease_fence=? AND expires_at_unix>unixepoch()
-)`, Args: []any{now, command.Type, command.ActionKey, jobName, command.WorkerID, command.LeaseToken, command.LeaseFence}},
-		rqlite.Statement{SQL: `SELECT action_id,status,response_envelope FROM external_actions
-WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.ActionKey}},
+		rqlite.Statement{SQL: `UPDATE external_actions AS action
+SET status='applying',attempts=attempts+1,updated_at_unix=?,
+attempt_worker_id=?,attempt_lease_token=?,attempt_lease_fence=?
+WHERE ` + predicate + ` AND action.status='pending'
+AND action.attempt_worker_id IS NULL AND action.attempt_lease_token IS NULL AND action.attempt_lease_fence IS NULL
+AND EXISTS (
+ SELECT 1 FROM cluster_job_leases lease
+ WHERE lease.job_name=? AND lease.holder_id=? AND lease.lease_token=? AND lease.lease_fence=?
+ AND lease.expires_at_unix>unixepoch()
+)`, Args: args},
+		externalActionPrepareRead(command),
 	)
 	if err != nil {
 		return ExternalActionResult{}, ErrUnavailable
 	}
-	result, err := externalActionResult(results)
+	result, err := externalActionMutationResult(results, command, binding, "applying", true)
 	if err != nil {
 		return ExternalActionResult{}, err
-	}
-	if result.State != "applying" {
-		return ExternalActionResult{}, ErrLeaseLost
 	}
 	result.State = "attempt_started"
 	return result, nil
 }
 
 func (s *RQLiteExternalActions) Finish(ctx context.Context, command ExternalActionCommand, response []byte) (ExternalActionResult, error) {
+	binding, err := s.attemptBinding(command)
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
 	envelope, err := s.service.store.secrets.Seal(SecretScope{
 		OwnerType: "external-action", OwnerID: command.ActionKey, Field: "response", Kind: command.Type,
 	}, response)
@@ -152,7 +167,7 @@ func (s *RQLiteExternalActions) Finish(ctx context.Context, command ExternalActi
 	if err != nil {
 		return ExternalActionResult{}, errors.New("controlplane: encode external action response")
 	}
-	result, err := s.transition(ctx, command, "applied", envelopeBytes)
+	result, err := s.finish(ctx, command, binding, envelopeBytes)
 	if err != nil {
 		return ExternalActionResult{}, err
 	}
@@ -160,35 +175,152 @@ func (s *RQLiteExternalActions) Finish(ctx context.Context, command ExternalActi
 	return result, nil
 }
 
-func (s *RQLiteExternalActions) MarkUnknown(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
-	return s.transition(ctx, command, "unknown", nil)
-}
-
-func (s *RQLiteExternalActions) transition(ctx context.Context, command ExternalActionCommand, status string, response []byte) (ExternalActionResult, error) {
+func (s *RQLiteExternalActions) finish(
+	ctx context.Context, command ExternalActionCommand, binding externalActionBinding, response []byte,
+) (ExternalActionResult, error) {
+	jobName := "external-action:" + command.Type
 	now := s.service.clock.Now().Unix()
+	predicate, predicateArgs := externalActionMutationPredicate(command, binding)
+	args := []any{response, now}
+	args = append(args, predicateArgs...)
+	args = append(args,
+		command.WorkerID, command.LeaseToken, command.LeaseFence,
+		jobName, command.WorkerID, command.LeaseToken, command.LeaseFence,
+	)
 	results, err := s.service.store.db.Request(ctx, rqlite.Linearizable, true,
-		rqlite.Statement{SQL: `UPDATE external_actions SET status=?,response_envelope=?,updated_at_unix=?
-WHERE action_type=? AND idempotency_key=? AND status='applying'`, Args: []any{
-			status, response, now, command.Type, command.ActionKey,
-		}},
-		rqlite.Statement{SQL: `SELECT action_id,status,response_envelope FROM external_actions
-WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.ActionKey}},
+		rqlite.Statement{SQL: `UPDATE external_actions AS action
+SET status='applied',response_envelope=?,updated_at_unix=?
+WHERE ` + predicate + ` AND action.status='applying'
+AND action.attempt_worker_id=? AND action.attempt_lease_token=? AND action.attempt_lease_fence=?
+AND EXISTS (
+ SELECT 1 FROM cluster_job_leases lease
+ WHERE lease.job_name=? AND lease.holder_id=? AND lease.lease_token=? AND lease.lease_fence=?
+ AND lease.expires_at_unix>unixepoch()
+)`, Args: args},
+		externalActionPrepareRead(command),
 	)
 	if err != nil {
 		return ExternalActionResult{}, ErrUnavailable
 	}
-	result, err := externalActionResult(results)
+	result, err := externalActionMutationResult(results, command, binding, "applied", true)
 	if err != nil {
 		return ExternalActionResult{}, err
 	}
-	switch result.State {
-	case "applied":
-		result.State = "succeeded"
-	case "unknown":
-	default:
+	result.State = "succeeded"
+	return result, nil
+}
+
+func (s *RQLiteExternalActions) MarkUnknown(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
+	binding, err := s.attemptBinding(command)
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
+	jobName := "external-action:" + command.Type
+	now := s.service.clock.Now().Unix()
+	predicate, predicateArgs := externalActionMutationPredicate(command, binding)
+	args := []any{now}
+	args = append(args, predicateArgs...)
+	args = append(args,
+		jobName, command.WorkerID, command.LeaseToken, command.LeaseFence,
+		command.WorkerID, command.LeaseToken, command.LeaseFence, command.LeaseFence,
+	)
+	results, err := s.service.store.db.Request(ctx, rqlite.Linearizable, true,
+		rqlite.Statement{SQL: `UPDATE external_actions AS action SET status='unknown',response_envelope=NULL,updated_at_unix=?
+WHERE ` + predicate + ` AND action.status='applying'
+AND EXISTS (
+ SELECT 1 FROM cluster_job_leases lease
+ WHERE lease.job_name=? AND lease.holder_id=? AND lease.lease_token=? AND lease.lease_fence=?
+ AND lease.expires_at_unix>unixepoch()
+)
+AND (
+ (action.attempt_worker_id IS NULL AND action.attempt_lease_token IS NULL AND action.attempt_lease_fence IS NULL) OR
+ (action.attempt_worker_id=? AND action.attempt_lease_token=? AND action.attempt_lease_fence=?) OR
+ action.attempt_lease_fence<?
+)`, Args: args},
+		externalActionPrepareRead(command),
+	)
+	if err != nil {
+		return ExternalActionResult{}, ErrUnavailable
+	}
+	return externalActionMutationResult(results, command, binding, "unknown", false)
+}
+
+func (s *RQLiteExternalActions) attemptBinding(command ExternalActionCommand) (externalActionBinding, error) {
+	if command.Type == "" || command.ResourceID == "" || command.ActionKey == "" ||
+		command.WorkerID == "" || command.LeaseToken == "" || command.LeaseFence <= 0 {
+		return externalActionBinding{}, errors.New("controlplane: invalid external action")
+	}
+	return s.binding(command)
+}
+
+func externalActionMutationPredicate(command ExternalActionCommand, binding externalActionBinding) (string, []any) {
+	return `action.action_type=? AND action.idempotency_key=?
+AND ((action.resource_id=? AND action.request_sha256=?) OR (action.resource_id=? AND action.request_sha256=?))
+AND ((?='' AND action.replaces_action_id IS NULL) OR
+ (?<>'' AND EXISTS (
+  SELECT 1 FROM external_actions predecessor
+  WHERE predecessor.action_id=action.replaces_action_id AND predecessor.idempotency_key=?
+ )))`, []any{
+			command.Type, command.ActionKey,
+			binding.resourceKeyHMAC, binding.requestHMAC, command.ResourceID, binding.legacyRequestSHA256,
+			command.ReplacesActionKey, command.ReplacesActionKey, command.ReplacesActionKey,
+		}
+}
+
+func externalActionMutationResult(
+	results []rqlite.Result, command ExternalActionCommand, binding externalActionBinding,
+	wantState string, requireExactOwner bool,
+) (ExternalActionResult, error) {
+	result, err := externalActionBoundResult(results, command, binding)
+	if errors.Is(err, ErrNotFound) {
 		return ExternalActionResult{}, ErrConflict
 	}
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
+	if len(results) < 2 || results[0].RowsAffected != 1 {
+		return ExternalActionResult{}, ErrLeaseLost
+	}
+	legacyOwner, ownerMatches, err := externalActionAttemptOwner(results, command)
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
+	if requireExactOwner && (legacyOwner || !ownerMatches) {
+		return ExternalActionResult{}, ErrUnavailable
+	}
+	if result.State != wantState {
+		return ExternalActionResult{}, ErrUnavailable
+	}
 	return result, nil
+}
+
+func externalActionAttemptOwner(results []rqlite.Result, command ExternalActionCommand) (legacy, matches bool, err error) {
+	for i := len(results) - 1; i >= 0; i-- {
+		if len(results[i].Rows) == 0 {
+			continue
+		}
+		row := results[i].Rows[0]
+		worker, workerPresent := row["attempt_worker_id"]
+		token, tokenPresent := row["attempt_lease_token"]
+		fenceValue, fencePresent := row["attempt_lease_fence"]
+		if !workerPresent || !tokenPresent || !fencePresent {
+			return false, false, ErrUnavailable
+		}
+		if worker == nil && token == nil && fenceValue == nil {
+			return true, false, nil
+		}
+		if worker == nil || token == nil || fenceValue == nil {
+			return false, false, ErrUnavailable
+		}
+		workerID, workerOK := worker.(string)
+		leaseToken, tokenOK := token.(string)
+		leaseFence, fenceOK := rowInt64(row, "attempt_lease_fence")
+		if !workerOK || !tokenOK || !fenceOK || workerID == "" || leaseToken == "" || leaseFence <= 0 {
+			return false, false, ErrUnavailable
+		}
+		return false, workerID == command.WorkerID && leaseToken == command.LeaseToken && leaseFence == command.LeaseFence, nil
+	}
+	return false, false, ErrNotFound
 }
 
 func (s *RQLiteExternalActions) binding(command ExternalActionCommand) (externalActionBinding, error) {

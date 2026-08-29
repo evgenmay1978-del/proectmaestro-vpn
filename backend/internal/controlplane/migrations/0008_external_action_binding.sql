@@ -5,6 +5,40 @@ ALTER TABLE external_actions ADD COLUMN replaces_action_id TEXT
     REFERENCES external_actions(action_id) ON DELETE RESTRICT
 
 -- maestro:statement
+ALTER TABLE external_actions ADD COLUMN attempt_worker_id TEXT
+
+-- maestro:statement
+ALTER TABLE external_actions ADD COLUMN attempt_lease_token TEXT
+
+-- maestro:statement
+ALTER TABLE external_actions ADD COLUMN attempt_lease_fence INTEGER
+    CHECK(attempt_lease_fence IS NULL OR attempt_lease_fence > 0)
+
+-- maestro:statement
+CREATE TRIGGER external_actions_attempt_owner_valid_insert
+BEFORE INSERT ON external_actions
+WHEN NEW.attempt_worker_id IS NOT NULL OR
+     NEW.attempt_lease_token IS NOT NULL OR
+     NEW.attempt_lease_fence IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'external action attempt owner must start unset');
+END
+
+-- maestro:statement
+CREATE TRIGGER external_actions_attempt_owner_set_once
+BEFORE UPDATE OF attempt_worker_id,attempt_lease_token,attempt_lease_fence ON external_actions
+WHEN NOT (
+    OLD.status = 'pending' AND NEW.status = 'applying' AND
+    OLD.attempt_worker_id IS NULL AND OLD.attempt_lease_token IS NULL AND OLD.attempt_lease_fence IS NULL AND
+    NEW.attempt_worker_id IS NOT NULL AND length(NEW.attempt_worker_id) > 0 AND
+    NEW.attempt_lease_token IS NOT NULL AND length(NEW.attempt_lease_token) > 0 AND
+    NEW.attempt_lease_fence IS NOT NULL AND NEW.attempt_lease_fence > 0
+)
+BEGIN
+    SELECT RAISE(ABORT, 'external action attempt owner is immutable');
+END
+
+-- maestro:statement
 CREATE UNIQUE INDEX external_actions_one_replacement
 ON external_actions(replaces_action_id)
 WHERE replaces_action_id IS NOT NULL

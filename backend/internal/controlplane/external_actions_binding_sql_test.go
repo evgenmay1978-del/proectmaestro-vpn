@@ -43,7 +43,8 @@ VALUES('legacy-action','wb.room','legacy-login','legacy-key',? ,?,'unknown',1,1,
 	db.must(t, migrations[7].Statements...)
 
 	results := db.must(t,
-		rqlite.Statement{SQL: `SELECT action_type,resource_id,idempotency_key,request_sha256,replaces_action_id
+		rqlite.Statement{SQL: `SELECT action_type,resource_id,idempotency_key,request_sha256,replaces_action_id,
+attempt_worker_id,attempt_lease_token,attempt_lease_fence
 FROM external_actions WHERE action_id='legacy-action'`},
 		rqlite.Statement{SQL: `SELECT "table" AS target_table,"from" AS source_column,"to" AS target_column
 FROM pragma_foreign_key_list('external_actions') WHERE "from"='replaces_action_id'`},
@@ -55,7 +56,8 @@ FROM pragma_foreign_key_list('external_actions') WHERE "from"='replaces_action_i
 	}
 	legacy := results[0].Rows[0]
 	if legacy["action_type"] != "wb.room" || legacy["resource_id"] != "legacy-login" ||
-		legacy["idempotency_key"] != "legacy-key" || legacy["request_sha256"] != legacyHash || legacy["replaces_action_id"] != nil {
+		legacy["idempotency_key"] != "legacy-key" || legacy["request_sha256"] != legacyHash || legacy["replaces_action_id"] != nil ||
+		legacy["attempt_worker_id"] != nil || legacy["attempt_lease_token"] != nil || legacy["attempt_lease_fence"] != nil {
 		t.Fatalf("legacy external action was not preserved exactly: %#v", legacy)
 	}
 	if got := fmt.Sprint(results[1].Rows); got != `[map[source_column:replaces_action_id target_column:action_id target_table:external_actions]]` {
