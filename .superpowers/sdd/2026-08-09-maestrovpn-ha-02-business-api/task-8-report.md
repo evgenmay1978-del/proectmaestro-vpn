@@ -646,3 +646,21 @@ adapters add policy gates and record the Windows native-`rg` glob and
 PowerShell array-concatenation rules discovered during this fix. Findings
 4, 5, 6, 9 and 10 remain open. OLCRTC findings 3/11 and WDTT remain frozen;
 production/server/OTA and Android/TV 1.0.157 were unchanged.
+
+## Finding 2 exact-SHA CI result: accepted
+
+Date: 2026-08-29
+Source SHA: `f32a057a547bbf07aab6b9bc0419fc5ce114fcbe`
+
+The local branch and remote
+`codex/yandex-cdn-whitelist-task3-sync` resolved to the exact source SHA above.
+All three push-triggered workflows completed successfully against that SHA:
+
+- HA control-plane checks run `33249795546`: GREEN;
+- HA DR restore drill run `33249795549`: GREEN;
+- Yandex CDN isolated release checks run `33249795581`: GREEN.
+
+Finding 2 is accepted with real-adapter local evidence, independent Spec PASS /
+Quality APPROVED review and exact-SHA GitHub CI. Findings 4, 5, 6, 9 and 10
+remain open. OLCRTC findings 3/11 and WDTT remain frozen. No production,
+server, release, OTA or Android/TV 1.0.157 mutation occurred.
