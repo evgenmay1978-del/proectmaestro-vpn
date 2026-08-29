@@ -96,6 +96,45 @@ func TestControlPlaneDispatchesEveryRequiredRouteFamily(t *testing.T) {
 	}
 }
 
+func TestControlPlanePanelWBRoomPropagatesReplacementKey(t *testing.T) {
+	business := &dispatchBusiness{}
+	handler := NewControlPlane(business, Config{PanelPath: "/mp/", PanelPasswordHash: "configured"}).Handler()
+	req := httptest.NewRequest(http.MethodPost, "/mp/api/olcrtc/wbroom", strings.NewReader(
+		`{"login":" Alice ","action_key":"wb-action-key-1","replaces_action_key":" wb-action-key-0 "}`,
+	))
+	req.AddCookie(&http.Cookie{Name: "mp_session", Value: "panel-session"})
+	req.Header.Set("X-CSRF", "panel-csrf")
+	req.Header.Set("Idempotency-Key", "wb-idempotency-1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
+	}
+	want := RequestWBRoomCommand{
+		Login: " Alice ", ActionKey: "wb-action-key-1", ReplacesActionKey: " wb-action-key-0 ", IdempotencyKey: "wb-idempotency-1",
+	}
+	if business.wbRoomCommand != want {
+		t.Fatalf("command = %#v, want %#v", business.wbRoomCommand, want)
+	}
+}
+
+func TestControlPlanePanelWBRoomPreservesActionKeyHeaderFallback(t *testing.T) {
+	business := &dispatchBusiness{}
+	handler := NewControlPlane(business, Config{PanelPath: "/mp/", PanelPasswordHash: "configured"}).Handler()
+	req := httptest.NewRequest(http.MethodPost, "/mp/api/olcrtc/wbroom", strings.NewReader(`{"login":"alice"}`))
+	req.AddCookie(&http.Cookie{Name: "mp_session", Value: "panel-session"})
+	req.Header.Set("X-CSRF", "panel-csrf")
+	req.Header.Set("Idempotency-Key", "wb-header-key")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
+	}
+	if business.wbRoomCommand.ActionKey != "wb-header-key" || business.wbRoomCommand.ReplacesActionKey != "" {
+		t.Fatalf("command = %#v", business.wbRoomCommand)
+	}
+}
+
 func TestControlPlanePanelActionsDispatchCanonicalCommands(t *testing.T) {
 	business := &dispatchBusiness{}
 	handler := NewControlPlane(business, Config{PanelPath: "/mp/", PanelPasswordHash: "configured"}).Handler()

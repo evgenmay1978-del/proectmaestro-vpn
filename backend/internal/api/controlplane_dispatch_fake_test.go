@@ -4,7 +4,8 @@ import "context"
 
 type dispatchBusiness struct {
 	Business
-	calls []string
+	calls         []string
+	wbRoomCommand RequestWBRoomCommand
 }
 
 func (b *dispatchBusiness) called(name string) { b.calls = append(b.calls, name) }
@@ -141,8 +142,9 @@ func (b *dispatchBusiness) SetWBToken(context.Context, SetSecretCommand) error {
 	b.called("set_wbtoken")
 	return nil
 }
-func (b *dispatchBusiness) RequestWBRoom(context.Context, RequestWBRoomCommand) (ExternalActionView, error) {
+func (b *dispatchBusiness) RequestWBRoom(_ context.Context, command RequestWBRoomCommand) (ExternalActionView, error) {
 	b.called("request_wbroom")
+	b.wbRoomCommand = command
 	return ExternalActionView{ID: "room", State: "pending"}, nil
 }
 func (b *dispatchBusiness) VKTurnState(context.Context) (VKTurnView, error) {

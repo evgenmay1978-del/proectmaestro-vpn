@@ -370,8 +370,9 @@ func (s *ControlPlaneServer) handleControlPlanePanelWBRoom(w http.ResponseWriter
 		return
 	}
 	var request struct {
-		Login     string `json:"login"`
-		ActionKey string `json:"action_key"`
+		Login             string `json:"login"`
+		ActionKey         string `json:"action_key"`
+		ReplacesActionKey string `json:"replaces_action_key"`
 	}
 	if !decodeControlPlaneBody(w, r, &request) {
 		return
@@ -380,7 +381,8 @@ func (s *ControlPlaneServer) handleControlPlanePanelWBRoom(w http.ResponseWriter
 		request.ActionKey = r.Header.Get("Idempotency-Key")
 	}
 	view, err := s.business.RequestWBRoom(r.Context(), RequestWBRoomCommand{
-		Login: request.Login, ActionKey: request.ActionKey, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		Login: request.Login, ActionKey: request.ActionKey, ReplacesActionKey: request.ReplacesActionKey,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
 		writeControlPlaneBusinessError(w, err)

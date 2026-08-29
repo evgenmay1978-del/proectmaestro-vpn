@@ -12,7 +12,8 @@ const externalActionLeaseTTLSeconds = int64(30)
 
 func (s *Service) ExecuteExternalAction(ctx context.Context, command ExternalActionCommand, workerID string, sender ExternalActionSender) (ExternalActionResult, error) {
 	if s == nil || s.store == nil || s.ids == nil || sender == nil || strings.TrimSpace(command.Type) == "" ||
-		strings.TrimSpace(command.ResourceID) == "" || strings.TrimSpace(command.ActionKey) == "" || strings.TrimSpace(workerID) == "" {
+		strings.TrimSpace(command.ResourceID) == "" || strings.TrimSpace(command.ActionKey) == "" || strings.TrimSpace(workerID) == "" ||
+		!externalActionReplayAliasValid(command) {
 		return ExternalActionResult{}, errors.New("controlplane: invalid external action")
 	}
 	leaseToken, err := s.ids.NewID("lease")

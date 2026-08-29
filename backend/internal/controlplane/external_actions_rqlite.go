@@ -7,16 +7,30 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
 type RQLiteExternalActions struct{ service *Service }
-type externalActionBinding struct {
-	resourceKeyHMAC     string
-	requestHMAC         string
-	legacyRequestSHA256 string
+type externalActionBindingPair struct {
+	resourceID  string
+	requestHash string
 }
+type externalActionBinding struct {
+	resourceKeyHMAC string
+	requestHMAC     string
+	primaryPairs    []externalActionBindingPair
+	replayPairs     []externalActionBindingPair
+}
+
+type externalActionBindingMatch uint8
+
+const (
+	externalActionBindingNone externalActionBindingMatch = iota
+	externalActionBindingPrimary
+	externalActionBindingReplay
+)
 
 func NewRQLiteExternalActions(service *Service) (*RQLiteExternalActions, error) {
 	if service == nil || service.store == nil {
@@ -62,7 +76,7 @@ func (s *RQLiteExternalActions) Prepare(ctx context.Context, command ExternalAct
 			return ExternalActionResult{}, ErrUnavailable
 		}
 	}
-	result, err := externalActionBoundResult(results, command, binding)
+	result, match, err := externalActionBoundResultMatch(results, command, binding)
 	if errors.Is(err, ErrNotFound) {
 		if ambiguous {
 			return ExternalActionResult{}, ErrUnavailable
@@ -74,6 +88,9 @@ func (s *RQLiteExternalActions) Prepare(ctx context.Context, command ExternalAct
 	}
 	if err != nil {
 		return ExternalActionResult{}, err
+	}
+	if match == externalActionBindingReplay && result.State == "pending" {
+		return ExternalActionResult{}, ErrConflict
 	}
 	switch result.State {
 	case "applying":
@@ -124,7 +141,7 @@ func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command Extern
 	}
 	jobName := "external-action:" + command.Type
 	now := s.service.clock.Now().Unix()
-	predicate, predicateArgs := externalActionMutationPredicate(command, binding)
+	predicate, predicateArgs := externalActionMutationPredicate(command, binding, false)
 	args := []any{now, command.WorkerID, command.LeaseToken, command.LeaseFence}
 	args = append(args, predicateArgs...)
 	args = append(args, jobName, command.WorkerID, command.LeaseToken, command.LeaseFence)
@@ -180,7 +197,7 @@ func (s *RQLiteExternalActions) finish(
 ) (ExternalActionResult, error) {
 	jobName := "external-action:" + command.Type
 	now := s.service.clock.Now().Unix()
-	predicate, predicateArgs := externalActionMutationPredicate(command, binding)
+	predicate, predicateArgs := externalActionMutationPredicate(command, binding, false)
 	args := []any{response, now}
 	args = append(args, predicateArgs...)
 	args = append(args,
@@ -217,7 +234,7 @@ func (s *RQLiteExternalActions) MarkUnknown(ctx context.Context, command Externa
 	}
 	jobName := "external-action:" + command.Type
 	now := s.service.clock.Now().Unix()
-	predicate, predicateArgs := externalActionMutationPredicate(command, binding)
+	predicate, predicateArgs := externalActionMutationPredicate(command, binding, true)
 	args := []any{now}
 	args = append(args, predicateArgs...)
 	args = append(args,
@@ -247,24 +264,42 @@ AND (
 
 func (s *RQLiteExternalActions) attemptBinding(command ExternalActionCommand) (externalActionBinding, error) {
 	if command.Type == "" || command.ResourceID == "" || command.ActionKey == "" ||
-		command.WorkerID == "" || command.LeaseToken == "" || command.LeaseFence <= 0 {
+		command.WorkerID == "" || command.LeaseToken == "" || command.LeaseFence <= 0 ||
+		!externalActionReplayAliasValid(command) {
 		return externalActionBinding{}, errors.New("controlplane: invalid external action")
 	}
 	return s.binding(command)
 }
 
-func externalActionMutationPredicate(command ExternalActionCommand, binding externalActionBinding) (string, []any) {
+func externalActionMutationPredicate(command ExternalActionCommand, binding externalActionBinding, includeReplay bool) (string, []any) {
+	pairs := binding.primaryPairs
+	if includeReplay {
+		pairs = append(append([]externalActionBindingPair(nil), pairs...), binding.replayPairs...)
+	}
+	pairPredicate, pairArgs := externalActionPairPredicate(pairs)
+	args := []any{command.Type, command.ActionKey}
+	args = append(args, pairArgs...)
+	args = append(args, command.ReplacesActionKey, command.ReplacesActionKey, command.ReplacesActionKey)
 	return `action.action_type=? AND action.idempotency_key=?
-AND ((action.resource_id=? AND action.request_sha256=?) OR (action.resource_id=? AND action.request_sha256=?))
+AND ` + pairPredicate + `
 AND ((?='' AND action.replaces_action_id IS NULL) OR
  (?<>'' AND EXISTS (
-  SELECT 1 FROM external_actions predecessor
-  WHERE predecessor.action_id=action.replaces_action_id AND predecessor.idempotency_key=?
- )))`, []any{
-			command.Type, command.ActionKey,
-			binding.resourceKeyHMAC, binding.requestHMAC, command.ResourceID, binding.legacyRequestSHA256,
-			command.ReplacesActionKey, command.ReplacesActionKey, command.ReplacesActionKey,
-		}
+   SELECT 1 FROM external_actions predecessor
+   WHERE predecessor.action_id=action.replaces_action_id AND predecessor.idempotency_key=?
+  )))`, args
+}
+
+func externalActionPairPredicate(pairs []externalActionBindingPair) (string, []any) {
+	if len(pairs) == 0 {
+		return "(0=1)", nil
+	}
+	clauses := make([]string, 0, len(pairs))
+	args := make([]any, 0, len(pairs)*2)
+	for _, pair := range pairs {
+		clauses = append(clauses, "(action.resource_id=? AND action.request_sha256=?)")
+		args = append(args, pair.resourceID, pair.requestHash)
+	}
+	return "(" + strings.Join(clauses, " OR ") + ")", args
 }
 
 func externalActionMutationResult(
@@ -324,6 +359,9 @@ func externalActionAttemptOwner(results []rqlite.Result, command ExternalActionC
 }
 
 func (s *RQLiteExternalActions) binding(command ExternalActionCommand) (externalActionBinding, error) {
+	if !externalActionReplayAliasValid(command) {
+		return externalActionBinding{}, errors.New("controlplane: invalid external action compatibility alias")
+	}
 	legacyDigest := sha256.Sum256(command.Request)
 	binding := externalActionBinding{
 		resourceKeyHMAC: s.service.store.secrets.LookupHMAC(
@@ -332,17 +370,70 @@ func (s *RQLiteExternalActions) binding(command ExternalActionCommand) (external
 		requestHMAC: s.service.store.secrets.LookupHMAC(
 			"external-action-request:"+command.Type, command.Request,
 		),
-		legacyRequestSHA256: hex.EncodeToString(legacyDigest[:]),
 	}
 	if len(binding.resourceKeyHMAC) != 64 || len(binding.requestHMAC) != 64 {
 		return externalActionBinding{}, ErrUnavailable
 	}
+	binding.addPrimary(externalActionBindingPair{resourceID: binding.resourceKeyHMAC, requestHash: binding.requestHMAC})
+	binding.addPrimary(externalActionBindingPair{resourceID: command.ResourceID, requestHash: hex.EncodeToString(legacyDigest[:])})
+	if command.ReplayResourceID != "" {
+		replayResourceHMAC := s.service.store.secrets.LookupHMAC(
+			"external-action-resource:"+command.Type, []byte(command.ReplayResourceID),
+		)
+		replayRequestHMAC := s.service.store.secrets.LookupHMAC(
+			"external-action-request:"+command.Type, command.ReplayRequest,
+		)
+		if len(replayResourceHMAC) != 64 || len(replayRequestHMAC) != 64 {
+			return externalActionBinding{}, ErrUnavailable
+		}
+		replayDigest := sha256.Sum256(command.ReplayRequest)
+		binding.addReplay(externalActionBindingPair{resourceID: replayResourceHMAC, requestHash: replayRequestHMAC})
+		binding.addReplay(externalActionBindingPair{resourceID: command.ReplayResourceID, requestHash: hex.EncodeToString(replayDigest[:])})
+	}
 	return binding, nil
+}
+
+func (binding *externalActionBinding) addPrimary(pair externalActionBindingPair) {
+	if !externalActionPairPresent(binding.primaryPairs, pair) {
+		binding.primaryPairs = append(binding.primaryPairs, pair)
+	}
+}
+
+func (binding *externalActionBinding) addReplay(pair externalActionBindingPair) {
+	if !externalActionPairPresent(binding.primaryPairs, pair) && !externalActionPairPresent(binding.replayPairs, pair) {
+		binding.replayPairs = append(binding.replayPairs, pair)
+	}
+}
+
+func externalActionPairPresent(pairs []externalActionBindingPair, candidate externalActionBindingPair) bool {
+	for _, pair := range pairs {
+		if pair == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func (binding externalActionBinding) match(resourceID, requestHash string) externalActionBindingMatch {
+	if externalActionPairPresent(binding.primaryPairs, externalActionBindingPair{resourceID: resourceID, requestHash: requestHash}) {
+		return externalActionBindingPrimary
+	}
+	if externalActionPairPresent(binding.replayPairs, externalActionBindingPair{resourceID: resourceID, requestHash: requestHash}) {
+		return externalActionBindingReplay
+	}
+	return externalActionBindingNone
 }
 
 func externalActionBoundResult(
 	results []rqlite.Result, command ExternalActionCommand, binding externalActionBinding,
 ) (ExternalActionResult, error) {
+	result, _, err := externalActionBoundResultMatch(results, command, binding)
+	return result, err
+}
+
+func externalActionBoundResultMatch(
+	results []rqlite.Result, command ExternalActionCommand, binding externalActionBinding,
+) (ExternalActionResult, externalActionBindingMatch, error) {
 	for i := len(results) - 1; i >= 0; i-- {
 		if len(results[i].Rows) == 0 {
 			continue
@@ -355,22 +446,21 @@ func externalActionBoundResult(
 		requestHash, requestOK := rowString(row, "request_sha256")
 		status, statusOK := rowString(row, "status")
 		if !idOK || !typeOK || !resourceOK || !keyOK || !requestOK || !statusOK {
-			return ExternalActionResult{}, ErrUnavailable
+			return ExternalActionResult{}, externalActionBindingNone, ErrUnavailable
 		}
 		if actionType != command.Type || actionKey != command.ActionKey {
-			return ExternalActionResult{}, ErrConflict
+			return ExternalActionResult{}, externalActionBindingNone, ErrConflict
 		}
 		if err := externalActionRelationMatches(row, command); err != nil {
-			return ExternalActionResult{}, err
+			return ExternalActionResult{}, externalActionBindingNone, err
 		}
-		current := resourceID == binding.resourceKeyHMAC && requestHash == binding.requestHMAC
-		legacy := resourceID == command.ResourceID && requestHash == binding.legacyRequestSHA256
-		if !current && !legacy {
-			return ExternalActionResult{}, ErrConflict
+		match := binding.match(resourceID, requestHash)
+		if match == externalActionBindingNone {
+			return ExternalActionResult{}, match, ErrConflict
 		}
-		return ExternalActionResult{ID: id, State: status}, nil
+		return ExternalActionResult{ID: id, State: status}, match, nil
 	}
-	return ExternalActionResult{}, ErrNotFound
+	return ExternalActionResult{}, externalActionBindingNone, ErrNotFound
 }
 
 func externalActionRelationMatches(row map[string]any, command ExternalActionCommand) error {

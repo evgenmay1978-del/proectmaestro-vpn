@@ -315,9 +315,10 @@ type SetSecretCommand struct {
 }
 
 type RequestWBRoomCommand struct {
-	Login          string
-	ActionKey      string
-	IdempotencyKey string
+	Login             string
+	ActionKey         string
+	ReplacesActionKey string
+	IdempotencyKey    string
 }
 
 type ExternalActionView struct {

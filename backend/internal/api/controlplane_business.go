@@ -705,23 +705,38 @@ func (b *ServiceBusiness) RequestWBRoom(ctx context.Context, command RequestWBRo
 	if strings.TrimSpace(command.Login) == "" || strings.TrimSpace(command.ActionKey) == "" || strings.TrimSpace(command.IdempotencyKey) == "" {
 		return ExternalActionView{}, businessError(controlplane.ErrForbidden)
 	}
-	request, _ := json.Marshal(map[string]string{"login": command.Login})
-	action, err := b.externalActions.ExecuteExternalAction(ctx, controlplane.ExternalActionCommand{
-		Type: "wb.room", ResourceID: command.Login, ActionKey: command.ActionKey, Request: request,
-	}, b.workerID, b.wbSender)
+	login, err := controlplane.CanonicalLoginKey(command.Login)
+	if err != nil {
+		return ExternalActionView{}, businessError(controlplane.ErrForbidden)
+	}
+	request, _ := json.Marshal(map[string]string{"login": login})
+	actionCommand := controlplane.ExternalActionCommand{
+		Type: "wb.room", ResourceID: login, ActionKey: command.ActionKey, ReplacesActionKey: command.ReplacesActionKey, Request: request,
+	}
+	if command.Login != login {
+		actionCommand.ReplayResourceID = command.Login
+		actionCommand.ReplayRequest, _ = json.Marshal(map[string]string{"login": command.Login})
+	}
+	action, err := b.externalActions.ExecuteExternalAction(ctx, actionCommand, b.workerID, b.wbSender)
 	if err != nil {
 		return ExternalActionView{}, businessError(err)
 	}
 	view := ExternalActionView{ID: action.ID, State: action.State}
-	if len(action.Response) > 0 {
-		var response struct {
-			Room string `json:"room"`
+	if action.State == "succeeded" {
+		var response map[string]json.RawMessage
+		if err := json.Unmarshal(action.Response, &response); err != nil || response == nil {
+			return ExternalActionView{}, businessError(controlplane.ErrUnavailable)
 		}
-		_ = json.Unmarshal(action.Response, &response)
-		view.Room = response.Room
-	}
-	if action.State == "succeeded" && strings.TrimSpace(view.Room) != "" {
-		if err := b.wbRooms.AssignWBRoom(ctx, command.Login, view.Room, command.IdempotencyKey); err != nil {
+		var room string
+		rawRoom, ok := response["room"]
+		if !ok || json.Unmarshal(rawRoom, &room) != nil {
+			return ExternalActionView{}, businessError(controlplane.ErrUnavailable)
+		}
+		view.Room = strings.TrimSpace(room)
+		if view.Room == "" {
+			return ExternalActionView{}, businessError(controlplane.ErrUnavailable)
+		}
+		if err := b.wbRooms.AssignWBRoom(ctx, login, view.Room, command.IdempotencyKey); err != nil {
 			return ExternalActionView{}, businessError(err)
 		}
 	}

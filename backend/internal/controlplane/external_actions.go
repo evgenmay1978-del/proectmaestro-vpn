@@ -10,10 +10,19 @@ type ExternalActionCommand struct {
 	ResourceID        string
 	ActionKey         string
 	ReplacesActionKey string
-	WorkerID          string
-	LeaseToken        string
-	LeaseFence        int64
-	Request           []byte
+	// ReplayResourceID and ReplayRequest are exact legacy binding aliases. New rows and provider calls use only ResourceID and Request.
+	ReplayResourceID string
+	ReplayRequest    []byte
+	WorkerID         string
+	LeaseToken       string
+	LeaseFence       int64
+	Request          []byte
+}
+
+func externalActionReplayAliasValid(command ExternalActionCommand) bool {
+	hasResource := command.ReplayResourceID != ""
+	hasRequest := command.ReplayRequest != nil
+	return hasResource == hasRequest && (!hasRequest || len(command.ReplayRequest) > 0)
 }
 
 type ExternalActionResult struct {
@@ -57,7 +66,8 @@ func (e *ExternalActionExecutor) Execute(
 	hook func(ExternalActionCrashPoint) error,
 ) (ExternalActionResult, error) {
 	if e == nil || e.store == nil || e.sender == nil || command.Type == "" || command.ResourceID == "" ||
-		command.ActionKey == "" || command.WorkerID == "" || command.LeaseToken == "" || command.LeaseFence <= 0 {
+		command.ActionKey == "" || command.WorkerID == "" || command.LeaseToken == "" || command.LeaseFence <= 0 ||
+		!externalActionReplayAliasValid(command) {
 		return ExternalActionResult{}, errors.New("controlplane: invalid external action")
 	}
 	prepared, err := e.store.Prepare(ctx, command)
