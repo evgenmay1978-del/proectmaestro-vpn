@@ -664,3 +664,39 @@ Finding 2 is accepted with real-adapter local evidence, independent Spec PASS /
 Quality APPROVED review and exact-SHA GitHub CI. Findings 4, 5, 6, 9 and 10
 remain open. OLCRTC findings 3/11 and WDTT remain frozen. No production,
 server, release, OTA or Android/TV 1.0.157 mutation occurred.
+
+## Finding 4 local closure: legacy public mutation idempotency
+
+Date: 2026-08-29
+
+Android/TV 1.0.157 omits `Idempotency-Key` on `/claim`, `/trial`, `/order` and
+`/order/paid-claim`. The shared mutation decoder therefore returned HTTP 428
+before those public calls reached the business adapter. Authenticated admin and
+panel mutations must continue to require an explicit key.
+
+Public stable-identity routes now derive a cluster-stable key through the
+existing `SecretBox.LookupHMAC`. The input is versioned, uint64 length-framed,
+route-separated and contains no raw login, claim code, order ID or token in the
+result. An explicit nonblank caller key is preserved byte-for-byte. Missing or
+failed derivation on a stable route fails closed with HTTP 503.
+
+Anonymous keyless `/order` deliberately remains outside deterministic replay
+because 1.0.157 supplies no stable customer identity at that point. Each tap
+creates a new purchase intent; real customer/order persistence remains finding
+6 and is not claimed by this closure.
+
+The first handler RED reproduced HTTP 428 on all four legacy public routes; the
+core RED failed because `LegacyPublicIdempotencyKey` did not exist. Handler
+tests now cover same-input replay, changed identity and route separation, raw
+identity non-disclosure, exact explicit-key preservation, fail-closed adapter
+absence, two distinct anonymous order intents, and unchanged admin/panel 428.
+
+Fresh root verification passed:
+
+- real `ServiceBusiness` + migrations + SQLite HMAC bridge: 3.990s;
+- complete `internal/api`: 1.388s;
+- complete `internal/controlplane`: 124.665s;
+- complete `cmd/maestro-panel`: 0.129s;
+- `gofmt -d` empty and exact six-file `git diff --check` clean.
+
+Independent re-review returned Spec PASS and Quality APPROVED with no findings.

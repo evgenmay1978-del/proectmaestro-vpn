@@ -27,6 +27,19 @@ func writeControlPlaneBusinessError(w http.ResponseWriter, err error) {
 	writeControlPlaneJSON(w, http.StatusConflict, map[string]string{"error": "request rejected"})
 }
 
+func decodeControlPlanePublicMutation(w http.ResponseWriter, r *http.Request, target any) bool {
+	if !requireControlPlaneMethod(w, r, http.MethodPost) {
+		return false
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return false
+	}
+	return true
+}
+
 func (s *ControlPlaneServer) handleControlPlaneTariffs(w http.ResponseWriter, r *http.Request) {
 	if !requireControlPlaneMethod(w, r, http.MethodGet) {
 		return
@@ -45,7 +58,7 @@ func (s *ControlPlaneServer) handleControlPlaneCreateOrder(w http.ResponseWriter
 	var request struct {
 		Tariff string `json:"tariff"`
 	}
-	if !decodeControlPlaneMutation(w, r, &request) {
+	if !decodeControlPlanePublicMutation(w, r, &request) {
 		return
 	}
 	order, err := s.business.CreateOrder(r.Context(), CreateOrderCommand{
@@ -85,11 +98,15 @@ func (s *ControlPlaneServer) handleControlPlanePaymentClaim(w http.ResponseWrite
 	var request struct {
 		OrderID string `json:"order_id"`
 	}
-	if !decodeControlPlaneMutation(w, r, &request) {
+	if !decodeControlPlanePublicMutation(w, r, &request) {
+		return
+	}
+	idempotencyKey, ok := s.controlPlanePublicIdempotencyKey(w, r, "/order/paid-claim", request.OrderID)
+	if !ok {
 		return
 	}
 	order, err := s.business.MarkPaymentClaimed(r.Context(), ClaimPaymentCommand{
-		OrderID: request.OrderID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		OrderID: request.OrderID, IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		writeControlPlaneBusinessError(w, err)
@@ -104,7 +121,7 @@ func (s *ControlPlaneServer) handleControlPlaneTrial(w http.ResponseWriter, r *h
 		Anchor string `json:"anchor"`
 		Device string `json:"device"`
 	}
-	if !decodeControlPlaneMutation(w, r, &request) {
+	if !decodeControlPlanePublicMutation(w, r, &request) {
 		return
 	}
 	nick := strings.TrimSpace(request.Nick)
@@ -112,9 +129,15 @@ func (s *ControlPlaneServer) handleControlPlaneTrial(w http.ResponseWriter, r *h
 		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid trial identity"})
 		return
 	}
+	idempotencyKey, ok := s.controlPlanePublicIdempotencyKey(
+		w, r, "/trial", "trial-"+nick, request.Anchor, request.Device,
+	)
+	if !ok {
+		return
+	}
 	view, err := s.business.RedeemTrial(r.Context(), RedeemTrialCommand{
 		Login: "trial-" + nick, Anchor: request.Anchor, DRMIdentity: request.Device,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		writeControlPlaneBusinessError(w, err)
@@ -128,12 +151,18 @@ func (s *ControlPlaneServer) handleControlPlaneClaim(w http.ResponseWriter, r *h
 		Code   string `json:"code"`
 		Device string `json:"device"`
 	}
-	if !decodeControlPlaneMutation(w, r, &request) {
+	if !decodeControlPlanePublicMutation(w, r, &request) {
 		return
 	}
 	code := strings.TrimSpace(request.Code)
 	if !claimCodeRe.MatchString(code) {
 		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid code"})
+		return
+	}
+	idempotencyKey, ok := s.controlPlanePublicIdempotencyKey(
+		w, r, "/claim", code, strings.TrimSpace(request.Device),
+	)
+	if !ok {
 		return
 	}
 	customer, err := s.business.CustomerByLogin(r.Context(), code)
@@ -143,7 +172,7 @@ func (s *ControlPlaneServer) handleControlPlaneClaim(w http.ResponseWriter, r *h
 	}
 	decision, err := s.business.TouchDevice(r.Context(), TouchDeviceCommand{
 		Login: customer.Login, DeviceID: strings.TrimSpace(request.Device),
-		IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		writeControlPlaneBusinessError(w, err)
