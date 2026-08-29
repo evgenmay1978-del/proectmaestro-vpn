@@ -3,7 +3,6 @@
 package controlplane
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -163,10 +162,7 @@ func task7Name(t *testing.T, suffix string) string {
 
 func task7Service(t *testing.T, db rqlite.RQLite) *Service {
 	t.Helper()
-	box, err := NewSecretBox(1, map[int][]byte{1: bytes.Repeat([]byte{0x71}, 32)}, bytes.Repeat([]byte{0x72}, 32))
-	if err != nil {
-		t.Fatalf("secret box: %v", err)
-	}
+	box := task7FixtureSecretBox(t)
 	clock := fixedClock{value: time.Unix(2_100_000_000, 0)}
 	store, err := NewStore(db, box, clock)
 	if err != nil {
@@ -236,22 +232,14 @@ func task7Now(t *testing.T, db rqlite.RQLite) int64 {
 func task7SeedCustomer(t *testing.T, db rqlite.RQLite, status string, expiry, generation int64) string {
 	t.Helper()
 	id := "customer_" + task7Name(t, fmt.Sprintf("customer-%d", generation))
-	login := sha256.Sum256([]byte(id))
-	now := task7Now(t, db)
-	task7Request(t, db, rqlite.Statement{SQL: `INSERT INTO customers(
-customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
-VALUES(?,?,?,?,?,?,?,?)`, Args: []any{id, id, hex.EncodeToString(login[:]), status, expiry, generation, now - 100, now}})
+	task7SeedCanonicalFixtureCustomer(t, db, task7FixtureSecretBox(t), id, status, expiry, generation)
 	return id
 }
 
 func task7SeedNamedCustomer(t *testing.T, db rqlite.RQLite, name, status string, expiry, generation int64) string {
 	t.Helper()
 	id := "customer_" + task7Name(t, name)
-	login := sha256.Sum256([]byte(id))
-	now := task7Now(t, db)
-	task7Request(t, db, rqlite.Statement{SQL: `INSERT INTO customers(
-customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
-VALUES(?,?,?,?,?,?,?,?)`, Args: []any{id, id, hex.EncodeToString(login[:]), status, expiry, generation, now - 100, now}})
+	task7SeedCanonicalFixtureCustomer(t, db, task7FixtureSecretBox(t), id, status, expiry, generation)
 	return id
 }
 
