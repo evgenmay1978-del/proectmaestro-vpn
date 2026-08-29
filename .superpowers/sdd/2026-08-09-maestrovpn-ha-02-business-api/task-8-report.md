@@ -556,3 +556,34 @@ direct docs validator reports `OK: docs policy`, `git diff --check` exits 0,
 and the focused finding-13 real-SQL test passes in 5.202s. No production,
 server, network, OTA, OLCRTC or WDTT mutation occurred. A correction commit,
 push and new exact-SHA CI evidence are still required.
+
+## Second exact-SHA CI follow-up: reviewed workflow seals
+
+Date: 2026-08-29
+Source SHA: `6b6559b7ca76a238451ec22cf8a78c65dc77958d`
+
+The second push confirmed that the prior boundary and documentation fixes
+worked. Yandex isolated release run `33246566144` completed successfully. HA
+control-plane run `33246566402` and HA DR run `33246566175` progressed beyond
+the materialized-agent boundary, then stopped in their Python contract step
+because the reviewed workflow source seals were stale.
+
+The cause predates this Task 8 checkpoint. Commit
+`66d041dbda95dacc00c2ff880948f65b2ae1c4b1` changed only the materialized
+gofmt allowlists in both workflow files but did not refresh the exact source
+digests enforced by `ops/ha/test-dr-workflow-policy.py`. The old digests match
+the two parent workflow blobs exactly; the replacement digests match the
+current reviewed workflow text:
+
+- control-plane: `c5352f25b1982f49c3c331873601b2de038ccfb9066f383497e54826570cf7c3`;
+- DR: `238c35712b2fcffbbf16df70381d00dc40aec3acc5627c0f3f2b61b47fe57998`.
+
+No workflow command, permission, trigger or runtime behavior was changed.
+Fresh local verification reports 93 HA tests passing with 18 skipped, the
+agent-payload boundary policy passing, and the DR workflow policy passing.
+Independent review returned Spec PASS and Quality APPROVED with no findings.
+
+A third exact-SHA commit/push and all three GitHub workflow results are still
+required before this CI correction is accepted. Findings 2, 4, 5, 6, 9 and
+10 remain open. OLCRTC findings 3/11 and WDTT remain frozen; Android/TV
+version 1.0.157 and production/server state remain unchanged.
