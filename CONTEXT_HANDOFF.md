@@ -1,5 +1,17 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. AUTHORITATIVE S1 IDENTITY CHECKPOINT (29.08.2026)
+
+- Владелец подтвердил: прежний S1 окончательно выведен из эксплуатации и не
+  является допустимой целью инвентаризации, recovery, deploy или DNS-шага.
+  Единственный актуальный S1 — `193.17.183.48`, hostname `ubuntu24`; известный
+  SSH host-key fingerprint: `SHA256:nz7FYGv3rSajprEtnn4nPm+XDIVScfo2iBN8dlrNhfU`.
+- Это только refresh repository references: серверных/сетевых действий,
+  подключений, deploy, DNS/TLS mutation, OLCRTC и WDTT не выполнялось.
+- Все будущие executable S1 references в runbook/deploy/HA plans должны
+  использовать этот checkpoint. Исторические evidence snapshots не являются
+  разрешением на обращение к прежнему узлу.
+
 ## 0. HA PLAN 02 TASK 8 — REVIEW FIX CHECKPOINT (29.08.2026)
 
 - Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.

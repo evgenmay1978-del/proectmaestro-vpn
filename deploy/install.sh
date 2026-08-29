@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command deploy of maestro-panel on SERVER 1 (194.48.141.106). Run as root.
+# One-command deploy of maestro-panel on SERVER 1 (193.17.183.48 / ubuntu24). Run as root.
 #
 # No secrets live in this script: the 3x-ui Bearer token is read from the vpn_bot
 # env, the server-2 root password from /root/.ssh/.s2pass (falls back to a hidden

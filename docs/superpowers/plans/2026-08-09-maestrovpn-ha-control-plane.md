@@ -10,7 +10,8 @@
 
 ## Global Constraints
 
-- Ровно три voting-узла rqlite: S2 `85.137.166.237`, S3 `46.30.42.151`, S4 `89.125.19.95`; S1 `194.48.141.106` не voter.
+- Ровно три voting-узла rqlite: S2 `85.137.166.237`, S3 `46.30.42.151`, S4 `89.125.19.95`; S1 `193.17.183.48` не voter.
+- Owner checkpoint 29.08.2026: `193.17.183.48` (`ubuntu24`) supersedes the prior S1 identity permanently; every future S1 step targets only this address.
 - Новые платные VM, балансировщики, базы, SaaS и платёжные провайдеры запрещены.
 - S1 остаётся обязательной non-retired целью desired state/outbox/tombstones, но его apply выключен и fenced до безопасного возврата с новой incarnation.
 - Публичный клиентский адрес остаётся `https://wapmixx.ru:8911`.

@@ -1,4 +1,8 @@
-# Deploy maestro-panel (server 1, 194.48.141.106)
+# Deploy maestro-panel (server 1, 193.17.183.48 / ubuntu24)
+
+> Owner-authoritative S1 checkpoint (29.08.2026): `193.17.183.48` is the sole
+> current target; verify SSH host key `SHA256:nz7FYGv3rSajprEtnn4nPm+XDIVScfo2iBN8dlrNhfU`
+> before any separately approved production action. The predecessor is permanently retired.
 
 Production step — run as root on server 1. This brings `/sub/<token>` and `/claim`
 online so the TV app can provision + auto-update.

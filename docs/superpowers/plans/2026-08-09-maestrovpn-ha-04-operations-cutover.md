@@ -21,6 +21,7 @@ Focused durable-backup references:
 - Repository-safe scripts/tests/templates разрешены; production deploy/import/DNS/TLS/token/systemd/firewall/OTA mutations требуют отдельного явного approval владельца.
 - GitHub environments сейчас отсутствуют, `main` и рабочая ветка не защищены. Production workflows не получают secrets и не могут применяться, пока эти settings не созданы и не проверены.
 - Три voter — S2/S3/S4; S1 никогда не становится voter.
+- Owner checkpoint 29.08.2026: the sole current S1 is `193.17.183.48` (`ubuntu24`); it permanently supersedes the prior S1 identity in all future cutover steps.
 - Public client URL остаётся `https://wapmixx.ru:8911`; apex имеет ровно одну A-запись ready panel IP.
 - SpaceWeb secret, cluster CA/private keys, bot tokens, backup key и TLS private key не входят в Git/logs/artifacts.
 - Production workflows не запускаются из `pull_request`; actions pinned by full SHA; permissions minimal; concurrency prevents overlap.
@@ -177,7 +178,7 @@ Read-only verify protected `main`; automatic environments `production-dns-auto` 
 
 - [ ] **Step 1: Write fixture tests for the exact mutation boundary**
 
-Mock JSON-RPC and require `Authorization: Bearer` only at the official endpoint. Inventory the complete apex answer/control set and reject any AAAA, CNAME, ANAME, ALIAS/provider flattening, wildcard shadow or multiple/missing A record as NO-GO; an unmanaged IPv6/flattened route must never bypass the active A. A mutation target must be exactly one of `{85.137.166.237,46.30.42.151,89.125.19.95}`. The current source may additionally be inventoried S1 `194.48.141.106` only for the one-time frozen pre-activation transition. Reject unready candidate, no quorum, stale signed status, unexpected read-before-write value and secret/token/header/body in errors/reports.
+Mock JSON-RPC and require `Authorization: Bearer` only at the official endpoint. Inventory the complete apex answer/control set and reject any AAAA, CNAME, ANAME, ALIAS/provider flattening, wildcard shadow or multiple/missing A record as NO-GO; an unmanaged IPv6/flattened route must never bypass the active A. A mutation target must be exactly one of `{85.137.166.237,46.30.42.151,89.125.19.95}`. The current source may additionally be inventoried only as the owner-authoritative S1 `193.17.183.48` for the one-time frozen pre-activation transition. Reject unready candidate, no quorum, stale signed status, unexpected read-before-write value and secret/token/header/body in errors/reports.
 
 - [ ] **Step 2: Write hysteresis/failure tests**
 
@@ -321,7 +322,7 @@ The runbook requires signed evidence and a human checkpoint at each boundary:
 
 1. protect `main`, split automatic/manual environments, shared SpaceWeb lock; require GREEN exact-SHA CI/review with Critical=0 and Important=0;
 2. prepare three-voter rqlite, TLS, panels, authenticated probe/lease-verifier and agents in non-public shadow/canary-only mode;
-3. under the SpaceWeb lock establish exactly `s1-vless.wapmixx.ru -> 194.48.141.106`, reject alternate apex paths, retain S2/S3/S4 fallbacks and record signed provider/TTL-wait proof; S1 itself may remain down;
+3. under the SpaceWeb lock establish exactly `s1-vless.wapmixx.ru -> 193.17.183.48`, reject alternate apex paths, retain S2/S3/S4 fallbacks and record signed provider/TTL-wait proof; S1 itself may remain down;
 4. take read-only consistent inventory and full backup; run full importer dry-run until blockers=0 and shadow credential/expiry/settings/principal/bot digest diff=0;
 5. begin and prove a global write freeze across legacy app API, panel/admin, both bot pollers, reconcilers, olcRTC and backup writers;
 6. after stopping each old poller, capture and sign its stable getMe bot identity, final offset, pending/in-flight callbacks and paid claims; if hard-fence rotation is required, CAS old-to-new token fingerprint only after verifying the same bot identity;
