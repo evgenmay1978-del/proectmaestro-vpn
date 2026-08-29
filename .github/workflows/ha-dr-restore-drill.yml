@@ -95,13 +95,11 @@ jobs:
               internal/controlplane/customers_test.go \
               internal/controlplane/desired_payload.go \
               internal/controlplane/migrations_test.go \
-              internal/controlplane/models.go \
               internal/controlplane/outbox.go \
               internal/controlplane/outbox_test.go \
               internal/controlplane/restore_epoch.go \
               internal/controlplane/restore_epoch_integration_test.go \
-              internal/controlplane/restore_epoch_test.go \
-              internal/controlplane/service.go)
+              internal/controlplane/restore_epoch_test.go)
           gofmt -w "${guarded_go_files[@]}"
           go test ./internal/applyagent ./internal/controlplane
 
