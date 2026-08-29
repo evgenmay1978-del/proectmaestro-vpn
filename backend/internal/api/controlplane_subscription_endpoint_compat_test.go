@@ -31,6 +31,9 @@ func TestControlPlaneSubscriptionInfoAndHelpersKeepLegacyContract(t *testing.T) 
 	if info.Code != http.StatusOK {
 		t.Fatalf("info status = %d, want %d", info.Code, http.StatusOK)
 	}
+	if info.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("info cache control = %q, want no-store", info.Header().Get("Cache-Control"))
+	}
 	var got map[string]json.RawMessage
 	if err := json.Unmarshal(info.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode info: %v", err)
@@ -51,7 +54,61 @@ func TestControlPlaneSubscriptionInfoAndHelpersKeepLegacyContract(t *testing.T) 
 	if helpers.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("helpers content type = %q, want application/json", helpers.Header().Get("Content-Type"))
 	}
+	if helpers.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("helpers cache control = %q, want no-store", helpers.Header().Get("Cache-Control"))
+	}
 	if helpers.Body.String() != "{}\n" {
 		t.Fatalf("helpers body = %q, want {}", helpers.Body.String())
+	}
+}
+
+func TestControlPlaneSubscriptionRejectsInactiveOrExpiredButKeepsInfo(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	tests := []struct {
+		name     string
+		customer CustomerView
+		wantDays int
+	}{
+		{name: "inactive", customer: CustomerView{Login: "inactive", Expires: now.Add(2 * time.Hour), Active: false}, wantDays: 1},
+		{name: "expired", customer: CustomerView{Login: "expired", Expires: now.Add(-time.Hour), Active: true}, wantDays: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewControlPlane(subscriptionEndpointBusiness{snapshot: SubscriptionSnapshot{
+				Customer: test.customer,
+				Document: []byte(`{"outbounds":[]}`),
+			}}, Config{}).Handler()
+
+			info := httptest.NewRecorder()
+			handler.ServeHTTP(info, httptest.NewRequest(http.MethodGet, "/sub/subscription-token/info", nil))
+			if info.Code != http.StatusOK {
+				t.Fatalf("info status = %d, want %d", info.Code, http.StatusOK)
+			}
+			if info.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("info cache control = %q, want no-store", info.Header().Get("Cache-Control"))
+			}
+			var infoBody struct {
+				DaysLeft int  `json:"days_left"`
+				Active   bool `json:"active"`
+			}
+			if err := json.Unmarshal(info.Body.Bytes(), &infoBody); err != nil {
+				t.Fatalf("decode info: %v", err)
+			}
+			if infoBody.Active || infoBody.DaysLeft != test.wantDays {
+				t.Fatalf("info = %#v, want active=false days_left=%d", infoBody, test.wantDays)
+			}
+
+			for _, suffix := range []string{"", "/helpers"} {
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/sub/subscription-token"+suffix, nil))
+				if response.Code != http.StatusPaymentRequired {
+					t.Fatalf("%q status = %d, want %d", suffix, response.Code, http.StatusPaymentRequired)
+				}
+				if response.Header().Get("Cache-Control") != "no-store" {
+					t.Fatalf("%q cache control = %q, want no-store", suffix, response.Header().Get("Cache-Control"))
+				}
+			}
+		})
 	}
 }

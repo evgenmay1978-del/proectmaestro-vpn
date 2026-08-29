@@ -274,10 +274,16 @@ type UpdateSettingCommand struct {
 	IdempotencyKey  string
 }
 
+type OLCRTCRoomView struct {
+	Room     string `json:"room"`
+	Provider string `json:"provider"`
+}
+
 type OLCRTCView struct {
-	Room     string   `json:"room"`
-	Provider string   `json:"provider"`
-	Logins   []string `json:"logins"`
+	Room     string                    `json:"room"`
+	Provider string                    `json:"provider"`
+	Logins   []string                  `json:"logins"`
+	Rooms    map[string]OLCRTCRoomView `json:"rooms,omitempty"`
 }
 
 type SetOLCRTCRoomCommand struct {

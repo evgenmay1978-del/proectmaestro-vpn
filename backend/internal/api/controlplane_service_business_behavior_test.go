@@ -95,6 +95,120 @@ func TestServiceBusinessCustomerViewDoesNotExposeCredentialValues(t *testing.T) 
 	}
 }
 
+func TestNextOLCRTCRoomSettingKeepsAliceAndBobIsolated(t *testing.T) {
+	alice, err := nextOLCRTCRoomSetting(nil, " Alice ", "room-alice", "manual")
+	if err != nil {
+		t.Fatalf("Alice mutation: %v", err)
+	}
+	if alice.Login != "alice" || len(alice.Members) != 1 || alice.Members[0] != "alice" {
+		t.Fatalf("Alice routing = %#v", alice)
+	}
+	var aliceTarget map[string]string
+	if err := json.Unmarshal(alice.TargetValue, &aliceTarget); err != nil {
+		t.Fatalf("Alice target JSON: %v", err)
+	}
+	if len(aliceTarget) != 2 || aliceTarget["room"] != "room-alice" || aliceTarget["provider"] != "manual" {
+		t.Fatalf("Alice target = %#v", aliceTarget)
+	}
+
+	bob, err := nextOLCRTCRoomSetting(alice.Value, "Bob", "room-bob", "wbstream")
+	if err != nil {
+		t.Fatalf("Bob mutation: %v", err)
+	}
+	if bob.Login != "bob" || len(bob.Members) != 2 || bob.Members[0] != "alice" || bob.Members[1] != "bob" {
+		t.Fatalf("Bob routing = %#v", bob)
+	}
+	type room struct {
+		Room     string
+		Provider string
+	}
+	var state struct {
+		Rooms map[string]room
+	}
+	if err := json.Unmarshal(bob.Value, &state); err != nil {
+		t.Fatalf("combined room JSON: %v", err)
+	}
+	if len(state.Rooms) != 2 || state.Rooms["alice"].Room != "room-alice" || state.Rooms["bob"].Room != "room-bob" {
+		t.Fatalf("combined rooms = %#v", state.Rooms)
+	}
+	var bobTarget map[string]string
+	if err := json.Unmarshal(bob.TargetValue, &bobTarget); err != nil {
+		t.Fatalf("Bob target JSON: %v", err)
+	}
+	if len(bobTarget) != 2 || bobTarget["room"] != "room-bob" || bobTarget["provider"] != "wbstream" {
+		t.Fatalf("Bob target = %#v", bobTarget)
+	}
+
+	view, err := olcrtcViewFromValue(bob.Value)
+	if err != nil {
+		t.Fatalf("OLCRTC view: %v", err)
+	}
+	if len(view.Rooms) != 2 || view.Rooms["alice"].Room != "room-alice" || view.Rooms["bob"].Room != "room-bob" {
+		t.Fatalf("OLCRTC view rooms = %#v", view.Rooms)
+	}
+	if len(view.Logins) != 2 || view.Logins[0] != "alice" || view.Logins[1] != "bob" {
+		t.Fatalf("OLCRTC view logins = %#v", view.Logins)
+	}
+	if view.Room != "" || view.Provider != "" {
+		t.Fatalf("multi-room view exposed ambiguous global room: %#v", view)
+	}
+
+	type grantView struct {
+		Enabled  bool
+		Room     string
+		Provider string
+	}
+	aliceGrantLogin, aliceGrantValue, err := olcrtcGrantTargetValue(bob.Value, "Alice", true)
+	if err != nil {
+		t.Fatalf("Alice grant: %v", err)
+	}
+	var aliceGrant grantView
+	if err := json.Unmarshal(aliceGrantValue, &aliceGrant); err != nil {
+		t.Fatalf("Alice grant JSON: %v", err)
+	}
+	if aliceGrantLogin != "alice" || !aliceGrant.Enabled || aliceGrant.Room != "room-alice" || aliceGrant.Provider != "manual" {
+		t.Fatalf("Alice grant payload = login:%q value:%#v", aliceGrantLogin, aliceGrant)
+	}
+	bobGrantLogin, bobGrantValue, err := olcrtcGrantTargetValue(bob.Value, "Bob", false)
+	if err != nil {
+		t.Fatalf("Bob grant: %v", err)
+	}
+	var bobGrant grantView
+	if err := json.Unmarshal(bobGrantValue, &bobGrant); err != nil {
+		t.Fatalf("Bob grant JSON: %v", err)
+	}
+	if bobGrantLogin != "bob" || bobGrant.Enabled || bobGrant.Room != "room-bob" || bobGrant.Provider != "wbstream" {
+		t.Fatalf("Bob grant payload = login:%q value:%#v", bobGrantLogin, bobGrant)
+	}
+
+	for _, invalid := range []struct {
+		name, room, provider string
+	}{
+		{name: "empty-room", room: " ", provider: "manual"},
+		{name: "empty-provider", room: "room-alice", provider: " "},
+	} {
+		t.Run(invalid.name, func(t *testing.T) {
+			if _, err := nextOLCRTCRoomSetting(nil, "alice", invalid.room, invalid.provider); err == nil {
+				t.Fatal("invalid room assignment was accepted")
+			}
+		})
+	}
+	if _, _, err := olcrtcGrantTargetValue(nil, "alice", true); err == nil {
+		t.Fatal("roomless enabled grant was accepted")
+	}
+	login, disabledValue, err := olcrtcGrantTargetValue(nil, "alice", false)
+	if err != nil {
+		t.Fatalf("roomless disabled grant: %v", err)
+	}
+	var disabled grantView
+	if err := json.Unmarshal(disabledValue, &disabled); err != nil {
+		t.Fatalf("roomless disabled grant JSON: %v", err)
+	}
+	if login != "alice" || disabled.Enabled {
+		t.Fatalf("roomless disabled grant = login:%q value:%#v", login, disabled)
+	}
+}
+
 func containsAny(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if needle != "" && len(value) >= len(needle) {

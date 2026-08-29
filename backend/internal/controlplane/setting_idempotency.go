@@ -22,15 +22,16 @@ func settingRequestHash(update SettingUpdate) (string, error) {
 	sort.Strings(members)
 	sort.Strings(targets)
 	payload, err := json.Marshal(struct {
-		Key                string   `json:"key"`
-		ExpectedGeneration int64    `json:"expected_generation"`
-		PublicValueJSON    string   `json:"public_value_json"`
-		Members            []string `json:"members,omitempty"`
-		TargetMembers      []string `json:"target_members,omitempty"`
-		CommandType        string   `json:"command_type"`
-		RequestFingerprint string   `json:"request_fingerprint,omitempty"`
+		Key                string            `json:"key"`
+		ExpectedGeneration int64             `json:"expected_generation"`
+		PublicValueJSON    string            `json:"public_value_json"`
+		Members            []string          `json:"members,omitempty"`
+		TargetMembers      []string          `json:"target_members,omitempty"`
+		TargetPayloads     map[string]string `json:"target_payloads,omitempty"`
+		CommandType        string            `json:"command_type"`
+		RequestFingerprint string            `json:"request_fingerprint,omitempty"`
 	}{
-		update.Key, update.ExpectedGeneration, update.PublicValueJSON, members, targets,
+		update.Key, update.ExpectedGeneration, update.PublicValueJSON, members, targets, update.TargetPayloads,
 		update.CommandType, update.RequestFingerprint,
 	})
 	if err != nil {
@@ -149,22 +150,26 @@ SELECT ?,?,?, 'cluster_setting',?,? WHERE ` + settingGuard + ` AND ` + guard + `
 		Args: append([]any{auditID("setting", update.Key, next, now), actorHMAC, update.CommandType, resourceHMAC, now}, append(settingGuardArgs, guardArgs...)...),
 	})
 	if update.Key == "olcrtc" && len(update.TargetMembers) > 0 {
-		payload, sealErr := s.secrets.Seal(SecretScope{
-			OwnerType: "setting", OwnerID: update.Key, Field: "desired", Kind: "s3-olcrtc",
-		}, []byte(update.PublicValueJSON))
-		if sealErr != nil {
-			return SettingResult{}, sealErr
-		}
-		envelopeBytes, marshalErr := json.Marshal(payload)
-		if marshalErr != nil {
-			return SettingResult{}, errors.New("controlplane: encode olcrtc desired state")
-		}
-		digest := sha256.Sum256(envelopeBytes)
 		for _, member := range update.TargetMembers {
 			canonical, canonicalErr := CanonicalLoginKey(member)
 			if canonicalErr != nil {
 				return SettingResult{}, errors.New("controlplane: invalid olcrtc target")
 			}
+			desiredJSON, ok := update.TargetPayloads[canonical]
+			if !ok {
+				return SettingResult{}, errors.New("controlplane: missing olcrtc target payload")
+			}
+			payload, sealErr := s.secrets.Seal(SecretScope{
+				OwnerType: "setting", OwnerID: update.Key, Field: "desired", Kind: "s3-olcrtc",
+			}, []byte(desiredJSON))
+			if sealErr != nil {
+				return SettingResult{}, sealErr
+			}
+			envelopeBytes, marshalErr := json.Marshal(payload)
+			if marshalErr != nil {
+				return SettingResult{}, errors.New("controlplane: encode olcrtc desired state")
+			}
+			digest := sha256.Sum256(envelopeBytes)
 			loginHMAC := s.secrets.LookupHMAC("customer-login", []byte(canonical))
 			statements = append(statements, rqlite.Statement{
 				SQL: `INSERT INTO desired_node_state(customer_id,node_id,service_name,generation,desired_envelope,

@@ -96,7 +96,36 @@ FROM tariff_versions WHERE active = 1 ORDER BY duration_days, tariff_version_id`
 }
 
 func validSettingUpdate(update SettingUpdate) bool {
-	return strings.TrimSpace(update.Key) != "" && update.ExpectedGeneration >= 0 && json.Valid([]byte(update.PublicValueJSON))
+	if strings.TrimSpace(update.Key) == "" || update.ExpectedGeneration < 0 || !json.Valid([]byte(update.PublicValueJSON)) {
+		return false
+	}
+	if update.Key != "olcrtc" {
+		return len(update.TargetPayloads) == 0
+	}
+	targets := make(map[string]struct{}, len(update.TargetMembers))
+	for _, login := range update.TargetMembers {
+		canonical, err := CanonicalLoginKey(login)
+		if err != nil || login != canonical {
+			return false
+		}
+		if _, duplicate := targets[canonical]; duplicate {
+			return false
+		}
+		targets[canonical] = struct{}{}
+	}
+	if len(update.TargetPayloads) != len(targets) {
+		return false
+	}
+	for login, payload := range update.TargetPayloads {
+		canonical, err := CanonicalLoginKey(login)
+		if err != nil || login != canonical || !json.Valid([]byte(payload)) {
+			return false
+		}
+		if _, targeted := targets[canonical]; !targeted {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) updateSetting(ctx context.Context, update SettingUpdate, mutationToken string) (SettingResult, error) {

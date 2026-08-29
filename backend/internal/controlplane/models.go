@@ -119,6 +119,7 @@ type SettingUpdate struct {
 	IdempotencyKey     string
 	RequestFingerprint string
 	TargetMembers      []string
+	TargetPayloads     map[string]string
 }
 
 type SettingResult struct {

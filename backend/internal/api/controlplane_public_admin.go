@@ -158,6 +158,7 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 	if !requireControlPlaneMethod(w, r, http.MethodGet) {
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	rest := strings.TrimPrefix(r.URL.Path, "/sub/")
 	info := strings.HasSuffix(rest, "/info")
 	helpers := strings.HasSuffix(rest, "/helpers")
@@ -190,6 +191,10 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 		writeControlPlaneSubInfo(w, snapshot.Customer)
 		return
 	}
+	if !snapshot.Customer.Active || !snapshot.Customer.Expires.After(time.Now()) {
+		http.Error(w, "subscription expired", http.StatusPaymentRequired)
+		return
+	}
 	if helpers {
 		writeControlPlaneJSON(w, http.StatusOK, map[string]any{})
 		return
@@ -213,11 +218,12 @@ func writeControlPlaneSubInfo(w http.ResponseWriter, customer CustomerView) {
 	if daysLeft < 0 {
 		daysLeft = 0
 	}
+	active := customer.Active && untilExpiry > 0
 	writeControlPlaneJSON(w, http.StatusOK, map[string]any{
 		"login":     customer.Login,
 		"expires":   customer.Expires,
 		"days_left": daysLeft,
-		"active":    customer.Active,
+		"active":    active,
 	})
 }
 
