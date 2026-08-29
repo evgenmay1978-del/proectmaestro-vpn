@@ -17,6 +17,7 @@ type durableExternalActionFixture struct {
 
 type externalActionFixtureBinding struct {
 	actionType, resourceID, requestHash string
+	replacesActionID, replacesActionKey string
 }
 
 func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLiteExternalActions, *durableExternalActionFixture) {
@@ -35,10 +36,15 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 			resourceID, _ := statements[0].Args[2].(string)
 			requestHash, _ := statements[0].Args[5].(string)
 			if _, ok := fixture.states[key]; !ok {
-				fixture.states[key] = "pending"
-				fixture.bindings[key] = externalActionFixtureBinding{
+				binding := externalActionFixtureBinding{
 					actionType: actionType, resourceID: resourceID, requestHash: requestHash,
 				}
+				if len(statements[0].Args) > 9 {
+					binding.replacesActionKey, _ = statements[0].Args[9].(string)
+					binding.replacesActionID = "action-" + binding.replacesActionKey
+				}
+				fixture.states[key] = "pending"
+				fixture.bindings[key] = binding
 			}
 			return actionFixtureResults(key, fixture.states[key], fixture.bindings[key]), nil
 		}
@@ -68,14 +74,21 @@ func newDurableExternalActionPersistence(t *testing.T, allowStart bool) (*RQLite
 }
 
 func actionFixtureResults(key, state string, binding externalActionFixtureBinding) []rqlite.Result {
-	return []rqlite.Result{{}, {Rows: []map[string]any{{
-		"action_id":       "action-" + key,
-		"action_type":     binding.actionType,
-		"resource_id":     binding.resourceID,
-		"idempotency_key": key,
-		"request_sha256":  binding.requestHash,
-		"status":          state,
-	}}}}
+	row := map[string]any{
+		"action_id":           "action-" + key,
+		"action_type":         binding.actionType,
+		"resource_id":         binding.resourceID,
+		"idempotency_key":     key,
+		"request_sha256":      binding.requestHash,
+		"status":              state,
+		"replaces_action_id":  nil,
+		"replaces_action_key": nil,
+	}
+	if binding.replacesActionID != "" {
+		row["replaces_action_id"] = binding.replacesActionID
+		row["replaces_action_key"] = binding.replacesActionKey
+	}
+	return []rqlite.Result{{}, {Rows: []map[string]any{row}}}
 }
 
 func TestExternalActionCrashBoundariesPostAtMostOnce(t *testing.T) {
@@ -138,7 +151,7 @@ func TestExternalActionStaleLeaseCannotSend(t *testing.T) {
 }
 
 func TestExternalActionReplacementUsesNewKey(t *testing.T) {
-	persistence, _ := newDurableExternalActionPersistence(t, true)
+	persistence, fixture := newDurableExternalActionPersistence(t, true)
 	sender := &countingExternalSender{}
 	executor := NewExternalActionExecutor(persistence, sender)
 	first := ExternalActionCommand{
@@ -148,6 +161,7 @@ func TestExternalActionReplacementUsesNewKey(t *testing.T) {
 	if _, err := executor.Execute(context.Background(), first, nil); err != nil {
 		t.Fatalf("first Execute: %v", err)
 	}
+	fixture.states[first.ActionKey] = "unknown"
 	replacement := first
 	replacement.ActionKey = "action-2"
 	replacement.ReplacesActionKey = first.ActionKey

@@ -29,6 +29,9 @@ func (s *RQLiteExternalActions) Prepare(ctx context.Context, command ExternalAct
 	if command.Type == "" || command.ResourceID == "" || command.ActionKey == "" {
 		return ExternalActionResult{}, errors.New("controlplane: invalid external action")
 	}
+	if command.ReplacesActionKey != "" && command.ReplacesActionKey == command.ActionKey {
+		return ExternalActionResult{}, ErrConflict
+	}
 	binding, err := s.binding(command)
 	if err != nil {
 		return ExternalActionResult{}, err
@@ -49,14 +52,11 @@ func (s *RQLiteExternalActions) Prepare(ctx context.Context, command ExternalAct
 	}
 	now := s.service.clock.Now().Unix()
 	results, err := s.service.store.db.Request(ctx, rqlite.Linearizable, true,
-		rqlite.Statement{SQL: `INSERT OR IGNORE INTO external_actions(action_id,action_type,resource_id,idempotency_key,
-request_envelope,request_sha256,status,attempts,created_at_unix,updated_at_unix)
-VALUES(?,?,?,?,?,?,'pending',0,?,?)`, Args: []any{
-			actionID, command.Type, binding.resourceKeyHMAC, command.ActionKey, envelopeBytes, binding.requestHMAC, now, now,
-		}},
+		externalActionPrepareInsert(command, binding, actionID, envelopeBytes, now),
 		externalActionPrepareRead(command),
 	)
-	if err != nil {
+	ambiguous := err != nil
+	if ambiguous {
 		results, err = s.service.store.db.QueryLinearizable(ctx, externalActionPrepareRead(command))
 		if err != nil {
 			return ExternalActionResult{}, ErrUnavailable
@@ -64,6 +64,12 @@ VALUES(?,?,?,?,?,?,'pending',0,?,?)`, Args: []any{
 	}
 	result, err := externalActionBoundResult(results, command, binding)
 	if errors.Is(err, ErrNotFound) {
+		if ambiguous {
+			return ExternalActionResult{}, ErrUnavailable
+		}
+		if command.ReplacesActionKey != "" {
+			return ExternalActionResult{}, ErrConflict
+		}
 		return ExternalActionResult{}, ErrUnavailable
 	}
 	if err != nil {
@@ -82,8 +88,32 @@ VALUES(?,?,?,?,?,?,'pending',0,?,?)`, Args: []any{
 }
 
 func externalActionPrepareRead(command ExternalActionCommand) rqlite.Statement {
-	return rqlite.Statement{SQL: `SELECT action_id,action_type,resource_id,idempotency_key,request_sha256,status,response_envelope FROM external_actions
-WHERE action_type=? AND idempotency_key=?`, Args: []any{command.Type, command.ActionKey}}
+	return rqlite.Statement{SQL: `SELECT action.action_id,action.action_type,action.resource_id,
+action.idempotency_key,action.request_sha256,action.status,action.response_envelope,
+action.replaces_action_id,predecessor.idempotency_key AS replaces_action_key
+FROM external_actions action
+LEFT JOIN external_actions predecessor ON predecessor.action_id=action.replaces_action_id
+WHERE action.action_type=? AND action.idempotency_key=?`, Args: []any{command.Type, command.ActionKey}}
+}
+
+func externalActionPrepareInsert(
+	command ExternalActionCommand, binding externalActionBinding, actionID string, envelope []byte, now int64,
+) rqlite.Statement {
+	if command.ReplacesActionKey == "" {
+		return rqlite.Statement{SQL: `INSERT OR IGNORE INTO external_actions(action_id,action_type,resource_id,idempotency_key,
+request_envelope,request_sha256,status,attempts,created_at_unix,updated_at_unix)
+VALUES(?,?,?,?,?,?,'pending',0,?,?)`, Args: []any{
+			actionID, command.Type, binding.resourceKeyHMAC, command.ActionKey, envelope, binding.requestHMAC, now, now,
+		}}
+	}
+	return rqlite.Statement{SQL: `INSERT OR IGNORE INTO external_actions(action_id,action_type,resource_id,idempotency_key,
+request_envelope,request_sha256,status,attempts,created_at_unix,updated_at_unix,replaces_action_id)
+SELECT ?,?,?,?,?,?,'pending',0,?,?,predecessor.action_id FROM external_actions predecessor
+WHERE predecessor.action_type=? AND predecessor.idempotency_key=? AND predecessor.status='unknown'
+AND predecessor.resource_id=? AND predecessor.request_sha256=? AND predecessor.idempotency_key<>?`, Args: []any{
+		actionID, command.Type, binding.resourceKeyHMAC, command.ActionKey, envelope, binding.requestHMAC, now, now,
+		command.Type, command.ReplacesActionKey, binding.resourceKeyHMAC, binding.requestHMAC, command.ActionKey,
+	}}
 }
 
 func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
@@ -198,6 +228,9 @@ func externalActionBoundResult(
 		if actionType != command.Type || actionKey != command.ActionKey {
 			return ExternalActionResult{}, ErrConflict
 		}
+		if err := externalActionRelationMatches(row, command); err != nil {
+			return ExternalActionResult{}, err
+		}
 		current := resourceID == binding.resourceKeyHMAC && requestHash == binding.requestHMAC
 		legacy := resourceID == command.ResourceID && requestHash == binding.legacyRequestSHA256
 		if !current && !legacy {
@@ -206,6 +239,32 @@ func externalActionBoundResult(
 		return ExternalActionResult{ID: id, State: status}, nil
 	}
 	return ExternalActionResult{}, ErrNotFound
+}
+
+func externalActionRelationMatches(row map[string]any, command ExternalActionCommand) error {
+	relationID, idPresent := row["replaces_action_id"]
+	relationKey, keyPresent := row["replaces_action_key"]
+	if !idPresent || !keyPresent {
+		return ErrUnavailable
+	}
+	if relationID == nil && relationKey == nil {
+		if command.ReplacesActionKey == "" {
+			return nil
+		}
+		return ErrConflict
+	}
+	if relationID == nil || relationKey == nil {
+		return ErrUnavailable
+	}
+	id, idOK := relationID.(string)
+	key, keyOK := relationKey.(string)
+	if !idOK || !keyOK || id == "" || key == "" {
+		return ErrUnavailable
+	}
+	if command.ReplacesActionKey == "" || key != command.ReplacesActionKey {
+		return ErrConflict
+	}
+	return nil
 }
 
 func externalActionResult(results []rqlite.Result) (ExternalActionResult, error) {
