@@ -523,3 +523,36 @@ returned Spec PASS and Quality APPROVED with no actionable findings.
 Findings 2, 4, 5, 6, 9 and 10 remain open. OLCRTC findings 3/11 and WDTT remain
 frozen. Android/TV production version 1.0.157 and all production/server state
 were unchanged.
+
+## Exact-SHA CI correction checkpoint
+
+Date: 2026-08-29
+Source SHA: `12102738635ce5f4d9a541b8cef84e87136247ca`
+
+All three push workflows completed with failure before their main suites:
+
+- HA control-plane run `33245602554`, job `99082404572`, stopped at
+  `Check materialized agent boundary`.
+- HA DR run `33245602522`, job `99082404207`, stopped at the same boundary.
+- Yandex isolated release run `33245602496`, job `99082404046`, passed Go
+  formatting/packages and stopped at the Python documentation contracts.
+
+The HA/DR cause was mechanical: formatting `outbox.go` had removed that file
+from the workflow's exact intentional noncanonical allowlist. The functional
+customer-ID SQL predicate remains unchanged; only the original materialized
+boundary formatting was restored. Prospective Git-blob verification now
+matches the exact 25-file allowlist, and `test-agent-payload-policy.py` passes
+with the explicit Go 1.25 runtime on PATH.
+
+The Yandex cause was governance drift from the earlier S1 refresh and policy
+update: the persisted baseline rows for `AGENTS.md` and `CONTEXT_HANDOFF.md`
+were stale, and the handoff exposed a raw S1 endpoint forbidden by the docs
+secrecy gate. The handoff now uses symbolic `CURRENT_S1`; its exact operational
+value remains in the canonical server inventory/runbook and ignored local SSH
+configuration. The computed manifest rows were updated.
+
+Fresh local evidence: all 64 Yandex Python contracts pass (`3` skipped), the
+direct docs validator reports `OK: docs policy`, `git diff --check` exits 0,
+and the focused finding-13 real-SQL test passes in 5.202s. No production,
+server, network, OTA, OLCRTC or WDTT mutation occurred. A correction commit,
+push and new exact-SHA CI evidence are still required.
