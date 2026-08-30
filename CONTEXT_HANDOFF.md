@@ -27,10 +27,14 @@
   [Yandex CDN isolated release checks 33309742322](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742322),
   [HA control-plane checks 33309742346](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742346),
   [HA DR restore drill 33309742401](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742401).
-- Следующий этап — redacted read-only production inventory и backup readiness,
-  затем изолированный canary. Production deploy/restart, rqlite import/write,
-  DNS/TLS/CDN, bot/payment/customer mutation и cutover требуют соответствующих
-  gates; финальный traffic cutover — отдельного явного owner approval.
+- Redacted read-only S1-S4 inventory и legacy backup verification завершены;
+  durable audit: `docs/operations/ha-readiness-audit-2026-08-30.md`. Статус
+  `PRODUCTION NO-GO`. Следующие gates: authoritative S3 identity, воспроизводимые
+  S1 exact-SHA artifacts, reviewed HA runbooks/tooling, isolated empty-cluster
+  restore, S4 network maintenance и полный east-west proof. Shadow deploy/restart,
+  rqlite import/write, DNS/TLS/CDN, bot/payment/customer mutation, canary и
+  cutover требуют соответствующих owner-approved gates; финальный traffic
+  cutover остаётся отдельным явным approval.
 - Android/TV production baseline остаётся `1.0.157`. Findings 3/11 (OLCRTC) и
   WDTT заморожены. Защищённые `task-4-report.md` и `normalize.patch` не stage и
   не изменять. Akonit/Telegram decisions сохранены в
@@ -3759,3 +3763,40 @@ notifications; recipient-bound gifts; explicit order/payment/provisioning
 states; last-known-good config delivery; client/platform/transport matrix; and
 public-link checks. Public Akonit materials did not prove Yandex CDN or padding.
 OLCRTC and WDTT remain frozen.
+
+## 2026-08-30 - S1-S4 read-only production readiness checkpoint
+
+Durable redacted report:
+`docs/operations/ha-readiness-audit-2026-08-30.md`.
+
+The owner confirmed ownership/access for S1-S4. Strict key-only SSH works for
+all four nodes. S1, S2 and S4 have revalidated existing or owner-provided
+ED25519 identity evidence. S3 had no durable prior pin; its live ED25519
+fingerprint matched from the local runner and trusted S2 before a dedicated
+continuity pin was created. That is not authoritative out-of-band attestation;
+S3 identity remains a blocker before mutation. S4 cannot reach S3 TCP/22, so
+the east-west matrix is incomplete.
+
+S1 remains the public control plane; S2 remains the multi-protocol/bot node; S3
+and S4 remain x-ui/VPN nodes. Bounded unit/path checks did not detect an HA
+panel, HA agent, rqlite or HA backup worker on S2-S4. S2 legacy backup verify
+downloaded, decrypted and read
+the selected archive and returned `ok` for x-ui SQLite, but RPO age, object
+version, authenticity and isolated restore remain unproved. S4 is degraded
+because systemd-networkd owns an operational `eth0` while enabled ifupdown tries
+to assign the same static address. No network change was made.
+
+S1 health reports build commit `296079c`, absent from canonical local Git and
+GitHub. Accepted code remains
+`d7cfec12eb8656ea821d855bdb552a172cbf5fd6`; production provenance is
+untraceable and deployment remains blocked.
+
+Current status: `PRODUCTION NO-GO`. Next gates are authoritative S3 identity,
+reviewed HA runbooks/tooling, reproducible exact-SHA artifacts,
+authenticated/versioned backup plus empty-cluster restore proof, S4 network
+maintenance and complete east-west proof, then non-public S2-S4 shadow
+deployment. Shadow deployment and every production backup, fencing or import
+mutation require separate owner-approved, console-recoverable change windows;
+this checkpoint authorizes none of them. Canary and final cutover remain separate
+approvals. No customer, bot, service, firewall, DNS, TLS, OTA or VPN configuration
+was changed. OLCRTC and WDTT remain frozen.
