@@ -116,6 +116,8 @@ func businessError(err error) error {
 	switch {
 	case errors.Is(err, controlplane.ErrNotFound):
 		status = http.StatusNotFound
+	case errors.Is(err, controlplane.ErrUnauthenticated):
+		status = http.StatusUnauthorized
 	case errors.Is(err, controlplane.ErrForbidden):
 		status = http.StatusForbidden
 	case errors.Is(err, controlplane.ErrDeviceLimit):
@@ -148,20 +150,34 @@ func (b *ServiceBusiness) Authorize(ctx context.Context, command AuthorizeComman
 	if err := b.available(); err != nil {
 		return PrincipalView{}, err
 	}
-	permission := controlplane.PermissionCustomerRead
+	var permission controlplane.Permission
 	switch strings.ToLower(strings.TrimSpace(command.Permission)) {
+	case "read", "customer.read":
+		permission = controlplane.PermissionCustomerRead
 	case "write", "settings.critical":
 		permission = controlplane.PermissionCriticalSettings
 	case "customer.provision":
 		permission = controlplane.PermissionProvision
 	case "payment.decide":
 		permission = controlplane.PermissionPaymentDecide
+	default:
+		return PrincipalView{}, businessError(controlplane.ErrForbidden)
 	}
 	authorization, err := b.service.Authorize(ctx, command.Session, command.CSRF, permission)
 	if err != nil {
 		return PrincipalView{}, businessError(err)
 	}
-	return PrincipalView{ID: authorization.PrincipalID, Permissions: []string{string(permission)}}, nil
+	permissions := []string{string(permission)}
+	switch strings.ToLower(strings.TrimSpace(authorization.Role)) {
+	case "owner":
+		permissions = []string{
+			string(controlplane.PermissionCustomerRead), string(controlplane.PermissionProvision),
+			string(controlplane.PermissionPaymentDecide), string(controlplane.PermissionCriticalSettings),
+		}
+	case "admin":
+		permissions = []string{string(controlplane.PermissionCustomerRead), string(controlplane.PermissionProvision)}
+	}
+	return PrincipalView{ID: authorization.PrincipalID, Permissions: permissions}, nil
 }
 
 func (b *ServiceBusiness) RevokeSessions(ctx context.Context, command RevokeSessionsCommand) error {
@@ -176,6 +192,17 @@ func (b *ServiceBusiness) ChangePrincipalPassword(ctx context.Context, command C
 		return err
 	}
 	return businessError(b.service.ChangePrincipalPassword(ctx, command.PrincipalID, command.Current, command.New, command.IdempotencyKey))
+}
+
+func (b *ServiceBusiness) ConsumeRateLimit(ctx context.Context, command RateLimitCommand) (RateLimitView, error) {
+	if err := b.available(); err != nil {
+		return RateLimitView{}, err
+	}
+	decision, err := b.service.ConsumeRateLimit(ctx, command.Scope, command.Key, command.Limit, command.Window, command.Block)
+	if err != nil {
+		return RateLimitView{}, businessError(err)
+	}
+	return RateLimitView{Allowed: decision.Allowed, RetryAfterSeconds: decision.RetryAfterSeconds}, nil
 }
 
 func (b *ServiceBusiness) CustomerByToken(ctx context.Context, token string) (CustomerView, error) {
@@ -204,7 +231,15 @@ func (b *ServiceBusiness) ListCustomers(ctx context.Context, filter CustomerFilt
 	if err := b.available(); err != nil {
 		return nil, err
 	}
-	customers, err := b.service.ListBusinessCustomers(ctx)
+	var (
+		customers []controlplane.BusinessCustomer
+		err       error
+	)
+	if filter.Limit > 0 {
+		customers, err = b.service.ListBusinessCustomersPage(ctx, filter.AfterLogin, filter.AfterCustomerID, filter.Limit)
+	} else {
+		customers, err = b.service.ListBusinessCustomers(ctx)
+	}
 	if err != nil {
 		return nil, businessError(err)
 	}
@@ -224,14 +259,19 @@ func (b *ServiceBusiness) CustomerStats(ctx context.Context) (CustomerStatsView,
 	if err != nil {
 		return CustomerStatsView{}, err
 	}
+	now := b.requestNow()
 	stats := CustomerStatsView{Total: len(customers)}
 	for _, customer := range customers {
-		switch {
-		case customer.Disabled:
+		stats.Devices += customer.Devices
+		if customer.Disabled {
 			stats.Disabled++
-		case customer.Active:
+		}
+		if customer.Active {
 			stats.Active++
-		default:
+			if customer.Expires.Before(now.Add(7 * 24 * time.Hour)) {
+				stats.Expiring7D++
+			}
+		} else {
 			stats.Expired++
 		}
 	}
@@ -246,7 +286,21 @@ func (b *ServiceBusiness) CustomerUsage(ctx context.Context, login string) (Cust
 	if err != nil {
 		return CustomerUsageView{}, businessError(err)
 	}
-	return CustomerUsageView{Login: login, Bytes: bytes}, nil
+	devices, err := b.service.BusinessCustomerDevices(ctx, login)
+	if err != nil {
+		return CustomerUsageView{}, businessError(err)
+	}
+	deviceIDs := make(map[string]string, len(devices))
+	for _, device := range devices {
+		if device.LastSeenAtUnix > 0 {
+			deviceIDs[device.ID] = time.Unix(device.LastSeenAtUnix, 0).UTC().Format(time.RFC3339)
+		} else {
+			deviceIDs[device.ID] = ""
+		}
+	}
+	return CustomerUsageView{
+		Login: login, Bytes: bytes, DeviceIDs: deviceIDs, DeviceLimit: b.resolveDeviceLimit(login),
+	}, nil
 }
 
 func (b *ServiceBusiness) Tariffs(ctx context.Context) ([]TariffView, error) {
@@ -389,7 +443,15 @@ func (b *ServiceBusiness) ListOrders(ctx context.Context, filter OrderFilter) ([
 	if err := b.available(); err != nil {
 		return nil, err
 	}
-	orders, err := b.service.ListBusinessOrders(ctx, filter.Status)
+	var (
+		orders []controlplane.BusinessOrder
+		err    error
+	)
+	if filter.Limit > 0 {
+		orders, err = b.service.ListBusinessOrdersPage(ctx, filter.Status, filter.AfterCreatedAtUnix, filter.AfterOrderID, filter.Limit)
+	} else {
+		orders, err = b.service.ListBusinessOrders(ctx, filter.Status)
+	}
 	if err != nil {
 		return nil, businessError(err)
 	}
@@ -834,18 +896,59 @@ func (b *ServiceBusiness) ClusterStatus(ctx context.Context) (ClusterStatusView,
 	if err := b.available(); err != nil {
 		return ClusterStatusView{}, err
 	}
-	ready, quorum, err := b.service.BusinessClusterStatus(ctx)
+	status, err := b.service.BusinessOperationalStatus(ctx)
 	if err != nil {
 		return ClusterStatusView{}, businessError(err)
 	}
-	return ClusterStatusView{Ready: ready, Quorum: quorum}, nil
+	failures := make([]FailureSummaryView, 0, len(status.Failures))
+	for _, failure := range status.Failures {
+		failures = append(failures, FailureSummaryView{Component: failure.Component, Count: failure.Count})
+	}
+	return ClusterStatusView{
+		Ready: status.Ready, Quorum: status.Quorum, ReadReady: status.ReadReady,
+		WriteReadiness: status.WriteReadiness, DataComplete: status.DataComplete,
+		Replication: ReplicationStatusView{
+			State: status.Replication.State, DataComplete: status.Replication.DataComplete,
+			LeaderID: status.Replication.LeaderID, ReachableNodes: status.Replication.ReachableNodes,
+			MaxLagEntries: status.Replication.MaxLagEntries,
+		},
+		Nodes: NodeStatusView{
+			Voters: status.Nodes.Voters, EnabledVoters: status.Nodes.EnabledVoters,
+			ActiveServiceTargets: status.Nodes.ActiveServiceTargets,
+			FencedServiceTargets: status.Nodes.FencedServiceTargets, StaleReceipts: status.Nodes.StaleReceipts,
+		},
+		Apply: ApplyStatusView{
+			Pending: status.Apply.Pending, Failed: status.Apply.Failed,
+			FailedReceipts: status.Apply.FailedReceipts, MaxGenerationLag: status.Apply.MaxGenerationLag,
+		},
+		Outbox: OutboxStatusView{
+			Pending: status.Outbox.Pending, Failed: status.Outbox.Failed,
+			OldestPendingAgeSeconds: status.Outbox.OldestPendingAgeSeconds,
+		},
+		Telegram: TelegramStatusView{
+			Routes: status.Telegram.Routes, ActivePollers: status.Telegram.ActivePollers,
+			InboxRejected: status.Telegram.InboxRejected, DeliveryFailed: status.Telegram.DeliveryFailed,
+			DataComplete: status.Telegram.DataComplete,
+		},
+		DNSTLS: ProbeStatusView{
+			State: status.DNSTLS.State, Targets: status.DNSTLS.Targets, DataComplete: status.DNSTLS.DataComplete,
+		},
+		Backup: BackupStatusView{
+			State: status.Backup.State, DirtyGeneration: status.Backup.DirtyGeneration,
+			VerifiedGeneration: status.Backup.VerifiedGeneration, GenerationGap: status.Backup.GenerationGap,
+		},
+		Restore: RestoreStatusView{
+			State: status.Restore.State, Epoch: status.Restore.Epoch, DataComplete: status.Restore.DataComplete,
+		},
+		Failures: failures,
+	}, nil
 }
 
 func (b *ServiceBusiness) RecentAudit(ctx context.Context, filter AuditFilter) ([]AuditView, error) {
 	if err := b.available(); err != nil {
 		return nil, err
 	}
-	events, err := b.service.RecentBusinessAudit(ctx, filter.Limit)
+	events, err := b.service.RecentBusinessAuditPage(ctx, filter.Limit, filter.AfterCreatedAtUnix, filter.AfterID)
 	if err != nil {
 		return nil, businessError(err)
 	}
@@ -896,11 +999,24 @@ func (b *ServiceBusiness) customerViewAt(customer controlplane.BusinessCustomer,
 	}
 	sort.Strings(protocols)
 	expires := time.Unix(customer.ExpiresAtUnix, 0).UTC()
+	remaining := expires.Sub(now)
+	daysLeft := int(remaining / (24 * time.Hour))
+	if remaining > 0 && remaining%(24*time.Hour) != 0 {
+		daysLeft++
+	}
+	if daysLeft < 0 {
+		daysLeft = 0
+	}
+	var lastSeen *time.Time
+	if customer.LastSeenAtUnix > 0 {
+		seen := time.Unix(customer.LastSeenAtUnix, 0).UTC()
+		lastSeen = &seen
+	}
 	active := customer.Status == "active" && expires.After(now)
 	return CustomerView{
-		Login: customer.Login, SubURL: b.subscriptionURL(customer.Access.SubscriptionToken), Expires: expires,
-		Active: active, Protocols: protocols, Generation: customer.Generation,
-		Disabled: customer.Status == "suspended" || customer.Status == "deleted",
+		CustomerID: customer.ID, Login: customer.Login, SubURL: b.subscriptionURL(customer.Access.SubscriptionToken), Expires: expires,
+		DaysLeft: daysLeft, Active: active, Disabled: customer.Status == "suspended" || customer.Status == "deleted",
+		Devices: customer.DeviceCount, Protocols: protocols, LastSeen: lastSeen, Generation: customer.Generation,
 	}
 }
 
@@ -913,7 +1029,7 @@ func (b *ServiceBusiness) subscriptionURL(token string) string {
 
 func (b *ServiceBusiness) rawOrderView(order controlplane.BusinessOrder) OrderView {
 	return OrderView{
-		OrderID: order.OrderID, Code: order.Code, RUB: int(order.AmountMinor / 100), Days: order.DurationDays,
+		CreatedAtUnix: order.CreatedAtUnix, OrderID: order.OrderID, Code: order.Code, RUB: int(order.AmountMinor / 100), Days: order.DurationDays,
 		Tariff: order.TariffVersionID, SBPPhone: b.cfg.SBPPhone, PayURL: b.cfg.PayURL,
 		Status: string(order.PaymentState), PaymentState: string(order.PaymentState),
 		ProvisioningState: order.ProvisioningState, ResultGeneration: order.ResultGeneration,

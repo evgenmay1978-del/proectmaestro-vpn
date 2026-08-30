@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -160,31 +161,42 @@ created_at_unix, expires_at_unix, revoked_at_unix) VALUES (?, ?, ?, ?, ?, ?, NUL
 }
 
 func (s *Service) Authorize(ctx context.Context, rawSession, rawCSRF string, permission Permission) (Authorization, error) {
-	if rawSession == "" || rawCSRF == "" {
-		return Authorization{}, ErrForbidden
+	if strings.TrimSpace(rawSession) == "" {
+		return Authorization{}, ErrUnauthenticated
 	}
 	sessionHMAC := s.store.secrets.LookupHMAC("web-session", []byte(rawSession))
-	csrfHMAC := s.store.secrets.LookupHMAC("web-csrf", []byte(rawCSRF))
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
-		SQL: `SELECT p.principal_id, pr.role_name FROM web_sessions ws
+		SQL: `SELECT p.principal_id, COALESCE(pr.role_name,'') AS role_name, ws.csrf_hmac FROM web_sessions ws
 JOIN principals p ON p.principal_id = ws.principal_id
-JOIN principal_roles pr ON pr.principal_id = p.principal_id
-WHERE ws.session_hmac = ? AND ws.csrf_hmac = ? AND ws.revoked_at_unix IS NULL
+LEFT JOIN principal_roles pr ON pr.principal_id = p.principal_id
+WHERE ws.session_hmac = ? AND ws.revoked_at_unix IS NULL
 AND ws.expires_at_unix > ? AND ws.revocation_epoch = p.revocation_epoch AND p.status = 'active'
 ORDER BY pr.role_name`,
-		Args: []any{sessionHMAC, csrfHMAC, s.clock.Now().Unix()},
+		Args: []any{sessionHMAC, s.clock.Now().Unix()},
 	})
 	if err != nil {
-		return Authorization{}, ErrForbidden
+		return Authorization{}, ErrUnavailable
 	}
 	if len(results) != 1 {
+		return Authorization{}, ErrUnavailable
+	}
+	if len(results[0].Rows) == 0 {
+		return Authorization{}, ErrUnauthenticated
+	}
+	principalID, idOK := rowString(results[0].Rows[0], "principal_id")
+	expectedCSRF, csrfOK := rowString(results[0].Rows[0], "csrf_hmac")
+	if !idOK || !csrfOK {
+		return Authorization{}, ErrUnavailable
+	}
+	providedCSRF := s.store.secrets.LookupHMAC("web-csrf", []byte(rawCSRF))
+	if strings.TrimSpace(rawCSRF) == "" || subtle.ConstantTimeCompare([]byte(expectedCSRF), []byte(providedCSRF)) != 1 {
 		return Authorization{}, ErrForbidden
 	}
 	for _, row := range results[0].Rows {
-		principalID, okID := rowString(row, "principal_id")
+		rowPrincipalID, okID := rowString(row, "principal_id")
 		role, okRole := rowString(row, "role_name")
 		role = strings.ToLower(strings.TrimSpace(role))
-		if okID && okRole && roleAllows(role, permission) {
+		if okID && okRole && rowPrincipalID == principalID && roleAllows(role, permission) {
 			return Authorization{PrincipalID: principalID, Role: role}, nil
 		}
 	}

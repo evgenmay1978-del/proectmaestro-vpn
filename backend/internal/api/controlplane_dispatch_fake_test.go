@@ -26,6 +26,9 @@ func (b *dispatchBusiness) ChangePrincipalPassword(context.Context, ChangePasswo
 	b.called("change_password")
 	return nil
 }
+func (b *dispatchBusiness) ConsumeRateLimit(context.Context, RateLimitCommand) (RateLimitView, error) {
+	return RateLimitView{Allowed: true}, nil
+}
 func (b *dispatchBusiness) CustomerByLogin(context.Context, string) (CustomerView, error) {
 	b.called("customer_by_login")
 	return CustomerView{Login: "alice", Active: true}, nil

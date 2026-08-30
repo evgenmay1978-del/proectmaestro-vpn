@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
@@ -22,6 +23,7 @@ type PanelAuth interface {
 // or invoke provisioners, shells, or SSH.
 type Business interface {
 	PanelAuth
+	ConsumeRateLimit(context.Context, RateLimitCommand) (RateLimitView, error)
 	CustomerByToken(context.Context, string) (CustomerView, error)
 	CustomerByLogin(context.Context, string) (CustomerView, error)
 	ListCustomers(context.Context, CustomerFilter) ([]CustomerView, error)
@@ -96,30 +98,54 @@ type ChangePasswordCommand struct {
 	IdempotencyKey string
 }
 
+type RateLimitCommand struct {
+	Scope  string
+	Key    string
+	Limit  int
+	Window time.Duration
+	Block  time.Duration
+}
+
+type RateLimitView struct {
+	Allowed           bool
+	RetryAfterSeconds int
+}
+
 type CustomerView struct {
-	Login      string    `json:"login"`
-	SubURL     string    `json:"sub_url"`
-	Expires    time.Time `json:"expires"`
-	Active     bool      `json:"active"`
-	Protocols  []string  `json:"protocols"`
-	Generation int64     `json:"generation,omitempty"`
-	Disabled   bool      `json:"disabled,omitempty"`
+	CustomerID string     `json:"-"`
+	Login      string     `json:"login"`
+	SubURL     string     `json:"sub_url"`
+	Expires    time.Time  `json:"expires"`
+	DaysLeft   int        `json:"days_left"`
+	Active     bool       `json:"active"`
+	Disabled   bool       `json:"disabled,omitempty"`
+	Devices    int        `json:"devices"`
+	Protocols  []string   `json:"protocols"`
+	LastSeen   *time.Time `json:"last_seen,omitempty"`
+	Generation int64      `json:"generation,omitempty"`
 }
 
 type CustomerFilter struct {
-	Active *bool
+	Active          *bool
+	Limit           int
+	AfterLogin      string
+	AfterCustomerID string
 }
 
 type CustomerStatsView struct {
-	Total    int `json:"total"`
-	Active   int `json:"active"`
-	Expired  int `json:"expired"`
-	Disabled int `json:"disabled"`
+	Total      int `json:"total"`
+	Active     int `json:"active"`
+	Expired    int `json:"expired"`
+	Expiring7D int `json:"expiring_7d"`
+	Disabled   int `json:"disabled"`
+	Devices    int `json:"devices"`
 }
 
 type CustomerUsageView struct {
-	Login string `json:"login"`
-	Bytes int64  `json:"bytes"`
+	Login       string            `json:"login"`
+	Bytes       int64             `json:"bytes"`
+	DeviceIDs   map[string]string `json:"-"`
+	DeviceLimit int               `json:"-"`
 }
 
 type TariffView struct {
@@ -142,6 +168,7 @@ type CreateOrderCommand struct {
 }
 
 type OrderView struct {
+	CreatedAtUnix     int64  `json:"-"`
 	OrderID           string `json:"order_id"`
 	Code              string `json:"code"`
 	RUB               int    `json:"rub"`
@@ -157,7 +184,10 @@ type OrderView struct {
 }
 
 type OrderFilter struct {
-	Status string
+	Status             string
+	Limit              int
+	AfterCreatedAtUnix int64
+	AfterOrderID       string
 }
 
 type ClaimPaymentCommand struct {
@@ -346,12 +376,87 @@ type SetVKTurnEnabledCommand struct {
 }
 
 type ClusterStatusView struct {
-	Ready  bool `json:"ready"`
-	Quorum bool `json:"quorum"`
+	Ready          bool                  `json:"ready"`
+	Quorum         bool                  `json:"quorum"`
+	ReadReady      bool                  `json:"read_ready"`
+	WriteReadiness string                `json:"write_readiness"`
+	DataComplete   bool                  `json:"data_complete"`
+	Replication    ReplicationStatusView `json:"replication"`
+	Nodes          NodeStatusView        `json:"nodes"`
+	Apply          ApplyStatusView       `json:"apply"`
+	Outbox         OutboxStatusView      `json:"outbox"`
+	Telegram       TelegramStatusView    `json:"telegram"`
+	DNSTLS         ProbeStatusView       `json:"dns_tls"`
+	Backup         BackupStatusView      `json:"backup"`
+	Restore        RestoreStatusView     `json:"restore"`
+	Failures       []FailureSummaryView  `json:"failures"`
+}
+
+type ReplicationStatusView struct {
+	State          string `json:"state"`
+	DataComplete   bool   `json:"data_complete"`
+	LeaderID       string `json:"leader_id"`
+	ReachableNodes int64  `json:"reachable_nodes"`
+	MaxLagEntries  int64  `json:"max_lag_entries"`
+}
+
+type NodeStatusView struct {
+	Voters               int64 `json:"voters"`
+	EnabledVoters        int64 `json:"enabled_voters"`
+	ActiveServiceTargets int64 `json:"active_service_targets"`
+	FencedServiceTargets int64 `json:"fenced_service_targets"`
+	StaleReceipts        int64 `json:"stale_receipts"`
+}
+
+type ApplyStatusView struct {
+	Pending          int64 `json:"pending"`
+	Failed           int64 `json:"failed"`
+	FailedReceipts   int64 `json:"failed_receipts"`
+	MaxGenerationLag int64 `json:"max_generation_lag"`
+}
+
+type OutboxStatusView struct {
+	Pending                 int64 `json:"pending"`
+	Failed                  int64 `json:"failed"`
+	OldestPendingAgeSeconds int64 `json:"oldest_pending_age_seconds"`
+}
+
+type TelegramStatusView struct {
+	Routes         int64 `json:"routes"`
+	ActivePollers  int64 `json:"active_pollers"`
+	InboxRejected  int64 `json:"inbox_rejected"`
+	DeliveryFailed int64 `json:"delivery_failed"`
+	DataComplete   bool  `json:"data_complete"`
+}
+
+type ProbeStatusView struct {
+	State        string `json:"state"`
+	Targets      int64  `json:"targets"`
+	DataComplete bool   `json:"data_complete"`
+}
+
+type BackupStatusView struct {
+	State              string `json:"state"`
+	DirtyGeneration    int64  `json:"dirty_generation"`
+	VerifiedGeneration int64  `json:"verified_generation"`
+	GenerationGap      int64  `json:"generation_gap"`
+}
+
+type RestoreStatusView struct {
+	State        string `json:"state"`
+	Epoch        int64  `json:"epoch"`
+	DataComplete bool   `json:"data_complete"`
+}
+
+type FailureSummaryView struct {
+	Component string `json:"component"`
+	Count     int64  `json:"count"`
 }
 
 type AuditFilter struct {
-	Limit int
+	Limit              int
+	AfterCreatedAtUnix int64
+	AfterID            string
 }
 
 type AuditView struct {
@@ -370,13 +475,15 @@ type MigrateEndpointCommand struct {
 // ControlPlaneServer is the HA HTTP adapter. It intentionally has no legacy
 // store or Provisioner fields.
 type ControlPlaneServer struct {
-	business Business
-	cfg      Config
+	business       Business
+	cfg            Config
+	panelCursorKey [32]byte
 }
 
 // NewControlPlane builds the rqlite-only HTTP adapter.
 func NewControlPlane(business Business, cfg Config) *ControlPlaneServer {
-	return &ControlPlaneServer{business: business, cfg: cfg}
+	cursorKey := sha256.Sum256([]byte("maestrovpn-panel-cursor-v1\x00" + cfg.PanelPath + "\x00" + cfg.PanelPasswordHash))
+	return &ControlPlaneServer{business: business, cfg: cfg, panelCursorKey: cursorKey}
 }
 
 func (s *ControlPlaneServer) Handler() http.Handler {

@@ -9,6 +9,7 @@ import (
 var (
 	ErrNotFound            = errors.New("controlplane: not found")
 	ErrConflict            = errors.New("controlplane: conflict")
+	ErrUnauthenticated     = errors.New("controlplane: unauthenticated")
 	ErrForbidden           = errors.New("controlplane: forbidden")
 	ErrInvalidState        = errors.New("controlplane: invalid state")
 	ErrDeviceLimit         = errors.New("controlplane: device limit reached")

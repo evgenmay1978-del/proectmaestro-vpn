@@ -19,11 +19,19 @@ import (
 // It never participates in durable command responses or SQL arguments.
 type BusinessCustomer struct {
 	Customer
-	Login string
+	Login          string
+	DeviceCount    int
+	LastSeenAtUnix int64
+}
+
+type BusinessDevice struct {
+	ID             string
+	LastSeenAtUnix int64
 }
 
 type BusinessOrder struct {
 	OrderView
+	CreatedAtUnix     int64
 	Code              string
 	TariffVersionID   string
 	DurationDays      int
@@ -67,7 +75,9 @@ func (s *Service) BusinessCustomerByID(ctx context.Context, customerID string) (
 		return BusinessCustomer{}, ErrNotFound
 	}
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
-		SQL: `SELECT customer_id,display_login,status,expires_at_unix,generation
+		SQL: `SELECT customer_id,display_login,status,expires_at_unix,generation,
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0),0) AS last_seen_at_unix
 FROM customers WHERE customer_id=? AND status<>'deleted' LIMIT 1`,
 		Args: []any{customerID},
 	})
@@ -83,6 +93,8 @@ FROM customers WHERE customer_id=? AND status<>'deleted' LIMIT 1`,
 	status, statusOK := rowString(row, "status")
 	expires, expiresOK := rowInt64(row, "expires_at_unix")
 	generation, generationOK := rowInt64(row, "generation")
+	deviceCount, _ := rowInt64(row, "device_count")
+	lastSeenAtUnix, _ := rowInt64(row, "last_seen_at_unix")
 	if !idOK || !loginOK || !statusOK || !expiresOK || !generationOK {
 		return BusinessCustomer{}, ErrUnavailable
 	}
@@ -90,12 +102,18 @@ FROM customers WHERE customer_id=? AND status<>'deleted' LIMIT 1`,
 	if err != nil {
 		return BusinessCustomer{}, err
 	}
-	return BusinessCustomer{Customer: Customer{ID: id, Status: status, ExpiresAtUnix: expires, Generation: generation, Access: access}, Login: login}, nil
+	return BusinessCustomer{
+		Customer: Customer{ID: id, Status: status, ExpiresAtUnix: expires, Generation: generation, Access: access},
+		Login:    login, DeviceCount: int(deviceCount), LastSeenAtUnix: lastSeenAtUnix,
+	}, nil
 }
 
 func (s *Service) businessCustomer(ctx context.Context, customer Customer) (BusinessCustomer, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
-		SQL:  `SELECT display_login FROM customers WHERE customer_id=? LIMIT 1`,
+		SQL: `SELECT display_login,
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0),0) AS last_seen_at_unix
+FROM customers WHERE customer_id=? LIMIT 1`,
 		Args: []any{customer.ID},
 	})
 	if err != nil {
@@ -106,6 +124,8 @@ func (s *Service) businessCustomer(ctx context.Context, customer Customer) (Busi
 		return BusinessCustomer{}, ErrNotFound
 	}
 	login, ok := rowString(row, "display_login")
+	deviceCount, _ := rowInt64(row, "device_count")
+	lastSeenAtUnix, _ := rowInt64(row, "last_seen_at_unix")
 	if !ok {
 		return BusinessCustomer{}, ErrUnavailable
 	}
@@ -114,13 +134,33 @@ func (s *Service) businessCustomer(ctx context.Context, customer Customer) (Busi
 		return BusinessCustomer{}, err
 	}
 	customer.Access = access
-	return BusinessCustomer{Customer: customer, Login: login}, nil
+	return BusinessCustomer{
+		Customer: customer, Login: login,
+		DeviceCount: int(deviceCount), LastSeenAtUnix: lastSeenAtUnix,
+	}, nil
 }
 
 func (s *Service) ListBusinessCustomers(ctx context.Context) ([]BusinessCustomer, error) {
+	return s.listBusinessCustomers(ctx, "", "", -1)
+}
+
+func (s *Service) ListBusinessCustomersPage(ctx context.Context, afterLogin, afterCustomerID string, limit int) ([]BusinessCustomer, error) {
+	if limit < 1 || limit > 201 || (afterLogin == "") != (afterCustomerID == "") {
+		return nil, ErrForbidden
+	}
+	return s.listBusinessCustomers(ctx, afterLogin, afterCustomerID, limit)
+}
+
+func (s *Service) listBusinessCustomers(ctx context.Context, afterLogin, afterCustomerID string, limit int) ([]BusinessCustomer, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `
-SELECT customer_id,display_login,status,expires_at_unix,generation
-FROM customers WHERE status<>'deleted' ORDER BY display_login`})
+SELECT customer_id,display_login,status,expires_at_unix,generation,
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0),0) AS last_seen_at_unix
+FROM customers WHERE status<>'deleted'
+AND (?='' OR display_login>? OR (display_login=? AND customer_id>?))
+ORDER BY display_login,customer_id LIMIT ?`,
+		Args: []any{afterLogin, afterLogin, afterLogin, afterCustomerID, limit},
+	})
 	if err != nil || len(results) != 1 {
 		return nil, ErrUnavailable
 	}
@@ -131,6 +171,8 @@ FROM customers WHERE status<>'deleted' ORDER BY display_login`})
 		status, statusOK := rowString(row, "status")
 		expires, expiresOK := rowInt64(row, "expires_at_unix")
 		generation, generationOK := rowInt64(row, "generation")
+		deviceCount, _ := rowInt64(row, "device_count")
+		lastSeenAtUnix, _ := rowInt64(row, "last_seen_at_unix")
 		if !idOK || !loginOK || !statusOK || !expiresOK || !generationOK {
 			return nil, ErrUnavailable
 		}
@@ -140,7 +182,7 @@ FROM customers WHERE status<>'deleted' ORDER BY display_login`})
 		}
 		customers = append(customers, BusinessCustomer{Customer: Customer{
 			ID: id, Status: status, ExpiresAtUnix: expires, Generation: generation, Access: access,
-		}, Login: login})
+		}, Login: login, DeviceCount: int(deviceCount), LastSeenAtUnix: lastSeenAtUnix})
 	}
 	return customers, nil
 }
@@ -152,6 +194,31 @@ func (s *Service) BusinessCustomerUsage(ctx context.Context, login string) (int6
 	// The approved HA schema has no traffic counters. Zero is the canonical
 	// compatibility value until a later schema slice introduces them.
 	return 0, nil
+}
+
+func (s *Service) BusinessCustomerDevices(ctx context.Context, login string) ([]BusinessDevice, error) {
+	customer, err := s.CustomerByLogin(ctx, login)
+	if err != nil {
+		return nil, err
+	}
+	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: `SELECT device_id,COALESCE(last_seen_at_unix,0) AS last_seen_at_unix
+FROM devices WHERE customer_id=? AND revoked=0 ORDER BY device_id`,
+		Args: []any{customer.ID},
+	})
+	if err != nil || len(results) != 1 {
+		return nil, ErrUnavailable
+	}
+	devices := make([]BusinessDevice, 0, len(results[0].Rows))
+	for _, row := range results[0].Rows {
+		id, idOK := rowString(row, "device_id")
+		lastSeenAtUnix, seenOK := rowInt64(row, "last_seen_at_unix")
+		if !idOK || !seenOK {
+			return nil, ErrUnavailable
+		}
+		devices = append(devices, BusinessDevice{ID: id, LastSeenAtUnix: lastSeenAtUnix})
+	}
+	return devices, nil
 }
 
 func (s *Service) ReadBusinessSetting(ctx context.Context, key string) (BusinessSetting, error) {
@@ -221,10 +288,24 @@ func (s *Service) UpdateSecretSettingIdempotent(
 }
 
 func (s *Service) ListBusinessOrders(ctx context.Context, status string) ([]BusinessOrder, error) {
+	return s.listBusinessOrders(ctx, status, 0, "", -1)
+}
+
+func (s *Service) ListBusinessOrdersPage(ctx context.Context, status string, afterCreatedAtUnix int64, afterOrderID string, limit int) ([]BusinessOrder, error) {
+	if limit < 1 || limit > 201 || (afterCreatedAtUnix == 0) != (afterOrderID == "") {
+		return nil, ErrForbidden
+	}
+	return s.listBusinessOrders(ctx, status, afterCreatedAtUnix, afterOrderID, limit)
+}
+
+func (s *Service) listBusinessOrders(ctx context.Context, status string, afterCreatedAtUnix int64, afterOrderID string, limit int) ([]BusinessOrder, error) {
 	statement := rqlite.Statement{SQL: `
 SELECT o.order_id,o.payment_code,o.amount_minor,o.currency,o.duration_days,o.payment_state,
-o.provisioning_state,o.result_generation,o.customer_id,o.tariff_version_id
-FROM orders o WHERE (?='' OR o.payment_state=?) ORDER BY o.created_at_unix DESC`, Args: []any{status, status}}
+o.provisioning_state,o.result_generation,o.customer_id,o.tariff_version_id,o.created_at_unix
+FROM orders o WHERE (?='' OR o.payment_state=?)
+AND (?=0 OR o.created_at_unix<? OR (o.created_at_unix=? AND o.order_id<?))
+ORDER BY o.created_at_unix DESC,o.order_id DESC LIMIT ?`,
+		Args: []any{status, status, afterCreatedAtUnix, afterCreatedAtUnix, afterCreatedAtUnix, afterOrderID, limit}}
 	results, err := s.store.db.QueryLinearizable(ctx, statement)
 	if err != nil || len(results) != 1 {
 		return nil, ErrUnavailable
@@ -243,7 +324,7 @@ FROM orders o WHERE (?='' OR o.payment_state=?) ORDER BY o.created_at_unix DESC`
 func (s *Service) BusinessOrderByID(ctx context.Context, orderID string) (BusinessOrder, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `
 SELECT o.order_id,o.payment_code,o.amount_minor,o.currency,o.duration_days,o.payment_state,
-o.provisioning_state,o.result_generation,o.customer_id,o.tariff_version_id
+o.provisioning_state,o.result_generation,o.customer_id,o.tariff_version_id,o.created_at_unix
 FROM orders o WHERE o.order_id=?`, Args: []any{orderID}})
 	if err != nil {
 		return BusinessOrder{}, ErrUnavailable
@@ -272,10 +353,11 @@ func parseBusinessOrder(row map[string]any) (BusinessOrder, bool) {
 		return BusinessOrder{}, false
 	}
 	resultGeneration, _ := rowInt64(row, "result_generation")
+	createdAtUnix, _ := rowInt64(row, "created_at_unix")
 	customerID, _ := rowString(row, "customer_id")
 	return BusinessOrder{
-		OrderView: OrderView{OrderID: id, AmountMinor: amount, Currency: currency, DurationSeconds: days * 86400, PaymentState: PaymentState(payment)},
-		Code:      code, TariffVersionID: tariff, DurationDays: int(days), ProvisioningState: provisioning,
+		OrderView:     OrderView{OrderID: id, AmountMinor: amount, Currency: currency, DurationSeconds: days * 86400, PaymentState: PaymentState(payment)},
+		CreatedAtUnix: createdAtUnix, Code: code, TariffVersionID: tariff, DurationDays: int(days), ProvisioningState: provisioning,
 		ResultGeneration: resultGeneration, CustomerID: customerID,
 	}, true
 }
@@ -424,9 +506,18 @@ func (s *Service) RecentBusinessAudit(ctx context.Context, limit int) ([]Busines
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	return s.RecentBusinessAuditPage(ctx, limit, 0, "")
+}
+
+func (s *Service) RecentBusinessAuditPage(ctx context.Context, limit int, afterCreatedAtUnix int64, afterID string) ([]BusinessAuditEvent, error) {
+	if limit < 1 || limit > 201 || (afterCreatedAtUnix == 0) != (afterID == "") {
+		return nil, ErrForbidden
+	}
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `
 SELECT event_id,action,created_at_unix FROM audit_events
-ORDER BY created_at_unix DESC,event_id DESC LIMIT ?`, Args: []any{limit}})
+WHERE (?=0 OR created_at_unix<? OR (created_at_unix=? AND event_id<?))
+ORDER BY created_at_unix DESC,event_id DESC LIMIT ?`,
+		Args: []any{afterCreatedAtUnix, afterCreatedAtUnix, afterCreatedAtUnix, afterID, limit}})
 	if err != nil || len(results) != 1 {
 		return nil, ErrUnavailable
 	}
@@ -443,46 +534,78 @@ ORDER BY created_at_unix DESC,event_id DESC LIMIT ?`, Args: []any{limit}})
 	return events, nil
 }
 
+const maxPanelPasswordCandidates = 8
+
 func (s *Service) AuthenticatePassword(ctx context.Context, password string) (SessionResult, error) {
 	if password == "" {
-		return SessionResult{}, ErrForbidden
+		return SessionResult{}, ErrUnauthenticated
 	}
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `
-SELECT p.principal_id,pc.verifier_envelope
+SELECT DISTINCT p.principal_id,pc.verifier_envelope,
+CASE WHEN EXISTS(SELECT 1 FROM principal_roles owner_role WHERE owner_role.principal_id=p.principal_id AND owner_role.role_name='owner') THEN 0 ELSE 1 END AS role_order
 FROM principals p JOIN principal_credentials pc ON pc.principal_id=p.principal_id
-JOIN principal_roles pr ON pr.principal_id=p.principal_id
 WHERE p.status='active' AND pc.credential_type='password' AND pc.active=1
-AND pr.role_name IN ('owner','admin') ORDER BY CASE pr.role_name WHEN 'owner' THEN 0 ELSE 1 END,p.principal_id LIMIT 1`})
-	if err != nil {
-		return SessionResult{}, ErrForbidden
+AND EXISTS(SELECT 1 FROM principal_roles pr WHERE pr.principal_id=p.principal_id AND pr.role_name IN ('owner','admin'))
+ORDER BY role_order,p.principal_id,pc.verifier_envelope LIMIT 9`})
+	if err != nil || len(results) != 1 || len(results[0].Rows) > maxPanelPasswordCandidates {
+		return SessionResult{}, ErrUnavailable
 	}
-	row, ok := firstRow(results)
-	if !ok {
-		return SessionResult{}, ErrForbidden
+	matchedPrincipalID := ""
+	ambiguous := false
+	credentialUnavailable := false
+	for _, row := range results[0].Rows {
+		if ctx.Err() != nil {
+			return SessionResult{}, ErrUnavailable
+		}
+		principalID, idOK := rowString(row, "principal_id")
+		if !idOK {
+			credentialUnavailable = true
+			continue
+		}
+		verificationErr := s.verifyPrincipalPassword(row, principalID, password)
+		if verificationErr != nil {
+			if !errors.Is(verificationErr, ErrUnauthenticated) {
+				credentialUnavailable = true
+			}
+			continue
+		}
+		if matchedPrincipalID == "" {
+			matchedPrincipalID = principalID
+		} else if matchedPrincipalID != principalID {
+			ambiguous = true
+		}
 	}
-	principalID, idOK := rowString(row, "principal_id")
-	if !idOK || s.verifyPrincipalPassword(row, principalID, password) != nil {
-		return SessionResult{}, ErrForbidden
+	if ambiguous || credentialUnavailable {
+		return SessionResult{}, ErrUnavailable
 	}
-	return s.CreateSession(ctx, principalID)
+	if matchedPrincipalID == "" {
+		return SessionResult{}, ErrUnauthenticated
+	}
+	return s.CreateSession(ctx, matchedPrincipalID)
 }
 
 func (s *Service) verifyPrincipalPassword(row map[string]any, principalID, password string) error {
 	encoded, ok := rowString(row, "verifier_envelope")
 	if !ok {
-		return ErrForbidden
+		return ErrUnavailable
 	}
 	bytes, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return ErrForbidden
+		return ErrUnavailable
 	}
 	var envelope Envelope
 	if err := json.Unmarshal(bytes, &envelope); err != nil {
-		return ErrForbidden
+		return ErrUnavailable
 	}
 	verifier, err := s.store.secrets.Open(SecretScope{OwnerType: "principal", OwnerID: principalID, Field: "password", Kind: "bcrypt"}, envelope)
-	if err != nil || bcrypt.CompareHashAndPassword(verifier, []byte(password)) != nil {
-		return ErrForbidden
+	if err != nil {
+		return ErrUnavailable
+	}
+	if err := bcrypt.CompareHashAndPassword(verifier, []byte(password)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return ErrUnauthenticated
+		}
+		return ErrUnavailable
 	}
 	return nil
 }

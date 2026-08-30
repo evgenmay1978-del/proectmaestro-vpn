@@ -51,38 +51,51 @@ code{background:#0b0e13;padding:1px 5px;border-radius:4px;font-size:12px;word-br
 </style></head>
 <body><div id="app"></div>
 <script>
-var BASE=location.pathname.replace(/\/?$/,'/');var CSRF=null;
+var BASE=location.pathname.replace(/\/?$/,'/');var CSRF=null,PERMS=[];
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(m){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];});}
 function el(id){return document.getElementById(id);}
 function toast(m){var t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(function(){t.remove();},2600);}
 function fmtBytes(n){n=+n||0;if(n<1024)return n+' Б';var u=['КБ','МБ','ГБ','ТБ'],i=-1;do{n/=1024;i++;}while(n>=1024&&i<u.length-1);return n.toFixed(n<10?1:0)+' '+u[i];}
 function fmtAgo(s){if(!s)return '—';var d=(Date.now()-new Date(s))/1000;if(d<0)return 'только что';if(d<120)return 'только что';if(d<3600)return Math.floor(d/60)+' мин назад';if(d<86400)return Math.floor(d/3600)+' ч назад';return Math.floor(d/86400)+' дн назад';}
 function isOnline(s){if(!s)return false;return (Date.now()-new Date(s))/1000 < 1200;}
-function api(path,opts){opts=opts||{};opts.credentials='same-origin';opts.headers=opts.headers||{};if(opts.body){opts.headers['Content-Type']='application/json';opts.method=opts.method||'POST';}if((opts.method||'GET')!=='GET'&&CSRF)opts.headers['X-CSRF']=CSRF;return fetch(BASE+path,opts).then(function(r){if(r.status===401){CSRF=null;showLogin('Сессия истекла — войди снова');throw new Error('unauth');}return r.text().then(function(t){var j=null;try{j=t?JSON.parse(t):{};}catch(e){}if(!r.ok)throw new Error((j&&j.error)||t||('HTTP '+r.status));return j;});});}
+function newIdempotencyKey(){if(window.crypto&&crypto.randomUUID)return crypto.randomUUID();return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)+'-'+Math.random().toString(36).slice(2);}
+function api(path,opts){opts=opts||{};opts.credentials='same-origin';opts.headers=opts.headers||{};if(opts.body){opts.headers['Content-Type']='application/json';opts.method=opts.method||'POST';}var method=(opts.method||'GET').toUpperCase();if(CSRF)opts.headers['X-CSRF']=CSRF;if(method!=='GET'&&method!=='HEAD'&&!opts.headers['Idempotency-Key'])opts.headers['Idempotency-Key']=newIdempotencyKey();return fetch(BASE+path,opts).then(function(r){if(r.status===401){CSRF=null;PERMS=[];showLogin('Сессия истекла — войди снова');throw new Error('unauth');}return r.text().then(function(t){var j=null;try{j=t?JSON.parse(t):{};}catch(e){}if(!r.ok)throw new Error((j&&j.error)||t||('HTTP '+r.status));return j;});});}
 function post(path,obj){return api(path,{body:JSON.stringify(obj||{})});}
 
 function showLogin(msg){document.getElementById('app').innerHTML=
  '<div class="login"><h1>MaestroVPN</h1><p>Панель управления</p>'+
  '<input id="pw" type="password" placeholder="Пароль" autofocus>'+
  '<button class="btn pri" id="lg">Войти</button><div class="err" id="le">'+esc(msg||'')+'</div></div>';
- function go(){el('le').textContent='';post('api/login',{password:el('pw').value}).then(function(j){CSRF=j.csrf;showApp();}).catch(function(e){el('le').textContent=(e.message==='wrong password'?'Неверный пароль':e.message==='too many attempts — try later'?'Слишком много попыток, подожди':e.message);});}
+ function go(){el('le').textContent='';post('api/login',{password:el('pw').value}).then(function(j){CSRF=j.csrf;return api('api/me');}).then(function(me){PERMS=me.permissions||[];showApp();}).catch(function(e){el('le').textContent=(e.message==='wrong password'?'Неверный пароль':e.message==='too many attempts — try later'?'Слишком много попыток, подожди':e.message);});}
  el('lg').onclick=go;el('pw').onkeydown=function(e){if(e.key==='Enter')go();};}
 
-var TAB='dash',CUST=[],SORT={k:'expires',d:1};
+var TAB='dash',CUST=[],SORT={k:'expires',d:1},PAGE_LIMIT=50,CUST_REQ=0,OPS_REQ=0;
+function can(p){return PERMS.indexOf(p)>=0;}
+function canOwner(){return can('payment.decide')||can('settings.critical');}
+function newPager(){return{cursor:'',back:[],next:'',page:1};}
+function resetPager(p){p.cursor='';p.back=[];p.next='';p.page=1;}
+function pagePath(path,p,params){var q=['limit='+PAGE_LIMIT],k;params=params||{};for(k in params)if(Object.prototype.hasOwnProperty.call(params,k))q.push(encodeURIComponent(k)+'='+encodeURIComponent(params[k]));if(p.cursor)q.push('cursor='+encodeURIComponent(p.cursor));return path+'?'+q.join('&');}
+function pageNext(p,render){if(!p.next)return;p.back.push(p.cursor);p.cursor=p.next;p.next='';p.page++;render();}
+function pagePrev(p,render){if(!p.back.length)return;p.cursor=p.back.pop();p.next='';p.page=Math.max(1,p.page-1);render();}
+function pagerButtons(p,prefix,label){return '<div class="toolbar" style="margin-top:10px"><span class="mut">'+esc(label)+' · стр. '+p.page+'</span><span class="sp"></span><button class="btn sm" id="'+prefix+'_prev"'+(p.back.length?'':' disabled')+'>Назад</button><button class="btn sm" id="'+prefix+'_next"'+(p.next?'':' disabled')+'>Далее</button></div>';}
+function bindPager(p,prefix,render){var prev=el(prefix+'_prev'),next=el(prefix+'_next');if(prev)prev.onclick=function(){pagePrev(p,render);};if(next)next.onclick=function(){pageNext(p,render);};}
+var CUST_PAGE=newPager(),ORDER_CREATED_PAGE=newPager(),ORDER_CLAIMED_PAGE=newPager(),AUDIT_PAGE=newPager();
 function showApp(){document.getElementById('app').innerHTML=
  '<div class="hdr"><b>MaestroVPN</b> <span class="mut">панель</span><span class="sp"></span>'+
  '<button class="btn sm" id="rf">Обновить</button> <button class="btn sm" id="pwb">Пароль</button> <button class="btn sm" id="lo">Выйти</button></div>'+
  '<div class="wrap"><div class="tabs">'+
- '<div class="tab" data-t="dash">Дашборд</div><div class="tab" data-t="cust">Клиенты</div><div class="tab" data-t="olc">olcRTC</div><div class="tab" data-t="wdtt">WDTT</div>'+
+ '<div class="tab" data-t="dash">Дашборд</div><div class="tab" data-t="cust">Клиенты</div>'+
+ (canOwner()?'<div class="tab" data-t="ops">Операции</div>':'')+
+ '<div class="tab" data-t="olc">olcRTC</div><div class="tab" data-t="wdtt">WDTT</div>'+
  '</div><div id="body"></div></div>';
- el('lo').onclick=function(){post('api/logout',{}).finally(function(){CSRF=null;showLogin('Вы вышли');});};
+ el('lo').onclick=function(){post('api/logout',{}).finally(function(){CSRF=null;PERMS=[];showLogin('Вы вышли');});};
  el('rf').onclick=function(){render();};
  el('pwb').onclick=changePwDlg;
  Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(t){t.onclick=function(){TAB=t.getAttribute('data-t');render();};});
  render();}
 
 function render(){Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(t){t.classList.toggle('on',t.getAttribute('data-t')===TAB);});
- if(TAB==='dash')return renderDash();if(TAB==='cust')return renderCust();if(TAB==='olc')return renderOlc();if(TAB==='wdtt')return renderWDTT();}
+ if(TAB==='dash')return renderDash();if(TAB==='cust')return renderCust();if(TAB==='ops')return renderOps();if(TAB==='olc')return renderOlc();if(TAB==='wdtt')return renderWDTT();}
 
 function renderDash(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/stats').then(function(s){
  function card(n,l){return '<div class="c"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';}
@@ -93,13 +106,13 @@ function renderDash(){el('body').innerHTML='<div class="mut">Загрузка…
 function fmtDate(s){var d=new Date(s);if(isNaN(d))return '—';return d.toISOString().slice(0,10);}
 function statusBadge(c){if(c.disabled)return '<span class="badge b-off">выкл</span>';if(!c.active)return '<span class="badge b-exp">истёк</span>';if(c.days_left<=7)return '<span class="badge b-soon">'+c.days_left+'д</span>';return '<span class="badge b-ok">'+c.days_left+'д</span>';}
 
-function renderCust(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/customers').then(function(j){CUST=j.customers||[];drawCust('');}).catch(function(e){el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
+function renderCust(){var seq=++CUST_REQ;el('body').innerHTML='<div class="mut">Загрузка…</div>';api(pagePath('api/customers',CUST_PAGE)).then(function(j){if(seq!==CUST_REQ)return;CUST=j.customers||[];CUST_PAGE.next=j.next_cursor||'';drawCust('');}).catch(function(e){if(seq===CUST_REQ)el('body').innerHTML='<div class="err">'+esc(e.message)+'</div>';});}
 function drawCust(q){
- el('body').innerHTML='<div class="toolbar"><input id="q" placeholder="Поиск по логину…" style="min-width:220px" value="'+esc(q)+'"><span class="sp"></span>'+
- '<button class="btn dng" id="delexp">Удалить истёкших</button> <button class="btn pri" id="add">+ Выдать клиента</button></div><div id="tbl"></div>';
+ el('body').innerHTML='<div class="toolbar"><input id="q" placeholder="Поиск на текущей странице по логину…" style="min-width:260px" value="'+esc(q)+'"><span class="sp"></span>'+
+ '<button class="btn dng" id="delexp">Обработать просроченных (вся база)</button> <button class="btn pri" id="add">+ Выдать клиента</button></div><div id="tbl"></div>';
  el('q').oninput=function(){drawCust(el('q').value);requestAnimationFrame(function(){var i=el('q');i.focus();i.setSelectionRange(i.value.length,i.value.length);});};
  el('add').onclick=provisionDlg;
- el('delexp').onclick=function(){var exp=CUST.filter(function(c){return !c.active&&!c.disabled;}).length;if(!exp){toast('Истёкших нет');return;}if(!confirm('Удалить всех истёкших клиентов ('+exp+')? Это удалит их из панели и VLESS-узлов.'))return;post('api/action',{action:'delete_expired'}).then(function(j){toast('Удалено: '+(j.deleted||0));renderCust();}).catch(function(e){toast('Ошибка: '+e.message);});};
+ el('delexp').onclick=function(){if(!confirm('Запустить один глобальный пакет обработки просроченных клиентов (до 100 по всей базе)? Клиенты будут переведены в expired, а снятие доступа поставлено в очередь для всех настроенных целевых сервисов. Записи клиентов из базы не удаляются.'))return;post('api/action',{action:'delete_expired'}).then(function(j){toast('Обработано в этом запуске: '+(j.deleted||0));resetPager(CUST_PAGE);renderCust();}).catch(function(e){toast('Ошибка: '+e.message);});};
  var rows=CUST.filter(function(c){return !q||c.login.toLowerCase().indexOf(q.toLowerCase())>=0;});
  rows.sort(function(a,b){var k=SORT.k,va=a[k],vb=b[k];if(k==='expires'){va=+new Date(a.expires);vb=+new Date(b.expires);}if(va<vb)return -1*SORT.d;if(va>vb)return 1*SORT.d;return 0;});
  var h='<table><thead><tr>'+
@@ -116,14 +129,15 @@ function drawCust(q){
     '<button class="btn sm" data-a="ext30" data-l="'+esc(c.login)+'">+30д</button>'+
     '<button class="btn sm" data-a="more" data-l="'+esc(c.login)+'">…</button>'+
   '</div></td></tr>';});
- h+='</tbody></table><p class="mut">Показано '+rows.length+' из '+CUST.length+'.</p>';
+ h+='</tbody></table><p class="mut">На текущей странице: '+rows.length+' из '+CUST.length+'.</p>'+pagerButtons(CUST_PAGE,'cust_page','Клиенты');
  el('tbl').innerHTML=h;
+ bindPager(CUST_PAGE,'cust_page',renderCust);
  Array.prototype.forEach.call(document.querySelectorAll('#tbl th[data-k]'),function(t){t.onclick=function(){var k=t.getAttribute('data-k');if(SORT.k===k)SORT.d*=-1;else{SORT.k=k;SORT.d=1;}drawCust(q);};});
- Array.prototype.forEach.call(document.querySelectorAll('#tbl button'),function(b){b.onclick=function(){var l=b.getAttribute('data-l'),a=b.getAttribute('data-a');if(a==='ext30')doAction({action:'extend',login:l,days:30},'Продлён '+l+' на 30д');else if(a==='more')custDlg(l);};});
+ Array.prototype.forEach.call(document.querySelectorAll('#tbl button[data-a]'),function(b){b.onclick=function(){var l=b.getAttribute('data-l'),a=b.getAttribute('data-a');if(a==='ext30')doAction({action:'extend',login:l,days:30},'Продлён '+l+' на 30д');else if(a==='more')custDlg(l);};});
 }
 function th(k,label){return '<th data-k="'+k+'">'+label+(SORT.k===k?(SORT.d>0?' ▲':' ▼'):'')+'</th>';}
 
-function doAction(body,okMsg){return post('api/action',body).then(function(){toast(okMsg||'Готово');closeModal();renderCust();}).catch(function(e){toast('Ошибка: '+e.message);});}
+function doAction(body,okMsg){return post('api/action',body).then(function(){toast(okMsg||'Готово');closeModal();resetPager(CUST_PAGE);renderCust();}).catch(function(e){toast('Ошибка: '+e.message);});}
 
 function custDlg(login){api('api/customer?login='+encodeURIComponent(login)).then(function(j){var c=j.customer;var devs=j.device_ids||{};
  var dl=Object.keys(devs);
@@ -132,14 +146,12 @@ function custDlg(login){api('api/customer?login='+encodeURIComponent(login)).the
   '<div class="k">Активность</div><div>'+(isOnline(c.last_seen)?'<span class="badge b-ok">● в сети</span>':esc(fmtAgo(c.last_seen)))+'</div>'+
   '<div class="k">Трафик</div><div>'+fmtBytes(j.traffic_bytes)+' <span class="mut">(VLESS)</span></div>'+
   '<div class="k">Протоколы</div><div>'+(c.protocols||[]).map(function(p){return '<span class="proto">'+esc(p)+'</span>';}).join('')+'</div>'+
-  '<div class="k">Устройства</div><div>'+dl.length+' / '+(j.device_limit||'∞')+'</div>'+
-  '<div class="k">Подписка</div><div><code>'+esc(c.sub_url)+'</code></div></div>'+
+  '<div class="k">Устройства</div><div>'+dl.length+' / '+(j.device_limit||'∞')+'</div></div>'+
   '<div class="field"><label>Продлить</label><input id="d_days" type="number" value="30" style="width:80px"> дней <button class="btn pri sm" id="d_ext">Продлить</button></div>'+
   '<div class="field"><label>Дата до</label><input id="d_date" type="date"> <button class="btn sm" id="d_set">Установить</button></div>'+
   '<div class="field"><label></label>'+
     '<button class="btn sm" id="d_rst">Сброс устройств</button>'+
     (c.disabled?'<button class="btn sm" id="d_en">Включить</button>':'<button class="btn dng sm" id="d_dis">Отключить</button>')+
-    '<button class="btn sm" id="d_cp">Копировать sub</button>'+
   '</div>'+
   '<div class="field" style="border-top:1px solid var(--line);padding-top:10px;margin-top:12px"><label></label><button class="btn dng" id="d_del">Удалить клиента</button> <span class="mut">насовсем (панель + VLESS-узлы)</span></div>');
  el('d_ext').onclick=function(){doAction({action:'extend',login:login,days:+el('d_days').value||30},'Продлён на '+(el('d_days').value)+'д');};
@@ -147,8 +159,7 @@ function custDlg(login){api('api/customer?login='+encodeURIComponent(login)).the
  el('d_rst').onclick=function(){doAction({action:'reset_devices',login:login},'Устройства сброшены');};
  if(el('d_dis'))el('d_dis').onclick=function(){doAction({action:'disable',login:login},login+' отключён');};
  if(el('d_en'))el('d_en').onclick=function(){doAction({action:'enable',login:login},login+' включён');};
- el('d_cp').onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(c.sub_url);toast('Скопировано');};
- el('d_del').onclick=function(){if(!confirm('Удалить клиента '+login+' насовсем? Уберёт из панели и с VLESS-узлов (S1+S3).'))return;post('api/action',{action:'delete',login:login}).then(function(){toast(login+' удалён');closeModal();renderCust();}).catch(function(e){toast('Ошибка: '+e.message);});};
+ el('d_del').onclick=function(){if(!confirm('Удалить клиента '+login+' насовсем? Уберёт из панели и со всех настроенных целевых сервисов.'))return;post('api/action',{action:'delete',login:login}).then(function(){toast(login+' удалён');closeModal();renderCust();}).catch(function(e){toast('Ошибка: '+e.message);});};
 }).catch(function(e){toast('Ошибка: '+e.message);});}
 
 function changePwDlg(){modal('<h3>Смена пароля панели</h3>'+
@@ -165,6 +176,30 @@ function provisionDlg(){modal('<h3>Выдать нового клиента</h3>
  '<div class="field"><label></label><button class="btn pri" id="p_go">Создать</button></div>'+
  '<p class="mut">Создаст аккаунт на всех узлах (VLESS/Hy2/Naive/AnyTLS/S3).</p>');
  el('p_go').onclick=function(){var l=el('p_login').value.trim();if(!l)return;doAction({action:'provision',login:l,days:+el('p_days').value||30},'Выдан '+l);};}
+
+function tri(v){return v===true?'OK':v===false?'нет':'неизвестно';}
+function metric(v){return v==null?'неизвестно':esc(v);}
+function sectionError(title,item){return '<h3>'+esc(title)+'</h3><div class="err">'+esc(item&&item.error&&item.error.message||'Недоступно')+'</div>';}
+function orderActions(o){var s=o.payment_state||o.status;if(s==='payment_claimed'||s==='claimed'||s==='awaiting_confirm')return '<button class="btn pri sm" data-confirm="'+esc(o.order_id)+'">Подтвердить</button> <button class="btn dng sm" data-cancel="'+esc(o.order_id)+'">Отменить</button>';if(s==='created'||s==='pending')return '<button class="btn dng sm" data-cancel="'+esc(o.order_id)+'">Отменить</button>';return '—';}
+function orderSection(title,item,pager,prefix){if(!item)return '';if(!item.ok)return sectionError(title,item);var j=item.value||{},orders=j.orders||[];pager.next=j.next_cursor||'';var h='<h3>'+esc(title)+'</h3><table><thead><tr><th>ID</th><th>Код</th><th>Сумма</th><th>Статус</th><th>Действия</th></tr></thead><tbody>';orders.forEach(function(o){var state=o.payment_state||o.status;h+='<tr><td><code>'+esc(o.order_id)+'</code></td><td>'+esc(o.code)+'</td><td>'+esc(o.rub)+' ₽</td><td>'+esc(state)+'</td><td>'+orderActions(o)+'</td></tr>';});h+='</tbody></table>'+pagerButtons(pager,prefix,title);return h;}
+function statusSection(item){if(!item)return '';if(!item.ok)return sectionError('Состояние сервиса',item);var s=item.value||{},rep=s.replication||{},nodes=s.nodes||{},apply=s.apply||{},outbox=s.outbox||{},telegram=s.telegram||{},dns=s.dns_tls||{},backup=s.backup||{},restore=s.restore||{},failures=s.failures||[];var h='<h3>Состояние сервиса</h3><div class="cards">'+
+ '<div class="c"><div class="n">'+tri(s.quorum)+'</div><div class="l">Кворум</div></div>'+
+ '<div class="c"><div class="n">'+tri(s.read_ready)+'</div><div class="l">Чтение</div></div>'+
+ '<div class="c"><div class="n">'+metric(s.write_readiness)+'</div><div class="l">Запись</div></div>'+
+ '<div class="c"><div class="n">'+tri(s.data_complete)+'</div><div class="l">Полнота данных</div></div></div>';
+ h+='<div class="c"><div class="kv">'+
+ '<div class="k">Replication</div><div>'+metric(rep.state)+' · узлов '+metric(rep.reachable_nodes)+' · lag '+metric(rep.max_lag_entries)+'</div>'+
+ '<div class="k">Узлы</div><div>voters '+metric(nodes.enabled_voters)+'/'+metric(nodes.voters)+' · active '+metric(nodes.active_service_targets)+' · fenced '+metric(nodes.fenced_service_targets)+' · stale '+metric(nodes.stale_receipts)+'</div>'+
+ '<div class="k">Apply</div><div>pending '+metric(apply.pending)+' · failed '+metric(apply.failed)+' · receipts '+metric(apply.failed_receipts)+' · lag '+metric(apply.max_generation_lag)+'</div>'+
+ '<div class="k">Outbox</div><div>pending '+metric(outbox.pending)+' · failed '+metric(outbox.failed)+' · oldest '+metric(outbox.oldest_pending_age_seconds)+' сек.</div>'+
+ '<div class="k">Telegram</div><div>routes '+metric(telegram.routes)+' · pollers '+metric(telegram.active_pollers)+' · rejected '+metric(telegram.inbox_rejected)+' · delivery failed '+metric(telegram.delivery_failed)+' · complete '+tri(telegram.data_complete)+'</div>'+
+ '<div class="k">DNS/TLS</div><div>'+metric(dns.state)+' · targets '+metric(dns.targets)+' · complete '+tri(dns.data_complete)+'</div>'+
+ '<div class="k">Backup</div><div>'+metric(backup.state)+' · generation '+metric(backup.verified_generation)+'/'+metric(backup.dirty_generation)+' · gap '+metric(backup.generation_gap)+'</div>'+
+ '<div class="k">Restore</div><div>'+metric(restore.state)+' · epoch '+metric(restore.epoch)+' · complete '+tri(restore.data_complete)+'</div></div></div>';
+ h+='<h4>Сводка отказов</h4>'+(failures.length?'<table><thead><tr><th>Компонент</th><th>Количество</th></tr></thead><tbody>'+failures.map(function(f){return '<tr><td>'+esc(f.component)+'</td><td>'+metric(f.count)+'</td></tr>';}).join('')+'</tbody></table>':'<p class="mut">Агрегированных отказов нет.</p>');return h;}
+function auditSection(item){if(!item)return '';if(!item.ok)return sectionError('Последний аудит',item);var j=item.value||{},events=j.events||[];AUDIT_PAGE.next=j.next_cursor||'';var h='<h3>Последний аудит</h3><table><thead><tr><th>Время</th><th>Действие</th><th>Актор</th></tr></thead><tbody>';events.forEach(function(e){h+='<tr><td>'+esc(fmtDate(e.created_at))+'</td><td>'+esc(e.action)+'</td><td>'+esc(e.actor)+'</td></tr>';});return h+'</tbody></table>'+pagerButtons(AUDIT_PAGE,'audit_page','Аудит');}
+function drawOps(data){var h=statusSection(data.status)+orderSection('Оплата заявлена',data.claimed,ORDER_CLAIMED_PAGE,'claimed_page')+orderSection('Ожидают оплаты',data.created,ORDER_CREATED_PAGE,'created_page')+auditSection(data.audit);if(!h)h='<p class="mut">Нет доступных операционных разделов.</p>';el('body').innerHTML=h;bindPager(ORDER_CLAIMED_PAGE,'claimed_page',renderOps);bindPager(ORDER_CREATED_PAGE,'created_page',renderOps);bindPager(AUDIT_PAGE,'audit_page',renderOps);Array.prototype.forEach.call(document.querySelectorAll('[data-confirm]'),function(b){b.onclick=function(){var id=b.getAttribute('data-confirm');if(!confirm('Подтвердить оплату '+id+'?'))return;post('api/order/confirm',{order_id:id}).then(function(){toast('Оплата подтверждена');resetPager(ORDER_CLAIMED_PAGE);resetPager(ORDER_CREATED_PAGE);renderOps();}).catch(function(e){toast('Ошибка: '+e.message);});};});Array.prototype.forEach.call(document.querySelectorAll('[data-cancel]'),function(b){b.onclick=function(){var id=b.getAttribute('data-cancel');if(!confirm('Отменить заказ '+id+'?'))return;post('api/order/cancel',{order_id:id}).then(function(){toast('Заказ отменён');resetPager(ORDER_CLAIMED_PAGE);resetPager(ORDER_CREATED_PAGE);renderOps();}).catch(function(e){toast('Ошибка: '+e.message);});};});}
+function renderOps(){var seq=++OPS_REQ,reqs=[];el('body').innerHTML='<div class="mut">Загрузка…</div>';if(can('payment.decide')){reqs.push({key:'claimed',p:api(pagePath('api/orders',ORDER_CLAIMED_PAGE,{status:'payment_claimed'}))});reqs.push({key:'created',p:api(pagePath('api/orders',ORDER_CREATED_PAGE,{status:'created'}))});}if(can('settings.critical')){reqs.push({key:'status',p:api('api/cluster-status')});reqs.push({key:'audit',p:api(pagePath('api/audit',AUDIT_PAGE))});}Promise.allSettled(reqs.map(function(r){return r.p;})).then(function(results){if(seq!==OPS_REQ)return;var data={};results.forEach(function(result,index){data[reqs[index].key]=result.status==='fulfilled'?{ok:true,value:result.value}:{ok:false,error:result.reason};});drawOps(data);});}
 
 function renderOlc(){el('body').innerHTML='<div class="mut">Загрузка…</div>';api('api/olcrtc').then(function(o){
  if(!o.enabled){el('body').innerHTML='<p class="mut">olcRTC выключен.</p>';return;}
@@ -224,5 +259,5 @@ function renderWDTT(){el('body').innerHTML='<div class="mut">Загрузка…
 function modal(html){closeModal();var m=document.createElement('div');m.className='modal';m.id='modal';m.innerHTML='<div class="box">'+html+'<div style="text-align:right;margin-top:14px"><button class="btn" id="mclose">Закрыть</button></div></div>';document.body.appendChild(m);el('mclose').onclick=closeModal;m.onclick=function(e){if(e.target===m)closeModal();};}
 function closeModal(){var m=el('modal');if(m)m.remove();}
 
-api('api/me').then(function(j){if(j.logged_in){CSRF=j.csrf;showApp();}else showLogin();}).catch(function(){showLogin();});
+api('api/me').then(function(j){if(j.logged_in){CSRF=j.csrf;PERMS=j.permissions||[];showApp();}else showLogin();}).catch(function(){showLogin();});
 </script></body></html>`

@@ -21,9 +21,7 @@ func TestExternalActionMigrationV8PreservesLegacyRowsAndEnforcesReplacementBindi
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
-	if SchemaVersion != 8 || len(migrations) != 8 || migrations[7].Version != 8 {
-		t.Fatalf("migration chain version/count/tail=(%d,%d,%d), want (8,8,8)", SchemaVersion, len(migrations), migrations[len(migrations)-1].Version)
-	}
+	requireExactV9MigrationChain(t, migrations)
 	python, err := exec.LookPath("python")
 	if err != nil {
 		t.Fatal("Python SQLite is required for external action migration tests")

@@ -95,6 +95,8 @@ func rqliteAPIConfigFromEnvironment() api.Config {
 	return api.Config{
 		AdminToken:         os.Getenv("MAESTRO_ADMIN_TOKEN"),
 		PanelPath:          os.Getenv("MAESTRO_PANEL_PATH"),
+		PanelPasswordHash:  os.Getenv("MAESTRO_PANEL_PASSWORD_HASH"),
+		PanelPWFile:        env("MAESTRO_PANEL_PW_FILE", "/var/lib/maestro/panel-pw.hash"),
 		SubBaseURL:         env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
 		SBPPhone:           os.Getenv("MAESTRO_SBP_PHONE"),
 		PayURL:             os.Getenv("MAESTRO_SBP_PAY_URL"),
