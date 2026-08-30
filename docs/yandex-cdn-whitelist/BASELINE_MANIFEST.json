@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "bytes": 15895,
-      "sha256": "a2a7e8567327e4409667150db1f14fb03b51300c08881490b07e3bda3c401c83",
+      "bytes": 16560,
+      "sha256": "6387856a7c3bbdc9441cf6a806da5d69a734ef196bb55fac0deb00b97413e364",
       "preview": "# Yandex CDN white-list task\n\nNavigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](<REDACTED>), [SPEC](docs/yandex-cdn-whitelist/<REDACTED>), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [hando"
     },
     {
@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 268521,
-      "sha256": "1a07dd62556b547b6f15893592f14e659f29ba70dac8bc07e322d2e41d4303c4",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. AUTHORITATIVE S1 IDENTITY CHECKPOINT (29.08.2026)\n\n- \u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b: \u043f\u0440\u0435\u0436\u043d\u0438\u0439 S1 \u043e\u043a\u043e\u043d\u0447\u0430\u0442\u0435\u043b\u044c\u043d\u043e \u0432\u044b\u0432\u0435\u0434\u0435\u043d \u0438\u0437 \u044d\u043a\u0441\u043f\u043b\u0443\u0430\u0442\u0430\u0446\u0438\u0438 \u0438 \u043d\u0435\n  \u044f\u0432\u043b\u044f\u0435\u0442\u0441\u044f \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u043e\u0439 \u0446\u0435\u043b\u044c\u044e \u0438\u043d\u0432\u0435\u043d\u0442\u0430\u0440\u0438\u0437\u0430\u0446\u0438\u0438, recovery, deploy \u0438\u043b\u0438 DNS-\u0448\u0430\u0433\u0430.\n  \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 S1 \u2014 owner-authoritative `CURREN"
+      "bytes": 272282,
+      "sha256": "3c94986d0770e19de41006ceaa37cd15f0faddad3def2da12460557471b08f7c",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. HA PLAN 02 TASK 8 \u2014 FINDING 5 ACCEPTED EXACT-SHA (30.08.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u2014 `codex/yandex-cdn-whitelist-task3-sync`.\n  \u041f\u0440\u0438\u043d\u044f\u0442\u044b\u0439 F5 code SHA \u2014\n  `bc4c9defc7158e3e2d9a9cc567e58ba25e9c2e7f`; local \u0438 remote refs\n  byte-exact \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u044e\u0442.\n- Pub"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",

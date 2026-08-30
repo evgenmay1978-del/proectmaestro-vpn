@@ -1,5 +1,50 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. HA PLAN 02 TASK 8 — FINDING 5 ACCEPTED EXACT-SHA (30.08.2026)
+
+- Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
+  Принятый F5 code SHA —
+  `bc4c9defc7158e3e2d9a9cc567e58ba25e9c2e7f`; local и remote refs
+  byte-exact совпадают.
+- Public `/sub/<token>` boundary теперь читает один coherent strong rqlite
+  snapshot: customer/status/exact expiry, customer/token/settings/schema
+  generations, sealed token и credentials, committed-device state, active
+  restore epoch и DB time. Raw token/device identity не становятся SQL- или
+  cache-ключами; для lookup/audit используются domain-separated HMAC.
+- Admission нового и повторного устройства атомарно связан с тем же exact
+  authorization state и DB-time expiry. Device mutation, dirty backup-RPO
+  generation и audit event имеют строгую result cardinality и одну transaction;
+  audit collision/неполный result откатывает claim fail-closed. Текущий HTTP
+  request после успешного claim рендерится во время admission; следующий request
+  после expiry уже получает expired response.
+- Cache разделён по token/device/variant, имеет независимые token/device fences,
+  restore-first ordering и corruption/drift invalidation. Last-known-good
+  разрешён только для уже committed identity при временной недоступности;
+  неизвестное шестое устройство не может использовать чужой cache. `/info` не
+  записывает device, `/helpers` не требует credentials, основной subscription
+  требует полный canonical credential envelope.
+- Сохранена клиентская совместимость: query device имеет приоритет над header,
+  поддержаны `/info`, `/helpers`, links variant и malformed suffix старого TV
+  `1.0.74`; отсутствующий/невалидный device сохраняет legacy read behavior и не
+  регистрируется.
+- Production policy едина для legacy provisioning и rqlite runtime:
+  `MAESTRO_DEVICE_LIMIT=off` (trim/case-insensitive) отключает admission без
+  записи; `0` означает unlimited с записью; default `5`, owner logins `0`,
+  `strogino` `9`. Re-run deploy сохраняет уже заданный switch.
+- Независимые security/design reviews: **APPROVE**. Fresh canonical local
+  regression GREEN: API `0.768s`, controlplane `462.742s`, panel `0.095s`,
+  device policy `0.044s`, provision `0.374s`. Exact-SHA GitHub runs GREEN:
+  HA control-plane `33288345852`, HA DR restore `33288345857`, Yandex isolated
+  release `33288345848`; Linux race-vet job `99195676585` GREEN.
+- Findings 2/4/5/6/7/8/10/12/13/14/15 приняты. Единственный следующий
+  nonfrozen finding — **F9** (production panel/API/SPA compatibility and RBAC).
+  Findings 3/11 (OLCRTC) и WDTT заморожены по указанию владельца.
+- Production остаётся **NO-GO**. Runtime по умолчанию остаётся legacy до
+  отдельного owner-approved rqlite cutover; S1-S4, systemd, DNS/TLS, CDN,
+  панели, Telegram-боты, клиенты, реальные оплаты/списания, release/signing и
+  OTA не изменялись. Android/TV baseline `1.0.157` неизменяем. Защищённые
+  `task-4-report.md` и `normalize.patch` остаются unstaged.
+
 ## 0. AUTHORITATIVE S1 IDENTITY CHECKPOINT (29.08.2026)
 
 - Владелец подтвердил: прежний S1 окончательно выведен из эксплуатации и не

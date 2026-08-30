@@ -110,6 +110,9 @@ After `ModuleNotFoundError`, check `importlib.util.find_spec` for the missing mo
 
 #### Windows generated-patch path rule
 
+Never hand-author unified-diff hunk range counts. Build verified `old/` and `new/` mirror trees and let `git diff --no-index` calculate every range/count.
+After any `git apply --check` result containing `corrupt patch`, discard that artifact and generate a fresh diff from the mirrors; do not repair or tune hunk headers manually.
+
 If a generated patch is needed on Windows, never build it from absolute drive paths and then rewrite quoted `a/C:\...` headers. Create external `old/<repo-relative-path>` and `new/<repo-relative-path>` mirror trees; run `git diff --no-index --src-prefix=a/ --dst-prefix=b/ -- old/<repo-relative-path> new/<repo-relative-path>` from their common parent; inspect headers; then use `git apply --check --recount -p2 <patch>` before one `git apply --recount -p2 <patch>`. After one absolute-path normalization failure, record it and move to this method; do not tune quoting, slash conversion, prefix stripping, or header text.
 Before any `git apply` inside an external mirror, run `git rev-parse --show-toplevel`. If Git discovers an ancestor repository above the mirror, do not trust the process working directory: either set `GIT_CEILING_DIRECTORIES` to the verified mirror parent for both check and apply, or run from the discovered top-level with an explicit verified `--directory=<repo-relative-mirror-root>`. Immediately verify that the intended mirror file changed; exit code 0 without the expected bounded diff is a failed attempt.
 - для существующего исходника запрещены `--unidiff-zero` и hunks без устойчивого
@@ -174,6 +177,10 @@ prefix with a literal, wrap every concatenation in parentheses or use
 `[string]::Concat`. An unparenthesized comma/`+` expression can split one
 intended line into multiple array elements. Assert the array count and exact
 element lengths before using it as a structural preflight.
+
+### PowerShell foreach pipeline guard
+
+Never pipe directly from a PowerShell `foreach (...) { ... }` statement; that grammar can produce `ParserError: An empty pipe element is not allowed`. Collect the loop output into an array variable first, then pipe that variable. After this parser error, do not tune braces or pipe placement.
 
 ### Production adapter compatibility test guard
 
