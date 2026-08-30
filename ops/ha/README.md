@@ -131,3 +131,37 @@ Authoritative references:
 No backup is uploaded as an artifact. Successful CI is evidence for a
 repository implementation only; it does not authorize production deployment,
 server access, import, restart or customer mutation.
+
+## Immutable panel build artifact
+
+The separate `.github/workflows/ha-build.yml` workflow is an artifact-only,
+repository-only build proof with status **PRODUCTION NO-GO**. The statement
+above remains true for backups: no backup is uploaded. This workflow uploads
+only the newly built panel bundle on branch pushes or manual dispatches, never
+on pull-request events.
+
+The artifact name is `maestro-panel-<full commit SHA>`. Its membership is
+bounded to exactly `maestro-panel` and `manifest.json`. The manifest binds the
+repository, ref, full commit SHA, workflow run ID and attempt, exact Go 1.25.0
+toolchain, Linux/amd64 binary SHA-256 and byte size. It also fixes
+`release_readiness` to `NO_GO` and `deployment_authorized` to `false`.
+
+Validate the checked-out workflow policy with:
+
+```bash
+python ops/ha/build_workflow_policy.py
+```
+
+After downloading and extracting a reviewed artifact into a fresh private
+directory, verify it with `python ops/ha/build_manifest.py verify` and all five
+expected identity arguments documented in
+[`deploy/ha/README.md`](../../deploy/ha/README.md). GitHub transport may strip
+the executable bit; that mode is not provenance evidence. Verify bytes and the
+manifest offline, and do not execute or install the binary in this slice.
+
+This slice provides no panel deployment helper, users, directories, services,
+rqlite bootstrap/join, TLS, nginx, firewall, agents, bot pollers, import, DNS or
+cutover. Repository-local self-validation starts only after pinned checkout, so
+external GitHub ruleset/CODEOWNERS protection for `.github/workflows/**` is
+still required. The next separately reviewed slice is restricted to PKI/service
+templates and an offline, non-mutating `deploy-node plan`.

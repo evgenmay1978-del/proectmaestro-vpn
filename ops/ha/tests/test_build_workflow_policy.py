@@ -252,6 +252,11 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
     def test_safe_fixture_passes(self) -> None:
         self.assertIsNone(validate_workflow(VALID_WORKFLOW))
 
+    def test_repository_workflow_passes_policy(self) -> None:
+        source = POLICY.WORKFLOW.read_text(encoding="ascii")
+
+        self.assertIsNone(validate_workflow(source))
+
     def test_has_no_third_party_yaml_dependency(self) -> None:
         source = inspect.getsource(POLICY)
         self.assertIsNone(
@@ -520,6 +525,16 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
         unsafe = self.mutate(
             anchor,
             anchor + "          # continuation semantics changed\n",
+        )
+        self.rejected(unsafe, "step-boundary")
+
+    def test_encoded_newline_comment_in_python_heredoc_is_sealed(self) -> None:
+        anchor = "          from pathlib import Path\n"
+        unsafe = self.mutate(
+            anchor,
+            "          # coding: utf-7\n"
+            "          #+AAo-raise SystemExit('unexpected')\n"
+            + anchor,
         )
         self.rejected(unsafe, "step-boundary")
 

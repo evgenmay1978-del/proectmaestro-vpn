@@ -1,0 +1,193 @@
+name: HA immutable panel artifact
+
+on:
+  push:
+    branches:
+      - codex/yandex-cdn-whitelist-task3-sync
+  pull_request:
+    branches:
+      - codex/yandex-cdn-whitelist-task3-sync
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ha-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-panel-artifact:
+    name: Build immutable panel artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Test build workflow policy
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          python -m unittest ops.ha.tests.test_build_manifest ops.ha.tests.test_build_workflow_policy -v
+          python ops/ha/build_workflow_policy.py
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test backend
+        working-directory: backend
+        env:
+          LC_ALL: C
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 ./...
+
+      - name: Race-test backend
+        working-directory: backend
+        env:
+          LC_ALL: C
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 -race ./...
+
+      - name: Vet backend
+        working-directory: backend
+        env:
+          LC_ALL: C
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go vet ./...
+
+      - name: Test isolated rqlite harness
+        env:
+          LC_ALL: C
+        run: bash ops/ha/test-ci-rqlite-cluster.sh
+
+      - name: Start isolated rqlite cluster
+        env:
+          LC_ALL: C
+        run: bash ops/ha/ci-rqlite-cluster.sh start
+
+      - name: Test rqlite integration
+        working-directory: backend
+        env:
+          LC_ALL: C
+        run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 -tags=rqlite_integration ./...
+
+      - name: Stop isolated rqlite cluster
+        if: ${{ always() && hashFiles('ops/ha/ci-rqlite-cluster.sh') != '' }}
+        env:
+          LC_ALL: C
+        run: bash ops/ha/ci-rqlite-cluster.sh stop
+
+      - name: Build reproducible panel
+        working-directory: backend
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          umask 077
+          build_a="$RUNNER_TEMP/maestro-build-a"
+          build_b="$RUNNER_TEMP/maestro-build-b"
+          test ! -e "$build_a"
+          test ! -e "$build_b"
+          mkdir -m 700 -- "$build_a" "$build_b"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -trimpath -buildvcs=true \
+            -ldflags "-s -w -X github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api.BuildCommit=$GITHUB_SHA" \
+            -o "$build_a/maestro-panel" ./cmd/maestro-panel
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -trimpath -buildvcs=true \
+            -ldflags "-s -w -X github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api.BuildCommit=$GITHUB_SHA" \
+            -o "$build_b/maestro-panel" ./cmd/maestro-panel
+          cmp -- "$build_a/maestro-panel" "$build_b/maestro-panel"
+          go version -m "$build_a/maestro-panel" > "$RUNNER_TEMP/maestro-panel.buildinfo"
+          python - "$GITHUB_SHA" "$RUNNER_TEMP/maestro-panel.buildinfo" <<'PY'
+          from pathlib import Path
+          import sys
+
+          revision = sys.argv[1]
+          lines = Path(sys.argv[2]).read_text(encoding="utf-8").splitlines()
+          settings = []
+          for raw in lines:
+              fields = raw.split("\t")
+              if len(fields) != 3 or fields[1] != "build":
+                  continue
+              key, separator, value = fields[2].partition("=")
+              if not separator or any(existing == key for existing, _ in settings):
+                  raise SystemExit("invalid duplicate build setting")
+              settings.append((key, value))
+          expected = (
+              ("GOOS", "linux"),
+              ("GOARCH", "amd64"),
+              ("vcs.revision", revision),
+              ("vcs.modified", "false"),
+          )
+          for key, wanted in expected:
+              actual = [value for candidate, value in settings if candidate == key]
+              if actual != [wanted]:
+                  raise SystemExit("build identity mismatch")
+          PY
+          test ! -e "$GITHUB_WORKSPACE/dist"
+          mkdir -m 700 -- "$GITHUB_WORKSPACE/dist"
+          mv -- "$build_a/maestro-panel" "$GITHUB_WORKSPACE/dist/maestro-panel"
+
+      - name: Create and verify manifest
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          go_version="$(go env GOVERSION)"
+          test "$go_version" = "go1.25.0"
+          python ops/ha/build_manifest.py create \
+            --artifact-root dist \
+            --output dist/manifest.json \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF" \
+            --commit-sha "$GITHUB_SHA" \
+            --workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --go-version "$go_version"
+          python ops/ha/build_manifest.py verify \
+            --artifact-root dist \
+            --manifest dist/manifest.json \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-ref "$GITHUB_REF" \
+            --expected-commit-sha "$GITHUB_SHA" \
+            --expected-workflow-run-id "$GITHUB_RUN_ID" \
+            --expected-workflow-run-attempt "$GITHUB_RUN_ATTEMPT" > /dev/null
+
+      - name: Assert exact artifact membership
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import stat
+
+          entries = list(os.scandir("dist"))
+          expected_names = ["maestro-panel", "manifest.json"]
+          if sorted(entry.name for entry in entries) != expected_names:
+              raise SystemExit("artifact membership mismatch")
+          for entry in entries:
+              metadata = entry.stat(follow_symlinks=False)
+              if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                  raise SystemExit("artifact member is not a single-link regular file")
+          PY
+
+      - name: Upload immutable panel artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-panel-${{ github.sha }}
+          path: |
+            dist/maestro-panel
+            dist/manifest.json
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
