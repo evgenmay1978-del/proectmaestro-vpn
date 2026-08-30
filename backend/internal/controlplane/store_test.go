@@ -30,6 +30,20 @@ func rowsScript(rows ...map[string]any) scriptedResult {
 	return scriptedResult{results: []rqlite.Result{{Rows: rows}}}
 }
 
+func authorizationRowsScript(secrets *SecretBox, csrf string, rows ...map[string]any) scriptedResult {
+	csrfHMAC := secrets.LookupHMAC("web-csrf", []byte(csrf))
+	result := make([]map[string]any, len(rows))
+	for index, row := range rows {
+		copyRow := make(map[string]any, len(row)+1)
+		for key, value := range row {
+			copyRow[key] = value
+		}
+		copyRow["csrf_hmac"] = csrfHMAC
+		result[index] = copyRow
+	}
+	return rowsScript(result...)
+}
+
 func resultsScript(results ...rqlite.Result) scriptedResult {
 	return scriptedResult{results: results}
 }
@@ -290,27 +304,27 @@ func TestSessionCookieContract(t *testing.T) {
 
 func TestRevocationEpochInvalidatesExistingSession(t *testing.T) {
 	db := &recordingRQLite{
-		linear: []scriptedResult{
-			rowsScript(map[string]any{
-				"principal_id": "principal-1",
-				"role_name":    "owner",
-			}),
-			resultsScript(rqlite.Result{Rows: nil}),
-		},
 		requests: []scriptedResult{resultsScript(
 			rqlite.Result{Rows: []map[string]any{{"revocation_epoch": 2}}},
 			rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1},
 		)},
 	}
-	service, _ := testService(t, db)
+	service, secrets := testService(t, db)
+	db.linear = []scriptedResult{
+		authorizationRowsScript(secrets, "csrf-token", map[string]any{
+			"principal_id": "principal-1",
+			"role_name":    "owner",
+		}),
+		resultsScript(rqlite.Result{Rows: nil}),
+	}
 	if _, err := service.Authorize(context.Background(), "session-token", "csrf-token", PermissionPaymentDecide); err != nil {
 		t.Fatalf("Authorize before revoke: %v", err)
 	}
 	if err := service.RevokeSessions(context.Background(), "principal-1", "owner"); err != nil {
 		t.Fatalf("RevokeSessions: %v", err)
 	}
-	if _, err := service.Authorize(context.Background(), "session-token", "csrf-token", PermissionPaymentDecide); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("Authorize after revoke = %v, want ErrForbidden", err)
+	if _, err := service.Authorize(context.Background(), "session-token", "csrf-token", PermissionPaymentDecide); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("Authorize after revoke = %v, want ErrUnauthenticated", err)
 	}
 	joined := statementsText(db.requestCalls[0].statements)
 	if !strings.Contains(joined, "revocation_epoch") || !strings.Contains(joined, "audit_events") {
@@ -341,12 +355,13 @@ func TestRevokeSessionsMissingPrincipalCannotCommitAuditOnlySuccess(t *testing.T
 }
 
 func TestPrincipalRolesAreNormalizedAndDefaultDeny(t *testing.T) {
-	db := &recordingRQLite{linear: []scriptedResult{
-		rowsScript(map[string]any{"principal_id": "p-owner", "role_name": "owner"}),
-		rowsScript(map[string]any{"principal_id": "p-admin", "role_name": "admin"}),
-		rowsScript(map[string]any{"principal_id": "p-other", "role_name": "unknown"}),
-	}}
-	service, _ := testService(t, db)
+	db := &recordingRQLite{}
+	service, secrets := testService(t, db)
+	db.linear = []scriptedResult{
+		authorizationRowsScript(secrets, "c1", map[string]any{"principal_id": "p-owner", "role_name": "owner"}),
+		authorizationRowsScript(secrets, "c2", map[string]any{"principal_id": "p-admin", "role_name": "admin"}),
+		authorizationRowsScript(secrets, "c3", map[string]any{"principal_id": "p-other", "role_name": "unknown"}),
+	}
 	if _, err := service.Authorize(context.Background(), "s1", "c1", PermissionCriticalSettings); err != nil {
 		t.Fatalf("owner critical authorization: %v", err)
 	}
@@ -444,11 +459,14 @@ func TestReadOnlyCallsNeverOpenDirtyMutationTransaction(t *testing.T) {
 }
 
 func TestAuthorizeUsesAnyExplicitRole(t *testing.T) {
-	db := &recordingRQLite{linear: []scriptedResult{rowsScript(
+	db := &recordingRQLite{}
+	service, secrets := testService(t, db)
+	db.linear = []scriptedResult{authorizationRowsScript(
+		secrets,
+		"csrf",
 		map[string]any{"principal_id": "p-owner", "role_name": "admin"},
 		map[string]any{"principal_id": "p-owner", "role_name": "owner"},
-	)}}
-	service, _ := testService(t, db)
+	)}
 	if _, err := service.Authorize(context.Background(), "session", "csrf", PermissionCriticalSettings); err != nil {
 		t.Fatalf("owner role was ignored when another explicit role sorted first: %v", err)
 	}
