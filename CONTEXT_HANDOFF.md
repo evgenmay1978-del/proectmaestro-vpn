@@ -3803,3 +3803,77 @@ mutation require separate owner-approved, console-recoverable change windows;
 this checkpoint authorizes none of them. Canary and final cutover remain separate
 approvals. No customer, bot, service, firewall, DNS, TLS, OTA or VPN configuration
 was changed. OLCRTC and WDTT remain frozen.
+
+## 2026-08-30 - Immutable panel artifact exact-SHA checkpoint
+
+Task15A produces and verifies an immutable transport artifact for exact commit
+`f577c67ad229fe89278430d35a3ec65f6ce454e5` and tree
+`c1a6fbe0f4af9c3ab7c0038a798d1cbcf4fc8cef` on the sole canonical branch
+`codex/yandex-cdn-whitelist-task3-sync`. It does not authorize release or
+deployment. Manifest fields remain `release_readiness: "NO_GO"` and
+`deployment_authorized: false`; every deployment path must fail closed while
+either value remains unchanged.
+
+Exact-source GitHub evidence is GREEN:
+
+- `HA immutable panel artifact`: run `33327019392`, job `99298854016`;
+- `HA control-plane checks`: run `33327019360`, job `99298853822`;
+- `HA DR restore drill`: run `33327019363`, job `99298853947`.
+
+Verified GitHub transport identity is workflow run `33327019392`, job
+`99298854016`, artifact ID `9736614530`, head SHA
+`f577c67ad229fe89278430d35a3ec65f6ce454e5`, archive size `10650572` and
+archive digest
+`sha256:104ea083f3c590533574a3c3d09f2569129e006597a6e057ce15276c15d49828`.
+The artifact is not expired. These values identify the immutable GitHub
+transport object; they are not release authorization.
+
+The artifact name is
+`maestro-panel-f577c67ad229fe89278430d35a3ec65f6ce454e5`; it contains exactly
+the regular files `maestro-panel` and `manifest.json`. Offline verification in
+an ephemeral directory passed without executing the binary. The binary size is
+`10649784`, its SHA-256 is
+`8f67bde5d720e17e04b5b2de0147f2c2502fafa54a5e675471f1a160866a3990`, and
+the manifest SHA-256 is
+`853282de28d13627f0660a0c233e9d3e653c174f28d34062d8c1d3e93797fa9f`.
+The manifest is canonical schema `maestro-ha-build-manifest-v1`, targets
+`linux/amd64`, records Go `go1.25.0`, the exact branch/ref/run/attempt, and
+remains `NO_GO` with deployment authorization false.
+
+Independent exact-SHA code/security review found zero Critical and zero
+Important findings within this artifact-only scope. The immutable artifact
+evidence is accepted for Task15A only. The following controls are hard
+pre-deploy blockers, not release authorization supplied by this checkpoint:
+
+1. an independently controlled artifact attestation or signed release record
+   binding the approved commit, artifact ID, GitHub archive digest and inner
+   member digests;
+2. GitHub ruleset/CODEOWNERS protection plus required independent review and
+   exact-SHA status checks for workflows, workflow-policy code, manifest code
+   and deployment/release code;
+3. an explicit authorized release transition as the only process allowed to
+   replace `NO_GO/false`;
+4. target-compatible executable/runtime smoke verification before promotion,
+   because current ELF verification is structural rather than a complete
+   loadability/runtime proof.
+
+Non-blocking review notes remain: the structural ELF verifier does not require
+an entry point inside an executable `PF_X` segment, and the pinned GitHub
+Actions revisions emit a Node.js 20 compatibility warning and require a
+separately reviewed maintenance refresh before compatibility is removed.
+
+The exact-SHA `Yandex CDN isolated release checks` run `33327019364` failed only
+because the redacted baseline held a stale `CONTEXT_HANDOFF.md` row. It had no
+missing or extra rows, and the artifact commit did not change either file. This
+is separate from the three required Task15A gates and does not invalidate the
+artifact. The documenting commit regenerates the redacted baseline and must
+pass the docs unit suite and validator before it is accepted.
+
+Status remains **PRODUCTION NO-GO**. Remaining production blockers are:
+authoritative S3 identity, S4 network repair, the complete east-west matrix,
+authenticated/versioned backup plus production empty-cluster restore proof,
+PKI/service templates, an offline deploy plan, shadow change-window approval,
+canary and cutover. The artifact trust controls above are additional hard
+pre-deploy blockers. No server, customer, bot, VPN, Android/TV, OTA, DNS, TLS,
+firewall or billing state was changed by this slice. OLCRTC and WDTT remain
+frozen.
