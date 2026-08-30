@@ -1,5 +1,41 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. HA PLAN 02 TASK 8 — FINDING 9 ACCEPTED EXACT-SHA (30.08.2026)
+
+- Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
+  Принятый independently reviewed code SHA —
+  `d7cfec12eb8656ea821d855bdb552a172cbf5fd6`; remote branch совпадает.
+- Finding 9 закрыт: production panel/API/SPA сохраняет legacy HTTP-контракт,
+  различает 401/403, fail-closed проверяет credential/CSRF, использует
+  constant-time comparison и не раскрывает секреты в URL/log-safe ошибках.
+- До разбора JSON action выполняются bounded cluster-backed IP/session rate
+  limits, authentication, CSRF, idempotency и базовая authorization. Повторная
+  action-specific authorization выполняется ровно один раз после decode.
+- Panel pagination теперь cursor-based; cursor зашифрован AES-256-GCM со
+  случайным nonce, versioned envelope и kind-bound AAD. Ключ детерминированно
+  выводится из стабильной общей panel-конфигурации, поэтому одинаковые HA-ноды
+  принимают cursor друг друга, а tamper/different-config отклоняются fail-closed.
+- Customer reset возвращает повторно прочитанное committed состояние; delete
+  возвращает только `{"ok":true}` и не выдаёт фиктивную zero-value запись.
+  Operational status использует реальные cluster/runtime данные. Durable
+  rate-limit schema добавлена migration v9.
+- Независимые финальные reviews: Critical/Important/Minor — `0/0/0`, verdict
+  `ready`. Три исправленных legacy auth fixture tests локально GREEN. Полный
+  Windows-прогон не повторять: старый Python SQLite `CombinedOutput` harness
+  блокируется на pipe; авторитетный полный Linux gate выполнен GitHub Actions.
+- Exact-SHA GitHub evidence полностью GREEN:
+  [Yandex CDN isolated release checks 33309742322](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742322),
+  [HA control-plane checks 33309742346](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742346),
+  [HA DR restore drill 33309742401](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33309742401).
+- Следующий этап — redacted read-only production inventory и backup readiness,
+  затем изолированный canary. Production deploy/restart, rqlite import/write,
+  DNS/TLS/CDN, bot/payment/customer mutation и cutover требуют соответствующих
+  gates; финальный traffic cutover — отдельного явного owner approval.
+- Android/TV production baseline остаётся `1.0.157`. Findings 3/11 (OLCRTC) и
+  WDTT заморожены. Защищённые `task-4-report.md` и `normalize.patch` не stage и
+  не изменять. Akonit/Telegram decisions сохранены в
+  `docs/research/2026-08-30-akonit-telegram-product-notes.md`.
+
 ## 0. HA PLAN 02 TASK 8 — FINDING 5 ACCEPTED EXACT-SHA (30.08.2026)
 
 - Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
@@ -3706,3 +3742,20 @@ workflows. After that, implement real Task 12 local drivers and wire
 `cmd/maestro-agent` to those concrete drivers. Production remains NO-GO; no
 server, customer, bot, VPN, Android/TV, OTA, DNS or production credential was
 accessed or changed.
+
+## 2026-08-30 — Akonit Telegram/product research checkpoint
+
+The owner asked that the public Akonit/Telegram findings survive context
+compaction. The sanitized durable record is
+`docs/research/2026-08-30-akonit-telegram-product-notes.md`. It contains only
+anonymous public-source facts and MaestroVPN product actions; no private
+subscription URL, user token or external credential is present.
+
+Load that note before changing Telegram onboarding, metered-gigabyte billing,
+balance notifications, gifts/referrals, client import or subscription delivery.
+Key decisions: one Telegram/cabinet identity flow; cluster-backed idempotent
+ledger for purchased/used/available/overdraft bytes; deduplicated threshold
+notifications; recipient-bound gifts; explicit order/payment/provisioning
+states; last-known-good config delivery; client/platform/transport matrix; and
+public-link checks. Public Akonit materials did not prove Yandex CDN or padding.
+OLCRTC and WDTT remain frozen.
