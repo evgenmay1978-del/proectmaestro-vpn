@@ -188,6 +188,7 @@ type SubscriptionSnapshot struct {
 	Customer    CustomerView    `json:"customer"`
 	Document    json.RawMessage `json:"document"`
 	Cached      bool            `json:"cached,omitempty"`
+	AsOf        time.Time       `json:"-"`
 }
 
 type TouchDeviceCommand struct {

@@ -7,13 +7,15 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("controlplane: not found")
-	ErrConflict    = errors.New("controlplane: conflict")
-	ErrForbidden   = errors.New("controlplane: forbidden")
-	ErrDeviceLimit = errors.New("controlplane: device limit reached")
-	ErrUnavailable = errors.New("controlplane: unavailable")
-	ErrLeaseHeld   = errors.New("controlplane: expiry lease held")
-	ErrLeaseLost   = errors.New("controlplane: expiry lease lost")
+	ErrNotFound            = errors.New("controlplane: not found")
+	ErrConflict            = errors.New("controlplane: conflict")
+	ErrForbidden           = errors.New("controlplane: forbidden")
+	ErrInvalidState        = errors.New("controlplane: invalid state")
+	ErrDeviceLimit         = errors.New("controlplane: device limit reached")
+	ErrSubscriptionChanged = errors.New("controlplane: subscription precondition changed")
+	ErrUnavailable         = errors.New("controlplane: unavailable")
+	ErrLeaseHeld           = errors.New("controlplane: expiry lease held")
+	ErrLeaseLost           = errors.New("controlplane: expiry lease lost")
 )
 
 type Customer struct {
@@ -127,7 +129,21 @@ type SettingResult struct {
 }
 
 type DeviceClaim struct {
-	DeviceID string
+	DeviceID       string
+	AdmittedAtUnix int64
+}
+
+type SubscriptionDeviceClaimCommand struct {
+	CustomerID                 string
+	TokenHMAC                  string
+	RawDeviceIdentity          string
+	Platform                   string
+	Limit                      int
+	RequireCredentials         bool
+	ExpectedCustomerGeneration int64
+	ExpectedTokenGeneration    int64
+	ExpectedExpiresAtUnix      int64
+	ExpectedRestoreEpoch       int64
 }
 
 type Permission string

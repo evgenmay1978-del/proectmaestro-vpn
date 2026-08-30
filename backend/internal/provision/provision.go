@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/devicelimit"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
@@ -151,33 +152,17 @@ var loginRe = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,64}$`)
 // ValidLogin reports whether a login/claim-code is safe to provision with.
 func ValidLogin(login string) bool { return loginRe.MatchString(login) }
 
-// DeviceLimit caps simultaneous devices/IPs per login (3x-ui limitIp).
-const DeviceLimit = 5
+// DeviceLimit keeps the historical provision package constant while the pure
+// policy package remains the single source of truth.
+const DeviceLimit = devicelimit.Default
 
-// unlimitedLogins are exempt from the device cap (the owner's admin logins — same person,
-// one Telegram; all unlimited on devices AND days).
-var unlimitedLogins = map[string]bool{"wapmix": true, "wapmixx": true, "wapmix2": true}
-
-// deviceLimitOverrides raises (or lowers) the cap for specific logins — e.g. a customer
-// with more household devices. (For UNLIMITED use unlimitedLogins, not 0 here.)
-var deviceLimitOverrides = map[string]int{"strogino": 9}
-
-// deviceLimit returns the per-login limitIp (0 = unlimited).
-func deviceLimit(login string) int {
-	l := strings.ToLower(login)
-	if unlimitedLogins[l] {
-		return 0
-	}
-	if n, ok := deviceLimitOverrides[l]; ok {
-		return n
-	}
-	return DeviceLimit
-}
+// deviceLimit returns the per-login 3x-ui limitIp (0 = unlimited).
+func deviceLimit(login string) int { return devicelimit.ForLogin(login) }
 
 // DeviceLimitFor exposes the per-login device cap (0 = unlimited, for the owner's admin
 // logins) so the subscription endpoint can enforce the SAME cap + wapmix/wapmixx exemption
 // that 3x-ui's limitIp uses — one source of truth, no drift between the two layers.
-func (p *Provisioner) DeviceLimitFor(login string) int { return deviceLimit(login) }
+func (p *Provisioner) DeviceLimitFor(login string) int { return devicelimit.ForLogin(login) }
 
 // Returns the stored customer, whose SubToken forms the app subscription URL.
 func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Customer, error) {

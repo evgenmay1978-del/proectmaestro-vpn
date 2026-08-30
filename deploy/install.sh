@@ -22,12 +22,13 @@ if [ -f "$S2_PASS_FILE" ]; then S2PASS=$(cat "$S2_PASS_FILE"); else read -rsp "s
 # /etc/maestro-panel.env (the re-run case) → an interactive prompt. Empty is refused below: the
 # panel would otherwise serve customers a purchase screen with nothing to pay to.
 SBPPHONE="${MAESTRO_SBP_PHONE:-}"
+DEVICE_LIMIT="${MAESTRO_DEVICE_LIMIT:-}"
 # СБП pay link (T-Bank «Сбор денег» — cross-bank, no acquiring) shown as a scannable QR.
 SBPPAYURL="https://tbank.ru/cf/AL6tPKPozJo"
 # owner Telegram notify (reuse the vpn_bot's token + admin id; send-only, no poll conflict)
 TGTOKEN=$(grep -oP '^BOT_TOKEN=\K.*' "$VPN_BOT_ENV" || true)
 TGADMIN=$(grep -oP '^ADMIN_IDS?=\K[^,[:space:]]*' "$VPN_BOT_ENV" || true)
-# preserve the admin token + (TLS) sub base across re-runs
+# preserve the admin token + (TLS) sub base + device-limit switch across re-runs
 ADMIN=""
 SUBBASE="https://wapmixx.ru:8911"
 if [ -f /etc/maestro-panel.env ]; then
@@ -38,7 +39,10 @@ if [ -f /etc/maestro-panel.env ]; then
     [ -n "$EXIST_PAY" ] && SBPPAYURL="$EXIST_PAY"
     EXIST_PHONE=$(grep -oP '^MAESTRO_SBP_PHONE=\K.*' /etc/maestro-panel.env || true)
     [ -n "$EXIST_PHONE" ] && SBPPHONE="$EXIST_PHONE"
+    EXIST_DEVICE_LIMIT=$(grep -oP '^MAESTRO_DEVICE_LIMIT=\K.*' /etc/maestro-panel.env || true)
+    [ -n "$EXIST_DEVICE_LIMIT" ] && [ -z "$DEVICE_LIMIT" ] && DEVICE_LIMIT="$EXIST_DEVICE_LIMIT"
 fi
+[ -n "$DEVICE_LIMIT" ] || DEVICE_LIMIT=on
 # Last resort on a FIRST install: ask. Refusing empty is the point — writing an empty
 # MAESTRO_SBP_PHONE would silently ship a purchase screen customers cannot pay from.
 if [ -z "$SBPPHONE" ]; then
@@ -55,6 +59,7 @@ MAESTRO_STORE=/var/lib/maestro/customers.json
 MAESTRO_ORDER_STORE=/var/lib/maestro/orders.json
 MAESTRO_ADMIN_TOKEN=$ADMIN
 MAESTRO_SUB_BASE=$SUBBASE
+MAESTRO_DEVICE_LIMIT=$DEVICE_LIMIT
 MAESTRO_SBP_PHONE=$SBPPHONE
 MAESTRO_SBP_PAY_URL=$SBPPAYURL
 MAESTRO_TG_BOT_TOKEN=$TGTOKEN

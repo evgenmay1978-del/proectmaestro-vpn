@@ -17,6 +17,7 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/devicelimit"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
@@ -85,12 +86,7 @@ func buildRQLitePanelRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("rqlite runtime: worker identity unavailable: %w", err)
 	}
-	business := api.NewServiceBusiness(service, api.ServiceBusinessConfig{
-		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
-		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,
-		WBRoomSender: wbSender, WorkerID: workerID,
-		SubscriptionTopology: rqliteSubscriptionTopologyFromEnvironment(),
-	})
+	business := api.NewServiceBusiness(service, rqliteServiceBusinessConfig(apiConfig, wbSender, workerID))
 	server := api.NewControlPlane(business, apiConfig)
 	return &panelRuntime{mode: "rqlite", business: business, handler: server.Handler()}, nil
 }
@@ -104,10 +100,27 @@ func rqliteAPIConfigFromEnvironment() api.Config {
 		PayURL:             os.Getenv("MAESTRO_SBP_PAY_URL"),
 		UpdateDir:          env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
 		ReportDir:          env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
-		EnforceDeviceLimit: env("MAESTRO_DEVICE_LIMIT", "on") != "off",
+		EnforceDeviceLimit: deviceLimitEnforced(env("MAESTRO_DEVICE_LIMIT", "on")),
 		TrialDays:          atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
 		TrialIPQuota:       atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
 	}
+}
+
+func rqliteServiceBusinessConfig(apiConfig api.Config, wbSender controlplane.ExternalActionSender, workerID string) api.ServiceBusinessConfig {
+	return api.ServiceBusinessConfig{
+		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
+		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,
+		WBRoomSender: wbSender, WorkerID: workerID,
+		SubscriptionTopology: rqliteSubscriptionTopologyFromEnvironment(),
+		DeviceLimitFor:       rqliteDeviceLimitFor(apiConfig.EnforceDeviceLimit),
+	}
+}
+
+func rqliteDeviceLimitFor(enforce bool) func(string) int {
+	if !enforce {
+		return func(string) int { return devicelimit.Disabled }
+	}
+	return devicelimit.ForLogin
 }
 
 type runtimeKeyBundle struct {

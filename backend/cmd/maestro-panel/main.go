@@ -294,7 +294,7 @@ func main() {
 			ReportDir:         env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
 			// Per-account 5-device cap, on by default; MAESTRO_DEVICE_LIMIT=off is a live
 			// kill switch (no redeploy) if it ever misbehaves against real customers.
-			EnforceDeviceLimit: env("MAESTRO_DEVICE_LIMIT", "on") != "off",
+			EnforceDeviceLimit: deviceLimitEnforced(env("MAESTRO_DEVICE_LIMIT", "on")),
 			// In-app free trial (POST /trial): 2 days, soft per-/24 quota of 3 trials per day.
 			TrialDays:    atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
 			TrialIPQuota: atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),

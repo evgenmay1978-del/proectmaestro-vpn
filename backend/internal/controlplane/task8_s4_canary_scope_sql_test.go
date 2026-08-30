@@ -85,6 +85,7 @@ func TestServiceBusinessSubscriptionStatusUsesMetadataBeforeDocumentAuthorizatio
 		t.Fatalf("new secret box: %v", err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
+	databaseNow := time.Unix(2_000_000, 0).UTC()
 	clock := s4CanaryClock{value: now}
 	store, err := controlplane.NewStore(db, box, clock)
 	if err != nil {
@@ -102,9 +103,9 @@ VALUES ('S4','s4',1,1,0,0,2000000)`})
 		wantActive         bool
 		wantDays           int
 	}{
-		{"live", "active", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", now.Add(48 * time.Hour), true, 2},
-		{"inactive", "suspended", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", now.Add(48 * time.Hour), false, 2},
-		{"expired", "active", "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", now.Add(-time.Hour), false, 0},
+		{"live", "active", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", databaseNow.Add(48 * time.Hour), true, 2},
+		{"inactive", "suspended", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", databaseNow.Add(48 * time.Hour), false, 2},
+		{"expired", "active", "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", databaseNow.Add(-time.Hour), false, 0},
 	}
 	for _, customer := range customers {
 		seedS4CanaryCustomer(t, db, box, customer.id, customer.id, customer.id+"-operation", customer.id+"-envelope", customer.digest)

@@ -9,9 +9,27 @@ import (
 )
 
 type subscriptionRenderOptions struct {
-	ClientRequest bool
-	UserAgent     string
-	Links         bool
+	ClientRequest      bool
+	UserAgent          string
+	Links              bool
+	Endpoint           subscriptionEndpointKind
+	DeviceID           string
+	EnforceDeviceLimit bool
+}
+
+type subscriptionEndpointKind string
+
+const (
+	subscriptionEndpointBase    subscriptionEndpointKind = "base"
+	subscriptionEndpointHelpers subscriptionEndpointKind = "helpers"
+	subscriptionEndpointInfo    subscriptionEndpointKind = "info"
+)
+
+func (options subscriptionRenderOptions) endpoint() subscriptionEndpointKind {
+	if options.Endpoint == "" {
+		return subscriptionEndpointBase
+	}
+	return options.Endpoint
 }
 
 // The optional request-aware adapter leaves the frozen Business port and

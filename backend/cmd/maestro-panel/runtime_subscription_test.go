@@ -134,6 +134,29 @@ func (database *runtimeSubscriptionDatabase) QueryLinearizable(_ context.Context
 	}
 }
 
+func (database *runtimeSubscriptionDatabase) QueryStrong(_ context.Context, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	if len(statements) != 1 || !strings.Contains(statements[0].SQL, "FROM subscription_tokens st") {
+		return nil, fmt.Errorf("unexpected strong subscription query")
+	}
+	tokenHMAC := database.box.LookupHMAC("subscription-token", []byte("runtime-fixture-token"))
+	if len(statements[0].Args) != 2 || statements[0].Args[0] != "" || statements[0].Args[1] != tokenHMAC {
+		return nil, fmt.Errorf("unexpected strong subscription binding")
+	}
+	tokenEnvelope := database.seal("token", "subscription", "runtime-fixture-token")
+	rows := make([]map[string]any, 0, 4)
+	for _, credential := range []struct{ protocol, raw string }{{"anytls", "runtime-anytls"}, {"hysteria2", "runtime-hy2"}, {"naive", "runtime-naive"}, {"vless", "runtime-vless"}} {
+		rows = append(rows, map[string]any{
+			"customer_id": "runtime-customer", "display_login": "runtime-fixture-login", "status": "active",
+			"expires_at_unix": database.now.Add(24 * time.Hour).Unix(), "generation": int64(7),
+			"token_hmac": tokenHMAC, "token_envelope": tokenEnvelope, "token_generation": int64(7),
+			"protocol": credential.protocol, "secret_envelope": database.seal("credential", credential.protocol, credential.raw), "credential_generation": int64(7),
+			"device_committed": int64(0), "settings_generation": int64(0), "schema_version": int64(8),
+			"restore_epoch": int64(1), "database_now_unix": database.now.Unix(),
+		})
+	}
+	return []rqlite.Result{{Rows: rows}}, nil
+}
+
 func (database *runtimeSubscriptionDatabase) seal(field, kind, raw string) string {
 	database.t.Helper()
 	envelope, err := database.box.Seal(controlplane.SecretScope{OwnerType: "customer", OwnerID: "runtime-customer", Field: field, Kind: kind}, []byte(raw))

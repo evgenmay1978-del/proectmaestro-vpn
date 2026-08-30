@@ -202,17 +202,38 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 	if helpers {
 		rest = strings.TrimSuffix(rest, "/helpers")
 	}
+	// Preserve the installed TV 1.0.74 URL concatenation bug. The mangled
+	// device value is intentionally invalid and therefore is never admitted.
+	if !info && !helpers {
+		if device := r.URL.Query().Get("device"); strings.HasSuffix(device, "/helpers") {
+			helpers = true
+		} else if strings.HasSuffix(device, "/info") {
+			info = true
+		}
+	}
 	if rest == "" || strings.Contains(rest, "/") {
 		s.controlPlaneNotFound(w, r)
 		return
 	}
 	var snapshot SubscriptionSnapshot
 	var err error
-	if source, ok := s.business.(requestSubscriptionSource); ok && !info && !helpers {
+	if source, ok := s.business.(requestSubscriptionSource); ok {
 		query := r.URL.Query()
+		device := deviceID(r)
+		if !deviceIDRe.MatchString(device) {
+			device = ""
+		}
+		endpoint := subscriptionEndpointBase
+		if helpers {
+			endpoint = subscriptionEndpointHelpers
+		}
+		if info {
+			endpoint = subscriptionEndpointInfo
+		}
 		snapshot, err = source.subscriptionSnapshotForRequest(r.Context(), rest, subscriptionRenderOptions{
-			ClientRequest: true, UserAgent: r.UserAgent(),
-			Links: query.Get("app") == "karing" || query.Get("format") == "links",
+			ClientRequest: !info && !helpers, UserAgent: r.UserAgent(),
+			Links:    !info && !helpers && (query.Get("app") == "karing" || query.Get("format") == "links"),
+			Endpoint: endpoint, DeviceID: device, EnforceDeviceLimit: s.cfg.EnforceDeviceLimit,
 		})
 	} else {
 		snapshot, err = s.business.SubscriptionSnapshot(r.Context(), rest)
@@ -221,11 +242,15 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 		writeControlPlaneBusinessError(w, err)
 		return
 	}
+	asOf := snapshot.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now()
+	}
 	if info {
-		writeControlPlaneSubInfo(w, snapshot.Customer)
+		writeControlPlaneSubInfo(w, snapshot.Customer, asOf)
 		return
 	}
-	if !snapshot.Customer.Active || !snapshot.Customer.Expires.After(time.Now()) {
+	if !snapshot.Customer.Active || !snapshot.Customer.Expires.After(asOf) {
 		http.Error(w, "subscription expired", http.StatusPaymentRequired)
 		return
 	}
@@ -243,8 +268,8 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 	_, _ = w.Write(snapshot.Document)
 }
 
-func writeControlPlaneSubInfo(w http.ResponseWriter, customer CustomerView) {
-	untilExpiry := time.Until(customer.Expires)
+func writeControlPlaneSubInfo(w http.ResponseWriter, customer CustomerView, asOf time.Time) {
+	untilExpiry := customer.Expires.Sub(asOf)
 	daysLeft := int(untilExpiry / (24 * time.Hour))
 	if untilExpiry > 0 && untilExpiry%(24*time.Hour) != 0 {
 		daysLeft++

@@ -21,6 +21,9 @@ type ServiceBusinessConfig struct {
 	WBRoomSender         controlplane.ExternalActionSender
 	WorkerID             string
 	SubscriptionTopology subgen.Customer
+	DeviceLimitFor       func(string) int
+	Now                  func() time.Time
+	SubscriptionCacheTTL time.Duration
 }
 
 type externalActionRunner interface {
@@ -38,28 +41,62 @@ type wbRoomAssigner interface {
 // ServiceBusiness is the only Business implementation used by the rqlite
 // runtime. Every mutation delegates to a canonical controlplane.Service command.
 type ServiceBusiness struct {
-	service         *controlplane.Service
-	subscriptions   subscriptionCustomerSource
-	cfg             ServiceBusinessConfig
-	externalActions externalActionRunner
-	wbSender        controlplane.ExternalActionSender
-	workerID        string
-	wbRooms         wbRoomAssigner
+	service              *controlplane.Service
+	subscriptions        subscriptionCustomerSource
+	subscriptionStates   subscriptionStateSource
+	cfg                  ServiceBusinessConfig
+	externalActions      externalActionRunner
+	wbSender             controlplane.ExternalActionSender
+	workerID             string
+	wbRooms              wbRoomAssigner
+	deviceLimitFor       func(string) int
+	now                  func() time.Time
+	subscriptionCacheTTL time.Duration
+	subscriptionCache    *subscriptionCache
 }
 
 func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig) *ServiceBusiness {
 	if cfg.TrialDays <= 0 {
 		cfg.TrialDays = 2
 	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	cacheTTL := cfg.SubscriptionCacheTTL
+	if cacheTTL <= 0 {
+		cacheTTL = defaultSubscriptionCacheTTL
+	}
+	deviceLimitFor := cfg.DeviceLimitFor
+	if deviceLimitFor == nil {
+		deviceLimitFor = func(string) int { return 5 }
+	}
 	business := &ServiceBusiness{
 		service: service, cfg: cfg, externalActions: service,
 		wbSender: cfg.WBRoomSender, workerID: strings.TrimSpace(cfg.WorkerID),
+		deviceLimitFor: deviceLimitFor, now: now, subscriptionCacheTTL: cacheTTL,
+		subscriptionCache: newSubscriptionCache(),
 	}
 	if service != nil {
 		business.subscriptions = service
+		business.subscriptionStates = service
 		business.wbRooms = service
 	}
 	return business
+}
+
+func (b *ServiceBusiness) requestNow() time.Time {
+	if b != nil && b.now != nil {
+		return b.now()
+	}
+	return time.Now()
+}
+
+func (b *ServiceBusiness) resolveDeviceLimit(login string) int {
+	if b != nil && b.deviceLimitFor != nil {
+		return b.deviceLimitFor(login)
+	}
+	return 5
 }
 
 type serviceBusinessError struct {
@@ -81,7 +118,9 @@ func businessError(err error) error {
 		status = http.StatusNotFound
 	case errors.Is(err, controlplane.ErrForbidden):
 		status = http.StatusForbidden
-	case errors.Is(err, controlplane.ErrDeviceLimit), errors.Is(err, controlplane.ErrConflict), errors.Is(err, controlplane.ErrLeaseHeld), errors.Is(err, controlplane.ErrLeaseLost):
+	case errors.Is(err, controlplane.ErrDeviceLimit):
+		status = http.StatusForbidden
+	case errors.Is(err, controlplane.ErrConflict), errors.Is(err, controlplane.ErrLeaseHeld), errors.Is(err, controlplane.ErrLeaseLost):
 		status = http.StatusConflict
 	}
 	return serviceBusinessError{err: err, status: status}
@@ -423,18 +462,21 @@ func (b *ServiceBusiness) CancelOrder(ctx context.Context, command CancelOrderCo
 }
 
 func (b *ServiceBusiness) SubscriptionSnapshot(ctx context.Context, token string) (SubscriptionSnapshot, error) {
-	return b.subscriptionSnapshotForRequest(ctx, token, subscriptionRenderOptions{})
+	return b.subscriptionSnapshotForRequest(ctx, token, subscriptionRenderOptions{Endpoint: subscriptionEndpointBase})
 }
 
 func (b *ServiceBusiness) subscriptionSnapshotForRequest(ctx context.Context, token string, options subscriptionRenderOptions) (SubscriptionSnapshot, error) {
 	if b == nil || b.subscriptions == nil {
 		return SubscriptionSnapshot{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
+	if b.subscriptionStates != nil {
+		return b.subscriptionSnapshotWithState(ctx, token, options)
+	}
 	customer, err := b.subscriptions.BusinessCustomerByToken(ctx, token)
 	if err != nil {
 		return SubscriptionSnapshot{}, businessError(err)
 	}
-	snapshot := SubscriptionSnapshot{Customer: b.customerView(customer)}
+	snapshot := SubscriptionSnapshot{Customer: b.customerView(customer), AsOf: b.requestNow()}
 	if !snapshot.Customer.Active {
 		return snapshot, nil
 	}
@@ -457,7 +499,11 @@ func (b *ServiceBusiness) TouchDevice(ctx context.Context, command TouchDeviceCo
 	if err != nil {
 		return DeviceDecision{}, businessError(err)
 	}
-	_, err = b.service.ClaimDevice(ctx, customer.ID, command.DeviceID, "maestro", 5)
+	limit := b.resolveDeviceLimit(customer.Login)
+	if limit < 0 {
+		return DeviceDecision{Allowed: true}, nil
+	}
+	_, err = b.service.ClaimDevice(ctx, customer.ID, command.DeviceID, "maestro", limit)
 	if err != nil {
 		return DeviceDecision{Allowed: false}, businessError(err)
 	}
@@ -840,13 +886,17 @@ func (b *ServiceBusiness) customerMutation(ctx context.Context, login string, mu
 }
 
 func (b *ServiceBusiness) customerView(customer controlplane.BusinessCustomer) CustomerView {
+	return b.customerViewAt(customer, b.requestNow())
+}
+
+func (b *ServiceBusiness) customerViewAt(customer controlplane.BusinessCustomer, now time.Time) CustomerView {
 	protocols := make([]string, 0, len(customer.Access.Credentials))
 	for protocol := range customer.Access.Credentials {
 		protocols = append(protocols, protocol)
 	}
 	sort.Strings(protocols)
 	expires := time.Unix(customer.ExpiresAtUnix, 0).UTC()
-	active := customer.Status == "active" && expires.After(time.Now())
+	active := customer.Status == "active" && expires.After(now)
 	return CustomerView{
 		Login: customer.Login, SubURL: b.subscriptionURL(customer.Access.SubscriptionToken), Expires: expires,
 		Active: active, Protocols: protocols, Generation: customer.Generation,
