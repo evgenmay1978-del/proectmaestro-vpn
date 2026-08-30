@@ -1,1 +1,2 @@
 /.github/workflows/ha-build.yml text eol=lf
+/deploy/ha/pki-profile.json.example text eol=lf

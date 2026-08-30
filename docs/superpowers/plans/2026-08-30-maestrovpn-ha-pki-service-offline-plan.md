@@ -70,10 +70,21 @@ Required trust domains are `rqlite-http`, `rqlite-raft`, `dispatcher`,
 v10.1.0 exposes one `-node-ca-cert` trust store and one
 `-node-cert`/`-node-key` pair for both incoming and outgoing inter-node TLS.
 Therefore every `rqlite-raft` voter has one unique `peer` leaf with exactly
-serverAuth and clientAuth EKUs. It cannot cross nodes, cross trust domains or be
-reused for HTTP. All other leaves retain exactly one `server` or `client`
-purpose. CA and leaf fingerprints cannot cross trust domains; a leaf cannot
-serve more than its one declared stable role.
+serverAuth and clientAuth EKUs. Its outbound server identity is node-bound by
+the peer's advertised hostname and the matching per-node DNS SAN. Inbound mTLS
+membership is CA-scoped because rqlite v10.1.0 has no per-peer runtime
+fingerprint pinning; unique leaf fingerprints preserve offline assignment,
+audit and revocation identity without claiming inbound node pinning. A Raft
+leaf cannot cross trust domains or be reused for HTTP. All other leaves retain
+exactly one `server` or `client` purpose.
+
+Certificate identity is stricter than certificate-byte identity. The verifier
+hashes the exact DER `SubjectPublicKeyInfo` from every root and leaf and requires
+all 44 SPKI SHA-256 digests to be globally unique across trust domains and
+roles, independently of certificate fingerprints. It also preserves each
+positive serial as minimal lowercase hexadecimal and rejects a repeated serial
+within one trust domain/issuer, including its CA and all leaves. The same serial
+under a different trust-domain issuer is allowed.
 
 The role matrix is a closed allowlist of exactly 37 leaf roles. `serverAuth`
 is OID
@@ -118,6 +129,20 @@ contract. Every fixed identity role has empty `ip_sans` and `uri_sans`.
 Missing, additional, renamed or wrong-type identity SANs fail even if the
 profile requests them.
 
+The rqlite TLS names are also a closed cross-slice contract. Each
+`s2-http-server`, `s3-http-server` and `s4-http-server` role has exactly its
+matching `dns_sans: ["s2-rqlite-http.internal"]`,
+`["s3-rqlite-http.internal"]` or `["s4-rqlite-http.internal"]`, matching the
+panel endpoints and HTTP advertised names. Each `s2-raft-peer`,
+`s3-raft-peer` and `s4-raft-peer` role has its matching
+`dns_sans: ["s2-rqlite-raft.internal"]`,
+`["s3-rqlite-raft.internal"]` or `["s4-rqlite-raft.internal"]`. The service
+does not set `-node-verify-server-name`, so default outbound verification binds
+the presented server certificate to each peer's advertised hostname. Inbound
+Raft mTLS remains membership-CA-scoped and does not claim per-peer runtime
+fingerprint pinning. These fixed rqlite identities have empty `ip_sans` and
+`uri_sans`; missing, additional, renamed or wrong-type values fail.
+
 Paths are relative single-component names below a pinned root. Absolute,
 nested, traversal, symlink, hardlink, non-regular, unexpected and oversized
 members fail. Duplicate/non-canonical JSON and every PEM private-key marker
@@ -136,7 +161,9 @@ Accepted public keys are RSA 3072/4096 or EC P-256/P-384. Accepted certificate
 signature algorithms are SHA-256/SHA-384 with RSA or ECDSA. Non-positive or
 over-20-octet serials, weak/unknown keys or signatures, CA/leaf constraint
 violations and certificates outside `notBefore <= evaluation_time < notAfter`
-or below the minimum remaining lifetime fail.
+or below the minimum remaining lifetime fail. The 20-octet serial bound includes
+the DER positive-sign padding octet; evidence validation applies the same bound
+without reparsing a certificate.
 
 Only OpenSSL `>=3.0.0,<4.0.0` is accepted; LibreSSL/BoringSSL and unknown
 versions fail. Exact normalized `openssl version -v` output is recorded.
@@ -149,9 +176,12 @@ accepting OpenSSL's display text as unbounded evidence.
 
 Output schema `maestro-ha-pki-evidence-v1` contains only the profile digest,
 evaluation time, exact normalized OpenSSL version, `NO_GO/false`, fixed role
-names, public CA/leaf fingerprints, not-after timestamps and sorted blockers.
-It excludes subjects, SAN values, paths, OpenSSL stderr, certificate bodies and
-private material. Errors use fixed codes without user values.
+names, public CA/leaf certificate fingerprints, exact SPKI SHA-256 digests,
+minimal lowercase serial hex, not-after timestamps and sorted blockers. Its
+strict standalone validator preserves global SPKI uniqueness and per-issuer
+serial uniqueness without certificate bodies. It excludes subjects, SAN values,
+paths, OpenSSL stderr, certificate bodies and private material. Errors use fixed
+codes without user values.
 
 ### Offline node inventory and plan
 
@@ -201,6 +231,9 @@ including real OpenSSL integration, the panel runtime contract and
 
 **Files**
 
+- Modify: `.gitattributes`
+- Modify:
+  `docs/superpowers/plans/2026-08-30-maestrovpn-ha-pki-service-offline-plan.md`
 - Create: `ops/ha/pki_verify.py`
 - Create: `ops/ha/pki-verify.py`
 - Create: `ops/ha/tests/test_pki_verify.py`
@@ -215,9 +248,14 @@ paths/links, unexpected members, private-key markers and sensitive output.
 Positive and negative synthetic chains cover root/leaf
 BasicConstraints, pathlen/depth, KeyUsage, dual-purpose peer EKU, single-purpose
 EKU, SAN exactness, unknown/duplicate critical extensions, public-key algorithm
-and size/curve, signature algorithm, serial bounds, direct issuer/signature,
+and size/curve, signature algorithm, exact DER SPKI identity, global public-key
+reuse, canonical serial preservation, duplicate serials under one issuer,
+serial reuse under different issuers, serial bounds, direct issuer/signature,
 not-before/not-after, minimum remaining lifetime, OpenSSL version/range,
-strict-purpose invocation, OpenSSL failure and malformed bounded output.
+strict-purpose invocation, OpenSSL failure and malformed bounded output. A
+fixed-SAN profile drift must fail as `pki-verify:invalid-input` before any
+OpenSSL runner call. The checked-in profile has one exact non-conflicting
+`text eol=lf` rule.
 
 Tests generate synthetic private material only below a fresh temp directory,
 never print it and delete it. Pure policy tests run on Windows. The Task 2
@@ -240,7 +278,25 @@ evidence.
 ```text
 python -m unittest ops.ha.tests.test_pki_verify -v
 python -m py_compile ops/ha/pki_verify.py ops/ha/pki-verify.py
+git check-attr --cached --all -- deploy/ha/pki-profile.json.example
+python -X utf8 -c "import subprocess; p='deploy/ha/pki-profile.json.example'; raw=subprocess.check_output(['git','show',':'+p]); assert raw.endswith(b'\n') and b'\r' not in raw and not raw.startswith(b'\xef\xbb\xbf')"
 ```
+
+Stage exactly `.gitattributes`, this plan, the verifier module and wrapper, its
+test file and the example profile; compare `git diff --cached --name-only` with
+that six-file allowlist before committing.
+
+For the normal non-root Task 2 commit, compare the committed path set with the
+same sorted six-file allowlist before running the HEAD LF blob check:
+
+```text
+python -X utf8 -c "import subprocess; expected=sorted(['.gitattributes','deploy/ha/pki-profile.json.example','docs/superpowers/plans/2026-08-30-maestrovpn-ha-pki-service-offline-plan.md','ops/ha/pki-verify.py','ops/ha/pki_verify.py','ops/ha/tests/test_pki_verify.py']); actual=sorted(subprocess.check_output(['git','diff-tree','--no-commit-id','--name-only','-r','HEAD'], text=True).splitlines()); assert actual == expected, (actual, expected)"
+```
+
+After that gate passes, repeat the raw-byte check with
+`git show HEAD:deploy/ha/pki-profile.json.example` so LF evidence is
+proven from both the staged index and committed tree without rewriting the
+Windows worktree.
 
 Commit: `feat(ha): add offline PKI evidence verifier`.
 
@@ -261,12 +317,15 @@ The rqlite template targets pinned `10.1.0` and only the tagged official
 interfaces: `-node-id`, `-fk`, `-http-addr`, `-http-adv-addr`,
 `-http-ca-cert`, `-http-cert`, `-http-key`, `-http-verify-client`,
 `-raft-addr`, `-raft-adv-addr`, `-node-ca-cert`, `-node-cert`,
-`-node-key`, `-node-verify-client`, `-node-verify-server-name` and the
-positional data directory. Tagged parser/source and generated help are checked
-in Linux CI. `-node-no-verify`, invented `-raft-cert/-key/-ca` flags,
-wildcards, join/bootstrap automation and `[Install]` are forbidden. HTTP and
-Raft use separate trust domains; the one per-node Raft peer cert/key is
-deliberately dual-purpose because v10.1.0 uses it for both directions.
+`-node-key`, `-node-verify-client` and the positional data directory. Tagged
+parser/source and generated help are checked in Linux CI. The template omits
+`-node-verify-server-name` so default outbound TLS verification uses each
+advertised per-node Raft hostname. `-node-no-verify`, invented
+`-raft-cert/-key/-ca` flags, wildcards, join/bootstrap automation and
+`[Install]` are forbidden. HTTP and Raft use separate trust domains; the one
+per-node Raft peer cert/key is deliberately dual-purpose because v10.1.0 uses
+it for both directions. Inbound client authentication proves membership in the
+Raft CA trust domain; it does not provide per-peer fingerprint pinning.
 
 The panel template launches only the immutable panel path and sets the real
 source-backed `MAESTRO_LISTEN=127.0.0.1:8910` interface plus
@@ -286,10 +345,11 @@ address families and explicit read/write paths. They contain no shell command.
 
 Fail on missing hardening, `[Install]`, wildcard/shell/arbitrary flag blob,
 secret literal, unsafe writable path, missing TLS separation/`-fk`, unstable
-node IDs, non-dual-purpose Raft peer identity, absent hostname verification,
-`-node-no-verify`, invented Raft TLS flags, panel non-loopback/legacy/wrong
-endpoint count, runtime rejection, OLCRTC/WDTT reference or v10.1.0 tagged
-source/help mismatch.
+node IDs, non-dual-purpose Raft peer identity, any per-node advertised Raft
+hostname/fixed-SAN mismatch, any global `-node-verify-server-name` override that
+erases node binding, `-node-no-verify`, invented Raft TLS flags, panel
+non-loopback/legacy/wrong endpoint count, runtime rejection, OLCRTC/WDTT
+reference or v10.1.0 tagged source/help mismatch.
 
 **GREEN**
 
