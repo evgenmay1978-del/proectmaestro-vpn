@@ -42,10 +42,17 @@ traffic cutover.
 
 - System is running with zero failed services; reboot is pending.
 - `maestro-panel`, x-ui, nginx, Hysteria and the VPN Telegram bot are active.
-- Public health is healthy but reports build commit `296079c`.
-- That commit is absent from the canonical local repository and GitHub. Accepted
-  code SHA is `d7cfec12eb8656ea821d855bdb552a172cbf5fd6`; live provenance is
-  untraceable deployment drift.
+- Public health is healthy and reports build commit `296079c`.
+- The stamp resolves to full commit
+  `296079cf819b36087c690b525d8970d6c87a18db`, reachable as
+  `tv-v1.0.157~3` from the remote `tv-v1.0.157` tag. Its backend tree
+  `762dac2a4b7a7edf1cfa0821bf9d6bbe8ec4500a` matches the tagged release.
+- Accepted current code is `d7cfec12eb8656ea821d855bdb552a172cbf5fd6`
+  with backend tree `af0f9aa7b46ae3cfd9b605306169b0833e06b746`; it is a
+  different backend state.
+- The health stamp is not a binary digest. No immutable `maestro-panel` artifact
+  manifest/digest was found in repository workflows, so binary-level provenance
+  remains incomplete and a later exact-artifact redeploy is still required.
 - HA agent, rqlite state, HA backup worker/config/state and root AWS credentials
   were not observed.
 

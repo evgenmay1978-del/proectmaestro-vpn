@@ -3786,10 +3786,13 @@ version, authenticity and isolated restore remain unproved. S4 is degraded
 because systemd-networkd owns an operational `eth0` while enabled ifupdown tries
 to assign the same static address. No network change was made.
 
-S1 health reports build commit `296079c`, absent from canonical local Git and
-GitHub. Accepted code remains
-`d7cfec12eb8656ea821d855bdb552a172cbf5fd6`; production provenance is
-untraceable and deployment remains blocked.
+S1 health reports build commit `296079c`, which resolves to full commit
+`296079cf819b36087c690b525d8970d6c87a18db` and is reachable as
+`tv-v1.0.157~3` from the remote tag. Its backend tree matches tagged `1.0.157`
+but differs from accepted current code
+`d7cfec12eb8656ea821d855bdb552a172cbf5fd6`. The health stamp is not a binary
+digest, and no immutable `maestro-panel` artifact manifest/digest was found;
+binary provenance remains incomplete and deployment stays blocked.
 
 Current status: `PRODUCTION NO-GO`. Next gates are authoritative S3 identity,
 reviewed HA runbooks/tooling, reproducible exact-SHA artifacts,
