@@ -1288,26 +1288,40 @@ class S4CapabilityDenylistTests(unittest.TestCase):
     )
     FORBIDDEN_IMPORT_ROOTS = frozenset(
         {
+            "aiohttp",
             "asyncssh",
             "fabric",
+            "ftplib",
             "http",
             "httpx",
+            "imaplib",
             "importlib",
             "multiprocessing",
+            "nntplib",
             "paramiko",
             "pexpect",
+            "poplib",
             "requests",
+            "smtplib",
             "socket",
+            "socketserver",
             "subprocess",
+            "telnetlib",
             "urllib",
+            "websocket",
+            "websockets",
+            "xmlrpc",
         }
     )
+    ALLOWED_LOCAL_MODULES = frozenset({"ops.ha.s4_network_change_package"})
     FORBIDDEN_CALLS = frozenset(
         {
             "compile",
             "eval",
             "exec",
             "__import__",
+            "asyncio.create_subprocess_exec",
+            "asyncio.create_subprocess_shell",
             "importlib.import_module",
             "os.execv",
             "os.execve",
@@ -1349,20 +1363,49 @@ class S4CapabilityDenylistTests(unittest.TestCase):
         parts.append(node.id)
         return ".".join(reversed(parts))
 
+    @staticmethod
+    def _resolve_import_alias(name: str, aliases: dict[str, str]) -> str:
+        root, separator, suffix = name.partition(".")
+        resolved_root = aliases.get(root, root)
+        return resolved_root + (separator + suffix if separator else "")
+
     @classmethod
     def _forbidden_capabilities(cls, source: str) -> tuple[str, ...]:
         tree = ast.parse(source)
         findings: set[str] = set()
+        aliases: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    local_name = alias.asname or alias.name.partition(".")[0]
+                    aliases[local_name] = alias.name if alias.asname else local_name
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    local_name = alias.asname or alias.name
+                    aliases[local_name] = f"{node.module}.{alias.name}"
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     root = alias.name.partition(".")[0]
                     if root in cls.FORBIDDEN_IMPORT_ROOTS:
                         findings.add(f"import:{root}")
+                    if (
+                        alias.name.startswith("ops.ha.")
+                        and alias.name not in cls.ALLOWED_LOCAL_MODULES
+                    ):
+                        findings.add("import:local-mutator")
             elif isinstance(node, ast.ImportFrom):
                 root = (node.module or "").partition(".")[0]
                 if root in cls.FORBIDDEN_IMPORT_ROOTS:
                     findings.add(f"import:{root}")
+                if (
+                    node.module is not None
+                    and node.module.startswith("ops.ha")
+                    and node.module not in cls.ALLOWED_LOCAL_MODULES
+                ):
+                    findings.add("import:local-mutator")
                 if root == "os":
                     for alias in node.names:
                         if alias.name in cls.FORBIDDEN_OS_MEMBERS:
@@ -1371,18 +1414,22 @@ class S4CapabilityDenylistTests(unittest.TestCase):
                 name = cls._dotted_name(node.func)
                 if name is None:
                     continue
+                name = cls._resolve_import_alias(name, aliases)
                 root = name.partition(".")[0]
                 if root in cls.FORBIDDEN_IMPORT_ROOTS or name in cls.FORBIDDEN_CALLS:
                     findings.add(f"call:{name}")
                 if (
                     name == "getattr"
                     and len(node.args) >= 2
-                    and isinstance(node.args[0], ast.Name)
-                    and node.args[0].id == "os"
                     and isinstance(node.args[1], ast.Constant)
-                    and node.args[1].value in cls.FORBIDDEN_OS_MEMBERS
+                    and isinstance(node.args[1].value, str)
                 ):
-                    findings.add(f"call:getattr-os-{node.args[1].value}")
+                    base_name = cls._dotted_name(node.args[0])
+                    if base_name is not None:
+                        resolved_base = cls._resolve_import_alias(base_name, aliases)
+                        candidate = f"{resolved_base}.{node.args[1].value}"
+                        if candidate in cls.FORBIDDEN_CALLS:
+                            findings.add(f"call:getattr-{candidate.replace('.', '-')}")
         return tuple(sorted(findings))
 
     def test_active_core_and_wrapper_have_no_forbidden_capability(self) -> None:
@@ -1410,6 +1457,40 @@ class S4CapabilityDenylistTests(unittest.TestCase):
             with self.subTest(source=source.splitlines()[0]):
                 self.assertTrue(self._forbidden_capabilities(source))
 
+    def test_capability_denylist_resolves_forbidden_import_aliases(self) -> None:
+        fixtures = (
+            (
+                "import os as runner\nrunner.system('fixture')\n",
+                "call:os.system",
+            ),
+            (
+                "from os import system as runner\nrunner('fixture')\n",
+                "call:os.system",
+            ),
+            (
+                "import asyncio as loop\nloop.create_subprocess_exec('fixture')\n",
+                "call:asyncio.create_subprocess_exec",
+            ),
+            (
+                "from asyncio import create_subprocess_shell as launch\n"
+                "launch('fixture')\n",
+                "call:asyncio.create_subprocess_shell",
+            ),
+        )
+        for source, expected in fixtures:
+            with self.subTest(source=source.splitlines()[0]):
+                self.assertIn(expected, self._forbidden_capabilities(source))
+
+    def test_capability_denylist_rejects_local_mutators_and_network_clients(self) -> None:
+        fixtures = (
+            "from ops.ha import deploy_node\ndeploy_node.main()\n",
+            "import ftplib\nftplib.FTP('fixture')\n",
+            "import smtplib\nsmtplib.SMTP('fixture')\n",
+        )
+        for source in fixtures:
+            with self.subTest(source=source.splitlines()[0]):
+                self.assertTrue(self._forbidden_capabilities(source))
+
 
 class S4SensitiveLiteralTests(unittest.TestCase):
     """Active S4 policy files contain no credential or live-production material."""
@@ -1429,15 +1510,49 @@ class S4SensitiveLiteralTests(unittest.TestCase):
     ALLOWED_CLEANUP = 'rm -rf -- "$s4_ci_tmp"'
 
     @staticmethod
-    def _ipv6_literals(text: str) -> tuple[str, ...]:
+    def _python_slice_spans(text: str) -> tuple[tuple[int, int], ...]:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            return ()
+
+        lines = text.splitlines(keepends=True)
+        line_starts: list[int] = []
+        cursor = 0
+        for line in lines:
+            line_starts.append(cursor)
+            cursor += len(line)
+
+        def absolute_offset(line_number: int, utf8_column: int) -> int:
+            line = lines[line_number - 1]
+            prefix = line.encode("utf-8")[:utf8_column].decode("utf-8")
+            return line_starts[line_number - 1] + len(prefix)
+
+        spans = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Slice) or node.end_lineno is None:
+                continue
+            spans.append(
+                (
+                    absolute_offset(node.lineno, node.col_offset),
+                    absolute_offset(node.end_lineno, node.end_col_offset),
+                )
+            )
+        return tuple(spans)
+
+    @classmethod
+    def _ipv6_literals(cls, text: str) -> tuple[str, ...]:
         candidate_pattern = re.compile(
             r"(?<![0-9A-Za-z:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(?![0-9A-Za-z:])"
         )
+        python_slice_spans = cls._python_slice_spans(text)
         values = []
         for match in candidate_pattern.finditer(text):
             candidate = match.group(0)
-            if re.fullmatch(r"[0-9]::[0-9]", candidate):
-                # Python extended-slice syntax in the active implementation.
+            if any(
+                start <= match.start() and match.end() <= end
+                for start, end in python_slice_spans
+            ):
                 continue
             try:
                 ipaddress.IPv6Address(candidate)
@@ -1445,6 +1560,22 @@ class S4SensitiveLiteralTests(unittest.TestCase):
                 continue
             values.append(candidate)
         return tuple(values)
+
+    def test_ipv6_literal_scanner_only_exempts_real_python_slices(self) -> None:
+        self.assertEqual((), self._ipv6_literals("options = argv[1::2]\n"))
+        for text in ("endpoint = '1::2'\n", "[1::2]:443"):
+            with self.subTest(text=text):
+                self.assertIn("1::2", self._ipv6_literals(text))
+
+    def test_sensitive_literal_scanner_rejects_quoted_credentials_and_urls(self) -> None:
+        fixtures = (
+            ('{"token":"opaque-secret"}', "credential-assignment"),
+            ("endpoint='https://prod.example.com/api'", "hostname"),
+            ("endpoint='https://prod.example.com:443/api'", "host-port"),
+        )
+        for text, expected in fixtures:
+            with self.subTest(text=text):
+                self.assertIn(expected, self._sensitive_kinds(text))
 
     @classmethod
     def _sensitive_kinds(cls, text: str) -> tuple[str, ...]:
@@ -1457,7 +1588,7 @@ class S4SensitiveLiteralTests(unittest.TestCase):
         if re.search(r"-----BEGIN [^-\r\n]*PRIVATE KEY-----", text, flags=re.IGNORECASE):
             kinds.add("private-key")
         if re.search(
-            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)\s*(?:=|:)\s*\S",
+            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)[\"']?\s*(?:=|:)\s*[\"']?\S",
             text,
         ):
             kinds.add("credential-assignment")
@@ -1470,12 +1601,12 @@ class S4SensitiveLiteralTests(unittest.TestCase):
         if cls._ipv6_literals(text):
             kinds.add("ipv6")
         if re.search(
-            r"(?i)(?<![\w./-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+            r"(?i)(?<![A-Za-z0-9.-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
             r"(?:com|net|org|ru|online|tech|cloud|io|dev|app|xyz|site|me|cc|su)(?![\w.-])",
             text,
         ):
             kinds.add("hostname")
-        if re.search(r"(?i)(?<![\w./-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])", text):
+        if re.search(r"(?i)(?<![A-Za-z0-9.-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])", text):
             kinds.add("host-port")
         if re.search(r"(?i)\b(?:customer|subscriber)[_-]?(?:id|uuid|data)\b", text):
             kinds.add("customer-data")

@@ -230,7 +230,7 @@ def _validate_workflow_source(text: str) -> None:
         or "bearer " in lowered
         or re.search(r"-----BEGIN [^-\r\n]*PRIVATE KEY-----", source, flags=re.IGNORECASE)
         or re.search(
-            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)\s*(?:=|:)\s*\S",
+            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)[\"']?\s*(?:=|:)\s*[\"']?\S",
             source,
         )
     ):
@@ -239,12 +239,12 @@ def _validate_workflow_source(text: str) -> None:
         re.search(r"(?<![0-9])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9])", source)
         or _ipv6_literals(source)
         or re.search(
-            r"(?i)(?<![\w./-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+            r"(?i)(?<![A-Za-z0-9.-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
             r"(?:com|net|org|ru|online|tech|cloud|io|dev|app|xyz|site|me|cc|su)(?![\w.-])",
             source,
         )
         or re.search(
-            r"(?i)(?<![\w./-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])",
+            r"(?i)(?<![A-Za-z0-9.-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])",
             source,
         )
     ):
@@ -341,7 +341,9 @@ class S4NetworkWorkflowPolicyTests(unittest.TestCase):
             ("192.0.2.1", "endpoint-boundary"),
             ("2001:db8::1", "endpoint-boundary"),
             ("synthetic.example.com", "endpoint-boundary"),
+            ("endpoint=https://prod.example.com/api", "endpoint-boundary"),
             ("synthetic-host:443", "endpoint-boundary"),
+            ('{"token":"opaque-secret"}', "sensitive-boundary"),
             ("/tmp/synthetic-command-sheet", "sensitive-boundary"),
             ("rm -rf synthetic-root", "capability-boundary"),
         )
