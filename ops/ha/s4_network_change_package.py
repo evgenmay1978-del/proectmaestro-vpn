@@ -130,6 +130,14 @@ BLOCKER_RULES = (
 )
 _UTC_SECONDS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 MAX_INVENTORY_BYTES = 16_384
+_SAFE_CLI_CODES = frozenset((
+    "input", "system", "unsupported-platform", "inventory", "output", "output-exists",
+    "exists", "evaluation-time", "inventory-duplicate-key", "inventory-json-constant",
+    "inventory-float", "inventory-object", "inventory-keys", "inventory-timestamp",
+    "inventory-bytes", "inventory-json", "inventory-canonical", "inventory-string",
+    "inventory-schema", "inventory-node", "inventory-evidence-class", "inventory-boolean",
+    "inventory-freshness-window", "inventory-freshness", "inventory-shape", "inventory-digest",
+))
 
 
 class S4ChangePackageError(ValueError):
@@ -138,6 +146,15 @@ class S4ChangePackageError(ValueError):
 
 def _fail(code: str) -> None:
     raise S4ChangePackageError(f"s4-network-change-package:{code}")
+
+
+def _redacted_error_code(error: S4ChangePackageError) -> str:
+    """Return only a statically allowlisted error code for the CLI."""
+    prefix = "s4-network-change-package:"
+    value = str(error)
+    if value.startswith(prefix) and value[len(prefix):] in _SAFE_CLI_CODES:
+        return value
+    return "s4-network-change-package:system"
 
 
 def canonical_bytes(value: object) -> bytes:
@@ -678,7 +695,7 @@ def run(argv: Sequence[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         publish_change_package(parsed.output, canonical_bytes(package))
         return 0 if package["status"] == "EVIDENCE_COMPLETE" else 2
     except S4ChangePackageError as error:
-        stderr.write(str(error) + "\n")
+        stderr.write(_redacted_error_code(error) + "\n")
         return 3
     except Exception:
         stderr.write("s4-network-change-package:output\n")
