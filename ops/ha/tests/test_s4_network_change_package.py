@@ -1,3 +1,4 @@
+import ast
 import copy
 import hashlib
 import ipaddress
@@ -1151,7 +1152,7 @@ class S4SecureOutputTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), encoded)
 
 
-class S4CliMatrixTests(unittest.TestCase):
+class S4CliBoundaryTests(unittest.TestCase):
     """Exact command grammar proof, separately for direct and wrapper calls."""
 
     @staticmethod
@@ -1275,6 +1276,278 @@ class S4CliMatrixTests(unittest.TestCase):
             )
             self.assertEqual((completed.returncode, completed.stdout, completed.stderr), (3, "", "s4-network-change-package:inventory-json\n"))
             self.assertFalse(no_final.exists())
+
+
+class S4CapabilityDenylistTests(unittest.TestCase):
+    """The package boundary has no network, shell, or remote-control capability."""
+
+    ROOT = Path(__file__).parents[3]
+    ACTIVE_SOURCES = (
+        ROOT / "ops" / "ha" / "s4_network_change_package.py",
+        ROOT / "ops" / "ha" / "s4-network-change-package.py",
+    )
+    FORBIDDEN_IMPORT_ROOTS = frozenset(
+        {
+            "asyncssh",
+            "fabric",
+            "http",
+            "httpx",
+            "importlib",
+            "multiprocessing",
+            "paramiko",
+            "pexpect",
+            "requests",
+            "socket",
+            "subprocess",
+            "urllib",
+        }
+    )
+    FORBIDDEN_CALLS = frozenset(
+        {
+            "compile",
+            "eval",
+            "exec",
+            "__import__",
+            "importlib.import_module",
+            "os.execv",
+            "os.execve",
+            "os.execvp",
+            "os.execvpe",
+            "os.fork",
+            "os.forkpty",
+            "os.kill",
+            "os.killpg",
+            "os.popen",
+            "os.posix_spawn",
+            "os.posix_spawnp",
+            "os.spawnl",
+            "os.spawnle",
+            "os.spawnlp",
+            "os.spawnlpe",
+            "os.spawnv",
+            "os.spawnve",
+            "os.spawnvp",
+            "os.spawnvpe",
+            "os.startfile",
+            "os.system",
+        }
+    )
+    FORBIDDEN_OS_MEMBERS = frozenset(
+        name.partition(".")[2]
+        for name in FORBIDDEN_CALLS
+        if name.startswith("os.")
+    )
+
+    @staticmethod
+    def _dotted_name(node: ast.AST) -> str | None:
+        parts: list[str] = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if not isinstance(node, ast.Name):
+            return None
+        parts.append(node.id)
+        return ".".join(reversed(parts))
+
+    @classmethod
+    def _forbidden_capabilities(cls, source: str) -> tuple[str, ...]:
+        tree = ast.parse(source)
+        findings: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.partition(".")[0]
+                    if root in cls.FORBIDDEN_IMPORT_ROOTS:
+                        findings.add(f"import:{root}")
+            elif isinstance(node, ast.ImportFrom):
+                root = (node.module or "").partition(".")[0]
+                if root in cls.FORBIDDEN_IMPORT_ROOTS:
+                    findings.add(f"import:{root}")
+                if root == "os":
+                    for alias in node.names:
+                        if alias.name in cls.FORBIDDEN_OS_MEMBERS:
+                            findings.add(f"import:os.{alias.name}")
+            elif isinstance(node, ast.Call):
+                name = cls._dotted_name(node.func)
+                if name is None:
+                    continue
+                root = name.partition(".")[0]
+                if root in cls.FORBIDDEN_IMPORT_ROOTS or name in cls.FORBIDDEN_CALLS:
+                    findings.add(f"call:{name}")
+                if (
+                    name == "getattr"
+                    and len(node.args) >= 2
+                    and isinstance(node.args[0], ast.Name)
+                    and node.args[0].id == "os"
+                    and isinstance(node.args[1], ast.Constant)
+                    and node.args[1].value in cls.FORBIDDEN_OS_MEMBERS
+                ):
+                    findings.add(f"call:getattr-os-{node.args[1].value}")
+        return tuple(sorted(findings))
+
+    def test_active_core_and_wrapper_have_no_forbidden_capability(self) -> None:
+        for path in self.ACTIVE_SOURCES:
+            with self.subTest(path=path.name):
+                self.assertTrue(path.is_file(), "active S4 source is missing")
+                self.assertEqual(
+                    (),
+                    self._forbidden_capabilities(path.read_text(encoding="utf-8")),
+                    "active S4 source gained a forbidden capability",
+                )
+
+    def test_capability_denylist_fixture_matrix_is_non_vacuous(self) -> None:
+        fixtures = (
+            "import socket\nsocket.create_connection(('fixture.invalid', 1))\n",
+            "from urllib import request\nrequest.urlopen('fixture')\n",
+            "import subprocess\nsubprocess.run(['fixture'])\n",
+            "import os\nos.system('fixture')\n",
+            "from os import system\nsystem('fixture')\n",
+            "import os\ngetattr(os, 'system')('fixture')\n",
+            "__import__('socket')\n",
+            "exec('fixture')\n",
+        )
+        for source in fixtures:
+            with self.subTest(source=source.splitlines()[0]):
+                self.assertTrue(self._forbidden_capabilities(source))
+
+
+class S4SensitiveLiteralTests(unittest.TestCase):
+    """Active S4 policy files contain no credential or live-production material."""
+
+    ROOT = Path(__file__).parents[3]
+    ACTIVE_FILES = (
+        ROOT / "ops" / "ha" / "s4_network_change_package.py",
+        ROOT / "ops" / "ha" / "s4-network-change-package.py",
+        ROOT / ".github" / "workflows" / "ha-s4-network-change-package.yml",
+        ROOT / "docs" / "operations" / "runbook-ha-s4-network-repair.md",
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-08-31-maestrovpn-s4-production-authorization-amendment.md",
+    )
+    ALLOWED_CLEANUP = 'rm -rf -- "$s4_ci_tmp"'
+
+    @staticmethod
+    def _ipv6_literals(text: str) -> tuple[str, ...]:
+        candidate_pattern = re.compile(
+            r"(?<![0-9A-Za-z:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(?![0-9A-Za-z:])"
+        )
+        values = []
+        for match in candidate_pattern.finditer(text):
+            candidate = match.group(0)
+            if re.fullmatch(r"[0-9]::[0-9]", candidate):
+                # Python extended-slice syntax in the active implementation.
+                continue
+            try:
+                ipaddress.IPv6Address(candidate)
+            except ipaddress.AddressValueError:
+                continue
+            values.append(candidate)
+        return tuple(values)
+
+    @classmethod
+    def _sensitive_kinds(cls, text: str) -> tuple[str, ...]:
+        kinds: set[str] = set()
+        lowered = text.casefold()
+        if "github_pat_" in lowered:
+            kinds.add("github-token")
+        if "bearer " in lowered:
+            kinds.add("bearer-token")
+        if re.search(r"-----BEGIN [^-\r\n]*PRIVATE KEY-----", text, flags=re.IGNORECASE):
+            kinds.add("private-key")
+        if re.search(
+            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)\s*(?:=|:)\s*\S",
+            text,
+        ):
+            kinds.add("credential-assignment")
+
+        for candidate in re.findall(r"(?<![0-9])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9])", text):
+            octets = candidate.split(".")
+            if all(0 <= int(octet) <= 255 for octet in octets):
+                kinds.add("ipv4")
+                break
+        if cls._ipv6_literals(text):
+            kinds.add("ipv6")
+        if re.search(
+            r"(?i)(?<![\w./-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+            r"(?:com|net|org|ru|online|tech|cloud|io|dev|app|xyz|site|me|cc|su)(?![\w.-])",
+            text,
+        ):
+            kinds.add("hostname")
+        if re.search(r"(?i)(?<![\w./-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])", text):
+            kinds.add("host-port")
+        if re.search(r"(?i)\b(?:customer|subscriber)[_-]?(?:id|uuid|data)\b", text):
+            kinds.add("customer-data")
+        if re.search(
+            r"(?i)(?<![A-Za-z0-9._-])/(?:etc|var|usr|root|home|opt|run|srv|lib|boot|snap|tmp)(?:/[^\s`'\"<>]+)+",
+            text,
+        ) or re.search(
+            r"(?i)\b[A-Z]:\\(?:Users|Windows|ProgramData|Program Files|etc)(?:\\[^\s`'\"<>]+)+",
+            text,
+        ):
+            kinds.add("production-path")
+
+        command_text = "\n".join(
+            "" if line.strip() == cls.ALLOWED_CLEANUP else line
+            for line in text.splitlines()
+        )
+        mutation_patterns = (
+            r"(?i)\bsystemctl\b[^\r\n]{0,80}\b(?:start|stop|restart|reload|enable|disable|mask|unmask)\b",
+            r"(?i)\bservice\s+\S+\s+(?:start|stop|restart|reload)\b",
+            r"(?i)\bip\s+(?:addr(?:ess)?|link|route)\s+(?:add|del(?:ete)?|replace|flush|set)\b",
+            r"(?i)\bnetworkctl\s+(?:reload|reconfigure)\b",
+            r"(?i)\bnetplan\s+apply\b",
+            r"(?i)\b(?:iptables|firewall-cmd)\s+\S+",
+            r"(?i)\bnft\s+(?:add|delete|flush|insert|replace)\b",
+            r"(?i)\bufw\s+(?:allow|deny|delete|enable|disable|reload|reset)\b",
+            r"(?i)\brm\s+-rf\b",
+        )
+        if any(re.search(pattern, command_text) for pattern in mutation_patterns):
+            kinds.add("mutation-command")
+        return tuple(sorted(kinds))
+
+    def test_active_files_exist_and_have_no_sensitive_literal(self) -> None:
+        for path in self.ACTIVE_FILES:
+            with self.subTest(path=path.as_posix()):
+                self.assertTrue(path.is_file(), "active S4 policy file is missing")
+                self.assertEqual(
+                    (),
+                    self._sensitive_kinds(path.read_text(encoding="utf-8")),
+                    "active S4 policy file contains sensitive or live material",
+                )
+
+    def test_sensitive_literal_fixture_matrix_is_non_vacuous(self) -> None:
+        fixtures = (
+            "github_pat_fixture",
+            "Bearer fixture",
+            "-----BEGIN PRIVATE KEY-----",
+            "password=<SECRET>",
+            "synthetic endpoint 192.0.2.1",
+            "synthetic endpoint 2001:db8::1",
+            "synthetic.example.com",
+            "synthetic-host:443",
+            "customer_uuid=opaque",
+            "/tmp/synthetic-command-sheet",
+            "systemctl restart synthetic-unit",
+            "rm -rf synthetic-root",
+        )
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture):
+                self.assertTrue(self._sensitive_kinds(fixture))
+
+    def test_reviewed_public_and_semantic_literals_remain_allowed(self) -> None:
+        safe_values = (
+            "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+            "maestro-ha-s4-network-inventory-v1",
+            "REMOVE_CONFLICTING_IFUPDOWN_PRIMARY_OWNERSHIP_ONLY",
+            "Android/TV remains immutable at 1.0.157.",
+            "evaluation-time 2026-08-31T12:00:00Z",
+            self.ALLOWED_CLEANUP,
+        )
+        for value in safe_values:
+            with self.subTest(value=value):
+                self.assertEqual((), self._sensitive_kinds(value))
 
 
 class S4RunbookContractTests(unittest.TestCase):
