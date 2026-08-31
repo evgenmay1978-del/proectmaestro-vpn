@@ -70,7 +70,28 @@ exit 0
 The 21 full-suite skips are POSIX descriptor/output cases. The local Windows
 result is not POSIX validation and does not claim POSIX CI is green.
 
-## Remaining gate
+## Exact-SHA Ubuntu/POSIX proof
 
-Push the exact Task 2 commit and require Ubuntu GitHub Actions to run the full
-POSIX suite on that exact SHA. Repository work remains production NO-GO.
+- The first exact-SHA proof run, GitHub Actions run `33375435353`, checked out
+  `1aff594a81bfbf2725c790605ca2e12eaba20df4` and exposed one over-strict test
+  expectation: trailing bytes after the canonical JSON object are classified as
+  the redacted `inventory-json` error, not `inventory-canonical`. Runtime
+  behavior was unchanged; the test contract was corrected in
+  `03f293df130f10873208918e44e058d079b19843`.
+- GitHub Actions run `33376269552`, job `99438342540`, then checked out exactly
+  `03f293df130f10873208918e44e058d079b19843` on Ubuntu with Python `3.12.3` and
+  `os.name=posix`.
+- The secure-input selector ran `5` tests, the secure-output selector ran `7`
+  tests, and the full module ran exactly `56` tests with `0` skips. `py_compile`
+  and the clean-diff assertion also passed.
+- The proof workflow existed only on the temporary evidence branch at commit
+  `d21637395d5900332cc7b501c006f7443e570d64`; it checked out the canonical
+  code/test SHA explicitly and did not modify production or the canonical
+  branch.
+
+## Task result
+
+Task 2's secure change-package boundary and exact-SHA POSIX gate are complete at
+`03f293df130f10873208918e44e058d079b19843`. The overall repository and live
+service remain production NO-GO until Tasks 3-6 and the later live evidence,
+deployment, metering, canary, and cutover gates are complete.
