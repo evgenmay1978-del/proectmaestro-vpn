@@ -832,12 +832,12 @@ class S4SecureInputTests(unittest.TestCase):
                             )
 
     @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
-    def test_canonical_inventory_with_a_trailing_byte_is_rejected_as_noncanonical(self) -> None:
+    def test_canonical_inventory_with_a_trailing_byte_is_rejected_as_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = self._private_file(Path(temporary))
             path.write_bytes(canonical(valid_inventory()) + b"x")
             os.chmod(path, 0o600)
-            with self.assertRaisesRegex(S4ChangePackageError, r"^s4-network-change-package:inventory-canonical$"):
+            with self.assertRaisesRegex(S4ChangePackageError, r"^s4-network-change-package:inventory-json$"):
                 s4_network_change_package.read_inventory(path, evaluation_time=EVALUATION_TIME)
 
     @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
