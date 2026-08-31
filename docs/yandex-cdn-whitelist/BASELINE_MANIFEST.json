@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 293705,
-      "sha256": "b35b62d5e72d074190bcd1575bec71134b3fb684e4b1c5e1bb70fa5fce71c36c",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. S4 NARROW NETWORK REPAIR \u2014 LIVE GREEN (31.08.2026)\n\n- Repository authority \u043f\u0435\u0440\u0435\u0434 \u043e\u043a\u043d\u043e\u043c: exact SHA\n  `535c18d13f8c9b597e4ee38da0c4af2325ecd7e2`; \u0432\u0441\u0435 \u043f\u044f\u0442\u044c \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0445\n  canonical-branch workflows GREEN: `33411330259`, `33411330286`,\n  `33411330280`, `3341133026"
+      "bytes": 295968,
+      "sha256": "289c7ed07a2d446fce84f372eb3cd0a64df3d9f0d594c673835028c86a9b0501",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. YANDEX CDN DIAGNOSTIC TRANSPORT \u2014 LIVE PARTIAL GREEN (31.08.2026)\n\n- Read-only \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 Yandex Cloud \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b\u0430 \u043e\u0434\u0438\u043d \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0439 \u0442\u0435\u0441\u0442\u043e\u0432\u044b\u0439 \u0440\u0435\u0441\u0443\u0440\u0441\n  `<REDACTED>`: \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442 \u0432\u044b\u043f\u0443\u0449\u0435\u043d, origin \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f \u0442\u0435\u043a\u0443\u0449\u0438\u0439 S1 probe\n  \u043d\u0430 `18080` \u043f\u043e HTTP, client access \u0440\u0430\u0437\u0440\u0435\u0448\u0451\u043d, CD"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
@@ -141,9 +141,9 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/TEST_RESULTS.md",
-      "bytes": 1086,
-      "sha256": "6dc39072002479fa8bb2da3cdc13088efdb808a57a4881cd2fd5a0d95648fa56",
-      "preview": "# Test results register\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nNo transport/server/CDN/client/backup/billing/canary test is claimed complete. Future records require test ID, release/checksum, i"
+      "bytes": 2348,
+      "sha256": "9c4729ad54a475c1b35c11c5c3fe6fd4b313351119d1fe39e93817d95a16201f",
+      "preview": "# Test results register\nStatus: mixed evidence. The dated diagnostic CDN record below is live; all\nother unlisted transport, client, subscription, metering, billing and canary\nclaims remain target-only.\n\n## 2026-08-31 \u2014 live diagnostic Yandex CDN path\n\n- Scope: existing test CDN resource and fallback diagnostic origin "
     },
     {
       "path": "docs/yandex-cdn-whitelist/TRAFFIC_METERING.md",
