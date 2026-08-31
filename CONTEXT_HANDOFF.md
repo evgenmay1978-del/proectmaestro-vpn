@@ -1,5 +1,39 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. S4 NETWORK REPAIR PACKAGE — REPOSITORY HANDOFF (31.08.2026)
+
+- Единственная рабочая ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Последовательность S4 зафиксирована
+  точными коммитами: Task 0 `6edcb1791318d22dc46ee6eb1819963ba2608596`,
+  Task 1 `5a2eed80e93a758341a05530a2420bcd728d0439`, Task 2 code
+  `03f293df130f10873208918e44e058d079b19843` и POSIX evidence
+  `4c0383fdc1d46f9b68717a898c1d9372e00f5c04`, Task 3
+  `b1b04ef69a1334a08fdde055941d8c21d906ccfc`, Task 4
+  `802ceee853154be0049f2015062ed3ea642a31eb`.
+- Task 4 добавляет только inert GitHub workflow и его self-policy:
+  `.github/workflows/ha-s4-network-change-package.yml`,
+  `ops/ha/tests/test_s4_network_change_package.py` и
+  `ops/ha/tests/test_s4_network_workflow_policy.py`. Workflow не содержит
+  production credentials, сетевых команд, artifact upload или права на
+  изменение S4.
+- На exact Task 4 SHA локальный scoped suite завершён: 86 tests `OK`, 21
+  ожидаемый Windows skip для POSIX-only проверок; четыре Python-файла прошли
+  `py_compile`, scoped/cumulative `git diff --check` чист. Независимое bounded
+  review завершено с Critical/Important/Minor `0/0/0`, verdict `Ready: Yes`.
+  Ранее Task 2 POSIX gate был GREEN в GitHub run `33376269552`, job
+  `99438342540`, с 56 tests `OK` без skip.
+- Это готовность repository package, а не live-готовность S4. Exact-SHA push и
+  GitHub GREEN для текущего Task 4/Task 5 commit выполняются в Task 6; старые
+  workflow runs не заменяют этот gate. Сервер, сеть, DNS/CDN, клиенты, платежи,
+  Telegram-боты и customer traffic на этом этапе не изменялись.
+- Следующий production шаг после Task 5 и exact-SHA GitHub GREEN — только свежий
+  защищённый read-only S4 inventory, его отдельный raw review и генерация inert
+  package. Любая S4 mutation остаётся **PRODUCTION NO-GO**, пока inventory,
+  trusted UTC, console recovery, second operator, backup/rollback и before-state
+  health не подтверждены одновременно. Android/TV остаётся `1.0.157`; OLCRTC,
+  WDTT, реальные списания, release/signing/OTA и финальный traffic cutover не
+  входят в это разрешение.
+
 ## 0. S4 STANDING AUTHORIZATION RECONCILED — REPOSITORY-ONLY BASELINE (31.08.2026)
 
 - Durable amendment:
