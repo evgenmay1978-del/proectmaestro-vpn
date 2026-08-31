@@ -1,5 +1,62 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. TASK15B OFFLINE PKI/SERVICE PLAN EXACT-SHA ACCEPTED (31.08.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Принятый Task15B code SHA —
+  `968680c4c50a52b1b8bfafee5cc02b36113c4f23`, tree
+  `c1c7c9561016c9032c15cdaf0288e76a998ed446`; local и GitHub refs
+  совпадают. Изменения ограничены workflow policy, Linux exact-SHA gates и
+  документацией offline PKI/service/deploy-plan контура.
+- Независимые финальные reviews Task 5 code scope завершены с Critical/Important/Minor
+  `0/0/0`. Все затронутые exact-SHA workflow run attempt `1` GREEN:
+  `HA immutable panel artifact` run `33347673768`, job `99354835735`;
+  `HA control-plane checks` run `33347673755`, job `99354835639`;
+  `HA DR restore drill` run `33347673753`, job `99354835554`;
+  `Yandex CDN isolated release checks` run `33347673733`, jobs
+  `99354835423`, `99355150766`, `99355150775`, `99355150817` и
+  `99355596537`.
+- Linux gate на exact SHA доказал focused Python suites, panel runtime
+  contract, pinned rqlite `v10.1.0` flag/help surface, wrapper syntax и
+  изолированный `systemd-analyze verify`. Нормализованная версия из job log:
+  `OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)`.
+- Task15B build-run создал CI-only artifact ID `9742646404`, name
+  `maestro-panel-968680c4c50a52b1b8bfafee5cc02b36113c4f23`, GitHub archive
+  digest `sha256:f47369cf113f9bbd0af7592bcc684ff1b8bf96f9b11e2ada982dab64b4faa31f`.
+  В нём ровно `maestro-panel` и `manifest.json`; binary SHA-256/size —
+  `2e3e219982bf9d59882a88a6164f626fd87c2c66ad4ac99f67de4bfb1ee7fc6b` /
+  `10649784`, manifest SHA-256/size —
+  `5c82b1d316a682a828c0b67e50e279e4d96c6893b02548b5967afba360b18789` /
+  `530`. Этот новый CI artifact не заменяет independently reviewed planner
+  trust anchor.
+- Planner по-прежнему fail-closed привязан к принятому Task15A artifact source
+  `f577c67ad229fe89278430d35a3ec65f6ce454e5`: run `33327019392`, attempt `1`,
+  job `99298854016`, artifact ID `9736614530`, name
+  `maestro-panel-f577c67ad229fe89278430d35a3ec65f6ce454e5`, GitHub archive
+  SHA-256 `104ea083f3c590533574a3c3d09f2569129e006597a6e057ce15276c15d49828`.
+  Exact members — только `maestro-panel` и `manifest.json`; binary
+  SHA-256/size —
+  `8f67bde5d720e17e04b5b2de0147f2c2502fafa54a5e675471f1a160866a3990` /
+  `10649784`, manifest SHA-256/size —
+  `853282de28d13627f0660a0c233e9d3e653c174f28d34062d8c1d3e93797fa9f` /
+  `530`. Archive digest независимо совпал с GitHub-reported digest.
+- На synthetic offline `s2` inventory, bounded reviewed transport evidence,
+  synthetic redacted PKI evidence и exact six-template root planner CLI был
+  выполнен дважды без исполнения binary. Stdout byte-exact детерминирован:
+  canonical plan size `3808`, SHA-256
+  `d80470c94fc24c1236445398a7c35b06f81c9d593ce80dd8706a1b28e63ba67d`.
+  Результат `maestro-ha-deploy-plan-v1` остаётся `NO_GO`, `authorized:false`,
+  содержит 6 desired files и 6 template digests; template source anchor —
+  `8289ce78be8dcb2c00829d6b9781d4b52a18cb73`.
+- Статус остаётся **PRODUCTION NO-GO**. Не закрыты authoritative S3 identity,
+  S4 network/east-west proof, authenticated/versioned empty-cluster restore,
+  independent artifact attestation/rulesets, real PKI issuance/private material,
+  reviewed bootstrap/join, target runtime smoke, owner-approved private shadow,
+  canary и cutover. Никакие серверы, клиенты,
+  customer data, DNS/TLS/CDN, оба Telegram-бота, оплаты, release/signing или OTA
+  не изменялись. Android/TV production baseline остаётся `1.0.157`; OLCRTC и
+  WDTT заморожены.
+
 ## 0. HA PLAN 02 TASK 8 — FINDING 9 ACCEPTED EXACT-SHA (30.08.2026)
 
 - Единственная рабочая/push-ветка — `codex/yandex-cdn-whitelist-task3-sync`.
