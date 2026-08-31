@@ -4,8 +4,8 @@
 
 Production remains **PRODUCTION NO-GO** until an `EVIDENCE_COMPLETE` package,
 trusted UTC, console recovery, and fresh S4 read-only preflight are all
-confirmed together. The fixed envelope is target: `s4`; selected owner:
-`systemd-networkd`; scope:
+confirmed together with every repository-authority and Task 6 condition below.
+The fixed envelope is target: `s4`; selected owner: `systemd-networkd`; scope:
 `REMOVE_CONFLICTING_IFUPDOWN_PRIMARY_OWNERSHIP_ONLY`.
 
 Every package retains `apply_supported: false` and
@@ -20,6 +20,31 @@ expand the scope.
 This checked-in runbook contains only semantic review identifiers. Concrete
 production paths, current contents, mutation steps, affected backup bytes, and
 restore steps belong only in a protected local command sheet outside Git.
+
+## Repository authority and Task 6 gate
+
+Production remains **PRODUCTION NO-GO** until all of these conditions are
+independently evidenced:
+
+- S4 repository implementation is complete;
+- durable handoff is complete;
+- scoped local verification is GREEN;
+- canonical branch is pushed and its remote SHA equals the local SHA;
+- exact-SHA GitHub CI is GREEN for that SHA;
+- detached exact-SHA docs, manifest, and diff verification is GREEN;
+- dedicated S4 workflow and every required canonical-branch workflow are GREEN
+  for that exact SHA;
+- independent review reports `0 Critical / 0 Important / 0 Minor`;
+- fresh bounded S4 raw capture was reviewed before canonical inventory
+  derivation;
+- fresh unchanged inventory and exact package digest were reviewed;
+- newly generated `EVIDENCE_COMPLETE` package was reviewed; and
+- every Task 6 package and stop gate is GREEN, and rollback is executable.
+
+Until every condition in this section is evidenced, this standalone runbook
+does not permit Gate 1, declaration, Gate 2, or semantic execution. Repository
+completion is a prerequisite; the runbook cannot be used to enter the live
+sequence early.
 
 ## Evidence capture
 
@@ -110,7 +135,10 @@ reviewed semantic scope and rollback identifiers below.
 
 The declaration envelope binds the exact S4 target, package digest, named
 operator, bounded UTC window, expected impact, verified preconditions,
-protected rollback-sheet identity, and all stop gates. It also records the
+protected rollback-sheet identity, protected affected-file backup identity,
+protected unit-state backup identity, before-state management, default-route,
+VPN-unit, VPN-listener, and failed-unit health evidence, the immediate rollback
+path from the protected rollback sheet, and all stop gates. It also records the
 second operator and the first UTC comparison. Missing or non-GREEN declaration
 data stops the window.
 
@@ -122,6 +150,12 @@ Reconfirm the package is unexpired, inventory is unchanged, console recovery
 works, the second operator remains available, no concurrent work began, the
 rollback sheet and backups retain their protected identities, before-state
 health remains GREEN, and every stop gate remains clear.
+
+An expired, uncertain, unavailable, or mismatched second comparison terminates
+the maintenance window. A later attempt requires a new protected bounded raw
+capture, a new operator or owner review of those raw bytes, a fresh canonical
+inventory, and a newly generated and reviewed package. The prior declaration
+and first comparison cannot be reused for that later attempt.
 
 No semantic step begins if the second comparison or any reconfirmation fails.
 

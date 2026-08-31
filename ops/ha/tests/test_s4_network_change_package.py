@@ -1309,9 +1309,18 @@ class S4RunbookContractTests(unittest.TestCase):
                 values.append(line[3:-1])
         return tuple(values)
 
+    def _section(self, heading: str) -> str:
+        self.assertIn(heading, self.text)
+        start = self.text.index(heading) + len(heading)
+        end = self.text.find("\n## ", start)
+        if end == -1:
+            end = len(self.text)
+        return " ".join(self.text[start:end].split())
+
     def test_runbook_exists_and_has_the_required_ordered_operator_gates(self) -> None:
         self.assertTrue(self.RUNBOOK.is_file(), "S4 operator runbook is missing")
         headings = (
+            "## Repository authority and Task 6 gate",
             "## Evidence capture",
             "## Package generation",
             "## Package review",
@@ -1348,6 +1357,28 @@ class S4RunbookContractTests(unittest.TestCase):
         for value in required:
             with self.subTest(value=value):
                 self.assertIn(value, self.normalized_text)
+
+    def test_no_go_requires_repository_authority_and_every_task6_gate(self) -> None:
+        section = self._section("## Repository authority and Task 6 gate")
+        required = (
+            "S4 repository implementation is complete",
+            "durable handoff is complete",
+            "scoped local verification is GREEN",
+            "canonical branch is pushed and its remote SHA equals the local SHA",
+            "exact-SHA GitHub CI is GREEN for that SHA",
+            "detached exact-SHA docs, manifest, and diff verification is GREEN",
+            "dedicated S4 workflow and every required canonical-branch workflow are GREEN for that exact SHA",
+            "independent review reports `0 Critical / 0 Important / 0 Minor`",
+            "fresh bounded S4 raw capture was reviewed before canonical inventory derivation",
+            "fresh unchanged inventory and exact package digest were reviewed",
+            "newly generated `EVIDENCE_COMPLETE` package was reviewed",
+            "every Task 6 package and stop gate is GREEN",
+            "rollback is executable",
+            "this standalone runbook does not permit Gate 1, declaration, Gate 2, or semantic execution",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, section)
 
     def test_all_semantic_id_sets_are_exact_and_ordered(self) -> None:
         expected = {
@@ -1427,6 +1458,35 @@ class S4RunbookContractTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIn(value, self.normalized_text)
 
+    def test_declaration_binds_backup_health_and_immediate_rollback_evidence(self) -> None:
+        section = self._section(
+            "## Gate 1 — independent trusted UTC and declaration"
+        )
+        required = (
+            "protected affected-file backup identity",
+            "protected unit-state backup identity",
+            "before-state management, default-route, VPN-unit, VPN-listener, and failed-unit health evidence",
+            "immediate rollback path from the protected rollback sheet",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, section)
+
+    def test_gate2_utc_failure_terminates_window_and_requires_full_refresh(self) -> None:
+        section = self._section(
+            "## Gate 2 — independent trusted UTC before execution"
+        )
+        required = (
+            "An expired, uncertain, unavailable, or mismatched second comparison terminates the maintenance window.",
+            "A later attempt requires a new protected bounded raw capture",
+            "a new operator or owner review of those raw bytes",
+            "a fresh canonical inventory",
+            "a newly generated and reviewed package",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, section)
+
     def test_change_validation_and_rollback_preserve_the_working_owner(self) -> None:
         required = (
             "backup and restore only the conflicting ifupdown declaration and unit state",
@@ -1504,6 +1564,12 @@ class S4RunbookContractTests(unittest.TestCase):
             "permission to mutate",
             "authorized to mutate",
             "mutation is authorized",
+            "approved for mutation",
+            "approved to mutate production",
+            "cleared to mutate production",
+            "mutation is approved",
+            "execution is approved",
+            "mutation authority is granted",
             "apply_supported: true",
             "mutation_authorized: true",
         )
@@ -1513,23 +1579,90 @@ class S4RunbookContractTests(unittest.TestCase):
 
     def test_checked_in_runbook_contains_no_live_command_sheet_material(self) -> None:
         forbidden_literals = (
+            "systemctl start",
+            "systemctl stop",
             "systemctl restart",
             "systemctl reload",
             "systemctl enable",
+            "systemctl disable",
+            "systemctl mask",
+            "systemctl unmask",
+            "networkctl reload",
+            "networkctl reconfigure",
+            "netplan apply",
+            "firewall-cmd ",
+            "iptables ",
+            "nft ",
+            "ufw ",
+            "ifdown ",
+            "ifup ",
+            "ip link set",
+            "ip route add",
+            "ip route delete",
+            "ip route replace",
+            "sed -i",
+            "chmod ",
+            "chown ",
+            "rm -",
+            "mv /",
+            "cp /",
+            "tee /",
             "sudo ",
             "ssh ",
             "curl ",
+            "http://",
+            "https://",
             "/etc/",
             "/var/",
+            "/usr/",
+            "/root/",
+            "/home/",
+            "/opt/",
+            "/run/",
+            "/srv/",
+            "/lib/",
+            "/boot/",
+            "/snap/",
+            "~/.ssh/",
+            ":\\users\\",
             "BEGIN PRIVATE KEY",
             "Bearer ",
             "password=",
             "token=",
         )
+        lowered = self.text.casefold()
         for literal in forbidden_literals:
             with self.subTest(literal=literal):
-                self.assertNotIn(literal, self.text)
+                self.assertNotIn(literal.casefold(), lowered)
         self.assertIsNone(
             re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?![0-9])", self.text),
             "runbook must not contain a live IPv4 literal",
+        )
+        self.assertIsNone(
+            re.search(
+                r"(?<![0-9A-Za-z:])(?:(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{0,4}|::(?:[0-9A-Fa-f]{1,4}:?){1,7})(?![0-9A-Za-z:])",
+                self.text,
+            ),
+            "runbook must not contain a live IPv6 literal",
+        )
+        self.assertIsNone(
+            re.search(
+                r"(?<![\w./-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?![\w.-])",
+                self.text,
+            ),
+            "runbook must not contain a live FQDN",
+        )
+        self.assertIsNone(
+            re.search(
+                r"(?<![\w./-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])",
+                self.text,
+            ),
+            "runbook must not contain a live host:port endpoint",
+        )
+        self.assertIsNone(
+            re.search(
+                r"(?i)\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b",
+                self.text,
+            ),
+            "runbook must not contain a UUID",
         )
