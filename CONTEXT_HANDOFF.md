@@ -1,5 +1,33 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. XHTTP FIRST-CANARY TASK 1 — LOCAL GREEN, REVIEW APPROVED (31.08.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Исполняемый runtime plan имеет base
+  `ef9d8330ab42c9961befd02f9d638198cff8f2ba`; Task 1 code после review-fix
+  зафиксирован exact SHA `0048d3c6186d3262fb40734dbf0abe4583fcaf29`.
+- Добавлен только pure pre-candidate boundary
+  `backend/internal/canary/{pins,snapshot,config}.go` и его focused tests.
+  Он строго проверяет canonical snapshot, роли server/client VLESS Encryption,
+  canonical RawURL base64, один UUID/counter identity, безопасный XHTTP path,
+  pinned Xray `26.7.28`/binary SHA-256 и материализует совпадающую пару
+  server/direct/CDN/URI без записи секретов в Git.
+- Focused `go test -count=1 ./internal/canary` завершён GREEN. Повторный
+  независимый formal review exact diff `ef9d833..0048d3c` завершён
+  `0 Critical / 0 Important`; три прежних Important исправлены. Оставшееся
+  Minor касается только сокращения диагностик тестовых failure-сообщений и не
+  блокирует Task 1.
+- Полные Linux race/vet/regression и exact-SHA GitHub checks намеренно остаются
+  обязательным Task 4 gate; этот локальный результат их не заменяет. Реальный
+  VLESS/XHTTP tunnel, Yandex CDN tunnel, операторский white-list, per-user
+  stats, subscription, metering и billing всё ещё **NOT TESTED**.
+- Следующий repository этап — Task 2: защищённая Linux stage/lifecycle
+  `ABSENT -> PREPARED -> ROLLBACK_REQUIRED -> CANARY_ACTIVE -> ABSENT` с
+  отдельным systemd sidecar, проверкой pinned binary/config и гарантированным
+  восстановлением diagnostic origin. S1-S4, ordinary x-ui/Xray, CDN origin,
+  клиенты, Telegram, платежи и Android/TV `1.0.157` этим Task 1 не изменялись;
+  OLCRTC и WDTT остаются вне scope.
+
 ## 0. YANDEX CDN DIAGNOSTIC TRANSPORT — LIVE PARTIAL GREEN (31.08.2026)
 
 - Read-only проверка Yandex Cloud подтвердила один активный тестовый ресурс

@@ -12,7 +12,16 @@ Add one deliberately pre-candidate canary package, one dedicated first-canary ru
 
 The existing activation store is also not used for this first activation: a freshly prepared canary has no published predecessor, its sealed release directory has no loadable transport snapshot after restart, and the current journal does not transactionally bind the runtime config to the active pointer. Those gaps are explicit later durable-release work, not assumptions hidden inside this slice.
 
-The first-canary controller therefore implements the narrow state machine `ABSENT -> PREPARED -> CANARY_ACTIVE -> ABSENT`. Immutable sealed evidence remains root-only. UUID, VLESS encryption material, secret path and client URI remain outside Git in root-owned regular files with mode `0600`; only the already-verified executable and materialized server config are copied into a non-writable runtime stage readable by the dedicated service group.
+The first-canary controller therefore implements the narrow crash-safe state
+machine `ABSENT -> PREPARED -> ROLLBACK_REQUIRED -> CANARY_ACTIVE -> ABSENT`.
+`ROLLBACK_REQUIRED` is persisted before the service start attempt, so an
+ambiguous start or process interruption cannot be mistaken for a safely
+prepared inactive stage. Rollback accepts that recovery state as well as
+`PREPARED` and `CANARY_ACTIVE`. Immutable sealed evidence remains root-only.
+UUID, VLESS encryption material, secret path and client URI remain outside Git
+in root-owned regular files with mode `0600`; only the already-verified
+executable and materialized server config are copied into a non-writable
+runtime stage readable by the dedicated service group.
 
 Two alternatives were rejected:
 
@@ -40,25 +49,45 @@ extracted-binary digest until separately admitted. Android/TV version
 
 1. `canary.Bundle` holds the bounded pre-candidate transport snapshot, server decryption, exactly one canary UUID/counter identity, client encryption, and separate pinned source/archive/binary identities with one canonical pair commitment. Parsing is strict, bounded and rejects unknown fields, duplicate JSON keys, unsafe paths, non-canonical JSON, wrong roles and unbound material.
 2. Pre-candidate materialization is a pure operation: it inserts exactly one inbound client `{id,email}`, installs the complete approved XHTTP settings at the server root, and produces matching protected direct and CDN client configs plus a URI from the same bundle. Client encryption is never written into inbound settings. The resulting redacted receipt is the input to later release evidence; it is not itself a `release.Release`.
-3. `maestro-xray-cdn-canary prepare` reads only root-owned regular `0600` inputs, verifies the pinned binary and sealed evidence, and creates `/opt/maestro-xray-cdn/runtime/<runtime-id>/` owned by `root:maestro-xray-cdn`. Runtime directories and the copied Xray executable are mode `0550`; the materialized server config at `/run/maestro-xray-cdn/config.json` is `root:maestro-xray-cdn` mode `0640`. No runtime path is group-writable. Protected client outputs stay `root:root` mode `0600`. The command runs the staged pinned binary's `run -test` and emits only stable reason codes and non-secret digests.
-4. `activate` accepts only the verified `PREPARED` runtime, records the before-state as `ABSENT` together with a non-secret receipt for the current diagnostic CDN origin, and starts only `maestro-xray-cdn.service` from the verified runtime stage. It never publishes through the existing activation store and never touches the ordinary x-ui/Xray listener.
-5. `rollback` stops the isolated sidecar, restores the recorded diagnostic CDN origin, verifies that restoration, and returns the controller to `ABSENT`. Staged runtime and protected client artifacts are retained as evidence; they are not treated as active after rollback.
+3. `maestro-xray-cdn-canary prepare` reads only root-owned regular `0600` inputs, verifies the pinned binary and sealed evidence, re-materializes and compares every supplied artifact, and creates `/opt/maestro-xray-cdn/runtime/<runtime-id>/` owned by `root:maestro-xray-cdn`. Runtime directories and the copied Xray executable are mode `0550`; the materialized server config at `/run/maestro-xray-cdn/config.json` is `root:maestro-xray-cdn` mode `0640`. No runtime path is group-writable. Protected client outputs stay `root:root` mode `0600`. The command runs the staged pinned binary's `run -test` and emits only stable reason codes and non-secret digests. The protected snapshot is the authoritative source for later diagnostic-origin restoration inputs.
+4. `activate` accepts only the verified `PREPARED` runtime, reloads systemd, proves the sidecar inactive, persists `ROLLBACK_REQUIRED`, and starts only `maestro-xray-cdn.service` from the verified runtime stage. It records `CANARY_ACTIVE` only after a positive active check, never publishes through the existing activation store and never touches the ordinary x-ui/Xray listener.
+5. `rollback` accepts `PREPARED`, `ROLLBACK_REQUIRED` or `CANARY_ACTIVE`, stops the isolated sidecar, proves it inactive, restores the diagnostic CDN origin recorded in the protected snapshot, verifies that restoration, removes only digest-matching generated config and unit files, reloads systemd and returns the controller to `ABSENT`. Staged runtime and protected client artifacts are retained as evidence; they are not treated as active or runnable after rollback.
 
 ## Data flow
 
 Pinned Xray `vlessenc` output is captured once by the bundle generator; its ML-KEM server/client pair, binary identity and canary UUID are committed together. `prepare` verifies that commitment and the bounded canonical transport snapshot, materializes the protected client output plus the service-readable server runtime stage, and runs offline config tests. It then records `PREPARED` without constructing a release, changing any listener or changing the CDN resource.
 
-Only after those checks may `activate` transition `PREPARED -> CANARY_ACTIVE` and expose the sidecar on the dedicated canary port. The Yandex test resource is switched only for the bounded test window, direct and CDN tunnel smokes run, and `rollback` always performs `CANARY_ACTIVE -> ABSENT` by stopping the sidecar and restoring the diagnostic origin. The runtime stage is evidence, not a substitute for a candidate release, the missing durable release loader or an activation-store predecessor.
+Only after those checks may `activate` transition `PREPARED ->
+ROLLBACK_REQUIRED`, attempt the start and then transition to `CANARY_ACTIVE`
+after a positive active check. The Yandex test resource is switched only for
+the bounded test window, direct and CDN tunnel smokes run, and `rollback`
+always reaches `ABSENT` by proving the sidecar inactive, restoring the
+diagnostic origin and removing the runnable static config/unit layer. The
+runtime stage is retained evidence, not a substitute for a candidate release,
+the missing durable release loader or an activation-store predecessor.
 
 ## Failure and rollback rules
 
 - Fail closed before writing if any ownership, mode, inode, release, transport, pair, binary or config check fails.
 - Never echo UUID, encryption/decryption material, secret path, client URI or raw operational endpoint.
-- Use atomic same-directory replacement and fsync for every generated file; refuse symlinks and pre-existing unsafe targets. Enforce `root:root 0600` for secrets and client outputs, `root:maestro-xray-cdn 0550` for runtime directories and the copied executable, and `root:maestro-xray-cdn 0640` for the materialized server config. Nothing is group-writable.
+- Use descriptor-relative Linux filesystem operations with no-follow checks,
+  atomic same-directory no-replace rename and file plus directory fsync for
+  every generated file; refuse symlinks, hardlinks, unsafe parents and
+  pre-existing unsafe targets. Enforce `root:root 0700` for protected
+  directories, `root:root 0600` for state, secrets and client outputs,
+  `root:maestro-xray-cdn 0750` for runtime parents,
+  `root:maestro-xray-cdn 0550` for immutable runtime directories and the copied
+  executable, `root:maestro-xray-cdn 0640` for the materialized server config,
+  and `root:root 0644` for the non-secret unit. Nothing is group-writable.
+- The generated unit uses no shell and carries the fixed sidecar hardening
+  boundary from `backend/internal/release/templates.go`: `UMask=0077`,
+  `NoNewPrivileges=true`, `PrivateTmp=true`, `ProtectSystem=strict`,
+  `ProtectHome=true`, fixed read-only runtime paths and only the dedicated log
+  path writable.
 - A failed Xray config test, sidecar health check, direct tunnel, CDN tunnel, metering identity check or resource verification triggers sidecar stop plus verified restoration of the recorded diagnostic origin and state `ABSENT`.
 - `rollback` is valid for the first canary without a previous published release. Durable activation-store integration is forbidden until a protected transport-snapshot loader, a real predecessor, and transactional config/pointer/journal coupling exist.
 - No customer subscription, charge, Telegram notification, Android/TV release or final customer-traffic cutover is part of this slice.
 
 ## Verification
 
-Repository tests must prove strict bundle parsing, one-client materialization, no client encryption in inbound config, exact advanced XHTTP shape, deterministic redacted output, atomic protected writes, exact owner/mode contracts, pinned-binary invocation, `ABSENT -> PREPARED -> CANARY_ACTIVE -> ABSENT`, activation without an activation-store predecessor, and rollback to the diagnostic origin. Linux CI then runs race/vet/unit and fixture replay. The live gate requires: pinned binary/config GREEN, ordinary listeners unchanged, direct VLESS/XHTTP data transfer, Yandex CDN data transfer with GET body, observable per-client counter identity, and successful restoration of the diagnostic path.
+Repository tests must prove strict bundle parsing, one-client materialization, no client encryption in inbound config, exact advanced XHTTP shape, deterministic redacted output, atomic protected writes, exact owner/mode/link contracts, pinned-binary invocation, `ABSENT -> PREPARED -> ROLLBACK_REQUIRED -> CANARY_ACTIVE -> ABSENT`, ambiguous-start recovery, activation without an activation-store predecessor, removal of runnable static files on rollback, and restoration plus verification of the diagnostic origin. Linux CI then runs race/vet/unit and fixture replay. The live gate requires: pinned binary/config GREEN, ordinary listeners unchanged, direct VLESS/XHTTP data transfer, Yandex CDN data transfer with GET body, observable per-client counter identity, and successful restoration of the diagnostic path.

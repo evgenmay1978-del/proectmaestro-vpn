@@ -143,34 +143,50 @@ Commit only the five Task 1 files with message `feat(cdn): materialize isolated 
 type State string
 
 const (
-    StateAbsent       State = "ABSENT"
-    StatePrepared     State = "PREPARED"
-    StateCanaryActive State = "CANARY_ACTIVE"
+    StateAbsent           State = "ABSENT"
+    StatePrepared         State = "PREPARED"
+    StateCanaryActive     State = "CANARY_ACTIVE"
     StateRollbackRequired State = "ROLLBACK_REQUIRED"
 )
+
+type Stage struct {
+    RuntimeID          string
+    State              State
+    SnapshotSHA256     string
+    XraySHA256         string
+    ServerConfigSHA256 string
+    UnitSHA256         string
+}
 
 type ConfigTester interface {
     Test(context.Context, string, string, uint32, uint32) error
 }
 
 type ServiceController interface {
+    Reload(context.Context) error
     IsActive(context.Context, string) (bool, error)
     Start(context.Context, string) error
     Stop(context.Context, string) error
 }
 
-type DiagnosticProbe interface {
-    Restored(context.Context, string, string) error
+type DiagnosticOrigin interface {
+    RestoreAndVerify(context.Context, string, string) error
 }
 
 func (s *Store) Prepare(context.Context, Snapshot, []byte, Artifacts, ConfigTester) (Stage, error)
 func (s *Store) Activate(context.Context, string, ServiceController) error
-func (s *Store) RollbackToAbsence(context.Context, string, ServiceController, DiagnosticProbe) error
+func (s *Store) RollbackToAbsence(context.Context, string, ServiceController, DiagnosticOrigin) error
 ```
+
+The raw `[]byte` accepted by `Prepare` is exactly the extracted pinned Linux
+Xray executable. `Prepare` generates the safe runtime ID internally, re-parses
+the canonical snapshot, re-materializes every supplied artifact, compares the
+bytes, and verifies the executable against `PinnedXrayBinarySHA256` before any
+config test or filesystem write.
 
 - [ ] **Step 1: Write RED Linux store tests**
 
-Test exact UID/GID/modes, regular-file enforcement, symlink/hardlink refusal, existing-target refusal, digest-before-exec ordering, atomic temp+fsync+rename, generated unit with the exact stage path, no ordinary x-ui paths, `Prepare` leaving the service inactive, idempotent state transitions, active/unknown-service fail-closed behavior, rollback retaining staged evidence and diagnostic-origin verification.
+Test exact UID/GID/modes and link counts, safe-parent and regular-file enforcement, symlink/hardlink refusal, existing-target refusal, digest-before-exec ordering, atomic temp+fsync+no-replace-rename+directory-fsync, generated unit with the exact stage path, no ordinary x-ui paths, `Prepare` leaving the service inactive, `ABSENT -> PREPARED -> ROLLBACK_REQUIRED -> CANARY_ACTIVE -> ABSENT`, active/unknown-service fail-closed behavior, ambiguous-start recovery, and rollback retaining immutable evidence while removing the runnable static layer and restoring plus verifying the diagnostic origin.
 
 - [ ] **Step 2: Run the RED tests on Linux CI-compatible code**
 
@@ -193,7 +209,29 @@ Runtime layout:
 /root/.maestro-xray-cdn-canary/<runtime-id>/client-uri.txt
 ```
 
-The generated unit uses the exact immutable runtime path and `/run/maestro-xray-cdn/config.json`; it runs as `maestro-xray-cdn`, contains the existing hardening boundary, and is refused if an unrelated unit already exists.
+Parents under `/opt` and `/run` are `root:maestro-xray-cdn 0750`; the immutable
+runtime directory and copied executable are `root:maestro-xray-cdn 0550`; the
+runtime config is `root:maestro-xray-cdn 0640`. State, snapshot and client
+evidence directories are `root:root 0700`, with regular one-link files mode
+`0600`. The unit is `root:root 0644` and contains no secret.
+
+The generated unit uses the exact immutable runtime path and
+`/run/maestro-xray-cdn/config.json`; it runs as `maestro-xray-cdn`, is refused
+if an unrelated unit already exists, and carries the established sidecar
+hardening boundary from `backend/internal/release/templates.go`:
+`UMask=0077`, `NoNewPrivileges=true`, `PrivateTmp=true`,
+`ProtectSystem=strict`, `ProtectHome=true`, fixed read-only runtime paths and
+only the dedicated log path writable. It uses no shell.
+
+`Prepare` writes the durable `PREPARED` record last and never starts systemd.
+`Activate` reloads systemd, proves the unit inactive, persists
+`ROLLBACK_REQUIRED` before `Start`, then records `CANARY_ACTIVE` only after a
+positive active check. Any ambiguous start remains rollback-required.
+`RollbackToAbsence` accepts `PREPARED`, `ROLLBACK_REQUIRED` and
+`CANARY_ACTIVE`; it stops and proves the unit inactive, restores and verifies
+the diagnostic origin recorded in the protected snapshot, removes only
+digest-matching generated config/unit files, reloads systemd, and persists
+`ABSENT` last. Immutable runtime and root-only evidence remain retained.
 
 - [ ] **Step 4: Make Task 2 GREEN and commit**
 
