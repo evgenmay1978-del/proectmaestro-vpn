@@ -61,3 +61,14 @@ next and is the authority for these checks.
 
 Push the exact Task 2 commit and require Ubuntu GitHub Actions to run the full
 POSIX suite on that exact SHA. Repository work remains production NO-GO.
+
+## Review fix round 2
+
+- Added literal direct and wrapper negative-command coverage, including no
+  stdout and redacted `input` stderr before the inventory boundary.
+- Non-POSIX sentinels now cover `lstat`, `open`, `read_inventory`, and publish.
+- Programmatic iterable/non-string argv is contained as a redacted input error.
+- Input opens include `O_NONBLOCK`; a link-time final collision is a stable
+  `output-exists` failure.
+- Fresh Windows run: `66` tests OK, `21` POSIX-only skips. The POSIX CI gate is
+  intentionally still outstanding rather than inferred from this result.

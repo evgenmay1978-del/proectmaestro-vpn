@@ -335,7 +335,7 @@ def _read_inventory_bytes(path: Path | str) -> bytes:
         before = os.lstat(source)
         _require_private_regular(before, code="inventory", maximum=MAX_INVENTORY_BYTES)
         flags = os.O_RDONLY
-        for option in ("O_NOFOLLOW", "O_CLOEXEC"):
+        for option in ("O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK"):
             flags |= int(getattr(os, option, 0))
         descriptor = os.open(source, flags)
         opened = os.fstat(descriptor)
@@ -541,13 +541,16 @@ def publish_change_package(output: Path | str, encoded: bytes) -> None:
         _require_private_regular(temporary_info, code="output", maximum=len(encoded))
         if temporary_info.st_size != len(encoded):
             _fail("output")
-        os.link(
-            temporary_name,
-            target.name,
-            src_dir_fd=root.descriptor,
-            dst_dir_fd=root.descriptor,
-            follow_symlinks=False,
-        )
+        try:
+            os.link(
+                temporary_name,
+                target.name,
+                src_dir_fd=root.descriptor,
+                dst_dir_fd=root.descriptor,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            _fail("output-exists")
         linked = os.fstat(descriptor)
         published = _fingerprint(linked)
         final_path = _lstat_at(root, target.name)
@@ -623,7 +626,9 @@ def _write_help(stdout: TextIO) -> None:
 
 
 def _preflight(argv: Sequence[str]) -> tuple[str, str, str] | None:
-    if list(argv) in (["--help"], ["-h"]):
+    if any(type(value) is not str for value in argv):
+        _fail("input")
+    if argv in (["--help"], ["-h"]):
         return None
     if len(argv) != 7 or argv[0] != "package":
         _fail("input")
@@ -647,7 +652,11 @@ def _parse_cli_utc(value: str) -> datetime:
 
 def run(argv: Sequence[str] | None, stdout: TextIO, stderr: TextIO) -> int:
     """Run the exact, redacted offline package command without stdout data."""
-    arguments = list(argv) if argv is not None else []
+    try:
+        arguments = list(argv) if argv is not None else []
+    except Exception:
+        stderr.write("s4-network-change-package:input\n")
+        return 3
     try:
         preflight = _preflight(arguments)
         if preflight is None:

@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -423,22 +424,27 @@ class S4BoundaryContractTests(unittest.TestCase):
 
     def test_non_posix_cli_fails_before_any_filesystem_access(self) -> None:
         self._require_boundary("run")
+        stdout = io.StringIO()
         stderr = io.StringIO()
-        fake_os = mock.Mock()
-        fake_os.name = "nt"
+        denied = mock.Mock(side_effect=AssertionError("filesystem"))
+        fake_os = SimpleNamespace(name="nt", lstat=denied, open=denied, read=denied)
         with (
             mock.patch.object(s4_network_change_package, "os", fake_os, create=True),
+            mock.patch.object(s4_network_change_package, "read_inventory", side_effect=AssertionError("read")),
+            mock.patch.object(s4_network_change_package, "publish_change_package", side_effect=AssertionError("publish")),
         ):
             code = s4_network_change_package.run(
                 [
                     "package", "--inventory", "fixture-secret", "--evaluation-time",
                     "2026-08-31T12:00:00Z", "--output", "fixture-output",
                 ],
-                io.StringIO(),
+                stdout,
                 stderr,
             )
         self.assertEqual(code, 3)
+        self.assertEqual(stdout.getvalue(), "")
         self.assertEqual(stderr.getvalue(), "s4-network-change-package:unsupported-platform\n")
+        denied.assert_not_called()
 
     def test_invalid_command_is_rejected_before_inventory_is_opened(self) -> None:
         self._require_boundary("run")
@@ -486,7 +492,8 @@ class S4BoundaryContractTests(unittest.TestCase):
 
     def test_cli_preflight_rejects_every_non_exact_shape_before_opening_input(self) -> None:
         invalid = (
-            [], ["apply"], ["package"],
+            [], ["matrix"], ["apply"], ["repair"], ["disable"], ["restart"], ["rollback"],
+            ["package"], ["packages"], ["package", "--help"],
             ["package", "--inventory", "x", "--evaluation-time", "t", "--output", "y", "extra"],
             ["package", "--inventory", "x", "--inventory", "t", "--output", "y"],
             ["package", "--tooling-sha", "x", "--evaluation-time", "t", "--output", "y"],
@@ -500,6 +507,30 @@ class S4BoundaryContractTests(unittest.TestCase):
                     code = s4_network_change_package.run(argv, io.StringIO(), stderr)
                 self.assertEqual(code, 3)
                 self.assertEqual(stderr.getvalue(), "s4-network-change-package:input\n")
+
+    def test_programmatic_argv_iteration_and_non_strings_are_redacted_input_errors(self) -> None:
+        class ExplodingArgv:
+            def __iter__(self) -> object:
+                raise RuntimeError("fixture-secret")
+
+        for argv in (["package", "--inventory", 1, "--evaluation-time", "t", "--output", "x"], ExplodingArgv()):
+            with self.subTest(argv=type(argv).__name__):
+                stderr = io.StringIO()
+                code = s4_network_change_package.run(argv, io.StringIO(), stderr)  # type: ignore[arg-type]
+                self.assertEqual(code, 3)
+                self.assertEqual(stderr.getvalue(), "s4-network-change-package:input\n")
+
+    def test_wrapper_rejects_forbidden_commands_without_stdout_or_output(self) -> None:
+        wrapper = Path(__file__).parents[1] / "s4-network-change-package.py"
+        forbidden = ("matrix", "apply", "repair", "disable", "restart", "rollback")
+        for command in forbidden:
+            with self.subTest(command=command):
+                completed = subprocess.run(
+                    [sys.executable, str(wrapper), command], check=False, capture_output=True, text=True
+                )
+                self.assertEqual(completed.returncode, 3)
+                self.assertEqual(completed.stdout, "")
+                self.assertEqual(completed.stderr, "s4-network-change-package:input\n")
 
     @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
     def test_descriptor_pinned_inventory_returns_sha256(self) -> None:
