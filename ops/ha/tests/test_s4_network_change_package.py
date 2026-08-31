@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import ipaddress
 import io
 import json
 import os
@@ -1317,6 +1318,60 @@ class S4RunbookContractTests(unittest.TestCase):
             end = len(self.text)
         return " ".join(self.text[start:end].split())
 
+    @staticmethod
+    def _ipv6_literals(text: str) -> tuple[str, ...]:
+        candidate_pattern = re.compile(
+            r"(?<![0-9A-Za-z:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(?![0-9A-Za-z:])"
+        )
+        values = []
+        for match in candidate_pattern.finditer(text):
+            candidate = match.group(0)
+            try:
+                ipaddress.IPv6Address(candidate)
+            except ipaddress.AddressValueError:
+                continue
+            values.append(candidate)
+        return tuple(values)
+
+    @classmethod
+    def _live_material_kinds(cls, text: str) -> tuple[str, ...]:
+        kinds = set()
+        if re.search(
+            r"-----BEGIN [^-\r\n]*PRIVATE KEY-----", text, flags=re.IGNORECASE
+        ):
+            kinds.add("private-key")
+        if re.search(
+            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)\s*(?:=|:)\s*\S",
+            text,
+        ):
+            kinds.add("credential-assignment")
+        mutation_patterns = (
+            r"(?i)\bsystemctl\b[^\r\n]{0,80}\b(?:start|stop|restart|reload|enable|disable|mask|unmask)\b",
+            r"(?i)\bservice\s+\S+\s+(?:start|stop|restart|reload)\b",
+            r"(?i)\bip\s+(?:addr(?:ess)?|link|route)\s+(?:add|del(?:ete)?|replace|flush|set)\b",
+            r"(?i)\bnetworkctl\s+(?:reload|reconfigure)\b",
+            r"(?i)\bnetplan\s+apply\b",
+            r"(?i)\bfirewall-cmd\s+\S+",
+            r"(?i)\biptables\s+\S+",
+            r"(?i)\bnft\s+(?:add|delete|flush|insert|replace)\b",
+            r"(?i)\bufw\s+(?:allow|deny|delete|enable|disable|reload|reset)\b",
+        )
+        if any(re.search(pattern, text) for pattern in mutation_patterns):
+            kinds.add("mutation-command")
+        unix_path = re.search(
+            r"(?i)(?<![A-Za-z0-9._-])/(?:etc|var|usr|root|home|opt|run|srv|lib|boot|snap|tmp)(?:/[^\s`'\"<>]+)+",
+            text,
+        )
+        windows_path = re.search(
+            r"(?i)\b[A-Z]:\\(?:Users|Windows|ProgramData|Program Files|etc)(?:\\[^\s`'\"<>]+)+",
+            text,
+        )
+        if unix_path or windows_path:
+            kinds.add("production-path")
+        if cls._ipv6_literals(text):
+            kinds.add("ipv6")
+        return tuple(sorted(kinds))
+
     def test_runbook_exists_and_has_the_required_ordered_operator_gates(self) -> None:
         self.assertTrue(self.RUNBOOK.is_file(), "S4 operator runbook is missing")
         headings = (
@@ -1590,10 +1645,6 @@ class S4RunbookContractTests(unittest.TestCase):
             "networkctl reload",
             "networkctl reconfigure",
             "netplan apply",
-            "firewall-cmd ",
-            "iptables ",
-            "nft ",
-            "ufw ",
             "ifdown ",
             "ifup ",
             "ip link set",
@@ -1634,15 +1685,18 @@ class S4RunbookContractTests(unittest.TestCase):
         for literal in forbidden_literals:
             with self.subTest(literal=literal):
                 self.assertNotIn(literal.casefold(), lowered)
+        self.assertEqual(
+            (),
+            self._live_material_kinds(self.text),
+            "runbook must contain semantic identifiers only",
+        )
         self.assertIsNone(
             re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?![0-9])", self.text),
             "runbook must not contain a live IPv4 literal",
         )
-        self.assertIsNone(
-            re.search(
-                r"(?<![0-9A-Za-z:])(?:(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{0,4}|::(?:[0-9A-Fa-f]{1,4}:?){1,7})(?![0-9A-Za-z:])",
-                self.text,
-            ),
+        self.assertEqual(
+            (),
+            self._ipv6_literals(self.text),
             "runbook must not contain a live IPv6 literal",
         )
         self.assertIsNone(
@@ -1666,3 +1720,44 @@ class S4RunbookContractTests(unittest.TestCase):
             ),
             "runbook must not contain a UUID",
         )
+
+    def test_compressed_ipv6_is_detected_without_utc_or_version_false_positives(self) -> None:
+        self.assertEqual(
+            ("2001:db8::1",),
+            self._ipv6_literals("synthetic endpoint 2001:db8::1"),
+        )
+        for safe_text in (
+            "2026-08-31T12:00:00Z",
+            "UTC 12:00:00Z",
+            "Android/TV 1.0.157",
+        ):
+            with self.subTest(safe_text=safe_text):
+                self.assertEqual((), self._ipv6_literals(safe_text))
+
+    def test_live_material_fixture_matrix_is_non_vacuous_and_precise(self) -> None:
+        fixtures = (
+            ("ipv6", "synthetic endpoint 2001:db8::1"),
+            ("ipv6", "synthetic endpoint [2001:db8::1]:443"),
+            ("private-key", "-----BEGIN PRIVATE KEY-----"),
+            ("private-key", "-----BEGIN RSA PRIVATE KEY-----"),
+            ("private-key", "-----BEGIN EC PRIVATE KEY-----"),
+            ("credential-assignment", "api_key=<SECRET>"),
+            ("credential-assignment", "token = <SECRET>"),
+            ("credential-assignment", "password: <SECRET>"),
+            ("mutation-command", "systemctl --now restart synthetic-unit"),
+            ("mutation-command", "service synthetic-unit restart"),
+            ("mutation-command", "ip addr flush dev synthetic0"),
+            ("production-path", "/tmp/synthetic-command-sheet"),
+        )
+        for expected_kind, fixture in fixtures:
+            with self.subTest(expected_kind=expected_kind, fixture=fixture):
+                self.assertIn(expected_kind, self._live_material_kinds(fixture))
+
+        for safe_text in (
+            "The package is not approved for mutation.",
+            "Android/TV remains immutable at 1.0.157.",
+            "evaluation-time 2026-08-31T12:00:00Z",
+            "--inventory PATH --output PATH",
+        ):
+            with self.subTest(safe_text=safe_text):
+                self.assertEqual((), self._live_material_kinds(safe_text))
