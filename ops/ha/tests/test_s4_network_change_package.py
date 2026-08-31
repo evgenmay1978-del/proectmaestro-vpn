@@ -4,6 +4,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from ops.ha.s4_network_change_package import (
+    BLOCKER_ORDER,
+    BLOCKER_RULES,
     S4ChangePackageError,
     canonical_bytes,
     evaluate_inventory,
@@ -62,12 +64,10 @@ def canonical(value: object) -> bytes:
 
 
 class S4InventoryContractTests(unittest.TestCase):
-    def assert_invalid(self, raw: bytes) -> None:
-        with self.assertRaisesRegex(
-            S4ChangePackageError,
-            r"^s4-network-change-package:[a-z0-9-]+$",
-        ) as raised:
+    def assert_invalid(self, raw: bytes, code: str) -> None:
+        with self.assertRaises(S4ChangePackageError) as raised:
             parse_inventory(raw, evaluation_time=EVALUATION_TIME)
+        self.assertEqual(str(raised.exception), f"s4-network-change-package:{code}")
         self.assertNotIn("fixture-secret", str(raised.exception))
 
     def test_canonical_bytes_emits_hand_checked_ascii_json_with_one_terminal_lf(self) -> None:
@@ -91,21 +91,44 @@ class S4InventoryContractTests(unittest.TestCase):
         reordered = json.dumps(inventory, separators=(",", ":")).encode("ascii") + b"\n"
         spaced = canonical(inventory).replace(b":", b": ", 1)
 
-        self.assert_invalid(reordered)
-        self.assert_invalid(spaced)
+        self.assert_invalid(reordered, "inventory-canonical")
+        self.assert_invalid(spaced, "inventory-canonical")
 
     def test_duplicate_top_level_key_cannot_change_audited_inventory_meaning(self) -> None:
         raw = canonical(valid_inventory()).rstrip(b"\n")
         duplicate = raw[:-1] + b',"schema":"fixture-secret-duplicate"}\n'
 
-        self.assert_invalid(duplicate)
+        self.assert_invalid(duplicate, "inventory-duplicate-key")
 
     def test_floats_and_json_constants_cannot_enter_a_boolean_inventory(self) -> None:
         float_inventory = valid_inventory()
         float_inventory["networkd"] = dict(float_inventory["networkd"], active=1.0)
-        self.assert_invalid(canonical(float_inventory))
-        self.assert_invalid(canonical(valid_inventory()).replace(b"true", b"NaN", 1))
-        self.assert_invalid(canonical(valid_inventory()).replace(b"true", b"Infinity", 1))
+        self.assert_invalid(canonical(float_inventory), "inventory-float")
+        self.assert_invalid(
+            canonical(valid_inventory()).replace(b"true", b"NaN", 1),
+            "inventory-json-constant",
+        )
+        self.assert_invalid(
+            canonical(valid_inventory()).replace(b"true", b"Infinity", 1),
+            "inventory-json-constant",
+        )
+
+    def test_numeric_overflow_exponent_is_a_redacted_float_error(self) -> None:
+        overflow = canonical(valid_inventory()).replace(b"true", b"1e999", 1)
+
+        self.assert_invalid(overflow, "inventory-float")
+
+    def test_fixed_inventory_values_cannot_drift(self) -> None:
+        cases = (
+            ("schema", "maestro-ha-s4-network-inventory-v2", "inventory-schema"),
+            ("node_id", "s5", "inventory-node"),
+            ("evidence_class", "PRODUCTION_WRITE", "inventory-evidence-class"),
+        )
+        for field, replacement, code in cases:
+            with self.subTest(field=field):
+                inventory = valid_inventory()
+                inventory[field] = replacement
+                self.assert_invalid(canonical(inventory), code)
 
     def test_unknown_keys_at_each_level_cannot_expand_the_inventory_contract(self) -> None:
         paths = (None, "networkd", "ifupdown", "health", "console")
@@ -116,7 +139,7 @@ class S4InventoryContractTests(unittest.TestCase):
                     inventory["unexpected"] = True
                 else:
                     inventory[path]["unexpected"] = True
-                self.assert_invalid(canonical(inventory))
+                self.assert_invalid(canonical(inventory), "inventory-keys")
 
     def test_missing_keys_at_each_level_cannot_be_interpreted_as_safe(self) -> None:
         removals = (
@@ -131,34 +154,34 @@ class S4InventoryContractTests(unittest.TestCase):
                 inventory = copy.deepcopy(valid_inventory())
                 target = inventory if path is None else inventory[path]
                 del target[key]
-                self.assert_invalid(canonical(inventory))
+                self.assert_invalid(canonical(inventory), "inventory-keys")
 
     def test_wrong_scalar_and_container_types_cannot_be_coerced(self) -> None:
         cases = (
-            ("schema", 7),
-            ("captured_at_utc", None),
-            ("networkd", []),
-            ("health", "not-an-object"),
+            ("schema", 7, "inventory-string"),
+            ("captured_at_utc", None, "inventory-string"),
+            ("networkd", [], "inventory-object"),
+            ("health", "not-an-object", "inventory-object"),
         )
-        for key, replacement in cases:
+        for key, replacement, code in cases:
             with self.subTest(key=key):
                 inventory = valid_inventory()
                 inventory[key] = replacement
-                self.assert_invalid(canonical(inventory))
+                self.assert_invalid(canonical(inventory), code)
 
     def test_integer_zero_or_one_cannot_be_coerced_to_boolean_inventory_facts(self) -> None:
         for replacement in (0, 1):
             with self.subTest(replacement=replacement):
                 inventory = valid_inventory()
                 inventory["health"]["vpn_units_healthy"] = replacement
-                self.assert_invalid(canonical(inventory))
+                self.assert_invalid(canonical(inventory), "inventory-boolean")
 
     def test_non_ascii_or_escaped_ambiguity_cannot_be_accepted(self) -> None:
         non_ascii = canonical(valid_inventory()).replace(b'"s4"', '"s４"'.encode("utf-8"))
         escaped = canonical(valid_inventory()).replace(b'"s4"', b'"s\\u0034"')
 
-        self.assert_invalid(non_ascii)
-        self.assert_invalid(escaped)
+        self.assert_invalid(non_ascii, "inventory-json")
+        self.assert_invalid(escaped, "inventory-canonical")
 
     def test_trusted_time_accepts_only_the_closed_open_freshness_window(self) -> None:
         raw = canonical(valid_inventory())
@@ -170,14 +193,14 @@ class S4InventoryContractTests(unittest.TestCase):
             parse_inventory(raw, evaluation_time=expires - timedelta(seconds=1)),
             valid_inventory(),
         )
-        self.assert_invalid_with_time(raw, captured - timedelta(seconds=1))
-        self.assert_invalid_with_time(raw, expires)
+        self.assert_invalid_with_time(raw, captured - timedelta(seconds=1), "inventory-freshness")
+        self.assert_invalid_with_time(raw, expires, "inventory-freshness")
 
     def test_expiry_window_cannot_exceed_fifteen_minutes(self) -> None:
         inventory = valid_inventory()
         inventory["expires_at_utc"] = "2026-08-31T12:05:01Z"
 
-        self.assert_invalid(canonical(inventory))
+        self.assert_invalid(canonical(inventory), "inventory-freshness-window")
 
     def test_timestamps_must_be_utc_seconds_in_the_fixed_format(self) -> None:
         for field, value in (
@@ -189,14 +212,14 @@ class S4InventoryContractTests(unittest.TestCase):
             with self.subTest(field=field, value=value):
                 inventory = valid_inventory()
                 inventory[field] = value
-                self.assert_invalid(canonical(inventory))
+                self.assert_invalid(canonical(inventory), "inventory-timestamp")
 
-    def assert_invalid_with_time(self, raw: bytes, evaluation_time: datetime) -> None:
-        with self.assertRaisesRegex(
-            S4ChangePackageError,
-            r"^s4-network-change-package:[a-z0-9-]+$",
-        ):
+    def assert_invalid_with_time(
+        self, raw: bytes, evaluation_time: datetime, code: str
+    ) -> None:
+        with self.assertRaises(S4ChangePackageError) as raised:
             parse_inventory(raw, evaluation_time=evaluation_time)
+        self.assertEqual(str(raised.exception), f"s4-network-change-package:{code}")
 
 
 class S4EvaluationTests(unittest.TestCase):
@@ -312,6 +335,38 @@ class S4EvaluationTests(unittest.TestCase):
             package["blockers"],
             ["networkd_inactive", "default_route_missing", "second_operator_unavailable"],
         )
+
+    def test_all_blockers_use_the_complete_frozen_literal_order(self) -> None:
+        inventory = self.parsed_inventory()
+        expected = [
+            "source_review_incomplete",
+            "networkd_inactive",
+            "networkd_disabled",
+            "networkd_not_primary_owner",
+            "networkd_not_default_route_owner",
+            "ifupdown_disabled",
+            "ifupdown_primary_declaration_absent",
+            "ifupdown_default_route_declaration_absent",
+            "ifup_unit_state_drift",
+            "networking_unit_state_drift",
+            "management_unreachable",
+            "vpn_units_unhealthy",
+            "vpn_listeners_missing",
+            "default_route_missing",
+            "console_access_unconfirmed",
+            "recovery_procedure_unreviewed",
+            "second_operator_unavailable",
+        ]
+        for _, path, _ in BLOCKER_RULES:
+            target = inventory
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = False
+
+        package = evaluate_inventory(inventory, inventory_sha256=self.INVENTORY_SHA256)
+
+        self.assertEqual(list(BLOCKER_ORDER), expected)
+        self.assertEqual(package["blockers"], expected)
 
     def test_package_binds_only_the_caller_digest_and_allowed_inventory_timestamps(self) -> None:
         package = evaluate_inventory(self.parsed_inventory(), inventory_sha256=self.INVENTORY_SHA256)

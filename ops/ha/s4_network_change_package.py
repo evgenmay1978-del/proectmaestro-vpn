@@ -158,6 +158,10 @@ def _reject_json_constant(_: str) -> None:
     _fail("inventory-json-constant")
 
 
+def _reject_json_float(_: str) -> None:
+    _fail("inventory-float")
+
+
 def _require_exact_keys(value: object, keys: set[str]) -> dict[str, object]:
     if type(value) is not dict:
         _fail("inventory-object")
@@ -195,6 +199,7 @@ def parse_inventory(raw: bytes, *, evaluation_time: datetime) -> dict[str, objec
             decoded,
             object_pairs_hook=_object_without_duplicates,
             parse_constant=_reject_json_constant,
+            parse_float=_reject_json_float,
         )
     except S4ChangePackageError:
         raise
