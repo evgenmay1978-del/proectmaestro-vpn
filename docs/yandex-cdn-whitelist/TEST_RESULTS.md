@@ -1,7 +1,7 @@
 # Test results register
-Status: mixed evidence. The dated diagnostic CDN record below is live; all
-other unlisted transport, client, subscription, metering, billing and canary
-claims remain target-only.
+Status: target-only by default. The dated diagnostic CDN record below is live;
+all other unlisted transport, client, subscription, metering, billing and
+canary claims remain target-only.
 
 ## 2026-08-31 — live diagnostic Yandex CDN path
 

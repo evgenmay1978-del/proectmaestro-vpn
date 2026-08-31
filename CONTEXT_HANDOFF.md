@@ -3,10 +3,10 @@
 ## 0. YANDEX CDN DIAGNOSTIC TRANSPORT — LIVE PARTIAL GREEN (31.08.2026)
 
 - Read-only проверка Yandex Cloud подтвердила один активный тестовый ресурс
-  `cdn-test.wapmixx.ru`: сертификат выпущен, origin остаётся текущий S1 probe
-  на `18080` по HTTP, client access разрешён, CDN/browser cache выключены,
-  разрешены только `GET`, `HEAD`, `OPTIONS`; за 30 дней у ресурса `0` ответов
-  из cache и `0` ответов 5xx.
+  для owner-authoritative public hostname из MASTER section 4: сертификат
+  выпущен, origin остаётся текущий S1 probe на `18080` по HTTP, client access
+  разрешён, CDN/browser cache выключены, разрешены только `GET`, `HEAD`,
+  `OPTIONS`; за 30 дней у ресурса `0` ответов из cache и `0` ответов 5xx.
 - Два независимых live-path дали GREEN. С локального оператора GET body длиной
   29 bytes дошёл через Yandex CDN до probe byte-exact: origin-reported SHA-256
   совпал с sender SHA-256; `OPTIONS` с телом 4 bytes вернул `204`. С S4
