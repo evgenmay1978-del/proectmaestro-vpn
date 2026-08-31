@@ -14,6 +14,9 @@ func TestStoreUnsupportedPlatform(t *testing.T) {
 	}
 
 	zero := new(Store)
+	if _, err := zero.Status(context.Background()); err == nil || err.Error() != "unsupported_platform" {
+		t.Fatalf("Status error = %v, want unsupported_platform", err)
+	}
 	if _, err := zero.Prepare(context.Background(), Snapshot{}, nil, Artifacts{}, nil); err == nil || err.Error() != "unsupported_platform" {
 		t.Fatalf("Prepare error = %v, want unsupported_platform", err)
 	}

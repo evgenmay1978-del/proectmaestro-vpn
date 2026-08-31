@@ -10,6 +10,10 @@ func NewStore() (*Store, error) {
 	return nil, invalid("unsupported_platform")
 }
 
+func (*Store) Status(context.Context) (Stage, error) {
+	return Stage{}, invalid("unsupported_platform")
+}
+
 func (*Store) Prepare(context.Context, Snapshot, []byte, Artifacts, ConfigTester) (Stage, error) {
 	return Stage{}, invalid("unsupported_platform")
 }

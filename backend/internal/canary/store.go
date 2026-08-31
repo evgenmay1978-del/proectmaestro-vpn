@@ -32,7 +32,7 @@ type ServiceController interface {
 }
 
 type DiagnosticOrigin interface {
-	RestoreAndVerify(context.Context, string, string) error
+	RestoreAndVerify(ctx context.Context, diagnosticProbeURL, diagnosticResponseSHA256 string) error
 }
 
 type Store struct {
