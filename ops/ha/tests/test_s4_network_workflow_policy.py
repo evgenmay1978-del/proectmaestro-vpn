@@ -205,6 +205,22 @@ def _validate_workflow_source(text: str) -> None:
             _fail("command-boundary")
 
     lowered = source.casefold()
+    allowed_semantic_hostnames = {
+        "github.ref",
+        "github.workflow",
+        "s4-network-change-package.py",
+    }
+    hostname_literals = tuple(
+        match.group(0)
+        for match in re.finditer(
+            r"(?i)(?<![A-Za-z0-9._-])"
+            r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+            r"(?:[A-Za-z]|[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9]))\.?"
+            r"(?![A-Za-z0-9._-])",
+            source,
+        )
+        if match.group(0).rstrip(".").casefold() not in allowed_semantic_hostnames
+    )
     forbidden_literals = (
         "pull_request_target",
         "${{ secrets",
@@ -238,11 +254,7 @@ def _validate_workflow_source(text: str) -> None:
     if (
         re.search(r"(?<![0-9])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9])", source)
         or _ipv6_literals(source)
-        or re.search(
-            r"(?i)(?<![A-Za-z0-9.-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
-            r"(?:com|net|org|ru|online|tech|cloud|io|dev|app|xyz|site|me|cc|su)(?![\w.-])",
-            source,
-        )
+        or hostname_literals
         or re.search(
             r"(?i)(?<![A-Za-z0-9.-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])",
             source,
@@ -342,6 +354,8 @@ class S4NetworkWorkflowPolicyTests(unittest.TestCase):
             ("2001:db8::1", "endpoint-boundary"),
             ("synthetic.example.com", "endpoint-boundary"),
             ("endpoint=https://prod.example.com/api", "endpoint-boundary"),
+            ("endpoint=https://prod.example.de/api", "endpoint-boundary"),
+            ("endpoint=https://prod.example.com./api", "endpoint-boundary"),
             ("synthetic-host:443", "endpoint-boundary"),
             ('{"token":"opaque-secret"}', "sensitive-boundary"),
             ("/tmp/synthetic-command-sheet", "sensitive-boundary"),

@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import tokenize
 import socket
 from types import SimpleNamespace
 import unittest
@@ -1314,6 +1315,22 @@ class S4CapabilityDenylistTests(unittest.TestCase):
         }
     )
     ALLOWED_LOCAL_MODULES = frozenset({"ops.ha.s4_network_change_package"})
+    APPROVED_IMPORT_ROOTS = frozenset(
+        {
+            "argparse",
+            "collections",
+            "datetime",
+            "hashlib",
+            "json",
+            "os",
+            "pathlib",
+            "re",
+            "secrets",
+            "stat",
+            "sys",
+            "typing",
+        }
+    )
     FORBIDDEN_CALLS = frozenset(
         {
             "compile",
@@ -1364,31 +1381,72 @@ class S4CapabilityDenylistTests(unittest.TestCase):
         return ".".join(reversed(parts))
 
     @staticmethod
-    def _resolve_import_alias(name: str, aliases: dict[str, str]) -> str:
-        root, separator, suffix = name.partition(".")
-        resolved_root = aliases.get(root, root)
-        return resolved_root + (separator + suffix if separator else "")
+    def _resolve_import_aliases(
+        name: str,
+        aliases: dict[str, set[str]],
+    ) -> tuple[str, ...]:
+        def resolve(candidate: str, seen: frozenset[str]) -> set[str]:
+            root, separator, suffix = candidate.partition(".")
+            if root in seen or root not in aliases:
+                return {candidate}
+            resolved: set[str] = set()
+            for replacement in aliases[root]:
+                for resolved_root in resolve(replacement, seen | {root}):
+                    resolved.add(
+                        resolved_root + (separator + suffix if separator else "")
+                    )
+            return resolved
+
+        return tuple(sorted(resolve(name, frozenset())))
 
     @classmethod
     def _forbidden_capabilities(cls, source: str) -> tuple[str, ...]:
         tree = ast.parse(source)
         findings: set[str] = set()
-        aliases: dict[str, str] = {}
+        aliases: dict[str, set[str]] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local_name = alias.asname or alias.name.partition(".")[0]
-                    aliases[local_name] = alias.name if alias.asname else local_name
+                    aliases.setdefault(local_name, set()).add(
+                        alias.name if alias.asname else local_name
+                    )
             elif isinstance(node, ast.ImportFrom) and node.module:
                 for alias in node.names:
                     if alias.name == "*":
                         continue
                     local_name = alias.asname or alias.name
-                    aliases[local_name] = f"{node.module}.{alias.name}"
+                    aliases.setdefault(local_name, set()).add(
+                        f"{node.module}.{alias.name}"
+                    )
+        for node in ast.walk(tree):
+            targets: tuple[ast.expr, ...]
+            if isinstance(node, ast.Assign):
+                targets = tuple(node.targets)
+                value = node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets = (node.target,)
+                value = node.value
+            elif isinstance(node, ast.NamedExpr):
+                targets = (node.target,)
+                value = node.value
+            else:
+                continue
+            if value is None:
+                continue
+            value_name = cls._dotted_name(value)
+            if value_name is None:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    aliases.setdefault(target.id, set()).add(value_name)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     root = alias.name.partition(".")[0]
+                    allowed_local = alias.name in cls.ALLOWED_LOCAL_MODULES
+                    if root not in cls.APPROVED_IMPORT_ROOTS and not allowed_local:
+                        findings.add(f"import:unapproved-{root}")
                     if root in cls.FORBIDDEN_IMPORT_ROOTS:
                         findings.add(f"import:{root}")
                     if (
@@ -1398,6 +1456,13 @@ class S4CapabilityDenylistTests(unittest.TestCase):
                         findings.add("import:local-mutator")
             elif isinstance(node, ast.ImportFrom):
                 root = (node.module or "").partition(".")[0]
+                allowed_local = (
+                    node.level == 0 and node.module in cls.ALLOWED_LOCAL_MODULES
+                )
+                if node.level > 0:
+                    findings.add("import:relative-local")
+                elif root not in cls.APPROVED_IMPORT_ROOTS and not allowed_local:
+                    findings.add(f"import:unapproved-{root}")
                 if root in cls.FORBIDDEN_IMPORT_ROOTS:
                     findings.add(f"import:{root}")
                 if (
@@ -1411,25 +1476,31 @@ class S4CapabilityDenylistTests(unittest.TestCase):
                         if alias.name in cls.FORBIDDEN_OS_MEMBERS:
                             findings.add(f"import:os.{alias.name}")
             elif isinstance(node, ast.Call):
-                name = cls._dotted_name(node.func)
-                if name is None:
+                unresolved_name = cls._dotted_name(node.func)
+                if unresolved_name is None:
                     continue
-                name = cls._resolve_import_alias(name, aliases)
-                root = name.partition(".")[0]
-                if root in cls.FORBIDDEN_IMPORT_ROOTS or name in cls.FORBIDDEN_CALLS:
-                    findings.add(f"call:{name}")
-                if (
-                    name == "getattr"
-                    and len(node.args) >= 2
-                    and isinstance(node.args[1], ast.Constant)
-                    and isinstance(node.args[1].value, str)
-                ):
-                    base_name = cls._dotted_name(node.args[0])
-                    if base_name is not None:
-                        resolved_base = cls._resolve_import_alias(base_name, aliases)
-                        candidate = f"{resolved_base}.{node.args[1].value}"
-                        if candidate in cls.FORBIDDEN_CALLS:
-                            findings.add(f"call:getattr-{candidate.replace('.', '-')}")
+                for name in cls._resolve_import_aliases(unresolved_name, aliases):
+                    root = name.partition(".")[0]
+                    if root in cls.FORBIDDEN_IMPORT_ROOTS or name in cls.FORBIDDEN_CALLS:
+                        findings.add(f"call:{name}")
+                    if (
+                        name == "getattr"
+                        and len(node.args) >= 2
+                        and isinstance(node.args[1], ast.Constant)
+                        and isinstance(node.args[1].value, str)
+                    ):
+                        base_name = cls._dotted_name(node.args[0])
+                        if base_name is None:
+                            continue
+                        for resolved_base in cls._resolve_import_aliases(
+                            base_name,
+                            aliases,
+                        ):
+                            candidate = f"{resolved_base}.{node.args[1].value}"
+                            if candidate in cls.FORBIDDEN_CALLS:
+                                findings.add(
+                                    f"call:getattr-{candidate.replace('.', '-')}"
+                                )
         return tuple(sorted(findings))
 
     def test_active_core_and_wrapper_have_no_forbidden_capability(self) -> None:
@@ -1476,6 +1547,14 @@ class S4CapabilityDenylistTests(unittest.TestCase):
                 "launch('fixture')\n",
                 "call:asyncio.create_subprocess_shell",
             ),
+            (
+                "import os\nrunner = os\nrunner.system('fixture')\n",
+                "call:os.system",
+            ),
+            (
+                "import os\nrunner = os.system\nrunner('fixture')\n",
+                "call:os.system",
+            ),
         )
         for source, expected in fixtures:
             with self.subTest(source=source.splitlines()[0]):
@@ -1484,8 +1563,12 @@ class S4CapabilityDenylistTests(unittest.TestCase):
     def test_capability_denylist_rejects_local_mutators_and_network_clients(self) -> None:
         fixtures = (
             "from ops.ha import deploy_node\ndeploy_node.main()\n",
+            "from . import deploy_node\ndeploy_node.main()\n",
+            "import asyncio\nasyncio.open_connection('fixture', 1)\n",
             "import ftplib\nftplib.FTP('fixture')\n",
+            "import grpc\ngrpc.insecure_channel('fixture')\n",
             "import smtplib\nsmtplib.SMTP('fixture')\n",
+            "import urllib3\nurllib3.PoolManager()\n",
         )
         for source in fixtures:
             with self.subTest(source=source.splitlines()[0]):
@@ -1508,6 +1591,13 @@ class S4SensitiveLiteralTests(unittest.TestCase):
         / "2026-08-31-maestrovpn-s4-production-authorization-amendment.md",
     )
     ALLOWED_CLEANUP = 'rm -rf -- "$s4_ci_tmp"'
+    ALLOWED_SEMANTIC_HOSTNAMES = frozenset(
+        {
+            "github.ref",
+            "github.workflow",
+            "s4-network-change-package.py",
+        }
+    )
 
     @staticmethod
     def _python_slice_spans(text: str) -> tuple[tuple[int, int], ...]:
@@ -1550,7 +1640,7 @@ class S4SensitiveLiteralTests(unittest.TestCase):
         for match in candidate_pattern.finditer(text):
             candidate = match.group(0)
             if any(
-                start <= match.start() and match.end() <= end
+                start == match.start() and match.end() == end
                 for start, end in python_slice_spans
             ):
                 continue
@@ -1561,9 +1651,63 @@ class S4SensitiveLiteralTests(unittest.TestCase):
             values.append(candidate)
         return tuple(values)
 
+    @staticmethod
+    def _python_literal_spans(text: str) -> tuple[tuple[int, int], ...] | None:
+        lines = text.splitlines(keepends=True)
+        line_starts: list[int] = []
+        cursor = 0
+        for line in lines:
+            line_starts.append(cursor)
+            cursor += len(line)
+
+        def absolute_offset(position: tuple[int, int]) -> int:
+            line_number, column = position
+            return line_starts[line_number - 1] + column
+
+        try:
+            tokens = tuple(tokenize.generate_tokens(io.StringIO(text).readline))
+        except (IndentationError, tokenize.TokenError):
+            return None
+        return tuple(
+            (absolute_offset(token.start), absolute_offset(token.end))
+            for token in tokens
+            if token.type in {tokenize.STRING, tokenize.COMMENT}
+        )
+
+    @classmethod
+    def _hostname_literals(
+        cls,
+        text: str,
+        *,
+        python_source: bool = False,
+    ) -> tuple[str, ...]:
+        pattern = re.compile(
+            r"(?i)(?<![A-Za-z0-9._-])"
+            r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+            r"(?:[A-Za-z]|[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9]))\.?"
+            r"(?![A-Za-z0-9._-])"
+        )
+        literal_spans = cls._python_literal_spans(text) if python_source else ()
+        values = []
+        for match in pattern.finditer(text):
+            candidate = match.group(0)
+            if candidate.rstrip(".").casefold() in cls.ALLOWED_SEMANTIC_HOSTNAMES:
+                continue
+            if python_source and literal_spans is not None and not any(
+                start <= match.start() and match.end() <= end
+                for start, end in literal_spans
+            ):
+                continue
+            values.append(candidate)
+        return tuple(values)
+
     def test_ipv6_literal_scanner_only_exempts_real_python_slices(self) -> None:
         self.assertEqual((), self._ipv6_literals("options = argv[1::2]\n"))
-        for text in ("endpoint = '1::2'\n", "[1::2]:443"):
+        for text in (
+            "endpoint = '1::2'\n",
+            "[1::2]:443",
+            'value = argv[lookup("1::2")::2]\n',
+        ):
             with self.subTest(text=text):
                 self.assertIn("1::2", self._ipv6_literals(text))
 
@@ -1572,13 +1716,20 @@ class S4SensitiveLiteralTests(unittest.TestCase):
             ('{"token":"opaque-secret"}', "credential-assignment"),
             ("endpoint='https://prod.example.com/api'", "hostname"),
             ("endpoint='https://prod.example.com:443/api'", "host-port"),
+            ("endpoint='https://prod.example.de/api'", "hostname"),
+            ("endpoint='https://prod.example.com./api'", "hostname"),
         )
         for text, expected in fixtures:
             with self.subTest(text=text):
                 self.assertIn(expected, self._sensitive_kinds(text))
 
     @classmethod
-    def _sensitive_kinds(cls, text: str) -> tuple[str, ...]:
+    def _sensitive_kinds(
+        cls,
+        text: str,
+        *,
+        python_source: bool = False,
+    ) -> tuple[str, ...]:
         kinds: set[str] = set()
         lowered = text.casefold()
         if "github_pat_" in lowered:
@@ -1600,11 +1751,7 @@ class S4SensitiveLiteralTests(unittest.TestCase):
                 break
         if cls._ipv6_literals(text):
             kinds.add("ipv6")
-        if re.search(
-            r"(?i)(?<![A-Za-z0-9.-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
-            r"(?:com|net|org|ru|online|tech|cloud|io|dev|app|xyz|site|me|cc|su)(?![\w.-])",
-            text,
-        ):
+        if cls._hostname_literals(text, python_source=python_source):
             kinds.add("hostname")
         if re.search(r"(?i)(?<![A-Za-z0-9.-])[A-Za-z][A-Za-z0-9.-]*:[0-9]{1,5}(?![0-9])", text):
             kinds.add("host-port")
@@ -1644,7 +1791,10 @@ class S4SensitiveLiteralTests(unittest.TestCase):
                 self.assertTrue(path.is_file(), "active S4 policy file is missing")
                 self.assertEqual(
                     (),
-                    self._sensitive_kinds(path.read_text(encoding="utf-8")),
+                    self._sensitive_kinds(
+                        path.read_text(encoding="utf-8"),
+                        python_source=path.suffix == ".py",
+                    ),
                     "active S4 policy file contains sensitive or live material",
                 )
 
