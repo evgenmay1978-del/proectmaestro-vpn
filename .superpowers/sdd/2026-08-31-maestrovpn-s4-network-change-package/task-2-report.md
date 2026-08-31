@@ -47,7 +47,7 @@ git diff --check
 exit 0
 ```
 
-The six skips are explicitly POSIX-only descriptor/output tests; they are not
+The seven skips are explicitly POSIX-only descriptor/output tests; they are not
 RED evidence or a claim of POSIX validation. Exact-SHA Ubuntu CI is required
 next and is the authority for these checks.
 
