@@ -383,6 +383,15 @@ identity/freshness checks; exact template membership/digests; fixed safe
 destinations/owners/groups/modes; deterministic canonical redacted
 `NO_GO/false`; and zero process/socket/DNS/HTTP/SSH/filesystem mutation seams.
 
+The planner has two independent reviewed trust anchors. The panel artifact is
+fixed to source commit `f577c67ad229fe89278430d35a3ec65f6ce454e5`.
+The six inert service/environment templates are fixed byte-for-byte by size and
+SHA-256 to template source commit
+`8289ce78be8dcb2c00829d6b9781d4b52a18cb73`. The canonical output records the
+template source commit. Any artifact commit substitution, one-byte template
+drift, extra/missing template, or cross-set substitution fails closed before a
+plan is emitted; untrusted inventory cannot replace either anchor.
+
 Output has no install, copy, chmod, systemctl, firewall, bootstrap, join,
 secret, raw address or private-path command.
 
@@ -391,7 +400,9 @@ secret, raw address or private-path command.
 The shell file is a strict syntax-checked wrapper. Python imports
 `build_manifest` and only the pure `pki_verify.validate_evidence` path in
 process. Planning cannot invoke OpenSSL. Roots/members are bounded and
-rechecked. Destinations come only from a fixed allowlist.
+rechecked. Destinations come only from a fixed allowlist. Tests cover the
+trusted artifact/template commits, exact digest map, one-byte drift and a
+fully-consistent but untrusted alternate artifact commit.
 
 ```text
 python -m unittest ops.ha.tests.test_deploy_node -v
