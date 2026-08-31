@@ -34,7 +34,13 @@ was local Windows-runnable and was not a skip.
 
 ```text
 python -m unittest ops.ha.tests.test_s4_network_change_package -v
-Ran 34 tests ... OK (skipped=7)
+Ran 60 tests ... OK (skipped=21)
+
+python -m unittest \
+  ops.ha.tests.test_s4_network_change_package.S4SecureInputTests -v
+python -m unittest \
+  ops.ha.tests.test_s4_network_change_package.S4SecureOutputTests -v
+Each selector: Ran 13 tests ... OK (skipped=7)
 
 python -m py_compile ops/ha/s4_network_change_package.py \
   ops/ha/s4-network-change-package.py
@@ -47,7 +53,7 @@ git diff --check
 exit 0
 ```
 
-The seven skips are explicitly POSIX-only descriptor/output tests; they are not
+The seven skips in each named selector are explicitly POSIX-only descriptor/output tests; they are not
 RED evidence or a claim of POSIX validation. Exact-SHA Ubuntu CI is required
 next and is the authority for these checks.
 
