@@ -1,5 +1,32 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. YANDEX CDN DIAGNOSTIC TRANSPORT — LIVE PARTIAL GREEN (31.08.2026)
+
+- Read-only проверка Yandex Cloud подтвердила один активный тестовый ресурс
+  `cdn-test.wapmixx.ru`: сертификат выпущен, origin остаётся текущий S1 probe
+  на `18080` по HTTP, client access разрешён, CDN/browser cache выключены,
+  разрешены только `GET`, `HEAD`, `OPTIONS`; за 30 дней у ресурса `0` ответов
+  из cache и `0` ответов 5xx.
+- Два независимых live-path дали GREEN. С локального оператора GET body длиной
+  29 bytes дошёл через Yandex CDN до probe byte-exact: origin-reported SHA-256
+  совпал с sender SHA-256; `OPTIONS` с телом 4 bytes вернул `204`. С S4
+  отдельный HTTP/2 GET body длиной 31 bytes также совпал byte-exact,
+  HTTP/2 `OPTIONS` вернул `204`, а literal-edge `--resolve` с тем же SNI/Host
+  вернул HTTP/2 `200`. Origin видел `Via: Yandex-CDN`, `CDN-Loop: yandex` и
+  корректные forwarded headers.
+- Это доказывает живой Yandex CDN diagnostic transport, GET/OPTIONS body path,
+  HTTP/2 client leg и literal shared edge. Это **не** доказывает VLESS/XHTTP
+  tunnel, работу MaestroVPN через операторский white-list, subscription import,
+  per-user stats или billing.
+- Candidate sidecar ports `18081/18082` сейчас не принимают соединение. S1
+  management port `22` принимает TCP, но не отдаёт SSH identification ни
+  локальному оператору, ни S4; альтернативный документированный/common SSH
+  port и отдельный S1 provider console не найдены. Поэтому sidecar не
+  устанавливался, origin не переключался и обычный VPN не менялся.
+- Repository checkpoint для завершённого S4 результата — exact SHA
+  `ab68710419acfcd99069da3422e5b6312669bff6`; применимые workflows GREEN:
+  `33417902008`, `33417902015`, `33417902032`.
+
 ## 0. S4 NARROW NETWORK REPAIR — LIVE GREEN (31.08.2026)
 
 - Repository authority перед окном: exact SHA
