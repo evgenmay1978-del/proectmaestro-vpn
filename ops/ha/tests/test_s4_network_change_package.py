@@ -1334,8 +1334,13 @@ class S4CapabilityDenylistTests(unittest.TestCase):
     FORBIDDEN_CALLS = frozenset(
         {
             "compile",
+            "delattr",
             "eval",
             "exec",
+            "globals",
+            "locals",
+            "setattr",
+            "vars",
             "__import__",
             "asyncio.create_subprocess_exec",
             "asyncio.create_subprocess_shell",
@@ -1362,6 +1367,14 @@ class S4CapabilityDenylistTests(unittest.TestCase):
             "os.startfile",
             "os.system",
         }
+    )
+    FORBIDDEN_DYNAMIC_NAMES = frozenset({"__builtins__"})
+    FORBIDDEN_REFLECTION_MEMBERS = frozenset(
+        {"__dict__", "__getattr__", "__getattribute__", "__subclasses__"}
+    )
+    FORBIDDEN_MODULE_REFERENCES = frozenset({"sys.modules"})
+    APPROVED_DYNAMIC_OS_MEMBERS = frozenset(
+        {"O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK"}
     )
     FORBIDDEN_OS_MEMBERS = frozenset(
         name.partition(".")[2]
@@ -1404,10 +1417,21 @@ class S4CapabilityDenylistTests(unittest.TestCase):
         tree = ast.parse(source)
         findings: set[str] = set()
         aliases: dict[str, set[str]] = {}
+        imported_modules: set[str] = set()
+        string_bindings: dict[str, set[str]] = {}
+        uncertain_string_bindings: set[str] = set()
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     local_name = alias.asname or alias.name.partition(".")[0]
+                    imported_modules.add(
+                        alias.name if alias.asname else alias.name.partition(".")[0]
+                    )
                     aliases.setdefault(local_name, set()).add(
                         alias.name if alias.asname else local_name
                     )
@@ -1441,6 +1465,35 @@ class S4CapabilityDenylistTests(unittest.TestCase):
                 if isinstance(target, ast.Name):
                     aliases.setdefault(target.id, set()).add(value_name)
         for node in ast.walk(tree):
+            target: ast.expr | None = None
+            value: ast.AST | None = None
+            if isinstance(node, ast.For):
+                target = node.target
+                value = node.iter
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                value = node.value
+            elif isinstance(node, ast.AnnAssign):
+                target = node.target
+                value = node.value
+            elif isinstance(node, ast.NamedExpr):
+                target = node.target
+                value = node.value
+            if not isinstance(target, ast.Name) or value is None:
+                continue
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                values = {value.value}
+            elif isinstance(value, (ast.List, ast.Set, ast.Tuple)) and all(
+                isinstance(element, ast.Constant)
+                and isinstance(element.value, str)
+                for element in value.elts
+            ):
+                values = {element.value for element in value.elts}
+            else:
+                uncertain_string_bindings.add(target.id)
+                continue
+            string_bindings.setdefault(target.id, set()).update(values)
+        for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     root = alias.name.partition(".")[0]
@@ -1459,6 +1512,8 @@ class S4CapabilityDenylistTests(unittest.TestCase):
                 allowed_local = (
                     node.level == 0 and node.module in cls.ALLOWED_LOCAL_MODULES
                 )
+                if any(alias.name == "*" for alias in node.names):
+                    findings.add("import:wildcard")
                 if node.level > 0:
                     findings.add("import:relative-local")
                 elif root not in cls.APPROVED_IMPORT_ROOTS and not allowed_local:
@@ -1475,6 +1530,73 @@ class S4CapabilityDenylistTests(unittest.TestCase):
                     for alias in node.names:
                         if alias.name in cls.FORBIDDEN_OS_MEMBERS:
                             findings.add(f"import:os.{alias.name}")
+            elif isinstance(node, ast.Name):
+                if node.id in cls.FORBIDDEN_DYNAMIC_NAMES:
+                    findings.add(f"reference:{node.id}")
+                if node.id in cls.FORBIDDEN_CALLS:
+                    findings.add(f"reference:{node.id}")
+                if isinstance(node.ctx, ast.Load):
+                    parent = parents.get(node)
+                    direct_attribute_base = (
+                        isinstance(parent, ast.Attribute) and parent.value is node
+                    )
+                    reviewed_dynamic_getattr = False
+                    if (
+                        isinstance(parent, ast.Call)
+                        and parent.args
+                        and parent.args[0] is node
+                        and len(parent.args) == 3
+                        and isinstance(parent.args[2], ast.Constant)
+                        and parent.args[2].value == 0
+                    ):
+                        function_name = cls._dotted_name(parent.func)
+                        resolved_functions = (
+                            cls._resolve_import_aliases(function_name, aliases)
+                            if function_name is not None
+                            else ()
+                        )
+                        member = parent.args[1]
+                        if isinstance(member, ast.Constant) and isinstance(
+                            member.value, str
+                        ):
+                            member_values = {member.value}
+                        elif (
+                            isinstance(member, ast.Name)
+                            and member.id not in uncertain_string_bindings
+                        ):
+                            member_values = string_bindings.get(member.id, set())
+                        else:
+                            member_values = set()
+                        reviewed_dynamic_getattr = (
+                            "getattr" in resolved_functions
+                            and bool(member_values)
+                            and member_values <= cls.APPROVED_DYNAMIC_OS_MEMBERS
+                        )
+                    if (
+                        not direct_attribute_base
+                        and not reviewed_dynamic_getattr
+                        and any(
+                            candidate in imported_modules
+                            for candidate in cls._resolve_import_aliases(
+                                node.id, aliases
+                            )
+                        )
+                    ):
+                        findings.add("reference:imported-module-object")
+            elif isinstance(node, ast.Attribute):
+                unresolved_name = cls._dotted_name(node)
+                if unresolved_name is None:
+                    continue
+                for name in cls._resolve_import_aliases(unresolved_name, aliases):
+                    root = name.partition(".")[0]
+                    if root in cls.FORBIDDEN_IMPORT_ROOTS or name in cls.FORBIDDEN_CALLS:
+                        findings.add(f"reference:{name}")
+                    if (
+                        name in cls.FORBIDDEN_MODULE_REFERENCES
+                        or name.rpartition(".")[2]
+                        in cls.FORBIDDEN_REFLECTION_MEMBERS
+                    ):
+                        findings.add(f"reference:reflection-{name}")
             elif isinstance(node, ast.Call):
                 unresolved_name = cls._dotted_name(node.func)
                 if unresolved_name is None:
@@ -1559,6 +1681,27 @@ class S4CapabilityDenylistTests(unittest.TestCase):
         for source, expected in fixtures:
             with self.subTest(source=source.splitlines()[0]):
                 self.assertIn(expected, self._forbidden_capabilities(source))
+
+    def test_capability_denylist_rejects_dynamic_capability_indirection(self) -> None:
+        fixtures = (
+            "import os\nrunner = {'go': os.system}['go']\nrunner('fixture')\n",
+            "import os\nvars(os)['system']('fixture')\n",
+            "import os\ngetattr(os, 'sys' + 'tem')('fixture')\n",
+            "import os\n(lambda function: function('fixture'))(os.system)\n",
+            "import os\nrunner, *_ = [os.system]\nrunner('fixture')\n",
+            "import os\nfor runner in [os.system]:\n    runner('fixture')\n",
+            "import os\nclass Runner:\n    go = os.system\nRunner.go('fixture')\n",
+            "import os\nos.__dict__['system']('fixture')\n",
+            "import sys\nsys.modules['os'].system('fixture')\n",
+            "import os\nlookup = getattr\nlookup(os, 'system')('fixture')\n",
+            "import os\nnamespace = globals()\nnamespace['os'].system('fixture')\n",
+            "import os\nobject.__getattribute__(os, 'system')('fixture')\n",
+            "import os\n__builtins__['getattr'](os, 'system')('fixture')\n",
+            "from os import *\nsystem('fixture')\n",
+        )
+        for source in fixtures:
+            with self.subTest(source=source.splitlines()[1]):
+                self.assertTrue(self._forbidden_capabilities(source))
 
     def test_capability_denylist_rejects_local_mutators_and_network_clients(self) -> None:
         fixtures = (
@@ -1683,21 +1826,38 @@ class S4SensitiveLiteralTests(unittest.TestCase):
     ) -> tuple[str, ...]:
         pattern = re.compile(
             r"(?i)(?<![A-Za-z0-9._-])"
+            r"(?:localhost|"
             r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
-            r"(?:[A-Za-z]|[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9]))\.?"
+            r"(?:[A-Za-z]|[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])))\.?"
             r"(?![A-Za-z0-9._-])"
         )
         literal_spans = cls._python_literal_spans(text) if python_source else ()
         values = []
         for match in pattern.finditer(text):
             candidate = match.group(0)
-            if candidate.rstrip(".").casefold() in cls.ALLOWED_SEMANTIC_HOSTNAMES:
-                continue
             if python_source and literal_spans is not None and not any(
                 start <= match.start() and match.end() <= end
                 for start, end in literal_spans
             ):
                 continue
+            semantic_name = candidate.rstrip(".").casefold()
+            if semantic_name in cls.ALLOWED_SEMANTIC_HOSTNAMES:
+                if semantic_name in {"github.ref", "github.workflow"}:
+                    reviewed_context = (
+                        text[max(0, match.start() - 4) : match.start()] == "${{ "
+                        and text[match.end() : match.end() + 3] == " }}"
+                    )
+                else:
+                    prefix = text[max(0, match.start() - 7) : match.start()]
+                    reviewed_context = prefix == "ops/ha/" or (
+                        prefix == "usage: "
+                        and (
+                            match.end() == len(text)
+                            or text[match.end()].isspace()
+                        )
+                    )
+                if reviewed_context:
+                    continue
             values.append(candidate)
         return tuple(values)
 
@@ -1714,10 +1874,15 @@ class S4SensitiveLiteralTests(unittest.TestCase):
     def test_sensitive_literal_scanner_rejects_quoted_credentials_and_urls(self) -> None:
         fixtures = (
             ('{"token":"opaque-secret"}', "credential-assignment"),
+            ("client_secret='fixture'", "credential-assignment"),
+            ("access_token='fixture'", "credential-assignment"),
+            ("auth_password='fixture'", "credential-assignment"),
             ("endpoint='https://prod.example.com/api'", "hostname"),
             ("endpoint='https://prod.example.com:443/api'", "host-port"),
             ("endpoint='https://prod.example.de/api'", "hostname"),
             ("endpoint='https://prod.example.com./api'", "hostname"),
+            ("endpoint='https://s4-network-change-package.py/api'", "hostname"),
+            ("endpoint='https://localhost/api'", "hostname"),
         )
         for text, expected in fixtures:
             with self.subTest(text=text):
@@ -1739,7 +1904,8 @@ class S4SensitiveLiteralTests(unittest.TestCase):
         if re.search(r"-----BEGIN [^-\r\n]*PRIVATE KEY-----", text, flags=re.IGNORECASE):
             kinds.add("private-key")
         if re.search(
-            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)[\"']?\s*(?:=|:)\s*[\"']?\S",
+            r"(?i)(?<![\w-])(?:[a-z0-9]+[_-])*(?:api[_-]?key|token|password|secret)"
+            r"(?:[_-][a-z0-9]+)*[\"']?\s*(?:=|:)\s*[\"']?\S",
             text,
         ):
             kinds.add("credential-assignment")

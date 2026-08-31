@@ -210,16 +210,30 @@ def _validate_workflow_source(text: str) -> None:
         "github.workflow",
         "s4-network-change-package.py",
     }
+
+    def reviewed_semantic_hostname(match: re.Match[str]) -> bool:
+        semantic_name = match.group(0).rstrip(".").casefold()
+        if semantic_name not in allowed_semantic_hostnames:
+            return False
+        if semantic_name in {"github.ref", "github.workflow"}:
+            return (
+                source[max(0, match.start() - 4) : match.start()] == "${{ "
+                and source[match.end() : match.end() + 3] == " }}"
+            )
+        prefix = source[max(0, match.start() - 7) : match.start()]
+        return prefix == "ops/ha/"
+
     hostname_literals = tuple(
         match.group(0)
         for match in re.finditer(
             r"(?i)(?<![A-Za-z0-9._-])"
+            r"(?:localhost|"
             r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
-            r"(?:[A-Za-z]|[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9]))\.?"
+            r"(?:[A-Za-z]|[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])))\.?"
             r"(?![A-Za-z0-9._-])",
             source,
         )
-        if match.group(0).rstrip(".").casefold() not in allowed_semantic_hostnames
+        if not reviewed_semantic_hostname(match)
     )
     forbidden_literals = (
         "pull_request_target",
@@ -246,7 +260,8 @@ def _validate_workflow_source(text: str) -> None:
         or "bearer " in lowered
         or re.search(r"-----BEGIN [^-\r\n]*PRIVATE KEY-----", source, flags=re.IGNORECASE)
         or re.search(
-            r"(?i)(?<![\w-])(?:api[_-]?key|token|password)[\"']?\s*(?:=|:)\s*[\"']?\S",
+            r"(?i)(?<![\w-])(?:[a-z0-9]+[_-])*(?:api[_-]?key|token|password|secret)"
+            r"(?:[_-][a-z0-9]+)*[\"']?\s*(?:=|:)\s*[\"']?\S",
             source,
         )
     ):
@@ -356,8 +371,13 @@ class S4NetworkWorkflowPolicyTests(unittest.TestCase):
             ("endpoint=https://prod.example.com/api", "endpoint-boundary"),
             ("endpoint=https://prod.example.de/api", "endpoint-boundary"),
             ("endpoint=https://prod.example.com./api", "endpoint-boundary"),
+            ("endpoint=https://s4-network-change-package.py/api", "endpoint-boundary"),
+            ("endpoint=https://localhost/api", "endpoint-boundary"),
             ("synthetic-host:443", "endpoint-boundary"),
             ('{"token":"opaque-secret"}', "sensitive-boundary"),
+            ("client_secret=fixture", "sensitive-boundary"),
+            ("access_token=fixture", "sensitive-boundary"),
+            ("auth_password=fixture", "sensitive-boundary"),
             ("/tmp/synthetic-command-sheet", "sensitive-boundary"),
             ("rm -rf synthetic-root", "capability-boundary"),
         )
