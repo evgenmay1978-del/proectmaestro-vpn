@@ -1,5 +1,37 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. S4 NARROW NETWORK REPAIR — LIVE GREEN (31.08.2026)
+
+- Repository authority перед окном: exact SHA
+  `535c18d13f8c9b597e4ee38da0c4af2325ecd7e2`; все пять обязательных
+  canonical-branch workflows GREEN: `33411330259`, `33411330286`,
+  `33411330280`, `33411330262`, `33411330298`. Независимое review осталось
+  `0 Critical / 0 Important / 0 Minor`.
+- Свежий защищённый raw capture был отдельно просмотрен; canonical inventory
+  получил `EVIDENCE_COMPLETE` без blockers. Package SHA-256:
+  `f6b5bce761b6744d835759c36bcd0c412b6ca6d85215646d5967ec186c7f24e6`.
+  Две независимые UTC-проверки, encrypted console, второй оператор,
+  exclusive change lock, protected backup и executable rollback были GREEN
+  до единственной S4 mutation.
+- В bounded S4-only окне удалено только конфликтующее ifupdown-владение
+  primary interface/default route и отключено его boot ownership; два старых
+  failed-state сброшены. `systemd-networkd` не перезапускался и остался active
+  с прежним default route; x-ui и Hysteria остались active, ожидаемые TCP/UDP
+  listeners сохранились. Новый независимый SSH-сеанс и encrypted console
+  подтвердили доступность; после изменения failed units отсутствуют.
+- Backup SHA-256:
+  `0d322c0003f9f359f5934e4fac88eec02109a30db63719f442747a552104f4ce`;
+  rollback-sheet SHA-256:
+  `7668f48e8789b2d723d5abf7333c946d864e7eb00f5ee0f8ac0e1b6ee16a6885`;
+  protected result-record SHA-256:
+  `35c765ce1216d7278aeaed888e530a734defbf18e47d22fb9c888657305b18e8`.
+  Raw bytes, concrete paths, addresses и command sheet остаются вне Git.
+- Это завершает только узкий S4 network repair. S3 identity/east-west proof,
+  HA shadow deployment, backup/restore, CDN, Telegram/billing и customer
+  cutover остаются отдельными gates. Android/TV остаётся `1.0.157`; OLCRTC,
+  WDTT, реальные списания, release/signing/OTA и final traffic cutover не
+  затрагивались.
+
 ## 0. S4 NETWORK REPAIR PACKAGE — REPOSITORY HANDOFF (31.08.2026)
 
 - Единственная рабочая ветка остаётся
