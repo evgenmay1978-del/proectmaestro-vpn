@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -1273,3 +1274,262 @@ class S4CliMatrixTests(unittest.TestCase):
             )
             self.assertEqual((completed.returncode, completed.stdout, completed.stderr), (3, "", "s4-network-change-package:inventory-json\n"))
             self.assertFalse(no_final.exists())
+
+
+class S4RunbookContractTests(unittest.TestCase):
+    """Safety contract for the reviewed, semantic-only S4 operator runbook."""
+
+    RUNBOOK = (
+        Path(__file__).parents[3]
+        / "docs"
+        / "operations"
+        / "runbook-ha-s4-network-repair.md"
+    )
+
+    def setUp(self) -> None:
+        self.text = (
+            self.RUNBOOK.read_text(encoding="utf-8")
+            if self.RUNBOOK.is_file()
+            else ""
+        )
+        self.normalized_text = " ".join(self.text.split())
+
+    def _semantic_ids(self, name: str) -> tuple[str, ...]:
+        marker = f"### `{name}`"
+        self.assertIn(marker, self.text)
+        start = self.text.index(marker) + len(marker)
+        end = self.text.find("\n### ", start)
+        if end == -1:
+            end = self.text.find("\n## ", start)
+        if end == -1:
+            end = len(self.text)
+        values = []
+        for line in self.text[start:end].splitlines():
+            if line.startswith("- `") and line.endswith("`"):
+                values.append(line[3:-1])
+        return tuple(values)
+
+    def test_runbook_exists_and_has_the_required_ordered_operator_gates(self) -> None:
+        self.assertTrue(self.RUNBOOK.is_file(), "S4 operator runbook is missing")
+        headings = (
+            "## Evidence capture",
+            "## Package generation",
+            "## Package review",
+            "## Gate 1 — independent trusted UTC and declaration",
+            "## Gate 2 — independent trusted UTC before execution",
+            "## Semantic change scope",
+            "## Validation",
+            "## Rollback",
+            "## Evidence recording",
+        )
+        positions = []
+        for heading in headings:
+            self.assertIn(heading, self.text)
+            positions.append(self.text.index(heading))
+        self.assertEqual(positions, sorted(positions))
+
+    def test_no_go_target_scope_command_and_exit_contract_are_explicit(self) -> None:
+        required = (
+            "PRODUCTION NO-GO",
+            "`EVIDENCE_COMPLETE` package",
+            "trusted UTC",
+            "console recovery",
+            "fresh S4 read-only preflight",
+            "target: `s4`",
+            "selected owner: `systemd-networkd`",
+            "scope: `REMOVE_CONFLICTING_IFUPDOWN_PRIMARY_OWNERSHIP_ONLY`",
+            "python ops/ha/s4-network-change-package.py package --inventory PATH --evaluation-time 2026-08-31T12:00:00Z --output PATH",
+            "`0`: publishes a canonical `EVIDENCE_COMPLETE` package",
+            "`2`: publishes a canonical `BLOCKED` package",
+            "`3`: invalid, stale, unsafe, or system input; no final output is created",
+            "`apply_supported: false`",
+            "`mutation_authorized: false`",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, self.normalized_text)
+
+    def test_all_semantic_id_sets_are_exact_and_ordered(self) -> None:
+        expected = {
+            "precheck_ids": (
+                "inventory_reviewed",
+                "networkd_working_owner",
+                "ifupdown_conflict_confirmed",
+                "management_vpn_health_green",
+                "console_recovery_ready",
+            ),
+            "change_step_ids": (
+                "backup_ifupdown_state",
+                "remove_ifupdown_primary_declaration",
+                "disable_ifupdown_boot_ownership",
+                "preserve_systemd_networkd",
+            ),
+            "stop_gate_ids": (
+                "trusted_utc_expired",
+                "console_unavailable",
+                "inventory_drift",
+                "unexpected_network_owner",
+                "prechange_health_degraded",
+                "unexpected_command_result",
+                "route_or_listener_loss",
+                "fresh_management_session_failed",
+            ),
+            "validation_ids": (
+                "single_primary_network_owner",
+                "networkd_active_enabled",
+                "default_route_preserved",
+                "fresh_management_session_established",
+                "vpn_units_listeners_preserved",
+                "no_new_failed_units",
+            ),
+            "rollback_ids": (
+                "restore_ifupdown_primary_declaration",
+                "restore_ifupdown_unit_state",
+                "repeat_s4_health_validation",
+            ),
+        }
+        for name, identifiers in expected.items():
+            with self.subTest(name=name):
+                self.assertEqual(self._semantic_ids(name), identifiers)
+
+    def test_raw_capture_and_digest_evidence_cannot_be_promoted_to_authority(self) -> None:
+        required = (
+            "protected bounded raw capture outside Git",
+            "operator or owner reviews the raw capture before canonical inventory is derived",
+            "`source_review_completed: true` may be set only after that review",
+            "Raw capture bytes remain outside Git, package output, and ordinary reports.",
+            "`inventory_sha256` is integrity evidence, not a secrecy mechanism.",
+            "Do not invoke `build_manifest`, `pki_verify`, `deploy_node`, or `verify_backup` against digest-only evidence.",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, self.normalized_text)
+
+    def test_two_utc_gates_and_declaration_envelope_are_independent(self) -> None:
+        required = (
+            "first independent trusted-UTC comparison immediately before the declaration activates standing authorization",
+            "second independent trusted-UTC comparison immediately before execution",
+            "fresh unchanged inventory",
+            "no concurrent work",
+            "independent second operator",
+            "protected affected-file and unit-state backups",
+            "before-state health capture",
+            "exact S4 target",
+            "package digest",
+            "named operator",
+            "bounded UTC window",
+            "expected impact",
+            "verified preconditions",
+            "protected rollback-sheet identity",
+            "all stop gates",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, self.normalized_text)
+
+    def test_change_validation_and_rollback_preserve_the_working_owner(self) -> None:
+        required = (
+            "backup and restore only the conflicting ifupdown declaration and unit state",
+            "preserve active and enabled `systemd-networkd` ownership",
+            "preserve the default route, management access, VPN units, and VPN listeners",
+            "fresh independent management session before the original session is closed",
+            "Immediate rollback",
+            "owner drift",
+            "route or listener loss",
+            "unhealthy VPN units",
+            "console loss",
+            "unexpected command result",
+            "failed fresh management session",
+            "`ifup_unit_failed: true` and `networking_unit_failed: true` are reviewed conflict evidence",
+            "management reachability, default-route presence, VPN-unit health, listener presence, and `no_new_failed_units`",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, self.normalized_text)
+
+    def test_scope_exclusions_and_immutable_android_baseline_are_complete(self) -> None:
+        exclusions = (
+            "S1-S3",
+            "DNS/CDN",
+            "bots",
+            "payments",
+            "customer data",
+            "VPN/firewall/listeners",
+            "install",
+            "restart",
+            "reload",
+            "reboot",
+            "release",
+            "signing",
+            "OTA",
+            "matrix",
+            "PKI",
+            "rqlite",
+            "shadow traffic",
+            "final cutover",
+            "OLCRTC",
+            "WDTT",
+            "backups outside this narrow rollback",
+        )
+        self.assertIn("S4 only", self.normalized_text)
+        self.assertIn("Android/TV remains immutable at `1.0.157`", self.normalized_text)
+        for exclusion in exclusions:
+            with self.subTest(exclusion=exclusion):
+                self.assertIn(exclusion, self.normalized_text)
+
+    def test_amendment_does_not_bypass_gates_or_embed_execution_authority(self) -> None:
+        required = (
+            "dated authority amendment removes only the additional chat-reply pause after every gate is GREEN and the full declaration is emitted",
+            "does not bypass a gate",
+            "does not embed execution authority in the package",
+            "does not expand the scope",
+        )
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, self.normalized_text)
+
+    def test_runbook_has_no_affirmative_apply_or_readiness_claim(self) -> None:
+        lowered = self.text.casefold()
+        forbidden_affirmative_phrases = (
+            "automatically apply",
+            "automatic apply",
+            "auto-apply",
+            "apply automatically",
+            "production ready",
+            "production-ready",
+            "production readiness confirmed",
+            "ready for customer traffic",
+            "customer traffic is ready",
+            "customer traffic readiness confirmed",
+            "permission to mutate",
+            "authorized to mutate",
+            "mutation is authorized",
+            "apply_supported: true",
+            "mutation_authorized: true",
+        )
+        for phrase in forbidden_affirmative_phrases:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, lowered)
+
+    def test_checked_in_runbook_contains_no_live_command_sheet_material(self) -> None:
+        forbidden_literals = (
+            "systemctl restart",
+            "systemctl reload",
+            "systemctl enable",
+            "sudo ",
+            "ssh ",
+            "curl ",
+            "/etc/",
+            "/var/",
+            "BEGIN PRIVATE KEY",
+            "Bearer ",
+            "password=",
+            "token=",
+        )
+        for literal in forbidden_literals:
+            with self.subTest(literal=literal):
+                self.assertNotIn(literal, self.text)
+        self.assertIsNone(
+            re.search(r"(?<![0-9A-Fa-f:])(?:\d{1,3}\.){3}\d{1,3}(?![0-9])", self.text),
+            "runbook must not contain a live IPv4 literal",
+        )
