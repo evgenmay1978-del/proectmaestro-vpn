@@ -40,7 +40,7 @@ func (s Snapshot) Materialize() (Artifacts, error) {
 		CDNClientConfigSHA256    string   `json:"cdn_client_config_sha256"`
 		ClientURISHA256          string   `json:"client_uri_sha256"`
 		ReasonCodes              []string `json:"reason_codes"`
-	}{1, s.SHA256(), sha(server), sha(direct), sha(cdn), sha(uri), []string{"baseline_unpadded", "baseline_unmuxed", "maestro_advanced_not_claimed"}})
+	}{1, s.SHA256(), sha(server), sha(direct), sha(cdn), sha(uri), []string{"baseline_default_padding", "baseline_unmuxed", "maestro_advanced_not_claimed"}})
 	if err != nil {
 		return Artifacts{}, invalid("receipt_encode")
 	}
@@ -65,7 +65,7 @@ func clientConfig(s Snapshot, address string, port int, security string, socksPo
 	return map[string]any{"log": map[string]any{"access": "none", "error": "none", "loglevel": "warning"}, "inbounds": []any{map[string]any{"listen": "127.0.0.1", "port": socksPort, "protocol": "socks", "settings": map[string]any{"auth": "noauth", "udp": false}}}, "outbounds": []any{map[string]any{"protocol": "vless", "tag": "proxy", "settings": map[string]any{"vnext": []any{map[string]any{"address": address, "port": port, "users": []any{map[string]any{"id": s.Material.ClientID, "encryption": s.Material.ClientEncryption}}}}}, "streamSettings": stream(s, security)}}}
 }
 func clientURI(s Snapshot) string {
-	extra, _ := json.Marshal(map[string]any{"sessionIDPlacement": "query", "sessionIDKey": "auth", "sessionIDLength": 16, "seqPlacement": "query", "seqKey": "chunk_id"})
-	values := url.Values{"encryption": []string{s.Material.ClientEncryption}, "security": []string{"tls"}, "type": []string{"xhttp"}, "host": []string{s.Request.PublicHost}, "sni": []string{s.Request.PublicHost}, "path": []string{s.Material.SecretPath}, "mode": []string{"packet-up"}, "uplinkHTTPMethod": []string{"GET"}, "uplinkDataPlacement": []string{"body"}, "extra": []string{string(extra)}}
+	extra, _ := json.Marshal(map[string]any{"sessionIDPlacement": "query", "sessionIDKey": "auth", "sessionIDLength": 16, "seqPlacement": "query", "seqKey": "chunk_id", "uplinkHTTPMethod": "GET", "uplinkDataPlacement": "body"})
+	values := url.Values{"encryption": []string{s.Material.ClientEncryption}, "security": []string{"tls"}, "type": []string{"xhttp"}, "host": []string{s.Request.PublicHost}, "sni": []string{s.Request.PublicHost}, "path": []string{s.Material.SecretPath}, "mode": []string{"packet-up"}, "extra": []string{string(extra)}}
 	return "vless://" + s.Material.ClientID + "@" + s.Request.PublicHost + ":443?" + values.Encode() + "#maestro-xhttp-canary"
 }

@@ -98,7 +98,7 @@ func TestMaterializeBuildsIsolatedXHTTPPair(t *testing.T) {
 	}
 
 	receipt := artifacts.Receipt()
-	if bytes.Contains(receipt, []byte(testMaterial().SecretPath)) || bytes.Contains(receipt, []byte(testRequest().DiagnosticProbeURL)) || bytes.Contains(receipt, []byte(testMaterial().ClientID)) || !bytes.Contains(receipt, []byte("baseline_unpadded")) || !bytes.Contains(receipt, []byte("maestro_advanced_not_claimed")) {
+	if bytes.Contains(receipt, []byte(testMaterial().SecretPath)) || bytes.Contains(receipt, []byte(testRequest().DiagnosticProbeURL)) || bytes.Contains(receipt, []byte(testMaterial().ClientID)) || !bytes.Contains(receipt, []byte("baseline_default_padding")) || bytes.Contains(receipt, []byte("baseline_unpadded")) || !bytes.Contains(receipt, []byte("maestro_advanced_not_claimed")) {
 		t.Fatalf("receipt leaked operational data or claimed advanced completion: %s", receipt)
 	}
 	var receiptFields map[string]any
@@ -155,11 +155,14 @@ func assertClientPair(t *testing.T, rawURI []byte, direct, cdn map[string]any) {
 		t.Fatal("invalid client URI")
 	}
 	query := parsed.Query()
-	if len(query) != 10 || query.Get("encryption") != testMaterial().ClientEncryption || query.Get("security") != "tls" || query.Get("sni") != testRequest().PublicHost || query.Get("host") != testRequest().PublicHost || query.Get("path") != testMaterial().SecretPath || query.Get("mode") != "packet-up" || query.Get("uplinkHTTPMethod") != "GET" || query.Get("uplinkDataPlacement") != "body" || query.Get("type") != "xhttp" {
+	if len(query) != 8 || query.Get("encryption") != testMaterial().ClientEncryption || query.Get("security") != "tls" || query.Get("sni") != testRequest().PublicHost || query.Get("host") != testRequest().PublicHost || query.Get("path") != testMaterial().SecretPath || query.Get("mode") != "packet-up" || query.Get("type") != "xhttp" {
 		t.Fatal("URI contract mismatch")
 	}
+	if query.Has("uplinkHTTPMethod") || query.Has("uplinkDataPlacement") {
+		t.Fatal("low-frequency XHTTP fields must be carried only inside extra")
+	}
 	var extra map[string]any
-	if err := json.Unmarshal([]byte(query.Get("extra")), &extra); err != nil || len(extra) != 5 || extra["sessionIDPlacement"] != "query" || extra["sessionIDKey"] != "auth" || extra["sessionIDLength"] != float64(16) || extra["seqPlacement"] != "query" || extra["seqKey"] != "chunk_id" {
+	if err := json.Unmarshal([]byte(query.Get("extra")), &extra); err != nil || len(extra) != 7 || extra["sessionIDPlacement"] != "query" || extra["sessionIDKey"] != "auth" || extra["sessionIDLength"] != float64(16) || extra["seqPlacement"] != "query" || extra["seqKey"] != "chunk_id" || extra["uplinkHTTPMethod"] != "GET" || extra["uplinkDataPlacement"] != "body" {
 		t.Fatalf("URI extra mismatch: %q", query.Get("extra"))
 	}
 }
