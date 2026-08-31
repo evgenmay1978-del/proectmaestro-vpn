@@ -17,9 +17,20 @@ Two alternatives were rejected:
 
 ## Pinned compatibility boundary
 
-The first live canary uses the Xray binary already present on the isolated target, version `26.6.22`, source tag commit `b99c3e56574fb0317608c49dd1dd9af816db7a9e`, binary SHA-256 `2745bf12d7217c81769b161e44fd1528c05e8ce79176d59a59a4012f1bdadb6b`. Official source at that tag confirms that inbound VLESS users contain identity only, server `decryption` is global, client `encryption` belongs only to the outbound, and XHTTP accepts the required padding, session, sequence and XMUX fields.
+The first live canary uses a separate immutable Xray `26.7.28` sidecar binary,
+matching the existing `xray>=26.7.28` transport contract. The source tag is
+commit `5ca6f4b7d4dc20a881d4330e498892697627ec0c`; the official
+`Xray-linux-64.zip` release asset is pinned by SHA-256
+`8195d909f1109b8f3d99eefe401a3c451d7bf4af71f24d3815420f77e5dd2a40`.
+Its extracted binary digest is recorded before candidate construction.
+Official source at that tag confirms that inbound VLESS users contain identity
+only, server `decryption` is global, client `encryption` belongs only to the
+outbound, and XHTTP accepts the required padding, session, sequence and XMUX
+fields. The older Xray binary owned by x-ui remains untouched.
 
-The runtime rejects any other Xray version, commit or binary digest until separately admitted. Android/TV version `1.0.157`, OLCRTC and WDTT are unchanged.
+The runtime rejects any other Xray version, commit, release-asset digest or
+extracted-binary digest until separately admitted. Android/TV version
+`1.0.157`, OLCRTC and WDTT are unchanged.
 
 ## Components
 
