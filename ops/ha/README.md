@@ -1,9 +1,11 @@
 # Isolated HA and DR proofs
 
-Everything in this directory is repository-only test and recovery tooling. The
-CI harness creates three loopback rqlite voters and ephemeral mTLS/GPG material
-under `RUNNER_TEMP`. It must never receive production addresses, credentials,
-customer data, GitHub environments or repository secrets.
+Everything in this directory is repository-only tooling: isolated test and
+recovery harnesses, an offline public-PKI verifier and a non-mutating node-plan
+generator. The DR CI harness creates three loopback rqlite voters and ephemeral
+mTLS/GPG material under `RUNNER_TEMP`. None of this tooling may receive
+production addresses, credentials, customer data, GitHub environments or
+repository secrets.
 
 The dedicated workflow `.github/workflows/ha-dr-restore-drill.yml` runs:
 
@@ -132,13 +134,13 @@ No backup is uploaded as an artifact. Successful CI is evidence for a
 repository implementation only; it does not authorize production deployment,
 server access, import, restart or customer mutation.
 
-## Immutable panel build artifact
+## Immutable panel artifact and offline deployment-readiness gates
 
 The separate `.github/workflows/ha-build.yml` workflow is an artifact-only,
-repository-only build proof with status **PRODUCTION NO-GO**. The statement
-above remains true for backups: no backup is uploaded. This workflow uploads
-only the newly built panel bundle on branch pushes or manual dispatches, never
-on pull-request events.
+repository-only build and offline verification proof with status
+**PRODUCTION NO-GO**. The statement above remains true for backups: no backup
+is uploaded. This workflow uploads only the newly built panel bundle on branch
+pushes or manual dispatches, never on pull-request events.
 
 The artifact name is `maestro-panel-<full commit SHA>`. Its membership is
 bounded to exactly `maestro-panel` and `manifest.json`. The manifest binds the
@@ -146,10 +148,42 @@ repository, ref, full commit SHA, workflow run ID and attempt, exact Go 1.25.0
 toolchain, Linux/amd64 binary SHA-256 and byte size. It also fixes
 `release_readiness` to `NO_GO` and `deployment_authorized` to `false`.
 
+The planner has two independent reviewed trust anchors:
+
+- panel artifact source commit
+  `f577c67ad229fe89278430d35a3ec65f6ce454e5`;
+- six-template source commit
+  `8289ce78be8dcb2c00829d6b9781d4b52a18cb73`.
+
+Inventory is an untrusted assertion and cannot replace either anchor. The
+offline verifier, exact seven trust domains and 37-leaf role matrix, redacted
+`maestro-ha-pki-evidence-v1` schema, per-node HTTP/Raft SANs, six inert
+templates and the plan-only CLI are documented in
+[`deploy/ha/README.md`](../../deploy/ha/README.md).
+
 Validate the checked-out workflow policy with:
 
 ```bash
 python ops/ha/build_workflow_policy.py
+```
+
+The complete focused local gate is:
+
+```bash
+python -m unittest ops.ha.tests.test_build_manifest \
+  ops.ha.tests.test_build_workflow_policy \
+  ops.ha.tests.test_pki_verify \
+  ops.ha.tests.test_service_templates \
+  ops.ha.tests.test_deploy_node -v
+python ops/ha/build_workflow_policy.py
+cd backend && go test ./cmd/maestro-panel \
+  -run TestHAServiceTemplateRuntimeContract -count=1
+cd ..
+python -m py_compile ops/ha/build_manifest.py \
+  ops/ha/build_workflow_policy.py ops/ha/pki_verify.py \
+  ops/ha/pki-verify.py ops/ha/deploy_node.py
+bash -n ops/ha/deploy-node.sh
+git diff --check
 ```
 
 After downloading and extracting a reviewed artifact into a fresh private
@@ -159,9 +193,23 @@ expected identity arguments documented in
 the executable bit; that mode is not provenance evidence. Verify bytes and the
 manifest offline, and do not execute or install the binary in this slice.
 
-This slice provides no panel deployment helper, users, directories, services,
-rqlite bootstrap/join, TLS, nginx, firewall, agents, bot pollers, import, DNS or
-cutover. Repository-local self-validation starts only after pinned checkout, so
-external GitHub ruleset/CODEOWNERS protection for `.github/workflows/**` is
-still required. The next separately reviewed slice is restricted to PKI/service
-templates and an offline, non-mutating `deploy-node plan`.
+At the exact pushed SHA, the Linux workflow must keep self-policy immediately
+after pinned checkout and then prove the five focused Python suites, real
+OpenSSL 3.x positive/negative integration with its exact normalized version,
+the panel runtime contract, the pinned rqlite v10.1.0 tagged flag/source/help
+surface, wrapper syntax and `systemd-analyze verify`. Synthetic certificates
+exist only under `RUNNER_TEMP`, are cleaned and are never uploaded. Permissions
+remain read-only, and artifact upload remains exactly the two panel members on
+non-pull-request events only. Local success cannot replace every affected
+exact-SHA GitHub check.
+
+This slice provides only an offline verifier, inert templates and a
+non-mutating `deploy-node plan`. It provides no `apply` path, PKI issuance,
+private-key provisioning, template rendering, panel installation, service
+activation, rqlite bootstrap/join, nginx, firewall, agents, bot pollers, import,
+DNS, shadow, canary or cutover. Repository-local self-validation starts only
+after pinned checkout, so external GitHub ruleset/CODEOWNERS protection for
+`.github/workflows/**` is still required. OLCRTC and WDTT remain frozen.
+Production remains unauthorized: readiness is `NO_GO`, deployment authorization
+is `false`, and later production stages require separate explicit owner
+approval.

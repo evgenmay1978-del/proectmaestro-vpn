@@ -23,7 +23,7 @@ CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
 SETUP_GO_SHA = "40f1582b2485089dde7abd97c1529aa768e1baff"
 UPLOAD_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
 APPROVED_ACTIVE_SHA256 = (
-    "f3f58854a52d02ec562ae52cc92d4f247d909ba6f6c3ac90fa860ed58932f46f"
+    "d3ed6d03dd4866571a7b8594286fb706ef94cd1c99300971d9c2e6fc9223b1a9"
 )
 
 _BLOCK_RE = re.compile(r"[|>](?:[+-]?[1-9]?|[1-9]?[+-]?)?")
@@ -303,7 +303,14 @@ def _active_run_lines(node: _Node) -> tuple[str, ...]:
 def _scan_commands(lines: tuple[str, ...]) -> None:
     network_words = re.compile(r"(?i)(?:^|[^A-Za-z0-9_])(curl|wget|ssh|scp|rsync|sftp|nc|ncat|socat|telnet)(?:$|[^A-Za-z0-9_])")
     command_words = re.compile(r"(?i)(?:^|[^A-Za-z0-9_])(systemctl|service|sudo|ufw|nft|iptables|firewall-cmd|kubectl)(?:$|[^A-Za-z0-9_])")
+    safe_nonexecuting_lines = {
+        "bash -n ops/ha/deploy-node.sh",
+        "python -m py_compile ops/ha/pki_verify.py ops/ha/pki-verify.py ops/ha/deploy_node.py",
+        'systemd-analyze --root="$verify_root" verify rqlited@s2.service rqlited@s3.service rqlited@s4.service maestro-panel.service',
+    }
     for line in lines:
+        if line in safe_nonexecuting_lines:
+            continue
         lowered = line.lower()
         if network_words.search(line) or "http://" in lowered or "https://" in lowered:
             _fail("network-boundary")
@@ -419,19 +426,43 @@ def _validate_steps(node: _Node) -> None:
 
     reviewed_run_names = {
         "Test build workflow policy",
+        "Test offline PKI service and deploy contracts",
+        "Test panel service runtime contract",
         "Test backend",
         "Race-test backend",
         "Vet backend",
         "Test isolated rqlite harness",
         "Start isolated rqlite cluster",
+        "Verify pinned rqlite v10.1.0 service flags",
         "Test rqlite integration",
         "Stop isolated rqlite cluster",
+        "Verify inert service units",
         "Build reproducible panel",
         "Create and verify manifest",
         "Assert exact artifact membership",
     }
     if not set(runs).issubset(reviewed_run_names):
         _fail("step-boundary")
+
+    required_rqlite_lines = {
+        "set -euo pipefail",
+        'marker="$RUNNER_TEMP/maestro-rqlite-ci-root"',
+        'runner_root="$(realpath -e -- "$RUNNER_TEMP")"',
+        'cluster_root="$(realpath -e -- "$(cat -- "$marker")")"',
+        'binary="$cluster_root/bin/rqlited"',
+        'help_file="$RUNNER_TEMP/rqlited-v10.1.0-help.txt"',
+        "trap 'rm -f -- \"$help_file\"' EXIT",
+        '"$binary" -h >"$help_file" 2>&1',
+        'text = Path(sys.argv[1]).read_text(encoding="utf-8")',
+        '    "node-id", "fk", "http-addr", "http-adv-addr",',
+        '    "http-ca-cert", "http-cert", "http-key", "http-verify-client",',
+        '    "raft-addr", "raft-adv-addr", "node-ca-cert", "node-cert",',
+        '    "node-key", "node-verify-client",',
+        '        raise SystemExit("rqlite flag surface mismatch")',
+    }
+    rqlite_candidate = runs.get("Verify pinned rqlite v10.1.0 service flags")
+    if rqlite_candidate is None or not required_rqlite_lines.issubset(rqlite_candidate[1]):
+        _fail("rqlite-flags-boundary")
 
     _scan_commands(tuple(all_commands))
 
@@ -462,6 +493,42 @@ def _validate_steps(node: _Node) -> None:
     self_step = runs["Test build workflow policy"][0]
     if set(self_step) != {"name", "env", "run"} or self_step.get("env") != exact_env:
         _fail("step-boundary")
+
+    offline_index = _required_run(
+        runs,
+        "Test offline PKI service and deploy contracts",
+        (
+            "set -euo pipefail",
+            "python -c \"from ops.ha import pki_verify as p; print('pki-openssl-version=' + p._openssl_version(p.default_openssl_runner))\"",
+            "python -m unittest ops.ha.tests.test_pki_verify ops.ha.tests.test_service_templates ops.ha.tests.test_deploy_node -v",
+            "python -m py_compile ops/ha/pki_verify.py ops/ha/pki-verify.py ops/ha/deploy_node.py",
+            "bash -n ops/ha/deploy-node.sh",
+        ),
+        "offline-contract-boundary",
+    )
+    offline_step = runs["Test offline PKI service and deploy contracts"][0]
+    if (
+        set(offline_step) != {"name", "env", "run"}
+        or offline_step.get("env")
+        != {"LC_ALL": "C", "TMPDIR": "${{ runner.temp }}"}
+    ):
+        _fail("offline-contract-boundary")
+
+    runtime_index = _required_run(
+        runs,
+        "Test panel service runtime contract",
+        (
+            "go test ./cmd/maestro-panel -run '^TestHAServiceTemplateRuntimeContract$' -count=1",
+        ),
+        "runtime-contract-boundary",
+    )
+    runtime_step = runs["Test panel service runtime contract"][0]
+    if (
+        set(runtime_step) != {"name", "working-directory", "env", "run"}
+        or runtime_step.get("working-directory") != "backend"
+        or runtime_step.get("env") != exact_env
+    ):
+        _fail("runtime-contract-boundary")
 
     backend_index = _required_run(
         runs,
@@ -511,6 +578,20 @@ def _validate_steps(node: _Node) -> None:
     start_step = runs["Start isolated rqlite cluster"][0]
     if set(start_step) != {"name", "env", "run"} or start_step.get("env") != exact_env:
         _fail("step-boundary")
+    rqlite_flags_index = _required_run(
+        runs,
+        "Verify pinned rqlite v10.1.0 service flags",
+        runs.get("Verify pinned rqlite v10.1.0 service flags", ({}, (), -1))[1],
+        "rqlite-flags-boundary",
+    )
+    rqlite_step, rqlite_lines, _ = runs["Verify pinned rqlite v10.1.0 service flags"]
+    if (
+        set(rqlite_step) != {"name", "env", "run"}
+        or rqlite_step.get("env") != exact_env
+    ):
+        _fail("rqlite-flags-boundary")
+    if not required_rqlite_lines.issubset(rqlite_lines):
+        _fail("rqlite-flags-boundary")
     integration_index = _required_run(
         runs,
         "Test rqlite integration",
@@ -540,6 +621,42 @@ def _validate_steps(node: _Node) -> None:
         or cleanup.get("env") != exact_env
     ):
         _fail("cleanup-boundary")
+
+    systemd_index = _required_run(
+        runs,
+        "Verify inert service units",
+        runs.get("Verify inert service units", ({}, (), -1))[1],
+        "systemd-boundary",
+    )
+    systemd_step, systemd_lines, _ = runs["Verify inert service units"]
+    if (
+        set(systemd_step) != {"name", "env", "run"}
+        or systemd_step.get("env")
+        != {
+            "LC_ALL": "C",
+            "TEMPLATE_ROOT": "deploy/ha",
+            "UNIT_SUFFIX": "service",
+        }
+    ):
+        _fail("systemd-boundary")
+    required_systemd_lines = {
+        "set -euo pipefail",
+        'verify_root="$RUNNER_TEMP/maestro-systemd-verify"',
+        'rqlite_unit="rqlited@.$UNIT_SUFFIX"',
+        'panel_unit="maestro-panel.$UNIT_SUFFIX"',
+        "trap 'rm -rf -- \"$verify_root\"' EXIT",
+        'install -d -m 0755 -- "$verify_root/etc/systemd/system" "$verify_root/etc/maestro/ha" "$verify_root/etc/maestro/ha/pki" "$verify_root/etc/maestro/ha/secrets"',
+        'install -m 0644 -- "$TEMPLATE_ROOT/$rqlite_unit" "$verify_root/etc/systemd/system/$rqlite_unit"',
+        'install -m 0644 -- "$TEMPLATE_ROOT/$panel_unit" "$verify_root/etc/systemd/system/$panel_unit"',
+        'install -m 0644 -- "$TEMPLATE_ROOT/maestro-panel.env.example" "$verify_root/etc/maestro/ha/maestro-panel.env"',
+        'install -m 0755 -- /bin/true "$verify_root/opt/maestro/ha/rqlite/10.1.0/rqlited"',
+        'install -m 0755 -- /bin/true "$verify_root/opt/maestro/ha/releases/f577c67ad229fe89278430d35a3ec65f6ce454e5/maestro-panel"',
+        "for target in basic network-online shutdown sysinit; do",
+        '  printf \'%s\\n\' \'[Unit]\' "Description=synthetic $target target" \'DefaultDependencies=no\' >"$verify_root/etc/systemd/system/$target.target"',
+        'systemd-analyze --root="$verify_root" verify rqlited@s2.service rqlited@s3.service rqlited@s4.service maestro-panel.service',
+    }
+    if not required_systemd_lines.issubset(systemd_lines):
+        _fail("systemd-boundary")
 
     build_index = _required_run(
         runs,
@@ -607,13 +724,17 @@ def _validate_steps(node: _Node) -> None:
     if not (
         self_index
         < setup_go[0][2]
+        < offline_index
+        < runtime_index
         < backend_index
         < race_index
         < vet_index
         < harness_index
         < start_index
+        < rqlite_flags_index
         < integration_index
         < cleanup_index
+        < systemd_index
         < build_index
         < manifest_index
         < membership_index
@@ -624,13 +745,17 @@ def _validate_steps(node: _Node) -> None:
         "Checkout",
         "Test build workflow policy",
         "Set up Go",
+        "Test offline PKI service and deploy contracts",
+        "Test panel service runtime contract",
         "Test backend",
         "Race-test backend",
         "Vet backend",
         "Test isolated rqlite harness",
         "Start isolated rqlite cluster",
+        "Verify pinned rqlite v10.1.0 service flags",
         "Test rqlite integration",
         "Stop isolated rqlite cluster",
+        "Verify inert service units",
         "Build reproducible panel",
         "Create and verify manifest",
         "Assert exact artifact membership",

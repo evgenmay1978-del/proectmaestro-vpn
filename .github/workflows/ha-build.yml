@@ -43,6 +43,23 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
+      - name: Test offline PKI service and deploy contracts
+        env:
+          LC_ALL: C
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          python -c "from ops.ha import pki_verify as p; print('pki-openssl-version=' + p._openssl_version(p.default_openssl_runner))"
+          python -m unittest ops.ha.tests.test_pki_verify ops.ha.tests.test_service_templates ops.ha.tests.test_deploy_node -v
+          python -m py_compile ops/ha/pki_verify.py ops/ha/pki-verify.py ops/ha/deploy_node.py
+          bash -n ops/ha/deploy-node.sh
+
+      - name: Test panel service runtime contract
+        working-directory: backend
+        env:
+          LC_ALL: C
+        run: go test ./cmd/maestro-panel -run '^TestHAServiceTemplateRuntimeContract$' -count=1
+
       - name: Test backend
         working-directory: backend
         env:
@@ -71,6 +88,47 @@ jobs:
           LC_ALL: C
         run: bash ops/ha/ci-rqlite-cluster.sh start
 
+      - name: Verify pinned rqlite v10.1.0 service flags
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/maestro-rqlite-ci-root"
+          test -f "$marker"
+          test ! -L "$marker"
+          test "$(stat -c %h -- "$marker")" = 1
+          runner_root="$(realpath -e -- "$RUNNER_TEMP")"
+          cluster_root="$(realpath -e -- "$(cat -- "$marker")")"
+          case "$cluster_root" in
+            "$runner_root"/*) ;;
+            *) exit 1 ;;
+          esac
+          binary="$cluster_root/bin/rqlited"
+          test -f "$binary"
+          test ! -L "$binary"
+          test "$(stat -c %h -- "$binary")" = 1
+          test -x "$binary"
+          help_file="$RUNNER_TEMP/rqlited-v10.1.0-help.txt"
+          test ! -e "$help_file"
+          trap 'rm -f -- "$help_file"' EXIT
+          "$binary" -h >"$help_file" 2>&1
+          python - "$help_file" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          text = Path(sys.argv[1]).read_text(encoding="utf-8")
+          expected = (
+              "node-id", "fk", "http-addr", "http-adv-addr",
+              "http-ca-cert", "http-cert", "http-key", "http-verify-client",
+              "raft-addr", "raft-adv-addr", "node-ca-cert", "node-cert",
+              "node-key", "node-verify-client",
+          )
+          for flag in expected:
+              if re.search(r"(?m)(?:^|\s)-" + re.escape(flag) + r"(?:[=\s]|$)", text) is None:
+                  raise SystemExit("rqlite flag surface mismatch")
+          PY
+
       - name: Test rqlite integration
         working-directory: backend
         env:
@@ -82,6 +140,41 @@ jobs:
         env:
           LC_ALL: C
         run: bash ops/ha/ci-rqlite-cluster.sh stop
+
+      - name: Verify inert service units
+        env:
+          LC_ALL: C
+          TEMPLATE_ROOT: deploy/ha
+          UNIT_SUFFIX: service
+        run: |
+          set -euo pipefail
+          verify_root="$RUNNER_TEMP/maestro-systemd-verify"
+          rqlite_unit="rqlited@.$UNIT_SUFFIX"
+          panel_unit="maestro-panel.$UNIT_SUFFIX"
+          test ! -e "$verify_root"
+          trap 'rm -rf -- "$verify_root"' EXIT
+          install -d -m 0700 -- "$verify_root"
+          install -d -m 0755 -- "$verify_root/etc/systemd/system" "$verify_root/etc/maestro/ha" "$verify_root/etc/maestro/ha/pki" "$verify_root/etc/maestro/ha/secrets"
+          install -d -m 0755 -- "$verify_root/opt/maestro/ha/rqlite/10.1.0"
+          install -d -m 0755 -- "$verify_root/opt/maestro/ha/releases/f577c67ad229fe89278430d35a3ec65f6ce454e5"
+          install -d -m 0755 -- "$verify_root/var/lib/maestro/panel"
+          for node in s2 s3 s4; do
+            install -d -m 0755 -- "$verify_root/var/lib/maestro/rqlite/$node"
+            install -m 0644 -- "$TEMPLATE_ROOT/rqlite-$node.env.example" "$verify_root/etc/maestro/ha/rqlite-$node.env"
+            : >"$verify_root/var/lib/maestro/rqlite/$node/raft.db"
+            chmod 0600 -- "$verify_root/var/lib/maestro/rqlite/$node/raft.db"
+          done
+          install -m 0644 -- "$TEMPLATE_ROOT/$rqlite_unit" "$verify_root/etc/systemd/system/$rqlite_unit"
+          install -m 0644 -- "$TEMPLATE_ROOT/$panel_unit" "$verify_root/etc/systemd/system/$panel_unit"
+          install -m 0644 -- "$TEMPLATE_ROOT/maestro-panel.env.example" "$verify_root/etc/maestro/ha/maestro-panel.env"
+          install -m 0755 -- /bin/true "$verify_root/opt/maestro/ha/rqlite/10.1.0/rqlited"
+          install -m 0755 -- /bin/true "$verify_root/opt/maestro/ha/releases/f577c67ad229fe89278430d35a3ec65f6ce454e5/maestro-panel"
+          printf '%s\n' 'maestro-rqlite:x:61101:61101::/nonexistent:/bin/false' 'maestro-panel:x:61102:61102::/nonexistent:/bin/false' >"$verify_root/etc/passwd"
+          printf '%s\n' 'maestro-rqlite:x:61101:' 'maestro-panel:x:61102:' >"$verify_root/etc/group"
+          for target in basic network-online shutdown sysinit; do
+            printf '%s\n' '[Unit]' "Description=synthetic $target target" 'DefaultDependencies=no' >"$verify_root/etc/systemd/system/$target.target"
+          done
+          systemd-analyze --root="$verify_root" verify rqlited@s2.service rqlited@s3.service rqlited@s4.service maestro-panel.service
 
       - name: Build reproducible panel
         working-directory: backend

@@ -63,6 +63,23 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
 
+      - name: Test offline PKI service and deploy contracts
+        env:
+          LC_ALL: C
+          TMPDIR: ${{{{ runner.temp }}}}
+        run: |
+          set -euo pipefail
+          python -c "from ops.ha import pki_verify as p; print('pki-openssl-version=' + p._openssl_version(p.default_openssl_runner))"
+          python -m unittest ops.ha.tests.test_pki_verify ops.ha.tests.test_service_templates ops.ha.tests.test_deploy_node -v
+          python -m py_compile ops/ha/pki_verify.py ops/ha/pki-verify.py ops/ha/deploy_node.py
+          bash -n ops/ha/deploy-node.sh
+
+      - name: Test panel service runtime contract
+        working-directory: backend
+        env:
+          LC_ALL: C
+        run: go test ./cmd/maestro-panel -run '^TestHAServiceTemplateRuntimeContract$' -count=1
+
       - name: Test backend
         working-directory: backend
         env:
@@ -91,6 +108,47 @@ jobs:
           LC_ALL: C
         run: bash ops/ha/ci-rqlite-cluster.sh start
 
+      - name: Verify pinned rqlite v10.1.0 service flags
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/maestro-rqlite-ci-root"
+          test -f "$marker"
+          test ! -L "$marker"
+          test "$(stat -c %h -- "$marker")" = 1
+          runner_root="$(realpath -e -- "$RUNNER_TEMP")"
+          cluster_root="$(realpath -e -- "$(cat -- "$marker")")"
+          case "$cluster_root" in
+            "$runner_root"/*) ;;
+            *) exit 1 ;;
+          esac
+          binary="$cluster_root/bin/rqlited"
+          test -f "$binary"
+          test ! -L "$binary"
+          test "$(stat -c %h -- "$binary")" = 1
+          test -x "$binary"
+          help_file="$RUNNER_TEMP/rqlited-v10.1.0-help.txt"
+          test ! -e "$help_file"
+          trap 'rm -f -- "$help_file"' EXIT
+          "$binary" -h >"$help_file" 2>&1
+          python - "$help_file" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          text = Path(sys.argv[1]).read_text(encoding="utf-8")
+          expected = (
+              "node-id", "fk", "http-addr", "http-adv-addr",
+              "http-ca-cert", "http-cert", "http-key", "http-verify-client",
+              "raft-addr", "raft-adv-addr", "node-ca-cert", "node-cert",
+              "node-key", "node-verify-client",
+          )
+          for flag in expected:
+              if re.search(r"(?m)(?:^|\\s)-" + re.escape(flag) + r"(?:[=\\s]|$)", text) is None:
+                  raise SystemExit("rqlite flag surface mismatch")
+          PY
+
       - name: Test rqlite integration
         working-directory: backend
         env:
@@ -102,6 +160,41 @@ jobs:
         env:
           LC_ALL: C
         run: bash ops/ha/ci-rqlite-cluster.sh stop
+
+      - name: Verify inert service units
+        env:
+          LC_ALL: C
+          TEMPLATE_ROOT: deploy/ha
+          UNIT_SUFFIX: service
+        run: |
+          set -euo pipefail
+          verify_root="$RUNNER_TEMP/maestro-systemd-verify"
+          rqlite_unit="rqlited@.$UNIT_SUFFIX"
+          panel_unit="maestro-panel.$UNIT_SUFFIX"
+          test ! -e "$verify_root"
+          trap 'rm -rf -- "$verify_root"' EXIT
+          install -d -m 0700 -- "$verify_root"
+          install -d -m 0755 -- "$verify_root/etc/systemd/system" "$verify_root/etc/maestro/ha" "$verify_root/etc/maestro/ha/pki" "$verify_root/etc/maestro/ha/secrets"
+          install -d -m 0755 -- "$verify_root/opt/maestro/ha/rqlite/10.1.0"
+          install -d -m 0755 -- "$verify_root/opt/maestro/ha/releases/f577c67ad229fe89278430d35a3ec65f6ce454e5"
+          install -d -m 0755 -- "$verify_root/var/lib/maestro/panel"
+          for node in s2 s3 s4; do
+            install -d -m 0755 -- "$verify_root/var/lib/maestro/rqlite/$node"
+            install -m 0644 -- "$TEMPLATE_ROOT/rqlite-$node.env.example" "$verify_root/etc/maestro/ha/rqlite-$node.env"
+            : >"$verify_root/var/lib/maestro/rqlite/$node/raft.db"
+            chmod 0600 -- "$verify_root/var/lib/maestro/rqlite/$node/raft.db"
+          done
+          install -m 0644 -- "$TEMPLATE_ROOT/$rqlite_unit" "$verify_root/etc/systemd/system/$rqlite_unit"
+          install -m 0644 -- "$TEMPLATE_ROOT/$panel_unit" "$verify_root/etc/systemd/system/$panel_unit"
+          install -m 0644 -- "$TEMPLATE_ROOT/maestro-panel.env.example" "$verify_root/etc/maestro/ha/maestro-panel.env"
+          install -m 0755 -- /bin/true "$verify_root/opt/maestro/ha/rqlite/10.1.0/rqlited"
+          install -m 0755 -- /bin/true "$verify_root/opt/maestro/ha/releases/f577c67ad229fe89278430d35a3ec65f6ce454e5/maestro-panel"
+          printf '%s\\n' 'maestro-rqlite:x:61101:61101::/nonexistent:/bin/false' 'maestro-panel:x:61102:61102::/nonexistent:/bin/false' >"$verify_root/etc/passwd"
+          printf '%s\\n' 'maestro-rqlite:x:61101:' 'maestro-panel:x:61102:' >"$verify_root/etc/group"
+          for target in basic network-online shutdown sysinit; do
+            printf '%s\\n' '[Unit]' "Description=synthetic $target target" 'DefaultDependencies=no' >"$verify_root/etc/systemd/system/$target.target"
+          done
+          systemd-analyze --root="$verify_root" verify rqlited@s2.service rqlited@s3.service rqlited@s4.service maestro-panel.service
 
       - name: Build reproducible panel
         working-directory: backend
@@ -255,6 +348,7 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
     def test_repository_workflow_passes_policy(self) -> None:
         source = POLICY.WORKFLOW.read_text(encoding="ascii")
 
+        self.assertEqual(VALID_WORKFLOW, source)
         self.assertIsNone(validate_workflow(source))
 
     def test_has_no_third_party_yaml_dependency(self) -> None:
@@ -325,11 +419,34 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
             ("          service nginx reload\n", "command-boundary"),
             ("          sudo ufw allow 443/tcp\n", "command-boundary"),
             ("          bash ops/ha/deploy-node.sh apply\n", "command-boundary"),
+            ("          bash ops/ha/deploy-node.sh plan\n", "command-boundary"),
             ("          printf '%s' '${{ secrets.DEPLOY_TOKEN }}'\n", "command-boundary"),
         )
         for addition, code in cases:
             with self.subTest(command=addition.strip()):
                 self.rejected(self.mutate(anchor, anchor + addition), code)
+
+    def test_command_scanner_rejects_wrapped_commands_and_deploy_paths(self) -> None:
+        cases = (
+            "env systemctl status maestro-panel",
+            "command systemctl status maestro-panel",
+            "printf ok > deploy/marker",
+        )
+        for line in cases:
+            with self.subTest(line=line):
+                with self.assertRaisesRegex(
+                    WorkflowPolicyError,
+                    r"\Aha-build-workflow-policy:command-boundary\Z",
+                ):
+                    POLICY._scan_commands((line,))
+
+    def test_command_scanner_allows_only_exact_nonexecuting_exceptions(self) -> None:
+        safe = (
+            "bash -n ops/ha/deploy-node.sh",
+            "python -m py_compile ops/ha/pki_verify.py ops/ha/pki-verify.py ops/ha/deploy_node.py",
+            'systemd-analyze --root="$verify_root" verify rqlited@s2.service rqlited@s3.service rqlited@s4.service maestro-panel.service',
+        )
+        self.assertIsNone(POLICY._scan_commands(safe))
 
     def test_rejects_cleanup_mutations(self) -> None:
         cases = (
@@ -378,12 +495,16 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
 
     def test_rejects_missing_mandatory_task3_gates(self) -> None:
         cases = (
+            ("Test offline PKI service and deploy contracts", "Test panel service runtime contract", "offline-contract-boundary"),
+            ("Test panel service runtime contract", "Test backend", "runtime-contract-boundary"),
             ("Test backend", "Race-test backend", "backend-boundary"),
             ("Race-test backend", "Vet backend", "backend-boundary"),
             ("Vet backend", "Test isolated rqlite harness", "backend-boundary"),
             ("Test isolated rqlite harness", "Start isolated rqlite cluster", "step-boundary"),
-            ("Start isolated rqlite cluster", "Test rqlite integration", "step-boundary"),
+            ("Start isolated rqlite cluster", "Verify pinned rqlite v10.1.0 service flags", "step-boundary"),
+            ("Verify pinned rqlite v10.1.0 service flags", "Test rqlite integration", "rqlite-flags-boundary"),
             ("Test rqlite integration", "Stop isolated rqlite cluster", "step-boundary"),
+            ("Verify inert service units", "Build reproducible panel", "systemd-boundary"),
             ("Build reproducible panel", "Create and verify manifest", "build-boundary"),
             ("Create and verify manifest", "Assert exact artifact membership", "manifest-boundary"),
             ("Assert exact artifact membership", "Upload immutable panel artifact", "membership-boundary"),
@@ -394,6 +515,51 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
 
     def test_rejects_task3_gate_substitutions(self) -> None:
         cases = (
+            (
+                "pki-openssl-version=",
+                "openssl-version=",
+                "offline-contract-boundary",
+            ),
+            (
+                "ops.ha.tests.test_pki_verify ops.ha.tests.test_service_templates ops.ha.tests.test_deploy_node",
+                "ops.ha.tests.test_pki_verify ops.ha.tests.test_deploy_node",
+                "offline-contract-boundary",
+            ),
+            (
+                "          TMPDIR: ${{ runner.temp }}\n",
+                "",
+                "offline-contract-boundary",
+            ),
+            (
+                "bash -n ops/ha/deploy-node.sh",
+                "bash ops/ha/deploy-node.sh",
+                "command-boundary",
+            ),
+            (
+                "go test ./cmd/maestro-panel -run '^TestHAServiceTemplateRuntimeContract$' -count=1",
+                "go test ./cmd/maestro-panel -count=1",
+                "runtime-contract-boundary",
+            ),
+            (
+                '          "$binary" -h >"$help_file" 2>&1\n',
+                "          true # rqlite help proof removed\n",
+                "rqlite-flags-boundary",
+            ),
+            (
+                '          trap \'rm -f -- "$help_file"\' EXIT\n',
+                "",
+                "rqlite-flags-boundary",
+            ),
+            (
+                '          systemd-analyze --root="$verify_root" verify rqlited@s2.service rqlited@s3.service rqlited@s4.service maestro-panel.service\n',
+                "          true # systemd verification removed\n",
+                "systemd-boundary",
+            ),
+            (
+                "          for target in basic network-online shutdown sysinit; do\n",
+                "          for target in network-online; do\n",
+                "systemd-boundary",
+            ),
             (
                 "run: env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS go test -count=1 ./...",
                 "run: go test -count=1 ./...",
@@ -448,6 +614,30 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
         for old, new, code in cases:
             with self.subTest(code=code, replacement=new):
                 self.rejected(self.mutate(old, new), code)
+
+    def test_rejects_each_missing_rqlite_flag_proof(self) -> None:
+        flags = (
+            "node-id",
+            "fk",
+            "http-addr",
+            "http-adv-addr",
+            "http-ca-cert",
+            "http-cert",
+            "http-key",
+            "http-verify-client",
+            "raft-addr",
+            "raft-adv-addr",
+            "node-ca-cert",
+            "node-cert",
+            "node-key",
+            "node-verify-client",
+        )
+        for flag in flags:
+            with self.subTest(flag=flag):
+                self.rejected(
+                    self.mutate(f'"{flag}"', '"removed-flag"'),
+                    "rqlite-flags-boundary",
+                )
 
     def test_rejects_wrong_step_working_directories(self) -> None:
         backend_steps = (
@@ -529,12 +719,18 @@ class BuildWorkflowPolicyTests(unittest.TestCase):
         self.rejected(unsafe, "step-boundary")
 
     def test_encoded_newline_comment_in_python_heredoc_is_sealed(self) -> None:
-        anchor = "          from pathlib import Path\n"
+        anchor = (
+            "          python - \"$GITHUB_SHA\" \"$RUNNER_TEMP/maestro-panel.buildinfo\" <<'PY'\n"
+            "          from pathlib import Path\n"
+        )
         unsafe = self.mutate(
             anchor,
-            "          # coding: utf-7\n"
-            "          #+AAo-raise SystemExit('unexpected')\n"
-            + anchor,
+            anchor.replace(
+                "          from pathlib import Path\n",
+                "          # coding: utf-7\n"
+                "          #+AAo-raise SystemExit('unexpected')\n"
+                "          from pathlib import Path\n",
+            ),
         )
         self.rejected(unsafe, "step-boundary")
 
