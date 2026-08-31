@@ -775,7 +775,440 @@ class S4BoundaryContractTests(unittest.TestCase):
         self.assertNotIn("fixture-secret", completed.stdout)
 
 
-# The approved Task 2 commands address these two explicit suite names.  They
-# intentionally expose the same boundary contract on Windows and Ubuntu.
-S4SecureInputTests = S4BoundaryContractTests
-S4SecureOutputTests = S4BoundaryContractTests
+class S4SecureInputTests(unittest.TestCase):
+    """Focused POSIX proof for the descriptor-pinned inventory boundary."""
+
+    def _private_file(self, root: Path, name: str = "inventory.json") -> Path:
+        path = root / name
+        path.write_bytes(canonical(valid_inventory()))
+        os.chmod(path, 0o600)
+        return path
+
+    def _assert_rejected_without_parser(self, path: Path) -> None:
+        with mock.patch.object(s4_network_change_package, "parse_inventory") as parser:
+            with self.assertRaisesRegex(S4ChangePackageError, r"^s4-network-change-package:inventory$"):
+                s4_network_change_package.read_inventory(path, evaluation_time=EVALUATION_TIME)
+        parser.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
+    def test_full_fstat_proxy_rejects_wrong_invoking_uid_before_parser(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = self._private_file(Path(temporary))
+            real_fstat = os.fstat
+
+            def wrong_uid(descriptor: int) -> object:
+                info = real_fstat(descriptor)
+                return SimpleNamespace(
+                    st_dev=info.st_dev, st_ino=info.st_ino, st_mode=info.st_mode,
+                    st_uid=info.st_uid + 1, st_nlink=info.st_nlink, st_size=info.st_size,
+                    st_mtime=info.st_mtime, st_ctime=info.st_ctime,
+                    st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns,
+                )
+
+            with mock.patch.object(s4_network_change_package.os, "fstat", side_effect=wrong_uid):
+                self._assert_rejected_without_parser(path)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
+    def test_exact_private_mode_matrix_accepts_only_0600(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = self._private_file(Path(temporary))
+            info = os.lstat(path)
+            for mode in range(0o1000):
+                candidate = SimpleNamespace(
+                    st_mode=stat.S_IFREG | mode, st_nlink=1, st_uid=os.geteuid(),
+                    st_size=1, st_dev=info.st_dev, st_ino=info.st_ino,
+                    st_mtime=info.st_mtime, st_ctime=info.st_ctime,
+                    st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns,
+                )
+                with self.subTest(mode=oct(mode)):
+                    if mode == 0o600:
+                        s4_network_change_package._require_private_regular(
+                            candidate, code="inventory", maximum=1
+                        )
+                    else:
+                        with self.assertRaisesRegex(S4ChangePackageError, r":inventory$"):
+                            s4_network_change_package._require_private_regular(
+                                candidate, code="inventory", maximum=1
+                            )
+
+    @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
+    def test_canonical_inventory_with_a_trailing_byte_is_rejected_as_noncanonical(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = self._private_file(Path(temporary))
+            path.write_bytes(canonical(valid_inventory()) + b"x")
+            os.chmod(path, 0o600)
+            with self.assertRaisesRegex(S4ChangePackageError, r"^s4-network-change-package:inventory-canonical$"):
+                s4_network_change_package.read_inventory(path, evaluation_time=EVALUATION_TIME)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
+    def test_concrete_path_replacement_truncation_and_metadata_drift_reject_before_parser(self) -> None:
+        for drift in ("replacement", "truncation", "metadata"):
+            with self.subTest(drift=drift), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                path = self._private_file(root)
+                replacement = self._private_file(root, "replacement.json")
+                original_open = os.open
+                original_read = os.read
+                changed = False
+
+                def open_then_replace(*args: object, **kwargs: object) -> int:
+                    nonlocal changed
+                    descriptor = original_open(*args, **kwargs)
+                    if drift == "replacement" and not changed and os.fspath(args[0]) == os.fspath(path):
+                        os.replace(replacement, path)
+                        changed = True
+                    return descriptor
+
+                def read_then_drift(descriptor: int, size: int) -> bytes:
+                    nonlocal changed
+                    value = original_read(descriptor, size)
+                    if drift == "truncation" and not changed:
+                        with open(path, "r+b") as handle:
+                            handle.truncate(1)
+                        changed = True
+                    if drift == "metadata" and not changed:
+                        os.chmod(path, 0o400)
+                        changed = True
+                    return value
+
+                patches = [mock.patch.object(s4_network_change_package.os, "open", side_effect=open_then_replace)]
+                if drift != "replacement":
+                    patches.append(mock.patch.object(s4_network_change_package.os, "read", side_effect=read_then_drift))
+                with patches[0]:
+                    if len(patches) == 2:
+                        with patches[1]:
+                            self._assert_rejected_without_parser(path)
+                    else:
+                        self._assert_rejected_without_parser(path)
+                self.assertTrue(changed)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX descriptor boundary")
+    def test_fifo_open_is_nonblocking_when_path_check_is_raced(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fifo = root / "inventory-fifo"
+            os.mkfifo(fifo, 0o600)
+            regular = self._private_file(root, "regular")
+            real_lstat = os.lstat
+            real_open = os.open
+            flags_seen: list[int] = []
+
+            def regular_before_fifo(path: object, *args: object, **kwargs: object) -> os.stat_result:
+                if os.fspath(path) == os.fspath(fifo):
+                    return real_lstat(regular)
+                return real_lstat(path, *args, **kwargs)
+
+            def observe_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+                flags_seen.append(flags)
+                return real_open(path, flags, *args, **kwargs)
+
+            with (
+                mock.patch.object(s4_network_change_package.os, "lstat", side_effect=regular_before_fifo),
+                mock.patch.object(s4_network_change_package.os, "open", side_effect=observe_open),
+            ):
+                self._assert_rejected_without_parser(fifo)
+            self.assertTrue(flags_seen[0] & getattr(os, "O_NONBLOCK", 0))
+
+
+class S4SecureOutputTests(unittest.TestCase):
+    """Focused POSIX proof for the no-clobber publication boundary."""
+
+    def _root(self) -> tempfile.TemporaryDirectory[str]:
+        temporary = tempfile.TemporaryDirectory()
+        os.chmod(temporary.name, 0o700)
+        return temporary
+
+    def _assert_output_error(self, output: Path, encoded: bytes = b"package\n") -> None:
+        with self.assertRaisesRegex(S4ChangePackageError, r"^s4-network-change-package:(?:output|output-exists|exists)$"):
+            s4_network_change_package.publish_change_package(output, encoded)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_unsafe_parent_symlink_wrong_uid_wrong_mode_and_replacement_fail_closed(self) -> None:
+        with self._root() as temporary:
+            root = Path(temporary)
+            target = root / "target"
+            target.mkdir()
+            os.chmod(target, 0o700)
+            link = root / "link"
+            link.symlink_to(target, target_is_directory=True)
+            self._assert_output_error(link / "package")
+            for mode in (0o000, 0o600, 0o701, 0o755):
+                os.chmod(target, mode)
+                with self.subTest(mode=oct(mode)):
+                    self._assert_output_error(target / "package")
+            os.chmod(target, 0o700)
+            real_lstat = os.lstat
+            def wrong_uid(path: object, *args: object, **kwargs: object) -> object:
+                info = real_lstat(path, *args, **kwargs)
+                if os.fspath(path) == os.fspath(target):
+                    return SimpleNamespace(
+                        st_dev=info.st_dev, st_ino=info.st_ino, st_mode=info.st_mode,
+                        st_uid=info.st_uid + 1, st_nlink=info.st_nlink, st_size=info.st_size,
+                        st_mtime=info.st_mtime, st_ctime=info.st_ctime,
+                        st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns,
+                    )
+                return info
+            with mock.patch.object(s4_network_change_package.os, "lstat", side_effect=wrong_uid):
+                self._assert_output_error(target / "package")
+            replacement = root / "replacement"
+            replacement.mkdir()
+            os.chmod(replacement, 0o700)
+            original_open = os.open
+            changed = False
+            def open_then_replace(path: object, flags: int, *args: object, **kwargs: object) -> int:
+                nonlocal changed
+                descriptor = original_open(path, flags, *args, **kwargs)
+                if os.fspath(path) == os.fspath(target) and not changed:
+                    os.rmdir(target)
+                    os.rename(replacement, target)
+                    changed = True
+                return descriptor
+            with mock.patch.object(s4_network_change_package.os, "open", side_effect=open_then_replace):
+                self._assert_output_error(target / "package")
+            self.assertTrue(changed)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_final_regular_symlink_hardlink_and_prelink_substitution_are_never_clobbered(self) -> None:
+        for kind in ("regular", "symlink", "hardlink", "substitution"):
+            with self.subTest(kind=kind), self._root() as temporary:
+                root = Path(temporary)
+                output = root / "package"
+                foreign = root / "foreign"
+                foreign.write_bytes(b"foreign\n")
+                os.chmod(foreign, 0o600)
+                if kind == "regular":
+                    output.write_bytes(b"foreign\n")
+                    os.chmod(output, 0o600)
+                elif kind == "symlink":
+                    output.symlink_to(foreign)
+                elif kind == "hardlink":
+                    os.link(foreign, output)
+                else:
+                    original_open = os.open
+                    injected = False
+                    def open_then_inject(path: object, flags: int, *args: object, **kwargs: object) -> int:
+                        nonlocal injected
+                        descriptor = original_open(path, flags, *args, **kwargs)
+                        if os.fspath(path).startswith(".s4-network-change-") and not injected:
+                            output.write_bytes(b"foreign\n")
+                            os.chmod(output, 0o600)
+                            injected = True
+                        return descriptor
+                    patch = mock.patch.object(s4_network_change_package.os, "open", side_effect=open_then_inject)
+                    with patch:
+                        self._assert_output_error(output)
+                    self.assertTrue(injected)
+                    self.assertEqual(output.read_bytes(), b"foreign\n")
+                    continue
+                self._assert_output_error(output)
+                self.assertEqual(output.read_bytes(), b"foreign\n")
+
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_temp_collision_and_substitution_preserve_foreign_inode(self) -> None:
+        with self._root() as temporary:
+            root = Path(temporary)
+            output = root / "package"
+            temp_name = ".s4-network-change-" + "a" * 24 + ".tmp"
+            temp = root / temp_name
+            temp.write_bytes(b"foreign-temp\n")
+            os.chmod(temp, 0o600)
+            with mock.patch.object(s4_network_change_package.secrets, "token_hex", return_value="a" * 24):
+                self._assert_output_error(output)
+            self.assertEqual(temp.read_bytes(), b"foreign-temp\n")
+        with self._root() as temporary:
+            root = Path(temporary)
+            output = root / "package"
+            temp_name = ".s4-network-change-" + "b" * 24 + ".tmp"
+            temp = root / temp_name
+            original_open = os.open
+            injected = False
+            def open_then_substitute(path: object, flags: int, *args: object, **kwargs: object) -> int:
+                nonlocal injected
+                descriptor = original_open(path, flags, *args, **kwargs)
+                if os.fspath(path) == temp_name and not injected:
+                    os.unlink(temp)
+                    temp.write_bytes(b"foreign-temp\n")
+                    os.chmod(temp, 0o600)
+                    injected = True
+                return descriptor
+            with (
+                mock.patch.object(s4_network_change_package.secrets, "token_hex", return_value="b" * 24),
+                mock.patch.object(s4_network_change_package.os, "open", side_effect=open_then_substitute),
+            ):
+                self._assert_output_error(output)
+            self.assertTrue(injected)
+            self.assertEqual(temp.read_bytes(), b"foreign-temp\n")
+            self.assertFalse(output.exists())
+
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_role_based_write_temp_fsync_and_directory_fsync_failures_roll_back_owned_final(self) -> None:
+        for failure in ("write", "temp-fsync", "directory-fsync"):
+            with self.subTest(failure=failure), self._root() as temporary:
+                root = Path(temporary)
+                output = root / "package"
+                real_fsync = os.fsync
+                real_fstat = os.fstat
+                failed = False
+                def fail_role(descriptor: int) -> None:
+                    nonlocal failed
+                    is_directory = stat.S_ISDIR(real_fstat(descriptor).st_mode)
+                    if failure == "temp-fsync" and not is_directory and not failed:
+                        failed = True
+                        raise OSError("synthetic")
+                    if failure == "directory-fsync" and is_directory and not failed:
+                        failed = True
+                        raise OSError("synthetic")
+                    real_fsync(descriptor)
+                patches = [mock.patch.object(s4_network_change_package.os, "fsync", side_effect=fail_role)]
+                if failure == "write":
+                    patches.insert(0, mock.patch.object(s4_network_change_package.os, "write", return_value=0))
+                with patches[0]:
+                    if len(patches) == 2:
+                        with patches[1]:
+                            self._assert_output_error(output)
+                    else:
+                        self._assert_output_error(output)
+                if failure != "write":
+                    self.assertTrue(failed)
+                self.assertFalse(output.exists())
+                self.assertEqual(list(root.iterdir()), [])
+
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_link_fileexists_races_and_post_link_recheck_preserve_foreign_final(self) -> None:
+        for mode in ("ordinary-race", "foreign-then-raise", "post-link-recheck"):
+            with self.subTest(mode=mode), self._root() as temporary:
+                root = Path(temporary)
+                output = root / "package"
+                original_link = os.link
+                foreign = b"foreign-final\n"
+                def link_race(source: object, destination: object, *args: object, **kwargs: object) -> None:
+                    if mode == "post-link-recheck":
+                        original_link(source, destination, *args, **kwargs)
+                        output.unlink()
+                        output.write_bytes(foreign)
+                        os.chmod(output, 0o600)
+                        return None
+                    output.write_bytes(foreign)
+                    os.chmod(output, 0o600)
+                    raise FileExistsError("synthetic")
+                with mock.patch.object(s4_network_change_package.os, "link", side_effect=link_race):
+                    self._assert_output_error(output)
+                self.assertEqual(output.read_bytes(), foreign)
+                self.assertFalse(any(entry.name.startswith(".s4-network-change-") for entry in root.iterdir()))
+
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_ambiguous_link_failure_and_owned_rollback_leave_no_final(self) -> None:
+        with self._root() as temporary:
+            root = Path(temporary)
+            output = root / "package"
+            original_link = os.link
+            def link_then_raise(*args: object, **kwargs: object) -> None:
+                original_link(*args, **kwargs)
+                raise OSError("synthetic")
+            with mock.patch.object(s4_network_change_package.os, "link", side_effect=link_then_raise):
+                self._assert_output_error(output)
+            self.assertFalse(output.exists())
+            self.assertEqual(list(root.iterdir()), [])
+
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_success_has_exact_bytes_private_uid_regular_single_link(self) -> None:
+        with self._root() as temporary:
+            output = Path(temporary) / "package"
+            encoded = canonical({"status": "fixture"})
+            s4_network_change_package.publish_change_package(output, encoded)
+            info = os.lstat(output)
+            self.assertTrue(stat.S_ISREG(info.st_mode))
+            self.assertEqual((info.st_uid, stat.S_IMODE(info.st_mode), info.st_nlink), (os.geteuid(), 0o600, 1))
+            self.assertEqual(output.read_bytes(), encoded)
+
+
+class S4CliMatrixTests(unittest.TestCase):
+    """Exact command grammar proof, separately for direct and wrapper calls."""
+
+    @staticmethod
+    def _invalid_argv(output: str) -> tuple[list[str], ...]:
+        forbidden = ("matrix", "apply", "repair", "disable", "restart", "rollback")
+        aliases = ("p", "pkg", "packages", "package=", "--package")
+        shapes: list[list[str]] = [[], ["package"], ["packages"], ["package", "--help"]]
+        shapes.extend([[name] for name in forbidden + aliases])
+        for option in ("--unknown", "--tooling-sha", "--inventory-extra", "--evaluation_time", "--out"):
+            shapes.append(["package", option, "value", "--inventory", "inventory", "--evaluation-time", "2026-08-31T12:00:00Z", "--output", output])
+        valid = ["package", "--inventory", "inventory", "--evaluation-time", "2026-08-31T12:00:00Z", "--output", output]
+        for position in (2, 4, 6):
+            option_value = list(valid)
+            option_value[position] = "--option-like"
+            shapes.append(option_value)
+        for option, value in (("--inventory", "inventory"), ("--evaluation-time", "2026-08-31T12:00:00Z"), ("--output", output)):
+            shapes.append(valid + [option, value])
+        shapes.extend((
+            valid + ["extra"],
+            ["package", "--inventory", "inventory", "--inventory", "again", "--evaluation-time", "2026-08-31T12:00:00Z", "--output", output],
+            ["package", "--inventory", "inventory", "--evaluation-time", "2026-08-31T12:00:00Z", "--evaluation-time", "2026-08-31T12:01:00Z", "--output", output],
+            ["package", "--inventory", "inventory", "--evaluation-time", "2026-08-31T12:00:00Z", "--output", output, "--output", output + ".two"],
+        ))
+        return tuple(shapes)
+
+    def test_direct_invalid_matrix_never_reads_or_publishes_and_is_redacted(self) -> None:
+        for argv in self._invalid_argv("candidate"):
+            with self.subTest(argv=argv):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                read_sentinel = mock.Mock(side_effect=AssertionError("read sentinel"))
+                publish_sentinel = mock.Mock(side_effect=AssertionError("publish sentinel"))
+                with (
+                    mock.patch.object(s4_network_change_package, "read_inventory", read_sentinel),
+                    mock.patch.object(s4_network_change_package, "publish_change_package", publish_sentinel),
+                ):
+                    code = s4_network_change_package.run(argv, stdout, stderr)
+                self.assertEqual((code, stdout.getvalue(), stderr.getvalue()), (3, "", "s4-network-change-package:input\n"))
+                read_sentinel.assert_not_called()
+                publish_sentinel.assert_not_called()
+
+    def test_wrapper_invalid_matrix_never_creates_candidate_and_help_does_not_leak_poisoned_environment(self) -> None:
+        wrapper = Path(__file__).parents[1] / "s4-network-change-package.py"
+        environment = os.environ.copy()
+        environment["S4_POISONED_ENV"] = "fixture-secret-environment"
+        environment["PATH"] = "fixture-secret-path"
+        with tempfile.TemporaryDirectory() as temporary:
+            for argv in self._invalid_argv(str(Path(temporary) / "candidate")):
+                with self.subTest(argv=argv):
+                    output = Path(temporary) / "candidate"
+                    completed = subprocess.run([sys.executable, str(wrapper), *argv], check=False, capture_output=True, text=True, env=environment)
+                    self.assertEqual((completed.returncode, completed.stdout, completed.stderr), (3, "", "s4-network-change-package:input\n"))
+                    self.assertFalse(output.exists())
+            help_result = subprocess.run([sys.executable, str(wrapper), "--help"], check=False, capture_output=True, text=True, env=environment)
+        self.assertEqual((help_result.returncode, help_result.stderr), (0, ""))
+        self.assertNotIn("fixture-secret", help_result.stdout + help_result.stderr)
+
+    @unittest.skipUnless(os.name == "posix", "wrapper publication requires POSIX")
+    def test_wrapper_subprocess_emits_complete_blocked_and_error_contracts(self) -> None:
+        wrapper = Path(__file__).parents[1] / "s4-network-change-package.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            os.chmod(root, 0o700)
+            for name, source_review, expected_code, expected_status in (
+                ("complete", True, 0, "EVIDENCE_COMPLETE"),
+                ("blocked", False, 2, "BLOCKED"),
+            ):
+                inventory = valid_inventory()
+                inventory["source_review_completed"] = source_review
+                input_path = root / f"{name}.json"
+                output_path = root / f"{name}.out"
+                input_path.write_bytes(canonical(inventory))
+                os.chmod(input_path, 0o600)
+                completed = subprocess.run(
+                    [sys.executable, str(wrapper), "package", "--inventory", str(input_path), "--evaluation-time", "2026-08-31T12:00:00Z", "--output", str(output_path)],
+                    check=False, capture_output=True, text=True,
+                )
+                self.assertEqual((completed.returncode, completed.stdout, completed.stderr), (expected_code, "", ""))
+                self.assertEqual(json.loads(output_path.read_bytes())["status"], expected_status)
+            invalid = root / "invalid.json"
+            invalid.write_bytes(b"not-json")
+            os.chmod(invalid, 0o600)
+            no_final = root / "no-final"
+            completed = subprocess.run(
+                [sys.executable, str(wrapper), "package", "--inventory", str(invalid), "--evaluation-time", "2026-08-31T12:00:00Z", "--output", str(no_final)],
+                check=False, capture_output=True, text=True,
+            )
+            self.assertEqual((completed.returncode, completed.stdout, completed.stderr), (3, "", "s4-network-change-package:inventory-json\n"))
+            self.assertFalse(no_final.exists())
