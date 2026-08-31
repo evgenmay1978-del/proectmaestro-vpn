@@ -9,7 +9,7 @@
   `03f293df130f10873208918e44e058d079b19843` и POSIX evidence
   `4c0383fdc1d46f9b68717a898c1d9372e00f5c04`, Task 3
   `b1b04ef69a1334a08fdde055941d8c21d906ccfc`, Task 4
-  `802ceee853154be0049f2015062ed3ea642a31eb`.
+  `caf5fe1b65410f369a5da801da5fdfdcc46dbafb`.
 - Task 4 добавляет только inert GitHub workflow и его self-policy:
   `.github/workflows/ha-s4-network-change-package.yml`,
   `ops/ha/tests/test_s4_network_change_package.py` и
