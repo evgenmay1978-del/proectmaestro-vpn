@@ -14,7 +14,7 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"path"
+	pathpkg "path"
 	"strings"
 	"unicode/utf8"
 )
@@ -116,7 +116,7 @@ func validateRequest(request Request) error {
 	u, err := url.ParseRequestURI(request.DiagnosticProbeURL)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Host != request.PublicHost ||
 		u.Path == "" || u.RawPath != "" || strings.Contains(request.DiagnosticProbeURL, "%") || strings.ContainsAny(u.Path, "\\\r\n") ||
-		strings.Contains(u.Path, "//") || path.Clean(u.Path) != u.Path || !strings.HasPrefix(u.Path, "/") {
+		strings.Contains(u.Path, "//") || pathpkg.Clean(u.Path) != u.Path || !strings.HasPrefix(u.Path, "/") {
 		return invalid("request_url_invalid")
 	}
 	if !validDigest(request.DiagnosticResponseSHA256) {
@@ -255,7 +255,7 @@ func safeEmail(email string) bool {
 	return len(email) > 2 && len(email) <= 254 && !strings.ContainsAny(email, "\r\n\x00") && strings.Count(email, "@") == 1
 }
 func safePath(path string) bool {
-	if len(path) < 2 || len(path) > 256 || !strings.HasPrefix(path, "/") || strings.Contains(path, "..") || strings.ContainsAny(path, "?#\\\r\n\x00") {
+	if len(path) < 2 || len(path) > 256 || !strings.HasPrefix(path, "/") || strings.Contains(path, "..") || strings.Contains(path, "//") || pathpkg.Clean(path) != path || strings.ContainsAny(path, "?#\\\r\n\x00") {
 		return false
 	}
 	for _, c := range path {
@@ -296,7 +296,7 @@ func decodeVLESSMaterial(value, prefix string, expectedLength int) ([]byte, bool
 	}
 	material := strings.TrimPrefix(value, prefix)
 	decoded, err := base64.RawURLEncoding.DecodeString(material)
-	if err != nil || len(decoded) != expectedLength {
+	if err != nil || len(decoded) != expectedLength || base64.RawURLEncoding.EncodeToString(decoded) != material {
 		return nil, false
 	}
 	return decoded, true

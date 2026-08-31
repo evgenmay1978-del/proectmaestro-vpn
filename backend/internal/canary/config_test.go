@@ -69,12 +69,21 @@ func TestMaterializeBuildsIsolatedXHTTPPair(t *testing.T) {
 	if len(client) != 3 || client["id"] != testMaterial().ClientID || client["email"] != testMaterial().ClientEmail || client["level"] != float64(0) {
 		t.Fatalf("server client leaked fields or mismatched: %#v", client)
 	}
+	if mapValue(t, public["settings"])["decryption"] != testMaterial().ServerDecryption {
+		t.Fatal("server decryption mismatched")
+	}
 	if bytes.Contains(artifacts.ServerConfig(), []byte(`"encryption"`)) {
 		t.Fatal("server config contains client encryption")
 	}
 
 	direct := decodeConfig(t, artifacts.DirectClientConfig())
 	cdn := decodeConfig(t, artifacts.CDNClientConfig())
+	for _, config := range []map[string]any{direct, cdn} {
+		log := mapValue(t, config["log"])
+		if log["access"] != "none" || log["error"] != "none" || log["loglevel"] != "warning" {
+			t.Fatal("client log boundary mismatched")
+		}
+	}
 	assertClientPair(t, artifacts.ClientURI(), direct, cdn)
 
 	api := mapValue(t, inbounds[1])
@@ -91,6 +100,10 @@ func TestMaterializeBuildsIsolatedXHTTPPair(t *testing.T) {
 	receipt := artifacts.Receipt()
 	if bytes.Contains(receipt, []byte(testMaterial().SecretPath)) || bytes.Contains(receipt, []byte(testRequest().DiagnosticProbeURL)) || bytes.Contains(receipt, []byte(testMaterial().ClientID)) || !bytes.Contains(receipt, []byte("baseline_unpadded")) || !bytes.Contains(receipt, []byte("maestro_advanced_not_claimed")) {
 		t.Fatalf("receipt leaked operational data or claimed advanced completion: %s", receipt)
+	}
+	var receiptFields map[string]any
+	if err := json.Unmarshal(receipt, &receiptFields); err != nil || len(receiptFields) != 7 {
+		t.Fatal("receipt field allowlist mismatch")
 	}
 
 	first := artifacts.ServerConfig()
@@ -134,16 +147,16 @@ func assertClientPair(t *testing.T, rawURI []byte, direct, cdn map[string]any) {
 	}
 	directPort := mapValue(t, arrayValue(t, direct["inbounds"])[0])["port"]
 	cdnPort := mapValue(t, arrayValue(t, cdn["inbounds"])[0])["port"]
-	if directPort == cdnPort {
-		t.Fatal("SOCKS test ports must differ")
+	if directPort != float64(10808) || cdnPort != float64(10809) {
+		t.Fatal("SOCKS test ports mismatched")
 	}
 	parsed, err := url.Parse(string(rawURI))
 	if err != nil || parsed.Scheme != "vless" || parsed.User.Username() != testMaterial().ClientID || parsed.Host != testRequest().PublicHost+":443" || strings.Contains(string(rawURI), testMaterial().ServerDecryption) {
-		t.Fatalf("invalid client URI: %s", rawURI)
+		t.Fatal("invalid client URI")
 	}
 	query := parsed.Query()
 	if len(query) != 10 || query.Get("encryption") != testMaterial().ClientEncryption || query.Get("security") != "tls" || query.Get("sni") != testRequest().PublicHost || query.Get("host") != testRequest().PublicHost || query.Get("path") != testMaterial().SecretPath || query.Get("mode") != "packet-up" || query.Get("uplinkHTTPMethod") != "GET" || query.Get("uplinkDataPlacement") != "body" || query.Get("type") != "xhttp" {
-		t.Fatalf("URI contract mismatch: %s", rawURI)
+		t.Fatal("URI contract mismatch")
 	}
 	var extra map[string]any
 	if err := json.Unmarshal([]byte(query.Get("extra")), &extra); err != nil || len(extra) != 5 || extra["sessionIDPlacement"] != "query" || extra["sessionIDKey"] != "auth" || extra["sessionIDLength"] != float64(16) || extra["seqPlacement"] != "query" || extra["seqKey"] != "chunk_id" {

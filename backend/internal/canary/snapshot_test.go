@@ -97,6 +97,7 @@ func TestParseRequestRejectsUntrustedJSON(t *testing.T) {
 		{"escaped slash", []byte(`{"schema_version":1,"public_host":"cdn.example.invalid","diagnostic_probe_url":"https://cdn.example.invalid/a%2fb","diagnostic_response_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
 		{"escaped backslash", []byte(`{"schema_version":1,"public_host":"cdn.example.invalid","diagnostic_probe_url":"https://cdn.example.invalid/a%5cb","diagnostic_response_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
 		{"escaped newline", []byte(`{"schema_version":1,"public_host":"cdn.example.invalid","diagnostic_probe_url":"https://cdn.example.invalid/a%0ab","diagnostic_response_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
+		{"duplicate secret separator", []byte(`{"schema_version":1,"public_host":"cdn.example.invalid","diagnostic_probe_url":"https://cdn.example.invalid/a//b","diagnostic_response_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,6 +126,7 @@ func TestNewSnapshotRejectsInvalidMaterialAndPins(t *testing.T) {
 			m.ClientEncryption = "mlkem768x25519plus.native.0rtt." + strings.Repeat("A", 1579)
 			m.PairTranscriptSHA256 = pairDigest(*m)
 		}},
+		{"noncanonical server base64", func(m *canary.Material) { m.ServerDecryption = m.ServerDecryption + "\n" }},
 		{"mixed pair evidence", func(m *canary.Material) { m.ClientEmail = "other@example.invalid" }},
 	}
 	for _, tc := range cases {
@@ -157,5 +159,18 @@ func TestNewSnapshotRejectsInvalidMaterialAndPins(t *testing.T) {
 		if _, err := canary.ParseSnapshot(mutated); err == nil {
 			t.Fatal("ParseSnapshot accepted substituted provenance")
 		}
+	}
+}
+
+func TestNewSnapshotRejectsNonCanonicalSecretPaths(t *testing.T) {
+	for _, secretPath := range []string{"/a//b", "/a/./b", "/a/../b", "/a/"} {
+		t.Run(secretPath, func(t *testing.T) {
+			material := testMaterial()
+			material.SecretPath = secretPath
+			material.PairTranscriptSHA256 = pairDigest(material)
+			if _, err := canary.NewSnapshot(testRequest(), material); err == nil {
+				t.Fatal("NewSnapshot accepted noncanonical secret path")
+			}
+		})
 	}
 }
