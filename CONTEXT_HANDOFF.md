@@ -7,13 +7,22 @@
   выпущен, origin остаётся текущий S1 probe на `18080` по HTTP, client access
   разрешён, CDN/browser cache выключены, разрешены только `GET`, `HEAD`,
   `OPTIONS`; за 30 дней у ресурса `0` ответов из cache и `0` ответов 5xx.
-- Два независимых live-path дали GREEN. С локального оператора GET body длиной
-  29 bytes дошёл через Yandex CDN до probe byte-exact: origin-reported SHA-256
-  совпал с sender SHA-256; `OPTIONS` с телом 4 bytes вернул `204`. С S4
-  отдельный HTTP/2 GET body длиной 31 bytes также совпал byte-exact,
-  HTTP/2 `OPTIONS` вернул `204`, а literal-edge `--resolve` с тем же SNI/Host
-  вернул HTTP/2 `200`. Origin видел `Via: Yandex-CDN`, `CDN-Loop: yandex` и
-  корректные forwarded headers.
+- Два независимых live-path дали GREEN. В свежем bounded evidence run
+  `2026-08-31T18:14:56Z..18:15:09Z` оператор Codex выполнил тесты
+  `T-CDN-LOCAL-GET`, `T-CDN-LOCAL-OPTIONS`, `T-CDN-S4-H2-GET`,
+  `T-CDN-S4-H2-OPTIONS` и `T-CDN-S4-LITERAL-EDGE`. С локального оператора GET
+  body длиной 34 bytes дошёл через Yandex CDN до probe byte-exact:
+  origin-reported SHA-256 совпал с sender SHA-256; `OPTIONS` с телом 4 bytes
+  вернул `204`. С S4 отдельный HTTP/2 GET body длиной 31 bytes также совпал
+  byte-exact, HTTP/2 `OPTIONS` вернул `204`, а literal-edge `--resolve` с тем же
+  SNI/Host вернул HTTP/2 `200`. Origin видел `Via: Yandex-CDN`,
+  `CDN-Loop: yandex` и корректные forwarded headers.
+- Защищённый raw bundle привязан к repository checkpoint
+  `d31c36d546ef4e15da6a6a5c829092a3f2f7c981`; SHA-256 его детерминированного
+  `EVIDENCE_MANIFEST.json` —
+  `f50546782b1a548a7d156ed33fada9c0dbd9888f63a3ee2873183c7ee9558416`.
+  В Git сохраняются только test IDs, UTC, оператор, результаты и digest; raw
+  hostname/IP остаются вне репозитория.
 - Это доказывает живой Yandex CDN diagnostic transport, GET/OPTIONS body path,
   HTTP/2 client leg и literal shared edge. Это **не** доказывает VLESS/XHTTP
   tunnel, работу MaestroVPN через операторский white-list, subscription import,

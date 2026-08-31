@@ -5,6 +5,14 @@ canary claims remain target-only.
 
 ## 2026-08-31 — live diagnostic Yandex CDN path
 
+- Test IDs: `T-CDN-LOCAL-GET`, `T-CDN-LOCAL-OPTIONS`,
+  `T-CDN-S4-H2-GET`, `T-CDN-S4-H2-OPTIONS`, `T-CDN-S4-LITERAL-EDGE`.
+- Operator/time: Codex,
+  `2026-08-31T18:14:56Z..2026-08-31T18:15:09Z`.
+- Repository checkpoint: `d31c36d546ef4e15da6a6a5c829092a3f2f7c981`.
+  Protected `EVIDENCE_MANIFEST.json` SHA-256:
+  `f50546782b1a548a7d156ed33fada9c0dbd9888f63a3ee2873183c7ee9558416`.
+  Raw operational hostname/IP evidence is intentionally outside Git.
 - Scope: existing test CDN resource and fallback diagnostic origin only. No
   service, origin, DNS, firewall, database, subscription, client or billing
   mutation was performed.
@@ -12,7 +20,7 @@ canary claims remain target-only.
   client access enabled, CDN/browser cache disabled, allowed methods
   `GET, HEAD, OPTIONS`, zero cached responses and zero 5xx responses in the
   displayed 30-day metrics.
-- Local probe: GET body `29` bytes, sender/origin SHA-256 match, HTTP `200`;
+- Local probe: GET body `34` bytes, sender/origin SHA-256 match, HTTP `200`;
   OPTIONS body `4` bytes, HTTP `204`.
 - Independent S4 probe: HTTP/2 GET body `31` bytes, sender/origin SHA-256
   match, HTTP `200`; HTTP/2 OPTIONS body `4` bytes, HTTP `204`; literal shared
