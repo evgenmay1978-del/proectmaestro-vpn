@@ -33,6 +33,11 @@ The package's `apply_supported: false` and `mutation_authorized: false` values
 remain authoritative for the repository artifact: standing owner authorization
 is external execution authority and is never embedded artifact authority.
 
+`EVIDENCE_COMPLETE` means schema/evidence completeness only. It never proves
+that S4 was changed, that reboot is safe, that customer traffic is ready, or
+that mutation authority is embedded in the artifact. It is not execution,
+live-readiness, or production-mutation evidence.
+
 ## Gates that remain independent and mandatory
 
 The following conditions must all be GREEN and evidenced without inference:
@@ -62,8 +67,9 @@ This amendment does not authorize OLCRTC, WDTT, real customer charges,
 OTA/release publication or signing, destructive actions, final customer-traffic
 cutover, S1-S3 work, DNS/CDN/firewall mutation, backup/restore execution, PKI
 deployment, rqlite deployment, shadow traffic, or any operation outside the
-single declared S4 window. Reboot safety, customer readiness, and live
-production readiness are not inferred from an `EVIDENCE_COMPLETE` package.
+single declared S4 window. `EVIDENCE_COMPLETE` does not prove S4 was changed,
+reboot safety, customer-traffic readiness, live production readiness, or
+embedded mutation authority.
 
 No mutation proceeds when any required evidence, trusted-time comparison,
 console path, operator, backup, health check, declaration field, stop gate,
