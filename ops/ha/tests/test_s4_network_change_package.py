@@ -620,6 +620,25 @@ class S4BoundaryContractTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertEqual(list(root.iterdir()), [])
 
+    @unittest.skipUnless(os.name == "posix", "POSIX output boundary")
+    def test_publish_rolls_back_a_final_created_before_link_reports_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            os.chmod(root, 0o700)
+            output = root / "package.json"
+            real_link = s4_network_change_package.os.link
+
+            def link_then_fail(*args: object, **kwargs: object) -> None:
+                real_link(*args, **kwargs)
+                raise OSError("fixture post-link failure")
+
+            with mock.patch.object(s4_network_change_package.os, "link", side_effect=link_then_fail):
+                with self.assertRaisesRegex(S4ChangePackageError, r":output$"):
+                    s4_network_change_package.publish_change_package(output, b"new")
+
+            self.assertFalse(output.exists())
+            self.assertEqual(list(root.iterdir()), [])
+
             with mock.patch.object(s4_network_change_package.os, "link", side_effect=OSError("fixture")):
                 with self.assertRaisesRegex(S4ChangePackageError, r":output$"):
                     s4_network_change_package.publish_change_package(output, b"new")

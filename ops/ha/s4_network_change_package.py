@@ -549,6 +549,7 @@ def publish_change_package(output: Path | str, encoded: bytes) -> None:
             follow_symlinks=False,
         )
         linked = os.fstat(descriptor)
+        published = _fingerprint(linked)
         final_path = _lstat_at(root, target.name)
         if (
             final_path is None
@@ -557,7 +558,9 @@ def publish_change_package(output: Path | str, encoded: bytes) -> None:
             or linked.st_size != len(encoded)
         ):
             _fail("output")
-        published = _fingerprint(linked)
+        current_temporary = _lstat_at(root, temporary_name)
+        if current_temporary is None or _fingerprint(current_temporary) != _fingerprint(linked):
+            _fail("output")
         _unlink_at(root, temporary_name)
         temporary = None
         final = os.fstat(descriptor)
@@ -573,10 +576,22 @@ def publish_change_package(output: Path | str, encoded: bytes) -> None:
         _ensure_output_directory(root)
         os.fsync(root.descriptor)
     except S4ChangePackageError:
-        _safe_unlink_at(root, target.name, published)
+        candidate = published
+        if candidate is None and descriptor is not None:
+            try:
+                candidate = _fingerprint(os.fstat(descriptor))
+            except OSError:
+                pass
+        _safe_unlink_at(root, target.name, candidate)
         raise
     except (OSError, TypeError, ValueError):
-        _safe_unlink_at(root, target.name, published)
+        candidate = published
+        if candidate is None and descriptor is not None:
+            try:
+                candidate = _fingerprint(os.fstat(descriptor))
+            except OSError:
+                pass
+        _safe_unlink_at(root, target.name, candidate)
         _fail("output")
     finally:
         if descriptor is not None:

@@ -22,6 +22,10 @@ was local Windows-runnable and was not a skip.
 - POSIX-only private `0700` output directory plus `0600` same-directory temp,
   fsync, hard-link no-clobber publish, final inode/directory rechecks and
   invocation-owned rollback.
+- Post-link fault handling derives an invocation-owned rollback candidate from
+  the still-open descriptor even if `link` creates the final and then reports an
+  error; temp unlink is rechecked against that descriptor immediately before
+  removal.
 - Non-POSIX fail-closed behavior before filesystem access; redacted manual CLI
   preflight; stable exits `0`, `2`, and `3`; no success stdout; a bootstrap-only
   wrapper.
@@ -30,7 +34,7 @@ was local Windows-runnable and was not a skip.
 
 ```text
 python -m unittest ops.ha.tests.test_s4_network_change_package -v
-Ran 33 tests ... OK (skipped=6)
+Ran 34 tests ... OK (skipped=7)
 
 python -m py_compile ops/ha/s4_network_change_package.py \
   ops/ha/s4-network-change-package.py
