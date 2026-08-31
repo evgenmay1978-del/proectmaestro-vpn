@@ -1,5 +1,29 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. S4 STANDING AUTHORIZATION RECONCILED — REPOSITORY-ONLY BASELINE (31.08.2026)
+
+- Durable amendment:
+  `docs/superpowers/specs/2026-08-31-maestrovpn-s4-production-authorization-amendment.md`.
+  The owner's later standing instruction removes only the extra chat-reply
+  pause after every applicable gate is GREEN; it does not replace the approved
+  design, package, evidence, trusted-time, console, second-operator, rollback,
+  stop-gate, exact-SHA CI, or independent-review requirements.
+- Before an S4 mutation, the pre-mutation declaration must bind exact `S4`,
+  package digest, operator, UTC window, impact, preconditions, protected
+  rollback-sheet identity, and every stop gate. Two independent trusted-UTC
+  comparisons, fresh unchanged inventory, independent console, second operator,
+  no concurrent work, protected backups, before-state health, fresh management
+  session, and immediate rollback remain mandatory.
+- Standing authorization is external owner authority only. It does not turn an
+  S4 artifact into embedded authority: the package remains
+  `apply_supported: false` and `mutation_authorized: false`. It does not
+  authorize OLCRTC, WDTT, real charges, OTA/release publication or signing,
+  destructive actions, or final customer cutover.
+- **PRODUCTION NO-GO** remains in force until the amendment, implementation,
+  handoff, exact-SHA GitHub CI, independent review, and all Task 6 gates are
+  GREEN. This checkpoint changes no server, DNS/CDN, customer, payment,
+  release, secret, or production configuration.
+
 ## 0. TASK15B OFFLINE PKI/SERVICE PLAN EXACT-SHA ACCEPTED (31.08.2026)
 
 - Единственная рабочая/push-ветка остаётся
