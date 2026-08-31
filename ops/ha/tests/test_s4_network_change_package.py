@@ -1048,10 +1048,17 @@ class S4SecureOutputTests(unittest.TestCase):
                 output = root / "package"
                 real_fsync = os.fsync
                 real_fstat = os.fstat
+                real_unlink = os.unlink
                 failed = False
+                directory_fsync_roles: list[str] = []
+                events: list[str] = []
                 def fail_role(descriptor: int) -> None:
                     nonlocal failed
                     is_directory = stat.S_ISDIR(real_fstat(descriptor).st_mode)
+                    if failure == "directory-fsync" and is_directory:
+                        role = "publication" if not failed else "rollback"
+                        directory_fsync_roles.append(role)
+                        events.append(f"directory-fsync:{role}")
                     if failure == "temp-fsync" and not is_directory and not failed:
                         failed = True
                         raise OSError("synthetic")
@@ -1059,17 +1066,37 @@ class S4SecureOutputTests(unittest.TestCase):
                         failed = True
                         raise OSError("synthetic")
                     real_fsync(descriptor)
+                def observe_unlink(name: object, *args: object, **kwargs: object) -> None:
+                    if failure == "directory-fsync" and os.fspath(name) == output.name:
+                        events.append("rollback-final-unlink")
+                    real_unlink(name, *args, **kwargs)
                 patches = [mock.patch.object(s4_network_change_package.os, "fsync", side_effect=fail_role)]
+                if failure == "directory-fsync":
+                    patches.append(mock.patch.object(s4_network_change_package.os, "unlink", side_effect=observe_unlink))
                 if failure == "write":
                     patches.insert(0, mock.patch.object(s4_network_change_package.os, "write", return_value=0))
                 with patches[0]:
-                    if len(patches) == 2:
+                    if len(patches) == 3:
+                        with patches[1], patches[2]:
+                            self._assert_output_error(output)
+                    elif len(patches) == 2:
                         with patches[1]:
                             self._assert_output_error(output)
                     else:
                         self._assert_output_error(output)
                 if failure != "write":
                     self.assertTrue(failed)
+                if failure == "directory-fsync":
+                    self.assertGreaterEqual(len(directory_fsync_roles), 2)
+                    self.assertEqual(directory_fsync_roles[:2], ["publication", "rollback"])
+                    self.assertLess(
+                        events.index("directory-fsync:publication"),
+                        events.index("rollback-final-unlink"),
+                    )
+                    self.assertLess(
+                        events.index("rollback-final-unlink"),
+                        events.index("directory-fsync:rollback"),
+                    )
                 self.assertFalse(output.exists())
                 self.assertEqual(list(root.iterdir()), [])
 
@@ -1163,6 +1190,40 @@ class S4CliMatrixTests(unittest.TestCase):
                 self.assertEqual((code, stdout.getvalue(), stderr.getvalue()), (3, "", "s4-network-change-package:input\n"))
                 read_sentinel.assert_not_called()
                 publish_sentinel.assert_not_called()
+
+    def test_direct_invalid_evaluation_times_fail_before_read_or_publication(self) -> None:
+        invalid_times = (
+            "2026-08-31T12:00:00+00:00",
+            "2026-08-31T12:00:00.000Z",
+            "2026-02-30T12:00:00Z",
+            "2026-08-31T12:00:00z",
+            "2026-08-31T12:00Z",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "must-not-exist"
+            for evaluation_time in invalid_times:
+                with self.subTest(evaluation_time=evaluation_time):
+                    stdout = io.StringIO()
+                    stderr = io.StringIO()
+                    read_sentinel = mock.Mock(side_effect=AssertionError("read sentinel"))
+                    publish_sentinel = mock.Mock(side_effect=AssertionError("publish sentinel"))
+                    with (
+                        mock.patch.object(s4_network_change_package, "read_inventory", read_sentinel),
+                        mock.patch.object(s4_network_change_package, "publish_change_package", publish_sentinel),
+                    ):
+                        code = s4_network_change_package.run(
+                            [
+                                "package", "--inventory", "valid-inventory",
+                                "--evaluation-time", evaluation_time,
+                                "--output", str(output),
+                            ],
+                            stdout,
+                            stderr,
+                        )
+                    self.assertEqual((code, stdout.getvalue(), stderr.getvalue()), (3, "", "s4-network-change-package:input\n"))
+                    read_sentinel.assert_not_called()
+                    publish_sentinel.assert_not_called()
+                    self.assertFalse(output.exists())
 
     def test_wrapper_invalid_matrix_never_creates_candidate_and_help_does_not_leak_poisoned_environment(self) -> None:
         wrapper = Path(__file__).parents[1] / "s4-network-change-package.py"

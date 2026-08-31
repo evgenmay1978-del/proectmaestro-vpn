@@ -680,6 +680,7 @@ def run(argv: Sequence[str] | None, stdout: TextIO, stderr: TextIO) -> int:
             _write_help(stdout)
             return 0
         inventory_path, evaluation_time_text, output_path = preflight
+        evaluation_time = _parse_cli_utc(evaluation_time_text)
         _require_posix()
         parser = _RedactedArgumentParser(add_help=False)
         parser.add_argument("command")
@@ -689,7 +690,6 @@ def run(argv: Sequence[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         parsed = parser.parse_args(
             ["package", "--inventory", inventory_path, "--evaluation-time", evaluation_time_text, "--output", output_path]
         )
-        evaluation_time = _parse_cli_utc(parsed.evaluation_time)
         inventory, digest = read_inventory(parsed.inventory, evaluation_time=evaluation_time)
         package = evaluate_inventory(inventory, inventory_sha256=digest)
         publish_change_package(parsed.output, canonical_bytes(package))

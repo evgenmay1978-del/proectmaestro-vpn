@@ -2,17 +2,29 @@
 
 ## Scope
 
-- Base: `5a2eed80e93a758341a05530a2420bcd728d0439`
+- Base: `f63242745f2d9fb6af6d25339bd5b91fe3d238db`
 - Branch: `codex/yandex-cdn-whitelist-task3-sync`
-- Changed only the Task 2 module, tests, thin wrapper, and this report.
+- Round 5 changed only the Task 2 module, focused tests, and this report.
 - No network, process, production, server, DNS, firewall, customer, or VPN action was added or invoked.
 
-## RED-first evidence
+## Review fix round 5 — RED → GREEN
 
-Before implementation, `python -m unittest
-ops.ha.tests.test_s4_network_change_package.S4BoundaryContractTests -v` failed
-with the required public filesystem/CLI boundary functions missing. The failure
-was local Windows-runnable and was not a skip.
+- RED: the new direct `run()` strict-time matrix used otherwise exact package
+  argv with `+00:00`, fractional seconds, an impossible date, lowercase `z`,
+  and missing seconds. On Windows all cases returned
+  `s4-network-change-package:unsupported-platform` before trusted-UTC parsing,
+  rather than the required redacted `input` error. The `read_inventory` and
+  `publish_change_package` sentinels remained uncalled and no candidate output
+  existed.
+- GREEN: strict CLI UTC is parsed immediately after manual argv preflight and
+  before platform/input work. Each invalid-time case now returns exit `3`, empty
+  stdout, exactly `s4-network-change-package:input` on stderr, does not call
+  either sentinel, and leaves no output.
+- The post-link parent-directory-fsync fault regression now role-classifies at
+  least two directory fsync calls and requires this order: failing publication
+  fsync, invocation-owned final rollback unlink, cleanup/rollback fsync. It
+  fails if the repeated cleanup fsync is omitted. This POSIX-only test is
+  skipped on Windows and awaits the required Ubuntu exact-SHA CI gate.
 
 ## Implemented boundary
 
@@ -34,13 +46,15 @@ was local Windows-runnable and was not a skip.
 
 ```text
 python -m unittest ops.ha.tests.test_s4_network_change_package -v
-Ran 60 tests ... OK (skipped=21)
+Ran 56 tests ... OK (skipped=21)
 
 python -m unittest \
   ops.ha.tests.test_s4_network_change_package.S4SecureInputTests -v
+Ran 5 tests ... OK (skipped=5)
+
 python -m unittest \
   ops.ha.tests.test_s4_network_change_package.S4SecureOutputTests -v
-Each selector: Ran 13 tests ... OK (skipped=7)
+Ran 7 tests ... OK (skipped=7)
 
 python -m py_compile ops/ha/s4_network_change_package.py \
   ops/ha/s4-network-change-package.py
@@ -53,58 +67,10 @@ git diff --check
 exit 0
 ```
 
-The seven skips in each named selector are explicitly POSIX-only descriptor/output tests; they are not
-RED evidence or a claim of POSIX validation. Exact-SHA Ubuntu CI is required
-next and is the authority for these checks.
+The 21 full-suite skips are POSIX descriptor/output cases. The local Windows
+result is not POSIX validation and does not claim POSIX CI is green.
 
 ## Remaining gate
 
 Push the exact Task 2 commit and require Ubuntu GitHub Actions to run the full
 POSIX suite on that exact SHA. Repository work remains production NO-GO.
-
-## Review fix round 2
-
-- Added literal direct and wrapper negative-command coverage, including no
-  stdout and redacted `input` stderr before the inventory boundary.
-- Non-POSIX sentinels now cover `lstat`, `open`, `read_inventory`, and publish.
-- Programmatic iterable/non-string argv is contained as a redacted input error.
-- Input opens include `O_NONBLOCK`; a link-time final collision is a stable
-  `output-exists` failure.
-- Fresh Windows run: `66` tests OK, `21` POSIX-only skips. The POSIX CI gate is
-  intentionally still outstanding rather than inferred from this result.
-
-## Review fix round 3
-
-- Added the complete direct preflight shape family exercised on Windows:
-  forbidden names/aliases, unknown tooling input, option-like values, every
-  duplicate option, and extra positional data. Every negative direct and
-  wrapper invocation proves exit `3`, empty stdout, redacted `input`, no input
-  read, and no output candidate.
-- Help is subprocess-tested with a synthetic secret environment value and does
-  not disclose it. Arbitrary `S4ChangePackageError` text is now mapped through
-  a static allowlist; unknown text emits only the stable redacted `system`
-  code. The thin wrapper no longer calls `Path.resolve()` before `main()`.
-- The non-POSIX sentinel test now also proves its output candidate remains
-  absent. The POSIX input matrix now keeps unsafe mode fixtures unsafe,
-  includes group/other/owner-mode permutations, FIFO/socket/symlink/hardlink,
-  and tests the exact `16_384` bounded reader with a mocked parser plus the
-  `16_385` no-parser boundary and `O_NONBLOCK` flag.
-
-Fresh Windows verification after this round:
-
-```text
-python -m unittest ops.ha.tests.test_s4_network_change_package -v
-Ran 78 tests ... OK (skipped=24)
-
-python -m py_compile ops/ha/s4_network_change_package.py \
-  ops/ha/s4-network-change-package.py
-exit 0
-
-python ops/ha/s4-network-change-package.py --help
-exit 0
-
-git diff --check
-exit 0
-```
-
-The 24 skips are POSIX boundary cases; no POSIX GitHub result is claimed here.
