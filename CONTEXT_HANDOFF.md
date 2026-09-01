@@ -1,6 +1,47 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. XHTTP FIRST-CANARY TASK 1 — LOCAL GREEN, REVIEW APPROVED (31.08.2026)
+## 0. XHTTP FIRST-CANARY — LIVE UNRESTRICTED PASS, WHITE-LIST PENDING (01.09.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. Repository/runtime/CI реализация
+  первого изолированного canary зафиксирована последовательностью exact SHA:
+  lifecycle/recovery `819e11ada7f14f4aa6b3bcdbf8cf8cc2e2fd746b`, operator CLI
+  `713eb7e0724cd075bfab72420742ffc18dc389a7`, exact-SHA CI policy
+  `445b8fa682d128cabd03576050be936b33e658ec`. Финальные независимые reviews
+  каждого актуального code scope завершены с `0 Critical / 0 Important`.
+  `445b8fa` содержит CI policy, но не заменяет успешный workflow run: exact-SHA
+  GitHub CI для итогового docs-inclusive HEAD остаётся **PENDING** и является
+  следующим обязательным gate.
+- На S4 работает только отдельный тестовый Xray `26.7.28` sidecar; обычный
+  x-ui/Xray и его TCP/UDP `443` не изменялись. Direct tunnel и tunnel через
+  тестовый Yandex CDN прошли server-side smoke. После владельческого теста в
+  современном Xray-клиенте per-user uplink/downlink counter вырос на `5844`
+  bytes (`8704 -> 14548`), поэтому unrestricted client path имеет **PASS**.
+  Защищённый evidence run: `20260831T213659Z`; SHA-256 клиентского validation
+  log: `23842965f2b14df2c0185636d5699ce83e31d8fb8755692f4058657d4c1119ce`.
+- Реальный тест при включённом операторском mobile white-list всё ещё
+  **PENDING**: в момент проверки white-list не действовал. По прямому указанию
+  владельца тестовый canary и его временный клиентский ключ остаются активны до
+  утреннего семейного теста. Не выполнять status-probe, rollback, rotation или
+  удаление ключа без завершения этого тестового окна либо отдельного stop-gate.
+- Выданный test URI совместим с современным Xray-клиентом, но **не** с
+  production MaestroVPN Android/TV `1.0.157`: приложение использует pinned
+  sing-box/libbox без XHTTP и ML-KEM VLESS Encryption, а QR/import принимает
+  trusted HTTPS `/sub/<token>`, но не прямой VLESS share URI. Оборачивание URI в
+  текущую subscription без нового compatible client/runtime этого не исправит.
+- Task 2 recovery сохраняет fail-closed порядок: сначала оператор отдельно
+  возвращает Yandex CDN на диагностический origin, затем CLI `rollback`
+  проверяет этот внешний restore и только после этого снимает sidecar/local
+  state. Сам CLI не изменяет Yandex Cloud.
+- Это не готовый customer product. Repository уже содержит durable entitlement
+  identity `wl:<entitlementID>` и additive white-list renderer. Не реализованы
+  их production wiring в `/sub/<token>`, durable profile/preset/release/edge
+  credential binding, production stats collector, durable GB ledger/runtime
+  metering/billing, panel/private projections, Telegram UX, fleet rollout и
+  customer cutover; эти контуры остаются **NOT IMPLEMENTED / NOT TESTED**.
+  Android/TV production baseline остаётся `1.0.157`; OLCRTC и WDTT вне scope.
+
+## 0. HISTORICAL — XHTTP FIRST-CANARY TASK 1 LOCAL GREEN (31.08.2026)
 
 - Единственная рабочая/push-ветка остаётся
   `codex/yandex-cdn-whitelist-task3-sync`. Исполняемый runtime plan имеет base
@@ -17,23 +58,24 @@
   `0 Critical / 0 Important`; три прежних Important исправлены. Оставшееся
   Minor касается только сокращения диагностик тестовых failure-сообщений и не
   блокирует Task 1.
-- Полные Linux race/vet/regression и exact-SHA GitHub checks намеренно остаются
-  обязательным Task 4 gate; этот локальный результат их не заменяет. Реальный
-  VLESS/XHTTP tunnel, Yandex CDN tunnel, операторский white-list, per-user
-  stats, subscription, metering и billing всё ещё **NOT TESTED**.
-- Следующий repository этап — Task 2: защищённая Linux stage/lifecycle
+- На этом историческом Task 1 checkpoint полные Linux race/vet/regression и
+  exact-SHA GitHub checks ещё оставались обязательным Task 4 gate; локальный
+  результат их не заменял. Реальный VLESS/XHTTP tunnel, Yandex CDN tunnel,
+  операторский white-list, per-user stats, subscription, metering и billing на
+  том checkpoint ещё **NOT TESTED**. Актуальный результат приведён выше.
+- Следующим repository этапом был Task 2: защищённая Linux stage/lifecycle
   `ABSENT -> PREPARED -> ROLLBACK_REQUIRED -> CANARY_ACTIVE -> ABSENT` с
   отдельным systemd sidecar, проверкой pinned binary/config и гарантированным
   восстановлением diagnostic origin. S1-S4, ordinary x-ui/Xray, CDN origin,
   клиенты, Telegram, платежи и Android/TV `1.0.157` этим Task 1 не изменялись;
   OLCRTC и WDTT остаются вне scope.
 
-## 0. YANDEX CDN DIAGNOSTIC TRANSPORT — LIVE PARTIAL GREEN (31.08.2026)
+## 0. HISTORICAL — YANDEX CDN DIAGNOSTIC TRANSPORT (31.08.2026)
 
-- Read-only проверка Yandex Cloud подтвердила один активный тестовый ресурс
+- Read-only проверка Yandex Cloud на этом checkpoint подтвердила один активный тестовый ресурс
   для owner-authoritative public hostname из MASTER section 4: сертификат
-  выпущен, origin остаётся текущий S1 probe на `18080` по HTTP, client access
-  разрешён, CDN/browser cache выключены, разрешены только `GET`, `HEAD`,
+  был выпущен, origin тогда указывал на S1 probe `18080` по HTTP, client access
+  был разрешён, CDN/browser cache выключены, разрешены только `GET`, `HEAD`,
   `OPTIONS`; за 30 дней у ресурса `0` ответов из cache и `0` ответов 5xx.
 - Два независимых live-path дали GREEN. В свежем bounded evidence run
   `2026-08-31T18:14:56Z..18:15:09Z` оператор Codex выполнил тесты
@@ -51,15 +93,18 @@
   `f50546782b1a548a7d156ed33fada9c0dbd9888f63a3ee2873183c7ee9558416`.
   В Git сохраняются только test IDs, UTC, оператор, результаты и digest; raw
   hostname/IP остаются вне репозитория.
-- Это доказывает живой Yandex CDN diagnostic transport, GET/OPTIONS body path,
-  HTTP/2 client leg и literal shared edge. Это **не** доказывает VLESS/XHTTP
+- Этот исторический тест доказал живой Yandex CDN diagnostic transport,
+  GET/OPTIONS body path, HTTP/2 client leg и literal shared edge. Сам по себе он
+  **не** доказывал VLESS/XHTTP
   tunnel, работу MaestroVPN через операторский white-list, subscription import,
   per-user stats или billing.
-- Candidate sidecar ports `18081/18082` сейчас не принимают соединение. S1
-  management port `22` принимает TCP, но не отдаёт SSH identification ни
+- На том checkpoint candidate sidecar ports `18081/18082` не принимали
+  соединение. S1 management port `22` принимал TCP, но не отдавал SSH identification ни
   локальному оператору, ни S4; альтернативный документированный/common SSH
-  port и отдельный S1 provider console не найдены. Поэтому sidecar не
-  устанавливался, origin не переключался и обычный VPN не менялся.
+  port и отдельный S1 provider console не были найдены. Поэтому на том этапе
+  sidecar не устанавливался, origin не переключался и обычный VPN не менялся.
+  Последующий first-canary PASS и текущее активное тестовое окно зафиксированы
+  в верхнем разделе и supersede этот исторический current-state snapshot.
 - Repository checkpoint для завершённого S4 результата — exact SHA
   `ab68710419acfcd99069da3422e5b6312669bff6`; применимые workflows GREEN:
   `33417902008`, `33417902015`, `33417902032`.
