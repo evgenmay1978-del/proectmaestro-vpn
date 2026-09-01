@@ -27,6 +27,7 @@ validation_packages=(
   ./cmd/maestro-xray-cdn-canary
   ./internal/testsupport/whitelistfixture
 )
+shopt -s nullglob
 commercial_python_sources=(../deploy/vpn_bot_maestro_*.py)
 
 while (($# > 0)); do
@@ -83,7 +84,6 @@ for package in "${validation_packages[@]}"; do
   [[ -d ${package#./} ]] && existing_packages+=("$package")
 done
 "$go_binary" test -count=1 "${existing_packages[@]}" || fail go_tests_failed
-shopt -s nullglob
 if ((${#commercial_python_sources[@]})); then
   python3 -X utf8 -m py_compile "${commercial_python_sources[@]}" || fail python_compile_failed
 fi

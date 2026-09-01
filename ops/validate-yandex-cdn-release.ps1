@@ -43,7 +43,7 @@ $validationPackages = @(
     './cmd/maestro-xray-cdn-canary'
     './internal/testsupport/whitelistfixture'
 )
-$commercialPythonSources = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..\deploy') -Filter 'vpn_bot_maestro_*.py' -File -ErrorAction SilentlyContinue
+$commercialPythonSources = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..\deploy') -Filter 'vpn_bot_maestro_*.py' -File -ErrorAction SilentlyContinue)
 
 for ($index = 0; $index -lt $args.Count; $index += 2) {
     if ($index + 1 -ge $args.Count) {
