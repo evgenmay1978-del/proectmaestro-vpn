@@ -25,6 +25,7 @@ type ServiceBusinessConfig struct {
 	Now                  func() time.Time
 	SubscriptionCacheTTL time.Duration
 	WhiteListPublicationSource WhiteListPublicationSource
+	WhiteListPublicationTimeout time.Duration
 }
 
 type externalActionRunner interface {
@@ -65,6 +66,7 @@ func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig
 		now = time.Now
 	}
 	cacheTTL := cfg.SubscriptionCacheTTL
+	if cfg.WhiteListPublicationTimeout <= 0 { cfg.WhiteListPublicationTimeout = time.Second }
 	if cacheTTL <= 0 {
 		cacheTTL = defaultSubscriptionCacheTTL
 	}

@@ -215,6 +215,8 @@ type CancelOrderCommand struct {
 
 type SubscriptionSnapshot struct {
 	ContentType string          `json:"-"`
+	ETag string `json:"-"`
+	ContentLength int `json:"-"`
 	Customer    CustomerView    `json:"customer"`
 	Document    json.RawMessage `json:"document"`
 	Cached      bool            `json:"cached,omitempty"`

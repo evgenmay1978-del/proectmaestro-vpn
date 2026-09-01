@@ -115,6 +115,7 @@ func rqliteServiceBusinessConfig(apiConfig api.Config, wbSender controlplane.Ext
 		WBRoomSender: wbSender, WorkerID: workerID,
 		SubscriptionTopology: rqliteSubscriptionTopologyFromEnvironment(),
 		DeviceLimitFor:       rqliteDeviceLimitFor(apiConfig.EnforceDeviceLimit),
+		WhiteListPublicationSource: runtimeWhiteListPublicationSource(),
 	}
 }
 
