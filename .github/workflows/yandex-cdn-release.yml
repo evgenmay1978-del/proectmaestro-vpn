@@ -195,6 +195,32 @@ jobs:
             GOCACHE="$go_cache" \
             GOMODCACHE="$go_mod_cache" \
             "$go_binary" test -count=1 -buildvcs=false -json \
+              ./internal/canary | python -c '
+          import json
+          import sys
+          expected = {
+              "TestStorePrepareCreatesProtectedStage",
+              "TestStoreLifecycleAndRollback",
+              "TestStoreRejectsUnsafeManagedAncestor",
+          }
+          passes = {name: 0 for name in expected}
+          skips = {name: 0 for name in expected}
+          for raw in sys.stdin:
+              event = json.loads(raw)
+              name = event.get("Test")
+              if name not in expected:
+                  continue
+              if event.get("Action") == "pass":
+                  passes[name] += 1
+              if event.get("Action") == "skip":
+                  skips[name] += 1
+          if passes != {name: 1 for name in expected} or any(skips.values()):
+              raise SystemExit(f"root canary tests not proven: passes={passes!r} skips={skips!r}")
+          '
+          sudo --non-interactive env \
+            GOCACHE="$go_cache" \
+            GOMODCACHE="$go_mod_cache" \
+            "$go_binary" test -count=1 -buildvcs=false -json \
               -run '^(TestLinuxProtectedReaderAndTemporaryExecutable|TestLinuxCredentialExecutionClearsSupplementaryGroups)$' \
               ./cmd/maestro-xray-cdn-canary | python -c '
           import json
@@ -275,6 +301,67 @@ jobs:
             ./cmd/maestro-whitelist-ready \
             ./cmd/maestro-xray-cdn-canary \
             ./internal/testsupport/whitelistfixture
+
+      - name: Race-test exact-SHA root-only Linux canary contracts
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go_binary="$(command -v go)"
+          go_cache="$(go env GOCACHE)"
+          go_mod_cache="$(go env GOMODCACHE)"
+          sudo --non-interactive env \
+            GOCACHE="$go_cache" \
+            GOMODCACHE="$go_mod_cache" \
+            "$go_binary" test -count=1 -buildvcs=false -race -json \
+              ./internal/canary | python -c '
+          import json
+          import sys
+          expected = {
+              "TestStorePrepareCreatesProtectedStage",
+              "TestStoreLifecycleAndRollback",
+              "TestStoreRejectsUnsafeManagedAncestor",
+          }
+          passes = {name: 0 for name in expected}
+          skips = {name: 0 for name in expected}
+          for raw in sys.stdin:
+              event = json.loads(raw)
+              name = event.get("Test")
+              if name not in expected:
+                  continue
+              if event.get("Action") == "pass":
+                  passes[name] += 1
+              if event.get("Action") == "skip":
+                  skips[name] += 1
+          if passes != {name: 1 for name in expected} or any(skips.values()):
+              raise SystemExit(f"root race canary tests not proven: passes={passes!r} skips={skips!r}")
+          '
+          sudo --non-interactive env \
+            GOCACHE="$go_cache" \
+            GOMODCACHE="$go_mod_cache" \
+            "$go_binary" test -count=1 -buildvcs=false -race -json \
+              -run '^(TestLinuxProtectedReaderAndTemporaryExecutable|TestLinuxCredentialExecutionClearsSupplementaryGroups)$' \
+              ./cmd/maestro-xray-cdn-canary | python -c '
+          import json
+          import sys
+          expected = {
+              "TestLinuxProtectedReaderAndTemporaryExecutable",
+              "TestLinuxCredentialExecutionClearsSupplementaryGroups",
+          }
+          passes = {name: 0 for name in expected}
+          skips = {name: 0 for name in expected}
+          for raw in sys.stdin:
+              event = json.loads(raw)
+              name = event.get("Test")
+              if name not in expected:
+                  continue
+              if event.get("Action") == "pass":
+                  passes[name] += 1
+              if event.get("Action") == "skip":
+                  skips[name] += 1
+          if passes != {name: 1 for name in expected} or any(skips.values()):
+              raise SystemExit(f"root race CLI tests not proven: passes={passes!r} skips={skips!r}")
+          '
 
   offline-replay:
     needs: format-unit

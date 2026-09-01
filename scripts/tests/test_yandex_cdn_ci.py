@@ -18,7 +18,9 @@ WORKFLOW = REPO_ROOT / ".github" / "workflows" / "yandex-cdn-release.yml"
 GRADLE = REPO_ROOT / "app" / "build.gradle.kts"
 BASH_RELEASE_VALIDATOR = REPO_ROOT / "ops" / "validate-yandex-cdn-release.sh"
 POWERSHELL_RELEASE_VALIDATOR = REPO_ROOT / "ops" / "validate-yandex-cdn-release.ps1"
+STORE_LINUX_TEST = REPO_ROOT / "backend" / "internal" / "canary" / "store_linux_test.go"
 ROOT_CANARY_STEP = "Test exact-SHA root-only Linux canary contracts"
+ROOT_CANARY_RACE_STEP = "Race-test exact-SHA root-only Linux canary contracts"
 FAKE_GO_SOURCE = """from __future__ import annotations
 
 import json
@@ -414,7 +416,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "bdf965479dafb321c988ae46828483b6df07ba9a65731b073f75bf0f0d8e1893"
+    "2b90f20ac467dcbaef77b29615c90777f9d6e0e66c74500539461da7351e6831"
 )
 
 
@@ -1268,6 +1270,32 @@ class WorkflowGateContractTest(unittest.TestCase):
                 '  GOCACHE="$go_cache" \\',
                 '  GOMODCACHE="$go_mod_cache" \\',
                 '  "$go_binary" test -count=1 -buildvcs=false -json \\',
+                "    ./internal/canary | python -c '",
+                "import json",
+                "import sys",
+                "expected = {",
+                '    "TestStorePrepareCreatesProtectedStage",',
+                '    "TestStoreLifecycleAndRollback",',
+                '    "TestStoreRejectsUnsafeManagedAncestor",',
+                "}",
+                "passes = {name: 0 for name in expected}",
+                "skips = {name: 0 for name in expected}",
+                "for raw in sys.stdin:",
+                "    event = json.loads(raw)",
+                '    name = event.get("Test")',
+                "    if name not in expected:",
+                "        continue",
+                '    if event.get("Action") == "pass":',
+                "        passes[name] += 1",
+                '    if event.get("Action") == "skip":',
+                "        skips[name] += 1",
+                "if passes != {name: 1 for name in expected} or any(skips.values()):",
+                '    raise SystemExit(f"root canary tests not proven: passes={passes!r} skips={skips!r}")',
+                "'",
+                "sudo --non-interactive env \\",
+                '  GOCACHE="$go_cache" \\',
+                '  GOMODCACHE="$go_mod_cache" \\',
+                '  "$go_binary" test -count=1 -buildvcs=false -json \\',
                 "    -run '^(TestLinuxProtectedReaderAndTemporaryExecutable|TestLinuxCredentialExecutionClearsSupplementaryGroups)$' \\",
                 "    ./cmd/maestro-xray-cdn-canary | python -c '",
                 "import json",
@@ -1292,6 +1320,89 @@ class WorkflowGateContractTest(unittest.TestCase):
                 "'",
             ),
             step_run_lines(source, ROOT_CANARY_STEP),
+        )
+
+    def test_linux_store_tests_skip_only_outside_the_root_ci_gate(self) -> None:
+        source = STORE_LINUX_TEST.read_text(encoding="utf-8")
+        self.assertRegex(
+            source,
+            re.compile(
+                r"func testStoreAtRoot\([^\n]+\) \(\*Store, storeConfig\) \{\n"
+                r"\tt\.Helper\(\)\n"
+                r"\tif os\.Geteuid\(\) != 0 \{\n"
+                r'\t\tt\.Skip\("Linux store ownership contract requires root"\)\n'
+                r"\t\}",
+            ),
+        )
+
+    def test_root_only_linux_canary_race_tests_are_exact_sha_and_sudo_gated(self) -> None:
+        source = workflow_text()
+        assert_step_metadata(
+            source,
+            ROOT_CANARY_RACE_STEP,
+            {"working-directory": "backend", "run": "|"},
+        )
+        self.assertEqual(
+            (
+                "set -euo pipefail",
+                'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+                'go_binary="$(command -v go)"',
+                'go_cache="$(go env GOCACHE)"',
+                'go_mod_cache="$(go env GOMODCACHE)"',
+                "sudo --non-interactive env \\",
+                '  GOCACHE="$go_cache" \\',
+                '  GOMODCACHE="$go_mod_cache" \\',
+                '  "$go_binary" test -count=1 -buildvcs=false -race -json \\',
+                "    ./internal/canary | python -c '",
+                "import json",
+                "import sys",
+                "expected = {",
+                '    "TestStorePrepareCreatesProtectedStage",',
+                '    "TestStoreLifecycleAndRollback",',
+                '    "TestStoreRejectsUnsafeManagedAncestor",',
+                "}",
+                "passes = {name: 0 for name in expected}",
+                "skips = {name: 0 for name in expected}",
+                "for raw in sys.stdin:",
+                "    event = json.loads(raw)",
+                '    name = event.get("Test")',
+                "    if name not in expected:",
+                "        continue",
+                '    if event.get("Action") == "pass":',
+                "        passes[name] += 1",
+                '    if event.get("Action") == "skip":',
+                "        skips[name] += 1",
+                "if passes != {name: 1 for name in expected} or any(skips.values()):",
+                '    raise SystemExit(f"root race canary tests not proven: passes={passes!r} skips={skips!r}")',
+                "'",
+                "sudo --non-interactive env \\",
+                '  GOCACHE="$go_cache" \\',
+                '  GOMODCACHE="$go_mod_cache" \\',
+                '  "$go_binary" test -count=1 -buildvcs=false -race -json \\',
+                "    -run '^(TestLinuxProtectedReaderAndTemporaryExecutable|TestLinuxCredentialExecutionClearsSupplementaryGroups)$' \\",
+                "    ./cmd/maestro-xray-cdn-canary | python -c '",
+                "import json",
+                "import sys",
+                "expected = {",
+                '    "TestLinuxProtectedReaderAndTemporaryExecutable",',
+                '    "TestLinuxCredentialExecutionClearsSupplementaryGroups",',
+                "}",
+                "passes = {name: 0 for name in expected}",
+                "skips = {name: 0 for name in expected}",
+                "for raw in sys.stdin:",
+                "    event = json.loads(raw)",
+                '    name = event.get("Test")',
+                "    if name not in expected:",
+                "        continue",
+                '    if event.get("Action") == "pass":',
+                "        passes[name] += 1",
+                '    if event.get("Action") == "skip":',
+                "        skips[name] += 1",
+                "if passes != {name: 1 for name in expected} or any(skips.values()):",
+                '    raise SystemExit(f"root race CLI tests not proven: passes={passes!r} skips={skips!r}")',
+                "'",
+            ),
+            step_run_lines(source, ROOT_CANARY_RACE_STEP),
         )
 
     def test_offline_replay_runs_exact_wrappers_and_parses_pass_no_go_json(self) -> None:

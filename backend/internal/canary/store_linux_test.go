@@ -194,6 +194,9 @@ func testStore(t *testing.T, binary []byte, hook func(string) error) (*Store, st
 
 func testStoreAtRoot(t *testing.T, root string, binary []byte, runtimeID string, hook func(string) error) (*Store, storeConfig) {
 	t.Helper()
+	if os.Geteuid() != 0 {
+		t.Skip("Linux store ownership contract requires root")
+	}
 	digest := sha256.Sum256(binary)
 	rootUID := uint32(os.Getuid())
 	serviceUID := rootUID + 1
