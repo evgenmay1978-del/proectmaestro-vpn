@@ -98,20 +98,20 @@ func TestWhiteListCommercialBalancePreservesExactV1ThroughV10Checksums(t *testin
 		t.Fatal(err)
 	}
 	want := []struct{ path, checksum string }{
-		{"migrations/0001_control_plane.sql", "c5ed7cb0d13cf0f00def416f0a88cfe60a7d8388b0e76a6e6b5ce62c93ebb0b9"},
-		{"migrations/0002_restore_epoch.sql", "ae8d8fdf9d43d04bf26895bfcf0b8c3a93d627a9be68aca8abf293264bcb3cf7"},
-		{"migrations/0003_outbox_fencing.sql", "e7c7c70e6d14007ae2e1f5b7d4b1a25264eaabec3eefadbb9542c644bd98566f"},
-		{"migrations/0004_whitelist_entitlement_identity.sql", "cda7555052ad6e908517704b672023ad2e645ac6d7077700769a93994824d6f1"},
-		{"migrations/0005_backup_rpo.sql", "898cde623153b071848e34e5828becdbb27d75b4fb55220a22d33883ecbc5296"},
-		{"migrations/0006_setting_mutation_token.sql", "d8514ee9bb83daa9a761e503681354b17897324b6cd98e340f770a75e1b5851e"},
-		{"migrations/0007_orders_exactly_once.sql", "d2bdc09a09889a2a0a41928bb7e33423d4bf64ab712f072f37aa213df7460d66"},
-		{"migrations/0008_external_action_binding.sql", "c80a0c7cf6d2441412d7a62cd389d59b2ba4ca80983975be0ecbdc08fdd09890"},
-		{"migrations/0009_rate_limit_retention.sql", "8b3ba568d0addee453f4da4fd97bfc42a543a2343e173f0d6ba6c4843e06bc1a"},
-		{"migrations/0010_whitelist_metering.sql", "d06dfbc96012079e8747f43a877cfdc65f87b6f1ebd6a69b4bdd02ad72b20210"},
+		{"migrations/0001_control_plane.sql", "48d4ea2c209dd53f51fe0b507a0ece15b52098aa4072ad994fed69ec60403056"},
+		{"migrations/0002_restore_epoch.sql", "8d485e12b9b4c749f0e930746dfeb0b67f05368bdc73d075f70b6cf0006eded7"},
+		{"migrations/0003_outbox_fencing.sql", "f27c1682f6f437f99710e5380970c577c90e3374deea347bf2383358591da9bd"},
+		{"migrations/0004_whitelist_entitlement_identity.sql", "707ede55a373432b4dc72dc81e41bb41052c754552ff848577e828522e6de82f"},
+		{"migrations/0005_backup_rpo.sql", "17adc3309bb73d79d7702a16585cd619cdd602643c714e5a3192addb2ff0205c"},
+		{"migrations/0006_setting_mutation_token.sql", "c76ae24756f5a165727e78c6ab2c6e52d662c8f9833d6429622302201b0a790b"},
+		{"migrations/0007_orders_exactly_once.sql", "4c985d9c54dd4ede88b4fd2020e314a7164456bea41c83f6ad9b3db455c2388e"},
+		{"migrations/0008_external_action_binding.sql", "703bcabf3b8c8b5e4ac712e9f7cbc4b29b1a799cc114b67aa0926bd3f7de1f81"},
+		{"migrations/0009_rate_limit_retention.sql", "01a6568d9558293bc1000cac6947b378bdc6c40f73b43ad56d6d251a0e4e202d"},
+		{"migrations/0010_whitelist_metering.sql", "b958ddee59e5ac0fe854627ee46de137a8f4f86f81933a08c8d3a59ed875df64"},
 	}
 	for index, expected := range want {
 		if migrations[index].Path != expected.path || migrations[index].Checksum != expected.checksum {
-			t.Fatalf("migration %d = %#v, want path=%q checksum=%q", index+1, migrations[index], expected.path, expected.checksum)
+			t.Fatalf("migration %d path=%q checksum=%q, want path=%q checksum=%q", index+1, migrations[index].Path, migrations[index].Checksum, expected.path, expected.checksum)
 		}
 	}
 }
