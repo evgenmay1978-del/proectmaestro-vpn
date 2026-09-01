@@ -416,7 +416,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "2b90f20ac467dcbaef77b29615c90777f9d6e0e66c74500539461da7351e6831"
+    "642e23b34d743ce335f920cc9ecf04eeaf07f306807be787e0d5b474894bc284"
 )
 
 
@@ -1306,16 +1306,20 @@ class WorkflowGateContractTest(unittest.TestCase):
                 "}",
                 "passes = {name: 0 for name in expected}",
                 "skips = {name: 0 for name in expected}",
+                "outputs = []",
                 "for raw in sys.stdin:",
                 "    event = json.loads(raw)",
                 '    name = event.get("Test")',
                 "    if name not in expected:",
                 "        continue",
+                '    if event.get("Action") == "output":',
+                '        outputs.append(event.get("Output", ""))',
                 '    if event.get("Action") == "pass":',
                 "        passes[name] += 1",
                 '    if event.get("Action") == "skip":',
                 "        skips[name] += 1",
                 "if passes != {name: 1 for name in expected} or any(skips.values()):",
+                "    sys.stderr.writelines(outputs)",
                 '    raise SystemExit(f"root tests not proven: passes={passes!r} skips={skips!r}")',
                 "'",
             ),

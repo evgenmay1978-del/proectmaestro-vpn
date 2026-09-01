@@ -231,16 +231,20 @@ jobs:
           }
           passes = {name: 0 for name in expected}
           skips = {name: 0 for name in expected}
+          outputs = []
           for raw in sys.stdin:
               event = json.loads(raw)
               name = event.get("Test")
               if name not in expected:
                   continue
+              if event.get("Action") == "output":
+                  outputs.append(event.get("Output", ""))
               if event.get("Action") == "pass":
                   passes[name] += 1
               if event.get("Action") == "skip":
                   skips[name] += 1
           if passes != {name: 1 for name in expected} or any(skips.values()):
+              sys.stderr.writelines(outputs)
               raise SystemExit(f"root tests not proven: passes={passes!r} skips={skips!r}")
           '
 
