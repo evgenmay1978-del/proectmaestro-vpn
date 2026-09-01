@@ -30,9 +30,16 @@ var (
 // WhiteListShareLink returns a single modern-Xray VLESS/XHTTP URI. Internal
 // release and entitlement identifiers are intentionally not serialized.
 func WhiteListShareLink(node WhiteListNode) (string, error) {
+	return whiteListShareLinkWithLabel(node, whiteListShareLabel)
+}
+
+func whiteListShareLinkWithLabel(node WhiteListNode, label string) (string, error) {
 	extra, err := validatedWhiteListNodeExtra(node)
 	if err != nil {
 		return "", err
+	}
+	if !validWhiteListPublicLabel(label, node) {
+		return "", errInvalidWhiteListNode
 	}
 
 	query := url.Values{
@@ -52,7 +59,7 @@ func WhiteListShareLink(node WhiteListNode) (string, error) {
 		User:     url.User(node.ClientID),
 		Host:     net.JoinHostPort(node.Address, strconv.Itoa(node.Port)),
 		RawQuery: query.Encode(),
-		Fragment: whiteListShareLabel,
+		Fragment: label,
 	}).String()
 	if len(link) > maxWhiteListLinkBytes {
 		return "", errWhiteListSubscriptionTooLarge
@@ -63,34 +70,95 @@ func WhiteListShareLink(node WhiteListNode) (string, error) {
 // AppendWhiteListShareLink preserves the decoded ordinary subscription as an
 // exact prefix and appends at most one canonical whitelist URI.
 func AppendWhiteListShareLink(encoded string, node WhiteListNode) (string, error) {
+	node.Label = whiteListShareLabel
+	return AppendWhiteListShareLinks(encoded, []WhiteListNode{node})
+}
+
+// AppendWhiteListShareLinks preserves an accepted ordinary document byte-for-byte
+// and appends every new canonical whitelist URI only after the full batch is valid.
+func AppendWhiteListShareLinks(encoded string, nodes []WhiteListNode) (string, error) {
+	ordinary, err := decodeOrdinaryWhiteListSubscription(encoded)
+	if err != nil {
+		return "", err
+	}
+	if len(nodes) == 0 {
+		return encoded, nil
+	}
+
+	links := make([]string, 0, len(nodes))
+	labels := make(map[string]struct{}, len(nodes))
+	clientIDs := make(map[string]struct{}, len(nodes))
+	for _, node := range nodes {
+		if _, exists := labels[node.Label]; exists {
+			return "", errInvalidWhiteListNode
+		}
+		if _, exists := clientIDs[node.ClientID]; exists {
+			return "", errInvalidWhiteListNode
+		}
+		link, err := whiteListShareLinkWithLabel(node, node.Label)
+		if err != nil {
+			return "", err
+		}
+		labels[node.Label] = struct{}{}
+		clientIDs[node.ClientID] = struct{}{}
+		links = append(links, link)
+	}
+
+	present := make(map[string]struct{}, len(links))
+	for _, line := range bytes.Split(ordinary, []byte{'\n'}) {
+		present[string(line)] = struct{}{}
+	}
+	appendBytes := 0
+	for _, link := range links {
+		if _, exists := present[link]; !exists {
+			appendBytes += 1 + len(link)
+		}
+	}
+	if len(ordinary)+appendBytes > maxWhiteListSubscriptionBytes {
+		return "", errWhiteListSubscriptionTooLarge
+	}
+
+	augmented := make([]byte, 0, len(ordinary)+appendBytes)
+	augmented = append(augmented, ordinary...)
+	for _, link := range links {
+		if _, exists := present[link]; exists {
+			continue
+		}
+		augmented = append(augmented, '\n')
+		augmented = append(augmented, link...)
+		present[link] = struct{}{}
+	}
+	return base64.StdEncoding.EncodeToString(augmented), nil
+}
+
+func decodeOrdinaryWhiteListSubscription(encoded string) ([]byte, error) {
 	if encoded == "" || len(encoded) > base64.StdEncoding.EncodedLen(maxWhiteListSubscriptionBytes) || strings.ContainsAny(encoded, " \t\r\n") {
-		return "", errInvalidOrdinarySubscription
+		return nil, errInvalidOrdinarySubscription
 	}
 	ordinary, err := base64.StdEncoding.Strict().DecodeString(encoded)
 	if err != nil || len(ordinary) == 0 || len(ordinary) > maxWhiteListSubscriptionBytes ||
 		base64.StdEncoding.EncodeToString(ordinary) != encoded || !utf8.Valid(ordinary) ||
 		bytes.ContainsAny(ordinary, "\x00\r") || ordinary[len(ordinary)-1] == '\n' {
-		return "", errInvalidOrdinarySubscription
+		return nil, errInvalidOrdinarySubscription
 	}
+	return ordinary, nil
+}
 
-	link, err := WhiteListShareLink(node)
-	if err != nil {
-		return "", err
+func validWhiteListPublicLabel(label string, node WhiteListNode) bool {
+	if label == "" || len(label) > 255 || !utf8.ValidString(label) {
+		return false
 	}
-	for _, line := range bytes.Split(ordinary, []byte{'\n'}) {
-		if string(line) == link {
-			return encoded, nil
+	for _, char := range label {
+		if char < 0x20 || char == 0x7f {
+			return false
 		}
 	}
-	if len(ordinary)+1+len(link) > maxWhiteListSubscriptionBytes {
-		return "", errWhiteListSubscriptionTooLarge
+	for _, internal := range []string{node.EdgeID, node.TransportProfileID, node.CompatibilityPresetID, node.TransportReleaseID} {
+		if internal != "" && strings.Contains(label, internal) {
+			return false
+		}
 	}
-
-	augmented := make([]byte, 0, len(ordinary)+1+len(link))
-	augmented = append(augmented, ordinary...)
-	augmented = append(augmented, '\n')
-	augmented = append(augmented, link...)
-	return base64.StdEncoding.EncodeToString(augmented), nil
+	return true
 }
 
 func validatedWhiteListNodeExtra(node WhiteListNode) (string, error) {
