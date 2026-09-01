@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -38,7 +39,7 @@ func whiteListShareLinkWithLabel(node WhiteListNode, label string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if !validWhiteListPublicLabel(label, node) {
+	if !validWhiteListPublicLabelSyntax(label) {
 		return "", errInvalidWhiteListNode
 	}
 
@@ -71,6 +72,10 @@ func whiteListShareLinkWithLabel(node WhiteListNode, label string) (string, erro
 // exact prefix and appends at most one canonical whitelist URI.
 func AppendWhiteListShareLink(encoded string, node WhiteListNode) (string, error) {
 	node.Label = whiteListShareLabel
+	node.EdgeID = ""
+	node.TransportProfileID = ""
+	node.CompatibilityPresetID = ""
+	node.TransportReleaseID = ""
 	return AppendWhiteListShareLinks(encoded, []WhiteListNode{node})
 }
 
@@ -93,6 +98,9 @@ func AppendWhiteListShareLinks(encoded string, nodes []WhiteListNode) (string, e
 			return "", errInvalidWhiteListNode
 		}
 		if _, exists := clientIDs[node.ClientID]; exists {
+			return "", errInvalidWhiteListNode
+		}
+		if !validWhiteListBatchLabel(node.Label, node) {
 			return "", errInvalidWhiteListNode
 		}
 		link, err := whiteListShareLinkWithLabel(node, node.Label)
@@ -144,14 +152,21 @@ func decodeOrdinaryWhiteListSubscription(encoded string) ([]byte, error) {
 	return ordinary, nil
 }
 
-func validWhiteListPublicLabel(label string, node WhiteListNode) bool {
-	if label == "" || len(label) > 255 || !utf8.ValidString(label) {
+func validWhiteListPublicLabelSyntax(label string) bool {
+	if label == "" || len(label) > 255 || strings.TrimSpace(label) != label || strings.TrimSpace(label) == "" || !utf8.ValidString(label) {
 		return false
 	}
 	for _, char := range label {
-		if char < 0x20 || char == 0x7f {
+		if unicode.IsControl(char) || unicode.In(char, unicode.Cf, unicode.Mn, unicode.Mc, unicode.Me) {
 			return false
 		}
+	}
+	return true
+}
+
+func validWhiteListBatchLabel(label string, node WhiteListNode) bool {
+	if !validWhiteListPublicLabelSyntax(label) {
+		return false
 	}
 	for _, internal := range []string{node.EdgeID, node.TransportProfileID, node.CompatibilityPresetID, node.TransportReleaseID} {
 		if internal != "" && strings.Contains(label, internal) {

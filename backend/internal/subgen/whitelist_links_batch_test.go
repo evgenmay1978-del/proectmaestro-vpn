@@ -45,6 +45,32 @@ func TestAppendWhiteListShareLinksAppendsNodesInCallerOrder(t *testing.T) {
 	}
 }
 
+func TestAppendWhiteListShareLinksPreservesReversedOrderAndPartialReplay(t *testing.T) {
+	ordinary := base64.StdEncoding.EncodeToString([]byte("vless://ordinary"))
+	first := batchLinkNode("11111111-1111-4111-8111-111111111111", "Maestro CDN — Нидерланды")
+	second := batchLinkNode("22222222-2222-4222-8222-222222222222", "Maestro CDN — Россия")
+	firstOnly, err := AppendWhiteListShareLinks(ordinary, []WhiteListNode{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := AppendWhiteListShareLinks(firstOnly, []WhiteListNode{second, first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(replayed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstLink, _ := whiteListShareLinkWithLabel(first, first.Label)
+	secondLink, _ := whiteListShareLinkWithLabel(second, second.Label)
+	if got, want := string(decoded), "vless://ordinary\n"+firstLink+"\n"+secondLink; got != want {
+		t.Fatalf("replay document=%q, want %q", got, want)
+	}
+	if count := bytes.Count(decoded, []byte(firstLink)); count != 1 {
+		t.Fatalf("first link count=%d, want 1", count)
+	}
+}
+
 func TestAppendWhiteListShareLinksRejectsInvalidBatchAtomically(t *testing.T) {
 	ordinary := base64.StdEncoding.EncodeToString([]byte("vless://ordinary"))
 	valid := batchLinkNode("11111111-1111-4111-8111-111111111111", "Maestro CDN — Нидерланды")
@@ -83,6 +109,67 @@ func TestAppendWhiteListShareLinksEmptyAndReplayAreByteExact(t *testing.T) {
 	}
 	if got, err := AppendWhiteListShareLinks(base64.StdEncoding.EncodeToString([]byte("vless://ordinary\r")), nil); err == nil || got != "" {
 		t.Fatalf("CR ordinary accepted: %q, %v", got, err)
+	}
+}
+
+func TestAppendWhiteListShareLinksValidatesPublicLabelsAndInternalPrivacy(t *testing.T) {
+	ordinary := base64.StdEncoding.EncodeToString([]byte("vless://ordinary"))
+	for _, label := range []string{" Maestro CDN", "Maestro CDN ", "\tMaestro CDN", "Maestro\nCDN", "Maestro\u200fCDN", "Maestro e\u0301", strings.Repeat("a", 256)} {
+		node := batchLinkNode("11111111-1111-4111-8111-111111111111", label)
+		if got, err := AppendWhiteListShareLinks(ordinary, []WhiteListNode{node}); err == nil || got != "" {
+			t.Fatalf("label %q accepted: %q, %v", label, got, err)
+		}
+	}
+	for index, field := range []func(*WhiteListNode){
+		func(node *WhiteListNode) { node.EdgeID = "private-id" },
+		func(node *WhiteListNode) { node.TransportProfileID = "private-id" },
+		func(node *WhiteListNode) { node.CompatibilityPresetID = "private-id" },
+		func(node *WhiteListNode) { node.TransportReleaseID = "private-id" },
+	} {
+		node := batchLinkNode("11111111-1111-4111-8111-111111111111", "Maestro private-id CDN")
+		field(&node)
+		if got, err := AppendWhiteListShareLinks(ordinary, []WhiteListNode{node}); err == nil || got != "" {
+			t.Fatalf("internal field %d leaked into public label: %q, %v", index, got, err)
+		}
+	}
+	valid := batchLinkNode("11111111-1111-4111-8111-111111111111", "Maestro CDN — Россия")
+	if got, err := AppendWhiteListShareLinks(ordinary, []WhiteListNode{valid}); err != nil || got == "" {
+		t.Fatalf("valid Cyrillic label rejected: %q, %v", got, err)
+	}
+}
+
+func TestAppendWhiteListShareLinksChecksExactSizeBeforeMaterialization(t *testing.T) {
+	node := batchLinkNode("11111111-1111-4111-8111-111111111111", "Maestro CDN — Нидерланды")
+	link, err := whiteListShareLinkWithLabel(node, node.Label)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("a", maxWhiteListSubscriptionBytes-1-len(link))))
+	if got, err := AppendWhiteListShareLinks(exact, []WhiteListNode{node}); err != nil || got == "" {
+		t.Fatalf("exact max size rejected: %q, %v", got, err)
+	}
+	overflow := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("a", maxWhiteListSubscriptionBytes-len(link))))
+	if got, err := AppendWhiteListShareLinks(overflow, []WhiteListNode{node}); err == nil || got != "" {
+		t.Fatalf("one-byte overflow accepted: %q, %v", got, err)
+	}
+}
+
+func TestAppendWhiteListShareLinkPreservesLegacyInternalIdentifierCollisions(t *testing.T) {
+	ordinary := base64.StdEncoding.EncodeToString([]byte("vless://ordinary"))
+	for _, field := range []func(*WhiteListNode){
+		func(node *WhiteListNode) { node.EdgeID = whiteListShareLabel },
+		func(node *WhiteListNode) { node.TransportProfileID = whiteListShareLabel },
+		func(node *WhiteListNode) { node.CompatibilityPresetID = whiteListShareLabel },
+		func(node *WhiteListNode) { node.TransportReleaseID = whiteListShareLabel },
+	} {
+		node := xhttpLinkNode()
+		field(&node)
+		if got, err := WhiteListShareLink(node); err != nil || got == "" {
+			t.Fatalf("legacy renderer rejected internal collision: %q, %v", got, err)
+		}
+		if got, err := AppendWhiteListShareLink(ordinary, node); err != nil || got == "" {
+			t.Fatalf("legacy append rejected internal collision: %q, %v", got, err)
+		}
 	}
 }
 
