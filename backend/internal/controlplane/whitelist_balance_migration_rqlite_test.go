@@ -38,14 +38,14 @@ func TestMigrationWhiteListCommercialBalanceEnforcesLedgerInvariants(t *testing.
 				customer_id,display_login,login_key_hmac,status,expires_at_unix,
 				generation,created_at_unix,updated_at_unix
 			) VALUES(?,?,?,'active',5000000,1,1000000,1000000)`,
-			Args: []any{customerID, "WhitelistBalance", strings.Repeat("1", 64)},
+			Args: []any{customerID, "WhitelistBalance", "046a0f9df0bbc5ca613cea7d75a8f3e43cddceee1550b67f96a02d6f6aa0609e"},
 		},
 		rqlite.Statement{
 			SQL: `INSERT INTO customers(
 				customer_id,display_login,login_key_hmac,status,expires_at_unix,
 				generation,created_at_unix,updated_at_unix
 			) VALUES(?,?,?,'active',5000000,1,1000000,1000000)`,
-			Args: []any{otherCustomerID, "WhitelistBalanceOther", strings.Repeat("2", 64)},
+			Args: []any{otherCustomerID, "WhitelistBalanceOther", "d298bf64d499ff9503a7ce5c0109db4b842e4a291443a4a55e44648f97de70bf"},
 		},
 		rqlite.Statement{
 			SQL:  `INSERT INTO whitelist_entitlement_identities(entitlement_id,customer_id,created_at_unix) VALUES(?,?,1000000)`,
