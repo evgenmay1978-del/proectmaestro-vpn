@@ -609,8 +609,9 @@ func TestExpiredCustomerRenewsFromConfirmedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
-	if result.ExpiresAtUnix != now+30*86400 {
-		t.Fatalf("expiry=%d want %d", result.ExpiresAtUnix, now+30*86400)
+	confirmedAt := task7Int(t, db, "SELECT confirmed_at_unix AS n FROM orders WHERE order_id=?", order.OrderID)
+	if result.ExpiresAtUnix != confirmedAt+30*86400 {
+		t.Fatalf("expiry=%d want %d", result.ExpiresAtUnix, confirmedAt+30*86400)
 	}
 }
 
