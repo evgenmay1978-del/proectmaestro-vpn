@@ -24,13 +24,11 @@
 
 ---
 
-## Task 1: Lock the executable contracts and CI scope
+## Task 1: Lock the commercial contract inventory and CI scope
 
 **Files:**
 
 - Modify: `.github/workflows/yandex-cdn-release.yml`
-- Create: `backend/internal/api/controlplane_whitelist_publication_contract_test.go`
-- Create: `backend/internal/controlplane/whitelist_commercial_contract_test.go`
 - Create: `scripts/tests/test_yandex_cdn_commercial_ci.py`
 - Modify: `ops/validate-yandex-cdn-release.sh`
 - Modify: `ops/validate-yandex-cdn-release.ps1`
@@ -54,12 +52,11 @@ const (
 
 **Steps:**
 
-- [ ] Add compile-time contract tests that name the publication verdict, balance projection, product catalog, sidecar desired generation, and receipt types before their implementation exists.
+- [ ] Add a plan-policy test that freezes the publication verdict values, decimal-byte unit, immutable product rows, sidecar desired-generation fields, receipt fields, and the later task/test paths where their production types become compile-time contracts. Do not create placeholder production types ahead of those tasks.
 - [ ] Add a CI policy test proving the workflow watches all new paths: `backend/internal/api/**`, `backend/internal/controlplane/**`, `backend/internal/subgen/**`, `backend/internal/whitelistbalance/**`, `sidecar-agent/**`, `deploy/vpn_bot_maestro_*.py`, and this plan.
-- [ ] Run `go test ./internal/api ./internal/controlplane` from `backend`; confirm RED only for missing commercial types.
 - [ ] Run `python -X utf8 -m unittest scripts.tests.test_yandex_cdn_commercial_ci`; confirm RED for missing workflow coverage.
-- [ ] Extend both release wrappers and the workflow with the new Go/Python packages while keeping the current Android test APK gate unchanged.
-- [ ] Run the same focused commands and `git diff --check`; require GREEN.
+- [ ] Extend both release wrappers and the workflow with the new Go/Python packages while keeping the current Android test APK gate unchanged. Compile-time tests for each commercial type are added with its production implementation in Tasks 3, 5, 7, and 11, so every committed task remains GREEN.
+- [ ] Run the same focused Python command and `git diff --check`; require GREEN.
 - [ ] Commit only Task 1 paths with message `test(whitelist): lock commercial delivery contracts`.
 
 ## Task 2: Make links augmentation atomic and multi-node
