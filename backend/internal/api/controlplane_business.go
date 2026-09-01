@@ -14,16 +14,16 @@ import (
 )
 
 type ServiceBusinessConfig struct {
-	SubBaseURL           string
-	SBPPhone             string
-	PayURL               string
-	TrialDays            int
-	WBRoomSender         controlplane.ExternalActionSender
-	WorkerID             string
-	SubscriptionTopology subgen.Customer
-	DeviceLimitFor       func(string) int
-	Now                  func() time.Time
-	SubscriptionCacheTTL time.Duration
+	SubBaseURL                  string
+	SBPPhone                    string
+	PayURL                      string
+	TrialDays                   int
+	WBRoomSender                controlplane.ExternalActionSender
+	WorkerID                    string
+	SubscriptionTopology        subgen.Customer
+	DeviceLimitFor              func(string) int
+	Now                         func() time.Time
+	SubscriptionCacheTTL        time.Duration
 	WhiteListPublicationSource  WhiteListPublicationSource
 	WhiteListPublicationTimeout time.Duration
 }

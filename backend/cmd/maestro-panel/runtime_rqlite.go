@@ -113,8 +113,8 @@ func rqliteServiceBusinessConfig(apiConfig api.Config, wbSender controlplane.Ext
 		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
 		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,
 		WBRoomSender: wbSender, WorkerID: workerID,
-		SubscriptionTopology: rqliteSubscriptionTopologyFromEnvironment(),
-		DeviceLimitFor:       rqliteDeviceLimitFor(apiConfig.EnforceDeviceLimit),
+		SubscriptionTopology:       rqliteSubscriptionTopologyFromEnvironment(),
+		DeviceLimitFor:             rqliteDeviceLimitFor(apiConfig.EnforceDeviceLimit),
 		WhiteListPublicationSource: runtimeWhiteListPublicationSource(),
 	}
 }

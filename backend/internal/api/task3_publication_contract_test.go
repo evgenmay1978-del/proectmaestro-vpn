@@ -42,9 +42,9 @@ func task3Node(label string) subgen.WhiteListNode {
 		Protocol: "vless", Network: "xhttp", Address: "cdn.example.test", Port: 443,
 		TLS: true, ServerName: "cdn.example.test", Host: "cdn.example.test",
 		Path: "/xhttp", Mode: "packet-up", UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
-		ClientID: "11111111-1111-4111-8111-111111111111",
+		ClientID:   "11111111-1111-4111-8111-111111111111",
 		Encryption: "mlkem768x25519plus.native.0rtt." + material,
-		Security: "tls", ALPN: []string{"h2"}, Fingerprint: "firefox",
+		Security:   "tls", ALPN: []string{"h2"}, Fingerprint: "firefox",
 		Extra: url.QueryEscape(extra), Label: label,
 	}
 }
