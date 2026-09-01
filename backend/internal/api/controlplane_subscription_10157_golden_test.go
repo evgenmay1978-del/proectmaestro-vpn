@@ -34,8 +34,8 @@ func TestControlPlaneSubscription10157BareGoldenDoesNotAugment(t *testing.T) {
 	if fresh.Code != http.StatusOK || cached.Code != fresh.Code || fresh.Header().Get("Content-Type") != expectedType || cached.Header().Get("Content-Type") != fresh.Header().Get("Content-Type") || string(fresh.Body.Bytes()) != string(expectedBody) || string(cached.Body.Bytes()) != string(expectedBody) {
 		t.Fatalf("fresh/cached golden mismatch: fresh=%d %q %q cached=%d %q %q", fresh.Code, fresh.Header().Get("Content-Type"), fresh.Body.Bytes(), cached.Code, cached.Header().Get("Content-Type"), cached.Body.Bytes())
 	}
-	if source.snapshotCall != freshSnapshotCalls {
-		t.Fatalf("outage snapshot calls=%d, want cache LKG to retain %d", source.snapshotCall, freshSnapshotCalls)
+	if source.snapshotCall != freshSnapshotCalls+1 {
+		t.Fatalf("outage snapshot calls=%d, want one failed source probe before cache LKG after %d fresh calls", source.snapshotCall, freshSnapshotCalls)
 	}
 	for _, response := range []*httptest.ResponseRecorder{fresh, cached} {
 		for _, header := range []string{"Content-Encoding", "Etag", "Content-Length"} {
