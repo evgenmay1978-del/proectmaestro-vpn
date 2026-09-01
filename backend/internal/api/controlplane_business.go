@@ -24,7 +24,7 @@ type ServiceBusinessConfig struct {
 	DeviceLimitFor       func(string) int
 	Now                  func() time.Time
 	SubscriptionCacheTTL time.Duration
-	WhiteListPublicationSource WhiteListPublicationSource
+	WhiteListPublicationSource  WhiteListPublicationSource
 	WhiteListPublicationTimeout time.Duration
 }
 
@@ -66,7 +66,9 @@ func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig
 		now = time.Now
 	}
 	cacheTTL := cfg.SubscriptionCacheTTL
-	if cfg.WhiteListPublicationTimeout <= 0 { cfg.WhiteListPublicationTimeout = time.Second }
+	if cfg.WhiteListPublicationTimeout <= 0 {
+		cfg.WhiteListPublicationTimeout = time.Second
+	}
 	if cacheTTL <= 0 {
 		cacheTTL = defaultSubscriptionCacheTTL
 	}
@@ -536,7 +538,9 @@ func (b *ServiceBusiness) subscriptionSnapshotForRequest(ctx context.Context, to
 	}
 	if b.subscriptionStates != nil {
 		snapshot, err := b.subscriptionSnapshotWithState(ctx, token, options)
-		if err != nil { return SubscriptionSnapshot{}, err }
+		if err != nil {
+			return SubscriptionSnapshot{}, err
+		}
 		return b.applyWhiteListPublication(ctx, token, options, snapshot)
 	}
 	customer, err := b.subscriptions.BusinessCustomerByToken(ctx, token)

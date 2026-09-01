@@ -264,8 +264,12 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 		contentType = "application/json"
 	}
 	w.Header().Set("Content-Type", contentType)
-	if snapshot.ETag != "" { w.Header().Set("ETag", snapshot.ETag) }
-	if snapshot.ContentLength > 0 { w.Header().Set("Content-Length", strconv.Itoa(snapshot.ContentLength)) }
+	if snapshot.ETag != "" {
+		w.Header().Set("ETag", snapshot.ETag)
+	}
+	if snapshot.ContentLength > 0 {
+		w.Header().Set("Content-Length", strconv.Itoa(snapshot.ContentLength))
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(snapshot.Document)

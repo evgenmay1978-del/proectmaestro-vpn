@@ -8,7 +8,19 @@ import (
 )
 
 // Publication is deliberately disconnected from runtime until a later gated task.
-func runtimeWhiteListPublicationSource() api.WhiteListPublicationSource { return nil }
+func runtimeWhiteListPublicationSource() api.WhiteListPublicationSource {
+	return runtimeWhiteListPublicationSourceFrom(nil, false)
+}
+
+// runtimeWhiteListPublicationSourceFrom is the explicit injection seam used by
+// tests and by a later, separately gated runtime source. Publication remains
+// fail-closed unless enable is true and a source is supplied.
+func runtimeWhiteListPublicationSourceFrom(source api.WhiteListPublicationSource, enable bool) api.WhiteListPublicationSource {
+	if !enable {
+		return nil
+	}
+	return source
+}
 
 // Keep the frozen legacy provisioning topology without constructing its JSON
 // stores, panel clients, Provisioner, or SSH dependencies in rqlite mode. Only
