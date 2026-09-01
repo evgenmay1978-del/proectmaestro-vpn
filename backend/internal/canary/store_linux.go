@@ -141,6 +141,9 @@ func newStore(config storeConfig) (*Store, error) {
 	if !validDigest(config.binarySHA256) || config.runtimeID == nil {
 		return nil, invalid("store_config_invalid")
 	}
+	if config.serviceUID == 0 || config.serviceGID == 0 || config.serviceUID == config.rootUID || config.serviceGID == config.rootGID {
+		return nil, invalid("service_identity_invalid")
+	}
 	return &Store{impl: &storeImpl{config: config}}, nil
 }
 
@@ -197,6 +200,9 @@ func (s *Store) Prepare(ctx context.Context, snapshot Snapshot, xray []byte, art
 	if exists && current.State != StateAbsent {
 		return Stage{}, invalid("state_not_absent")
 	}
+	if err := impl.requireServiceAbsent(ctx, tester, "service_absence_unproven"); err != nil {
+		return Stage{}, err
+	}
 	runtimeID, err := impl.config.runtimeID()
 	if err != nil || !safeRuntimeID(runtimeID) {
 		return Stage{}, invalid("runtime_id_invalid")
@@ -206,27 +212,59 @@ func (s *Store) Prepare(ctx context.Context, snapshot Snapshot, xray []byte, art
 		return Stage{}, err
 	}
 
+	canonicalSnapshot := snapshot.CanonicalJSON()
+	unit := impl.unit(runtimeID)
+	intent := prepareIntent{
+		SchemaVersion:      1,
+		RuntimeID:          runtimeID,
+		SnapshotSHA256:     digest(canonicalSnapshot),
+		XraySHA256:         digest(xray),
+		ServerConfigSHA256: digest(artifacts.ServerConfig()),
+		DirectClientSHA256: digest(artifacts.DirectClientConfig()),
+		CDNClientSHA256:    digest(artifacts.CDNClientConfig()),
+		ClientURISHA256:    digest(artifacts.ClientURI()),
+		UnitSHA256:         digest(unit),
+	}
+	intentRaw, err := json.Marshal(intent)
+	if err != nil {
+		return Stage{}, invalid("intent_encode_failed")
+	}
 	var files []createdFile
 	var dirs []string
-	var intent prepareIntent
-	var intentRaw []byte
-	intentInstalled := false
+	intentTracked := false
 	defer func() {
 		if resultErr != nil {
 			if installed, present, loadErr := impl.loadState(); loadErr == nil && present && stage.RuntimeID != "" && installed == recordFromStage(stage) {
 				return
 			}
-			clean := impl.cleanupCreated(files, dirs)
-			if clean && intentInstalled {
-				_ = impl.removeMatching(impl.paths(intent.RuntimeID).intent, digest(intentRaw), 0o600, impl.config.rootUID, impl.config.rootGID, true)
+			cleanupErr := impl.cleanupCreated(files, dirs)
+			for _, path := range []string{
+				deterministicTempPath(paths.state),
+				deterministicTempPath(paths.intent),
+			} {
+				if err := impl.cleanupTrackedTemp(path, 0o600, impl.config.rootUID, impl.config.rootGID); err != nil {
+					cleanupErr = invalid("prepare_cleanup_failed")
+				}
+			}
+			if cleanupErr != nil {
+				resultErr = cleanupErr
+				return
+			}
+			if intentTracked {
+				if err := impl.removeMatching(paths.intent, digest(intentRaw), 0o600, impl.config.rootUID, impl.config.rootGID, true); err != nil {
+					resultErr = err
+				}
 			}
 		}
 	}()
+	intentTracked = true
+	if err := impl.atomicNoReplace("intent", paths.intent, intentRaw, 0o600, impl.config.rootUID, impl.config.rootGID); err != nil {
+		return Stage{}, err
+	}
 	if err := impl.prepareDirectories(paths, &dirs); err != nil {
 		return Stage{}, err
 	}
 
-	canonicalSnapshot := snapshot.CanonicalJSON()
 	writes := []struct {
 		label string
 		path  string
@@ -242,45 +280,25 @@ func (s *Store) Prepare(ctx context.Context, snapshot Snapshot, xray []byte, art
 		{"xray", paths.xray, xray, 0o550, impl.config.rootUID, impl.config.serviceGID},
 	}
 	for _, write := range writes {
+		files = append(files, createdFile{write.path, digest(write.raw), write.mode, write.uid, write.gid})
 		if err := impl.atomicNoReplace(write.label, write.path, write.raw, write.mode, write.uid, write.gid); err != nil {
 			return Stage{}, err
 		}
-		files = append(files, createdFile{write.path, digest(write.raw), write.mode, write.uid, write.gid})
 	}
 	if err := impl.setDirMode(paths.runtimeDir, 0o550, impl.config.rootUID, impl.config.serviceGID); err != nil {
 		return Stage{}, err
 	}
-	unit := impl.unit(runtimeID)
-	intent = prepareIntent{
-		SchemaVersion:      1,
-		RuntimeID:          runtimeID,
-		SnapshotSHA256:     digest(canonicalSnapshot),
-		XraySHA256:         digest(xray),
-		ServerConfigSHA256: digest(artifacts.ServerConfig()),
-		DirectClientSHA256: digest(artifacts.DirectClientConfig()),
-		CDNClientSHA256:    digest(artifacts.CDNClientConfig()),
-		ClientURISHA256:    digest(artifacts.ClientURI()),
-		UnitSHA256:         digest(unit),
-	}
-	intentRaw, err = json.Marshal(intent)
-	if err != nil {
-		return Stage{}, invalid("intent_encode_failed")
-	}
-	if err := impl.atomicNoReplace("intent", paths.intent, intentRaw, 0o600, impl.config.rootUID, impl.config.rootGID); err != nil {
-		return Stage{}, err
-	}
-	intentInstalled = true
+	files = append(files, createdFile{paths.config, digest(artifacts.ServerConfig()), 0o640, impl.config.rootUID, impl.config.serviceGID})
 	if err := impl.atomicNoReplace("config", paths.config, artifacts.ServerConfig(), 0o640, impl.config.rootUID, impl.config.serviceGID); err != nil {
 		return Stage{}, err
 	}
-	files = append(files, createdFile{paths.config, digest(artifacts.ServerConfig()), 0o640, impl.config.rootUID, impl.config.serviceGID})
 	if err := tester.Test(ctx, paths.xray, paths.config, impl.config.serviceUID, impl.config.serviceGID); err != nil {
 		return Stage{}, invalid("config_test_failed")
 	}
+	files = append(files, createdFile{paths.unit, digest(unit), 0o644, impl.config.rootUID, impl.config.rootGID})
 	if err := impl.atomicNoReplace("unit", paths.unit, unit, 0o644, impl.config.rootUID, impl.config.rootGID); err != nil {
 		return Stage{}, err
 	}
-	files = append(files, createdFile{paths.unit, digest(unit), 0o644, impl.config.rootUID, impl.config.rootGID})
 
 	stage = Stage{runtimeID, StatePrepared, snapshot.SHA256(), digest(xray), digest(artifacts.ServerConfig()), digest(unit)}
 	record := recordFromStage(stage)
@@ -299,7 +317,7 @@ func (s *Store) Prepare(ctx context.Context, snapshot Snapshot, xray []byte, art
 	if err := impl.removeMatching(paths.intent, digest(intentRaw), 0o600, impl.config.rootUID, impl.config.rootGID, false); err != nil {
 		return stage, err
 	}
-	intentInstalled = false
+	intentTracked = false
 	return stage, nil
 }
 
@@ -341,12 +359,12 @@ func stageFromRecord(record stateRecord) Stage {
 	return Stage{record.RuntimeID, record.State, record.SnapshotSHA256, record.XraySHA256, record.ServerConfigSHA256, record.UnitSHA256}
 }
 
-func (s *Store) Status(ctx context.Context) (Stage, error) {
+func (s *Store) Status(ctx context.Context, inspector ServiceInspector) (Stage, error) {
 	impl, err := s.linuxImpl()
 	if err != nil {
 		return Stage{}, err
 	}
-	if ctx == nil || ctx.Err() != nil {
+	if ctx == nil || ctx.Err() != nil || inspector == nil {
 		return Stage{}, invalid("context_invalid")
 	}
 	if err := impl.validateManagedAncestors(); err != nil {
@@ -357,6 +375,9 @@ func (s *Store) Status(ctx context.Context) (Stage, error) {
 		return Stage{}, err
 	}
 	if !exists {
+		if err := impl.requireAbsentState(ctx, inspector); err != nil {
+			return Stage{}, err
+		}
 		return Stage{State: StateAbsent}, nil
 	}
 	stateRoot, err := openDirSecure(impl.config.stateRoot)
@@ -381,17 +402,16 @@ func (s *Store) Status(ctx context.Context) (Stage, error) {
 		return Stage{}, err
 	}
 	if !exists {
+		if err := impl.requireAbsentState(ctx, inspector); err != nil {
+			return Stage{}, err
+		}
 		return Stage{State: StateAbsent}, nil
 	}
 	if record.State == StateAbsent {
-		paths := impl.paths(record.RuntimeID)
-		for _, path := range []string{paths.config, paths.unit} {
-			exists, err := securePathExists(path)
-			if err != nil || exists {
-				return Stage{}, invalid("absent_state_invalid")
-			}
+		if err := impl.requireAbsentState(ctx, inspector); err != nil {
+			return Stage{}, err
 		}
-		return stageFromRecord(record), nil
+		return Stage{State: StateAbsent}, nil
 	}
 	if err := impl.verifyStage(record, false); err != nil {
 		return Stage{}, err
@@ -431,9 +451,8 @@ func (s *Store) Activate(ctx context.Context, runtimeID string, controller Servi
 	if err := controller.Reload(ctx); err != nil {
 		return invalid("service_reload_failed")
 	}
-	active, err := controller.IsActive(ctx, serviceName)
-	if err != nil || active {
-		return invalid("service_inactive_unproven")
+	if err := impl.authenticatePreparedService(ctx, runtimeID, controller); err != nil {
+		return err
 	}
 	record.State = StateRollbackRequired
 	if err := impl.writeStateCAS(record, true, StatePrepared, runtimeID); err != nil {
@@ -442,7 +461,7 @@ func (s *Store) Activate(ctx context.Context, runtimeID string, controller Servi
 	if err := controller.Start(ctx, serviceName); err != nil {
 		return invalid("service_start_ambiguous")
 	}
-	active, err = controller.IsActive(ctx, serviceName)
+	active, err := controller.IsActive(ctx, serviceName)
 	if err != nil || !active {
 		return invalid("service_active_unproven")
 	}
@@ -453,12 +472,12 @@ func (s *Store) Activate(ctx context.Context, runtimeID string, controller Servi
 	return nil
 }
 
-func (s *Store) RollbackToAbsence(ctx context.Context, runtimeID string, controller ServiceController, origin DiagnosticOrigin) error {
+func (s *Store) RollbackToAbsence(ctx context.Context, runtimeID string, controller ServiceController, verifier DiagnosticRestorationVerifier) error {
 	impl, err := s.linuxImpl()
 	if err != nil {
 		return err
 	}
-	if ctx == nil || ctx.Err() != nil || controller == nil || origin == nil || !safeRuntimeID(runtimeID) {
+	if ctx == nil || ctx.Err() != nil || controller == nil || verifier == nil || !safeRuntimeID(runtimeID) {
 		return invalid("rollback_input_invalid")
 	}
 	if err := impl.validateManagedAncestors(); err != nil {
@@ -471,10 +490,7 @@ func (s *Store) RollbackToAbsence(ctx context.Context, runtimeID string, control
 	defer lock.release()
 	record, exists, err := impl.loadState()
 	stateLoadErr := err
-	intentExists, intentErr := securePathExists(filepath.Join(impl.config.stateRoot, "prepare-intent.json"))
-	if stateLoadErr == nil && intentErr == nil && exists && record.RuntimeID == runtimeID && record.State == StateAbsent && !intentExists {
-		return nil
-	}
+	_, intentErr := securePathExists(filepath.Join(impl.config.stateRoot, "prepare-intent.json"))
 	if err := controller.Stop(ctx, serviceName); err != nil {
 		return invalid("service_stop_failed")
 	}
@@ -499,20 +515,27 @@ func (s *Store) RollbackToAbsence(ctx context.Context, runtimeID string, control
 		return invalid("rollback_state_invalid")
 	}
 	if record.State == StateAbsent {
-		return nil
+		return impl.requireAbsentState(ctx, controller)
 	}
 	if record.State != StatePrepared && record.State != StateRollbackRequired && record.State != StateCanaryActive {
 		return invalid("rollback_state_invalid")
 	}
-	if err := impl.verifyStage(record, true); err != nil {
-		return err
+	if record.State != StateRollbackRequired {
+		previousState := record.State
+		record.State = StateRollbackRequired
+		if err := impl.writeStateCAS(record, true, previousState, runtimeID); err != nil {
+			return err
+		}
 	}
 	snapshot, err := impl.loadProtectedSnapshot(record)
 	if err != nil {
 		return err
 	}
-	if err := origin.RestoreAndVerify(ctx, snapshot.Request.DiagnosticProbeURL, snapshot.Request.DiagnosticResponseSHA256); err != nil {
+	if err := verifier.VerifyRestored(ctx, snapshot.Request.DiagnosticProbeURL, snapshot.Request.DiagnosticResponseSHA256); err != nil {
 		return invalid("diagnostic_restore_failed")
+	}
+	if err := impl.verifyStage(record, true); err != nil {
+		return err
 	}
 	artifacts, err := snapshot.Materialize()
 	if err != nil {
@@ -528,9 +551,11 @@ func (s *Store) RollbackToAbsence(ctx context.Context, runtimeID string, control
 	if err := controller.Reload(ctx); err != nil {
 		return invalid("service_reload_failed")
 	}
-	previousState := record.State
+	if err := impl.requireServiceAbsent(ctx, controller, "service_absence_unproven"); err != nil {
+		return err
+	}
 	record.State = StateAbsent
-	return impl.writeStateCAS(record, true, previousState, runtimeID)
+	return impl.writeStateCAS(record, true, StateRollbackRequired, runtimeID)
 }
 
 func (s *Store) linuxImpl() (*storeImpl, error) {
@@ -591,6 +616,61 @@ func (s *storeImpl) preflightPrepare(paths stagePaths, stateExists bool) error {
 		}
 	}
 	return nil
+}
+
+func (s *storeImpl) requireServiceAbsent(ctx context.Context, inspector ServiceInspector, reason string) error {
+	if inspector == nil {
+		return invalid(reason)
+	}
+	status, err := inspector.Inspect(ctx, serviceName)
+	if err != nil || status.LoadState != "not-found" || status.UnitFileState != "not-found" || status.FragmentPath != "" || len(status.DropInPaths) != 0 || status.User != "" || status.Group != "" || len(status.ExecStart) != 0 {
+		return invalid(reason)
+	}
+	active, err := inspector.IsActive(ctx, serviceName)
+	if err != nil || active {
+		return invalid(reason)
+	}
+	return nil
+}
+
+func (s *storeImpl) requireAbsentState(ctx context.Context, inspector ServiceInspector) error {
+	paths := s.paths("r-00000000000000000000000000000000")
+	for _, path := range []string{paths.config, paths.unit} {
+		exists, err := securePathExists(path)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return invalid("absent_state_invalid")
+		}
+	}
+	return s.requireServiceAbsent(ctx, inspector, "absent_state_invalid")
+}
+
+func (s *storeImpl) authenticatePreparedService(ctx context.Context, runtimeID string, inspector ServiceInspector) error {
+	status, err := inspector.Inspect(ctx, serviceName)
+	paths := s.paths(runtimeID)
+	wantExecStart := []string{paths.xray, "run", "-config", paths.config}
+	if err != nil || status.LoadState != "loaded" || status.UnitFileState != "disabled" || status.FragmentPath != s.config.unitPath || len(status.DropInPaths) != 0 || status.User != serviceAccount || status.Group != serviceAccount || !equalStringSlices(status.ExecStart, wantExecStart) {
+		return invalid("service_effective_state_invalid")
+	}
+	active, err := inspector.IsActive(ctx, serviceName)
+	if err != nil || active {
+		return invalid("service_inactive_unproven")
+	}
+	return nil
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *storeImpl) prepareDirectories(paths stagePaths, created *[]string) error {
@@ -779,7 +859,7 @@ func (s *storeImpl) loadState() (stateRecord, bool, error) {
 }
 
 func (s *storeImpl) recoverInterruptedPrepare() error {
-	if err := s.cleanupStaleStateTemp(); err != nil {
+	if err := s.cleanupStaleControlTemps(); err != nil {
 		return err
 	}
 	path := filepath.Join(s.config.stateRoot, "prepare-intent.json")
@@ -803,7 +883,13 @@ func (s *storeImpl) recoverInterruptedPrepare() error {
 		if record.SnapshotSHA256 != intent.SnapshotSHA256 || record.XraySHA256 != intent.XraySHA256 || record.ServerConfigSHA256 != intent.ServerConfigSHA256 || record.UnitSHA256 != intent.UnitSHA256 {
 			return invalid("prepare_intent_state_mismatch")
 		}
+		if err := s.cleanupInterruptedTemps(paths); err != nil {
+			return err
+		}
 		return s.removeMatching(paths.intent, digest(raw), 0o600, s.config.rootUID, s.config.rootGID, false)
+	}
+	if err := s.cleanupInterruptedTemps(paths); err != nil {
+		return err
 	}
 	removals := []struct {
 		label  string
@@ -829,21 +915,87 @@ func (s *storeImpl) recoverInterruptedPrepare() error {
 			return err
 		}
 	}
-	_ = removeEmptyDirectory(paths.runtimeDir)
-	_ = removeEmptyDirectory(paths.evidenceDir)
+	for _, directory := range []string{paths.runtimeDir, paths.evidenceDir} {
+		if err := removeEmptyDirectoryIfExists(directory); err != nil {
+			return invalid("recovery_cleanup_incomplete")
+		}
+	}
 	return s.removeMatching(paths.intent, digest(raw), 0o600, s.config.rootUID, s.config.rootGID, false)
 }
 
-func (s *storeImpl) cleanupStaleStateTemp() error {
-	path := filepath.Join(s.config.stateRoot, ".state.json.tmp")
-	raw, err := s.readVerified(path, 0o600, s.config.rootUID, s.config.rootGID, maxStateBytes)
+func (s *storeImpl) cleanupStaleControlTemps() error {
+	for _, path := range []string{
+		filepath.Join(s.config.stateRoot, ".state.json.tmp"),
+		filepath.Join(s.config.stateRoot, ".prepare-intent.json.tmp"),
+	} {
+		if err := s.cleanupTrackedTemp(path, 0o600, s.config.rootUID, s.config.rootGID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *storeImpl) cleanupInterruptedTemps(paths stagePaths) error {
+	checks := []struct {
+		path string
+		mode uint32
+		uid  uint32
+		gid  uint32
+	}{
+		{deterministicTempPath(paths.snapshot), 0o600, s.config.rootUID, s.config.rootGID},
+		{deterministicTempPath(paths.direct), 0o600, s.config.rootUID, s.config.rootGID},
+		{deterministicTempPath(paths.cdn), 0o600, s.config.rootUID, s.config.rootGID},
+		{deterministicTempPath(paths.uri), 0o600, s.config.rootUID, s.config.rootGID},
+		{deterministicTempPath(paths.xray), 0o550, s.config.rootUID, s.config.serviceGID},
+		{deterministicTempPath(paths.config), 0o640, s.config.rootUID, s.config.serviceGID},
+		{deterministicTempPath(paths.unit), 0o644, s.config.rootUID, s.config.rootGID},
+	}
+	for _, check := range checks {
+		if err := s.cleanupTrackedTemp(check.path, check.mode, check.uid, check.gid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *storeImpl) cleanupTrackedTemp(path string, mode, uid, gid uint32) error {
+	parent, base, err := openParent(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	return s.removeMatching(path, digest(raw), 0o600, s.config.rootUID, s.config.rootGID, false)
+	defer unix.Close(parent)
+	if err := verifySafeAncestorFD(parent, s.config.rootUID); err != nil {
+		return err
+	}
+	fd, err := unix.Openat(parent, base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ENOENT) {
+		if err := unix.Fsync(parent); err != nil {
+			return invalid("directory_fsync_failed")
+		}
+		return nil
+	}
+	if err != nil {
+		return invalid("temp_open_failed")
+	}
+	var stat unix.Stat_t
+	statErr := unix.Fstat(fd, &stat)
+	_ = unix.Close(fd)
+	permissions := uint32(stat.Mode & 0o777)
+	ownerOK := stat.Uid == uid && (stat.Gid == gid || stat.Gid == s.config.rootGID)
+	modeOK := stat.Mode&0o7000 == 0 && permissions&^mode == 0
+	if statErr != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 || !ownerOK || !modeOK {
+		return invalid("temp_metadata_invalid")
+	}
+	if err := unix.Unlinkat(parent, base, 0); err != nil {
+		return invalid("temp_remove_failed")
+	}
+	if err := unix.Fsync(parent); err != nil {
+		return invalid("directory_fsync_failed")
+	}
+	return nil
 }
 
 func validPrepareIntent(intent prepareIntent) bool {
@@ -922,15 +1074,7 @@ func (s *storeImpl) atomicWrite(label, path string, raw []byte, mode, uid, gid u
 		}
 		return invalid("target_exists")
 	}
-	var temp string
-	if label == "state" {
-		temp = ".state.json.tmp"
-	} else {
-		temp, err = randomTempName(base)
-		if err != nil {
-			return err
-		}
-	}
+	temp := deterministicTempName(base)
 	fd, err := unix.Openat(parent, temp, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, mode)
 	if err != nil {
 		return invalid("temp_create_failed")
@@ -947,7 +1091,7 @@ func (s *storeImpl) atomicWrite(label, path string, raw []byte, mode, uid, gid u
 			_ = unix.Fsync(parent)
 		}
 	}()
-	if err := s.hook(label + ":temp_create"); err != nil {
+	if err := s.hook(label + ":temp_opened"); err != nil {
 		return err
 	}
 	if err := unix.Fchown(fd, int(uid), int(gid)); err != nil {
@@ -955,6 +1099,9 @@ func (s *storeImpl) atomicWrite(label, path string, raw []byte, mode, uid, gid u
 	}
 	if err := unix.Fchmod(fd, mode); err != nil {
 		return invalid("file_mode_failed")
+	}
+	if err := s.hook(label + ":temp_create"); err != nil {
+		return err
 	}
 	if err := writeAll(fd, raw); err != nil {
 		return err
@@ -1139,6 +1286,9 @@ func (s *storeImpl) removeMatching(path, expectedDigest string, mode, uid, gid u
 	defer unix.Close(parent)
 	raw, err := readVerifiedAt(parent, base, mode, uid, gid, maxXrayBinarySize)
 	if allowMissing && errors.Is(err, os.ErrNotExist) {
+		if err := unix.Fsync(parent); err != nil {
+			return invalid("directory_fsync_failed")
+		}
 		return nil
 	}
 	if err != nil || digest(raw) != expectedDigest {
@@ -1153,20 +1303,28 @@ func (s *storeImpl) removeMatching(path, expectedDigest string, mode, uid, gid u
 	return nil
 }
 
-func (s *storeImpl) cleanupCreated(files []createdFile, dirs []string) bool {
+func (s *storeImpl) cleanupCreated(files []createdFile, dirs []string) error {
 	clean := true
 	for index := len(files) - 1; index >= 0; index-- {
 		file := files[index]
 		if err := s.removeMatching(file.path, file.digest, file.mode, file.uid, file.gid, true); err != nil {
 			clean = false
 		}
+		if err := s.cleanupTrackedTemp(deterministicTempPath(file.path), file.mode, file.uid, file.gid); err != nil {
+			clean = false
+		}
 	}
 	if clean {
 		for index := len(dirs) - 1; index >= 0; index-- {
-			_ = removeEmptyDirectory(dirs[index])
+			if err := removeEmptyDirectory(dirs[index]); err != nil {
+				clean = false
+			}
 		}
 	}
-	return clean
+	if !clean {
+		return invalid("prepare_cleanup_failed")
+	}
+	return nil
 }
 
 func removeEmptyDirectory(path string) error {
@@ -1175,10 +1333,20 @@ func removeEmptyDirectory(path string) error {
 		return err
 	}
 	defer unix.Close(parent)
-	if err := unix.Unlinkat(parent, base, unix.AT_REMOVEDIR); err != nil {
+	if err := unix.Unlinkat(parent, base, unix.AT_REMOVEDIR); errors.Is(err, unix.ENOENT) {
+		return unix.Fsync(parent)
+	} else if err != nil {
 		return err
 	}
 	return unix.Fsync(parent)
+}
+
+func removeEmptyDirectoryIfExists(path string) error {
+	err := removeEmptyDirectory(path)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	return err
 }
 
 func (s *storeImpl) setDirMode(path string, mode, uid, gid uint32) error {
@@ -1391,12 +1559,12 @@ func verifySafeAncestorFD(fd int, owner uint32) error {
 	return nil
 }
 
-func randomTempName(base string) (string, error) {
-	raw := make([]byte, 8)
-	if _, err := io.ReadFull(rand.Reader, raw); err != nil {
-		return "", invalid("temp_name_failed")
-	}
-	return "." + base + ".tmp-" + hex.EncodeToString(raw), nil
+func deterministicTempName(base string) string {
+	return "." + base + ".tmp"
+}
+
+func deterministicTempPath(path string) string {
+	return filepath.Join(filepath.Dir(path), deterministicTempName(filepath.Base(path)))
 }
 
 func writeAll(fd int, raw []byte) error {

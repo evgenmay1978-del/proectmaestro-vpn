@@ -10,7 +10,7 @@ func NewStore() (*Store, error) {
 	return nil, invalid("unsupported_platform")
 }
 
-func (*Store) Status(context.Context) (Stage, error) {
+func (*Store) Status(context.Context, ServiceInspector) (Stage, error) {
 	return Stage{}, invalid("unsupported_platform")
 }
 
@@ -22,6 +22,6 @@ func (*Store) Activate(context.Context, string, ServiceController) error {
 	return invalid("unsupported_platform")
 }
 
-func (*Store) RollbackToAbsence(context.Context, string, ServiceController, DiagnosticOrigin) error {
+func (*Store) RollbackToAbsence(context.Context, string, ServiceController, DiagnosticRestorationVerifier) error {
 	return invalid("unsupported_platform")
 }

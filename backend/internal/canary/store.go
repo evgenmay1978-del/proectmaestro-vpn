@@ -20,19 +20,35 @@ type Stage struct {
 	UnitSHA256         string
 }
 
+type ServiceInspection struct {
+	LoadState     string
+	UnitFileState string
+	FragmentPath  string
+	DropInPaths   []string
+	User          string
+	Group         string
+	ExecStart     []string
+}
+
+type ServiceInspector interface {
+	Inspect(context.Context, string) (ServiceInspection, error)
+	IsActive(context.Context, string) (bool, error)
+}
+
 type ConfigTester interface {
+	ServiceInspector
 	Test(context.Context, string, string, uint32, uint32) error
 }
 
 type ServiceController interface {
+	ServiceInspector
 	Reload(context.Context) error
-	IsActive(context.Context, string) (bool, error)
 	Start(context.Context, string) error
 	Stop(context.Context, string) error
 }
 
-type DiagnosticOrigin interface {
-	RestoreAndVerify(ctx context.Context, diagnosticProbeURL, diagnosticResponseSHA256 string) error
+type DiagnosticRestorationVerifier interface {
+	VerifyRestored(ctx context.Context, diagnosticProbeURL, diagnosticResponseSHA256 string) error
 }
 
 type Store struct {

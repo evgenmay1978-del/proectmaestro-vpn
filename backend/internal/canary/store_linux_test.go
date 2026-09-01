@@ -29,12 +29,30 @@ type recordingTester struct {
 	uid        uint32
 	gid        uint32
 	err        error
+	inspection *ServiceInspection
+	inspectErr error
+	active     bool
+	activeErr  error
 }
 
 func (f *recordingTester) Test(_ context.Context, binaryPath, configPath string, uid, gid uint32) error {
 	f.calls++
 	f.binaryPath, f.configPath, f.uid, f.gid = binaryPath, configPath, uid, gid
 	return f.err
+}
+
+func (f *recordingTester) Inspect(context.Context, string) (ServiceInspection, error) {
+	if f.inspectErr != nil {
+		return ServiceInspection{}, f.inspectErr
+	}
+	if f.inspection != nil {
+		return *f.inspection, nil
+	}
+	return missingServiceInspection(), nil
+}
+
+func (f *recordingTester) IsActive(context.Context, string) (bool, error) {
+	return f.active, f.activeErr
 }
 
 type fakeController struct {
@@ -53,6 +71,29 @@ type fakeController struct {
 	serviceNames []string
 	events       []string
 	wrongService bool
+	config       storeConfig
+	inspection   *ServiceInspection
+	inspectErr   error
+}
+
+func newFakeController(config storeConfig) *fakeController {
+	return &fakeController{config: config}
+}
+
+func missingServiceInspection() ServiceInspection {
+	return ServiceInspection{LoadState: "not-found", UnitFileState: "not-found"}
+}
+
+func preparedServiceInspection(config storeConfig) ServiceInspection {
+	paths := (&storeImpl{config: config}).paths(testRuntimeID)
+	return ServiceInspection{
+		LoadState:     "loaded",
+		UnitFileState: "disabled",
+		FragmentPath:  config.unitPath,
+		User:          serviceAccount,
+		Group:         serviceAccount,
+		ExecStart:     []string{paths.xray, "run", "-config", paths.config},
+	}
 }
 
 func (f *fakeController) Reload(context.Context) error {
@@ -61,6 +102,28 @@ func (f *fakeController) Reload(context.Context) error {
 	f.events = append(f.events, "reload")
 	f.reloads++
 	return f.reloadErr
+}
+func (f *fakeController) Inspect(_ context.Context, name string) (ServiceInspection, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.serviceNames = append(f.serviceNames, name)
+	f.events = append(f.events, "inspect")
+	if name != serviceName {
+		f.wrongService = true
+		return ServiceInspection{}, errors.New("wrong service")
+	}
+	if f.inspectErr != nil {
+		return ServiceInspection{}, f.inspectErr
+	}
+	if f.inspection != nil {
+		return *f.inspection, nil
+	}
+	if _, err := os.Lstat(f.config.unitPath); err == nil {
+		return preparedServiceInspection(f.config), nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return ServiceInspection{}, err
+	}
+	return missingServiceInspection(), nil
 }
 func (f *fakeController) IsActive(_ context.Context, name string) (bool, error) {
 	f.mu.Lock()
@@ -118,7 +181,7 @@ type fakeOrigin struct {
 	err            error
 }
 
-func (f *fakeOrigin) RestoreAndVerify(_ context.Context, probeURL, responseSHA256 string) error {
+func (f *fakeOrigin) VerifyRestored(_ context.Context, probeURL, responseSHA256 string) error {
 	f.calls++
 	f.probeURL, f.responseSHA256 = probeURL, responseSHA256
 	return f.err
@@ -137,6 +200,11 @@ func testStoreAtRoot(t *testing.T, root string, binary []byte, runtimeID string,
 	if rootUID == ^uint32(0) {
 		serviceUID = rootUID - 1
 	}
+	rootGID := uint32(os.Getgid())
+	serviceGID := rootGID + 1
+	if rootGID == ^uint32(0) {
+		serviceGID = rootGID - 1
+	}
 	config := storeConfig{
 		anchorRoot:   root,
 		optRoot:      filepath.Join(root, "opt", "maestro-xray-cdn"),
@@ -145,9 +213,9 @@ func testStoreAtRoot(t *testing.T, root string, binary []byte, runtimeID string,
 		evidenceRoot: filepath.Join(root, "root", ".maestro-xray-cdn-canary"),
 		unitPath:     filepath.Join(root, "etc", "systemd", "system", serviceName),
 		serviceUID:   serviceUID,
-		serviceGID:   uint32(os.Getgid()),
+		serviceGID:   serviceGID,
 		rootUID:      rootUID,
-		rootGID:      uint32(os.Getgid()),
+		rootGID:      rootGID,
 		binarySHA256: hex.EncodeToString(digest[:]),
 		runtimeID:    func() (string, error) { return runtimeID, nil },
 		stepHook:     hook,
@@ -282,7 +350,7 @@ func TestStorePrepareCreatesProtectedStage(t *testing.T) {
 func TestStoreStatusReturnsAuthoritativelyVerifiedStage(t *testing.T) {
 	snapshot, artifacts, binary := testStoreInputs(t)
 	store, config := testStore(t, binary, nil)
-	absent, err := store.Status(context.Background())
+	absent, err := store.Status(context.Background(), new(recordingTester))
 	if err != nil || absent.State != StateAbsent || absent.RuntimeID != "" {
 		t.Fatalf("initial Status = (%#v, %v)", absent, err)
 	}
@@ -293,7 +361,7 @@ func TestStoreStatusReturnsAuthoritativelyVerifiedStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := store.Status(context.Background())
+	status, err := store.Status(context.Background(), new(recordingTester))
 	if err != nil || status != prepared {
 		t.Fatalf("prepared Status = (%#v, %v), want %#v", status, err, prepared)
 	}
@@ -301,8 +369,66 @@ func TestStoreStatusReturnsAuthoritativelyVerifiedStage(t *testing.T) {
 	if err := os.WriteFile(path, []byte("drift"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Status(context.Background()); err == nil {
+	if _, err := store.Status(context.Background(), new(recordingTester)); err == nil {
 		t.Fatal("Status accepted retained artifact drift")
+	}
+}
+
+func TestStoreStatusRejectsOrphanRunnableOrEffectiveService(t *testing.T) {
+	_, _, binary := testStoreInputs(t)
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, config storeConfig, inspector *recordingTester)
+	}{
+		{"config", func(t *testing.T, config storeConfig, _ *recordingTester) {
+			if err := os.MkdirAll(config.runRoot, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(config.runRoot, "config.json"), []byte("orphan"), 0o640); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"unit", func(t *testing.T, config storeConfig, _ *recordingTester) {
+			if err := os.MkdirAll(filepath.Dir(config.unitPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(config.unitPath, []byte("orphan"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"effective service", func(_ *testing.T, config storeConfig, inspector *recordingTester) {
+			loaded := preparedServiceInspection(config)
+			inspector.inspection = &loaded
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, config := testStore(t, binary, nil)
+			inspector := new(recordingTester)
+			tc.setup(t, config, inspector)
+			if _, err := store.Status(context.Background(), inspector); err == nil || err.Error() != "absent_state_invalid" {
+				t.Fatalf("Status error = %v, want absent_state_invalid", err)
+			}
+		})
+	}
+}
+
+func TestStoreStatusNormalizesAbsentShape(t *testing.T) {
+	snapshot, artifacts, binary := testStoreInputs(t)
+	store, config := testStore(t, binary, nil)
+	if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err != nil {
+		t.Fatal(err)
+	}
+	controller := newFakeController(config)
+	if err := store.RollbackToAbsence(context.Background(), testRuntimeID, controller, new(fakeOrigin)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Status(context.Background(), controller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Stage{State: StateAbsent}
+	if got != want {
+		t.Fatalf("Status = %#v, want normalized %#v", got, want)
 	}
 }
 
@@ -315,7 +441,7 @@ func TestStoreLifecycleAndRollback(t *testing.T) {
 	if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err == nil {
 		t.Fatal("double Prepare succeeded")
 	}
-	controller := new(fakeController)
+	controller := newFakeController(config)
 	controller.beforeStart = func() { assertState(t, config, StateRollbackRequired) }
 	if err := store.Activate(context.Background(), testRuntimeID, controller); err != nil {
 		t.Fatalf("Activate: %v", err)
@@ -353,11 +479,12 @@ func TestStoreLifecycleAndRollback(t *testing.T) {
 			t.Fatalf("immutable evidence missing: %s: %v", path, err)
 		}
 	}
+	controller.active = true
 	if err := store.RollbackToAbsence(context.Background(), testRuntimeID, controller, origin); err != nil {
 		t.Fatalf("idempotent rollback: %v", err)
 	}
-	if origin.calls != 1 || controller.stops != 1 {
-		t.Fatal("idempotent rollback repeated side effects")
+	if origin.calls != 1 || controller.stops != 2 || controller.active {
+		t.Fatal("ABSENT rollback did not stop and prove the exact service inactive without repeating origin restoration")
 	}
 }
 
@@ -426,14 +553,98 @@ func TestStoreRefusesUnsafePathsWithoutVictimModification(t *testing.T) {
 	})
 }
 
+func TestStoreRejectsRootServiceIdentity(t *testing.T) {
+	_, _, binary := testStoreInputs(t)
+	_, config := testStore(t, binary, nil)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*storeConfig)
+	}{
+		{"uid zero", func(config *storeConfig) { config.serviceUID = 0 }},
+		{"gid zero", func(config *storeConfig) { config.serviceGID = 0 }},
+		{"uid equals root", func(config *storeConfig) { config.serviceUID = config.rootUID }},
+		{"gid equals root", func(config *storeConfig) { config.serviceGID = config.rootGID }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := config
+			tc.mutate(&candidate)
+			if store, err := newStoreForTest(candidate); err == nil || store != nil || err.Error() != "service_identity_invalid" {
+				t.Fatalf("newStoreForTest = (%v, %v), want service_identity_invalid", store, err)
+			}
+		})
+	}
+}
+
+func TestStorePrepareRejectsEffectiveService(t *testing.T) {
+	snapshot, artifacts, binary := testStoreInputs(t)
+	for _, tc := range []struct {
+		name      string
+		inspector *recordingTester
+	}{
+		{"active", &recordingTester{active: true}},
+		{"unknown active", &recordingTester{activeErr: errors.New("unknown")}},
+		{"enabled", &recordingTester{inspection: &ServiceInspection{LoadState: "not-found", UnitFileState: "enabled"}}},
+		{"cached fragment", &recordingTester{inspection: &ServiceInspection{LoadState: "loaded", UnitFileState: "disabled", FragmentPath: "/stale/unit"}}},
+		{"drop-in", &recordingTester{inspection: &ServiceInspection{LoadState: "not-found", UnitFileState: "not-found", DropInPaths: []string{"/stale/drop-in.conf"}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, config := testStore(t, binary, nil)
+			if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, tc.inspector); err == nil || err.Error() != "service_absence_unproven" {
+				t.Fatalf("Prepare error = %v, want service_absence_unproven", err)
+			}
+			if tc.inspector.calls != 0 {
+				t.Fatal("config tester ran before effective-service rejection")
+			}
+			if _, err := os.Lstat(filepath.Join(config.optRoot, "runtime", testRuntimeID)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("runtime artifact created after service rejection: %v", err)
+			}
+		})
+	}
+}
+
+func TestStoreActivateAuthenticatesEffectiveUnit(t *testing.T) {
+	snapshot, artifacts, binary := testStoreInputs(t)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*ServiceInspection)
+	}{
+		{"fragment", func(status *ServiceInspection) { status.FragmentPath += ".stale" }},
+		{"drop-in", func(status *ServiceInspection) { status.DropInPaths = []string{"/stale/drop-in.conf"} }},
+		{"user", func(status *ServiceInspection) { status.User = "root" }},
+		{"group", func(status *ServiceInspection) { status.Group = "root" }},
+		{"exec", func(status *ServiceInspection) {
+			status.ExecStart = append([]string(nil), status.ExecStart[:len(status.ExecStart)-1]...)
+		}},
+		{"enabled", func(status *ServiceInspection) { status.UnitFileState = "enabled" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, config := testStore(t, binary, nil)
+			if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err != nil {
+				t.Fatal(err)
+			}
+			status := preparedServiceInspection(config)
+			tc.mutate(&status)
+			controller := newFakeController(config)
+			controller.inspection = &status
+			if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil || err.Error() != "service_effective_state_invalid" {
+				t.Fatalf("Activate error = %v, want service_effective_state_invalid", err)
+			}
+			if controller.starts != 0 {
+				t.Fatal("Start called before effective unit was authenticated")
+			}
+			assertState(t, config, StatePrepared)
+		})
+	}
+}
+
 func TestStoreActivationFailsClosed(t *testing.T) {
 	snapshot, artifacts, binary := testStoreInputs(t)
 	cases := []struct {
-		name       string
-		controller *fakeController
+		name      string
+		configure func(*fakeController)
 	}{
-		{"already active", &fakeController{active: true}},
-		{"unknown active state", &fakeController{isActiveErr: errors.New("unknown")}},
+		{"already active", func(controller *fakeController) { controller.active = true }},
+		{"unknown active state", func(controller *fakeController) { controller.isActiveErr = errors.New("unknown") }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -441,10 +652,12 @@ func TestStoreActivationFailsClosed(t *testing.T) {
 			if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.Activate(context.Background(), testRuntimeID, tc.controller); err == nil {
+			controller := newFakeController(config)
+			tc.configure(controller)
+			if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil {
 				t.Fatal("Activate succeeded")
 			}
-			if tc.controller.starts != 0 {
+			if controller.starts != 0 {
 				t.Fatal("Start called after fail-closed check")
 			}
 			assertState(t, config, StatePrepared)
@@ -456,7 +669,8 @@ func TestStoreActivationFailsClosed(t *testing.T) {
 		if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err != nil {
 			t.Fatal(err)
 		}
-		controller := &fakeController{startErr: errors.New("ambiguous")}
+		controller := newFakeController(config)
+		controller.startErr = errors.New("ambiguous")
 		if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil {
 			t.Fatal("ambiguous Start succeeded")
 		}
@@ -468,12 +682,13 @@ func TestStoreActivationFailsClosed(t *testing.T) {
 		if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err != nil {
 			t.Fatal(err)
 		}
-		controller := &fakeController{isActive: func(call int) (bool, error) {
+		controller := newFakeController(config)
+		controller.isActive = func(call int) (bool, error) {
 			if call == 1 {
 				return false, nil
 			}
 			return false, errors.New("post-start unknown")
-		}}
+		}
 		controller.beforeStart = func() { assertState(t, config, StateRollbackRequired) }
 		if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil {
 			t.Fatal("Activate succeeded through post-start status failure")
@@ -495,6 +710,7 @@ func TestStoreAtomicOrderingAndFailureCleanup(t *testing.T) {
 	if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err != nil {
 		t.Fatal(err)
 	}
+	assertOrdered(t, steps, "intent:dir_fsync", "snapshot:temp_create")
 	assertOrdered(t, steps, "config:temp_create", "config:file_fsync", "config:rename_noreplace", "config:dir_fsync", "unit:rename_noreplace", "state:dir_fsync")
 
 	t.Run("directory fsync failure leaves no runnable layer", func(t *testing.T) {
@@ -515,6 +731,40 @@ func TestStoreAtomicOrderingAndFailureCleanup(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestStoreRetainsIntentWhenPostRenameCleanupIsUnproven(t *testing.T) {
+	snapshot, artifacts, binary := testStoreInputs(t)
+	root := t.TempDir()
+	var config storeConfig
+	store, config := testStoreAtRoot(t, root, binary, testRuntimeID, func(step string) error {
+		if step != "config:rename_noreplace" {
+			return nil
+		}
+		path := filepath.Join(config.runRoot, "config.json")
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return errors.New("injected post-rename cleanup ambiguity")
+	})
+	if err := os.MkdirAll(config.runRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(config.runRoot, int(config.rootUID), int(config.serviceGID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(config.runRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err == nil {
+		t.Fatal("Prepare succeeded through unproven post-rename cleanup")
+	}
+	if _, err := os.Stat(filepath.Join(config.stateRoot, "prepare-intent.json")); err != nil {
+		t.Fatalf("prepare intent retired before cleanup was proven: %v", err)
+	}
 }
 
 func TestStorePrepareReturnsRecoveryStageAfterStateFsyncAmbiguity(t *testing.T) {
@@ -548,12 +798,18 @@ func TestStorePrepareReturnsRecoveryStageAfterStateFsyncAmbiguity(t *testing.T) 
 
 func TestStoreRecoversInterruptedPrepareAcrossProcessCrash(t *testing.T) {
 	snapshot, artifacts, binary := testStoreInputs(t)
-	for _, point := range []string{"config:dir_fsync", "unit:dir_fsync", "state:temp_create", "state:before_file_fsync", "state:before_rename"} {
+	for _, point := range []string{"intent:temp_create", "snapshot:temp_create", "config:temp_opened", "config:temp_create", "config:dir_fsync", "unit:dir_fsync", "state:temp_create", "state:before_file_fsync", "state:before_rename"} {
 		t.Run(point, func(t *testing.T) {
 			root := t.TempDir()
 			runCrashHelper(t, root, point)
 			recoveryRuntimeID := "r-fedcba9876543210fedcba9876543210"
 			store, config := testStoreAtRoot(t, root, binary, recoveryRuntimeID, nil)
+			if point == "intent:temp_create" {
+				assertMetadata(t, filepath.Join(config.stateRoot, ".prepare-intent.json.tmp"), 0o600, config.rootUID, config.rootGID, true)
+			}
+			if point == "snapshot:temp_create" {
+				assertMetadata(t, filepath.Join(config.evidenceRoot, testRuntimeID, ".snapshot.json.tmp"), 0o600, config.rootUID, config.rootGID, true)
+			}
 			stage, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester))
 			if err != nil {
 				t.Fatalf("recovery Prepare: %v", err)
@@ -572,11 +828,33 @@ func TestStoreRecoversInterruptedPrepareAcrossProcessCrash(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, entry := range entries {
-				if strings.HasPrefix(entry.Name(), ".state.json.tmp") {
+				if strings.HasSuffix(entry.Name(), ".tmp") {
 					t.Fatalf("stale state temporary remains after recovery: %s", entry.Name())
 				}
 			}
 		})
+	}
+}
+
+func TestStorePreservesIntentUntilInterruptedDirectoriesAreEmpty(t *testing.T) {
+	_, _, binary := testStoreInputs(t)
+	root := t.TempDir()
+	runCrashHelper(t, root, "unit:dir_fsync")
+	recoveryRuntimeID := "r-fedcba9876543210fedcba9876543210"
+	store, config := testStoreAtRoot(t, root, binary, recoveryRuntimeID, nil)
+	marker := filepath.Join(config.optRoot, "runtime", testRuntimeID, "unexpected")
+	if err := os.WriteFile(marker, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, artifacts, _ := testStoreInputs(t)
+	if _, err := store.Prepare(context.Background(), snapshot, binary, artifacts, new(recordingTester)); err == nil {
+		t.Fatal("Prepare succeeded with nonempty interrupted runtime directory")
+	}
+	if _, err := os.Stat(filepath.Join(config.stateRoot, "prepare-intent.json")); err != nil {
+		t.Fatalf("recoverable intent was removed before directory cleanup completed: %v", err)
+	}
+	if got, err := os.ReadFile(marker); err != nil || string(got) != "preserve" {
+		t.Fatalf("unknown marker changed during recovery: %q, %v", got, err)
 	}
 }
 
@@ -613,7 +891,7 @@ func TestStoreSerializesLifecycleAcrossInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controller := new(fakeController)
+	controller := newFakeController(config)
 	start := make(chan struct{})
 	errorsOut := make(chan error, 2)
 	var wait sync.WaitGroup
@@ -698,7 +976,7 @@ func TestStoreMetadataSubstitutionFailsClosed(t *testing.T) {
 	if err := os.Link(config.unitPath, unitAlias); err != nil {
 		t.Fatal(err)
 	}
-	controller := new(fakeController)
+	controller := newFakeController(config)
 	if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil {
 		t.Fatal("Activate accepted hardlinked unit")
 	}
@@ -731,7 +1009,7 @@ func TestStoreDigestSubstitutionFailsClosed(t *testing.T) {
 			if err := os.WriteFile(path, []byte("substituted victim"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			controller := new(fakeController)
+			controller := newFakeController(config)
 			if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil {
 				t.Fatal("Activate accepted digest substitution")
 			}
@@ -751,14 +1029,15 @@ func TestStoreDigestSubstitutionFailsClosed(t *testing.T) {
 		if err := os.WriteFile(path, victim, 0o640); err != nil {
 			t.Fatal(err)
 		}
-		controller := new(fakeController)
+		controller := newFakeController(config)
 		origin := new(fakeOrigin)
 		if err := store.RollbackToAbsence(context.Background(), testRuntimeID, controller, origin); err == nil {
 			t.Fatal("RollbackToAbsence accepted substituted config")
 		}
-		if controller.stops != 1 || controller.activeCalls != 1 || controller.reloads != 0 || origin.calls != 0 {
+		if controller.stops != 1 || controller.activeCalls != 1 || controller.reloads != 0 || origin.calls != 1 {
 			t.Fatal("rollback did not stop before digest validation")
 		}
+		assertState(t, config, StateRollbackRequired)
 		if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, victim) {
 			t.Fatalf("rollback removed or modified victim: %q, %v", got, err)
 		}
@@ -800,7 +1079,7 @@ func TestStoreDoesNotTrustStateDigests(t *testing.T) {
 				}
 			}
 			mutateState(t, config, func(record *stateRecord) { tc.update(record, digestBytes(victim)) })
-			controller := new(fakeController)
+			controller := newFakeController(config)
 			if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil {
 				t.Fatal("Activate trusted attacker-controlled state digest")
 			}
@@ -823,7 +1102,7 @@ func TestStoreVerifiesEveryRetainedArtifact(t *testing.T) {
 			if err := os.WriteFile(path, []byte("retained artifact drift"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			controller := new(fakeController)
+			controller := newFakeController(config)
 			if err := store.Activate(context.Background(), testRuntimeID, controller); err == nil {
 				t.Fatal("Activate accepted retained artifact drift")
 			}
@@ -870,7 +1149,8 @@ func TestStoreRollbackStopsBeforeDriftValidation(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			controller := &fakeController{active: true}
+			controller := newFakeController(config)
+			controller.active = true
 			origin := new(fakeOrigin)
 			if err := store.RollbackToAbsence(context.Background(), testRuntimeID, controller, origin); err == nil {
 				t.Fatal("RollbackToAbsence accepted drift")
@@ -880,9 +1160,10 @@ func TestStoreRollbackStopsBeforeDriftValidation(t *testing.T) {
 			}
 			assertOrdered(t, controller.events, "stop", "is-active")
 			assertExactServiceNames(t, controller)
-			if origin.calls != 0 {
-				t.Fatal("origin restoration ran after artifact drift")
+			if origin.calls != 1 {
+				t.Fatal("origin restoration did not run before artifact drift validation")
 			}
+			assertState(t, config, StateRollbackRequired)
 			if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, victim) {
 				t.Fatalf("rollback removed or modified drift victim: %q, %v", got, err)
 			}
