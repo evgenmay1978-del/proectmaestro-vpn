@@ -14,10 +14,10 @@ func TestRenderControlPlaneSubscriptionUsesFrozenGenerator(t *testing.T) {
 	customer := controlplane.BusinessCustomer{
 		Customer: controlplane.Customer{
 			Access: controlplane.CustomerAccess{Credentials: map[string]string{
-				"vless":    "customer-vless-uuid",
+				"vless":     "customer-vless-uuid",
 				"hysteria2": "customer-hy2-password",
-				"naive":    "customer-naive-password",
-				"anytls":   "customer-anytls-password",
+				"naive":     "customer-naive-password",
+				"anytls":    "customer-anytls-password",
 			}},
 		},
 		Login: "alice",
@@ -61,10 +61,10 @@ func TestRenderControlPlaneSubscriptionUsesFrozenGenerator(t *testing.T) {
 		t.Fatalf("subscription leaked control-plane metadata instead of a client document: %s", document)
 	}
 	want := map[string]struct{ server, uuid, username, password string }{
-		"vless":    {server: "vless.example.test", uuid: "customer-vless-uuid"},
+		"vless":     {server: "vless.example.test", uuid: "customer-vless-uuid"},
 		"hysteria2": {server: "hy2.example.test", password: "alice:customer-hy2-password"},
-		"naive":    {server: "naive.example.test", username: "alice", password: "customer-naive-password"},
-		"anytls":   {server: "anytls.example.test", password: "customer-anytls-password"},
+		"naive":     {server: "naive.example.test", username: "alice", password: "customer-naive-password"},
+		"anytls":    {server: "anytls.example.test", password: "customer-anytls-password"},
 	}
 	for _, outbound := range config.Outbounds {
 		expected, ok := want[outbound.Type]
