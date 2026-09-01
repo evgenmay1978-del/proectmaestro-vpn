@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,6 +16,26 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "yandex-cdn-release.yml"
 GRADLE = REPO_ROOT / "app" / "build.gradle.kts"
+BASH_RELEASE_VALIDATOR = REPO_ROOT / "ops" / "validate-yandex-cdn-release.sh"
+POWERSHELL_RELEASE_VALIDATOR = REPO_ROOT / "ops" / "validate-yandex-cdn-release.ps1"
+ROOT_CANARY_STEP = "Test exact-SHA root-only Linux canary contracts"
+FAKE_GO_SOURCE = """from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+arguments = sys.argv[1:]
+with Path(os.environ["FAKE_GO_LOG"]).open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps(arguments) + "\\n")
+command = arguments[0] if arguments else ""
+if command == "test":
+    raise SystemExit(int(os.environ.get("FAKE_GO_TEST_EXIT", "0")))
+if command == "run":
+    raise SystemExit(int(os.environ.get("FAKE_GO_RUN_EXIT", "0")))
+raise SystemExit(97)
+"""
 
 EXPECTED_JOBS = {
     "format-unit",
@@ -25,8 +51,10 @@ GO_PACKAGES = (
     "./internal/whitelistapi/v1",
     "./internal/release",
     "./internal/whitelistready",
+    "./internal/canary",
     "./cmd/maestro-release-validate",
     "./cmd/maestro-whitelist-ready",
+    "./cmd/maestro-xray-cdn-canary",
     "./internal/testsupport/whitelistfixture",
 )
 GOFMT_SCOPE = (
@@ -36,9 +64,11 @@ GOFMT_SCOPE = (
     "internal/whitelistapi/v1",
     "internal/release",
     "internal/whitelistready",
+    "internal/canary",
     "internal/testsupport/whitelistfixture",
     "cmd/maestro-release-validate",
     "cmd/maestro-whitelist-ready",
+    "cmd/maestro-xray-cdn-canary",
     "internal/backuprpo",
     "cmd/maestro-backup-worker",
 )
@@ -79,7 +109,9 @@ REQUIRED_PATH_FILTERS = (
     "backend/cmd/maestro-release-validate/**",
     "backend/cmd/maestro-whitelist-ready/**",
     "backend/cmd/maestro-backup-worker/**",
+    "backend/cmd/maestro-xray-cdn-canary/**",
     "backend/internal/backuprpo/**",
+    "backend/internal/canary/**",
     "backend/internal/controlplane/**",
     "backend/internal/release/**",
     "backend/internal/shadowbilling/**",
@@ -382,7 +414,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "54b906858b483dac81cc6e50e0c3c2657d5de5b3d51bd676716bf100dfd24d33"
+    "bdf965479dafb321c988ae46828483b6df07ba9a65731b073f75bf0f0d8e1893"
 )
 
 
@@ -768,6 +800,67 @@ def bash_array(source: str, name: str) -> tuple[str, ...]:
     return ()
 
 
+def powershell_array(source: str, name: str) -> tuple[str, ...]:
+    lines = [line.strip() for line in source.splitlines()]
+    try:
+        start = lines.index(f"${name} = @(")
+    except ValueError:
+        return ()
+    values: list[str] = []
+    for line in lines[start + 1 :]:
+        if line == ")":
+            return tuple(values)
+        match = re.fullmatch(r"'([^']+)'", line)
+        if match is None:
+            return ()
+        values.append(match.group(1))
+    return ()
+
+
+def write_fake_go(root: Path) -> Path:
+    if os.name == "nt":
+        driver = root / "fake_go.py"
+        driver.write_text(FAKE_GO_SOURCE, encoding="utf-8")
+        shim = root / "fake-go.cmd"
+        shim.write_text(
+            f'@echo off\r\n"{sys.executable}" "{driver}" %*\r\n',
+            encoding="utf-8",
+        )
+        return shim
+    shim = root / "fake-go"
+    shim.write_text(f"#!{sys.executable}\n{FAKE_GO_SOURCE}", encoding="utf-8")
+    shim.chmod(0o755)
+    return shim
+
+
+def fake_go_calls(log_path: Path) -> list[list[str]]:
+    return [
+        json.loads(line)
+        for line in log_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+
+def continued_command_arguments(
+    lines: tuple[str, ...], command: str
+) -> tuple[str, ...]:
+    try:
+        start = lines.index(f"{command} \\")
+    except ValueError:
+        return ()
+    values: list[str] = []
+    for line in lines[start + 1 :]:
+        value = line.strip()
+        continued = value.endswith("\\")
+        if continued:
+            value = value[:-1].rstrip()
+        if not value:
+            return ()
+        values.append(value)
+        if not continued:
+            return tuple(values)
+    return ()
+
+
 class WorkflowSafetyContractTest(unittest.TestCase):
     def test_triggers_cover_every_task7_input_on_push_and_pull_request(self) -> None:
         source = workflow_text()
@@ -1023,9 +1116,13 @@ class WorkflowGateContractTest(unittest.TestCase):
         for path in CANONICAL_TASK7_FORMAT_FILES:
             with self.subTest(canonical_path=path):
                 self.assertNotIn(path, legacy_debt)
-        self.assertIn("go test -count=1", source)
-        for package in GO_PACKAGES:
-            self.assertIn(package, source)
+        self.assertEqual(
+            GO_PACKAGES,
+            continued_command_arguments(
+                step_run_lines(workflow_text(), "Test Task 7 Go packages"),
+                "go test -count=1",
+            ),
+        )
         for module in (
             "scripts.tests.test_yandex_cdn_docs",
             "scripts.tests.test_yandex_cdn_repro",
@@ -1038,10 +1135,164 @@ class WorkflowGateContractTest(unittest.TestCase):
     def test_race_vet_job_is_separate_and_covers_every_go_package(self) -> None:
         source = job_source(workflow_text(), "race-vet")
         self.assertIn("needs: format-unit", source)
-        self.assertIn("go test -count=1 -race", source)
-        self.assertIn("go vet", source)
-        for package in GO_PACKAGES:
-            self.assertGreaterEqual(source.count(package), 2, package)
+        self.assertEqual(
+            GO_PACKAGES,
+            continued_command_arguments(
+                step_run_lines(workflow_text(), "Race-test Task 7 Go packages"),
+                "go test -count=1 -race",
+            ),
+        )
+        self.assertEqual(
+            GO_PACKAGES,
+            continued_command_arguments(
+                step_run_lines(workflow_text(), "Vet Task 7 Go packages"),
+                "go vet",
+            ),
+        )
+
+    def test_release_wrappers_check_the_exact_go_package_list(self) -> None:
+        bash = BASH_RELEASE_VALIDATOR.read_text(encoding="utf-8")
+        powershell = POWERSHELL_RELEASE_VALIDATOR.read_text(encoding="utf-8")
+        self.assertEqual(GO_PACKAGES, bash_array(bash, "validation_packages"))
+        self.assertEqual(
+            GO_PACKAGES,
+            powershell_array(powershell, "validationPackages"),
+        )
+        bash_check = '"$go_binary" test -count=1 "${validation_packages[@]}"'
+        self.assertEqual(1, bash.count(bash_check))
+        self.assertLess(bash.index(bash_check), bash.index('exec "$go_binary" run'))
+        powershell_check = "& $goBinary @testArgs"
+        self.assertIn("$testArgs = @('test', '-count=1') + $validationPackages", powershell)
+        self.assertEqual(1, powershell.count(powershell_check))
+        self.assertLess(
+            powershell.index(powershell_check),
+            powershell.index("& $goBinary @validatorArgs"),
+        )
+
+    def assert_release_wrapper_behavior(self, command: list[str]) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake_go = write_fake_go(root)
+            log_path = root / "fake-go.jsonl"
+            release_dir = root / "release"
+            evidence_trust = root / "evidence-trust.pem"
+            wrapper_command = [
+                *command,
+                "--release-dir",
+                str(release_dir),
+                "--evidence-trust",
+                str(evidence_trust),
+                "--go-binary",
+                str(fake_go),
+            ]
+            environment = os.environ.copy()
+            environment["FAKE_GO_LOG"] = str(log_path)
+            success = subprocess.run(
+                wrapper_command,
+                cwd=REPO_ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertEqual(0, success.returncode, success.stdout + success.stderr)
+            expected_test = ["test", "-count=1", *GO_PACKAGES]
+            expected_run = [
+                "run",
+                "./cmd/maestro-release-validate",
+                "--release-dir",
+                str(release_dir),
+                "--evidence-trust",
+                str(evidence_trust),
+            ]
+            self.assertEqual([expected_test, expected_run], fake_go_calls(log_path))
+
+            log_path.unlink()
+            environment["FAKE_GO_TEST_EXIT"] = "23"
+            failure = subprocess.run(
+                wrapper_command,
+                cwd=REPO_ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            self.assertNotEqual(0, failure.returncode)
+            self.assertIn(
+                "release_validation_failed code=go_tests_failed",
+                failure.stderr,
+            )
+            self.assertEqual([expected_test], fake_go_calls(log_path))
+
+    def test_bash_release_wrapper_executes_exact_checks_and_fails_closed(self) -> None:
+        if os.name == "nt":
+            self.skipTest("Bash wrapper behavior runs on the Linux CI runner")
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash is unavailable")
+        self.assert_release_wrapper_behavior([bash, str(BASH_RELEASE_VALIDATOR)])
+
+    def test_powershell_release_wrapper_executes_exact_checks_and_fails_closed(
+        self,
+    ) -> None:
+        powershell = shutil.which("pwsh") or shutil.which("powershell")
+        if powershell is None:
+            self.skipTest("PowerShell is unavailable")
+        self.assert_release_wrapper_behavior(
+            [
+                powershell,
+                "-NoLogo",
+                "-NoProfile",
+                "-File",
+                str(POWERSHELL_RELEASE_VALIDATOR),
+            ]
+        )
+
+    def test_root_only_linux_canary_tests_are_exact_sha_and_sudo_gated(self) -> None:
+        source = workflow_text()
+        assert_step_metadata(
+            source,
+            ROOT_CANARY_STEP,
+            {"working-directory": "backend", "run": "|"},
+        )
+        self.assertEqual(
+            (
+                "set -euo pipefail",
+                'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+                'go_binary="$(command -v go)"',
+                'go_cache="$(go env GOCACHE)"',
+                'go_mod_cache="$(go env GOMODCACHE)"',
+                "sudo --non-interactive env \\",
+                '  GOCACHE="$go_cache" \\',
+                '  GOMODCACHE="$go_mod_cache" \\',
+                '  "$go_binary" test -count=1 -buildvcs=false -json \\',
+                "    -run '^(TestLinuxProtectedReaderAndTemporaryExecutable|TestLinuxCredentialExecutionClearsSupplementaryGroups)$' \\",
+                "    ./cmd/maestro-xray-cdn-canary | python -c '",
+                "import json",
+                "import sys",
+                "expected = {",
+                '    "TestLinuxProtectedReaderAndTemporaryExecutable",',
+                '    "TestLinuxCredentialExecutionClearsSupplementaryGroups",',
+                "}",
+                "passes = {name: 0 for name in expected}",
+                "skips = {name: 0 for name in expected}",
+                "for raw in sys.stdin:",
+                "    event = json.loads(raw)",
+                '    name = event.get("Test")',
+                "    if name not in expected:",
+                "        continue",
+                '    if event.get("Action") == "pass":',
+                "        passes[name] += 1",
+                '    if event.get("Action") == "skip":',
+                "        skips[name] += 1",
+                "if passes != {name: 1 for name in expected} or any(skips.values()):",
+                '    raise SystemExit(f"root tests not proven: passes={passes!r} skips={skips!r}")',
+                "'",
+            ),
+            step_run_lines(source, ROOT_CANARY_STEP),
+        )
 
     def test_offline_replay_runs_exact_wrappers_and_parses_pass_no_go_json(self) -> None:
         source = job_source(workflow_text(), "offline-replay")

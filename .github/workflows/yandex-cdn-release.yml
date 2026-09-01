@@ -12,7 +12,9 @@ on:
       - 'backend/cmd/maestro-release-validate/**'
       - 'backend/cmd/maestro-whitelist-ready/**'
       - 'backend/cmd/maestro-backup-worker/**'
+      - 'backend/cmd/maestro-xray-cdn-canary/**'
       - 'backend/internal/backuprpo/**'
+      - 'backend/internal/canary/**'
       - 'backend/internal/controlplane/**'
       - 'backend/internal/release/**'
       - 'backend/internal/shadowbilling/**'
@@ -47,7 +49,9 @@ on:
       - 'backend/cmd/maestro-release-validate/**'
       - 'backend/cmd/maestro-whitelist-ready/**'
       - 'backend/cmd/maestro-backup-worker/**'
+      - 'backend/cmd/maestro-xray-cdn-canary/**'
       - 'backend/internal/backuprpo/**'
+      - 'backend/internal/canary/**'
       - 'backend/internal/controlplane/**'
       - 'backend/internal/release/**'
       - 'backend/internal/shadowbilling/**'
@@ -120,9 +124,11 @@ jobs:
             internal/whitelistapi/v1
             internal/release
             internal/whitelistready
+            internal/canary
             internal/testsupport/whitelistfixture
             cmd/maestro-release-validate
             cmd/maestro-whitelist-ready
+            cmd/maestro-xray-cdn-canary
             internal/backuprpo
             cmd/maestro-backup-worker
           )
@@ -171,9 +177,46 @@ jobs:
             ./internal/whitelistapi/v1 \
             ./internal/release \
             ./internal/whitelistready \
+            ./internal/canary \
             ./cmd/maestro-release-validate \
             ./cmd/maestro-whitelist-ready \
+            ./cmd/maestro-xray-cdn-canary \
             ./internal/testsupport/whitelistfixture
+
+      - name: Test exact-SHA root-only Linux canary contracts
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go_binary="$(command -v go)"
+          go_cache="$(go env GOCACHE)"
+          go_mod_cache="$(go env GOMODCACHE)"
+          sudo --non-interactive env \
+            GOCACHE="$go_cache" \
+            GOMODCACHE="$go_mod_cache" \
+            "$go_binary" test -count=1 -buildvcs=false -json \
+              -run '^(TestLinuxProtectedReaderAndTemporaryExecutable|TestLinuxCredentialExecutionClearsSupplementaryGroups)$' \
+              ./cmd/maestro-xray-cdn-canary | python -c '
+          import json
+          import sys
+          expected = {
+              "TestLinuxProtectedReaderAndTemporaryExecutable",
+              "TestLinuxCredentialExecutionClearsSupplementaryGroups",
+          }
+          passes = {name: 0 for name in expected}
+          skips = {name: 0 for name in expected}
+          for raw in sys.stdin:
+              event = json.loads(raw)
+              name = event.get("Test")
+              if name not in expected:
+                  continue
+              if event.get("Action") == "pass":
+                  passes[name] += 1
+              if event.get("Action") == "skip":
+                  skips[name] += 1
+          if passes != {name: 1 for name in expected} or any(skips.values()):
+              raise SystemExit(f"root tests not proven: passes={passes!r} skips={skips!r}")
+          '
 
       - name: Test Task 7 Python contracts and documentation
         run: |
@@ -210,8 +253,10 @@ jobs:
             ./internal/whitelistapi/v1 \
             ./internal/release \
             ./internal/whitelistready \
+            ./internal/canary \
             ./cmd/maestro-release-validate \
             ./cmd/maestro-whitelist-ready \
+            ./cmd/maestro-xray-cdn-canary \
             ./internal/testsupport/whitelistfixture
 
       - name: Vet Task 7 Go packages
@@ -225,8 +270,10 @@ jobs:
             ./internal/whitelistapi/v1 \
             ./internal/release \
             ./internal/whitelistready \
+            ./internal/canary \
             ./cmd/maestro-release-validate \
             ./cmd/maestro-whitelist-ready \
+            ./cmd/maestro-xray-cdn-canary \
             ./internal/testsupport/whitelistfixture
 
   offline-replay:

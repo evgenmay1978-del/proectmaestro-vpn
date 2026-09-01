@@ -28,6 +28,19 @@ $goBinary = $null
 $seenRelease = $false
 $seenTrust = $false
 $seenGo = $false
+$validationPackages = @(
+    './internal/controlplane'
+    './internal/subgen'
+    './internal/shadowbilling'
+    './internal/whitelistapi/v1'
+    './internal/release'
+    './internal/whitelistready'
+    './internal/canary'
+    './cmd/maestro-release-validate'
+    './cmd/maestro-whitelist-ready'
+    './cmd/maestro-xray-cdn-canary'
+    './internal/testsupport/whitelistfixture'
+)
 
 for ($index = 0; $index -lt $args.Count; $index += 2) {
     if ($index + 1 -ge $args.Count) {
@@ -95,6 +108,11 @@ try {
     $backend = Join-Path $repoRoot 'backend'
     Push-Location -LiteralPath $backend
     try {
+        $testArgs = @('test', '-count=1') + $validationPackages
+        & $goBinary @testArgs
+        if ($LASTEXITCODE -ne 0) {
+            Exit-Failure 'go_tests_failed'
+        }
         $validatorArgs = @(
             'run',
             './cmd/maestro-release-validate',

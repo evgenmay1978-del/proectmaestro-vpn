@@ -12,6 +12,19 @@ go_binary=''
 seen_release=0
 seen_trust=0
 seen_go=0
+validation_packages=(
+  ./internal/controlplane
+  ./internal/subgen
+  ./internal/shadowbilling
+  ./internal/whitelistapi/v1
+  ./internal/release
+  ./internal/whitelistready
+  ./internal/canary
+  ./cmd/maestro-release-validate
+  ./cmd/maestro-whitelist-ready
+  ./cmd/maestro-xray-cdn-canary
+  ./internal/testsupport/whitelistfixture
+)
 
 while (($# > 0)); do
   case "$1" in
@@ -62,6 +75,7 @@ else
 fi
 
 cd -- "$repo_root/backend" || fail wrapper_failed
+"$go_binary" test -count=1 "${validation_packages[@]}" || fail go_tests_failed
 exec "$go_binary" run ./cmd/maestro-release-validate \
   --release-dir "$release_dir" \
   --evidence-trust "$evidence_trust"
