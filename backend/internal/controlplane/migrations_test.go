@@ -54,6 +54,7 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 	}
 	wantTables := []string{
 		"schema_migrations", "cluster_restore_state", "backup_rpo_state", "backup_rpo_attempts", "customers", "whitelist_entitlement_identities",
+		"whitelist_metering_periods", "whitelist_metering_checkpoints", "whitelist_metering_events", "whitelist_metering_intervals", "whitelist_metering_projections",
 		"credentials", "subscription_tokens", "devices",
 		"tariff_versions", "orders", "active_order_guards", "payments", "trial_redemptions",
 		"idempotency_requests", "nodes", "node_services", "desired_node_state", "desired_protocol_tags", "outbox_events",
