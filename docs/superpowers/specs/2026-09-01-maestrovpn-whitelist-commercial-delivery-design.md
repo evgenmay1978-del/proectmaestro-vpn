@@ -1,7 +1,7 @@
 # MaestroVPN: коммерческая выдача режима «Белые списки»
 
 Дата решения: 2026-09-01
-Статус: полный письменный дизайн подтверждён владельцем 2026-09-01; разрешён переход к implementation plan и реализации
+Статус: письменный дизайн подтверждён 2026-09-01 и уточнён owner policy override 2026-09-02; разрешена реализация
 Каноническая ветка: `codex/yandex-cdn-whitelist-task3-sync`
 
 ## 1. Цель и границы
@@ -12,12 +12,15 @@
 
 ## 2. Подтверждённая коммерческая модель
 
-Владелец подтвердил единую модель вместо отдельной CDN-подписки:
+Владелец уточнил единую модель без отдельной subscription URL, но с отдельным управлением CDN/LTE внутри неё:
 
 - «Maestro — 30 дней»: 400 ₽;
-- обычные VPN-узлы и право использовать CDN входят в один доступ;
-- на каждый оплаченный 30-дневный период предоставляется 2 GB decimal включённого CDN-трафика;
-- включённый трафик не переносится в следующий период;
+- обычные VPN-узлы всегда остаются в подписке и не зависят от CDN/LTE;
+- CDN/LTE по умолчанию скрыт и OFF для каждого клиента;
+- CDN/LTE появляется только после подтверждённой покупки GB либо явного admin enable;
+- admin disable снова скрывает CDN/LTE, но сохраняет купленные GB, ledger и history;
+- продление обычного доступа за 400 ₽ не включает CDN/LTE и не начисляет автоматические 2 GB;
+- trial/bonus отложен; если его утвердят позднее, это будет отдельный явный идемпотентный grant/product;
 - купленные пакеты не сгорают, но при окончании основного доступа замораживаются до продления;
 - пакеты: 5 GB — 100 ₽, 20 GB — 300 ₽, 50 GB — 600 ₽, 100 GB — 1 000 ₽;
 
@@ -69,7 +72,7 @@ Incy получает one-tap обёртку официального форма
 
 Существующий `shadowbilling.RemainingBytes` означает остаток included quota и не является prepaid wallet. Нужен отдельный immutable byte journal и projection:
 
-- `included_bytes` для текущего 30-дневного периода;
+- `included_bytes` только для отдельного явного grant; commercial default равен `0`;
 - `purchased_bytes` без срока сгорания;
 - `consumed_bytes`;
 - `available_bytes = included_remaining + purchased_remaining`;
@@ -80,11 +83,11 @@ Incy получает one-tap обёртку официального форма
 - один current period на entitlement;
 - idempotency key каждой операции.
 
-Каждая оплаченная 30-дневная часть доступа создаёт последовательный billing period. При раннем продлении следующий period создаётся как `[max(current_expiry, confirmation_time), +30d)`; его 2 GB включаются только с момента начала этого period, а текущая квота не сбрасывается и не удваивается. Неиспользованный included остаток сгорает только на границе периода. Collector обязан закрыть interval на границе; пересёкший границу interval не делится приблизительно, а переводит projection в pending/stale до точного разрешения. Купленные пакеты доступны во всех активных periods и не сгорают.
+Подтверждённая покупка GB создаёт или использует активный zero-grant accounting period, ровно один раз начисляет purchased bytes и включает customer publication gate. Продление ordinary access само по себе не создаёт `INCLUDED_GRANT` и не меняет visibility; для уже существующего CDN entitlement оно может продлить только zero-grant accounting window. Если позднее будет утверждён отдельный explicit grant, неиспользованный included остаток сгорает только на границе такого period. Collector обязан закрыть interval на границе; пересёкший границу interval не делится приблизительно, а переводит projection в pending/stale до точного разрешения. Купленные пакеты доступны при активном primary access и не сгорают.
 
-Publication verdict является отдельным typed результатом: `Publishable=true` только при ACTIVE entitlement, действующем основном доступе, свежем непредварительном projection, положительном available balance, точном profile/preset/release binding и пригодном sidecar credential.
+Publication verdict является отдельным typed результатом: `Publishable=true` только при явном customer activation gate (`CONFIRMED_GB_PURCHASE` либо `ADMIN_ENABLE`), ACTIVE entitlement, действующем основном доступе, свежем непредварительном projection, положительном available balance, точном profile/preset/release binding и пригодном sidecar credential. Отсутствующий либо disabled gate закрывается как `NO_ENTITLEMENT` и возвращает ordinary-only документ.
 
-При `available_bytes <= 0` выполняются два упорядоченных действия: сначала CDN исчезает из свежей links-подписки, затем соответствующие `wl:` identities отзываются на всех active Origins. При включении порядок обратный: новая generation применяется на всех Origins, подтверждается receipts и только потом появляется в подписке. Ordinary subscription, ordinary credentials, customer status и основной expiry не меняются. После подтверждённого top-up identities возвращаются идемпотентно.
+При `available_bytes <= 0` либо admin disable выполняются два упорядоченных действия: сначала CDN исчезает из свежей links-подписки, затем соответствующие `wl:` identities отзываются на всех active Origins. Admin disable не меняет purchased balance, journal или history. При включении порядок обратный: новая generation применяется на всех Origins, подтверждается receipts и только потом появляется в подписке. Ordinary subscription, ordinary credentials, customer status и основной expiry не меняются. После подтверждённого top-up identities возвращаются идемпотентно.
 
 ## 6. Ручная оплата и exactly-once подтверждение
 
@@ -117,7 +120,7 @@ Publication verdict является отдельным typed результат
 
 Если основной доступ истёк, бот сначала предлагает продление и не создаёт отдельный заказ на GB, который клиент всё равно не сможет использовать. После продления покупка пакетов снова доступна.
 
-После оплаты бот показывает короткое сообщение: что куплено, срок, включённые/купленные/доступные GB и одну кнопку «Открыть в приложении». Если one-tap для выбранного клиента не доказан, бот даёт три шага: скопировать ссылку, открыть импорт подписки, вставить ссылку. Ошибки описываются простыми действиями без технических терминов.
+После оплаты бот показывает короткое сообщение: что куплено, срок, купленные/доступные GB и одну кнопку «Открыть в приложении». Explicit included grant показывается только если он действительно существует. Если one-tap для выбранного клиента не доказан, бот даёт три шага: скопировать ссылку, открыть импорт подписки, вставить ссылку. Ошибки описываются простыми действиями без технических терминов.
 
 Уведомления дедуплицируются на 50%, 80%, 90%, 100%, suspension, resume, stale metering и failed provisioning. Никаких секретов в уведомлениях.
 
@@ -175,4 +178,4 @@ Real charging, OTA/release publication, production DB cutover и final customer 
 - Official Incy link encoder: `https://github.com/INCY-DEV/incy-link-encoder`.
 - Official Happ subscription FAQ: `https://www.happ.su/main/faq/adding-configuration-subscription`.
 
-Владелец подтвердил 2026-09-01 весь письменный дизайн: схему `400 ₽ / 30 дней + 2 GB`, пакеты, `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие намеренного овердрафта, периодизацию бонуса, one-subscription UX и последовательное размещение isolated sidecars на S1–S4.
+Владелец 2026-09-02 уточнил дизайн: CDN/LTE default OFF и скрыт; публикацию разрешает только подтверждённая покупка GB либо admin enable; disable сохраняет purchased balance; ordinary VPN не меняется; автоматические 2 GB за 400 ₽ отменены; CDN/LTE trial отложен. Сохраняются пакеты, `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие намеренного овердрафта, one-subscription UX и последовательное размещение isolated sidecars на S1–S4.

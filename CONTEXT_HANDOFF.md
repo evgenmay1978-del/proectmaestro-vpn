@@ -1,25 +1,37 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. WHITE-LIST COMMERCIAL DELIVERY — SPEC APPROVED, IMPLEMENTATION PLAN READY (01.09.2026)
+## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–4 COMPLETE, TASK 5 NEXT (02.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
-  `codex/yandex-cdn-whitelist-task3-sync`. Последний опубликованный design
-  checkpoint — exact SHA `7fff66fc59c0be6aeaa90f88d0b5ecd50d638ed8`.
-  Все три применимых exact-SHA workflow завершены GREEN: `HA immutable panel
-  artifact` run `33496794299`, `HA S4 network change-package checks` run
-  `33496794256`, `Yandex CDN isolated release checks` run `33496794350`.
-  Durable shadow metering schema/store существует, но production publication,
-  authoritative prepaid balance, sidecar use-gate, bot delivery и customer
-  billing всё ещё не подключены.
-- Владелец 01.09.2026 подтвердил единую коммерческую схему: 400 ₽ за 30 дней,
-  2 GB включённого CDN-трафика и пакеты 5 GB/100 ₽, 20 GB/300 ₽,
-  50 GB/600 ₽, 100 GB/1 000 ₽. Owner planning input: около 40 клиентов,
-  около 3 текущих пользователей white-list; это не server-verified runtime
-  count.
-- Владелец 01.09.2026 подтвердил весь письменный интегрированный дизайн в
+  `codex/yandex-cdn-whitelist-task3-sync`. Последний проверенный implementation
+  checkpoint Task 4 — exact SHA `bfeae609e78a651df7c1c5fe3a1c1602d4d4cac6`.
+  Все пять применимых exact-SHA workflow завершены GREEN: `HA control-plane`
+  `33568439568`, `HA DR restore drill` `33568439578`, `HA immutable panel
+  artifact` `33568439582`, `HA S4 network change-package checks` `33568439590`,
+  `Yandex CDN isolated release checks` `33568439566`.
+- Tasks 1–3 завершены ранее на `d95b5eb76fe4731c569e4fea0fa8affa34c3a4a0`,
+  `3033d4069af5199c50f4912c43314972d961ae1b` и
+  `2000ec1002f50f65a04cdca94416325b5a36ce75`. Task 4 добавил schema v11 с
+  immutable periods/journal/usage applications и CAS projection; независимый
+  final re-review вернул `SPEC: APPROVED`, `QUALITY: APPROVED` без findings.
+  Authoritative prepaid service, sidecar use-gate, bot delivery и customer
+  payment flow ещё не подключены.
+- Владелец 02.09.2026 уточнил коммерческую политику: ordinary VPN и его
+  продление остаются без изменений; CDN/LTE entitlement и CDN-узлы по умолчанию
+  скрыты/OFF. Включить их может только подтверждённая покупка GB либо явное
+  действие администратора. Admin disable скрывает CDN/LTE и отзывает только
+  управляемые `wl:` identities, но не удаляет purchased balance, ledger/history
+  и не меняет ordinary VPN.
+- Продление основного доступа за 400 ₽ не начисляет автоматические 2 GB и само
+  по себе не включает CDN/LTE. Пакеты остаются 5 GB/100 ₽, 20 GB/300 ₽,
+  50 GB/600 ₽, 100 GB/1 000 ₽. CDN/LTE trial/bonus отложен; если его утвердят
+  позднее, это будет отдельный явный идемпотентный grant/product. Owner planning
+  input: около 40 клиентов, около 3 текущих пользователей white-list; это не
+  server-verified runtime count.
+- Письменный интегрированный дизайн обновлён в
   `docs/superpowers/specs/2026-09-01-maestrovpn-whitelist-commercial-delivery-design.md`.
-  Подтверждены `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие отрицательного
-  расчётного баланса, периодизация 2 GB, one-subscription UX и rollout
+  После override подтверждены `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие
+  отрицательного расчётного баланса, default-hidden CDN/LTE, one-subscription UX и rollout
   S4 → S2 → S3 → S1. Исполнимый RED/GREEN план сохранён в
   `docs/superpowers/plans/2026-09-01-maestrovpn-whitelist-commercial-delivery.md`.
 - Один Yandex CDN resource использует одинаковые active Origin-реплики.
@@ -29,19 +41,18 @@
   свежих receipts всех active Origins и health выбранного exit. Xray API
   остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
   3x-ui/Xray и ordinary VPN не затрагиваются.
-- Независимый design/plan review завершён `NO BLOCKERS` после фиксации
-  all-Origin readiness, receipt boot/config/generation/TTL binding, глобально
-  уникального meter epoch, period-boundary handling и explicit blackhole.
-- Следующий repository step — Task 1 плана: RED-first contract tests и CI path
-  coverage. Затем последовательно выполняются post-cache publication, balance,
-  orders/bot, sidecar reconcile и только после полного exact-SHA review/CI —
-  production inventory/backup/canary gates.
+- Независимые design/plan и Task 1–4 reviews закрыты. Следующий repository step —
+  Task 5: pure prepaid balance transitions и rqlite service с zero-grant default,
+  durable idempotency и без изменения ordinary VPN или visibility. Затем
+  последовательно выполняются use-gate, orders/panel/bot, sidecar reconcile и
+  только после полного exact-SHA review/CI — production inventory/backup/canary
+  gates.
 - Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
   платежи, balances, Android/TV, release/signing или OTA. Real charging,
   production DB cutover и final customer traffic cutover остаются отдельными
   stop gates. OLCRTC и WDTT заморожены.
 
-## 0. XHTTP FIRST-CANARY — LIVE UNRESTRICTED PASS, WHITE-LIST PENDING (01.09.2026)
+## 0. XHTTP FIRST-CANARY — MOBILE WHITE-LIST PASS (01.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
   `codex/yandex-cdn-whitelist-task3-sync`. Repository/runtime/CI реализация
@@ -56,8 +67,9 @@
   `33464964316`, `Yandex CDN isolated release checks` run `33464964334`,
   `HA DR restore drill` run `33464964361`, `HA control-plane checks` run
   `33464964363`, `HA S4 network change package` run `33464964368`. Это закрывает
-  только repository/CI gate; реальный mobile white-list test остаётся
-  **PENDING**, готовность customer product не заявляется.
+  только repository/CI gate. Отдельный реальный mobile white-list client test
+  теперь имеет **OWNER-REPORTED CLIENT PASS**; готовность customer product этим
+  не заявляется.
 - На S4 работает только отдельный тестовый Xray `26.7.28` sidecar; обычный
   x-ui/Xray и его TCP/UDP `443` не изменялись. Direct tunnel и tunnel через
   тестовый Yandex CDN прошли server-side smoke. После владельческого теста в
@@ -65,16 +77,24 @@
   bytes (`8704 -> 14548`), поэтому unrestricted client path имеет **PASS**.
   Защищённый evidence run: `20260831T213659Z`; SHA-256 клиентского validation
   log: `23842965f2b14df2c0185636d5699ce83e31d8fb8755692f4058657d4c1119ce`.
-- Реальный тест при включённом операторском mobile white-list всё ещё
-  **PENDING**: в момент проверки white-list не действовал. По прямому указанию
-  владельца тестовый canary и его временный клиентский ключ остаются активны до
-  утреннего семейного теста. Не выполнять status-probe, rollback, rotation или
-  удаление ключа без завершения этого тестового окна либо отдельного stop-gate.
-- Выданный test URI совместим с современным Xray-клиентом, но **не** с
-  production MaestroVPN Android/TV `1.0.157`: приложение использует pinned
-  sing-box/libbox без XHTTP и ML-KEM VLESS Encryption, а QR/import принимает
-  trusted HTTPS `/sub/<token>`, но не прямой VLESS share URI. Оборачивание URI в
-  текущую subscription без нового compatible client/runtime этого не исправит.
+- 01.09.2026 владелец сообщил итог семейного client test: дочь проверила
+  one-tap Incy full-JSON subscription при активном операторском mobile
+  white-list и подтвердила: «работает всё замечательно». Результат
+  классифицируется строго как **OWNER-REPORTED CLIENT PASS**. До выдачи endpoint
+  был отдельно проверен по TLS/HTTP (`200`, `application/json`, byte/hash
+  match), а официальный Incy `crypt1` wrapper прошёл encode/decode round trip.
+  Full JSON содержал явный UDP/443 blackhole и тот же S4 canary/XHTTP path.
+  Приватный URL, credentials и клиентские секреты в Git не записываются.
+- По прямому указанию владельца приватная тестовая subscription и временный
+  credential остаются активны до полного завершения сервиса. Не выполнять их
+  status-probe, rollback, rotation или удаление без отдельного указания
+  владельца либо подтверждённого safety incident.
+- Прямой test URI совместим с современным Xray-клиентом, но **не** с production
+  MaestroVPN Android/TV `1.0.157`: приложение использует pinned sing-box/libbox
+  без XHTTP и ML-KEM VLESS Encryption. One-tap Incy wrapper приватной HTTPS
+  full-JSON subscription импортировался и прошёл пользовательский тест; это не
+  доказывает совместимость transport с MaestroVPN `1.0.157` и не заменяет
+  обновление runtime приложения.
 - Task 2 recovery сохраняет fail-closed порядок: сначала оператор отдельно
   возвращает Yandex CDN на диагностический origin, затем CLI `rollback`
   проверяет этот внешний restore и только после этого снимает sidecar/local

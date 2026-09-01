@@ -40,6 +40,13 @@ REQUIRED_GO_PACKAGES = (
 )
 REQUIRED_PYTHON_PATH = "deploy/vpn_bot_maestro_*.py"
 ANDROID_TEST_APK_GATE = "android-test-apk"
+OWNER_POLICY_MARKERS = (
+    "CDN/LTE publication is customer-hidden and OFF by default.",
+    "Confirmed GB purchase or explicit admin enable is required to publish CDN/LTE.",
+    "Admin disable preserves purchased balance and ordinary VPN.",
+    "Ordinary 400 RUB renewal grants zero CDN bytes.",
+    "CDN/LTE trial is deferred.",
+)
 
 
 class CommercialDeliveryContractPolicyTest(unittest.TestCase):
@@ -60,6 +67,10 @@ class CommercialDeliveryContractPolicyTest(unittest.TestCase):
             "`wl-gb-100-v1` | `WHITELIST_BYTES` | 100000 | 100000000000",
         ):
             self.assertIn(product_row, plan)
+        for marker in OWNER_POLICY_MARKERS:
+            self.assertIn(marker, plan)
+        self.assertNotIn("confirmation schedules exactly one 2,000,000,000-byte period", plan)
+        self.assertNotIn("30-дневные периоды с 2 GB", plan)
         self.assertIn("DesiredGeneration", plan)
         self.assertIn("readiness receipt containing", plan)
         for receipt_field in (

@@ -2,7 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task with review checkpoints.
 
-**Goal:** Довести существующий изолированный Yandex CDN/XHTTP sidecar до безопасного коммерческого режима: одна подписка, ручная оплата, 30-дневные периоды с 2 GB, бессрочные пакеты GB, точный server-side metering, индивидуальный use-gate и последовательный rollout S4 → S2 → S3 → S1 без изменения обычного VPN.
+**Goal:** Довести существующий изолированный Yandex CDN/XHTTP sidecar до безопасного коммерческого режима: одна подписка, ручная оплата, CDN/LTE скрытый по умолчанию, бессрочные пакеты GB, точный server-side metering, индивидуальный use-gate и последовательный rollout S4 → S2 → S3 → S1 без изменения обычного VPN.
+
+**Owner policy override (2026-09-02):**
+
+- CDN/LTE publication is customer-hidden and OFF by default.
+- Confirmed GB purchase or explicit admin enable is required to publish CDN/LTE.
+- Admin disable preserves purchased balance and ordinary VPN.
+- Ordinary 400 RUB renewal grants zero CDN bytes.
+- Подтверждённая покупка GB атомарно включает customer publication gate; явное admin enable/disable является отдельным идемпотентным переходом. Disable скрывает CDN/LTE и отзывает только управляемые `wl:` identities, но не стирает balance, journal или history. CDN/LTE trial/bonus отложен и не входит в текущую реализацию.
 
 **Architecture:** Bare `/sub/<token>` остаётся byte-compatible с MaestroVPN 1.0.157. Только links-ответ расширяется после ordinary cache/LKG свежим typed publication snapshot. Один Yandex CDN resource использует набор одинаковых active Origin-реплик. Route identity `wl:<entitlementID>:<exitID>` выбирает фиксированный exit S1/S2/S3/S4 через Xray `routing.rules[].user`, поэтому страна не зависит от выбранного CDN Origin. Control plane хранит immutable periods/journal, mutable projection, отдельные top-up orders и desired/receipt state. Xray sidecar сохраняет отдельный процесс и mTLS localhost API; node agent применяет только managed identities через `HandlerService`. Existing exactly-once external-action executor доставляет desired generations на node agents. Любая неопределённость закрывает только CDN-часть.
 
@@ -184,11 +192,11 @@ type UsageAllocation struct {
 }
 ```
 
-**Rules:** included bytes are consumed first; purchased bytes never expire; an ended period expires only its unused included bytes; an early renewal creates `[max(current_expiry, now), +30d)` and never resets the current included bucket; a period activates only at its start; an expired primary access freezes purchased balance; actual counter overshoot is recorded as uncovered traffic but never makes available balance negative.
+**Rules:** included grant является только явным параметром операции; commercial default равен нулю. Ordinary access confirmation не создаёт `INCLUDED_GRANT`, не кредитует CDN bytes и не меняет customer publication gate. Для уже существующего CDN entitlement допускается нулевой accounting period, связанный с подтверждённым access order, чтобы purchased bytes продолжали работать после продления без выдачи бонуса. Included bytes расходуются первыми; purchased bytes не сгорают; завершившийся period списывает только неиспользованный explicit included grant; новый period активируется только с его start; истёкший primary access замораживает purchased balance. Actual counter overshoot записывается как uncovered traffic, но available balance никогда не становится отрицательным. Task 5 хранит balance независимо от visibility: admin disable не изменяет periods, journal или projection.
 
 **Steps:**
 
-- [ ] Write pure tests for first period, early renewal without current-quota reset, multi-period queue, exact boundary rollover, unused included expiry, purchased persistence, included-first allocation, zero balance, counter overshoot, overflow rejection, and duplicate operation idempotency.
+- [ ] Write pure tests for a zero-grant first period, absence of implicit 2 GB, an optional explicit included grant, early renewal without current-quota reset, multi-period queue, exact boundary rollover, unused explicit included expiry, purchased persistence across rollover and primary expiry, included-first allocation, zero balance, counter overshoot, overflow rejection, and duplicate operation idempotency.
 - [ ] Run `go test ./internal/whitelistbalance -count=1`; require RED.
 - [ ] Implement pure state transitions with no database or wall-clock access.
 - [ ] Add rqlite service methods `ScheduleWhiteListPeriod`, `CreditWhiteListPurchasedBytes`, `ApplyWhiteListUsage`, and `WhiteListBalanceSnapshot`. Each method takes explicit `now` and exact source IDs. Journal insert, stored operation result, and projection CAS commit in one transaction; replay reads the stored result.
@@ -210,6 +218,7 @@ type UsageAllocation struct {
 **Steps:**
 
 - [ ] Write tests proving one `UPLINK_PLUS_DOWNLINK` interval creates one debit, `(meter_epoch, interval_id)` replay is a no-op with the stored result, counter reset starts a new globally unique epoch, two Origins cannot collide on an epoch, out-of-order intervals are rejected, and zero balance first closes publication then produces a sidecar revoke intent without changing ordinary access.
+- [ ] Write publication tests proving default OFF/hidden, confirmed-purchase activation, explicit admin enable, admin disable to ordinary-only, and preservation of purchased balance across disable. A disabled or absent customer gate maps to the existing closed `NO_ENTITLEMENT` verdict and never changes ordinary output.
 - [ ] Write boundary tests proving the collector samples and closes an interval at period end. If an interval still crosses the boundary after an outage, mark projection pending/stale and publish no CDN rather than apportion bytes approximately.
 - [ ] Write publication tests for active primary access, positive balance, freshness window, pending projection, exact profile/preset/release binding, applied node receipt, and credential validity.
 - [ ] Run `go test ./internal/shadowbilling ./internal/controlplane -run 'CommercialDebit|WhiteListPublication' -count=1`; require RED.
@@ -243,15 +252,17 @@ type UsageAllocation struct {
 | `wl-gb-50-v1` | `WHITELIST_BYTES` | 60000 | 50000000000 |
 | `wl-gb-100-v1` | `WHITELIST_BYTES` | 100000 | 100000000000 |
 
-Access remains the existing order engine with a new immutable `40000 RUB / 30 days` tariff version; confirmation schedules exactly one 2,000,000,000-byte period in the same cluster transaction.
+Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation extends only ordinary access and grants zero CDN bytes. A confirmed GB top-up atomically finds or creates a zero-grant accounting period (`included_grant_bytes=0`) bound to the customer's confirmed ordinary access order, creates no `INCLUDED_GRANT` journal row for zero bytes, exactly once credits purchased bytes, and enables the CDN/LTE customer publication gate in the same cluster transaction. Explicit admin enable/disable is a separate idempotent transition; disable preserves balance. CDN/LTE trial is deferred.
 
 **Steps:**
 
-- [ ] Add migration 12 tables for immutable products, top-up orders, payment claims, stored confirmation results, and idempotency bindings. Keep existing order tables unchanged.
+- [ ] Add migration 12 tables for immutable products, top-up orders, payment claims, stored confirmation results, idempotency bindings, and one versioned default-OFF customer publication control per entitlement. Keep existing order tables unchanged.
 - [ ] Seed exact catalog rows idempotently; historical rows remain immutable and visible to existing orders.
 - [ ] Write RED tests for catalog snapshots, price-change isolation, expired-primary rejection, duplicate claim, duplicate confirmation, different panel node, restart, unknown outcome, rejected order, and exact one-time byte credit.
 - [ ] Implement `CreateWhiteListTopUpOrder`, `ClaimWhiteListTopUpPayment`, `ConfirmWhiteListTopUpPayment`, and `RejectWhiteListTopUpOrder` using one rqlite CAS transaction per transition.
-- [ ] Extend ordinary access confirmation statements so the expiry extension and billing-period schedule commit together and replay returns the stored result.
+- [ ] In top-up confirmation, first find or create the active zero-grant period bound to the customer's confirmed ordinary access order, then insert `PURCHASED_CREDIT` and enable the publication control atomically. Zero grant must not create an `INCLUDED_GRANT` entry.
+- [ ] Keep ordinary access confirmation byte-compatible and independent from CDN. Only when a customer already has a CDN entitlement may renewal extend a zero-grant accounting period; it must not enable publication or create an `INCLUDED_GRANT`.
+- [ ] Add idempotent admin enable/disable commands. Enable requires a usable balance or an explicit separately recorded admin grant; disable closes publication first and preserves balance/journal/history.
 - [ ] Run all order/controlplane integration and race tests; require GREEN.
 - [ ] Commit with message `feat(orders): add exactly-once whitelist products`.
 
@@ -272,6 +283,7 @@ Access remains the existing order engine with a new immutable `40000 RUB / 30 da
 - `POST /order/<id>/paid-claim`: durable claim for either order family.
 - `POST /admin/order/<id>/confirm` and `/reject`: dispatch by durable order lookup, not by callback text or ID prefix.
 - `GET /account/whitelist-balance`: included, purchased, available, period end, primary access state, and redacted publication verdict.
+- `POST /admin/accounts/{id}/whitelist-publication`: explicit enable/disable with idempotency key, actor/audit evidence, no balance mutation, and ordinary-access isolation.
 - `POST /account/subscription-delivery`: authenticated Incy/Happ delivery descriptor; never returns secrets to a different account.
 
 **Steps:**
@@ -320,7 +332,7 @@ Access remains the existing order engine with a new immutable `40000 RUB / 30 da
 
 **Steps:**
 
-- [ ] Write mocked-transport tests for login display, access renewal, four pack choices, expired-primary blocking, paid claim, owner confirmation/rejection, duplicate callback, successful balance message, Incy button, Happ three-step fallback, and support handoff.
+- [ ] Write mocked-transport tests for login display, access renewal, four pack choices, CDN absent before purchase/admin enable, CDN present after purchase, ordinary-only output after admin disable with purchased balance preserved, expired-primary blocking, paid claim, owner confirmation/rejection, duplicate callback, successful balance message, Incy button, Happ three-step fallback, and support handoff. Do not add a trial button.
 - [ ] Prove callback data contains only opaque action/order identifiers and never login, SubToken, URL, UUID, or payment data.
 - [ ] Run `python -X utf8 -m unittest deploy.tests.test_vpn_bot_maestro_customer deploy.tests.test_vpn_bot_maestro_orders`; require RED.
 - [ ] Implement a small pure presentation layer and one API adapter. Keep the existing admin confirmation callbacks compatible.
