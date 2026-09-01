@@ -69,6 +69,17 @@ func TestAppendWhiteListShareLinksPreservesReversedOrderAndPartialReplay(t *test
 	if count := bytes.Count(decoded, []byte(firstLink)); count != 1 {
 		t.Fatalf("first link count=%d, want 1", count)
 	}
+	reversed, err := AppendWhiteListShareLinks(ordinary, []WhiteListNode{second, first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reversedDecoded, err := base64.StdEncoding.DecodeString(reversed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(reversedDecoded), "vless://ordinary\n"+secondLink+"\n"+firstLink; got != want {
+		t.Fatalf("reversed document=%q, want %q", got, want)
+	}
 }
 
 func TestAppendWhiteListShareLinksRejectsInvalidBatchAtomically(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"maestrovpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 func TestControlPlaneSubscription10157BareGoldenDoesNotAugment(t *testing.T) {
@@ -15,6 +15,11 @@ func TestControlPlaneSubscription10157BareGoldenDoesNotAugment(t *testing.T) {
 	source := newSubscriptionReviewSource(now, 1, true, "11111111-1111-4111-8111-111111111111")
 	business := newSubscriptionReviewBusiness(&now, source)
 	handler := NewControlPlane(business, Config{EnforceDeviceLimit: true}).Handler()
+	options := subscriptionReviewOptions(subscriptionEndpointBase)
+	expectedBody, expectedType, err := renderControlPlaneSubscription(source.state.Customer, business.cfg.SubscriptionTopology, options)
+	if err != nil {
+		t.Fatalf("render ordinary expectation: %v", err)
+	}
 	request := func() *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/sub/review-token?device=review-device", nil)
@@ -23,10 +28,14 @@ func TestControlPlaneSubscription10157BareGoldenDoesNotAugment(t *testing.T) {
 		return response
 	}
 	fresh := request()
+	freshSnapshotCalls := source.snapshotCall
 	source.snapshotErr = controlplane.ErrUnavailable
 	cached := request()
-	if fresh.Code != http.StatusOK || cached.Code != fresh.Code || fresh.Header().Get("Content-Type") != "application/json" || cached.Header().Get("Content-Type") != fresh.Header().Get("Content-Type") || string(cached.Body.Bytes()) != string(fresh.Body.Bytes()) {
+	if fresh.Code != http.StatusOK || cached.Code != fresh.Code || fresh.Header().Get("Content-Type") != expectedType || cached.Header().Get("Content-Type") != fresh.Header().Get("Content-Type") || string(fresh.Body.Bytes()) != string(expectedBody) || string(cached.Body.Bytes()) != string(expectedBody) {
 		t.Fatalf("fresh/cached golden mismatch: fresh=%d %q %q cached=%d %q %q", fresh.Code, fresh.Header().Get("Content-Type"), fresh.Body.Bytes(), cached.Code, cached.Header().Get("Content-Type"), cached.Body.Bytes())
+	}
+	if source.snapshotCall != freshSnapshotCalls {
+		t.Fatalf("outage snapshot calls=%d, want cache LKG to retain %d", source.snapshotCall, freshSnapshotCalls)
 	}
 	for _, response := range []*httptest.ResponseRecorder{fresh, cached} {
 		for _, header := range []string{"Content-Encoding", "Etag", "Content-Length"} {
