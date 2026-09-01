@@ -1,5 +1,37 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. WHITE-LIST COMMERCIAL DELIVERY DESIGN — TARIFF APPROVED, SPEC REVIEW PENDING (01.09.2026)
+
+- Единственная рабочая/push-ветка остаётся
+  `codex/yandex-cdn-whitelist-task3-sync`. До docs-checkpoint текущий exact code
+  SHA — `92d4fca008f402fc160646ef44c9d07b3a481949`; все пять обязательных
+  exact-SHA workflows на нём GREEN. Durable metering schema/store существует,
+  но production publication, prepaid balance, sidecar revocation, bot delivery
+  и customer billing всё ещё не подключены.
+- Владелец 01.09.2026 подтвердил единую коммерческую схему: 400 ₽ за 30 дней,
+  2 GB включённого CDN-трафика и пакеты 5 GB/100 ₽, 20 GB/300 ₽,
+  50 GB/600 ₽, 100 GB/1 000 ₽. Owner planning input: около 40 клиентов,
+  около 3 текущих пользователей white-list; это не server-verified runtime
+  count.
+- Письменный интегрированный дизайн сохранён в
+  `docs/superpowers/specs/2026-09-01-maestrovpn-whitelist-commercial-delivery-design.md`.
+  Он фиксирует один subscription URL, post-cache fail-closed CDN publication,
+  отдельный prepaid byte journal, exactly-once manual payment confirmation,
+  Telegram UX, entitlement-only sidecar revoke/re-enable и client/fleet gates.
+- Yandex CDN не устанавливается на каждый сервер: используется один общий CDN
+  resource. На S1/S2/S3/S4 после индивидуальных gates последовательно
+  разворачиваются отдельные immutable `maestro-xray-cdn` sidecars; порядок
+  rollout — существующий S4 canary, затем S2, S3 и текущий S1. Production
+  3x-ui/Xray и ordinary VPN остаются отдельно.
+- Перед implementation plan владелец должен просмотреть письменную спецификацию
+  и подтвердить предложенные `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие
+  овердрафта, периодизацию 2 GB, one-subscription UX и последовательность fleet
+  rollout. До этого новый commercial code не писать.
+- Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
+  платежи, balances, Android/TV, release/signing или OTA. Real charging,
+  production DB cutover и final customer traffic cutover остаются отдельными
+  stop gates. OLCRTC и WDTT заморожены.
+
 ## 0. XHTTP FIRST-CANARY — LIVE UNRESTRICTED PASS, WHITE-LIST PENDING (01.09.2026)
 
 - Единственная рабочая/push-ветка остаётся

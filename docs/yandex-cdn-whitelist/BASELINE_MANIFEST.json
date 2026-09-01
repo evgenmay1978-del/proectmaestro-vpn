@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 303680,
-      "sha256": "bc06ead090fec6efcb81ccc105a93a454336ef3e931b9ba34d80730b576afcd5",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. XHTTP FIRST-CANARY \u2014 LIVE UNRESTRICTED PASS, WHITE-LIST PENDING (01.09.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f\n  `codex/yandex-cdn-whitelist-task3-sync`. Repository/runtime/CI \u0440\u0435\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f\n  \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u0438\u0437\u043e\u043b\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e\u0433\u043e canary \u0437\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442"
+      "bytes": 306424,
+      "sha256": "a26061c76d7868eadd475ceb8f4ec313c4541f5a23da8380200e9f9fdf1f5239",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. WHITE-LIST COMMERCIAL DELIVERY DESIGN \u2014 TARIFF APPROVED, SPEC REVIEW PENDING (01.09.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f\n  `codex/yandex-cdn-whitelist-task3-sync`. \u0414\u043e docs-checkpoint \u0442\u0435\u043a\u0443\u0449\u0438\u0439 exact code\n  SHA \u2014 `92d4fca008f402fc160646ef44c9d07b3a48"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
