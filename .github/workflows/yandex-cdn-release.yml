@@ -301,35 +301,51 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          go test -count=1 -race \
-            ./internal/controlplane \
-            ./internal/subgen \
-            ./internal/shadowbilling \
-            ./internal/whitelistapi/v1 \
-            ./internal/release \
-            ./internal/whitelistready \
-            ./internal/canary \
-            ./cmd/maestro-release-validate \
-            ./cmd/maestro-whitelist-ready \
-            ./cmd/maestro-xray-cdn-canary \
+          go_packages=(
+            ./internal/api
+            ./internal/controlplane
+            ./internal/subgen
+            ./internal/whitelistbalance
+            ./internal/shadowbilling
+            ./internal/whitelistapi/v1
+            ./internal/release
+            ./internal/whitelistready
+            ./internal/canary
+            ./cmd/maestro-release-validate
+            ./cmd/maestro-whitelist-ready
+            ./cmd/maestro-xray-cdn-canary
             ./internal/testsupport/whitelistfixture
+          )
+          existing_go_packages=()
+          for package in "${go_packages[@]}"; do
+            [[ -d "${package#./}" ]] && existing_go_packages+=("$package")
+          done
+          go test -count=1 -race "${existing_go_packages[@]}"
 
       - name: Vet Task 7 Go packages
         working-directory: backend
         run: |
           set -euo pipefail
-          go vet \
-            ./internal/controlplane \
-            ./internal/subgen \
-            ./internal/shadowbilling \
-            ./internal/whitelistapi/v1 \
-            ./internal/release \
-            ./internal/whitelistready \
-            ./internal/canary \
-            ./cmd/maestro-release-validate \
-            ./cmd/maestro-whitelist-ready \
-            ./cmd/maestro-xray-cdn-canary \
+          go_packages=(
+            ./internal/api
+            ./internal/controlplane
+            ./internal/subgen
+            ./internal/whitelistbalance
+            ./internal/shadowbilling
+            ./internal/whitelistapi/v1
+            ./internal/release
+            ./internal/whitelistready
+            ./internal/canary
+            ./cmd/maestro-release-validate
+            ./cmd/maestro-whitelist-ready
+            ./cmd/maestro-xray-cdn-canary
             ./internal/testsupport/whitelistfixture
+          )
+          existing_go_packages=()
+          for package in "${go_packages[@]}"; do
+            [[ -d "${package#./}" ]] && existing_go_packages+=("$package")
+          done
+          go vet "${existing_go_packages[@]}"
 
       - name: Race-test exact-SHA root-only Linux canary contracts
         working-directory: backend

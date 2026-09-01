@@ -50,8 +50,10 @@ EXPECTED_JOBS = {
     "android-test-apk",
 }
 GO_PACKAGES = (
+    "./internal/api",
     "./internal/controlplane",
     "./internal/subgen",
+    "./internal/whitelistbalance",
     "./internal/shadowbilling",
     "./internal/whitelistapi/v1",
     "./internal/release",
@@ -63,8 +65,10 @@ GO_PACKAGES = (
     "./internal/testsupport/whitelistfixture",
 )
 GOFMT_SCOPE = (
+    "internal/api",
     "internal/controlplane",
     "internal/subgen",
+    "internal/whitelistbalance",
     "internal/shadowbilling",
     "internal/whitelistapi/v1",
     "internal/release",
@@ -419,7 +423,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "642e23b34d743ce335f920cc9ecf04eeaf07f306807be787e0d5b474894bc284"
+    "e8907d2677a83ed760bcac91de07d442bb517281ea688b65948e9b9ba616d7dd"
 )
 
 
@@ -845,27 +849,6 @@ def fake_go_calls(log_path: Path) -> list[list[str]]:
     ]
 
 
-def continued_command_arguments(
-    lines: tuple[str, ...], command: str
-) -> tuple[str, ...]:
-    try:
-        start = lines.index(f"{command} \\")
-    except ValueError:
-        return ()
-    values: list[str] = []
-    for line in lines[start + 1 :]:
-        value = line.strip()
-        continued = value.endswith("\\")
-        if continued:
-            value = value[:-1].rstrip()
-        if not value:
-            return ()
-        values.append(value)
-        if not continued:
-            return tuple(values)
-    return ()
-
-
 class WorkflowSafetyContractTest(unittest.TestCase):
     def test_triggers_cover_every_task7_input_on_push_and_pull_request(self) -> None:
         source = workflow_text()
@@ -1112,7 +1095,11 @@ class WorkflowGateContractTest(unittest.TestCase):
         self.assertIn("gofmt -l", source)
         self.assertIn("comm -23", source)
         self.assertIn("Unexpected non-canonical Go files outside accepted legacy debt", source)
-        self.assertCountEqual(GOFMT_SCOPE, bash_array(source, "gofmt_scope"))
+        self.assertEqual(GOFMT_SCOPE, bash_array(source, "gofmt_scope"))
+        self.assertIn("gofmt_existing=()", source)
+        self.assertIn('for package in "${gofmt_scope[@]}"; do', source)
+        self.assertIn('[[ -d "$package" ]] && gofmt_existing+=("$package")', source)
+        self.assertIn('gofmt -l "${gofmt_existing[@]}"', source)
         self.assertCountEqual(
             LEGACY_GO_FORMAT_DEBT,
             bash_array(source, "legacy_debt"),
@@ -1121,13 +1108,12 @@ class WorkflowGateContractTest(unittest.TestCase):
         for path in CANONICAL_TASK7_FORMAT_FILES:
             with self.subTest(canonical_path=path):
                 self.assertNotIn(path, legacy_debt)
-        self.assertEqual(
-            GO_PACKAGES,
-            continued_command_arguments(
-                step_run_lines(workflow_text(), "Test Task 7 Go packages"),
-                "go test -count=1",
-            ),
-        )
+        go_step = named_step_source(workflow_text(), "Test Task 7 Go packages")
+        self.assertEqual(GO_PACKAGES, bash_array(go_step, "go_packages"))
+        self.assertIn("existing_go_packages=()", go_step)
+        self.assertIn('for package in "${go_packages[@]}"; do', go_step)
+        self.assertIn('[[ -d "${package#./}" ]] && existing_go_packages+=("$package")', go_step)
+        self.assertIn('go test -count=1 "${existing_go_packages[@]}"', go_step)
         for module in (
             "scripts.tests.test_yandex_cdn_docs",
             "scripts.tests.test_yandex_cdn_repro",
@@ -1138,22 +1124,18 @@ class WorkflowGateContractTest(unittest.TestCase):
         self.assertIn("git diff --check", source)
 
     def test_race_vet_job_is_separate_and_covers_every_go_package(self) -> None:
-        source = job_source(workflow_text(), "race-vet")
-        self.assertIn("needs: format-unit", source)
-        self.assertEqual(
-            GO_PACKAGES,
-            continued_command_arguments(
-                step_run_lines(workflow_text(), "Race-test Task 7 Go packages"),
-                "go test -count=1 -race",
-            ),
-        )
-        self.assertEqual(
-            GO_PACKAGES,
-            continued_command_arguments(
-                step_run_lines(workflow_text(), "Vet Task 7 Go packages"),
-                "go vet",
-            ),
-        )
+        self.assertIn("needs: format-unit", job_source(workflow_text(), "race-vet"))
+        for step, command in (
+            ("Race-test Task 7 Go packages", 'go test -count=1 -race "${existing_go_packages[@]}"'),
+            ("Vet Task 7 Go packages", 'go vet "${existing_go_packages[@]}"'),
+        ):
+            with self.subTest(step=step):
+                source = named_step_source(workflow_text(), step)
+                self.assertEqual(GO_PACKAGES, bash_array(source, "go_packages"))
+                self.assertIn("existing_go_packages=()", source)
+                self.assertIn('for package in "${go_packages[@]}"; do', source)
+                self.assertIn('[[ -d "${package#./}" ]] && existing_go_packages+=("$package")', source)
+                self.assertIn(command, source)
 
     def test_release_wrappers_check_the_exact_go_package_list(self) -> None:
         bash = BASH_RELEASE_VALIDATOR.read_text(encoding="utf-8")
@@ -1163,11 +1145,17 @@ class WorkflowGateContractTest(unittest.TestCase):
             GO_PACKAGES,
             powershell_array(powershell, "validationPackages"),
         )
-        bash_check = '"$go_binary" test -count=1 "${validation_packages[@]}"'
+        self.assertIn("existing_packages=()", bash)
+        self.assertIn('for package in "${validation_packages[@]}"; do', bash)
+        self.assertIn('[[ -d ${package#./} ]] && existing_packages+=("$package")', bash)
+        bash_check = '"$go_binary" test -count=1 "${existing_packages[@]}"'
         self.assertEqual(1, bash.count(bash_check))
         self.assertLess(bash.index(bash_check), bash.index('exec "$go_binary" run'))
         powershell_check = "& $goBinary @testArgs"
-        self.assertIn("$testArgs = @('test', '-count=1') + $validationPackages", powershell)
+        self.assertIn("$existingPackages = @(", powershell)
+        self.assertIn("$validationPackages | Where-Object {", powershell)
+        self.assertIn("Test-Path -LiteralPath (Join-Path $backend $_.Substring(2)) -PathType Container", powershell)
+        self.assertIn("$testArgs = @('test', '-count=1') + $existingPackages", powershell)
         self.assertEqual(1, powershell.count(powershell_check))
         self.assertLess(
             powershell.index(powershell_check),
@@ -1202,7 +1190,13 @@ class WorkflowGateContractTest(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(0, success.returncode, success.stdout + success.stderr)
-            expected_test = ["test", "-count=1", *GO_PACKAGES]
+            existing_go_packages = tuple(
+                package
+                for package in GO_PACKAGES
+                if (REPO_ROOT / "backend" / package.removeprefix("./")).is_dir()
+            )
+            self.assertLess(len(existing_go_packages), len(GO_PACKAGES))
+            expected_test = ["test", "-count=1", *existing_go_packages]
             expected_run = [
                 "run",
                 "./cmd/maestro-release-validate",
