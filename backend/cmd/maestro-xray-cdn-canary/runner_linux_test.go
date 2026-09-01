@@ -77,16 +77,21 @@ func TestLinuxProtectedReaderAndTemporaryExecutable(t *testing.T) {
 	if _, err := readRootOwned0600(input, 4096); err == nil {
 		t.Fatal("wrong mode accepted")
 	}
-	if err := os.Chmod(input, 0o4600); err != nil {
-		t.Fatal(err)
-	}
-	var special unix.Stat_t
-	if err := unix.Stat(input, &special); err != nil || special.Mode&0o7000 != 0o4000 {
-		t.Fatalf("cannot create setuid fixture: mode=%#o err=%v", special.Mode, err)
-	}
-	if _, err := readRootOwned0600(input, 4096); err == nil {
-		t.Fatal("setuid protected file accepted")
-	}
+	t.Run("setuid fixture", func(t *testing.T) {
+		if err := os.Chmod(input, 0o4600); err != nil {
+			t.Fatal(err)
+		}
+		var special unix.Stat_t
+		if err := unix.Stat(input, &special); err != nil {
+			t.Fatal(err)
+		}
+		if special.Mode&0o7000 != 0o4000 {
+			t.Skipf("filesystem stripped setuid fixture: mode=%#o", special.Mode)
+		}
+		if _, err := readRootOwned0600(input, 4096); err == nil {
+			t.Fatal("setuid protected file accepted")
+		}
+	})
 	if err := os.Chmod(input, 0o600); err != nil || os.Chown(input, 0, 1) != nil {
 		t.Fatal("cannot create wrong-group fixture")
 	}

@@ -19,6 +19,9 @@ GRADLE = REPO_ROOT / "app" / "build.gradle.kts"
 BASH_RELEASE_VALIDATOR = REPO_ROOT / "ops" / "validate-yandex-cdn-release.sh"
 POWERSHELL_RELEASE_VALIDATOR = REPO_ROOT / "ops" / "validate-yandex-cdn-release.ps1"
 STORE_LINUX_TEST = REPO_ROOT / "backend" / "internal" / "canary" / "store_linux_test.go"
+RUNNER_LINUX_TEST = (
+    REPO_ROOT / "backend" / "cmd" / "maestro-xray-cdn-canary" / "runner_linux_test.go"
+)
 ROOT_CANARY_STEP = "Test exact-SHA root-only Linux canary contracts"
 ROOT_CANARY_RACE_STEP = "Race-test exact-SHA root-only Linux canary contracts"
 FAKE_GO_SOURCE = """from __future__ import annotations
@@ -1347,6 +1350,28 @@ class WorkflowGateContractTest(unittest.TestCase):
                 r'\t\tt\.Skip\("Linux crash-recovery contract requires root"\)\n'
                 r"\t\}",
             ),
+        )
+
+    def test_root_reader_setuid_fixture_is_explicitly_filesystem_portable(self) -> None:
+        source = RUNNER_LINUX_TEST.read_text(encoding="utf-8")
+        self.assertIn("func TestLinuxMetadataPreservesSpecialModeBits", source)
+        self.assertIn(
+            """\tt.Run("setuid fixture", func(t *testing.T) {
+\t\tif err := os.Chmod(input, 0o4600); err != nil {
+\t\t\tt.Fatal(err)
+\t\t}
+\t\tvar special unix.Stat_t
+\t\tif err := unix.Stat(input, &special); err != nil {
+\t\t\tt.Fatal(err)
+\t\t}
+\t\tif special.Mode&0o7000 != 0o4000 {
+\t\t\tt.Skipf("filesystem stripped setuid fixture: mode=%#o", special.Mode)
+\t\t}
+\t\tif _, err := readRootOwned0600(input, 4096); err == nil {
+\t\t\tt.Fatal("setuid protected file accepted")
+\t\t}
+\t})""",
+            source,
         )
 
     def test_root_only_linux_canary_race_tests_are_exact_sha_and_sudo_gated(self) -> None:
