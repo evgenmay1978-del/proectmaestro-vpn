@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 9
+	SchemaVersion = 10
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -80,6 +80,11 @@ var expectedSchemaTables = []string{
 	"trial_redemptions",
 	"web_sessions",
 	"whitelist_entitlement_identities",
+	"whitelist_metering_checkpoints",
+	"whitelist_metering_events",
+	"whitelist_metering_intervals",
+	"whitelist_metering_periods",
+	"whitelist_metering_projections",
 }
 
 type migration struct {
@@ -278,6 +283,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 7, path: "migrations/0007_orders_exactly_once.sql"},
 		{version: 8, path: "migrations/0008_external_action_binding.sql"},
 		{version: 9, path: "migrations/0009_rate_limit_retention.sql"},
+		{version: 10, path: "migrations/0010_whitelist_metering.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {
