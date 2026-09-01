@@ -960,6 +960,9 @@ var configRunRootFromHook string
 
 func runCrashHelper(t *testing.T, root, point string) {
 	t.Helper()
+	if os.Geteuid() != 0 {
+		t.Skip("Linux crash-recovery contract requires root")
+	}
 	command := exec.Command(os.Args[0], "-test.run=^TestStoreCrashHelper$")
 	command.Env = append(os.Environ(), "MAESTRO_CANARY_CRASH_ROOT="+root, "MAESTRO_CANARY_CRASH_POINT="+point)
 	err := command.Run()

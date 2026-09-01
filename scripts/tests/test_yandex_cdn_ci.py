@@ -1334,6 +1334,16 @@ class WorkflowGateContractTest(unittest.TestCase):
                 r"\t\}",
             ),
         )
+        self.assertRegex(
+            source,
+            re.compile(
+                r"func runCrashHelper\([^\n]+\) \{\n"
+                r"\tt\.Helper\(\)\n"
+                r"\tif os\.Geteuid\(\) != 0 \{\n"
+                r'\t\tt\.Skip\("Linux crash-recovery contract requires root"\)\n'
+                r"\t\}",
+            ),
+        )
 
     def test_root_only_linux_canary_race_tests_are_exact_sha_and_sudo_gated(self) -> None:
         source = workflow_text()
