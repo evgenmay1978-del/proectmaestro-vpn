@@ -17,9 +17,9 @@ func xhttpLinkNode() WhiteListNode {
 		TLS: true, ServerName: "cdn.example.invalid", Host: "cdn.example.invalid",
 		Path: "/static/main/video/segment.ts/opaque", Mode: "packet-up",
 		UplinkHTTPMethod: "GET", UplinkDataPlacement: "body",
-		ClientID: "11111111-1111-4111-8111-111111111111",
+		ClientID:   "11111111-1111-4111-8111-111111111111",
 		Encryption: "mlkem768x25519plus.native.0rtt." + material,
-		Security: "tls", ALPN: []string{"h2"}, Fingerprint: "firefox",
+		Security:   "tls", ALPN: []string{"h2"}, Fingerprint: "firefox",
 		Extra: url.QueryEscape(extra), Label: "БС/Yandex fallback", DomainFallback: true,
 	}
 }
@@ -40,12 +40,17 @@ func TestWhiteListShareLinkMatchesCanonicalXrayXHTTPContract(t *testing.T) {
 	query := parsed.Query()
 	want := map[string]string{
 		"encryption": node.Encryption,
-		"security": "tls",
-		"type": "xhttp",
-		"host": node.Host,
-		"sni": node.ServerName,
-		"path": node.Path,
-		"mode": "packet-up",
+		"security":   "tls",
+		"type":       "xhttp",
+		"host":       node.Host,
+		"sni":        node.ServerName,
+		"path":       node.Path,
+		"mode":       "packet-up",
+		"fp":         node.Fingerprint,
+		"alpn":       "h2",
+	}
+	if len(query) != len(want)+1 {
+		t.Fatalf("query keys=%v, want exact transport keys plus extra", query)
 	}
 	for key, value := range want {
 		if query.Get(key) != value {
@@ -61,6 +66,40 @@ func TestWhiteListShareLinkMatchesCanonicalXrayXHTTPContract(t *testing.T) {
 	}
 	if strings.Contains(parsed.RawQuery, "%257B") {
 		t.Fatalf("extra is double encoded: %s", parsed.RawQuery)
+	}
+}
+
+func TestWhiteListShareLinkUsesLiteralEdgeWithoutChangingHostOrSNI(t *testing.T) {
+	node := xhttpLinkNode()
+	node.Address = "11.22.33.44"
+	node.DomainFallback = false
+	node.EdgeID = "edge-internal-id"
+	node.TransportProfileID = "profile-internal-id"
+	node.CompatibilityPresetID = "preset-internal-id"
+	node.TransportReleaseID = "release-internal-id"
+	node.Label = "БС edge-internal-id"
+
+	link, err := WhiteListShareLink(node)
+	if err != nil {
+		t.Fatalf("WhiteListShareLink: %v", err)
+	}
+	parsed, err := url.Parse(link)
+	if err != nil {
+		t.Fatalf("parse link: %v", err)
+	}
+	if parsed.Host != "11.22.33.44:443" {
+		t.Fatalf("dial authority=%q", parsed.Host)
+	}
+	if parsed.Query().Get("host") != "cdn.example.invalid" || parsed.Query().Get("sni") != "cdn.example.invalid" {
+		t.Fatalf("literal edge changed Host/SNI: %q", parsed.RawQuery)
+	}
+	if parsed.Fragment != "MaestroVPN Yandex CDN" {
+		t.Fatalf("public label=%q", parsed.Fragment)
+	}
+	for _, internal := range []string{node.EdgeID, node.TransportProfileID, node.CompatibilityPresetID, node.TransportReleaseID} {
+		if strings.Contains(link, internal) {
+			t.Fatalf("link leaked internal identifier %q", internal)
+		}
 	}
 }
 
@@ -100,6 +139,10 @@ func TestWhiteListShareLinkRejectsMalformedOrDoubleEncodedInput(t *testing.T) {
 		{name: "double encoded extra", mutate: func(node *WhiteListNode) { node.Extra = url.QueryEscape(node.Extra) }},
 		{name: "invalid extra", mutate: func(node *WhiteListNode) { node.Extra = url.QueryEscape(`{"unknown":true}`) }},
 		{name: "short encryption", mutate: func(node *WhiteListNode) { node.Encryption = "mlkem768x25519plus.native.0rtt.short" }},
+		{name: "dot segment path", mutate: func(node *WhiteListNode) { node.Path = "/static/../secret" }},
+		{name: "percent escaped path", mutate: func(node *WhiteListNode) { node.Path = "/static/%73ecret" }},
+		{name: "invalid numeric address", mutate: func(node *WhiteListNode) { node.Address = "999.999.999.999" }},
+		{name: "reserved literal address", mutate: func(node *WhiteListNode) { node.Address = "203.0.113.7" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
