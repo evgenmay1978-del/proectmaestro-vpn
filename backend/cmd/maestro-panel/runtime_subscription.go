@@ -3,8 +3,12 @@ package main
 import (
 	"os"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
+
+// Publication is deliberately disconnected from runtime until a later gated task.
+func runtimeWhiteListPublicationSource() api.WhiteListPublicationSource { return nil }
 
 // Keep the frozen legacy provisioning topology without constructing its JSON
 // stores, panel clients, Provisioner, or SSH dependencies in rqlite mode. Only

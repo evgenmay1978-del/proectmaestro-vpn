@@ -24,6 +24,7 @@ type ServiceBusinessConfig struct {
 	DeviceLimitFor       func(string) int
 	Now                  func() time.Time
 	SubscriptionCacheTTL time.Duration
+	WhiteListPublicationSource WhiteListPublicationSource
 }
 
 type externalActionRunner interface {
@@ -532,7 +533,9 @@ func (b *ServiceBusiness) subscriptionSnapshotForRequest(ctx context.Context, to
 		return SubscriptionSnapshot{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
 	if b.subscriptionStates != nil {
-		return b.subscriptionSnapshotWithState(ctx, token, options)
+		snapshot, err := b.subscriptionSnapshotWithState(ctx, token, options)
+		if err != nil { return SubscriptionSnapshot{}, err }
+		return b.applyWhiteListPublication(ctx, token, options, snapshot)
 	}
 	customer, err := b.subscriptions.BusinessCustomerByToken(ctx, token)
 	if err != nil {
@@ -550,7 +553,7 @@ func (b *ServiceBusiness) subscriptionSnapshotForRequest(ctx context.Context, to
 		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
 	}
 	snapshot.Document, snapshot.ContentType = document, contentType
-	return snapshot, nil
+	return b.applyWhiteListPublication(ctx, token, options, snapshot)
 }
 
 func (b *ServiceBusiness) TouchDevice(ctx context.Context, command TouchDeviceCommand) (DeviceDecision, error) {
