@@ -14,11 +14,13 @@ on:
       - 'backend/cmd/maestro-backup-worker/**'
       - 'backend/cmd/maestro-xray-cdn-canary/**'
       - 'backend/internal/backuprpo/**'
+      - 'backend/internal/api/**'
       - 'backend/internal/canary/**'
       - 'backend/internal/controlplane/**'
       - 'backend/internal/release/**'
       - 'backend/internal/shadowbilling/**'
       - 'backend/internal/subgen/**'
+      - 'backend/internal/whitelistbalance/**'
       - 'backend/internal/testsupport/whitelistfixture/**'
       - 'backend/internal/whitelistapi/**'
       - 'backend/internal/whitelistready/**'
@@ -27,8 +29,10 @@ on:
       - 'deploy/maestro-backup.timer'
       - 'deploy/maestro-backup-onchange.path'
       - 'deploy/maestro-backup.sh'
+      - 'deploy/vpn_bot_maestro_*.py'
       - 'docs/yandex-cdn-whitelist/**'
       - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
+      - 'docs/superpowers/plans/2026-09-01-maestrovpn-whitelist-commercial-delivery.md'
       - 'ops/ha/ci-rqlite-cluster.sh'
       - 'ops/ha/test-backup-systemd-policy.py'
       - 'ops/ha/tests/test_backup_systemd_policy.py'
@@ -39,6 +43,7 @@ on:
       - 'scripts/repro/**'
       - 'scripts/tests/test_yandex_cdn_*.py'
       - 'scripts/validate_yandex_cdn_docs.py'
+      - 'sidecar-agent/**'
   push:
     paths:
       - '.github/workflows/yandex-cdn-release.yml'
@@ -51,11 +56,13 @@ on:
       - 'backend/cmd/maestro-backup-worker/**'
       - 'backend/cmd/maestro-xray-cdn-canary/**'
       - 'backend/internal/backuprpo/**'
+      - 'backend/internal/api/**'
       - 'backend/internal/canary/**'
       - 'backend/internal/controlplane/**'
       - 'backend/internal/release/**'
       - 'backend/internal/shadowbilling/**'
       - 'backend/internal/subgen/**'
+      - 'backend/internal/whitelistbalance/**'
       - 'backend/internal/testsupport/whitelistfixture/**'
       - 'backend/internal/whitelistapi/**'
       - 'backend/internal/whitelistready/**'
@@ -64,8 +71,10 @@ on:
       - 'deploy/maestro-backup.timer'
       - 'deploy/maestro-backup-onchange.path'
       - 'deploy/maestro-backup.sh'
+      - 'deploy/vpn_bot_maestro_*.py'
       - 'docs/yandex-cdn-whitelist/**'
       - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
+      - 'docs/superpowers/plans/2026-09-01-maestrovpn-whitelist-commercial-delivery.md'
       - 'ops/ha/ci-rqlite-cluster.sh'
       - 'ops/ha/test-backup-systemd-policy.py'
       - 'ops/ha/tests/test_backup_systemd_policy.py'
@@ -76,6 +85,7 @@ on:
       - 'scripts/repro/**'
       - 'scripts/tests/test_yandex_cdn_*.py'
       - 'scripts/validate_yandex_cdn_docs.py'
+      - 'sidecar-agent/**'
 
 permissions:
   contents: read
@@ -118,8 +128,10 @@ jobs:
           set -euo pipefail
 
           gofmt_scope=(
+            internal/api
             internal/controlplane
             internal/subgen
+            internal/whitelistbalance
             internal/shadowbilling
             internal/whitelistapi/v1
             internal/release
@@ -132,6 +144,11 @@ jobs:
             internal/backuprpo
             cmd/maestro-backup-worker
           )
+
+          gofmt_existing=()
+          for package in "${gofmt_scope[@]}"; do
+            [[ -d "$package" ]] && gofmt_existing+=("$package")
+          done
 
           legacy_debt=(
             internal/controlplane/customers_test.go
@@ -147,7 +164,7 @@ jobs:
           )
 
           noncanonical="$(
-            gofmt -l "${gofmt_scope[@]}" |
+            gofmt -l "${gofmt_existing[@]}" |
               LC_ALL=C sort -u
           )"
 
@@ -170,18 +187,26 @@ jobs:
         working-directory: backend
         run: |
           set -euo pipefail
-          go test -count=1 \
-            ./internal/controlplane \
-            ./internal/subgen \
-            ./internal/shadowbilling \
-            ./internal/whitelistapi/v1 \
-            ./internal/release \
-            ./internal/whitelistready \
-            ./internal/canary \
-            ./cmd/maestro-release-validate \
-            ./cmd/maestro-whitelist-ready \
-            ./cmd/maestro-xray-cdn-canary \
+          go_packages=(
+            ./internal/api
+            ./internal/controlplane
+            ./internal/subgen
+            ./internal/whitelistbalance
+            ./internal/shadowbilling
+            ./internal/whitelistapi/v1
+            ./internal/release
+            ./internal/whitelistready
+            ./internal/canary
+            ./cmd/maestro-release-validate
+            ./cmd/maestro-whitelist-ready
+            ./cmd/maestro-xray-cdn-canary
             ./internal/testsupport/whitelistfixture
+          )
+          existing_go_packages=()
+          for package in "${go_packages[@]}"; do
+            [[ -d "${package#./}" ]] && existing_go_packages+=("$package")
+          done
+          go test -count=1 "${existing_go_packages[@]}"
 
       - name: Test exact-SHA root-only Linux canary contracts
         working-directory: backend

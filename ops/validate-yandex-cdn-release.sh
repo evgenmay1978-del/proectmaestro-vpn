@@ -13,8 +13,10 @@ seen_release=0
 seen_trust=0
 seen_go=0
 validation_packages=(
+  ./internal/api
   ./internal/controlplane
   ./internal/subgen
+  ./internal/whitelistbalance
   ./internal/shadowbilling
   ./internal/whitelistapi/v1
   ./internal/release
@@ -25,6 +27,7 @@ validation_packages=(
   ./cmd/maestro-xray-cdn-canary
   ./internal/testsupport/whitelistfixture
 )
+commercial_python_sources=(../deploy/vpn_bot_maestro_*.py)
 
 while (($# > 0)); do
   case "$1" in
@@ -75,7 +78,15 @@ else
 fi
 
 cd -- "$repo_root/backend" || fail wrapper_failed
-"$go_binary" test -count=1 "${validation_packages[@]}" || fail go_tests_failed
+existing_packages=()
+for package in "${validation_packages[@]}"; do
+  [[ -d ${package#./} ]] && existing_packages+=("$package")
+done
+"$go_binary" test -count=1 "${existing_packages[@]}" || fail go_tests_failed
+shopt -s nullglob
+if ((${#commercial_python_sources[@]})); then
+  python3 -X utf8 -m py_compile "${commercial_python_sources[@]}" || fail python_compile_failed
+fi
 exec "$go_binary" run ./cmd/maestro-release-validate \
   --release-dir "$release_dir" \
   --evidence-trust "$evidence_trust"

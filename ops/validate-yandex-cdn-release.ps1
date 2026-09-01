@@ -29,8 +29,10 @@ $seenRelease = $false
 $seenTrust = $false
 $seenGo = $false
 $validationPackages = @(
+    './internal/api'
     './internal/controlplane'
     './internal/subgen'
+    './internal/whitelistbalance'
     './internal/shadowbilling'
     './internal/whitelistapi/v1'
     './internal/release'
@@ -41,6 +43,7 @@ $validationPackages = @(
     './cmd/maestro-xray-cdn-canary'
     './internal/testsupport/whitelistfixture'
 )
+$commercialPythonSources = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '..\deploy') -Filter 'vpn_bot_maestro_*.py' -File -ErrorAction SilentlyContinue
 
 for ($index = 0; $index -lt $args.Count; $index += 2) {
     if ($index + 1 -ge $args.Count) {
@@ -108,10 +111,22 @@ try {
     $backend = Join-Path $repoRoot 'backend'
     Push-Location -LiteralPath $backend
     try {
-        $testArgs = @('test', '-count=1') + $validationPackages
+        $existingPackages = @(
+            $validationPackages | Where-Object {
+                Test-Path -LiteralPath (Join-Path $backend $_.Substring(2)) -PathType Container
+            }
+        )
+        $testArgs = @('test', '-count=1') + $existingPackages
         & $goBinary @testArgs
         if ($LASTEXITCODE -ne 0) {
             Exit-Failure 'go_tests_failed'
+        }
+        if ($commercialPythonSources.Count -gt 0) {
+            $python = (Get-Command -Name 'python' -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            & $python -X utf8 -m py_compile $commercialPythonSources.FullName
+            if ($LASTEXITCODE -ne 0) {
+                Exit-Failure 'python_compile_failed'
+            }
         }
         $validatorArgs = @(
             'run',
