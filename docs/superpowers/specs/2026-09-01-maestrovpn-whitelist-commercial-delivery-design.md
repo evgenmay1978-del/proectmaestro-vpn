@@ -1,7 +1,7 @@
 # MaestroVPN: коммерческая выдача режима «Белые списки»
 
 Дата решения: 2026-09-01
-Статус: тариф и пакеты подтверждены владельцем; полный письменный дизайн ожидает review перед implementation plan
+Статус: полный письменный дизайн подтверждён владельцем 2026-09-01; разрешён переход к implementation plan и реализации
 Каноническая ветка: `codex/yandex-cdn-whitelist-task3-sync`
 
 ## 1. Цель и границы
@@ -21,12 +21,14 @@
 - купленные пакеты не сгорают, но при окончании основного доступа замораживаются до продления;
 - пакеты: 5 GB — 100 ₽, 20 GB — 300 ₽, 50 GB — 600 ₽, 100 GB — 1 000 ₽;
 
-Эта спецификация предлагает для письменного review связанные технические правила:
+Связанные технические правила также подтверждены:
 
 - первоначально овердрафт отсутствует;
 - traffic basis — `UPLINK_PLUS_DOWNLINK`, измеренный Xray per-user counters;
 - единица расчёта — `GB_DECIMAL = 1_000_000_000 bytes`;
 - изменение цены применяется только к новым заказам и новым usage intervals.
+
+«Без овердрафта» означает отсутствие отрицательного расчётного баланса и намеренного разрешения трафика при нуле. Периодический Xray Stats не является сетевым hard-cap: байты между последним sample и фактическим revoke записываются как `uncovered_bytes`, баланс насыщается до нуля, публикация прекращается до удаления identities, а максимальная задержка и safety reserve проверяются canary. Если измеренный риск не укладывается в утверждённый предел, платный запуск остаётся NO_GO.
 
 Текущая бизнес-оценка владельца: около 40 клиентов, из них около 3 сейчас нуждаются в белых списках. Это вход для планирования, а не server-verified runtime count.
 
@@ -34,9 +36,9 @@
 
 ## 3. Fleet/data-plane архитектура
 
-Yandex CDN не устанавливается на каждый сервер. Используется один общий Yandex CDN resource как публичная точка входа; отдельный ресурс на пользователя или сервер не создаётся.
+Yandex CDN не устанавливается на каждый сервер. Используется один общий Yandex CDN resource как публичная точка входа; отдельный ресурс на пользователя или сервер не создаётся. Его active Origin group состоит только из одинаковых по ingress-конфигурации проверенных реплик.
 
-На каждом подходящем S1/S2/S3/S4 последовательно разворачивается отдельный immutable sidecar `maestro-xray-cdn`, не связанный с production 3x-ui/Xray. Control plane согласует на каждом узле entitlement identity, release и desired state. В CDN origin routing допускаются только узлы с точным проверенным release, health и rollback point.
+На каждом подходящем S1/S2/S3/S4 последовательно разворачивается отдельный immutable sidecar `maestro-xray-cdn`, не связанный с production 3x-ui/Xray. Каждый active Origin принимает одинаковый набор управляемых route identities вида `wl:<entitlementID>:<exitID>`. Статическое Xray routing rule по официально поддерживаемому `user: ["regexp:..."]` направляет такую identity на фиксированный outbound S1/S2/S3/S4 независимо от того, какую Origin-реплику выбрал CDN. Outbound подключается к отдельному TLS VLESS relay inbound `maestro-cdn-exit-in` выбранного sidecar; relay порт доступен только active Origins и не использует production 3x-ui/Xray. Relay traffic всегда выходит через локальный `freedom` выбранного exit и не попадает обратно в origin routing. Неизвестная или искажённая identity попадает только в blackhole; default exit отсутствует. Поэтому публичная подпись страны обозначает exit, а не случайно выбранный Origin. Control plane согласует entitlement identity, route credential, release и desired generation на всех active Origins; маршрут публикуется только после свежих receipts от каждой Origin-реплики и health выбранного exit relay. Receipt связывает `originID`, Xray process boot identity, config digest и desired generation; рестарт или истечение TTL немедленно снимают readiness. В CDN origin routing допускаются только узлы с точным проверенным release, health и rollback point.
 
 Порядок rollout:
 
@@ -47,7 +49,7 @@ Yandex CDN не устанавливается на каждый сервер. �
 5. Региональные canaries и 48-часовое наблюдение.
 6. Отдельно подтверждённый customer cutover.
 
-Сбой одного sidecar не влияет на ordinary VPN. Удаление CDN-узла из подписки не считается отзывом уже импортированного URI: use-gate обязан отдельно revoke/re-enable только identity `wl:<entitlementID>` на sidecar.
+Сбой одного sidecar не влияет на ordinary VPN. Удаление CDN-узла из подписки не считается отзывом уже импортированного URI: use-gate обязан отдельно revoke/re-enable только управляемые identities `wl:<entitlementID>:<exitID>` на всех active Origin-репликах и не трогать canary/static users.
 
 ## 4. Одна подписка и клиентская выдача
 
@@ -78,11 +80,11 @@ Incy получает one-tap обёртку официального форма
 - один current period на entitlement;
 - idempotency key каждой операции.
 
-Каждая оплаченная 30-дневная часть доступа создаёт последовательный billing period. При раннем продлении следующий period планируется после текущего и его 2 GB включаются только с момента начала этого period; текущая квота не удваивается. Купленные пакеты доступны во всех активных periods и не сгорают.
+Каждая оплаченная 30-дневная часть доступа создаёт последовательный billing period. При раннем продлении следующий period создаётся как `[max(current_expiry, confirmation_time), +30d)`; его 2 GB включаются только с момента начала этого period, а текущая квота не сбрасывается и не удваивается. Неиспользованный included остаток сгорает только на границе периода. Collector обязан закрыть interval на границе; пересёкший границу interval не делится приблизительно, а переводит projection в pending/stale до точного разрешения. Купленные пакеты доступны во всех активных periods и не сгорают.
 
 Publication verdict является отдельным typed результатом: `Publishable=true` только при ACTIVE entitlement, действующем основном доступе, свежем непредварительном projection, положительном available balance, точном profile/preset/release binding и пригодном sidecar credential.
 
-При `available_bytes <= 0` выполняются два согласованных действия: CDN исчезает из свежей links-подписки, а соответствующая `wl:` identity отзывается на sidecar. Ordinary subscription, ordinary credentials, customer status и основной expiry не меняются. После подтверждённого top-up identity возвращается идемпотентно.
+При `available_bytes <= 0` выполняются два упорядоченных действия: сначала CDN исчезает из свежей links-подписки, затем соответствующие `wl:` identities отзываются на всех active Origins. При включении порядок обратный: новая generation применяется на всех Origins, подтверждается receipts и только потом появляется в подписке. Ordinary subscription, ordinary credentials, customer status и основной expiry не меняются. После подтверждённого top-up identities возвращаются идемпотентно.
 
 ## 6. Ручная оплата и exactly-once подтверждение
 
@@ -123,7 +125,7 @@ Publication verdict является отдельным typed результат
 
 - Любая неопределённость publication source удаляет только CDN из нового документа.
 - Ordinary cache/LKG продолжает работать независимо.
-- Collector outage не создаёт приблизительных списаний и не обнуляет counters.
+- Collector outage не создаёт приблизительных списаний и не обнуляет counters. Каждый `meter_epoch` глобально уникален и включает Origin/source identity, Xray process boot identity и counter-reset sequence.
 - Уже активным entitlement предоставляется ограниченный grace; admin получает alert. После grace решение принимается индивидуально и не запускает массовый account suspension.
 - Unknown sidecar apply outcome разрешается чтением durable receipt, без blind retry.
 - Ошибка top-up не может оставить bytes начисленными без committed order result.
@@ -173,4 +175,4 @@ Real charging, OTA/release publication, production DB cutover и final customer 
 - Official Incy link encoder: `https://github.com/INCY-DEV/incy-link-encoder`.
 - Official Happ subscription FAQ: `https://www.happ.su/main/faq/adding-configuration-subscription`.
 
-Владелец подтвердил коммерческую схему `400 ₽ / 30 дней + 2 GB` и пакеты 2026-09-01. Письменный review этой спецификации должен отдельно утвердить связанные единицы, traffic basis, отсутствие овердрафта, периодизацию бонуса, one-subscription UX и последовательное размещение isolated sidecars на S1–S4.
+Владелец подтвердил 2026-09-01 весь письменный дизайн: схему `400 ₽ / 30 дней + 2 GB`, пакеты, `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие намеренного овердрафта, периодизацию бонуса, one-subscription UX и последовательное размещение isolated sidecars на S1–S4.

@@ -1,32 +1,41 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. WHITE-LIST COMMERCIAL DELIVERY DESIGN — TARIFF APPROVED, SPEC REVIEW PENDING (01.09.2026)
+## 0. WHITE-LIST COMMERCIAL DELIVERY — SPEC APPROVED, IMPLEMENTATION PLAN READY (01.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
-  `codex/yandex-cdn-whitelist-task3-sync`. До docs-checkpoint текущий exact code
-  SHA — `92d4fca008f402fc160646ef44c9d07b3a481949`; все пять обязательных
-  exact-SHA workflows на нём GREEN. Durable metering schema/store существует,
-  но production publication, prepaid balance, sidecar revocation, bot delivery
-  и customer billing всё ещё не подключены.
+  `codex/yandex-cdn-whitelist-task3-sync`. Последний опубликованный design
+  checkpoint — exact SHA `7fff66fc59c0be6aeaa90f88d0b5ecd50d638ed8`.
+  Все три применимых exact-SHA workflow завершены GREEN: `HA immutable panel
+  artifact` run `33496794299`, `HA S4 network change-package checks` run
+  `33496794256`, `Yandex CDN isolated release checks` run `33496794350`.
+  Durable shadow metering schema/store существует, но production publication,
+  authoritative prepaid balance, sidecar use-gate, bot delivery и customer
+  billing всё ещё не подключены.
 - Владелец 01.09.2026 подтвердил единую коммерческую схему: 400 ₽ за 30 дней,
   2 GB включённого CDN-трафика и пакеты 5 GB/100 ₽, 20 GB/300 ₽,
   50 GB/600 ₽, 100 GB/1 000 ₽. Owner planning input: около 40 клиентов,
   около 3 текущих пользователей white-list; это не server-verified runtime
   count.
-- Письменный интегрированный дизайн сохранён в
+- Владелец 01.09.2026 подтвердил весь письменный интегрированный дизайн в
   `docs/superpowers/specs/2026-09-01-maestrovpn-whitelist-commercial-delivery-design.md`.
-  Он фиксирует один subscription URL, post-cache fail-closed CDN publication,
-  отдельный prepaid byte journal, exactly-once manual payment confirmation,
-  Telegram UX, entitlement-only sidecar revoke/re-enable и client/fleet gates.
-- Yandex CDN не устанавливается на каждый сервер: используется один общий CDN
-  resource. На S1/S2/S3/S4 после индивидуальных gates последовательно
-  разворачиваются отдельные immutable `maestro-xray-cdn` sidecars; порядок
-  rollout — существующий S4 canary, затем S2, S3 и текущий S1. Production
-  3x-ui/Xray и ordinary VPN остаются отдельно.
-- Перед implementation plan владелец должен просмотреть письменную спецификацию
-  и подтвердить предложенные `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие
-  овердрафта, периодизацию 2 GB, one-subscription UX и последовательность fleet
-  rollout. До этого новый commercial code не писать.
+  Подтверждены `GB_DECIMAL`, `UPLINK_PLUS_DOWNLINK`, отсутствие отрицательного
+  расчётного баланса, периодизация 2 GB, one-subscription UX и rollout
+  S4 → S2 → S3 → S1. Исполнимый RED/GREEN план сохранён в
+  `docs/superpowers/plans/2026-09-01-maestrovpn-whitelist-commercial-delivery.md`.
+- Один Yandex CDN resource использует одинаковые active Origin-реплики.
+  Управляемая route identity `wl:<entitlementID>:<exitID>` на любом Origin
+  статическим Xray `user regexp` направляется через отдельный TLS VLESS relay
+  на тот же выбранный exit S1/S2/S3/S4. Публикация разрешается только после
+  свежих receipts всех active Origins и health выбранного exit. Xray API
+  остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
+  3x-ui/Xray и ordinary VPN не затрагиваются.
+- Независимый design/plan review завершён `NO BLOCKERS` после фиксации
+  all-Origin readiness, receipt boot/config/generation/TTL binding, глобально
+  уникального meter epoch, period-boundary handling и explicit blackhole.
+- Следующий repository step — Task 1 плана: RED-first contract tests и CI path
+  coverage. Затем последовательно выполняются post-cache publication, balance,
+  orders/bot, sidecar reconcile и только после полного exact-SHA review/CI —
+  production inventory/backup/canary gates.
 - Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
   платежи, balances, Android/TV, release/signing или OTA. Real charging,
   production DB cutover и final customer traffic cutover остаются отдельными
