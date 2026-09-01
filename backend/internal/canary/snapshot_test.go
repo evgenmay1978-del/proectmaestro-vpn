@@ -108,6 +108,46 @@ func TestParseRequestRejectsUntrustedJSON(t *testing.T) {
 	}
 }
 
+func TestNewSnapshotRejectsNonCanonicalOrNonPublicApprovedEdgeAddress(t *testing.T) {
+	cases := []struct {
+		name    string
+		address string
+	}{
+		{"hostname", "edge.example.invalid"},
+		{"IPv6", "2001:4860:4860::8888"},
+		{"leading zero", "008.8.8.8"},
+		{"integer pseudo-host", "134744072"},
+		{"short numeric pseudo-host", "127.1"},
+		{"hex numeric pseudo-host", "0x08080808"},
+		{"host and port", "8.8.8.8:443"},
+		{"unspecified", "0.0.0.0"},
+		{"private ten", "10.0.0.1"},
+		{"private one seventy two", "172.16.0.1"},
+		{"private one ninety two", "192.168.0.1"},
+		{"loopback", "127.0.0.1"},
+		{"link local", "169.254.1.1"},
+		{"carrier grade NAT", "100.64.0.1"},
+		{"multicast", "224.0.0.1"},
+		{"reserved", "240.0.0.1"},
+		{"limited broadcast", "255.255.255.255"},
+		{"IETF protocol assignments", "192.0.0.1"},
+		{"deprecated relay", "192.88.99.1"},
+		{"benchmark", "198.18.0.1"},
+		{"documentation one", "192.0.2.1"},
+		{"documentation two", "198.51.100.1"},
+		{"documentation three", "203.0.113.1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := testRequest()
+			request.ApprovedEdgeAddress = tc.address
+			if _, err := canary.NewSnapshot(request, testMaterial()); err == nil {
+				t.Fatalf("NewSnapshot accepted invalid approved edge address %q", tc.address)
+			}
+		})
+	}
+}
+
 func TestNewSnapshotRejectsInvalidMaterialAndPins(t *testing.T) {
 	cases := []struct {
 		name   string

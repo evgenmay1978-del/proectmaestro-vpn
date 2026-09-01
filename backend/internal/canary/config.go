@@ -27,7 +27,7 @@ func (s Snapshot) Materialize() (Artifacts, error) {
 	if err != nil {
 		return Artifacts{}, invalid("config_encode")
 	}
-	cdn, err := json.Marshal(clientConfig(s, s.Request.PublicHost, 443, "tls", 10809))
+	cdn, err := json.Marshal(clientConfig(s, cdnDialAddress(s), 443, "tls", 10809))
 	if err != nil {
 		return Artifacts{}, invalid("config_encode")
 	}
@@ -67,5 +67,12 @@ func clientConfig(s Snapshot, address string, port int, security string, socksPo
 func clientURI(s Snapshot) string {
 	extra, _ := json.Marshal(map[string]any{"sessionIDPlacement": "query", "sessionIDKey": "auth", "sessionIDLength": 16, "seqPlacement": "query", "seqKey": "chunk_id", "uplinkHTTPMethod": "GET", "uplinkDataPlacement": "body"})
 	values := url.Values{"encryption": []string{s.Material.ClientEncryption}, "security": []string{"tls"}, "type": []string{"xhttp"}, "host": []string{s.Request.PublicHost}, "sni": []string{s.Request.PublicHost}, "path": []string{s.Material.SecretPath}, "mode": []string{"packet-up"}, "extra": []string{string(extra)}}
-	return "vless://" + s.Material.ClientID + "@" + s.Request.PublicHost + ":443?" + values.Encode() + "#maestro-xhttp-canary"
+	return "vless://" + s.Material.ClientID + "@" + cdnDialAddress(s) + ":443?" + values.Encode() + "#maestro-xhttp-canary"
+}
+
+func cdnDialAddress(s Snapshot) string {
+	if s.Request.ApprovedEdgeAddress != "" {
+		return s.Request.ApprovedEdgeAddress
+	}
+	return s.Request.PublicHost
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -110,6 +111,83 @@ func TestMaterializeBuildsIsolatedXHTTPPair(t *testing.T) {
 	first[0] = '!'
 	if bytes.Equal(first, artifacts.ServerConfig()) {
 		t.Fatal("artifacts exposed mutable config bytes")
+	}
+}
+
+func TestMaterializeUsesApprovedLiteralEdgeOnlyForCDNDial(t *testing.T) {
+	baselineSnapshot, err := canary.NewSnapshot(testRequest(), testMaterial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineArtifacts, err := baselineSnapshot.Materialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineURI, err := url.Parse(string(baselineArtifacts.ClientURI()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineCDN := decodeConfig(t, baselineArtifacts.CDNClientConfig())
+
+	request := testRequest()
+	request.ApprovedEdgeAddress = "8.8.8.8"
+	edgeSnapshot, err := canary.NewSnapshot(request, testMaterial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgeArtifacts, err := edgeSnapshot.Materialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(edgeArtifacts.ServerConfig(), baselineArtifacts.ServerConfig()) {
+		t.Fatal("approved literal edge changed server config")
+	}
+	if !bytes.Equal(edgeArtifacts.DirectClientConfig(), baselineArtifacts.DirectClientConfig()) {
+		t.Fatal("approved literal edge changed direct client config")
+	}
+
+	cdn := decodeConfig(t, edgeArtifacts.CDNClientConfig())
+	cdnOutbound := mapValue(t, arrayValue(t, cdn["outbounds"])[0])
+	cdnVNext := mapValue(t, arrayValue(t, mapValue(t, cdnOutbound["settings"])["vnext"])[0])
+	if got := cdnVNext["address"]; got != request.ApprovedEdgeAddress {
+		t.Fatalf("approved literal edge was ignored: CDN dial address = %#v", got)
+	}
+	cdnStream := mapValue(t, cdnOutbound["streamSettings"])
+	if got := mapValue(t, cdnStream["tlsSettings"])["serverName"]; got != request.PublicHost {
+		t.Fatalf("approved literal edge changed SNI: %#v", got)
+	}
+	xhttp := mapValue(t, cdnStream["xhttpSettings"])
+	if got := xhttp["host"]; got != request.PublicHost {
+		t.Fatalf("approved literal edge changed XHTTP Host: %#v", got)
+	}
+	if got := xhttp["path"]; got != testMaterial().SecretPath {
+		t.Fatalf("approved literal edge changed public path: %#v", got)
+	}
+	cdnVNext["address"] = request.PublicHost
+	if !reflect.DeepEqual(cdn, baselineCDN) {
+		t.Fatal("approved literal edge changed CDN config outside vnext.address")
+	}
+
+	parsed, err := url.Parse(string(edgeArtifacts.ClientURI()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Host; got != request.ApprovedEdgeAddress+":443" {
+		t.Fatalf("approved literal edge was ignored in URI authority: %q", got)
+	}
+	if got, want := parsed.RawQuery, baselineURI.RawQuery; got != want {
+		t.Fatalf("approved literal edge changed URI query/extra: got %q want %q", got, want)
+	}
+	query := parsed.Query()
+	if got := query.Get("host"); got != request.PublicHost {
+		t.Fatalf("approved literal edge changed URI host: %q", got)
+	}
+	if got := query.Get("sni"); got != request.PublicHost {
+		t.Fatalf("approved literal edge changed URI SNI: %q", got)
+	}
+	if got := query.Get("path"); got != testMaterial().SecretPath {
+		t.Fatalf("approved literal edge changed URI path: %q", got)
 	}
 }
 

@@ -24,6 +24,7 @@ const maxJSONBytes = 64 << 10
 type Request struct {
 	SchemaVersion            int    `json:"schema_version"`
 	PublicHost               string `json:"public_host"`
+	ApprovedEdgeAddress      string `json:"approved_edge_address,omitempty"`
 	DiagnosticProbeURL       string `json:"diagnostic_probe_url"`
 	DiagnosticResponseSHA256 string `json:"diagnostic_response_sha256"`
 }
@@ -112,6 +113,9 @@ func (s Snapshot) SHA256() string {
 func validateRequest(request Request) error {
 	if request.SchemaVersion != 1 || !safeHost(request.PublicHost) {
 		return invalid("request_host_invalid")
+	}
+	if request.ApprovedEdgeAddress != "" && !validApprovedEdgeAddress(request.ApprovedEdgeAddress) {
+		return invalid("request_approved_edge_address_invalid")
 	}
 	u, err := url.ParseRequestURI(request.DiagnosticProbeURL)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Host != request.PublicHost ||
@@ -282,6 +286,44 @@ func validUUID(value string) bool {
 	}
 	return value != "00000000-0000-0000-0000-000000000000"
 }
+func validApprovedEdgeAddress(value string) bool {
+	ip := net.ParseIP(value)
+	if ip == nil || ip.To4() == nil || ip.String() != value || !ip.IsGlobalUnicast() {
+		return false
+	}
+
+	octets := ip.To4()
+	first, second, third := octets[0], octets[1], octets[2]
+	if first == 0 || first == 10 || first == 127 || first >= 224 {
+		return false
+	}
+	if first == 100 && second >= 64 && second <= 127 {
+		return false
+	}
+	if first == 169 && second == 254 {
+		return false
+	}
+	if first == 172 && second >= 16 && second <= 31 {
+		return false
+	}
+	if first == 192 && second == 0 && (third == 0 || third == 2) {
+		return false
+	}
+	if first == 192 && second == 88 && third == 99 {
+		return false
+	}
+	if first == 192 && second == 168 {
+		return false
+	}
+	if first == 198 && (second == 18 || second == 19 || second == 51 && third == 100) {
+		return false
+	}
+	if first == 203 && second == 0 && third == 113 {
+		return false
+	}
+	return true
+}
+
 func validDigest(value string) bool {
 	if len(value) != 64 {
 		return false
