@@ -7,11 +7,16 @@
   первого изолированного canary зафиксирована последовательностью exact SHA:
   lifecycle/recovery `819e11ada7f14f4aa6b3bcdbf8cf8cc2e2fd746b`, operator CLI
   `713eb7e0724cd075bfab72420742ffc18dc389a7`, exact-SHA CI policy
-  `445b8fa682d128cabd03576050be936b33e658ec`. Финальные независимые reviews
+  `445b8fa682d128cabd03576050be936b33e658ec`, итоговые Linux CI corrections
+  `fcde1cd35c5e96ea99c8afe98ea41c74437c6bac`. Финальные независимые reviews
   каждого актуального code scope завершены с `0 Critical / 0 Important`.
-  `445b8fa` содержит CI policy, но не заменяет успешный workflow run: exact-SHA
-  GitHub CI для итогового docs-inclusive HEAD остаётся **PENDING** и является
-  следующим обязательным gate.
+  Exact-SHA GitHub evidence для `fcde1cd35c5e96ea99c8afe98ea41c74437c6bac`
+  завершён со статусом `success`: `HA immutable panel artifact` run
+  `33464964316`, `Yandex CDN isolated release checks` run `33464964334`,
+  `HA DR restore drill` run `33464964361`, `HA control-plane checks` run
+  `33464964363`, `HA S4 network change package` run `33464964368`. Это закрывает
+  только repository/CI gate; реальный mobile white-list test остаётся
+  **PENDING**, готовность customer product не заявляется.
 - На S4 работает только отдельный тестовый Xray `26.7.28` sidecar; обычный
   x-ui/Xray и его TCP/UDP `443` не изменялись. Direct tunnel и tunnel через
   тестовый Yandex CDN прошли server-side smoke. После владельческого теста в

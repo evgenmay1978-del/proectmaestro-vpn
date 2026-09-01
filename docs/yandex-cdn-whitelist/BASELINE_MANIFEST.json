@@ -15,8 +15,8 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 303288,
-      "sha256": "2ff9f78a09028cc188fbab2e1c4366b0df69e061b8d2b1ae5aa2582229e7799a",
+      "bytes": 303680,
+      "sha256": "bc06ead090fec6efcb81ccc105a93a454336ef3e931b9ba34d80730b576afcd5",
       "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. XHTTP FIRST-CANARY \u2014 LIVE UNRESTRICTED PASS, WHITE-LIST PENDING (01.09.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f\n  `codex/yandex-cdn-whitelist-task3-sync`. Repository/runtime/CI \u0440\u0435\u0430\u043b\u0438\u0437\u0430\u0446\u0438\u044f\n  \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u0438\u0437\u043e\u043b\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e\u0433\u043e canary \u0437\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u043d\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442"
     },
     {
@@ -141,8 +141,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/TEST_RESULTS.md",
-      "bytes": 5353,
-      "sha256": "3b2b45408ef9d1b4e19ab32a59e11eb9d2354cbcc6c63c0e86518fe76c7d4825",
+      "bytes": 5790,
+      "sha256": "e9d9392ee9a8b528aa1bda5808dc8c28a964beef34e3e33b966d43dbf2b85ef3",
       "preview": "# Test results register\nStatus: target-only by default. The two dated CDN records below are live;\nall other unlisted transport, client, subscription, metering, billing and\ncanary claims remain target-only.\n\n## 2026-08-31/2026-09-01 \u2014 isolated XHTTP first-canary\n\n- Test IDs: `T-XHTTP-DIRECT`, `T-XHTTP-CDN`, `T-XHTTP-USE"
     },
     {

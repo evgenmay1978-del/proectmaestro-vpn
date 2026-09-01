@@ -10,10 +10,16 @@ canary claims remain target-only.
 - Repository checkpoints: lifecycle/recovery
   `819e11ada7f14f4aa6b3bcdbf8cf8cc2e2fd746b`, operator CLI
   `713eb7e0724cd075bfab72420742ffc18dc389a7`, exact-SHA CI policy
-  `445b8fa682d128cabd03576050be936b33e658ec`. Independent final reviews:
-  `0 Critical / 0 Important` for every current code scope. `445b8fa` is CI
-  policy code, not a successful workflow run; exact-SHA GitHub CI for the final
-  docs-inclusive HEAD remains **PENDING**.
+  `445b8fa682d128cabd03576050be936b33e658ec`, final Linux CI corrections
+  `fcde1cd35c5e96ea99c8afe98ea41c74437c6bac`. Independent final reviews:
+  `0 Critical / 0 Important` for every current code scope. Exact-SHA GitHub
+  evidence for `fcde1cd35c5e96ea99c8afe98ea41c74437c6bac` completed with `success`:
+  `HA immutable panel artifact` run `33464964316`, `Yandex CDN isolated release
+  checks` run `33464964334`, `HA DR restore drill` run `33464964361`, `HA
+  control-plane checks` run `33464964363`, and `HA S4 network change package`
+  run `33464964368`. This closes the repository/CI gate only; the operator
+  mobile white-list test remains **PENDING**, and customer-product readiness is
+  not claimed.
 - Isolated target: a separate Xray `26.7.28` sidecar behind the existing test
   CDN resource. Ordinary x-ui/Xray TCP/UDP `443` and customer traffic were not
   changed. Raw hostname, address, UUID and VLESS Encryption material remain
