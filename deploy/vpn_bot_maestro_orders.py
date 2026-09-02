@@ -15,6 +15,7 @@ INSTALL (gated production edit — run yourself on server 1):
 """
 import io
 import os
+from urllib.parse import urlparse
 
 import httpx
 import qrcode
@@ -33,7 +34,18 @@ def _qr_png(data: str) -> bytes:
     qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
     return buf.getvalue()
 
-MAESTRO_URL = os.getenv("MAESTRO_URL", "http://127.0.0.1:8910")
+def _panel_url(configured: str | None = None) -> str:
+    """Verified TLS is the default; plaintext is explicit loopback-only."""
+    value = (configured or "https://localhost:8910").rstrip("/")
+    parsed = urlparse(value)
+    if parsed.scheme == "https" and parsed.netloc:
+        return value
+    if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
+        return value
+    raise ValueError("MAESTRO_URL must use HTTPS or explicit loopback HTTP")
+
+
+MAESTRO_URL = _panel_url(os.getenv("MAESTRO_URL"))
 
 try:
     # ADMIN_IDS lives on the Config INSTANCE (config.config.ADMIN_IDS), not as a
@@ -64,7 +76,7 @@ async def confirm_order(cb: CallbackQuery):
         return
     order_id = cb.data.split(":", 1)[1]
     try:
-        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
                 f"{MAESTRO_URL}/admin/order/confirm",
                 json={"order_id": order_id},
@@ -87,7 +99,7 @@ async def cancel_order(cb: CallbackQuery):
         return
     order_id = cb.data.split(":", 1)[1]
     try:
-        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
                 f"{MAESTRO_URL}/admin/order/cancel",
                 json={"order_id": order_id},
@@ -112,7 +124,7 @@ async def show_app_subscription(cb: CallbackQuery):
         return
     login = cb.data.split(":", 1)[1]
     try:
-        async with httpx.AsyncClient(verify=False, timeout=20) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             r = await client.get(
                 f"{MAESTRO_URL}/admin/customer",
                 params={"login": login},
