@@ -59,7 +59,7 @@ func (b *ServiceBusiness) CreateCommercialOrder(ctx context.Context, command Com
 		return CommercialOrderView{}, businessError(err)
 	}
 	order, err := b.service.CreateWhiteListTopUpOrder(ctx, controlplane.CreateWhiteListTopUpOrderCommand{
-		EntitlementID: entitlement.EntitlementID, ProductID: command.ProductID,
+		EntitlementID: entitlement.EntitlementID(), ProductID: command.ProductID,
 		IdempotencyKey: command.IdempotencyKey, BuyerScope: "account", BuyerIdentity: command.AccountID,
 		Actor: "public-http", Channel: "public-http", SourceEventID: command.IdempotencyKey,
 	})
@@ -133,11 +133,11 @@ func (b *ServiceBusiness) WhiteListBalance(ctx context.Context, accountID string
 		return WhiteListBalanceView{}, businessError(err)
 	}
 	now := b.requestNow()
-	snapshot, err := b.service.WhiteListBalanceSnapshot(ctx, now.Unix(), entitlement.EntitlementID)
+	snapshot, err := b.service.WhiteListBalanceSnapshot(ctx, now.Unix(), entitlement.EntitlementID())
 	if err != nil {
 		return WhiteListBalanceView{}, businessError(err)
 	}
-	publication, err := b.service.WhiteListPublicationState(ctx, entitlement.EntitlementID)
+	publication, err := b.service.WhiteListPublicationState(ctx, entitlement.EntitlementID())
 	if err != nil {
 		return WhiteListBalanceView{}, businessError(err)
 	}
@@ -176,7 +176,7 @@ func (b *ServiceBusiness) SetWhiteListPublication(ctx context.Context, command C
 		return CommercialPublicationView{}, businessError(err)
 	}
 	result, err := b.service.SetWhiteListPublication(ctx, controlplane.SetWhiteListPublicationCommand{
-		EntitlementID: entitlement.EntitlementID, Enabled: command.Enabled,
+		EntitlementID: entitlement.EntitlementID(), Enabled: command.Enabled,
 		IdempotencyKey: command.IdempotencyKey, Actor: command.Actor,
 		Channel: "admin-http", SourceEventID: command.IdempotencyKey,
 	})
