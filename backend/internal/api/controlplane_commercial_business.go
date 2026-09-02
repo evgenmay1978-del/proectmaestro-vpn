@@ -159,10 +159,10 @@ func (b *ServiceBusiness) WhiteListBalance(ctx context.Context, accountID string
 		verdict = WhiteListNoBalance
 	}
 	return WhiteListBalanceView{
-		AccountID: accountID,
-		IncludedRemainingBytes: snapshot.Projection.IncludedRemainingBytes,
+		AccountID:               accountID,
+		IncludedRemainingBytes:  snapshot.Projection.IncludedRemainingBytes,
 		PurchasedRemainingBytes: snapshot.Projection.PurchasedRemainingBytes,
-		AvailableBytes: snapshot.AvailableBytes, PeriodEndsAtUnix: snapshot.PeriodEndsUnix,
+		AvailableBytes:          snapshot.AvailableBytes, PeriodEndsAtUnix: snapshot.PeriodEndsUnix,
 		PrimaryAccessState: primaryState, PublicationVerdict: string(verdict),
 	}, nil
 }

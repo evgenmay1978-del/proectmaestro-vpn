@@ -49,8 +49,8 @@ type CommercialOrderBindingView struct {
 }
 
 type CommercialOrderCommand struct {
-	AccountID     string
-	ProductID     string
+	AccountID      string
+	ProductID      string
 	IdempotencyKey string
 }
 
@@ -67,25 +67,25 @@ type CommercialOrderDecisionCommand struct {
 }
 
 type CommercialOrderView struct {
-	AccountID    string `json:"-"`
-	OrderID      string `json:"order_id"`
-	PaymentCode  string `json:"payment_code,omitempty"`
-	ProductID    string `json:"product_id"`
-	AmountMinor  int64  `json:"amount_minor"`
-	Currency     string `json:"currency"`
-	Bytes        int64  `json:"bytes"`
-	PaymentState string `json:"payment_state"`
-	ExpiresAtUnix int64 `json:"expires_at_unix,omitempty"`
+	AccountID     string `json:"-"`
+	OrderID       string `json:"order_id"`
+	PaymentCode   string `json:"payment_code,omitempty"`
+	ProductID     string `json:"product_id"`
+	AmountMinor   int64  `json:"amount_minor"`
+	Currency      string `json:"currency"`
+	Bytes         int64  `json:"bytes"`
+	PaymentState  string `json:"payment_state"`
+	ExpiresAtUnix int64  `json:"expires_at_unix,omitempty"`
 }
 
 type WhiteListBalanceView struct {
-	AccountID                string `json:"-"`
-	IncludedRemainingBytes   int64  `json:"included_remaining_bytes"`
-	PurchasedRemainingBytes  int64  `json:"purchased_remaining_bytes"`
-	AvailableBytes           int64  `json:"available_bytes"`
-	PeriodEndsAtUnix         int64  `json:"period_ends_at_unix"`
-	PrimaryAccessState       string `json:"primary_access_state"`
-	PublicationVerdict       string `json:"publication_verdict"`
+	AccountID               string `json:"-"`
+	IncludedRemainingBytes  int64  `json:"included_remaining_bytes"`
+	PurchasedRemainingBytes int64  `json:"purchased_remaining_bytes"`
+	AvailableBytes          int64  `json:"available_bytes"`
+	PeriodEndsAtUnix        int64  `json:"period_ends_at_unix"`
+	PrimaryAccessState      string `json:"primary_access_state"`
+	PublicationVerdict      string `json:"publication_verdict"`
 }
 
 type CommercialPublicationCommand struct {
