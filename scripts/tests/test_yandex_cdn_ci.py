@@ -1195,7 +1195,7 @@ class WorkflowGateContractTest(unittest.TestCase):
                 for package in GO_PACKAGES
                 if (REPO_ROOT / "backend" / package.removeprefix("./")).is_dir()
             )
-            self.assertLess(len(existing_go_packages), len(GO_PACKAGES))
+            self.assertTrue(existing_go_packages)
             expected_test = ["test", "-count=1", *existing_go_packages]
             expected_run = [
                 "run",
