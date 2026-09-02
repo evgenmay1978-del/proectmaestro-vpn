@@ -488,14 +488,14 @@ jobs:
       - name: Start isolated rqlite cluster
         run: bash ops/ha/ci-rqlite-cluster.sh start
 
-      - name: Prove white-list identity permits tombstone purge
+      - name: Prove rqlite purge and commercial transactions
         working-directory: backend
         run: |
           set -euo pipefail
           env -u MAESTRO_S2_PASS -u MAESTRO_HY2_PASS \
             go test -tags=rqlite_integration \
             ./internal/controlplane \
-            -run '^TestWhiteListIdentityDoesNotBlockTombstonePurge$' \
+            -run '^(TestWhiteListIdentityDoesNotBlockTombstonePurge|TestWhiteListTopUpSchemaRejectsPublicationForUnpaidOrder|TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome|TestWhiteListTopUpCannotUseLegacyPaymentConfirmation|TestPendingOrdinaryRenewalSerializesWhiteListTopUpConfirmation|TestOrdinaryRenewalsQueueZeroGrantWhiteListPeriodsWithoutPublishing|TestOrdinaryRenewalWithoutWhiteListBalanceDoesNotCreateIntent)$' \
             -count=1
 
       - name: Stop isolated rqlite cluster

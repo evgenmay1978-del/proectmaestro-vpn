@@ -10,8 +10,8 @@ func TestMigrationWhiteListCommercialDebitOutboxIsV13AndAppendOnly(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 13 || len(migrations) != 13 {
-		t.Fatalf("schema chain = version %d/%d, want exact v13", SchemaVersion, len(migrations))
+	if SchemaVersion < 13 || len(migrations) < 13 {
+		t.Fatalf("schema chain = version %d/%d, want immutable v13 prefix", SchemaVersion, len(migrations))
 	}
 	if migrations[11].Version != 12 || migrations[11].Path != "migrations/0012_whitelist_commercial_metering_sources.sql" {
 		t.Fatalf("immutable v12 migration moved: %#v", migrations[11])

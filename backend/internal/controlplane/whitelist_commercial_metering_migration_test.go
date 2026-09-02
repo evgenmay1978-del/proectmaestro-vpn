@@ -10,8 +10,8 @@ func TestMigrationWhiteListCommercialMeteringSourceRemainsV12AndAppendOnly(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 13 || len(migrations) != 13 {
-		t.Fatalf("schema chain = version %d/%d, want exact v13 with retained v12", SchemaVersion, len(migrations))
+	if SchemaVersion < 13 || len(migrations) < 13 {
+		t.Fatalf("schema chain = version %d/%d, want immutable v13 chain with retained v12", SchemaVersion, len(migrations))
 	}
 	if migrations[10].Checksum != "520db62664c161b2906058a567613aa30e99b5f6dcae5f872852a454100c1430" {
 		t.Fatalf("immutable v11 checksum changed: %q", migrations[10].Checksum)

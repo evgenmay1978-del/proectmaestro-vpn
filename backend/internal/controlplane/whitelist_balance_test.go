@@ -28,6 +28,7 @@ func TestScheduleWhiteListPeriodCreatesZeroGrantWithoutImplicitCredit(t *testing
 			"entitlement_id": entitlementID, "customer_status": "active",
 			"customer_expires_at_unix": int64(3_000),
 			"commercial_debit_pending": int64(0),
+			"renewal_intent_pending":   int64(0),
 		}),
 	}}
 	db.requestFn = successfulWhiteListBalanceRequest(t, expected)
@@ -48,7 +49,7 @@ func TestScheduleWhiteListPeriodCreatesZeroGrantWithoutImplicitCredit(t *testing
 	}
 	statements := assertWhiteListBalanceWrite(t, db,
 		"idempotency_requests", "whitelist_billing_periods", "whitelist_balance_projections",
-		"whitelist_commercial_debit_outbox",
+		"whitelist_commercial_debit_outbox", "whitelist_renewal_intents",
 	)
 	assertWhiteListProjectionCAS(t, statements, expected.Projection)
 	assertStoredWhiteListBalanceResult(t, statements, expected)
@@ -101,7 +102,7 @@ func TestCreditWhiteListPurchasedBytesUsesExactPeriodAndSourceOrder(t *testing.T
 	statements := assertWhiteListBalanceWrite(t, db,
 		"whitelist_balance_entries", "whitelist_balance_projections",
 		"payment_state='confirmed'", "customer.status='active'", "customer.expires_at_unix>?",
-		"whitelist_commercial_debit_outbox",
+		"whitelist_commercial_debit_outbox", "whitelist_renewal_intents",
 	)
 	assertWhiteListProjectionCAS(t, statements, expected.Projection)
 	assertStoredWhiteListBalanceResult(t, statements, expected)
@@ -156,6 +157,8 @@ func TestApplyWhiteListUsageDebitsOldPeriodBeforeBoundaryRollover(t *testing.T) 
 	period1Row := whiteListBalanceStateRow(entitlementID, "active", 3_000, period1, projection, 0)
 	period0Row["commercial_debit_pending"] = int64(1)
 	period1Row["commercial_debit_pending"] = int64(1)
+	period0Row["renewal_intent_pending"] = int64(1)
+	period1Row["renewal_intent_pending"] = int64(1)
 	db := &recordingRQLite{linear: []scriptedResult{
 		rowsScript(),
 		rowsScript(period0Row, period1Row),
@@ -186,6 +189,9 @@ func TestApplyWhiteListUsageDebitsOldPeriodBeforeBoundaryRollover(t *testing.T) 
 		"whitelist_balance_entries", "whitelist_usage_applications", "whitelist_balance_projections",
 		"customer.status='active'", "customer.expires_at_unix>?",
 	)
+	if strings.Contains(strings.ToLower(statementsText(statements)), "whitelist_renewal_intents") {
+		t.Fatalf("commercial debit was blocked behind renewal intent: %s", statementsText(statements))
+	}
 	assertWhiteListProjectionCAS(t, statements, expected.Projection)
 	assertStoredWhiteListBalanceResult(t, statements, expected)
 	if !whiteListBalanceStatementsHaveArgs(statements,
@@ -235,6 +241,60 @@ func TestWhiteListBalanceBlocksNonUsageMutationWhileCommercialDebitPending(t *te
 			t.Fatalf("credit pending debit error=%v requests=%d", err, len(db.requestCalls))
 		}
 	})
+}
+
+func TestWhiteListBalanceBlocksNonUsageMutationWhileRenewalIntentPending(t *testing.T) {
+	const entitlementID = "entitlement-renewal-pending"
+	period := whitelistbalance.Period{
+		ID: "period-0", Ordinal: 0, StartsAtUnix: 900, EndsAtUnix: 2_000,
+		AccessOrderID: "ordinary-order-0",
+	}
+	projection := whitelistbalance.BalanceProjection{
+		EntitlementID: entitlementID, CurrentPeriodID: period.ID, Version: 1,
+	}
+	pendingRow := whiteListBalanceStateRow(
+		entitlementID, "active", 3_000, period, projection, 0,
+	)
+	pendingRow["renewal_intent_pending"] = int64(1)
+
+	tests := []struct {
+		name string
+		run  func(*Service) error
+	}{
+		{
+			name: "schedule",
+			run: func(service *Service) error {
+				_, err := service.ScheduleWhiteListPeriod(context.Background(), 1_000, ScheduleWhiteListPeriodCommand{
+					EntitlementID: entitlementID,
+					Period: whitelistbalance.Period{
+						ID: "period-1", Ordinal: 1, StartsAtUnix: 2_000, EndsAtUnix: 3_000,
+						AccessOrderID: "ordinary-order-1",
+					},
+				})
+				return err
+			},
+		},
+		{
+			name: "credit",
+			run: func(service *Service) error {
+				_, err := service.CreditWhiteListPurchasedBytes(context.Background(), 1_000, CreditWhiteListPurchasedBytesCommand{
+					EntitlementID: entitlementID, PeriodID: period.ID,
+					SourceOrderID: "gb-order-renewal-pending", Bytes: 1_000,
+				})
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := &recordingRQLite{linear: []scriptedResult{rowsScript(), rowsScript(pendingRow)}}
+			service, _ := testService(t, db)
+			err := test.run(service)
+			if !errors.Is(err, ErrUnavailable) || len(db.requestCalls) != 0 {
+				t.Fatalf("renewal-pending mutation error=%v requests=%d", err, len(db.requestCalls))
+			}
+		})
+	}
 }
 
 func TestWhiteListUsageReceiptKeyKeepsLegacyIdempotencyIdentity(t *testing.T) {
@@ -490,6 +550,7 @@ func whiteListBalanceStateRow(
 		"pending":                    pending,
 		"fresh_through_unix":         projection.FreshThroughUnix,
 		"commercial_debit_pending":   int64(0),
+		"renewal_intent_pending":     int64(0),
 	}
 }
 

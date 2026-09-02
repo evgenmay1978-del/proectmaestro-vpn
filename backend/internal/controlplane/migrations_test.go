@@ -54,7 +54,7 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 	}
 	wantTables := []string{
 		"schema_migrations", "cluster_restore_state", "backup_rpo_state", "backup_rpo_attempts", "customers", "whitelist_entitlement_identities",
-		"whitelist_meter_epochs", "whitelist_billing_periods", "whitelist_commercial_metering_sources", "whitelist_commercial_debit_outbox", "whitelist_balance_entries", "whitelist_balance_projections", "whitelist_usage_applications",
+		"whitelist_meter_epochs", "whitelist_billing_periods", "whitelist_commercial_metering_sources", "whitelist_commercial_debit_outbox", "whitelist_balance_entries", "whitelist_balance_projections", "whitelist_usage_applications", "whitelist_gb_products", "whitelist_topup_orders", "whitelist_topup_payment_claims", "whitelist_publication_controls", "whitelist_topup_results", "whitelist_renewal_intents",
 		"whitelist_metering_periods", "whitelist_metering_checkpoints", "whitelist_metering_events", "whitelist_metering_intervals", "whitelist_metering_projections",
 		"credentials", "subscription_tokens", "devices",
 		"tariff_versions", "orders", "active_order_guards", "payments", "trial_redemptions",
@@ -197,7 +197,6 @@ func mustIntegrationRQLite(t *testing.T) rqlite.RQLite {
 	return db
 }
 
-
 func TestVerifyIdentityReturnsExactCommittedVersionAndChecksum(t *testing.T) {
 	db := mustIntegrationRQLite(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -228,7 +227,7 @@ func TestVerifyIdentityRejectsChangedChecksumWithoutApplying(t *testing.T) {
 			rowsScript(map[string]any{"foreign_keys": int64(1)}),
 			resultsScript(
 				rqlite.Result{Rows: []map[string]any{{
-					"version": int64(SchemaVersion),
+					"version":  int64(SchemaVersion),
 					"checksum": strings.Repeat("0", 64),
 				}}},
 				rqlite.Result{Rows: nil},

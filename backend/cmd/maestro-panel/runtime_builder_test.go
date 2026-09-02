@@ -63,7 +63,7 @@ func TestRQLiteRuntimeBuildsServiceBusinessAndControlPlaneHandler(t *testing.T) 
 	if clientCalls != 1 || keyCalls != 1 || migrationCalls != 1 {
 		t.Fatalf("constructor calls client=%d keys=%d migrations=%d", clientCalls, keyCalls, migrationCalls)
 	}
-	if runtime == nil || runtime.mode != "rqlite" || runtime.handler == nil || runtime.business == nil {
+	if runtime == nil || runtime.mode != "rqlite" || runtime.handler == nil || runtime.business == nil || runtime.background == nil {
 		t.Fatalf("runtime=%#v", runtime)
 	}
 	if _, ok := runtime.business.(*api.ServiceBusiness); !ok {
@@ -74,6 +74,32 @@ func TestRQLiteRuntimeBuildsServiceBusinessAndControlPlaneHandler(t *testing.T) 
 	runtime.handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Body.String() != "ok "+api.BuildCommit {
 		t.Fatalf("health status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestWhiteListRenewalWorkerRunsImmediatelyAndStopsWithContext(t *testing.T) {
+	reconciler := &runtimeRenewalReconciler{calls: make(chan struct{}, 2)}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		runWhiteListRenewalReconciler(ctx, reconciler, time.Hour)
+		close(done)
+	}()
+	select {
+	case <-reconciler.calls:
+	case <-time.After(time.Second):
+		t.Fatal("renewal worker did not run its immediate pass")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("renewal worker did not stop after cancellation")
+	}
+	select {
+	case <-reconciler.calls:
+		t.Fatal("renewal worker hot-looped before its ticker")
+	default:
 	}
 }
 
@@ -112,6 +138,15 @@ type runtimeTestClock struct{ now time.Time }
 func (clock runtimeTestClock) Now() time.Time { return clock.now }
 
 type runtimeFakeRQLite struct{}
+
+type runtimeRenewalReconciler struct {
+	calls chan struct{}
+}
+
+func (reconciler *runtimeRenewalReconciler) ReconcileWhiteListRenewalIntents(context.Context, int) (int64, error) {
+	reconciler.calls <- struct{}{}
+	return 0, errors.New("temporary renewal reconciliation failure")
+}
 
 func (*runtimeFakeRQLite) Request(context.Context, rqlite.Consistency, bool, ...rqlite.Statement) ([]rqlite.Result, error) {
 	return nil, errors.New("unexpected runtime request")

@@ -113,6 +113,18 @@ class CommercialDeliveryContractPolicyTest(unittest.TestCase):
                 self.assertIn(package, source, wrapper.name)
             self.assertIn("vpn_bot_maestro_*.py", source, wrapper.name)
 
+    def test_rqlite_gate_executes_task7_commercial_transactions(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        for test_name in (
+            "TestWhiteListTopUpSchemaRejectsPublicationForUnpaidOrder",
+            "TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome",
+            "TestWhiteListTopUpCannotUseLegacyPaymentConfirmation",
+            "TestPendingOrdinaryRenewalSerializesWhiteListTopUpConfirmation",
+            "TestOrdinaryRenewalsQueueZeroGrantWhiteListPeriodsWithoutPublishing",
+            "TestOrdinaryRenewalWithoutWhiteListBalanceDoesNotCreateIntent",
+        ):
+            self.assertIn(test_name, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

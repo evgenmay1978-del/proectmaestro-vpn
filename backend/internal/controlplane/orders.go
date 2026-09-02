@@ -323,7 +323,9 @@ AND EXISTS(SELECT 1 FROM orders WHERE order_id=? AND operation_id=? AND payment_
 RETURNING generation`,
 			Args: []any{result.ExpiresAtUnix, result.Generation, prepared.CustomerID,
 				prepared.CustomerGeneration - 1, prepared.CustomerPriorExpiry, command.OrderID, operationID},
-		}, backupRPODirtyGenerationStatement(now)}
+		}}
+		statements = append(statements, backupRPODirtyGenerationStatement(now))
+		appendWhiteListOrdinaryRenewalIntent(&statements, prepared, command.OrderID, operationID)
 		for _, target := range targets {
 			statements = append(statements, rqlite.Statement{
 				SQL: `INSERT INTO desired_node_state(customer_id,node_id,service_name,generation,desired_envelope,

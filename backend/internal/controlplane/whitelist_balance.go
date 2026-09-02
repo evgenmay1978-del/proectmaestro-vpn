@@ -52,6 +52,7 @@ type loadedWhiteListBalance struct {
 	State             whitelistbalance.State
 	PrimaryActive     bool
 	CommercialPending bool
+	RenewalPending    bool
 }
 
 type whiteListUsageInterval struct {
@@ -94,7 +95,7 @@ func (s *Service) ScheduleWhiteListPeriod(
 	if err != nil {
 		return whitelistbalance.OperationResult{}, err
 	}
-	if loaded.CommercialPending {
+	if loaded.CommercialPending || loaded.RenewalPending {
 		return whitelistbalance.OperationResult{}, ErrUnavailable
 	}
 	operationID, err := s.ids.NewID("whitelist-operation")
@@ -136,7 +137,7 @@ func (s *Service) CreditWhiteListPurchasedBytes(
 	if err != nil {
 		return whitelistbalance.OperationResult{}, err
 	}
-	if loaded.CommercialPending {
+	if loaded.CommercialPending || loaded.RenewalPending {
 		return whitelistbalance.OperationResult{}, ErrUnavailable
 	}
 	operationID, err := s.ids.NewID("whitelist-operation")
@@ -407,7 +408,13 @@ SELECT entitlement.entitlement_id,
                    AND debit_receipt.resource_id=debit_outbox.entitlement_id
                    AND debit_receipt.status='applied'
              )
-       ) AS commercial_debit_pending
+       ) AS commercial_debit_pending,
+       EXISTS(
+           SELECT 1
+           FROM whitelist_renewal_intents AS renewal_intent
+           WHERE renewal_intent.entitlement_id=entitlement.entitlement_id
+             AND renewal_intent.status='pending'
+       ) AS renewal_intent_pending
 FROM whitelist_entitlement_identities AS entitlement
 JOIN customers AS customer ON customer.customer_id=entitlement.customer_id
 LEFT JOIN whitelist_billing_periods AS period ON period.entitlement_id=entitlement.entitlement_id
@@ -435,14 +442,18 @@ ORDER BY period.period_ordinal`, Args: []any{entitlementID}})
 		}
 		primaryActive := customerStatus == "active" && customerExpires > nowUnix
 		commercialPending, commercialPendingOK := rowInt64(row, "commercial_debit_pending")
-		if !commercialPendingOK || (commercialPending != 0 && commercialPending != 1) {
+		renewalPending, renewalPendingOK := rowInt64(row, "renewal_intent_pending")
+		if !commercialPendingOK || (commercialPending != 0 && commercialPending != 1) ||
+			!renewalPendingOK || (renewalPending != 0 && renewalPending != 1) {
 			return loadedWhiteListBalance{}, ErrUnavailable
 		}
 		if index == 0 {
 			loaded.PrimaryActive = primaryActive
 			loaded.CommercialPending = commercialPending == 1
+			loaded.RenewalPending = renewalPending == 1
 		} else if loaded.PrimaryActive != primaryActive ||
-			loaded.CommercialPending != (commercialPending == 1) {
+			loaded.CommercialPending != (commercialPending == 1) ||
+			loaded.RenewalPending != (renewalPending == 1) {
 			return loadedWhiteListBalance{}, ErrUnavailable
 		}
 
@@ -616,6 +627,10 @@ WHERE entitlement.entitlement_id=? AND customer.status='active' AND customer.exp
 		mutationGuardArgs = append(mutationGuardArgs, previous.EntitlementID, nowUnix)
 	}
 	if mutation.Usage == nil {
+		mutationGuard += ` AND NOT EXISTS(
+SELECT 1 FROM whitelist_renewal_intents AS renewal_intent
+WHERE renewal_intent.entitlement_id=? AND renewal_intent.status='pending')`
+		mutationGuardArgs = append(mutationGuardArgs, previous.EntitlementID)
 		mutationGuard += ` AND NOT EXISTS(
 SELECT 1 FROM whitelist_commercial_debit_outbox AS debit_outbox
 WHERE debit_outbox.entitlement_id=?

@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 13
+	SchemaVersion = 14
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -80,6 +80,7 @@ var expectedSchemaTables = []string{
 	"trial_redemptions",
 	"web_sessions",
 	"whitelist_entitlement_identities",
+	"whitelist_gb_products",
 	"whitelist_meter_epochs",
 	"whitelist_billing_periods",
 	"whitelist_commercial_metering_sources",
@@ -92,6 +93,11 @@ var expectedSchemaTables = []string{
 	"whitelist_metering_intervals",
 	"whitelist_metering_periods",
 	"whitelist_metering_projections",
+	"whitelist_publication_controls",
+	"whitelist_renewal_intents",
+	"whitelist_topup_orders",
+	"whitelist_topup_payment_claims",
+	"whitelist_topup_results",
 }
 
 type migration struct {
@@ -217,7 +223,10 @@ func (m *Migrator) VerifyIdentity(ctx context.Context) (SchemaIdentity, error) {
 	if len(results[2].Rows) != 0 {
 		return SchemaIdentity{}, errors.New("controlplane: foreign key violations detected")
 	}
-	if err := m.verifyWhiteListCommercialMeteringTriggers(ctx, migrations[11], migrations[12]); err != nil {
+	if err := m.verifyWhiteListCommercialMeteringTriggers(ctx, migrations[11], migrations[12], migrations[13]); err != nil {
+		return SchemaIdentity{}, err
+	}
+	if err := m.verifyWhiteListTopUpTables(ctx, migrations[13]); err != nil {
 		return SchemaIdentity{}, err
 	}
 	checksum, err := combinedMigrationChecksum(migrations)
@@ -234,6 +243,39 @@ var whiteListCommercialMeteringTriggerNames = []string{
 	"whitelist_commercial_metering_sources_exact_binding",
 	"whitelist_commercial_metering_sources_immutable_delete",
 	"whitelist_commercial_metering_sources_immutable_update",
+	"whitelist_gb_products_hidden_tariff",
+	"whitelist_gb_products_immutable_update",
+	"whitelist_gb_products_immutable_delete",
+	"whitelist_topup_orders_exact_terms",
+	"whitelist_topup_orders_immutable_update",
+	"whitelist_topup_orders_immutable_delete",
+	"whitelist_topup_payment_claims_live_order",
+	"whitelist_topup_payment_claims_immutable_update",
+	"whitelist_topup_payment_claims_immutable_delete",
+	"whitelist_publication_controls_monotonic_version",
+	"whitelist_publication_controls_purchase_owner",
+	"whitelist_publication_controls_immutable_update",
+	"whitelist_publication_controls_immutable_delete",
+	"whitelist_publication_controls_default_new",
+	"whitelist_topup_results_exact_binding",
+	"whitelist_topup_results_immutable_update",
+	"whitelist_topup_results_immutable_delete",
+	"whitelist_topup_orders_block_legacy_decision",
+	"whitelist_topup_orders_payment_transition",
+	"whitelist_topup_idempotency_applied_guard",
+	"whitelist_renewal_intents_exact_binding",
+	"whitelist_renewal_intents_applied_binding",
+	"whitelist_renewal_intents_immutable_update",
+	"whitelist_renewal_intents_immutable_delete",
+}
+
+var whiteListTopUpTableNames = []string{
+	"whitelist_gb_products",
+	"whitelist_topup_orders",
+	"whitelist_topup_payment_claims",
+	"whitelist_publication_controls",
+	"whitelist_topup_results",
+	"whitelist_renewal_intents",
 }
 
 func (m *Migrator) verifyWhiteListCommercialMeteringTriggers(
@@ -242,9 +284,22 @@ func (m *Migrator) verifyWhiteListCommercialMeteringTriggers(
 ) error {
 	results, err := m.db.QueryStrong(ctx, rqlite.Statement{SQL: `
 		SELECT name,sql FROM sqlite_master
-		WHERE type='trigger' AND tbl_name IN (
-			'whitelist_commercial_metering_sources',
-			'whitelist_commercial_debit_outbox'
+		WHERE type='trigger' AND (
+			tbl_name IN (
+				'whitelist_commercial_metering_sources',
+				'whitelist_commercial_debit_outbox',
+				'whitelist_gb_products',
+				'whitelist_topup_orders',
+				'whitelist_topup_payment_claims',
+				'whitelist_publication_controls',
+				'whitelist_topup_results',
+				'whitelist_renewal_intents'
+			)
+			OR name IN (
+				'whitelist_topup_orders_block_legacy_decision',
+				'whitelist_topup_orders_payment_transition',
+				'whitelist_topup_idempotency_applied_guard'
+			)
 		)
 		ORDER BY name
 	`})
@@ -271,6 +326,42 @@ func (m *Migrator) verifyWhiteListCommercialMeteringTriggers(
 	return nil
 }
 
+func (m *Migrator) verifyWhiteListTopUpTables(ctx context.Context, item migration) error {
+	results, err := m.db.QueryStrong(ctx, rqlite.Statement{SQL: `
+		SELECT name,sql FROM sqlite_master
+		WHERE type='table' AND name IN (
+			'whitelist_gb_products',
+			'whitelist_topup_orders',
+			'whitelist_topup_payment_claims',
+			'whitelist_publication_controls',
+			'whitelist_topup_results',
+			'whitelist_renewal_intents'
+		)
+		ORDER BY name
+	`})
+	if err != nil || len(results) != 1 {
+		return errors.New("controlplane: verify white-list top-up tables")
+	}
+	want, err := expectedWhiteListTopUpTables(item)
+	if err != nil || len(results[0].Rows) != len(want) {
+		return errors.New("controlplane: white-list top-up table set mismatch")
+	}
+	seen := make(map[string]struct{}, len(want))
+	for _, row := range results[0].Rows {
+		name, nameOK := row["name"].(string)
+		sql, sqlOK := row["sql"].(string)
+		expected, known := want[name]
+		if !nameOK || !sqlOK || !known || schemaSQLIdentity(sql) != expected {
+			return errors.New("controlplane: white-list top-up table definition mismatch")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return errors.New("controlplane: duplicate white-list top-up table")
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
+
 func expectedWhiteListCommercialMeteringTriggers(items ...migration) (map[string]string, error) {
 	want := make(map[string]string, len(whiteListCommercialMeteringTriggerNames))
 	for _, item := range items {
@@ -285,6 +376,22 @@ func expectedWhiteListCommercialMeteringTriggers(items ...migration) (map[string
 	}
 	if len(want) != len(whiteListCommercialMeteringTriggerNames) {
 		return nil, errors.New("controlplane: embedded commercial metering triggers are incomplete")
+	}
+	return want, nil
+}
+
+func expectedWhiteListTopUpTables(item migration) (map[string]string, error) {
+	want := make(map[string]string, len(whiteListTopUpTableNames))
+	for _, statement := range item.Statements {
+		identity := schemaSQLIdentity(statement.SQL)
+		for _, name := range whiteListTopUpTableNames {
+			if strings.HasPrefix(identity, "create table "+name+" ") {
+				want[name] = identity
+			}
+		}
+	}
+	if len(want) != len(whiteListTopUpTableNames) {
+		return nil, errors.New("controlplane: embedded white-list top-up tables are incomplete")
 	}
 	return want, nil
 }
@@ -363,6 +470,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 11, path: "migrations/0011_whitelist_commercial_balance.sql"},
 		{version: 12, path: "migrations/0012_whitelist_commercial_metering_sources.sql"},
 		{version: 13, path: "migrations/0013_whitelist_commercial_debit_outbox.sql"},
+		{version: 14, path: "migrations/0014_whitelist_topup_orders.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {

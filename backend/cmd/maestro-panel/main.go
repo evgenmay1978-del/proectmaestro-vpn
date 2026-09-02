@@ -44,9 +44,10 @@ func atoi(s string, def int) int {
 }
 
 type panelRuntime struct {
-	mode     string
-	business api.Business
-	handler  http.Handler
+	mode       string
+	business   api.Business
+	handler    http.Handler
+	background func(context.Context)
 }
 
 type runtimeFactories struct {
@@ -79,6 +80,15 @@ func main() {
 		if err != nil {
 			log.Fatalf("build rqlite runtime: %v", err)
 		}
+		workerContext, stopWorker := context.WithCancel(context.Background())
+		var workerDone chan struct{}
+		if runtimeInstance.background != nil {
+			workerDone = make(chan struct{})
+			go func() {
+				defer close(workerDone)
+				runtimeInstance.background(workerContext)
+			}()
+		}
 		srv := &http.Server{
 			Addr: listen, Handler: runtimeInstance.handler, ReadHeaderTimeout: 10 * time.Second,
 		}
@@ -91,6 +101,14 @@ func main() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		<-sig
+		stopWorker()
+		if workerDone != nil {
+			select {
+			case <-workerDone:
+			case <-time.After(5 * time.Second):
+				log.Printf("white-list renewal worker shutdown timed out")
+			}
+		}
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownContext)

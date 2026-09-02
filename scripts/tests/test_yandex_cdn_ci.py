@@ -423,7 +423,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "e8907d2677a83ed760bcac91de07d442bb517281ea688b65948e9b9ba616d7dd"
+    "52260fb91972cd7a8aeb9f98c4c849875dcb4280d1f8bf302ef4fe59a828908e"
 )
 
 
@@ -1475,7 +1475,7 @@ class WorkflowGateContractTest(unittest.TestCase):
         self.assertIn("bash ops/ha/ci-rqlite-cluster.sh start", source)
         self.assertIn("-tags=rqlite_integration", source)
         self.assertIn("./internal/controlplane", source)
-        self.assertIn("^TestWhiteListIdentityDoesNotBlockTombstonePurge$", source)
+        self.assertIn("TestWhiteListIdentityDoesNotBlockTombstonePurge", source)
         self.assertNotIn("./...", source)
         cleanup = source.find("if: ${{ always() }}")
         stop = source.find("bash ops/ha/ci-rqlite-cluster.sh stop")
@@ -1652,7 +1652,7 @@ class GradleTask7VersionContractTest(unittest.TestCase):
 
     def test_rqlite_proof_metadata_is_fail_closed(self) -> None:
         source = workflow_text()
-        marker = "      - name: Prove white-list identity permits tombstone purge\n"
+        marker = "      - name: Prove rqlite purge and commercial transactions\n"
         variants = (
             "        if: ${{ false }}\n",
             "        continue-on-error: true\n",

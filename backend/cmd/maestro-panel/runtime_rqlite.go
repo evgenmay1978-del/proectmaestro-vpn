@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	goruntime "runtime"
@@ -22,6 +23,15 @@ import (
 )
 
 const runtimeKeyBundleLimit = 64 << 10
+
+const (
+	runtimeWhiteListRenewalBatch    = 64
+	runtimeWhiteListRenewalInterval = 30 * time.Second
+)
+
+type whiteListRenewalReconciler interface {
+	ReconcileWhiteListRenewalIntents(context.Context, int) (int64, error)
+}
 
 type rqliteRuntimeDependencies struct {
 	newClient       func(rqlite.Config) (rqlite.RQLite, error)
@@ -88,7 +98,54 @@ func buildRQLitePanelRuntime(
 	}
 	business := api.NewServiceBusiness(service, rqliteServiceBusinessConfig(apiConfig, wbSender, workerID))
 	server := api.NewControlPlane(business, apiConfig)
-	return &panelRuntime{mode: "rqlite", business: business, handler: server.Handler()}, nil
+	return &panelRuntime{
+		mode: "rqlite", business: business, handler: server.Handler(),
+		background: func(workerContext context.Context) {
+			runWhiteListRenewalReconciler(
+				workerContext, service, runtimeWhiteListRenewalInterval,
+			)
+		},
+	}, nil
+}
+
+func runWhiteListRenewalReconciler(
+	ctx context.Context,
+	reconciler whiteListRenewalReconciler,
+	interval time.Duration,
+) {
+	if ctx == nil || reconciler == nil || interval <= 0 {
+		return
+	}
+	runPass := func() {
+		remaining := runtimeWhiteListRenewalBatch
+		for remaining > 0 {
+			applied, err := reconciler.ReconcileWhiteListRenewalIntents(ctx, remaining)
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("white-list renewal reconciliation deferred: %v", err)
+				}
+				return
+			}
+			if applied <= 0 {
+				return
+			}
+			if applied >= int64(remaining) {
+				return
+			}
+			remaining -= int(applied)
+		}
+	}
+	runPass()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runPass()
+		}
+	}
 }
 
 func rqliteAPIConfigFromEnvironment() api.Config {
