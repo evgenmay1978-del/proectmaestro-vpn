@@ -500,6 +500,79 @@ func TestApplyUsageRejectsWrongOrCrossedPeriodAtomically(t *testing.T) {
 	}
 }
 
+func TestApplyUsageRejectsFreshnessBeyondBoundPeriodAndKeepsPending(t *testing.T) {
+	state := mustNewState(t)
+	state = mustSchedule(t, state, SchedulePeriodRequest{
+		OperationID: "schedule-1",
+		NowUnix:     100,
+		Period:      testPeriod("period-1", 1, 100, 200, 20, "access-order-1"),
+	}).State
+	state = mustSchedule(t, state, SchedulePeriodRequest{
+		OperationID: "schedule-2",
+		NowUnix:     120,
+		Period:      testPeriod("period-2", 2, 200, 300, 0, "access-order-2"),
+	}).State
+	state.Projection.Pending = true
+	before := cloneTestState(state)
+
+	_, err := ApplyUsage(state, ApplyUsageRequest{
+		OperationID:      "usage-cross-freshness",
+		PeriodID:         "period-1",
+		MeterEpoch:       "epoch-1",
+		IntervalID:       "interval-1",
+		AppliedAtUnix:    250,
+		IntervalEndUnix:  200,
+		FreshThroughUnix: 250,
+		Bytes:            10,
+		PrimaryActive:    true,
+	}, nil)
+	if !errors.Is(err, ErrPeriodConflict) {
+		t.Fatalf("cross-period freshness error = %v, want ErrPeriodConflict", err)
+	}
+	if !reflect.DeepEqual(state, before) {
+		t.Fatal("cross-period freshness rejection mutated state")
+	}
+
+	accepted := mustApply(t, state, ApplyUsageRequest{
+		OperationID:      "usage-boundary-pending",
+		PeriodID:         "period-1",
+		MeterEpoch:       "epoch-1",
+		IntervalID:       "interval-boundary-pending",
+		AppliedAtUnix:    250,
+		IntervalEndUnix:  200,
+		FreshThroughUnix: 200,
+		Bytes:            10,
+		PrimaryActive:    true,
+	})
+	if !mustProjection(t, accepted.State).Pending {
+		t.Fatal("ordinary usage transition cleared pending without explicit verified resolution")
+	}
+}
+
+func TestStateRequiresOutstandingEntryForEveryPeriod(t *testing.T) {
+	state := mustNewState(t)
+	state = mustSchedule(t, state, SchedulePeriodRequest{
+		OperationID: "schedule-1",
+		NowUnix:     100,
+		Period:      testPeriod("period-1", 1, 100, 200, 0, "access-order-1"),
+	}).State
+	state = mustSchedule(t, state, SchedulePeriodRequest{
+		OperationID: "schedule-2",
+		NowUnix:     120,
+		Period:      testPeriod("period-2", 2, 200, 300, 10, "access-order-2"),
+	}).State
+	delete(state.IncludedOutstandingBytes, "period-2")
+	before := cloneTestState(state)
+
+	_, err := AdvanceAt(state, 200)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing outstanding entry error = %v, want ErrInvalid", err)
+	}
+	if !reflect.DeepEqual(state, before) {
+		t.Fatal("invalid reconstructed state was mutated")
+	}
+}
+
 func TestIncludedFirstThenPurchasedThenUncovered(t *testing.T) {
 	state := mustBalanceState(t, 70, 50)
 	transition := mustApply(t, state, ApplyUsageRequest{
