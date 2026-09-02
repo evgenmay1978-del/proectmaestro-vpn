@@ -57,11 +57,16 @@ func (s *ControlPlaneServer) handleControlPlaneTariffs(w http.ResponseWriter, r 
 
 func (s *ControlPlaneServer) handleControlPlaneCreateOrder(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Tariff   string `json:"tariff"`
-		SubToken string `json:"sub_token"`
-		Login    string `json:"login"`
+		Tariff    string `json:"tariff"`
+		ProductID string `json:"product_id"`
+		SubToken  string `json:"sub_token"`
+		Login     string `json:"login"`
 	}
 	if !decodeControlPlanePublicMutation(w, r, &request) {
+		return
+	}
+	if strings.TrimSpace(request.ProductID) != "" {
+		s.handleControlPlaneCreateCommercialOrder(w, r, request.ProductID, request.SubToken)
 		return
 	}
 	order, err := s.business.CreateOrder(r.Context(), CreateOrderCommand{
@@ -82,10 +87,14 @@ func (s *ControlPlaneServer) handleControlPlaneCreateOrder(w http.ResponseWriter
 }
 
 func (s *ControlPlaneServer) handleControlPlaneOrder(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/order/")
+	if parts := strings.Split(id, "/"); len(parts) == 2 && parts[0] != "" && parts[1] == "paid-claim" {
+		s.handleControlPlaneCommercialPaidClaim(w, r, parts[0])
+		return
+	}
 	if !requireControlPlaneMethod(w, r, http.MethodGet) {
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/order/")
 	if id == "" || strings.Contains(id, "/") {
 		s.controlPlaneNotFound(w, r)
 		return

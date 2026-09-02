@@ -53,6 +53,15 @@ func (s *Service) WhiteListEntitlementByID(ctx context.Context, entitlementID st
 	return s.store.whiteListEntitlementByID(ctx, entitlementID)
 }
 
+// WhiteListEntitlementByAccountID resolves an existing durable binding without
+// creating one. Read-only account endpoints use it to avoid hidden mutations.
+func (s *Service) WhiteListEntitlementByAccountID(ctx context.Context, accountID string) (WhiteListEntitlement, error) {
+	if s == nil || s.store == nil || !validAccountID(accountID) {
+		return WhiteListEntitlement{}, ErrNotFound
+	}
+	return s.store.whiteListEntitlementByAccount(ctx, accountID)
+}
+
 func (s *Store) ensureWhiteListEntitlement(
 	ctx context.Context,
 	accountID string,

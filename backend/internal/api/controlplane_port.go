@@ -478,6 +478,7 @@ type MigrateEndpointCommand struct {
 // store or Provisioner fields.
 type ControlPlaneServer struct {
 	business       Business
+	commercial     CommercialBusiness
 	cfg            Config
 	panelCursorKey [32]byte
 }
@@ -485,7 +486,8 @@ type ControlPlaneServer struct {
 // NewControlPlane builds the rqlite-only HTTP adapter.
 func NewControlPlane(business Business, cfg Config) *ControlPlaneServer {
 	cursorKey := sha256.Sum256([]byte("maestrovpn-panel-cursor-v1\x00" + cfg.PanelPath + "\x00" + cfg.PanelPasswordHash))
-	return &ControlPlaneServer{business: business, cfg: cfg, panelCursorKey: cursorKey}
+	commercial, _ := business.(CommercialBusiness)
+	return &ControlPlaneServer{business: business, commercial: commercial, cfg: cfg, panelCursorKey: cursorKey}
 }
 
 func (s *ControlPlaneServer) Handler() http.Handler {
@@ -496,10 +498,13 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 	})
 	mux.HandleFunc("/sub/", s.handleControlPlaneSub)
 	mux.HandleFunc("/claim", s.handleControlPlaneClaim)
+	mux.HandleFunc("/order/catalog", s.handleControlPlaneCommercialCatalog)
 	mux.HandleFunc("/order/tariffs", s.handleControlPlaneTariffs)
 	mux.HandleFunc("/order/paid-claim", s.handleControlPlanePaymentClaim)
 	mux.HandleFunc("/order", s.handleControlPlaneCreateOrder)
 	mux.HandleFunc("/order/", s.handleControlPlaneOrder)
+	mux.HandleFunc("/account/whitelist-balance", s.handleControlPlaneCommercialBalance)
+	mux.HandleFunc("/account/subscription-delivery", s.handleControlPlaneCommercialDelivery)
 	mux.HandleFunc("/trial", s.handleControlPlaneTrial)
 	if s.cfg.UpdateDir != "" {
 		mux.HandleFunc("/update/", s.handleControlPlaneOTA)
@@ -522,6 +527,8 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 		mux.HandleFunc("/admin/migrate-anytls-s2", s.controlPlaneAdmin(s.handleControlPlaneMigrate))
 		mux.HandleFunc("/admin/order/confirm", s.controlPlaneAdmin(s.handleControlPlaneConfirmOrder))
 		mux.HandleFunc("/admin/order/cancel", s.controlPlaneAdmin(s.handleControlPlaneCancelOrder))
+		mux.HandleFunc("/admin/order/", s.controlPlaneAdmin(s.handleControlPlaneCommercialAdminOrder))
+		mux.HandleFunc("/admin/accounts/", s.controlPlaneAdmin(s.handleControlPlaneCommercialPublication))
 		mux.HandleFunc("/admin/olcrtc", s.controlPlaneAdmin(s.handleControlPlaneOLCRTC))
 		mux.HandleFunc("/admin/olcrtc/room", s.controlPlaneAdmin(s.handleControlPlaneOLCRTCRoom))
 	}

@@ -1215,6 +1215,18 @@ ORDER BY version DESC LIMIT 1`, Args: []any{entitlementID}})
 	}, nil
 }
 
+// WhiteListPublicationState returns the latest immutable publication control
+// without changing balance, access, or publication state.
+func (s *Service) WhiteListPublicationState(
+	ctx context.Context,
+	entitlementID string,
+) (WhiteListPublicationResult, error) {
+	if s == nil || s.store == nil || !validWhiteListID(entitlementID) {
+		return WhiteListPublicationResult{}, ErrNotFound
+	}
+	return s.currentWhiteListPublication(ctx, entitlementID)
+}
+
 func (s *Service) resolveWhiteListPublication(
 	ctx context.Context,
 	scope string,
