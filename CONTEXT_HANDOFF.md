@@ -1,15 +1,16 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–8 COMPLETE, TASK 9 NEXT (02.09.2026)
+## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–9 COMPLETE, TASK 10 NEXT (03.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
   `codex/yandex-cdn-whitelist-task3-sync`. Последний проверенный implementation
-  checkpoint Task 8 — exact SHA `cd8a7cf48b2c4dad412d2ddfaf992bec0240620c`.
-  Все пять применимых exact-SHA workflow завершены GREEN: `HA control-plane`
-  `33679098333`, `HA DR restore drill` `33679098344`, `HA immutable panel
-  artifact` `33679098415`, `HA S4 network change-package checks` `33679098331`,
-  `Yandex CDN isolated release checks` `33679098282`. Независимый bounded review
-  exact diff Task 8 не нашёл P0/P1/Important findings.
+  checkpoint Task 9 — exact SHA `eba97d7654dfd2f5dc3c65faa2a70348a1874bfb`.
+  Все пять применимых exact-SHA workflow завершены GREEN: `33691281050`,
+  `33691281085`, `33691281078`, `33691281063`, `33691281054`. Независимый
+  bounded review exact diff Task 9 сначала нашёл один Important fail-closed URL
+  edge case; RED `0cc2d920309e0f4a5ee766aa97d91e3baaa14718` и GREEN `eba97d7`
+  закрыли его, после чего re-review вернул 0 Critical, 0 Important, 0 Minor и
+  `APPROVED` по plan alignment и code quality.
 - Tasks 1–3 завершены ранее на `d95b5eb76fe4731c569e4fea0fa8affa34c3a4a0`,
   `3033d4069af5199c50f4912c43314972d961ae1b` и
   `2000ec1002f50f65a04cdca94416325b5a36ce75`. Task 4 добавил schema v11 с
@@ -28,6 +29,14 @@
   и authenticated delivery descriptor. Legacy `/order/tariffs`, access-order
   JSON и admin callbacks сохранены. Реализация зафиксирована commits `d6d1b40`,
   `801ee6e`, `6615668`; regression assertion исправлен в `cd8a7cf`.
+- Task 9 добавил официальный pinned
+  `github.com/INCY-DEV/incy-link-encoder/go v1.3.0`: Incy получает one-tap
+  `INCY_ONE_TAP` со случайным IV и фиксированным именем `MaestroVPN`, а Happ —
+  безопасный `COPY_HTTPS_URL_AND_QR` с исходным HTTPS URL без выдуманного
+  wrapper. Строгая fail-closed валидация принимает только приватный Maestro
+  `/sub/<token>` URL без userinfo/fragment и без query либо ровно с
+  `format=links`; ошибки не раскрывают URL/token. Основная реализация —
+  `cd7f3c1`, финальный URL edge-case fix — `eba97d7`.
 - На реальном rqlite v10.1.0 устранена нестабильность stored triggers: в них
   больше нет clock expressions, которые rqlite переписывал и замораживал.
   Expiry clock остаётся атомарным в DML-предикатах service/sweeper. Официальный
@@ -59,10 +68,10 @@
   свежих receipts всех active Origins и health выбранного exit. Xray API
   остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
   3x-ui/Xray и ordinary VPN не затрагиваются.
-- Независимые design/plan и Task 1–8 reviews закрыты. Следующий repository step —
-  Task 9: официальный pinned Incy one-tap encoder и безопасный Happ
-  `COPY_HTTPS_URL_AND_QR` fallback без утечки subscription token. Затем
-  последовательно выполняются Telegram/panel UX,
+- Независимые design/plan и Task 1–9 reviews закрыты. Следующий repository step —
+  Task 10: простой пятикомандный Telegram customer flow, совместимый с ручной
+  оплатой и существующими admin callbacks, с Incy one-tap и Happ fallback.
+  Затем последовательно выполняются panel UX,
   sidecar reconcile и только после exact-SHA review/CI — production
   inventory/backup/canary gates.
 - Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,

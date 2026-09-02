@@ -12,10 +12,10 @@
 - Ordinary 400 RUB renewal grants zero CDN bytes.
 - Подтверждённая покупка GB атомарно включает customer publication gate; явное admin enable/disable является отдельным идемпотентным переходом. Disable скрывает CDN/LTE и отзывает только управляемые `wl:` identities, но не стирает balance, journal или history. CDN/LTE trial/bonus отложен и не входит в текущую реализацию.
 
-**Implementation checkpoint (2026-09-02):** Tasks 1–8 are repository-complete
-at exact SHA `cd8a7cf48b2c4dad412d2ddfaf992bec0240620c`; all five applicable
-exact-SHA GitHub workflows are GREEN and independent final review found no
-P0/P1/Important findings. Task 9 is next. This checkpoint did not deploy servers, charge a real
+**Implementation checkpoint (2026-09-03):** Tasks 1–9 are repository-complete
+at exact SHA `eba97d7654dfd2f5dc3c65faa2a70348a1874bfb`; all five applicable
+exact-SHA GitHub workflows are GREEN and independent final re-review found no
+Critical/Important/Minor findings. Task 10 is next. This checkpoint did not deploy servers, charge a real
 customer, install an APK, publish OTA or switch customer traffic.
 
 **Architecture:** Bare `/sub/<token>` остаётся byte-compatible с MaestroVPN 1.0.157. Только links-ответ расширяется после ordinary cache/LKG свежим typed publication snapshot. Один Yandex CDN resource использует набор одинаковых active Origin-реплик. Route identity `wl:<entitlementID>:<exitID>` выбирает фиксированный exit S1/S2/S3/S4 через Xray `routing.rules[].user`, поэтому страна не зависит от выбранного CDN Origin. Control plane хранит immutable periods/journal, mutable projection, отдельные top-up orders и desired/receipt state. Xray sidecar сохраняет отдельный процесс и mTLS localhost API; node agent применяет только managed identities через `HandlerService`. Existing exactly-once external-action executor доставляет desired generations на node agents. Любая неопределённость закрывает только CDN-часть.
@@ -316,13 +316,13 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Import the upstream pinned vector and write deterministic compatibility tests without storing a real subscription token.
-- [ ] Test that only HTTPS Maestro subscription URLs are accepted, display name is fixed to `MaestroVPN`, and no unsupported Happ wrapper is produced.
-- [ ] Run `go test ./internal/subgen -run 'Incy|Delivery' -count=1`; require RED.
-- [ ] Implement Incy encoding through the official library. Return Happ as `COPY_HTTPS_URL_AND_QR` until device proof is recorded.
-- [ ] Add redaction tests proving neither delivery URL nor token appears in logs/errors.
-- [ ] Run `go mod verify`, subgen tests, race tests, and offline replay; require GREEN.
-- [ ] Commit with message `feat(delivery): add official Incy one-tap links`.
+- [x] Import the upstream pinned vector and write deterministic compatibility tests without storing a real subscription token.
+- [x] Test that only HTTPS Maestro subscription URLs are accepted, display name is fixed to `MaestroVPN`, and no unsupported Happ wrapper is produced.
+- [x] Run `go test ./internal/subgen -run 'Incy|Delivery' -count=1`; require RED.
+- [x] Implement Incy encoding through the official library. Return Happ as `COPY_HTTPS_URL_AND_QR` until device proof is recorded.
+- [x] Add redaction tests proving neither delivery URL nor token appears in logs/errors.
+- [x] Run `go mod verify`, subgen tests, race tests, and offline replay; require GREEN.
+- [x] Commit with message `feat(delivery): add official Incy one-tap links`.
 
 ## Task 10: Replace Telegram clutter with the five-action customer flow
 
