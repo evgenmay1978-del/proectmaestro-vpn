@@ -40,3 +40,5 @@ golang.org/x/sys v0.46.0 h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=
 golang.org/x/sys v0.46.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
 golang.org/x/term v0.44.0 h1:0rLvDRCtNj0gZkyIXhCyOb2OAzEhLVqc4B+hrsBhrmc=
 golang.org/x/term v0.44.0/go.mod h1:7ze4MdzUzLXpSAoFP1H0bOI9aXDqveSvatT5vKcFh2Y=
+github.com/INCY-DEV/incy-link-encoder/go v1.3.0 h1:+C1+pZwB5S1N4spTgShD0PaWV3L6//hR/7iUI4PacH0=
+github.com/INCY-DEV/incy-link-encoder/go v1.3.0/go.mod h1:/Bd2PIkAYqcovRe+t+YF+9MWI2arQCVH+l3QExfk7O0=

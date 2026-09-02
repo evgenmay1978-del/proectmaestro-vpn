@@ -3,6 +3,7 @@ module github.com/evgenmay1978-del/proectmaestro-vpn/backend
 go 1.25.0
 
 require (
+	github.com/INCY-DEV/incy-link-encoder/go v1.3.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.38
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.37
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.3
