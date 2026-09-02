@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	GBDecimal   int64 = 1_000_000_000
+	GBDecimal    int64 = 1_000_000_000
 	MaxExclusive int64 = 1<<63 - 1
 )
 
@@ -25,7 +25,7 @@ var (
 type OperationKind string
 
 const (
-	OperationSchedulePeriod OperationKind = "SCHEDULE_PERIOD"
+	OperationSchedulePeriod  OperationKind = "SCHEDULE_PERIOD"
 	OperationCreditPurchased OperationKind = "CREDIT_PURCHASED"
 	OperationApplyUsage      OperationKind = "APPLY_USAGE"
 )
@@ -75,15 +75,15 @@ type UsageAllocation struct {
 }
 
 type JournalIntent struct {
-	Kind                  EntryKind
-	PeriodID              string
-	SourceOrderID         string
-	MeterEpoch            string
-	IntervalID            string
-	IncludedDeltaBytes    int64
-	PurchasedDeltaBytes   int64
-	ConsumedDeltaBytes    int64
-	UncoveredDeltaBytes   int64
+	Kind                EntryKind
+	PeriodID            string
+	SourceOrderID       string
+	MeterEpoch          string
+	IntervalID          string
+	IncludedDeltaBytes  int64
+	PurchasedDeltaBytes int64
+	ConsumedDeltaBytes  int64
+	UncoveredDeltaBytes int64
 }
 
 type OperationResult struct {
