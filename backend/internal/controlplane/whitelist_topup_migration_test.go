@@ -86,6 +86,29 @@ func TestMigrationWhiteListTopUpOrdersIsV14AndKeepsLegacyOrdersAsAnchor(t *testi
 	}
 }
 
+func TestMigrationWhiteListStoredTriggersAvoidRQLiteClockRewrite(t *testing.T) {
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range migrations[13].Statements {
+		identity := schemaSQLIdentity(statement.SQL)
+		if !strings.HasPrefix(identity, "create trigger ") {
+			continue
+		}
+		if strings.Contains(identity, "'now'") || strings.Contains(identity, "unixepoch()") {
+			t.Fatalf("stored v14 trigger contains a clock expression rewritten by rqlite: %s", identity)
+		}
+	}
+	defaultTrigger := expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])
+	for _, row := range defaultTrigger {
+		if row["name"] == "whitelist_publication_controls_default_new" &&
+			!strings.Contains(row["sql"].(string), "new.created_at_unix") {
+			t.Fatal("new entitlement publication control does not inherit its durable creation time")
+		}
+	}
+}
+
 func TestMigrationWhiteListRenewalIntentRequiresExactOrdinaryOrderAndAppliedProjection(t *testing.T) {
 	migrations, err := loadMigrations()
 	if err != nil {

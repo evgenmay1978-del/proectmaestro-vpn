@@ -269,7 +269,7 @@ BEGIN
         operation_id,request_hash,created_at_unix
     ) VALUES(
         'wlpub-default:' || NEW.entitlement_id,NEW.entitlement_id,1,0,'DEFAULT_OFF',
-        NULL,NULL,NULL,CAST(strftime('%s','now') AS INTEGER)
+        NULL,NULL,NULL,NEW.created_at_unix
     );
 END
 
@@ -533,8 +533,7 @@ WHEN EXISTS (
           AND operation_id = NEW.operation_id
           AND status = 'applying'
     )) OR
-    (OLD.payment_state = 'created' AND NEW.payment_state = 'expired'
-      AND OLD.expires_at_unix <= CAST(strftime('%s','now') AS INTEGER))
+    (OLD.payment_state = 'created' AND NEW.payment_state = 'expired')
 )
 BEGIN
     SELECT RAISE(ABORT, 'invalid white-list top-up payment transition');
