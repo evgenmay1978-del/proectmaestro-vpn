@@ -97,6 +97,7 @@ func TestCreditWhiteListPurchasedBytesUsesExactPeriodAndSourceOrder(t *testing.T
 	}
 	statements := assertWhiteListBalanceWrite(t, db,
 		"whitelist_balance_entries", "whitelist_balance_projections",
+		"payment_state='confirmed'", "customer.status='active'", "customer.expires_at_unix>?",
 	)
 	assertWhiteListProjectionCAS(t, statements, expected.Projection)
 	assertStoredWhiteListBalanceResult(t, statements, expected)
@@ -145,17 +146,15 @@ func TestApplyWhiteListUsageDebitsOldPeriodBeforeBoundaryRollover(t *testing.T) 
 			"meter_epoch":       "meter-epoch-1",
 			"interval_id":       "interval-1",
 			"billable_bytes":    "180",
-			"interval_end_unix": int64(2_000),
+			"interval_end_unix": int64(9_999),
 		}),
 	}}
 	db.requestFn = successfulWhiteListBalanceRequest(t, expected)
 	service, _ := testService(t, db)
 
 	result, err := service.ApplyWhiteListUsage(context.Background(), 2_001, ApplyWhiteListUsageCommand{
-		EntitlementID: entitlementID,
-		PeriodID:      "period-0",
-		MeterEpoch:    "meter-epoch-1",
-		IntervalID:    "interval-1",
+		EntitlementID: entitlementID, PeriodID: "period-0",
+		MeterEpoch: "meter-epoch-1", IntervalID: "interval-1", IntervalEndUnix: 2_000,
 	})
 	if err != nil {
 		t.Fatalf("ApplyWhiteListUsage: %v", err)
@@ -165,6 +164,7 @@ func TestApplyWhiteListUsageDebitsOldPeriodBeforeBoundaryRollover(t *testing.T) 
 	}
 	statements := assertWhiteListBalanceWrite(t, db,
 		"whitelist_balance_entries", "whitelist_usage_applications", "whitelist_balance_projections",
+		"customer.status='active'", "customer.expires_at_unix>?",
 	)
 	assertWhiteListProjectionCAS(t, statements, expected.Projection)
 	assertStoredWhiteListBalanceResult(t, statements, expected)
@@ -203,7 +203,7 @@ func TestWhiteListBalanceSnapshotVirtuallyAdvancesWithoutWrite(t *testing.T) {
 	if snapshot.Projection.CurrentPeriodID != "period-1" ||
 		snapshot.Projection.IncludedRemainingBytes != 0 ||
 		snapshot.Projection.PurchasedRemainingBytes != 50 ||
-		snapshot.Projection.Version != 3 ||
+		snapshot.Projection.Version != 2 ||
 		snapshot.AvailableBytes != 50 || snapshot.UsableBytes != 50 ||
 		!snapshot.PrimaryActive || snapshot.Frozen {
 		t.Fatalf("virtual snapshot = %#v", snapshot)
@@ -310,6 +310,22 @@ func TestCreditWhiteListPurchasedBytesResolvesUnknownOutcomeWithoutRetry(t *test
 	}
 	if len(db.requestCalls) != 1 || len(db.linearCalls) != 3 {
 		t.Fatalf("unknown outcome was retried or not resolved exactly once: linear=%d request=%d",
+			len(db.linearCalls), len(db.requestCalls))
+	}
+
+	db = &recordingRQLite{
+		linear: []scriptedResult{
+			rowsScript(), rowsScript(stateRow),
+			rowsScript(whiteListAppliedRow(t, requestHash, command.EntitlementID, operationID, expected)),
+		},
+		requests: []scriptedResult{resultsScript(rqlite.Result{})},
+	}
+	service, _ = testService(t, db)
+	if result, err := service.CreditWhiteListPurchasedBytes(context.Background(), 1_000, command); err != nil || result != expected {
+		t.Fatalf("ambiguous successful response was not resolved: result=%#v err=%v", result, err)
+	}
+	if len(db.requestCalls) != 1 || len(db.linearCalls) != 3 {
+		t.Fatalf("ambiguous success was retried or not resolved exactly once: linear=%d request=%d",
 			len(db.linearCalls), len(db.requestCalls))
 	}
 
