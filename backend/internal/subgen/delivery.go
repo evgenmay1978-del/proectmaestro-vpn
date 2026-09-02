@@ -53,7 +53,7 @@ func isValidSubscriptionURL(rawURL string) bool {
 	if err != nil || !parsed.IsAbs() || !strings.EqualFold(parsed.Scheme, "https") {
 		return false
 	}
-	if parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
+	if parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || parsed.ForceQuery || strings.Contains(rawURL, "#") {
 		return false
 	}
 	if parsed.RawQuery != "" && parsed.RawQuery != "format=links" {
