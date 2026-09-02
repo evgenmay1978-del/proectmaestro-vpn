@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -105,7 +104,12 @@ func TestCommercialAPIKeepsLegacyTariffsRoute(t *testing.T) {
 	if _, hasProducts := got["products"]; hasProducts {
 		t.Fatalf("legacy tariffs unexpectedly contains commercial products: %s", response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"id":"month"`) || !strings.Contains(response.Body.String(), `"rub":400`) {
-		t.Fatalf("legacy tariffs JSON changed: %s", response.Body.String())
+	tariffs, ok := got["tariffs"].([]any)
+	if !ok || len(tariffs) != 1 {
+		t.Fatalf("legacy tariffs JSON changed: %#v", got)
+	}
+	tariff, ok := tariffs[0].(map[string]any)
+	if !ok || tariff["id"] != "month" || tariff["rub"] != float64(400) {
+		t.Fatalf("legacy tariffs JSON changed: %#v", got)
 	}
 }
