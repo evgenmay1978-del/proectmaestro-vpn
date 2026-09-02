@@ -296,6 +296,7 @@ func (m *Migrator) verifyWhiteListCommercialMeteringTriggers(
 				'whitelist_renewal_intents'
 			)
 			OR name IN (
+				'whitelist_publication_controls_default_new',
 				'whitelist_topup_orders_block_legacy_decision',
 				'whitelist_topup_orders_payment_transition',
 				'whitelist_topup_idempotency_applied_guard'

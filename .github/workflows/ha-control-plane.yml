@@ -94,7 +94,6 @@ jobs:
               internal/applyagent/status_test.go \
               internal/controlplane/customers_test.go \
               internal/controlplane/desired_payload.go \
-              internal/controlplane/migrations_test.go \
               internal/controlplane/outbox.go \
               internal/controlplane/outbox_test.go \
               internal/controlplane/restore_epoch.go \

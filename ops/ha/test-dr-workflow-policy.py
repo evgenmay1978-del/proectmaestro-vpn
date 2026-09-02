@@ -268,8 +268,8 @@ def assert_workflow_seal(text: str, label: str) -> None:
     # Deliberately seal exact workflow text so any unmodeled step or run-body
     # change fails closed and requires an explicit policy review.
     expected_workflow_sha256 = {
-        "control": "c5352f25b1982f49c3c331873601b2de038ccfb9066f383497e54826570cf7c3",
-        "DR": "238c35712b2fcffbbf16df70381d00dc40aec3acc5627c0f3f2b61b47fe57998",
+        "control": "48e5d5d1a3f03990309959dede222bffd9b3ef00af1c00d9c3c9e3e162b8f64d",
+        "DR": "5af1d6797e7e135dada0c3bb12c6f25f6ec64d8c70e4cd1a5460a20f838f3ce6",
     }
     expected = expected_workflow_sha256.get(label)
     actual = hashlib.sha256(text.encode("utf-8")).hexdigest()
