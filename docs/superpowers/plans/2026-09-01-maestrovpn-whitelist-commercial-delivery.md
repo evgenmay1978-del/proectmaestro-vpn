@@ -12,6 +12,12 @@
 - Ordinary 400 RUB renewal grants zero CDN bytes.
 - Подтверждённая покупка GB атомарно включает customer publication gate; явное admin enable/disable является отдельным идемпотентным переходом. Disable скрывает CDN/LTE и отзывает только управляемые `wl:` identities, но не стирает balance, journal или history. CDN/LTE trial/bonus отложен и не входит в текущую реализацию.
 
+**Implementation checkpoint (2026-09-02):** Tasks 1–7 are repository-complete
+at exact SHA `670e19dcd092400252555b2ffa8ff82a89348054`; all five applicable
+exact-SHA GitHub workflows are GREEN and independent final review found no
+P0/P1. Task 8 is next. This checkpoint did not deploy servers, charge a real
+customer, install an APK, publish OTA or switch customer traffic.
+
 **Architecture:** Bare `/sub/<token>` остаётся byte-compatible с MaestroVPN 1.0.157. Только links-ответ расширяется после ordinary cache/LKG свежим typed publication snapshot. Один Yandex CDN resource использует набор одинаковых active Origin-реплик. Route identity `wl:<entitlementID>:<exitID>` выбирает фиксированный exit S1/S2/S3/S4 через Xray `routing.rules[].user`, поэтому страна не зависит от выбранного CDN Origin. Control plane хранит immutable periods/journal, mutable projection, отдельные top-up orders и desired/receipt state. Xray sidecar сохраняет отдельный процесс и mTLS localhost API; node agent применяет только managed identities через `HandlerService`. Existing exactly-once external-action executor доставляет desired generations на node agents. Любая неопределённость закрывает только CDN-часть.
 
 **Tech Stack:** Go 1.25 backend, Go 1.26 isolated sidecar-agent module, Xray-core v26.5.9 source commit `1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2`, rqlite/SQLite migrations, Python 3 Telegram adapter, official `github.com/INCY-DEV/incy-link-encoder/go` v1.3.0, GitHub Actions exact-SHA CI.

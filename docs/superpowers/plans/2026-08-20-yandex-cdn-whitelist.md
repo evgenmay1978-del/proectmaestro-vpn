@@ -35,6 +35,12 @@ Add mobile-gated parsing/display model and heartbeat/watchdog abstraction using 
 
 Add isolated fixture-driven Xray/Yandex acceptance harnesses, client compatibility matrix fixtures, CI jobs, two independent reviews, handoff updates and rollback evidence. Build a test APK only after backend contracts pass. Stop before any live CDN origin switch, server deployment, production migration, real charging or OTA.
 
+Status (2026-09-02): repository-only acceptance is complete. Exact checkpoint
+`670e19dcd092400252555b2ffa8ff82a89348054` passed all five applicable GitHub
+workflows and independent review with no P0/P1. The Android artifact was built
+only as a GitHub test APK; it was not installed, signed for production,
+published or delivered by OTA. Live commercial rollout remains a later gate.
+
 ## Cross-task interfaces
 
 - Task 2 exposes `WhiteListEntitlement`, `TransportProfile`, `ApprovedEdge`, `TransportRelease` and a renderer result consumed by Tasks 5–6.

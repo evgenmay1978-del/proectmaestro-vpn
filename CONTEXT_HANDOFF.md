@@ -1,21 +1,32 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–4 COMPLETE, TASK 5 NEXT (02.09.2026)
+## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–7 COMPLETE, TASK 8 NEXT (02.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
   `codex/yandex-cdn-whitelist-task3-sync`. Последний проверенный implementation
-  checkpoint Task 4 — exact SHA `bfeae609e78a651df7c1c5fe3a1c1602d4d4cac6`.
+  checkpoint Task 7 — exact SHA `670e19dcd092400252555b2ffa8ff82a89348054`.
   Все пять применимых exact-SHA workflow завершены GREEN: `HA control-plane`
-  `33568439568`, `HA DR restore drill` `33568439578`, `HA immutable panel
-  artifact` `33568439582`, `HA S4 network change-package checks` `33568439590`,
-  `Yandex CDN isolated release checks` `33568439566`.
+  `33651209463`, `HA DR restore drill` `33651209394`, `HA immutable panel
+  artifact` `33651209415`, `HA S4 network change-package checks` `33651209458`,
+  `Yandex CDN isolated release checks` `33651209432`.
 - Tasks 1–3 завершены ранее на `d95b5eb76fe4731c569e4fea0fa8affa34c3a4a0`,
   `3033d4069af5199c50f4912c43314972d961ae1b` и
   `2000ec1002f50f65a04cdca94416325b5a36ce75`. Task 4 добавил schema v11 с
   immutable periods/journal/usage applications и CAS projection; независимый
   final re-review вернул `SPEC: APPROVED`, `QUALITY: APPROVED` без findings.
-  Authoritative prepaid service, sidecar use-gate, bot delivery и customer
-  payment flow ещё не подключены.
+- Task 5 реализовал zero-grant prepaid balance и rqlite service; Task 6 —
+  exactly-once списание `UPLINK_PLUS_DOWNLINK` интервалов и fail-closed
+  publication verdict; Task 7 — immutable GB catalog, exactly-once
+  create/claim/confirm/reject top-up lifecycle и отдельный default-OFF
+  publication control. Главные checkpoints: `19ad65a`, `d2a2ff0`, `3538c22`,
+  `72e7b24`, CI/schema correction `21ddf86` и итоговый rqlite correction
+  `670e19d`.
+- На реальном rqlite v10.1.0 устранена нестабильность stored triggers: в них
+  больше нет clock expressions, которые rqlite переписывал и замораживал.
+  Expiry clock остаётся атомарным в DML-предикатах service/sweeper. Официальный
+  трёхузловой Apply/VerifyIdentity gate, семь whitelist real-rqlite тестов и
+  focused migrations GREEN. Независимый final review не нашёл P0/P1; один
+  необязательный P2 о дополнительной полноте regression не расширял scope.
 - Владелец 02.09.2026 уточнил коммерческую политику: ordinary VPN и его
   продление остаются без изменений; CDN/LTE entitlement и CDN-узлы по умолчанию
   скрыты/OFF. Включить их может только подтверждённая покупка GB либо явное
@@ -41,16 +52,20 @@
   свежих receipts всех active Origins и health выбранного exit. Xray API
   остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
   3x-ui/Xray и ordinary VPN не затрагиваются.
-- Независимые design/plan и Task 1–4 reviews закрыты. Следующий repository step —
-  Task 5: pure prepaid balance transitions и rqlite service с zero-grant default,
-  durable idempotency и без изменения ordinary VPN или visibility. Затем
-  последовательно выполняются use-gate, orders/panel/bot, sidecar reconcile и
-  только после полного exact-SHA review/CI — production inventory/backup/canary
-  gates.
+- Независимые design/plan и Task 1–7 reviews закрыты. Следующий repository step —
+  Task 8: единый backward-compatible commercial API для catalog/order,
+  paid-claim, admin confirm/reject, balance/publication и authenticated
+  subscription delivery. Затем последовательно выполняются bot/panel UX,
+  sidecar reconcile и только после exact-SHA review/CI — production
+  inventory/backup/canary gates.
 - Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
   платежи, balances, Android/TV, release/signing или OTA. Real charging,
   production DB cutover и final customer traffic cutover остаются отдельными
-  stop gates. OLCRTC и WDTT заморожены.
+  stop gates. Приватная рабочая Incy subscription и временный canary credential
+  остаются включены по указанию владельца и не проверяются/не удаляются.
+  Тяжёлые Go/race/vet/rqlite/Android проверки выполняются только в GitHub;
+  Android artifact является test-only и не устанавливался. OLCRTC и WDTT
+  заморожены.
 
 ## 0. XHTTP FIRST-CANARY — MOBILE WHITE-LIST PASS (01.09.2026)
 

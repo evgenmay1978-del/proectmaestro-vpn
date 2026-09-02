@@ -3,6 +3,30 @@ Status: target-only by default. The two dated CDN records below are live;
 all other unlisted transport, client, subscription, metering, billing and
 canary claims remain target-only.
 
+## 2026-09-02 — commercial delivery Tasks 5–7 repository gate
+
+- Exact implementation checkpoint:
+  `670e19dcd092400252555b2ffa8ff82a89348054`; canonical branch
+  `codex/yandex-cdn-whitelist-task3-sync` matched the pushed GitHub head.
+- Exact-SHA GitHub workflows all completed with `success`: HA control-plane
+  `33651209463`, HA DR restore drill `33651209394`, HA immutable panel artifact
+  `33651209415`, HA S4 network change-package checks `33651209458`, and Yandex
+  CDN isolated release checks `33651209432`. The last workflow's format/unit,
+  offline replay, rqlite purge, race/vet and Android test-APK jobs were GREEN.
+- Repository coverage now includes zero-grant prepaid balance, exactly-once
+  `UPLINK_PLUS_DOWNLINK` debits, fail-closed publication transitions, immutable
+  decimal-GB products, exactly-once top-up create/claim/confirm/reject and a
+  separate default-OFF publication control. Ordinary 400 RUB access remains
+  unchanged and grants zero CDN bytes.
+- rqlite v10.1.0 stored-trigger rewriting was reproduced and corrected by
+  removing stored clock expressions. Official three-node Apply/VerifyIdentity,
+  seven focused whitelist real-rqlite tests and focused migration tests were
+  GREEN. Independent final review found no P0/P1; the remaining P2 suggested
+  only optional extra regression breadth.
+- This is repository/CI evidence, not live commercial activation. No server,
+  Yandex Cloud, DNS/TLS, bot, real payment, customer balance, APK installation,
+  signing, OTA or customer-traffic cutover was changed.
+
 ## 2026-08-31/2026-09-01 — isolated XHTTP first-canary
 
 - Test IDs: `T-XHTTP-DIRECT`, `T-XHTTP-CDN`, `T-XHTTP-USER-UNRESTRICTED`,
@@ -17,9 +41,9 @@ canary claims remain target-only.
   `HA immutable panel artifact` run `33464964316`, `Yandex CDN isolated release
   checks` run `33464964334`, `HA DR restore drill` run `33464964361`, `HA
   control-plane checks` run `33464964363`, and `HA S4 network change package`
-  run `33464964368`. This closes the repository/CI gate only; the operator
-  mobile white-list test remains **PENDING**, and customer-product readiness is
-  not claimed.
+  run `33464964368`. This closes the repository/CI gate only. The later family
+  mobile white-list test is an **OWNER-REPORTED CLIENT PASS**; customer-product
+  readiness is not claimed.
 - Isolated target: a separate Xray `26.7.28` sidecar behind the existing test
   CDN resource. Ordinary x-ui/Xray TCP/UDP `443` and customer traffic were not
   changed. Raw hostname, address, UUID and VLESS Encryption material remain
@@ -30,11 +54,13 @@ canary claims remain target-only.
   **PASS**, corroborated by the isolated per-user counter increasing by `5844`
   bytes (`8704 -> 14548`). Protected client validation log SHA-256:
   `23842965f2b14df2c0185636d5699ce83e31d8fb8755692f4058657d4c1119ce`.
-- Client result with the operator mobile white-list enabled: **PENDING** because
-  no white-list was active during the test. At the owner's request, the test
-  canary and temporary client key remain active through the morning family
-  test. Rotation/removal is deferred until the owner reports the test window
-  complete.
+- Client result with the operator mobile white-list enabled:
+  **OWNER-REPORTED CLIENT PASS** on 2026-09-01. The owner's daughter tested the
+  one-tap Incy full-JSON subscription with the restriction active and reported
+  that it worked correctly. This is owner evidence rather than an instrumented
+  carrier trace. At the owner's request, the private test subscription and
+  temporary credential remain active until the full service is complete;
+  status-probe, rotation and removal are deferred.
 - Client compatibility: the tested URI is for a modern Xray client. Production
   MaestroVPN Android/TV `1.0.157` uses pinned sing-box/libbox without XHTTP and
   ML-KEM VLESS Encryption and cannot consume this canary. A current
