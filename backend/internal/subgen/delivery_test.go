@@ -57,6 +57,8 @@ func TestBuildDeliveryRejectsInvalidSubscriptionURLs(t *testing.T) {
 		"https:///sub/fixture-token",
 		"https://user@sub.example.com/sub/fixture-token",
 		"https://sub.example.com/sub/fixture-token#fragment",
+		"https://sub.example.com/sub/fixture-token#",
+		"https://sub.example.com/sub/fixture-token?",
 		"https://sub.example.com/sub/",
 		"https://sub.example.com/sub/one/two",
 		"https://sub.example.com/sub/fixture-token?format=links&extra=value",
