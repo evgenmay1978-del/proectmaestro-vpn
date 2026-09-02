@@ -12,10 +12,10 @@
 - Ordinary 400 RUB renewal grants zero CDN bytes.
 - Подтверждённая покупка GB атомарно включает customer publication gate; явное admin enable/disable является отдельным идемпотентным переходом. Disable скрывает CDN/LTE и отзывает только управляемые `wl:` identities, но не стирает balance, journal или history. CDN/LTE trial/bonus отложен и не входит в текущую реализацию.
 
-**Implementation checkpoint (2026-09-02):** Tasks 1–7 are repository-complete
-at exact SHA `670e19dcd092400252555b2ffa8ff82a89348054`; all five applicable
+**Implementation checkpoint (2026-09-02):** Tasks 1–8 are repository-complete
+at exact SHA `cd8a7cf48b2c4dad412d2ddfaf992bec0240620c`; all five applicable
 exact-SHA GitHub workflows are GREEN and independent final review found no
-P0/P1. Task 8 is next. This checkpoint did not deploy servers, charge a real
+P0/P1/Important findings. Task 9 is next. This checkpoint did not deploy servers, charge a real
 customer, install an APK, publish OTA or switch customer traffic.
 
 **Architecture:** Bare `/sub/<token>` остаётся byte-compatible с MaestroVPN 1.0.157. Только links-ответ расширяется после ordinary cache/LKG свежим typed publication snapshot. Один Yandex CDN resource использует набор одинаковых active Origin-реплик. Route identity `wl:<entitlementID>:<exitID>` выбирает фиксированный exit S1/S2/S3/S4 через Xray `routing.rules[].user`, поэтому страна не зависит от выбранного CDN Origin. Control plane хранит immutable periods/journal, mutable projection, отдельные top-up orders и desired/receipt state. Xray sidecar сохраняет отдельный процесс и mTLS localhost API; node agent применяет только managed identities через `HandlerService`. Existing exactly-once external-action executor доставляет desired generations на node agents. Любая неопределённость закрывает только CDN-часть.
@@ -294,12 +294,12 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Write route tests for authentication, account binding, exact amounts, state transitions, duplicate callbacks, expired-primary GB rejection, and legacy route compatibility.
-- [ ] Run focused API tests; require RED.
-- [ ] Add typed port methods and response DTOs. Preserve `/order/tariffs`, current access order JSON, and current admin callbacks.
-- [ ] Redact tokens and credentials from errors and structured logs.
-- [ ] Run all API, controlplane, and race tests; require GREEN.
-- [ ] Commit with message `feat(api): expose whitelist catalog balance and orders`.
+- [x] Write route tests for authentication, account binding, exact amounts, state transitions, duplicate callbacks, expired-primary GB rejection, and legacy route compatibility.
+- [x] Run focused API tests; require RED.
+- [x] Add typed port methods and response DTOs. Preserve `/order/tariffs`, current access order JSON, and current admin callbacks.
+- [x] Redact tokens and credentials from errors and structured logs.
+- [x] Run all API, controlplane, and race tests; require GREEN.
+- [x] Commit with message `feat(api): expose whitelist catalog balance and orders`.
 
 ## Task 9: Add official Incy one-tap and Happ fallback delivery
 

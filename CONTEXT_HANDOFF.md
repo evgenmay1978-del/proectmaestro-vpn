@@ -1,14 +1,15 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–7 COMPLETE, TASK 8 NEXT (02.09.2026)
+## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–8 COMPLETE, TASK 9 NEXT (02.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
   `codex/yandex-cdn-whitelist-task3-sync`. Последний проверенный implementation
-  checkpoint Task 7 — exact SHA `670e19dcd092400252555b2ffa8ff82a89348054`.
+  checkpoint Task 8 — exact SHA `cd8a7cf48b2c4dad412d2ddfaf992bec0240620c`.
   Все пять применимых exact-SHA workflow завершены GREEN: `HA control-plane`
-  `33651209463`, `HA DR restore drill` `33651209394`, `HA immutable panel
-  artifact` `33651209415`, `HA S4 network change-package checks` `33651209458`,
-  `Yandex CDN isolated release checks` `33651209432`.
+  `33679098333`, `HA DR restore drill` `33679098344`, `HA immutable panel
+  artifact` `33679098415`, `HA S4 network change-package checks` `33679098331`,
+  `Yandex CDN isolated release checks` `33679098282`. Независимый bounded review
+  exact diff Task 8 не нашёл P0/P1/Important findings.
 - Tasks 1–3 завершены ранее на `d95b5eb76fe4731c569e4fea0fa8affa34c3a4a0`,
   `3033d4069af5199c50f4912c43314972d961ae1b` и
   `2000ec1002f50f65a04cdca94416325b5a36ce75`. Task 4 добавил schema v11 с
@@ -21,6 +22,12 @@
   publication control. Главные checkpoints: `19ad65a`, `d2a2ff0`, `3538c22`,
   `72e7b24`, CI/schema correction `21ddf86` и итоговый rqlite correction
   `670e19d`.
+- Task 8 добавил единый backward-compatible commercial API: catalog, access и
+  GB orders, durable paid-claim, admin confirm/reject с dispatch по сохранённому
+  product family, account-bound balance, idempotent publication enable/disable
+  и authenticated delivery descriptor. Legacy `/order/tariffs`, access-order
+  JSON и admin callbacks сохранены. Реализация зафиксирована commits `d6d1b40`,
+  `801ee6e`, `6615668`; regression assertion исправлен в `cd8a7cf`.
 - На реальном rqlite v10.1.0 устранена нестабильность stored triggers: в них
   больше нет clock expressions, которые rqlite переписывал и замораживал.
   Expiry clock остаётся атомарным в DML-предикатах service/sweeper. Официальный
@@ -52,10 +59,10 @@
   свежих receipts всех active Origins и health выбранного exit. Xray API
   остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
   3x-ui/Xray и ordinary VPN не затрагиваются.
-- Независимые design/plan и Task 1–7 reviews закрыты. Следующий repository step —
-  Task 8: единый backward-compatible commercial API для catalog/order,
-  paid-claim, admin confirm/reject, balance/publication и authenticated
-  subscription delivery. Затем последовательно выполняются bot/panel UX,
+- Независимые design/plan и Task 1–8 reviews закрыты. Следующий repository step —
+  Task 9: официальный pinned Incy one-tap encoder и безопасный Happ
+  `COPY_HTTPS_URL_AND_QR` fallback без утечки subscription token. Затем
+  последовательно выполняются Telegram/panel UX,
   sidecar reconcile и только после exact-SHA review/CI — production
   inventory/backup/canary gates.
 - Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
