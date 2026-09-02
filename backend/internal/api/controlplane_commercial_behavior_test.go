@@ -35,8 +35,8 @@ type commercialBusinessFake struct {
 
 	createCommercialErr error
 	claimCommercialErr  error
-	balanceErr           error
-	deliveryErr          error
+	balanceErr          error
+	deliveryErr         error
 
 	customerTokens         []string
 	balanceAccountIDs      []string
@@ -327,7 +327,7 @@ func TestCommercialProductOrderRejectsExpiredPrimaryWithoutLeakingErrorDetails(t
 		Expires: time.Unix(1_600_000_000, 0).UTC(),
 	}
 	business.createCommercialErr = commercialTestError{
-		status: http.StatusConflict,
+		status:  http.StatusConflict,
 		message: "primary access expired; token=" + commercialCredentialLeak + "; node=" + commercialNodeLeak,
 	}
 	response := commercialRequest(t, NewControlPlane(business, Config{}).Handler(), http.MethodPost, "/order", `{"product_id":"wl-gb-5-v1","sub_token":"account-a-token"}`, "", "expired-key-1")
