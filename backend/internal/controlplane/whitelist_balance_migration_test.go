@@ -10,8 +10,8 @@ func TestMigrationWhiteListCommercialBalanceIsV11AndAppendOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 11 || len(migrations) != 11 {
-		t.Fatalf("schema chain = version %d/%d, want v11 with 11 entries", SchemaVersion, len(migrations))
+	if SchemaVersion < 11 || len(migrations) < 11 {
+		t.Fatalf("schema chain = version %d/%d, want immutable v11 prefix", SchemaVersion, len(migrations))
 	}
 	if migrations[10].Version != 11 || migrations[10].Path != "migrations/0011_whitelist_commercial_balance.sql" {
 		t.Fatalf("latest migration = %#v", migrations[10])

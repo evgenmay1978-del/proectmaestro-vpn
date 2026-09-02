@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 11
+	SchemaVersion = 12
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -82,6 +82,7 @@ var expectedSchemaTables = []string{
 	"whitelist_entitlement_identities",
 	"whitelist_meter_epochs",
 	"whitelist_billing_periods",
+	"whitelist_commercial_metering_sources",
 	"whitelist_balance_entries",
 	"whitelist_balance_projections",
 	"whitelist_usage_applications",
@@ -215,11 +216,72 @@ func (m *Migrator) VerifyIdentity(ctx context.Context) (SchemaIdentity, error) {
 	if len(results[2].Rows) != 0 {
 		return SchemaIdentity{}, errors.New("controlplane: foreign key violations detected")
 	}
+	if err := m.verifyWhiteListCommercialMeteringTriggers(ctx, migrations[11]); err != nil {
+		return SchemaIdentity{}, err
+	}
 	checksum, err := combinedMigrationChecksum(migrations)
 	if err != nil {
 		return SchemaIdentity{}, err
 	}
 	return SchemaIdentity{Version: SchemaVersion, Checksum: checksum}, nil
+}
+
+var whiteListCommercialMeteringTriggerNames = []string{
+	"whitelist_commercial_metering_sources_exact_binding",
+	"whitelist_commercial_metering_sources_immutable_delete",
+	"whitelist_commercial_metering_sources_immutable_update",
+}
+
+func (m *Migrator) verifyWhiteListCommercialMeteringTriggers(
+	ctx context.Context,
+	migration migration,
+) error {
+	results, err := m.db.QueryStrong(ctx, rqlite.Statement{SQL: `
+		SELECT name,sql FROM sqlite_master
+		WHERE type='trigger' AND tbl_name='whitelist_commercial_metering_sources'
+		ORDER BY name
+	`})
+	if err != nil || len(results) != 1 {
+		return errors.New("controlplane: verify commercial metering triggers")
+	}
+	want, err := expectedWhiteListCommercialMeteringTriggers(migration)
+	if err != nil || len(results[0].Rows) != len(want) {
+		return errors.New("controlplane: commercial metering trigger set mismatch")
+	}
+	seen := make(map[string]struct{}, len(want))
+	for _, row := range results[0].Rows {
+		name, nameOK := row["name"].(string)
+		sql, sqlOK := row["sql"].(string)
+		expected, known := want[name]
+		if !nameOK || !sqlOK || !known || schemaSQLIdentity(sql) != expected {
+			return errors.New("controlplane: commercial metering trigger definition mismatch")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return errors.New("controlplane: duplicate commercial metering trigger")
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
+
+func expectedWhiteListCommercialMeteringTriggers(item migration) (map[string]string, error) {
+	want := make(map[string]string, len(whiteListCommercialMeteringTriggerNames))
+	for _, statement := range item.Statements {
+		identity := schemaSQLIdentity(statement.SQL)
+		for _, name := range whiteListCommercialMeteringTriggerNames {
+			if strings.HasPrefix(identity, "create trigger "+name+" ") {
+				want[name] = identity
+			}
+		}
+	}
+	if len(want) != len(whiteListCommercialMeteringTriggerNames) {
+		return nil, errors.New("controlplane: embedded commercial metering triggers are incomplete")
+	}
+	return want, nil
+}
+
+func schemaSQLIdentity(sql string) string {
+	return strings.Join(strings.Fields(strings.ToLower(sql)), " ")
 }
 
 func (m *Migrator) verifyForeignKeys(ctx context.Context) error {
@@ -290,6 +352,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 9, path: "migrations/0009_rate_limit_retention.sql"},
 		{version: 10, path: "migrations/0010_whitelist_metering.sql"},
 		{version: 11, path: "migrations/0011_whitelist_commercial_balance.sql"},
+		{version: 12, path: "migrations/0012_whitelist_commercial_metering_sources.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {
