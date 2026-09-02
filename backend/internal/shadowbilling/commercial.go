@@ -55,7 +55,8 @@ func BindCommercialMeteringSource(
 	policy Policy,
 ) (CommercialSourceBinding, error) {
 	if !policy.validBinding() || policy.Basis != BasisUplinkPlusDownlink ||
-		!exactCommercialIdentifier(event.EventID) || event.CounterGeneration == 0 ||
+		policy.IncludedBytes != 0 ||
+		!exactCommercialIdentifier(event.EventID) || event.CounterGeneration != 1 ||
 		event.SampleSequence == 0 {
 		return CommercialSourceBinding{}, ErrInvalidInput
 	}

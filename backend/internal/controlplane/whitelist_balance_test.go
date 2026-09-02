@@ -9,6 +9,7 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistbalance"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistmetering"
 )
 
 func TestScheduleWhiteListPeriodCreatesZeroGrantWithoutImplicitCredit(t *testing.T) {
@@ -26,6 +27,7 @@ func TestScheduleWhiteListPeriodCreatesZeroGrantWithoutImplicitCredit(t *testing
 		rowsScript(map[string]any{
 			"entitlement_id": entitlementID, "customer_status": "active",
 			"customer_expires_at_unix": int64(3_000),
+			"commercial_debit_pending": int64(0),
 		}),
 	}}
 	db.requestFn = successfulWhiteListBalanceRequest(t, expected)
@@ -46,6 +48,7 @@ func TestScheduleWhiteListPeriodCreatesZeroGrantWithoutImplicitCredit(t *testing
 	}
 	statements := assertWhiteListBalanceWrite(t, db,
 		"idempotency_requests", "whitelist_billing_periods", "whitelist_balance_projections",
+		"whitelist_commercial_debit_outbox",
 	)
 	assertWhiteListProjectionCAS(t, statements, expected.Projection)
 	assertStoredWhiteListBalanceResult(t, statements, expected)
@@ -98,6 +101,7 @@ func TestCreditWhiteListPurchasedBytesUsesExactPeriodAndSourceOrder(t *testing.T
 	statements := assertWhiteListBalanceWrite(t, db,
 		"whitelist_balance_entries", "whitelist_balance_projections",
 		"payment_state='confirmed'", "customer.status='active'", "customer.expires_at_unix>?",
+		"whitelist_commercial_debit_outbox",
 	)
 	assertWhiteListProjectionCAS(t, statements, expected.Projection)
 	assertStoredWhiteListBalanceResult(t, statements, expected)
@@ -110,6 +114,7 @@ func TestCreditWhiteListPurchasedBytesUsesExactPeriodAndSourceOrder(t *testing.T
 
 func TestApplyWhiteListUsageDebitsOldPeriodBeforeBoundaryRollover(t *testing.T) {
 	const entitlementID = "entitlement-1"
+	const sourceSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	period0 := whitelistbalance.Period{
 		ID: "period-0", Ordinal: 0, StartsAtUnix: 1_000, EndsAtUnix: 2_000,
 		IncludedGrantBytes: 100, AccessOrderID: "ordinary-order-0",
@@ -134,28 +139,43 @@ func TestApplyWhiteListUsageDebitsOldPeriodBeforeBoundaryRollover(t *testing.T) 
 			Version: 3, FreshThroughUnix: 2_000,
 		},
 	}
+	usageCommand := ApplyWhiteListUsageCommand{
+		EntitlementID: entitlementID, PeriodID: "period-0",
+		MeterEpoch: "meter-epoch-1", IntervalID: "interval-1",
+		Basis: "UPLINK_PLUS_DOWNLINK", IntervalEndUnix: 2_000, SourceSHA256: sourceSHA256,
+	}
+	receiptKey, err := whitelistmetering.CommercialDebitReceiptKey(usageCommand.MeterEpoch, usageCommand.IntervalID)
+	if err != nil {
+		t.Fatalf("commercial receipt key: %v", err)
+	}
+	requestHash, err := whiteListUsageRequestHash(usageCommand)
+	if err != nil {
+		t.Fatalf("commercial request hash: %v", err)
+	}
+	period0Row := whiteListBalanceStateRow(entitlementID, "active", 3_000, period0, projection, 100)
+	period1Row := whiteListBalanceStateRow(entitlementID, "active", 3_000, period1, projection, 0)
+	period0Row["commercial_debit_pending"] = int64(1)
+	period1Row["commercial_debit_pending"] = int64(1)
 	db := &recordingRQLite{linear: []scriptedResult{
 		rowsScript(),
-		rowsScript(
-			whiteListBalanceStateRow(entitlementID, "active", 3_000, period0, projection, 100),
-			whiteListBalanceStateRow(entitlementID, "active", 3_000, period1, projection, 0),
-		),
+		rowsScript(period0Row, period1Row),
 		rowsScript(map[string]any{
 			"entitlement_id":    entitlementID,
 			"period_id":         "period-0",
 			"meter_epoch":       "meter-epoch-1",
 			"interval_id":       "interval-1",
 			"billable_bytes":    "180",
-			"interval_end_unix": int64(9_999),
+			"basis":             "UPLINK_PLUS_DOWNLINK",
+			"interval_end_unix": int64(2_000),
+			"source_sha256":     sourceSHA256,
+			"receipt_key":       receiptKey,
+			"request_hash":      requestHash,
 		}),
 	}}
 	db.requestFn = successfulWhiteListBalanceRequest(t, expected)
 	service, _ := testService(t, db)
 
-	result, err := service.ApplyWhiteListUsage(context.Background(), 2_001, ApplyWhiteListUsageCommand{
-		EntitlementID: entitlementID, PeriodID: "period-0",
-		MeterEpoch: "meter-epoch-1", IntervalID: "interval-1", IntervalEndUnix: 2_000,
-	})
+	result, err := service.ApplyWhiteListUsage(context.Background(), 2_001, usageCommand)
 	if err != nil {
 		t.Fatalf("ApplyWhiteListUsage: %v", err)
 	}
@@ -172,6 +192,61 @@ func TestApplyWhiteListUsageDebitsOldPeriodBeforeBoundaryRollover(t *testing.T) 
 		string(whitelistbalance.EntryConsumed), "meter-epoch-1", "interval-1", "period-0",
 	) {
 		t.Fatalf("usage debit lacks exact immutable source binding: %#v", statements)
+	}
+}
+
+func TestWhiteListBalanceBlocksNonUsageMutationWhileCommercialDebitPending(t *testing.T) {
+	const entitlementID = "entitlement-pending"
+	period := whitelistbalance.Period{
+		ID: "period-0", Ordinal: 0, StartsAtUnix: 900, EndsAtUnix: 2_000,
+		AccessOrderID: "ordinary-order-0",
+	}
+	projection := whitelistbalance.BalanceProjection{
+		EntitlementID: entitlementID, CurrentPeriodID: period.ID, Version: 1,
+	}
+	pendingRow := whiteListBalanceStateRow(
+		entitlementID, "active", 3_000, period, projection, 0,
+	)
+	pendingRow["commercial_debit_pending"] = int64(1)
+
+	t.Run("schedule", func(t *testing.T) {
+		db := &recordingRQLite{linear: []scriptedResult{rowsScript(), rowsScript(pendingRow)}}
+		service, _ := testService(t, db)
+		_, err := service.ScheduleWhiteListPeriod(context.Background(), 1_000, ScheduleWhiteListPeriodCommand{
+			EntitlementID: entitlementID,
+			Period: whitelistbalance.Period{
+				ID: "period-1", Ordinal: 1, StartsAtUnix: 2_000, EndsAtUnix: 3_000,
+				AccessOrderID: "ordinary-order-1",
+			},
+		})
+		if !errors.Is(err, ErrUnavailable) || len(db.requestCalls) != 0 {
+			t.Fatalf("schedule pending debit error=%v requests=%d", err, len(db.requestCalls))
+		}
+	})
+
+	t.Run("credit", func(t *testing.T) {
+		db := &recordingRQLite{linear: []scriptedResult{rowsScript(), rowsScript(pendingRow)}}
+		service, _ := testService(t, db)
+		_, err := service.CreditWhiteListPurchasedBytes(context.Background(), 1_000, CreditWhiteListPurchasedBytesCommand{
+			EntitlementID: entitlementID, PeriodID: period.ID,
+			SourceOrderID: "gb-order-pending", Bytes: 1_000,
+		})
+		if !errors.Is(err, ErrUnavailable) || len(db.requestCalls) != 0 {
+			t.Fatalf("credit pending debit error=%v requests=%d", err, len(db.requestCalls))
+		}
+	})
+}
+
+func TestWhiteListUsageReceiptKeyKeepsLegacyIdempotencyIdentity(t *testing.T) {
+	const meterEpoch = "meter-epoch-legacy-key"
+	const intervalID = "interval-legacy-key"
+	got, err := whitelistmetering.CommercialDebitReceiptKey(meterEpoch, intervalID)
+	if err != nil {
+		t.Fatalf("CommercialDebitReceiptKey: %v", err)
+	}
+	want := whiteListSourceKey(whiteListApplyUsageCommand, meterEpoch, intervalID)
+	if got != want {
+		t.Fatalf("commercial receipt key=%q, want legacy key %q", got, want)
 	}
 }
 
@@ -414,6 +489,7 @@ func whiteListBalanceStateRow(
 		"version":                    projection.Version,
 		"pending":                    pending,
 		"fresh_through_unix":         projection.FreshThroughUnix,
+		"commercial_debit_pending":   int64(0),
 	}
 }
 

@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"sync"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistmetering"
 )
 
 var (
@@ -43,7 +45,15 @@ type DurableResult struct {
 // DurableStore persists the existing pure ApplyOrdered state machine through
 // the repository's single rqlite abstraction.
 type DurableStore struct {
-	db rqlite.RQLite
+	db           rqlite.RQLite
+	commercialMu sync.Mutex
+}
+
+// CommercialDebiter applies one accepted immutable commercial interval to the
+// prepaid balance. Implementations must be idempotent and persist the shared
+// CommercialDebitReceiptKey in idempotency_requests before returning nil.
+type CommercialDebiter interface {
+	DebitCommercialInterval(context.Context, whitelistmetering.CommercialDebit) error
 }
 
 // NewDurableStore constructs the shadow-only metering adapter.
@@ -101,6 +111,122 @@ type durableRead struct {
 // ApplyOrdered, and persists the event, checkpoint, interval, and projection
 // in one transaction.
 func (store *DurableStore) ApplyOrdered(ctx context.Context, event OrderedUsageEvent, policy Policy) (DurableResult, error) {
+	result, err := store.applyOrdered(ctx, event, policy, nil)
+	if err != nil {
+		return DurableResult{}, err
+	}
+	return result, nil
+}
+
+// ApplyCommercialOrdered atomically persists the v10 event and its v12 source
+// binding, then applies accepted intervals through the durable balance receipt.
+// Previously committed pending intervals are drained before a newer sample can
+// advance the counter.
+func (store *DurableStore) ApplyCommercialOrdered(
+	ctx context.Context,
+	event CommercialOrderedUsageEvent,
+	policy Policy,
+	debiter CommercialDebiter,
+) (DurableResult, error) {
+	if store == nil || store.db == nil || ctx == nil || debiter == nil {
+		return DurableResult{}, ErrInvalidInput
+	}
+	binding, err := BindCommercialMeteringSource(event, policy)
+	if err != nil {
+		return DurableResult{}, err
+	}
+	store.commercialMu.Lock()
+	defer store.commercialMu.Unlock()
+	if err := store.verifyCommercialEpoch(ctx, binding); err != nil {
+		return DurableResult{}, err
+	}
+	if err := store.drainCommercialDebitsLocked(
+		ctx, binding.EntitlementID, debiter,
+	); err != nil {
+		return DurableResult{}, err
+	}
+	result, err := store.applyOrdered(ctx, event.OrderedUsageEvent, policy, &binding)
+	if err != nil {
+		if !errors.Is(err, ErrEventIDConflict) {
+			lateDiagnostic := result.Decision.Diagnostic == DiagnosticLateSample
+			conflict, resolveErr := store.resolveCommercialSourceConflict(ctx, binding, lateDiagnostic)
+			if resolveErr == nil && conflict {
+				return DurableResult{}, &EventIDConflictError{EventID: binding.EventID}
+			}
+		}
+		return DurableResult{}, err
+	}
+	if err := store.verifyCommercialSource(ctx, binding); err != nil {
+		return DurableResult{}, err
+	}
+	if err := store.drainCommercialDebitsLocked(ctx, binding.EntitlementID, debiter); err != nil {
+		return DurableResult{}, fmt.Errorf("shadowbilling: debit commercial interval: %w", err)
+	}
+	return result, nil
+}
+
+// DrainCommercialDebits applies every committed interval that lacks the
+// durable balance receipt. It is safe to call at startup and before every new
+// sample; callbacks are at-least-once while balance mutation is exactly-once.
+func (store *DurableStore) DrainCommercialDebits(
+	ctx context.Context,
+	entitlementID string,
+	debiter CommercialDebiter,
+) error {
+	if store == nil || store.db == nil || ctx == nil || debiter == nil ||
+		!exactCommercialIdentifier(entitlementID) {
+		return ErrInvalidInput
+	}
+	store.commercialMu.Lock()
+	defer store.commercialMu.Unlock()
+	return store.drainCommercialDebitsLocked(ctx, entitlementID, debiter)
+}
+
+func (store *DurableStore) drainCommercialDebitsLocked(
+	ctx context.Context,
+	entitlementID string,
+	debiter CommercialDebiter,
+) error {
+	pending, err := store.pendingCommercialDebits(ctx, entitlementID)
+	if err != nil {
+		return err
+	}
+	for _, debit := range pending {
+		if err := store.ensureCommercialDebit(ctx, debit, debiter); err != nil {
+			return fmt.Errorf("shadowbilling: drain commercial debit: %w", err)
+		}
+	}
+	return nil
+}
+
+func (store *DurableStore) ensureCommercialDebit(
+	ctx context.Context,
+	debit whitelistmetering.CommercialDebit,
+	debiter CommercialDebiter,
+) error {
+	applied, err := store.commercialDebitReceiptApplied(ctx, debit)
+	if err != nil || applied {
+		return err
+	}
+	if err := debiter.DebitCommercialInterval(ctx, debit); err != nil {
+		return err
+	}
+	applied, err = store.commercialDebitReceiptApplied(ctx, debit)
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return ErrDurableStateInvalid
+	}
+	return nil
+}
+
+func (store *DurableStore) applyOrdered(
+	ctx context.Context,
+	event OrderedUsageEvent,
+	policy Policy,
+	commercialSource *CommercialSourceBinding,
+) (DurableResult, error) {
 	if store == nil || store.db == nil || ctx == nil {
 		return DurableResult{}, ErrInvalidInput
 	}
@@ -203,7 +329,10 @@ func (store *DurableStore) ApplyOrdered(ctx context.Context, event OrderedUsageE
 		return DurableResult{}, ErrDurableStateInvalid
 	}
 
-	statements, err := durableStatements(event, canonical, policySHA256, payloadSHA256, loaded, next, result, string(resultJSON))
+	statements, err := durableStatements(
+		event, canonical, policySHA256, payloadSHA256, loaded, next, result,
+		string(resultJSON), commercialSource,
+	)
 	if err != nil {
 		return DurableResult{}, err
 	}
@@ -213,7 +342,7 @@ func (store *DurableStore) ApplyOrdered(ctx context.Context, event OrderedUsageE
 		} else if errors.Is(resolvedErr, ErrEventIDConflict) {
 			return DurableResult{}, resolvedErr
 		}
-		return DurableResult{}, fmt.Errorf("shadowbilling: persist durable metering transaction: %w", err)
+		return result, fmt.Errorf("shadowbilling: persist durable metering transaction: %w", err)
 	}
 	return result, nil
 }
@@ -359,7 +488,16 @@ func projectionFromRow(row map[string]any, policy Policy) (Projection, error) {
 	}, nil
 }
 
-func durableStatements(event OrderedUsageEvent, policy canonicalPolicy, policySHA256, payloadSHA256 string, loaded durableRead, next State, result DurableResult, resultJSON string) ([]rqlite.Statement, error) {
+func durableStatements(
+	event OrderedUsageEvent,
+	policy canonicalPolicy,
+	policySHA256, payloadSHA256 string,
+	loaded durableRead,
+	next State,
+	result DurableResult,
+	resultJSON string,
+	commercialSource *CommercialSourceBinding,
+) ([]rqlite.Statement, error) {
 	statements := []rqlite.Statement{{
 		SQL: `INSERT INTO whitelist_metering_periods(
 entitlement_id,billing_period_id,account_id,transport_id,xray_identity,unit,basis,
@@ -393,6 +531,25 @@ THEN 1 ELSE abs(-9223372036854775808) END AS metering_state_guard`,
 		})
 	}
 	hasInterval := result.Decision.Interval != nil
+	lateDiagnostic := result.Decision.Diagnostic == DiagnosticLateSample
+	var commercialDebit *whitelistmetering.CommercialDebit
+	commercialReceiptKey := ""
+	commercialRequestHash := ""
+	if commercialSource != nil && hasInterval {
+		debit := commercialDebitFromBinding(*commercialSource)
+		var err error
+		commercialReceiptKey, err = whitelistmetering.CommercialDebitReceiptKey(
+			debit.MeterEpoch, debit.IntervalID,
+		)
+		if err != nil {
+			return nil, ErrDurableStateInvalid
+		}
+		commercialRequestHash, err = whitelistmetering.CommercialDebitReceiptHash(debit)
+		if err != nil {
+			return nil, ErrDurableStateInvalid
+		}
+		commercialDebit = &debit
+	}
 	statements = append(statements, rqlite.Statement{
 		SQL: `INSERT INTO whitelist_metering_events(
 event_id,entitlement_id,billing_period_id,instance_id,meter_epoch,xray_identity,
@@ -407,6 +564,76 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
 			string(result.Decision.Diagnostic), boolInt(hasInterval), resultJSON,
 		},
 	})
+	if commercialSource != nil {
+		source := *commercialSource
+		statements = append(statements,
+			rqlite.Statement{
+				SQL: `SELECT CASE WHEN
+NOT EXISTS(
+    SELECT 1 FROM whitelist_commercial_metering_sources
+    WHERE meter_epoch=? AND (route_xray_identity<>? OR exit_id<>?)
+)
+AND (
+    (
+        ?=1
+        AND EXISTS(
+            SELECT 1 FROM whitelist_commercial_metering_sources
+            WHERE entitlement_id=? AND sampled_at_unix>=?
+        )
+    )
+    OR (
+        ?=0
+        AND
+        NOT EXISTS(
+            SELECT 1 FROM whitelist_commercial_metering_sources
+            WHERE entitlement_id=? AND sampled_at_unix>?
+        )
+        AND NOT EXISTS(
+            SELECT 1
+            FROM whitelist_commercial_debit_outbox AS pending
+            WHERE pending.entitlement_id=?
+              AND NOT EXISTS(
+                SELECT 1 FROM idempotency_requests AS receipt
+                WHERE receipt.scope=? AND receipt.command_type=?
+                  AND receipt.idempotency_key=pending.receipt_key
+                  AND receipt.request_hash=pending.request_hash
+                  AND receipt.resource_id=pending.entitlement_id
+                  AND receipt.status='applied'
+            )
+        )
+        AND NOT EXISTS(
+            SELECT 1 FROM whitelist_balance_projections AS balance
+            WHERE balance.entitlement_id=?
+              AND COALESCE(balance.current_period_id,'')<>?
+        )
+    )
+)
+THEN 1 ELSE abs(-9223372036854775808) END AS commercial_source_guard`,
+				Args: []any{
+					source.MeterEpoch, source.RouteXrayIdentity, source.ExitID,
+					boolInt(lateDiagnostic), source.EntitlementID, source.SampledAtUnix,
+					boolInt(lateDiagnostic),
+					source.EntitlementID, source.SampledAtUnix,
+					source.EntitlementID,
+					whitelistmetering.CommercialDebitReceiptScope,
+					whitelistmetering.CommercialDebitReceiptCommand,
+					source.EntitlementID, source.BillingPeriodID,
+				},
+			},
+			rqlite.Statement{
+				SQL: `INSERT INTO whitelist_commercial_metering_sources(
+event_id,entitlement_id,billing_period_id,origin_id,exit_id,meter_epoch,
+route_xray_identity,counter_generation,sample_sequence,basis,sampled_at_unix,source_sha256)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+				Args: []any{
+					source.EventID, source.EntitlementID, source.BillingPeriodID,
+					source.OriginID, source.ExitID, source.MeterEpoch, source.RouteXrayIdentity,
+					uintText(source.CounterGeneration), uintText(source.SampleSequence),
+					string(source.Basis), source.SampledAtUnix, source.SourceSHA256,
+				},
+			},
+		)
+	}
 	key := meterKey{event.InstanceID, event.MeterEpoch, event.XrayIdentity}
 	old, hadOld := loaded.checkpoints[key]
 	checkpoint, hasCheckpoint := next.counters[key]
@@ -443,6 +670,20 @@ VALUES(?,?,?,?,?,?,?,unixepoch())`,
 			},
 		})
 	}
+	if commercialDebit != nil {
+		debit := *commercialDebit
+		statements = append(statements, rqlite.Statement{
+			SQL: `INSERT INTO whitelist_commercial_debit_outbox(
+event_id,entitlement_id,billing_period_id,meter_epoch,basis,interval_end_unix,
+source_sha256,receipt_key,request_hash,created_at_unix)
+VALUES(?,?,?,?,?,?,?,?,?,unixepoch())`,
+			Args: []any{
+				debit.IntervalID, debit.EntitlementID, debit.BillingPeriodID,
+				debit.MeterEpoch, debit.Basis, debit.IntervalEndUnix,
+				debit.SourceSHA256, commercialReceiptKey, commercialRequestHash,
+			},
+		})
+	}
 	suspensionReason := ""
 	if result.Projection.Suspension.Recommended {
 		suspensionReason = string(result.Projection.Suspension.Reason)
@@ -469,6 +710,368 @@ version=excluded.version,updated_at_unix=excluded.updated_at_unix`,
 		},
 	})
 	return statements, nil
+}
+
+const commercialSourceSelectSQL = `SELECT
+source.event_id AS event_id,
+policy.account_id AS account_id,
+source.entitlement_id AS entitlement_id,
+policy.transport_id AS transport_id,
+source.billing_period_id AS billing_period_id,
+source.origin_id AS origin_id,
+source.exit_id AS exit_id,
+epoch.counter_source_id AS counter_source_id,
+epoch.xray_process_boot_id AS xray_process_boot_id,
+epoch.reset_sequence AS reset_sequence,
+source.meter_epoch AS meter_epoch,
+event.xray_identity AS base_xray_identity,
+source.route_xray_identity AS route_xray_identity,
+source.basis AS basis,
+source.counter_generation AS counter_generation,
+source.sample_sequence AS sample_sequence,
+event.uplink_bytes AS uplink_bytes,
+event.downlink_bytes AS downlink_bytes,
+source.sampled_at_unix AS sampled_at_unix,
+source.source_sha256 AS source_sha256,
+policy.basis AS policy_basis,
+policy.included_bytes AS policy_included_bytes,
+outbox.receipt_key AS debit_receipt_key,
+outbox.request_hash AS debit_request_hash
+FROM whitelist_commercial_metering_sources AS source
+JOIN whitelist_metering_events AS event ON event.event_id=source.event_id
+JOIN whitelist_metering_periods AS policy
+  ON policy.entitlement_id=source.entitlement_id
+ AND policy.billing_period_id=source.billing_period_id
+JOIN whitelist_meter_epochs AS epoch ON epoch.meter_epoch=source.meter_epoch
+LEFT JOIN whitelist_metering_intervals AS interval ON interval.event_id=source.event_id
+LEFT JOIN whitelist_commercial_debit_outbox AS outbox ON outbox.event_id=source.event_id`
+
+func (store *DurableStore) verifyCommercialEpoch(
+	ctx context.Context,
+	want CommercialSourceBinding,
+) error {
+	results, err := store.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: `SELECT origin_id,counter_source_id,xray_process_boot_id,reset_sequence
+FROM whitelist_meter_epochs WHERE meter_epoch=?`,
+		Args: []any{want.MeterEpoch},
+	})
+	if err != nil {
+		return fmt.Errorf("shadowbilling: verify commercial meter epoch: %w", err)
+	}
+	if len(results) != 1 || len(results[0].Rows) != 1 {
+		return ErrDurableStateInvalid
+	}
+	row := results[0].Rows[0]
+	originID, err := rowString(row, "origin_id")
+	if err != nil {
+		return err
+	}
+	counterSourceID, err := rowString(row, "counter_source_id")
+	if err != nil {
+		return err
+	}
+	processBootID, err := rowString(row, "xray_process_boot_id")
+	if err != nil {
+		return err
+	}
+	resetSequence, err := rowUint(row, "reset_sequence")
+	if err != nil {
+		return err
+	}
+	if originID != want.OriginID || counterSourceID != want.CounterSourceID ||
+		processBootID != want.XrayProcessBootID || resetSequence != want.ResetSequence {
+		return &EventIDConflictError{EventID: want.EventID}
+	}
+	return nil
+}
+
+func (store *DurableStore) verifyCommercialSource(
+	ctx context.Context,
+	want CommercialSourceBinding,
+) error {
+	results, err := store.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL:  commercialSourceSelectSQL + ` WHERE source.event_id=?`,
+		Args: []any{want.EventID},
+	})
+	if err != nil {
+		return fmt.Errorf("shadowbilling: verify commercial source: %w", err)
+	}
+	bindings, err := commercialBindingsFromResults(results)
+	if err != nil || len(bindings) != 1 {
+		return ErrDurableStateInvalid
+	}
+	if bindings[0] != want {
+		return &EventIDConflictError{EventID: want.EventID}
+	}
+	return nil
+}
+
+func (store *DurableStore) pendingCommercialDebits(
+	ctx context.Context,
+	entitlementID string,
+) ([]whitelistmetering.CommercialDebit, error) {
+	results, err := store.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: commercialSourceSelectSQL + `
+LEFT JOIN idempotency_requests AS receipt
+  ON receipt.scope=?
+ AND receipt.command_type=?
+ AND receipt.idempotency_key=outbox.receipt_key
+ AND receipt.request_hash=outbox.request_hash
+ AND receipt.resource_id=outbox.entitlement_id
+ AND receipt.status='applied'
+WHERE outbox.event_id IS NOT NULL
+  AND source.entitlement_id=?
+  AND receipt.idempotency_key IS NULL
+ORDER BY source.sampled_at_unix,source.event_id`,
+		Args: []any{
+			whitelistmetering.CommercialDebitReceiptScope,
+			whitelistmetering.CommercialDebitReceiptCommand,
+			entitlementID,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("shadowbilling: read pending commercial debits: %w", err)
+	}
+	if len(results) != 1 {
+		return nil, ErrDurableStateInvalid
+	}
+	pending := make([]whitelistmetering.CommercialDebit, 0, len(results[0].Rows))
+	for _, row := range results[0].Rows {
+		binding, parseErr := commercialBindingFromRow(row)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		debit := commercialDebitFromBinding(binding)
+		key, keyErr := whitelistmetering.CommercialDebitReceiptKey(
+			debit.MeterEpoch, debit.IntervalID,
+		)
+		hash, hashErr := whitelistmetering.CommercialDebitReceiptHash(debit)
+		storedKey, storedKeyErr := rowString(row, "debit_receipt_key")
+		storedHash, storedHashErr := rowString(row, "debit_request_hash")
+		if keyErr != nil || hashErr != nil || storedKeyErr != nil || storedHashErr != nil ||
+			storedKey != key || storedHash != hash {
+			return nil, ErrDurableStateInvalid
+		}
+		pending = append(pending, debit)
+	}
+	return pending, nil
+}
+
+func commercialBindingsFromResults(results []rqlite.Result) ([]CommercialSourceBinding, error) {
+	if len(results) != 1 {
+		return nil, ErrDurableStateInvalid
+	}
+	bindings := make([]CommercialSourceBinding, 0, len(results[0].Rows))
+	for _, row := range results[0].Rows {
+		binding, err := commercialBindingFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		bindings = append(bindings, binding)
+	}
+	return bindings, nil
+}
+
+func commercialBindingFromRow(row map[string]any) (CommercialSourceBinding, error) {
+	stringsByKey := make(map[string]string, 15)
+	for _, key := range []string{
+		"event_id", "account_id", "entitlement_id", "transport_id", "billing_period_id",
+		"origin_id", "exit_id", "counter_source_id", "xray_process_boot_id", "meter_epoch",
+		"base_xray_identity", "route_xray_identity", "basis", "source_sha256", "policy_basis",
+	} {
+		value, err := rowString(row, key)
+		if err != nil {
+			return CommercialSourceBinding{}, err
+		}
+		stringsByKey[key] = value
+	}
+	resetSequence, err := rowUint(row, "reset_sequence")
+	if err != nil {
+		return CommercialSourceBinding{}, err
+	}
+	generation, err := rowUint(row, "counter_generation")
+	if err != nil || generation != 1 {
+		return CommercialSourceBinding{}, ErrDurableStateInvalid
+	}
+	sequence, err := rowUint(row, "sample_sequence")
+	if err != nil {
+		return CommercialSourceBinding{}, err
+	}
+	uplink, err := rowUint(row, "uplink_bytes")
+	if err != nil {
+		return CommercialSourceBinding{}, err
+	}
+	downlink, err := rowUint(row, "downlink_bytes")
+	if err != nil {
+		return CommercialSourceBinding{}, err
+	}
+	sampledAt, err := rowUint(row, "sampled_at_unix")
+	if err != nil || sampledAt > math.MaxInt64 {
+		return CommercialSourceBinding{}, ErrDurableStateInvalid
+	}
+	policyIncluded, err := rowUint(row, "policy_included_bytes")
+	if err != nil || policyIncluded != 0 || stringsByKey["policy_basis"] != stringsByKey["basis"] ||
+		stringsByKey["policy_basis"] != string(BasisUplinkPlusDownlink) {
+		return CommercialSourceBinding{}, ErrDurableStateInvalid
+	}
+	binding := CommercialSourceBinding{
+		EventID: stringsByKey["event_id"], AccountID: stringsByKey["account_id"],
+		EntitlementID: stringsByKey["entitlement_id"], TransportID: stringsByKey["transport_id"],
+		BillingPeriodID: stringsByKey["billing_period_id"], OriginID: stringsByKey["origin_id"],
+		ExitID: stringsByKey["exit_id"], CounterSourceID: stringsByKey["counter_source_id"],
+		XrayProcessBootID: stringsByKey["xray_process_boot_id"], ResetSequence: resetSequence,
+		MeterEpoch: stringsByKey["meter_epoch"], BaseXrayIdentity: stringsByKey["base_xray_identity"],
+		RouteXrayIdentity: stringsByKey["route_xray_identity"], Basis: TrafficBasis(stringsByKey["basis"]),
+		CounterGeneration: generation, SampleSequence: sequence, UplinkBytes: uplink,
+		DownlinkBytes: downlink, SampledAtUnix: int64(sampledAt),
+		SourceSHA256: stringsByKey["source_sha256"],
+	}
+	if !exactCommercialIdentifier(binding.EventID) {
+		return CommercialSourceBinding{}, ErrDurableStateInvalid
+	}
+	recomputed, err := whitelistmetering.SourceSHA256(whitelistmetering.SourceDigestInput{
+		AccountID: binding.AccountID, EntitlementID: binding.EntitlementID,
+		TransportID: binding.TransportID, BillingPeriodID: binding.BillingPeriodID,
+		Basis: string(binding.Basis), BaseXrayIdentity: binding.BaseXrayIdentity,
+		RouteXrayIdentity: binding.RouteXrayIdentity, OriginID: binding.OriginID,
+		ExitID: binding.ExitID, CounterSourceID: binding.CounterSourceID,
+		XrayProcessBootID: binding.XrayProcessBootID, ResetSequence: binding.ResetSequence,
+		MeterEpoch: binding.MeterEpoch, CounterGeneration: binding.CounterGeneration,
+		SampleSequence: binding.SampleSequence, UplinkBytes: binding.UplinkBytes,
+		DownlinkBytes: binding.DownlinkBytes, SampledAtUnix: binding.SampledAtUnix,
+	})
+	if err != nil || recomputed != binding.SourceSHA256 {
+		return CommercialSourceBinding{}, ErrDurableStateInvalid
+	}
+	return binding, nil
+}
+
+func commercialDebitFromBinding(binding CommercialSourceBinding) whitelistmetering.CommercialDebit {
+	return whitelistmetering.CommercialDebit{
+		EntitlementID: binding.EntitlementID, BillingPeriodID: binding.BillingPeriodID,
+		MeterEpoch: binding.MeterEpoch, IntervalID: binding.EventID,
+		Basis: string(binding.Basis), IntervalEndUnix: binding.SampledAtUnix,
+		SourceSHA256: binding.SourceSHA256,
+	}
+}
+
+func (store *DurableStore) commercialDebitReceiptApplied(
+	ctx context.Context,
+	debit whitelistmetering.CommercialDebit,
+) (bool, error) {
+	key, err := whitelistmetering.CommercialDebitReceiptKey(debit.MeterEpoch, debit.IntervalID)
+	if err != nil {
+		return false, ErrDurableStateInvalid
+	}
+	requestHash, err := whitelistmetering.CommercialDebitReceiptHash(debit)
+	if err != nil {
+		return false, ErrDurableStateInvalid
+	}
+	results, err := store.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: `SELECT request_hash,resource_id,status FROM idempotency_requests
+WHERE scope=? AND command_type=? AND idempotency_key=?`,
+		Args: []any{
+			whitelistmetering.CommercialDebitReceiptScope,
+			whitelistmetering.CommercialDebitReceiptCommand,
+			key,
+		},
+	})
+	if err != nil {
+		return false, fmt.Errorf("shadowbilling: verify commercial debit receipt: %w", err)
+	}
+	if len(results) != 1 || len(results[0].Rows) > 1 {
+		return false, ErrDurableStateInvalid
+	}
+	if len(results[0].Rows) == 0 {
+		return false, nil
+	}
+	storedHash, err := rowString(results[0].Rows[0], "request_hash")
+	if err != nil {
+		return false, err
+	}
+	resourceID, err := rowString(results[0].Rows[0], "resource_id")
+	if err != nil {
+		return false, err
+	}
+	status, err := rowString(results[0].Rows[0], "status")
+	if err != nil || storedHash != requestHash || resourceID != debit.EntitlementID ||
+		(status != "applying" && status != "applied") {
+		return false, ErrDurableStateInvalid
+	}
+	return status == "applied", nil
+}
+
+func (store *DurableStore) resolveCommercialSourceConflict(
+	ctx context.Context,
+	want CommercialSourceBinding,
+	lateDiagnostic bool,
+) (bool, error) {
+	results, err := store.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: `SELECT
+EXISTS(
+    SELECT 1 FROM whitelist_commercial_metering_sources
+    WHERE event_id<>? AND (
+        source_sha256=? OR (
+            meter_epoch=? AND route_xray_identity=?
+            AND counter_generation=? AND sample_sequence=?
+        )
+    )
+) AS physical_sample_conflict,
+EXISTS(
+    SELECT 1 FROM whitelist_commercial_metering_sources
+    WHERE entitlement_id=? AND sampled_at_unix>?
+) AS sampled_at_conflict,
+NOT EXISTS(
+    SELECT 1 FROM whitelist_commercial_metering_sources
+    WHERE entitlement_id=? AND sampled_at_unix>=?
+) AS late_future_timestamp_conflict,
+EXISTS(
+    SELECT 1 FROM whitelist_commercial_metering_sources
+    WHERE meter_epoch=? AND (route_xray_identity<>? OR exit_id<>?)
+) AS epoch_route_conflict,
+EXISTS(
+    SELECT 1 FROM whitelist_balance_projections
+    WHERE entitlement_id=? AND COALESCE(current_period_id,'')<>?
+) AS balance_period_conflict`,
+		Args: []any{
+			want.EventID, want.SourceSHA256, want.MeterEpoch, want.RouteXrayIdentity,
+			uintText(want.CounterGeneration), uintText(want.SampleSequence),
+			want.EntitlementID, want.SampledAtUnix,
+			want.EntitlementID, want.SampledAtUnix,
+			want.MeterEpoch, want.RouteXrayIdentity, want.ExitID,
+			want.EntitlementID, want.BillingPeriodID,
+		},
+	})
+	if err != nil {
+		return false, fmt.Errorf("shadowbilling: resolve commercial source conflict: %w", err)
+	}
+	if len(results) != 1 || len(results[0].Rows) != 1 {
+		return false, ErrDurableStateInvalid
+	}
+	row := results[0].Rows[0]
+	physical, err := rowUint(row, "physical_sample_conflict")
+	if err != nil || physical > 1 {
+		return false, ErrDurableStateInvalid
+	}
+	sampledAt, err := rowUint(row, "sampled_at_conflict")
+	if err != nil || sampledAt > 1 {
+		return false, ErrDurableStateInvalid
+	}
+	lateFutureTimestamp, err := rowUint(row, "late_future_timestamp_conflict")
+	if err != nil || lateFutureTimestamp > 1 {
+		return false, ErrDurableStateInvalid
+	}
+	epochRoute, err := rowUint(row, "epoch_route_conflict")
+	if err != nil || epochRoute > 1 {
+		return false, ErrDurableStateInvalid
+	}
+	balancePeriod, err := rowUint(row, "balance_period_conflict")
+	if err != nil || balancePeriod > 1 {
+		return false, ErrDurableStateInvalid
+	}
+	return physical == 1 || epochRoute == 1 ||
+		(lateDiagnostic && lateFutureTimestamp == 1) ||
+		(!lateDiagnostic && (sampledAt == 1 || balancePeriod == 1)), nil
 }
 
 func (store *DurableStore) resolveWrite(ctx context.Context, eventID, payloadSHA256 string) (DurableResult, error) {

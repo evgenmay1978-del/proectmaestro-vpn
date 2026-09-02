@@ -10,6 +10,7 @@ import (
 
 func validCommercialOrderedEvent(policy Policy) CommercialOrderedUsageEvent {
 	ordered := orderedEvent(policy, "commercial-event-1", 4, 5, 456)
+	ordered.CounterGeneration = 1
 	ordered.UplinkBytes = 123
 	return CommercialOrderedUsageEvent{
 		OrderedUsageEvent: ordered,
@@ -25,8 +26,14 @@ func validCommercialOrderedEvent(policy Policy) CommercialOrderedUsageEvent {
 	}
 }
 
-func TestBindCommercialMeteringSourceReturnsExactImmutableBinding(t *testing.T) {
+func validCommercialPolicy() Policy {
 	policy := paidPolicy()
+	policy.IncludedBytes = 0
+	return policy
+}
+
+func TestBindCommercialMeteringSourceReturnsExactImmutableBinding(t *testing.T) {
+	policy := validCommercialPolicy()
 	event := validCommercialOrderedEvent(policy)
 	binding, err := BindCommercialMeteringSource(event, policy)
 	if err != nil {
@@ -73,7 +80,7 @@ func TestBindCommercialMeteringSourceReturnsExactImmutableBinding(t *testing.T) 
 }
 
 func TestBindCommercialMeteringSourceRejectsUnsafeBindings(t *testing.T) {
-	policy := paidPolicy()
+	policy := validCommercialPolicy()
 	base := validCommercialOrderedEvent(policy)
 	tests := []struct {
 		name    string
@@ -82,6 +89,7 @@ func TestBindCommercialMeteringSourceRejectsUnsafeBindings(t *testing.T) {
 		wantErr error
 	}{
 		{name: "non commercial basis", policy: func(v Policy) Policy { v.Basis = BasisDownlinkOnly; return v }, wantErr: ErrInvalidInput},
+		{name: "shadow included allowance", policy: func(v Policy) Policy { v.IncludedBytes = 1; return v }, wantErr: ErrInvalidInput},
 		{name: "ordinary identity", mutate: func(v *CommercialOrderedUsageEvent) { v.XrayIdentity = "ordinary:customer" }, wantErr: ErrIdentityMismatch},
 		{name: "origin mismatch", mutate: func(v *CommercialOrderedUsageEvent) { v.Source.OriginID = "origin-s3" }, wantErr: ErrInvalidInput},
 		{name: "route mismatch", mutate: func(v *CommercialOrderedUsageEvent) { v.Source.RouteXrayIdentity += "-other" }, wantErr: ErrInvalidInput},
@@ -91,6 +99,7 @@ func TestBindCommercialMeteringSourceRejectsUnsafeBindings(t *testing.T) {
 		{name: "max sample time", mutate: func(v *CommercialOrderedUsageEvent) { v.SampledAtUnix = math.MaxInt64 }, wantErr: ErrInvalidInput},
 		{name: "max reset sequence", mutate: func(v *CommercialOrderedUsageEvent) { v.Source.ResetSequence = uint64(math.MaxInt64) }, wantErr: ErrInvalidInput},
 		{name: "zero generation", mutate: func(v *CommercialOrderedUsageEvent) { v.CounterGeneration = 0 }, wantErr: ErrInvalidInput},
+		{name: "noninitial generation", mutate: func(v *CommercialOrderedUsageEvent) { v.CounterGeneration = 2 }, wantErr: ErrInvalidInput},
 		{name: "zero sequence", mutate: func(v *CommercialOrderedUsageEvent) { v.SampleSequence = 0 }, wantErr: ErrInvalidInput},
 		{name: "invalid utf8 event", mutate: func(v *CommercialOrderedUsageEvent) { v.EventID = string([]byte{0xff}) }, wantErr: ErrInvalidInput},
 	}
@@ -108,5 +117,27 @@ func TestBindCommercialMeteringSourceRejectsUnsafeBindings(t *testing.T) {
 				t.Fatalf("error=%v, want %v", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestCommercialBindingRejectsPersistedNonInitialGeneration(t *testing.T) {
+	policy := validCommercialPolicy()
+	binding, err := BindCommercialMeteringSource(validCommercialOrderedEvent(policy), policy)
+	if err != nil {
+		t.Fatalf("bind commercial source: %v", err)
+	}
+	row := map[string]any{
+		"event_id": binding.EventID, "account_id": binding.AccountID,
+		"entitlement_id": binding.EntitlementID, "transport_id": binding.TransportID,
+		"billing_period_id": binding.BillingPeriodID, "origin_id": binding.OriginID,
+		"exit_id": binding.ExitID, "counter_source_id": binding.CounterSourceID,
+		"xray_process_boot_id": binding.XrayProcessBootID, "meter_epoch": binding.MeterEpoch,
+		"base_xray_identity": binding.BaseXrayIdentity, "route_xray_identity": binding.RouteXrayIdentity,
+		"basis": string(binding.Basis), "source_sha256": binding.SourceSHA256,
+		"policy_basis": string(binding.Basis), "reset_sequence": int64(binding.ResetSequence),
+		"counter_generation": int64(2),
+	}
+	if _, err := commercialBindingFromRow(row); !errors.Is(err, ErrDurableStateInvalid) {
+		t.Fatalf("persisted noninitial generation error=%v, want ErrDurableStateInvalid", err)
 	}
 }

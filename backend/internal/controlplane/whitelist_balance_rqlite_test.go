@@ -15,6 +15,7 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistbalance"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistmetering"
 )
 
 type whiteListBalanceRQLiteFixture struct {
@@ -444,13 +445,41 @@ WHERE scope=? AND resource_id=? AND status='applied'`,
 func whiteListSeedMeteredInterval(
 	t *testing.T,
 	fixture whiteListBalanceRQLiteFixture,
-) (meterEpoch, intervalID string, intervalEndUnix int64) {
+) (meterEpoch, intervalID string, intervalEndUnix int64, sourceSHA256 string) {
 	t.Helper()
 	originID := "origin_" + task7Name(t, "whitelist-origin")
 	meterEpoch = "epoch_" + task7Name(t, "whitelist-meter-epoch")
 	intervalID = "interval_" + task7Name(t, "whitelist-interval")
 	intervalEndUnix = fixture.NowUnix - 10
 	xrayIdentity := "wl:" + fixture.EntitlementID
+	counterSourceID := originID + "-xray"
+	processBootID := "boot-" + intervalID
+	var err error
+	sourceSHA256, err = whitelistmetering.SourceSHA256(whitelistmetering.SourceDigestInput{
+		AccountID: fixture.CustomerID, EntitlementID: fixture.EntitlementID,
+		TransportID: "yandex-cdn", BillingPeriodID: fixture.PeriodID,
+		Basis: "UPLINK_PLUS_DOWNLINK", BaseXrayIdentity: xrayIdentity,
+		RouteXrayIdentity: xrayIdentity + ":nl", OriginID: originID, ExitID: "nl",
+		CounterSourceID: counterSourceID, XrayProcessBootID: processBootID,
+		MeterEpoch: meterEpoch, CounterGeneration: 1, SampleSequence: 2,
+		UplinkBytes: 23, DownlinkBytes: 37, SampledAtUnix: intervalEndUnix,
+	})
+	if err != nil {
+		t.Fatalf("canonical commercial source digest: %v", err)
+	}
+	debit := whitelistmetering.CommercialDebit{
+		EntitlementID: fixture.EntitlementID, BillingPeriodID: fixture.PeriodID,
+		MeterEpoch: meterEpoch, IntervalID: intervalID, Basis: "UPLINK_PLUS_DOWNLINK",
+		IntervalEndUnix: intervalEndUnix, SourceSHA256: sourceSHA256,
+	}
+	receiptKey, err := whitelistmetering.CommercialDebitReceiptKey(meterEpoch, intervalID)
+	if err != nil {
+		t.Fatalf("commercial receipt key: %v", err)
+	}
+	requestHash, err := whitelistmetering.CommercialDebitReceiptHash(debit)
+	if err != nil {
+		t.Fatalf("commercial request hash: %v", err)
+	}
 	task7Request(t, fixture.DB,
 		rqlite.Statement{
 			SQL: `INSERT INTO whitelist_metering_periods(
@@ -470,7 +499,7 @@ VALUES(?,?,?,?,?,'GB_DECIMAL','UPLINK_PLUS_DOWNLINK','0','0','0','0',
 meter_epoch,origin_id,counter_source_id,xray_process_boot_id,reset_sequence,created_at_unix)
 VALUES(?,?,?,?,0,?)`,
 			Args: []any{
-				meterEpoch, originID, originID + "-xray", "boot-" + intervalID,
+				meterEpoch, originID, counterSourceID, processBootID,
 				fixture.NowUnix - 100,
 			},
 		},
@@ -493,8 +522,29 @@ amount_numerator,amount_denominator,currency,created_at_unix)
 VALUES(?,'23','37','60','6000','1000000000','RUB',?)`,
 			Args: []any{intervalID, intervalEndUnix},
 		},
+		rqlite.Statement{
+			SQL: `INSERT INTO whitelist_commercial_metering_sources(
+event_id,entitlement_id,billing_period_id,origin_id,exit_id,meter_epoch,
+route_xray_identity,counter_generation,sample_sequence,basis,sampled_at_unix,source_sha256)
+VALUES(?,?,?,?,?,?,?,'1','2','UPLINK_PLUS_DOWNLINK',?,?)`,
+			Args: []any{
+				intervalID, fixture.EntitlementID, fixture.PeriodID, originID,
+				"nl", meterEpoch, xrayIdentity + ":nl", intervalEndUnix, sourceSHA256,
+			},
+		},
+		rqlite.Statement{
+			SQL: `INSERT INTO whitelist_commercial_debit_outbox(
+event_id,entitlement_id,billing_period_id,meter_epoch,basis,interval_end_unix,
+source_sha256,receipt_key,request_hash,created_at_unix)
+VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			Args: []any{
+				intervalID, fixture.EntitlementID, fixture.PeriodID, meterEpoch,
+				"UPLINK_PLUS_DOWNLINK", intervalEndUnix, sourceSHA256,
+				receiptKey, requestHash, intervalEndUnix,
+			},
+		},
 	)
-	return meterEpoch, intervalID, intervalEndUnix
+	return meterEpoch, intervalID, intervalEndUnix, sourceSHA256
 }
 
 func TestWhiteListBalanceRQLiteUsageDebitsExactIntervalAndReplaysOnce(t *testing.T) {
@@ -515,7 +565,7 @@ func TestWhiteListBalanceRQLiteUsageDebitsExactIntervalAndReplaysOnce(t *testing
 	if err != nil {
 		t.Fatalf("seed purchased balance: %v", err)
 	}
-	meterEpoch, intervalID, intervalEndUnix := whiteListSeedMeteredInterval(t, fixture)
+	meterEpoch, intervalID, intervalEndUnix, sourceSHA256 := whiteListSeedMeteredInterval(t, fixture)
 	beforeOrdinary := whiteListOrdinarySnapshot(t, fixture.DB, fixture.CustomerID)
 	beforeForeignOrdinary := whiteListOrdinarySnapshot(t, fixture.DB, fixture.OtherCustomerID)
 	beforeDirty := whiteListDirtyGeneration(t, fixture.DB)
@@ -525,7 +575,9 @@ func TestWhiteListBalanceRQLiteUsageDebitsExactIntervalAndReplaysOnce(t *testing
 		PeriodID:        fixture.PeriodID,
 		MeterEpoch:      meterEpoch,
 		IntervalID:      intervalID,
+		Basis:           "UPLINK_PLUS_DOWNLINK",
 		IntervalEndUnix: intervalEndUnix,
+		SourceSHA256:    sourceSHA256,
 	}
 	result, err := service.ApplyWhiteListUsage(
 		task7Context(t), fixture.NowUnix, command,
@@ -559,6 +611,13 @@ func TestWhiteListBalanceRQLiteUsageDebitsExactIntervalAndReplaysOnce(t *testing
 		task7Context(t), fixture.NowUnix+2, conflict,
 	); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed interval payload error = %v, want ErrConflict", err)
+	}
+	conflict = command
+	conflict.SourceSHA256 = strings.Repeat("b", 64)
+	if _, err := replayService.ApplyWhiteListUsage(
+		task7Context(t), fixture.NowUnix+2, conflict,
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed commercial source error = %v, want ErrConflict", err)
 	}
 
 	entry := task7Row(t, fixture.DB, rqlite.Statement{SQL: `SELECT

@@ -11,6 +11,7 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistbalance"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistmetering"
 )
 
 const (
@@ -37,7 +38,9 @@ type ApplyWhiteListUsageCommand struct {
 	PeriodID        string
 	MeterEpoch      string
 	IntervalID      string
+	Basis           string
 	IntervalEndUnix int64
+	SourceSHA256    string
 }
 
 type storedWhiteListBalanceResponse struct {
@@ -46,8 +49,9 @@ type storedWhiteListBalanceResponse struct {
 }
 
 type loadedWhiteListBalance struct {
-	State         whitelistbalance.State
-	PrimaryActive bool
+	State             whitelistbalance.State
+	PrimaryActive     bool
+	CommercialPending bool
 }
 
 type whiteListUsageInterval struct {
@@ -90,6 +94,9 @@ func (s *Service) ScheduleWhiteListPeriod(
 	if err != nil {
 		return whitelistbalance.OperationResult{}, err
 	}
+	if loaded.CommercialPending {
+		return whitelistbalance.OperationResult{}, ErrUnavailable
+	}
 	operationID, err := s.ids.NewID("whitelist-operation")
 	if err != nil {
 		return whitelistbalance.OperationResult{}, ErrUnavailable
@@ -129,6 +136,9 @@ func (s *Service) CreditWhiteListPurchasedBytes(
 	if err != nil {
 		return whitelistbalance.OperationResult{}, err
 	}
+	if loaded.CommercialPending {
+		return whitelistbalance.OperationResult{}, ErrUnavailable
+	}
 	operationID, err := s.ids.NewID("whitelist-operation")
 	if err != nil {
 		return whitelistbalance.OperationResult{}, ErrUnavailable
@@ -160,7 +170,10 @@ func (s *Service) ApplyWhiteListUsage(
 	if err != nil || !validWhiteListTimestamp(nowUnix) {
 		return whitelistbalance.OperationResult{}, ErrConflict
 	}
-	idempotencyKey := whiteListSourceKey(whiteListApplyUsageCommand, command.MeterEpoch, command.IntervalID)
+	idempotencyKey, err := whitelistmetering.CommercialDebitReceiptKey(command.MeterEpoch, command.IntervalID)
+	if err != nil {
+		return whitelistbalance.OperationResult{}, ErrConflict
+	}
 	if replay, found, resolveErr := s.resolveWhiteListBalanceRequest(
 		ctx, whiteListApplyUsageCommand, idempotencyKey, requestHash,
 		command.EntitlementID, command.PeriodID,
@@ -267,20 +280,12 @@ func whiteListCreditRequestHash(command CreditWhiteListPurchasedBytesCommand) (s
 }
 
 func whiteListUsageRequestHash(command ApplyWhiteListUsageCommand) (string, error) {
-	if !validWhiteListID(command.EntitlementID) || !validWhiteListID(command.PeriodID) ||
-		!validWhiteListID(command.MeterEpoch) || !validWhiteListID(command.IntervalID) ||
-		!validWhiteListTimestamp(command.IntervalEndUnix) {
-		return "", errors.New("controlplane: invalid white-list usage command")
-	}
-	return whiteListCanonicalHash(struct {
-		Version         int    `json:"version"`
-		CommandType     string `json:"command_type"`
-		EntitlementID   string `json:"entitlement_id"`
-		PeriodID        string `json:"period_id"`
-		MeterEpoch      string `json:"meter_epoch"`
-		IntervalID      string `json:"interval_id"`
-		IntervalEndUnix int64  `json:"interval_end_unix"`
-	}{1, whiteListApplyUsageCommand, command.EntitlementID, command.PeriodID, command.MeterEpoch, command.IntervalID, command.IntervalEndUnix})
+	return whitelistmetering.CommercialDebitReceiptHash(whitelistmetering.CommercialDebit{
+		EntitlementID: command.EntitlementID, BillingPeriodID: command.PeriodID,
+		MeterEpoch: command.MeterEpoch, IntervalID: command.IntervalID,
+		Basis: command.Basis, IntervalEndUnix: command.IntervalEndUnix,
+		SourceSHA256: command.SourceSHA256,
+	})
 }
 
 func whiteListCanonicalHash(value any) (string, error) {
@@ -388,7 +393,21 @@ SELECT entitlement.entitlement_id,
        projection.uncovered_bytes,
        projection.version,
        projection.pending,
-       projection.fresh_through_unix
+       projection.fresh_through_unix,
+       EXISTS(
+           SELECT 1
+           FROM whitelist_commercial_debit_outbox AS debit_outbox
+           WHERE debit_outbox.entitlement_id=entitlement.entitlement_id
+             AND NOT EXISTS(
+                 SELECT 1 FROM idempotency_requests AS debit_receipt
+                 WHERE debit_receipt.scope='whitelist-balance'
+                   AND debit_receipt.command_type='apply-usage'
+                   AND debit_receipt.idempotency_key=debit_outbox.receipt_key
+                   AND debit_receipt.request_hash=debit_outbox.request_hash
+                   AND debit_receipt.resource_id=debit_outbox.entitlement_id
+                   AND debit_receipt.status='applied'
+             )
+       ) AS commercial_debit_pending
 FROM whitelist_entitlement_identities AS entitlement
 JOIN customers AS customer ON customer.customer_id=entitlement.customer_id
 LEFT JOIN whitelist_billing_periods AS period ON period.entitlement_id=entitlement.entitlement_id
@@ -415,9 +434,15 @@ ORDER BY period.period_ordinal`, Args: []any{entitlementID}})
 			return loadedWhiteListBalance{}, ErrUnavailable
 		}
 		primaryActive := customerStatus == "active" && customerExpires > nowUnix
+		commercialPending, commercialPendingOK := rowInt64(row, "commercial_debit_pending")
+		if !commercialPendingOK || (commercialPending != 0 && commercialPending != 1) {
+			return loadedWhiteListBalance{}, ErrUnavailable
+		}
 		if index == 0 {
 			loaded.PrimaryActive = primaryActive
-		} else if loaded.PrimaryActive != primaryActive {
+			loaded.CommercialPending = commercialPending == 1
+		} else if loaded.PrimaryActive != primaryActive ||
+			loaded.CommercialPending != (commercialPending == 1) {
 			return loadedWhiteListBalance{}, ErrUnavailable
 		}
 
@@ -482,13 +507,23 @@ SELECT event.entitlement_id,
        event.billing_period_id AS period_id,
        event.meter_epoch,
        interval.event_id AS interval_id,
-       interval.billable_bytes
+       interval.billable_bytes,
+       source.basis,
+       source.sampled_at_unix AS interval_end_unix,
+       source.source_sha256,
+       debit_outbox.receipt_key,
+       debit_outbox.request_hash
 FROM whitelist_metering_intervals AS interval
 JOIN whitelist_metering_events AS event ON event.event_id=interval.event_id
 JOIN whitelist_meter_epochs AS epoch ON epoch.meter_epoch=event.meter_epoch
+JOIN whitelist_commercial_metering_sources AS source ON source.event_id=interval.event_id
+JOIN whitelist_commercial_debit_outbox AS debit_outbox ON debit_outbox.event_id=interval.event_id
 WHERE interval.event_id=? AND event.meter_epoch=?
   AND event.entitlement_id=? AND event.billing_period_id=?
-  AND epoch.origin_id=event.instance_id`, Args: []any{
+  AND epoch.origin_id=event.instance_id
+  AND source.entitlement_id=event.entitlement_id
+  AND source.billing_period_id=event.billing_period_id
+  AND source.meter_epoch=event.meter_epoch`, Args: []any{
 		command.IntervalID, command.MeterEpoch, command.EntitlementID, command.PeriodID,
 	}})
 	if err != nil {
@@ -503,9 +538,28 @@ WHERE interval.event_id=? AND event.meter_epoch=?
 	meterEpoch, epochOK := rowString(row, "meter_epoch")
 	intervalID, intervalOK := rowString(row, "interval_id")
 	billableText, billableOK := rowStringAllowEmpty(row, "billable_bytes")
+	basis, basisOK := rowString(row, "basis")
+	intervalEndUnix, intervalEndOK := rowInt64(row, "interval_end_unix")
+	sourceSHA256, sourceSHAOK := rowString(row, "source_sha256")
+	receiptKey, receiptKeyOK := rowString(row, "receipt_key")
+	requestHash, requestHashOK := rowString(row, "request_hash")
 	if !entitlementOK || !periodOK || !epochOK || !intervalOK || !billableOK ||
+		!basisOK || !intervalEndOK || !sourceSHAOK || !receiptKeyOK || !requestHashOK ||
 		rowEntitlementID != command.EntitlementID || periodID != command.PeriodID ||
-		meterEpoch != command.MeterEpoch || intervalID != command.IntervalID {
+		meterEpoch != command.MeterEpoch || intervalID != command.IntervalID ||
+		basis != command.Basis || intervalEndUnix != command.IntervalEndUnix ||
+		sourceSHA256 != command.SourceSHA256 {
+		return whiteListUsageInterval{}, ErrUnavailable
+	}
+	wantReceiptKey, err := whitelistmetering.CommercialDebitReceiptKey(command.MeterEpoch, command.IntervalID)
+	if err != nil {
+		return whiteListUsageInterval{}, ErrConflict
+	}
+	wantRequestHash, err := whiteListUsageRequestHash(command)
+	if err != nil {
+		return whiteListUsageInterval{}, ErrConflict
+	}
+	if receiptKey != wantReceiptKey || requestHash != wantRequestHash {
 		return whiteListUsageInterval{}, ErrUnavailable
 	}
 	billable, err := strconv.ParseInt(billableText, 10, 64)
@@ -560,6 +614,25 @@ WHERE entitlement.entitlement_id=? AND customer.status='active' AND customer.exp
 		}
 		mutationGuard += " AND " + activePredicate
 		mutationGuardArgs = append(mutationGuardArgs, previous.EntitlementID, nowUnix)
+	}
+	if mutation.Usage == nil {
+		mutationGuard += ` AND NOT EXISTS(
+SELECT 1 FROM whitelist_commercial_debit_outbox AS debit_outbox
+WHERE debit_outbox.entitlement_id=?
+  AND NOT EXISTS(
+      SELECT 1 FROM idempotency_requests AS debit_receipt
+      WHERE debit_receipt.scope=? AND debit_receipt.command_type=?
+        AND debit_receipt.idempotency_key=debit_outbox.receipt_key
+        AND debit_receipt.request_hash=debit_outbox.request_hash
+        AND debit_receipt.resource_id=debit_outbox.entitlement_id
+        AND debit_receipt.status='applied'
+  ))`
+		mutationGuardArgs = append(
+			mutationGuardArgs,
+			previous.EntitlementID,
+			whitelistmetering.CommercialDebitReceiptScope,
+			whitelistmetering.CommercialDebitReceiptCommand,
+		)
 	}
 	statements := []rqlite.Statement{{
 		SQL: `INSERT OR IGNORE INTO idempotency_requests(

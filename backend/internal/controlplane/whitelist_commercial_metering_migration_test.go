@@ -5,22 +5,22 @@ import (
 	"testing"
 )
 
-func TestMigrationWhiteListCommercialMeteringSourceIsV12AndAppendOnly(t *testing.T) {
+func TestMigrationWhiteListCommercialMeteringSourceRemainsV12AndAppendOnly(t *testing.T) {
 	migrations, err := loadMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 12 || len(migrations) != 12 {
-		t.Fatalf("schema chain = version %d/%d, want exact v12", SchemaVersion, len(migrations))
+	if SchemaVersion != 13 || len(migrations) != 13 {
+		t.Fatalf("schema chain = version %d/%d, want exact v13 with retained v12", SchemaVersion, len(migrations))
 	}
 	if migrations[10].Checksum != "520db62664c161b2906058a567613aa30e99b5f6dcae5f872852a454100c1430" {
 		t.Fatalf("immutable v11 checksum changed: %q", migrations[10].Checksum)
 	}
-	latest := migrations[11]
-	if latest.Version != 12 || latest.Path != "migrations/0012_whitelist_commercial_metering_sources.sql" {
-		t.Fatalf("latest migration=%#v", latest)
+	v12 := migrations[11]
+	if v12.Version != 12 || v12.Path != "migrations/0012_whitelist_commercial_metering_sources.sql" {
+		t.Fatalf("v12 migration=%#v", v12)
 	}
-	sql := strings.ToLower(string(latest.Data))
+	sql := strings.ToLower(string(v12.Data))
 	for _, required := range []string{
 		"create table whitelist_commercial_metering_sources",
 		"event_id text primary key not null",
