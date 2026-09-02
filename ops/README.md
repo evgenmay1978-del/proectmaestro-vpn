@@ -35,6 +35,14 @@ python ops/maestro-repetition-guard.py success --action s1-key-login --family op
 смысловые коды и SHA-256 способов. Никогда не подставлять туда текст команды,
 пароль, ключ, токен, URL подписки или данные клиента. Проверка:
 
+Один результат `ALLOW` разрешает ровно одну смысловую операцию и один
+исполняемый шаг. Нельзя объединять под одним `check` несколько проверок через
+`;`, pipeline или один shell-вызов: `unittest`, syntax compile,
+`git diff --check`, status и чтение diff получают отдельные
+`check`/результат/`success`,
+даже когда все они read-only. Иначе поздний успешный шаг может скрыть ранний
+сбой, а вся составная попытка считается ошибочной.
+
 ```powershell
 python -m unittest ops.test_maestro_repetition_guard -v
 ```
