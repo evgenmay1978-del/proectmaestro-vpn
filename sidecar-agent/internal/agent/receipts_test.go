@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 func TestReceiptExpiresAndRefreshRecoversAfterProcessRestart(t *testing.T) {
 	now := time.Date(2026, 9, 3, 11, 0, 0, 0, time.UTC)
 	bootID := "boot-a"
-	handler := newFakeHandler("wl:one:exit-s1")
+	handler := newFakeHandler("ordinary:fixed", "canary:fixed", "wl:one:exit-s1")
 	reconciler, store := testReconciler(t, handler, &now, &bootID)
 	desired := testDesired(t, 7, "release-12", strings.Repeat("a", 64), "wl:one:exit-s1")
 	first, err := reconciler.Apply(context.Background(), desired)
@@ -83,7 +84,7 @@ func TestFileStoreUsesPrivateAtomicFilesAndBoundedReceiptRetention(t *testing.T)
 		if err != nil {
 			t.Fatalf("Info(%s): %v", entry.Name(), err)
 		}
-		if info.Mode().Perm() != 0o600 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode = %o", entry.Name(), info.Mode().Perm())
 		}
 	}

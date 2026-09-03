@@ -8,8 +8,11 @@ import (
 	"testing"
 
 	"github.com/xtls/xray-core/app/proxyman/command"
+	xrayrouter "github.com/xtls/xray-core/app/router"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/common/session"
+	routingsession "github.com/xtls/xray-core/features/routing/session"
 	"github.com/xtls/xray-core/proxy/vless"
 	"google.golang.org/grpc"
 )
@@ -110,6 +113,50 @@ func TestPinnedHandlerServiceRejectsUnsafeMutationInputs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := run(); err == nil {
 				t.Fatal("unsafe HandlerService mutation accepted")
+			}
+		})
+	}
+}
+
+func TestPinnedXrayRouterSelectsEveryManagedExitAndBlocksUnsupportedIdentities(t *testing.T) {
+	rules := make([]*xrayrouter.RoutingRule, 0, 5)
+	for _, exitID := range []string{"exit-s1", "exit-s2", "exit-s3", "exit-s4"} {
+		rules = append(rules, &xrayrouter.RoutingRule{
+			TargetTag:  &xrayrouter.RoutingRule_Tag{Tag: exitID},
+			InboundTag: []string{"maestro-cdn-in"},
+			UserEmail:  []string{"regexp:^wl:[^:]+:" + exitID + "$"},
+		})
+	}
+	rules = append(rules, &xrayrouter.RoutingRule{
+		TargetTag:  &xrayrouter.RoutingRule_Tag{Tag: "block"},
+		InboundTag: []string{"maestro-cdn-in"},
+	})
+	router := new(xrayrouter.Router)
+	if err := router.Init(context.Background(), &xrayrouter.Config{Rule: rules}, nil, nil, nil); err != nil {
+		t.Fatalf("init pinned Xray router: %v", err)
+	}
+	for _, test := range []struct {
+		email string
+		want  string
+	}{
+		{email: "wl:one:exit-s1", want: "exit-s1"},
+		{email: "wl:two:exit-s2", want: "exit-s2"},
+		{email: "wl:three:exit-s3", want: "exit-s3"},
+		{email: "wl:four:exit-s4", want: "exit-s4"},
+		{email: "wl:unknown:exit-s5", want: "block"},
+		{email: "wl:malformed", want: "block"},
+		{email: "ordinary:fixed", want: "block"},
+	} {
+		t.Run(test.email, func(t *testing.T) {
+			ctx := &routingsession.Context{Inbound: &session.Inbound{
+				Tag: "maestro-cdn-in", User: &protocol.MemoryUser{Email: test.email},
+			}}
+			route, err := router.PickRoute(ctx)
+			if err != nil {
+				t.Fatalf("PickRoute: %v", err)
+			}
+			if route.GetOutboundTag() != test.want {
+				t.Fatalf("outbound = %q, want %q", route.GetOutboundTag(), test.want)
 			}
 		})
 	}

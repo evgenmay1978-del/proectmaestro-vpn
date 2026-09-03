@@ -1,0 +1,39 @@
+[Unit]
+Description=MaestroVPN isolated Xray CDN node agent
+After=network-online.target maestro-xray-cdn.service
+Wants=network-online.target
+Requires=maestro-xray-cdn.service
+
+[Service]
+Type=simple
+User=maestro-xray-cdn-agent
+Group=maestro-xray-cdn-agent
+EnvironmentFile=/etc/maestro-xray-cdn-agent/agent.env
+ExecStart=/opt/maestro-xray-cdn-agent/current/maestro-xray-cdn-agent
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+StateDirectory=maestro-xray-cdn-agent/receipts
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RemoveIPC=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/maestro-xray-cdn-agent /etc/maestro-xray-cdn/api-mtls /var/lib/maestro-xray-cdn-agent/credentials /proc/sys/kernel/random/boot_id /run/maestro-xray-cdn/xray.pid
+ReadWritePaths=/var/lib/maestro-xray-cdn-agent/receipts
+
+[Install]
+WantedBy=multi-user.target

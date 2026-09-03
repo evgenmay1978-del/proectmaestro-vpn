@@ -44,7 +44,7 @@ func TestTaskARuntimeConfigCarriesEveryServerRelevantXHTTPField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCandidate: %v", err)
 	}
-	config, err := candidate.MaterializeRuntimeConfig(release.RuntimeMaterial{ServerDecryption: taskARuntimeMaterial})
+	config, err := candidate.MaterializeRuntimeConfig(taskARuntimeMaterialValue(taskARuntimeMaterial))
 	if err != nil {
 		t.Fatalf("MaterializeRuntimeConfig: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestTaskARuntimeMaterialRejectsNormalizedPlaceholdersWithMatchingCommitment
 			if err != nil {
 				t.Fatalf("NewCandidate: %v", err)
 			}
-			if _, err := candidate.MaterializeRuntimeConfig(release.RuntimeMaterial{ServerDecryption: material}); err == nil {
+			if _, err := candidate.MaterializeRuntimeConfig(taskARuntimeMaterialValue(material)); err == nil {
 				t.Fatal("normalized placeholder accepted with matching signed commitment")
 			}
 		})

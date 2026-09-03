@@ -20,6 +20,19 @@ import (
 
 const taskARuntimeMaterial = "synthetic-runtime-server-decryption"
 
+func taskARuntimeMaterialValue(serverDecryption string) release.RuntimeMaterial {
+	return release.RuntimeMaterial{
+		ServerDecryption: serverDecryption,
+		LocalExitID:      "exit-s1",
+		RelayRoutes: []release.RelayRouteMaterial{
+			{ExitID: "exit-s1", Address: "127.0.0.1", ServerName: "exit-s1.example.test", Credential: "00000000-0000-4000-8000-000000000011"},
+			{ExitID: "exit-s2", Address: "192.0.2.12", ServerName: "exit-s2.example.test", Credential: "00000000-0000-4000-8000-000000000012"},
+			{ExitID: "exit-s3", Address: "192.0.2.13", ServerName: "exit-s3.example.test", Credential: "00000000-0000-4000-8000-000000000013"},
+			{ExitID: "exit-s4", Address: "192.0.2.14", ServerName: "exit-s4.example.test", Credential: "00000000-0000-4000-8000-000000000014"},
+		},
+	}
+}
+
 func taskAMinimalELF() []byte {
 	const (
 		elfHeaderSize     = 64
@@ -72,7 +85,7 @@ func taskARuntimeCommitment(material string) string {
 	}{
 		SchemaVersion: 1,
 		Purpose:       "maestro-xray-cdn-server-decryption",
-		Material:      release.RuntimeMaterial{ServerDecryption: material},
+		Material:      taskARuntimeMaterialValue(material),
 	}
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
@@ -90,7 +103,7 @@ func taskASpec(t *testing.T, id string) (release.CandidateSpec, release.Evidence
 	trust, privateKey := taskATrust(t)
 	binaryBytes := taskAMinimalELF()
 	binaryDigest := sha256.Sum256(binaryBytes)
-	runtimeDigest, err := release.RuntimeMaterialSHA256(release.RuntimeMaterial{ServerDecryption: taskARuntimeMaterial})
+	runtimeDigest, err := release.RuntimeMaterialSHA256(taskARuntimeMaterialValue(taskARuntimeMaterial))
 	if err != nil {
 		t.Fatalf("RuntimeMaterialSHA256: %v", err)
 	}
@@ -377,7 +390,7 @@ func TestTaskARuntimeMaterializationRejectsDowngradeAndBoundaryDrift(t *testing.
 	if err != nil {
 		t.Fatalf("NewCandidate: %v", err)
 	}
-	config, err := candidate.MaterializeRuntimeConfig(release.RuntimeMaterial{ServerDecryption: taskARuntimeMaterial})
+	config, err := candidate.MaterializeRuntimeConfig(taskARuntimeMaterialValue(taskARuntimeMaterial))
 	if err != nil {
 		t.Fatalf("MaterializeRuntimeConfig: %v", err)
 	}
@@ -386,7 +399,7 @@ func TestTaskARuntimeMaterializationRejectsDowngradeAndBoundaryDrift(t *testing.
 		t.Fatal("runtime config did not use the immutable transport host/path")
 	}
 	for _, material := range []string{"", "bad\nvalue", "different-material", string([]byte{0xff})} {
-		if _, err := candidate.MaterializeRuntimeConfig(release.RuntimeMaterial{ServerDecryption: material}); err == nil {
+		if _, err := candidate.MaterializeRuntimeConfig(taskARuntimeMaterialValue(material)); err == nil {
 			t.Fatalf("unsafe or uncommitted runtime material accepted: %q", material)
 		}
 	}
@@ -403,7 +416,7 @@ func TestTaskARuntimeMaterializationRejectsDowngradeAndBoundaryDrift(t *testing.
 			if err != nil {
 				t.Fatalf("NewCandidate: %v", err)
 			}
-			if _, err := candidate.MaterializeRuntimeConfig(release.RuntimeMaterial{ServerDecryption: forbidden}); err == nil {
+			if _, err := candidate.MaterializeRuntimeConfig(taskARuntimeMaterialValue(forbidden)); err == nil {
 				t.Fatalf("forbidden runtime material accepted with matching signed commitment: %q", forbidden)
 			}
 		})

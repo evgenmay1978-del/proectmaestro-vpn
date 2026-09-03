@@ -3,7 +3,9 @@ package release_test
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/release"
 )
@@ -78,6 +80,68 @@ func TestTask12TemplateRejectsIncompleteOrLoopingRouteMatrix(t *testing.T) {
 	}
 	if err := release.ValidateConfigTemplate(looping); err == nil {
 		t.Fatal("relay loop accepted")
+	}
+}
+
+func TestTask12RuntimeRelayMaterialIsDigestBoundAndHasExactlyOneLocalExit(t *testing.T) {
+	material := release.RuntimeMaterial{
+		ServerDecryption: "synthetic-runtime-server-decryption",
+		LocalExitID:      "exit-s1",
+		RelayRoutes: []release.RelayRouteMaterial{
+			{ExitID: "exit-s1", Address: "127.0.0.1", ServerName: "exit-s1.example.test", Credential: "00000000-0000-4000-8000-000000000011"},
+			{ExitID: "exit-s2", Address: "192.0.2.12", ServerName: "exit-s2.example.test", Credential: "00000000-0000-4000-8000-000000000012"},
+			{ExitID: "exit-s3", Address: "192.0.2.13", ServerName: "exit-s3.example.test", Credential: "00000000-0000-4000-8000-000000000013"},
+			{ExitID: "exit-s4", Address: "192.0.2.14", ServerName: "exit-s4.example.test", Credential: "00000000-0000-4000-8000-000000000014"},
+		},
+	}
+	runtimeDigest, err := release.RuntimeMaterialSHA256(material)
+	if err != nil {
+		t.Fatalf("RuntimeMaterialSHA256: %v", err)
+	}
+	spec, _, privateKey := taskASpec(t, "release-relay")
+	spec.RuntimeMaterialSHA256 = runtimeDigest
+	evidence, err := release.BuildValidationEvidence(spec, taskASignedReports(t, spec, privateKey, time.Now().UTC()))
+	if err != nil {
+		t.Fatalf("BuildValidationEvidence: %v", err)
+	}
+	spec.ValidationEvidence = evidence
+	candidate, err := release.NewCandidate(spec)
+	if err != nil {
+		t.Fatalf("NewCandidate: %v", err)
+	}
+	runtimeConfig, err := candidate.MaterializeRuntimeConfig(material)
+	if err != nil {
+		t.Fatalf("MaterializeRuntimeConfig: %v", err)
+	}
+	for _, expected := range []string{"127.0.0.1", "exit-s4.example.test", material.RelayRoutes[2].Credential, `"allowInsecure":false`, `"alpn":["h2"]`} {
+		if !bytes.Contains(runtimeConfig, []byte(expected)) {
+			t.Fatalf("runtime relay config missing %q", expected)
+		}
+	}
+	if bytes.Contains(release.DefaultConfigTemplate(), []byte(material.RelayRoutes[2].Credential)) ||
+		bytes.Contains(bytes.ToLower(runtimeConfig), []byte("<runtime_")) {
+		t.Fatal("relay secret leaked into immutable template or runtime placeholder remained")
+	}
+	if strings.Count(string(runtimeConfig), `"email":"relay:`) != 1 {
+		t.Fatal("relay inbound accepts a credential for a non-local exit")
+	}
+
+	for name, mutate := range map[string]func(*release.RuntimeMaterial){
+		"missing":            func(value *release.RuntimeMaterial) { value.LocalExitID, value.RelayRoutes = "", nil },
+		"incomplete":         func(value *release.RuntimeMaterial) { value.RelayRoutes = value.RelayRoutes[:3] },
+		"no local relay":     func(value *release.RuntimeMaterial) { value.RelayRoutes[0].Address = "192.0.2.11" },
+		"wrong local exit":   func(value *release.RuntimeMaterial) { value.LocalExitID = "exit-s2" },
+		"invalid SNI":        func(value *release.RuntimeMaterial) { value.RelayRoutes[1].ServerName = "exit-s2.invalid" },
+		"invalid credential": func(value *release.RuntimeMaterial) { value.RelayRoutes[1].Credential = strings.Repeat("0", 36) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			copyMaterial := material
+			copyMaterial.RelayRoutes = append([]release.RelayRouteMaterial(nil), material.RelayRoutes...)
+			mutate(&copyMaterial)
+			if _, err := release.RuntimeMaterialSHA256(copyMaterial); err == nil {
+				t.Fatal("invalid relay runtime material accepted")
+			}
+		})
 	}
 }
 

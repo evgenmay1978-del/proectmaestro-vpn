@@ -6,6 +6,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "sidecar-agent.yml"
+SERVICE = ROOT / "deploy" / "maestro-xray-cdn-agent.service"
 
 
 class SidecarAgentWorkflowPolicyTest(unittest.TestCase):
@@ -38,6 +39,24 @@ class SidecarAgentWorkflowPolicyTest(unittest.TestCase):
             "scripts/tests/test_sidecar_agent_ci.py",
         ):
             self.assertGreaterEqual(source.count(path), 2, path)
+
+    def test_systemd_unit_is_dedicated_sandboxed_and_has_no_shell(self) -> None:
+        source = SERVICE.read_text(encoding="utf-8")
+        for directive in (
+            "User=maestro-xray-cdn-agent",
+            "Group=maestro-xray-cdn-agent",
+            "StateDirectory=maestro-xray-cdn-agent/receipts",
+            "StateDirectoryMode=0700",
+            "NoNewPrivileges=true",
+            "PrivateDevices=true",
+            "ProtectSystem=strict",
+            "ReadOnlyPaths=/etc/maestro-xray-cdn-agent /etc/maestro-xray-cdn/api-mtls /var/lib/maestro-xray-cdn-agent/credentials",
+            "ReadWritePaths=/var/lib/maestro-xray-cdn-agent/receipts",
+        ):
+            self.assertIn(directive, source)
+        self.assertIn("ExecStart=/opt/maestro-xray-cdn-agent/current/maestro-xray-cdn-agent", source)
+        self.assertNotIn("/bin/sh", source)
+        self.assertNotIn("/bin/bash", source)
 
 
 if __name__ == "__main__":

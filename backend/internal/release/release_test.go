@@ -282,9 +282,9 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 	}
 	if !bytes.Contains(config, []byte(`"port":18081`)) || bytes.Contains(config, []byte("18080")) ||
 		!bytes.Contains(config, []byte(`"listen":"127.0.0.1","port":18082,"protocol":"dokodemo-door"`)) ||
-		!bytes.Contains(config, []byte(`"services":["StatsService"]`)) ||
+		!bytes.Contains(config, []byte(`"services":["StatsService","HandlerService"]`)) ||
 		!bytes.Contains(config, []byte(`"security":"tls"`)) ||
-		!bytes.Contains(config, []byte(`"verifyPeerCertInNames":["maestro-metering-client"]`)) ||
+		!bytes.Contains(config, []byte(`"verifyPeerCertInNames":["maestro-metering-client","maestro-sidecar-agent"]`)) ||
 		!bytes.Contains(config, []byte(`/etc/maestro-xray-cdn/api-mtls/client-ca.crt`)) ||
 		!bytes.Contains(unit, []byte(`ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls`)) ||
 		!bytes.Contains(config, []byte(`"access":"none"`)) ||
@@ -328,7 +328,7 @@ func TestSystemdRuntimeConfigIsExternallyRootMaterializedAndReadOnly(t *testing.
 		}
 	}
 	for _, required := range []string{
-		"ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls /run/maestro-xray-cdn /run/maestro-xray-cdn/config.json",
+		"ReadOnlyPaths=/etc/maestro-xray-cdn/api-mtls /etc/maestro-xray-cdn/relay-tls /run/maestro-xray-cdn /run/maestro-xray-cdn/config.json",
 		"ReadWritePaths=/var/log/maestro-xray-cdn",
 		"ExecStartPre=/opt/maestro-xray-cdn/current/xray run -test -config " + release.RuntimeConfigPath,
 		"ExecStart=/opt/maestro-xray-cdn/current/xray run -config " + release.RuntimeConfigPath,
@@ -348,7 +348,7 @@ func TestAPIControlBoundaryRejectsUnauthenticatedConfiguration(t *testing.T) {
 	withoutTLS := bytes.Replace(config, []byte(`"security":"tls"`), []byte(`"security":"none"`), 1)
 	withoutClientIdentity := bytes.Replace(
 		config,
-		[]byte(`"verifyPeerCertInNames":["maestro-metering-client"]`),
+		[]byte(`"verifyPeerCertInNames":["maestro-metering-client","maestro-sidecar-agent"]`),
 		[]byte(`"verifyPeerCertInNames":[]`),
 		1,
 	)

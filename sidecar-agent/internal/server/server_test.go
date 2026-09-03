@@ -5,11 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"io"
 	"math/big"
 	"net"
@@ -44,11 +44,24 @@ func canonicalDesired(t *testing.T) []byte {
 	if err != nil {
 		t.Fatalf("ManagedUserSetDigest: %v", err)
 	}
-	raw, err := json.Marshal(map[string]any{
-		"version": 1, "origin_id": "origin-s1", "node_id": "node-s1", "release_id": "release-12",
-		"profile_id": "profile-xhttp", "preset_id": "preset-packet-up", "exit_id": "exit-s1",
-		"generation": int64(1), "config_digest": strings.Repeat("a", 64),
-		"managed_user_set_digest": digest, "static_users": []string{"canary:fixed"}, "managed_users": managed,
+	raw, err := json.Marshal(struct {
+		Version              int      `json:"version"`
+		OriginID             string   `json:"origin_id"`
+		NodeID               string   `json:"node_id"`
+		ReleaseID            string   `json:"release_id"`
+		ProfileID            string   `json:"profile_id"`
+		PresetID             string   `json:"preset_id"`
+		ExitID               string   `json:"exit_id"`
+		Generation           int64    `json:"generation"`
+		ConfigDigest         string   `json:"config_digest"`
+		ManagedUserSetDigest string   `json:"managed_user_set_digest"`
+		StaticUsers          []string `json:"static_users"`
+		ManagedUsers         []string `json:"managed_users"`
+	}{
+		Version: 1, OriginID: "origin-s1", NodeID: "node-s1", ReleaseID: "release-12",
+		ProfileID: "profile-xhttp", PresetID: "preset-packet-up", ExitID: "exit-s1",
+		Generation: 1, ConfigDigest: strings.Repeat("a", 64), ManagedUserSetDigest: digest,
+		StaticUsers: []string{"canary:fixed"}, ManagedUsers: managed,
 	})
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
@@ -85,7 +98,7 @@ func TestMTLSServerRejectsUntrustedWrongNameExpiredPlaintextAndInvalidBodies(t *
 		body        []byte
 		headers     map[string]string
 	}{
-		"unknown ca":       {certificate: unknown, body: raw, headers: validHeaders},
+		"unknown ca":        {certificate: unknown, body: raw, headers: validHeaders},
 		"wrong client name": {certificate: wrongName, body: raw, headers: validHeaders},
 		"expired cert":      {certificate: expired, body: raw, headers: validHeaders},
 	} {
@@ -133,8 +146,8 @@ func TestMTLSServerRejectsUntrustedWrongNameExpiredPlaintextAndInvalidBodies(t *
 	}
 	buffer := make([]byte, 16)
 	count, _ := connection.Read(buffer)
-	if count > 0 && strings.HasPrefix(string(buffer[:count]), "HTTP/") {
-		t.Fatalf("plaintext HTTP accepted: %q", buffer[:count])
+	if count == 0 || !strings.HasPrefix(string(buffer[:count]), "HTTP/1.0 400") {
+		t.Fatalf("plaintext HTTP was not explicitly rejected: %q", buffer[:count])
 	}
 	if applier.called != 0 {
 		t.Fatalf("invalid requests reached applier %d times", applier.called)
@@ -183,10 +196,7 @@ type certificateAuthority struct {
 	pool        *x509.CertPool
 }
 
-type tlsCertificate struct {
-	certificate [][]byte
-	key         *rsa.PrivateKey
-}
+type tlsCertificate = tls.Certificate
 
 func newCertificateAuthority(t *testing.T, name string) certificateAuthority {
 	t.Helper()
@@ -223,12 +233,15 @@ func newLeafCertificate(t *testing.T, ca certificateAuthority, name string, clie
 	if err != nil {
 		t.Fatalf("CreateCertificate leaf: %v", err)
 	}
-	return tlsCertificate{certificate: [][]byte{raw}, key: key}
+	return tls.Certificate{Certificate: [][]byte{raw}, PrivateKey: key}
 }
 
 func authenticatedClient(t *testing.T, roots *x509.CertPool, certificate tlsCertificate) *http.Client {
 	t.Helper()
-	return newHTTPClientForTest(t, roots, certificate.certificate, certificate.key, "agent.test")
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
+		MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: "agent.test",
+		Certificates: []tls.Certificate{certificate},
+	}}}
 }
 
 func postDesired(client *http.Client, baseURL string, body []byte, headers map[string]string) (*http.Response, error) {
@@ -240,10 +253,4 @@ func postDesired(client *http.Client, baseURL string, body []byte, headers map[s
 		request.Header.Set(name, value)
 	}
 	return client.Do(request)
-}
-
-func pemBytes(certificate [][]byte, key *rsa.PrivateKey) ([]byte, []byte) {
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate[0]})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	return certPEM, keyPEM
 }

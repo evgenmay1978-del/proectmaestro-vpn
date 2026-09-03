@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,10 +12,10 @@ import (
 )
 
 type fakeHandler struct {
-	users       map[string]struct{}
-	operations  []string
-	failAdd     string
-	failRemove  string
+	users      map[string]struct{}
+	operations []string
+	failAdd    string
+	failRemove string
 }
 
 func newFakeHandler(users ...string) *fakeHandler {
@@ -96,7 +97,7 @@ func testReconciler(t *testing.T, handler Handler, clock *time.Time, bootID *str
 		Handler: handler, Store: store, InboundTag: "maestro-cdn-in",
 		ReleaseID: "release-12", ConfigDigest: strings.Repeat("a", 64),
 		ProcessBootID: func() (string, error) { return *bootID, nil },
-		Now: func() time.Time { return *clock }, ReceiptTTL: 30 * time.Second,
+		Now:           func() time.Time { return *clock }, ReceiptTTL: 30 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("NewReconciler: %v", err)
@@ -132,7 +133,7 @@ func TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUs
 func TestReconcileDuplicateStaleAndPartialFailureAreFailClosed(t *testing.T) {
 	now := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
 	bootID := "boot-a"
-	handler := newFakeHandler("wl:old:exit-s1")
+	handler := newFakeHandler("ordinary:fixed", "canary:fixed", "wl:old:exit-s1")
 	reconciler, store := testReconciler(t, handler, &now, &bootID)
 	desired := testDesired(t, 2, "release-12", strings.Repeat("a", 64), "wl:new:exit-s1")
 	if _, err := reconciler.Apply(context.Background(), desired); err != nil {
@@ -149,7 +150,7 @@ func TestReconcileDuplicateStaleAndPartialFailureAreFailClosed(t *testing.T) {
 		t.Fatalf("stale Apply error = %v", err)
 	}
 
-	failing := newFakeHandler("wl:remove-only-after-add:exit-s1")
+	failing := newFakeHandler("ordinary:fixed", "canary:fixed", "wl:remove-only-after-add:exit-s1")
 	failing.failAdd = "wl:missing:exit-s1"
 	reconciler, store = testReconciler(t, failing, &now, &bootID)
 	partial := testDesired(t, 3, "release-12", strings.Repeat("a", 64), "wl:missing:exit-s1")
@@ -181,5 +182,33 @@ func TestReconcileRejectsReleaseAndConfigMismatchWithoutHandlerMutation(t *testi
 				t.Fatalf("handler mutated: %#v", handler.operations)
 			}
 		})
+	}
+}
+
+func TestParseDesiredAcceptsTask11HexDigestCase(t *testing.T) {
+	desired := testDesired(t, 1, "release-12", strings.Repeat("a", 64), "wl:new:exit-s1")
+	raw := bytes.Replace(
+		desired.CanonicalJSON(),
+		[]byte(`"config_digest":"`+strings.Repeat("a", 64)+`"`),
+		[]byte(`"config_digest":"`+strings.Repeat("A", 64)+`"`),
+		1,
+	)
+	if _, err := ParseDesired(raw); err != nil {
+		t.Fatalf("Task 11-compatible uppercase digest rejected: %v", err)
+	}
+}
+
+func TestReconcileRejectsDesiredMutatedAfterCanonicalParsing(t *testing.T) {
+	now := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
+	bootID := "boot-a"
+	handler := newFakeHandler("ordinary:fixed", "canary:fixed")
+	reconciler, _ := testReconciler(t, handler, &now, &bootID)
+	desired := testDesired(t, 1, "release-12", strings.Repeat("a", 64), "wl:new:exit-s1")
+	desired.ProfileID = "profile-tampered"
+	if _, err := reconciler.Apply(context.Background(), desired); !errors.Is(err, ErrInvalidDesired) {
+		t.Fatalf("mutated desired error = %v", err)
+	}
+	if len(handler.operations) != 0 {
+		t.Fatalf("mutated desired reached HandlerService: %#v", handler.operations)
 	}
 }

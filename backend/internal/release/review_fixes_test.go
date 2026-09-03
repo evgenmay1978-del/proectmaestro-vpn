@@ -113,7 +113,7 @@ func TestCatalogTransitionsNeverCrossTransportProfiles(t *testing.T) {
 func TestRuntimeMaterializationIsSeparateDeterministicAndSealed(t *testing.T) {
 	candidate := mustCandidate(t, "release-a", 1)
 	templateBefore := candidateSpec(t, "release-a", 1).ConfigJSON
-	material := release.RuntimeMaterial{ServerDecryption: taskARuntimeMaterial}
+	material := taskARuntimeMaterialValue(taskARuntimeMaterial)
 	first, err := candidate.MaterializeRuntimeConfig(material)
 	if err != nil {
 		t.Fatalf("MaterializeRuntimeConfig: %v", err)
@@ -122,7 +122,7 @@ func TestRuntimeMaterializationIsSeparateDeterministicAndSealed(t *testing.T) {
 	if err != nil || !bytes.Equal(first, second) {
 		t.Fatal("runtime materialization is not deterministic")
 	}
-	if _, err := candidate.MaterializeRuntimeConfig(release.RuntimeMaterial{ServerDecryption: "different-material"}); err == nil {
+	if _, err := candidate.MaterializeRuntimeConfig(taskARuntimeMaterialValue("different-material")); err == nil {
 		t.Fatal("runtime materialization accepted uncommitted material")
 	}
 	profile := candidate.Transport().Profile()
@@ -153,16 +153,16 @@ func TestCandidateRequiresPinnedBinaryAndDigestBoundGateEvidence(t *testing.T) {
 	}
 }
 
-func TestDefaultConfigDisablesDestinationAccessLogsAndMutationAPI(t *testing.T) {
+func TestDefaultConfigDisablesDestinationAccessLogsAndScopesMutationAPI(t *testing.T) {
 	config := release.DefaultConfigTemplate()
 	if bytes.Contains(config, []byte("/access.log")) || !bytes.Contains(config, []byte(`"access":"none"`)) {
 		t.Fatal("destination-bearing access logging is enabled")
 	}
-	if bytes.Contains(config, []byte("HandlerService")) || !bytes.Contains(config, []byte("StatsService")) {
-		t.Fatal("read-only metering identity shares a mutation-capable API surface")
+	if !bytes.Contains(config, []byte("HandlerService")) || !bytes.Contains(config, []byte("StatsService")) {
+		t.Fatal("isolated Xray API does not expose the exact metering and sidecar services")
 	}
-	if !bytes.Contains(config, []byte("maestro-metering-client")) {
-		t.Fatal("metering listener has no dedicated mTLS identity")
+	if !bytes.Contains(config, []byte("maestro-metering-client")) || !bytes.Contains(config, []byte("maestro-sidecar-agent")) {
+		t.Fatal("isolated Xray API does not pin both dedicated mTLS identities")
 	}
 }
 
