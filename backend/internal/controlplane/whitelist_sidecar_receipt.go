@@ -102,6 +102,29 @@ managed_user_set_digest,applied_at_unix,expires_at_unix,created_at_unix) VALUES(
 	return ReplayWhiteListSidecarReceipt(stored, receipt)
 }
 
+// ResolveWhiteListSidecarUnknown resolves an ambiguous provider outcome only
+// by reading the durable receipt bound to the same immutable action key. It
+// performs no write and therefore cannot resend the sidecar action.
+func (s *Service) ResolveWhiteListSidecarUnknown(
+	ctx context.Context, desired WhiteListSidecarDesired, currentBootID string,
+) (WhiteListSidecarReceipt, error) {
+	if s == nil || s.store == nil || s.clock == nil || desired.Action.ActionKey == "" {
+		return WhiteListSidecarReceipt{}, errors.New("controlplane: white-list sidecar receipt service is unavailable")
+	}
+	results, err := s.store.db.QueryLinearizable(ctx, whiteListSidecarReceiptRead(desired.Action.ActionKey))
+	if err != nil {
+		return WhiteListSidecarReceipt{}, ErrUnavailable
+	}
+	receipt, err := whiteListSidecarReceiptFromResults(results)
+	if err != nil {
+		return WhiteListSidecarReceipt{}, err
+	}
+	if err := ValidateWhiteListSidecarReceipt(desired, currentBootID, receipt, s.clock.Now()); err != nil {
+		return WhiteListSidecarReceipt{}, err
+	}
+	return receipt, nil
+}
+
 func whiteListSidecarReceiptRead(actionKey string) rqlite.Statement {
 	return rqlite.Statement{SQL: `SELECT action_key,origin_id,release_id,xray_process_boot_id,config_digest,
 desired_generation,managed_user_set_digest,applied_at_unix,expires_at_unix

@@ -41,6 +41,23 @@ func TestBuildWhiteListSidecarDesiredChangesOnlyManagedIdentityAndBumpsEveryOrig
 			t.Fatalf("action key = %q, want %q", second[index].Action.ActionKey, wantAction)
 		}
 	}
+	third, err := BuildWhiteListSidecarDesired(
+		desiredByOrigin(second), origins, secondRoutes[1:], exit,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range third {
+		if third[index].Generation != second[index].Generation+1 {
+			t.Fatalf("origin %s removal generation = %d, want %d", third[index].OriginID, third[index].Generation, second[index].Generation+1)
+		}
+		if len(third[index].ManagedUsers) != 1 || third[index].ManagedUsers[0] != "wl:wl-ent-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:exit-nl" {
+			t.Fatalf("origin %s managed users after removal = %#v", third[index].OriginID, third[index].ManagedUsers)
+		}
+		if got := third[index].StaticUsers; len(got) != 2 || got[0] != "canary@example.invalid" || got[1] != "static@example.invalid" {
+			t.Fatalf("origin %s static users changed after removal: %#v", third[index].OriginID, got)
+		}
+	}
 }
 
 func TestBuildWhiteListRouteMatrixUsesOnlyExitCountryMetadata(t *testing.T) {
