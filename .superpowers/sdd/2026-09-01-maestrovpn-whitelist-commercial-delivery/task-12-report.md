@@ -82,3 +82,14 @@ An independent review found that the source-firewall attestation accepted nftabl
 - Local GREEN evidence: the focused bypass test and the complete `sidecar-agent/internal/preflight` package passed; both touched Go files were `gofmt` clean; scoped `git diff --check` reported no whitespace errors.
 - Exact-SHA GitHub evidence: Isolated sidecar agent checks `33797670720`, HA S4 network change-package checks `33797670614`, HA immutable panel artifact `33797670632`, and Yandex CDN isolated release checks `33797670748` all completed successfully for `658de155aca69a696a18b452c4f3e99348c158c7`.
 - No production host, live firewall, Yandex resource, private canary/subscription, OLCRTC, WDTT, Android/TV code, OTA/release publication, payment, bot/channel, or customer traffic was touched. The fix remains pending its scoped independent re-review; this report does not claim review closure.
+
+## Review fix round 3 (03.09.2026)
+
+The next scoped independent review found that the nftables attestation still ignored unknown statements. In particular, a valid verdict map (`vmap`) containing an `accept` verdict could be placed before the expected managed rules and still produce a false-ready result.
+
+- Added a focused negative `vmap -> accept` case. Before the production change, the subtest failed with `unsafe firewall accepted`, providing the required RED evidence.
+- Replaced permissive statement scanning with a fail-closed classifier for the managed table. It accepts only the exact four managed rule forms: source-set allow followed by direct `accept` and terminal direct `drop`, for ports `18084` and `18443`. Each match statement, payload field, source set, port, expression count, order, and final direct verdict must be exact; every unknown statement, verdict map, extra expression, or verdict-implying form is rejected.
+- Fix commit: `c93a88efd939e725d2853beee7f9f6960f06a3ee` (`fix(sidecar): require exact nftables rule forms`). The exact SHA was pushed to the canonical branch before CI.
+- Local GREEN evidence: the focused verdict-map subtest, the complete firewall attestation test, and the complete `sidecar-agent/internal/preflight` package passed; both touched Go files were `gofmt` clean; scoped `git diff --check` reported no whitespace errors.
+- Exact-SHA GitHub evidence: Isolated sidecar agent checks `33802583679`, HA S4 network change-package checks `33802583583`, HA immutable panel artifact `33802583567`, and Yandex CDN isolated release checks `33802583564` all completed successfully for `c93a88efd939e725d2853beee7f9f6960f06a3ee`.
+- No production host, live firewall, Yandex resource, private canary/subscription, OLCRTC, WDTT, Android/TV code, OTA/release publication, payment, bot/channel, or customer traffic was touched. The fix remains pending its scoped independent re-review; this report does not claim review closure.
