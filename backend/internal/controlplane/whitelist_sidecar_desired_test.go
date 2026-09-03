@@ -114,7 +114,7 @@ func TestPersistWhiteListSidecarDesiredValidatesBeforePreparingAction(t *testing
 	desired.Action.Request = desired.PayloadJSON
 	db := &recordingRQLite{}
 	service := &Service{store: &Store{db: db}, clock: fixedClock{value: testTime()}}
-	if err := service.PersistWhiteListSidecarDesired(context.Background(), desired); err == nil {
+	if _, err := service.PersistWhiteListSidecarDesired(context.Background(), desired); err == nil {
 		t.Fatal("invalid desired accepted")
 	}
 	if len(db.requestCalls) != 0 {
