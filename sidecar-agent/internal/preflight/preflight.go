@@ -338,27 +338,22 @@ func ParseNFTSourceFirewall(raw []byte) (FirewallState, error) {
 			return FirewallState{}, errors.New("relay preflight: unexpected firewall rule chain")
 		}
 		expressions, ok := rule["expr"].([]any)
-		if !ok || hasUnsafeControlFlow(expressions) {
-			return FirewallState{}, errors.New("relay preflight: unsafe firewall control flow")
+		if !ok {
+			return FirewallState{}, errors.New("relay preflight: invalid firewall rule")
 		}
-		hasAccept := hasVerdict(expressions, "accept")
-		hasDrop := hasVerdict(expressions, "drop")
-		port := matchedDPort(expressions)
+		port, verdict, valid := classifyManagedFirewallRule(expressions)
+		if !valid {
+			return FirewallState{}, errors.New("relay preflight: unexpected firewall rule")
+		}
 		policy, supportedPort := policies[port]
-		expectedSet := map[int]string{relayPort: "active_origins_18084", controllerPort: "controller_source_18443"}[port]
-		hasSourceSet := supportedPort && matchesSourceSet(expressions, expectedSet)
-		if hasAccept && (!supportedPort || !hasSourceSet || hasDrop) {
-			return FirewallState{}, errors.New("relay preflight: unsafe accept rule")
-		}
 		if !supportedPort {
-			continue
+			return FirewallState{}, errors.New("relay preflight: unexpected firewall port")
 		}
 		policy.lastRule = index
-		if hasAccept && hasSourceSet && !hasDrop {
+		if verdict == "accept" {
 			policy.allowCount++
 			policy.allowIndex = index
-		}
-		if hasDrop && !hasAccept {
+		} else {
 			policy.dropCount++
 			policy.dropIndex = index
 		}
@@ -621,79 +616,86 @@ func stringValue(values map[string]any, key string) string {
 	return value
 }
 
-func matchedDPort(expressions []any) int {
-	for _, expression := range expressions {
-		statement, ok := expression.(map[string]any)
-		if !ok {
-			continue
+func classifyManagedFirewallRule(expressions []any) (int, string, bool) {
+	if len(expressions) == 2 {
+		port, portOK := exactDPortMatch(expressions[0])
+		if !portOK || !exactVerdict(expressions[1], "drop") {
+			return 0, "", false
 		}
-		match, ok := statement["match"].(map[string]any)
-		if !ok || stringValue(match, "op") != "==" {
-			continue
-		}
-		left, ok := match["left"].(map[string]any)
-		if !ok {
-			continue
-		}
-		payload, ok := left["payload"].(map[string]any)
-		right, rightOK := match["right"].(float64)
-		if ok && rightOK && stringValue(payload, "protocol") == "tcp" && stringValue(payload, "field") == "dport" {
-			return int(right)
-		}
+		return port, "drop", true
 	}
-	return 0
+	if len(expressions) != 3 {
+		return 0, "", false
+	}
+	port, portOK := exactDPortMatch(expressions[0])
+	expectedSet, supportedPort := map[int]string{
+		relayPort:      "active_origins_18084",
+		controllerPort: "controller_source_18443",
+	}[port]
+	if !portOK || !supportedPort || !exactSourceSetMatch(expressions[1], expectedSet) || !exactVerdict(expressions[2], "accept") {
+		return 0, "", false
+	}
+	return port, "accept", true
 }
 
-func matchesSourceSet(expressions []any, setName string) bool {
-	for _, expression := range expressions {
-		statement, ok := expression.(map[string]any)
-		if !ok {
-			continue
-		}
-		match, ok := statement["match"].(map[string]any)
-		if !ok || stringValue(match, "op") != "==" {
-			continue
-		}
-		left, ok := match["left"].(map[string]any)
-		if !ok {
-			continue
-		}
-		payload, ok := left["payload"].(map[string]any)
-		if !ok || stringValue(payload, "protocol") != "ip" || stringValue(payload, "field") != "saddr" {
-			continue
-		}
-		switch right := match["right"].(type) {
-		case map[string]any:
-			if stringValue(right, "set") == setName {
-				return true
-			}
-		case string:
-			if right == "@"+setName {
-				return true
-			}
-		}
+func exactDPortMatch(expression any) (int, bool) {
+	match, ok := exactMatch(expression)
+	if !ok {
+		return 0, false
 	}
-	return false
+	payload, ok := exactPayload(match["left"], "tcp", "dport")
+	if !ok || payload == nil {
+		return 0, false
+	}
+	right, ok := match["right"].(float64)
+	port := int(right)
+	if !ok || right != float64(port) {
+		return 0, false
+	}
+	return port, true
 }
 
-func hasVerdict(expressions []any, verdict string) bool {
-	for _, expression := range expressions {
-		statement, ok := expression.(map[string]any)
-		if !ok {
-			continue
-		}
-		if _, present := statement[verdict]; present {
-			return true
-		}
+func exactSourceSetMatch(expression any, setName string) bool {
+	match, ok := exactMatch(expression)
+	if !ok {
+		return false
 	}
-	return false
+	if _, ok := exactPayload(match["left"], "ip", "saddr"); !ok {
+		return false
+	}
+	switch right := match["right"].(type) {
+	case string:
+		return right == "@"+setName
+	case map[string]any:
+		return len(right) == 1 && stringValue(right, "set") == setName
+	default:
+		return false
+	}
 }
 
-func hasUnsafeControlFlow(expressions []any) bool {
-	for _, verdict := range []string{"jump", "goto", "return", "continue", "queue"} {
-		if hasVerdict(expressions, verdict) {
-			return true
-		}
+func exactMatch(expression any) (map[string]any, bool) {
+	statement, ok := expression.(map[string]any)
+	if !ok || len(statement) != 1 {
+		return nil, false
 	}
-	return false
+	match, ok := statement["match"].(map[string]any)
+	return match, ok && len(match) == 3 && stringValue(match, "op") == "=="
+}
+
+func exactPayload(value any, protocol, field string) (map[string]any, bool) {
+	left, ok := value.(map[string]any)
+	if !ok || len(left) != 1 {
+		return nil, false
+	}
+	payload, ok := left["payload"].(map[string]any)
+	return payload, ok && len(payload) == 2 && stringValue(payload, "protocol") == protocol && stringValue(payload, "field") == field
+}
+
+func exactVerdict(expression any, verdict string) bool {
+	statement, ok := expression.(map[string]any)
+	if !ok || len(statement) != 1 {
+		return false
+	}
+	value, present := statement[verdict]
+	return present && value == nil
 }

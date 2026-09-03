@@ -182,11 +182,13 @@ func TestParseNFTSourceFirewallRequiresAllowlistThenTerminalDrop(t *testing.T) {
 	}
 	jumpToAccept := strings.Replace(string(raw), `{"nftables":[`, `{"nftables":[{"chain":{"family":"inet","table":"maestro_xray_cdn","name":"bypass"}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"bypass","expr":[{"accept":null}]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"jump":{"target":"bypass"}}]}},`, 1)
 	earlyReturn := strings.Replace(string(raw), `{"nftables":[`, `{"nftables":[{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"return":null}]}},`, 1)
+	verdictMapAccept := strings.Replace(string(raw), `{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[`, `{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"vmap":{"key":{"payload":{"protocol":"tcp","field":"dport"}},"data":{"set":[[18084,{"accept":null}]]}}}]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[`, 1)
 	for name, unsafe := range map[string]string{
 		"unhooked chain":           strings.Replace(string(raw), `"hook":"input"`, `"hook":"output"`, 1),
 		"controller port exposed":  strings.Replace(string(raw), `{"drop":null}`, `{"accept":null}`, 2),
 		"jump to auxiliary accept": jumpToAccept,
 		"early return":             earlyReturn,
+		"verdict map accept":       verdictMapAccept,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseNFTSourceFirewall([]byte(unsafe)); err == nil {
