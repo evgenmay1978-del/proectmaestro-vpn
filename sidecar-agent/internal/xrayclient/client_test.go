@@ -118,6 +118,33 @@ func TestPinnedHandlerServiceRejectsUnsafeMutationInputs(t *testing.T) {
 	}
 }
 
+func TestPinnedHandlerServiceMatchesExactManagedVLESSAccount(t *testing.T) {
+	const email = "wl:account:exit-s1"
+	const credential = "00000000-0000-4000-8000-000000000021"
+	rpc := &fakeHandlerRPC{}
+	client, err := newWithHandler(rpc, fakeCredentials{email: credential})
+	if err != nil {
+		t.Fatalf("newWithHandler: %v", err)
+	}
+	for name, account := range map[string]*serial.TypedMessage{
+		"exact":      serial.ToTypedMessage(&vless.Account{Id: credential, Encryption: "none"}),
+		"stale UUID": serial.ToTypedMessage(&vless.Account{Id: "00000000-0000-4000-8000-000000000022", Encryption: "none"}),
+		"wrong type": serial.ToTypedMessage(&command.AddUserOperation{}),
+		"missing":    nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rpc.users = []*protocol.User{{Email: email, Account: account}}
+			matches, err := client.ManagedUserAccountMatches(context.Background(), "maestro-cdn-in", email)
+			if err != nil {
+				t.Fatalf("ManagedUserAccountMatches: %v", err)
+			}
+			if matches != (name == "exact") {
+				t.Fatalf("matches = %v", matches)
+			}
+		})
+	}
+}
+
 func TestPinnedXrayRouterSelectsEveryManagedExitAndBlocksUnsupportedIdentities(t *testing.T) {
 	rules := make([]*xrayrouter.RoutingRule, 0, 5)
 	for _, exitID := range []string{"exit-s1", "exit-s2", "exit-s3", "exit-s4"} {

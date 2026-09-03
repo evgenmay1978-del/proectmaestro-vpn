@@ -16,12 +16,17 @@ type fakeHandler struct {
 	operations []string
 	failAdd    string
 	failRemove string
+	accountOK  map[string]bool
 }
 
 func newFakeHandler(users ...string) *fakeHandler {
-	result := &fakeHandler{users: make(map[string]struct{}, len(users))}
+	result := &fakeHandler{
+		users:     make(map[string]struct{}, len(users)),
+		accountOK: make(map[string]bool, len(users)),
+	}
 	for _, user := range users {
 		result.users[user] = struct{}{}
+		result.accountOK[user] = true
 	}
 	return result
 }
@@ -40,6 +45,7 @@ func (handler *fakeHandler) AddUser(_ context.Context, _ string, email string) e
 		return errors.New("synthetic add failure")
 	}
 	handler.users[email] = struct{}{}
+	handler.accountOK[email] = true
 	return nil
 }
 
@@ -49,7 +55,22 @@ func (handler *fakeHandler) RemoveUser(_ context.Context, _ string, email string
 		return errors.New("synthetic remove failure")
 	}
 	delete(handler.users, email)
+	delete(handler.accountOK, email)
 	return nil
+}
+
+func (handler *fakeHandler) ManagedUserAccountMatches(_ context.Context, _ string, email string) (bool, error) {
+	return handler.accountOK[email], nil
+}
+
+type fakeReadinessPreflight struct {
+	err   error
+	calls int
+}
+
+func (preflight *fakeReadinessPreflight) Validate(_ context.Context, _, _, _, _ string) error {
+	preflight.calls++
+	return preflight.err
 }
 
 func testDesired(t *testing.T, generation int64, releaseID, configDigest string, users ...string) Desired {
@@ -88,6 +109,10 @@ func testDesired(t *testing.T, generation int64, releaseID, configDigest string,
 }
 
 func testReconciler(t *testing.T, handler Handler, clock *time.Time, bootID *string) (*Reconciler, *FileStore) {
+	return testReconcilerWithPreflight(t, handler, clock, bootID, &fakeReadinessPreflight{})
+}
+
+func testReconcilerWithPreflight(t *testing.T, handler Handler, clock *time.Time, bootID *string, preflight ReadinessPreflight) (*Reconciler, *FileStore) {
 	t.Helper()
 	store, err := NewFileStore(t.TempDir(), 4)
 	if err != nil {
@@ -96,6 +121,7 @@ func testReconciler(t *testing.T, handler Handler, clock *time.Time, bootID *str
 	reconciler, err := NewReconciler(ReconcilerConfig{
 		Handler: handler, Store: store, InboundTag: "maestro-cdn-in",
 		ReleaseID: "release-12", ConfigDigest: strings.Repeat("a", 64),
+		Preflight:     preflight,
 		ProcessBootID: func() (string, error) { return *bootID, nil },
 		Now:           func() time.Time { return *clock }, ReceiptTTL: 30 * time.Second,
 	})
@@ -103,6 +129,49 @@ func testReconciler(t *testing.T, handler Handler, clock *time.Time, bootID *str
 		t.Fatalf("NewReconciler: %v", err)
 	}
 	return reconciler, store
+}
+
+func TestReconcileReplacesWrongManagedVLESSAccountBeforeReadiness(t *testing.T) {
+	now := time.Date(2026, 9, 3, 11, 0, 0, 0, time.UTC)
+	bootID := "boot-account"
+	email := "wl:account:exit-s1"
+	handler := newFakeHandler("ordinary:fixed", "canary:fixed", email)
+	handler.accountOK[email] = false
+	reconciler, store := testReconciler(t, handler, &now, &bootID)
+	desired := testDesired(t, 1, "release-12", strings.Repeat("a", 64), email)
+
+	receipt, err := reconciler.Apply(context.Background(), desired)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if want := []string{"remove:" + email, "add:" + email}; !reflect.DeepEqual(handler.operations, want) {
+		t.Fatalf("wrong-account replacement operations = %#v, want %#v", handler.operations, want)
+	}
+	if !handler.accountOK[email] || receipt.ActionKey != desired.ActionKey() {
+		t.Fatalf("readiness emitted without exact managed account: receipt=%#v account_ok=%v", receipt, handler.accountOK[email])
+	}
+	if _, err := store.LoadReceipt(desired.ActionKey()); err != nil {
+		t.Fatalf("LoadReceipt: %v", err)
+	}
+}
+
+func TestReconcileRequiresCurrentRelayPreflightBeforeMutationOrReceipt(t *testing.T) {
+	now := time.Date(2026, 9, 3, 11, 0, 0, 0, time.UTC)
+	bootID := "boot-preflight"
+	handler := newFakeHandler("ordinary:fixed", "canary:fixed")
+	preflight := &fakeReadinessPreflight{err: errors.New("synthetic stale relay preflight")}
+	reconciler, store := testReconcilerWithPreflight(t, handler, &now, &bootID, preflight)
+	desired := testDesired(t, 1, "release-12", strings.Repeat("a", 64), "wl:new:exit-s1")
+
+	if _, err := reconciler.Apply(context.Background(), desired); err == nil {
+		t.Fatal("desired accepted without current relay preflight")
+	}
+	if preflight.calls != 1 || len(handler.operations) != 0 {
+		t.Fatalf("preflight calls=%d operations=%#v", preflight.calls, handler.operations)
+	}
+	if _, err := store.LoadReceipt(desired.ActionKey()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("receipt persisted after preflight failure: %v", err)
+	}
 }
 
 func TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers(t *testing.T) {

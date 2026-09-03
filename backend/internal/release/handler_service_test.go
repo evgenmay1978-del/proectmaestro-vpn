@@ -145,6 +145,24 @@ func TestTask12RuntimeRelayMaterialIsDigestBoundAndHasExactlyOneLocalExit(t *tes
 	}
 }
 
+func TestTask12SystemdPublishesXrayProcessIdentityWithoutShell(t *testing.T) {
+	unit := string(release.DefaultSystemdTemplate())
+	for _, required := range []string{
+		"RuntimeDirectory=maestro-xray-cdn-pid",
+		"RuntimeDirectoryMode=0755",
+		"ExecStartPost=/opt/maestro-xray-cdn-agent/current/maestro-xray-cdn-agent write-xray-pid /run/maestro-xray-cdn-pid/xray.pid ${MAINPID}",
+	} {
+		if !strings.Contains(unit, required) {
+			t.Fatalf("Xray process identity artifact missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"/bin/sh", "/bin/bash", "sh -c", "bash -c"} {
+		if strings.Contains(unit, forbidden) {
+			t.Fatalf("Xray unit executes a shell: %q", forbidden)
+		}
+	}
+}
+
 func equalJSONStrings(actual []any, expected []string) bool {
 	if len(actual) != len(expected) {
 		return false

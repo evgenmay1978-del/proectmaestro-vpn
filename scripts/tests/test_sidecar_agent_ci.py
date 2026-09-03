@@ -7,6 +7,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "sidecar-agent.yml"
 SERVICE = ROOT / "deploy" / "maestro-xray-cdn-agent.service"
+ENVIRONMENT = ROOT / "deploy" / "maestro-xray-cdn-agent.env.example"
 
 
 class SidecarAgentWorkflowPolicyTest(unittest.TestCase):
@@ -57,6 +58,30 @@ class SidecarAgentWorkflowPolicyTest(unittest.TestCase):
         self.assertIn("ExecStart=/opt/maestro-xray-cdn-agent/current/maestro-xray-cdn-agent", source)
         self.assertNotIn("/bin/sh", source)
         self.assertNotIn("/bin/bash", source)
+
+    def test_deployment_contract_wires_live_relay_preflight(self) -> None:
+        service = SERVICE.read_text(encoding="utf-8")
+        environment = ENVIRONMENT.read_text(encoding="utf-8")
+        for directive in (
+            "AmbientCapabilities=CAP_NET_ADMIN",
+            "CapabilityBoundingSet=CAP_NET_ADMIN",
+            "/etc/maestro-xray-cdn-agent/active-origin-ips.json",
+            "/etc/maestro-xray-cdn-agent/relay-ca",
+            "/var/lib/maestro-xray-cdn-agent/relay-credentials",
+            "/run/maestro-xray-cdn/config.json",
+            "/run/maestro-xray-cdn-pid/xray.pid",
+        ):
+            self.assertIn(directive, service)
+        for setting in (
+            "MAESTRO_ACTIVE_ORIGIN_IPS_FILE=/etc/maestro-xray-cdn-agent/active-origin-ips.json",
+            "MAESTRO_RELAY_CA_DIRECTORY=/etc/maestro-xray-cdn-agent/relay-ca",
+            "MAESTRO_RELAY_CREDENTIAL_DIRECTORY=/var/lib/maestro-xray-cdn-agent/relay-credentials",
+            "MAESTRO_XRAY_CONFIG_FILE=/run/maestro-xray-cdn/config.json",
+            "MAESTRO_NFT_BINARY=/usr/sbin/nft",
+            "MAESTRO_XRAY_PID_FILE=/run/maestro-xray-cdn-pid/xray.pid",
+        ):
+            self.assertIn(setting, environment)
+        self.assertNotIn("credential=", environment.lower())
 
 
 if __name__ == "__main__":
