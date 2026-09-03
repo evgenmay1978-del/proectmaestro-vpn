@@ -23,7 +23,10 @@ import (
 )
 
 type fakeApplier struct {
-	called int
+	called       int
+	lookupCalled int
+	lookupKey    string
+	lookupResult agent.Receipt
 }
 
 func (fake *fakeApplier) Apply(_ context.Context, desired agent.Desired) (agent.Receipt, error) {
@@ -35,6 +38,15 @@ func (fake *fakeApplier) Apply(_ context.Context, desired agent.Desired) (agent.
 		DesiredGeneration: desired.Generation, ManagedUserSetDigest: desired.ManagedUserSetDigest,
 		AppliedAt: now, ExpiresAt: now.Add(30 * time.Second),
 	}, nil
+}
+
+func (fake *fakeApplier) LookupReceipt(_ context.Context, actionKey string) (agent.Receipt, error) {
+	fake.lookupCalled++
+	fake.lookupKey = actionKey
+	if fake.lookupResult.ActionKey == "" {
+		return agent.Receipt{}, agent.ErrNotFound
+	}
+	return fake.lookupResult, nil
 }
 
 func canonicalDesired(t *testing.T) []byte {
@@ -187,6 +199,50 @@ func TestMTLSServerAcceptsCanonicalDesiredAndReturnsExactReceipt(t *testing.T) {
 	}
 	if receipt.ActionKey != desired.ActionKey() || receipt.DesiredGeneration != 1 {
 		t.Fatalf("receipt = %#v", receipt)
+	}
+}
+
+func TestMTLSServerLooksUpExactDurableReceiptWithoutApplying(t *testing.T) {
+	serverCA := newCertificateAuthority(t, "server-ca")
+	clientCA := newCertificateAuthority(t, "client-ca")
+	serverCertificate := newLeafCertificate(t, serverCA, "agent.test", false, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	clientCertificate := newLeafCertificate(t, clientCA, "maestro-whitelist-controller", true, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	raw := canonicalDesired(t)
+	desired, err := agent.ParseDesired(raw)
+	if err != nil {
+		t.Fatalf("ParseDesired: %v", err)
+	}
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	applier := &fakeApplier{lookupResult: agent.Receipt{
+		ActionKey: desired.ActionKey(), OriginID: desired.OriginID, ReleaseID: desired.ReleaseID,
+		XrayProcessBootID: "boot-a", ConfigDigest: desired.ConfigDigest,
+		DesiredGeneration: desired.Generation, ManagedUserSetDigest: desired.ManagedUserSetDigest,
+		AppliedAt: now, ExpiresAt: now.Add(30 * time.Second),
+	}}
+	listener := httptest.NewUnstartedServer(NewHandler(applier))
+	listener.TLS = ServerTLSConfig(serverCertificate, clientCA.pool, "maestro-whitelist-controller")
+	listener.StartTLS()
+	defer listener.Close()
+
+	request, err := http.NewRequest(http.MethodGet, listener.URL+ReceiptPath, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	request.Header.Set(ActionKeyHeader, desired.ActionKey())
+	response, err := authenticatedClient(t, serverCA.pool, clientCertificate).Do(request)
+	if err != nil {
+		t.Fatalf("lookup receipt: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || applier.called != 0 || applier.lookupCalled != 1 || applier.lookupKey != desired.ActionKey() {
+		t.Fatalf("status=%d apply=%d lookup=%d key=%q", response.StatusCode, applier.called, applier.lookupCalled, applier.lookupKey)
+	}
+	var receipt agent.Receipt
+	if err := json.NewDecoder(response.Body).Decode(&receipt); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+	if receipt != applier.lookupResult {
+		t.Fatalf("receipt=%#v want=%#v", receipt, applier.lookupResult)
 	}
 }
 
