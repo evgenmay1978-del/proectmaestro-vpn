@@ -1,8 +1,11 @@
 package controlplane
 
 import (
+	"context"
+	"encoding/json"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestBuildWhiteListSidecarDesiredChangesOnlyManagedIdentityAndBumpsEveryOrigin(t *testing.T) {
@@ -76,6 +79,57 @@ func TestBuildWhiteListRouteMatrixUsesOnlyExitCountryMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestWhiteListSidecarDesiredRejectsPayloadBindingMutationsBeforePersistence(t *testing.T) {
+	desired := testWhiteListSidecarDesired(t)
+	cases := []struct {
+		name string
+		edit func(*WhiteListSidecarDesired)
+	}{
+		{name: "desired digest", edit: func(value *WhiteListSidecarDesired) { value.DesiredSHA256 = testDigest("f"); value.Action.ActionKey = value.NodeID + ":1:" + value.DesiredSHA256 }},
+		{name: "exit", edit: func(value *WhiteListSidecarDesired) { value.ExitID = "exit-de" }},
+		{name: "managed digest", edit: func(value *WhiteListSidecarDesired) { value.ManagedUserSetDigest = testDigest("e") }},
+		{name: "payload", edit: func(value *WhiteListSidecarDesired) { value.PayloadJSON = []byte(`{"version":1}`); value.Action.Request = value.PayloadJSON }},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			changed := desired
+			test.edit(&changed)
+			if _, err := whiteListSidecarDesiredStatements(changed, 1_800_000_000); err == nil {
+				t.Fatal("payload binding mutation accepted")
+			}
+		})
+	}
+}
+
+func TestPersistWhiteListSidecarDesiredValidatesBeforePreparingAction(t *testing.T) {
+	desired := testWhiteListSidecarDesired(t)
+	desired.PayloadJSON = []byte(`{"version":1}`)
+	desired.Action.Request = desired.PayloadJSON
+	db := &recordingRQLite{}
+	service := &Service{store: &Store{db: db}, clock: fixedClock{value: testTime()}}
+	if err := service.PersistWhiteListSidecarDesired(context.Background(), desired); err == nil {
+		t.Fatal("invalid desired accepted")
+	}
+	if len(db.requestCalls) != 0 {
+		t.Fatalf("invalid desired prepared %d external actions", len(db.requestCalls))
+	}
+}
+
+func testWhiteListSidecarDesired(t *testing.T) WhiteListSidecarDesired {
+	t.Helper()
+	values, err := BuildWhiteListSidecarDesired(nil,
+		[]WhiteListOrigin{{OriginID: "origin-s2", NodeID: "s2", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("a"), Active: true, StaticUsers: []string{"static@example.invalid"}}},
+		[]WhiteListManagedRoute{{EntitlementID: "wl-ent-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExitID: "exit-nl"}},
+		WhiteListExit{ExitID: "exit-nl", CountryCode: "NL", CountryLabel: "Netherlands", Healthy: true},
+	)
+	if err != nil || len(values) != 1 || !json.Valid(values[0].PayloadJSON) {
+		t.Fatalf("build desired fixture = %#v, %v", values, err)
+	}
+	return values[0]
+}
+
+func testTime() time.Time { return time.Unix(1_800_000_000, 0) }
 
 func desiredByOrigin(values []WhiteListSidecarDesired) map[string]WhiteListSidecarDesired {
 	result := make(map[string]WhiteListSidecarDesired, len(values))

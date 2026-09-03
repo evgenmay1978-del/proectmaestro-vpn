@@ -81,8 +81,7 @@ func TestResolveWhiteListSidecarUnknownReadsExactReceiptWithoutWrite(t *testing.
 }
 
 func TestWhiteListSidecarDesiredStatementsBindExternalAction(t *testing.T) {
-	desired := WhiteListSidecarDesired{OriginID: "origin-s2", NodeID: "s2", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ExitID: "exit-nl", Generation: 3, ConfigDigest: testDigest("a"), ManagedUserSetDigest: testDigest("b"), DesiredSHA256: testDigest("c"), PayloadJSON: []byte(`{"version":1}`)}
-	desired.Action = ExternalActionCommand{Type: "whitelist_sidecar_apply", ResourceID: desired.OriginID, ActionKey: "s2:3:" + desired.DesiredSHA256, Request: desired.PayloadJSON}
+	desired := testWhiteListSidecarDesired(t)
 	statements, err := whiteListSidecarDesiredStatements(desired, 1_800_000_000)
 	if err != nil {
 		t.Fatal(err)
