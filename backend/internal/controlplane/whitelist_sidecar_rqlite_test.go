@@ -29,10 +29,10 @@ func TestMigrationWhiteListSidecarIsExactV15Upgrade(t *testing.T) {
 		"create table whitelist_sidecar_receipts",
 		"xray_process_boot_id text not null",
 		"managed_user_set_digest text not null",
-		"foreign key(action_key) references external_actions(action_key)",
+		"foreign key(action_type, action_key) references external_actions(action_type, idempotency_key)",
 		"before update on whitelist_route_credentials",
 		"before update on whitelist_sidecar_receipts",
-		"new.desired_generation <= old.desired_generation",
+		"desired generation must increment by one",
 	} {
 		if !strings.Contains(sql, required) {
 			t.Fatalf("v15 missing %q", required)
@@ -50,7 +50,7 @@ func TestWhiteListSidecarDesiredStatementsBindExternalAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(statements) != 2 || !strings.Contains(statements[0].SQL, "INSERT INTO external_actions") || !strings.Contains(statements[1].SQL, "INSERT INTO whitelist_sidecar_desired") {
+	if len(statements) != 2 || !strings.Contains(statements[0].SQL, "SELECT action_id FROM external_actions") || !strings.Contains(statements[1].SQL, "INSERT OR IGNORE INTO whitelist_sidecar_desired") {
 		t.Fatalf("statements = %#v", statements)
 	}
 }

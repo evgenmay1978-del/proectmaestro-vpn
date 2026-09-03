@@ -68,6 +68,8 @@ func desiredByOrigin(values []WhiteListSidecarDesired) map[string]WhiteListSidec
 	return result
 }
 
-func testDigest(ch string) string { return ch + "000000000000000000000000000000000000000000000000000000000000000" }
+func testDigest(ch string) string {
+	return ch + "000000000000000000000000000000000000000000000000000000000000000"
+}
 
 func itoa64(value int64) string { return strconv.FormatInt(value, 10) }
