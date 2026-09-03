@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -82,7 +83,7 @@ func TestClaimWhiteListTopUpPaymentRecordsClaimBeforeStateChange(t *testing.T) {
 			return make([]rqlite.Result, len(statements)), nil
 		},
 	}
-	service, _ := testService(t, db)
+	service, secrets := testService(t, db)
 	got, err := service.ClaimWhiteListTopUpPayment(context.Background(), ClaimWhiteListTopUpPaymentCommand{
 		OrderID: "whitelist-topup-order-1", IdempotencyKey: "claim-request-1",
 		Actor: "customer-1", Channel: "telegram", SourceEventID: "update-1",
@@ -101,6 +102,57 @@ func TestClaimWhiteListTopUpPaymentRecordsClaimBeforeStateChange(t *testing.T) {
 	stateIndex := strings.Index(joined, "update orders set payment_state='payment_claimed'")
 	if claimIndex < 0 || stateIndex < 0 || claimIndex >= stateIndex {
 		t.Fatalf("claim must be recorded before order state change: %s", joined)
+	}
+	var delivery *rqlite.Statement
+	for index := range db.requestCalls[0].statements {
+		statement := &db.requestCalls[0].statements[index]
+		if strings.Contains(strings.ToLower(statement.SQL), "insert into telegram_delivery_outbox") {
+			delivery = statement
+			break
+		}
+	}
+	if delivery == nil {
+		t.Fatal("top-up claim did not queue an owner Telegram delivery")
+	}
+	envelopeBytes, ok := delivery.Args[3].([]byte)
+	if !ok {
+		t.Fatalf("Telegram envelope type=%T, want []byte", delivery.Args[3])
+	}
+	var envelope Envelope
+	if err := json.Unmarshal(envelopeBytes, &envelope); err != nil {
+		t.Fatalf("decode Telegram envelope: %v", err)
+	}
+	plaintext, err := secrets.Open(SecretScope{
+		OwnerType: "telegram-delivery",
+		OwnerID:   "owner-whitelist-topup-claim:whitelist-topup-order-1",
+		Field:     "payload",
+		Kind:      "owner-order-event",
+	}, envelope)
+	if err != nil {
+		t.Fatalf("open Telegram envelope: %v", err)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(plaintext, &payload); err != nil {
+		t.Fatalf("decode Telegram payload: %v", err)
+	}
+	wantPayload := map[string]string{
+		"event":                 "owner_whitelist_topup_payment_claim",
+		"order_id":              "whitelist-topup-order-1",
+		"confirm_callback_data": "mwcf:whitelist-topup-order-1",
+		"reject_callback_data":  "mwrj:whitelist-topup-order-1",
+	}
+	if len(payload) != len(wantPayload) {
+		t.Fatalf("Telegram payload=%#v, want exactly %#v", payload, wantPayload)
+	}
+	for key, want := range wantPayload {
+		if payload[key] != want {
+			t.Fatalf("Telegram payload[%q]=%q, want %q", key, payload[key], want)
+		}
+	}
+	for _, key := range []string{"confirm_callback_data", "reject_callback_data"} {
+		if len([]byte(payload[key])) > 64 {
+			t.Fatalf("Telegram callback %q exceeds 64 bytes", payload[key])
+		}
 	}
 }
 

@@ -2,6 +2,14 @@ import pathlib
 import unittest
 
 
+def order_actions_module():
+    try:
+        from deploy import vpn_bot_maestro_order_actions
+    except ImportError as exc:
+        raise AssertionError("pure owner callback contract is missing") from exc
+    return vpn_bot_maestro_order_actions
+
+
 class OrdersAdapterTests(unittest.TestCase):
     def test_admin_callbacks_keep_opaque_legacy_shape_and_tls_verification_is_not_disabled(self):
         source = pathlib.Path("deploy/vpn_bot_maestro_orders.py").read_text(encoding="utf-8")
@@ -28,3 +36,45 @@ class OrdersAdapterTests(unittest.TestCase):
         source = pathlib.Path("deploy/vpn_bot_maestro_orders.py").read_text(encoding="utf-8")
         self.assertEqual(source.count('"aclsub:"'), 1)
         self.assertNotIn("callback_data=f\"aclsub:", source)
+
+    def test_whitelist_topup_callbacks_are_opaque_and_route_to_dynamic_admin_decisions(self):
+        actions = order_actions_module()
+        order_id = "whitelist-topup-order_0123456789abcdef0123456789abcdef"
+
+        confirm = actions.build_topup_callback("confirm", order_id)
+        reject = actions.build_topup_callback("reject", order_id)
+
+        self.assertEqual(confirm, f"mwcf:{order_id}")
+        self.assertEqual(reject, f"mwrj:{order_id}")
+        self.assertLessEqual(len(confirm.encode("utf-8")), 64)
+        self.assertLessEqual(len(reject.encode("utf-8")), 64)
+        self.assertEqual(
+            actions.topup_admin_request(confirm),
+            actions.TopUpAdminRequest(
+                decision="confirm",
+                order_id=order_id,
+                path=f"/admin/order/{order_id}/confirm",
+                idempotency_key=f"telegram-admin-topup-confirm-{order_id}",
+            ),
+        )
+        self.assertEqual(
+            actions.topup_admin_request(reject),
+            actions.TopUpAdminRequest(
+                decision="reject",
+                order_id=order_id,
+                path=f"/admin/order/{order_id}/reject",
+                idempotency_key=f"telegram-admin-topup-reject-{order_id}",
+            ),
+        )
+        self.assertEqual(actions.topup_admin_request(confirm), actions.topup_admin_request(confirm))
+
+    def test_whitelist_topup_callbacks_reject_nonopaque_or_oversized_values(self):
+        actions = order_actions_module()
+        for unsafe_id in ("", "customer@example.test", "https://example.test/sub/token", "a/b", "a:b", "x" * 60):
+            with self.subTest(unsafe_id=unsafe_id):
+                with self.assertRaises(ValueError):
+                    actions.build_topup_callback("confirm", unsafe_id)
+        with self.assertRaises(ValueError):
+            actions.build_topup_callback("unknown", "order-1")
+        with self.assertRaises(ValueError):
+            actions.topup_admin_request("mwcf:")
