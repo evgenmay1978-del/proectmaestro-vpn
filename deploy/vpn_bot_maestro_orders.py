@@ -9,6 +9,7 @@ activates automatically.
 INSTALL (gated production edit — run yourself on server 1):
   1. cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_orders.py /root/vpn_bot/handlers/maestro_orders.py
      cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_customer.py /root/vpn_bot/handlers/maestro_customer.py
+     cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_order_actions.py /root/vpn_bot/handlers/vpn_bot_maestro_order_actions.py
   2. in /root/vpn_bot/main.py:
        - add `maestro_orders` to the `from handlers import ...` line
        - add `dp.include_router(maestro_orders.router)` next to the other include_router calls
@@ -23,6 +24,11 @@ import qrcode
 from aiogram import F, Router
 from aiogram.types import BufferedInputFile, CallbackQuery
 from .maestro_customer import build_customer_router_from_env
+from .vpn_bot_maestro_order_actions import (
+    TOPUP_CONFIRM_PREFIX,
+    TOPUP_REJECT_PREFIX,
+    topup_admin_request,
+)
 
 router = Router()
 customer_router = build_customer_router_from_env()
@@ -124,6 +130,40 @@ async def cancel_order(cb: CallbackQuery):
             await cb.answer(f"Панель вернула HTTP {r.status_code}: {r.text[:120]}", show_alert=True)
     except Exception as e:  # noqa: BLE001
         await cb.answer(f"Ошибка: {e}", show_alert=True)
+
+
+@router.callback_query(F.data.func(
+    lambda d: bool(d) and (d.startswith(TOPUP_CONFIRM_PREFIX) or d.startswith(TOPUP_REJECT_PREFIX))
+))
+async def decide_whitelist_topup(cb: CallbackQuery):
+    if str(cb.from_user.id) not in _ADMINS:
+        await cb.answer("Только администратор", show_alert=True)
+        return
+    try:
+        request = topup_admin_request(cb.data)
+    except ValueError:
+        await cb.answer("Некорректная заявка", show_alert=True)
+        return
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{MAESTRO_URL}{request.path}",
+                json={},
+                headers={
+                    "Authorization": f"Bearer {_maestro_token()}",
+                    "Idempotency-Key": request.idempotency_key,
+                },
+            )
+        if response.status_code == 200:
+            base = cb.message.text or ""
+            result = "✅ Гигабайты начислены" if request.decision == "confirm" else "❌ Покупка гигабайтов отклонена"
+            await cb.message.edit_text(base + "\n\n" + result)
+        elif response.status_code == 409:
+            await cb.answer("Решение по заявке уже принято.", show_alert=True)
+        else:
+            await cb.answer(f"Панель вернула HTTP {response.status_code}", show_alert=True)
+    except Exception:  # noqa: BLE001
+        await cb.answer("Не удалось связаться с панелью", show_alert=True)
 
 
 @router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("aclsub:")))

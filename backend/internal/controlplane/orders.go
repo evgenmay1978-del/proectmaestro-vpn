@@ -728,7 +728,17 @@ func (s *Service) telegramDelivery(dedupeKey, orderID, kind, botID, chatHMAC str
 	if botID == "" || chatHMAC == "" {
 		return nil, nil
 	}
-	payload, err := json.Marshal(map[string]string{"event": kind, "order_id": orderID})
+	payloadValues := map[string]string{"event": kind, "order_id": orderID}
+	if kind == "owner_whitelist_topup_payment_claim" {
+		confirmCallback := "mwcf:" + orderID
+		rejectCallback := "mwrj:" + orderID
+		if len(confirmCallback) > 64 || len(rejectCallback) > 64 {
+			return nil, errors.New("controlplane: Telegram callback exceeds limit")
+		}
+		payloadValues["confirm_callback_data"] = confirmCallback
+		payloadValues["reject_callback_data"] = rejectCallback
+	}
+	payload, err := json.Marshal(payloadValues)
 	if err != nil {
 		return nil, errors.New("controlplane: encode Telegram delivery")
 	}
