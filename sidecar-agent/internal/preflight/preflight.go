@@ -32,6 +32,7 @@ import (
 const (
 	relayPort       = 18084
 	healthPort      = 18444
+	controllerPort  = 18443
 	attestationTTL  = 30 * time.Second
 	maxConfigBytes  = 1 << 20
 	maxFirewallData = 1 << 20
@@ -56,6 +57,7 @@ type Config struct {
 	ReleaseID         string
 	ConfigDigest      string
 	ActiveOriginIPs   []string
+	ControllerSourceIP string
 	Routes            []Route
 	runtimeConfigFile string
 	credentialDigests map[string][sha256.Size]byte
@@ -64,6 +66,7 @@ type Config struct {
 type RuntimeConfigSource struct {
 	XrayConfigFile           string
 	ActiveOriginsFile        string
+	ControllerSourceIPFile   string
 	RelayCADirectory         string
 	RelayCredentialDirectory string
 }
@@ -79,8 +82,13 @@ type Attestation struct {
 }
 
 type System interface {
-	FirewallOrigins(context.Context) ([]string, error)
+	Firewall(context.Context) (FirewallState, error)
 	ProbeRelay(context.Context, Route) error
+}
+
+type FirewallState struct {
+	ActiveOriginIPs     []string
+	ControllerSourceIPs []string
 }
 
 type Checker struct {
@@ -121,13 +129,17 @@ func (checker *Checker) Check(ctx context.Context, bootID string) (Attestation, 
 	if err := checker.verifyRuntimeBindings(); err != nil {
 		return Attestation{}, err
 	}
-	actualOrigins, err := checker.system.FirewallOrigins(ctx)
+	firewall, err := checker.system.Firewall(ctx)
 	if err != nil {
 		return Attestation{}, errors.New("relay preflight: source firewall unavailable")
 	}
-	actualOrigins, err = normalizeIPs(actualOrigins)
+	actualOrigins, err := normalizeIPs(firewall.ActiveOriginIPs)
 	if err != nil || !equalStrings(actualOrigins, checker.config.ActiveOriginIPs) {
 		return Attestation{}, errors.New("relay preflight: source firewall mismatch")
+	}
+	controllerSources, err := normalizeIPs(firewall.ControllerSourceIPs)
+	if err != nil || !equalStrings(controllerSources, []string{checker.config.ControllerSourceIP}) {
+		return Attestation{}, errors.New("relay preflight: controller source firewall mismatch")
 	}
 	healthy := make([]string, 0, len(checker.config.Routes))
 	for _, route := range checker.config.Routes {
@@ -156,11 +168,11 @@ func NewLiveSystem(nftBinary string) (System, error) {
 	return liveSystem{nftBinary: nftBinary}, nil
 }
 
-func (system liveSystem) FirewallOrigins(ctx context.Context) ([]string, error) {
+func (system liveSystem) Firewall(ctx context.Context) (FirewallState, error) {
 	command := exec.CommandContext(ctx, system.nftBinary, "-j", "list", "table", "inet", "maestro_xray_cdn")
 	output, err := command.Output()
 	if err != nil || len(output) == 0 || len(output) > maxFirewallData {
-		return nil, errors.New("relay preflight: nft query failed")
+		return FirewallState{}, errors.New("relay preflight: nft query failed")
 	}
 	return ParseNFTSourceFirewall(output)
 }
@@ -170,7 +182,7 @@ func (liveSystem) ProbeRelay(ctx context.Context, route Route) error {
 }
 
 func LoadConfig(source RuntimeConfigSource, releaseID, configDigest string) (Config, error) {
-	for _, path := range []string{source.XrayConfigFile, source.ActiveOriginsFile, source.RelayCADirectory, source.RelayCredentialDirectory} {
+	for _, path := range []string{source.XrayConfigFile, source.ActiveOriginsFile, source.ControllerSourceIPFile, source.RelayCADirectory, source.RelayCredentialDirectory} {
 		if !absolutePath(path) {
 			return Config{}, errors.New("relay preflight: invalid runtime source")
 		}
@@ -230,8 +242,21 @@ func LoadConfig(source RuntimeConfigSource, releaseID, configDigest string) (Con
 	if err != nil {
 		return Config{}, errors.New("relay preflight: active Origin set invalid")
 	}
+	controllerBytes, err := readRegularFile(source.ControllerSourceIPFile, maxConfigBytes, false)
+	if err != nil {
+		return Config{}, errors.New("relay preflight: controller source unavailable")
+	}
+	var controllerSource string
+	if json.Unmarshal(controllerBytes, &controllerSource) != nil {
+		return Config{}, errors.New("relay preflight: controller source invalid")
+	}
+	controllerSources, err := normalizeIPs([]string{controllerSource})
+	if err != nil {
+		return Config{}, errors.New("relay preflight: controller source invalid")
+	}
 	config := Config{
-		ReleaseID: releaseID, ConfigDigest: configDigest, ActiveOriginIPs: origins, Routes: routes,
+		ReleaseID: releaseID, ConfigDigest: configDigest, ActiveOriginIPs: origins,
+		ControllerSourceIP: controllerSources[0], Routes: routes,
 		runtimeConfigFile: source.XrayConfigFile, credentialDigests: credentialDigests,
 	}
 	if !validConfig(config) {
@@ -240,44 +265,66 @@ func LoadConfig(source RuntimeConfigSource, releaseID, configDigest string) (Con
 	return config, nil
 }
 
-func ParseNFTSourceFirewall(raw []byte) ([]string, error) {
+func ParseNFTSourceFirewall(raw []byte) (FirewallState, error) {
 	if len(raw) == 0 || len(raw) > maxFirewallData {
-		return nil, errors.New("relay preflight: invalid nft data")
+		return FirewallState{}, errors.New("relay preflight: invalid nft data")
 	}
 	var document map[string]any
 	if json.Unmarshal(raw, &document) != nil {
-		return nil, errors.New("relay preflight: invalid nft data")
+		return FirewallState{}, errors.New("relay preflight: invalid nft data")
 	}
 	entries, ok := document["nftables"].([]any)
 	if !ok {
-		return nil, errors.New("relay preflight: invalid nft data")
+		return FirewallState{}, errors.New("relay preflight: invalid nft data")
 	}
-	var origins []string
-	setCount, allowCount, dropCount := 0, 0, 0
-	allowIndex, dropIndex, lastPortRule := -1, -1, -1
+	var origins, controllerSources []string
+	chainCount, originSetCount, controllerSetCount := 0, 0, 0
+	type portPolicy struct {
+		allowCount int
+		dropCount  int
+		allowIndex int
+		dropIndex  int
+		lastRule   int
+	}
+	policies := map[int]*portPolicy{
+		relayPort:      {allowIndex: -1, dropIndex: -1, lastRule: -1},
+		controllerPort: {allowIndex: -1, dropIndex: -1, lastRule: -1},
+	}
 	for index, entryValue := range entries {
 		entry, ok := entryValue.(map[string]any)
 		if !ok {
 			continue
 		}
-		if set, ok := entry["set"].(map[string]any); ok && stringValue(set, "family") == "inet" &&
-			stringValue(set, "table") == "maestro_xray_cdn" && stringValue(set, "name") == "active_origins_18084" &&
-			stringValue(set, "type") == "ipv4_addr" {
-			setCount++
-			if setCount != 1 {
-				return nil, errors.New("relay preflight: duplicate source set")
+		if chain, ok := entry["chain"].(map[string]any); ok && stringValue(chain, "family") == "inet" &&
+			stringValue(chain, "table") == "maestro_xray_cdn" && stringValue(chain, "name") == "input" {
+			chainCount++
+			priority, priorityOK := chain["prio"].(float64)
+			if chainCount != 1 || stringValue(chain, "type") != "filter" || stringValue(chain, "hook") != "input" ||
+				!priorityOK || int(priority) != 0 || stringValue(chain, "policy") != "accept" {
+				return FirewallState{}, errors.New("relay preflight: invalid hooked input chain")
 			}
+		}
+		if set, ok := entry["set"].(map[string]any); ok && stringValue(set, "family") == "inet" &&
+			stringValue(set, "table") == "maestro_xray_cdn" && stringValue(set, "type") == "ipv4_addr" {
 			elements, ok := set["elem"].([]any)
 			if !ok {
-				return nil, errors.New("relay preflight: invalid source set")
+				return FirewallState{}, errors.New("relay preflight: invalid source set")
 			}
-			origins = origins[:0]
+			values := make([]string, 0, len(elements))
 			for _, element := range elements {
 				value, ok := element.(string)
 				if !ok {
-					return nil, errors.New("relay preflight: invalid source set")
+					return FirewallState{}, errors.New("relay preflight: invalid source set")
 				}
-				origins = append(origins, value)
+				values = append(values, value)
+			}
+			switch stringValue(set, "name") {
+			case "active_origins_18084":
+				originSetCount++
+				origins = values
+			case "controller_source_18443":
+				controllerSetCount++
+				controllerSources = values
 			}
 		}
 		rule, ok := entry["rule"].(map[string]any)
@@ -291,33 +338,44 @@ func ParseNFTSourceFirewall(raw []byte) ([]string, error) {
 		}
 		hasAccept := hasVerdict(expressions, "accept")
 		hasDrop := hasVerdict(expressions, "drop")
-		hasDPort := matchesDPort(expressions)
-		hasSourceSet := matchesSourceSet(expressions)
-		if hasAccept && (!hasDPort || !hasSourceSet || hasDrop) {
-			return nil, errors.New("relay preflight: unsafe accept rule")
+		port := matchedDPort(expressions)
+		policy, supportedPort := policies[port]
+		expectedSet := map[int]string{relayPort: "active_origins_18084", controllerPort: "controller_source_18443"}[port]
+		hasSourceSet := supportedPort && matchesSourceSet(expressions, expectedSet)
+		if hasAccept && (!supportedPort || !hasSourceSet || hasDrop) {
+			return FirewallState{}, errors.New("relay preflight: unsafe accept rule")
 		}
-		if !hasDPort {
+		if !supportedPort {
 			continue
 		}
-		lastPortRule = index
+		policy.lastRule = index
 		if hasAccept && hasSourceSet && !hasDrop {
-			allowCount++
-			allowIndex = index
+			policy.allowCount++
+			policy.allowIndex = index
 		}
 		if hasDrop && !hasAccept {
-			dropCount++
-			dropIndex = index
+			policy.dropCount++
+			policy.dropIndex = index
 		}
 	}
-	if len(origins) == 0 || setCount != 1 || allowCount != 1 || dropCount != 1 ||
-		allowIndex < 0 || dropIndex <= allowIndex || dropIndex != lastPortRule {
-		return nil, errors.New("relay preflight: incomplete source firewall")
+	if chainCount != 1 || originSetCount != 1 || controllerSetCount != 1 {
+		return FirewallState{}, errors.New("relay preflight: incomplete source firewall")
+	}
+	for _, policy := range policies {
+		if policy.allowCount != 1 || policy.dropCount != 1 || policy.allowIndex < 0 ||
+			policy.dropIndex <= policy.allowIndex || policy.dropIndex != policy.lastRule {
+			return FirewallState{}, errors.New("relay preflight: incomplete source firewall")
+		}
 	}
 	origins, err := normalizeIPs(origins)
 	if err != nil {
-		return nil, errors.New("relay preflight: invalid source set")
+		return FirewallState{}, errors.New("relay preflight: invalid source set")
 	}
-	return origins, nil
+	controllerSources, err = normalizeIPs(controllerSources)
+	if err != nil || len(controllerSources) != 1 {
+		return FirewallState{}, errors.New("relay preflight: invalid controller source set")
+	}
+	return FirewallState{ActiveOriginIPs: origins, ControllerSourceIPs: controllerSources}, nil
 }
 
 func probeRelay(ctx context.Context, route Route) error {
@@ -424,6 +482,10 @@ func validConfig(config Config) bool {
 	}
 	origins, err := normalizeIPs(config.ActiveOriginIPs)
 	if err != nil || !equalStrings(origins, config.ActiveOriginIPs) {
+		return false
+	}
+	controllerSources, err := normalizeIPs([]string{config.ControllerSourceIP})
+	if err != nil || controllerSources[0] != config.ControllerSourceIP {
 		return false
 	}
 	for index, exitID := range exitIDs() {
@@ -554,7 +616,7 @@ func stringValue(values map[string]any, key string) string {
 	return value
 }
 
-func matchesDPort(expressions []any) bool {
+func matchedDPort(expressions []any) int {
 	for _, expression := range expressions {
 		statement, ok := expression.(map[string]any)
 		if !ok {
@@ -570,14 +632,14 @@ func matchesDPort(expressions []any) bool {
 		}
 		payload, ok := left["payload"].(map[string]any)
 		right, rightOK := match["right"].(float64)
-		if ok && rightOK && stringValue(payload, "protocol") == "tcp" && stringValue(payload, "field") == "dport" && int(right) == relayPort {
-			return true
+		if ok && rightOK && stringValue(payload, "protocol") == "tcp" && stringValue(payload, "field") == "dport" {
+			return int(right)
 		}
 	}
-	return false
+	return 0
 }
 
-func matchesSourceSet(expressions []any) bool {
+func matchesSourceSet(expressions []any, setName string) bool {
 	for _, expression := range expressions {
 		statement, ok := expression.(map[string]any)
 		if !ok {
@@ -597,11 +659,11 @@ func matchesSourceSet(expressions []any) bool {
 		}
 		switch right := match["right"].(type) {
 		case map[string]any:
-			if stringValue(right, "set") == "active_origins_18084" {
+			if stringValue(right, "set") == setName {
 				return true
 			}
 		case string:
-			if right == "@active_origins_18084" {
+			if right == "@"+setName {
 				return true
 			}
 		}

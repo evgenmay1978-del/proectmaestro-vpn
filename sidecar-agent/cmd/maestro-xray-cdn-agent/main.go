@@ -67,6 +67,7 @@ func run() error {
 	}
 	preflightConfig, err := preflight.LoadConfig(preflight.RuntimeConfigSource{
 		XrayConfigFile: configuration.xrayConfigFile, ActiveOriginsFile: configuration.activeOriginsFile,
+		ControllerSourceIPFile: configuration.controllerSourceIPFile,
 		RelayCADirectory: configuration.relayCADirectory, RelayCredentialDirectory: configuration.relayCredentialDirectory,
 	}, configuration.releaseID, configuration.configDigest)
 	if err != nil {
@@ -165,6 +166,7 @@ type configuration struct {
 	xrayPIDFile              string
 	xrayConfigFile           string
 	activeOriginsFile        string
+	controllerSourceIPFile   string
 	relayCADirectory         string
 	relayCredentialDirectory string
 	nftBinary                string
@@ -185,6 +187,7 @@ func loadConfiguration() (configuration, error) {
 		xrayPIDFile:              envOr("MAESTRO_XRAY_PID_FILE", xrayPIDPath),
 		xrayConfigFile:           envOr("MAESTRO_XRAY_CONFIG_FILE", "/run/maestro-xray-cdn/config.json"),
 		activeOriginsFile:        envOr("MAESTRO_ACTIVE_ORIGIN_IPS_FILE", "/etc/maestro-xray-cdn-agent/active-origin-ips.json"),
+		controllerSourceIPFile:   envOr("MAESTRO_CONTROLLER_SOURCE_IP_FILE", "/etc/maestro-xray-cdn-agent/controller-source-ip.json"),
 		relayCADirectory:         envOr("MAESTRO_RELAY_CA_DIRECTORY", "/etc/maestro-xray-cdn-agent/relay-ca"),
 		relayCredentialDirectory: envOr("MAESTRO_RELAY_CREDENTIAL_DIRECTORY", "/var/lib/maestro-xray-cdn-agent/relay-credentials"),
 		nftBinary:                envOr("MAESTRO_NFT_BINARY", "/usr/sbin/nft"),
@@ -334,7 +337,7 @@ func allAbsolute(configuration configuration) bool {
 	for _, path := range []string{
 		configuration.receiptDirectory, configuration.credentialDirectory, configuration.xrayPIDFile,
 		configuration.xrayConfigFile, configuration.activeOriginsFile, configuration.relayCADirectory,
-		configuration.relayCredentialDirectory, configuration.nftBinary,
+		configuration.controllerSourceIPFile, configuration.relayCredentialDirectory, configuration.nftBinary,
 		configuration.serverCert, configuration.serverKey, configuration.controllerCA,
 		configuration.xrayClientCert, configuration.xrayClientKey, configuration.xrayCA,
 	} {

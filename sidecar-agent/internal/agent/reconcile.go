@@ -128,6 +128,9 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if err := reconciler.converge(ctx, desired); err != nil {
 		return Receipt{}, err
 	}
+	if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, desired.ExitID); err != nil {
+		return Receipt{}, errors.New("sidecar agent: final relay readiness preflight failed")
+	}
 	receipt, err := receiptFor(desired, bootID, reconciler.now(), reconciler.receiptTTL)
 	if err != nil {
 		return Receipt{}, err

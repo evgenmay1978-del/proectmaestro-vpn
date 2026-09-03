@@ -3,6 +3,7 @@ Description=MaestroVPN isolated Xray CDN node agent
 After=network-online.target maestro-xray-cdn.service
 Wants=network-online.target
 Requires=maestro-xray-cdn.service
+PartOf=maestro-xray-cdn.service
 
 [Service]
 Type=simple
@@ -34,8 +35,8 @@ RestrictRealtime=true
 RemoveIPC=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-ReadOnlyPaths=/etc/maestro-xray-cdn-agent /etc/maestro-xray-cdn/api-mtls /var/lib/maestro-xray-cdn-agent/credentials /etc/maestro-xray-cdn-agent/active-origin-ips.json /etc/maestro-xray-cdn-agent/relay-ca /var/lib/maestro-xray-cdn-agent/relay-credentials /proc/sys/kernel/random/boot_id /run/maestro-xray-cdn/config.json /run/maestro-xray-cdn-pid/xray.pid
+ReadOnlyPaths=/etc/maestro-xray-cdn-agent /etc/maestro-xray-cdn/api-mtls /var/lib/maestro-xray-cdn-agent/credentials /etc/maestro-xray-cdn-agent/active-origin-ips.json /etc/maestro-xray-cdn-agent/controller-source-ip.json /etc/maestro-xray-cdn-agent/relay-ca /var/lib/maestro-xray-cdn-agent/relay-credentials /proc/sys/kernel/random/boot_id /run/maestro-xray-cdn/config.json /run/maestro-xray-cdn-pid/xray.pid
 ReadWritePaths=/var/lib/maestro-xray-cdn-agent/receipts
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=multi-user.target maestro-xray-cdn.service
