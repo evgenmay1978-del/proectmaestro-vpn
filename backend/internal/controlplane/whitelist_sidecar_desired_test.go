@@ -86,10 +86,16 @@ func TestWhiteListSidecarDesiredRejectsPayloadBindingMutationsBeforePersistence(
 		name string
 		edit func(*WhiteListSidecarDesired)
 	}{
-		{name: "desired digest", edit: func(value *WhiteListSidecarDesired) { value.DesiredSHA256 = testDigest("f"); value.Action.ActionKey = value.NodeID + ":1:" + value.DesiredSHA256 }},
+		{name: "desired digest", edit: func(value *WhiteListSidecarDesired) {
+			value.DesiredSHA256 = testDigest("f")
+			value.Action.ActionKey = value.NodeID + ":1:" + value.DesiredSHA256
+		}},
 		{name: "exit", edit: func(value *WhiteListSidecarDesired) { value.ExitID = "exit-de" }},
 		{name: "managed digest", edit: func(value *WhiteListSidecarDesired) { value.ManagedUserSetDigest = testDigest("e") }},
-		{name: "payload", edit: func(value *WhiteListSidecarDesired) { value.PayloadJSON = []byte(`{"version":1}`); value.Action.Request = value.PayloadJSON }},
+		{name: "payload", edit: func(value *WhiteListSidecarDesired) {
+			value.PayloadJSON = []byte(`{"version":1}`)
+			value.Action.Request = value.PayloadJSON
+		}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
