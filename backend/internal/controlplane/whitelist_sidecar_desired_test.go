@@ -122,6 +122,26 @@ func TestPersistWhiteListSidecarDesiredValidatesBeforePreparingAction(t *testing
 	}
 }
 
+func TestPersistWhiteListSidecarDesiredRejectsUnavailableServiceWithoutPanic(t *testing.T) {
+	desired := testWhiteListSidecarDesired(t)
+	cases := []struct {
+		name    string
+		service *Service
+	}{
+		{name: "nil"},
+		{name: "zero value", service: &Service{}},
+		{name: "missing clock", service: &Service{store: &Store{db: &recordingRQLite{}}}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.service.PersistWhiteListSidecarDesired(context.Background(), desired)
+			if err == nil || err.Error() != "controlplane: external action service is unavailable" {
+				t.Fatalf("unavailable service error = %v", err)
+			}
+		})
+	}
+}
+
 func testWhiteListSidecarDesired(t *testing.T) WhiteListSidecarDesired {
 	t.Helper()
 	values, err := BuildWhiteListSidecarDesired(nil,

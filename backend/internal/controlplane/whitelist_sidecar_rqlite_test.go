@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
 func TestMigrationWhiteListSidecarIsExactV15Upgrade(t *testing.T) {
@@ -100,5 +102,41 @@ func TestWhiteListSidecarDispatchRequiresDurableDesiredBinding(t *testing.T) {
 	}
 	if guard := externalActionDesiredBindingGuard(ExternalActionCommand{Type: "unrelated"}); guard != "" {
 		t.Fatalf("unrelated action guard = %q", guard)
+	}
+}
+
+func TestWhiteListSidecarReadinessDerivesCompleteCurrentStateFromSQLite(t *testing.T) {
+	db, service := newCustomerIntegritySQLite(t)
+	now := service.clock.Now()
+	origins := []WhiteListOrigin{
+		{OriginID: "origin-s2", NodeID: "s2", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("a"), Active: true},
+		{OriginID: "origin-s3", NodeID: "s3", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("b"), Active: true},
+	}
+	db.must(t,
+		rqlite.Statement{SQL: `INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix) VALUES('s2','s2',0,1,1),('s3','s3',0,1,1),('s4','s4',0,1,1)`},
+		rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_exits(exit_id,country_code,country_label,healthy,created_at_unix) VALUES('exit-nl','NL','Netherlands',1,1)`},
+		rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_origins(origin_id,node_id,release_id,profile_id,preset_id,config_digest,active,created_at_unix) VALUES(?,?,?,?,?,?,1,1),(?,?,?,?,?,?,1,1)`, Args: []any{origins[0].OriginID, origins[0].NodeID, origins[0].ReleaseID, origins[0].ProfileID, origins[0].PresetID, origins[0].ConfigDigest, origins[1].OriginID, origins[1].NodeID, origins[1].ReleaseID, origins[1].ProfileID, origins[1].PresetID, origins[1].ConfigDigest}},
+	)
+	desired, err := BuildWhiteListSidecarDesired(nil, origins, nil, WhiteListExit{ExitID: "exit-nl", CountryCode: "NL", CountryLabel: "Netherlands", Healthy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range desired {
+		if _, err := service.PersistWhiteListSidecarDesired(context.Background(), target); err != nil {
+			t.Fatalf("persist desired %s: %v", target.OriginID, err)
+		}
+	}
+	bootIDs := map[string]string{"origin-s2": "boot-s2", "origin-s3": "boot-s3"}
+	receipts := []WhiteListSidecarReceipt{testWhiteListSidecarReceipt(desired[0], now), testWhiteListSidecarReceipt(desired[1], now)}
+	receipts[0].XrayProcessBootID = bootIDs[desired[0].OriginID]
+	receipts[1].XrayProcessBootID = bootIDs[desired[1].OriginID]
+	ready, err := service.EvaluateWhiteListSidecarReadiness(context.Background(), bootIDs, receipts, "exit-nl")
+	if err != nil || !ready {
+		t.Fatalf("complete durable readiness = %v, %v", ready, err)
+	}
+	db.must(t, rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_origins(origin_id,node_id,release_id,profile_id,preset_id,config_digest,active,created_at_unix) VALUES('origin-s4','s4','release-1','profile-1','preset-1',?,1,1)`, Args: []any{testDigest("c")}})
+	ready, err = service.EvaluateWhiteListSidecarReadiness(context.Background(), bootIDs, receipts, "exit-nl")
+	if err != nil || ready {
+		t.Fatalf("missing durable desired readiness = %v, %v", ready, err)
 	}
 }

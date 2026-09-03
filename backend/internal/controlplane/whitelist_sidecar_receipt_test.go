@@ -1,6 +1,8 @@
 package controlplane
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -94,6 +96,62 @@ func TestWhiteListSidecarReceiptReplayNormalizesPersistedPrecision(t *testing.T)
 	replayed, err := ReplayWhiteListSidecarReceipt(persisted, receipt)
 	if err != nil || replayed != persisted {
 		t.Fatalf("normalized replay = %#v, %v", replayed, err)
+	}
+}
+
+func TestWhiteListSidecarReadinessRejectsCallerSubsetAgainstDurableActiveOrigins(t *testing.T) {
+	now := testTime()
+	origins := []WhiteListOrigin{
+		{OriginID: "origin-s2", NodeID: "s2", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("a"), Active: true},
+		{OriginID: "origin-s3", NodeID: "s3", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("b"), Active: true},
+	}
+	desired, err := BuildWhiteListSidecarDesired(nil, origins, nil, WhiteListExit{ExitID: "exit-nl", CountryCode: "NL", CountryLabel: "Netherlands", Healthy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &recordingRQLite{linear: []scriptedResult{rowsScript(
+		testWhiteListDurableCurrentRow(desired[0], true),
+		testWhiteListDurableCurrentRow(desired[1], true),
+	)}}
+	service := &Service{store: &Store{db: db}, clock: fixedClock{value: now}}
+	ready, err := service.EvaluateWhiteListSidecarReadiness(
+		context.Background(),
+		map[string]string{desired[0].OriginID: "boot-1"},
+		[]WhiteListSidecarReceipt{testWhiteListSidecarReceipt(desired[0], now)},
+		"exit-nl",
+	)
+	if err != nil || ready {
+		t.Fatalf("incomplete caller subset readiness = %v, %v", ready, err)
+	}
+	if len(db.linearCalls) != 1 {
+		t.Fatalf("durable readiness reads = %d, want 1", len(db.linearCalls))
+	}
+	query := db.linearCalls[0].statements[0]
+	for _, required := range []string{"FROM whitelist_sidecar_origins AS origin", "LEFT JOIN whitelist_sidecar_desired AS desired", "MAX(candidate.desired_generation)", "WHERE origin.active=1"} {
+		if !strings.Contains(query.SQL, required) {
+			t.Fatalf("durable readiness query missing %q: %s", required, query.SQL)
+		}
+	}
+	if len(query.Args) != 1 || query.Args[0] != "exit-nl" {
+		t.Fatalf("durable readiness query args = %#v", query.Args)
+	}
+}
+
+func testWhiteListDurableCurrentRow(desired WhiteListSidecarDesired, healthy bool) map[string]any {
+	healthyValue := int64(0)
+	if healthy {
+		healthyValue = 1
+	}
+	return map[string]any{
+		"origin_id": desired.OriginID, "current_node_id": desired.NodeID,
+		"current_release_id": desired.ReleaseID, "current_profile_id": desired.ProfileID,
+		"current_preset_id": desired.PresetID, "current_config_digest": desired.ConfigDigest,
+		"desired_node_id": desired.NodeID, "desired_release_id": desired.ReleaseID,
+		"desired_profile_id": desired.ProfileID, "desired_preset_id": desired.PresetID,
+		"desired_exit_id": desired.ExitID, "desired_config_digest": desired.ConfigDigest,
+		"desired_generation": desired.Generation, "managed_user_set_digest": desired.ManagedUserSetDigest,
+		"desired_sha256": desired.DesiredSHA256, "action_key": desired.Action.ActionKey,
+		"exit_healthy": healthyValue,
 	}
 }
 
