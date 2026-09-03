@@ -10,18 +10,18 @@ func TestMigrationWhiteListTopUpOrdersIsV14AndKeepsLegacyOrdersAsAnchor(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 14 || len(migrations) != 14 {
-		t.Fatalf("schema chain = version %d/%d, want exact v14", SchemaVersion, len(migrations))
+	if SchemaVersion != 15 || len(migrations) != 15 {
+		t.Fatalf("schema chain = version %d/%d, want exact v15", SchemaVersion, len(migrations))
 	}
 	if migrations[12].Version != 13 || migrations[12].Path != "migrations/0013_whitelist_commercial_debit_outbox.sql" {
 		t.Fatalf("immutable v13 migration moved: %#v", migrations[12])
 	}
-	latest := migrations[13]
-	if latest.Version != 14 || latest.Path != "migrations/0014_whitelist_topup_orders.sql" {
-		t.Fatalf("latest migration=%#v", latest)
+	v14 := migrations[13]
+	if v14.Version != 14 || v14.Path != "migrations/0014_whitelist_topup_orders.sql" {
+		t.Fatalf("immutable v14 migration moved: %#v", v14)
 	}
 
-	sql := strings.ToLower(string(latest.Data))
+	sql := strings.ToLower(string(v14.Data))
 	for _, required := range []string{
 		"create table whitelist_gb_products",
 		"product_id text primary key not null",
