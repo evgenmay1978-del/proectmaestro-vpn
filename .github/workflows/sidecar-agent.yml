@@ -1,0 +1,77 @@
+name: Isolated sidecar agent checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/sidecar-agent.yml'
+      - 'sidecar-agent/**'
+      - 'backend/internal/release/templates.go'
+      - 'backend/internal/release/handler_service_test.go'
+      - 'deploy/maestro-xray-cdn-agent.service'
+      - 'deploy/maestro-xray-cdn-agent.env.example'
+      - 'scripts/tests/test_sidecar_agent_ci.py'
+  push:
+    paths:
+      - '.github/workflows/sidecar-agent.yml'
+      - 'sidecar-agent/**'
+      - 'backend/internal/release/templates.go'
+      - 'backend/internal/release/handler_service_test.go'
+      - 'deploy/maestro-xray-cdn-agent.service'
+      - 'deploy/maestro-xray-cdn-agent.env.example'
+      - 'scripts/tests/test_sidecar_agent_ci.py'
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate sidecar workflow policy
+        run: python -m unittest scripts.tests.test_sidecar_agent_ci -v
+
+  sidecar:
+    needs: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: sidecar-agent/go.mod
+          cache-dependency-path: sidecar-agent/go.sum
+      - name: Test sidecar agent
+        working-directory: sidecar-agent
+        run: go test -count=1 ./...
+      - name: Verify sidecar formatting
+        working-directory: sidecar-agent
+        run: test -z "$(gofmt -l .)"
+      - name: Race-test sidecar agent
+        working-directory: sidecar-agent
+        run: go test -race -count=1 ./...
+      - name: Vet sidecar agent
+        working-directory: sidecar-agent
+        run: go vet ./...
+
+  release-template:
+    needs: policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: Test HandlerService release template
+        working-directory: backend
+        run: go test -count=1 ./internal/release
