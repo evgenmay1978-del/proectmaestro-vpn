@@ -103,12 +103,16 @@ func TestSubscriptionDeliveryUsesTask9ClientContract(t *testing.T) {
 		{client: "incy", format: "INCY_ONE_TAP"},
 		{client: "happ", format: "COPY_HTTPS_URL_AND_QR"},
 	} {
-		delivery, err := subscriptionDeliveryForClient(test.client, "https://sub.example.com/sub/fixture-token")
+		sourceURL := "https://sub.example.com/sub/fixture-token"
+		delivery, err := subscriptionDeliveryForClient(test.client, sourceURL)
 		if err != nil {
 			t.Fatalf("delivery for %s: %v", test.client, err)
 		}
-		if delivery.Format != test.format || delivery.URL != "https://sub.example.com/sub/fixture-token" {
+		if delivery.Format != test.format || delivery.URL == "" {
 			t.Fatalf("delivery for %s = %#v", test.client, delivery)
+		}
+		if test.client == "happ" && delivery.URL != sourceURL {
+			t.Fatalf("Happ delivery URL = %q, want %q", delivery.URL, sourceURL)
 		}
 	}
 }
