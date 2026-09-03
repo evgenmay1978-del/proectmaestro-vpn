@@ -8,6 +8,7 @@ activates automatically.
 
 INSTALL (gated production edit — run yourself on server 1):
   1. cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_orders.py /root/vpn_bot/handlers/maestro_orders.py
+     cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_customer.py /root/vpn_bot/handlers/maestro_customer.py
   2. in /root/vpn_bot/main.py:
        - add `maestro_orders` to the `from handlers import ...` line
        - add `dp.include_router(maestro_orders.router)` next to the other include_router calls
@@ -21,8 +22,11 @@ import httpx
 import qrcode
 from aiogram import F, Router
 from aiogram.types import BufferedInputFile, CallbackQuery
+from .maestro_customer import build_customer_router_from_env
 
 router = Router()
+customer_router = build_customer_router_from_env()
+router.include_router(customer_router)
 
 
 def _qr_png(data: str) -> bytes:
@@ -78,9 +82,12 @@ async def confirm_order(cb: CallbackQuery):
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                f"{MAESTRO_URL}/admin/order/confirm",
-                json={"order_id": order_id},
-                headers={"Authorization": f"Bearer {_maestro_token()}"},
+                f"{MAESTRO_URL}/admin/order/{order_id}/confirm",
+                json={},
+                headers={
+                    "Authorization": f"Bearer {_maestro_token()}",
+                    "Idempotency-Key": f"telegram-admin-confirm-{order_id}",
+                },
             )
         if r.status_code == 200:
             base = cb.message.text or ""
@@ -101,9 +108,12 @@ async def cancel_order(cb: CallbackQuery):
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                f"{MAESTRO_URL}/admin/order/cancel",
-                json={"order_id": order_id},
-                headers={"Authorization": f"Bearer {_maestro_token()}"},
+                f"{MAESTRO_URL}/admin/order/{order_id}/reject",
+                json={},
+                headers={
+                    "Authorization": f"Bearer {_maestro_token()}",
+                    "Idempotency-Key": f"telegram-admin-reject-{order_id}",
+                },
             )
         if r.status_code == 200:
             base = cb.message.text or ""

@@ -235,6 +235,19 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialBalance(w http.Response
 	writeControlPlaneJSON(w, http.StatusOK, view)
 }
 
+// handleControlPlaneCommercialProfile proves possession of a customer bearer
+// for Telegram binding without disclosing account IDs or subscription material.
+func (s *ControlPlaneServer) handleControlPlaneCommercialProfile(w http.ResponseWriter, r *http.Request) {
+	if !requireControlPlaneMethod(w, r, http.MethodGet) {
+		return
+	}
+	customer, ok := s.controlPlaneCommercialCustomer(w, r)
+	if !ok {
+		return
+	}
+	writeControlPlaneJSON(w, http.StatusOK, map[string]string{"login": customer.Login})
+}
+
 func (s *ControlPlaneServer) handleControlPlaneCommercialDelivery(w http.ResponseWriter, r *http.Request) {
 	if !requireControlPlaneMethod(w, r, http.MethodPost) {
 		return

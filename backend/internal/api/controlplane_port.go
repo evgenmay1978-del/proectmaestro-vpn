@@ -503,6 +503,7 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 	mux.HandleFunc("/order/paid-claim", s.handleControlPlanePaymentClaim)
 	mux.HandleFunc("/order", s.handleControlPlaneCreateOrder)
 	mux.HandleFunc("/order/", s.handleControlPlaneOrder)
+	mux.HandleFunc("/account/profile", s.handleControlPlaneCommercialProfile)
 	mux.HandleFunc("/account/whitelist-balance", s.handleControlPlaneCommercialBalance)
 	mux.HandleFunc("/account/subscription-delivery", s.handleControlPlaneCommercialDelivery)
 	mux.HandleFunc("/trial", s.handleControlPlaneTrial)

@@ -402,7 +402,7 @@ func TestCommercialSubscriptionDeliveryIsBoundToAuthenticatedAccount(t *testing.
 	business.delivery = CommercialDeliveryView{
 		AccountID: commercialAccountA,
 		Client:    "incy",
-		Format:    "TYPED_DESCRIPTOR",
+		Format:    "INCY_ONE_TAP",
 		URL:       "https://subscription.example/account-a",
 	}
 	response := commercialRequest(t, NewControlPlane(business, Config{}).Handler(), http.MethodPost, "/account/subscription-delivery", `{"client":"incy"}`, commercialTokenA, "delivery-key-1")
@@ -416,7 +416,7 @@ func TestCommercialSubscriptionDeliveryIsBoundToAuthenticatedAccount(t *testing.
 	}
 	got := decodeCommercialJSON[map[string]any](t, response)
 	want := map[string]any{
-		"client": "incy", "format": "TYPED_DESCRIPTOR", "url": "https://subscription.example/account-a",
+		"client": "incy", "format": "INCY_ONE_TAP", "url": "https://subscription.example/account-a",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("delivery JSON = %#v, want %#v", got, want)
@@ -441,6 +441,22 @@ func TestCommercialSubscriptionDeliveryDeniesCrossAccountResultAndRedactsSecrets
 	}
 	if strings.Contains(response.Body.String(), commercialCredentialLeak) || strings.Contains(response.Body.String(), commercialAccountB) {
 		t.Fatalf("cross-account delivery leaked protected data: %s", response.Body.String())
+	}
+}
+
+func TestCommercialProfileBindsOnlyAnAuthenticatedBearerAndReturnsOnlyLogin(t *testing.T) {
+	business := newCommercialBusinessFake()
+	business.customers[commercialTokenA] = CustomerView{CustomerID: commercialAccountA, Login: "maestro-login"}
+	response := commercialRequest(t, NewControlPlane(business, Config{}).Handler(), http.MethodGet, "/account/profile", "", commercialTokenA, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("profile status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	got := decodeCommercialJSON[map[string]any](t, response)
+	if !reflect.DeepEqual(got, map[string]any{"login": "maestro-login"}) {
+		t.Fatalf("profile JSON = %#v", got)
+	}
+	if strings.Contains(response.Body.String(), commercialTokenA) || strings.Contains(response.Body.String(), commercialAccountA) {
+		t.Fatalf("profile leaked bearer or account identity: %s", response.Body.String())
 	}
 }
 

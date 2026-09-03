@@ -95,6 +95,24 @@ func TestServiceBusinessCustomerViewDoesNotExposeCredentialValues(t *testing.T) 
 	}
 }
 
+func TestSubscriptionDeliveryUsesTask9ClientContract(t *testing.T) {
+	for _, test := range []struct {
+		client string
+		format string
+	}{
+		{client: "incy", format: "INCY_ONE_TAP"},
+		{client: "happ", format: "COPY_HTTPS_URL_AND_QR"},
+	} {
+		delivery, err := subscriptionDeliveryForClient(test.client, "https://sub.example/token")
+		if err != nil {
+			t.Fatalf("delivery for %s: %v", test.client, err)
+		}
+		if delivery.Format != test.format || delivery.URL != "https://sub.example/token" {
+			t.Fatalf("delivery for %s = %#v", test.client, delivery)
+		}
+	}
+}
+
 func TestNextOLCRTCRoomSettingKeepsAliceAndBobIsolated(t *testing.T) {
 	alice, err := nextOLCRTCRoomSetting(nil, " Alice ", "room-alice", "manual")
 	if err != nil {

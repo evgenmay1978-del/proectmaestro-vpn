@@ -6,6 +6,7 @@ from deploy.vpn_bot_maestro_customer import (
     GB_PACKS,
     PRIMARY_ACTIONS,
     CustomerAPI,
+    CustomerBindingStore,
     CustomerFlow,
     NotificationLedger,
     callback_data,
@@ -44,6 +45,8 @@ class CustomerFlowTests(unittest.TestCase):
         self.assertEqual(value, "mc:pay:order_opaque_123")
         for forbidden in ("maestro-login", "subtoken", "https://", "uuid", "400"):
             self.assertNotIn(forbidden, value)
+        with self.assertRaises(ValueError):
+            callback_data("pay", "a" * 60)
 
     def test_https_is_the_default_and_http_requires_an_explicit_loopback_endpoint(self):
         self.assertEqual(panel_base_url(), "https://localhost:8910")
@@ -51,23 +54,17 @@ class CustomerFlowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             panel_base_url("http://panel.example")
 
-    def test_purchase_claim_and_owner_decision_use_durable_order_api(self):
+    def test_purchase_claim_uses_durable_customer_order_api(self):
         transport = FakeTransport([
             {"order_id": "order_opaque_123", "amount_minor": 30000, "bytes": 20_000_000_000, "payment_state": "PENDING"},
             {"order_id": "order_opaque_123", "payment_state": "AWAITING_CONFIRM"},
-            {"order_id": "order_opaque_123", "payment_state": "CONFIRMED"},
-            {"order_id": "order_opaque_123", "payment_state": "REJECTED"},
         ])
         flow = CustomerFlow(CustomerAPI("https://panel.invalid", "subtoken", transport), "maestro-login", "subtoken")
-        order = asyncio.run(flow.buy_gigabytes(20))
+        order = asyncio.run(flow.buy_gigabytes(20, "intent_20"))
         asyncio.run(flow.claim_paid(order["order_id"]))
-        asyncio.run(flow.owner_decision(order["order_id"], confirmed=True))
-        asyncio.run(flow.reject_order(order["order_id"]))
         self.assertEqual([call[:2] for call in transport.calls], [
             ("POST", "/order"),
             ("POST", "/order/order_opaque_123/paid-claim"),
-            ("POST", "/admin/order/order_opaque_123/confirm"),
-            ("POST", "/admin/order/order_opaque_123/reject"),
         ])
         self.assertEqual(transport.calls[0][2]["json"], {"product_id": "wl-gb-20-v1", "sub_token": "subtoken"})
         self.assertNotIn("maestro-login", str(transport.calls))
@@ -77,17 +74,29 @@ class CustomerFlowTests(unittest.TestCase):
         flow = CustomerFlow(CustomerAPI("https://panel.invalid", "subtoken", transport), "maestro-login", "subtoken")
         asyncio.run(flow.renew_access())
         self.assertEqual(transport.calls[0][2]["json"], {
-            "tariff": "40000", "sub_token": "subtoken", "login": "maestro-login",
+            "tariff": "1m", "sub_token": "subtoken", "login": "maestro-login",
         })
         payment = flow.payment_instructions()
         self.assertIn("maestro-login", payment)
         self.assertNotIn("VPN", payment.upper())
 
+    def test_gigabyte_purchase_uses_one_stable_opaque_intent_key_per_callback(self):
+        transport = FakeTransport([{"order_id": "first"}, {"order_id": "retry"}, {"order_id": "next"}])
+        flow = CustomerFlow(CustomerAPI("https://panel.invalid", "subtoken", transport), "maestro-login", "subtoken")
+        asyncio.run(flow.buy_gigabytes(20, "intent_one"))
+        asyncio.run(flow.buy_gigabytes(20, "intent_one"))
+        asyncio.run(flow.buy_gigabytes(20, "intent_two"))
+        headers = [call[2]["headers"] for call in transport.calls]
+        self.assertEqual([header["Idempotency-Key"] for header in headers], [
+            "tg-order-intent_one", "tg-order-intent_one", "tg-order-intent_two",
+        ])
+        self.assertTrue(all(header["Authorization"] == "Bearer subtoken" for header in headers))
+
     def test_balance_hides_cdn_before_purchase_or_after_admin_disable_and_blocks_expired_access(self):
         flow = CustomerFlow(CustomerAPI("https://panel.invalid", "subtoken", FakeTransport([])), "maestro-login", "subtoken")
-        hidden = flow.balance_text({"primary_access_state": "ACTIVE", "publication_verdict": "DISABLED", "available_bytes": 0})
-        disabled = flow.balance_text({"primary_access_state": "ACTIVE", "publication_verdict": "DISABLED", "available_bytes": 5_000_000_000})
-        expired = flow.balance_text({"primary_access_state": "EXPIRED", "publication_verdict": "READY", "available_bytes": 5_000_000_000})
+        hidden = flow.balance_text({"primary_access_state": "active", "publication_verdict": "DISABLED", "available_bytes": 0})
+        disabled = flow.balance_text({"primary_access_state": "active", "publication_verdict": "DISABLED", "available_bytes": 5_000_000_000})
+        expired = flow.balance_text({"primary_access_state": "expired", "publication_verdict": "READY", "available_bytes": 5_000_000_000})
         self.assertNotIn("CDN/LTE", hidden)
         self.assertIn("обычная подписка", disabled.lower())
         self.assertIn("5 ГБ", disabled)
@@ -120,3 +129,10 @@ class CustomerFlowTests(unittest.TestCase):
             self.assertTrue(ledger.first("order_opaque_123:80"))
             self.assertFalse(ledger.first("order_opaque_123:80"))
             self.assertTrue(ledger.first("order_opaque_123:suspended"))
+
+    def test_binding_requires_bearer_proof_then_persists_only_for_that_chat(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = CustomerBindingStore(f"{directory}/customer.sqlite3")
+            store.bind(1001, "maestro-login", "customer-bearer")
+            self.assertEqual(store.get(1001), ("maestro-login", "customer-bearer"))
+            self.assertIsNone(store.get(1002))

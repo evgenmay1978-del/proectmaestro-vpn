@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
 var _ CommercialBusiness = (*ServiceBusiness)(nil)
@@ -201,9 +202,20 @@ func (b *ServiceBusiness) SubscriptionDelivery(ctx context.Context, command Comm
 	if strings.TrimSpace(url) == "" {
 		return CommercialDeliveryView{}, businessError(controlplane.ErrNotFound)
 	}
-	return CommercialDeliveryView{
-		AccountID: command.AccountID, Client: command.Client, Format: "TYPED_DESCRIPTOR", URL: url,
-	}, nil
+	delivery, err := subscriptionDeliveryForClient(command.Client, url)
+	if err != nil {
+		return CommercialDeliveryView{}, businessError(err)
+	}
+	delivery.AccountID = command.AccountID
+	return delivery, nil
+}
+
+func subscriptionDeliveryForClient(client, url string) (CommercialDeliveryView, error) {
+	delivery, err := subgen.BuildDelivery(strings.ToUpper(strings.TrimSpace(client)), url)
+	if err != nil {
+		return CommercialDeliveryView{}, err
+	}
+	return CommercialDeliveryView{Client: client, Format: delivery.Format, URL: delivery.URL}, nil
 }
 
 func (b *ServiceBusiness) commercialOrderFromBusiness(ctx context.Context, accountID, orderID string) (CommercialOrderView, error) {
