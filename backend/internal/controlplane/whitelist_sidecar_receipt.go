@@ -38,31 +38,97 @@ func ValidateWhiteListSidecarReceipt(
 func ReplayWhiteListSidecarReceipt(
 	existing, replay WhiteListSidecarReceipt,
 ) (WhiteListSidecarReceipt, error) {
-	if existing != replay {
+	if !whiteListSidecarReceiptPersistedEqual(existing, replay) {
 		return WhiteListSidecarReceipt{}, ErrConflict
 	}
 	return existing, nil
 }
 
+// WhiteListSidecarCurrentState is constructed only from the complete active
+// Origin inventory and the latest linearizable durable desired row for each.
+// Its fields stay private so readiness cannot consume an unchecked slice.
+type WhiteListSidecarCurrentState struct {
+	desired []WhiteListSidecarDesired
+	exitID  string
+}
+
+func NewWhiteListSidecarCurrentState(
+	origins []WhiteListOrigin, latestDesired []WhiteListSidecarDesired,
+	latestDurableGeneration map[string]int64,
+) (WhiteListSidecarCurrentState, error) {
+	active := make(map[string]WhiteListOrigin, len(origins))
+	for _, origin := range origins {
+		if !origin.Active {
+			continue
+		}
+		if origin.OriginID == "" || origin.NodeID == "" || origin.ReleaseID == "" ||
+			origin.ProfileID == "" || origin.PresetID == "" || !whiteListDigestValid(origin.ConfigDigest) {
+			return WhiteListSidecarCurrentState{}, errors.New("controlplane: invalid current white-list origin")
+		}
+		if _, exists := active[origin.OriginID]; exists {
+			return WhiteListSidecarCurrentState{}, ErrConflict
+		}
+		active[origin.OriginID] = origin
+	}
+	if len(active) == 0 || len(latestDesired) != len(active) || len(latestDurableGeneration) != len(active) {
+		return WhiteListSidecarCurrentState{}, errors.New("controlplane: incomplete current white-list state")
+	}
+	state := WhiteListSidecarCurrentState{desired: make([]WhiteListSidecarDesired, 0, len(latestDesired))}
+	seen := make(map[string]struct{}, len(latestDesired))
+	for _, desired := range latestDesired {
+		origin, ok := active[desired.OriginID]
+		if !ok {
+			return WhiteListSidecarCurrentState{}, errors.New("controlplane: desired row is not for an active Origin")
+		}
+		if _, duplicate := seen[desired.OriginID]; duplicate {
+			return WhiteListSidecarCurrentState{}, ErrConflict
+		}
+		latestGeneration, generationOK := latestDurableGeneration[desired.OriginID]
+		if err := validateWhiteListSidecarDesired(desired); err != nil || !generationOK ||
+			desired.Generation != latestGeneration ||
+			desired.NodeID != origin.NodeID || desired.ReleaseID != origin.ReleaseID ||
+			desired.ProfileID != origin.ProfileID || desired.PresetID != origin.PresetID ||
+			desired.ConfigDigest != origin.ConfigDigest ||
+			!whiteListStringsEqual(desired.StaticUsers, whiteListSortedUnique(origin.StaticUsers)) {
+			return WhiteListSidecarCurrentState{}, errors.New("controlplane: stale current white-list state")
+		}
+		if state.exitID == "" {
+			state.exitID = desired.ExitID
+		} else if state.exitID != desired.ExitID {
+			return WhiteListSidecarCurrentState{}, errors.New("controlplane: mixed current white-list exits")
+		}
+		seen[desired.OriginID] = struct{}{}
+		state.desired = append(state.desired, cloneWhiteListSidecarDesired(desired))
+	}
+	return state, nil
+}
+
 func EvaluateWhiteListSidecarReadiness(
-	desired []WhiteListSidecarDesired, bootIDs map[string]string, receipts []WhiteListSidecarReceipt,
+	state WhiteListSidecarCurrentState, bootIDs map[string]string, receipts []WhiteListSidecarReceipt,
 	exit WhiteListExit, now time.Time,
 ) (bool, error) {
-	if !exit.Healthy || len(desired) == 0 {
+	if !exit.Healthy || exit.ExitID == "" || state.exitID != exit.ExitID || len(state.desired) == 0 {
 		return false, nil
 	}
-	byOrigin := make(map[string]WhiteListSidecarReceipt, len(receipts))
+	expectedActions := make(map[string]struct{}, len(state.desired))
+	for _, desired := range state.desired {
+		expectedActions[desired.Action.ActionKey] = struct{}{}
+	}
+	byAction := make(map[string]WhiteListSidecarReceipt, len(state.desired))
 	for _, receipt := range receipts {
-		if existing, ok := byOrigin[receipt.OriginID]; ok {
+		if _, expected := expectedActions[receipt.ActionKey]; !expected {
+			continue
+		}
+		if existing, ok := byAction[receipt.ActionKey]; ok {
 			if _, err := ReplayWhiteListSidecarReceipt(existing, receipt); err != nil {
 				return false, err
 			}
 			continue
 		}
-		byOrigin[receipt.OriginID] = receipt
+		byAction[receipt.ActionKey] = receipt
 	}
-	for _, target := range desired {
-		receipt, ok := byOrigin[target.OriginID]
+	for _, target := range state.desired {
+		receipt, ok := byAction[target.Action.ActionKey]
 		if !ok {
 			return false, nil
 		}
@@ -78,6 +144,7 @@ func (s *Service) RecordWhiteListSidecarReceipt(
 	ctx context.Context, desired WhiteListSidecarDesired, currentBootID string,
 	receipt WhiteListSidecarReceipt,
 ) (WhiteListSidecarReceipt, error) {
+	receipt = normalizeWhiteListSidecarReceipt(receipt)
 	now := s.clock.Now()
 	if err := ValidateWhiteListSidecarReceipt(desired, currentBootID, receipt, now); err != nil {
 		return WhiteListSidecarReceipt{}, err
@@ -100,6 +167,32 @@ managed_user_set_digest,applied_at_unix,expires_at_unix,created_at_unix) VALUES(
 		return WhiteListSidecarReceipt{}, err
 	}
 	return ReplayWhiteListSidecarReceipt(stored, receipt)
+}
+
+func whiteListSidecarReceiptPersistedEqual(left, right WhiteListSidecarReceipt) bool {
+	return left.ActionKey == right.ActionKey && left.OriginID == right.OriginID &&
+		left.ReleaseID == right.ReleaseID && left.XrayProcessBootID == right.XrayProcessBootID &&
+		left.ConfigDigest == right.ConfigDigest && left.DesiredGeneration == right.DesiredGeneration &&
+		left.ManagedUserSetDigest == right.ManagedUserSetDigest &&
+		left.AppliedAt.Unix() == right.AppliedAt.Unix() && left.ExpiresAt.Unix() == right.ExpiresAt.Unix()
+}
+
+func normalizeWhiteListSidecarReceipt(receipt WhiteListSidecarReceipt) WhiteListSidecarReceipt {
+	if !receipt.AppliedAt.IsZero() {
+		receipt.AppliedAt = time.Unix(receipt.AppliedAt.Unix(), 0)
+	}
+	if !receipt.ExpiresAt.IsZero() {
+		receipt.ExpiresAt = time.Unix(receipt.ExpiresAt.Unix(), 0)
+	}
+	return receipt
+}
+
+func cloneWhiteListSidecarDesired(desired WhiteListSidecarDesired) WhiteListSidecarDesired {
+	desired.StaticUsers = append([]string(nil), desired.StaticUsers...)
+	desired.ManagedUsers = append([]string(nil), desired.ManagedUsers...)
+	desired.PayloadJSON = append([]byte(nil), desired.PayloadJSON...)
+	desired.Action.Request = append([]byte(nil), desired.Action.Request...)
+	return desired
 }
 
 // ResolveWhiteListSidecarUnknown resolves an ambiguous provider outcome only

@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -243,20 +244,22 @@ func whiteListDigestValid(value string) bool {
 	return err == nil
 }
 
-// PersistWhiteListSidecarDesired first durably prepares the protected external
-// action, then binds an immutable desired generation to that action.
+// PersistWhiteListSidecarDesired validates the canonical request before it
+// prepares the protected external action, then binds the immutable generation.
+// StartAttempt separately requires that binding, so an insert rejected by the
+// monotonic database guard can never be dispatched.
 func (s *Service) PersistWhiteListSidecarDesired(
 	ctx context.Context, desired WhiteListSidecarDesired,
 ) (ExternalActionResult, error) {
+	statements, err := whiteListSidecarDesiredStatements(desired, s.clock.Now().Unix())
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
 	actions, err := NewRQLiteExternalActions(s)
 	if err != nil {
 		return ExternalActionResult{}, err
 	}
 	actionResult, err := actions.Prepare(ctx, desired.Action)
-	if err != nil {
-		return ExternalActionResult{}, err
-	}
-	statements, err := whiteListSidecarDesiredStatements(desired, s.clock.Now().Unix())
 	if err != nil {
 		return ExternalActionResult{}, err
 	}
@@ -276,13 +279,8 @@ func (s *Service) PersistWhiteListSidecarDesired(
 }
 
 func whiteListSidecarDesiredStatements(desired WhiteListSidecarDesired, now int64) ([]rqlite.Statement, error) {
-	if desired.OriginID == "" || desired.NodeID == "" || desired.ExitID == "" || desired.Generation < 1 ||
-		!whiteListDigestValid(desired.ConfigDigest) || !whiteListDigestValid(desired.ManagedUserSetDigest) ||
-		!whiteListDigestValid(desired.DesiredSHA256) || len(desired.PayloadJSON) == 0 ||
-		desired.Action.Type != whiteListSidecarApplyAction || desired.Action.ResourceID != desired.OriginID ||
-		desired.Action.ActionKey != desired.NodeID+":"+strconv.FormatInt(desired.Generation, 10)+":"+desired.DesiredSHA256 ||
-		string(desired.Action.Request) != string(desired.PayloadJSON) {
-		return nil, errors.New("controlplane: invalid white-list sidecar desired")
+	if err := validateWhiteListSidecarDesired(desired); err != nil {
+		return nil, err
 	}
 	return []rqlite.Statement{
 		{SQL: `SELECT action_id FROM external_actions WHERE action_type=? AND idempotency_key=?`, Args: []any{
@@ -299,6 +297,42 @@ WHERE action_type=? AND idempotency_key=?`, Args: []any{
 			desired.Action.Type, desired.Action.ActionKey,
 		}},
 	}, nil
+}
+
+func validateWhiteListSidecarDesired(desired WhiteListSidecarDesired) error {
+	invalid := errors.New("controlplane: invalid white-list sidecar desired")
+	if desired.OriginID == "" || desired.NodeID == "" || desired.ReleaseID == "" ||
+		desired.ProfileID == "" || desired.PresetID == "" || desired.ExitID == "" || desired.Generation < 1 ||
+		!whiteListDigestValid(desired.ConfigDigest) || !whiteListDigestValid(desired.ManagedUserSetDigest) ||
+		!whiteListDigestValid(desired.DesiredSHA256) || len(desired.PayloadJSON) == 0 ||
+		desired.Action.Type != whiteListSidecarApplyAction || desired.Action.ResourceID != desired.OriginID ||
+		desired.Action.ActionKey != desired.NodeID+":"+strconv.FormatInt(desired.Generation, 10)+":"+desired.DesiredSHA256 ||
+		!bytes.Equal(desired.Action.Request, desired.PayloadJSON) {
+		return invalid
+	}
+	var payload whiteListSidecarPayload
+	if err := json.Unmarshal(desired.PayloadJSON, &payload); err != nil {
+		return invalid
+	}
+	canonical, err := json.Marshal(payload)
+	if err != nil || !bytes.Equal(canonical, desired.PayloadJSON) {
+		return invalid
+	}
+	managedDigest, err := whiteListCanonicalDigest(payload.ManagedUsers)
+	if err != nil || managedDigest != payload.ManagedUserSetDigest || managedDigest != desired.ManagedUserSetDigest {
+		return invalid
+	}
+	payloadDigest := sha256.Sum256(desired.PayloadJSON)
+	if hex.EncodeToString(payloadDigest[:]) != desired.DesiredSHA256 || payload.Version != 1 ||
+		payload.OriginID != desired.OriginID || payload.NodeID != desired.NodeID ||
+		payload.ReleaseID != desired.ReleaseID || payload.ProfileID != desired.ProfileID ||
+		payload.PresetID != desired.PresetID || payload.ExitID != desired.ExitID ||
+		payload.Generation != desired.Generation || payload.ConfigDigest != desired.ConfigDigest ||
+		!whiteListStringsEqual(payload.StaticUsers, desired.StaticUsers) ||
+		!whiteListStringsEqual(payload.ManagedUsers, desired.ManagedUsers) {
+		return invalid
+	}
+	return nil
 }
 
 func whiteListSidecarDesiredRead(desired WhiteListSidecarDesired) rqlite.Statement {

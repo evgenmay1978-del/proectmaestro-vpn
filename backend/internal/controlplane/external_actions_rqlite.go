@@ -142,6 +142,7 @@ func (s *RQLiteExternalActions) StartAttempt(ctx context.Context, command Extern
 	jobName := "external-action:" + command.Type
 	now := s.service.clock.Now().Unix()
 	predicate, predicateArgs := externalActionMutationPredicate(command, binding, false)
+	predicate += externalActionDesiredBindingGuard(command)
 	args := []any{now, command.WorkerID, command.LeaseToken, command.LeaseFence}
 	args = append(args, predicateArgs...)
 	args = append(args, jobName, command.WorkerID, command.LeaseToken, command.LeaseFence)
@@ -167,6 +168,16 @@ AND EXISTS (
 	}
 	result.State = "attempt_started"
 	return result, nil
+}
+
+func externalActionDesiredBindingGuard(command ExternalActionCommand) string {
+	if command.Type != whiteListSidecarApplyAction {
+		return ""
+	}
+	return ` AND EXISTS (
+ SELECT 1 FROM whitelist_sidecar_desired desired
+ WHERE desired.action_type=action.action_type AND desired.action_key=action.idempotency_key
+)`
 }
 
 func (s *RQLiteExternalActions) Finish(ctx context.Context, command ExternalActionCommand, response []byte) (ExternalActionResult, error) {

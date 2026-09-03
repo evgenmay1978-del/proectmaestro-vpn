@@ -60,7 +60,14 @@ func (credential WhiteListRouteCredential) CanonicalIdentity() string {
 // exact replay after a linearizable read-back.
 func (s *Service) StoreWhiteListRouteCredential(ctx context.Context, credential WhiteListRouteCredential) error {
 	if s == nil || s.store == nil || credential.EntitlementID == "" || credential.ExitID == "" ||
+		s.store.secrets == nil ||
 		credential.ManagedEmail != whiteListManagedEmail(credential.EntitlementID, credential.ExitID) {
+		return errors.New("controlplane: invalid white-list route credential")
+	}
+	plaintext, err := s.store.secrets.Open(
+		WhiteListRouteCredentialScope(credential.EntitlementID, credential.ExitID), credential.Payload,
+	)
+	if err != nil || len(plaintext) == 0 {
 		return errors.New("controlplane: invalid white-list route credential")
 	}
 	payload, err := json.Marshal(credential.Payload)

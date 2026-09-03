@@ -90,3 +90,15 @@ func TestWhiteListSidecarDesiredStatementsBindExternalAction(t *testing.T) {
 		t.Fatalf("statements = %#v", statements)
 	}
 }
+
+func TestWhiteListSidecarDispatchRequiresDurableDesiredBinding(t *testing.T) {
+	guard := externalActionDesiredBindingGuard(ExternalActionCommand{Type: whiteListSidecarApplyAction})
+	for _, required := range []string{"EXISTS", "whitelist_sidecar_desired", "desired.action_type=action.action_type", "desired.action_key=action.idempotency_key"} {
+		if !strings.Contains(guard, required) {
+			t.Fatalf("dispatch guard %q missing %q", guard, required)
+		}
+	}
+	if guard := externalActionDesiredBindingGuard(ExternalActionCommand{Type: "unrelated"}); guard != "" {
+		t.Fatalf("unrelated action guard = %q", guard)
+	}
+}

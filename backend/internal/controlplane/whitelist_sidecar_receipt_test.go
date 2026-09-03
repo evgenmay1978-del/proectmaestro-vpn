@@ -20,8 +20,9 @@ func TestWhiteListSidecarReceiptReplayAndReadinessAreExact(t *testing.T) {
 		t.Fatalf("exact replay = %#v, %v", replay, err)
 	}
 	state, err := NewWhiteListSidecarCurrentState(
-		[]WhiteListOrigin{{OriginID: desired.OriginID, NodeID: desired.NodeID, ReleaseID: desired.ReleaseID, ProfileID: desired.ProfileID, PresetID: desired.PresetID, ConfigDigest: desired.ConfigDigest, Active: true}},
+		[]WhiteListOrigin{testWhiteListCurrentOrigin(desired)},
 		[]WhiteListSidecarDesired{desired},
+		map[string]int64{desired.OriginID: desired.Generation},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -34,24 +35,25 @@ func TestWhiteListSidecarReceiptReplayAndReadinessAreExact(t *testing.T) {
 
 func TestWhiteListSidecarReadinessRequiresCompleteCurrentStateAndExactExit(t *testing.T) {
 	desired := testWhiteListSidecarDesired(t)
-	origin := WhiteListOrigin{OriginID: desired.OriginID, NodeID: desired.NodeID, ReleaseID: desired.ReleaseID, ProfileID: desired.ProfileID, PresetID: desired.PresetID, ConfigDigest: desired.ConfigDigest, Active: true}
+	origin := testWhiteListCurrentOrigin(desired)
 	cases := []struct {
-		name     string
-		origins  []WhiteListOrigin
-		desireds []WhiteListSidecarDesired
+		name              string
+		origins           []WhiteListOrigin
+		desireds          []WhiteListSidecarDesired
+		latestGenerations map[string]int64
 	}{
-		{name: "missing active origin", origins: []WhiteListOrigin{origin, {OriginID: "origin-s3", NodeID: "s3", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("d"), Active: true}}, desireds: []WhiteListSidecarDesired{desired}},
-		{name: "stale generation", origins: []WhiteListOrigin{origin}, desireds: []WhiteListSidecarDesired{func() WhiteListSidecarDesired { stale := desired; stale.Generation--; return stale }()}},
-		{name: "stale origin config", origins: []WhiteListOrigin{func() WhiteListOrigin { changed := origin; changed.ConfigDigest = testDigest("d"); return changed }()}, desireds: []WhiteListSidecarDesired{desired}},
+		{name: "missing active origin", origins: []WhiteListOrigin{origin, {OriginID: "origin-s3", NodeID: "s3", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("d"), Active: true}}, desireds: []WhiteListSidecarDesired{desired}, latestGenerations: map[string]int64{desired.OriginID: desired.Generation, "origin-s3": 1}},
+		{name: "stale generation", origins: []WhiteListOrigin{origin}, desireds: []WhiteListSidecarDesired{desired}, latestGenerations: map[string]int64{desired.OriginID: desired.Generation + 1}},
+		{name: "stale origin config", origins: []WhiteListOrigin{func() WhiteListOrigin { changed := origin; changed.ConfigDigest = testDigest("d"); return changed }()}, desireds: []WhiteListSidecarDesired{desired}, latestGenerations: map[string]int64{desired.OriginID: desired.Generation}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewWhiteListSidecarCurrentState(test.origins, test.desireds); err == nil {
+			if _, err := NewWhiteListSidecarCurrentState(test.origins, test.desireds, test.latestGenerations); err == nil {
 				t.Fatal("incomplete or stale current state accepted")
 			}
 		})
 	}
-	state, err := NewWhiteListSidecarCurrentState([]WhiteListOrigin{origin}, []WhiteListSidecarDesired{desired})
+	state, err := NewWhiteListSidecarCurrentState([]WhiteListOrigin{origin}, []WhiteListSidecarDesired{desired}, map[string]int64{desired.OriginID: desired.Generation})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +67,8 @@ func TestWhiteListSidecarReadinessRequiresCompleteCurrentStateAndExactExit(t *te
 func TestWhiteListSidecarReadinessSelectsCurrentReceiptAmongHistory(t *testing.T) {
 	now := testTime()
 	desired := testWhiteListSidecarDesired(t)
-	origin := WhiteListOrigin{OriginID: desired.OriginID, NodeID: desired.NodeID, ReleaseID: desired.ReleaseID, ProfileID: desired.ProfileID, PresetID: desired.PresetID, ConfigDigest: desired.ConfigDigest, Active: true}
-	state, err := NewWhiteListSidecarCurrentState([]WhiteListOrigin{origin}, []WhiteListSidecarDesired{desired})
+	origin := testWhiteListCurrentOrigin(desired)
+	state, err := NewWhiteListSidecarCurrentState([]WhiteListOrigin{origin}, []WhiteListSidecarDesired{desired}, map[string]int64{desired.OriginID: desired.Generation})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +99,10 @@ func TestWhiteListSidecarReceiptReplayNormalizesPersistedPrecision(t *testing.T)
 
 func testWhiteListSidecarReceipt(desired WhiteListSidecarDesired, now time.Time) WhiteListSidecarReceipt {
 	return WhiteListSidecarReceipt{ActionKey: desired.Action.ActionKey, OriginID: desired.OriginID, ReleaseID: desired.ReleaseID, XrayProcessBootID: "boot-1", ConfigDigest: desired.ConfigDigest, DesiredGeneration: desired.Generation, ManagedUserSetDigest: desired.ManagedUserSetDigest, AppliedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Minute)}
+}
+
+func testWhiteListCurrentOrigin(desired WhiteListSidecarDesired) WhiteListOrigin {
+	return WhiteListOrigin{OriginID: desired.OriginID, NodeID: desired.NodeID, ReleaseID: desired.ReleaseID, ProfileID: desired.ProfileID, PresetID: desired.PresetID, ConfigDigest: desired.ConfigDigest, Active: true, StaticUsers: append([]string(nil), desired.StaticUsers...)}
 }
 
 func TestWhiteListSidecarReceiptRejectsStaleReleaseAndActionMutation(t *testing.T) {
