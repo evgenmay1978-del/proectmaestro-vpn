@@ -75,6 +75,11 @@ Authentication lookup order is `GH_TOKEN`, `GITHUB_TOKEN`, then
 `git credential fill`; credentials are never written to metadata or printed. This
 script has no GitHub Release or OTA endpoint and does not merge or publish anything.
 
+When polling workflow status through an execution tool with a 30-second yield,
+do not combine a blocking sleep with several GitHub API calls. Use an immediate
+batch poll, or one API request after a short wait that leaves enough time for the
+response; preserve the session ID whenever the command may outlive the yield.
+
 ## Isolated rqlite CI cluster
 
 `ops/ha/ci-rqlite-cluster.sh` is a GitHub Actions-only harness for the HA control

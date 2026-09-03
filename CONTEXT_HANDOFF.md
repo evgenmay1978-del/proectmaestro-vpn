@@ -1,16 +1,14 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. WHITE-LIST COMMERCIAL DELIVERY — TASKS 1–9 COMPLETE, TASK 10 NEXT (03.09.2026)
+## 0. WHITE-LIST COMMERCIAL DELIVERY — TASK 10 CUSTOMER FLOW GREEN; TASK 11 NEXT (03.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
   `codex/yandex-cdn-whitelist-task3-sync`. Последний проверенный implementation
-  checkpoint Task 9 — exact SHA `eba97d7654dfd2f5dc3c65faa2a70348a1874bfb`.
-  Все пять применимых exact-SHA workflow завершены GREEN: `33691281050`,
-  `33691281085`, `33691281078`, `33691281063`, `33691281054`. Независимый
-  bounded review exact diff Task 9 сначала нашёл один Important fail-closed URL
-  edge case; RED `0cc2d920309e0f4a5ee766aa97d91e3baaa14718` и GREEN `eba97d7`
-  закрыли его, после чего re-review вернул 0 Critical, 0 Important, 0 Minor и
-  `APPROVED` по plan alignment и code quality.
+  checkpoint Task 10 — exact SHA `6b7c148a0569a641d98bfbc2ccff2674e75e8297`.
+  Все пять применимых exact-SHA workflow завершены GREEN: `33725608477`,
+  `33725656149`, `33725700805`, `33725748111`, `33725795748`. Независимый
+  bounded review exact diff `b530f2a..6b7c148` вернул 0 Critical,
+  0 Important, 0 Minor и `APPROVED`.
 - Tasks 1–3 завершены ранее на `d95b5eb76fe4731c569e4fea0fa8affa34c3a4a0`,
   `3033d4069af5199c50f4912c43314972d961ae1b` и
   `2000ec1002f50f65a04cdca94416325b5a36ce75`. Task 4 добавил schema v11 с
@@ -37,6 +35,21 @@
   `/sub/<token>` URL без userinfo/fragment и без query либо ровно с
   `format=links`; ошибки не раскрывают URL/token. Основная реализация —
   `cd7f3c1`, финальный URL edge-case fix — `eba97d7`.
+- Task 10 добавил пятикомандный customer flow Telegram, durable привязку чата
+  только после bearer-проверки, ordinary renewal за 400 ₽, четыре GB-пакета,
+  login-only комментарий к ручной оплате, Incy one-tap и Happ fallback.
+  Legacy `moconf` оставлен на статическом ordinary-access callback; отдельные
+  opaque `mwcf`/`mwrj` callbacks направляют GB top-up на canonical dynamic
+  admin routes с устойчивой idempotency key. RED evidence — workflow
+  `33724618385`; итоговый GREEN — `6b7c148`. Локально GREEN 16 customer/orders
+  тестов и syntax compile. Реальный outbox sender/poller и producers
+  deduplicated 50/80/90/100%, suspension/resume/stale/failed-provisioning
+  alerts ещё должны быть подключены в следующих integration tasks; наличие
+  producer/handler contract не считается live Telegram delivery. Production
+  integration должна охватить оба существующих Telegram-бота и существующий
+  клиентский канал; их реальные identities/configuration сначала извлекаются
+  из live deployment, а не придумываются по repository naming. До этого
+  checkpoint никаких сообщений в канал не отправлялось.
 - На реальном rqlite v10.1.0 устранена нестабильность stored triggers: в них
   больше нет clock expressions, которые rqlite переписывал и замораживал.
   Expiry clock остаётся атомарным в DML-предикатах service/sweeper. Официальный
@@ -68,12 +81,13 @@
   свежих receipts всех active Origins и health выбранного exit. Xray API
   остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
   3x-ui/Xray и ordinary VPN не затрагиваются.
-- Независимые design/plan и Task 1–9 reviews закрыты. Следующий repository step —
-  Task 10: простой пятикомандный Telegram customer flow, совместимый с ручной
-  оплатой и существующими admin callbacks, с Incy one-tap и Happ fallback.
-  Затем последовательно выполняются panel UX,
-  sidecar reconcile и только после exact-SHA review/CI — production
-  inventory/backup/canary gates.
+- Независимые design/plan и Task 1–10 reviews закрыты в реализованной части.
+  Следующий repository step — Task 11: durable sidecar desired state, route
+  credentials и readiness receipts. Поскольку migrations `0011`–`0014` уже
+  заняты commercial balance/metering/debit-outbox/top-up orders, следующий
+  migration номер — `0015`. После Task 11 последовательно выполняются node
+  agent, integration/outbox-alert wiring и только после exact-SHA review/CI —
+  production inventory/backup/canary gates.
 - Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
   платежи, balances, Android/TV, release/signing или OTA. Real charging,
   production DB cutover и final customer traffic cutover остаются отдельными

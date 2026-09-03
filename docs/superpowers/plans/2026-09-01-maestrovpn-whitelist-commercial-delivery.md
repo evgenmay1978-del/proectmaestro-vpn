@@ -338,21 +338,23 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Write mocked-transport tests for login display, access renewal, four pack choices, CDN absent before purchase/admin enable, CDN present after purchase, ordinary-only output after admin disable with purchased balance preserved, expired-primary blocking, paid claim, owner confirmation/rejection, duplicate callback, successful balance message, Incy button, Happ three-step fallback, and support handoff. Do not add a trial button.
-- [ ] Prove callback data contains only opaque action/order identifiers and never login, SubToken, URL, UUID, or payment data.
-- [ ] Run `python -X utf8 -m unittest deploy.tests.test_vpn_bot_maestro_customer deploy.tests.test_vpn_bot_maestro_orders`; require RED.
-- [ ] Implement a small pure presentation layer and one API adapter. Keep the existing admin confirmation callbacks compatible.
-- [ ] Remove unconditional `verify=False`; default to verified TLS and allow loopback HTTP only through an explicit local endpoint configuration.
-- [ ] Tell clients to put only their Maestro login in the transfer comment; never mention VPN in the payment comment.
+- [x] Write mocked-transport tests for login display, access renewal, four pack choices, CDN absent before purchase/admin enable, CDN present after purchase, ordinary-only output after admin disable with purchased balance preserved, expired-primary blocking, paid claim, owner confirmation/rejection, duplicate callback, successful balance message, Incy button, Happ three-step fallback, and support handoff. Do not add a trial button.
+- [x] Prove callback data contains only opaque action/order identifiers and never login, SubToken, URL, UUID, or payment data.
+- [x] Run `python -X utf8 -m unittest deploy.tests.test_vpn_bot_maestro_customer deploy.tests.test_vpn_bot_maestro_orders`; require RED.
+- [x] Implement a small pure presentation layer and one API adapter. Keep the existing admin confirmation callbacks compatible.
+- [x] Remove unconditional `verify=False`; default to verified TLS and allow loopback HTTP only through an explicit local endpoint configuration.
+- [x] Tell clients to put only their Maestro login in the transfer comment; never mention VPN in the payment comment.
 - [ ] Deduplicate 50/80/90/100%, suspension, resume, stale, and failed-provisioning notifications by durable event key.
-- [ ] Run unit tests and syntax compile; require GREEN.
-- [ ] Commit with message `feat(bot): add simple whitelist purchase and delivery flow`.
+  Deferred until the metering/reconcile producers and live outbox delivery loop exist; Tasks 11–13 must close this before production rollout.
+- [ ] Integrate and live-validate the flow across both existing Telegram bots and the existing customer channel; discover their actual live configuration first, preserve one poller per bot token, and prevent duplicate channel notifications.
+- [x] Run unit tests and syntax compile; require GREEN.
+- [x] Commit the customer flow and owner top-up callback contract.
 
 ## Task 11: Add sidecar desired state and durable receipts
 
 **Files:**
 
-- Create: `backend/internal/controlplane/migrations/0013_whitelist_sidecar_reconcile.sql`
+- Create: `backend/internal/controlplane/migrations/0015_whitelist_sidecar_reconcile.sql`
 - Modify: `backend/internal/controlplane/migrations.go`
 - Create: `backend/internal/controlplane/whitelist_sidecar_desired.go`
 - Create: `backend/internal/controlplane/whitelist_sidecar_desired_test.go`
@@ -366,11 +368,11 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Write migration tests for v12 → v13, monotonic generation, receipt replay, stale receipt rejection, release mismatch, and immutable action binding.
+- [ ] Write migration tests for v14 → v15, monotonic generation, receipt replay, stale receipt rejection, release mismatch, and immutable action binding.
 - [ ] Write service tests proving adding/removing one entitlement changes only its `wl:<entitlementID>:<exitID>` identities, preserves canary/static users, and produces a new generation for every active Origin.
 - [ ] Write route-matrix tests proving any active Origin routes each managed identity to the same selected exit and that the public country label is derived from exit metadata only.
 - [ ] Run focused controlplane tests; require RED.
-- [ ] Add migration 13 and typed desired/receipt services. Reuse `ExternalActionCommand` with action key `<node-id>:<generation>:<desired-sha256>`.
+- [ ] Add migration 15 and typed desired/receipt services. Reuse `ExternalActionCommand` with action key `<node-id>:<generation>:<desired-sha256>`.
 - [ ] Mark a route generation `ready` only after every active Origin has a matching unexpired receipt for its current Xray process boot identity and config digest and the selected exit relay is healthy. On unknown provider outcome, read the durable receipt for the same action key; never resend before resolution.
 - [ ] Run migration, rqlite, external-action, and race tests; require GREEN.
 - [ ] Commit with message `feat(controlplane): persist sidecar desired generations`.

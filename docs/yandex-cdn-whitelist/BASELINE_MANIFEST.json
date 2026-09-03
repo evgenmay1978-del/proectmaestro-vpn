@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 311966,
-      "sha256": "0eed57b2c20cab1064d6e292e7de732977eb9f9fc1b7d64efe360b744ca5b3db",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. WHITE-LIST COMMERCIAL DELIVERY \u2014 TASKS 1\u20139 COMPLETE, TASK 10 NEXT (03.09.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f\n  `codex/yandex-cdn-whitelist-task3-sync`. \u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u044b\u0439 implementation\n  checkpoint Task 9 \u2014 exact SHA `eba97d7654dfd2f5dc3c65fa"
+      "bytes": 313355,
+      "sha256": "6f4df257a9b5d87ce3c838ed4f0c108f6ec9da2949d0cc57a8e07fa1a552544b",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. WHITE-LIST COMMERCIAL DELIVERY \u2014 TASK 10 CUSTOMER FLOW GREEN; TASK 11 NEXT (03.09.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f\n  `codex/yandex-cdn-whitelist-task3-sync`. \u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u044b\u0439 implementation\n  checkpoint Task 10 \u2014 exact SHA `6b7c148a0569a6"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
