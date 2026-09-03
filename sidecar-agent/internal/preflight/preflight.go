@@ -296,7 +296,10 @@ func ParseNFTSourceFirewall(raw []byte) (FirewallState, error) {
 			continue
 		}
 		if chain, ok := entry["chain"].(map[string]any); ok && stringValue(chain, "family") == "inet" &&
-			stringValue(chain, "table") == "maestro_xray_cdn" && stringValue(chain, "name") == "input" {
+			stringValue(chain, "table") == "maestro_xray_cdn" {
+			if stringValue(chain, "name") != "input" {
+				return FirewallState{}, errors.New("relay preflight: unexpected firewall chain")
+			}
 			chainCount++
 			priority, priorityOK := chain["prio"].(float64)
 			if chainCount != 1 || stringValue(chain, "type") != "filter" || stringValue(chain, "hook") != "input" ||
@@ -328,13 +331,15 @@ func ParseNFTSourceFirewall(raw []byte) (FirewallState, error) {
 			}
 		}
 		rule, ok := entry["rule"].(map[string]any)
-		if !ok || stringValue(rule, "family") != "inet" || stringValue(rule, "table") != "maestro_xray_cdn" ||
-			stringValue(rule, "chain") != "input" {
+		if !ok || stringValue(rule, "family") != "inet" || stringValue(rule, "table") != "maestro_xray_cdn" {
 			continue
 		}
+		if stringValue(rule, "chain") != "input" {
+			return FirewallState{}, errors.New("relay preflight: unexpected firewall rule chain")
+		}
 		expressions, ok := rule["expr"].([]any)
-		if !ok {
-			continue
+		if !ok || hasUnsafeControlFlow(expressions) {
+			return FirewallState{}, errors.New("relay preflight: unsafe firewall control flow")
 		}
 		hasAccept := hasVerdict(expressions, "accept")
 		hasDrop := hasVerdict(expressions, "drop")
@@ -678,6 +683,15 @@ func hasVerdict(expressions []any, verdict string) bool {
 			continue
 		}
 		if _, present := statement[verdict]; present {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUnsafeControlFlow(expressions []any) bool {
+	for _, verdict := range []string{"jump", "goto", "return", "continue", "queue"} {
+		if hasVerdict(expressions, verdict) {
 			return true
 		}
 	}

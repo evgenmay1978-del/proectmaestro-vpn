@@ -180,9 +180,13 @@ func TestParseNFTSourceFirewallRequiresAllowlistThenTerminalDrop(t *testing.T) {
 	if _, err := ParseNFTSourceFirewall([]byte(unsafeGeneralAccept)); err == nil {
 		t.Fatal("source firewall with a general accept rule accepted")
 	}
+	jumpToAccept := strings.Replace(string(raw), `{"nftables":[`, `{"nftables":[{"chain":{"family":"inet","table":"maestro_xray_cdn","name":"bypass"}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"bypass","expr":[{"accept":null}]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"jump":{"target":"bypass"}}]}},`, 1)
+	earlyReturn := strings.Replace(string(raw), `{"nftables":[`, `{"nftables":[{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"return":null}]}},`, 1)
 	for name, unsafe := range map[string]string{
-		"unhooked chain":          strings.Replace(string(raw), `"hook":"input"`, `"hook":"output"`, 1),
-		"controller port exposed": strings.Replace(string(raw), `{"drop":null}`, `{"accept":null}`, 2),
+		"unhooked chain":           strings.Replace(string(raw), `"hook":"input"`, `"hook":"output"`, 1),
+		"controller port exposed":  strings.Replace(string(raw), `{"drop":null}`, `{"accept":null}`, 2),
+		"jump to auxiliary accept": jumpToAccept,
+		"early return":             earlyReturn,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseNFTSourceFirewall([]byte(unsafe)); err == nil {
