@@ -77,7 +77,7 @@ func TestClaimWhiteListTopUpPaymentRecordsClaimBeforeStateChange(t *testing.T) {
 	db := &recordingRQLite{
 		linear: []scriptedResult{
 			resultsScript(),
-			whiteListTopUpOrderResult("payment-code-1", PaymentPending),
+			whiteListTopUpOrderResultWithOrigin("payment-code-1", PaymentPending),
 		},
 		requestFn: func(statements []rqlite.Statement) ([]rqlite.Result, error) {
 			return make([]rqlite.Result, len(statements)), nil
@@ -496,6 +496,13 @@ func whiteListTopUpOrderResult(paymentCode string, state PaymentState) scriptedR
 		"origin_bot_id": "", "origin_chat_key_hmac": nil,
 		"kind": "WHITELIST_BYTES", "unit": "GB_DECIMAL",
 	}}})
+}
+
+func whiteListTopUpOrderResultWithOrigin(paymentCode string, state PaymentState) scriptedResult {
+	result := whiteListTopUpOrderResult(paymentCode, state)
+	result.results[0].Rows[0]["origin_bot_id"] = "maestro"
+	result.results[0].Rows[0]["origin_chat_key_hmac"] = "chat-hmac"
+	return result
 }
 
 func whiteListPublicationResult(version int64, enabled bool, source string) scriptedResult {
