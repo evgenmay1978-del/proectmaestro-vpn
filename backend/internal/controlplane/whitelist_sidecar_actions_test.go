@@ -82,7 +82,6 @@ func TestReconcileWhiteListSidecarGenerationCoversEveryActiveOriginBeforeReady(t
 	if senders["s2"].posts != 1 || senders["s3"].posts != 1 {
 		t.Fatalf("posts s2=%d s3=%d", senders["s2"].posts, senders["s3"].posts)
 	}
-
 	removal, err := service.ReconcileWhiteListSidecarGeneration(
 		context.Background(), desiredByOrigin(result.Desired), origins, nil, exit, "panel-a",
 		func(nodeID string) (ExternalActionSender, bool) {

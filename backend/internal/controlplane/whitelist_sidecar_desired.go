@@ -164,7 +164,7 @@ func BuildWhiteListSidecarDesired(
 			ReleaseID: origin.ReleaseID, ProfileID: origin.ProfileID, PresetID: origin.PresetID,
 			ExitID: exit.ExitID, Generation: generation, ConfigDigest: origin.ConfigDigest,
 			ManagedUserSetDigest: managedDigest, StaticUsers: staticUsers,
-			ManagedUsers: append([]string(nil), managedUsers...),
+			ManagedUsers: append([]string{}, managedUsers...),
 		}
 		payloadJSON, err := json.Marshal(payload)
 		if err != nil {
@@ -178,7 +178,7 @@ func BuildWhiteListSidecarDesired(
 			ProfileID: origin.ProfileID, PresetID: origin.PresetID, ExitID: exit.ExitID,
 			Generation: generation, ConfigDigest: origin.ConfigDigest,
 			ManagedUserSetDigest: managedDigest, DesiredSHA256: desiredSHA,
-			StaticUsers: staticUsers, ManagedUsers: append([]string(nil), managedUsers...),
+			StaticUsers: staticUsers, ManagedUsers: append([]string{}, managedUsers...),
 			PayloadJSON: payloadJSON,
 			Action: ExternalActionCommand{
 				Type: whiteListSidecarApplyAction, ResourceID: origin.OriginID,
@@ -211,7 +211,7 @@ func whiteListCanonicalDigest(value any) (string, error) {
 }
 
 func whiteListSortedUnique(values []string) []string {
-	result := append([]string(nil), values...)
+	result := append([]string{}, values...)
 	sort.Strings(result)
 	write := 0
 	for _, value := range result {

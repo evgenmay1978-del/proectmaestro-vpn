@@ -8,9 +8,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -19,11 +21,13 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/order"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/promo"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/provision"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/server2"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/sidecaragentclient"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/xui"
@@ -44,10 +48,11 @@ func atoi(s string, def int) int {
 }
 
 type panelRuntime struct {
-	mode       string
-	business   api.Business
-	handler    http.Handler
-	background func(context.Context)
+	mode                    string
+	business                api.Business
+	handler                 http.Handler
+	background              func(context.Context)
+	whiteListSidecarSenders map[string]controlplane.ExternalActionSender
 }
 
 type runtimeFactories struct {
@@ -74,12 +79,23 @@ func main() {
 		if err != nil {
 			log.Fatalf("configure rqlite runtime: %v", err)
 		}
+		sidecarConfig, err := readRuntimeWhiteListSidecarConfig(os.Getenv)
+		if err != nil {
+			log.Fatalf("configure white-list sidecar runtime: %v", err)
+		}
+		sidecarSenders, err := buildRuntimeWhiteListSidecarSenders(sidecarConfig, func(config sidecaragentclient.Config) (controlplane.ExternalActionSender, error) {
+			return sidecaragentclient.New(config)
+		})
+		if err != nil {
+			log.Fatalf("build white-list sidecar runtime: %v", err)
+		}
 		runtimeInstance, err := buildRQLitePanelRuntime(
 			context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), productionRQLiteRuntimeDependencies(),
 		)
 		if err != nil {
 			log.Fatalf("build rqlite runtime: %v", err)
 		}
+		runtimeInstance.whiteListSidecarSenders = sidecarSenders
 		workerContext, stopWorker := context.WithCancel(context.Background())
 		var workerDone chan struct{}
 		if runtimeInstance.background != nil {
@@ -335,4 +351,68 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
+}
+
+type runtimeWhiteListSidecarConfig struct {
+	Enabled bool
+	Nodes   map[string]sidecaragentclient.Config
+}
+
+func readRuntimeWhiteListSidecarConfig(getenv func(string) string) (runtimeWhiteListSidecarConfig, error) {
+	if getenv == nil {
+		return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	switch strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_ENABLE")) {
+	case "", "0":
+		return runtimeWhiteListSidecarConfig{}, nil
+	case "1":
+	default:
+		return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	caFile := strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_CA_FILE"))
+	certFile := strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_CERT_FILE"))
+	keyFile := strings.TrimSpace(getenv("MAESTRO_WHITELIST_SIDECAR_KEY_FILE"))
+	if caFile == "" || certFile == "" || keyFile == "" {
+		return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	nodes := make(map[string]sidecaragentclient.Config, 4)
+	for _, nodeID := range []string{"s1", "s2", "s3", "s4"} {
+		prefix := "MAESTRO_WHITELIST_SIDECAR_" + strings.ToUpper(nodeID)
+		baseURL := strings.TrimSpace(getenv(prefix + "_URL"))
+		serverName := strings.TrimSpace(getenv(prefix + "_SERVER_NAME"))
+		parsed, err := url.Parse(baseURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+			parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || serverName == "" {
+			return runtimeWhiteListSidecarConfig{}, errors.New("invalid white-list sidecar runtime configuration")
+		}
+		nodes[nodeID] = sidecaragentclient.Config{
+			BaseURL: baseURL, ServerName: serverName, CAFile: caFile, CertFile: certFile, KeyFile: keyFile,
+			RequestTimeout: 5 * time.Second, ReceiptLookupTimeout: 2 * time.Second,
+		}
+	}
+	return runtimeWhiteListSidecarConfig{Enabled: true, Nodes: nodes}, nil
+}
+
+func buildRuntimeWhiteListSidecarSenders(
+	config runtimeWhiteListSidecarConfig,
+	factory func(sidecaragentclient.Config) (controlplane.ExternalActionSender, error),
+) (map[string]controlplane.ExternalActionSender, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	if factory == nil || len(config.Nodes) == 0 {
+		return nil, errors.New("invalid white-list sidecar runtime configuration")
+	}
+	senders := make(map[string]controlplane.ExternalActionSender, len(config.Nodes))
+	for nodeID, clientConfig := range config.Nodes {
+		sender, err := factory(clientConfig)
+		if err != nil {
+			return nil, err
+		}
+		if sender == nil {
+			return nil, errors.New("white-list sidecar client is unavailable")
+		}
+		senders[nodeID] = sender
+	}
+	return senders, nil
 }

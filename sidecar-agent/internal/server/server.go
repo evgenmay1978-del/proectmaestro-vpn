@@ -18,6 +18,7 @@ import (
 
 const (
 	DesiredPath         = "/v1/desired"
+	ReceiptPath         = "/v1/receipt"
 	ActionKeyHeader     = "X-Maestro-Action-Key"
 	DesiredSHA256Header = "X-Maestro-Desired-SHA256"
 	MaxRequestBytes     = agent.MaxDesiredBytes
@@ -25,6 +26,7 @@ const (
 
 type Applier interface {
 	Apply(context.Context, agent.Desired) (agent.Receipt, error)
+	LookupReceipt(context.Context, string) (agent.Receipt, error)
 }
 
 func NewHandler(applier Applier) http.Handler {
@@ -63,6 +65,39 @@ func NewHandler(applier Applier) http.Handler {
 		if err != nil {
 			if errors.Is(err, agent.ErrStaleGeneration) || errors.Is(err, agent.ErrConflict) {
 				response.WriteHeader(http.StatusConflict)
+				return
+			}
+			response.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		encoded, err := json.Marshal(receipt)
+		if err != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("Cache-Control", "no-store")
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write(encoded)
+	}))
+	mux.Handle(ReceiptPath, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if applier == nil || request.TLS == nil || len(request.TLS.VerifiedChains) == 0 {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		actionKey := request.Header.Get(ActionKeyHeader)
+		if actionKey == "" || strings.TrimSpace(actionKey) != actionKey || strings.ContainsAny(actionKey, "\x00\r\n\t") {
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		receipt, err := applier.LookupReceipt(request.Context(), actionKey)
+		if err != nil {
+			if errors.Is(err, agent.ErrNotFound) {
+				response.WriteHeader(http.StatusNotFound)
 				return
 			}
 			response.WriteHeader(http.StatusServiceUnavailable)

@@ -93,6 +93,29 @@ func (reconciler *Reconciler) Recover(ctx context.Context) (Receipt, error) {
 	return reconciler.Refresh(ctx)
 }
 
+// LookupReceipt reads one durable receipt without reconciling or changing Xray.
+func (reconciler *Reconciler) LookupReceipt(ctx context.Context, actionKey string) (Receipt, error) {
+	if reconciler == nil || ctx == nil || actionKey == "" || strings.TrimSpace(actionKey) != actionKey ||
+		strings.ContainsAny(actionKey, "\x00\r\n\t") {
+		return Receipt{}, ErrNotFound
+	}
+	if err := ctx.Err(); err != nil {
+		return Receipt{}, err
+	}
+	reconciler.mutex.Lock()
+	defer reconciler.mutex.Unlock()
+	receipt, err := reconciler.store.LoadReceipt(actionKey)
+	if err != nil {
+		return Receipt{}, err
+	}
+	bootID, err := reconciler.processBootID()
+	if err != nil || receipt.ActionKey != actionKey || receipt.XrayProcessBootID != bootID ||
+		!receipt.ReadyAt(reconciler.now()) {
+		return Receipt{}, ErrNotFound
+	}
+	return receipt, nil
+}
+
 func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) (Receipt, error) {
 	if err := desired.validate(); err != nil || desired.ActionKey() == "" {
 		return Receipt{}, ErrInvalidDesired

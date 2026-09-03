@@ -10,15 +10,15 @@ import (
 )
 
 type WhiteListSidecarReceipt struct {
-	ActionKey            string
-	OriginID             string
-	ReleaseID            string
-	XrayProcessBootID    string
-	ConfigDigest         string
-	DesiredGeneration    int64
-	ManagedUserSetDigest string
-	AppliedAt            time.Time
-	ExpiresAt            time.Time
+	ActionKey            string    `json:"action_key"`
+	OriginID             string    `json:"origin_id"`
+	ReleaseID            string    `json:"release_id"`
+	XrayProcessBootID    string    `json:"xray_process_boot_id"`
+	ConfigDigest         string    `json:"config_digest"`
+	DesiredGeneration    int64     `json:"desired_generation"`
+	ManagedUserSetDigest string    `json:"managed_user_set_digest"`
+	AppliedAt            time.Time `json:"applied_at"`
+	ExpiresAt            time.Time `json:"expires_at"`
 }
 
 func ValidateWhiteListSidecarReceipt(
