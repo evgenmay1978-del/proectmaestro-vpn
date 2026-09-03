@@ -251,6 +251,9 @@ func whiteListDigestValid(value string) bool {
 func (s *Service) PersistWhiteListSidecarDesired(
 	ctx context.Context, desired WhiteListSidecarDesired,
 ) (ExternalActionResult, error) {
+	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil {
+		return ExternalActionResult{}, errors.New("controlplane: external action service is unavailable")
+	}
 	statements, err := whiteListSidecarDesiredStatements(desired, s.clock.Now().Unix())
 	if err != nil {
 		return ExternalActionResult{}, err

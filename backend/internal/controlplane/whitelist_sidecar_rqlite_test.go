@@ -109,15 +109,16 @@ func TestWhiteListSidecarReadinessDerivesCompleteCurrentStateFromSQLite(t *testi
 	db, service := newCustomerIntegritySQLite(t)
 	now := service.clock.Now()
 	origins := []WhiteListOrigin{
-		{OriginID: "origin-s2", NodeID: "s2", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("a"), Active: true},
-		{OriginID: "origin-s3", NodeID: "s3", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("b"), Active: true},
+		{OriginID: "origin-s2", NodeID: "s2", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("a"), Active: true, StaticUsers: []string{"static-s2@example.invalid"}},
+		{OriginID: "origin-s3", NodeID: "s3", ReleaseID: "release-1", ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("b"), Active: true, StaticUsers: []string{"static-s3@example.invalid"}},
 	}
+	routes := []WhiteListManagedRoute{{EntitlementID: "wl-ent-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExitID: "exit-nl"}}
 	db.must(t,
 		rqlite.Statement{SQL: `INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix) VALUES('s2','s2',0,1,1),('s3','s3',0,1,1),('s4','s4',0,1,1)`},
 		rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_exits(exit_id,country_code,country_label,healthy,created_at_unix) VALUES('exit-nl','NL','Netherlands',1,1)`},
 		rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_origins(origin_id,node_id,release_id,profile_id,preset_id,config_digest,active,created_at_unix) VALUES(?,?,?,?,?,?,1,1),(?,?,?,?,?,?,1,1)`, Args: []any{origins[0].OriginID, origins[0].NodeID, origins[0].ReleaseID, origins[0].ProfileID, origins[0].PresetID, origins[0].ConfigDigest, origins[1].OriginID, origins[1].NodeID, origins[1].ReleaseID, origins[1].ProfileID, origins[1].PresetID, origins[1].ConfigDigest}},
 	)
-	desired, err := BuildWhiteListSidecarDesired(nil, origins, nil, WhiteListExit{ExitID: "exit-nl", CountryCode: "NL", CountryLabel: "Netherlands", Healthy: true})
+	desired, err := BuildWhiteListSidecarDesired(nil, origins, routes, WhiteListExit{ExitID: "exit-nl", CountryCode: "NL", CountryLabel: "Netherlands", Healthy: true})
 	if err != nil {
 		t.Fatal(err)
 	}

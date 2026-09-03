@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -44,77 +45,109 @@ func ReplayWhiteListSidecarReceipt(
 	return existing, nil
 }
 
-// WhiteListSidecarCurrentState is constructed only from the complete active
-// Origin inventory and the latest linearizable durable desired row for each.
-// Its fields stay private so readiness cannot consume an unchecked slice.
-type WhiteListSidecarCurrentState struct {
-	desired []WhiteListSidecarDesired
-	exitID  string
-}
-
-func NewWhiteListSidecarCurrentState(
-	origins []WhiteListOrigin, latestDesired []WhiteListSidecarDesired,
-	latestDurableGeneration map[string]int64,
-) (WhiteListSidecarCurrentState, error) {
-	active := make(map[string]WhiteListOrigin, len(origins))
-	for _, origin := range origins {
-		if !origin.Active {
-			continue
-		}
-		if origin.OriginID == "" || origin.NodeID == "" || origin.ReleaseID == "" ||
-			origin.ProfileID == "" || origin.PresetID == "" || !whiteListDigestValid(origin.ConfigDigest) {
-			return WhiteListSidecarCurrentState{}, errors.New("controlplane: invalid current white-list origin")
-		}
-		if _, exists := active[origin.OriginID]; exists {
-			return WhiteListSidecarCurrentState{}, ErrConflict
-		}
-		active[origin.OriginID] = origin
-	}
-	if len(active) == 0 || len(latestDesired) != len(active) || len(latestDurableGeneration) != len(active) {
-		return WhiteListSidecarCurrentState{}, errors.New("controlplane: incomplete current white-list state")
-	}
-	state := WhiteListSidecarCurrentState{desired: make([]WhiteListSidecarDesired, 0, len(latestDesired))}
-	seen := make(map[string]struct{}, len(latestDesired))
-	for _, desired := range latestDesired {
-		origin, ok := active[desired.OriginID]
-		if !ok {
-			return WhiteListSidecarCurrentState{}, errors.New("controlplane: desired row is not for an active Origin")
-		}
-		if _, duplicate := seen[desired.OriginID]; duplicate {
-			return WhiteListSidecarCurrentState{}, ErrConflict
-		}
-		latestGeneration, generationOK := latestDurableGeneration[desired.OriginID]
-		if err := validateWhiteListSidecarDesired(desired); err != nil || !generationOK ||
-			desired.Generation != latestGeneration ||
-			desired.NodeID != origin.NodeID || desired.ReleaseID != origin.ReleaseID ||
-			desired.ProfileID != origin.ProfileID || desired.PresetID != origin.PresetID ||
-			desired.ConfigDigest != origin.ConfigDigest ||
-			!whiteListStringsEqual(desired.StaticUsers, whiteListSortedUnique(origin.StaticUsers)) {
-			return WhiteListSidecarCurrentState{}, errors.New("controlplane: stale current white-list state")
-		}
-		if state.exitID == "" {
-			state.exitID = desired.ExitID
-		} else if state.exitID != desired.ExitID {
-			return WhiteListSidecarCurrentState{}, errors.New("controlplane: mixed current white-list exits")
-		}
-		seen[desired.OriginID] = struct{}{}
-		state.desired = append(state.desired, cloneWhiteListSidecarDesired(desired))
-	}
-	return state, nil
-}
-
-func EvaluateWhiteListSidecarReadiness(
-	state WhiteListSidecarCurrentState, bootIDs map[string]string, receipts []WhiteListSidecarReceipt,
-	exit WhiteListExit, now time.Time,
+// EvaluateWhiteListSidecarReadiness derives the complete active Origin set and
+// each Origin's latest desired generation from one linearizable durable read.
+func (s *Service) EvaluateWhiteListSidecarReadiness(
+	ctx context.Context, bootIDs map[string]string, receipts []WhiteListSidecarReceipt, exitID string,
 ) (bool, error) {
-	if !exit.Healthy || exit.ExitID == "" || state.exitID != exit.ExitID || len(state.desired) == 0 {
+	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil {
+		return false, ErrUnavailable
+	}
+	if exitID == "" {
 		return false, nil
 	}
-	expectedActions := make(map[string]struct{}, len(state.desired))
-	for _, desired := range state.desired {
+	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT
+origin.origin_id,origin.node_id AS current_node_id,origin.release_id AS current_release_id,
+origin.profile_id AS current_profile_id,origin.preset_id AS current_preset_id,
+origin.config_digest AS current_config_digest,desired.node_id AS desired_node_id,
+desired.release_id AS desired_release_id,desired.profile_id AS desired_profile_id,
+desired.preset_id AS desired_preset_id,desired.exit_id AS desired_exit_id,
+desired.config_digest AS desired_config_digest,desired.desired_generation,
+desired.managed_user_set_digest,desired.desired_sha256,desired.payload_json,
+desired.action_type,desired.action_key,exit.healthy AS exit_healthy
+FROM whitelist_sidecar_origins AS origin
+LEFT JOIN whitelist_sidecar_desired AS desired
+  ON desired.origin_id=origin.origin_id
+ AND desired.desired_generation=(
+  SELECT MAX(candidate.desired_generation)
+  FROM whitelist_sidecar_desired AS candidate
+  WHERE candidate.origin_id=origin.origin_id
+ )
+LEFT JOIN whitelist_sidecar_exits AS exit
+  ON exit.exit_id=desired.exit_id AND exit.exit_id=?
+WHERE origin.active=1
+ORDER BY origin.origin_id`, Args: []any{exitID}})
+	if err != nil {
+		return false, ErrUnavailable
+	}
+	desired, complete := whiteListSidecarCurrentDesired(results, exitID)
+	if !complete {
+		return false, nil
+	}
+	return evaluateWhiteListSidecarReceipts(desired, bootIDs, receipts, s.clock.Now())
+}
+
+func whiteListSidecarCurrentDesired(results []rqlite.Result, expectedExitID string) ([]WhiteListSidecarDesired, bool) {
+	if len(results) != 1 || len(results[0].Rows) == 0 {
+		return nil, false
+	}
+	desiredRows := make([]WhiteListSidecarDesired, 0, len(results[0].Rows))
+	seen := make(map[string]struct{}, len(results[0].Rows))
+	for _, row := range results[0].Rows {
+		originID, originOK := rowString(row, "origin_id")
+		currentNodeID, currentNodeOK := rowString(row, "current_node_id")
+		currentReleaseID, currentReleaseOK := rowString(row, "current_release_id")
+		currentProfileID, currentProfileOK := rowString(row, "current_profile_id")
+		currentPresetID, currentPresetOK := rowString(row, "current_preset_id")
+		currentConfigDigest, currentConfigOK := rowString(row, "current_config_digest")
+		nodeID, nodeOK := rowString(row, "desired_node_id")
+		releaseID, releaseOK := rowString(row, "desired_release_id")
+		profileID, profileOK := rowString(row, "desired_profile_id")
+		presetID, presetOK := rowString(row, "desired_preset_id")
+		exitID, exitOK := rowString(row, "desired_exit_id")
+		configDigest, configOK := rowString(row, "desired_config_digest")
+		managedDigest, managedOK := rowString(row, "managed_user_set_digest")
+		desiredSHA, desiredOK := rowString(row, "desired_sha256")
+		actionType, typeOK := rowString(row, "action_type")
+		actionKey, actionOK := rowString(row, "action_key")
+		generation, generationOK := rowInt64(row, "desired_generation")
+		healthy, healthyOK := rowInt64(row, "exit_healthy")
+		payloadJSON, payloadOK := whiteListRowBytes(row, "payload_json")
+		var payload whiteListSidecarPayload
+		payloadDecoded := payloadOK && json.Unmarshal(payloadJSON, &payload) == nil
+		desired := WhiteListSidecarDesired{
+			OriginID: originID, NodeID: nodeID, ReleaseID: releaseID, ProfileID: profileID,
+			PresetID: presetID, ExitID: exitID, Generation: generation, ConfigDigest: configDigest,
+			ManagedUserSetDigest: managedDigest, DesiredSHA256: desiredSHA,
+			StaticUsers: append([]string(nil), payload.StaticUsers...), ManagedUsers: append([]string(nil), payload.ManagedUsers...),
+			PayloadJSON: append([]byte(nil), payloadJSON...),
+			Action:      ExternalActionCommand{Type: actionType, ResourceID: originID, ActionKey: actionKey, Request: append([]byte(nil), payloadJSON...)},
+		}
+		_, duplicate := seen[originID]
+		if !originOK || !currentNodeOK || !currentReleaseOK || !currentProfileOK || !currentPresetOK ||
+			!currentConfigOK || !nodeOK || !releaseOK || !profileOK || !presetOK || !exitOK ||
+			!configOK || !managedOK || !desiredOK || !typeOK || !actionOK || !generationOK ||
+			!healthyOK || healthy != 1 || !payloadDecoded || duplicate || exitID != expectedExitID ||
+			currentNodeID != nodeID || currentReleaseID != releaseID || currentProfileID != profileID ||
+			currentPresetID != presetID || currentConfigDigest != configDigest ||
+			validateWhiteListSidecarDesired(desired) != nil {
+			return nil, false
+		}
+		seen[originID] = struct{}{}
+		desiredRows = append(desiredRows, desired)
+	}
+	return desiredRows, true
+}
+
+func evaluateWhiteListSidecarReceipts(
+	desired []WhiteListSidecarDesired, bootIDs map[string]string,
+	receipts []WhiteListSidecarReceipt, now time.Time,
+) (bool, error) {
+	expectedActions := make(map[string]struct{}, len(desired))
+	for _, desired := range desired {
 		expectedActions[desired.Action.ActionKey] = struct{}{}
 	}
-	byAction := make(map[string]WhiteListSidecarReceipt, len(state.desired))
+	byAction := make(map[string]WhiteListSidecarReceipt, len(desired))
 	for _, receipt := range receipts {
 		if _, expected := expectedActions[receipt.ActionKey]; !expected {
 			continue
@@ -127,7 +160,7 @@ func EvaluateWhiteListSidecarReadiness(
 		}
 		byAction[receipt.ActionKey] = receipt
 	}
-	for _, target := range state.desired {
+	for _, target := range desired {
 		receipt, ok := byAction[target.Action.ActionKey]
 		if !ok {
 			return false, nil
