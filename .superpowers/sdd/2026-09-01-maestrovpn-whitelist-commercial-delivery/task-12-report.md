@@ -71,3 +71,14 @@ Exact-SHA GitHub verification for pushed SHA `94f61f01f66da5f7e13737b041fc620fcd
 All owner/protected dirty files were preserved and never staged. Task 12 did not change `AGENTS.md`, migrations `0001` through `0010`, the protected backend tests and sources named in the brief, old SDD reports, `normalize.patch`, `CONTEXT_HANDOFF.md`, the commercial plan, or `BASELINE_MANIFEST.json`.
 
 Live source-firewall state and live health for the exact four exit servers were intentionally not inspected or changed because Task 12 explicitly forbids touching live servers, Yandex Cloud, production Xray, DNS/TLS, the active CDN canary/subscription, or customer traffic. The code and immutable template enforce the required addresses, identities, route matrix, TLS verification, and fail-closed behavior; live firewall and exit-health confirmation remain deployment-time external gates for the later authorized rollout.
+
+## Review fix round 2 (03.09.2026)
+
+An independent review found that the source-firewall attestation accepted nftables control flow it did not model. An early jump to an auxiliary chain containing an unconditional accept, or an early return, could therefore coexist with the expected allow/drop rules and produce a false-ready result.
+
+- Added focused negative cases for `jump -> auxiliary accept` and early `return`. Before the production change, both subtests failed with `unsafe firewall accepted`, providing the required RED evidence.
+- Changed only the nftables parser and its focused test. The parser now fails closed on auxiliary chains, rules attached to a non-managed chain, malformed rule expressions, and the unsafe `jump`, `goto`, `return`, `continue`, and `queue` verdicts.
+- Fix commit: `658de155aca69a696a18b452c4f3e99348c158c7` (`fix(sidecar): reject nftables control-flow bypasses`). The exact SHA was pushed to the canonical branch before CI.
+- Local GREEN evidence: the focused bypass test and the complete `sidecar-agent/internal/preflight` package passed; both touched Go files were `gofmt` clean; scoped `git diff --check` reported no whitespace errors.
+- Exact-SHA GitHub evidence: Isolated sidecar agent checks `33797670720`, HA S4 network change-package checks `33797670614`, HA immutable panel artifact `33797670632`, and Yandex CDN isolated release checks `33797670748` all completed successfully for `658de155aca69a696a18b452c4f3e99348c158c7`.
+- No production host, live firewall, Yandex resource, private canary/subscription, OLCRTC, WDTT, Android/TV code, OTA/release publication, payment, bot/channel, or customer traffic was touched. The fix remains pending its scoped independent re-review; this report does not claim review closure.
