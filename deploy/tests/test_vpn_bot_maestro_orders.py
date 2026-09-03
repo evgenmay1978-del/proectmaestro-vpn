@@ -12,7 +12,8 @@ class OrdersAdapterTests(unittest.TestCase):
 
     def test_admin_callbacks_use_authenticated_canonical_routes_and_idempotency(self):
         source = pathlib.Path("deploy/vpn_bot_maestro_orders.py").read_text(encoding="utf-8")
-        self.assertIn('f"{MAESTRO_URL}/admin/order/{order_id}/confirm"', source)
+        self.assertIn('f"{MAESTRO_URL}/admin/order/confirm"', source)
+        self.assertIn('json={"order_id": order_id}', source)
         self.assertIn('f"{MAESTRO_URL}/admin/order/{order_id}/reject"', source)
         self.assertIn('"Idempotency-Key": f"telegram-admin-confirm-{order_id}"', source)
         self.assertIn('"Idempotency-Key": f"telegram-admin-reject-{order_id}"', source)
@@ -22,3 +23,8 @@ class OrdersAdapterTests(unittest.TestCase):
         source = pathlib.Path("deploy/vpn_bot_maestro_orders.py").read_text(encoding="utf-8")
         self.assertIn("build_customer_router_from_env", source)
         self.assertIn("router.include_router(customer_router)", source)
+
+    def test_aclsub_login_callback_is_legacy_parser_only_and_never_generated(self):
+        source = pathlib.Path("deploy/vpn_bot_maestro_orders.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count('"aclsub:"'), 1)
+        self.assertNotIn("callback_data=f\"aclsub:", source)

@@ -8,7 +8,6 @@ from deploy.vpn_bot_maestro_customer import (
     CustomerAPI,
     CustomerBindingStore,
     CustomerFlow,
-    NotificationLedger,
     callback_data,
     panel_base_url,
 )
@@ -122,13 +121,6 @@ class CustomerFlowTests(unittest.TestCase):
             "2. Откройте Happ.",
             "3. Вставьте ссылку или отсканируйте QR.",
         ))
-
-    def test_notifications_are_deduplicated_by_durable_event_key(self):
-        with tempfile.TemporaryDirectory() as directory:
-            ledger = NotificationLedger(f"{directory}/events.sqlite3")
-            self.assertTrue(ledger.first("order_opaque_123:80"))
-            self.assertFalse(ledger.first("order_opaque_123:80"))
-            self.assertTrue(ledger.first("order_opaque_123:suspended"))
 
     def test_binding_requires_bearer_proof_then_persists_only_for_that_chat(self):
         with tempfile.TemporaryDirectory() as directory:

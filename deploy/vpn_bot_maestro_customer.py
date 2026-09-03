@@ -85,25 +85,6 @@ class CustomerAPI:
         return await self.request("POST", "/account/subscription-delivery", json={"client": client})
 
 
-class NotificationLedger:
-    """One durable key per notification, including thresholds and transitions."""
-
-    def __init__(self, path: str):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.path) as connection:
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS customer_notification_events (event_key TEXT PRIMARY KEY)"
-            )
-
-    def first(self, event_key: str) -> bool:
-        with sqlite3.connect(self.path) as connection:
-            cursor = connection.execute(
-                "INSERT OR IGNORE INTO customer_notification_events(event_key) VALUES (?)", (event_key,)
-            )
-            return cursor.rowcount == 1
-
-
 class CustomerBindingStore:
     """Durable Telegram-chat binding established only by bearer possession."""
 

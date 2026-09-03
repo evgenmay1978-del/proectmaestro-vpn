@@ -82,8 +82,8 @@ async def confirm_order(cb: CallbackQuery):
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                f"{MAESTRO_URL}/admin/order/{order_id}/confirm",
-                json={},
+                f"{MAESTRO_URL}/admin/order/confirm",
+                json={"order_id": order_id},
                 headers={
                     "Authorization": f"Bearer {_maestro_token()}",
                     "Idempotency-Key": f"telegram-admin-confirm-{order_id}",
