@@ -66,6 +66,7 @@ class SidecarAgentWorkflowPolicyTest(unittest.TestCase):
             "AmbientCapabilities=CAP_NET_ADMIN",
             "CapabilityBoundingSet=CAP_NET_ADMIN",
             "/etc/maestro-xray-cdn-agent/active-origin-ips.json",
+            "/etc/maestro-xray-cdn-agent/controller-source-ip.json",
             "/etc/maestro-xray-cdn-agent/relay-ca",
             "/var/lib/maestro-xray-cdn-agent/relay-credentials",
             "/run/maestro-xray-cdn/config.json",
@@ -74,6 +75,7 @@ class SidecarAgentWorkflowPolicyTest(unittest.TestCase):
             self.assertIn(directive, service)
         for setting in (
             "MAESTRO_ACTIVE_ORIGIN_IPS_FILE=/etc/maestro-xray-cdn-agent/active-origin-ips.json",
+            "MAESTRO_CONTROLLER_SOURCE_IP_FILE=/etc/maestro-xray-cdn-agent/controller-source-ip.json",
             "MAESTRO_RELAY_CA_DIRECTORY=/etc/maestro-xray-cdn-agent/relay-ca",
             "MAESTRO_RELAY_CREDENTIAL_DIRECTORY=/var/lib/maestro-xray-cdn-agent/relay-credentials",
             "MAESTRO_XRAY_CONFIG_FILE=/run/maestro-xray-cdn/config.json",
@@ -82,6 +84,9 @@ class SidecarAgentWorkflowPolicyTest(unittest.TestCase):
         ):
             self.assertIn(setting, environment)
         self.assertNotIn("credential=", environment.lower())
+
+        self.assertIn("PartOf=maestro-xray-cdn.service", service)
+        self.assertIn("WantedBy=multi-user.target maestro-xray-cdn.service", service)
 
 
 if __name__ == "__main__":

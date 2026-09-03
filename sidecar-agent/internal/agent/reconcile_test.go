@@ -64,12 +64,16 @@ func (handler *fakeHandler) ManagedUserAccountMatches(_ context.Context, _ strin
 }
 
 type fakeReadinessPreflight struct {
-	err   error
-	calls int
+	err    error
+	failAt int
+	calls  int
 }
 
 func (preflight *fakeReadinessPreflight) Validate(_ context.Context, _, _, _, _ string) error {
 	preflight.calls++
+	if preflight.failAt == preflight.calls {
+		return errors.New("synthetic relay preflight transition")
+	}
 	return preflight.err
 }
 
@@ -171,6 +175,25 @@ func TestReconcileRequiresCurrentRelayPreflightBeforeMutationOrReceipt(t *testin
 	}
 	if _, err := store.LoadReceipt(desired.ActionKey()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("receipt persisted after preflight failure: %v", err)
+	}
+}
+
+func TestReconcileRechecksRelayPreflightAfterConvergenceBeforeReceipt(t *testing.T) {
+	now := time.Date(2026, 9, 3, 11, 0, 0, 0, time.UTC)
+	bootID := "boot-preflight-transition"
+	handler := newFakeHandler("ordinary:fixed", "canary:fixed")
+	preflight := &fakeReadinessPreflight{failAt: 2}
+	reconciler, store := testReconcilerWithPreflight(t, handler, &now, &bootID, preflight)
+	desired := testDesired(t, 1, "release-12", strings.Repeat("a", 64), "wl:new:exit-s1")
+
+	if _, err := reconciler.Apply(context.Background(), desired); err == nil {
+		t.Fatal("receipt emitted after relay preflight changed during convergence")
+	}
+	if preflight.calls != 2 || !reflect.DeepEqual(handler.operations, []string{"add:wl:new:exit-s1"}) {
+		t.Fatalf("preflight calls=%d operations=%#v", preflight.calls, handler.operations)
+	}
+	if _, err := store.LoadReceipt(desired.ActionKey()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("receipt persisted after final preflight failure: %v", err)
 	}
 }
 

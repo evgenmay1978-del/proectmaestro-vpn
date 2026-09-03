@@ -29,12 +29,12 @@ import (
 )
 
 type fakeSystem struct {
-	origins   []string
+	firewall  FirewallState
 	unhealthy string
 }
 
-func (system fakeSystem) FirewallOrigins(context.Context) ([]string, error) {
-	return append([]string(nil), system.origins...), nil
+func (system fakeSystem) Firewall(context.Context) (FirewallState, error) {
+	return system.firewall, nil
 }
 
 func (system fakeSystem) ProbeRelay(_ context.Context, route Route) error {
@@ -47,7 +47,8 @@ func (system fakeSystem) ProbeRelay(_ context.Context, route Route) error {
 func testConfig() Config {
 	return Config{
 		ReleaseID: "release-12", ConfigDigest: strings.Repeat("a", 64),
-		ActiveOriginIPs: []string{"192.0.2.11", "192.0.2.12", "192.0.2.13", "192.0.2.14"},
+		ActiveOriginIPs:    []string{"192.0.2.11", "192.0.2.12", "192.0.2.13", "192.0.2.14"},
+		ControllerSourceIP: "192.0.2.10",
 		Routes: []Route{
 			{ExitID: "exit-s1", Address: "127.0.0.1", Port: 18084, ServerName: "exit-s1.example.test", CAFile: "/etc/maestro/exit-s1.crt", CredentialFile: "/etc/maestro/exit-s1.credential"},
 			{ExitID: "exit-s2", Address: "192.0.2.12", Port: 18084, ServerName: "exit-s2.example.test", CAFile: "/etc/maestro/exit-s2.crt", CredentialFile: "/etc/maestro/exit-s2.credential"},
@@ -60,7 +61,7 @@ func testConfig() Config {
 func TestCheckerRequiresExactSourceFirewallAndEveryRelayHealth(t *testing.T) {
 	now := time.Date(2026, 9, 3, 11, 0, 0, 0, time.UTC)
 	config := testConfig()
-	checker, err := NewChecker(config, fakeSystem{origins: config.ActiveOriginIPs}, func() time.Time { return now })
+	checker, err := NewChecker(config, fakeSystem{firewall: FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{config.ControllerSourceIP}}}, func() time.Time { return now })
 	if err != nil {
 		t.Fatalf("NewChecker: %v", err)
 	}
@@ -81,8 +82,9 @@ func TestCheckerRequiresExactSourceFirewallAndEveryRelayHealth(t *testing.T) {
 	}
 
 	for name, system := range map[string]fakeSystem{
-		"source firewall drift": {origins: append(config.ActiveOriginIPs, "192.0.2.99")},
-		"unhealthy exact exit":  {origins: config.ActiveOriginIPs, unhealthy: "exit-s3"},
+		"source firewall drift": {firewall: FirewallState{ActiveOriginIPs: append(config.ActiveOriginIPs, "192.0.2.99"), ControllerSourceIPs: []string{config.ControllerSourceIP}}},
+		"controller exposure":   {firewall: FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{"192.0.2.99"}}},
+		"unhealthy exact exit":  {firewall: FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{config.ControllerSourceIP}}, unhealthy: "exit-s3"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			checker, err := NewChecker(config, system, func() time.Time { return now })
@@ -101,6 +103,7 @@ func TestLoadConfigBindsRuntimeRoutesToProtectedCredentials(t *testing.T) {
 	raw := []byte(`{"outbounds":[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"block"},{"protocol":"vless","settings":{"vnext":[{"address":"192.0.2.11","port":18084,"users":[{"id":"00000000-0000-4000-8000-000000000041","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"tls","tlsSettings":{"serverName":"exit-s1.example.test","allowInsecure":false,"alpn":["h2"]}},"tag":"exit-s1"},{"protocol":"vless","settings":{"vnext":[{"address":"192.0.2.12","port":18084,"users":[{"id":"00000000-0000-4000-8000-000000000042","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"tls","tlsSettings":{"serverName":"exit-s2.example.test","allowInsecure":false,"alpn":["h2"]}},"tag":"exit-s2"},{"protocol":"vless","settings":{"vnext":[{"address":"192.0.2.13","port":18084,"users":[{"id":"00000000-0000-4000-8000-000000000043","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"tls","tlsSettings":{"serverName":"exit-s3.example.test","allowInsecure":false,"alpn":["h2"]}},"tag":"exit-s3"},{"protocol":"vless","settings":{"vnext":[{"address":"192.0.2.14","port":18084,"users":[{"id":"00000000-0000-4000-8000-000000000044","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"tls","tlsSettings":{"serverName":"exit-s4.example.test","allowInsecure":false,"alpn":["h2"]}},"tag":"exit-s4"}]}`)
 	xrayConfig := filepath.Join(directory, "config.json")
 	originsFile := filepath.Join(directory, "active-origins.json")
+	controllerSourceFile := filepath.Join(directory, "controller-source.json")
 	credentialDirectory := filepath.Join(directory, "relay-credentials")
 	caDirectory := filepath.Join(directory, "relay-ca")
 	for _, path := range []string{credentialDirectory, caDirectory} {
@@ -114,6 +117,9 @@ func TestLoadConfigBindsRuntimeRoutesToProtectedCredentials(t *testing.T) {
 	if err := os.WriteFile(originsFile, []byte(`["192.0.2.11","192.0.2.12","192.0.2.13","192.0.2.14"]`), 0o600); err != nil {
 		t.Fatalf("write origins: %v", err)
 	}
+	if err := os.WriteFile(controllerSourceFile, []byte(`"192.0.2.10"`), 0o600); err != nil {
+		t.Fatalf("write controller source: %v", err)
+	}
 	for index, exitID := range []string{"exit-s1", "exit-s2", "exit-s3", "exit-s4"} {
 		credential := fmt.Sprintf("00000000-0000-4000-8000-00000000004%d", index+1)
 		if err := os.WriteFile(filepath.Join(credentialDirectory, exitID+".credential"), []byte(credential+"\n"), 0o600); err != nil {
@@ -125,7 +131,7 @@ func TestLoadConfigBindsRuntimeRoutesToProtectedCredentials(t *testing.T) {
 	}
 	digest := sha256.Sum256(raw)
 	config, err := LoadConfig(RuntimeConfigSource{
-		XrayConfigFile: xrayConfig, ActiveOriginsFile: originsFile,
+		XrayConfigFile: xrayConfig, ActiveOriginsFile: originsFile, ControllerSourceIPFile: controllerSourceFile,
 		RelayCADirectory: caDirectory, RelayCredentialDirectory: credentialDirectory,
 	}, "release-12", hex.EncodeToString(digest[:]))
 	if err != nil {
@@ -138,7 +144,7 @@ func TestLoadConfigBindsRuntimeRoutesToProtectedCredentials(t *testing.T) {
 		t.Fatalf("replace credential: %v", err)
 	}
 	if _, err := LoadConfig(RuntimeConfigSource{
-		XrayConfigFile: xrayConfig, ActiveOriginsFile: originsFile,
+		XrayConfigFile: xrayConfig, ActiveOriginsFile: originsFile, ControllerSourceIPFile: controllerSourceFile,
 		RelayCADirectory: caDirectory, RelayCredentialDirectory: credentialDirectory,
 	}, "release-12", hex.EncodeToString(digest[:])); err == nil || strings.Contains(err.Error(), "00000000") {
 		t.Fatalf("runtime credential mismatch error = %v", err)
@@ -146,7 +152,7 @@ func TestLoadConfigBindsRuntimeRoutesToProtectedCredentials(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(credentialDirectory, "exit-s3.credential"), []byte("00000000-0000-4000-8000-000000000043\n"), 0o600); err != nil {
 		t.Fatalf("restore credential: %v", err)
 	}
-	checker, err := NewChecker(config, fakeSystem{origins: config.ActiveOriginIPs}, time.Now)
+	checker, err := NewChecker(config, fakeSystem{firewall: FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{config.ControllerSourceIP}}}, time.Now)
 	if err != nil {
 		t.Fatalf("NewChecker: %v", err)
 	}
@@ -159,13 +165,13 @@ func TestLoadConfigBindsRuntimeRoutesToProtectedCredentials(t *testing.T) {
 }
 
 func TestParseNFTSourceFirewallRequiresAllowlistThenTerminalDrop(t *testing.T) {
-	raw := []byte(`{"nftables":[{"set":{"family":"inet","table":"maestro_xray_cdn","name":"active_origins_18084","type":"ipv4_addr","elem":["192.0.2.11","192.0.2.12"]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":18084}},{"match":{"op":"==","left":{"payload":{"protocol":"ip","field":"saddr"}},"right":{"set":"active_origins_18084"}}},{"accept":null}]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":18084}},{"drop":null}]}}]}`)
-	origins, err := ParseNFTSourceFirewall(raw)
+	raw := []byte(`{"nftables":[{"chain":{"family":"inet","table":"maestro_xray_cdn","name":"input","type":"filter","hook":"input","prio":0,"policy":"accept"}},{"set":{"family":"inet","table":"maestro_xray_cdn","name":"active_origins_18084","type":"ipv4_addr","elem":["192.0.2.11","192.0.2.12"]}},{"set":{"family":"inet","table":"maestro_xray_cdn","name":"controller_source_18443","type":"ipv4_addr","elem":["192.0.2.10"]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":18084}},{"match":{"op":"==","left":{"payload":{"protocol":"ip","field":"saddr"}},"right":"@active_origins_18084"}},{"accept":null}]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":18084}},{"drop":null}]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":18443}},{"match":{"op":"==","left":{"payload":{"protocol":"ip","field":"saddr"}},"right":"@controller_source_18443"}},{"accept":null}]}},{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":18443}},{"drop":null}]}}]}`)
+	firewall, err := ParseNFTSourceFirewall(raw)
 	if err != nil {
 		t.Fatalf("ParseNFTSourceFirewall: %v", err)
 	}
-	if !reflect.DeepEqual(origins, []string{"192.0.2.11", "192.0.2.12"}) {
-		t.Fatalf("origins = %#v", origins)
+	if !reflect.DeepEqual(firewall.ActiveOriginIPs, []string{"192.0.2.11", "192.0.2.12"}) || !reflect.DeepEqual(firewall.ControllerSourceIPs, []string{"192.0.2.10"}) {
+		t.Fatalf("firewall = %#v", firewall)
 	}
 	if _, err := ParseNFTSourceFirewall([]byte(strings.Replace(string(raw), `{"drop":null}`, `{"accept":null}`, 1))); err == nil {
 		t.Fatal("source firewall without terminal port-18084 drop accepted")
@@ -173,6 +179,16 @@ func TestParseNFTSourceFirewallRequiresAllowlistThenTerminalDrop(t *testing.T) {
 	unsafeGeneralAccept := strings.Replace(string(raw), `{"nftables":[`, `{"nftables":[{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"accept":null}]}},`, 1)
 	if _, err := ParseNFTSourceFirewall([]byte(unsafeGeneralAccept)); err == nil {
 		t.Fatal("source firewall with a general accept rule accepted")
+	}
+	for name, unsafe := range map[string]string{
+		"unhooked chain":          strings.Replace(string(raw), `"hook":"input"`, `"hook":"output"`, 1),
+		"controller port exposed": strings.Replace(string(raw), `{"drop":null}`, `{"accept":null}`, 2),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseNFTSourceFirewall([]byte(unsafe)); err == nil {
+				t.Fatal("unsafe firewall accepted")
+			}
+		})
 	}
 }
 
