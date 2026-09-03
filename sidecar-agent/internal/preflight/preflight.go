@@ -54,13 +54,13 @@ type Route struct {
 }
 
 type Config struct {
-	ReleaseID         string
-	ConfigDigest      string
-	ActiveOriginIPs   []string
+	ReleaseID          string
+	ConfigDigest       string
+	ActiveOriginIPs    []string
 	ControllerSourceIP string
-	Routes            []Route
-	runtimeConfigFile string
-	credentialDigests map[string][sha256.Size]byte
+	Routes             []Route
+	runtimeConfigFile  string
+	credentialDigests  map[string][sha256.Size]byte
 }
 
 type RuntimeConfigSource struct {

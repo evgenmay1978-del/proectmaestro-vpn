@@ -68,7 +68,7 @@ func run() error {
 	preflightConfig, err := preflight.LoadConfig(preflight.RuntimeConfigSource{
 		XrayConfigFile: configuration.xrayConfigFile, ActiveOriginsFile: configuration.activeOriginsFile,
 		ControllerSourceIPFile: configuration.controllerSourceIPFile,
-		RelayCADirectory: configuration.relayCADirectory, RelayCredentialDirectory: configuration.relayCredentialDirectory,
+		RelayCADirectory:       configuration.relayCADirectory, RelayCredentialDirectory: configuration.relayCredentialDirectory,
 	}, configuration.releaseID, configuration.configDigest)
 	if err != nil {
 		return err
