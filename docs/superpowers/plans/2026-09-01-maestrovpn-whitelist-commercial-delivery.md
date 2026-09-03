@@ -408,20 +408,20 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Write fake HandlerService tests for list/add/remove, exact desired convergence, duplicate request, stale generation, partial RPC failure, restart receipt invalidation/recovery, receipt TTL expiry, config digest mismatch, release mismatch, and no add/remove operation against a non-managed or canary/static email.
-- [ ] Write TLS tests that reject plaintext, unknown CA, wrong client name, expired cert, oversized body, non-canonical JSON, and request digest mismatch.
-- [ ] Run `go test ./...` from `sidecar-agent`; require RED.
-- [ ] Implement canonical desired manifests and local receipts under `/var/lib/maestro-xray-cdn-agent/receipts` using atomic rename, mode 0600, fsync, and bounded retention.
-- [ ] Use upstream v26.5.9 `HandlerService` types to read current users and call `AlterInbound`. Apply adds before removals, diff only the managed prefix, preserve all static/canary users, verify the final managed set, and emit a receipt only after exact convergence.
-- [ ] Derive `xray_process_boot_id` from the host boot ID and Xray process start identity. On process start and after Xray restart, invalidate the prior receipt and reconcile the last durable desired generation before reporting readiness.
-- [ ] Refresh exact-set readiness every 10 seconds and set receipt TTL to 30 seconds; an expired receipt is non-ready even when its generation number matches.
-- [ ] Extend the immutable release template validator for `HandlerService` while preserving loopback-only Xray API and mTLS.
-- [ ] Add fixed outbound/relay route metadata and four static rules such as `user: ["regexp:^wl:[^:]+:exit-s1$"] → outboundTag: "exit-s1"`. Each `exit-*` outbound uses TLS VLESS to port 18084 of the selected isolated sidecar, including loopback-to-local relay for the local exit. Route `inboundTag: ["maestro-cdn-exit-in"]` only to local freedom. Add an explicit terminal blackhole and no default exit. Reject a release whose Origin→exit matrix is incomplete or can loop.
-- [ ] Validate relay server certificate/SNI, protected per-exit relay credential, ALPN, source firewall, and exact exit health without storing relay secrets in the immutable template or receipts.
-- [ ] Run an integration test against pinned Xray 26.5.9 proving every managed exit suffix selects the intended outbound, while unknown, malformed, or unsupported exit identities are blocked.
-- [ ] Add systemd sandboxing, dedicated user, read-only certificate paths, and no shell execution.
-- [ ] Run sidecar-agent unit/race/vet tests and release template tests; require GREEN.
-- [ ] Commit with message `feat(sidecar): reconcile whitelist identities over mtls`.
+- [x] Write fake HandlerService tests for list/add/remove, exact desired convergence, duplicate request, stale generation, partial RPC failure, restart receipt invalidation/recovery, receipt TTL expiry, config digest mismatch, release mismatch, and no add/remove operation against a non-managed or canary/static email.
+- [x] Write TLS tests that reject plaintext, unknown CA, wrong client name, expired cert, oversized body, non-canonical JSON, and request digest mismatch.
+- [x] Run `go test ./...` from `sidecar-agent`; require RED.
+- [x] Implement canonical desired manifests and local receipts under `/var/lib/maestro-xray-cdn-agent/receipts` using atomic rename, mode 0600, fsync, and bounded retention.
+- [x] Use upstream v26.5.9 `HandlerService` types to read current users and call `AlterInbound`. Apply adds before removals, diff only the managed prefix, preserve all static/canary users, verify the final managed set, and emit a receipt only after exact convergence.
+- [x] Derive `xray_process_boot_id` from the host boot ID and Xray process start identity. On process start and after Xray restart, invalidate the prior receipt and reconcile the last durable desired generation before reporting readiness.
+- [x] Refresh exact-set readiness every 10 seconds and set receipt TTL to 30 seconds; an expired receipt is non-ready even when its generation number matches.
+- [x] Extend the immutable release template validator for `HandlerService` while preserving loopback-only Xray API and mTLS.
+- [x] Add fixed outbound/relay route metadata and four static rules such as `user: ["regexp:^wl:[^:]+:exit-s1$"] → outboundTag: "exit-s1"`. Each `exit-*` outbound uses TLS VLESS to port 18084 of the selected isolated sidecar, including loopback-to-local relay for the local exit. Route `inboundTag: ["maestro-cdn-exit-in"]` only to local freedom. Add an explicit terminal blackhole and no default exit. Reject a release whose Origin→exit matrix is incomplete or can loop.
+- [x] Validate relay server certificate/SNI, protected per-exit relay credential, ALPN, source firewall, and exact exit health without storing relay secrets in the immutable template or receipts.
+- [x] Run an integration test against pinned Xray 26.5.9 proving every managed exit suffix selects the intended outbound, while unknown, malformed, or unsupported exit identities are blocked.
+- [x] Add systemd sandboxing, dedicated user, read-only certificate paths, and no shell execution.
+- [x] Run sidecar-agent unit/race/vet tests and release template tests; require GREEN.
+- [x] Commit with message `feat(sidecar): reconcile whitelist identities over mtls`.
 
 ## Task 13: Connect external actions to node agents
 

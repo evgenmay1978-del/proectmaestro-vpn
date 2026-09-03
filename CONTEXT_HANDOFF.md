@@ -1,17 +1,16 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. WHITE-LIST COMMERCIAL DELIVERY — TASK 11 SIDECAR STATE GREEN; TASK 12 NEXT (03.09.2026)
+## 0. WHITE-LIST COMMERCIAL DELIVERY — TASK 12 NODE AGENT GREEN; TASK 13 NEXT (04.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
-  `codex/yandex-cdn-whitelist-task3-sync`. Последний проверенный implementation
-  checkpoint Task 11 — exact SHA
-  `e8525c7cc0efb474c681707a4580b206a74fb018`; local и remote refs совпадают.
-  Все пять применимых exact-SHA workflow завершены GREEN: HA control-plane
-  `33750376044`, HA DR `33750376078`, Yandex CDN `33750376057`, immutable
-  artifact `33750376108`, S4 package `33750376068`. После первоначального
-  review выполнены два scoped fix/re-review round; итоговый re-review подтвердил
-  все findings `ADDRESSED`, новых Critical/Important и out-of-scope findings
-  нет.
+  `codex/yandex-cdn-whitelist-task3-sync`. Проверенный Task 12 node-agent code
+  checkpoint — exact SHA `c93a88efd939e725d2853beee7f9f6960f06a3ee`;
+  отчётный checkpoint — `f516362e69a1a9b799f80cf5e8f6af07b6803bc2`.
+  Local и remote refs совпадают. Все четыре применимых exact-SHA workflow на
+  code SHA завершены GREEN: isolated sidecar `33802583679`, S4 package
+  `33802583583`, immutable artifact `33802583567`, Yandex CDN
+  `33802583564`. Три scoped fix/re-review round закрыли все найденные
+  Critical/Important; итоговый минимальный re-review вернул `CLEAN`.
 - Tasks 1–3 завершены ранее на `d95b5eb76fe4731c569e4fea0fa8affa34c3a4a0`,
   `3033d4069af5199c50f4912c43314972d961ae1b` и
   `2000ec1002f50f65a04cdca94416325b5a36ce75`. Task 4 добавил schema v11 с
@@ -84,15 +83,19 @@
   свежих receipts всех active Origins и health выбранного exit. Xray API
   остаётся mTLS-only на loopback-интерфейсе; unknown identity блокируется; production
   3x-ui/Xray и ordinary VPN не затрагиваются.
-- Независимые design/plan и Task 1–11 reviews закрыты в реализованной части.
+- Независимые design/plan и Task 1–12 reviews закрыты в реализованной части.
   Task 11 добавил immutable migration `0015`, защищённые route credentials,
   канонические monotonic desired generations, durable current-state readiness
   по полному набору active Origins и точные unexpired receipts, привязанные к
   текущим boot/config/generation/action identities. Unknown outcome остаётся
-  read-only и не вызывает blind resend. Следующий repository step — Task 12:
-  isolated mTLS node agent. Затем выполняются Task 13 integration/outbox-alert
-  wiring и Task 14 CI compatibility/rollback; только после exact-SHA review/CI
-  начинаются production inventory/backup/canary gates.
+  read-only и не вызывает blind resend. Task 12 добавил отдельный Go 1.26
+  mTLS node agent, exact HandlerService reconciliation по email+VLESS account,
+  durable short-lived receipts, Xray PID/start identity, fail-closed relay/TLS
+  health и строгую проверку ровно четырёх разрешённых nftables firewall rules.
+  Следующий repository step — Task 13 external-action/outbox-alert integration;
+  затем Task 14 compatibility/accounting/rollback CI. Task 15 начинается только
+  после их exact-SHA review/CI и выполняет inventory/backup/canary/rollout
+  S4 → S2 → S3 → S1.
 - Этот checkpoint не изменяет серверы, Yandex Cloud, DNS/TLS, клиентов, ботов,
   платежи, balances, Android/TV, release/signing или OTA. Real charging,
   production DB cutover и final customer traffic cutover остаются отдельными
