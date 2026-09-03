@@ -12,8 +12,13 @@ import (
 
 type Handler interface {
 	ListUsers(context.Context, string) ([]string, error)
+	ManagedUserAccountMatches(context.Context, string, string) (bool, error)
 	AddUser(context.Context, string, string) error
 	RemoveUser(context.Context, string, string) error
+}
+
+type ReadinessPreflight interface {
+	Validate(context.Context, string, string, string, string) error
 }
 
 type ReconcilerConfig struct {
@@ -23,6 +28,7 @@ type ReconcilerConfig struct {
 	ReleaseID     string
 	ConfigDigest  string
 	ProcessBootID func() (string, error)
+	Preflight     ReadinessPreflight
 	Now           func() time.Time
 	ReceiptTTL    time.Duration
 }
@@ -34,6 +40,7 @@ type Reconciler struct {
 	releaseID     string
 	configDigest  string
 	processBootID func() (string, error)
+	preflight     ReadinessPreflight
 	now           func() time.Time
 	receiptTTL    time.Duration
 	mutex         sync.Mutex
@@ -41,7 +48,7 @@ type Reconciler struct {
 
 func NewReconciler(config ReconcilerConfig) (*Reconciler, error) {
 	if config.Handler == nil || config.Store == nil || config.InboundTag != DefaultInboundTag ||
-		!safeIdentifier(config.ReleaseID) || !validDigest(config.ConfigDigest) || config.ProcessBootID == nil {
+		!safeIdentifier(config.ReleaseID) || !validDigest(config.ConfigDigest) || config.ProcessBootID == nil || config.Preflight == nil {
 		return nil, errors.New("sidecar agent: invalid reconciler configuration")
 	}
 	if config.Now == nil {
@@ -56,7 +63,7 @@ func NewReconciler(config ReconcilerConfig) (*Reconciler, error) {
 	return &Reconciler{
 		handler: config.Handler, store: config.Store, inboundTag: config.InboundTag,
 		releaseID: config.ReleaseID, configDigest: config.ConfigDigest,
-		processBootID: config.ProcessBootID, now: config.Now, receiptTTL: config.ReceiptTTL,
+		processBootID: config.ProcessBootID, preflight: config.Preflight, now: config.Now, receiptTTL: config.ReceiptTTL,
 	}, nil
 }
 
@@ -115,6 +122,9 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if err := reconciler.store.InvalidateReceiptsExceptBoot(bootID); err != nil {
 		return Receipt{}, err
 	}
+	if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, desired.ExitID); err != nil {
+		return Receipt{}, errors.New("sidecar agent: relay readiness preflight failed")
+	}
 	if err := reconciler.converge(ctx, desired); err != nil {
 		return Receipt{}, err
 	}
@@ -138,6 +148,20 @@ func (reconciler *Reconciler) converge(ctx context.Context, desired Desired) err
 	}
 	currentManaged := managedSet(current)
 	desiredManaged := stringSet(desired.ManagedUsers)
+	replacements := make([]string, 0)
+	for email := range desiredManaged {
+		if _, present := currentManaged[email]; !present {
+			continue
+		}
+		matches, err := reconciler.handler.ManagedUserAccountMatches(ctx, reconciler.inboundTag, email)
+		if err != nil {
+			return errors.New("sidecar agent: verify managed Xray account")
+		}
+		if !matches {
+			replacements = append(replacements, email)
+		}
+	}
+	sort.Strings(replacements)
 	for _, email := range sortedDifference(desiredManaged, currentManaged) {
 		if !managedEmailForExit(email, desired.ExitID) {
 			return ErrInvalidDesired
@@ -154,6 +178,14 @@ func (reconciler *Reconciler) converge(ctx context.Context, desired Desired) err
 	for email := range desiredManaged {
 		if _, ok := afterAddManaged[email]; !ok {
 			return fmt.Errorf("sidecar agent: managed Xray addition not visible")
+		}
+	}
+	for _, email := range replacements {
+		if err := reconciler.handler.RemoveUser(ctx, reconciler.inboundTag, email); err != nil {
+			return errors.New("sidecar agent: remove stale managed Xray account")
+		}
+		if err := reconciler.handler.AddUser(ctx, reconciler.inboundTag, email); err != nil {
+			return errors.New("sidecar agent: replace managed Xray account")
 		}
 	}
 	for _, email := range sortedDifference(afterAddManaged, desiredManaged) {
@@ -173,6 +205,12 @@ func (reconciler *Reconciler) converge(ctx context.Context, desired Desired) err
 	}
 	if !setsEqual(managedSet(final), desiredManaged) {
 		return errors.New("sidecar agent: exact managed Xray convergence failed")
+	}
+	for email := range desiredManaged {
+		matches, err := reconciler.handler.ManagedUserAccountMatches(ctx, reconciler.inboundTag, email)
+		if err != nil || !matches {
+			return errors.New("sidecar agent: exact managed Xray account convergence failed")
+		}
 	}
 	return nil
 }

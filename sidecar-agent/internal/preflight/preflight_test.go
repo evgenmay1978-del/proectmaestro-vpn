@@ -143,6 +143,19 @@ func TestLoadConfigBindsRuntimeRoutesToProtectedCredentials(t *testing.T) {
 	}, "release-12", hex.EncodeToString(digest[:])); err == nil || strings.Contains(err.Error(), "00000000") {
 		t.Fatalf("runtime credential mismatch error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(credentialDirectory, "exit-s3.credential"), []byte("00000000-0000-4000-8000-000000000043\n"), 0o600); err != nil {
+		t.Fatalf("restore credential: %v", err)
+	}
+	checker, err := NewChecker(config, fakeSystem{origins: config.ActiveOriginIPs}, time.Now)
+	if err != nil {
+		t.Fatalf("NewChecker: %v", err)
+	}
+	if err := os.WriteFile(xrayConfig, append(raw, '\n'), 0o600); err != nil {
+		t.Fatalf("replace runtime config: %v", err)
+	}
+	if _, err := checker.Check(context.Background(), "boot-runtime-drift"); err == nil {
+		t.Fatal("changed runtime config accepted after preflight contract load")
+	}
 }
 
 func TestParseNFTSourceFirewallRequiresAllowlistThenTerminalDrop(t *testing.T) {
@@ -156,6 +169,10 @@ func TestParseNFTSourceFirewallRequiresAllowlistThenTerminalDrop(t *testing.T) {
 	}
 	if _, err := ParseNFTSourceFirewall([]byte(strings.Replace(string(raw), `{"drop":null}`, `{"accept":null}`, 1))); err == nil {
 		t.Fatal("source firewall without terminal port-18084 drop accepted")
+	}
+	unsafeGeneralAccept := strings.Replace(string(raw), `{"nftables":[`, `{"nftables":[{"rule":{"family":"inet","table":"maestro_xray_cdn","chain":"input","expr":[{"accept":null}]}},`, 1)
+	if _, err := ParseNFTSourceFirewall([]byte(unsafeGeneralAccept)); err == nil {
+		t.Fatal("source firewall with a general accept rule accepted")
 	}
 }
 

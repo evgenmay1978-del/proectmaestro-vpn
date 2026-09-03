@@ -3,6 +3,7 @@ package xrayclient
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
@@ -108,6 +109,47 @@ func (client *Client) ListUsers(ctx context.Context, inboundTag string) ([]strin
 		users = append(users, user.Email)
 	}
 	return users, nil
+}
+
+func (client *Client) ManagedUserAccountMatches(ctx context.Context, inboundTag, email string) (bool, error) {
+	if client == nil || client.handler == nil || client.credentials == nil || inboundTag != managedInbound ||
+		!managedEmail.MatchString(email) {
+		return false, errors.New("xray client: invalid managed account query")
+	}
+	credential, err := client.credentials.Credential(ctx, email)
+	if err != nil || !canonicalUUID.MatchString(credential) {
+		return false, errors.New("xray client: managed credential unavailable")
+	}
+	expected := serial.ToTypedMessage(&vless.Account{Id: credential, Encryption: "none"})
+	response, err := client.handler.GetInboundUsers(ctx, &command.GetInboundUserRequest{Tag: inboundTag})
+	if err != nil {
+		return false, errors.New("xray client: HandlerService account query failed")
+	}
+	found := false
+	matches := false
+	for _, user := range response.GetUsers() {
+		if user == nil || user.Email == "" {
+			return false, errors.New("xray client: HandlerService returned invalid user")
+		}
+		if user.Email != email {
+			continue
+		}
+		if found {
+			return false, errors.New("xray client: HandlerService returned duplicate user")
+		}
+		found = true
+		matches = typedMessagesEqual(user.Account, expected)
+	}
+	return found && matches, nil
+}
+
+func typedMessagesEqual(left, right *serial.TypedMessage) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	leftDigest := sha256.Sum256(append(append([]byte(left.GetType()), 0), left.GetValue()...))
+	rightDigest := sha256.Sum256(append(append([]byte(right.GetType()), 0), right.GetValue()...))
+	return subtle.ConstantTimeCompare(leftDigest[:], rightDigest[:]) == 1
 }
 
 func (client *Client) AddUser(ctx context.Context, inboundTag, email string) error {

@@ -319,8 +319,7 @@ func TestTemplatesUseIsolatedPortsAndRejectSecretLeakage(t *testing.T) {
 func TestSystemdRuntimeConfigIsExternallyRootMaterializedAndReadOnly(t *testing.T) {
 	unit := string(release.DefaultSystemdTemplate())
 	for _, forbidden := range []string{
-		"\nRuntimeDirectory=",
-		"\nRuntimeDirectoryMode=",
+		"\nRuntimeDirectory=maestro-xray-cdn\n",
 		"ReadWritePaths=/run/maestro-xray-cdn",
 	} {
 		if strings.Contains(unit, forbidden) {
@@ -332,6 +331,8 @@ func TestSystemdRuntimeConfigIsExternallyRootMaterializedAndReadOnly(t *testing.
 		"ReadWritePaths=/var/log/maestro-xray-cdn",
 		"ExecStartPre=/opt/maestro-xray-cdn/current/xray run -test -config " + release.RuntimeConfigPath,
 		"ExecStart=/opt/maestro-xray-cdn/current/xray run -config " + release.RuntimeConfigPath,
+		"RuntimeDirectory=maestro-xray-cdn-pid",
+		"RuntimeDirectoryMode=0755",
 	} {
 		if !strings.Contains(unit, required) {
 			t.Fatalf("systemd unit missing root-owned runtime contract %q", required)

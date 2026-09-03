@@ -16,6 +16,8 @@ UMask=0077
 StateDirectory=maestro-xray-cdn-agent/receipts
 StateDirectoryMode=0700
 NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
@@ -31,8 +33,8 @@ LockPersonality=true
 RestrictRealtime=true
 RemoveIPC=true
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths=/etc/maestro-xray-cdn-agent /etc/maestro-xray-cdn/api-mtls /var/lib/maestro-xray-cdn-agent/credentials /proc/sys/kernel/random/boot_id /run/maestro-xray-cdn/xray.pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadOnlyPaths=/etc/maestro-xray-cdn-agent /etc/maestro-xray-cdn/api-mtls /var/lib/maestro-xray-cdn-agent/credentials /etc/maestro-xray-cdn-agent/active-origin-ips.json /etc/maestro-xray-cdn-agent/relay-ca /var/lib/maestro-xray-cdn-agent/relay-credentials /proc/sys/kernel/random/boot_id /run/maestro-xray-cdn/config.json /run/maestro-xray-cdn-pid/xray.pid
 ReadWritePaths=/var/lib/maestro-xray-cdn-agent/receipts
 
 [Install]
