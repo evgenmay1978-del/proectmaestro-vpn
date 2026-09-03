@@ -368,14 +368,14 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Write migration tests for v14 → v15, monotonic generation, receipt replay, stale receipt rejection, release mismatch, and immutable action binding.
-- [ ] Write service tests proving adding/removing one entitlement changes only its `wl:<entitlementID>:<exitID>` identities, preserves canary/static users, and produces a new generation for every active Origin.
-- [ ] Write route-matrix tests proving any active Origin routes each managed identity to the same selected exit and that the public country label is derived from exit metadata only.
-- [ ] Run focused controlplane tests; require RED.
-- [ ] Add migration 15 and typed desired/receipt services. Reuse `ExternalActionCommand` with action key `<node-id>:<generation>:<desired-sha256>`.
-- [ ] Mark a route generation `ready` only after every active Origin has a matching unexpired receipt for its current Xray process boot identity and config digest and the selected exit relay is healthy. On unknown provider outcome, read the durable receipt for the same action key; never resend before resolution.
-- [ ] Run migration, rqlite, external-action, and race tests; require GREEN.
-- [ ] Commit with message `feat(controlplane): persist sidecar desired generations`.
+- [x] Write migration tests for v14 → v15, monotonic generation, receipt replay, stale receipt rejection, release mismatch, and immutable action binding.
+- [x] Write service tests proving adding/removing one entitlement changes only its `wl:<entitlementID>:<exitID>` identities, preserves canary/static users, and produces a new generation for every active Origin.
+- [x] Write route-matrix tests proving any active Origin routes each managed identity to the same selected exit and that the public country label is derived from exit metadata only.
+- [x] Run focused controlplane tests; require RED.
+- [x] Add migration 15 and typed desired/receipt services. Reuse `ExternalActionCommand` with action key `<node-id>:<generation>:<desired-sha256>`.
+- [x] Mark a route generation `ready` only after every active Origin has a matching unexpired receipt for its current Xray process boot identity and config digest and the selected exit relay is healthy. On unknown provider outcome, read the durable receipt for the same action key; never resend before resolution.
+- [x] Run migration, rqlite, external-action, and race tests; require GREEN.
+- [x] Commit with message `feat(controlplane): persist sidecar desired generations`.
 
 ## Task 12: Build the isolated mTLS node agent
 
