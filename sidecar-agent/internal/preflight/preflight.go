@@ -144,7 +144,7 @@ func (checker *Checker) Check(ctx context.Context, bootID string) (Attestation, 
 	healthy := make([]string, 0, len(checker.config.Routes))
 	for _, route := range checker.config.Routes {
 		if err := checker.system.ProbeRelay(ctx, route); err != nil {
-			return Attestation{}, errors.New("relay preflight: exact exit health failed")
+			continue
 		}
 		healthy = append(healthy, route.ExitID)
 	}

@@ -40,11 +40,12 @@ type whiteListSidecarIntentReconciler interface {
 }
 
 type rqliteRuntimeDependencies struct {
-	newClient       func(rqlite.Config) (rqlite.RQLite, error)
-	loadSecretBox   func(string) (*controlplane.SecretBox, error)
-	applyMigrations func(context.Context, rqlite.RQLite) error
-	ids             controlplane.IDSource
-	clock           controlplane.Clock
+	newClient               func(rqlite.Config) (rqlite.RQLite, error)
+	loadSecretBox           func(string) (*controlplane.SecretBox, error)
+	applyMigrations         func(context.Context, rqlite.RQLite) error
+	ids                     controlplane.IDSource
+	clock                   controlplane.Clock
+	whiteListSidecarSenders map[string]controlplane.ExternalActionSender
 }
 
 func productionRQLiteRuntimeDependencies() rqliteRuntimeDependencies {
@@ -105,7 +106,8 @@ func buildRQLitePanelRuntime(
 	}
 	publicationEnabled := len(whiteListPublicationEnabled) == 1 && whiteListPublicationEnabled[0]
 	business := api.NewServiceBusiness(service, rqliteServiceBusinessConfig(
-		apiConfig, wbSender, workerID, runtimeWhiteListPublicationSource(service, publicationEnabled),
+		apiConfig, wbSender, workerID,
+		runtimeWhiteListPublicationSource(service, publicationEnabled, dependencies.whiteListSidecarSenders),
 	))
 	server := api.NewControlPlane(business, apiConfig)
 	runtime := &panelRuntime{

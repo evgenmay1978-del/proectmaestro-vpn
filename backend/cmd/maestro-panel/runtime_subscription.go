@@ -15,20 +15,28 @@ import (
 const runtimeWhiteListXHTTPExtra = `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id","uplinkHTTPMethod":"GET","uplinkDataPlacement":"body"}`
 
 type rqliteWhiteListPublicationSource struct {
-	service *controlplane.Service
+	service       *controlplane.Service
+	resolveSender func(string) (controlplane.ExternalActionSender, bool)
 }
 
-func runtimeWhiteListPublicationSource(service *controlplane.Service, enable bool) api.WhiteListPublicationSource {
-	if !enable || service == nil {
+func runtimeWhiteListPublicationSource(
+	service *controlplane.Service, enable bool,
+	senders map[string]controlplane.ExternalActionSender,
+) api.WhiteListPublicationSource {
+	if !enable || service == nil || len(senders) == 0 {
 		return nil
 	}
-	return rqliteWhiteListPublicationSource{service: service}
+	resolveSender := func(nodeID string) (controlplane.ExternalActionSender, bool) {
+		sender, ok := senders[nodeID]
+		return sender, ok && sender != nil
+	}
+	return rqliteWhiteListPublicationSource{service: service, resolveSender: resolveSender}
 }
 
 func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 	ctx context.Context, token string, now time.Time,
 ) (api.WhiteListPublicationSnapshot, error) {
-	delivery, err := s.service.WhiteListPublicationDelivery(ctx, token, now)
+	delivery, err := s.service.WhiteListPublicationDelivery(ctx, token, now, s.resolveSender)
 	if err != nil {
 		return api.WhiteListPublicationSnapshot{}, err
 	}
@@ -49,7 +57,7 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 		Path: delivery.Material.SecretPath, Mode: "packet-up", UplinkHTTPMethod: "GET",
 		UplinkDataPlacement: "body", ClientID: delivery.Material.ClientID,
 		Encryption: delivery.Material.ClientEncryption, Security: "tls",
-		ALPN: []string{"h2", "http/1.1"}, Fingerprint: "firefox",
+		ALPN: []string{"h2"}, Fingerprint: "firefox",
 		Extra:          url.QueryEscape(runtimeWhiteListXHTTPExtra),
 		Label:          fmt.Sprintf("Maestro CDN — %s", delivery.CountryLabel),
 		DomainFallback: true, TransportProfileID: delivery.ProfileID,

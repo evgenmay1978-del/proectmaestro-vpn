@@ -89,8 +89,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("build white-list sidecar runtime: %v", err)
 		}
+		runtimeDependencies := productionRQLiteRuntimeDependencies()
+		runtimeDependencies.whiteListSidecarSenders = sidecarSenders
 		runtimeInstance, err := buildRQLitePanelRuntime(
-			context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), productionRQLiteRuntimeDependencies(),
+			context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), runtimeDependencies,
 			sidecarConfig.Enabled,
 		)
 		if err != nil {

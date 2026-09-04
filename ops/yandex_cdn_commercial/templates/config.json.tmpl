@@ -19,7 +19,16 @@
         "xhttpSettings": {
           "host": "<RUNTIME_PUBLIC_HOST>",
           "path": "<RUNTIME_SECRET_PATH>",
-          "mode": "packet-up"
+          "mode": "packet-up",
+          "extra": {
+            "sessionIDPlacement": "query",
+            "sessionIDKey": "auth",
+            "sessionIDLength": 16,
+            "seqPlacement": "query",
+            "seqKey": "chunk_id",
+            "uplinkHTTPMethod": "GET",
+            "uplinkDataPlacement": "body"
+          }
         }
       },
       "tag": "maestro-cdn-in"
@@ -82,25 +91,25 @@
     {
       "protocol": "vless",
       "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S1_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S1_CREDENTIAL>", "encryption": "none"}]}]},
-      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S1_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S1_SERVER_NAME>", "allowInsecure": false, "disableSystemRoot": true, "certificates": [{"certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-ca/exit-s1.crt", "usage": "verify"}], "alpn": ["h2"]}},
       "tag": "exit-s1"
     },
     {
       "protocol": "vless",
       "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S2_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S2_CREDENTIAL>", "encryption": "none"}]}]},
-      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S2_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S2_SERVER_NAME>", "allowInsecure": false, "disableSystemRoot": true, "certificates": [{"certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-ca/exit-s2.crt", "usage": "verify"}], "alpn": ["h2"]}},
       "tag": "exit-s2"
     },
     {
       "protocol": "vless",
       "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S3_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S3_CREDENTIAL>", "encryption": "none"}]}]},
-      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S3_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S3_SERVER_NAME>", "allowInsecure": false, "disableSystemRoot": true, "certificates": [{"certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-ca/exit-s3.crt", "usage": "verify"}], "alpn": ["h2"]}},
       "tag": "exit-s3"
     },
     {
       "protocol": "vless",
       "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S4_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S4_CREDENTIAL>", "encryption": "none"}]}]},
-      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S4_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S4_SERVER_NAME>", "allowInsecure": false, "disableSystemRoot": true, "certificates": [{"certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-ca/exit-s4.crt", "usage": "verify"}], "alpn": ["h2"]}},
       "tag": "exit-s4"
     }
   ],

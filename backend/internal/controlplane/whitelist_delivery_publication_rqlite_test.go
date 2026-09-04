@@ -3,7 +3,7 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
-	"strings"
+	"errors"
 	"testing"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
@@ -32,8 +32,10 @@ func TestWhiteListPublicationDeliveryReadsCurrentDurableStateBySubscriptionToken
 	seedWhiteListSidecarInventory(t, db, []WhiteListOrigin{origin}, exit)
 	materialBytes, err := json.Marshal(WhiteListClientMaterial{
 		PublicHost: "cdn.example.invalid", SecretPath: "/static/main/video/segment.ts/opaque",
-		ClientID:         "11111111-1111-4111-8111-111111111111",
-		ClientEncryption: "mlkem768x25519plus.native.0rtt." + strings.Repeat("Wlpa", 394) + "Wlo",
+		ClientID:                 "11111111-1111-4111-8111-111111111111",
+		ClientEncryption:         "mlkem768x25519plus.native.0rtt.test-client-material",
+		ClientEncryptionRole:     "CLIENT",
+		ClientEncryptionProofRef: "xray-vlessenc-client-v1:sha256:b150c646913ddf355a539ca3ae147919cbbae7141c3783d7860cfbbb9062424a",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -59,13 +61,14 @@ operation_id,request_hash,created_at_unix
 		}},
 	)
 	sender := &desiredReceiptSender{now: now, bootID: "boot-s2"}
-	if err := service.ReconcileWhiteListSidecarIntents(ctx, "worker-s2", func(nodeID string) (ExternalActionSender, bool) {
+	resolveSender := func(nodeID string) (ExternalActionSender, bool) {
 		return sender, nodeID == origin.NodeID
-	}); err != nil {
+	}
+	if err := service.ReconcileWhiteListSidecarIntents(ctx, "worker-s2", resolveSender); err != nil {
 		t.Fatalf("ReconcileWhiteListSidecarIntents: %v", err)
 	}
 
-	got, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now)
+	got, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
 	if err != nil {
 		t.Fatalf("WhiteListPublicationDelivery: %v", err)
 	}
@@ -75,8 +78,49 @@ operation_id,request_hash,created_at_unix
 		t.Fatalf("publication delivery = %#v", got)
 	}
 
-	closed, err := service.WhiteListPublicationDelivery(ctx, "unknown-token", now)
+	sender.receipt = nil
+	restarted, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
+	if err != nil || restarted.Decision.Verdict == WhiteListPublicationPublishable {
+		t.Fatalf("receipt from a prior Xray boot remained publishable: %#v, %v", restarted, err)
+	}
+
+	closed, err := service.WhiteListPublicationDelivery(ctx, "unknown-token", now, resolveSender)
 	if err != nil || closed.Decision.Verdict != WhiteListPublicationNoEntitlement {
 		t.Fatalf("unknown token decision = %#v, %v", closed, err)
+	}
+}
+
+func TestWhiteListClientMaterialRejectsNonClientCredential(t *testing.T) {
+	db, service := newCustomerIntegritySQLite(t)
+	ctx := context.Background()
+	customer := seedIntegrityCustomer(t, service)
+	entitlement, err := service.EnsureWhiteListEntitlement(ctx, customer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit := WhiteListExit{ExitID: "exit-nl", CountryCode: "NL", CountryLabel: "Netherlands", Healthy: true}
+	seedWhiteListSidecarInventory(t, db, []WhiteListOrigin{{
+		OriginID: "origin-s2", NodeID: "s2", ReleaseID: "release-1", ProfileID: "profile-1",
+		PresetID: "preset-1", ConfigDigest: testDigest("a"), Active: true,
+	}}, exit)
+	badBytes, err := json.Marshal(WhiteListClientMaterial{
+		PublicHost: "cdn.example.invalid", SecretPath: "/static/main/video/segment.ts/opaque",
+		ClientID:                 "11111111-1111-4111-8111-111111111111",
+		ClientEncryption:         "none",
+		ClientEncryptionRole:     "SERVER",
+		ClientEncryptionProofRef: "xray-vlessenc-client-v1:sha256:b150c646913ddf355a539ca3ae147919cbbae7141c3783d7860cfbbb9062424a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := NewWhiteListRouteCredential(service.store.secrets, entitlement.EntitlementID(), exit.ExitID, badBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.StoreWhiteListRouteCredential(ctx, credential); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.whiteListClientMaterial(ctx, entitlement.EntitlementID(), exit.ExitID); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("non-client route credential accepted: %v", err)
 	}
 }

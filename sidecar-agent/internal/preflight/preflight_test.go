@@ -29,8 +29,8 @@ import (
 )
 
 type fakeSystem struct {
-	firewall  FirewallState
-	unhealthy string
+	firewall    FirewallState
+	healthyOnly string
 }
 
 func (system fakeSystem) Firewall(context.Context) (FirewallState, error) {
@@ -38,8 +38,8 @@ func (system fakeSystem) Firewall(context.Context) (FirewallState, error) {
 }
 
 func (system fakeSystem) ProbeRelay(_ context.Context, route Route) error {
-	if route.ExitID == system.unhealthy {
-		return errors.New("synthetic relay failure")
+	if system.healthyOnly != "" && route.ExitID != system.healthyOnly {
+		return errors.New("synthetic relay not deployed")
 	}
 	return nil
 }
@@ -58,7 +58,7 @@ func testConfig() Config {
 	}
 }
 
-func TestCheckerRequiresExactSourceFirewallAndEveryRelayHealth(t *testing.T) {
+func TestCheckerRequiresExactSourceFirewallAndReportsRelayHealth(t *testing.T) {
 	now := time.Date(2026, 9, 3, 11, 0, 0, 0, time.UTC)
 	config := testConfig()
 	checker, err := NewChecker(config, fakeSystem{firewall: FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{config.ControllerSourceIP}}}, func() time.Time { return now })
@@ -84,7 +84,6 @@ func TestCheckerRequiresExactSourceFirewallAndEveryRelayHealth(t *testing.T) {
 	for name, system := range map[string]fakeSystem{
 		"source firewall drift": {firewall: FirewallState{ActiveOriginIPs: append(config.ActiveOriginIPs, "192.0.2.99"), ControllerSourceIPs: []string{config.ControllerSourceIP}}},
 		"controller exposure":   {firewall: FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{"192.0.2.99"}}},
-		"unhealthy exact exit":  {firewall: FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{config.ControllerSourceIP}}, unhealthy: "exit-s3"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			checker, err := NewChecker(config, system, func() time.Time { return now })
@@ -95,6 +94,24 @@ func TestCheckerRequiresExactSourceFirewallAndEveryRelayHealth(t *testing.T) {
 				t.Fatal("unsafe relay preflight accepted")
 			}
 		})
+	}
+}
+
+func TestCheckerAllowsSelectedHealthyExitBeforeFutureExitsAreDeployed(t *testing.T) {
+	now := time.Date(2026, 9, 4, 19, 0, 0, 0, time.UTC)
+	config := testConfig()
+	checker, err := NewChecker(config, fakeSystem{
+		firewall:    FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{config.ControllerSourceIP}},
+		healthyOnly: "exit-s4",
+	}, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("NewChecker: %v", err)
+	}
+	if err := checker.Validate(context.Background(), config.ReleaseID, config.ConfigDigest, "boot-preflight", "exit-s4"); err != nil {
+		t.Fatalf("selected healthy exit rejected: %v", err)
+	}
+	if err := checker.Validate(context.Background(), config.ReleaseID, config.ConfigDigest, "boot-preflight", "exit-s2"); err == nil {
+		t.Fatal("not-yet-deployed selected exit accepted")
 	}
 }
 

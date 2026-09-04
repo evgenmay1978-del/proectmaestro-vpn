@@ -127,9 +127,10 @@ func TestReconcileWhiteListSidecarGenerationFailsClosedBeforeSendForUnhealthyExi
 }
 
 type desiredReceiptSender struct {
-	posts  int
-	now    time.Time
-	bootID string
+	posts   int
+	now     time.Time
+	bootID  string
+	receipt []byte
 }
 
 func (sender *desiredReceiptSender) Post(_ context.Context, request []byte) ([]byte, error) {
@@ -145,7 +146,18 @@ func (sender *desiredReceiptSender) Post(_ context.Context, request []byte) ([]b
 		ConfigDigest: payload.ConfigDigest, DesiredGeneration: payload.Generation,
 		ManagedUserSetDigest: payload.ManagedUserSetDigest, AppliedAt: sender.now, ExpiresAt: sender.now.Add(30 * time.Second),
 	}
-	return json.Marshal(receipt)
+	raw, err := json.Marshal(receipt)
+	if err == nil {
+		sender.receipt = append([]byte(nil), raw...)
+	}
+	return raw, err
+}
+
+func (sender *desiredReceiptSender) LookupReceipt(context.Context, string) ([]byte, error) {
+	if len(sender.receipt) == 0 {
+		return nil, ErrUnavailable
+	}
+	return append([]byte(nil), sender.receipt...), nil
 }
 
 func seedWhiteListSidecarActionFixture(t *testing.T, db *customerIntegritySQLite, originID, nodeID, digest string) WhiteListSidecarDesired {

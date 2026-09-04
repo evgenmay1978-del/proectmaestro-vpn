@@ -16,17 +16,25 @@ func (runtimePublicationSource) WhiteListPublication(context.Context, string, ti
 }
 
 func TestRuntimeWhiteListPublicationDefaultsOff(t *testing.T) {
-	if runtimeWhiteListPublicationSource(nil, false) != nil {
+	if runtimeWhiteListPublicationSource(nil, false, nil) != nil {
 		t.Fatal("publication source enabled by default")
 	}
 }
 
 func TestRuntimeWhiteListPublicationUsesExistingSidecarGate(t *testing.T) {
 	service := &controlplane.Service{}
-	if runtimeWhiteListPublicationSource(service, false) != nil {
+	if runtimeWhiteListPublicationSource(service, false, nil) != nil {
 		t.Fatal("disabled sidecar gate injected publication source")
 	}
-	if runtimeWhiteListPublicationSource(service, true) == nil {
+	if runtimeWhiteListPublicationSource(service, true, nil) != nil {
+		t.Fatal("publication source enabled without live sidecar receipt lookup")
+	}
+	senders := map[string]controlplane.ExternalActionSender{"s2": runtimePublicationSender{}}
+	if runtimeWhiteListPublicationSource(service, true, senders) == nil {
 		t.Fatal("enabled sidecar gate did not inject production publication source")
 	}
 }
+
+type runtimePublicationSender struct{}
+
+func (runtimePublicationSender) Post(context.Context, []byte) ([]byte, error) { return nil, nil }

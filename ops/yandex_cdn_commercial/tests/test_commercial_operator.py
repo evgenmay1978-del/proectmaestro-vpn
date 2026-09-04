@@ -77,6 +77,25 @@ class CommercialOperatorTests(unittest.TestCase):
         self._write_runtime()
         self._write_certificates()
 
+    def test_production_template_uses_verified_xhttp_recipe_and_private_relay_ca(self) -> None:
+        template = (Path(__file__).parents[1] / "templates" / "config.json.tmpl").read_text(encoding="utf-8")
+        for fragment in (
+            '"sessionIDPlacement": "query"',
+            '"sessionIDKey": "auth"',
+            '"sessionIDLength": 16',
+            '"seqPlacement": "query"',
+            '"seqKey": "chunk_id"',
+            '"uplinkHTTPMethod": "GET"',
+            '"uplinkDataPlacement": "body"',
+            '"disableSystemRoot": true',
+        ):
+            self.assertIn(fragment, template)
+        for index in range(1, 5):
+            self.assertIn(
+                f'"certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-ca/exit-s{index}.crt"',
+                template,
+            )
+
     def _write_bundle(self) -> None:
         members = {
             "bin/xray": b"xray-v26.5.9\n",

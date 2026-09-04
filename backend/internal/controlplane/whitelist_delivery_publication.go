@@ -15,10 +15,12 @@ import (
 // WhiteListClientMaterial is the protected client half of one durable
 // entitlement/exit route credential.
 type WhiteListClientMaterial struct {
-	PublicHost       string `json:"public_host"`
-	SecretPath       string `json:"secret_path"`
-	ClientID         string `json:"client_id"`
-	ClientEncryption string `json:"client_encryption"`
+	PublicHost               string `json:"public_host"`
+	SecretPath               string `json:"secret_path"`
+	ClientID                 string `json:"client_id"`
+	ClientEncryption         string `json:"client_encryption"`
+	ClientEncryptionRole     string `json:"client_encryption_role"`
+	ClientEncryptionProofRef string `json:"client_encryption_proof_ref"`
 }
 
 // WhiteListPublicationDelivery is a side-effect-free view used by the public
@@ -40,6 +42,7 @@ type WhiteListPublicationDelivery struct {
 // or incomplete entitled state fails closed.
 func (s *Service) WhiteListPublicationDelivery(
 	ctx context.Context, rawToken string, now time.Time,
+	resolveSender func(string) (ExternalActionSender, bool),
 ) (WhiteListPublicationDelivery, error) {
 	closed := func(verdict WhiteListPublicationVerdict) WhiteListPublicationDelivery {
 		return WhiteListPublicationDelivery{Decision: closedWhiteListPublication(verdict)}
@@ -104,28 +107,31 @@ func (s *Service) WhiteListPublicationDelivery(
 
 	receiptStatements := make([]rqlite.Statement, 0, len(desired))
 	for _, current := range desired {
-		receiptStatements = append(receiptStatements, rqlite.Statement{SQL: `SELECT action_key,origin_id,release_id,
-config_digest,desired_generation,managed_user_set_digest,expires_at_unix
-FROM whitelist_sidecar_receipts WHERE action_key=?`, Args: []any{current.Action.ActionKey}})
+		receiptStatements = append(receiptStatements, whiteListSidecarReceiptRead(current.Action.ActionKey))
 	}
 	receiptsFreshUntil := int64(0)
-	receiptSetReady := len(receiptStatements) > 0
+	receiptSetReady := len(receiptStatements) > 0 && resolveSender != nil
 	if receiptSetReady {
 		results, queryErr := s.store.db.QueryLinearizable(ctx, receiptStatements...)
 		if queryErr != nil || len(results) != len(desired) {
 			return WhiteListPublicationDelivery{}, ErrUnavailable
 		}
 		for index, result := range results {
-			row, rowOK := exactWhiteListPublicationReceipt(result, desired[index])
-			if !rowOK {
+			stored, storedErr := whiteListSidecarReceiptFromResults([]rqlite.Result{result})
+			sender, senderOK := resolveSender(desired[index].NodeID)
+			lookup, lookupOK := sender.(whiteListSidecarReceiptLookup)
+			if storedErr != nil || !senderOK || !lookupOK {
 				receiptSetReady = false
 				break
 			}
-			expiresAt, _ := rowInt64(row, "expires_at_unix")
-			if expiresAt <= now.Unix() {
+			raw, lookupErr := lookup.LookupReceipt(ctx, desired[index].Action.ActionKey)
+			live, liveErr := decodeWhiteListSidecarReceipt(raw)
+			if lookupErr != nil || liveErr != nil || !whiteListSidecarReceiptPersistedEqual(stored, live) ||
+				ValidateWhiteListSidecarReceipt(desired[index], live.XrayProcessBootID, live, now) != nil {
 				receiptSetReady = false
 				break
 			}
+			expiresAt := live.ExpiresAt.Unix()
 			if receiptsFreshUntil == 0 || expiresAt < receiptsFreshUntil {
 				receiptsFreshUntil = expiresAt
 			}
@@ -147,23 +153,6 @@ FROM whitelist_sidecar_receipts WHERE action_key=?`, Args: []any{current.Action.
 		CountryCode: exit.CountryCode, CountryLabel: exit.CountryLabel,
 		ReleaseID: releaseID, ProfileID: profileID, PresetID: presetID,
 	}, nil
-}
-
-func exactWhiteListPublicationReceipt(result rqlite.Result, desired WhiteListSidecarDesired) (map[string]any, bool) {
-	if len(result.Rows) != 1 {
-		return nil, false
-	}
-	row := result.Rows[0]
-	actionKey, actionOK := rowString(row, "action_key")
-	originID, originOK := rowString(row, "origin_id")
-	releaseID, releaseOK := rowString(row, "release_id")
-	configDigest, configOK := rowString(row, "config_digest")
-	managedDigest, managedOK := rowString(row, "managed_user_set_digest")
-	generation, generationOK := rowInt64(row, "desired_generation")
-	_, expiresOK := rowInt64(row, "expires_at_unix")
-	return row, actionOK && originOK && releaseOK && configOK && managedOK && generationOK && expiresOK &&
-		actionKey == desired.Action.ActionKey && originID == desired.OriginID && releaseID == desired.ReleaseID &&
-		configDigest == desired.ConfigDigest && managedDigest == desired.ManagedUserSetDigest && generation == desired.Generation
 }
 
 func (s *Service) whiteListClientMaterial(ctx context.Context, entitlementID, exitID string) (WhiteListClientMaterial, error) {
@@ -194,9 +183,13 @@ func (s *Service) whiteListClientMaterial(ctx context.Context, entitlementID, ex
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return WhiteListClientMaterial{}, ErrUnavailable
 	}
+	credential := WhiteListCredential{
+		ClientID: material.ClientID, ClientEncryption: material.ClientEncryption,
+		ClientEncryptionRole:     material.ClientEncryptionRole,
+		ClientEncryptionProofRef: material.ClientEncryptionProofRef,
+	}
 	if !validPublicHost(material.PublicHost) || !validSecretPath(material.SecretPath) ||
-		strings.TrimSpace(material.ClientID) == "" || strings.TrimSpace(material.ClientEncryption) == "" ||
-		len(material.ClientID) > 256 || len(material.ClientEncryption) > 8192 {
+		!validWhiteListCredential(credential) || len(material.ClientEncryption) > 8192 {
 		return WhiteListClientMaterial{}, ErrUnavailable
 	}
 	return material, nil
