@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
@@ -41,12 +42,23 @@ func (b *ServiceBusiness) applyWhiteListPublication(ctx context.Context, token s
 	timed, cancel := context.WithTimeout(ctx, b.cfg.WhiteListPublicationTimeout)
 	defer cancel()
 	publication, err := b.cfg.WhiteListPublicationSource.WhiteListPublication(timed, token, now)
-	if err != nil || publication.Verdict != WhiteListPublishable || publication.ProjectionVersion <= 0 || publication.DesiredGeneration <= 0 || publication.FreshThrough.IsZero() || !publication.FreshThrough.After(now) || len(publication.Nodes) == 0 {
+	if err != nil {
+		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
+	}
+	switch publication.Verdict {
+	case WhiteListNoEntitlement, WhiteListNoBalance:
 		return ordinary, nil
+	case WhiteListPublishable:
+		// Continue and validate the publishable projection below.
+	default:
+		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
+	}
+	if publication.ProjectionVersion <= 0 || publication.DesiredGeneration <= 0 || publication.FreshThrough.IsZero() || !publication.FreshThrough.After(now) || len(publication.Nodes) == 0 {
+		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
 	}
 	augmented, err := subgen.AppendWhiteListShareLinks(string(ordinary.Document), publication.Nodes)
 	if err != nil {
-		return ordinary, nil
+		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
 	}
 	ordinary.Document = []byte(augmented)
 	sum := sha256.Sum256(ordinary.Document)

@@ -9,9 +9,11 @@ import (
 const (
 	IncyDeliveryClient = "INCY"
 	HappDeliveryClient = "HAPP"
+	KaringDeliveryClient = "KARING"
 
 	IncyOneTapFormat        = "INCY_ONE_TAP"
 	CopyHTTPSURLAndQRFormat = "COPY_HTTPS_URL_AND_QR"
+	KaringInstallConfigFormat = "KARING_INSTALL_CONFIG"
 )
 
 var (
@@ -30,22 +32,46 @@ type Delivery struct {
 // BuildDelivery validates a private subscription URL and returns the client-safe
 // delivery form. Happ keeps the HTTPS URL for copy/QR until device proof exists.
 func BuildDelivery(client, subscriptionURL string) (Delivery, error) {
-	if !isValidSubscriptionURL(subscriptionURL) {
-		return Delivery{}, ErrInvalidSubscriptionURL
+	linksURL, err := BuildLinksSubscriptionURL(subscriptionURL)
+	if err != nil {
+		return Delivery{}, err
 	}
 
 	switch client {
 	case IncyDeliveryClient:
-		oneTapURL, err := encodeIncyOneTap(subscriptionURL)
+		oneTapURL, err := encodeIncyOneTap(linksURL)
 		if err != nil {
 			return Delivery{}, ErrDeliveryEncoding
 		}
 		return Delivery{Client: client, Format: IncyOneTapFormat, URL: oneTapURL}, nil
 	case HappDeliveryClient:
-		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: subscriptionURL}, nil
+		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: linksURL}, nil
+	case KaringDeliveryClient:
+		return Delivery{
+			Client: client,
+			Format: KaringInstallConfigFormat,
+			URL: "karing://install-config?url=" + url.QueryEscape(linksURL) +
+				"&name=" + url.QueryEscape("MaestroVPN"),
+		}, nil
 	default:
 		return Delivery{}, ErrUnsupportedDeliveryClient
 	}
+}
+
+// BuildLinksSubscriptionURL preserves the existing subscription token while
+// selecting the share-link representation used by third-party clients.
+func BuildLinksSubscriptionURL(rawURL string) (string, error) {
+	if !isValidSubscriptionURL(rawURL) {
+		return "", ErrInvalidSubscriptionURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", ErrInvalidSubscriptionURL
+	}
+	query := parsed.Query()
+	query.Set("format", "links")
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
 }
 
 func isValidSubscriptionURL(rawURL string) bool {

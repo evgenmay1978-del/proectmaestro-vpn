@@ -396,7 +396,22 @@ func (s *ControlPlaneServer) handleControlPlaneCustomer(w http.ResponseWriter, r
 		writeControlPlaneBusinessError(w, err)
 		return
 	}
-	writeControlPlaneJSON(w, http.StatusOK, view)
+	response := struct {
+		CustomerView
+		Deliveries map[string]CommercialDeliveryView `json:"deliveries,omitempty"`
+	}{CustomerView: view}
+	if strings.TrimSpace(view.SubURL) != "" {
+		response.Deliveries = make(map[string]CommercialDeliveryView, 3)
+		for _, client := range []string{"incy", "happ", "karing"} {
+			delivery, deliveryErr := subscriptionDeliveryForClient(client, view.SubURL)
+			if deliveryErr != nil {
+				writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
+				return
+			}
+			response.Deliveries[client] = delivery
+		}
+	}
+	writeControlPlaneJSON(w, http.StatusOK, response)
 }
 
 func (s *ControlPlaneServer) controlPlaneReconcile(service string) http.HandlerFunc {
