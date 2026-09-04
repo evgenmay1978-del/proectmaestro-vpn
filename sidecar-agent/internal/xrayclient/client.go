@@ -24,7 +24,7 @@ import (
 const (
 	apiAddress           = "127.0.0.1:18082"
 	commercialAPIAddress = "127.0.0.1:28082"
-	managedInbound        = "maestro-cdn-in"
+	managedInbound       = "maestro-cdn-in"
 )
 
 var managedEmail = regexp.MustCompile(`^wl:[^:]+:exit-s[1-4]$`)

@@ -195,9 +195,10 @@ for another node.
    Do not call `prepare`, `activate`, or `rollback` on the private canary.
 2. Stage the commercial agent/package only in its isolated release paths. Do
    not alter `maestro-xray-cdn.service`, x-ui/3x-ui, `/usr/local/x-ui`, or any
-   ordinary listener. Select `--profile s4-commercial`; its exact reverse-proxy
-   target is `http://127.0.0.1:28081`. Run the bundled operator's `plan` and stop
-   unless the manifest/config validation and external firewall gate are green.
+   ordinary listener. Select `--profile s4-commercial`; accept only the exact
+   reverse-proxy target emitted by its verified package manifest and `plan`
+   output. Stop unless manifest/config validation and the external firewall gate
+   are green.
 3. Start only the isolated commercial agent/unit named by the reviewed package.
    Prove exact release/config digests, active/enabled state, one process, its
    expected listeners, loopback health, and a fresh exact receipt.
