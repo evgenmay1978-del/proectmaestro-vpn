@@ -121,12 +121,21 @@ try {
         if ($LASTEXITCODE -ne 0) {
             Exit-Failure 'go_tests_failed'
         }
+        $python = (Get-Command -Name 'python' -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
         if ($commercialPythonSources.Count -gt 0) {
-            $python = (Get-Command -Name 'python' -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
             & $python -X utf8 -m py_compile $commercialPythonSources.FullName
             if ($LASTEXITCODE -ne 0) {
                 Exit-Failure 'python_compile_failed'
             }
+        }
+        Push-Location -LiteralPath $repoRoot
+        try {
+            & $python -X utf8 -m unittest discover -s deploy/tests -p 'test_vpn_bot_maestro_*.py'
+            if ($LASTEXITCODE -ne 0) {
+                Exit-Failure 'python_tests_failed'
+            }
+        } finally {
+            Pop-Location
         }
         $validatorArgs = @(
             'run',

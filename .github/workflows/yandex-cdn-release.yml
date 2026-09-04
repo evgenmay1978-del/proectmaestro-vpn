@@ -30,6 +30,7 @@ on:
       - 'deploy/maestro-backup-onchange.path'
       - 'deploy/maestro-backup.sh'
       - 'deploy/vpn_bot_maestro_*.py'
+      - 'deploy/tests/test_vpn_bot_maestro_*.py'
       - 'docs/yandex-cdn-whitelist/**'
       - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
       - 'docs/superpowers/plans/2026-09-01-maestrovpn-whitelist-commercial-delivery.md'
@@ -72,6 +73,7 @@ on:
       - 'deploy/maestro-backup-onchange.path'
       - 'deploy/maestro-backup.sh'
       - 'deploy/vpn_bot_maestro_*.py'
+      - 'deploy/tests/test_vpn_bot_maestro_*.py'
       - 'docs/yandex-cdn-whitelist/**'
       - 'docs/superpowers/plans/2026-08-22-yandex-white-list-integration-readiness.md'
       - 'docs/superpowers/plans/2026-09-01-maestrovpn-whitelist-commercial-delivery.md'
@@ -279,7 +281,10 @@ jobs:
           python -m unittest \
             scripts.tests.test_yandex_cdn_docs \
             scripts.tests.test_yandex_cdn_repro \
-            scripts.tests.test_yandex_cdn_ci
+            scripts.tests.test_yandex_cdn_ci \
+            scripts.tests.test_yandex_cdn_commercial_ci \
+            scripts.tests.test_yandex_cdn_commercial_repro
+          python -m unittest discover -s deploy/tests -p 'test_vpn_bot_maestro_*.py'
           python scripts/validate_yandex_cdn_docs.py
           git diff --check
 
@@ -429,7 +434,7 @@ jobs:
           go mod download
           go mod verify
 
-      - name: Replay all nine offline fixture suites
+      - name: Replay required offline fixture suites
         env:
           GOPROXY: "off"
           GOSUMDB: "off"
@@ -446,6 +451,8 @@ jobs:
             scripts/repro/duplicate-event-replay.sh
             scripts/repro/subscription-escaping.sh
             scripts/repro/edge-rotation.sh
+            scripts/repro/whitelist-commercial-balance.sh
+            scripts/repro/whitelist-publication-cache.sh
           )
           for script in "${scripts[@]}"; do
             bash -n "$script"
@@ -463,6 +470,40 @@ jobs:
               raise SystemExit("release_readiness_not_no_go")
           '
           done
+
+  commercial-sidecar-agent:
+    needs: format-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: sidecar-agent/go.mod
+          cache: false
+
+      - name: Prime exact sidecar Go module cache
+        working-directory: sidecar-agent
+        run: |
+          set -euo pipefail
+          go mod download
+          go mod verify
+
+      - name: Prove sidecar reconciliation fixture
+        run: |
+          set -euo pipefail
+          bash -n scripts/repro/whitelist-sidecar-reconcile.sh
+          bash scripts/repro/whitelist-sidecar-reconcile.sh
+
+      - name: Race-test and vet sidecar agent
+        working-directory: sidecar-agent
+        run: |
+          set -euo pipefail
+          go test -race -count=1 ./...
+          go vet ./...
 
   rqlite-purge:
     needs: format-unit
@@ -507,6 +548,7 @@ jobs:
       - format-unit
       - race-vet
       - offline-replay
+      - commercial-sidecar-agent
       - rqlite-purge
     runs-on: ubuntu-latest
     timeout-minutes: 60

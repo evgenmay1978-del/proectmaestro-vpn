@@ -46,6 +46,7 @@ EXPECTED_JOBS = {
     "format-unit",
     "race-vet",
     "offline-replay",
+    "commercial-sidecar-agent",
     "rqlite-purge",
     "android-test-apk",
 }
@@ -423,7 +424,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "52260fb91972cd7a8aeb9f98c4c849875dcb4280d1f8bf302ef4fe59a828908e"
+    "d7659348d90f31394a03b6afa932b0aec00f71eb69c90329166f11270a8c2602"
 )
 
 
@@ -484,6 +485,12 @@ def assert_execution_metadata_policy(source: str) -> None:
             "timeout-minutes": "15",
             "steps": "",
         },
+        "commercial-sidecar-agent": {
+            "needs": "format-unit",
+            "runs-on": "ubuntu-latest",
+            "timeout-minutes": "20",
+            "steps": "",
+        },
         "rqlite-purge": {
             "needs": "format-unit",
             "runs-on": "ubuntu-latest",
@@ -513,6 +520,7 @@ def assert_execution_metadata_policy(source: str) -> None:
         "      - format-unit",
         "      - race-vet",
         "      - offline-replay",
+        "      - commercial-sidecar-agent",
         "      - rqlite-purge",
     ):
         raise AssertionError("android-test-apk needs list is not exact")
@@ -524,7 +532,7 @@ def assert_execution_metadata_policy(source: str) -> None:
 
     offline_lines = assert_step_metadata(
         source,
-        "Replay all nine offline fixture suites",
+        "Replay required offline fixture suites",
         {"env": "", "run": "|"},
     )
     if nested_block(
@@ -608,6 +616,8 @@ def assert_offline_replay_policy(source: str) -> None:
         "  scripts/repro/duplicate-event-replay.sh",
         "  scripts/repro/subscription-escaping.sh",
         "  scripts/repro/edge-rotation.sh",
+        "  scripts/repro/whitelist-commercial-balance.sh",
+        "  scripts/repro/whitelist-publication-cache.sh",
         ")",
         'for script in "${scripts[@]}"; do',
         '  bash -n "$script"',
@@ -626,7 +636,7 @@ def assert_offline_replay_policy(source: str) -> None:
         "'",
         "done",
     )
-    lines = step_run_lines(source, "Replay all nine offline fixture suites")
+    lines = step_run_lines(source, "Replay required offline fixture suites")
     if lines != expected:
         raise AssertionError("offline replay step differs from the exact fail-closed body")
     start = "  printf '%s' \"$output\" | python -c '"
@@ -1085,7 +1095,7 @@ class WorkflowSafetyContractTest(unittest.TestCase):
 
 
 class WorkflowGateContractTest(unittest.TestCase):
-    def test_workflow_has_exactly_the_five_isolated_jobs(self) -> None:
+    def test_workflow_has_exactly_the_six_isolated_jobs(self) -> None:
         jobs = workflow_text().split("jobs:\n", 1)[1]
         names = set(re.findall(r"(?m)^  ([a-z0-9][a-z0-9-]*):\n", jobs))
         self.assertEqual(EXPECTED_JOBS, names)
@@ -1442,7 +1452,7 @@ class WorkflowGateContractTest(unittest.TestCase):
         source = job_source(workflow_text(), "offline-replay")
         self.assertIn("needs: format-unit", source)
         prime = source.find("- name: Prime exact Go module cache")
-        replay = source.find("- name: Replay all nine offline fixture suites")
+        replay = source.find("- name: Replay required offline fixture suites")
         self.assertGreaterEqual(prime, 0)
         self.assertGreaterEqual(replay, 0)
         self.assertLess(prime, replay)
@@ -1567,7 +1577,7 @@ class GradleTask7VersionContractTest(unittest.TestCase):
     def test_required_step_execution_metadata_is_fail_closed(self) -> None:
         source = workflow_text()
         cases = (
-            ("Replay all nine offline fixture suites", assert_offline_replay_policy),
+            ("Replay required offline fixture suites", assert_offline_replay_policy),
             ("Build separately versioned Task 7 APK", assert_android_artifact_policy),
             ("Verify Task 7 APK metadata and signer", assert_android_artifact_policy),
             ("Upload Task 7 APK artifact only", assert_android_artifact_policy),
@@ -1667,7 +1677,7 @@ class GradleTask7VersionContractTest(unittest.TestCase):
 
     def test_extra_preproof_environment_step_is_rejected(self) -> None:
         source = workflow_text()
-        marker = "      - name: Replay all nine offline fixture suites\n"
+        marker = "      - name: Replay required offline fixture suites\n"
         addition = (
             "      - name: Poison execution environment\n"
             "        run: echo 'BASH_ENV=/tmp/noop' >> \"$GITHUB_ENV\"\n\n"

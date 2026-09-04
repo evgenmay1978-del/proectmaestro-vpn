@@ -28,7 +28,7 @@ validation_packages=(
   ./internal/testsupport/whitelistfixture
 )
 shopt -s nullglob
-commercial_python_sources=(../deploy/vpn_bot_maestro_*.py)
+commercial_python_sources=()
 
 while (($# > 0)); do
   case "$1" in
@@ -67,6 +67,7 @@ caller_dir=$PWD
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) || fail wrapper_failed
 repo_root=$(cd -- "$script_dir/.." && pwd -P) || fail wrapper_failed
+commercial_python_sources=("$repo_root"/deploy/vpn_bot_maestro_*.py)
 
 if [[ -z $go_binary ]]; then
   go_binary=$(command -v go) || fail go_not_found
@@ -87,6 +88,9 @@ done
 if ((${#commercial_python_sources[@]})); then
   python3 -X utf8 -m py_compile "${commercial_python_sources[@]}" || fail python_compile_failed
 fi
+cd -- "$repo_root" || fail wrapper_failed
+python3 -X utf8 -m unittest discover -s deploy/tests -p 'test_vpn_bot_maestro_*.py' || fail python_tests_failed
+cd -- "$repo_root/backend" || fail wrapper_failed
 exec "$go_binary" run ./cmd/maestro-release-validate \
   --release-dir "$release_dir" \
   --evidence-trust "$evidence_trust"
