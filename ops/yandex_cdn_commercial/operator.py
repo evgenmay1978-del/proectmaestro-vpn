@@ -96,8 +96,25 @@ def _canonical(value: Any) -> bytes:
 
 
 def _default_runner(*command: str) -> None:
-    completed = subprocess.run(command, check=False, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    synthetic_diagnostics = os.environ.get("MAESTRO_SYNTHETIC_XRAY_DIAGNOSTICS") == "1"
+    output = subprocess.PIPE if synthetic_diagnostics else subprocess.DEVNULL
+    completed = subprocess.run(
+        command,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=output,
+        stderr=output,
+        text=synthetic_diagnostics,
+    )
     if completed.returncode != 0:
+        if synthetic_diagnostics:
+            detail = "\n".join(
+                part.strip()
+                for part in (completed.stdout, completed.stderr)
+                if isinstance(part, str) and part.strip()
+            )
+            if detail:
+                sys.stderr.write(detail[-8192:] + "\n")
         raise OperationError("command_failed")
 
 
@@ -442,6 +459,10 @@ class CommercialOperator:
                 target.chmod(0o600)
             validation_prefix = (validation_runtime.as_posix().rstrip("/") + "/").encode("utf-8")
             validation_config = config.replace((BASE_PATH + "/current/runtime/").encode("utf-8"), validation_prefix)
+            validation_config = validation_config.replace(
+                b"/var/log/maestro-xray-cdn-commercial/error.log",
+                (Path(directory) / "error.log").as_posix().encode("utf-8"),
+            )
             xray_path.write_bytes(members["bin/xray"])
             xray_path.chmod(0o700)
             config_path.write_bytes(validation_config)

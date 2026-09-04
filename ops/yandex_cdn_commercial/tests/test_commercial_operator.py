@@ -1,4 +1,6 @@
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -6,9 +8,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from ops.yandex_cdn_commercial import bundle
-from ops.yandex_cdn_commercial.operator import CommercialOperator, OperationError, profile_contract
+from ops.yandex_cdn_commercial.operator import CommercialOperator, OperationError, _default_runner, profile_contract
 
 
 FULL_SHA = "467e40af33fe7ba6f5a7957adfcbf0d9e72a2d71"
@@ -100,8 +103,32 @@ class CommercialOperatorTests(unittest.TestCase):
                 template,
             )
 
+    def test_parser_diagnostics_require_explicit_synthetic_ci_opt_in(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=("xray", "run", "-test"),
+            returncode=23,
+            stdout="",
+            stderr="synthetic-xray-parser-detail",
+        )
+        environment_key = "MAESTRO_SYNTHETIC_XRAY_DIAGNOSTICS"
+
+        with mock.patch("ops.yandex_cdn_commercial.operator.subprocess.run", return_value=completed):
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(environment_key, None)
+                hidden = io.StringIO()
+                with contextlib.redirect_stderr(hidden), self.assertRaisesRegex(OperationError, "command_failed"):
+                    _default_runner("xray", "run", "-test")
+                self.assertEqual(hidden.getvalue(), "")
+
+            with mock.patch.dict(os.environ, {environment_key: "1"}, clear=False):
+                visible = io.StringIO()
+                with contextlib.redirect_stderr(visible), self.assertRaisesRegex(OperationError, "command_failed"):
+                    _default_runner("xray", "run", "-test")
+                self.assertIn("synthetic-xray-parser-detail", visible.getvalue())
+
     def test_first_install_validation_uses_temporary_certificates_without_mutating_bundle(self) -> None:
         runtime_prefix = "/opt/maestro-xray-cdn-commercial/current/runtime/"
+        production_log = "/var/log/maestro-xray-cdn-commercial/error.log"
         template_path = self.bundle_dir / "templates/config.json.tmpl"
         template = template_path.read_text(encoding="utf-8").replace(
             '"streamSettings":{"network":"xhttp",',
@@ -131,6 +158,11 @@ class CommercialOperatorTests(unittest.TestCase):
             if runtime_prefix.encode("utf-8") in validation_config:
                 failures.append("validation config still references the absent current/runtime tree")
             document = json.loads(validation_config)
+            validation_log = document.get("log", {}).get("error")
+            if validation_log == production_log:
+                failures.append("validation config still references the absent production log directory")
+            elif not isinstance(validation_log, str) or Path(validation_log).parent != config_path.parent:
+                failures.append("validation config does not isolate the error log beside the temporary config")
             certificate_paths: list[str] = []
 
             def collect(value: object) -> None:
@@ -155,6 +187,8 @@ class CommercialOperatorTests(unittest.TestCase):
             failures.append("production config digest changed during validation")
         if runtime_prefix.encode("utf-8") not in production_config:
             failures.append("production config no longer references current/runtime")
+        if production_log.encode("utf-8") not in production_config:
+            failures.append("production config no longer references the production error log")
 
         cli_root = self.base / "direct-cli"
         cli_bin = cli_root / "bin/maestro-xray-cdn-commercial-operator"

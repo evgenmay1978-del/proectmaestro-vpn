@@ -620,7 +620,8 @@ jobs:
           }
           JSON
           chmod 0600 "$runtime"
-          python3 -B dist-commercial/bin/maestro-xray-cdn-commercial-operator \
+          MAESTRO_SYNTHETIC_XRAY_DIAGNOSTICS=1 \
+            python3 -B dist-commercial/bin/maestro-xray-cdn-commercial-operator \
             plan --bundle dist-commercial --profile s4-commercial \
             --runtime-material "$runtime" \
             --certificate-source "$certificates" >"$fixture/plan.json"

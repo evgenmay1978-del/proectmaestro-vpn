@@ -424,7 +424,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "7802236e393abacf0cc9b3f467919d7fc77c228d009c1a96ddd24d22a684713f"
+    "bd23f44bdafb860e3181a035c9fe83595a29c7ed3d5235dbf0db210c1c017dcf"
 )
 APPROVED_READ_ONLY_SOURCE_URL = (
     "https://github.com/XTLS/Xray-core/releases/download/"
@@ -1499,6 +1499,7 @@ class WorkflowGateContractTest(unittest.TestCase):
         for fragment in (
             "openssl req -x509",
             "chmod 0600",
+            "MAESTRO_SYNTHETIC_XRAY_DIAGNOSTICS=1",
             "dist-commercial/bin/maestro-xray-cdn-commercial-operator",
             'plan --bundle dist-commercial --profile s4-commercial',
             '--runtime-material "$runtime"',
