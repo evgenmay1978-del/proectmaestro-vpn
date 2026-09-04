@@ -19,8 +19,8 @@ export GOSUMDB=off
 export GONOSUMDB='*'
 
 cd "$REPO_ROOT/backend"
-go test -mod=readonly -count=1 ./internal/whitelistbalance -run '^(TestAdvanceUsesHalfOpenBoundaryAndExpiresOnlyUnusedIncluded|TestApplyUsageDebitsOldPeriodBeforeBoundaryRollover)$'
-go test -mod=readonly -count=1 ./internal/controlplane -run '^(TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication|TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome)$'
-go test -mod=readonly -count=1 ./internal/whitelistready -run '^TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay$'
+go test -mod=readonly -count=1 ./internal/whitelistbalance -run '^(TestAdvanceUsesHalfOpenBoundaryAndExpiresOnlyUnusedIncluded|TestApplyUsageDebitsOldPeriodBeforeBoundaryRollover)$' >&2
+go test -mod=readonly -count=1 ./internal/controlplane -run '^(TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication|TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome)$' >&2
+go test -mod=readonly -count=1 ./internal/whitelistready -run '^TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay$' >&2
 
 printf '%s\n' '{"fixture":"whitelist-commercial-balance","harness_status":"PASS","proofs":5,"evidence_class":"OFFLINE_REPRO","release_readiness":"NO_GO"}'

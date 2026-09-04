@@ -19,7 +19,7 @@ export GOSUMDB=off
 export GONOSUMDB='*'
 
 cd "$REPO_ROOT/backend"
-go test -mod=readonly -count=1 ./internal/api -run '^(TestControlPlaneSubscription10157BareGoldenDoesNotAugment|TestTask3PublicationAfterOrdinaryCacheCannotResurrectClosedNode)$'
-go test -mod=readonly -count=1 ./internal/controlplane -run '^(TestReconcileWhiteListSidecarGenerationCoversEveryActiveOriginBeforeReady|TestBuildWhiteListRouteMatrixUsesOnlyExitCountryMetadata|TestBuildWhiteListSidecarDesiredChangesOnlyManagedIdentityAndBumpsEveryOrigin|TestResolveWhiteListSidecarUnknownReadsExactReceiptWithoutWrite)$'
+go test -mod=readonly -count=1 ./internal/api -run '^(TestControlPlaneSubscription10157BareGoldenDoesNotAugment|TestTask3PublicationAfterOrdinaryCacheCannotResurrectClosedNode)$' >&2
+go test -mod=readonly -count=1 ./internal/controlplane -run '^(TestReconcileWhiteListSidecarGenerationCoversEveryActiveOriginBeforeReady|TestBuildWhiteListRouteMatrixUsesOnlyExitCountryMetadata|TestBuildWhiteListSidecarDesiredChangesOnlyManagedIdentityAndBumpsEveryOrigin|TestResolveWhiteListSidecarUnknownReadsExactReceiptWithoutWrite)$' >&2
 
 printf '%s\n' '{"fixture":"whitelist-publication-cache","harness_status":"PASS","proofs":6,"evidence_class":"OFFLINE_REPRO","release_readiness":"NO_GO"}'

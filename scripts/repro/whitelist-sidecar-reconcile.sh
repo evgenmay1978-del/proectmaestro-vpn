@@ -19,7 +19,7 @@ export GOSUMDB=off
 export GONOSUMDB='*'
 
 cd "$REPO_ROOT/sidecar-agent"
-go test -mod=readonly -count=1 ./cmd/maestro-xray-cdn-agent -run '^TestWriteXrayPIDFileReplacesRestartIdentity$'
-go test -mod=readonly -count=1 ./internal/agent -run '^(TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers|TestReceiptExpiresAndRefreshRecoversAfterProcessRestart)$'
+go test -mod=readonly -count=1 ./cmd/maestro-xray-cdn-agent -run '^TestWriteXrayPIDFileReplacesRestartIdentity$' >&2
+go test -mod=readonly -count=1 ./internal/agent -run '^(TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers|TestReceiptExpiresAndRefreshRecoversAfterProcessRestart)$' >&2
 
 printf '%s\n' '{"fixture":"whitelist-sidecar-reconcile","harness_status":"PASS","proofs":3,"evidence_class":"OFFLINE_REPRO","release_readiness":"NO_GO"}'
