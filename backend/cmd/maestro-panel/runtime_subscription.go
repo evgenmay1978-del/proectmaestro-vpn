@@ -33,7 +33,7 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 		return api.WhiteListPublicationSnapshot{}, err
 	}
 	snapshot := api.WhiteListPublicationSnapshot{
-		Verdict: api.WhiteListPublicationVerdict(delivery.Decision.Verdict),
+		Verdict:           api.WhiteListPublicationVerdict(delivery.Decision.Verdict),
 		ProjectionVersion: delivery.Decision.ProjectionVersion,
 		DesiredGeneration: delivery.Decision.DesiredGeneration,
 	}
@@ -50,8 +50,8 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 		UplinkDataPlacement: "body", ClientID: delivery.Material.ClientID,
 		Encryption: delivery.Material.ClientEncryption, Security: "tls",
 		ALPN: []string{"h2", "http/1.1"}, Fingerprint: "firefox",
-		Extra: url.QueryEscape(runtimeWhiteListXHTTPExtra),
-		Label: fmt.Sprintf("Maestro CDN — %s", delivery.CountryLabel),
+		Extra:          url.QueryEscape(runtimeWhiteListXHTTPExtra),
+		Label:          fmt.Sprintf("Maestro CDN — %s", delivery.CountryLabel),
 		DomainFallback: true, TransportProfileID: delivery.ProfileID,
 		CompatibilityPresetID: delivery.PresetID, TransportReleaseID: delivery.ReleaseID,
 	}}

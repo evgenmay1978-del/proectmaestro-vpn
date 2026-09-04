@@ -205,8 +205,12 @@ func rqliteServiceBusinessConfig(
 	apiConfig api.Config,
 	wbSender controlplane.ExternalActionSender,
 	workerID string,
-	publicationSource api.WhiteListPublicationSource,
+	publicationSources ...api.WhiteListPublicationSource,
 ) api.ServiceBusinessConfig {
+	var publicationSource api.WhiteListPublicationSource
+	if len(publicationSources) == 1 {
+		publicationSource = publicationSources[0]
+	}
 	return api.ServiceBusinessConfig{
 		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
 		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,

@@ -32,7 +32,7 @@ func TestWhiteListPublicationDeliveryReadsCurrentDurableStateBySubscriptionToken
 	seedWhiteListSidecarInventory(t, db, []WhiteListOrigin{origin}, exit)
 	materialBytes, err := json.Marshal(WhiteListClientMaterial{
 		PublicHost: "cdn.example.invalid", SecretPath: "/static/main/video/segment.ts/opaque",
-		ClientID: "11111111-1111-4111-8111-111111111111",
+		ClientID:         "11111111-1111-4111-8111-111111111111",
 		ClientEncryption: "mlkem768x25519plus.native.0rtt." + strings.Repeat("Wlpa", 394) + "Wlo",
 	})
 	if err != nil {
