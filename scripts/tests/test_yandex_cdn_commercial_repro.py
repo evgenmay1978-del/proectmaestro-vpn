@@ -19,14 +19,25 @@ WRAPPERS = (
 SCRIPTS = {
     "whitelist-commercial-balance.sh": {
         "workdir": "backend",
+        "tests": (
+            (
+                "TestAdvanceUsesHalfOpenBoundaryAndExpiresOnlyUnusedIncluded",
+                "TestApplyUsageDebitsOldPeriodBeforeBoundaryRollover",
+            ),
+            (
+                "TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication",
+                "TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome",
+            ),
+            ("TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay",),
+        ),
         "commands": (
-            "test -mod=readonly -count=1 ./internal/whitelistbalance -run "
+            "test -json -mod=readonly -count=1 ./internal/whitelistbalance -run "
             "^(TestAdvanceUsesHalfOpenBoundaryAndExpiresOnlyUnusedIncluded|"
             "TestApplyUsageDebitsOldPeriodBeforeBoundaryRollover)$",
-            "test -mod=readonly -count=1 ./internal/controlplane -run "
+            "test -json -mod=readonly -count=1 ./internal/controlplane -run "
             "^(TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication|"
             "TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome)$",
-            "test -mod=readonly -count=1 ./internal/whitelistready -run "
+            "test -json -mod=readonly -count=1 ./internal/whitelistready -run "
             "^TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay$",
         ),
         "stdout": (
@@ -37,11 +48,23 @@ SCRIPTS = {
     },
     "whitelist-publication-cache.sh": {
         "workdir": "backend",
+        "tests": (
+            (
+                "TestControlPlaneSubscription10157BareGoldenDoesNotAugment",
+                "TestTask3PublicationAfterOrdinaryCacheCannotResurrectClosedNode",
+            ),
+            (
+                "TestReconcileWhiteListSidecarGenerationCoversEveryActiveOriginBeforeReady",
+                "TestBuildWhiteListRouteMatrixUsesOnlyExitCountryMetadata",
+                "TestBuildWhiteListSidecarDesiredChangesOnlyManagedIdentityAndBumpsEveryOrigin",
+                "TestResolveWhiteListSidecarUnknownReadsExactReceiptWithoutWrite",
+            ),
+        ),
         "commands": (
-            "test -mod=readonly -count=1 ./internal/api -run "
+            "test -json -mod=readonly -count=1 ./internal/api -run "
             "^(TestControlPlaneSubscription10157BareGoldenDoesNotAugment|"
             "TestTask3PublicationAfterOrdinaryCacheCannotResurrectClosedNode)$",
-            "test -mod=readonly -count=1 ./internal/controlplane -run "
+            "test -json -mod=readonly -count=1 ./internal/controlplane -run "
             "^(TestReconcileWhiteListSidecarGenerationCoversEveryActiveOriginBeforeReady|"
             "TestBuildWhiteListRouteMatrixUsesOnlyExitCountryMetadata|"
             "TestBuildWhiteListSidecarDesiredChangesOnlyManagedIdentityAndBumpsEveryOrigin|"
@@ -55,10 +78,17 @@ SCRIPTS = {
     },
     "whitelist-sidecar-reconcile.sh": {
         "workdir": "sidecar-agent",
+        "tests": (
+            ("TestWriteXrayPIDFileReplacesRestartIdentity",),
+            (
+                "TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers",
+                "TestReceiptExpiresAndRefreshRecoversAfterProcessRestart",
+            ),
+        ),
         "commands": (
-            "test -mod=readonly -count=1 ./cmd/maestro-xray-cdn-agent -run "
+            "test -json -mod=readonly -count=1 ./cmd/maestro-xray-cdn-agent -run "
             "^TestWriteXrayPIDFileReplacesRestartIdentity$",
-            "test -mod=readonly -count=1 ./internal/agent -run "
+            "test -json -mod=readonly -count=1 ./internal/agent -run "
             "^(TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers|"
             "TestReceiptExpiresAndRefreshRecoversAfterProcessRestart)$",
         ),
@@ -69,6 +99,40 @@ SCRIPTS = {
         ),
     },
 }
+
+
+def write_fake_go(path: Path) -> None:
+    lines = [
+        "#!/bin/sh",
+        "printf '%s\\t%s\\t%s\\t%s\\n' \"$PWD\" \"$GOPROXY\" "
+        '"$GOSUMDB" "$*" >> "$MAESTRO_GO_LOG"',
+        "emitted=0",
+    ]
+    for contract in SCRIPTS.values():
+        for group in contract["tests"]:
+            for test_name in group:
+                lines.extend(
+                    (
+                        'case "$*" in',
+                        f"  *{test_name}*)",
+                        '    if [ "${MAESTRO_FAKE_GO_MODE:-pass}" = "missing" ] '
+                        '&& [ "$emitted" -eq 0 ]; then',
+                        "      emitted=1",
+                        '    elif [ "${MAESTRO_FAKE_GO_MODE:-pass}" = "skip" ] '
+                        '&& [ "$emitted" -eq 0 ]; then',
+                        f"      printf '%s\\n' "
+                        f"'{{\"Action\":\"skip\",\"Test\":\"{test_name}\"}}'",
+                        "      emitted=1",
+                        "    else",
+                        f"      printf '%s\\n' "
+                        f"'{{\"Action\":\"pass\",\"Test\":\"{test_name}\"}}'",
+                        "    fi",
+                        "    ;;",
+                        "esac",
+                    )
+                )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    path.chmod(0o755)
 
 
 @functools.lru_cache(maxsize=1)
@@ -131,17 +195,12 @@ class CommercialReproTest(unittest.TestCase):
             temp = Path(raw_temp)
             go_log = temp / "go.log"
             fake_go = temp / "go"
-            fake_go.write_text(
-                "#!/bin/sh\n"
-                "printf '%s\\t%s\\t%s\\t%s\\n' \"$PWD\" \"$GOPROXY\" "
-                "\"$GOSUMDB\" \"$*\" >> \"$MAESTRO_GO_LOG\"\n",
-                encoding="utf-8",
-                newline="\n",
-            )
-            fake_go.chmod(0o755)
+            write_fake_go(fake_go)
 
             environment = os.environ.copy()
-            environment["PATH"] = str(temp)
+            environment["PATH"] = os.pathsep.join(
+                (str(temp), environment.get("PATH", ""))
+            )
             environment["MAESTRO_GO_LOG"] = str(go_log)
 
             for filename, contract in SCRIPTS.items():
@@ -170,6 +229,50 @@ class CommercialReproTest(unittest.TestCase):
                         self.assertEqual("off", proxy)
                         self.assertEqual("off", sumdb)
                         self.assertEqual(expected_command, command)
+
+    def test_repros_fail_closed_for_missing_or_skipped_required_tests(self) -> None:
+        for filename in SCRIPTS:
+            source = (REPRO_DIR / filename).read_text(encoding="utf-8")
+            with self.subTest(filename=filename, contract="json_validation"):
+                self.assertIn("go test -json", source)
+                self.assertIn('event.get("Action") == "pass"', source)
+                self.assertIn('event.get("Action") == "skip"', source)
+                self.assertIn("pass_counts[test_name] != 1", source)
+                self.assertIn("test_name in skipped", source)
+
+        bash = usable_bash()
+        if bash is None:
+            return
+
+        with tempfile.TemporaryDirectory() as raw_temp:
+            temp = Path(raw_temp)
+            go_log = temp / "go.log"
+            fake_go = temp / "go"
+            write_fake_go(fake_go)
+
+            environment = os.environ.copy()
+            environment["PATH"] = os.pathsep.join(
+                (str(temp), environment.get("PATH", ""))
+            )
+            environment["MAESTRO_GO_LOG"] = str(go_log)
+
+            for filename in SCRIPTS:
+                for mode in ("missing", "skip"):
+                    environment["MAESTRO_FAKE_GO_MODE"] = mode
+                    go_log.write_text("", encoding="utf-8")
+                    completed = subprocess.run(
+                        [bash, str(REPRO_DIR / filename)],
+                        cwd=REPO_ROOT,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                        env=environment,
+                    )
+                    with self.subTest(filename=filename, mode=mode):
+                        self.assertNotEqual(0, completed.returncode)
+                        self.assertEqual("", completed.stdout)
+                        self.assertIn("required_test_event_invalid", completed.stderr)
 
     def test_repros_reject_arguments_before_running_go(self) -> None:
         bash = usable_bash()

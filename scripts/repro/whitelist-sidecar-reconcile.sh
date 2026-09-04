@@ -18,8 +18,70 @@ export GOPROXY=off
 export GOSUMDB=off
 export GONOSUMDB='*'
 
+run_required_tests() {
+  local package="$1"
+  local pattern="$2"
+  local result_file
+  local status
+  shift 2
+
+  result_file="$(mktemp)"
+  if go test -json -mod=readonly -count=1 "$package" -run "$pattern" >"$result_file"; then
+    :
+  else
+    status=$?
+    cat "$result_file" >&2
+    rm -f "$result_file"
+    return "$status"
+  fi
+
+  if python - "$result_file" "$@" <<'PY'
+from __future__ import annotations
+
+import collections
+import json
+import sys
+
+result_path, *required = sys.argv[1:]
+pass_counts: collections.Counter[str] = collections.Counter()
+skipped: set[str] = set()
+
+with open(result_path, encoding="utf-8") as result:
+    for line in result:
+        event = json.loads(line)
+        test_name = event.get("Test")
+        if test_name not in required:
+            continue
+        if event.get("Action") == "pass":
+            pass_counts[test_name] += 1
+        elif event.get("Action") == "skip":
+            skipped.add(test_name)
+
+invalid = [
+    test_name
+    for test_name in required
+    if pass_counts[test_name] != 1 or test_name in skipped
+]
+if invalid:
+    print("required_test_event_invalid:" + ",".join(invalid), file=sys.stderr)
+    raise SystemExit(1)
+PY
+  then
+    rm -f "$result_file"
+  else
+    status=$?
+    rm -f "$result_file"
+    return "$status"
+  fi
+}
+
 cd "$REPO_ROOT/sidecar-agent"
-go test -mod=readonly -count=1 ./cmd/maestro-xray-cdn-agent -run '^TestWriteXrayPIDFileReplacesRestartIdentity$' >&2
-go test -mod=readonly -count=1 ./internal/agent -run '^(TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers|TestReceiptExpiresAndRefreshRecoversAfterProcessRestart)$' >&2
+run_required_tests ./cmd/maestro-xray-cdn-agent \
+  '^TestWriteXrayPIDFileReplacesRestartIdentity$' \
+  TestWriteXrayPIDFileReplacesRestartIdentity
+run_required_tests ./internal/agent \
+  '^(TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers|TestReceiptExpiresAndRefreshRecoversAfterProcessRestart)$' \
+  TestReconcileConvergesExactManagedSetAddsBeforeRemovalsAndPreservesStaticUsers \
+  TestReceiptExpiresAndRefreshRecoversAfterProcessRestart
 
 printf '%s\n' '{"fixture":"whitelist-sidecar-reconcile","harness_status":"PASS","proofs":3,"evidence_class":"OFFLINE_REPRO","release_readiness":"NO_GO"}'
