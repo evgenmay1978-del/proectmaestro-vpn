@@ -139,3 +139,22 @@ The focused real-store test then passed locally. All applicable runs for exact i
 - Isolated sidecar agent checks `33825937359`: success.
 
 All pre-existing protected dirty files and the untracked `normalize.patch` remained untouched and unstaged. No live server, Yandex Cloud resource, private canary/subscription, OLCRTC, WDTT, Android/OTA, payment, bot/channel, or customer traffic was accessed or changed. This report still does not claim that independent review is clean.
+
+## Review fix round 3
+
+The third bounded review round removed relay health/existence from the managed-to-empty removal gate while retaining the same durable node delivery and receipt path. The exception applies only when a prior generation contains managed users and the target generation contains none; initial empty generations and every non-empty enable/resume remain fail-closed on the exact healthy Exit.
+
+Focused RED commit `9ed8c40ac69a71b69cdafff8eaa4ca4b751f441d` (`test(controlplane): cover removal with unhealthy exit`) extends the existing migration-backed real-store case by marking the retained Exit unhealthy after the managed generation is durable. Against the old runtime it failed before removal with `controlplane: conflict`.
+
+Implementation commit `080793acd7a25ddf3cae6f3ebe2b9b16bc96f691` (`fix(controlplane): remove whitelist users without relay`) preserves the previous Exit identity for removal even when current inventory has no matching record, permits incomplete relay metadata only for an empty route matrix, and requires the unhealthy-Exit exception to be a real managed-to-empty transition. Empty-set readiness still validates the exact durable desired generation and node receipt set, including boot, config, digest, action key and freshness; only relay health is ignored after all managed users are absent. The existing non-removal unhealthy-Exit test remains GREEN.
+
+The focused real-store case and the existing strict unhealthy-Exit case both passed locally. All applicable exact-SHA GitHub runs for `080793acd7a25ddf3cae6f3ebe2b9b16bc96f691` succeeded:
+
+- HA DR restore drill `33829503605`: success.
+- HA immutable panel artifact `33829503652`: success.
+- HA S4 network change-package checks `33829503606`: success.
+- HA control-plane checks `33829503622`: success.
+- Yandex CDN isolated release checks `33829503596`: success.
+- Isolated sidecar agent checks `33829567545`: success.
+
+All pre-existing protected dirty files and the untracked `normalize.patch` remained untouched and unstaged. No live server, Yandex Cloud resource, private canary/subscription, OLCRTC, WDTT, Android/OTA, payment, bot/channel, or customer traffic was accessed or changed. This report still does not claim that independent review is clean.
