@@ -424,7 +424,11 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "d7659348d90f31394a03b6afa932b0aec00f71eb69c90329166f11270a8c2602"
+    "e62baf78a8004edabe059363c3ff7cd0669690291f952986dbf6bd4a12130a4a"
+)
+APPROVED_READ_ONLY_SOURCE_URL = (
+    "https://github.com/XTLS/Xray-core/releases/download/"
+    "v${XRAY_VERSION}/Xray-linux-64.zip"
 )
 
 
@@ -1077,12 +1081,15 @@ class WorkflowSafetyContractTest(unittest.TestCase):
             r"\brclone\b",
             r"\b(?:ssh|scp|systemctl|iptables|nft|ufw)\b",
             r"\bdocker\s+push\b",
-            r"https?://",
             r"\bsed\b[^\n]*version\.properties",
         )
         for pattern in forbidden:
             with self.subTest(pattern=pattern):
                 self.assertIsNone(re.search(pattern, source), pattern)
+        self.assertEqual(
+            (APPROVED_READ_ONLY_SOURCE_URL,),
+            tuple(re.findall(r"https?://[^\s\"']+", source)),
+        )
 
     def test_every_action_reference_is_pinned_to_a_commit(self) -> None:
         references = re.findall(
