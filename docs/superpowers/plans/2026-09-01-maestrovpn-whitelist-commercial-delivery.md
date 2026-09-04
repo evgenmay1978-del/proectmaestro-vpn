@@ -482,7 +482,7 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Read-only inventory S4, S2, S3, then current S1. Record facts separately from design assumptions and redact secrets.
+- [x] Read-only inventory S4, S2, S3, then current S1. Record facts separately from design assumptions and redact secrets.
 - [ ] Capture and verify backups before each mutation. Never touch production 3x-ui/Xray units or their ports/config directories.
 - [ ] Apply S4 sidecar/agent first. Validate direct sidecar, Yandex CDN path, literal edge with correct SNI/Host, per-user uplink/downlink counters, add/revoke/resume of one test route identity, receipt recovery, exit label truth, and ordinary baseline.
 - [ ] Roll back S4 once deliberately and prove restoration in under five minutes; then re-apply the same immutable release.

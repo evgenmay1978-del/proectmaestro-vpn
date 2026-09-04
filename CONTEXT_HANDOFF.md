@@ -4293,3 +4293,44 @@ last-known-good path are all GREEN. Any mismatch blocks deletion.
 Status remains **PRODUCTION NO-GO** pending Task 15. Customer publication is
 default OFF, real charges and OTA/release publication remain OFF, OLCRTC and
 WDTT remain frozen, and ordinary VPN must remain working throughout.
+
+## 2026-09-04 - Task 15 immutable commercial package checkpoint
+
+Canonical branch `codex/yandex-cdn-whitelist-task3-sync` is independently
+reviewed and exact-SHA GREEN at
+`9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`. The final scoped re-review of the
+commercial bundle/operator concluded `CLEAN` with zero remaining Critical or
+Important findings.
+
+Required exact-SHA workflows succeeded: Yandex CDN isolated release run
+`33888366730`, HA immutable artifact run `33888366763`, HA S4 change-package
+run `33888366742`, and isolated sidecar run `33890350723`. The immutable Linux
+amd64 artifact is
+`maestro-xray-cdn-commercial-9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`,
+artifact ID `9943000857`, size `54135231` bytes, archive SHA-256
+`9ad8414e9cf82b2f3fb2ea9a4f924b99d3d72c54760b4bc5cc698cb3ad4b99ad`,
+and manifest SHA-256
+`d73357dbdb65ce52c957f9f86ac99d8f7f36c659d56064ed78b2b2ee7e05c83c`.
+Independent offline inspection matched all nine declared member sizes and
+hashes, found no extra files, and found no runtime credentials, private keys,
+or certificates.
+
+The package provides the reviewed fail-closed commercial operator and supports
+the standard S2/S3/S1 profile on `18081/18082/18084/18443` plus the isolated S4
+commercial profile on `28081/28082/18084/18443`. S4's working private canary on
+`18081/18082` was not read, changed, restarted, rotated, or deleted. The
+operator verifies complete release/runtime inventories, performs controlled
+process cutover, supports an explicit first-install `ABSENT` rollback, validates
+target-local last-known-good releases, and reports failed recovery rather than
+hiding it.
+
+This checkpoint authorizes no host mutation by itself. S4, S2, S3, and current
+S1 remain **PRODUCTION MUTATION NO-GO** until the node-specific console,
+backup-plus-restore, certificate, firewall, fresh inventory/port, artifact
+binding, and under-five-minute rollback gates are green. The subscription
+delivery gap for CDN-capable third-party clients and the authorized production
+MaestroVPN CDN runtime also remain open. The private test subscription remains
+active until the full fleet, client/bot/channel refresh matrix, last-known-good
+recovery, and continuous 48-hour accounting window are green; any mismatch
+retains it. No live server, customer traffic, real charge, OTA/release
+publication, OLCRTC, or WDTT state changed in this package slice.

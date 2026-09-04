@@ -15,8 +15,8 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 316756,
-      "sha256": "e2327c349422f330104cea5ea4dbf23ef6277f2dc4c42f9cc0245e9cb178a68c",
+      "bytes": 319125,
+      "sha256": "ea768d6eedd2e77e6f4b5ae10a8834fe0050fdad26726524af0d71f95a5e3c39",
       "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. WHITE-LIST COMMERCIAL DELIVERY \u2014 TASK 13 DELIVERY GREEN; TASK 14 NEXT (04.09.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f\n  `codex/yandex-cdn-whitelist-task3-sync`. \u041f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u044b\u0439 Task 13 delivery code\n  checkpoint \u2014 exact SHA `080793acd7a25ddf3cae6f3ebe2b9b"
     },
     {
@@ -63,8 +63,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_CANARY_EVIDENCE.md",
-      "bytes": 7240,
-      "sha256": "38ab9146933f56a61d4aa9238177b657e8942d0c1ba6263b353f7eb8e5e8d199",
+      "bytes": 7697,
+      "sha256": "88b2a3e477ea2aa77768ccda0eb4f5ccba44d1fd5dd58fe81935a23566932003",
       "preview": "# Commercial white-list canary evidence\n\nStatus: evidence template; current verdict `PRODUCTION NO_GO`\n\nThis file is the redacted Task 15 evidence index. It must never contain host\naddresses, credentials, UUIDs, certificate/private-key material, customer\nidentifiers, payment data, bot tokens, private subscription URLs,"
     },
     {
@@ -123,8 +123,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/PRODUCTION_FLEET_INVENTORY.md",
-      "bytes": 5674,
-      "sha256": "7a1bba9842a0e71d497997f2960605047b8269df8463c972334fd4605ee12fad",
+      "bytes": 6249,
+      "sha256": "cc7ed5c35a3217d36c5d3039a4823b14c2d5697fe209c028ec970e2de1a88810",
       "preview": "# Production fleet inventory for commercial white-list rollout\n\nStatus: read-only inventory; mutation `NO_GO`\n\nSnapshot date: 2026-09-04. This document records only the sanitized facts from\nthe bounded production read-only pass. It contains no host address, credential,\nUUID, subscription URL, customer record, certifica"
     },
     {

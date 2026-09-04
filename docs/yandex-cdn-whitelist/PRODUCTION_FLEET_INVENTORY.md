@@ -10,10 +10,19 @@ body.
 ## Repository checkpoint
 
 - Canonical branch: `codex/yandex-cdn-whitelist-task3-sync`.
-- Repository checkpoint: `ac8c6bf160d1adcd08b9e9046c9577d47ce9cdcf`.
-- Exact-SHA GitHub checks are green at that checkpoint: S4 package run
-  `33848098013`, HA artifact run `33848098068`, and Yandex CDN release run
-  `33848098064`.
+- Reviewed commercial-package checkpoint:
+  `9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`.
+- Exact-SHA GitHub checks are green at that checkpoint: Yandex CDN release run
+  `33888366730`, HA artifact run `33888366763`, S4 package run `33888366742`,
+  and isolated sidecar run `33890350723`.
+- Immutable artifact `maestro-xray-cdn-commercial-9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`
+  has ID `9943000857`, size `54135231` bytes, archive SHA-256
+  `9ad8414e9cf82b2f3fb2ea9a4f924b99d3d72c54760b4bc5cc698cb3ad4b99ad`,
+  and manifest SHA-256
+  `d73357dbdb65ce52c957f9f86ac99d8f7f36c659d56064ed78b2b2ee7e05c83c`.
+  Its nine declared members and manifest were independently matched with no
+  extra files or runtime secret/certificate material. Scoped re-review was
+  `CLEAN`.
 - Green repository checks prove the checked-in implementation only. They do not
   prove a production artifact-to-host binding, a node certificate, a usable
   provider console, a backup restore, a firewall change, or a rollback time.
@@ -47,7 +56,7 @@ single mutation. Evidence from one node cannot satisfy another node.
 
 | Preconditions for each host | Current state |
 | --- | --- |
-| Exact reviewed Task 15 SHA and all required exact-SHA CI | `NOT_PROVEN` for a Task 15 mutation package |
+| Exact reviewed Task 15 SHA and all required exact-SHA CI | `GREEN` at `9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`; repository/package scope only |
 | Current console recovery path exercised | `NOT_PROVEN` |
 | Authoritative host identity and role rechecked immediately before change | Read-only snapshot exists; fresh pre-change proof still required |
 | Ordinary service/unit/path/listener inventory unchanged | Read-only snapshot exists; fresh pre-change proof still required |

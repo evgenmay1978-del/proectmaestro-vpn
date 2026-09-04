@@ -12,10 +12,12 @@ test ID, exact release/config identity, and digest.
 
 | Evidence | Value | Scope |
 | --- | --- | --- |
-| Candidate checkpoint | `ac8c6bf160d1adcd08b9e9046c9577d47ce9cdcf` | Repository-only baseline before Task 15 docs |
-| S4 package workflow | Run `33848098013`, green | Repository/CI only |
-| HA artifact workflow | Run `33848098068`, green | Repository/CI only |
-| Yandex CDN release workflow | Run `33848098064`, green | Repository/CI only |
+| Reviewed commercial-package checkpoint | `9c0d53ff17228c0d96c5e351563bbf70d5e07a9f`; scoped re-review `CLEAN` | Repository/package only |
+| S4 package workflow | Run `33888366742`, green | Repository/CI only |
+| HA artifact workflow | Run `33888366763`, green | Repository/CI only |
+| Yandex CDN release workflow | Run `33888366730`, green | Repository/CI only |
+| Isolated sidecar workflow | Run `33890350723`, green | Repository/CI only |
+| Immutable commercial artifact | ID `9943000857`; `54135231` bytes; archive SHA-256 `9ad8414e9cf82b2f3fb2ea9a4f924b99d3d72c54760b4bc5cc698cb3ad4b99ad`; manifest SHA-256 `d73357dbdb65ce52c957f9f86ac99d8f7f36c659d56064ed78b2b2ee7e05c83c`; nine declared members, no extras or runtime secrets | Verified artifact; not yet bound to a host |
 | Production mutation | `NO_GO` | Missing per-host production gates |
 
 The earlier owner-reported mobile white-list pass remains useful historical
@@ -38,7 +40,7 @@ are failures.
 
 | Node/stage | Exact reviewed SHA and CI | Console | Fresh inventory/ports | Backup plus restore | Artifact/config digest | Node cert | Firewall plan | Apply | Functional canary | Ordinary baseline | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| S4 initial | Green repository baseline only | Not proven | Read-only snapshot only | Not proven | Not bound to host | Not proven | Not proven | Not run | Not run | Not revalidated after apply | `NO_GO` |
+| S4 initial | Exact SHA and package CI green | Not proven | Read-only snapshot only | Not proven | Verified artifact; not bound to host | Not proven | Not proven | Not run | Not run | Not revalidated after apply | `NO_GO` |
 | S4 deliberate rollback under five minutes | — | — | — | — | — | — | — | Not run | Not run | Not run | `NO_GO` |
 | S4 same-release re-apply | — | — | — | — | — | — | — | Not run | Not run | Not run | `NO_GO` |
 | S2 | — | — | — | — | — | — | — | Not run | Not run | Not run | `NO_GO` |
