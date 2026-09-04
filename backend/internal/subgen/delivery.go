@@ -7,12 +7,12 @@ import (
 )
 
 const (
-	IncyDeliveryClient = "INCY"
-	HappDeliveryClient = "HAPP"
+	IncyDeliveryClient   = "INCY"
+	HappDeliveryClient   = "HAPP"
 	KaringDeliveryClient = "KARING"
 
-	IncyOneTapFormat        = "INCY_ONE_TAP"
-	CopyHTTPSURLAndQRFormat = "COPY_HTTPS_URL_AND_QR"
+	IncyOneTapFormat          = "INCY_ONE_TAP"
+	CopyHTTPSURLAndQRFormat   = "COPY_HTTPS_URL_AND_QR"
 	KaringInstallConfigFormat = "KARING_INSTALL_CONFIG"
 )
 
