@@ -74,3 +74,43 @@ Before this report was added, local `HEAD` and the canonical remote both resolve
 Every pre-existing owner/protected dirty file remained dirty and unstaged exactly as found, including `AGENTS.md`, the protected HA and Yandex reports, protected control-plane/API/panel tests and sources, migrations `0001` through `0010`, and the untracked `normalize.patch`. None was staged or modified by Task 13.
 
 This report does not claim a clean independent review. No live production or customer-facing action was performed.
+
+## Review fix round 1
+
+The first bounded review round addressed two Important findings without adding another queue, poller, sender, or retry abstraction:
+
+- The production rqlite runtime now invokes whitelist sidecar intent reconciliation from the existing renewal reconciler pass and ticker. It consumes the sender resolver populated by `main`, removes managed access only after the revoke generation is delivered, and derives enabled publication only after all active Origins report the exact generation ready and fresh.
+- A transport error that proves the request was not sent now returns the durable external action from `applying` to `pending` under its exact attempt owner and lease. A later pass safely retries the same action key without receipt lookup. Only an ambiguous after-send result performs exact-key durable receipt lookup; it is never blindly resent.
+
+Review RED commit: `9f6221ab44cc5065187d13d6de80ae41e903ad14` (`test(controlplane): cover task 13 delivery review gaps`). The focused tests failed for the intended missing runtime boundary and definite-not-sent transition. Its push runs were:
+
+- HA DR restore drill `33818445888`: failure.
+- HA immutable panel artifact `33818445929`: failure.
+- HA control-plane checks `33818445947`: failure.
+- Yandex CDN isolated release checks `33818445982`: failure.
+- HA S4 network change-package checks `33818446038`: success (unaffected contract).
+
+Implementation commits:
+
+- `a92e4f68a72cd18bb935c3335138bb752e806540` (`fix(controlplane): wire whitelist sidecar reconciliation`).
+- `1b122f2a5c9db96125cbccbf1fdf11aab38fa74d` (`test(controlplane): extend ordered migration scripts to v16`).
+
+The first implementation SHA exposed only stale ordered-migration scripted fakes that stopped at v15. The sidecar contract run `33820136104` succeeded; the four broader failures were corrected by extending those existing fakes and exact assertions through immutable migration v16. No earlier migration was changed.
+
+Focused local verification after the fix passed:
+
+- Sidecar client definite-before-send contract.
+- External-action definite-not-sent durable transition and same-key retry contract.
+- Whitelist generation reconciliation and production runtime boundary contract.
+- Exact ordered migration prefix cases through v16.
+
+All applicable exact-SHA GitHub runs for `1b122f2a5c9db96125cbccbf1fdf11aab38fa74d` succeeded:
+
+- HA DR restore drill `33820815395`: success.
+- HA immutable panel artifact `33820815439`: success.
+- HA S4 network change-package checks `33820815391`: success.
+- HA control-plane checks `33820815410`: success.
+- Yandex CDN isolated release checks `33820815445`: success.
+- Isolated sidecar agent checks `33820855313`: success.
+
+All pre-existing protected dirty files and the untracked `normalize.patch` remained untouched and unstaged. This review fix did not touch live production, Yandex Cloud, the private canary/subscription, OLCRTC, WDTT, Android/OTA, payments, bots/channel, or customer traffic. This report still does not claim that independent review is clean.
