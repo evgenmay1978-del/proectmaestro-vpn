@@ -63,8 +63,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_CANARY_EVIDENCE.md",
-      "bytes": 6428,
-      "sha256": "7afceb012e6f2419bbe4e66c6bbf14016c8a863f3a627cbb3911218b0073c2fb",
+      "bytes": 7162,
+      "sha256": "8d56d28b7f975c286e450082b51fc427c19ecf1e0ddde4d71ec7579f53794568",
       "preview": "# Commercial white-list canary evidence\n\nStatus: evidence template; current verdict `PRODUCTION NO_GO`\n\nThis file is the redacted Task 15 evidence index. It must never contain host\naddresses, credentials, UUIDs, certificate/private-key material, customer\nidentifiers, payment data, bot tokens, private subscription URLs,"
     },
     {
@@ -75,8 +75,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLOUT_RUNBOOK.md",
-      "bytes": 10539,
-      "sha256": "3a21186ed99a24dc89703304ec0ff2fac57411705188c7852e7b3cb4724ce689",
+      "bytes": 15196,
+      "sha256": "85faa07ccd3d0b15d9e1c291084dd6157930c4cfc5d4e73c656e422bfccf41b8",
       "preview": "# Commercial white-list staged rollout runbook\n\nStatus: executable gate contract; production mutation `NO_GO` until every\nprecondition below is evidenced for the exact node and exact package\n\nThis is the smallest approved production path: S4, then S2, then S3, then the\ncurrent owner-authoritative S1. A failure or unkno"
     },
     {

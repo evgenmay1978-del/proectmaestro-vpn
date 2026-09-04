@@ -52,16 +52,18 @@ and ordinary baseline. Never paste the endpoint or identity.
 
 ## Client and delivery matrix
 
-| Consumer/flow | Import | Refresh | TCP/UDP/DNS | Idle/network transition | Country attribution | Zero balance and top-up resume | Ordinary fallback | Current result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| MaestroVPN `1.0.157` | Not run | Not run | Not run | Not run | Not run | Not run | Not run | `NO_GO` |
-| Happ | Not run | Not run | Not run | Not run | Not run | Not run | Not run | `NO_GO` |
-| Incy | Historical private-canary pass only | Not current | Not current | Not current | Not current | Not current | Not current | `NO_GO` |
-| Karing | Not run | Not run | Not run | Not run | Not run | Not run | Not run | `NO_GO` |
-| Standards-compliant client | Not run | Not run | Not run | Not run | Not run | Not run | Not run | `NO_GO` |
+| Consumer/flow | Ordinary bare import/refresh/fallback | CDN transport and commercial cases | Current result |
+| --- | --- | --- | --- |
+| MaestroVPN `1.0.157` | Not run; must remain byte-exact and contain no CDN nodes | `NOT_SUPPORTED`; cannot prove CDN, country attribution, zero balance, or top-up resume | Ordinary non-regression `NO_GO`; not a commercial-client candidate |
+| Explicitly authorized production MaestroVPN CDN runtime | Not defined | Runtime/version/artifact not authorized and CDN matrix not run | Commercial cutover `NO_GO` |
+| Happ | Not run | Import, refresh, TCP/UDP/DNS, idle/transition, attribution, zero balance, top-up resume not run | `NO_GO` |
+| Incy | Historical private-canary pass only | Current full commercial matrix not run | `NO_GO` |
+| Karing | Not run | Full commercial matrix not run | `NO_GO` |
+| Standards-compliant CDN-capable client | Not run | Full commercial matrix not run | `NO_GO` |
 
-`1.0.158-task7-test` may appear only as a CI test artifact and cannot satisfy
-the production MaestroVPN row.
+`1.0.158-task7-test` may appear only as a CI test artifact. It cannot satisfy
+the authorized production MaestroVPN CDN-runtime row and must not be installed,
+promoted, released, signed, or published as OTA.
 
 ## Customer delivery and automatic refresh
 
@@ -71,7 +73,9 @@ the production MaestroVPN row.
 | Customer channel identity resolved and redacted delivery proved | Not run |
 | Panel login shows the same customer-bound subscription | Not run |
 | Incy one-tap and Happ fallback work without exposing a private URL | Not run |
-| Existing customer subscriptions refresh automatically to one accepted generation | Not run |
+| MaestroVPN `1.0.157` ordinary bare subscriptions refresh byte-exact with no CDN nodes | Not run |
+| Entitled Happ/Incy/Karing/standards-compatible subscriptions refresh to one accepted commercial generation | Not run |
+| Explicitly authorized production MaestroVPN CDN runtime refreshes and passes the commercial matrix | Runtime not authorized; `NO_GO` |
 | Customers without a confirmed CDN purchase never see CDN/LTE nodes, including cached and last-known-good paths | Not run |
 | Recoverable last-known-good ordinary subscription path | Not proven |
 
@@ -94,11 +98,14 @@ observation.
 Current action: `RETAIN`.
 
 Deletion becomes eligible only after every fleet row, deliberate rollback and
-same-release re-apply, client row, bot/channel/panel flow, automatic refresh,
-default-OFF proof, last-known-good recovery, and 48-hour accounting row is
-green for the same generation. The deletion receipt must prove an idempotent
-exact test identity and read-before-write resolution of unknown outcome. Any
-mismatch, unknown, stale evidence, or generation change retains the subscription.
+same-release re-apply, third-party client row, bot/channel/panel flow, ordinary
+`1.0.157` byte-exact refresh, default-OFF proof, last-known-good recovery, and
+48-hour accounting row is green for the same generation. It additionally
+requires an explicitly authorized production MaestroVPN CDN-capable runtime and
+its complete commercial import/refresh/transport matrix. The deletion receipt
+must prove an idempotent exact test identity and read-before-write resolution of
+unknown outcome. Any missing runtime, mismatch, unknown, stale evidence, or
+generation change retains the subscription.
 
 ## Final decision
 

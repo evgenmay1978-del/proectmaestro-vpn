@@ -24,28 +24,98 @@ no node is skipped and no parallel rollout is allowed.
   fail-closed publication verdict. Ordinary renewal does not enable CDN/LTE.
 - Real charges, production OTA, release publication, signing, and final
   customer-traffic cutover remain separate stop gates.
-- Production Android is `1.0.157`; `1.0.158-task7-test` is a CI artifact only.
+- Production Android `1.0.157` supports only the unchanged ordinary bare
+  subscription. It is an ordinary import/refresh/fallback baseline, not a
+  CDN-transport client. `1.0.158-task7-test` is a CI artifact only and must not
+  be promoted to fill that gap.
 - OLCRTC and WDTT remain frozen.
 
 ## Gate 0: exact repository and artifact
 
-Run these existing repository gates from a clean checkout of the candidate
-exact SHA. A failure, skipped required workflow, changed SHA, or dirty scoped
-file is `STOP`.
+Run the existing repository gates from a clean checkout of the candidate exact
+SHA. `TASK15_RELEASE_DIR` must be an absolute protected candidate-release
+directory and `TASK15_EVIDENCE_TRUST` must be an absolute protected regular
+evidence-trust file for that same candidate. The operator supplies both values
+from the protected change sheet; they must never be pasted into Git, chat, or
+this runbook. Missing, relative, wrong-type, unreadable, or mismatched inputs
+are `STOP`.
 
-```text
-bash ops/validate-yandex-cdn-release.sh
-python scripts/validate_yandex_cdn_docs.py
-python -m unittest scripts.tests.test_yandex_cdn_docs
-python ops/maestro-repetition-guard.py check --action task15_node_preflight --family production_preflight
+Linux invocation, as one guarded semantic action:
+
+```bash
+python ops/maestro-repetition-guard.py check \
+  --action task15_s4_candidate_release_linux \
+  --family release_wrapper_linux
+bash -ceu '
+  : "${TASK15_RELEASE_DIR:?STOP: protected release directory is required}"
+  : "${TASK15_EVIDENCE_TRUST:?STOP: protected evidence trust file is required}"
+  [[ "$TASK15_RELEASE_DIR" == /* && -d "$TASK15_RELEASE_DIR" ]]
+  [[ "$TASK15_EVIDENCE_TRUST" == /* && -f "$TASK15_EVIDENCE_TRUST" && -r "$TASK15_EVIDENCE_TRUST" ]]
+  exec bash ops/validate-yandex-cdn-release.sh \
+    --release-dir "$TASK15_RELEASE_DIR" \
+    --evidence-trust "$TASK15_EVIDENCE_TRUST"
+'
 ```
 
-The PowerShell release wrapper is the equivalent local entry point on Windows:
-`ops/validate-yandex-cdn-release.ps1`. Heavy/race/vet/Android work runs only in
-GitHub Actions. Record the exact commit, independent review verdict, every
-required run ID, immutable artifact name, member list, byte size, SHA-256, and
-signer/attestation identity in the protected change sheet. Do not build or
-substitute a production binary on the host.
+PowerShell invocation, as the equivalent single guarded semantic action:
+
+```powershell
+python ops/maestro-repetition-guard.py check `
+  --action task15_s4_candidate_release_windows `
+  --family release_wrapper_windows
+& {
+    if ([string]::IsNullOrWhiteSpace($env:TASK15_RELEASE_DIR) -or
+        [string]::IsNullOrWhiteSpace($env:TASK15_EVIDENCE_TRUST) -or
+        -not [IO.Path]::IsPathRooted($env:TASK15_RELEASE_DIR) -or
+        -not [IO.Path]::IsPathRooted($env:TASK15_EVIDENCE_TRUST) -or
+        -not (Test-Path -LiteralPath $env:TASK15_RELEASE_DIR -PathType Container) -or
+        -not (Test-Path -LiteralPath $env:TASK15_EVIDENCE_TRUST -PathType Leaf)) {
+        throw 'STOP: protected candidate release/evidence inputs are absent or invalid'
+    }
+    & .\ops\validate-yandex-cdn-release.ps1 `
+      --release-dir $env:TASK15_RELEASE_DIR `
+      --evidence-trust $env:TASK15_EVIDENCE_TRUST
+    if ($LASTEXITCODE -ne 0) { throw 'STOP: candidate release validation failed' }
+}
+```
+
+The example action IDs bind the first target S4. For S2, S3, and current S1,
+replace only the node segment with the exact target label and repeat the entire
+lifecycle; an S4 ALLOW or result cannot authorize another node.
+
+After the Linux example returns zero, close it before moving on:
+
+```text
+python ops/maestro-repetition-guard.py success --action task15_s4_candidate_release_linux --family release_wrapper_linux --evidence-code release_validation_green
+```
+
+If it returns nonzero, times out, or is unknown, the next executable command is
+instead:
+
+```text
+python ops/maestro-repetition-guard.py fail --action task15_s4_candidate_release_linux --family release_wrapper_linux --reason-code release_validation_failed
+```
+
+Use the same mutually exclusive `success`/`fail` closure with action
+`task15_s4_candidate_release_windows` and family `release_wrapper_windows` for
+the PowerShell example. A failure then requires diagnosis, matching `correct`,
+and a fresh corrected `check` before one retry.
+
+Run `python scripts/validate_yandex_cdn_docs.py` and
+`python -m unittest scripts.tests.test_yandex_cdn_docs` as two additional,
+separately guarded actions. Every `check` is node/action-specific and sits
+immediately before exactly one semantic action. After that action, record
+matching `success` only when its evidence is green. On any nonzero, timeout, or
+unknown result, the next executable command must be matching `fail`; diagnose,
+record `correct` with a different family, and obtain a new corrected `check`
+before one retry. A generic or detached ALLOW must never authorize a later
+action or multiple commands.
+
+Heavy/race/vet/Android work runs only in GitHub Actions. Record the exact
+commit, independent review verdict, every required run ID, immutable artifact
+name, member list, byte size, SHA-256, and signer/attestation identity in the
+protected change sheet. Do not build or substitute a production binary on the
+host.
 
 The present repository has an inert systemd template at
 `deploy/maestro-xray-cdn-agent.service` and the sidecar agent implementation at
@@ -139,22 +209,34 @@ health, receipt, accounting, or rollback mismatch.
 Use one synthetic/test entitlement and sanitized result IDs; never record a
 private subscription URL.
 
-1. Prove the same subscription imports and refreshes in MaestroVPN, Happ, Incy,
-   Karing, and at least one standards-compliant client. Test TCP, UDP, DNS,
-   idle, network transition, country attribution, zero balance, top-up resume,
-   and ordinary-only fallback.
-2. Prove users without a confirmed CDN purchase receive no CDN/LTE nodes after
+1. Prove production MaestroVPN `1.0.157` still imports and refreshes the exact
+   ordinary bare subscription and uses the recoverable ordinary fallback. This
+   is only an ordinary non-regression gate; `1.0.157` cannot satisfy any CDN,
+   country-attribution, zero-balance, or top-up-resume row.
+2. Run the commercial CDN canary separately in Happ, Incy, Karing, and at
+   least one standards-compliant CDN-capable client. Test import, refresh, TCP,
+   UDP, DNS, idle, network transition, country attribution, zero balance,
+   top-up resume, and ordinary-only fallback.
+3. Keep the MaestroVPN commercial-client row `NO_GO` until an explicitly
+   authorized production MaestroVPN runtime, bound to a reviewed production
+   version and artifact, supports the required CDN transport and passes the
+   same commercial matrix. `1.0.158-task7-test` cannot satisfy this gate and
+   must not be installed, promoted, released, signed, or published as OTA.
+4. Prove users without a confirmed CDN purchase receive no CDN/LTE nodes after
    fresh render, cached render, bot delivery, automatic refresh, or last-known-
    good fallback.
-3. Resolve both existing production bot identities and the existing customer
+5. Resolve both existing production bot identities and the existing customer
    channel from live protected configuration. Prove exactly one poller per bot,
    preserved pending updates, login-only payment comment, admin confirmation,
    one-tap Incy delivery, Happ fallback, subscription refresh, and channel
    notice without exposing secrets. Never confirm a real payment as a test.
-4. Prove existing customer subscriptions refresh automatically to the accepted
-   generation and remain backward-compatible. A manual reissue, a newly created
-   test-only subscription, or one successful client does not close this gate.
-5. Record a recoverable last-known-good subscription path and prove it serves
+6. Prove the `1.0.157` ordinary bare subscription refreshes byte-exact without
+   CDN nodes, while entitled CDN-capable clients refresh automatically to the
+   accepted commercial generation. After an authorized production MaestroVPN
+   CDN runtime exists, prove its automatic refresh separately. A manual reissue,
+   a newly created test-only subscription, or one successful client does not
+   close this gate.
+7. Record a recoverable last-known-good subscription path and prove it serves
    ordinary VPN when the commercial path is unavailable.
 
 ## Gate 5: 48-hour shadow accounting
@@ -172,8 +254,10 @@ the fleet rollout and 48-hour observation. Automatic deletion is eligible only
 when all of the following are `GREEN` for the same accepted generation:
 
 - S4, deliberate S4 rollback, S4 re-apply, S2, S3, and current S1;
-- automatic refresh of existing subscriptions;
-- MaestroVPN, Happ, Incy, Karing, and standards-compatible client matrix;
+- byte-exact automatic refresh of the ordinary `1.0.157` bare subscription and
+  commercial refresh in Happ, Incy, Karing, and a standards-compatible client;
+- an explicitly authorized production MaestroVPN CDN-capable runtime and its
+  complete commercial client/refresh matrix;
 - both bots, customer channel, panel login, default-OFF enforcement, and
   last-known-good recovery;
 - 48-hour accounting/cost comparison and a recoverable cleanup record.
@@ -184,6 +268,11 @@ changed predicate retains the subscription. Failure after the delete request is
 an unknown outcome and must be resolved by read-before-write, never a blind
 second delete. Until this automation and its live receipt are proven, cleanup
 status remains `RETAIN`.
+
+Until the explicitly authorized production MaestroVPN runtime supports and
+passes the CDN transport matrix, commercial customer cutover remains `NO_GO`
+and the private test subscription must remain `RETAIN`, even when every
+third-party-client canary is green.
 
 Completion of this runbook does not authorize final customer traffic cutover,
 real charging, or production OTA.
