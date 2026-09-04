@@ -424,7 +424,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "bd23f44bdafb860e3181a035c9fe83595a29c7ed3d5235dbf0db210c1c017dcf"
+    "afe410504a2374a3e5056d017c1741afafcec534807c462fddc6d608a1c87552"
 )
 APPROVED_READ_ONLY_SOURCE_URL = (
     "https://github.com/XTLS/Xray-core/releases/download/"
