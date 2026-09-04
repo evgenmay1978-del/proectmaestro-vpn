@@ -28,13 +28,19 @@ const (
 	maxResponseBytes    = 64 << 10
 )
 
+type definitelyNotSentError string
+
+func (err definitelyNotSentError) Error() string { return string(err) }
+
+func (definitelyNotSentError) DefinitelyNotSent() bool { return true }
+
 var (
-	ErrInvalidRequest  = errors.New("sidecar agent client: invalid request")
-	ErrBeforeSend      = errors.New("sidecar agent client: request was not sent")
-	ErrDeliveryUnknown = errors.New("sidecar agent client: delivery outcome is unknown")
-	ErrReceiptNotFound = errors.New("sidecar agent client: receipt not found")
-	ErrStaleGeneration = errors.New("sidecar agent client: stale desired generation")
-	ErrRequestRejected = errors.New("sidecar agent client: request rejected")
+	ErrInvalidRequest        = errors.New("sidecar agent client: invalid request")
+	ErrBeforeSend      error = definitelyNotSentError("sidecar agent client: request was not sent")
+	ErrDeliveryUnknown       = errors.New("sidecar agent client: delivery outcome is unknown")
+	ErrReceiptNotFound       = errors.New("sidecar agent client: receipt not found")
+	ErrStaleGeneration       = errors.New("sidecar agent client: stale desired generation")
+	ErrRequestRejected       = errors.New("sidecar agent client: request rejected")
 )
 
 type Config struct {

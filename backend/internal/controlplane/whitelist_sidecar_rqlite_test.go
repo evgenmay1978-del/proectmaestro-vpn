@@ -14,17 +14,17 @@ func TestMigrationWhiteListSidecarIsExactV15Upgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 15 || len(migrations) != 15 {
-		t.Fatalf("schema chain = version %d/%d, want exact v15", SchemaVersion, len(migrations))
+	if SchemaVersion != 16 || len(migrations) != 16 {
+		t.Fatalf("schema chain = version %d/%d, want exact v16", SchemaVersion, len(migrations))
 	}
 	if migrations[13].Path != "migrations/0014_whitelist_topup_orders.sql" {
 		t.Fatalf("v14 moved: %#v", migrations[13])
 	}
-	latest := migrations[14]
-	if latest.Path != "migrations/0015_whitelist_sidecar_reconcile.sql" {
-		t.Fatalf("latest migration = %#v", latest)
+	v15 := migrations[14]
+	if v15.Path != "migrations/0015_whitelist_sidecar_reconcile.sql" {
+		t.Fatalf("v15 migration = %#v", v15)
 	}
-	sql := strings.Join(strings.Fields(strings.ToLower(string(latest.Data))), " ")
+	sql := strings.Join(strings.Fields(strings.ToLower(string(v15.Data))), " ")
 	for _, required := range []string{
 		"create table whitelist_route_credentials",
 		"unique(entitlement_id, exit_id)",

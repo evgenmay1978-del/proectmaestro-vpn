@@ -36,6 +36,9 @@ func (s *Service) ExecuteWhiteListSidecarAction(
 	}
 	result, executeErr := s.ExecuteExternalAction(ctx, desired.Action, workerID, sender)
 	response := result.Response
+	if executeErr != nil && externalActionWasDefinitelyNotSent(executeErr) {
+		return WhiteListSidecarReceipt{}, executeErr
+	}
 	if executeErr != nil || result.State == "unknown" {
 		lookup, ok := sender.(whiteListSidecarReceiptLookup)
 		if !ok {

@@ -1,0 +1,312 @@
+package controlplane
+
+import (
+	"context"
+	"encoding/json"
+	"sort"
+	"strings"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
+)
+
+// ReconcileWhiteListSidecarIntents consumes only the durable white-list
+// publication controls. A disabled control is converted to a revoke before a
+// removal generation is sent. An enabled control is publishable only after the
+// resulting generation is ready on every active Origin.
+func (s *Service) ReconcileWhiteListSidecarIntents(
+	ctx context.Context,
+	workerID string,
+	resolveSender func(string) (ExternalActionSender, bool),
+) error {
+	if s == nil || s.store == nil || s.store.db == nil || ctx == nil ||
+		strings.TrimSpace(workerID) == "" || resolveSender == nil {
+		return ErrConflict
+	}
+	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
+	if err != nil {
+		return err
+	}
+	previousEntitlements, previousExit, err := whiteListPreviousManagedState(state.previous)
+	if err != nil {
+		return err
+	}
+	targetEntitlements := make([]string, 0, len(state.enabled))
+	for entitlementID, enabled := range state.enabled {
+		if enabled {
+			targetEntitlements = append(targetEntitlements, entitlementID)
+		}
+	}
+	sort.Strings(targetEntitlements)
+	if len(targetEntitlements) == 0 && len(previousEntitlements) == 0 {
+		return nil
+	}
+
+	selectedExit, err := whiteListSelectedRuntimeExit(
+		targetEntitlements, previousExit, state.credentials, state.exits,
+	)
+	if err != nil {
+		return err
+	}
+	for entitlementID := range previousEntitlements {
+		if state.enabled[entitlementID] {
+			continue
+		}
+		intent, changed, deriveErr := DeriveWhiteListPublicationIntent(
+			entitlementID, true,
+			WhiteListPublicationDecision{Verdict: WhiteListPublicationSidecarUnavailable},
+		)
+		if deriveErr != nil || !changed || intent.Action != WhiteListPublicationRevoke {
+			return ErrConflict
+		}
+	}
+
+	for index := range state.origins {
+		if previous, ok := state.previous[state.origins[index].OriginID]; ok {
+			state.origins[index].StaticUsers = append([]string{}, previous.StaticUsers...)
+		}
+	}
+	routes := make([]WhiteListManagedRoute, 0, len(targetEntitlements))
+	for _, entitlementID := range targetEntitlements {
+		routes = append(routes, WhiteListManagedRoute{EntitlementID: entitlementID, ExitID: selectedExit.ExitID})
+	}
+	result, err := s.ReconcileWhiteListSidecarGeneration(
+		ctx, state.previous, state.origins, routes, selectedExit, workerID, resolveSender,
+	)
+	if err != nil {
+		return err
+	}
+	if len(targetEntitlements) == 0 {
+		return nil
+	}
+	if !result.Ready || result.FreshUntil.IsZero() || !result.FreshUntil.After(s.clock.Now()) {
+		return ErrUnavailable
+	}
+	decision := WhiteListPublicationDecision{
+		Verdict: WhiteListPublicationPublishable, ProjectionVersion: 1,
+		DesiredGeneration: result.Generation, FreshUntilUnix: result.FreshUntil.Unix(),
+	}
+	for _, entitlementID := range targetEntitlements {
+		_, wasManaged := previousEntitlements[entitlementID]
+		intent, changed, deriveErr := DeriveWhiteListPublicationIntent(entitlementID, wasManaged, decision)
+		if deriveErr != nil || (!wasManaged && (!changed || intent.Action != WhiteListPublicationEnable)) {
+			return ErrConflict
+		}
+	}
+	return nil
+}
+
+type whiteListSidecarRuntimeState struct {
+	origins     []WhiteListOrigin
+	previous    map[string]WhiteListSidecarDesired
+	enabled     map[string]bool
+	credentials map[string]map[string]struct{}
+	exits       map[string]WhiteListExit
+}
+
+func (s *Service) loadWhiteListSidecarRuntimeState(ctx context.Context) (whiteListSidecarRuntimeState, error) {
+	results, err := s.store.db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT origin_id,node_id,release_id,profile_id,preset_id,config_digest,active
+FROM whitelist_sidecar_origins WHERE active=1 ORDER BY origin_id`},
+		rqlite.Statement{SQL: `SELECT desired.origin_id,desired.desired_generation,desired.node_id,
+desired.release_id,desired.profile_id,desired.preset_id,desired.exit_id,desired.config_digest,
+desired.managed_user_set_digest,desired.desired_sha256,desired.payload_json,desired.action_type,desired.action_key
+FROM whitelist_sidecar_desired AS desired
+JOIN (
+ SELECT origin_id,MAX(desired_generation) AS desired_generation
+ FROM whitelist_sidecar_desired GROUP BY origin_id
+) AS latest ON latest.origin_id=desired.origin_id AND latest.desired_generation=desired.desired_generation
+JOIN whitelist_sidecar_origins AS origin ON origin.origin_id=desired.origin_id AND origin.active=1
+ORDER BY desired.origin_id`},
+		rqlite.Statement{SQL: `SELECT control.entitlement_id,control.enabled
+FROM whitelist_publication_controls AS control
+JOIN (
+ SELECT entitlement_id,MAX(version) AS version
+ FROM whitelist_publication_controls GROUP BY entitlement_id
+) AS latest ON latest.entitlement_id=control.entitlement_id AND latest.version=control.version
+ORDER BY control.entitlement_id`},
+		rqlite.Statement{SQL: `SELECT entitlement_id,exit_id FROM whitelist_route_credentials ORDER BY entitlement_id,exit_id`},
+		rqlite.Statement{SQL: `SELECT exit_id,country_code,country_label,healthy FROM whitelist_sidecar_exits ORDER BY exit_id`},
+	)
+	if err != nil || len(results) != 5 {
+		return whiteListSidecarRuntimeState{}, ErrUnavailable
+	}
+	state := whiteListSidecarRuntimeState{
+		previous: make(map[string]WhiteListSidecarDesired), enabled: make(map[string]bool),
+		credentials: make(map[string]map[string]struct{}), exits: make(map[string]WhiteListExit),
+	}
+	for _, row := range results[0].Rows {
+		originID, originOK := rowString(row, "origin_id")
+		nodeID, nodeOK := rowString(row, "node_id")
+		releaseID, releaseOK := rowString(row, "release_id")
+		profileID, profileOK := rowString(row, "profile_id")
+		presetID, presetOK := rowString(row, "preset_id")
+		configDigest, digestOK := rowString(row, "config_digest")
+		active, activeOK := rowInt64(row, "active")
+		if !originOK || !nodeOK || !releaseOK || !profileOK || !presetOK || !digestOK ||
+			!activeOK || active != 1 {
+			return whiteListSidecarRuntimeState{}, ErrUnavailable
+		}
+		state.origins = append(state.origins, WhiteListOrigin{
+			OriginID: originID, NodeID: nodeID, ReleaseID: releaseID, ProfileID: profileID,
+			PresetID: presetID, ConfigDigest: configDigest, Active: true,
+		})
+	}
+	for _, row := range results[1].Rows {
+		desired, decodeErr := whiteListRuntimeDesiredFromRow(row)
+		if decodeErr != nil {
+			return whiteListSidecarRuntimeState{}, decodeErr
+		}
+		state.previous[desired.OriginID] = desired
+	}
+	for _, row := range results[2].Rows {
+		entitlementID, entitlementOK := rowString(row, "entitlement_id")
+		enabled, enabledOK := rowInt64(row, "enabled")
+		if !entitlementOK || !validWhiteListID(entitlementID) || !enabledOK || (enabled != 0 && enabled != 1) {
+			return whiteListSidecarRuntimeState{}, ErrUnavailable
+		}
+		state.enabled[entitlementID] = enabled == 1
+	}
+	for _, row := range results[3].Rows {
+		entitlementID, entitlementOK := rowString(row, "entitlement_id")
+		exitID, exitOK := rowString(row, "exit_id")
+		if !entitlementOK || !validWhiteListID(entitlementID) || !exitOK || exitID == "" {
+			return whiteListSidecarRuntimeState{}, ErrUnavailable
+		}
+		if state.credentials[entitlementID] == nil {
+			state.credentials[entitlementID] = make(map[string]struct{})
+		}
+		state.credentials[entitlementID][exitID] = struct{}{}
+	}
+	for _, row := range results[4].Rows {
+		exitID, exitOK := rowString(row, "exit_id")
+		countryCode, codeOK := rowString(row, "country_code")
+		countryLabel, labelOK := rowString(row, "country_label")
+		healthy, healthyOK := rowInt64(row, "healthy")
+		if !exitOK || !codeOK || !labelOK || !healthyOK || (healthy != 0 && healthy != 1) {
+			return whiteListSidecarRuntimeState{}, ErrUnavailable
+		}
+		state.exits[exitID] = WhiteListExit{
+			ExitID: exitID, CountryCode: countryCode, CountryLabel: countryLabel, Healthy: healthy == 1,
+		}
+	}
+	return state, nil
+}
+
+func whiteListRuntimeDesiredFromRow(row map[string]any) (WhiteListSidecarDesired, error) {
+	originID, originOK := rowString(row, "origin_id")
+	nodeID, nodeOK := rowString(row, "node_id")
+	releaseID, releaseOK := rowString(row, "release_id")
+	profileID, profileOK := rowString(row, "profile_id")
+	presetID, presetOK := rowString(row, "preset_id")
+	exitID, exitOK := rowString(row, "exit_id")
+	configDigest, configOK := rowString(row, "config_digest")
+	managedDigest, managedOK := rowString(row, "managed_user_set_digest")
+	desiredSHA, desiredOK := rowString(row, "desired_sha256")
+	actionType, typeOK := rowString(row, "action_type")
+	actionKey, actionOK := rowString(row, "action_key")
+	generation, generationOK := rowInt64(row, "desired_generation")
+	payloadJSON, payloadOK := whiteListRowBytes(row, "payload_json")
+	if !originOK || !nodeOK || !releaseOK || !profileOK || !presetOK || !exitOK || !configOK ||
+		!managedOK || !desiredOK || !typeOK || !actionOK || !generationOK || !payloadOK {
+		return WhiteListSidecarDesired{}, ErrUnavailable
+	}
+	var payload whiteListSidecarPayload
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return WhiteListSidecarDesired{}, ErrUnavailable
+	}
+	desired := WhiteListSidecarDesired{
+		OriginID: originID, NodeID: nodeID, ReleaseID: releaseID, ProfileID: profileID,
+		PresetID: presetID, ExitID: exitID, Generation: generation, ConfigDigest: configDigest,
+		ManagedUserSetDigest: managedDigest, DesiredSHA256: desiredSHA,
+		StaticUsers: append([]string{}, payload.StaticUsers...), ManagedUsers: append([]string{}, payload.ManagedUsers...),
+		PayloadJSON: append([]byte(nil), payloadJSON...),
+		Action: ExternalActionCommand{
+			Type: actionType, ResourceID: originID, ActionKey: actionKey, Request: append([]byte(nil), payloadJSON...),
+		},
+	}
+	if err := validateWhiteListSidecarDesired(desired); err != nil {
+		return WhiteListSidecarDesired{}, ErrUnavailable
+	}
+	return desired, nil
+}
+
+func whiteListPreviousManagedState(previous map[string]WhiteListSidecarDesired) (map[string]struct{}, string, error) {
+	managed := make(map[string]struct{})
+	exitID := ""
+	var canonical []string
+	for _, desired := range previous {
+		if exitID == "" {
+			exitID = desired.ExitID
+		} else if exitID != desired.ExitID {
+			return nil, "", ErrConflict
+		}
+		users := append([]string{}, desired.ManagedUsers...)
+		sort.Strings(users)
+		if canonical == nil {
+			canonical = users
+		} else if !whiteListStringsEqual(canonical, users) {
+			return nil, "", ErrConflict
+		}
+	}
+	for _, user := range canonical {
+		prefix := "wl:"
+		suffix := ":" + exitID
+		if !strings.HasPrefix(user, prefix) || !strings.HasSuffix(user, suffix) || len(user) <= len(prefix)+len(suffix) {
+			return nil, "", ErrConflict
+		}
+		entitlementID := strings.TrimSuffix(strings.TrimPrefix(user, prefix), suffix)
+		if !validWhiteListID(entitlementID) {
+			return nil, "", ErrConflict
+		}
+		managed[entitlementID] = struct{}{}
+	}
+	return managed, exitID, nil
+}
+
+func whiteListSelectedRuntimeExit(
+	entitlementIDs []string,
+	previousExit string,
+	credentials map[string]map[string]struct{},
+	exits map[string]WhiteListExit,
+) (WhiteListExit, error) {
+	if len(entitlementIDs) == 0 {
+		exit, ok := exits[previousExit]
+		if previousExit == "" || !ok {
+			return WhiteListExit{}, ErrUnavailable
+		}
+		return exit, nil
+	}
+	common := make(map[string]struct{})
+	for index, entitlementID := range entitlementIDs {
+		available := credentials[entitlementID]
+		if len(available) == 0 {
+			return WhiteListExit{}, ErrUnavailable
+		}
+		if index == 0 {
+			for exitID := range available {
+				common[exitID] = struct{}{}
+			}
+			continue
+		}
+		for exitID := range common {
+			if _, ok := available[exitID]; !ok {
+				delete(common, exitID)
+			}
+		}
+	}
+	selected := ""
+	if _, stable := common[previousExit]; stable {
+		selected = previousExit
+	} else if len(common) == 1 {
+		for exitID := range common {
+			selected = exitID
+		}
+	} else {
+		return WhiteListExit{}, ErrConflict
+	}
+	exit, ok := exits[selected]
+	if !ok || !exit.Healthy {
+		return WhiteListExit{}, ErrUnavailable
+	}
+	return exit, nil
+}

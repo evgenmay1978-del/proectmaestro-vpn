@@ -273,6 +273,39 @@ AND (
 	return externalActionMutationResult(results, command, binding, "unknown", false)
 }
 
+func (s *RQLiteExternalActions) MarkNotSent(ctx context.Context, command ExternalActionCommand) (ExternalActionResult, error) {
+	binding, err := s.attemptBinding(command)
+	if err != nil {
+		return ExternalActionResult{}, err
+	}
+	jobName := "external-action:" + command.Type
+	now := s.service.clock.Now().Unix()
+	predicate, predicateArgs := externalActionMutationPredicate(command, binding, false)
+	args := []any{now}
+	args = append(args, predicateArgs...)
+	args = append(args,
+		command.WorkerID, command.LeaseToken, command.LeaseFence,
+		jobName, command.WorkerID, command.LeaseToken, command.LeaseFence,
+	)
+	results, err := s.service.store.db.Request(ctx, rqlite.Linearizable, true,
+		rqlite.Statement{SQL: `UPDATE external_actions AS action
+SET status='pending',response_envelope=NULL,updated_at_unix=?,
+attempt_worker_id=NULL,attempt_lease_token=NULL,attempt_lease_fence=NULL
+WHERE ` + predicate + ` AND action.status='applying'
+AND action.attempt_worker_id=? AND action.attempt_lease_token=? AND action.attempt_lease_fence=?
+AND EXISTS (
+ SELECT 1 FROM cluster_job_leases lease
+ WHERE lease.job_name=? AND lease.holder_id=? AND lease.lease_token=? AND lease.lease_fence=?
+ AND lease.expires_at_unix>unixepoch()
+)`, Args: args},
+		externalActionPrepareRead(command),
+	)
+	if err != nil {
+		return ExternalActionResult{}, ErrUnavailable
+	}
+	return externalActionMutationResult(results, command, binding, "pending", false)
+}
+
 func (s *RQLiteExternalActions) attemptBinding(command ExternalActionCommand) (externalActionBinding, error) {
 	if command.Type == "" || command.ResourceID == "" || command.ActionKey == "" ||
 		command.WorkerID == "" || command.LeaseToken == "" || command.LeaseFence <= 0 ||

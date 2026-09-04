@@ -660,9 +660,9 @@ func requireExactV9MigrationChain(t *testing.T, migrations []migration) {
 
 func requireExactV15MigrationChain(t *testing.T, migrations []migration) {
 	t.Helper()
-	if SchemaVersion != 15 || len(migrations) != 15 {
+	if SchemaVersion != 16 || len(migrations) != 16 {
 		t.Fatalf(
-			"migration chain is not exactly v1-v15: SchemaVersion=%d count=%d",
+			"migration chain is not exactly v1-v16: SchemaVersion=%d count=%d",
 			SchemaVersion,
 			len(migrations),
 		)

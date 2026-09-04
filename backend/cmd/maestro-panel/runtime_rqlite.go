@@ -33,6 +33,12 @@ type whiteListRenewalReconciler interface {
 	ReconcileWhiteListRenewalIntents(context.Context, int) (int64, error)
 }
 
+type whiteListSidecarIntentReconciler interface {
+	ReconcileWhiteListSidecarIntents(
+		context.Context, string, func(string) (controlplane.ExternalActionSender, bool),
+	) error
+}
+
 type rqliteRuntimeDependencies struct {
 	newClient       func(rqlite.Config) (rqlite.RQLite, error)
 	loadSecretBox   func(string) (*controlplane.SecretBox, error)
@@ -98,14 +104,16 @@ func buildRQLitePanelRuntime(
 	}
 	business := api.NewServiceBusiness(service, rqliteServiceBusinessConfig(apiConfig, wbSender, workerID))
 	server := api.NewControlPlane(business, apiConfig)
-	return &panelRuntime{
+	runtime := &panelRuntime{
 		mode: "rqlite", business: business, handler: server.Handler(),
-		background: func(workerContext context.Context) {
-			runWhiteListRenewalReconciler(
-				workerContext, service, runtimeWhiteListRenewalInterval,
-			)
-		},
-	}, nil
+	}
+	runtime.background = func(workerContext context.Context) {
+		runRQLiteReconcilers(
+			workerContext, service, service, workerID, runtime.whiteListSidecarSenders,
+			runtimeWhiteListRenewalInterval,
+		)
+	}
+	return runtime, nil
 }
 
 func runWhiteListRenewalReconciler(
@@ -113,13 +121,24 @@ func runWhiteListRenewalReconciler(
 	reconciler whiteListRenewalReconciler,
 	interval time.Duration,
 ) {
-	if ctx == nil || reconciler == nil || interval <= 0 {
+	runRQLiteReconcilers(ctx, reconciler, nil, "", nil, interval)
+}
+
+func runRQLiteReconcilers(
+	ctx context.Context,
+	renewal whiteListRenewalReconciler,
+	sidecar whiteListSidecarIntentReconciler,
+	workerID string,
+	senders map[string]controlplane.ExternalActionSender,
+	interval time.Duration,
+) {
+	if ctx == nil || renewal == nil || interval <= 0 {
 		return
 	}
-	runPass := func() {
+	runRenewal := func() {
 		remaining := runtimeWhiteListRenewalBatch
 		for remaining > 0 {
-			applied, err := reconciler.ReconcileWhiteListRenewalIntents(ctx, remaining)
+			applied, err := renewal.ReconcileWhiteListRenewalIntents(ctx, remaining)
 			if err != nil {
 				if ctx.Err() == nil {
 					log.Printf("white-list renewal reconciliation deferred: %v", err)
@@ -133,6 +152,19 @@ func runWhiteListRenewalReconciler(
 				return
 			}
 			remaining -= int(applied)
+		}
+	}
+	runPass := func() {
+		runRenewal()
+		if sidecar == nil || strings.TrimSpace(workerID) == "" || len(senders) == 0 {
+			return
+		}
+		resolve := func(nodeID string) (controlplane.ExternalActionSender, bool) {
+			sender, ok := senders[nodeID]
+			return sender, ok && sender != nil
+		}
+		if err := sidecar.ReconcileWhiteListSidecarIntents(ctx, workerID, resolve); err != nil && ctx.Err() == nil {
+			log.Printf("white-list sidecar reconciliation deferred: %v", err)
 		}
 	}
 	runPass()

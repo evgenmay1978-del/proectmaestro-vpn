@@ -47,6 +47,14 @@ type ExternalActionPersistence interface {
 	MarkUnknown(context.Context, ExternalActionCommand) (ExternalActionResult, error)
 }
 
+type externalActionNotSentPersistence interface {
+	MarkNotSent(context.Context, ExternalActionCommand) (ExternalActionResult, error)
+}
+
+type externalActionDefinitelyNotSent interface {
+	DefinitelyNotSent() bool
+}
+
 type ExternalActionSender interface {
 	Post(context.Context, []byte) ([]byte, error)
 }
@@ -98,6 +106,17 @@ func (e *ExternalActionExecutor) Execute(
 	}
 	response, err := e.sender.Post(ctx, append([]byte(nil), command.Request...))
 	if err != nil {
+		if externalActionWasDefinitelyNotSent(err) {
+			store, ok := e.store.(externalActionNotSentPersistence)
+			if !ok {
+				return ExternalActionResult{}, err
+			}
+			pending, markErr := store.MarkNotSent(ctx, command)
+			if markErr != nil {
+				return ExternalActionResult{}, markErr
+			}
+			return pending, err
+		}
 		unknown, markErr := e.store.MarkUnknown(ctx, command)
 		if markErr != nil {
 			return ExternalActionResult{}, markErr
@@ -111,6 +130,11 @@ func (e *ExternalActionExecutor) Execute(
 		return started, err
 	}
 	return e.store.Finish(ctx, command, response)
+}
+
+func externalActionWasDefinitelyNotSent(err error) bool {
+	var definite externalActionDefinitelyNotSent
+	return errors.As(err, &definite) && definite.DefinitelyNotSent()
 }
 
 func externalActionHook(hook func(ExternalActionCrashPoint) error, point ExternalActionCrashPoint) error {
