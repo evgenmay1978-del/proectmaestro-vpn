@@ -64,7 +64,7 @@
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_CANARY_EVIDENCE.md",
       "bytes": 7162,
-      "sha256": "8d56d28b7f975c286e450082b51fc427c19ecf1e0ddde4d71ec7579f53794568",
+      "sha256": "47659c5aebe856c2974314f9ba92afc2cbfa31d31f4d848270152d88d54a00c6",
       "preview": "# Commercial white-list canary evidence\n\nStatus: evidence template; current verdict `PRODUCTION NO_GO`\n\nThis file is the redacted Task 15 evidence index. It must never contain host\naddresses, credentials, UUIDs, certificate/private-key material, customer\nidentifiers, payment data, bot tokens, private subscription URLs,"
     },
     {
@@ -124,7 +124,7 @@
     {
       "path": "docs/yandex-cdn-whitelist/PRODUCTION_FLEET_INVENTORY.md",
       "bytes": 5571,
-      "sha256": "4585d52208fa6005404e1dca9d0a871b6ad2a465c23552e6585d660a9f5149a8",
+      "sha256": "5f1c74d97cd76794a1bf88aed6baa69ddc6c42a3f92d59c7c8580bef487167a0",
       "preview": "# Production fleet inventory for commercial white-list rollout\n\nStatus: read-only inventory; mutation `NO_GO`\n\nSnapshot date: 2026-09-04. This document records only the sanitized facts from\nthe bounded production read-only pass. It contains no host address, credential,\nUUID, subscription URL, customer record, certifica"
     },
     {

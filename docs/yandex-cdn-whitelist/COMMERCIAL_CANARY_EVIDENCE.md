@@ -13,8 +13,8 @@ test ID, exact release/config identity, and digest.
 | Evidence | Value | Scope |
 | --- | --- | --- |
 | Candidate checkpoint | `ac8c6bf160d1adcd08b9e9046c9577d47ce9cdcf` | Repository-only baseline before Task 15 docs |
-| HA artifact workflow | Run `33848098013`, green | Repository/CI only |
-| S4 package workflow | Run `33848098068`, green | Repository/CI only |
+| S4 package workflow | Run `33848098013`, green | Repository/CI only |
+| HA artifact workflow | Run `33848098068`, green | Repository/CI only |
 | Yandex CDN release workflow | Run `33848098064`, green | Repository/CI only |
 | Production mutation | `NO_GO` | Missing per-host production gates |
 

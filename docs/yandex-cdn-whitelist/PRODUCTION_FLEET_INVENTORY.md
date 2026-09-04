@@ -11,8 +11,8 @@ body.
 
 - Canonical branch: `codex/yandex-cdn-whitelist-task3-sync`.
 - Repository checkpoint: `ac8c6bf160d1adcd08b9e9046c9577d47ce9cdcf`.
-- Exact-SHA GitHub checks are green at that checkpoint: HA artifact run
-  `33848098013`, S4 package run `33848098068`, and Yandex CDN release run
+- Exact-SHA GitHub checks are green at that checkpoint: S4 package run
+  `33848098013`, HA artifact run `33848098068`, and Yandex CDN release run
   `33848098064`.
 - Green repository checks prove the checked-in implementation only. They do not
   prove a production artifact-to-host binding, a node certificate, a usable
