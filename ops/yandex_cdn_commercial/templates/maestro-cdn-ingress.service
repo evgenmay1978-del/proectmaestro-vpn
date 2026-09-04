@@ -1,0 +1,26 @@
+[Unit]
+Description=MaestroVPN isolated CDN ingress
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+RuntimeDirectory=maestro-cdn-ingress
+RuntimeDirectoryMode=0750
+StateDirectory=maestro-cdn-ingress
+StateDirectoryMode=0700
+ExecStartPre=/usr/sbin/nginx -t -q -c /etc/maestro-cdn-ingress/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/maestro-cdn-ingress/nginx.conf -g "daemon off;"
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/maestro-cdn-ingress /var/lib/maestro-cdn-ingress
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

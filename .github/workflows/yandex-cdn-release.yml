@@ -510,7 +510,10 @@ jobs:
       - name: Prove bounded commercial operator contracts
         run: |
           set -euo pipefail
-          python -m unittest ops.yandex_cdn_commercial.tests.test_commercial_operator -v
+          python -m unittest \
+            ops.yandex_cdn_commercial.tests.test_commercial_operator \
+            ops.yandex_cdn_commercial.tests.test_ingress_renderer \
+            -v
 
       - name: Build immutable Linux amd64 commercial bundle
         env:
