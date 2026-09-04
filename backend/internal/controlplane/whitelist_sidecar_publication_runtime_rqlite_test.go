@@ -52,6 +52,9 @@ entitlement_id,exit_id,managed_email,credential_envelope,created_at_unix
 	if _, err := service.PersistWhiteListSidecarDesired(ctx, previous[0]); err != nil {
 		t.Fatalf("PersistWhiteListSidecarDesired: %v", err)
 	}
+	db.must(t, rqlite.Statement{
+		SQL: `UPDATE whitelist_sidecar_exits SET healthy=0 WHERE exit_id=?`, Args: []any{exit.ExitID},
+	})
 
 	sender := &desiredReceiptSender{now: now, bootID: "boot-s2"}
 	err = service.ReconcileWhiteListSidecarIntents(ctx, "worker-s2", func(nodeID string) (ExternalActionSender, bool) {
