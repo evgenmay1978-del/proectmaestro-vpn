@@ -9,7 +9,8 @@ REQUIRED_DOCS = {
     'PANEL_INTEGRATION.md', 'TRAFFIC_METERING.md', 'BILLING.md',
     'BILLING_RECONCILIATION.md', 'SECURITY.md', 'PRODUCTION_SAFETY.md',
     'DEPLOYMENT.md', 'ROLLBACK.md', 'HANDOFF.md', 'ADR_MAP.md',
-    'DEFINITION_OF_DONE.md', 'TERMINOLOGY.md', 'BASELINE_MANIFEST.json',
+    'DEFINITION_OF_DONE.md', 'TERMINOLOGY.md', 'COMMERCIAL_ACCEPTANCE_MATRIX.md',
+    'BASELINE_MANIFEST.json',
 }
 ADRS = {f'ADR-{n:04d}.md' for n in range(1, 18)}
 HEADINGS = ('Problem', 'Constraints', 'Alternatives', 'Trade-offs', 'Risks', 'Compatibility', 'Testing', 'Rollback', 'Decision', 'Evidence')

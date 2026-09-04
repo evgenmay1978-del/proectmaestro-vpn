@@ -3,8 +3,8 @@
   "files": [
     {
       "path": "AGENTS.md",
-      "bytes": 16560,
-      "sha256": "6387856a7c3bbdc9441cf6a806da5d69a734ef196bb55fac0deb00b97413e364",
+      "bytes": 17677,
+      "sha256": "6850cb1b3d490bb6cb3ffedec10c1789d9ac462e3af3fb545db49eb47696650b",
       "preview": "# Yandex CDN white-list task\n\nNavigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](<REDACTED>), [SPEC](docs/yandex-cdn-whitelist/<REDACTED>), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [hando"
     },
     {
@@ -54,6 +54,12 @@
       "bytes": 1087,
       "sha256": "eb00cbe7f5f503f5022b0fc0510842f033a7dbf9c2766cccc1dbb5456ecece95",
       "preview": "# Client compatibility matrix\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nMaestroVPN, Karing, Incy and Happ start UNVERIFIED. A versioned preset may be SUPPORTED only after import, refresh, TCP/UDP/"
+    },
+    {
+      "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ACCEPTANCE_MATRIX.md",
+      "bytes": 4636,
+      "sha256": "797b351a1aefde5e5038a67116339ef368a6d2cfeb2cb404184da6d755a18b68",
+      "preview": "# White-list commercial delivery acceptance matrix\n\nStatus: target-only\n\nThis matrix is an offline repository and exact-SHA CI acceptance contract. It\ndoes not claim live production readiness, successful customer traffic, a real\npayment, a Yandex Cloud result, or a server rollout. Those remain `NO_GO` until\nthe later p"
     },
     {
       "path": "docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md",

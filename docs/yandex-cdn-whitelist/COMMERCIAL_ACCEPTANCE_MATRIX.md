@@ -1,5 +1,7 @@
 # White-list commercial delivery acceptance matrix
 
+Status: target-only
+
 This matrix is an offline repository and exact-SHA CI acceptance contract. It
 does not claim live production readiness, successful customer traffic, a real
 payment, a Yandex Cloud result, or a server rollout. Those remain `NO_GO` until

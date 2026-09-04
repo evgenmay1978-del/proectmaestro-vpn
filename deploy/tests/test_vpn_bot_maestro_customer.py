@@ -1,6 +1,12 @@
 import asyncio
+import importlib.util
+import sys
 import tempfile
+import types
 import unittest
+
+if importlib.util.find_spec("httpx") is None:
+    sys.modules["httpx"] = types.SimpleNamespace(AsyncClient=None)
 
 from deploy.vpn_bot_maestro_customer import (
     GB_PACKS,
