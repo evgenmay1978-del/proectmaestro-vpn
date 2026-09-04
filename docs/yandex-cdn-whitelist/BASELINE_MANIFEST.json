@@ -75,8 +75,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLOUT_RUNBOOK.md",
-      "bytes": 15196,
-      "sha256": "85faa07ccd3d0b15d9e1c291084dd6157930c4cfc5d4e73c656e422bfccf41b8",
+      "bytes": 16120,
+      "sha256": "490d6cb940dc33a6e8ce5c3b0fe0fcbfef1a3757bf921bd6c8cca4989f63e045",
       "preview": "# Commercial white-list staged rollout runbook\n\nStatus: executable gate contract; production mutation `NO_GO` until every\nprecondition below is evidenced for the exact node and exact package\n\nThis is the smallest approved production path: S4, then S2, then S3, then the\ncurrent owner-authoritative S1. A failure or unkno"
     },
     {

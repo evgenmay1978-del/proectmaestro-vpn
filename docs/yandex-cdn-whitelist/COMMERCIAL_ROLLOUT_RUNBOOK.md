@@ -40,12 +40,22 @@ from the protected change sheet; they must never be pasted into Git, chat, or
 this runbook. Missing, relative, wrong-type, unreadable, or mismatched inputs
 are `STOP`.
 
-Linux invocation, as one guarded semantic action:
+Linux guard check: execute this block by itself immediately before the wrapper
+action, with no intervening command or action:
 
 ```bash
 python ops/maestro-repetition-guard.py check \
   --action task15_s4_candidate_release_linux \
   --family release_wrapper_linux
+```
+
+Inspect both results before proceeding: the check must exit `0` **and** its
+first output token must be the literal `ALLOW` or `ALLOW_CORRECTED`. Blank
+output, any other token (including `BLOCKED`), or a nonzero exit is `STOP`; do
+not paste or execute the wrapper block. Only after both conditions are visibly
+satisfied may the operator execute this separate block:
+
+```bash
 bash -ceu '
   : "${TASK15_RELEASE_DIR:?STOP: protected release directory is required}"
   : "${TASK15_EVIDENCE_TRUST:?STOP: protected evidence trust file is required}"
@@ -57,12 +67,23 @@ bash -ceu '
 '
 ```
 
-PowerShell invocation, as the equivalent single guarded semantic action:
+PowerShell guard check: execute this block by itself immediately before the
+wrapper action, with no intervening command or action:
 
 ```powershell
 python ops/maestro-repetition-guard.py check `
   --action task15_s4_candidate_release_windows `
   --family release_wrapper_windows
+```
+
+Inspect both results before proceeding: the check must leave `$LASTEXITCODE`
+equal to `0` **and** its first output token must be the literal `ALLOW` or
+`ALLOW_CORRECTED`. Blank output, any other token (including `BLOCKED`), or a
+nonzero exit is `STOP`; do not paste or execute the wrapper block. Only after
+both conditions are visibly satisfied may the operator execute this separate
+block:
+
+```powershell
 & {
     if ([string]::IsNullOrWhiteSpace($env:TASK15_RELEASE_DIR) -or
         [string]::IsNullOrWhiteSpace($env:TASK15_EVIDENCE_TRUST) -or
