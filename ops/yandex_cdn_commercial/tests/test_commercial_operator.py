@@ -10,6 +10,7 @@ from ops.yandex_cdn_commercial.operator import CommercialOperator, OperationErro
 
 
 FULL_SHA = "467e40af33fe7ba6f5a7957adfcbf0d9e72a2d71"
+SECOND_SHA = "1111111111111111111111111111111111111111"
 XRAY_ARCHIVE_SHA = "f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7"
 
 
@@ -20,10 +21,16 @@ class FakeSystem:
         self.fail_health = False
         self.listeners_ready = True
         self.active_units: set[str] = set()
+        self.process_ready = True
+        self.process_targets: list[str] = []
+        self.restart_failures: list[str] = []
 
     def run(self, *command: str) -> None:
         self.commands.append(command)
-        if self.fail_start and command[:2] == ("systemctl", "start"):
+        if command[:1] == ("systemctl",) and len(command) > 1 and command[1] in {"start", "restart"} and self.restart_failures:
+            raise OperationError(self.restart_failures.pop(0))
+        if self.fail_start and command[:1] == ("systemctl",) and len(command) > 1 and command[1] in {"start", "restart"}:
+            self.fail_start = False
             raise OperationError("service_start_failed")
         if command[:2] == ("systemctl", "start"):
             self.active_units.add(command[2])
@@ -39,6 +46,16 @@ class FakeSystem:
         return (
             not self.fail_health
             and self.listeners_ready
+            and {
+                "maestro-xray-cdn-commercial.service",
+                "maestro-xray-cdn-commercial-agent.service",
+            }.issubset(self.active_units)
+        )
+
+    def processes_match(self, target: Path, _profile: object) -> bool:
+        self.process_targets.append(target.name)
+        return (
+            self.process_ready
             and {
                 "maestro-xray-cdn-commercial.service",
                 "maestro-xray-cdn-commercial-agent.service",
@@ -140,6 +157,17 @@ class CommercialOperatorTests(unittest.TestCase):
             target.write_text("fixture\n", encoding="utf-8")
             target.chmod(0o600)
 
+    def _rewrite_bundle_binaries(self) -> None:
+        (self.bundle_dir / "manifest.json").unlink()
+        (self.bundle_dir / "bin/xray").write_bytes(b"xray-v26.5.9-second\n")
+        (self.bundle_dir / "bin/maestro-xray-cdn-agent").write_bytes(b"agent-second\n")
+        bundle.create_manifest(
+            self.bundle_dir,
+            source_commit=SECOND_SHA,
+            xray_version="26.5.9",
+            xray_archive_sha256=XRAY_ARCHIVE_SHA,
+        )
+
     def _operator(self, profile: str = "standard") -> CommercialOperator:
         test_owner = (
             (os.getuid(), os.getgid())
@@ -156,6 +184,7 @@ class CommercialOperatorTests(unittest.TestCase):
             owner_resolver=lambda _name: test_owner,
         )
         operator.listener_probe = self.system.listeners_bound
+        operator.process_probe = self.system.processes_match
         return operator
 
     def test_manifest_tamper_refused_before_mutation(self) -> None:
@@ -385,6 +414,75 @@ class CommercialOperatorTests(unittest.TestCase):
         self.assertFalse(
             (self.root / "usr/lib/sysusers.d/maestro-xray-cdn-commercial.conf").exists()
         )
+
+    def test_upgrade_restarts_units_and_requires_current_process_identity(self) -> None:
+        self._operator().apply()
+        self._write_runtime(public_host="cdn-next.example.test")
+        command_start = len(self.system.commands)
+
+        upgraded = self._operator().apply()
+
+        upgrade_commands = self.system.commands[command_start:]
+        self.assertIn(
+            ("systemctl", "restart", "maestro-xray-cdn-commercial.service"),
+            upgrade_commands,
+        )
+        self.assertIn(
+            ("systemctl", "restart", "maestro-xray-cdn-commercial-agent.service"),
+            upgrade_commands,
+        )
+        self.assertNotIn(
+            ("systemctl", "start", "maestro-xray-cdn-commercial.service"),
+            upgrade_commands,
+        )
+        self.assertEqual(self.system.process_targets[-1], upgraded["release_id"])
+
+        self.system.process_ready = False
+        self.assertEqual(self._operator().status()["status"], "DRIFT")
+
+    def test_two_bundle_rollback_uses_release_local_binary_inventory(self) -> None:
+        first = self._operator().apply()
+        self._rewrite_bundle_binaries()
+        self._write_runtime(public_host="cdn-next.example.test")
+        second = self._operator().apply()
+        self.assertNotEqual(first["release_id"], second["release_id"])
+
+        rolled_back = self._operator().rollback()
+
+        self.assertEqual(rolled_back["release_id"], first["release_id"])
+        self.assertEqual(rolled_back["status"], "ACTIVE")
+
+    def test_automatic_failback_proves_previous_or_reports_both_failures(self) -> None:
+        first = self._operator().apply()
+        self._write_runtime(public_host="cdn-next.example.test")
+        process_proof_start = len(self.system.process_targets)
+        self.system.restart_failures = ["primary_restart_failed"]
+
+        with self.assertRaisesRegex(OperationError, "primary_restart_failed"):
+            self._operator().apply()
+
+        current = self.root / "opt/maestro-xray-cdn-commercial/current"
+        self.assertEqual(Path(os.readlink(current)).name, first["release_id"])
+        self.assertIn(first["release_id"], self.system.process_targets[process_proof_start:])
+        recovery_commands = self.system.commands
+        self.assertIn(
+            ("systemctl", "restart", "maestro-xray-cdn-commercial.service"),
+            recovery_commands,
+        )
+        self.assertIn(
+            ("systemctl", "restart", "maestro-xray-cdn-commercial-agent.service"),
+            recovery_commands,
+        )
+
+        self._write_runtime(public_host="cdn-third.example.test")
+        self.system.process_ready = False
+        with self.assertRaisesRegex(OperationError, "rollback_failed") as caught:
+            self._operator().apply()
+
+        failure = str(caught.exception)
+        self.assertIn("primary=post_apply_verification_failed", failure)
+        self.assertIn("rollback=rollback_health_failed", failure)
+        self.assertEqual(Path(os.readlink(current)).name, first["release_id"])
 
 
 if __name__ == "__main__":

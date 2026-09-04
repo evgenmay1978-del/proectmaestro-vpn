@@ -111,6 +111,7 @@ class CommercialOperator:
         command_runner: Callable[..., None] = _default_runner,
         owner_resolver: Callable[[str], tuple[int, int]] | None = None,
         listener_probe: Callable[[set[int]], bool] | None = None,
+        process_probe: Callable[[Path, Profile], bool] | None = None,
     ) -> None:
         self.root = Path(root).resolve()
         self.bundle_dir = Path(bundle_dir).resolve()
@@ -120,6 +121,7 @@ class CommercialOperator:
         self.run = command_runner
         self.owner_resolver = owner_resolver or self._resolve_owner
         self.listener_probe = listener_probe or self._default_listener_probe
+        self.process_probe = process_probe or self._default_process_probe
 
     @staticmethod
     def _resolve_owner(name: str) -> tuple[int, int]:
@@ -148,6 +150,56 @@ class CommercialOperator:
                 except (IndexError, ValueError):
                     continue
         return expected_ports.issubset(listening)
+
+    @staticmethod
+    def _default_process_probe(target: Path, profile: Profile) -> bool:
+        expected = {
+            profile.xray_unit: ("xray", "xray"),
+            profile.agent_unit: ("maestro-xray-cdn-agent", "agent"),
+        }
+        for unit, (executable_name, role) in expected.items():
+            completed = subprocess.run(
+                ["systemctl", "show", unit, "--property=MainPID", "--value"],
+                check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            try:
+                main_pid = int(completed.stdout.strip())
+            except (AttributeError, ValueError):
+                return False
+            if completed.returncode != 0 or main_pid <= 0:
+                return False
+            process = Path("/proc") / str(main_pid)
+            try:
+                executable_link = os.readlink(process / "exe")
+                if executable_link.endswith(" (deleted)"):
+                    return False
+                executable = Path(executable_link).resolve(strict=True)
+                expected_executable = (target / executable_name).resolve(strict=True)
+                cgroup = (process / "cgroup").read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                return False
+            if executable != expected_executable or unit not in cgroup:
+                return False
+            try:
+                if role == "xray":
+                    arguments = {
+                        os.fsdecode(value)
+                        for value in (process / "cmdline").read_bytes().split(b"\0")
+                        if value
+                    }
+                    if BASE_PATH + "/current/config.json" not in arguments:
+                        return False
+                else:
+                    environment = set((process / "environ").read_bytes().split(b"\0"))
+                    if ("MAESTRO_RELEASE_ID=" + target.name).encode() not in environment:
+                        return False
+            except OSError:
+                return False
+        return True
 
     def _rooted(self, absolute: str) -> Path:
         if not absolute.startswith("/") or ".." in Path(absolute).parts:
@@ -616,6 +668,12 @@ class CommercialOperator:
         except Exception:
             return False
 
+    def _processes_match_target(self, target: Path) -> bool:
+        try:
+            return bool(self.process_probe(target, self.profile))
+        except Exception:
+            return False
+
     def _status_for_target(self, target: Path) -> dict[str, Any]:
         try:
             metadata = json.loads((target / "release.json").read_bytes())
@@ -631,18 +689,25 @@ class CommercialOperator:
         package_inventory_ok = package_contract_ok and self._package_inventory_matches(package_inventory)
         unit_activity = self._unit_activity()
         listeners_bound = self._listeners_are_bound()
+        processes_current = self._processes_match_target(target)
         expected_config = metadata.get("config_sha256", "")
         try:
             actual_config = _sha256((target / "config.json").read_bytes())
         except OSError:
             actual_config = ""
+        release_binary_metadata_ok = (
+            isinstance(release_inventory, dict)
+            and isinstance(release_inventory.get("maestro-xray-cdn-agent"), dict)
+            and isinstance(release_inventory.get("xray"), dict)
+            and metadata.get("agent_sha256") == release_inventory["maestro-xray-cdn-agent"].get("sha256")
+            and metadata.get("xray_sha256") == release_inventory["xray"].get("sha256")
+        )
         metadata_ok = (
             metadata.get("schema") == "maestro-xray-cdn-commercial-release-v2"
             and metadata.get("profile") == self.profile.name
             and metadata.get("release_id") == target.name
             and re.fullmatch(r"[0-9a-f]{64}", str(metadata.get("runtime_input_sha256", ""))) is not None
-            and metadata.get("agent_sha256") == _sha256(members["bin/maestro-xray-cdn-agent"])
-            and metadata.get("xray_sha256") == _sha256(members["bin/xray"])
+            and release_binary_metadata_ok
             and actual_config == expected_config
         )
         active = (
@@ -651,6 +716,7 @@ class CommercialOperator:
             and package_inventory_ok
             and all(unit_activity.values())
             and listeners_bound
+            and processes_current
         )
         return {
             "actual_config_sha256": actual_config,
@@ -658,6 +724,7 @@ class CommercialOperator:
                 "listeners_bound": listeners_bound,
                 "metadata": metadata_ok,
                 "package_inventory": package_inventory_ok,
+                "processes_current": processes_current,
                 "release_inventory": release_inventory_ok,
                 "units_active": all(unit_activity.values()),
             },
@@ -669,6 +736,31 @@ class CommercialOperator:
             "source_commit": metadata.get("source_commit", ""),
             "status": "ACTIVE" if active else "DRIFT",
         }
+
+    @staticmethod
+    def _failure_evidence(error: Exception) -> str:
+        if isinstance(error, OperationError):
+            value = str(error)
+            if re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", value):
+                return value
+        return type(error).__name__
+
+    def _recover_failed_apply(self, previous: Path | None, current: Path, created_package_files: list[Path]) -> None:
+        self._switch(current, previous)
+        if previous is not None:
+            self.run("systemctl", "restart", self.profile.xray_unit)
+            self.run("systemctl", "restart", self.profile.agent_unit)
+            if self._status_for_target(previous)["status"] != "ACTIVE":
+                raise OperationError("rollback_health_failed")
+            return
+        self.run("systemctl", "stop", self.profile.agent_unit, self.profile.xray_unit)
+        self.run("systemctl", "disable", self.profile.agent_unit, self.profile.xray_unit)
+        for package_file in created_package_files:
+            if package_file.exists() or package_file.is_symlink():
+                package_file.unlink()
+        self.run("systemctl", "daemon-reload")
+        if self.status()["status"] != "ABSENT":
+            raise OperationError("rollback_absent_health_failed")
 
     def apply(self) -> dict[str, Any]:
         manifest, members, material, certificates, config, config_sha, runtime_input_sha, release_id = self._prepare()
@@ -685,26 +777,20 @@ class CommercialOperator:
             self._switch(current, release)
             self.run("systemctl", "daemon-reload")
             self.run("systemctl", "enable", self.profile.xray_unit, self.profile.agent_unit)
-            self.run("systemctl", "start", self.profile.xray_unit)
-            self.run("systemctl", "start", self.profile.agent_unit)
+            self.run("systemctl", "restart", self.profile.xray_unit)
+            self.run("systemctl", "restart", self.profile.agent_unit)
             if self._status_for_target(release)["status"] != "ACTIVE":
                 raise OperationError("post_apply_verification_failed")
             self._write_state(release_id, previous_id)
         except Exception as error:
-            self._switch(current, previous)
             try:
-                self.run("systemctl", "stop", self.profile.agent_unit, self.profile.xray_unit)
-                if previous is not None:
-                    self.run("systemctl", "start", self.profile.xray_unit)
-                    self.run("systemctl", "start", self.profile.agent_unit)
-                else:
-                    self.run("systemctl", "disable", self.profile.agent_unit, self.profile.xray_unit)
-                    for package_file in created_package_files:
-                        if package_file.exists() or package_file.is_symlink():
-                            package_file.unlink()
-                self.run("systemctl", "daemon-reload")
-            except Exception:
-                pass
+                self._recover_failed_apply(previous, current, created_package_files)
+            except Exception as rollback_error:
+                primary_evidence = self._failure_evidence(error)
+                rollback_evidence = self._failure_evidence(rollback_error)
+                raise OperationError(
+                    f"rollback_failed:primary={primary_evidence};rollback={rollback_evidence}"
+                ) from rollback_error
             if isinstance(error, OperationError):
                 raise
             raise OperationError("apply_failed") from error
