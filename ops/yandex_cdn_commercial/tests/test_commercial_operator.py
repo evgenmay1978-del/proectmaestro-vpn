@@ -119,6 +119,11 @@ class CommercialOperatorTests(unittest.TestCase):
             target.chmod(0o600)
 
     def _operator(self, profile: str = "standard") -> CommercialOperator:
+        test_owner = (
+            (os.getuid(), os.getgid())
+            if hasattr(os, "getuid") and hasattr(os, "getgid")
+            else (1001, 1001)
+        )
         return CommercialOperator(
             root=self.root,
             bundle_dir=self.bundle_dir,
@@ -126,7 +131,7 @@ class CommercialOperatorTests(unittest.TestCase):
             runtime_material=self.runtime,
             certificate_source=self.certs,
             command_runner=self.system.run,
-            owner_resolver=lambda _name: (1001, 1001),
+            owner_resolver=lambda _name: test_owner,
         )
 
     def test_manifest_tamper_refused_before_mutation(self) -> None:

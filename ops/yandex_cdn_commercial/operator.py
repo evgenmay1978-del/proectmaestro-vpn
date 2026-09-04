@@ -373,18 +373,19 @@ class CommercialOperator:
         if stage.exists():
             shutil.rmtree(stage)
         stage.mkdir(mode=0o750)
+        root_owner = self.owner_resolver("root")
         xray_owner = self.owner_resolver("maestro-xray-cdn")
         agent_owner = self.owner_resolver("maestro-xray-cdn-agent")
-        self._protect_directory(stage, 0o750, (0, xray_owner[1]))
+        self._protect_directory(stage, 0o750, (root_owner[0], xray_owner[1]))
         for relative in ("runtime", "runtime/api-mtls", "runtime/relay-tls"):
-            self._protect_directory(stage / relative, 0o750, (0, xray_owner[1]))
+            self._protect_directory(stage / relative, 0o750, (root_owner[0], xray_owner[1]))
         for relative in ("runtime/agent-server", "runtime/controller-ca", "runtime/relay-ca"):
             self._protect_directory(stage / relative, 0o750, agent_owner)
         for relative in ("runtime/credentials", "runtime/relay-credentials"):
             self._protect_directory(stage / relative, 0o700, agent_owner)
-        self._write(stage / "xray", members["bin/xray"], 0o755, (0, 0))
-        self._write(stage / "maestro-xray-cdn-agent", members["bin/maestro-xray-cdn-agent"], 0o755, (0, 0))
-        self._write(stage / "config.json", config, 0o640, (0, xray_owner[1]))
+        self._write(stage / "xray", members["bin/xray"], 0o755, root_owner)
+        self._write(stage / "maestro-xray-cdn-agent", members["bin/maestro-xray-cdn-agent"], 0o755, root_owner)
+        self._write(stage / "config.json", config, 0o640, (root_owner[0], xray_owner[1]))
         for relative, raw in certificates.items():
             owner = agent_owner if relative.startswith(("agent-server/", "controller-ca/")) or "sidecar-agent" in relative or relative.endswith("server-ca.crt") else xray_owner
             mode = 0o600 if relative.endswith(".key") else 0o640
@@ -417,26 +418,27 @@ class CommercialOperator:
             "MAESTRO_XRAY_PID_FILE": "/run/maestro-xray-cdn-commercial-pid/xray.pid",
         }
         env_raw = "".join(f"{key}={value}\n" for key, value in sorted(env.items())).encode()
-        self._write(stage / "agent.env", env_raw, 0o640, (0, agent_owner[1]))
-        self._write(stage / "release.json", _canonical(release_metadata), 0o640, (0, xray_owner[1]))
+        self._write(stage / "agent.env", env_raw, 0o640, (root_owner[0], agent_owner[1]))
+        self._write(stage / "release.json", _canonical(release_metadata), 0o640, (root_owner[0], xray_owner[1]))
         os.replace(stage, final)
         return final
 
     def _install_package_files(self, members: dict[str, bytes]) -> list[Path]:
+        root_owner = self.owner_resolver("root")
         sysusers = self._rooted("/usr/lib/sysusers.d/maestro-xray-cdn-commercial.conf")
-        self._write(sysusers, members[SYSUSERS_PATH], 0o644, (0, 0))
+        self._write(sysusers, members[SYSUSERS_PATH], 0o644, root_owner)
         self.run("systemd-sysusers", str(sysusers))
         created: list[Path] = []
         for unit, source in UNIT_PATHS.items():
             destination = self._rooted("/etc/systemd/system/" + unit)
             if not destination.exists():
                 created.append(destination)
-            self._write(destination, members[source], 0o644, (0, 0))
+            self._write(destination, members[source], 0o644, root_owner)
         return created
 
     def _write_state(self, current: str, previous: str | None) -> None:
         state = {"current_release_id": current, "last_known_good_release_id": previous, "schema": 1}
-        self._write(self._rooted(STATE_PATH), _canonical(state), 0o600, (0, 0))
+        self._write(self._rooted(STATE_PATH), _canonical(state), 0o600, self.owner_resolver("root"))
 
     def apply(self) -> dict[str, Any]:
         manifest, members, material, certificates, config, config_sha, release_id = self._prepare()
