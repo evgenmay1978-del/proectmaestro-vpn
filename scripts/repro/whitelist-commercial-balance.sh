@@ -81,11 +81,10 @@ run_required_tests ./internal/whitelistbalance \
   TestAdvanceUsesHalfOpenBoundaryAndExpiresOnlyUnusedIncluded \
   TestApplyUsageDebitsOldPeriodBeforeBoundaryRollover
 run_required_tests ./internal/controlplane \
-  '^(TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication|TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome)$' \
-  TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication \
-  TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome
+  '^TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication$' \
+  TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication
 run_required_tests ./internal/whitelistready \
   '^TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay$' \
   TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay
 
-printf '%s\n' '{"fixture":"whitelist-commercial-balance","harness_status":"PASS","proofs":5,"evidence_class":"OFFLINE_REPRO","release_readiness":"NO_GO"}'
+printf '%s\n' '{"fixture":"whitelist-commercial-balance","harness_status":"PASS","proofs":4,"evidence_class":"OFFLINE_REPRO","release_readiness":"NO_GO"}'

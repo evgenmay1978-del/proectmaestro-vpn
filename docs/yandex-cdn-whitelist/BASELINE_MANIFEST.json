@@ -57,8 +57,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ACCEPTANCE_MATRIX.md",
-      "bytes": 4636,
-      "sha256": "797b351a1aefde5e5038a67116339ef368a6d2cfeb2cb404184da6d755a18b68",
+      "bytes": 4773,
+      "sha256": "e600cc95d823cbcb106859195235c205524003d43bdd520889fd01a4e819e4dc",
       "preview": "# White-list commercial delivery acceptance matrix\n\nStatus: target-only\n\nThis matrix is an offline repository and exact-SHA CI acceptance contract. It\ndoes not claim live production readiness, successful customer traffic, a real\npayment, a Yandex Cloud result, or a server rollout. Those remain `NO_GO` until\nthe later p"
     },
     {

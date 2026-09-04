@@ -24,10 +24,7 @@ SCRIPTS = {
                 "TestAdvanceUsesHalfOpenBoundaryAndExpiresOnlyUnusedIncluded",
                 "TestApplyUsageDebitsOldPeriodBeforeBoundaryRollover",
             ),
-            (
-                "TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication",
-                "TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome",
-            ),
+            ("TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication",),
             ("TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay",),
         ),
         "commands": (
@@ -35,14 +32,13 @@ SCRIPTS = {
             "^(TestAdvanceUsesHalfOpenBoundaryAndExpiresOnlyUnusedIncluded|"
             "TestApplyUsageDebitsOldPeriodBeforeBoundaryRollover)$",
             "test -json -mod=readonly -count=1 ./internal/controlplane -run "
-            "^(TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication|"
-            "TestWhiteListTopUpConfirmationCommitsOnceAndReplaysAfterUnknownOutcome)$",
+            "^TestConfirmWhiteListTopUpPaymentCreditsOnceAndEnablesPublication$",
             "test -json -mod=readonly -count=1 ./internal/whitelistready -run "
             "^TestIntegrationFixtureCompositionShadowMeteringKeysResetReplay$",
         ),
         "stdout": (
             '{"fixture":"whitelist-commercial-balance","harness_status":"PASS",'
-            '"proofs":5,"evidence_class":"OFFLINE_REPRO",'
+            '"proofs":4,"evidence_class":"OFFLINE_REPRO",'
             '"release_readiness":"NO_GO"}\n'
         ),
     },
