@@ -22,11 +22,12 @@ from urllib.parse import urlparse
 import httpx
 import qrcode
 from aiogram import F, Router
-from aiogram.types import BufferedInputFile, CallbackQuery
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from .maestro_customer import build_customer_router_from_env
 from .vpn_bot_maestro_order_actions import (
     TOPUP_CONFIRM_PREFIX,
     TOPUP_REJECT_PREFIX,
+    admin_delivery_choices,
     topup_admin_request,
 )
 
@@ -191,6 +192,7 @@ async def show_app_subscription(cb: CallbackQuery):
         if not sub_url:
             await cb.answer("У клиента нет ссылки на подписку.", show_alert=True)
             return
+        deliveries = admin_delivery_choices(d.get("deliveries") or {})
         exp = d.get("expires", "") or ""
         exp_disp = "—"
         days_disp = ""
@@ -218,14 +220,22 @@ async def show_app_subscription(cb: CallbackQuery):
             f"Клиент: <code>{login}</code>\n"
             f"Статус: {status}  •  до {exp_disp}{days_disp}\n"
             f"Протоколы ({len(d.get('protocols') or [])}): {protos}\n\n"
-            f"🔗 Ссылка на подписку (все протоколы):\n<code>{sub_url}</code>\n\n"
-            f"📲 В приложении MaestroVPN — отсканируй этот QR или вставь ссылку.\n"
-            f"Для Karing/Hiddify добавь к ссылке <code>?app=karing</code>."
+            f"1. MaestroVPN: отсканируйте QR или вставьте обычную ссылку:\n"
+            f"<code>{sub_url}</code>\n\n"
+            f"2. Incy или Karing: нажмите кнопку ниже и подтвердите импорт.\n"
+            f"3. Happ: скопируйте ссылку ниже и добавьте подписку:\n"
+            f"<code>{deliveries.happ_url}</code>\n"
+            f"4. Убедитесь, что профиль MaestroVPN появился.\n\n"
+            f"Без купленных ГБ клиент увидит обычные серверы. После покупки ГБ в этих же ссылках появится CDN/LTE."
         )
         await cb.message.answer_photo(
             BufferedInputFile(_qr_png(sub_url), filename="maestrovpn_sub.png"),
             caption=caption,
             parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Открыть в Incy", url=deliveries.incy_url)],
+                [InlineKeyboardButton(text="Открыть в Karing", url=deliveries.karing_url)],
+            ]),
         )
         await cb.answer()
     except Exception as e:  # noqa: BLE001

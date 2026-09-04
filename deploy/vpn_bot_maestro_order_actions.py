@@ -20,6 +20,37 @@ class TopUpAdminRequest(NamedTuple):
     idempotency_key: str
 
 
+class AdminDeliveryChoices(NamedTuple):
+    incy_url: str
+    happ_url: str
+    karing_url: str
+
+
+def admin_delivery_choices(deliveries: dict) -> AdminDeliveryChoices:
+    expected = {
+        "incy": "INCY_ONE_TAP",
+        "happ": "COPY_HTTPS_URL_AND_QR",
+        "karing": "KARING_INSTALL_CONFIG",
+    }
+    urls = {}
+    for client, format_name in expected.items():
+        descriptor = deliveries.get(client) if isinstance(deliveries, dict) else None
+        if (
+            not isinstance(descriptor, dict)
+            or descriptor.get("client") != client
+            or descriptor.get("format") != format_name
+            or not isinstance(descriptor.get("url"), str)
+            or not descriptor["url"].strip()
+        ):
+            raise ValueError("invalid admin subscription delivery")
+        urls[client] = descriptor["url"]
+    return AdminDeliveryChoices(
+        incy_url=urls["incy"],
+        happ_url=urls["happ"],
+        karing_url=urls["karing"],
+    )
+
+
 def build_topup_callback(decision: str, order_id: str) -> str:
     prefix = _PREFIX_BY_DECISION.get(decision)
     if prefix is None or not _OPAQUE_ORDER_ID.fullmatch(order_id):

@@ -179,9 +179,12 @@ class CustomerFlow:
                 "steps": (
                     "1. Скопируйте HTTPS-ссылку.",
                     "2. Откройте Happ.",
-                    "3. Вставьте ссылку или отсканируйте QR.",
+                    "3. Добавьте подписку и вставьте ссылку или отсканируйте QR.",
+                    "4. Убедитесь, что профиль MaestroVPN появился.",
                 ),
             }
+        if client == "karing" and result.get("format") == "KARING_INSTALL_CONFIG":
+            return {"button_url": result["url"], "label": "Открыть в Karing"}
         raise ValueError("unexpected subscription delivery result")
 
     def support_text(self) -> str:
@@ -279,9 +282,17 @@ def build_customer_router(store: CustomerBindingStore):
         elif action == "devices":
             incy = await flow.delivery("incy")
             happ = await flow.delivery("happ")
-            await callback.message.answer("Incy:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text=incy["label"], url=incy["button_url"])
-            ]]))
+            karing = await flow.delivery("karing")
+            await callback.message.answer(
+                "1. Выберите приложение.\n"
+                "2. Нажмите «Открыть» и подтвердите импорт.\n"
+                "3. Убедитесь, что профиль MaestroVPN появился.\n\n"
+                "Без купленных ГБ будут обычные серверы. После покупки ГБ здесь же появится CDN/LTE.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=incy["label"], url=incy["button_url"])],
+                [InlineKeyboardButton(text=karing["label"], url=karing["button_url"])],
+                ]),
+            )
             import qrcode
             from io import BytesIO
             qr = qrcode.make(happ["url"])

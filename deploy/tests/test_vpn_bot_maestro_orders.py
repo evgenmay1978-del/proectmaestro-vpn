@@ -78,3 +78,16 @@ class OrdersAdapterTests(unittest.TestCase):
             actions.build_topup_callback("unknown", "order-1")
         with self.assertRaises(ValueError):
             actions.topup_admin_request("mwcf:")
+
+    def test_admin_delivery_choices_use_backend_descriptors_without_manual_suffixes(self):
+        actions = order_actions_module()
+        builder = getattr(actions, "admin_delivery_choices", None)
+        self.assertIsNotNone(builder, "admin delivery choice builder is missing")
+        choices = builder({
+            "incy": {"client": "incy", "format": "INCY_ONE_TAP", "url": "incy://fixture"},
+            "happ": {"client": "happ", "format": "COPY_HTTPS_URL_AND_QR", "url": "https://safe.invalid/sub/token?format=links"},
+            "karing": {"client": "karing", "format": "KARING_INSTALL_CONFIG", "url": "karing://install-config?fixture"},
+        })
+        self.assertEqual(choices.incy_url, "incy://fixture")
+        self.assertEqual(choices.happ_url, "https://safe.invalid/sub/token?format=links")
+        self.assertEqual(choices.karing_url, "karing://install-config?fixture")

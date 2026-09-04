@@ -113,20 +113,27 @@ class CustomerFlowTests(unittest.TestCase):
         self.assertIn("Обычная подписка", asyncio.run(flow.show_balance()))
         self.assertEqual(transport.calls[0][:2], ("GET", "/account/whitelist-balance"))
 
-    def test_delivery_uses_task9_incy_result_and_exact_happ_three_step_fallback(self):
+    def test_delivery_uses_incy_happ_and_karing_descriptors(self):
         transport = FakeTransport([
             {"client": "incy", "format": "INCY_ONE_TAP", "url": "https://safe.invalid/one-tap"},
-            {"client": "happ", "format": "COPY_HTTPS_URL_AND_QR", "url": "https://safe.invalid/sub/token"},
+            {"client": "happ", "format": "COPY_HTTPS_URL_AND_QR", "url": "https://safe.invalid/sub/token?format=links"},
+            {"client": "karing", "format": "KARING_INSTALL_CONFIG", "url": "karing://install-config?fixture"},
         ])
         flow = CustomerFlow(CustomerAPI("https://panel.invalid", "subtoken", transport), "maestro-login", "subtoken")
         incy = asyncio.run(flow.delivery("incy"))
         happ = asyncio.run(flow.delivery("happ"))
+        try:
+            karing = asyncio.run(flow.delivery("karing"))
+        except ValueError:
+            karing = None
         self.assertEqual(incy["button_url"], "https://safe.invalid/one-tap")
         self.assertEqual(happ["steps"], (
             "1. Скопируйте HTTPS-ссылку.",
             "2. Откройте Happ.",
-            "3. Вставьте ссылку или отсканируйте QR.",
+            "3. Добавьте подписку и вставьте ссылку или отсканируйте QR.",
+            "4. Убедитесь, что профиль MaestroVPN появился.",
         ))
+        self.assertEqual(karing, {"button_url": "karing://install-config?fixture", "label": "Открыть в Karing"})
 
     def test_binding_requires_bearer_proof_then_persists_only_for_that_chat(self):
         with tempfile.TemporaryDirectory() as directory:
