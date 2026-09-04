@@ -26,7 +26,7 @@ Task 15 fleet, client-matrix, accounting, or production-readiness proof.
 
 | Node | Identity/role | Ordinary baseline | Candidate ports | Read-only verdict | Mutation verdict |
 | --- | --- | --- | --- | --- | --- |
-| S4 | Existing VPN plus private CDN canary node | x-ui and Hysteria active | Existing canary owns `18081/18082`; `18084/18443` clear | `READ_ONLY PASS` | `NO_GO` |
+| S4 | Existing VPN plus private CDN canary node | x-ui and Hysteria active | Existing canary owns `18081/18082`; commercial candidate uses `28081/28082`; `18084/18443` were clear; fresh four-port proof required | `READ_ONLY PASS` | `NO_GO` |
 | S2 | Multi-protocol/bot node | Hysteria, nginx, Caddy, `vpn_bot` active | All four clear | `READ_ONLY PASS`; network ownership unresolved | `NO_GO` |
 | S3 | x-ui/VPN node | x-ui with protected child Xray active | All four clear | `READ_ONLY PASS`; network ownership unresolved | `NO_GO` |
 | Current S1 | Replacement public control plane | maestro-panel, x-ui/Xray, Hysteria, nginx active | All four clear | `READ_ONLY PASS`; stale old alias rejected | `NO_GO` |

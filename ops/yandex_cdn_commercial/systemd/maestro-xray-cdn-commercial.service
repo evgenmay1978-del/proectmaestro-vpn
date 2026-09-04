@@ -1,0 +1,31 @@
+[Unit]
+Description=MaestroVPN isolated commercial Xray CDN sidecar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maestro-xray-cdn
+Group=maestro-xray-cdn
+WorkingDirectory=/opt/maestro-xray-cdn-commercial/current
+LogsDirectory=maestro-xray-cdn-commercial
+LogsDirectoryMode=0750
+RuntimeDirectory=maestro-xray-cdn-commercial-pid
+RuntimeDirectoryMode=0755
+Environment=MAESTRO_XRAY_PID_FILE=/run/maestro-xray-cdn-commercial-pid/xray.pid
+ExecStartPre=/opt/maestro-xray-cdn-commercial/current/xray run -test -config /opt/maestro-xray-cdn-commercial/current/config.json
+ExecStart=/opt/maestro-xray-cdn-commercial/current/xray run -config /opt/maestro-xray-cdn-commercial/current/config.json
+ExecStartPost=/opt/maestro-xray-cdn-commercial/current/maestro-xray-cdn-agent write-xray-pid /run/maestro-xray-cdn-commercial-pid/xray.pid ${MAINPID}
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=1048576
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/maestro-xray-cdn-commercial/current
+ReadWritePaths=/var/log/maestro-xray-cdn-commercial /run/maestro-xray-cdn-commercial-pid
+
+[Install]
+WantedBy=multi-user.target

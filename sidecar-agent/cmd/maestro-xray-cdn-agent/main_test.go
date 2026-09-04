@@ -39,3 +39,22 @@ func TestWriteXrayPIDFileRejectsUnsafeInput(t *testing.T) {
 		}
 	}
 }
+
+func TestCommercialProfileAllowsOnlyDocumentedAPIAndPIDPaths(t *testing.T) {
+	t.Setenv("MAESTRO_RELEASE_ID", "release-test")
+	t.Setenv("MAESTRO_CONFIG_DIGEST", strings.Repeat("0", 64))
+	t.Setenv("MAESTRO_XRAY_API_ADDRESS", "127.0.0.1:28082")
+	t.Setenv("MAESTRO_XRAY_PID_FILE", "/run/maestro-xray-cdn-commercial-pid/xray.pid")
+	configuration, err := loadConfiguration()
+	if err != nil {
+		t.Fatalf("loadConfiguration: %v", err)
+	}
+	if configuration.xrayAPIAddress != "127.0.0.1:28082" || configuration.xrayPIDFile != "/run/maestro-xray-cdn-commercial-pid/xray.pid" {
+		t.Fatalf("commercial profile = %#v", configuration)
+	}
+
+	t.Setenv("MAESTRO_XRAY_API_ADDRESS", "127.0.0.1:29999")
+	if _, err := loadConfiguration(); err == nil {
+		t.Fatal("undocumented Xray API address accepted")
+	}
+}

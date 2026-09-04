@@ -1,0 +1,43 @@
+[Unit]
+Description=MaestroVPN isolated commercial Xray CDN node agent
+After=network-online.target maestro-xray-cdn-commercial.service
+Wants=network-online.target
+Requires=maestro-xray-cdn-commercial.service
+PartOf=maestro-xray-cdn-commercial.service
+
+[Service]
+Type=simple
+User=maestro-xray-cdn-agent
+Group=maestro-xray-cdn-agent
+SupplementaryGroups=maestro-xray-cdn
+EnvironmentFile=/opt/maestro-xray-cdn-commercial/current/agent.env
+ExecStart=/opt/maestro-xray-cdn-commercial/current/maestro-xray-cdn-agent
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+StateDirectory=maestro-xray-cdn-commercial-agent/receipts
+StateDirectoryMode=0700
+NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RemoveIPC=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadOnlyPaths=/opt/maestro-xray-cdn-commercial/current /proc/sys/kernel/random/boot_id /run/maestro-xray-cdn-commercial-pid/xray.pid
+ReadWritePaths=/var/lib/maestro-xray-cdn-commercial-agent/receipts
+
+[Install]
+WantedBy=multi-user.target maestro-xray-cdn-commercial.service

@@ -29,6 +29,7 @@ const (
 	healthAddress      = "127.0.0.1:18444"
 	expectedClientName = "maestro-whitelist-controller"
 	xrayPIDPath        = "/run/maestro-xray-cdn-pid/xray.pid"
+	commercialPIDPath  = "/run/maestro-xray-cdn-commercial-pid/xray.pid"
 )
 
 func main() {
@@ -40,7 +41,8 @@ func main() {
 
 func run() error {
 	if len(os.Args) > 1 {
-		if len(os.Args) != 4 || os.Args[1] != "write-xray-pid" || os.Args[2] != xrayPIDPath {
+		pidPath := envOr("MAESTRO_XRAY_PID_FILE", xrayPIDPath)
+		if len(os.Args) != 4 || os.Args[1] != "write-xray-pid" || os.Args[2] != pidPath || !validXrayPIDPath(pidPath) {
 			return errors.New("sidecar agent: invalid helper invocation")
 		}
 		return writeXrayPIDFile(os.Args[2], os.Args[3])
@@ -54,7 +56,7 @@ func run() error {
 		return err
 	}
 	xray, err := xrayclient.New(xrayclient.Config{
-		Address: "127.0.0.1:18082", ServerName: configuration.xrayServerName,
+		Address: configuration.xrayAPIAddress, ServerName: configuration.xrayServerName,
 		ClientCertFile: configuration.xrayClientCert, ClientKeyFile: configuration.xrayClientKey,
 		CAFile: configuration.xrayCA,
 	}, xrayclient.DirectoryCredentials{Directory: configuration.credentialDirectory})
@@ -177,6 +179,7 @@ type configuration struct {
 	xrayClientKey            string
 	xrayCA                   string
 	xrayServerName           string
+	xrayAPIAddress           string
 }
 
 func loadConfiguration() (configuration, error) {
@@ -198,11 +201,21 @@ func loadConfiguration() (configuration, error) {
 		xrayClientKey:            envOr("MAESTRO_XRAY_CLIENT_KEY", "/etc/maestro-xray-cdn/api-mtls/sidecar-agent.key"),
 		xrayCA:                   envOr("MAESTRO_XRAY_API_CA", "/etc/maestro-xray-cdn/api-mtls/server-ca.crt"),
 		xrayServerName:           envOr("MAESTRO_XRAY_API_SERVER_NAME", "maestro-xray-api"),
+		xrayAPIAddress:           envOr("MAESTRO_XRAY_API_ADDRESS", "127.0.0.1:18082"),
 	}
-	if configuration.releaseID == "" || !validDigest(configuration.configDigest) || !allAbsolute(configuration) {
+	if configuration.releaseID == "" || !validDigest(configuration.configDigest) || !allAbsolute(configuration) ||
+		!validXrayAPIAddress(configuration.xrayAPIAddress) || !validXrayPIDPath(configuration.xrayPIDFile) {
 		return configuration, errors.New("sidecar agent: invalid environment configuration")
 	}
 	return configuration, nil
+}
+
+func validXrayAPIAddress(value string) bool {
+	return value == "127.0.0.1:18082" || value == "127.0.0.1:28082"
+}
+
+func validXrayPIDPath(value string) bool {
+	return value == xrayPIDPath || value == commercialPIDPath
 }
 
 func validDigest(value string) bool {

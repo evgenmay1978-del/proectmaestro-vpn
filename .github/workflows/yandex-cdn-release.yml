@@ -39,6 +39,7 @@ on:
       - 'ops/ha/tests/test_backup_systemd_policy.py'
       - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - 'ops/ha/test-ci-rqlite-cluster.sh'
+      - 'ops/yandex_cdn_commercial/**'
       - 'ops/validate-yandex-cdn-release.ps1'
       - 'ops/validate-yandex-cdn-release.sh'
       - 'scripts/repro/**'
@@ -82,6 +83,7 @@ on:
       - 'ops/ha/tests/test_backup_systemd_policy.py'
       - 'ops/ha/tests/test_dr_workflow_policy_contract.py'
       - 'ops/ha/test-ci-rqlite-cluster.sh'
+      - 'ops/yandex_cdn_commercial/**'
       - 'ops/validate-yandex-cdn-release.ps1'
       - 'ops/validate-yandex-cdn-release.sh'
       - 'scripts/repro/**'
@@ -504,6 +506,99 @@ jobs:
           set -euo pipefail
           go test -race -count=1 ./...
           go vet ./...
+
+      - name: Prove bounded commercial operator contracts
+        run: |
+          set -euo pipefail
+          python -m unittest ops.yandex_cdn_commercial.tests.test_commercial_operator -v
+
+      - name: Build immutable Linux amd64 commercial bundle
+        env:
+          LC_ALL: C
+          XRAY_ARCHIVE_SHA256: f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7
+          XRAY_VERSION: 26.5.9
+        run: |
+          set -euo pipefail
+          umask 077
+          build_a="$RUNNER_TEMP/commercial-agent-a"
+          build_b="$RUNNER_TEMP/commercial-agent-b"
+          archive="$RUNNER_TEMP/Xray-linux-64.zip"
+          extracted="$RUNNER_TEMP/xray-extracted"
+          dist="$GITHUB_WORKSPACE/dist-commercial"
+          test ! -e "$build_a"
+          test ! -e "$build_b"
+          test ! -e "$dist"
+          (
+            cd sidecar-agent
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=true -ldflags '-s -w' -o "$build_a" ./cmd/maestro-xray-cdn-agent
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=true -ldflags '-s -w' -o "$build_b" ./cmd/maestro-xray-cdn-agent
+          )
+          cmp -- "$build_a" "$build_b"
+          curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
+            --output "$archive" \
+            "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip"
+          printf '%s  %s\n' "$XRAY_ARCHIVE_SHA256" "$archive" | sha256sum --check --strict
+          mkdir -m 700 -- "$extracted" "$dist"
+          unzip -q "$archive" xray -d "$extracted"
+          chmod 0755 "$extracted/xray"
+          readelf -h "$extracted/xray" | grep -F 'Class:' | grep -F 'ELF64'
+          readelf -h "$extracted/xray" | grep -F 'Machine:' | grep -F 'Advanced Micro Devices X86-64'
+          "$extracted/xray" version | grep -F "Xray ${XRAY_VERSION}"
+          install -d -m 0755 "$dist/bin" "$dist/lib" "$dist/templates" "$dist/systemd" "$dist/sysusers"
+          install -m 0755 "$extracted/xray" "$dist/bin/xray"
+          install -m 0755 "$build_a" "$dist/bin/maestro-xray-cdn-agent"
+          install -m 0755 ops/yandex_cdn_commercial/operator.py "$dist/bin/maestro-xray-cdn-commercial-operator"
+          install -m 0644 ops/yandex_cdn_commercial/bundle.py "$dist/lib/commercial_bundle.py"
+          install -m 0644 ops/yandex_cdn_commercial/templates/config.json.tmpl "$dist/templates/config.json.tmpl"
+          install -m 0644 ops/yandex_cdn_commercial/systemd/maestro-xray-cdn-commercial.service "$dist/systemd/maestro-xray-cdn-commercial.service"
+          install -m 0644 ops/yandex_cdn_commercial/systemd/maestro-xray-cdn-commercial-agent.service "$dist/systemd/maestro-xray-cdn-commercial-agent.service"
+          install -m 0644 ops/yandex_cdn_commercial/sysusers/maestro-xray-cdn-commercial.conf "$dist/sysusers/maestro-xray-cdn-commercial.conf"
+          install -m 0644 ops/yandex_cdn_commercial/rollback.json "$dist/rollback.json"
+          python ops/yandex_cdn_commercial/bundle.py create \
+            --bundle "$dist" \
+            --source-commit "$GITHUB_SHA" \
+            --xray-version "$XRAY_VERSION" \
+            --xray-archive-sha256 "$XRAY_ARCHIVE_SHA256"
+          python ops/yandex_cdn_commercial/bundle.py verify --bundle "$dist"
+
+      - name: Assert commercial bundle contains no runtime secrets
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path("dist-commercial")
+          expected = {
+              "bin/maestro-xray-cdn-agent",
+              "bin/maestro-xray-cdn-commercial-operator",
+              "bin/xray",
+              "lib/commercial_bundle.py",
+              "manifest.json",
+              "rollback.json",
+              "systemd/maestro-xray-cdn-commercial-agent.service",
+              "systemd/maestro-xray-cdn-commercial.service",
+              "sysusers/maestro-xray-cdn-commercial.conf",
+              "templates/config.json.tmpl",
+          }
+          actual = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
+          if actual != expected:
+              raise SystemExit("commercial bundle membership mismatch")
+          forbidden = (b"BEGIN PRIVATE KEY", b"PRIVATE KEY-----", b"github_pat_", b"MAESTRO_S2_PASS", b"MAESTRO_HY2_PASS")
+          for path in root.rglob("*"):
+              if path.is_file() and any(marker in path.read_bytes() for marker in forbidden):
+                  raise SystemExit("commercial bundle contains forbidden runtime material")
+          PY
+
+      - name: Upload immutable commercial bundle
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maestro-xray-cdn-commercial-${{ github.sha }}
+          path: dist-commercial
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
 
   rqlite-purge:
     needs: format-unit

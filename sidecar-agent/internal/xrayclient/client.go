@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	apiAddress     = "127.0.0.1:18082"
-	managedInbound = "maestro-cdn-in"
+	apiAddress           = "127.0.0.1:18082"
+	commercialAPIAddress = "127.0.0.1:28082"
+	managedInbound        = "maestro-cdn-in"
 )
 
 var managedEmail = regexp.MustCompile(`^wl:[^:]+:exit-s[1-4]$`)
@@ -60,7 +61,7 @@ func New(config Config, source CredentialSource) (*Client, error) {
 	if config.Address == "" {
 		config.Address = apiAddress
 	}
-	if config.Address != apiAddress || source == nil {
+	if !validAPIAddress(config.Address) || source == nil {
 		return nil, errors.New("xray client: invalid isolated API configuration")
 	}
 	tlsConfig, err := loadTLSConfig(config)
@@ -72,6 +73,10 @@ func New(config Config, source CredentialSource) (*Client, error) {
 		return nil, errors.New("xray client: create HandlerService client")
 	}
 	return &Client{handler: command.NewHandlerServiceClient(connection), credentials: source, connection: connection}, nil
+}
+
+func validAPIAddress(value string) bool {
+	return value == apiAddress || value == commercialAPIAddress
 }
 
 func newWithHandler(handler handlerRPC, source CredentialSource) (*Client, error) {

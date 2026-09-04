@@ -16,9 +16,10 @@ no node is skipped and no parallel rollout is allowed.
 - S4's existing private canary and `maestro-xray-cdn.service` on
   `18081/18082` remain active and unchanged throughout the rollout.
 - Only isolated commercial sidecar/agent files and units from one reviewed
-  immutable package may be staged. S4 may use only the currently clear
-  `18084/18443` additions; all four candidate ports must be rechecked on the
-  other nodes immediately before their change.
+  immutable package may be staged. S4 commercial uses the distinct
+  `28081/28082` XHTTP/API pair and may retain `18084/18443` for relay/agent only
+  when all four commercial ports are freshly proved free. Every other node uses
+  the standard `18081/18082/18084/18443` profile and must recheck all four ports.
 - Customer CDN/LTE publication defaults `OFF`. A route becomes visible only
   after a confirmed GB purchase or explicit admin enable and the full
   fail-closed publication verdict. Ordinary renewal does not enable CDN/LTE.
@@ -138,13 +139,17 @@ name, member list, byte size, SHA-256, and signer/attestation identity in the
 protected change sheet. Do not build or substitute a production binary on the
 host.
 
-The present repository has an inert systemd template at
-`deploy/maestro-xray-cdn-agent.service` and the sidecar agent implementation at
-`sidecar-agent/cmd/maestro-xray-cdn-agent`. It does not provide an authorized
-production `apply` command. Until a reviewed immutable per-node package binds
-those bytes, config digest, node certificate, firewall rules, backup, restore,
-and rollback sheet, the next gate must return `STOP`; operators must not invent
-an ad-hoc installer.
+The exact-SHA Yandex CDN release workflow produces one Linux amd64 artifact
+named `maestro-xray-cdn-commercial-<SHA>`. Its manifest binds the reviewed Xray
+and agent bytes, commercial units/templates, rollback metadata, member modes,
+sizes, and SHA-256 values. It contains no runtime secret or certificate. The
+bundled `maestro-xray-cdn-commercial-operator` is the only package installer.
+Run `plan` first with the protected runtime JSON and certificate directory. Its
+firewall result is an external `STOP` gate: this operator never edits firewall
+or live network state. Only after every Gate 1 condition is independently green
+may `apply` run. `status` is read-only and `rollback` restores the recorded
+commercial last-known-good pointer. Never substitute a host-built binary or an
+ad-hoc installer.
 
 ## Gate 1: per-node preflight
 
@@ -160,9 +165,9 @@ Repeat this gate immediately before each node. Save only redacted evidence.
    and aggregate firewall ownership. Do not dump environments or configs.
 4. Compare ordinary units, executable paths, and listeners byte-for-byte with
    the accepted before-state. Any drift is `STOP`.
-5. Recheck `18081/18082/18084/18443`. On S4, require the existing canary to own
-   `18081/18082` and require `18084/18443` to be free. On every other node,
-   require all four to be free before staging.
+5. On S4, require the existing private canary to retain `18081/18082` and prove
+   commercial `28081/28082/18084/18443` free. On every other node, prove the
+   standard `18081/18082/18084/18443` set free before staging.
 6. Capture the exact service/data backup using the verified service-specific
    backup procedure. Prove its integrity and run the exact restore command on
    an isolated restore target. A copied live SQLite main file, an unverified
@@ -190,7 +195,9 @@ for another node.
    Do not call `prepare`, `activate`, or `rollback` on the private canary.
 2. Stage the commercial agent/package only in its isolated release paths. Do
    not alter `maestro-xray-cdn.service`, x-ui/3x-ui, `/usr/local/x-ui`, or any
-   ordinary listener.
+   ordinary listener. Select `--profile s4-commercial`; its exact reverse-proxy
+   target is `http://127.0.0.1:28081`. Run the bundled operator's `plan` and stop
+   unless the manifest/config validation and external firewall gate are green.
 3. Start only the isolated commercial agent/unit named by the reviewed package.
    Prove exact release/config digests, active/enabled state, one process, its
    expected listeners, loopback health, and a fresh exact receipt.

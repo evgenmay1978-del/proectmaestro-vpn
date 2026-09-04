@@ -48,10 +48,13 @@ minutes.
    package. On S4, do not stop or roll back the existing
    `maestro-xray-cdn.service`; its private canary and `18081/18082` ownership
    must remain unchanged.
-5. Restore the saved pre-change isolated firewall ruleset, release pointer,
-   service files, and state using the exact commands that were proved before
-   mutation. Do not improvise a restore and do not use a backup from another
-   node.
+5. Restore the saved pre-change isolated firewall ruleset through its separately
+   reviewed external change sheet. Restore the commercial release pointer and
+   state only with the accepted bundle's
+   `maestro-xray-cdn-commercial-operator rollback` command and the same profile
+   used for apply. The operator re-verifies its manifest before mutation. Do not
+   improvise a restore, invoke the private-canary rollback, or use a backup from
+   another node.
 6. Start only the prior isolated commercial unit if it was active before the
    change. Prove its exact digest, process count, listener ownership, and health.
    If no prior commercial unit existed, prove the candidate ports returned to

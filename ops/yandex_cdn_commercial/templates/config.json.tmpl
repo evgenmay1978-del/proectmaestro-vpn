@@ -1,0 +1,123 @@
+{
+  "log": {
+    "access": "none",
+    "error": "/var/log/maestro-xray-cdn-commercial/error.log",
+    "loglevel": "warning"
+  },
+  "api": {
+    "tag": "api",
+    "services": ["StatsService", "HandlerService"]
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": <PROFILE_XHTTP_PORT>,
+      "protocol": "vless",
+      "settings": {"clients": [], "decryption": "<RUNTIME_SERVER_DECRYPTION>"},
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "host": "<RUNTIME_PUBLIC_HOST>",
+          "path": "<RUNTIME_SECRET_PATH>",
+          "mode": "packet-up"
+        }
+      },
+      "tag": "maestro-cdn-in"
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": <PROFILE_API_PORT>,
+      "protocol": "dokodemo-door",
+      "settings": {"address": "127.0.0.1"},
+      "streamSettings": {
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/api-mtls/server.crt",
+              "keyFile": "/opt/maestro-xray-cdn-commercial/current/runtime/api-mtls/server.key"
+            },
+            {
+              "certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/api-mtls/client-ca.crt",
+              "usage": "verify"
+            }
+          ],
+          "verifyPeerCertInNames": ["maestro-metering-client", "maestro-sidecar-agent"]
+        }
+      },
+      "tag": "api"
+    },
+    {
+      "listen": "0.0.0.0",
+      "port": 18084,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {"id": "<RUNTIME_EXIT_S1_CREDENTIAL>", "email": "relay:exit-s1"},
+          {"id": "<RUNTIME_EXIT_S2_CREDENTIAL>", "email": "relay:exit-s2"},
+          {"id": "<RUNTIME_EXIT_S3_CREDENTIAL>", "email": "relay:exit-s3"},
+          {"id": "<RUNTIME_EXIT_S4_CREDENTIAL>", "email": "relay:exit-s4"}
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-tls/server.crt",
+              "keyFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-tls/server.key"
+            }
+          ],
+          "alpn": ["h2"]
+        }
+      },
+      "tag": "maestro-cdn-exit-in"
+    }
+  ],
+  "outbounds": [
+    {"protocol": "freedom", "tag": "direct"},
+    {"protocol": "blackhole", "tag": "block"},
+    {
+      "protocol": "vless",
+      "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S1_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S1_CREDENTIAL>", "encryption": "none"}]}]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S1_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "tag": "exit-s1"
+    },
+    {
+      "protocol": "vless",
+      "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S2_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S2_CREDENTIAL>", "encryption": "none"}]}]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S2_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "tag": "exit-s2"
+    },
+    {
+      "protocol": "vless",
+      "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S3_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S3_CREDENTIAL>", "encryption": "none"}]}]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S3_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "tag": "exit-s3"
+    },
+    {
+      "protocol": "vless",
+      "settings": {"vnext": [{"address": "<RUNTIME_EXIT_S4_ADDRESS>", "port": 18084, "users": [{"id": "<RUNTIME_EXIT_S4_CREDENTIAL>", "encryption": "none"}]}]},
+      "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "<RUNTIME_EXIT_S4_SERVER_NAME>", "allowInsecure": false, "alpn": ["h2"]}},
+      "tag": "exit-s4"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+      {"type": "field", "inboundTag": ["maestro-cdn-exit-in"], "outboundTag": "direct"},
+      {"type": "field", "inboundTag": ["maestro-cdn-in"], "user": ["regexp:^wl:[^:]+:exit-s1$"], "outboundTag": "exit-s1"},
+      {"type": "field", "inboundTag": ["maestro-cdn-in"], "user": ["regexp:^wl:[^:]+:exit-s2$"], "outboundTag": "exit-s2"},
+      {"type": "field", "inboundTag": ["maestro-cdn-in"], "user": ["regexp:^wl:[^:]+:exit-s3$"], "outboundTag": "exit-s3"},
+      {"type": "field", "inboundTag": ["maestro-cdn-in"], "user": ["regexp:^wl:[^:]+:exit-s4$"], "outboundTag": "exit-s4"},
+      {"type": "field", "inboundTag": ["maestro-cdn-in"], "outboundTag": "block"}
+    ]
+  },
+  "policy": {
+    "levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true}},
+    "system": {"statsInboundUplink": true, "statsInboundDownlink": true}
+  },
+  "stats": {}
+}

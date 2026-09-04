@@ -40,6 +40,19 @@ func (fake *fakeHandlerRPC) AlterInbound(_ context.Context, request *command.Alt
 
 type fakeCredentials map[string]string
 
+func TestDocumentedXrayAPIAddresses(t *testing.T) {
+	for _, address := range []string{"127.0.0.1:18082", "127.0.0.1:28082"} {
+		if !validAPIAddress(address) {
+			t.Fatalf("documented Xray API address %q rejected", address)
+		}
+	}
+	for _, address := range []string{"", "0.0.0.0:18082", "127.0.0.1:18443", "127.0.0.1:29999"} {
+		if validAPIAddress(address) {
+			t.Fatalf("undocumented Xray API address %q accepted", address)
+		}
+	}
+}
+
 func (values fakeCredentials) Credential(_ context.Context, email string) (string, error) {
 	value, ok := values[email]
 	if !ok {
