@@ -17,11 +17,33 @@ class FakeSystem:
     def __init__(self) -> None:
         self.commands: list[tuple[str, ...]] = []
         self.fail_start = False
+        self.fail_health = False
+        self.listeners_ready = True
+        self.active_units: set[str] = set()
 
     def run(self, *command: str) -> None:
         self.commands.append(command)
         if self.fail_start and command[:2] == ("systemctl", "start"):
             raise OperationError("service_start_failed")
+        if command[:2] == ("systemctl", "start"):
+            self.active_units.add(command[2])
+        elif command[:2] == ("systemctl", "restart"):
+            self.active_units.add(command[2])
+        elif command[:2] == ("systemctl", "stop"):
+            self.active_units.difference_update(command[2:])
+        elif command[:3] == ("systemctl", "is-active", "--quiet"):
+            if self.fail_health or command[3] not in self.active_units:
+                raise OperationError("service_inactive")
+
+    def listeners_bound(self, _ports: set[int]) -> bool:
+        return (
+            not self.fail_health
+            and self.listeners_ready
+            and {
+                "maestro-xray-cdn-commercial.service",
+                "maestro-xray-cdn-commercial-agent.service",
+            }.issubset(self.active_units)
+        )
 
 
 class CommercialOperatorTests(unittest.TestCase):
@@ -124,7 +146,7 @@ class CommercialOperatorTests(unittest.TestCase):
             if hasattr(os, "getuid") and hasattr(os, "getgid")
             else (1001, 1001)
         )
-        return CommercialOperator(
+        operator = CommercialOperator(
             root=self.root,
             bundle_dir=self.bundle_dir,
             profile=profile,
@@ -133,6 +155,8 @@ class CommercialOperatorTests(unittest.TestCase):
             command_runner=self.system.run,
             owner_resolver=lambda _name: test_owner,
         )
+        operator.listener_probe = self.system.listeners_bound
+        return operator
 
     def test_manifest_tamper_refused_before_mutation(self) -> None:
         (self.bundle_dir / "bin/xray").write_bytes(b"tampered\n")
@@ -207,6 +231,160 @@ class CommercialOperatorTests(unittest.TestCase):
         self.assertEqual(s4.proxy_target, "http://127.0.0.1:28081")
         self.assertEqual(s4.xray_unit, "maestro-xray-cdn-commercial.service")
         self.assertEqual(s4.agent_unit, "maestro-xray-cdn-commercial-agent.service")
+
+    def test_first_install_explicit_rollback_restores_absent(self) -> None:
+        ordinary = self.root / "usr/local/x-ui/bin/xray-linux-amd64"
+        private_unit = self.root / "etc/systemd/system/maestro-xray-cdn.service"
+        ordinary.parent.mkdir(parents=True)
+        private_unit.parent.mkdir(parents=True)
+        ordinary.write_bytes(b"ordinary-sentinel")
+        private_unit.write_bytes(b"private-canary-sentinel")
+
+        self._operator("s4-commercial").apply()
+        rollback_command_start = len(self.system.commands)
+        result = self._operator("s4-commercial").rollback()
+
+        current = self.root / "opt/maestro-xray-cdn-commercial/current"
+        self.assertFalse(current.exists())
+        self.assertFalse(current.is_symlink())
+        self.assertEqual(result["status"], "ABSENT")
+        self.assertEqual(ordinary.read_bytes(), b"ordinary-sentinel")
+        self.assertEqual(private_unit.read_bytes(), b"private-canary-sentinel")
+        rollback_commands = self.system.commands[rollback_command_start:]
+        self.assertIn(
+            (
+                "systemctl",
+                "stop",
+                "maestro-xray-cdn-commercial-agent.service",
+                "maestro-xray-cdn-commercial.service",
+            ),
+            rollback_commands,
+        )
+        self.assertIn(
+            (
+                "systemctl",
+                "disable",
+                "maestro-xray-cdn-commercial-agent.service",
+                "maestro-xray-cdn-commercial.service",
+            ),
+            rollback_commands,
+        )
+        self.assertNotIn("maestro-xray-cdn.service", "\n".join(" ".join(row) for row in rollback_commands))
+
+    def test_release_identity_binds_runtime_inputs_without_secret_plaintext(self) -> None:
+        first = self._operator().apply()
+        rotated_certificate = self.certs / "agent-server/server.crt"
+        rotated_certificate.write_bytes(b"rotated-certificate\n")
+        rotated_certificate.chmod(0o600)
+
+        second = self._operator().apply()
+
+        self.assertNotEqual(first["release_id"], second["release_id"])
+        second_release = self.root / "opt/maestro-xray-cdn-commercial/releases" / second["release_id"]
+        self.assertEqual(
+            (second_release / "runtime/agent-server/server.crt").read_bytes(),
+            b"rotated-certificate\n",
+        )
+
+        material = json.loads(self.runtime.read_text(encoding="utf-8"))
+        material["active_origin_ips"] = ["192.0.2.11"]
+        material["controller_source_ip"] = "192.0.2.21"
+        material["managed_credentials"]["wl:test:exit-s1"] = "00000000-0000-4000-8000-000000000052"
+        self.runtime.write_text(json.dumps(material), encoding="utf-8")
+        self.runtime.chmod(0o600)
+
+        third = self._operator().apply()
+
+        self.assertNotEqual(second["release_id"], third["release_id"])
+        third_release = self.root / "opt/maestro-xray-cdn-commercial/releases" / third["release_id"]
+        credential_name = hashlib.sha256(b"wl:test:exit-s1").hexdigest() + ".credential"
+        self.assertEqual(
+            (third_release / "runtime/credentials" / credential_name).read_text(encoding="utf-8"),
+            "00000000-0000-4000-8000-000000000052\n",
+        )
+        metadata_text = (third_release / "release.json").read_text(encoding="utf-8")
+        metadata = json.loads(metadata_text)
+        self.assertRegex(metadata["runtime_input_sha256"], r"^[0-9a-f]{64}$")
+        self.assertIn("agent.env", metadata["release_inventory"])
+        self.assertNotIn("rotated-certificate", metadata_text)
+        self.assertNotIn("00000000-0000-4000-8000-000000000052", metadata_text)
+
+    def test_apply_health_and_status_inventory_are_fail_closed(self) -> None:
+        self.system.fail_health = True
+
+        with self.assertRaisesRegex(OperationError, "post_apply_verification_failed"):
+            self._operator().apply()
+
+        current = self.root / "opt/maestro-xray-cdn-commercial/current"
+        state = self.root / "var/lib/maestro-xray-cdn-commercial/operator-state.json"
+        self.assertFalse(current.exists())
+        self.assertFalse(current.is_symlink())
+        self.assertFalse(state.exists())
+        self.assertEqual(self.system.active_units, set())
+
+        self.system.fail_health = False
+        applied = self._operator().apply()
+        release = self.root / "opt/maestro-xray-cdn-commercial/releases" / applied["release_id"]
+        metadata = json.loads((release / "release.json").read_text(encoding="utf-8"))
+        self.assertIn("runtime/agent-server/server.crt", metadata["release_inventory"])
+        self.assertIn("agent.env", metadata["release_inventory"])
+        self.assertIn(
+            "/etc/systemd/system/maestro-xray-cdn-commercial.service",
+            metadata["package_inventory"],
+        )
+        self.assertEqual(metadata["release_inventory"]["config.json"]["mode"], "0640")
+
+        certificate = release / "runtime/agent-server/server.crt"
+        original_certificate = certificate.read_bytes()
+        certificate.write_bytes(b"tampered\n")
+        self.assertEqual(self._operator().status()["status"], "DRIFT")
+        certificate.write_bytes(original_certificate)
+        certificate.chmod(0o640)
+
+        environment = release / "agent.env"
+        original_environment = environment.read_bytes()
+        environment.write_bytes(b"tampered\n")
+        self.assertEqual(self._operator().status()["status"], "DRIFT")
+        environment.write_bytes(original_environment)
+        environment.chmod(0o640)
+
+        commercial_unit = self.root / "etc/systemd/system/maestro-xray-cdn-commercial.service"
+        original_unit = commercial_unit.read_bytes()
+        commercial_unit.write_bytes(b"tampered\n")
+        self.assertEqual(self._operator().status()["status"], "DRIFT")
+        commercial_unit.write_bytes(original_unit)
+        commercial_unit.chmod(0o644)
+
+        self.system.active_units.discard("maestro-xray-cdn-commercial.service")
+        self.assertEqual(self._operator().status()["status"], "DRIFT")
+        self.system.active_units.add("maestro-xray-cdn-commercial.service")
+        self.system.listeners_ready = False
+        self.assertEqual(self._operator().status()["status"], "DRIFT")
+
+    def test_unknown_package_bytes_refused_and_failed_install_is_recoverable(self) -> None:
+        commercial_unit = self.root / "etc/systemd/system/maestro-xray-cdn-commercial.service"
+        commercial_unit.parent.mkdir(parents=True)
+        commercial_unit.write_bytes(b"unknown-existing-unit\n")
+        commercial_unit.chmod(0o644)
+
+        with self.assertRaisesRegex(OperationError, "package_file_conflict"):
+            self._operator().apply()
+
+        self.assertEqual(commercial_unit.read_bytes(), b"unknown-existing-unit\n")
+        self.assertFalse((self.root / "opt/maestro-xray-cdn-commercial/current").exists())
+
+        commercial_unit.unlink()
+        self.system.fail_start = True
+        with self.assertRaisesRegex(OperationError, "service_start_failed"):
+            self._operator().apply()
+
+        self.assertFalse(commercial_unit.exists())
+        self.assertFalse(
+            (self.root / "etc/systemd/system/maestro-xray-cdn-commercial-agent.service").exists()
+        )
+        self.assertFalse(
+            (self.root / "usr/lib/sysusers.d/maestro-xray-cdn-commercial.conf").exists()
+        )
 
 
 if __name__ == "__main__":
