@@ -10,6 +10,8 @@ REQUIRED_DOCS = {
     'BILLING_RECONCILIATION.md', 'SECURITY.md', 'PRODUCTION_SAFETY.md',
     'DEPLOYMENT.md', 'ROLLBACK.md', 'HANDOFF.md', 'ADR_MAP.md',
     'DEFINITION_OF_DONE.md', 'TERMINOLOGY.md', 'COMMERCIAL_ACCEPTANCE_MATRIX.md',
+    'PRODUCTION_FLEET_INVENTORY.md', 'COMMERCIAL_ROLLOUT_RUNBOOK.md',
+    'COMMERCIAL_ROLLBACK.md', 'COMMERCIAL_CANARY_EVIDENCE.md',
     'BASELINE_MANIFEST.json',
 }
 ADRS = {f'ADR-{n:04d}.md' for n in range(1, 18)}
@@ -72,7 +74,12 @@ class DocumentationTests(unittest.TestCase):
 
     def test_material_docs_and_topic_specific_adrs(self):
         decisions = []
-        excluded = {'MASTER_REQUIREMENTS.md', 'ADR_MAP.md', 'DEFINITION_OF_DONE.md', 'TERMINOLOGY.md', 'BASELINE_MANIFEST.json'}
+        excluded = {
+            'MASTER_REQUIREMENTS.md', 'ADR_MAP.md', 'DEFINITION_OF_DONE.md',
+            'TERMINOLOGY.md', 'BASELINE_MANIFEST.json',
+            'PRODUCTION_FLEET_INVENTORY.md', 'COMMERCIAL_ROLLOUT_RUNBOOK.md',
+            'COMMERCIAL_ROLLBACK.md', 'COMMERCIAL_CANARY_EVIDENCE.md',
+        }
         for name in REQUIRED_DOCS - excluded:
             self.assertIn('Status: target-only', (DOCS / name).read_text(encoding='utf8'))
         for number, vocabulary in enumerate(ADR_TERMS, 1):

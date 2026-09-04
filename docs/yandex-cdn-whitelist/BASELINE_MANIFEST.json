@@ -62,6 +62,24 @@
       "preview": "# White-list commercial delivery acceptance matrix\n\nStatus: target-only\n\nThis matrix is an offline repository and exact-SHA CI acceptance contract. It\ndoes not claim live production readiness, successful customer traffic, a real\npayment, a Yandex Cloud result, or a server rollout. Those remain `NO_GO` until\nthe later p"
     },
     {
+      "path": "docs/yandex-cdn-whitelist/COMMERCIAL_CANARY_EVIDENCE.md",
+      "bytes": 6428,
+      "sha256": "7afceb012e6f2419bbe4e66c6bbf14016c8a863f3a627cbb3911218b0073c2fb",
+      "preview": "# Commercial white-list canary evidence\n\nStatus: evidence template; current verdict `PRODUCTION NO_GO`\n\nThis file is the redacted Task 15 evidence index. It must never contain host\naddresses, credentials, UUIDs, certificate/private-key material, customer\nidentifiers, payment data, bot tokens, private subscription URLs,"
+    },
+    {
+      "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLBACK.md",
+      "bytes": 5104,
+      "sha256": "1edb37de058f68f0a1f517f0fbcc60504a790d9bd9f133abf07676ed3874a285",
+      "preview": "# Commercial white-list rollback\n\nStatus: production rollback contract; not yet proven under five minutes\n\nRollback is scoped to the isolated commercial CDN sidecar/agent and its managed\n`wl:` identities. It must not edit, replace, restart, or restore production\nx-ui/3x-ui, child Xray, Hysteria, nginx, Caddy, maestro-p"
+    },
+    {
+      "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLOUT_RUNBOOK.md",
+      "bytes": 10539,
+      "sha256": "3a21186ed99a24dc89703304ec0ff2fac57411705188c7852e7b3cb4724ce689",
+      "preview": "# Commercial white-list staged rollout runbook\n\nStatus: executable gate contract; production mutation `NO_GO` until every\nprecondition below is evidenced for the exact node and exact package\n\nThis is the smallest approved production path: S4, then S2, then S3, then the\ncurrent owner-authoritative S1. A failure or unkno"
+    },
+    {
       "path": "docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md",
       "bytes": 1032,
       "sha256": "fed6b3d06e00e7a38478586d72582c7846ca05e949f7f11092e2ebceafd889dd",
@@ -102,6 +120,12 @@
       "bytes": 1081,
       "sha256": "7a458f22d073d4ab104c9152ad8c6c24b02f3948c1665e489bda06b7b2a79fa6",
       "preview": "# Panel integration contract\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nPanel intent adds entitlement, profile, preset, approved edge, release, usage, tariff, limits, suspension and audit controls "
+    },
+    {
+      "path": "docs/yandex-cdn-whitelist/PRODUCTION_FLEET_INVENTORY.md",
+      "bytes": 5571,
+      "sha256": "4585d52208fa6005404e1dca9d0a871b6ad2a465c23552e6585d660a9f5149a8",
+      "preview": "# Production fleet inventory for commercial white-list rollout\n\nStatus: read-only inventory; mutation `NO_GO`\n\nSnapshot date: 2026-09-04. This document records only the sanitized facts from\nthe bounded production read-only pass. It contains no host address, credential,\nUUID, subscription URL, customer record, certifica"
     },
     {
       "path": "docs/yandex-cdn-whitelist/PRODUCTION_SAFETY.md",
