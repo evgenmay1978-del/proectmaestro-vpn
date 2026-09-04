@@ -10,6 +10,7 @@ import (
 
 func TestBuildDeliveryCreatesOfficialIncyOneTapLink(t *testing.T) {
 	const source = "https://sub.example.com/sub/fixture-token"
+	const stableLinks = source + "?format=links"
 
 	delivery, err := BuildDelivery("INCY", source)
 	if err != nil {
@@ -25,8 +26,8 @@ func TestBuildDeliveryCreatesOfficialIncyOneTapLink(t *testing.T) {
 	if err != nil {
 		t.Fatal("Incy delivery is not an official crypt1 link")
 	}
-	if decoded.URL != source {
-		t.Fatal("Incy delivery changed the subscription URL")
+	if decoded.URL != stableLinks {
+		t.Fatalf("Incy delivery URL = %q, want stable links URL %q", decoded.URL, stableLinks)
 	}
 	if decoded.Name != "MaestroVPN" {
 		t.Fatal("Incy delivery has the wrong display name")
@@ -34,7 +35,8 @@ func TestBuildDeliveryCreatesOfficialIncyOneTapLink(t *testing.T) {
 }
 
 func TestBuildDeliveryKeepsHappOnTheValidatedHTTPSURL(t *testing.T) {
-	const source = "https://sub.example.com/sub/fixture-token?format=links"
+	const source = "https://sub.example.com/sub/fixture-token"
+	const stableLinks = source + "?format=links"
 
 	delivery, err := BuildDelivery("HAPP", source)
 	if err != nil {
@@ -46,8 +48,33 @@ func TestBuildDeliveryKeepsHappOnTheValidatedHTTPSURL(t *testing.T) {
 	if delivery.Format != "COPY_HTTPS_URL_AND_QR" {
 		t.Fatal("Happ delivery has the wrong format")
 	}
-	if delivery.URL != source {
-		t.Fatal("Happ delivery wrapped the subscription URL")
+	if delivery.URL != stableLinks {
+		t.Fatalf("Happ delivery URL = %q, want stable links URL %q", delivery.URL, stableLinks)
+	}
+}
+
+func TestBuildDeliveryCreatesOfficialKaringInstallConfig(t *testing.T) {
+	const source = "https://sub.example.com/sub/fixture-token"
+	const want = "karing://install-config?url=https%3A%2F%2Fsub.example.com%2Fsub%2Ffixture-token%3Fformat%3Dlinks&name=MaestroVPN"
+
+	delivery, err := BuildDelivery("KARING", source)
+	if err != nil {
+		t.Fatal("Karing delivery returned an error")
+	}
+	if delivery.Client != "KARING" || delivery.Format != "KARING_INSTALL_CONFIG" || delivery.URL != want {
+		t.Fatalf("Karing delivery = %#v, want exact install-config descriptor", delivery)
+	}
+}
+
+func TestBuildLinksSubscriptionURLIsStable(t *testing.T) {
+	const stableLinks = "https://sub.example.com/sub/fixture-token?format=links"
+
+	got, err := BuildLinksSubscriptionURL(stableLinks)
+	if err != nil {
+		t.Fatal("stable links URL returned an error")
+	}
+	if got != stableLinks {
+		t.Fatalf("stable links URL = %q, want %q", got, stableLinks)
 	}
 }
 

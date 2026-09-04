@@ -63,15 +63,33 @@ func task3Snapshot(now time.Time, verdict WhiteListPublicationVerdict) WhiteList
 	}
 }
 
-func TestTask3PublicationClosedVerdictsAndMalformedInputsFallback(t *testing.T) {
+func TestTask3PublicationIntentionalOrdinaryFallbacks(t *testing.T) {
 	now := time.Date(2035, 1, 2, 3, 4, 5, 0, time.UTC)
 	ordinary := SubscriptionSnapshot{Document: []byte(base64.StdEncoding.EncodeToString([]byte("vless://ordinary"))), ContentType: "text/plain; charset=utf-8"}
-	verdicts := []WhiteListPublicationVerdict{WhiteListNoEntitlement, WhiteListPrimaryExpired, WhiteListNoBalance, WhiteListProjectionStale, WhiteListProjectionPending, WhiteListReleaseMismatch, WhiteListSidecarUnavailable}
+	verdicts := []WhiteListPublicationVerdict{WhiteListNoEntitlement, WhiteListNoBalance}
 	for _, verdict := range verdicts {
 		t.Run(string(verdict), func(t *testing.T) {
 			got, err := task3Business(&task3Source{snapshot: task3Snapshot(now, verdict)}, now).applyWhiteListPublication(context.Background(), "token", subscriptionRenderOptions{Links: true}, ordinary)
 			if err != nil || string(got.Document) != string(ordinary.Document) || got.ETag != "" || got.ContentLength != 0 {
 				t.Fatalf("fallback changed: %#v err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestTask15EntitledLinksFailuresReturnServiceUnavailable(t *testing.T) {
+	now := time.Date(2035, 1, 2, 3, 4, 5, 0, time.UTC)
+	ordinary := SubscriptionSnapshot{Document: []byte(base64.StdEncoding.EncodeToString([]byte("vless://ordinary"))), ContentType: "text/plain; charset=utf-8"}
+	verdicts := []WhiteListPublicationVerdict{WhiteListPrimaryExpired, WhiteListProjectionStale, WhiteListProjectionPending, WhiteListReleaseMismatch, WhiteListSidecarUnavailable}
+	for _, verdict := range verdicts {
+		t.Run(string(verdict), func(t *testing.T) {
+			got, err := task3Business(&task3Source{snapshot: task3Snapshot(now, verdict)}, now).applyWhiteListPublication(context.Background(), "token", subscriptionRenderOptions{Links: true}, ordinary)
+			if err == nil || len(got.Document) != 0 {
+				t.Fatalf("transient verdict returned overwriteable content: %#v err=%v", got, err)
+			}
+			status, ok := err.(interface{ HTTPStatus() int })
+			if !ok || status.HTTPStatus() != http.StatusServiceUnavailable {
+				t.Fatalf("transient verdict error = %v, want typed 503", err)
 			}
 		})
 	}
@@ -84,8 +102,8 @@ func TestTask3PublicationClosedVerdictsAndMalformedInputsFallback(t *testing.T) 
 			snap := task3Snapshot(now, WhiteListPublishable)
 			tc.mutate(&snap)
 			got, err := task3Business(&task3Source{snapshot: snap}, now).applyWhiteListPublication(context.Background(), "token", subscriptionRenderOptions{Links: true}, ordinary)
-			if err != nil || string(got.Document) != string(ordinary.Document) {
-				t.Fatalf("malformed escaped: %q %v", got.Document, err)
+			if err == nil || len(got.Document) != 0 {
+				t.Fatalf("malformed publishable result returned overwriteable content: %q %v", got.Document, err)
 			}
 		})
 	}
@@ -95,8 +113,8 @@ func TestTask3PublicationClosedVerdictsAndMalformedInputsFallback(t *testing.T) 
 	}{{"error", &task3Source{err: errors.New("unavailable")}}, {"timeout", &task3Source{block: true}}} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := task3Business(tc.source, now).applyWhiteListPublication(context.Background(), "token", subscriptionRenderOptions{Links: true}, ordinary)
-			if err != nil || string(got.Document) != string(ordinary.Document) {
-				t.Fatalf("source failure escaped: %q %v", got.Document, err)
+			if err == nil || len(got.Document) != 0 {
+				t.Fatalf("source failure returned overwriteable content: %q %v", got.Document, err)
 			}
 		})
 	}
@@ -104,7 +122,7 @@ func TestTask3PublicationClosedVerdictsAndMalformedInputsFallback(t *testing.T) 
 
 func TestTask3PublicationLinksOnlyAndFinalHTTPMetadata(t *testing.T) {
 	now := time.Date(2035, 1, 2, 3, 4, 5, 0, time.UTC)
-	source := &task3Source{snapshot: task3Snapshot(now, WhiteListPublishable)}
+	source := &task3Source{snapshot: task3Snapshot(now, WhiteListNoEntitlement)}
 	ordinary := []byte(base64.StdEncoding.EncodeToString([]byte("vless://ordinary")))
 	if got, err := task3Business(nil, now).applyWhiteListPublication(context.Background(), "token", subscriptionRenderOptions{Links: true}, SubscriptionSnapshot{Document: ordinary, ContentType: "text/plain; charset=utf-8"}); err != nil || string(got.Document) != string(ordinary) {
 		t.Fatalf("default OFF changed links")
@@ -116,8 +134,19 @@ func TestTask3PublicationLinksOnlyAndFinalHTTPMetadata(t *testing.T) {
 	b := task3Business(source, now)
 	b.subscriptions = subscriptionRequestSource{customer: customer}
 	h := NewControlPlane(b, Config{}).Handler()
+	stableLinksURL, err := subgen.BuildLinksSubscriptionURL("https://sub.example.test/sub/fixture-token")
+	if err != nil {
+		t.Fatalf("build stable links URL: %v", err)
+	}
+	beforePurchase := httptest.NewRecorder()
+	h.ServeHTTP(beforePurchase, httptest.NewRequest(http.MethodGet, stableLinksURL, nil))
+	beforeDecoded, decodeErr := base64.StdEncoding.Strict().DecodeString(beforePurchase.Body.String())
+	if beforePurchase.Code != http.StatusOK || decodeErr != nil || strings.Contains(string(beforeDecoded), "cdn.example.test") {
+		t.Fatalf("pre-purchase stable URL exposed CDN: status=%d body=%q err=%v", beforePurchase.Code, beforeDecoded, decodeErr)
+	}
+	source.snapshot = task3Snapshot(now, WhiteListPublishable)
 	links := httptest.NewRecorder()
-	h.ServeHTTP(links, httptest.NewRequest(http.MethodGet, "/sub/fixture-token?format=links", nil))
+	h.ServeHTTP(links, httptest.NewRequest(http.MethodGet, stableLinksURL, nil))
 	wantETag := fmt.Sprintf("\"%x\"", sha256.Sum256(links.Body.Bytes()))
 	decoded, decodeErr := base64.StdEncoding.Strict().DecodeString(links.Body.String())
 	if links.Code != http.StatusOK || links.Header().Get("ETag") != wantETag || links.Header().Get("Content-Length") != strconv.Itoa(links.Body.Len()) || decodeErr != nil || !strings.Contains(string(decoded), "cdn.example.test") {
