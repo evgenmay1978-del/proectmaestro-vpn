@@ -103,6 +103,38 @@ class CommercialOperatorTests(unittest.TestCase):
                 template,
             )
 
+    def test_direct_outbound_allows_only_exact_loopback_relay_health_target(self) -> None:
+        template = (Path(__file__).parents[1] / "templates" / "config.json.tmpl").read_text(encoding="utf-8")
+        rendered = template.replace("<PROFILE_XHTTP_PORT>", "28081").replace("<PROFILE_API_PORT>", "28082")
+        replacements = {
+            "<RUNTIME_SERVER_DECRYPTION>": "none",
+            "<RUNTIME_PUBLIC_HOST>": "cdn.example.test",
+            "<RUNTIME_SECRET_PATH>": "/commercial/path",
+        }
+        for index in range(1, 5):
+            replacements.update({
+                f"<RUNTIME_EXIT_S{index}_ADDRESS>": f"192.0.2.{index}",
+                f"<RUNTIME_EXIT_S{index}_CREDENTIAL>": f"00000000-0000-4000-8000-00000000004{index}",
+                f"<RUNTIME_EXIT_S{index}_SERVER_NAME>": f"exit-s{index}.example.test",
+            })
+        for placeholder, value in replacements.items():
+            rendered = rendered.replace(placeholder, value)
+        document = json.loads(rendered)
+
+        direct = next(outbound for outbound in document["outbounds"] if outbound["tag"] == "direct")
+        self.assertEqual(direct, {
+            "protocol": "freedom",
+            "settings": {
+                "finalRules": [{
+                    "action": "allow",
+                    "network": "tcp",
+                    "ip": ["127.0.0.1/32"],
+                    "port": 18444,
+                }],
+            },
+            "tag": "direct",
+        })
+
     def test_parser_diagnostics_require_explicit_synthetic_ci_opt_in(self) -> None:
         completed = subprocess.CompletedProcess(
             args=("xray", "run", "-test"),

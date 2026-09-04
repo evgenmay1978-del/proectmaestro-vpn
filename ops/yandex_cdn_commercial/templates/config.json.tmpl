@@ -86,7 +86,15 @@
     }
   ],
   "outbounds": [
-    {"protocol": "freedom", "tag": "direct"},
+    {
+      "protocol": "freedom",
+      "settings": {
+        "finalRules": [
+          {"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"], "port": 18444}
+        ]
+      },
+      "tag": "direct"
+    },
     {"protocol": "blackhole", "tag": "block"},
     {
       "protocol": "vless",
