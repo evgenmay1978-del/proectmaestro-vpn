@@ -214,6 +214,56 @@ class CommercialOperatorTests(unittest.TestCase):
 
         self.assertEqual(failures, [])
 
+    def test_relay_ca_directory_is_traversable_by_xray_and_agent_group(self) -> None:
+        owners = {
+            "root": (10, 20),
+            "maestro-xray-cdn": (30, 40),
+            "maestro-xray-cdn-agent": (50, 60),
+        }
+        operator = CommercialOperator(
+            root=self.root,
+            bundle_dir=self.bundle_dir,
+            profile="s4-commercial",
+            runtime_material=self.runtime,
+            certificate_source=self.certs,
+            command_runner=self.system.run,
+            owner_resolver=owners.__getitem__,
+        )
+        prepared = operator._prepare()
+        directories: dict[str, tuple[int, tuple[int, int]]] = {}
+        files: dict[str, tuple[int, tuple[int, int] | None]] = {}
+
+        def protect(path: Path, mode: int, owner: tuple[int, int]) -> None:
+            path.mkdir(parents=True, exist_ok=True)
+            path.chmod(mode)
+            directories[path.relative_to(self.root).as_posix()] = (mode, owner)
+
+        def write(path: Path, raw: bytes, mode: int, owner: tuple[int, int] | None = None) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+            path.chmod(mode)
+            files[path.relative_to(self.root).as_posix()] = (mode, owner)
+
+        with mock.patch.object(operator, "_protect_directory", side_effect=protect), mock.patch.object(
+            operator, "_write", side_effect=write
+        ):
+            operator._stage_release(*prepared)
+
+        relay_directory = next(value for path, value in directories.items() if path.endswith("/runtime/relay-ca"))
+        relay_file = next(value for path, value in files.items() if path.endswith("/runtime/relay-ca/exit-s1.crt"))
+        self.assertEqual(
+            relay_directory,
+            (0o750, (owners["root"][0], owners["maestro-xray-cdn"][1])),
+        )
+        self.assertEqual(
+            relay_file,
+            (0o640, owners["maestro-xray-cdn"]),
+        )
+        agent_unit = (Path(__file__).parents[1] / "systemd/maestro-xray-cdn-commercial-agent.service").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("SupplementaryGroups=maestro-xray-cdn", agent_unit)
+
     def _write_bundle(self) -> None:
         members = {
             "bin/xray": b"xray-v26.5.9\n",

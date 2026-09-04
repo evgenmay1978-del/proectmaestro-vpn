@@ -624,9 +624,9 @@ class CommercialOperator:
         xray_owner = self.owner_resolver("maestro-xray-cdn")
         agent_owner = self.owner_resolver("maestro-xray-cdn-agent")
         self._protect_directory(stage, 0o750, (root_owner[0], xray_owner[1]))
-        for relative in ("runtime", "runtime/api-mtls", "runtime/relay-tls"):
+        for relative in ("runtime", "runtime/api-mtls", "runtime/relay-ca", "runtime/relay-tls"):
             self._protect_directory(stage / relative, 0o750, (root_owner[0], xray_owner[1]))
-        for relative in ("runtime/agent-server", "runtime/controller-ca", "runtime/relay-ca"):
+        for relative in ("runtime/agent-server", "runtime/controller-ca"):
             self._protect_directory(stage / relative, 0o750, agent_owner)
         for relative in ("runtime/credentials", "runtime/relay-credentials"):
             self._protect_directory(stage / relative, 0o700, agent_owner)
