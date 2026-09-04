@@ -436,13 +436,13 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Write tests for mTLS request, exact action key, succeeded receipt, 409 stale generation, timeout-before-send, timeout-after-send, receipt lookup, and no blind retry after unknown outcome.
-- [ ] Run focused tests; require RED.
-- [ ] Implement `ExternalActionSender` for node agents with bounded timeouts, request-size limits, strict hostname verification, and zero credential logging.
-- [ ] Wire only explicit whitelist outbox events to this sender. Existing order, ordinary provisioning, and unrelated external actions remain unchanged.
-- [ ] For enable/resume: create generation → reconcile every active Origin → verify current process-boot/config/generation receipts and exit health → mark ready → publish. For revoke: stop publication → create removal generation → reconcile every active Origin. Make publication depend on the unexpired ready generation and exact release.
-- [ ] Run controlplane, panel, external-action, race, and vet tests; require GREEN.
-- [ ] Commit with message `feat(controlplane): deliver whitelist sidecar actions`.
+- [x] Write tests for mTLS request, exact action key, succeeded receipt, 409 stale generation, timeout-before-send, timeout-after-send, receipt lookup, and no blind retry after unknown outcome.
+- [x] Run focused tests; require RED.
+- [x] Implement `ExternalActionSender` for node agents with bounded timeouts, request-size limits, strict hostname verification, and zero credential logging.
+- [x] Wire only explicit whitelist outbox events to this sender. Existing order, ordinary provisioning, and unrelated external actions remain unchanged.
+- [x] For enable/resume: create generation → reconcile every active Origin → verify current process-boot/config/generation receipts and exit health → mark ready → publish. For revoke: stop publication → create removal generation → reconcile every active Origin. Make publication depend on the unexpired ready generation and exact release.
+- [x] Run controlplane, panel, external-action, race, and vet tests; require GREEN.
+- [x] Commit with message `feat(controlplane): deliver whitelist sidecar actions`.
 
 ## Task 14: Prove compatibility, accounting, and rollback in CI
 
