@@ -315,7 +315,7 @@ func TestRelayTestCertificateValidAtRuntimeClock(t *testing.T) {
 
 func relayTestCertificate(t *testing.T, serverName string) (tls.Certificate, []byte) {
 	t.Helper()
-	now := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("GenerateKey CA: %v", err)
