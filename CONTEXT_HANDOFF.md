@@ -4258,3 +4258,38 @@ canary and cutover. The artifact trust controls above are additional hard
 pre-deploy blockers. No server, customer, bot, VPN, Android/TV, OTA, DNS, TLS,
 firewall or billing state was changed by this slice. OLCRTC and WDTT remain
 frozen.
+
+## 2026-09-04 - Task 14 commercial release-gate checkpoint
+
+Canonical branch remains `codex/yandex-cdn-whitelist-task3-sync`. Task 14 code
+is independently reviewed and exact-SHA GREEN at
+`8d756783ff969530a94e6525473e59d61836533c`; its redacted evidence report is
+recorded through `f653d0d21d70f0ee89e1d3c743d1231c5d0582f0`. The final scoped re-review
+concluded `CLEAN` with zero remaining Critical or Important findings.
+
+Required exact-code-SHA workflows succeeded: HA immutable artifact run
+`33844446577`, Yandex CDN isolated release run `33844446580`, and HA S4
+change-package run `33844446668`. The report SHA also completed HA immutable
+artifact run `33846130034` and HA S4 change-package run `33846130013`.
+Production Android remains exactly `1.0.157`; `1.0.158-task7-test` remains an
+unpublished test-only artifact. The private working CDN subscription was not
+queried, changed, rotated, deleted, or rolled back.
+
+A concurrent remote-ref observation was resolved without reset, rebase,
+history rewrite, or force-push: the observed remote SHA
+`0af3ffb3fcd46159edd74e0d758e31c8f17f168e` was verified as an ancestor of the
+local reviewed lineage, and the canonical remote ref was reverified at exact
+report SHA `f653d0d21d70f0ee89e1d3c743d1231c5d0582f0`.
+
+Task 15 is the only remaining plan task. Its mandatory order is read-only
+inventory and identity proof, backup/restore proof, S4 canary and rollback,
+then gated S2, S3, and current S1 rollout, client/bot/channel compatibility,
+and 48-hour shadow accounting. The private test subscription stays active as
+the rollback canary and may be deleted automatically only after the entire
+fleet, automatic existing-customer refresh, MaestroVPN/Happ/Incy/Karing import
+and refresh, both Telegram bots, the customer channel, panel delivery, and the
+last-known-good path are all GREEN. Any mismatch blocks deletion.
+
+Status remains **PRODUCTION NO-GO** pending Task 15. Customer publication is
+default OFF, real charges and OTA/release publication remain OFF, OLCRTC and
+WDTT remain frozen, and ordinary VPN must remain working throughout.

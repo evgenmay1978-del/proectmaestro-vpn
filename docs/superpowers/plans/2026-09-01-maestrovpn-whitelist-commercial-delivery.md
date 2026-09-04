@@ -459,13 +459,13 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 
 **Steps:**
 
-- [ ] Add offline fixtures for period rollover, boundary interval closure, top-up, duplicate payment, meter reset/replay, post-cache suspension, all-Origin readiness, any-Origin→selected-exit routing, desired generation, unknown receipt recovery, Xray restart reconciliation, and resume.
-- [ ] Extend CI with a separate Go 1.26 sidecar-agent job, backend Go 1.25 jobs, Python bot tests, race/vet, migration integration, security tests, and unchanged Android 1.0.158-task7-test artifact proof.
-- [ ] Prove current production 1.0.157 bare subscription fixture remains exact.
-- [ ] Run both release wrappers, `git diff --check`, secret scans, and the complete local test set possible on the host.
-- [ ] Push the exact commit, wait for every required GitHub Action on that SHA, and record run IDs and conclusions.
-- [ ] Request independent code/security review. Resolve every blocking finding with a new exact-SHA CI cycle.
-- [ ] Commit with message `test(whitelist): prove commercial delivery release gates`.
+- [x] Add offline fixtures for period rollover, boundary interval closure, top-up, duplicate payment, meter reset/replay, post-cache suspension, all-Origin readiness, any-Origin→selected-exit routing, desired generation, unknown receipt recovery, Xray restart reconciliation, and resume.
+- [x] Extend CI with a separate Go 1.26 sidecar-agent job, backend Go 1.25 jobs, Python bot tests, race/vet, migration integration, security tests, and unchanged Android 1.0.158-task7-test artifact proof.
+- [x] Prove current production 1.0.157 bare subscription fixture remains exact.
+- [x] Run both release wrappers, `git diff --check`, secret scans, and the complete local test set possible on the host.
+- [x] Push the exact commit, wait for every required GitHub Action on that SHA, and record run IDs and conclusions.
+- [x] Request independent code/security review. Resolve every blocking finding with a new exact-SHA CI cycle.
+- [x] Commit with message `test(whitelist): prove commercial delivery release gates`.
 
 ## Task 15: Inventory, backup, canary, and staged production rollout
 
@@ -488,6 +488,8 @@ Existing `40000 RUB / 30 days` access flow remains unchanged: confirmation exten
 - [ ] Roll back S4 once deliberately and prove restoration in under five minutes; then re-apply the same immutable release.
 - [ ] Repeat gated rollout on S2, S3, and current S1. Before each Origin joins the common CDN group, prove it holds the complete managed desired set and routes every exposed country identity to the same selected exit. Stop immediately on any identity, route, release, port, health, accounting, or rollback mismatch.
 - [ ] Run regional client canaries for Incy and Happ: import, refresh, TCP, UDP, DNS, idle, network transition, attribution, zero balance, top-up resume, and ordinary-only fallback.
+- [ ] Prove the same customer subscription imports, refreshes, and works through MaestroVPN, Happ, Incy, Karing, and standards-compliant clients; prove delivery and refresh through both Telegram bots, the customer channel, panel login, and last-known-good cache without exposing CDN routes to customers who have not bought the CDN entitlement.
+- [ ] Keep the private test subscription active as the rollback canary throughout rollout. Delete it automatically only after S4 → S2 → S3 → S1 is GREEN, automatic refresh has reached existing customer subscriptions, all required client/bot/channel checks are GREEN, and a recoverable last-known-good path is recorded. Any mismatch blocks deletion.
 - [ ] Run shadow accounting and request-cost observation for 48 hours. Compare Xray counters, ledger debits, Yandex CDN GB/request counts, and expected customer balance.
 - [ ] Keep customer publication default OFF until the separate final cutover gate. Real charges and production OTA remain OFF.
 - [ ] Regenerate `BASELINE_MANIFEST.json` from a clean exact-SHA tree, update handoff with branch/SHA/CI/run IDs/host evidence/remaining stop gates, and commit with message `docs(whitelist): record staged production evidence`.

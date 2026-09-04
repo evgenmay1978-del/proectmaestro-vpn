@@ -15,8 +15,8 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 314667,
-      "sha256": "5b1eb938d271c4095f8cd738e3df8dbba31ee80e1d939ca42be0d1bdf0ad324e",
+      "bytes": 316756,
+      "sha256": "e2327c349422f330104cea5ea4dbf23ef6277f2dc4c42f9cc0245e9cb178a68c",
       "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. WHITE-LIST COMMERCIAL DELIVERY \u2014 TASK 13 DELIVERY GREEN; TASK 14 NEXT (04.09.2026)\n\n- \u0415\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u0430\u044f \u0440\u0430\u0431\u043e\u0447\u0430\u044f/push-\u0432\u0435\u0442\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f\n  `codex/yandex-cdn-whitelist-task3-sync`. \u041f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u044b\u0439 Task 13 delivery code\n  checkpoint \u2014 exact SHA `080793acd7a25ddf3cae6f3ebe2b9b"
     },
     {

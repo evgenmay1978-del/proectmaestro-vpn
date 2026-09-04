@@ -75,5 +75,6 @@ Artifact `9926356282`, named `maestrovpn-task7-test-8d756783ff969530a94e6525473e
 - All pre-existing dirty/protected files and untracked `normalize.patch` were left unstaged and uncommitted.
 - The private working CDN subscription/canary was not queried, changed, rotated, deleted, or rolled back.
 - Independent review round 1 reported one Important false-positive risk: a zero-match or skipped named Go test could still allow a repro PASS envelope. Commits `ec35d72f29fcdb956297cc63003c077545fdba31` and `8d756783ff969530a94e6525473e59d61836533c` resolved it and completed a new exact-SHA CI cycle.
-- No independent-review-clean claim is made by this report. Any further blocking finding requires a new commit and exact-SHA CI cycle.
+- Scoped independent re-review of `8d756783ff969530a94e6525473e59d61836533c` concluded `CLEAN`: exact named-test pass/skip enforcement, negative missing/skip contracts, isolated rqlite allocation, machine-readable output, acceptance-matrix truthfulness, Android production/test separation, and the recorded exact-SHA evidence all passed without a remaining Critical or Important finding.
+- Report commit `f653d0d21d70f0ee89e1d3c743d1231c5d0582f0` completed its two path-triggered workflows successfully: HA immutable artifact run `33846130034` and HA S4 change-package run `33846130013`.
 - The evidence above proves repository contracts and release-gate execution; it does not assert live fleet rollout, live billing correctness, or production customer readiness.
