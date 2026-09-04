@@ -370,10 +370,11 @@ func whiteListSelectedRuntimeExit(
 	exits map[string]WhiteListExit,
 ) (WhiteListExit, error) {
 	if len(entitlementIDs) == 0 {
-		exit, ok := exits[previousExit]
-		if previousExit == "" || !ok {
+		if previousExit == "" {
 			return WhiteListExit{}, ErrUnavailable
 		}
+		exit := exits[previousExit]
+		exit.ExitID = previousExit
 		return exit, nil
 	}
 	common := make(map[string]struct{})

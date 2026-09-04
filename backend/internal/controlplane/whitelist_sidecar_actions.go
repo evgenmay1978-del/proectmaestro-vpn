@@ -75,7 +75,17 @@ func (s *Service) ReconcileWhiteListSidecarGeneration(
 	routes []WhiteListManagedRoute, exit WhiteListExit, workerID string,
 	resolveSender func(string) (ExternalActionSender, bool),
 ) (WhiteListSidecarGenerationResult, error) {
-	if ctx == nil || !exit.Healthy || strings.TrimSpace(workerID) == "" || resolveSender == nil {
+	removingManagedUsers := false
+	if len(routes) == 0 {
+		for _, prior := range previous {
+			if len(prior.ManagedUsers) > 0 {
+				removingManagedUsers = true
+				break
+			}
+		}
+	}
+	if ctx == nil || (!exit.Healthy && !removingManagedUsers) ||
+		strings.TrimSpace(workerID) == "" || resolveSender == nil {
 		return WhiteListSidecarGenerationResult{}, ErrConflict
 	}
 	releaseID := ""

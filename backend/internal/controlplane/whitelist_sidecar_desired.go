@@ -82,7 +82,7 @@ type whiteListSidecarPayload struct {
 func BuildWhiteListRouteMatrix(
 	origins []WhiteListOrigin, routes []WhiteListManagedRoute, exit WhiteListExit,
 ) ([]WhiteListRouteMatrixEntry, error) {
-	if exit.ExitID == "" || exit.CountryCode == "" || exit.CountryLabel == "" {
+	if exit.ExitID == "" || (len(routes) > 0 && (exit.CountryCode == "" || exit.CountryLabel == "")) {
 		return nil, errors.New("controlplane: invalid white-list exit")
 	}
 	orderedOrigins := append([]WhiteListOrigin(nil), origins...)

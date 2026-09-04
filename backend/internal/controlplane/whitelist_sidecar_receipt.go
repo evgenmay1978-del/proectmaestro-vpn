@@ -115,6 +115,7 @@ func whiteListSidecarCurrentDesired(results []rqlite.Result, expectedExitID stri
 		payloadJSON, payloadOK := whiteListRowBytes(row, "payload_json")
 		var payload whiteListSidecarPayload
 		payloadDecoded := payloadOK && json.Unmarshal(payloadJSON, &payload) == nil
+		requiresHealthyExit := payloadDecoded && len(payload.ManagedUsers) > 0
 		desired := WhiteListSidecarDesired{
 			OriginID: originID, NodeID: nodeID, ReleaseID: releaseID, ProfileID: profileID,
 			PresetID: presetID, ExitID: exitID, Generation: generation, ConfigDigest: configDigest,
@@ -127,7 +128,7 @@ func whiteListSidecarCurrentDesired(results []rqlite.Result, expectedExitID stri
 		if !originOK || !currentNodeOK || !currentReleaseOK || !currentProfileOK || !currentPresetOK ||
 			!currentConfigOK || !nodeOK || !releaseOK || !profileOK || !presetOK || !exitOK ||
 			!configOK || !managedOK || !desiredOK || !typeOK || !actionOK || !generationOK ||
-			!healthyOK || healthy != 1 || !payloadDecoded || duplicate || exitID != expectedExitID ||
+			!payloadDecoded || (requiresHealthyExit && (!healthyOK || healthy != 1)) || duplicate || exitID != expectedExitID ||
 			currentNodeID != nodeID || currentReleaseID != releaseID || currentProfileID != profileID ||
 			currentPresetID != presetID || currentConfigDigest != configDigest ||
 			validateWhiteListSidecarDesired(desired) != nil {
