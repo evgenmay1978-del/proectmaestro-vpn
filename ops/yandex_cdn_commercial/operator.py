@@ -18,6 +18,8 @@ import sys
 import tempfile
 from typing import Any, Callable
 
+sys.dont_write_bytecode = True
+
 try:
     from . import bundle
 except ImportError:  # pragma: no cover - bundled executable path
@@ -432,9 +434,17 @@ class CommercialOperator:
         with tempfile.TemporaryDirectory(prefix="maestro-commercial-config-") as directory:
             xray_path = Path(directory) / "xray"
             config_path = Path(directory) / "config.json"
+            validation_runtime = Path(directory) / "runtime"
+            for relative, payload in certificates.items():
+                target = validation_runtime / relative
+                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                target.write_bytes(payload)
+                target.chmod(0o600)
+            validation_prefix = (validation_runtime.as_posix().rstrip("/") + "/").encode("utf-8")
+            validation_config = config.replace((BASE_PATH + "/current/runtime/").encode("utf-8"), validation_prefix)
             xray_path.write_bytes(members["bin/xray"])
             xray_path.chmod(0o700)
-            config_path.write_bytes(config)
+            config_path.write_bytes(validation_config)
             config_path.chmod(0o600)
             self.run(str(xray_path), "run", "-test", "-config", str(config_path))
         return manifest, members, material, certificates, config, config_sha, runtime_input_sha, release_id

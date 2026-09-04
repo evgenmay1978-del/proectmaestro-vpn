@@ -2,6 +2,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -95,6 +97,86 @@ class CommercialOperatorTests(unittest.TestCase):
                 f'"certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-ca/exit-s{index}.crt"',
                 template,
             )
+
+    def test_first_install_validation_uses_temporary_certificates_without_mutating_bundle(self) -> None:
+        runtime_prefix = "/opt/maestro-xray-cdn-commercial/current/runtime/"
+        template_path = self.bundle_dir / "templates/config.json.tmpl"
+        template = template_path.read_text(encoding="utf-8").replace(
+            '"streamSettings":{"network":"xhttp",',
+            '"streamSettings":{"network":"xhttp","security":"tls","tlsSettings":{"certificates":['
+            '{"certificateFile":"' + runtime_prefix + 'api-mtls/server.crt","keyFile":"'
+            + runtime_prefix
+            + 'api-mtls/server.key"},{"certificateFile":"'
+            + runtime_prefix
+            + 'api-mtls/client-ca.crt","usage":"verify"}]},',
+        )
+        template_path.write_text(template, encoding="utf-8")
+        (self.bundle_dir / "manifest.json").unlink()
+        bundle.create_manifest(
+            self.bundle_dir,
+            source_commit=FULL_SHA,
+            xray_version="26.5.9",
+            xray_archive_sha256=XRAY_ARCHIVE_SHA,
+        )
+
+        failures: list[str] = []
+        operator = self._operator("s4-commercial")
+        production_config = operator._render_config(operator._material(), template_path.read_bytes())
+
+        def first_install_runner(*command: str) -> None:
+            config_path = Path(command[command.index("-config") + 1])
+            validation_config = config_path.read_bytes()
+            if runtime_prefix.encode("utf-8") in validation_config:
+                failures.append("validation config still references the absent current/runtime tree")
+            document = json.loads(validation_config)
+            certificate_paths: list[str] = []
+
+            def collect(value: object) -> None:
+                if isinstance(value, dict):
+                    certificate_file = value.get("certificateFile")
+                    if isinstance(certificate_file, str):
+                        certificate_paths.append(certificate_file)
+                    for child in value.values():
+                        collect(child)
+                elif isinstance(value, list):
+                    for child in value:
+                        collect(child)
+
+            collect(document)
+            missing = [path for path in certificate_paths if not Path(path).is_file()]
+            if missing:
+                failures.append("validation certificate paths do not exist: " + ",".join(missing))
+
+        operator.run = first_install_runner
+        result = operator.plan()
+        if result["config_sha256"] != hashlib.sha256(production_config).hexdigest():
+            failures.append("production config digest changed during validation")
+        if runtime_prefix.encode("utf-8") not in production_config:
+            failures.append("production config no longer references current/runtime")
+
+        cli_root = self.base / "direct-cli"
+        cli_bin = cli_root / "bin/maestro-xray-cdn-commercial-operator"
+        cli_lib = cli_root / "lib/commercial_bundle.py"
+        cli_bin.parent.mkdir(parents=True)
+        cli_lib.parent.mkdir(parents=True)
+        cli_bin.write_bytes((Path(__file__).parents[1] / "operator.py").read_bytes())
+        cli_lib.write_bytes((Path(__file__).parents[1] / "bundle.py").read_bytes())
+        environment = os.environ.copy()
+        environment.pop("PYTHONDONTWRITEBYTECODE", None)
+        environment.pop("PYTHONPYCACHEPREFIX", None)
+        completed = subprocess.run(
+            [sys.executable, str(cli_bin), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        if completed.returncode != 0:
+            failures.append("direct CLI failed: " + completed.stderr.strip())
+        if (cli_root / "lib/__pycache__").exists():
+            failures.append("direct CLI wrote bytecode into the immutable bundle")
+
+        self.assertEqual(failures, [])
 
     def _write_bundle(self) -> None:
         members = {
