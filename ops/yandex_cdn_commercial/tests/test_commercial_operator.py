@@ -90,8 +90,10 @@ class CommercialOperatorTests(unittest.TestCase):
             '"uplinkHTTPMethod": "GET"',
             '"uplinkDataPlacement": "body"',
             '"disableSystemRoot": true',
+            '"verifyPeerCertByName": "maestro-metering-client,maestro-sidecar-agent"',
         ):
             self.assertIn(fragment, template)
+        self.assertNotIn("verifyPeerCertInNames", template)
         for index in range(1, 5):
             self.assertIn(
                 f'"certificateFile": "/opt/maestro-xray-cdn-commercial/current/runtime/relay-ca/exit-s{index}.crt"',

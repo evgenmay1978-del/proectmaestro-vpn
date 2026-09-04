@@ -424,7 +424,7 @@ def assert_read_only_permissions(source: str) -> None:
 # Deliberately seal exact workflow text so unmodeled steps and run-body changes
 # cannot bypass the readable semantic allowlists below.
 EXPECTED_WORKFLOW_SHA256 = (
-    "e62baf78a8004edabe059363c3ff7cd0669690291f952986dbf6bd4a12130a4a"
+    "7802236e393abacf0cc9b3f467919d7fc77c228d009c1a96ddd24d22a684713f"
 )
 APPROVED_READ_ONLY_SOURCE_URL = (
     "https://github.com/XTLS/Xray-core/releases/download/"
@@ -1483,6 +1483,29 @@ class WorkflowGateContractTest(unittest.TestCase):
                 self.assertEqual(1, source.count(wrapper))
         assert_offline_replay_policy(workflow_text())
         self.assertIsNone(re.search(r"\b(?:curl|wget|gh)\b", source))
+
+    def test_commercial_job_validates_rendered_template_with_pinned_xray(self) -> None:
+        workflow = workflow_text()
+        job = job_source(workflow, "commercial-sidecar-agent")
+        build = job.find("- name: Build immutable Linux amd64 commercial bundle")
+        validate = job.find("- name: Validate rendered commercial config with pinned Xray")
+        upload = job.find("- name: Upload immutable commercial bundle")
+        self.assertGreaterEqual(build, 0)
+        self.assertGreaterEqual(validate, 0)
+        self.assertGreaterEqual(upload, 0)
+        self.assertLess(build, validate)
+        self.assertLess(validate, upload)
+        source = named_step_source(workflow, "Validate rendered commercial config with pinned Xray")
+        for fragment in (
+            "openssl req -x509",
+            "chmod 0600",
+            "dist-commercial/bin/maestro-xray-cdn-commercial-operator",
+            'plan --bundle dist-commercial --profile s4-commercial',
+            '--runtime-material "$runtime"',
+            '--certificate-source "$certificates"',
+            'test ! -e dist-commercial/lib/__pycache__',
+        ):
+            self.assertIn(fragment, source)
 
     def test_rqlite_purge_is_targeted_isolated_and_always_cleaned_up(self) -> None:
         source = job_source(workflow_text(), "rqlite-purge")

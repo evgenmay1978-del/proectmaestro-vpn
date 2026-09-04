@@ -561,6 +561,79 @@ jobs:
             --xray-archive-sha256 "$XRAY_ARCHIVE_SHA256"
           python ops/yandex_cdn_commercial/bundle.py verify --bundle "$dist"
 
+      - name: Validate rendered commercial config with pinned Xray
+        run: |
+          set -euo pipefail
+          umask 077
+          fixture="$RUNNER_TEMP/commercial-xray-validation"
+          certificates="$fixture/certificates"
+          runtime="$fixture/runtime-material.json"
+          test ! -e "$fixture"
+          mkdir -m 0700 -p \
+            "$certificates/agent-server" \
+            "$certificates/api-mtls" \
+            "$certificates/controller-ca" \
+            "$certificates/relay-ca" \
+            "$certificates/relay-tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj '/CN=maestro-commercial-ci' \
+            -addext 'basicConstraints=critical,CA:TRUE' \
+            -addext 'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign' \
+            -addext 'extendedKeyUsage=serverAuth,clientAuth' \
+            -addext 'subjectAltName=DNS:maestro-xray-api,DNS:maestro-metering-client,DNS:maestro-sidecar-agent,DNS:maestro-agent-s4.internal,DNS:exit-s1.maestro.internal,DNS:exit-s2.maestro.internal,DNS:exit-s3.maestro.internal,DNS:exit-s4.maestro.internal' \
+            -keyout "$fixture/key.pem" -out "$fixture/cert.pem" >/dev/null 2>&1
+          for relative in \
+            agent-server/server.crt \
+            api-mtls/client-ca.crt \
+            api-mtls/server-ca.crt \
+            api-mtls/server.crt \
+            api-mtls/sidecar-agent.crt \
+            controller-ca/client-ca.crt \
+            relay-ca/exit-s1.crt \
+            relay-ca/exit-s2.crt \
+            relay-ca/exit-s3.crt \
+            relay-ca/exit-s4.crt \
+            relay-tls/server.crt; do
+            install -m 0600 "$fixture/cert.pem" "$certificates/$relative"
+          done
+          for relative in \
+            agent-server/server.key \
+            api-mtls/server.key \
+            api-mtls/sidecar-agent.key \
+            relay-tls/server.key; do
+            install -m 0600 "$fixture/key.pem" "$certificates/$relative"
+          done
+          cat >"$runtime" <<'JSON'
+          {
+            "active_origin_ips": ["192.0.2.10"],
+            "controller_source_ip": "192.0.2.20",
+            "managed_credentials": {"wl:fixture:exit-s1": "00000000-0000-4000-8000-000000000051"},
+            "public_host": "cdn.example.test",
+            "relay_routes": [
+              {"address": "192.0.2.31", "credential": "00000000-0000-4000-8000-000000000041", "exit_id": "exit-s1", "server_name": "exit-s1.maestro.internal"},
+              {"address": "192.0.2.32", "credential": "00000000-0000-4000-8000-000000000042", "exit_id": "exit-s2", "server_name": "exit-s2.maestro.internal"},
+              {"address": "192.0.2.33", "credential": "00000000-0000-4000-8000-000000000043", "exit_id": "exit-s3", "server_name": "exit-s3.maestro.internal"},
+              {"address": "192.0.2.34", "credential": "00000000-0000-4000-8000-000000000044", "exit_id": "exit-s4", "server_name": "exit-s4.maestro.internal"}
+            ],
+            "secret_path": "/synthetic-commercial-validation",
+            "server_decryption": "none"
+          }
+          JSON
+          chmod 0600 "$runtime"
+          python3 -B dist-commercial/bin/maestro-xray-cdn-commercial-operator \
+            plan --bundle dist-commercial --profile s4-commercial \
+            --runtime-material "$runtime" \
+            --certificate-source "$certificates" >"$fixture/plan.json"
+          python3 - "$fixture/plan.json" <<'PY'
+          import json
+          import sys
+          with open(sys.argv[1], encoding="utf-8") as source:
+              payload = json.load(source)
+          if payload.get("action") != "plan" or payload.get("profile") != "s4-commercial":
+              raise SystemExit("commercial pinned Xray validation did not return a plan")
+          PY
+          test ! -e dist-commercial/lib/__pycache__
+
       - name: Assert commercial bundle contains no runtime secrets
         run: |
           set -euo pipefail
