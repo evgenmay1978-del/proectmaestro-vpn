@@ -91,6 +91,7 @@ func main() {
 		}
 		runtimeInstance, err := buildRQLitePanelRuntime(
 			context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), productionRQLiteRuntimeDependencies(),
+			sidecarConfig.Enabled,
 		)
 		if err != nil {
 			log.Fatalf("build rqlite runtime: %v", err)

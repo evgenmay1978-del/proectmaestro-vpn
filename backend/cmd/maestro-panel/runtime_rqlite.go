@@ -65,6 +65,7 @@ func buildRQLitePanelRuntime(
 	config rqliteRuntimeConfig,
 	apiConfig api.Config,
 	dependencies rqliteRuntimeDependencies,
+	whiteListPublicationEnabled ...bool,
 ) (*panelRuntime, error) {
 	if ctx == nil || len(config.Endpoints) != 3 || config.CAFile == "" || config.CertFile == "" ||
 		config.KeyFile == "" || config.KeyBundleFile == "" || dependencies.newClient == nil ||
@@ -102,7 +103,10 @@ func buildRQLitePanelRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("rqlite runtime: worker identity unavailable: %w", err)
 	}
-	business := api.NewServiceBusiness(service, rqliteServiceBusinessConfig(apiConfig, wbSender, workerID))
+	publicationEnabled := len(whiteListPublicationEnabled) == 1 && whiteListPublicationEnabled[0]
+	business := api.NewServiceBusiness(service, rqliteServiceBusinessConfig(
+		apiConfig, wbSender, workerID, runtimeWhiteListPublicationSource(service, publicationEnabled),
+	))
 	server := api.NewControlPlane(business, apiConfig)
 	runtime := &panelRuntime{
 		mode: "rqlite", business: business, handler: server.Handler(),
@@ -197,14 +201,19 @@ func rqliteAPIConfigFromEnvironment() api.Config {
 	}
 }
 
-func rqliteServiceBusinessConfig(apiConfig api.Config, wbSender controlplane.ExternalActionSender, workerID string) api.ServiceBusinessConfig {
+func rqliteServiceBusinessConfig(
+	apiConfig api.Config,
+	wbSender controlplane.ExternalActionSender,
+	workerID string,
+	publicationSource api.WhiteListPublicationSource,
+) api.ServiceBusinessConfig {
 	return api.ServiceBusinessConfig{
 		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
 		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,
 		WBRoomSender: wbSender, WorkerID: workerID,
 		SubscriptionTopology:       rqliteSubscriptionTopologyFromEnvironment(),
 		DeviceLimitFor:             rqliteDeviceLimitFor(apiConfig.EnforceDeviceLimit),
-		WhiteListPublicationSource: runtimeWhiteListPublicationSource(),
+		WhiteListPublicationSource: publicationSource,
 	}
 }
 

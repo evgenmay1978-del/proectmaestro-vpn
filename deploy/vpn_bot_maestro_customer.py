@@ -172,7 +172,7 @@ class CustomerFlow:
     async def delivery(self, client: str) -> dict:
         result = await self.api.delivery(client)
         if client == "incy" and result.get("format") == "INCY_ONE_TAP":
-            return {"button_url": result["url"], "label": "Открыть в Incy"}
+            return {"copy_url": result["url"], "label": "Ссылка для Incy"}
         if client == "happ" and result.get("format") == "COPY_HTTPS_URL_AND_QR":
             return {
                 "url": result["url"],
@@ -184,7 +184,7 @@ class CustomerFlow:
                 ),
             }
         if client == "karing" and result.get("format") == "KARING_INSTALL_CONFIG":
-            return {"button_url": result["url"], "label": "Открыть в Karing"}
+            return {"copy_url": result["url"], "label": "Ссылка для Karing"}
         raise ValueError("unexpected subscription delivery result")
 
     def support_text(self) -> str:
@@ -284,14 +284,14 @@ def build_customer_router(store: CustomerBindingStore):
             happ = await flow.delivery("happ")
             karing = await flow.delivery("karing")
             await callback.message.answer(
-                "1. Выберите приложение.\n"
-                "2. Нажмите «Открыть» и подтвердите импорт.\n"
-                "3. Убедитесь, что профиль MaestroVPN появился.\n\n"
-                "Без купленных ГБ будут обычные серверы. После покупки ГБ здесь же появится CDN/LTE.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=incy["label"], url=incy["button_url"])],
-                [InlineKeyboardButton(text=karing["label"], url=karing["button_url"])],
-                ]),
+                "1. Для Incy скопируйте ссылку ниже, откройте импорт подписки и вставьте её:\n"
+                f"{incy['copy_url']}\n\n"
+                "2. Для Karing скопируйте ссылку ниже, откройте импорт подписки и вставьте её:\n"
+                f"{karing['copy_url']}\n\n"
+                "3. Для Happ используйте QR из следующего сообщения.\n"
+                "4. Убедитесь, что профиль MaestroVPN появился.\n\n"
+                "MaestroVPN 1.0.157 показывает только обычные серверы. "
+                "После покупки ГБ CDN/LTE появится в Incy, Happ и Karing.",
             )
             import qrcode
             from io import BytesIO

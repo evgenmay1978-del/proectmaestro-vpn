@@ -27,7 +27,9 @@ from .maestro_customer import build_customer_router_from_env
 from .vpn_bot_maestro_order_actions import (
     TOPUP_CONFIRM_PREFIX,
     TOPUP_REJECT_PREFIX,
+    admin_delivery_button_urls,
     admin_delivery_choices,
+    admin_subscription_caption,
     topup_admin_request,
 )
 
@@ -215,27 +217,19 @@ async def show_app_subscription(cb: CallbackQuery):
             "naive": "NaiveProxy", "mieru": "Mieru",
         }
         protos = ", ".join(proto_names.get(p, p) for p in (d.get("protocols") or [])) or "—"
-        caption = (
-            f"🦊 <b>MaestroVPN — подписка</b>\n"
-            f"Клиент: <code>{login}</code>\n"
-            f"Статус: {status}  •  до {exp_disp}{days_disp}\n"
-            f"Протоколы ({len(d.get('protocols') or [])}): {protos}\n\n"
-            f"1. MaestroVPN: отсканируйте QR или вставьте обычную ссылку:\n"
-            f"<code>{sub_url}</code>\n\n"
-            f"2. Incy или Karing: нажмите кнопку ниже и подтвердите импорт.\n"
-            f"3. Happ: скопируйте ссылку ниже и добавьте подписку:\n"
-            f"<code>{deliveries.happ_url}</code>\n"
-            f"4. Убедитесь, что профиль MaestroVPN появился.\n\n"
-            f"Без купленных ГБ клиент увидит обычные серверы. После покупки ГБ в этих же ссылках появится CDN/LTE."
+        caption = admin_subscription_caption(
+            login, status, exp_disp, days_disp, protos, len(d.get("protocols") or []),
+            sub_url, deliveries,
         )
+        buttons = admin_delivery_button_urls(deliveries)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=label, url=value)] for label, value in buttons
+        ]) if buttons else None
         await cb.message.answer_photo(
             BufferedInputFile(_qr_png(sub_url), filename="maestrovpn_sub.png"),
             caption=caption,
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Открыть в Incy", url=deliveries.incy_url)],
-                [InlineKeyboardButton(text="Открыть в Karing", url=deliveries.karing_url)],
-            ]),
+            reply_markup=keyboard,
         )
         await cb.answer()
     except Exception as e:  # noqa: BLE001

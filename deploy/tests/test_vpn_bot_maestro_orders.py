@@ -91,3 +91,12 @@ class OrdersAdapterTests(unittest.TestCase):
         self.assertEqual(choices.incy_url, "incy://fixture")
         self.assertEqual(choices.happ_url, "https://safe.invalid/sub/token?format=links")
         self.assertEqual(choices.karing_url, "karing://install-config?fixture")
+        self.assertEqual(actions.admin_delivery_button_urls(choices), ())
+
+        caption = actions.admin_subscription_caption(
+            "maestro-login", "active", "2026-09-30", "", "VLESS", 1,
+            "https://safe.invalid/sub/token", choices,
+        )
+        self.assertIn("MaestroVPN 1.0.157", caption)
+        self.assertIn("только обычные серверы", caption)
+        self.assertIn("CDN/LTE доступен только через Incy, Happ или Karing", caption)

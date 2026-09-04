@@ -2,6 +2,7 @@
 
 import re
 from typing import NamedTuple
+from urllib.parse import urlsplit
 
 
 TOPUP_CONFIRM_PREFIX = "mwcf:"
@@ -48,6 +49,44 @@ def admin_delivery_choices(deliveries: dict) -> AdminDeliveryChoices:
         incy_url=urls["incy"],
         happ_url=urls["happ"],
         karing_url=urls["karing"],
+    )
+
+
+def admin_delivery_button_urls(choices: AdminDeliveryChoices) -> tuple[tuple[str, str], ...]:
+    buttons = []
+    for label, value in (("Открыть в Incy", choices.incy_url), ("Открыть в Karing", choices.karing_url)):
+        parsed = urlsplit(value)
+        if parsed.scheme in {"http", "https"} and parsed.hostname and parsed.username is None and parsed.password is None:
+            buttons.append((label, value))
+    return tuple(buttons)
+
+
+def admin_subscription_caption(
+    login: str,
+    status: str,
+    expires: str,
+    days: str,
+    protocols: str,
+    protocol_count: int,
+    sub_url: str,
+    deliveries: AdminDeliveryChoices,
+) -> str:
+    return (
+        f"🦊 <b>MaestroVPN — подписка</b>\n"
+        f"Клиент: <code>{login}</code>\n"
+        f"Статус: {status}  •  до {expires}{days}\n"
+        f"Протоколы ({protocol_count}): {protocols}\n\n"
+        "1. MaestroVPN 1.0.157: отсканируйте QR или вставьте обычную ссылку. "
+        "В этой версии доступны только обычные серверы:\n"
+        f"<code>{sub_url}</code>\n\n"
+        "2. Incy: скопируйте ссылку, откройте импорт подписки и вставьте её:\n"
+        f"<code>{deliveries.incy_url}</code>\n\n"
+        "3. Happ: скопируйте HTTPS-ссылку или используйте QR:\n"
+        f"<code>{deliveries.happ_url}</code>\n\n"
+        "4. Karing: скопируйте ссылку, откройте импорт подписки и вставьте её:\n"
+        f"<code>{deliveries.karing_url}</code>\n\n"
+        "CDN/LTE доступен только через Incy, Happ или Karing после покупки ГБ. "
+        "В MaestroVPN 1.0.157 CDN/LTE не появится до отдельного разрешённого обновления приложения."
     )
 
 

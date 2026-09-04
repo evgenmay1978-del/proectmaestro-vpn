@@ -1,25 +1,61 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"net/url"
 	"os"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
-// Publication is deliberately disconnected from runtime until a later gated task.
-func runtimeWhiteListPublicationSource() api.WhiteListPublicationSource {
-	return runtimeWhiteListPublicationSourceFrom(nil, false)
+const runtimeWhiteListXHTTPExtra = `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id","uplinkHTTPMethod":"GET","uplinkDataPlacement":"body"}`
+
+type rqliteWhiteListPublicationSource struct {
+	service *controlplane.Service
 }
 
-// runtimeWhiteListPublicationSourceFrom is the explicit injection seam used by
-// tests and by a later, separately gated runtime source. Publication remains
-// fail-closed unless enable is true and a source is supplied.
-func runtimeWhiteListPublicationSourceFrom(source api.WhiteListPublicationSource, enable bool) api.WhiteListPublicationSource {
-	if !enable {
+func runtimeWhiteListPublicationSource(service *controlplane.Service, enable bool) api.WhiteListPublicationSource {
+	if !enable || service == nil {
 		return nil
 	}
-	return source
+	return rqliteWhiteListPublicationSource{service: service}
+}
+
+func (s rqliteWhiteListPublicationSource) WhiteListPublication(
+	ctx context.Context, token string, now time.Time,
+) (api.WhiteListPublicationSnapshot, error) {
+	delivery, err := s.service.WhiteListPublicationDelivery(ctx, token, now)
+	if err != nil {
+		return api.WhiteListPublicationSnapshot{}, err
+	}
+	snapshot := api.WhiteListPublicationSnapshot{
+		Verdict: api.WhiteListPublicationVerdict(delivery.Decision.Verdict),
+		ProjectionVersion: delivery.Decision.ProjectionVersion,
+		DesiredGeneration: delivery.Decision.DesiredGeneration,
+	}
+	if delivery.Decision.FreshUntilUnix > 0 {
+		snapshot.FreshThrough = time.Unix(delivery.Decision.FreshUntilUnix, 0)
+	}
+	if delivery.Decision.Verdict != controlplane.WhiteListPublicationPublishable {
+		return snapshot, nil
+	}
+	snapshot.Nodes = []subgen.WhiteListNode{{
+		Protocol: "vless", Network: "xhttp", Address: delivery.Material.PublicHost, Port: 443,
+		TLS: true, ServerName: delivery.Material.PublicHost, Host: delivery.Material.PublicHost,
+		Path: delivery.Material.SecretPath, Mode: "packet-up", UplinkHTTPMethod: "GET",
+		UplinkDataPlacement: "body", ClientID: delivery.Material.ClientID,
+		Encryption: delivery.Material.ClientEncryption, Security: "tls",
+		ALPN: []string{"h2", "http/1.1"}, Fingerprint: "firefox",
+		Extra: url.QueryEscape(runtimeWhiteListXHTTPExtra),
+		Label: fmt.Sprintf("Maestro CDN — %s", delivery.CountryLabel),
+		DomainFallback: true, TransportProfileID: delivery.ProfileID,
+		CompatibilityPresetID: delivery.PresetID, TransportReleaseID: delivery.ReleaseID,
+	}}
+	return snapshot, nil
 }
 
 // Keep the frozen legacy provisioning topology without constructing its JSON
