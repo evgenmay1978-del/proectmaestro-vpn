@@ -63,20 +63,20 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_CANARY_EVIDENCE.md",
-      "bytes": 7162,
-      "sha256": "47659c5aebe856c2974314f9ba92afc2cbfa31d31f4d848270152d88d54a00c6",
+      "bytes": 7240,
+      "sha256": "38ab9146933f56a61d4aa9238177b657e8942d0c1ba6263b353f7eb8e5e8d199",
       "preview": "# Commercial white-list canary evidence\n\nStatus: evidence template; current verdict `PRODUCTION NO_GO`\n\nThis file is the redacted Task 15 evidence index. It must never contain host\naddresses, credentials, UUIDs, certificate/private-key material, customer\nidentifiers, payment data, bot tokens, private subscription URLs,"
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLBACK.md",
-      "bytes": 5104,
-      "sha256": "1edb37de058f68f0a1f517f0fbcc60504a790d9bd9f133abf07676ed3874a285",
+      "bytes": 5324,
+      "sha256": "2ed2129503d69fddd6047b4d036b67f26d55ed412df6503ecb0b52ceb60daca0",
       "preview": "# Commercial white-list rollback\n\nStatus: production rollback contract; not yet proven under five minutes\n\nRollback is scoped to the isolated commercial CDN sidecar/agent and its managed\n`wl:` identities. It must not edit, replace, restart, or restore production\nx-ui/3x-ui, child Xray, Hysteria, nginx, Caddy, maestro-p"
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLOUT_RUNBOOK.md",
-      "bytes": 16120,
-      "sha256": "490d6cb940dc33a6e8ce5c3b0fe0fcbfef1a3757bf921bd6c8cca4989f63e045",
+      "bytes": 16808,
+      "sha256": "4624ba00c02c68543d531e7fdd977e1abc6e0d69f75de52f86ca359102cdd74a",
       "preview": "# Commercial white-list staged rollout runbook\n\nStatus: executable gate contract; production mutation `NO_GO` until every\nprecondition below is evidenced for the exact node and exact package\n\nThis is the smallest approved production path: S4, then S2, then S3, then the\ncurrent owner-authoritative S1. A failure or unkno"
     },
     {
@@ -123,8 +123,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/PRODUCTION_FLEET_INVENTORY.md",
-      "bytes": 5571,
-      "sha256": "5f1c74d97cd76794a1bf88aed6baa69ddc6c42a3f92d59c7c8580bef487167a0",
+      "bytes": 5674,
+      "sha256": "7a1bba9842a0e71d497997f2960605047b8269df8463c972334fd4605ee12fad",
       "preview": "# Production fleet inventory for commercial white-list rollout\n\nStatus: read-only inventory; mutation `NO_GO`\n\nSnapshot date: 2026-09-04. This document records only the sanitized facts from\nthe bounded production read-only pass. It contains no host address, credential,\nUUID, subscription URL, customer record, certifica"
     },
     {
