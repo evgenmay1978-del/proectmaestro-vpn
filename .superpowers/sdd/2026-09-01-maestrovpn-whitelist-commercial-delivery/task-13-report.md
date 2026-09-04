@@ -114,3 +114,28 @@ All applicable exact-SHA GitHub runs for `1b122f2a5c9db96125cbccbf1fdf11aab38fa7
 - Isolated sidecar agent checks `33820855313`: success.
 
 All pre-existing protected dirty files and the untracked `normalize.patch` remained untouched and unstaged. This review fix did not touch live production, Yandex Cloud, the private canary/subscription, OLCRTC, WDTT, Android/OTA, payments, bots/channel, or customer traffic. This report still does not claim that independent review is clean.
+
+## Review fix round 2
+
+The second bounded review round fixed the remaining Important publication-state gap without adding another evaluator, queue, sender, poller, or retry path. The runtime no longer treats the latest `enabled` control as sufficient to remain installed on Origins.
+
+The focused real-store RED commit is `6e683c543313b2f6aa237841fe5d81eb5459aa3a` (`test(controlplane): cover zero-balance sidecar removal`). Its single Python-SQLite-backed migration/store test failed on the intended old behavior: the latest desired generation still contained the enabled entitlement after its fresh durable balance projection reached zero. The RED push produced the following exact-SHA evidence:
+
+- HA DR restore drill `33825314559`: failure.
+- HA immutable panel artifact `33825314575`: failure.
+- HA control-plane checks `33825314573`: failure.
+- Yandex CDN isolated release checks `33825314596`: failure.
+- HA S4 network change-package checks `33825314578`: success (unaffected contract).
+
+Implementation commit `779001a1b726c0ec608c95961d8f270904d3b7d8` (`fix(controlplane): enforce whitelist publication decision`) reuses `EvaluateWhiteListPublication` directly. The runtime resolves its facts from the latest durable control source, exact primary status/expiry, the existing balance snapshot service (projection version/pending state, available bytes and observation freshness), active-Origin release binding, usable route credentials and approved node count. The durable enable edge supplies only the candidate generation for reconciliation; after delivery, the same evaluator receives the exact generation, current receipt set and minimum receipt expiry. A closed decision is converted to a revoke before the removal generation is delivered.
+
+The focused real-store test then passed locally. All applicable runs for exact implementation SHA `779001a1b726c0ec608c95961d8f270904d3b7d8` succeeded:
+
+- HA DR restore drill `33825826023`: success.
+- HA immutable panel artifact `33825826079`: success.
+- HA S4 network change-package checks `33825826197`: success.
+- HA control-plane checks `33825826034`: success.
+- Yandex CDN isolated release checks `33825826048`: success.
+- Isolated sidecar agent checks `33825937359`: success.
+
+All pre-existing protected dirty files and the untracked `normalize.patch` remained untouched and unstaged. No live server, Yandex Cloud resource, private canary/subscription, OLCRTC, WDTT, Android/OTA, payment, bot/channel, or customer traffic was accessed or changed. This report still does not claim that independent review is clean.
