@@ -31,13 +31,25 @@ import (
 type fakeSystem struct {
 	firewall    FirewallState
 	healthyOnly string
+	probeDelay  map[string]time.Duration
+	probes      *[]string
 }
 
 func (system fakeSystem) Firewall(context.Context) (FirewallState, error) {
 	return system.firewall, nil
 }
 
-func (system fakeSystem) ProbeRelay(_ context.Context, route Route) error {
+func (system fakeSystem) ProbeRelay(ctx context.Context, route Route) error {
+	if system.probes != nil {
+		*system.probes = append(*system.probes, route.ExitID)
+	}
+	if delay := system.probeDelay[route.ExitID]; delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	if system.healthyOnly != "" && route.ExitID != system.healthyOnly {
 		return errors.New("synthetic relay not deployed")
 	}
@@ -112,6 +124,33 @@ func TestCheckerAllowsSelectedHealthyExitBeforeFutureExitsAreDeployed(t *testing
 	}
 	if err := checker.Validate(context.Background(), config.ReleaseID, config.ConfigDigest, "boot-preflight", "exit-s2"); err == nil {
 		t.Fatal("not-yet-deployed selected exit accepted")
+	}
+}
+
+func TestValidateDoesNotProbeDelayedUnrelatedRoutes(t *testing.T) {
+	now := time.Date(2026, 9, 4, 22, 0, 0, 0, time.UTC)
+	config := testConfig()
+	probes := []string{}
+	checker, err := NewChecker(config, fakeSystem{
+		firewall:    FirewallState{ActiveOriginIPs: config.ActiveOriginIPs, ControllerSourceIPs: []string{config.ControllerSourceIP}},
+		healthyOnly: "exit-s4",
+		probeDelay: map[string]time.Duration{
+			"exit-s1": time.Second,
+			"exit-s2": time.Second,
+			"exit-s3": time.Second,
+		},
+		probes: &probes,
+	}, func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("NewChecker: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := checker.Validate(ctx, config.ReleaseID, config.ConfigDigest, "boot-preflight", "exit-s4"); err != nil {
+		t.Fatalf("selected healthy exit rejected: %v", err)
+	}
+	if !reflect.DeepEqual(probes, []string{"exit-s4"}) {
+		t.Fatalf("Validate probes = %v, want selected exit only", probes)
 	}
 }
 

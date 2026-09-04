@@ -112,7 +112,16 @@ func (checker *Checker) Validate(ctx context.Context, releaseID, configDigest, b
 		!safeIdentifier(bootID) || !supportedExit(exitID) {
 		return errors.New("relay preflight: readiness binding mismatch")
 	}
-	attestation, err := checker.Check(ctx, bootID)
+	selected := make([]Route, 0, 1)
+	for _, route := range checker.config.Routes {
+		if route.ExitID == exitID {
+			selected = append(selected, route)
+		}
+	}
+	if len(selected) != 1 {
+		return errors.New("relay preflight: readiness binding mismatch")
+	}
+	attestation, err := checker.check(ctx, bootID, selected)
 	if err != nil {
 		return err
 	}
@@ -123,6 +132,13 @@ func (checker *Checker) Validate(ctx context.Context, releaseID, configDigest, b
 }
 
 func (checker *Checker) Check(ctx context.Context, bootID string) (Attestation, error) {
+	if checker == nil {
+		return Attestation{}, errors.New("relay preflight: invalid process identity")
+	}
+	return checker.check(ctx, bootID, checker.config.Routes)
+}
+
+func (checker *Checker) check(ctx context.Context, bootID string, routes []Route) (Attestation, error) {
 	if checker == nil || !safeIdentifier(bootID) {
 		return Attestation{}, errors.New("relay preflight: invalid process identity")
 	}
@@ -141,8 +157,8 @@ func (checker *Checker) Check(ctx context.Context, bootID string) (Attestation, 
 	if err != nil || !equalStrings(controllerSources, []string{checker.config.ControllerSourceIP}) {
 		return Attestation{}, errors.New("relay preflight: controller source firewall mismatch")
 	}
-	healthy := make([]string, 0, len(checker.config.Routes))
-	for _, route := range checker.config.Routes {
+	healthy := make([]string, 0, len(routes))
+	for _, route := range routes {
 		if err := checker.system.ProbeRelay(ctx, route); err != nil {
 			continue
 		}
