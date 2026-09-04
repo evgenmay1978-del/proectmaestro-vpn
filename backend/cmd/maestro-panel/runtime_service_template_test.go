@@ -19,7 +19,7 @@ import (
 )
 
 const haPanelArtifactSHA = "f577c67ad229fe89278430d35a3ec65f6ce454e5"
-const haPanelArtifactMainSHA256 = "29b42893486565a7109a16f152288a46745af6543ffdb13bcd65f2a826bb2fc5"
+const haPanelArtifactMainSHA256 = "5f7a044b73f32a87ec04390a0149f37f04609ea46589b00c377c8d13fc2c8908"
 
 func TestHAServiceTemplateRuntimeContract(t *testing.T) {
 	repositoryRoot := haTemplateRepositoryRoot(t)
