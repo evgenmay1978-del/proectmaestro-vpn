@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 type runtimePublicationSource struct{}
@@ -15,17 +16,17 @@ func (runtimePublicationSource) WhiteListPublication(context.Context, string, ti
 }
 
 func TestRuntimeWhiteListPublicationDefaultsOff(t *testing.T) {
-	if runtimeWhiteListPublicationSource() != nil {
+	if runtimeWhiteListPublicationSource(nil, false) != nil {
 		t.Fatal("publication source enabled by default")
 	}
 }
 
-func TestRuntimeWhiteListPublicationExplicitInjection(t *testing.T) {
-	source := runtimePublicationSource{}
-	if runtimeWhiteListPublicationSourceFrom(source, false) != nil {
-		t.Fatal("disabled publication source was injected")
+func TestRuntimeWhiteListPublicationUsesExistingSidecarGate(t *testing.T) {
+	service := &controlplane.Service{}
+	if runtimeWhiteListPublicationSource(service, false) != nil {
+		t.Fatal("disabled sidecar gate injected publication source")
 	}
-	if runtimeWhiteListPublicationSourceFrom(source, true) != source {
-		t.Fatal("enabled publication source was not injected")
+	if runtimeWhiteListPublicationSource(service, true) == nil {
+		t.Fatal("enabled sidecar gate did not inject production publication source")
 	}
 }
