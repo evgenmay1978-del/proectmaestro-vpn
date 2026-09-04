@@ -283,6 +283,36 @@ func startRelayProbeServer(t *testing.T, serverName, alpn, credential string) (s
 	}
 }
 
+func TestRelayTestCertificateValidAtRuntimeClock(t *testing.T) {
+	const serverName = "relay-runtime.example.test"
+	certificate, caPEM := relayTestCertificate(t, serverName)
+	if len(certificate.Certificate) != 1 {
+		t.Fatalf("certificate chain length = %d, want 1", len(certificate.Certificate))
+	}
+	leaf, err := x509.ParseCertificate(certificate.Certificate[0])
+	if err != nil {
+		t.Fatalf("ParseCertificate leaf: %v", err)
+	}
+	caBlock, remainder := pem.Decode(caPEM)
+	if caBlock == nil || caBlock.Type != "CERTIFICATE" || len(remainder) != 0 {
+		t.Fatal("decode CA certificate")
+	}
+	ca, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil {
+		t.Fatalf("ParseCertificate CA: %v", err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	if _, err := leaf.Verify(x509.VerifyOptions{
+		DNSName:     serverName,
+		Roots:       roots,
+		CurrentTime: time.Now().UTC(),
+		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}); err != nil {
+		t.Fatalf("verify fixture at runtime clock: %v", err)
+	}
+}
+
 func relayTestCertificate(t *testing.T, serverName string) (tls.Certificate, []byte) {
 	t.Helper()
 	now := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
