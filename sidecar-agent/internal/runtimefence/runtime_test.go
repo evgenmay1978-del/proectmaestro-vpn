@@ -27,15 +27,29 @@ func (testPolicy) ForLevel(uint32) policy.Session {
 
 func fixture(t *testing.T) (*gate, *protocol.MemoryUser, *xstats.Manager, Control) {
 	t.Helper()
-	g := newGate(strings.Repeat("a", 64), strings.Repeat("b", 64))
+	g, err := newGate(strings.Repeat("a", 64), strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
 	u := &protocol.MemoryUser{Email: "wl:synthetic:exit-s1", Account: &vless.MemoryAccount{}}
 	sm, err := xstats.NewManager(context.Background(), &xstats.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := Control{Schema: 1, Operation: "grant", Email: u.Email, BootID: g.boot, ConfigDigest: g.digest, Generation: 1, LeaseMS: 5000}
+	c := Control{Schema: 2, Operation: "grant", Email: u.Email, BootID: g.boot, ConfigDigest: g.digest, Generation: 1, ClockDomain: g.clockDomain, DeadlineBoottimeNS: deadlineAfter(t, g, maxLease)}
 	t.Cleanup(g.close)
 	return g, u, sm, c
+}
+
+func deadlineAfter(t *testing.T, g *gate, remaining time.Duration) int64 {
+	t.Helper()
+	g.mu.Lock()
+	now, err := g.nowLocked()
+	g.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return now + int64(remaining)
 }
 
 func registerPair(t *testing.T, sm stats.Manager, email string) {
@@ -81,7 +95,7 @@ func TestDefaultDenyGenerationAndOldMuxIdentity(t *testing.T) {
 	}
 	registerPair(t, sm, u.Email)
 	c.Operation = "fence"
-	c.LeaseMS = 0
+	c.DeadlineBoottimeNS = 0
 	c.Generation++
 	r, err := g.apply(context.Background(), c, nil, sm)
 	if err != nil || r.Uplink == nil || *r.Uplink != 0 || r.ResetSequence != 0 {
@@ -89,7 +103,7 @@ func TestDefaultDenyGenerationAndOldMuxIdentity(t *testing.T) {
 	}
 	grant := c
 	grant.Operation = "grant"
-	grant.LeaseMS = 5000
+	grant.DeadlineBoottimeNS = deadlineAfter(t, g, maxLease)
 	if _, err := g.apply(context.Background(), grant, u, sm); err == nil {
 		t.Fatal("same generation changed operation")
 	}
@@ -146,7 +160,7 @@ func TestFenceWaitsForLatePinnedCounterMutationAfterWorkerReturn(t *testing.T) {
 	<-reader.entered
 	s.finish()
 	c.Operation = "fence"
-	c.LeaseMS = 0
+	c.DeadlineBoottimeNS = 0
 	c.Generation++
 	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	if r, err := g.apply(short, c, nil, sm); err == nil || r != nil {
@@ -189,10 +203,10 @@ func TestNeverStartedFenceReturnsUnusedWithoutCounterSample(t *testing.T) {
 				}
 				c.Generation++
 			}
-			c.Operation, c.LeaseMS = "fence", 0
+			c.Operation, c.DeadlineBoottimeNS = "fence", 0
 			for attempt := 0; attempt < 2; attempt++ {
 				r, err := g.apply(context.Background(), c, nil, sm)
-				if err != nil || r == nil || r.State != "fenced_unused" || r.Uplink != nil || r.Downlink != nil || r.LeaseRemainingMS != nil || r.LeaseExpiresAt != "" || r.BootID != g.boot || r.Generation != c.Generation {
+				if err != nil || r == nil || r.State != "fenced_unused" || r.Uplink != nil || r.Downlink != nil || r.LeaseRemainingMS != nil || r.DeadlineBoottimeNS != 0 || r.BootID != g.boot || r.Generation != c.Generation || r.ClockDomain != g.clockDomain {
 					t.Fatalf("invalid unused receipt: %v %v", r, err)
 				}
 			}
@@ -210,7 +224,7 @@ func TestPartialCounterPairCannotBeCertifiedUnused(t *testing.T) {
 			if _, err := sm.RegisterCounter(counterName(u.Email, direction)); err != nil {
 				t.Fatal(err)
 			}
-			c.Operation, c.LeaseMS = "fence", 0
+			c.Operation, c.DeadlineBoottimeNS = "fence", 0
 			if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
 				t.Fatal("partial counters certified as unused")
 			}
@@ -229,19 +243,19 @@ func TestSuccessfulStartPermanentlyForbidsUnusedReceiptForPhysicalBoot(t *testin
 	}
 	s.finish()
 	waitEmpty(t, g)
-	c.Operation, c.LeaseMS = "fence", 0
+	c.Operation, c.DeadlineBoottimeNS = "fence", 0
 	c.Generation++
 	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
 		t.Fatal("missing counters after successful dispatch certified unused")
 	}
 	// Replacing the MemoryUser does not create a new physical counter lifetime.
 	replacement := &protocol.MemoryUser{Email: u.Email, Account: &vless.MemoryAccount{}}
-	c.Operation, c.LeaseMS = "grant", 5000
+	c.Operation, c.DeadlineBoottimeNS = "grant", deadlineAfter(t, g, maxLease)
 	c.Generation++
 	if _, err := g.apply(context.Background(), c, replacement, sm); err != nil {
 		t.Fatal(err)
 	}
-	c.Operation, c.LeaseMS = "fence", 0
+	c.Operation, c.DeadlineBoottimeNS = "fence", 0
 	c.Generation++
 	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
 		t.Fatal("regrant erased successful-start history")
@@ -251,7 +265,7 @@ func TestSuccessfulStartPermanentlyForbidsUnusedReceiptForPhysicalBoot(t *testin
 func TestRealZeroCounterPairProducesOrdinaryFencedReceipt(t *testing.T) {
 	g, u, sm, c := fixture(t)
 	registerPair(t, sm, u.Email)
-	c.Operation, c.LeaseMS = "fence", 0
+	c.Operation, c.DeadlineBoottimeNS = "fence", 0
 	r, err := g.apply(context.Background(), c, nil, sm)
 	if err != nil || r == nil || r.State != "fenced" || r.Uplink == nil || r.Downlink == nil || *r.Uplink != 0 || *r.Downlink != 0 {
 		t.Fatalf("real zero pair lost: %v %v", r, err)
@@ -261,7 +275,7 @@ func TestRealZeroCounterPairProducesOrdinaryFencedReceipt(t *testing.T) {
 func TestNegativeCountersDoNotProduceFinalReceipt(t *testing.T) {
 	g, u, sm, c := fixture(t)
 	c.Operation = "fence"
-	c.LeaseMS = 0
+	c.DeadlineBoottimeNS = 0
 	registerPair(t, sm, u.Email)
 	sm.GetCounter(counterName(u.Email, "uplink")).Add(-1)
 	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {

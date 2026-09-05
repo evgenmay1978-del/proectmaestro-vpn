@@ -39,12 +39,14 @@ object. The API inherits the isolated configuration's existing transport and
 client authentication; it creates no listener. A caller must use that existing
 protected transport, not expose Commander publicly.
 
-Request fields:
+Control/receipt wire schema is 2; the private Any configuration schema above
+remains 1. Request fields:
 
 ```
-{"schema":1,"operation":"grant|renew|fence","email":"wl:<identity>:exit-s1",
+{"schema":2,"operation":"grant|renew|fence","email":"wl:<identity>:exit-s1",
  "boot_id":"<physical process digest>","config_digest":"<input file SHA-256>",
- "generation":1,"lease_ms":5000}
+ "generation":1,"clock_domain":"<runtime/local domain SHA-256>",
+ "deadline_boottime_ns":123456789000000}
 ```
 
 Email also permits exits s2–s4. Generation is a nonzero uint64, scoped to that
@@ -52,8 +54,8 @@ email and physical boot. It versions control operations, including each fresh
 renewal; it is not the durable desired-state generation. A future caller must
 map its stable desired/control binding and renewal sequence to this monotonic
 operation version, rather than update durable desired state every few seconds.
-An exact same-generation, same-operation, same-lease-length retry is idempotent
-and never extends a deadline. A stale generation or changed operation/length at
+An exact same-generation, same-operation, same-absolute-deadline retry is idempotent
+and never extends a deadline. A stale generation or changed operation/deadline at
 the same generation is rejected. A grant requires the
 currently installed forward VLESS MemoryUser on `maestro-cdn-in`, with both user
 traffic counters enabled, no online counter, no Vision flow or reverse account.
@@ -61,31 +63,50 @@ It is bound to that specific in-memory user. After a fence, grant requires
 RemoveUser/AddUser to create a new MemoryUser, preventing an old idle mux from
 inheriting the new authorization. The runtime does not provision users itself.
 
-Grant and renew require `lease_ms` from 1 through 5000; fence requires it to be
-absent or zero. Renew requires a higher operation generation, the same installed
+Grant and renew require a positive signed 64-bit `deadline_boottime_ns`, an
+absolute Linux `CLOCK_BOOTTIME` value in nanoseconds. At the actual runtime read,
+`0 < deadline - now <= 5 seconds` must hold, with checked arithmetic. An RPC
+delivered after its deadline cannot become a fresh lease. Fence requires the
+deadline to be absent or zero. Renew requires a higher operation generation, the same installed
 MemoryUser, and a lease which has not expired. It retains existing sessions and
-arms a fresh bounded deadline. Expiry, explicit fence, or runtime close prevents
+uses the newly authorized absolute deadline. Expiry, explicit fence, or runtime close prevents
 renewal, including delayed exact retries. Regrant after expiry/fence requires
 the replacement MemoryUser and completed drain described above.
 
-Deadlines use Go monotonic time. An independent timer autonomously denies and
-starts the existing cancel/interrupt drain at expiry. Dispatch admission, every
-counted I/O start, and renewal also check the deadline under the same gate lock,
-so delayed timer scheduling cannot authorize another operation. Old timer
-callbacks cannot fence a later renewal. Close/fence stops the active timer;
+The local caller and runtime use `ReadLeaseClock`; neither converts a request
+back into a duration starting at RPC receipt. Runtime independently computes
+and reports `clock_domain` as SHA-256 of the literal `linux:CLOCK_BOOTTIME`, NUL,
+kernel boot ID, NUL, and `/proc/self/ns/time` link. The caller must compare the
+runtime-reported domain with its own locally computed domain, in addition to
+the existing exact Xray process boot/config binding. A boot digest alone does
+not prove a shared time namespace. The existing Xray client transport uses the
+isolated loopback mTLS API; the future lease caller must preserve that boundary.
+This clock contract cannot authorize a remote-clock caller.
+
+BOOTTIME includes host suspend and has no wall-clock fallback. An independent
+Go timer is only a wake hint which starts the existing cancel/interrupt drain.
+Dispatch admission, every counted I/O start, renewal and timer callbacks check
+the actual kernel BOOTTIME under the same gate lock. Thus a delayed wake hint,
+including one delayed by suspend, cannot authorize another operation after the
+absolute deadline. A failed, zero or regressing clock read fences existing
+leases and denies further grant/renew/I/O. Explicit fence can still drain and
+return real counters without using time authority to reopen users. Old timer
+callbacks cannot fence a later renewal. Close/fence stops the active wake hint;
 failed or timed-out drain does not reopen admission. Autonomous expiry emits no
 final-counter receipt; an explicit fence must still prove true drain.
 
-A successful grant response has fields `schema`, `state` (`granted`), `email`,
-`boot_id`, `config_digest`, `generation`, `reset_sequence` (0), and `observed_at`
+A successful grant response has fields `schema` (2), `state` (`granted`), `email`,
+`boot_id`, `config_digest`, `generation`, `clock_domain` (computed by runtime),
+`reset_sequence` (0), and `observed_at`
 (UTC RFC3339Nano). Successful grant and renew use state `granted` and additionally
-return `lease_expires_at` and `lease_remaining_ms`. The former is only a runtime
-wall-clock hint, never an exact byte cutoff, billing boundary, or clock authority.
-The latter floors the actual monotonic remaining duration to whole milliseconds;
+return the unchanged `deadline_boottime_ns` and advisory `lease_remaining_ms`.
+The latter floors the actual BOOTTIME remaining duration to whole milliseconds;
 it can be zero near expiry and never exceeds 5000. A caller derives its local
-deadline from request-start monotonic time plus this remaining duration and
-rejects a zero/already elapsed result. Exact retries return the original expiry
-and decreasing remaining duration. A successful fence omits both lease fields.
+authority from the shared absolute deadline, never by adding the remaining
+duration to receipt time. It rejects a zero/already elapsed result. Exact retries
+return the original deadline and decreasing remaining duration. A successful
+fence omits both lease fields. Neither a kernel lease deadline nor `observed_at`
+is an asserted byte cutoff or billing boundary.
 State `fenced` additionally has signed 64-bit `uplink` and `downlink` containing
 real nonnegative cumulative counters; an existing complete zero pair still uses
 this state. State `fenced_unused` is permitted only when both counters are absent,
@@ -129,9 +150,11 @@ retained for the boot to reject stale commands; an API cannot forget a fence.
 The executable accepts one config file of at most 1 MiB and does not print its
 contents, credentials, requests or receipts.
 
-Compatibility: the method, BytesValue envelope and schema number remain the
-same, but unleased legacy grant requests are intentionally rejected. Callers
-must send a bounded lease, support renew and the non-extending retry contract,
+Compatibility: the method and BytesValue envelope remain the same. Control and
+receipt schema 1, duration-only `lease_ms` grants and mixed duration/deadline
+requests are rejected before user lookup. Callers must send schema 2, preserve
+the shared absolute BOOTTIME deadline through transport delays and retries,
+verify the runtime-reported clock domain, support renew and non-extending retries,
 and use independent operation generations. No real caller or production
 deployment is supplied by this package. The existing desired receipt TTL and
 refresh loop cannot drive this lease; they must be wired explicitly before
@@ -139,3 +162,9 @@ deployment, along with the actual control binding. Backend period transition mus
 first revoke before the boundary, prove genuine drain, and debit this real
 final cumulative observation; this package alone does not complete period
 accounting, all-Origin admission, or commercial live readiness.
+
+Linux construction requires the actual BOOTTIME syscall, kernel boot identity
+and time namespace to be readable and valid. Unsupported/non-Linux construction
+fails explicitly; there is no duration, MONOTONIC, or wall-clock fallback. The
+existing pinned `golang.org/x/sys v0.43.0` supplies the syscall; no version change
+or new dependency is required.

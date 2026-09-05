@@ -62,7 +62,7 @@ func TestDispatchKeepsQueuedUplinkAccountingAndRawXUDPReader(t *testing.T) {
 		t.Fatalf("UP counted at consumption instead of write: %d", got)
 	}
 	c.Operation = "fence"
-	c.LeaseMS = 0
+	c.DeadlineBoottimeNS = 0
 	c.Generation++
 	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	if r, err := g.apply(short, c, nil, sm); err == nil || r != nil {
@@ -110,7 +110,7 @@ func TestNormalChildFinishPreservesParentMuxAndQueuedDownlink(t *testing.T) {
 	}
 	buf.ReleaseMulti(mb)
 	c.Operation = "fence"
-	c.LeaseMS = 0
+	c.DeadlineBoottimeNS = 0
 	c.Generation++
 	r, err := g.apply(context.Background(), c, nil, sm)
 	if err != nil || *r.Downlink != 8 {

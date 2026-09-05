@@ -126,7 +126,11 @@ func Register() error {
 			return nil, err
 		}
 		if cfg != nil {
-			d := &Dispatcher{gate: newGate(cfg.BootID, cfg.ConfigDigest)}
+			g, err := newGate(cfg.BootID, cfg.ConfigDigest)
+			if err != nil {
+				return nil, err
+			}
+			d := &Dispatcher{gate: g}
 			err = core.RequireFeatures(ctx, func(om outbound.Manager, r routing.Router, pm policy.Manager, sm stats.Manager) error {
 				managed, ordinary := new(dispatcher.DefaultDispatcher), new(dispatcher.DefaultDispatcher)
 				if err := managed.Init(&dispatcher.Config{}, om, r, noUserStatsPolicy{pm}, sm); err != nil {
