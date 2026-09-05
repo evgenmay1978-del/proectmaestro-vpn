@@ -15,8 +15,8 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 348617,
-      "sha256": "c14a19ec6443de5e5df1fccc1647407ba5ba709100afd82cb63ce07e34c3595e",
+      "bytes": 349615,
+      "sha256": "a49a4fc961b84ec548730e4280721f44cf956eae366b927354c03076bfafa91b",
       "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## CURRENT \u2014 S4 951DACE ACTIVE; METERING RUNTIME STILL IN PROGRESS \u2014 05.09.2026\n\nThis checkpoint supersedes every older CURRENT/next-action statement below.\nS4 isolated commercial source `951dace559671bc9431605b967f8111963213a71` is now\ninstalled, release `951dace55"
     },
     {

@@ -41,7 +41,10 @@ fixture parameters at `whitelist_metering_plan_test.go:50`: `testDigest` accepts
 one hex character, not a descriptive label. The one-line fix reuses the ordinary
 valid `testDigest("a")` fixture; the remaining fixture chain was checked against
 the actual validators without weakening them. Both failed runs are terminal:
-do not rerun their unchanged SHAs. Next exact-source GitHub validation is pending.
+do not rerun their unchanged SHAs. Corrected source
+`72975a7a98711c74eac563191610ec6263a79799` now has exact-SHA GitHub HA run
+`33950324098` SUCCESS and sidecar run `33950323822` SUCCESS. Do not repeat these
+completed validations. These passes apply to source, not to commercial readiness.
 The source also removes the accounting model's global timestamp-order rejection:
 independent Origin intervals retain their own timestamps, each debit is applied
 once, and the aggregate balance watermark remains the existing monotonic max.
@@ -54,16 +57,27 @@ counter reset/period boundary handling and the approved safety reserve. An empty
 managed set on deployed source951dace still skips the real StatsService query.
 The reviewed source fix removes only that fast path: even empty sets call the
 existing reset=false query, return no invented counters and propagate failure.
-It awaits exact-SHA GitHub validation; no new endpoint or service was added.
+Its exact-SHA sidecar validation passed as recorded above; no new endpoint or
+service was added. Installed S4 remains951dace, not72975a7.
 Default commercial publication
 remains OFF. S1's running panel/bot are unchanged; S2/S3/S1 fleet rollout remains.
 
-Eye source has a reviewed but unaccepted programmatic intermediate: common
-registered corners/seam, true-alpha iris, spherical sclera shading aligned with
-the existing catchlight and whole-eye lid shadow. The aperture edge still reads
-as a flat cutout; further global brightening does not address that specific flaw.
-Original green/CLOSED are preserved; all three visual acceptance conditions are
-still OPEN, no APK/OTA. Keep its eight local owned files; do not claim eye done.
+Eye source now selects one registered original-tissue candidate: real scleral
+texture and a moist corner replace the flat procedural triangles, sampled strictly
+inside the original ocular edge without its bronze perimeter. Common corners,
+closure seam, true-alpha iris and whole-eye lid shadow remain. Original green and
+CLOSED are preserved. Root inspected the actual-source native-interior preview;
+the eight source files are being saved for GitHub Android validation. All-three
+final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
+spherical candidates are recoverable scratch only, not alternative live assets.
+
+S2 received one strict read-only pre-install baseline at2026-09-05T06:36:44Z:
+ordinary SSH/Caddy/nginx/Hysteria/AnyTLS/vpn_bot active, commercial ports free and
+commercial units/paths absent. No server change followed. Reuse the tested bundle
+with the standard profile; prepare S2-specific leaf certificates/runtime from the
+existing commercial trust and shared transport, without regenerating credentials.
+S2 is not yet a CDN Origin-group member. No interface mutation is planned; the
+older mixed interface-manager inventory is not a gate for unrelated listeners.
 
 Owner's global rule reiterated05.09: effectiveness and the shortest safe path to
 a working result. Reuse proven packages/procedures, parallelize only useful

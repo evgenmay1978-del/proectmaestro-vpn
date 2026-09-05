@@ -47,7 +47,7 @@ import kotlin.random.Random
  * The carved plaque, baked bronze and eye-surround live in the fixed phone background and are drawn
  * exactly once. This layer keeps the anatomy live while the aperture reveals that same surround:
  *
- *  * one 70/30 aperture drives anatomy clipping;
+ *  * one aperture closes onto the original green fold with fixed corners;
  *  * closing the aperture exposes the registered emerald relief below, with no state-frame swap;
  *  * sclera stays registered;
  *  * iris and pupil perform short saccades together;
@@ -65,7 +65,6 @@ internal fun LivingEyeMedallion(
     opennessOverride: Float? = null,
     modifier: Modifier = Modifier,
 ) {
-    val openState = ImageBitmap.imageResource(R.drawable.mobile_eye_open)
 
     val sclera = ImageBitmap.imageResource(R.drawable.mobile_eye_sclera)
     val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_iris)
@@ -238,24 +237,16 @@ internal fun LivingEyeMedallion(
         }
         clipPath(bronzeClip) {
             val layerFit = integration.layerFit
-            val aperture = livingEyeApertureContour(
+            val contour = livingEyeApertureContour(
                 layerFit = layerFit,
                 closure = phase,
                 seamOverlapPx = 0f,
-            ).toPath()
+            )
+            val aperture = contour.toPath()
             // Do not rely on renderer behavior for a degenerate closed Path: full closure disables
             // anatomy explicitly and reveals the registered emerald eye-surround below.
             if (renderPolicy.eyeLayersEnabled) {
                 clipPath(aperture) {
-                    drawSourceLayer(
-                        image = openState,
-                        sourceX = LIVING_EYE_STATE_X,
-                        sourceY = LIVING_EYE_STATE_Y,
-                        sourceWidth = LIVING_EYE_STATE_WIDTH,
-                        sourceHeight = LIVING_EYE_STATE_HEIGHT,
-                        layerFit = layerFit,
-                    )
-
                     drawSourceLayer(
                         image = sclera,
                         sourceX = SCLERA_X,
@@ -313,6 +304,8 @@ internal fun LivingEyeMedallion(
                         sourceHeight = CATCHLIGHT_SIZE,
                         layerFit = layerFit,
                     )
+                    // The same lid shades the entire globe, including iris and corneal reflection.
+                    drawEyelidOcclusion(contour, layerFit)
                 }
             }
 
@@ -488,6 +481,55 @@ private fun DrawScope.drawSourceLayer(
 }
 
 
+private fun DrawScope.drawEyelidOcclusion(
+    contour: LivingEyeApertureContour,
+    layerFit: LivingEyeLayerFit,
+) {
+    fun band(start: Float, end: Float): Path = Path().apply {
+        contour.upper.indices.forEach { index ->
+            val upper = contour.upper[index]
+            val lower = contour.lower[index]
+            val y = upper.y + (lower.y - upper.y) * start
+            if (index == 0) moveTo(upper.x, y) else lineTo(upper.x, y)
+        }
+        contour.upper.indices.reversed().forEach { index ->
+            val upper = contour.upper[index]
+            val lower = contour.lower[index]
+            lineTo(upper.x, upper.y + (lower.y - upper.y) * end)
+        }
+        close()
+    }
+
+    // Small contour-following bands keep the cast shadow registered while the lid blinks.
+    repeat(24) { index ->
+        val remaining = 1f - (index + 0.5f) / 24f
+        drawPath(
+            band(index / 24f * 0.30f, (index + 1) / 24f * 0.30f),
+            Color(0xFF030905).copy(alpha = 0.82f * remaining * remaining),
+        )
+    }
+    repeat(12) { index ->
+        val remaining = 1f - (index + 0.5f) / 12f
+        drawPath(
+            band(1f - (index + 1) / 12f * 0.08f, 1f - index / 12f * 0.08f),
+            Color(0xFF030905).copy(alpha = 0.42f * remaining * remaining),
+        )
+    }
+    val wetMargin = Path().apply {
+        contour.upper.indices.forEach { index ->
+            val upper = contour.upper[index]
+            val lower = contour.lower[index]
+            val y = lower.y - (lower.y - upper.y) * 0.014f
+            if (index == 0) moveTo(upper.x, y) else lineTo(upper.x, y)
+        }
+    }
+    drawPath(
+        wetMargin,
+        Color(0xFF879380).copy(alpha = 42f / 255f),
+        style = Stroke(layerFit.mapSourceLength(1.4f), cap = StrokeCap.Round, join = StrokeJoin.Round),
+    )
+}
+
 private fun DrawScope.drawEyelidContactShadow(
     layerFit: LivingEyeLayerFit,
     phase: Float,
@@ -549,10 +591,10 @@ private fun sourcePoint(layerFit: LivingEyeLayerFit, x: Float, y: Float): Offset
     layerFit.mapSourceY(y),
 )
 
-private const val SCLERA_X = 350f
-private const val SCLERA_Y = 930f
-private const val SCLERA_WIDTH = 660f
-private const val SCLERA_HEIGHT = 280f
+private const val SCLERA_X = 300f
+private const val SCLERA_Y = 900f
+private const val SCLERA_WIDTH = 740f
+private const val SCLERA_HEIGHT = 300f
 
 private const val IRIS_X = 535f
 private const val IRIS_Y = 900f

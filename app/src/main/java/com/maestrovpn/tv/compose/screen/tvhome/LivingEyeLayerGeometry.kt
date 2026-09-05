@@ -67,13 +67,14 @@ internal fun livingEyeApertureContour(
     val overlap = seamOverlapPx.coerceAtLeast(0f)
     val sourceXs = (
         LIVING_EYE_APERTURE_UPPER_SOURCE.map { it.x } +
-            LIVING_EYE_APERTURE_LOWER_SOURCE.map { it.x }
+            LIVING_EYE_APERTURE_LOWER_SOURCE.map { it.x } +
+            LIVING_EYE_CLOSED_SEAM_SOURCE.map { it.x }
         ).distinct().sorted()
 
     fun sourceGeometryAt(x: Float): Triple<Float, Float, Float> {
         val upperY = livingEyeSourceYAtX(LIVING_EYE_APERTURE_UPPER_SOURCE, x)
         val lowerY = livingEyeSourceYAtX(LIVING_EYE_APERTURE_LOWER_SOURCE, x)
-        val seamY = upperY + (lowerY - upperY) * LIVING_EYE_UPPER_LID_TRAVEL_SHARE
+        val seamY = livingEyeSourceYAtX(LIVING_EYE_CLOSED_SEAM_SOURCE, x)
         return Triple(upperY, lowerY, seamY)
     }
 
@@ -227,44 +228,54 @@ internal const val LIVING_EYE_OFFSET_X_FRACTION = 3.5f / 238f
 internal const val LIVING_EYE_OFFSET_Y_FRACTION = 7f / 238f
 private const val LIVING_EYE_BRONZE_INSET_FRACTION = 26f / 520f
 private const val LIVING_EYE_CONTACT_SHADOW_FRACTION = 3f / 520f
-private const val LIVING_EYE_UPPER_LID_TRAVEL_SHARE = 0.70f
 private const val LIVING_EYE_FULLY_CLOSED_PHASE = 0.999f
 
+// Registered to the unchanged green master: every state keeps the same two corners and closes
+// onto its existing fold, rather than introducing a second, independently shaped eyelid.
 private val LIVING_EYE_APERTURE_UPPER_SOURCE = listOf(
-    LivingEyeLayerPoint(388f, 1083f),
-    LivingEyeLayerPoint(405f, 1061f),
-    LivingEyeLayerPoint(430f, 1037f),
-    LivingEyeLayerPoint(460f, 1014f),
-    LivingEyeLayerPoint(500f, 993f),
-    LivingEyeLayerPoint(540f, 978f),
-    LivingEyeLayerPoint(580f, 968f),
-    LivingEyeLayerPoint(620f, 961f),
-    LivingEyeLayerPoint(660f, 957f),
-    LivingEyeLayerPoint(700f, 957f),
-    LivingEyeLayerPoint(740f, 962f),
-    LivingEyeLayerPoint(780f, 973f),
-    LivingEyeLayerPoint(820f, 990f),
-    LivingEyeLayerPoint(860f, 1011f),
-    LivingEyeLayerPoint(900f, 1036f),
-    LivingEyeLayerPoint(932f, 1061f),
-    LivingEyeLayerPoint(957f, 1083f),
+    LivingEyeLayerPoint(312.889f, 1045.174f),
+    LivingEyeLayerPoint(356.632f, 1024.760f),
+    LivingEyeLayerPoint(414.957f, 995.015f),
+    LivingEyeLayerPoint(473.282f, 967.602f),
+    LivingEyeLayerPoint(531.607f, 948.355f),
+    LivingEyeLayerPoint(589.931f, 937.856f),
+    LivingEyeLayerPoint(664.004f, 933.774f),
+    LivingEyeLayerPoint(735.744f, 939.606f),
+    LivingEyeLayerPoint(794.068f, 954.187f),
+    LivingEyeLayerPoint(852.393f, 974.018f),
+    LivingEyeLayerPoint(910.718f, 997.931f),
+    LivingEyeLayerPoint(969.043f, 1025.344f),
+    LivingEyeLayerPoint(1015.119f, 1045.174f),
 )
 
 private val LIVING_EYE_APERTURE_LOWER_SOURCE = listOf(
-    LivingEyeLayerPoint(388f, 1083f),
-    LivingEyeLayerPoint(420f, 1104f),
-    LivingEyeLayerPoint(460f, 1123f),
-    LivingEyeLayerPoint(500f, 1139f),
-    LivingEyeLayerPoint(540f, 1152f),
-    LivingEyeLayerPoint(580f, 1162f),
-    LivingEyeLayerPoint(620f, 1170f),
-    LivingEyeLayerPoint(660f, 1174f),
-    LivingEyeLayerPoint(700f, 1172f),
-    LivingEyeLayerPoint(740f, 1167f),
-    LivingEyeLayerPoint(780f, 1159f),
-    LivingEyeLayerPoint(820f, 1148f),
-    LivingEyeLayerPoint(860f, 1133f),
-    LivingEyeLayerPoint(900f, 1115f),
-    LivingEyeLayerPoint(932f, 1098f),
-    LivingEyeLayerPoint(957f, 1083f),
+    LivingEyeLayerPoint(312.889f, 1045.174f),
+    LivingEyeLayerPoint(356.632f, 1060.338f),
+    LivingEyeLayerPoint(414.957f, 1086.001f),
+    LivingEyeLayerPoint(473.282f, 1109.331f),
+    LivingEyeLayerPoint(531.607f, 1127.412f),
+    LivingEyeLayerPoint(589.931f, 1140.243f),
+    LivingEyeLayerPoint(664.004f, 1146.659f),
+    LivingEyeLayerPoint(735.744f, 1141.410f),
+    LivingEyeLayerPoint(794.068f, 1129.745f),
+    LivingEyeLayerPoint(852.393f, 1111.664f),
+    LivingEyeLayerPoint(910.718f, 1088.334f),
+    LivingEyeLayerPoint(969.043f, 1063.255f),
+    LivingEyeLayerPoint(1015.119f, 1045.174f),
+)
+
+private val LIVING_EYE_CLOSED_SEAM_SOURCE = listOf(
+    LivingEyeLayerPoint(312.889f, 1045.174f),
+    LivingEyeLayerPoint(356.632f, 1059.755f),
+    LivingEyeLayerPoint(414.957f, 1079.002f),
+    LivingEyeLayerPoint(473.282f, 1093.584f),
+    LivingEyeLayerPoint(531.607f, 1104.665f),
+    LivingEyeLayerPoint(589.931f, 1109.915f),
+    LivingEyeLayerPoint(664.004f, 1111.664f),
+    LivingEyeLayerPoint(735.744f, 1106.415f),
+    LivingEyeLayerPoint(794.068f, 1098.833f),
+    LivingEyeLayerPoint(852.393f, 1087.168f),
+    LivingEyeLayerPoint(910.718f, 1074.336f),
+    LivingEyeLayerPoint(969.043f, 1058.589f),
+    LivingEyeLayerPoint(1015.119f, 1045.174f),
 )

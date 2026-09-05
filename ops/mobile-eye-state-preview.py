@@ -17,7 +17,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_PATH = ROOT / "design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg"
 MATERIAL_PATH = ROOT / "design/mobile-asset-redraw/materials/mobile_eye_surround_c.png"
-OPEN_EYE_PATH = ROOT / "app/src/main/res/drawable-nodpi/mobile_eye_open.webp"
+ANATOMY_DIR = ROOT / "app/src/main/res/drawable-nodpi"
 
 REPO_FONT_PATH = ROOT / "app/src/main/res/font/playfair_display.ttf"
 
@@ -31,16 +31,26 @@ LIVING_EYE_STATE_W, LIVING_EYE_STATE_H = (890.0, 635.0)
 LIVING_EYE_VIRTUAL_SIZE = 822.5
 LIVING_EYE_UNIFORM_SCALE = 1.10
 LIVING_EYE_OFFSET_DP = (3.5, 7.0)
-SEAM_FROM_UPPER = 0.70
 APERTURE_UPPER = (
-    (388, 1083), (405, 1061), (430, 1037), (460, 1014), (500, 993), (540, 978),
-    (580, 968), (620, 961), (660, 957), (700, 957), (740, 962), (780, 973),
-    (820, 990), (860, 1011), (900, 1036), (932, 1061), (957, 1083),
+    (312.889, 1045.174), (356.632, 1024.760), (414.957, 995.015),
+    (473.282, 967.602), (531.607, 948.355), (589.931, 937.856),
+    (664.004, 933.774), (735.744, 939.606), (794.068, 954.187),
+    (852.393, 974.018), (910.718, 997.931), (969.043, 1025.344),
+    (1015.119, 1045.174),
 )
 APERTURE_LOWER = (
-    (388, 1083), (420, 1104), (460, 1123), (500, 1139), (540, 1152), (580, 1162),
-    (620, 1170), (660, 1174), (700, 1172), (740, 1167), (780, 1159), (820, 1148),
-    (860, 1133), (900, 1115), (932, 1098), (957, 1083),
+    (312.889, 1045.174), (356.632, 1060.338), (414.957, 1086.001),
+    (473.282, 1109.331), (531.607, 1127.412), (589.931, 1140.243),
+    (664.004, 1146.659), (735.744, 1141.410), (794.068, 1129.745),
+    (852.393, 1111.664), (910.718, 1088.334), (969.043, 1063.255),
+    (1015.119, 1045.174),
+)
+CLOSED_SEAM = (
+    (312.889, 1045.174), (356.632, 1059.755), (414.957, 1079.002),
+    (473.282, 1093.584), (531.607, 1104.665), (589.931, 1109.915),
+    (664.004, 1111.664), (735.744, 1106.415), (794.068, 1098.833),
+    (852.393, 1087.168), (910.718, 1074.336), (969.043, 1058.589),
+    (1015.119, 1045.174),
 )
 GLOW_INNER_EDGE = 0.82
 GLOW_OUTER_FADE_START = 0.98
@@ -91,7 +101,7 @@ def eye_state_bounds_dp() -> tuple[float, float, float, float]:
     return left, top, left + width, top + height
 
 
-def _interpolate_contour_y(points: tuple[tuple[int, int], ...], x: int) -> float:
+def _interpolate_contour_y(points: tuple[tuple[float, float], ...], x: float) -> float:
     for (x0, y0), (x1, y1) in zip(points, points[1:]):
         if x0 <= x <= x1:
             return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
@@ -101,14 +111,14 @@ def _interpolate_contour_y(points: tuple[tuple[int, int], ...], x: int) -> float
 
 
 def aperture_contours_dp(closure: float) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
-    """Map the production contour samples through the shared 70/30 blink seam."""
+    """Map production contours onto the unchanged green master's existing closed fold."""
     closure = max(0.0, min(1.0, closure))
     left, top, width, height, _medallion, _center_x, _center_y = _state_geometry_dp()
     upper, lower = [], []
     for source_x in sorted({x for x, _y in APERTURE_UPPER} | {x for x, _y in APERTURE_LOWER}):
         source_upper = _interpolate_contour_y(APERTURE_UPPER, source_x)
         source_lower = _interpolate_contour_y(APERTURE_LOWER, source_x)
-        seam = source_upper + (source_lower - source_upper) * SEAM_FROM_UPPER
+        seam = _interpolate_contour_y(CLOSED_SEAM, source_x)
         current_upper = source_upper + (seam - source_upper) * closure
         current_lower = source_lower + (seam - source_lower) * closure
         x = left + (source_x - 230.0) / LIVING_EYE_STATE_W * width
@@ -158,6 +168,40 @@ def allowed_change_mask(scale: int = 1) -> Image.Image:
     )
     patch_support = _status_patch_mask(scale).point(lambda value: 255 if value else 0)
     return ImageChops.lighter(mask, patch_support)
+
+
+def _draw_lid_occlusion(eye: Image.Image, aperture: Image.Image, closure: float, scale: int) -> None:
+    """Match runtime cast shadow over the complete anatomy, not just the sclera sprite."""
+    upper, lower = aperture_contours_dp(closure)
+    shadow = Image.new("RGBA", eye.size)
+    draw = ImageDraw.Draw(shadow)
+
+    def band(start: float, end: float) -> list[tuple[int, int]]:
+        def points(fraction: float) -> list[tuple[int, int]]:
+            return [(_scaled(u[0], scale), _scaled(u[1] + (l[1] - u[1]) * fraction, scale))
+                    for u, l in zip(upper, lower)]
+        return points(start) + list(reversed(points(end)))
+
+    for index in range(24):
+        remaining = 1 - (index + 0.5) / 24
+        draw.polygon(band(index / 24 * 0.30, (index + 1) / 24 * 0.30),
+                     fill=(3, 9, 5, round(255 * 0.82 * remaining * remaining)))
+    for index in range(12):
+        remaining = 1 - (index + 0.5) / 12
+        draw.polygon(band(1 - (index + 1) / 12 * 0.08, 1 - index / 12 * 0.08),
+                     fill=(3, 9, 5, round(255 * 0.42 * remaining * remaining)))
+    shadow.putalpha(ImageChops.multiply(shadow.getchannel("A"), aperture))
+    eye.alpha_composite(shadow)
+    wet = Image.new("RGBA", eye.size)
+    ImageDraw.Draw(wet).line(
+        [(_scaled(u[0], scale), _scaled(l[1] - (l[1] - u[1]) * 0.014, scale))
+         for u, l in zip(upper, lower)],
+        fill=(135, 147, 128, 42), width=max(1, round(scale * 0.45)),
+    )
+    wet.putalpha(ImageChops.multiply(wet.getchannel("A"), aperture))
+    eye.alpha_composite(wet)
+
+
 def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Image, Image.Image, Image.Image, Image.Image]:
     """Build live anatomy, transient aperture seam, aperture and annular glow."""
     phase = max(0.0, min(1.0, closure))
@@ -167,14 +211,49 @@ def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Imag
     aperture = Image.new("L", size, 0)
     glow = Image.new("RGBA", size, (0, 0, 0, 0))
     left, top, right, bottom = eye_state_bounds_dp()
-    state_size = (_scaled(right - left, scale), _scaled(bottom - top, scale))
-    state_origin = (_scaled(left, scale), _scaled(top, scale))
+    factor = (right - left) / LIVING_EYE_STATE_W * scale
+
+    def position(x: float, y: float) -> tuple[int, int]:
+        return (_scaled(left, scale) + round((x - 230.0) * factor),
+                _scaled(top, scale) + round((y - 745.0) * factor))
+
+    def draw_layer(name: str, x: float, y: float, width: float, height: float) -> None:
+        with Image.open(ANATOMY_DIR / name) as source:
+            sprite = source.convert("RGBA").resize(
+                (round(width * factor), round(height * factor)), Image.Resampling.LANCZOS
+            )
+        eye.alpha_composite(sprite, position(x, y))
+
+    _left, _top, _width, _height, medallion, center_x, center_y = _state_geometry_dp()
+    bronze = Image.new("L", size, 0)
+    bronze_radius = medallion * (0.5 - 26.0 / 520.0) * scale
+    ImageDraw.Draw(bronze).ellipse(
+        (center_x * scale - bronze_radius, center_y * scale - bronze_radius,
+         center_x * scale + bronze_radius, center_y * scale + bronze_radius), fill=255
+    )
 
     if phase < 0.999:
-        aperture = _contour_mask(scale, phase)
-        with Image.open(OPEN_EYE_PATH) as source:
-            anatomy = source.convert("RGBA").resize(state_size, Image.Resampling.LANCZOS)
-        eye.alpha_composite(anatomy, state_origin)
+        aperture = ImageChops.multiply(_contour_mask(scale, phase), bronze)
+        draw_layer("mobile_eye_sclera.webp", 300, 900, 740, 300)
+        draw_layer("mobile_eye_iris.webp", 535, 900, 292, 292)
+        # Match the neutral runtime pupil shader instead of baking a flat circle in the preview.
+        pupil = position(681, 1045)
+        radius = 54 * factor
+        draw = ImageDraw.Draw(eye)
+        draw.ellipse((pupil[0] - radius - 3 * factor, pupil[1] - radius - 3 * factor,
+                      pupil[0] + radius + 3 * factor, pupil[1] + radius + 3 * factor),
+                     fill=(10, 36, 20, 255))
+        for r in range(round(radius), 0, -1):
+            fraction = r / radius
+            if fraction < 0.5:
+                t = fraction * 2
+                colour = (round(t), round(1 + 2 * t), round(2 * t), 255)
+            else:
+                t = (fraction - 0.5) * 2
+                colour = (round(1 + 6 * t), round(3 + 18 * t), round(2 + 10 * t), 255)
+            draw.ellipse((pupil[0] - r, pupil[1] - r, pupil[0] + r, pupil[1] + r), fill=colour)
+        draw_layer("mobile_eye_catchlight.webp", 635, 945, 90, 90)
+        _draw_lid_occlusion(eye, aperture, phase, scale)
         eye.putalpha(ImageChops.multiply(eye.getchannel("A"), aperture))
 
     upper, lower = aperture_contours_dp(phase)
@@ -195,6 +274,8 @@ def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Imag
             width=seam_width,
             joint="curve",
         )
+
+    seam.putalpha(ImageChops.multiply(seam.getchannel("A"), bronze))
 
     if phase < 0.999:
         _left, _top, _width, _height, medallion, center_x, center_y = _state_geometry_dp()
@@ -317,7 +398,7 @@ def render_home(state: str, scale: int = 2) -> Image.Image:
 def _comparison(scale: int) -> Image.Image:
     disconnected = render_home("disconnected", scale)
     connected = render_home("connected", scale)
-    pad, header = _scaled(10, scale), _scaled(46, scale)
+    pad, header = _scaled(10, scale), _scaled(61, scale)
     board = Image.new("RGB", (disconnected.width * 2 + pad * 3, disconnected.height + header + pad * 2), (9, 20, 13))
     board.paste(disconnected, (pad, header + pad))
     board.paste(connected, (disconnected.width + pad * 2, header + pad))
@@ -325,8 +406,9 @@ def _comparison(scale: int) -> Image.Image:
     font = _font(_scaled(14, scale))
     title = _font(_scaled(12, scale))
     _center_text(draw, board.width // 2, _scaled(13, scale), "SCRIPTED PREVIEW — НЕ runtime screenshot", font, (207, 185, 130, 255))
-    _center_text(draw, pad + disconnected.width // 2, _scaled(31, scale), "ОТКЛЮЧЕНО", title, (224, 104, 104, 255))
-    _center_text(draw, disconnected.width + pad * 2 + connected.width // 2, _scaled(31, scale), "ПОДКЛЮЧЕНО", title, (91, 205, 133, 255))
+    _center_text(draw, board.width // 2, _scaled(29, scale), "Старый фон: кнопки WDTT/WEBRTC не подтверждают runtime-возможности", _font(_scaled(9, scale)), (207, 185, 130, 255))
+    _center_text(draw, pad + disconnected.width // 2, _scaled(46, scale), "ОТКЛЮЧЕНО", title, (224, 104, 104, 255))
+    _center_text(draw, disconnected.width + pad * 2 + connected.width // 2, _scaled(46, scale), "ПОДКЛЮЧЕНО", title, (91, 205, 133, 255))
     return board
 
 

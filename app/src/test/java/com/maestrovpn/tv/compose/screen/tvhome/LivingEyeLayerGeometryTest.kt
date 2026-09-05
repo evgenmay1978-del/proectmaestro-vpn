@@ -19,21 +19,21 @@ class LivingEyeLayerGeometryTest {
         assertEquals(496.0965f, fit.stateBounds.bottom, 0.001f)
         assertEquals(-201.7754f, fit.translationX, 0.001f)
         assertEquals(-463.6117f, fit.translationY, 0.001f)
-        assertEquals(68.0556f, aperture.left, 0.001f)
-        assertEquals(201.9251f, aperture.top, 0.001f)
-        assertEquals(463.7613f, aperture.right, 0.001f)
-        assertEquals(352.8358f, aperture.bottom, 0.001f)
-        assertEquals(0.760973f, (aperture.right - aperture.left) / 520f, 0.00001f)
-        assertEquals(0.290213f, (aperture.bottom - aperture.top) / 520f, 0.00001f)
+        assertEquals(15.8203f, aperture.left, 0.001f)
+        assertEquals(185.7728f, aperture.top, 0.001f)
+        assertEquals(504.1797f, aperture.right, 0.001f)
+        assertEquals(333.8217f, aperture.bottom, 0.001f)
+        assertEquals(0.939153f, (aperture.right - aperture.left) / 520f, 0.00001f)
+        assertEquals(0.284709f, (aperture.bottom - aperture.top) / 520f, 0.00001f)
     }
     @Test
     fun transformedStateRectangleCoversEntireStaticOpenEyeAperture() {
         val fit = fitLivingEyeLayer(width = 520f, height = 520f)
         val transformedApertureBounds = fit.mapSourceBounds(
-            left = 388f,
-            top = 957f,
-            right = 957f,
-            bottom = 1174f,
+            left = 312.889f,
+            top = 933.774f,
+            right = 1015.119f,
+            bottom = 1146.659f,
         )
         assertEquals(fit.mapSourceLengthX(100f), fit.mapSourceLengthY(100f), 0.000001f)
 
@@ -99,18 +99,20 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun upperLidTravelsSeventyPercentAndLowerLidThirtyPercent() {
+    fun lidsCloseOntoOriginalGreenFoldWithFixedCorners() {
         val fit = fitLivingEyeLayer(520f, 520f)
         val open = livingEyeApertureContour(fit, closure = 0f, seamOverlapPx = 0f)
         val closed = livingEyeApertureContour(fit, closure = 1f, seamOverlapPx = 0f)
-        val sampleX = fit.mapSourceX(700f)
-        val openUpper = open.upper.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
-        val openLower = open.lower.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
+        val sampleX = fit.mapSourceX(664.004f)
         val closedUpper = closed.upper.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
         val closedLower = closed.lower.first { kotlin.math.abs(it.x - sampleX) < 0.001f }
-        val expectedSeamY = openUpper.y + (openLower.y - openUpper.y) * 0.70f
+        val expectedSeamY = fit.mapSourceY(1111.664f)
 
         assertEquals(expectedSeamY, closedUpper.y, 0.001f)
         assertEquals(expectedSeamY, closedLower.y, 0.001f)
+        assertEquals(open.upper.first(), closed.upper.first())
+        assertEquals(open.upper.last(), closed.upper.last())
+        assertEquals(open.lower.first(), closed.lower.first())
+        assertEquals(open.lower.last(), closed.lower.last())
     }
 }
