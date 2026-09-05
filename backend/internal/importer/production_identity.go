@@ -213,7 +213,7 @@ func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer,
 		customer.SubToken == "" || len(customer.SubToken) > 4096 || strings.ContainsRune(customer.SubToken, 0) ||
 		identity.SubID == "" || len(identity.SubID) > 4096 || strings.ContainsRune(identity.SubID, 0) ||
 		identity.Generation <= 0 || identity.Generation != row.Generation ||
-		customer.Expires.Nanosecond() != 0 || customer.Expires.Unix() != row.ExpiresAtUnix ||
+		customer.Expires.Unix() != row.ExpiresAtUnix ||
 		(row.Status != "active" && row.Status != "suspended") || customer.Disabled != (row.Status == "suspended") {
 		return errInvalidProductionIdentity
 	}

@@ -329,7 +329,7 @@ func (f *runtimeRQLite) QueryLinearizable(
 	_ context.Context, statements ...rqlite.Statement,
 ) ([]rqlite.Result, error) {
 	f.linearCalls++
-	if len(statements) == 1 && strings.Contains(statements[0].SQL, "AS envelope FROM credentials") {
+	if len(statements) == 1 && strings.Contains(statements[0].SQL, "SELECT secret_envelope AS envelope") {
 		return []rqlite.Result{{}}, nil
 	}
 	return f.linearResults, nil

@@ -116,7 +116,8 @@ func (database *runtimeSubscriptionDatabase) QueryLinearizable(_ context.Context
 		}
 		return []rqlite.Result{{Rows: []map[string]any{{"customer_id": "runtime-customer", "status": "active", "expires_at_unix": database.now.Add(24 * time.Hour).Unix(), "generation": 7}}}}, nil
 	case strings.Contains(statement.SQL, "SELECT display_login"):
-		if len(statement.Args) != 1 || statement.Args[0] != "runtime-customer" {
+		cutoff := database.now.Add(-60 * 24 * time.Hour).Unix()
+		if len(statement.Args) != 3 || statement.Args[0] != cutoff || statement.Args[1] != cutoff || statement.Args[2] != "runtime-customer" {
 			return nil, fmt.Errorf("unexpected login lookup")
 		}
 		return []rqlite.Result{{Rows: []map[string]any{{"display_login": "runtime-fixture-login"}}}}, nil
@@ -139,7 +140,8 @@ func (database *runtimeSubscriptionDatabase) QueryStrong(_ context.Context, stat
 		return nil, fmt.Errorf("unexpected strong subscription query")
 	}
 	tokenHMAC := database.box.LookupHMAC("subscription-token", []byte("runtime-fixture-token"))
-	if len(statements[0].Args) != 2 || statements[0].Args[0] != "" || statements[0].Args[1] != tokenHMAC {
+	cutoff := database.now.Add(-60 * 24 * time.Hour).Unix()
+	if len(statements[0].Args) != 3 || statements[0].Args[0] != "" || statements[0].Args[1] != cutoff || statements[0].Args[2] != tokenHMAC {
 		return nil, fmt.Errorf("unexpected strong subscription binding")
 	}
 	tokenEnvelope := database.seal("token", "subscription", "runtime-fixture-token")

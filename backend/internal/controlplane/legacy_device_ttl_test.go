@@ -18,6 +18,9 @@ func TestLegacyDeviceTTLIsConsistentAcrossAdmissionAndReadersSQLite(t *testing.T
 		}
 		t.Run(name, func(t *testing.T) {
 			fixture := newF5SubscriptionFixture(t, func(string) int { return 1 })
+			// The shared subscription fixture uses a display label with a space;
+			// the panel login path needs the canonical login used by its seeded HMAC.
+			fixture.sqlite.must(t, rqlite.Statement{SQL: `UPDATE customers SET display_login=? WHERE customer_id=?`, Args: []any{fixture.customerID, fixture.customerID}})
 			ctx := context.Background()
 			const previous = "original-device-key"
 			const next = "new-device-key"

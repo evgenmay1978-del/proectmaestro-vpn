@@ -295,6 +295,22 @@ func TestProductionIdentityAcceptsDevicesAndSuspendedLegacyAccount(t *testing.T)
 	}
 }
 
+func TestProductionIdentityPreservesPreciseLegacyExpiry(t *testing.T) {
+	for _, nanos := range []int64{123000000, 123456789} {
+		snapshot, identity, box := productionIdentityFixture(t)
+		identity.Customer.Expires = identity.Customer.Expires.Add(time.Duration(nanos))
+		setProductionFixtureIdentity(t, &snapshot, identity, box)
+		if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(snapshot), box); err != nil {
+			t.Fatal("legacy millisecond or nanosecond expiry was rejected")
+		}
+		preserved, err := openProductionIdentity(box, snapshot.Customers[0].SourceKey, snapshot.EncryptedSecrets[0])
+		if err != nil || !preserved.Customer.Expires.Equal(identity.Customer.Expires) ||
+			snapshot.Customers[0].ExpiresAtUnix != identity.Customer.Expires.Unix() {
+			t.Fatal("source expiry lost precision or changed the existing SQL seconds projection")
+		}
+	}
+}
+
 func TestProductionDeltaRequiresARevisionForChangedProtectedIdentity(t *testing.T) {
 	for _, kind := range []string{"devices", "naive-username", "expiry", "unchanged"} {
 		t.Run(kind, func(t *testing.T) {
