@@ -71,11 +71,17 @@ response and restart recovery, without handwritten debit/source/interval rows.
 Generic baseline/replay semantics and default-OFF are preserved. Independent
 review of the17 scoped files found no Critical/Important defects; cached gofmt
 parsed/formatted the owned files. Source was committed/pushed as
-`24192c7fed11a849748e0d5332c8ca213edb9d59`; exact HA run `33955605211` was observed
-IN_PROGRESS after one acknowledged dispatch. Retain that handle, do not redispatch
-because a status observation takes time. A passing result is not yet recorded. The
-verified reserve provider, same-boot reset and strict period rollover remain
-open; this source checkpoint is not commercial launch readiness.
+`24192c7fed11a849748e0d5332c8ca213edb9d59`; exact HA run `33955605211` FAILED in
+two test fixtures. The interval-count assertion used a nonexistent entitlement
+column; it now joins the actual event/source keys and asserts the exact bound
+event once. The public-subscription positive fixture had no paid period or real
+admission/first-debit proof; it now exercises empty observation, verified reserve,
+managed desired state and actual42-byte debit through the production collector
+and durable SQLite-backed services. HTTP200 and missing-receipt503 assertions
+remain. No production validator or billing behavior was weakened. Only these
+two fixture files are corrected; one new exact-SHA HA run is required after
+push. Do not rerun unchanged24192c7. The verified reserve provider, same-boot
+reset and strict period rollover remain open; this is not launch readiness.
 
 Eye source now selects one registered original-tissue candidate: real scleral
 texture and a moist corner replace the flat procedural triangles, sampled strictly
@@ -107,8 +113,11 @@ older lashless/bright-wire image. Root viewed its enlarged open/closed compariso
 independent review of the six visual files found no Critical/Important issues.
 This is not anatomical/device acceptance. The existing `mobile-eye-compile`
 mode now also selects the existing Python preview job, so one exact-SHA dispatch
-checks the actual preview and Kotlin together. Do not separately rerun the
-superseded lashless source or publish a test APK/OTA.
+checks the actual preview and Kotlin together. Eyelash source
+`fe59108444fa2615223cdb1400411564fc43e599` is pushed; exact GitHub run
+`33956214651` is SUCCESS, both Python preview and Kotlin compilation/geometry
+tests passed. No APK was assembled, signed or published. Do not separately
+rerun this completed validation, superseded lashless source or publish test OTA.
 Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.

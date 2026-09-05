@@ -189,10 +189,24 @@ func TestCommercialFirstCumulativeUsesAdmissionAndRealDebitWithUnknownCommitReco
 		after.Projection.FreshThroughUnix != event.SampledAtUnix || after.Projection.Version != before.Projection.Version+1 {
 		t.Fatalf("actual applied first debit = %#v, %v", after, err)
 	}
-	for _, table := range []string{"whitelist_metering_events", "whitelist_commercial_metering_sources", "whitelist_metering_intervals", "whitelist_commercial_debit_outbox"} {
+	for _, table := range []string{"whitelist_metering_events", "whitelist_commercial_metering_sources", "whitelist_commercial_debit_outbox"} {
 		if commercialMeteringCount(t, db, table, entitlementID) != 1 {
 			t.Fatalf("duplicate or absent first accounting row in %s", table)
 		}
+	}
+	intervals, err := db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT interval.event_id
+FROM whitelist_metering_intervals AS interval
+JOIN whitelist_metering_events AS event ON event.event_id=interval.event_id
+JOIN whitelist_commercial_metering_sources AS source ON source.event_id=event.event_id
+ AND source.entitlement_id=event.entitlement_id AND source.billing_period_id=event.billing_period_id
+ AND source.meter_epoch=event.meter_epoch AND source.origin_id=event.instance_id
+WHERE event.entitlement_id=? AND event.billing_period_id=? AND event.meter_epoch=?
+ AND source.origin_id=? AND source.exit_id=? AND source.route_xray_identity=?`, Args: []any{
+		entitlementID, policy.BillingPeriodID(), event.MeterEpoch,
+		cursor.Source.OriginID, cursor.Source.ExitID, cursor.Source.RouteXrayIdentity,
+	}})
+	if err != nil || len(intervals) != 1 || len(intervals[0].Rows) != 1 || intervals[0].Rows[0]["event_id"] != event.EventID {
+		t.Fatalf("duplicate or absent bound first interval: %#v, %v", intervals, err)
 	}
 	plan, err := service.WhiteListMeteringPlan(ctx)
 	if err != nil || len(plan.Origins) != 1 || len(plan.Origins[0].PendingFirstCumulativeUsers) != 0 {
