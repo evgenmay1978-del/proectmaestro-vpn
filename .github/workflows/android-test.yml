@@ -31,6 +31,7 @@ on:
         type: choice
         options:
           - android
+          - mobile-eye-compile
           - mobile-eye-ring-assets
           - mobile-eye-runtime-assets
           - mobile-eye-state-preview
@@ -322,7 +323,7 @@ jobs:
           if-no-files-found: error
 
   build:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.task == 'android' || inputs.task == 'mobile-eye-compile' }}
     runs-on: ubuntu-latest
     # The repo default token permission is "read", which does NOT include actions:read — so
     # `gh run list --workflow=libbox.yml` (the libbox.aar fetch below) failed with
@@ -335,6 +336,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set test version (HIGH code so the OTA never replaces it)
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         id: ver
         run: |
           set -euo pipefail
@@ -388,6 +390,7 @@ jobs:
           ls -lh app/libs/
 
       - name: Fetch olcrtc android binaries → jniLibs (option-b; NON-FATAL)
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         # Option-b ships olcRTC as a separate-process native binary in jniLibs/<abi>/libolcrtc.so
         # (NOT the old gomobile .aar, which collided with libbox's go.* runtime). Non-fatal so a
         # broken olcrtc-bin.yml never blocks the app compile-check.
@@ -408,6 +411,7 @@ jobs:
           ls -lhR app/src/main/jniLibs/ 2>/dev/null || true
 
       - name: Fetch WDTT mobile transport binaries → jniLibs (required)
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -425,6 +429,7 @@ jobs:
           done
 
       - name: Materialize the stable signing keystore from secret
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
         run: |
@@ -434,6 +439,7 @@ jobs:
           fi
 
       - name: Build :app:assembleOtherDebug
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
@@ -446,6 +452,7 @@ jobs:
       # артефактов выбрана, её падение уводило ИДУЩИЕ ПОСЛЕ unit-тесты в skipped, и гейт переставал
       # проверять то, ради чего существует. Сборка и тесты остаются блокирующими.
       - name: Upload test APK (artifact only — NO Release, NO OTA)
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -460,7 +467,18 @@ jobs:
       #
       # Gating: run 30167294888 (2026-07-25) was the first time these ever executed anywhere and
       # all of them passed, so a failure from here on is a real regression, not unknown ground.
+      # Compile the existing app/test Kotlin and exercise only the eye contract.
+      # No deferred-transport binaries, keystore, APK, Release or OTA in this mode.
+      - name: Eye geometry compile and unit test (no APK)
+        if: ${{ inputs.task == 'mobile-eye-compile' }}
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testOtherDebugUnitTest --tests '*LivingEyeLayerGeometryTest' --stacktrace --no-daemon
+
       - name: Unit tests
+        if: ${{ inputs.task != 'mobile-eye-compile' }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: ./gradlew :app:testOtherDebugUnitTest --stacktrace --no-daemon

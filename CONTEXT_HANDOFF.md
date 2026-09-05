@@ -74,7 +74,15 @@ the old 70/30 closure and pre-registration viewport. They now use an independent
 The private dispatcher now exposes the explicit `android` task separately from
 its safe preview default. The existing Android workflow's four blind Gradle
 retries are replaced by one attempt; build, unit-test and report steps remain.
-Do not repeat the failed238cf99 preview or claim that it compiled an APK. All-three
+Corrected `62f18c7` preview run `33952079472` is SUCCESS. Its separate normal
+Android run `33952154779` stopped in the deferred WDTT artifact step before
+Gradle; normal libbox downloaded successfully. Do not rebuild/change WDTT or
+OLCRTC to validate an eye edit. The existing workflow now offers the explicit
+`mobile-eye-compile` mode: same SDK/libbox and existing geometry unit test, but
+no deferred-binary downloads, signing, APK build/upload or unrelated test runs.
+The normal Android mode/default remains unchanged. This mode does not prove a
+complete installable APK or final runtime visual acceptance.
+Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.
 
