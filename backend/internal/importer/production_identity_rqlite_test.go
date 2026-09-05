@@ -39,35 +39,31 @@ func TestProductionImportOrdinarySubscriptionRoundTripRQLite(t *testing.T) {
 	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
 		t.Fatal(err)
 	}
+	clockRows, err := db.QueryLinearizable(ctx, rqlite.Statement{SQL: "SELECT unixepoch() AS database_now_unix"})
+	if err != nil || len(clockRows) != 1 || len(clockRows[0].Rows) != 1 {
+		t.Fatal("production reader fixture database clock unavailable")
+	}
+	databaseNow, ok := applyRowInt(clockRows[0].Rows[0]["database_now_unix"])
+	if !ok || databaseNow <= 0 {
+		t.Fatal("production reader fixture database clock invalid")
+	}
+	clock := productionReaderClock{time.Unix(databaseNow, 0).UTC()}
 	snapshot, identity, box := productionIdentityFixture(t)
+	// The public reader enforces expiry against SQL unixepoch(), not the injected
+	// service clock. Give this synthetic identity a live database-relative lease.
+	identity.Customer.Expires = clock.Add(time.Hour)
+	setProductionFixtureIdentity(t, &snapshot, identity, box)
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
 		t.Fatal("synthetic production reader plan blocked")
 	}
 	const runID = "production-reader-roundtrip-v1"
-	customerID, sourceKey, secretID := plan.Customers[0].InternalID, snapshot.Customers[0].SourceKey, snapshot.EncryptedSecrets[0].SecretID
-	// The package's integration lease serializes this exact fixture cleanup.
-	// Register before backup cleanup so its receipt remains available to that CAS.
-	t.Cleanup(func() {
-		cleanupCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
-		defer stop()
-		_, err := db.Request(cleanupCtx, rqlite.Linearizable, true,
-			rqlite.Statement{SQL: "DELETE FROM desired_protocol_tags WHERE customer_id=?", Args: []any{customerID}},
-			rqlite.Statement{SQL: "DELETE FROM desired_node_state WHERE customer_id=?", Args: []any{customerID}},
-			rqlite.Statement{SQL: "DELETE FROM credentials WHERE customer_id=?", Args: []any{customerID}},
-			rqlite.Statement{SQL: "DELETE FROM subscription_tokens WHERE customer_id=?", Args: []any{customerID}},
-			rqlite.Statement{SQL: "DELETE FROM imported_secrets WHERE secret_id=?", Args: []any{secretID}},
-			rqlite.Statement{SQL: "DELETE FROM imported_entity_state WHERE (entity_kind='customer' AND source_key=?) OR (entity_kind='encrypted_secret' AND source_key=?)", Args: []any{sourceKey, secretID}},
-			rqlite.Statement{SQL: "DELETE FROM customers WHERE customer_id=?", Args: []any{customerID}},
-			rqlite.Statement{SQL: "DELETE FROM import_batches WHERE import_run_id=?", Args: []any{runID}},
-			rqlite.Statement{SQL: "DELETE FROM import_runs WHERE import_run_id=?", Args: []any{runID}},
-		)
-		if err != nil {
-			t.Error("synthetic production reader fixture cleanup failed")
-		}
-	})
+	customerID := plan.Customers[0].InternalID
+	// Imported identity and provenance rows are immutable. Like the package's
+	// other canonical import seeds, this synthetic namespace remains until the
+	// disposable CI cluster is torn down. Restore only shared backup-RPO state
+	// through the existing lease- and receipt-bound cleanup CAS.
 	backupCleanup := task6RegisterIntegrationBackupSeedCleanup(t, db)
-	clock := productionReaderClock{time.Unix(1_500_000, 0)}
 	protection, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(snapshot), box)
 	if err != nil {
 		t.Fatal(err)
