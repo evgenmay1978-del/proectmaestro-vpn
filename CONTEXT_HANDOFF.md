@@ -10,12 +10,13 @@
 - Канонический репозиторий: `evgenmay1978-del/proectmaestro-vpn`.
 - Единственная рабочая/push-ветка: `codex/yandex-cdn-whitelist-task3-sync`.
 - Worktree: `C:/Users/User/Documents/Codex/2026-08-05/new-chat/mvpn-yandex-cdn-whitelist-task3-sync`.
-- Последний проверенный Android source: `61076496484144a921d2f28ac83b016c5e459f8b`; последняя GREEN backend база — `7c27caf055e05c5417a0896317ca1395120c4449`. Metering deadlines исправлены и проверены в CI, но ещё не deployed.
-- Последующий HEAD может содержать handoff/manifest и исправление docs-check; не путать его с SHA проверенной Android сборки.
+- Последний проверенный Android/native source: `458fec7c885250f65d474204061dcdd60d71ee56`; последняя GREEN backend база — `179810fbe8d04c0344bafd3800ee9df40c654e78`. Test APK создан, новый panel не deployed.
+- Каждый CI ниже относится к указанному source SHA. Source/CI не доказывают установленный runtime; последующий documentation HEAD не требует повторять завершённые проверки.
 - HA run [33967852643](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33967852643) **SUCCESS** на `7c27caf055e05c5417a0896317ca1395120c4449`: Go tests, race, vet, rqlite integration и immutable panel build. Run terminal; не dispatch заново.
-- Preview run [33961612988](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961612988) **SUCCESS** на предшествующем `7d98663ccca2c99224ad501c0f0a437221727c4c`; Android после6107649 не менялся.
+- Reserve source: `76d32d012890666d9bc8a6c896a0b2bb039d553d`; HA run [33971035570](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33971035570) **SUCCESS**, job101319473149: Go/race/vet/rqlite integration/immutable build. Run terminal; не dispatch заново. Новый panel не deployed.
+- Preview run [33961612988](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961612988) **SUCCESS** на предшествующем `7d98663ccca2c99224ad501c0f0a437221727c4c`; это историческое visual evidence, не проверка последующего native runtime.
 - Run [33964867550](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33964867550) **SUCCESS** на `61076496484144a921d2f28ac83b016c5e459f8b`: `mobile-eye-compile`, Kotlin app/test compilation и пять focused классов (прежние четыре UI/geometry + семь тестов `WhiteListBalanceTest`). Preview job101303099838 также SUCCESS; это не новая визуальная приёмка глаза.
-- Ни APK, ни production OTA/release не выпускались. Не запускать заново эти завершённые проверки без изменения проверяемого поведения.
+- Test-only APK `1.0.158-task7-test`/1015800 собран в run33982084006; production OTA/release не выпускались, APK не установлен. Не запускать заново завершённые проверки без изменения проверяемого поведения.
 - Активная полная цель НЕ завершена. Не переименовывать остаток в новый проект и не добавлять номера этапов ради учёта.
 
 ## 2. Обязательные правила владельца
@@ -26,6 +27,7 @@
 - Перед повтором ошибки сначала установить и записать причину. Не повторять тот же workflow/SHA или команду с косметически другими флагами.
 - Root — единственный writer Git, CI и repetition ledger. Не стирать чужие dirty/untracked файлы.
 - Не заходить в AdminVPS. Работать через сохранённый SSH; не менять host-key policy и не закрывать обычный SSH firewall.
+- Последняя инструкция владельца05.09: настраивать S3 самостоятельно по SSH, без захода владельца в консоль. Использовать уже сохранённый continuity pin и StrictHostKeyChecking=yes; не требовать повторно консольный fingerprint. Это выбор владельцем существующего SSH trust path, не новая OOB attestation и не разрешение отключать host-key checking.
 - Краткие сообщения только по существенному изменению; не заставлять владельца снова объяснять архитектуру и давать уже сохранённые доступы.
 - После review, exact-SHA CI и применимых backup/rollback/live-validation gates продолжать согласованный isolated rollout без повторного промежуточного подтверждения.
 - Не трогать реализацию/бинарники OLCRTC и WDTT. Их UI-скрытие отдельно разрешено владельцем и уже сделано.
@@ -55,14 +57,17 @@
 |---|---|
 | S4 | Isolated commercial source `951dace559671bc9431605b967f8111963213a71`, release `951dace55967-s4commercial-38c3e87adc03cfcb`, ACTIVE, шесть shipped checks PASS. |
 | S2 | Source `72975a7a98711c74eac563191610ec6263a79799`, release `72975a7a9871-standard-2aedf96b649fe0e3`, ACTIVE, шесть shipped checks PASS. |
-| S3 | Rollout ещё не завершён; authoritative identity/east-west gates читать из сохранённого inventory перед изменением. |
+| S3 | Source `72975a7a98711c74eac563191610ec6263a79799`, release `72975a7a9871-standard-6f2626b5db7549c7`, ACTIVE, шесть shipped checks PASS; подтверждено повторным read-only shipped status05.09. |
 | S1 | Использовать текущий replacement S1 из сохранённого private inventory, не удалённый старый узел. Существующая panel/bots не перевыкатывались этим checkpoint; commercial rollout ещё требуется. |
 
 S2 установлен shipped transactional plan/apply с проверенным backup исходного ABSENT,
 проверкой9 archive members и15 необходимых leaf TLS files. Обычные SSH/Caddy/nginx/
 Hysteria/AnyTLS/bot PIDs не изменились. Firewall delta: только TCP18084 от S4 Origin
 и TCP18443 от S1 controller; все прежние IPv4/IPv6/SSH правила сохранены.
-S2 ещё НЕ добавлен в CDN Origin group. S4 НЕ обновлён до72975a7/7d98663.
+S2/S3 ещё НЕ добавлены в CDN Origin group. S4 НЕ обновлён до72975a7/7d98663.
+S3: current release совпал с operator-state, last_known_good=ABSENT; commercial/agent active
+and enabled, owned port-guard active/exited (oneshot). Runtime/config/package/process checks PASS.
+S3 ordinary SSH и private S4 canary этим read-only checkpoint не изменялись.
 Не повторять уже выполненную выдачу сертификатов, staging, install или прежние canary add/revoke/resume.
 Точные digest/backup/rollback receipts сохранены в истории и локальном operational checkpoint.
 Новый panel collector и customer publication остаются OFF. Не включать их лишь потому, что CI прошёл.
@@ -83,8 +88,8 @@ S2 ещё НЕ добавлен в CDN Origin group. S4 НЕ обновлён д
 
 ## 6. Что осталось — продолжать отсюда
 
-1. Завершить production accounting wiring: реальный verified reserve provider/caller пока отсутствует. Требование reserve=max(10,000,000bytes, measured p99.9 bytes/s ×5s), collector≤2s/revoke≤5s. Измерения нельзя выдумать. Также открыты same-boot reset и точная граница периода/outage.
-2. Доделать настоящую Android CDN runtime/selector интеграцию: WhiteListRuntimeGate не подключён, простая карточка не заменяет working XHTTP path. CDN — явный выбор только для enabled клиента, не paid Auto. TV/mobile ограничения менять только в согласованном scope.
+1. Завершить production accounting gates: file-report provider/caller реализован в source76d32d0, exact HA33971035570 SUCCESS; реального measured report пока нет. Требование reserve=max(10,000,000bytes, measured p99.9 bytes/s ×5s), collector≤2s/revoke≤5s. Измерения нельзя выдумать. Также открыты same-boot reset и точная граница периода/outage.
+2. Проверить реализованный Android XHTTP/UOT runtime на разрешённом устройстве: source458fec7, exact run33982084006 SUCCESS и test APK создан. CDN — явный phone-only выбор через существующий единственный VpnService, вне Auto; source/CI не закрывают device/two-Go-runtime/network/ordinary gates. У ADB сейчас нет подключённых устройств; CI-only APK не считать production и не устанавливать без applicable owner device authority.
 3. Проверить реализованный CDN balance на test-only APK: selected-account switch/edit, disabled/pending/offline/expired и строка в реальном account block. Source/compile/unit gate GREEN, APK/runtime gate открыт; сам баланс не разрешает CDN runtime.
 4. Закончить связку панели, двух ботов и существующего канала: ручной confirm→GB→одна подписка→понятный импорт/инструкция, admin hide/revoke, ordinary isolation.
 5. Продолжить bounded rollout S4→S2→S3→S1 с existing shipped tooling; закончить cross-node receipt/runtime proof, требуемые canaries и наблюдение. Не повторять выполненную установкуS2.
@@ -106,27 +111,50 @@ S2 ещё НЕ добавлен в CDN Origin group. S4 НЕ обновлён д
 
 ### Уточнённый accounting blocker по source audit 05.09
 
-`AuthorizeWhiteListMeteringAdmission` уже существует, production reserve provider/caller отсутствует.
-Admission candidates должны браться из publications+credentials: plan.Routes содержит только уже
-managed users и при прямом wiring оставит bootstrap deadlock. В новых исходниках sampling получает
+`AuthorizeWhiteListMeteringAdmission` теперь вызывается существующим collector через опциональный
+provider `MAESTRO_WHITELIST_RESERVE_FILE`. ID-only candidates берутся из publications+credentials,
+не managed plan.Routes; иначе снова возникнет bootstrap deadlock. Sampling получает
 deadline start+2s, reconcile — отдельный start+5s; startup recovery failure также вызывает reconcile.
 Оба receipt-recovery пути сохраняют deadline поверх WithoutCancel и не повторяют неизвестный POST.
 Независимый six-file review CLEAN; четыре focused regressions прошли в exact-SHA HA33967852643.
 Это cooperative budgets, НЕ доказанная частота sampling/revoke: Origin/DB calls последовательны,
 mutex/нагрузка и live latency ещё требуют существующего canary gate.
-Same-boot producer всегда передаёт reset_sequence0/counter_generation1; точный closing sample
-при смене периода/outage не производится. Approved plan задаёт формулу p99.9, но не window,
+Same-boot producer всегда передаёт reset_sequence0/counter_generation1; UsageSnapshot не содержит
+достоверный reset marker/terminal pre-reset counters. Не повышать generation и не rebaseline
+по одному уменьшению counters: это теряет байты. Existing durable ResetSequence и
+ErrResetGenerationRequired сохраняются; до настоящего reset evidence оставить fail-closed.
+Точный closing sample при смене периода/outage не производится. Approved plan задаёт формулу p99.9, но не window,
 population, sample count или freshness: их нельзя заменить выдуманным числом. Существующий
 synthetic commercial counter proof не является p99.9 measurement. Publication/collector остаются OFF.
 
-Следующий минимальный wiring: существующий `WhiteListAdmissionReserve` содержит measured p999,
-measured-at и valid-until; `RequiredBytes` уже считает утверждённую формулу.
-Получать ID-only candidates из publications × credentials через `whiteListAdmissionBase`
-(пример обхода — `EnsureWhiteListMeteringBootstrap`), не из уже managed plan.Routes.
-После всех authenticated Origin observations перед reconcile нужен вызов существующего
-`AuthorizeWhiteListMeteringAdmission` с реальным verified-reserve provider.
-Готового production measured-report/loader не найдено; его ещё нужно реализовать и получить
-измерения. Отсутствующий/просроченный report должен оставлять admission закрытым.
+Source76d32d0: regular JSON report ≤64KiB перечитывается один раз за pass, сроки не продлеваются
+автоматически; schema/unit/basis/rate/duplicate-exit/expiry проверяются. Нет default или fallback
+между exits. Вызов admission выполняется только после всех authenticated observations и debits,
+до reconcile. Missing/invalid report не отменяет accounting/reconcile. Уже записанные leases
+не аннулируются удалением файла мгновенно: для немедленного revoke использовать admin disable.
+[Точный формат и operator contract](ops/yandex_cdn_commercial/RESERVE_REPORT.md).
+Файл — доверенный ввод оператора, не доказательство качества измерения или live SLO. Отчёт с
+реальными измерениями ещё не получен. Независимый source review CLEAN, exact HA33971035570 SUCCESS.
+Production-adapter integration теперь использует настоящий file provider→collector→admission,
+а не прямой вызов Authorize, скрывавший разрыв первой выдачи.
+
+### Текущая реализация runtime и измерителя05.09
+
+- Source `3421418a49fd7a128d2034d07ac1224b231f1a7a`: отдельный read-only `maestro-reserve-measure` через authenticated GET/v1/usage; fixed scheduled windows, all-Origin UP+DOWN одного synthetic account, nearest-rank p999, protected raw evidence. Нет traffic generation, POST/reset или включения collector/publication. [Contract](ops/yandex_cdn_commercial/RESERVE_MEASUREMENT.md).
+- Exact run [33978987659](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33978987659), job101340648435 **SUCCESS**: focused Go/race/vet и Linux build. Binary6475924bytes, SHA256 `21fe9cf4c4d9dddc4a6e0ddd52699414954129f9c96f1996d8b8a0179e2e3e41`. Проверенный artifact размещён на current S1 в новом protected reserve-measure-3421418 каталоге существующего controller backup; services не менялись, report не установлен. Реальной измерительной серии пока нет.
+- Read-only S4 live receipt05.09 подтвердил source951dace, current desired generation5, один synthetic managed user и один active Origin. Existing receipt refresh жив; private subscription/static canary не читались и не пробовались.
+- Native/app source `458fec7c885250f65d474204061dcdd60d71ee56`: isolated c-shared/JNI XHTTP engine, pinned Xray26.5.9, authenticated TCP SOCKS + UOTv2 без UDP listener, generation-bound original-FD protect/bind, bounded stop/poison. Phone selector работает через existing BoxService; service повторно получает fresh typed API material, account/revision/network/expiry fences и no-fallback marker сохраняются. Ordinary libbox AAR взят из прежнего exact artifact; WDTT/OLCRTC не собирались и не менялись. Независимые native/app reviews CLEAN. TCP half-close ограничен pinned core.Dial API и явно описан в android-xhttp/README.md.
+- Native delivery source `fd8e7e532b011fb6acca5b7100cec5a8681de252`, fixture correction `179810fbe8d04c0344bafd3800ee9df40c654e78`: GET/account/whitelist-runtime через subscription Bearer и настоящую fresh PublicationSource, typed profiles, lease1–5s, no-store. Bare ordinary/cache остаются прежними. Exact HA [33981504938](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33981504938), job101347435963 **SUCCESS**: Go/race/vet/rqlite integration/immutable panel build. Artifact9974014423, zip SHA256 `8892b3a4b32d3d9bc675a75895d5905eee70d14bcfd5b9fd21b680b89c91c636`. Panel не deployed. [Wire contract](ops/yandex_cdn_commercial/NATIVE_RUNTIME.md).
+- Exact Android run [33982084006](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33982084006) **SUCCESS** на458fec7: native job101348988540 (Go/race/vet, arm64-v8a/armeabi-v7a NDK28/API23, JNI exports), app job101349201507 (семь focused classes, assembleOtherDebug, package/version/debuggable=false/AndroidDebug signer). Artifact9974178798, zip168339932bytes, SHA256 `95d626ffb767560f6a945df2a111b67afdaf44f6112665a26ee46a4d27eae8d6`. APK `MaestroVPN-TV-1.0.158-task7-test-debug.apk`, SHA256 `31a40e0e7abaa30ff6cff7e465ae9df3ddb6e65b4632b958403a8ea8f53e8f36`. APK не скачивался на слабый PC и не устанавливался; actual device runtime не проверен.
+- Старый HA33980215379/fd8e7e5 FAILED до native assertion: fixture запускал Python на каждом SQL и превышал реальный2s collector budget. Новый persistent SQLite fixture в179810f сохраняет transactions/context cancellation/production deadlines; исправленный run33981504938 GREEN. Старую попытку не повторять.
+- Все новые source checkpoints сохраняют customer publication/collector OFF. После итоговой runtime integration нужны реальные измерения в окончательном fleet scope, collector/revoke SLO, reset/period/outage gates,48h непрерывного shadow accounting и owner device acceptance; GREEN build не закрывает эти gates.
+
+### Подтверждённые следующие source/live задачи05.09
+
+- Current S1 read-only SSH preflight18:06UTC: один running panel, disk/process SHA256 `867df76e07a4e1ca753c0cc3940d5d4da43c97c353e47c049efe9fa1f6ded83a`; legacy `/usr/local/bin/maestro-panel`, `/etc/maestro-panel.env`, loopback8910. Control-plane/sidecar enable unset, rqlite endpoints0, commercial CA/cert/key/reserve inputs не configured. На S1 нет rqlited process/default listeners/known units/local schema files; наличие кластера на S2/S3/S4 этим не проверялось. Ничего не перезапускалось.
+- Existing S1 bot main.py уже импортирует/includes maestro_orders, один start_polling; новый customer/order_actions adapter и customer binding DB отсутствуют. Повторный router hook/poller не добавлять. Protected report: projectless `work/s1-commercial-preflight-20260905.json`.
+- Existing `maestro-import` умеет dry-run/apply/full/delta/resume для normalized Snapshot format_version2 с HMAC identities и encrypted envelopes; это не raw legacy customers/orders/trials JSON. Production normalizer этих legacy inputs ещё требуется. Runtime rqlite bootstrap применяет schema17, importer проверяет её, но не создаёт. `ops/ha/deploy-node` пока plan-only; binary-only replacement не включает commercial runtime и не переносит ordinary данные.
+- Период нельзя чинить сменой >= или подстановкой timestamp: агент ставит SampledAt после QueryStats(reset=false), точного cutoff нет. Pinned Xray RemoveUser удаляет validator maps, уже принятый forward stream остаётся жить. Значит revoke receipt не доказывает закрытие active stream≤5s. Нужен managed-user fence+cancel/drain+реальный final counter receipt перед границей, затем durable cross-period continuity. Нельзя rebaseline, выдумывать generation или считать два одинаковых counters proof завершения idle stream. Source seam для этой обязательной capability уточняется; backend period checks не ослаблены.
 
 ## 7. Глаз: точная незакрытая работа
 
@@ -145,6 +173,7 @@ Latest preview: `eyelashes-current-phone-preview`, actual390dp; lashes всё е
 - Старый Android workflow упирался в WDTT packaging до Gradle. Для bounded UI есть `mobile-eye-compile`; для одной картинки `mobile-eye-state-preview`. Не трогать WDTT ради компиляции глаза.
 - Не считать normal Android/preview run сборкой installable APK. Не запускать workflow по старому SHA и не повторять204 dispatch: сначала сохранить run ID.
 - Fixture paid order: expiry=created_at+86400. Интервалы считать по реальным source/event joins, не несуществующему entitlement_id.
+- Run33970719260/source0f26ed1 упал на compile candidate test: reused whiteListConfirmedOrderStatement находится под build tag rqlite_integration. Исправлено в76d32d0 собственным exact SQL fixture; при reuse helper читать также build constraints его файла. Старый SHA/run не повторять.
 - Не сканировать random Ed25519 signature на подстроки uuid/token: receipt test проверяет точную схему публичных JSON fields.
 - В migration schema fixture были пропущены две таблицы0017; исправлено. Строгое сравнение схемы не ослаблять.
 - При смене reference менять вместе path/hash/dimensions; September preview исправлен и GREEN. Pixel-outside-mask assertions сохранены.
