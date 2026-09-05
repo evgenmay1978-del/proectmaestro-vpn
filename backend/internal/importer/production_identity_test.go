@@ -179,6 +179,31 @@ func TestProductionIdentityDerivesExactReaderScopesAndRetainsOriginal(t *testing
 	}
 }
 
+func TestProductionIdentityValidatesCompletePerNodeSubIDs(t *testing.T) {
+	for _, name := range []string{"valid", "missing", "extra", "primary-mismatch", "missing-row-node"} {
+		t.Run(name, func(t *testing.T) {
+			snapshot, identity, box := productionIdentityFixture(t)
+			snapshot.Customers[0].NodeIDs = []string{"S1", "S3", "S4"}
+			identity.NodeSubIDs = map[string]string{"S1": identity.SubID, "S3": "synthetic-s3-sub-id", "S4": "synthetic-s4-sub-id"}
+			switch name {
+			case "missing":
+				delete(identity.NodeSubIDs, "S3")
+			case "extra":
+				identity.NodeSubIDs["S2"] = "synthetic-extra-sub-id"
+			case "primary-mismatch":
+				identity.NodeSubIDs["S1"] = "synthetic-replacement"
+			case "missing-row-node":
+				snapshot.Customers[0].NodeIDs = []string{"S1"}
+			}
+			setProductionFixtureIdentity(t, &snapshot, identity, box)
+			_, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(snapshot), box)
+			if (err == nil) != (name == "valid") {
+				t.Fatal("incorrect per-node identity validation")
+			}
+		})
+	}
+}
+
 func TestProductionIdentityRejectsUnsupportedMappingBeforeStoreCreation(t *testing.T) {
 	cases := map[string]func(*Snapshot, *ProductionCustomerIdentity){
 		"distinct-vless3": func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Customer.VLESS3.UUID = "different" },

@@ -55,6 +55,14 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer, factory applyRuntimeFactory) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "normalize":
+			return runNormalize(args[1:], stdout, stderr)
+		case "capture-xui":
+			return runCaptureXUI(args[1:], stdout, stderr)
+		}
+	}
 	options, err := parseOptions(args, stderr)
 	if err != nil {
 		writeError(stderr, "invalid arguments")
@@ -71,6 +79,12 @@ func run(args []string, stdout, stderr io.Writer, factory applyRuntimeFactory) i
 	if err != nil {
 		writeError(stderr, "snapshot is invalid")
 		return exitInputSystem
+	}
+	if options.Mode == "apply" {
+		if _, preparation := snapshot.SourceHashes["scope:"+importer.LegacyCustomerPreparationScope]; preparation {
+			writeError(stderr, "customer preparation snapshot is not a complete cutover input")
+			return exitInputSystem
+		}
 	}
 
 	planOptions := defaultPlanOptions()

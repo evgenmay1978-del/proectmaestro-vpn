@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -82,6 +83,61 @@ func New(cfg Config) (*Client, error) {
 			},
 		},
 	}, nil
+}
+
+// NewReadOnly retains New's TLS verification and request timeout, while binding
+// each actual request to this HTTPS origin and forbidding writes or redirects.
+// It requires Bearer authentication; no cookie-login request can be necessary.
+// Ordinary provisioning callers continue to use New without these restrictions.
+func NewReadOnly(cfg Config) (*Client, error) {
+	endpoint, err := url.Parse(cfg.BaseURL)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() == "" || endpoint.User != nil ||
+		endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" ||
+		strings.HasSuffix(cfg.BaseURL, "/") || cfg.Insecure || cfg.Token == "" || cfg.Username != "" || cfg.Password != "" {
+		return nil, errors.New("xui: invalid read-only HTTPS configuration")
+	}
+	c, err := New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	host := cfg.Host
+	if host == "" {
+		host = endpoint.Host
+	}
+	c.http.Transport = &readOnlyTransport{base: c.http.Transport, origin: endpoint.Host, host: host}
+	c.http.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("xui: read-only redirect denied") }
+	return c, nil
+}
+
+type readOnlyTransport struct {
+	base   http.RoundTripper
+	origin string
+	host   string
+}
+
+func (t *readOnlyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL == nil || request.Method != http.MethodGet || request.URL.Scheme != "https" ||
+		!strings.EqualFold(request.URL.Host, t.origin) || !strings.EqualFold(request.Host, t.host) ||
+		request.URL.User != nil || request.URL.RawQuery != "" || request.URL.ForceQuery || request.URL.Fragment != "" ||
+		(request.Body != nil && request.Body != http.NoBody) {
+		if request.Body != nil {
+			_ = request.Body.Close()
+		}
+		return nil, errors.New("xui: read-only request denied")
+	}
+	response, err := t.base.RoundTrip(request)
+	if err != nil {
+		return nil, err
+	}
+	// Reject even a redirect response whose body happens to resemble a client
+	// record. CheckRedirect separately prevents follow-ups at the client layer.
+	if response.StatusCode >= 300 && response.StatusCode <= 399 {
+		if response.Body != nil {
+			_ = response.Body.Close()
+		}
+		return nil, errors.New("xui: read-only redirect denied")
+	}
+	return response, nil
 }
 
 // do issues a request with the required Host header.

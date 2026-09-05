@@ -18,8 +18,9 @@ var errInvalidProductionIdentity = errors.New("unsupported or inconsistent prote
 
 // ProductionCustomerIdentity is the plaintext contract inside a v2 snapshot's
 // customer/identity/customer-identity envelope. Customer retains the entire
-// original legacy record. SubID and Generation require authoritative source
-// metadata: the legacy customer JSON does not contain either value.
+// original legacy record. SubID/NodeSubIDs come from existing XUI identities.
+// Generation is the declared migration revision (initial 1, changed delta +1),
+// not a historical accounting generation: neither is in legacy customer JSON.
 //
 // LookupHMAC domains are customer-login (canonical login), subscription-token,
 // customer-uuid, subscription-id, and customer-credentials. The last hashes the
@@ -31,6 +32,7 @@ type ProductionCustomerIdentity struct {
 	Customer      legacystore.Customer `json:"customer"`
 	SubID         string               `json:"sub_id"`
 	Generation    int64                `json:"generation"`
+	NodeSubIDs    map[string]string    `json:"node_sub_ids,omitempty"`
 }
 
 // ProductionCustomerProtection retains validated digests, lookup HMACs and
@@ -207,6 +209,26 @@ func productionCredentials(identity ProductionCustomerIdentity) (map[string]stri
 
 func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer, identity ProductionCustomerIdentity) error {
 	customer := identity.Customer
+	if identity.NodeSubIDs != nil {
+		expected := legacyVLESSNodes(customer)
+		if len(identity.NodeSubIDs) != len(expected) || identity.NodeSubIDs["S1"] != identity.SubID {
+			return errInvalidProductionIdentity
+		}
+		for node, subID := range identity.NodeSubIDs {
+			if _, exists := expected[node]; !exists || subID == "" || len(subID) > 4096 || strings.ContainsRune(subID, 0) {
+				return errInvalidProductionIdentity
+			}
+			found := false
+			for _, rowNode := range row.NodeIDs {
+				if rowNode == node {
+					found = true
+				}
+			}
+			if !found {
+				return errInvalidProductionIdentity
+			}
+		}
+	}
 	login, err := controlplane.CanonicalLoginKey(customer.Login)
 	credentials, credentialErr := productionCredentials(identity)
 	if err != nil || credentialErr != nil || customer.Login != row.Login ||
