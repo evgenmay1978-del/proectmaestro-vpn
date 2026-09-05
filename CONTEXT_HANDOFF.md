@@ -155,6 +155,16 @@ The private subscription/credential stays active and unprobed. Customer traffic
 cutover, real charges, release/signing/OTA, OLCRTC and WDTT remain outside scope;
 production Android remains ordinary-only `1.0.157`.
 
+Eye side-task while CDN UI access is unconfirmed: the
+[05.09 source diagnosis and registered open-eye candidate](docs/design/mobile-eye-natural/2026-09-05-registered-open-candidate.md)
+are archived as documentation only, with the unchanged PNG and exact prompt.
+The candidate is PREVIEW ONLY, not accepted or integrated; all three visual
+criteria remain open. No APK, Kotlin, runtime atlas or TV change occurred.
+The next eye step is one anatomy-only composite registered to the original
+closed material, preserving blink/gaze and the single ring placement owner;
+no numeric fix is confirmed. This does not replace the commercial priority or
+close any CDN/public-edge gate above.
+
 ## 0. WHITE-LIST COMMERCIAL DELIVERY — TASK 13 DELIVERY GREEN; TASK 14 NEXT (04.09.2026)
 
 - Единственная рабочая/push-ветка остаётся

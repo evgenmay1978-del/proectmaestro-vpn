@@ -15,8 +15,8 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 337568,
-      "sha256": "cdb01569c3cc0789a89bf21320de96eaebf30d4eb044b523b17c89193f9e83cd",
+      "bytes": 338249,
+      "sha256": "87afbcdd87b5af56be9dc822623655db9ad352823c18fe9dbe9bb63fc15782b1",
       "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. CURRENT \u2014 TASK 15 S4 B441 AND ISOLATED INGRESS ACTIVE (05.09.2026)\n\nThis section supersedes earlier status and next-step statements below. The sole\ncanonical branch is `codex/yandex-cdn-whitelist-task3-sync`. The source/package\ncheckpoint is `b4415daa90c95a38f"
     },
     {
