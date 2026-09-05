@@ -61,7 +61,19 @@ func TestWhiteListMeteringPlanBindsDesiredReceiptRouteAndCurrentPrepaidPeriod(t 
 
 	orderID, periodID := "order-metering-plan", "period-metering-plan"
 	db.must(t,
-		whiteListConfirmedOrderStatement(orderID, customer.ID, now.Unix()),
+		rqlite.Statement{
+			SQL: `INSERT INTO orders(
+order_id,payment_code,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
+amount_minor,currency,duration_days,created_at_unix,expires_at_unix,payment_state,
+provisioning_state,decision,confirmed_at_unix,result_expires_at_unix,result_generation,operation_id)
+VALUES(?,?,?,?,?,'tariff_1m_v1',40000,'RUB',30,?,?,'confirmed','applied','confirmed',?,?,1,?)`,
+			Args: []any{
+				orderID, "A1B2C3D4E5F6", "whitelist-metering-plan",
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				customer.ID, now.Unix() - 100, now.Unix() - 100 + 86400,
+				now.Unix() - 50, now.Unix() + 90*86400, orderID + "-operation",
+			},
+		},
 		rqlite.Statement{
 			SQL: `INSERT INTO whitelist_billing_periods(
 period_id,entitlement_id,period_ordinal,starts_at_unix,ends_at_unix,
