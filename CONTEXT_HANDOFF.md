@@ -67,7 +67,14 @@ texture and a moist corner replace the flat procedural triangles, sampled strict
 inside the original ocular edge without its bronze perimeter. Common corners,
 closure seam, true-alpha iris and whole-eye lid shadow remain. Original green and
 CLOSED are preserved. Root inspected the actual-source native-interior preview;
-the eight source files are being saved for GitHub Android validation. All-three
+the eight source files were committed as `238cf99`. Its run `33950964048` selected
+the preview-only task, not compilation: two Python expectations still described
+the old 70/30 closure and pre-registration viewport. They now use an independent
+13-point original-fold oracle and fixed-corner checks with unchanged tolerances.
+The private dispatcher now exposes the explicit `android` task separately from
+its safe preview default. The existing Android workflow's four blind Gradle
+retries are replaced by one attempt; build, unit-test and report steps remain.
+Do not repeat the failed238cf99 preview or claim that it compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.
 

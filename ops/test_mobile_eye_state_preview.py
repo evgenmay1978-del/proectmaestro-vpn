@@ -39,19 +39,22 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
         for value, target in zip(actual, expected):
             self.assertAlmostEqual(value, target, delta=0.002)
 
-    def test_open_aperture_matches_owner_approved_viewport_bounds(self) -> None:
+    def test_open_aperture_matches_original_master_registered_bounds(self) -> None:
         upper, lower = MODULE.aperture_contours_dp(closure=0.0)
         xs = [point[0] for point in upper + lower]
         ys = [point[1] for point in upper + lower]
         bounds = (min(xs), min(ys), max(xs), max(ys))
 
-        expected = (107.158, 231.878, 288.251, 300.942)
+        # Frozen 390x844 dp projection of the original 1254px green master:
+        # corners x=25/1229, upper y=444 and lower y=809. These independent
+        # reference values must not be calculated from MODULE's contours/fit.
+        expected = (83.252, 224.486, 306.748, 292.240)
         for value, target in zip(bounds, expected):
             self.assertAlmostEqual(value, target, delta=0.05)
-        self.assertAlmostEqual(bounds[2] - bounds[0], 181.093, delta=0.05)
-        self.assertAlmostEqual(bounds[3] - bounds[1], 69.064, delta=0.05)
+        self.assertAlmostEqual(bounds[2] - bounds[0], 223.496, delta=0.05)
+        self.assertAlmostEqual(bounds[3] - bounds[1], 67.754, delta=0.05)
 
-    def test_full_closure_uses_the_production_70_30_seam(self) -> None:
+    def test_full_closure_uses_original_master_fold_and_fixed_corners(self) -> None:
         upper, lower = MODULE.aperture_contours_dp(closure=1.0)
 
         self.assertEqual(len(upper), len(lower))
@@ -59,30 +62,41 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             self.assertAlmostEqual(upper_point[0], lower_point[0], delta=0.0001)
             self.assertAlmostEqual(upper_point[1], lower_point[1], delta=0.0001)
 
+        # Independently frozen master-fold samples, not a 70/30 blend of OPEN:
+        # master x: 25,100,200,300,400,500,627,750,850,950,1050,1150,1229
+        # master y: 635,660,693,718,737,746,749,740,727,707,685,658,635
+        # The same registration is fixed in LivingEyeLayerGeometry.kt.
         expected_points = [
-            (107.158, 271.979),
-            (112.568, 272.364),
-            (117.342, 273.182),
-            (120.525, 273.324),
-            (130.073, 274.303),
-            (142.803, 275.862),
-            (155.534, 277.326),
-            (168.265, 278.599),
-            (180.995, 279.713),
-            (193.726, 280.222),
-            (206.457, 279.777),
-            (219.187, 279.140),
-            (231.918, 278.408),
-            (244.649, 277.581),
-            (257.379, 276.244),
-            (270.110, 274.621),
-            (280.294, 273.221),
-            (288.251, 271.979),
+            (83.252, 259.941),
+            (97.174, 264.581),
+            (115.737, 270.707),
+            (134.300, 275.348),
+            (152.863, 278.875),
+            (171.425, 280.545),
+            (195.000, 281.102),
+            (217.833, 279.431),
+            (236.395, 277.018),
+            (254.958, 273.306),
+            (273.521, 269.222),
+            (292.084, 264.210),
+            (306.748, 259.941),
         ]
         self.assertEqual(len(upper), len(expected_points))
         for actual, expected in zip(upper, expected_points):
             self.assertAlmostEqual(actual[0], expected[0], delta=0.05)
             self.assertAlmostEqual(actual[1], expected[1], delta=0.05)
+
+        for closure in (0.0, 0.5, 1.0):
+            phase_upper, phase_lower = MODULE.aperture_contours_dp(closure=closure)
+            for contour in (phase_upper, phase_lower):
+                for index in (0, -1):
+                    self.assertEqual(contour[index], upper[index])
+                    self.assertAlmostEqual(
+                        contour[index][0], expected_points[index][0], delta=0.05
+                    )
+                    self.assertAlmostEqual(
+                        contour[index][1], expected_points[index][1], delta=0.05
+                    )
 
     def test_full_closure_reveals_the_registered_emerald_surround(self) -> None:
         scale = 2

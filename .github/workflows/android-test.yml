@@ -439,15 +439,8 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          n=0
-          until [ "$n" -ge 4 ]; do
-            if ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon; then exit 0; fi
-            n=$((n + 1))
-            echo "::warning::gradle attempt $n failed — retrying in 90s" >&2
-            sleep 90
-          done
-          echo "::error::gradle build failed after retries" >&2
-          exit 1
+          # Preserve the first failure; retry only after its cause is corrected.
+          ./gradlew :app:assembleOtherDebug --stacktrace --no-daemon
 
       # Та же причина, что в android.yml: выгрузка — удобство, а не результат гейта. Пока квота
       # артефактов выбрана, её падение уводило ИДУЩИЕ ПОСЛЕ unit-тесты в skipped, и гейт переставал
