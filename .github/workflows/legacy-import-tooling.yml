@@ -1,0 +1,107 @@
+name: Legacy import tooling artifact
+
+on:
+  push:
+    branches:
+      - codex/yandex-cdn-whitelist-task3-sync
+    paths:
+      - .github/workflows/legacy-import-tooling.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-import-tooling-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-tooling:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+          check-latest: false
+
+      - name: Build Linux import tooling
+        working-directory: backend
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p ../dist/legacy-import-tooling
+          go build -mod=readonly -trimpath -ldflags='-s -w -buildid=' \
+            -o ../dist/legacy-import-tooling/maestro-import ./cmd/maestro-import
+          go env GOVERSION > "$RUNNER_TEMP/maestro-import-go-version"
+
+      - name: Bind artifact to source and verify membership
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import struct
+
+          sha = os.environ["GITHUB_SHA"]
+          run_id = os.environ["GITHUB_RUN_ID"]
+          if not re.fullmatch(r"[0-9a-f]{40}", sha) or not re.fullmatch(r"[1-9][0-9]*", run_id):
+              raise SystemExit("invalid artifact source binding")
+          root = Path("dist/legacy-import-tooling")
+          binary = root / "maestro-import"
+          entries = {p.name for p in root.iterdir()}
+          if entries != {"maestro-import"}:
+              raise SystemExit("unexpected build output")
+          info = binary.lstat()
+          if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not info.st_mode & 0o111:
+              raise SystemExit("tool is not a regular executable")
+          data = binary.read_bytes()
+          if len(data) < 64 or data[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<H", data, 18)[0] != 62:
+              raise SystemExit("tool is not a Linux amd64 ELF")
+          goversion = (Path(os.environ["RUNNER_TEMP"]) / "maestro-import-go-version").read_text().strip()
+          if not re.fullmatch(r"go[0-9]+\.[0-9]+(?:\.[0-9]+)?", goversion):
+              raise SystemExit("invalid build toolchain identity")
+          manifest = {
+              "schema_version": 1,
+              "kind": "legacy-import-tooling",
+              "source_sha": sha,
+              "workflow_run_id": int(run_id),
+              "go_version": goversion,
+              "goos": "linux",
+              "goarch": "amd64",
+              "cgo_enabled": False,
+              "migration_authorized": False,
+              "files": {"maestro-import": {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}},
+          }
+          with (root / "manifest.json").open("x", encoding="utf-8", newline="\n") as stream:
+              stream.write(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+          if {p.name for p in root.iterdir()} != {"maestro-import", "manifest.json"}:
+              raise SystemExit("artifact membership mismatch")
+          for path in root.iterdir():
+              info = path.lstat()
+              if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                  raise SystemExit("artifact member is not a regular file")
+
+      - name: Upload source-bound import tooling
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-import-${{ github.sha }}
+          path: dist/legacy-import-tooling/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
