@@ -6,6 +6,12 @@ on:
       - codex/yandex-cdn-whitelist-task3-sync
     paths:
       - .github/workflows/legacy-import-tooling.yml
+      - backend/cmd/maestro-import/**
+      - backend/internal/importer/**
+      - backend/internal/xui/**
+      - backend/internal/controlplane/customer*.go
+      - backend/go.mod
+      - backend/go.sum
   workflow_dispatch:
 
 permissions:
