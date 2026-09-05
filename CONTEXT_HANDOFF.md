@@ -10,11 +10,11 @@
 - Канонический репозиторий: `evgenmay1978-del/proectmaestro-vpn`.
 - Единственная рабочая/push-ветка: `codex/yandex-cdn-whitelist-task3-sync`.
 - Worktree: `C:/Users/User/Documents/Codex/2026-08-05/new-chat/mvpn-yandex-cdn-whitelist-task3-sync`.
-- Последний проверенный исходный код: `7d98663ccca2c99224ad501c0f0a437221727c4c`.
-- Последующий HEAD может содержать только этот documentation handoff; не путать его с SHA проверенной сборки.
+- Последний проверенный Android source: `61076496484144a921d2f28ac83b016c5e459f8b`; backend остаётся проверенным на `7d98663ccca2c99224ad501c0f0a437221727c4c` и после него не менялся в Git.
+- Последующий HEAD может содержать handoff/manifest и исправление docs-check; не путать его с SHA проверенной Android сборки.
 - HA run [33961608220](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961608220) **SUCCESS**: Go tests, race, vet, rqlite integration и workflow сборки.
 - Preview run [33961612988](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961612988) **SUCCESS** на том же SHA.
-- Kotlin compilation и четыре focused UI/geometry класса прошли в job101292058636 run33960732689 на `8f77b409e577de6b0d17716191ac59588ada6fac`. Android/Kotlin source после него не менялся.
+- Run [33964867550](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33964867550) **SUCCESS** на `61076496484144a921d2f28ac83b016c5e459f8b`: `mobile-eye-compile`, Kotlin app/test compilation и пять focused классов (прежние четыре UI/geometry + семь тестов `WhiteListBalanceTest`). Preview job101303099838 также SUCCESS; это не новая визуальная приёмка глаза.
 - Ни APK, ни production OTA/release не выпускались. Не запускать заново эти завершённые проверки без изменения проверяемого поведения.
 - Активная полная цель НЕ завершена. Не переименовывать остаток в новый проект и не добавлять номера этапов ради учёта.
 
@@ -77,6 +77,7 @@ S2 ещё НЕ добавлен в CDN Origin group. S4 НЕ обновлён д
 - После observed→missing доступ не переоткрывается ни reserve refresh, ни restart. Независимый six-file review CLEAN; exact HA GREEN.
 - В phone/TV/Groups/status скрыты WDTT/OLCRTC/WebRTC aliases, manual/pending selection закрыт. Скрытый active не переименовывается в AUTO. Runtime managers и профили не менялись.
 - Существует коммерческий API, manual-order/bot/delivery код по утверждённому плану; их end-to-end production подключение ещё не доказано.
+- Android CDN balance реализован в source6107649: отдельная строка существующего phone account block, trusted selected profile, HTTPS/Bearer без redirects, foreground refresh30s, decimal GB; disabled скрыт, pending обновляется, ошибки не превращаются в0. Account identity сбрасывается при смене/редактировании профиля, старые ответы отбрасываются; permissive ordinary hasSubProfile сохраняется. Два замечания независимого review исправлены. На установленном APK это ещё не проверено.
 - Полный private working white-list test остаётся неприкосновенным: owner сообщил реальный mobile white-list PASS01.09.2026. Это **OWNER-REPORTED CLIENT PASS**, не production readiness.
 - Не удалять/ротировать/пробовать приватную подписку, её credential или static canary до завершения согласованной работы/отдельного разрешённого удаления. Секреты не копировать в Git, новые чаты или логи.
 
@@ -84,12 +85,12 @@ S2 ещё НЕ добавлен в CDN Origin group. S4 НЕ обновлён д
 
 1. Завершить production accounting wiring: реальный verified reserve provider/caller пока отсутствует. Требование reserve=max(10,000,000bytes, measured p99.9 bytes/s ×5s), collector≤2s/revoke≤5s. Измерения нельзя выдумать. Также открыты same-boot reset и точная граница периода/outage.
 2. Доделать настоящую Android CDN runtime/selector интеграцию: WhiteListRuntimeGate не подключён, простая карточка не заменяет working XHTTP path. CDN — явный выбор только для enabled клиента, не paid Auto. TV/mobile ограничения менять только в согласованном scope.
-3. Подключить отображение отдельного CDN баланса; подготовлен контракт ниже, **код этого подключения ещё не написан**.
+3. Проверить реализованный CDN balance на test-only APK: selected-account switch/edit, disabled/pending/offline/expired и строка в реальном account block. Source/compile/unit gate GREEN, APK/runtime gate открыт; сам баланс не разрешает CDN runtime.
 4. Закончить связку панели, двух ботов и существующего канала: ручной confirm→GB→одна подписка→понятный импорт/инструкция, admin hide/revoke, ordinary isolation.
 5. Продолжить bounded rollout S4→S2→S3→S1 с existing shipped tooling; закончить cross-node receipt/runtime proof, требуемые canaries и наблюдение. Не повторять выполненную установкуS2.
 6. Довести глаз по всем трём визуальным условиям и проверить runtime. Затем применимые release/OTA/customer-cutover gates. Полный продукт пока не готов.
 
-### Ближайшая Android работа: остаток GB
+### Android: реализованный остаток GB, runtime ещё не проверен
 
 - Реальный API: GET `/account/whitelist-balance`; Authorization Bearer — тот же subscription token. Account ID/query/cookie/CSRF не нужны.
 - Только trusted HTTPS Maestro origin: путь заменить на balance endpoint, убрать query/fragment; token только header, никогда не URL/log или redirect на другой origin.
@@ -98,10 +99,21 @@ S2 ещё НЕ добавлен в CDN Origin group. S4 НЕ обновлён д
 - Ошибка/404/503 — неизвестно, НЕ0GB. 404 неоднозначен: отсутствующий entitlement, token или старый route.
 - `PUBLISHABLE` в balance adapter НЕ доказывает all-Origin readiness и не разрешает подключение CDN.
 - Старый Android `WhiteListClientInfo` ожидает `remaining_limit_bytes`; это не commercial wallet. Не использовать его как prepaid balance.
-- Предлагаемое простое размещение: отдельная строка «CDN: осталось … ГБ» в существующем account block телефона, не новый экран. Это ещё не implemented/accepted runtime.
-- Текущий flow: AccountInfo.kt→SFANavigation.kt→TvHomeScreen.kt→Mobile4DHome.kt→PhoneHomeControlDeck.kt/SecondaryDeck.
+- Реализованное размещение: отдельная строка «CDN: осталось … ГБ» в существующем account block телефона; source/CI проверены, установленный runtime ещё не принят.
+- AccountInfo.kt→SFANavigation.kt→TvHomeScreen.kt→Mobile4DHome.kt→PhoneHomeControlDeck.kt/SecondaryDeck сохраняется. Баланс получает phone-only `PhoneWhiteListBalance.kt` через `WhiteListBalanceClient`; account selection/revision hook общий по правилам для /info и баланса, TV-компоненты не менялись.
 - Учитывать выбранный trusted account; неизвестный баланс не маскировать нулём, не менять ordinary expiry gating или deferred transport managers.
 - Happ/Incy: названия CDN/страны есть в links renderer, live rendering статистики и richer protocol labels ещё не проверены. Не обещать остаток в любом стороннем клиенте; бот остаётся общей точкой информации.
+
+### Уточнённый accounting blocker по source audit 05.09
+
+`AuthorizeWhiteListMeteringAdmission` уже существует, production reserve provider/caller отсутствует.
+Admission candidates должны браться из publications+credentials: plan.Routes содержит только уже
+managed users и при прямом wiring оставит bootstrap deadlock. Ticker2s не ограничивает runPass:
+Origin/DB calls последовательны, rqlite timeout10s; collector/revoke latency ещё не доказана.
+Same-boot producer всегда передаёт reset_sequence0/counter_generation1; точный closing sample
+при смене периода/outage не производится. Approved plan задаёт формулу p99.9, но не window,
+population, sample count или freshness: их нельзя заменить выдуманным числом. Существующий
+synthetic commercial counter proof не является p99.9 measurement. Publication/collector остаются OFF.
 
 ## 7. Глаз: точная незакрытая работа
 
@@ -144,5 +156,10 @@ controlplane_port_test; controlplane customer_access/external_actions/paid_visib
 setting_secret_read/status/task8_setting tests; migrations0001–0010; normalize.patch.
 Не stage/reset/format их целиком. Root добавлял в AGENTS только короткий output rule,
 старые изменения сохранены. Точный список — текущий git status, не предположение.
-Ни один агент не владеет pending edits; два последних helper turns завершились
-model-capacity error без дополнительных мутаций. Не перезапускать их вслепую.
+Незавершённые Android balance edits предыдущей задачи восстановлены, исправлены и включены в6107649.
+Других writer-агентов нет. Исходный unrelated dirty сохранён; в AGENTS дополнительно осталась
+локальная двухстрочная инструкция по отдельным option/value аргументам guard, она не staged.
+Docs/manifest для этого checkpoint проверяются в узком committed-tree snapshot с новым handoff,
+чтобы unrelated dirty AGENTS не попал в commit или в manifest опубликованного дерева.
+Устранено устаревшее ожидание docs-test только для PANEL_INTEGRATION.md: точный source-contract
+status с запретом считать source production-ready, остальные19 target-only/ADR проверки сохранены.

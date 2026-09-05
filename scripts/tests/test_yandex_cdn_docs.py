@@ -80,8 +80,19 @@ class DocumentationTests(unittest.TestCase):
             'PRODUCTION_FLEET_INVENTORY.md', 'COMMERCIAL_ROLLOUT_RUNBOOK.md',
             'COMMERCIAL_ROLLBACK.md', 'COMMERCIAL_CANARY_EVIDENCE.md',
         }
+        expected_status = {
+            'PANEL_INTEGRATION.md': (
+                'Status: source contracts and remaining integration requirements. '
+                'Source implementation is not evidence of live deployment, '
+                'migration, billing activation or production readiness.'
+            ),
+        }
         for name in REQUIRED_DOCS - excluded:
-            self.assertIn('Status: target-only', (DOCS / name).read_text(encoding='utf8'))
+            self.assertIn(
+                expected_status.get(name, 'Status: target-only'),
+                (DOCS / name).read_text(encoding='utf8'),
+                name,
+            )
         for number, vocabulary in enumerate(ADR_TERMS, 1):
             path = DOCS / 'adr' / f'ADR-{number:04d}.md'
             text = path.read_text(encoding='utf8')
