@@ -11,6 +11,7 @@ on:
         options:
           - commercial-bundle
           - runtime-fence-proof
+          - runtime-module-graph
   pull_request:
     paths:
       - '.github/workflows/sidecar-agent.yml'
@@ -57,17 +58,53 @@ jobs:
           go-version-file: sidecar-agent/go.mod
           cache-dependency-path: sidecar-agent/go.sum
       - name: Test sidecar agent
+        if: inputs.task != 'runtime-module-graph'
         working-directory: sidecar-agent
         run: go test -count=1 ./...
       - name: Verify sidecar formatting
+        if: inputs.task != 'runtime-module-graph'
         working-directory: sidecar-agent
         run: test -z "$(gofmt -l .)"
       - name: Race-test sidecar agent
+        if: inputs.task != 'runtime-module-graph'
         working-directory: sidecar-agent
         run: go test -race -count=1 ./...
       - name: Vet sidecar agent
+        if: inputs.task != 'runtime-module-graph'
         working-directory: sidecar-agent
         run: go vet ./...
+
+      - name: Resolve runtime module graph without compiling or testing
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'runtime-module-graph'
+        working-directory: sidecar-agent
+        run: |
+          set -euo pipefail
+          umask 077
+          go mod tidy
+          mkdir -p ../dist-runtime-module-graph
+          cp go.mod go.sum ../dist-runtime-module-graph/
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path('../dist-runtime-module-graph')
+          manifest = {'schema_version': 1, 'source_commit': os.environ['GITHUB_SHA'],
+                      'workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
+                      'purpose': 'module-metadata-only-no-build-or-test',
+                      'files': [{'path': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
+                                for p in (root / 'go.mod', root / 'go.sum')]}
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+
+      - name: Upload generated runtime module metadata
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'runtime-module-graph'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-runtime-module-graph-${{ github.sha }}
+          path: dist-runtime-module-graph/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Build isolated managed-session runtime proof
         if: github.event_name == 'workflow_dispatch' && inputs.task == 'runtime-fence-proof'
@@ -118,7 +155,7 @@ jobs:
           retention-days: 14
 
       - name: Build immutable Linux amd64 commercial bundle
-        if: github.event_name == 'workflow_dispatch' && inputs.task != 'runtime-fence-proof'
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'commercial-bundle'
         env:
           LC_ALL: C
           XRAY_ARCHIVE_SHA256: f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7
@@ -168,7 +205,7 @@ jobs:
           python ops/yandex_cdn_commercial/bundle.py verify --bundle "$dist"
 
       - name: Upload immutable commercial bundle
-        if: github.event_name == 'workflow_dispatch' && inputs.task != 'runtime-fence-proof'
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'commercial-bundle'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: maestro-xray-cdn-commercial-${{ github.sha }}
@@ -179,6 +216,7 @@ jobs:
           include-hidden-files: false
 
   release-template:
+    if: inputs.task != 'runtime-module-graph'
     needs: policy
     runs-on: ubuntu-latest
     timeout-minutes: 15
