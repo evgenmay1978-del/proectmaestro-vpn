@@ -1,6 +1,57 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## CURRENT OWNER OVERRIDE AND RUNTIME GAP — 05.09.2026
+## CURRENT — S4 951DACE ACTIVE; METERING RUNTIME STILL IN PROGRESS — 05.09.2026
+
+This checkpoint supersedes every older CURRENT/next-action statement below.
+S4 isolated commercial source `951dace559671bc9431605b967f8111963213a71` is now
+installed, release `951dace55967-s4commercial-38c3e87adc03cfcb`, ACTIVE with all
+six shipped operator checks true. Exact sidecar run `33946775734` is SUCCESS;
+artifact `9963583717` was streamed directly to S4 and verified (54,244,163bytes,
+SHA-256 `109c4e474b17277b7d415e6a3176567b08c1207ed7ed47e55b39dff4e3c63b9a`).
+The runtime digest is
+`38c3e87adc03cfcb96491509d530c0ec843c077431bad17d41ccbdc087b3f37b`;
+config remains `5fd67f3bf80fc3a7c0bfae1de32d421b66ee11ac95bff8ea3f851ca71d052f38`.
+Scoped protected backup and retained b441 last-known-good are verified. Locked
+shipped apply exited0; independent retained SSH session survived, and a fresh
+strict login passed. Ordinary/private SSH, x-ui, Hysteria and ingress PIDs and
+firewall hashes are unchanged. No provider console, customer charge, OTA or
+customer/private-subscription traffic probe was used.
+
+Upgrade reconciliation preserved the same isolated synthetic managed identity:
+generation5 POST200 and exact new-boot receipt GET200, no replay. Authenticated
+GET/v1/usage returned200/no-store with the exact receipt, zero available users and
+one explicitly unavailable user. No missing counter was manufactured as zero.
+Do not repeat add/revoke/resume or the completed workflow. Earlier generation4
+was the prior release's resume; the private preparation helper now accepts only
+exact prior add OR resume bytes, not arbitrary/revoke state.
+
+Next existing Task6 work is production accounting, not another server diagnostic
+round. This source checkpoint connects the metering-plan DTO and a separate
+two-second collector to one DurableStore on the same rqlite client, using the
+existing sender map. Startup drains all pending entitlements; real samples use
+the returned bound cursor, while unavailable users create no samples. The
+thirty-second ordinary renewal loop is unchanged. Independent review found one
+partial-pass revoke delay; a persistent reconcile-needed marker now forces
+reconciliation even after a later origin fails and remains set until success.
+One focused regression covers that failure. Heavy Go validation is GitHub-only
+and still pending for this new source checkpoint; do not deploy the panel yet.
+Known remaining accounting gaps: durable first-use admission (a single topup
+timestamp expires in5seconds and is insufficient), first real cumulative billing,
+all-Origin observation freshness distinct from balance's monotonic watermark,
+counter reset/period boundary handling and the approved safety reserve. An empty
+managed set currently skips the real StatsService query; do not mistake that
+empty response for pre-provision collector health. Default commercial publication
+remains OFF. S1's running panel/bot are unchanged; S2/S3/S1 fleet rollout remains.
+
+Eye source has a reviewed but unaccepted programmatic intermediate: common
+registered corners/seam, true-alpha iris, neutral sclera and whole-eye lid shadow.
+Original green/CLOSED are preserved; all three visual acceptance conditions are
+still OPEN, no APK/OTA. Keep its eight local owned files; do not claim eye done.
+
+Owner's global rule reiterated05.09: effectiveness and the shortest safe path to
+a working result. Reuse proven packages/procedures, parallelize only useful
+independent work, and avoid ceremonial checks, repeated research or new stages.
+Heavy builds stay on GitHub; never invent a completion date or percentage.
 
 The owner explicitly instructed: do not enter AdminVPS; continue server setup
 through SSH; fix the eye programmatically. This supersedes the earlier request
@@ -28,15 +79,15 @@ The dedicated sidecar workflow now reuses the existing sealed commercial-bundle
 build and artifact upload after its tests, only on manual dispatch. It produces
 `maestro-xray-cdn-commercial-<exact SHA>` with the same nine members and manifest
 as the existing commercial operator; no Android build or new deployment path.
-Next server action is a scoped S4 commercial upgrade using the existing protected
-runtime inputs and rollback, after the new immutable artifact is verified.
-Restart only the isolated commercial Xray/agent via the shipped operator;
-ordinary services, private subscription, ingress routing and firewall stay
-unchanged. Until apply and live status succeed, deployed source remains b441.
+The scoped S4 upgrade is now complete as recorded above. The existing package
+and operator will be reused for the other hosts, after their host-specific
+configuration and ordinary-service baseline are established. Do not restart S4
+again merely because handoff-only commits advance the branch.
 
-The existing commercial Task 6 is not runtime-complete: non-test backend source
-has definitions but no runtime callers of `NewDurableStore`,
-`ApplyCommercialOrdered` or `DrainCommercialDebits`. Do not describe this as
+The existing commercial Task6 is not runtime-complete. Deployed sidecar source
+951dace and the unchanged S1 panel do not implement the newly connected backend
+collector. This source now calls `NewDurableStore`, `ApplyCommercialOrdered` and
+`DrainCommercialDebits`, but the accounting stop gates above remain OPEN. Do not describe this as
 another new task or assume that deploying a flag connects counters to balances.
 The implementation now adds a read-only usage snapshot to the existing mTLS
 sidecar service, then must connect it to the existing durable debit path.

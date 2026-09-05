@@ -96,6 +96,10 @@ func buildRQLitePanelRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("rqlite runtime: service unavailable: %w", err)
 	}
+	meteringStore, err := newRuntimeWhiteListMeteringStore(database)
+	if err != nil {
+		return nil, fmt.Errorf("rqlite runtime: metering store unavailable: %w", err)
+	}
 	wbSender, err := api.NewWBRoomSender(service, &http.Client{Timeout: 10 * time.Second})
 	if err != nil {
 		return nil, fmt.Errorf("rqlite runtime: WB provider unavailable: %w", err)
@@ -114,9 +118,9 @@ func buildRQLitePanelRuntime(
 		mode: "rqlite", business: business, handler: server.Handler(),
 	}
 	runtime.background = func(workerContext context.Context) {
-		runRQLiteReconcilers(
-			workerContext, service, service, workerID, runtime.whiteListSidecarSenders,
-			runtimeWhiteListRenewalInterval,
+		runRQLiteBackground(
+			workerContext, service, service, service, meteringStore, workerID,
+			runtime.whiteListSidecarSenders, publicationEnabled,
 		)
 	}
 	return runtime, nil

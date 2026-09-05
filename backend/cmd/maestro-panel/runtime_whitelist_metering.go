@@ -1,0 +1,293 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"log"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/shadowbilling"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/sidecaragentclient"
+)
+
+const runtimeWhiteListMeteringInterval = 2 * time.Second
+
+var errRuntimeWhiteListMeteringUnavailable = errors.New("white-list metering runtime is unavailable")
+
+type runtimeWhiteListUsageLookup interface {
+	LookupUsage(context.Context, string) (sidecaragentclient.UsageSnapshot, error)
+}
+
+type runtimeWhiteListMeteringControlPlane interface {
+	shadowbilling.CommercialDebiter
+	WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error)
+	ReconcileWhiteListSidecarIntents(
+		context.Context, string, func(string) (controlplane.ExternalActionSender, bool),
+	) error
+}
+
+type runtimeWhiteListMeteringStore interface {
+	PendingCommercialDebitEntitlementIDs(context.Context) ([]string, error)
+	DrainCommercialDebits(context.Context, string, shadowbilling.CommercialDebiter) error
+	EnsureCommercialProducerCursor(
+		context.Context, shadowbilling.CommercialMeterSource, int64,
+	) (shadowbilling.CommercialProducerCursor, error)
+	ApplyCommercialOrdered(
+		context.Context, shadowbilling.CommercialOrderedUsageEvent, shadowbilling.Policy,
+		shadowbilling.CommercialDebiter,
+	) (shadowbilling.DurableResult, error)
+}
+
+type runtimeWhiteListMeteringCollector struct {
+	control          runtimeWhiteListMeteringControlPlane
+	store            runtimeWhiteListMeteringStore
+	workerID         string
+	senders          map[string]controlplane.ExternalActionSender
+	startupRecovered bool
+	reconcileNeeded  bool
+}
+
+func newRuntimeWhiteListMeteringStore(database rqlite.RQLite) (*shadowbilling.DurableStore, error) {
+	return shadowbilling.NewDurableStore(database)
+}
+
+func runRQLiteBackground(
+	ctx context.Context,
+	renewal whiteListRenewalReconciler,
+	sidecar whiteListSidecarIntentReconciler,
+	metering runtimeWhiteListMeteringControlPlane,
+	meteringStore runtimeWhiteListMeteringStore,
+	workerID string,
+	senders map[string]controlplane.ExternalActionSender,
+	meteringEnabled bool,
+) {
+	if ctx == nil || renewal == nil {
+		return
+	}
+	var workers sync.WaitGroup
+	if meteringEnabled && metering != nil && meteringStore != nil &&
+		strings.TrimSpace(workerID) != "" && len(senders) > 0 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			runRuntimeWhiteListMetering(ctx, &runtimeWhiteListMeteringCollector{
+				control: metering, store: meteringStore, workerID: workerID, senders: senders,
+			}, runtimeWhiteListMeteringInterval)
+		}()
+	}
+	runRQLiteReconcilers(ctx, renewal, sidecar, workerID, senders, runtimeWhiteListRenewalInterval)
+	workers.Wait()
+}
+
+func runRuntimeWhiteListMetering(
+	ctx context.Context,
+	collector *runtimeWhiteListMeteringCollector,
+	interval time.Duration,
+) {
+	if ctx == nil || collector == nil || collector.control == nil || collector.store == nil ||
+		strings.TrimSpace(collector.workerID) == "" || len(collector.senders) == 0 || interval <= 0 {
+		return
+	}
+	runPass := func() {
+		if err := collector.runPass(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("white-list metering reconciliation deferred: %v", err)
+		}
+	}
+	runPass()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runPass()
+		}
+	}
+}
+
+func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context) (runErr error) {
+	defer func() {
+		if !collector.reconcileNeeded {
+			return
+		}
+		if err := collector.reconcile(ctx); err != nil {
+			if runErr == nil {
+				runErr = errRuntimeWhiteListMeteringUnavailable
+			}
+			return
+		}
+		collector.reconcileNeeded = false
+	}()
+
+	if !collector.startupRecovered {
+		entitlementIDs, err := collector.store.PendingCommercialDebitEntitlementIDs(ctx)
+		if err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		for _, entitlementID := range entitlementIDs {
+			collector.reconcileNeeded = true
+			if err := collector.store.DrainCommercialDebits(ctx, entitlementID, collector.control); err != nil {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+		}
+		collector.startupRecovered = true
+	}
+
+	plan, err := collector.control.WhiteListMeteringPlan(ctx)
+	if err != nil {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
+	routes := make(map[string]controlplane.WhiteListMeteringRoute, len(plan.Routes))
+	for _, route := range plan.Routes {
+		if route.ManagedEmail == "" {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		if _, duplicate := routes[route.ManagedEmail]; duplicate {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		routes[route.ManagedEmail] = route
+	}
+	for _, origin := range plan.Origins {
+		sender, ok := collector.senders[origin.Origin.NodeID]
+		if !ok || sender == nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		lookup, ok := sender.(runtimeWhiteListUsageLookup)
+		if !ok {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		snapshot, lookupErr := lookup.LookupUsage(ctx, origin.Desired.Action.ActionKey)
+		if lookupErr != nil || !runtimeWhiteListUsageReceiptMatches(origin.Receipt, snapshot.Receipt) {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		if len(snapshot.Users)+len(snapshot.UnavailableUsers) != len(routes) {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		seen := make(map[string]struct{}, len(routes))
+		for _, email := range snapshot.UnavailableUsers {
+			if _, ok := routes[email]; !ok {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			seen[email] = struct{}{}
+		}
+		for _, user := range snapshot.Users {
+			route, ok := routes[user.Email]
+			if !ok {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			if _, duplicate := seen[user.Email]; duplicate {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			seen[user.Email] = struct{}{}
+			if err := collector.applyUser(ctx, origin, route, snapshot.SampledAt, user); err != nil {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+		}
+		if len(seen) != len(routes) {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+	}
+	return nil
+}
+
+func (collector *runtimeWhiteListMeteringCollector) applyUser(
+	ctx context.Context,
+	origin controlplane.WhiteListMeteringOrigin,
+	route controlplane.WhiteListMeteringRoute,
+	sampledAt time.Time,
+	user sidecaragentclient.UsageUser,
+) error {
+	sampledAtUnix := sampledAt.Unix()
+	if sampledAtUnix <= 0 || sampledAtUnix < route.Policy.PeriodStartsAtUnix ||
+		sampledAtUnix >= route.Policy.PeriodEndsAtUnix || route.ExitID == "" || user.Email != route.ManagedEmail {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
+	policy, err := runtimeWhiteListMeteringPolicy(route)
+	if err != nil {
+		return err
+	}
+	baseXrayIdentity, ok := route.Entitlement.XrayIdentity()
+	if !ok {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
+	physicalSource := shadowbilling.CommercialMeterSource{
+		OriginID: origin.Origin.OriginID, ExitID: route.ExitID,
+		CounterSourceID:   "xray-api:" + origin.Origin.OriginID + ":" + route.ExitID,
+		XrayProcessBootID: origin.Receipt.XrayProcessBootID,
+		RouteXrayIdentity: route.ManagedEmail,
+	}
+	cursor, err := collector.store.EnsureCommercialProducerCursor(ctx, physicalSource, sampledAtUnix)
+	if err != nil {
+		return err
+	}
+	eventID := runtimeWhiteListMeteringEventID(cursor.MeterEpoch, route.ManagedEmail, cursor.NextSampleSequence)
+	collector.reconcileNeeded = true
+	_, err = collector.store.ApplyCommercialOrdered(ctx, shadowbilling.CommercialOrderedUsageEvent{
+		OrderedUsageEvent: shadowbilling.OrderedUsageEvent{
+			UsageEvent: shadowbilling.UsageEvent{
+				EventID: eventID, InstanceID: origin.Origin.OriginID, MeterEpoch: cursor.MeterEpoch,
+				XrayIdentity: baseXrayIdentity, UplinkBytes: user.UplinkBytes, DownlinkBytes: user.DownlinkBytes,
+			},
+			CounterGeneration: 1, SampleSequence: cursor.NextSampleSequence,
+		},
+		Source: cursor.Source, SampledAtUnix: sampledAtUnix,
+	}, policy, collector.control)
+	if err != nil {
+		return err
+	}
+	if err := collector.store.DrainCommercialDebits(ctx, route.Entitlement.EntitlementID(), collector.control); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (collector *runtimeWhiteListMeteringCollector) reconcile(ctx context.Context) error {
+	resolve := func(nodeID string) (controlplane.ExternalActionSender, bool) {
+		sender, ok := collector.senders[nodeID]
+		return sender, ok && sender != nil
+	}
+	return collector.control.ReconcileWhiteListSidecarIntents(ctx, collector.workerID, resolve)
+}
+
+func runtimeWhiteListMeteringPolicy(route controlplane.WhiteListMeteringRoute) (shadowbilling.Policy, error) {
+	policy := route.Policy
+	if policy.BillingPeriodID == "" || policy.Unit != string(shadowbilling.UnitGBDecimal) ||
+		policy.Basis != string(shadowbilling.BasisUplinkPlusDownlink) || policy.IncludedBytes != 0 ||
+		policy.SoftLimitBytes != 0 || policy.HardLimitBytes != 0 || policy.GraceBytes != 0 ||
+		policy.PriceMode != string(shadowbilling.PriceFree) || policy.PriceSource != string(shadowbilling.PriceGlobal) ||
+		policy.Currency != "" || policy.MinorUnitsPerUnit != 0 {
+		return shadowbilling.Policy{}, errRuntimeWhiteListMeteringUnavailable
+	}
+	return shadowbilling.NewPolicy(route.Entitlement, shadowbilling.PolicySpec{
+		BillingPeriodID: policy.BillingPeriodID,
+		Unit:            shadowbilling.UnitGBDecimal, Basis: shadowbilling.BasisUplinkPlusDownlink,
+		Prices: shadowbilling.PriceOptions{Global: &shadowbilling.Price{Mode: shadowbilling.PriceFree}},
+	})
+}
+
+func runtimeWhiteListUsageReceiptMatches(
+	want controlplane.WhiteListSidecarReceipt,
+	got sidecaragentclient.Receipt,
+) bool {
+	return want.ActionKey == got.ActionKey && want.OriginID == got.OriginID &&
+		want.ReleaseID == got.ReleaseID && want.XrayProcessBootID == got.XrayProcessBootID &&
+		want.ConfigDigest == got.ConfigDigest && want.DesiredGeneration == got.DesiredGeneration &&
+		want.ManagedUserSetDigest == got.ManagedUserSetDigest && want.AppliedAt.Equal(got.AppliedAt) &&
+		want.ExpiresAt.Equal(got.ExpiresAt)
+}
+
+func runtimeWhiteListMeteringEventID(meterEpoch, routeIdentity string, sequence uint64) string {
+	digest := sha256.Sum256([]byte(
+		"maestro-whitelist-usage-event-v1\x00" + meterEpoch + "\x00" + routeIdentity + "\x00" +
+			strconv.FormatUint(sequence, 10),
+	))
+	return "wl-usage-" + hex.EncodeToString(digest[:])
+}
