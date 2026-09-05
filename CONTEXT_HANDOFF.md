@@ -10,10 +10,10 @@
 - Канонический репозиторий: `evgenmay1978-del/proectmaestro-vpn`.
 - Единственная рабочая/push-ветка: `codex/yandex-cdn-whitelist-task3-sync`.
 - Worktree: `C:/Users/User/Documents/Codex/2026-08-05/new-chat/mvpn-yandex-cdn-whitelist-task3-sync`.
-- Последний проверенный Android source: `61076496484144a921d2f28ac83b016c5e459f8b`; последняя GREEN backend база — `7d98663ccca2c99224ad501c0f0a437221727c4c`. Новое изменение metering deadlines ниже ожидает exact-SHA HA; не считать его live.
+- Последний проверенный Android source: `61076496484144a921d2f28ac83b016c5e459f8b`; последняя GREEN backend база — `7c27caf055e05c5417a0896317ca1395120c4449`. Metering deadlines исправлены и проверены в CI, но ещё не deployed.
 - Последующий HEAD может содержать handoff/manifest и исправление docs-check; не путать его с SHA проверенной Android сборки.
-- HA run [33961608220](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961608220) **SUCCESS**: Go tests, race, vet, rqlite integration и workflow сборки.
-- Preview run [33961612988](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961612988) **SUCCESS** на том же SHA.
+- HA run [33967852643](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33967852643) **SUCCESS** на `7c27caf055e05c5417a0896317ca1395120c4449`: Go tests, race, vet, rqlite integration и immutable panel build. Run terminal; не dispatch заново.
+- Preview run [33961612988](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961612988) **SUCCESS** на предшествующем `7d98663ccca2c99224ad501c0f0a437221727c4c`; Android после6107649 не менялся.
 - Run [33964867550](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33964867550) **SUCCESS** на `61076496484144a921d2f28ac83b016c5e459f8b`: `mobile-eye-compile`, Kotlin app/test compilation и пять focused классов (прежние четыре UI/geometry + семь тестов `WhiteListBalanceTest`). Preview job101303099838 также SUCCESS; это не новая визуальная приёмка глаза.
 - Ни APK, ни production OTA/release не выпускались. Не запускать заново эти завершённые проверки без изменения проверяемого поведения.
 - Активная полная цель НЕ завершена. Не переименовывать остаток в новый проект и не добавлять номера этапов ради учёта.
@@ -111,13 +111,22 @@ Admission candidates должны браться из publications+credentials: 
 managed users и при прямом wiring оставит bootstrap deadlock. В новых исходниках sampling получает
 deadline start+2s, reconcile — отдельный start+5s; startup recovery failure также вызывает reconcile.
 Оба receipt-recovery пути сохраняют deadline поверх WithoutCancel и не повторяют неизвестный POST.
-Независимый six-file review CLEAN; четыре focused regressions добавлены, Go tests только в GitHub.
+Независимый six-file review CLEAN; четыре focused regressions прошли в exact-SHA HA33967852643.
 Это cooperative budgets, НЕ доказанная частота sampling/revoke: Origin/DB calls последовательны,
 mutex/нагрузка и live latency ещё требуют существующего canary gate.
 Same-boot producer всегда передаёт reset_sequence0/counter_generation1; точный closing sample
 при смене периода/outage не производится. Approved plan задаёт формулу p99.9, но не window,
 population, sample count или freshness: их нельзя заменить выдуманным числом. Существующий
 synthetic commercial counter proof не является p99.9 measurement. Publication/collector остаются OFF.
+
+Следующий минимальный wiring: существующий `WhiteListAdmissionReserve` содержит measured p999,
+measured-at и valid-until; `RequiredBytes` уже считает утверждённую формулу.
+Получать ID-only candidates из publications × credentials через `whiteListAdmissionBase`
+(пример обхода — `EnsureWhiteListMeteringBootstrap`), не из уже managed plan.Routes.
+После всех authenticated Origin observations перед reconcile нужен вызов существующего
+`AuthorizeWhiteListMeteringAdmission` с реальным verified-reserve provider.
+Готового production measured-report/loader не найдено; его ещё нужно реализовать и получить
+измерения. Отсутствующий/просроченный report должен оставлять admission закрытым.
 
 ## 7. Глаз: точная незакрытая работа
 
