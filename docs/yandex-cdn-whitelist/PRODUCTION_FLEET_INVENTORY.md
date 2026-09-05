@@ -99,7 +99,7 @@ hostname; no TOFU, password, new key, or port opening was used.
 
 | Node | Intended/live role observed | Ordinary services observed | Candidate ports | Other read-only facts | Mutation blockers |
 | --- | --- | --- | --- | --- | --- |
-| S4 | Existing x-ui/VPN and private CDN canary node; Ubuntu 24.04 x64 | Ordinary/private hashes, units/PIDs and strict SSH PASS; b441 and isolated ingress ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444`; ingress `28080` without public allowance | Console, preflight, b441/synthetic receipts, corrected ingress resume and isolated direct traffic PASS; default nginx masked; static firewall policy unchanged | GET-only recovery PASS; unknown-outcome fault injection, CDN/public-edge/counters/client proof and deliberate rollback/re-apply open |
+| S4 | Existing x-ui/VPN and private CDN canary node; Ubuntu 24.04 x64 | Ordinary/private hashes, units/PIDs and strict SSH PASS; b441 and isolated ingress ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444`; ingress `28080` without public allowance | Console, preflight, b441/synthetic receipts, corrected ingress resume, direct traffic and point-in-time per-user counters PASS; default nginx masked; static firewall policy unchanged | GET-only recovery PASS; unknown-outcome fault injection, CDN/public-edge/client proof, continuous collection/billing and deliberate rollback/re-apply open |
 | S2 | Multi-protocol and bot node; Ubuntu 24.04 x64 | Hysteria, nginx, Caddy, and `vpn_bot` active | `18081/18082/18084/18443/18444` require a fresh preflight | Time/default-route/failed-unit checks sane; root filesystem about 70% used with about 2.8 GiB free; both systemd-networkd and networking active, so network ownership is unresolved | Verified service backup/restore and the remaining mutation preconditions are not proven; unresolved network ownership is an additional stop gate |
 | S3 | x-ui/VPN node; Ubuntu 22.04 x64 | x-ui active with child Xray under protected `/usr/local/x-ui` | `18081/18082/18084/18443/18444` require a fresh preflight | Time/default-route/failed-unit checks sane; identity continuity only; UFW inactive; both systemd-networkd and networking active | Verified backup/restore and current console proof are not proven; network ownership and reviewed firewall change remain stop gates |
 | Current S1 | Replacement public control plane; owner-authoritative pin and hostname matched; Ubuntu 24.04 x64 | maestro-panel, x-ui/Xray, Hysteria, and nginx active | `18081/18082/18084/18443/18444` require a fresh preflight | Strict pinned key-only SSH PASS; controller-source mTLS leaf with exact `maestro-whitelist-controller` SAN staged in a protected backup; live services unchanged | Console path, backup/restore, node deploy digest binding, firewall plan, and rollback under five minutes are not proven |
@@ -143,6 +143,15 @@ S4 egress match. The owned client stopped; ordinary/private file and service
 baselines remained unchanged, with no desired POST or service/config/firewall/CDN
 mutation. This does not prove CDN/public-edge, counters or general device
 behavior. Deliberate firewall/CDN rollback remains open; CDN stays `NO_GO`.
+
+A separate metered direct request passed in `343 ms` (curl exit `0`, S4 egress
+match): exact synthetic uplink `+799` and downlink `+3564` bytes. Both samples
+required the exact two names through existing mTLS API `28082`, reset false;
+hash-bound portable grpcurl `1.9.3` and Xray `26.5.9` proto used strict TLS
+authority without reflection. Owned client stopped and ordinary/private/service
+baseline stayed unchanged; no private probe, desired/reset/billing/firewall/CDN
+mutation or system install/service/bridge. Only point-in-time counters/delta
+are proved, not continuous collection, GB debit, billing or 48-hour accounting.
 
 The original direct-traffic preflight stopped before client startup or traffic:
 root-relative checksum paths were checked from SSH cwd `/root`. This was not

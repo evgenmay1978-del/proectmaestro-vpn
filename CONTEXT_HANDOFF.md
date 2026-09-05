@@ -121,20 +121,33 @@ HEAD does not replace that package identity or the installed release identity.
   Curl exited `0` in `468 ms`; the returned egress matched S4. The owned test
   client stopped, and ordinary/private files and the service baseline remained
   unchanged. No desired POST, private-subscription probe, service/config/firewall
-  or CDN mutation occurred. This is isolated direct-ingress evidence, not CDN,
+  or CDN mutation occurred. That first request is isolated direct-ingress evidence, not CDN,
   public-edge, counters, or general device proof.
   The original traffic preflight failed before client startup because saved
   checksum paths were root-relative but SSH started in `/root`; it did not
   prove content drift or send traffic. Its evidence is retained. The corrected
   helper used checksum subprocess `cwd='/'` and fresh exclusive evidence;
   bounded independent review and syntax validation passed before this proof.
+- A separate metered direct-ingress proof now PASS: curl `0`/`343 ms`, S4
+  egress match, per-user uplink `+799` bytes and downlink `+3564` bytes.
+  Both samples required exactly the same two synthetic counter names through
+  existing mTLS API `28082`, with reset false. Official portable grpcurl `1.9.3`
+  and Xray `26.5.9` command proto were hash-bound; TLS authority was
+  `maestro-xray-api`, with neither insecure TLS nor reflection. The tool lives
+  only in the protected backup: no system install, new service or TLS bridge.
+  The owned client stopped; ordinary/private files and service baseline stayed
+  unchanged. No desired POST, private probe, counter reset, billing mutation,
+  firewall or CDN change ran. The missing-before-counter zero fallback was
+  removed in review before the first live query; syntax and bounded review PASS.
+  This closes only point-in-time exact per-user counters/delta proof, not a
+  continuous collector, GB debit, commercial billing or 48-hour accounting.
 - Read-only bot identity discovery is complete: current S1
   `@MaestroSecureVPN_bot` uses `vpnbot.service`; S2 `@MaestroSecureNaive_bot`
   uses `vpn_bot.service`. Each was active with one process, webhook absent and
   pending count zero. `@maestrovpn` is configuration-backed; publishing rights
   and commercial delivery/refresh flows are not proven. No messages were sent.
 
-Next: finish CDN/public-edge and counters proof, unknown-outcome fault injection,
+Next: finish CDN/public-edge proof, unknown-outcome fault injection,
 deliberate rollback
 and same-release re-apply before S2 → S3 → S1. Full client/bot/channel/panel
 refresh, last-known-good recovery and continuous 48-hour accounting remain open.

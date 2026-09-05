@@ -26,6 +26,16 @@ baselines were unchanged, and no desired POST or service/config/firewall/CDN
 mutation ran. This is not CDN/public-edge, counters, or general device proof;
 those gates and deliberate rollback remain open.
 
+A separate metered direct proof now PASS: curl `0`/`343 ms`, S4 egress match,
+per-user uplink `+799` bytes and downlink `+3564` bytes. Both samples require
+the exact pair via existing mTLS API `28082`, reset false, with hash-bound
+portable grpcurl `1.9.3` and Xray `26.5.9` proto; no reflection or insecure TLS.
+The tool is confined to the protected backup, with no system install, service
+or TLS bridge. Owned client cleanup and ordinary/private/service baseline PASS;
+no private probe, desired POST, counter reset, billing, firewall or CDN mutation.
+Only point-in-time counters/delta is closed; continuous collection, GB debit,
+commercial billing, 48-hour accounting, CDN/device and rollback gates stay open.
+
 The first traffic preflight failed before client startup or traffic because
 saved checksum paths are root-relative but SSH cwd was `/root`. Preserve that
 failed evidence; it did not prove file drift. The reviewed correction checks

@@ -1,7 +1,7 @@
 # Commercial white-list canary evidence
 
 Status: 2026-09-05 checkpoint; b441 and isolated ingress ACTIVE;
-synthetic generations 2/3/4 and direct ingress traffic PASS;
+synthetic generations 2/3/4, direct ingress traffic and point-in-time counters PASS;
 full promotion remains NO_GO.
 
 This file is the redacted Task 15 evidence index. It must never contain host
@@ -31,7 +31,7 @@ Task 15 fleet, client-matrix, accounting, or production-readiness proof.
 
 | Node | Identity/role | Ordinary baseline | Candidate ports | Read-only verdict | Mutation verdict |
 | --- | --- | --- | --- | --- | --- |
-| S4 | Existing VPN plus private CDN canary node | Ordinary/private saved hashes, units/PIDs and strict SSH PASS; b441 and isolated ingress ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444`; ingress `28080` without public allowance | Console/preflight/apply, synthetic 2/3/4, corrected ingress resume and isolated direct traffic PASS; static firewall policy unchanged | GET-only recovery PASS; unknown-outcome fault injection, client/CDN/public-edge, counters, deliberate rollback/re-apply and promotion open |
+| S4 | Existing VPN plus private CDN canary node | Ordinary/private saved hashes, units/PIDs and strict SSH PASS; b441 and isolated ingress ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444`; ingress `28080` without public allowance | Console/preflight/apply, synthetic 2/3/4, corrected ingress resume, direct traffic and point-in-time per-user counters PASS; static firewall policy unchanged | GET-only recovery PASS; unknown-outcome fault injection, client/CDN/public-edge, continuous collection/billing, deliberate rollback/re-apply and promotion open |
 | S2 | Multi-protocol/bot node | Hysteria, nginx, Caddy, `vpn_bot` active | Five-port commercial set requires fresh proof | `READ_ONLY PASS`; network ownership unresolved | `NO_GO` |
 | S3 | x-ui/VPN node | x-ui with protected child Xray active | Five-port commercial set requires fresh proof | `READ_ONLY PASS`; network ownership unresolved | `NO_GO` |
 | Current S1 | Replacement public control plane | maestro-panel, x-ui/Xray, Hysteria, nginx active | Five-port commercial set requires fresh proof | Strict pinned SSH `PASS`; exact controller-source leaf staged only | `NO_GO` |
@@ -103,7 +103,13 @@ proof remain open. No second paid CDN resource is authorized.
 | Direct authenticated traffic | Existing synthetic generation 4 through loopback SOCKS -> `28080` ingress -> `28081` commercial XHTTP/ML-KEM -> `exit-s4` relay -> HTTPS egress-check service (ipify); curl exit 0, `468 ms`, S4 egress match |
 | Direct proof isolation | Owned test client stopped; ordinary/private hashes and service baseline unchanged; no desired POST, private probe, service/config/firewall or CDN mutation |
 | Retained direct preflight failure | Root-relative checksum entries were evaluated from `/root`, before client startup or traffic; corrected checksum subprocess cwd `/` and new exclusive evidence passed bounded review/syntax and the direct proof |
-| Remaining boundary | CDN/public-edge, counters, general device proof and deliberate ingress rollback not yet completed; no private-canary probe |
+| Separate metered direct proof | Curl exit 0, `343 ms`, S4 egress match; exact synthetic uplink `+799` bytes and downlink `+3564` bytes; prior `468 ms` proof remains distinct |
+| Counter query binding | Exact two names in both samples; existing mTLS API `28082`, authority `maestro-xray-api`, reset false; no insecure TLS or reflection |
+| Portable official tool | grpcurl `1.9.3`; archive SHA-256 `a926b62a85787ccf73ef8736b3ae554f1242e39d92bb8767a79d6dd23b11d1d5`; binary SHA-256 `62e2e4315bb70fab2e27f86c1f7738d09076a097a2dc8e0f701e386251172e40` |
+| Pinned schema | Xray `26.5.9` StatsService command proto, no imports; SHA-256 `aadeb6b30e2bd13782896fa7addba101f522ea99438f9511aa4d8f1d62dcf58a` |
+| Metered proof isolation | Owned client stopped; ordinary/private and service baseline unchanged; no desired POST, private probe, reset, billing, firewall or CDN mutation; tool only in protected backup, no system install/service/bridge |
+| Pre-query review correction | Missing-before-counter zero fallback removed before first live query; both samples require exact pair; syntax and independent review PASS |
+| Remaining boundary | CDN/public-edge, general devices, deliberate rollback, continuous collector/GB debit/commercial billing and 48-hour accounting remain open; only point-in-time counters/delta gate closed |
 
 Socket comparisons ignore formatting and queue occupancy, not ownership.
 Never disable fail2ban or restore a historical ban list for equality. A failed

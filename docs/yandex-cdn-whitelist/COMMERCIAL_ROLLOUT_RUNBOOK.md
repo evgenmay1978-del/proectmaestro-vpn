@@ -81,8 +81,17 @@ generation 4 through loopback SOCKS -> ingress `28080` -> commercial XHTTP/ML-KE
 `28081` -> `exit-s4` relay -> HTTPS egress-check service (ipify), with curl exit `0` in
 `468 ms` and S4 egress match. The owned client stopped; ordinary/private files
 and service baseline remained unchanged. No desired POST, private probe or
-service/config/firewall/CDN mutation ran. CDN/public-edge, counters, general
+service/config/firewall/CDN mutation ran. CDN/public-edge, general
 device proof and deliberate rollback gates remain open.
+
+A separate metered request passed with curl `0`/`343 ms`, S4 egress match and
+exact per-user uplink `+799`/downlink `+3564` bytes. Both samples require the
+exact pair through existing mTLS API `28082` with reset false, using hash-bound
+portable grpcurl `1.9.3` and Xray `26.5.9` proto without reflection/insecure TLS.
+Owned client cleanup and ordinary/private/service baselines PASS; no desired,
+billing, firewall or CDN mutation. This closes only the point-in-time delta:
+continuous collection, GB debit, commercial billing and 48-hour accounting
+remain open. No system tool install, new service or TLS bridge was added.
 
 The original traffic preflight failed before client startup or traffic because
 root-relative checksum entries were checked from SSH cwd `/root`, not because
@@ -327,9 +336,10 @@ for another node.
    Yandex CDN traffic stays `NO_GO` until functional transport and exact rollback
    gates are proved.
 6. Isolated direct authenticated ingress/sidecar traffic is proved only for
-   the existing synthetic S4 identity and HTTPS request above. Still prove
+   the existing synthetic S4 identity and HTTPS requests above. The exact
+   per-user uplink/downlink point-in-time delta is now proved; still prove
    Yandex CDN traffic, literal-edge access with
-   correct SNI/Host, per-user uplink plus downlink counters, selected-exit
+   correct SNI/Host, continuous collection/accounting, selected-exit
    country label truth, TCP, UDP, DNS, idle recovery, and a network transition.
 7. Prove ordinary service/process/listener/config identity and a real ordinary
    client baseline remain unchanged. Any regression triggers immediate
