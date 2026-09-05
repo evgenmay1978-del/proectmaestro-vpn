@@ -11,18 +11,27 @@ import (
 var errInvalidSnapshotProtection = errors.New("invalid snapshot protection")
 
 type SnapshotProtection struct {
+	SourceDigest          string
 	ClusterHMACKeySHA256  string
 	LegacyTrialSaltSHA256 string
 	HasTrials             bool
 	EncryptedSecrets      []LegacyEncryptedSecret
+	Customers             []LegacyCustomer
 }
 
 func ProtectionFromSnapshot(snapshot Snapshot) SnapshotProtection {
+	customers := append([]LegacyCustomer(nil), snapshot.Customers...)
+	for index := range customers {
+		customers[index].ProtocolTags = append([]string(nil), customers[index].ProtocolTags...)
+		customers[index].NodeIDs = append([]string(nil), customers[index].NodeIDs...)
+	}
 	return SnapshotProtection{
+		SourceDigest:          digestSnapshot(snapshot),
 		ClusterHMACKeySHA256:  snapshot.ClusterHMACKeySHA256,
 		LegacyTrialSaltSHA256: snapshot.LegacyTrialSaltSHA256,
 		HasTrials:             len(snapshot.Trials) > 0,
 		EncryptedSecrets:      append([]LegacyEncryptedSecret(nil), snapshot.EncryptedSecrets...),
+		Customers:             customers,
 	}
 }
 
@@ -97,9 +106,9 @@ func ValidateSnapshotProtection(
 		return nil, errInvalidSnapshotProtection
 	}
 	return &TrialImportProtection{
-		KeyVersion:             envelope.KeyVersion,
+		KeyVersion:            envelope.KeyVersion,
 		EncryptedSaltEnvelope: string(encoded),
-		SaltSHA256:             protection.LegacyTrialSaltSHA256,
+		SaltSHA256:            protection.LegacyTrialSaltSHA256,
 	}, nil
 }
 

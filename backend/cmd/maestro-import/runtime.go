@@ -49,7 +49,7 @@ type targetVoter struct {
 type keyBundle struct {
 	SchemaVersion     int            `json:"schema_version"`
 	CurrentKeyVersion int            `json:"current_key_version"`
-	EncryptionKeys   []versionedKey `json:"encryption_keys"`
+	EncryptionKeys    []versionedKey `json:"encryption_keys"`
 	HMACKeyB64        string         `json:"hmac_key_b64"`
 }
 
@@ -61,7 +61,7 @@ type versionedKey struct {
 type loadedKeyBundle struct {
 	CurrentKeyVersion int
 	EncryptionKeys    map[int][]byte
-	HMACKey            []byte
+	HMACKey           []byte
 }
 
 type receiptSigningKey struct {
@@ -178,6 +178,10 @@ func buildProductionApplyRuntime(
 	if err != nil {
 		return nil, errInvalidProductionRuntime
 	}
+	customerProtection, err := importer.ValidateProductionCustomerIdentities(config.Protection, box)
+	if err != nil {
+		return nil, errInvalidProductionRuntime
+	}
 	bundle.zero()
 	keysZeroed = true
 	zero(rawTrialSalt)
@@ -207,12 +211,7 @@ func buildProductionApplyRuntime(
 	if err != nil {
 		return nil, errInvalidProductionRuntime
 	}
-	var store *importer.RQLiteApplyStore
-	if trialProtection == nil {
-		store, err = importer.NewRQLiteApplyStore(db, dependencies.now)
-	} else {
-		store, err = importer.NewRQLiteApplyStoreWithTrialProtection(db, dependencies.now, *trialProtection)
-	}
+	store, err := importer.NewProductionRQLiteApplyStore(db, dependencies.now, customerProtection, trialProtection)
 	if err != nil {
 		return nil, errInvalidProductionRuntime
 	}

@@ -22,6 +22,8 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/importer"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
+	legacystore "github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
 const (
@@ -295,22 +297,15 @@ func prepareProductionProofFiles(t *testing.T, root string) productionProofFiles
 	if err != nil {
 		t.Fatalf("new proof secret box: %v", err)
 	}
-	plaintext := []byte(productionIdentityMarker)
-	envelope, err := box.Seal(controlplane.SecretScope{
-		OwnerType: "customer",
-		OwnerID:   "s1:customer:production-binary-1",
-		Field:     "identity",
-		Kind:      "customer-identity",
-	}, plaintext)
-	if err != nil {
-		t.Fatalf("seal production identity: %v", err)
-	}
+	row := snapshot.Customers[0]
+	identity := importer.ProductionCustomerIdentity{SchemaVersion: 1, SubID: "synthetic-production-sub-id", Generation: row.Generation,
+		Customer: legacystore.Customer{Login: row.Login, SubToken: productionIdentityMarker, Expires: time.Unix(row.ExpiresAtUnix, 0).UTC(),
+			VLESS:  &subgen.VLESSCreds{Server: "s1.example.test", Port: 443, UUID: "04c5d063-87d8-438a-8b77-12bca6262137", SNI: "example.test"},
+			Hy2:    &subgen.Hy2Creds{Server: "hy.example.test", Port: 443, User: row.Login, Pass: "synthetic-hy-password", SNI: "example.test"},
+			AnyTLS: &subgen.AnyTLSCreds{Server: "tls.example.test", Port: 443, Password: "synthetic-anytls-password", SNI: "example.test"}}}
 	snapshot.ClusterHMACKeySHA256 = proofSHA256(hmacKey)
 	snapshot.LegacyTrialSaltSHA256 = proofSHA256(trialSalt)
-	snapshot.EncryptedSecrets[0].KeyVersion = envelope.KeyVersion
-	snapshot.EncryptedSecrets[0].NonceB64 = base64.StdEncoding.EncodeToString(envelope.Nonce)
-	snapshot.EncryptedSecrets[0].CiphertextB64 = base64.StdEncoding.EncodeToString(envelope.Ciphertext)
-	snapshot.EncryptedSecrets[0].SHA256 = proofSHA256(plaintext)
+	protectRuntimeCustomerIdentity(t, &snapshot, box, identity)
 	plan, report := importer.Plan(snapshot, defaultPlanOptions())
 	if len(report.Blockers) != 0 {
 		t.Fatalf("production fixture blockers: %#v", report.Blockers)

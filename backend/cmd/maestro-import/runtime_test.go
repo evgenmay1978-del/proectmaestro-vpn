@@ -25,6 +25,8 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/importer"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
+	legacystore "github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
 type runtimeCertificateFixture struct {
@@ -324,9 +326,12 @@ func (f *runtimeRQLite) Request(
 }
 
 func (f *runtimeRQLite) QueryLinearizable(
-	context.Context, ...rqlite.Statement,
+	_ context.Context, statements ...rqlite.Statement,
 ) ([]rqlite.Result, error) {
 	f.linearCalls++
+	if len(statements) == 1 && strings.Contains(statements[0].SQL, "AS envelope FROM credentials") {
+		return []rqlite.Result{{}}, nil
+	}
 	return f.linearResults, nil
 }
 
@@ -351,10 +356,10 @@ func (v *runtimeSchemaVerifier) VerifyIdentity(context.Context) (controlplane.Sc
 
 func runtimeConfig(files runtimeFiles, protection importer.SnapshotProtection) applyRuntimeConfig {
 	return applyRuntimeConfig{
-		TargetConfigFile:    files.targetConfig,
-		KeyBundleFile:       files.keyBundle,
-		ReceiptSigningFile:  files.signingKey,
-		Protection:          protection,
+		TargetConfigFile:   files.targetConfig,
+		KeyBundleFile:      files.keyBundle,
+		ReceiptSigningFile: files.signingKey,
+		Protection:         protection,
 	}
 }
 
@@ -404,9 +409,9 @@ func TestProductionFactoryCallsVerifyIdentityButNeverApply(t *testing.T) {
 	db := &runtimeRQLite{linearResults: []rqlite.Result{{
 		Rows: []map[string]any{{"key_version": int64(1)}},
 	}}}
-	protection := importer.SnapshotProtection{
+	protection := importer.ProtectionFromSnapshot(importer.Snapshot{
 		ClusterHMACKeySHA256: hexSHA256(files.hmacKey),
-	}
+	})
 	got, err := buildProductionApplyRuntime(
 		context.Background(),
 		runtimeConfig(files, protection),
@@ -416,7 +421,7 @@ func TestProductionFactoryCallsVerifyIdentityButNeverApply(t *testing.T) {
 		t.Fatalf("buildProductionApplyRuntime: %v", err)
 	}
 	if got == nil || got.Store == nil || verifier.calls != 1 || newCalls != 1 ||
-		db.linearCalls != 1 || db.requestCalls != 0 {
+		db.linearCalls != 2 || db.requestCalls != 0 {
 		t.Fatalf("runtime=%#v new=%d verify=%d linear=%d request=%d",
 			got, newCalls, verifier.calls, db.linearCalls, db.requestCalls)
 	}
@@ -429,9 +434,9 @@ func TestProductionFactoryRejectsMissingTargetKeyVersionBeforeMutation(t *testin
 	db := &runtimeRQLite{linearResults: []rqlite.Result{{
 		Rows: []map[string]any{{"key_version": int64(2)}},
 	}}}
-	protection := importer.SnapshotProtection{
+	protection := importer.ProtectionFromSnapshot(importer.Snapshot{
 		ClusterHMACKeySHA256: hexSHA256(files.hmacKey),
-	}
+	})
 	if _, err := buildProductionApplyRuntime(
 		context.Background(),
 		runtimeConfig(files, protection),
@@ -444,18 +449,83 @@ func TestProductionFactoryRejectsMissingTargetKeyVersionBeforeMutation(t *testin
 	}
 }
 
+func protectRuntimeCustomerIdentity(t *testing.T, snapshot *importer.Snapshot, box *controlplane.SecretBox, identity importer.ProductionCustomerIdentity) {
+	t.Helper()
+	row := &snapshot.Customers[0]
+	canonical, err := controlplane.CanonicalLoginKey(identity.Customer.Login)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := map[string]string{"vless": identity.Customer.VLESS.UUID}
+	if identity.Customer.Hy2 != nil {
+		credentials["hysteria2"] = identity.Customer.Hy2.Pass
+	}
+	if identity.Customer.Naive != nil {
+		credentials["naive"] = identity.Customer.Naive.Password
+	}
+	if identity.Customer.AnyTLS != nil {
+		credentials["anytls"] = identity.Customer.AnyTLS.Password
+	}
+	fingerprint, err := json.Marshal(credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.LoginKeyHMAC = box.LookupHMAC("customer-login", []byte(canonical))
+	row.UUIDHMAC = box.LookupHMAC("customer-uuid", []byte(identity.Customer.VLESS.UUID))
+	row.SubIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+	row.TokenHMAC = box.LookupHMAC("subscription-token", []byte(identity.Customer.SubToken))
+	row.CredentialFingerprintHMAC = box.LookupHMAC("customer-credentials", fingerprint)
+	plaintext, err := json.Marshal(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := controlplane.SecretScope{OwnerType: "customer", OwnerID: row.SourceKey, Field: "identity", Kind: "customer-identity"}
+	envelope, err := box.Seal(scope, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.EncryptedSecrets = []importer.LegacyEncryptedSecret{{SecretID: row.IdentitySecretRef,
+		OwnerType: scope.OwnerType, OwnerSourceKey: scope.OwnerID, Field: scope.Field, Kind: scope.Kind,
+		KeyVersion: envelope.KeyVersion, NonceB64: base64.StdEncoding.EncodeToString(envelope.Nonce),
+		CiphertextB64: base64.StdEncoding.EncodeToString(envelope.Ciphertext), SHA256: hexSHA256(plaintext)}}
+}
+
+func TestProductionFactoryRejectsUnsupportedTypedIdentityBeforeNetwork(t *testing.T) {
+	files := newRuntimeFiles(t)
+	box, err := controlplane.NewSecretBox(1, map[int][]byte{1: bytes.Repeat([]byte{0x41}, 32)}, files.hmacKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := importer.ProductionCustomerIdentity{SchemaVersion: 1, SubID: "synthetic-sub-id", Generation: 1,
+		Customer: legacystore.Customer{Login: "SyntheticFactoryCustomer", SubToken: "synthetic-token", Expires: time.Unix(2_100_000_000, 0),
+			VLESS:   &subgen.VLESSCreds{UUID: "4d29cf7f-8581-4243-baba-d39eb481256c"},
+			Devices: map[string]time.Time{"PRIVATE-DEVICE-MARKER": time.Unix(1, 0)}}}
+	snapshot := importer.Snapshot{FormatVersion: 2, SnapshotKind: "full", ClusterHMACKeySHA256: hexSHA256(files.hmacKey),
+		Customers: []importer.LegacyCustomer{{SourceKey: "factory-customer", IdentitySecretRef: "factory-customer-secret",
+			Login: identity.Customer.Login, Generation: identity.Generation, ExpiresAtUnix: identity.Customer.Expires.Unix(),
+			Status: "active", ProtocolTags: []string{"vless"}, NodeIDs: []string{"S1"}}}}
+	protectRuntimeCustomerIdentity(t, &snapshot, box, identity)
+	newCalls := 0
+	db, verifier := &runtimeRQLite{}, &runtimeSchemaVerifier{}
+	_, err = buildProductionApplyRuntime(context.Background(), runtimeConfig(files, importer.ProtectionFromSnapshot(snapshot)),
+		runtimeDependencies(files, db, verifier, &newCalls))
+	if err == nil || strings.Contains(err.Error(), "PRIVATE-DEVICE-MARKER") || newCalls != 0 || verifier.calls != 0 || db.requestCalls != 0 {
+		t.Fatal("unsupported typed legacy identity crossed the production pre-apply boundary")
+	}
+}
+
 func TestProductionFactoryErrorTextIsSecretFree(t *testing.T) {
 	files := newRuntimeFiles(t)
 	marker := "PRIVATE-RUNTIME-MARKER"
 	protection := importer.SnapshotProtection{
 		ClusterHMACKeySHA256: hexSHA256(files.hmacKey),
 		EncryptedSecrets: []importer.LegacyEncryptedSecret{{
-			SecretID: "synthetic-secret",
+			SecretID:  "synthetic-secret",
 			OwnerType: "customer", OwnerSourceKey: "synthetic-owner",
 			Field: "identity", Kind: "subscription", KeyVersion: 1,
-			NonceB64: base64.StdEncoding.EncodeToString([]byte(marker)),
+			NonceB64:      base64.StdEncoding.EncodeToString([]byte(marker)),
 			CiphertextB64: base64.StdEncoding.EncodeToString([]byte(marker)),
-			SHA256: strings.Repeat("a", 64),
+			SHA256:        strings.Repeat("a", 64),
 		}},
 	}
 	newCalls := 0

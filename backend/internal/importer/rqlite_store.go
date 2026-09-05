@@ -17,9 +17,10 @@ import (
 )
 
 type RQLiteApplyStore struct {
-	db              rqlite.RQLite
-	now             func() time.Time
-	trialProtection *TrialImportProtection
+	db                 rqlite.RQLite
+	now                func() time.Time
+	trialProtection    *TrialImportProtection
+	customerProtection *ProductionCustomerProtection
 }
 
 // TrialImportProtection contains only the already encrypted legacy lookup
@@ -179,6 +180,19 @@ SELECT key_version FROM (
 		versions = append(versions, version)
 	}
 	sort.Ints(versions)
+	if s.customerProtection != nil {
+		customerVersions, err := s.productionCustomerKeyVersions(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, version := range customerVersions {
+			if _, exists := seen[version]; !exists {
+				seen[version] = struct{}{}
+				versions = append(versions, version)
+			}
+		}
+		sort.Ints(versions)
+	}
 	return versions, nil
 }
 
@@ -288,6 +302,19 @@ ORDER BY completed_at_unix DESC,import_run_id`, Args: []any{expectedSourceDigest
 		rqlite.Statement{SQL: `SELECT c.customer_id,c.login_key_hmac,c.status,c.expires_at_unix,c.generation,
 EXISTS(SELECT 1 FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1) AS credential_enabled,
 (SELECT COUNT(*) FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1) AS credential_count,
+CASE WHEN (SELECT COUNT(*) FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1)=1
+AND EXISTS(SELECT 1 FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1 AND e.protocol='customer-identity')
+THEN 1 ELSE (
+    (SELECT COUNT(*) FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1)=
+    (SELECT COUNT(DISTINCT e.protocol) FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1)
+    AND (SELECT COUNT(*) FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1)=
+    (SELECT COUNT(DISTINCT p.protocol_tag) FROM desired_protocol_tags p WHERE p.customer_id=c.customer_id
+     AND p.service_name='maestro-core' AND p.protocol_tag IN ('vless','hysteria2','naive','anytls'))
+    AND NOT EXISTS(SELECT 1 FROM credentials e WHERE e.customer_id=c.customer_id AND e.enabled=1
+        AND (e.protocol NOT IN ('vless','hysteria2','naive','anytls') OR NOT EXISTS(
+            SELECT 1 FROM desired_protocol_tags p WHERE p.customer_id=c.customer_id
+            AND p.service_name='maestro-core' AND p.protocol_tag=e.protocol)))
+) END AS credential_set_valid,
 EXISTS(SELECT 1 FROM subscription_tokens t WHERE t.customer_id=c.customer_id AND t.revoked=0) AS token_active,
 (SELECT COUNT(*) FROM subscription_tokens t WHERE t.customer_id=c.customer_id AND t.revoked=0) AS token_count
 FROM customers c WHERE c.status='active' AND NOT EXISTS(
@@ -371,11 +398,12 @@ ORDER BY p.principal_id,r.role_name`},
 		generation, generationOK := applyRowInt(row["generation"])
 		credentialEnabled, credentialEnabledOK := applyRowInt(row["credential_enabled"])
 		credentialCount, credentialCountOK := applyRowInt(row["credential_count"])
+		credentialSetValid, credentialSetOK := applyRowInt(row["credential_set_valid"])
 		tokenActive, tokenActiveOK := applyRowInt(row["token_active"])
 		tokenCount, tokenCountOK := applyRowInt(row["token_count"])
 		if !idOK || !loginOK || !customerStatusOK || customerStatus != "active" || !expiryOK || expiresAt < 0 ||
 			!generationOK || generation < 0 || !credentialEnabledOK || credentialEnabled != 1 ||
-			!credentialCountOK || credentialCount != 1 || !tokenActiveOK || tokenActive != 1 ||
+			!credentialCountOK || credentialCount < 1 || !credentialSetOK || credentialSetValid != 1 || !tokenActiveOK || tokenActive != 1 ||
 			!tokenCountOK || tokenCount != 1 {
 			return ShadowProjection{}, ErrShadowExportUnavailable
 		}
@@ -575,6 +603,9 @@ func equalShadowStrings(left, right []string) bool {
 }
 
 func (s *RQLiteApplyStore) BeginOrResume(ctx context.Context, run ApplyRun) (RunProgress, error) {
+	if s.customerProtection != nil && run.SourceDigest != s.customerProtection.sourceDigest {
+		return RunProgress{}, errInvalidProductionIdentity
+	}
 	if run.RunID == "" || (run.SnapshotKind != "full" && run.SnapshotKind != "delta") ||
 		len(run.SourceDigest) != 64 || len(run.PlanDigest) != 64 || run.BatchCount < 0 ||
 		(run.SnapshotKind == "full" && run.ParentDigest != "") ||
@@ -1254,6 +1285,14 @@ func (s *RQLiteApplyStore) customerStatements(batch ApplyBatch, operation ApplyO
 	if err != nil {
 		return nil, errors.New("cannot encode protected customer envelope")
 	}
+	token := productionSealedValue{string(envelope), secret.SHA256}
+	credentials := map[string]productionSealedValue{secret.Kind: token}
+	if s.customerProtection != nil {
+		token, credentials, err = s.productionCustomerValues(customer, secret)
+		if err != nil {
+			return nil, err
+		}
+	}
 	nowUnix := s.now().Unix()
 	enabled := 1
 	revoked := 0
@@ -1264,7 +1303,6 @@ func (s *RQLiteApplyStore) customerStatements(batch ApplyBatch, operation ApplyO
 		revokedAt = nowUnix
 	}
 	gate := batchGateArgs(batch)
-	credentialID := sha256Hex([]byte("credential\x00" + customer.InternalID + "\x00" + secret.Kind))
 	tokenID := sha256Hex([]byte("subscription-token\x00" + customer.InternalID))
 	statements := []rqlite.Statement{
 		{
@@ -1282,18 +1320,6 @@ WHERE customers.generation <= excluded.generation`,
 			}, gate...),
 		},
 		{
-			SQL: `INSERT INTO credentials(
-    credential_id,customer_id,protocol,secret_envelope,secret_sha256,generation,enabled,created_at_unix,updated_at_unix
-) SELECT ?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
-ON CONFLICT(credential_id) DO UPDATE SET
-    secret_envelope=excluded.secret_envelope,secret_sha256=excluded.secret_sha256,
-    generation=excluded.generation,enabled=excluded.enabled,updated_at_unix=excluded.updated_at_unix`,
-			Args: append([]any{
-				credentialID, customer.InternalID, secret.Kind, string(envelope), secret.SHA256,
-				customer.Generation, enabled, nowUnix, nowUnix,
-			}, gate...),
-		},
-		{
 			SQL: `INSERT INTO subscription_tokens(
     token_id,customer_id,token_hmac,token_envelope,token_sha256,generation,revoked,created_at_unix,revoked_at_unix
 ) SELECT ?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
@@ -1302,10 +1328,45 @@ ON CONFLICT(token_id) DO UPDATE SET
     token_sha256=excluded.token_sha256,generation=excluded.generation,
     revoked=excluded.revoked,revoked_at_unix=excluded.revoked_at_unix`,
 			Args: append([]any{
-				tokenID, customer.InternalID, customer.TokenHMAC, string(envelope), secret.SHA256,
+				tokenID, customer.InternalID, customer.TokenHMAC, token.envelope, token.digest,
 				customer.Generation, revoked, nowUnix, revokedAt,
 			}, gate...),
 		},
+	}
+	protocols := make([]string, 0, len(credentials))
+	for protocol := range credentials {
+		protocols = append(protocols, protocol)
+	}
+	sort.Strings(protocols)
+	for _, protocol := range protocols {
+		value := credentials[protocol]
+		credentialID := sha256Hex([]byte("credential\x00" + customer.InternalID + "\x00" + protocol))
+		statements = append(statements, rqlite.Statement{
+			SQL: `INSERT INTO credentials(
+    credential_id,customer_id,protocol,secret_envelope,secret_sha256,generation,enabled,created_at_unix,updated_at_unix
+) SELECT ?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(credential_id) DO UPDATE SET
+    secret_envelope=excluded.secret_envelope,secret_sha256=excluded.secret_sha256,
+    generation=excluded.generation,enabled=excluded.enabled,updated_at_unix=excluded.updated_at_unix`,
+			Args: append([]any{credentialID, customer.InternalID, protocol, value.envelope, value.digest,
+				customer.Generation, enabled, nowUnix, nowUnix}, gate...),
+		})
+	}
+	if s.customerProtection != nil {
+		// Retain the original authenticated identity, including source-only fields,
+		// independently of the reader-specific derived credential envelopes.
+		original, err := s.encryptedSecretStatements(batch, ApplyOperation{CanonicalJSON: envelope})
+		if err != nil {
+			return nil, err
+		}
+		statements = append(statements, original...)
+		args := []any{customer.InternalID}
+		for _, protocol := range protocols {
+			args = append(args, protocol)
+		}
+		statements = append(statements, rqlite.Statement{SQL: `UPDATE credentials SET enabled=0
+WHERE customer_id=? AND protocol NOT IN (` + sqlPlaceholders(len(protocols)) + `) AND ` + batchWriteGate,
+			Args: append(args, gate...)})
 	}
 	protocolDeleteArgs := []any{customer.InternalID, "maestro-core"}
 	for _, protocolTag := range customer.ProtocolTags {
