@@ -475,7 +475,7 @@ jobs:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:testOtherDebugUnitTest --tests '*LivingEyeLayerGeometryTest' --tests '*ProtocolVisibilityTest' --tests '*PhoneHomeProtocolOrderTest' --tests '*PhoneHomeControlDeckContractTest' --stacktrace --no-daemon
+          ./gradlew :app:testOtherDebugUnitTest --tests '*LivingEyeLayerGeometryTest' --tests '*ProtocolVisibilityTest' --tests '*PhoneHomeProtocolOrderTest' --tests '*PhoneHomeControlDeckContractTest' --tests '*WhiteListBalanceTest' --stacktrace --no-daemon
 
       - name: Unit tests
         if: ${{ inputs.task != 'mobile-eye-compile' }}

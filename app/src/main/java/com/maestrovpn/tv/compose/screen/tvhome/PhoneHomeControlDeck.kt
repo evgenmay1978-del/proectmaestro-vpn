@@ -49,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -137,6 +138,7 @@ internal fun PhoneHomeControlDeck(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val cdnBalanceText by rememberPhoneWhiteListBalance(connected)
 
     val open: (String) -> Unit = remember(context) {
         { url ->
@@ -326,6 +328,7 @@ internal fun PhoneHomeControlDeck(
                 accountLogin = accountLogin,
                 daysLeft = daysLeft,
                 accountExpires = accountExpires,
+                cdnBalanceText = cdnBalanceText,
                 hasSubProfile = hasSubProfile,
                 onEnterTrial = onEnterTrial,
                 onScanQr = onScanQr,
@@ -722,6 +725,7 @@ private fun SecondaryDeck(
     accountLogin: String?,
     daysLeft: Int?,
     accountExpires: String?,
+    cdnBalanceText: String?,
     hasSubProfile: Boolean,
     onEnterTrial: () -> Unit,
     onScanQr: () -> Unit,
@@ -746,6 +750,17 @@ private fun SecondaryDeck(
                     .fillMaxWidth()
                     .widthIn(max = 460.dp)
                     .testTag("premium-account"),
+            )
+        }
+        if (cdnBalanceText != null) {
+            Text(
+                text = cdnBalanceText,
+                color = PremiumText,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("home-cdn-balance"),
             )
         }
         if (!hasSubProfile) {
