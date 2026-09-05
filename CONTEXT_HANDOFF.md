@@ -12,6 +12,17 @@ verified rollback. No ordinary SSH/firewall reset, private-subscription change,
 real customer charging, OTA/release publication or final traffic cutover follows
 from this instruction. OLCRTC and WDTT remain out of scope.
 
+Usage endpoint, typed client and durable producer source are pushed as
+`fe48ac197e848af48fdae48ec5ab46264bac3352`. Sidecar workflow
+`33944978987` is SUCCESS. Backend HA workflow `33944984282`, job
+`101249330264`, failed only the new two-user fixture because its shared helper
+assigned both customers the globally unique billing-period ID `period-1`.
+The bounded correction gives the second fixture its own period while preserving
+all prior defaults and assertions. This is a test-data correction, not a change
+to billing logic; validate it once on the next exact SHA, never rerun the failed
+SHA unchanged. Production collection, paid publication and deployment are still
+not enabled by these source commits.
+
 The existing commercial Task 6 is not runtime-complete: non-test backend source
 has definitions but no runtime callers of `NewDurableStore`,
 `ApplyCommercialOrdered` or `DrainCommercialDebits`. Do not describe this as
@@ -21,7 +32,7 @@ sidecar service, then must connect it to the existing durable debit path.
 Xray creates per-user counters lazily; a missing counter is unavailable, not
 zero. One unused managed user must not block metering of all other users.
 
-RED-only source `348a34096286035157b654656919a5550e0b7003` is pushed.
+Earlier RED-only source `348a34096286035157b654656919a5550e0b7003` is retained.
 GitHub run `33943009933`, sidecar job `101243932201`, proves the missing route:
 `TestUsageRouteRejectsMutationAndUnauthenticatedReads` received 404 instead of
 405 and 401. Policy and release-template jobs passed. This is expected RED,

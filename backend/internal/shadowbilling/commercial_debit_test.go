@@ -837,8 +837,16 @@ func newCommercialMeteringFixture(
 	t *testing.T,
 	db *meteringSQLite,
 	accountID string,
+	periodIDs ...string,
 ) (*DurableStore, Policy, CommercialMeterSource) {
 	t.Helper()
+	periodID := "period-1"
+	if len(periodIDs) > 1 {
+		t.Fatal("commercial fixture accepts at most one explicit period ID")
+	}
+	if len(periodIDs) == 1 {
+		periodID = periodIDs[0]
+	}
 	entitlement := whitelistfixture.MustPersisted(t, accountID)
 	var err error
 	entitlement, err = entitlement.Activate("profile-a", "preset-a", "release-a", controlplane.WhiteListCredential{
@@ -851,7 +859,7 @@ func newCommercialMeteringFixture(
 		t.Fatalf("activate entitlement: %v", err)
 	}
 	policy, err := NewPolicy(entitlement, PolicySpec{
-		BillingPeriodID: "period-1", Unit: UnitGBDecimal, Basis: BasisUplinkPlusDownlink,
+		BillingPeriodID: periodID, Unit: UnitGBDecimal, Basis: BasisUplinkPlusDownlink,
 		IncludedBytes: 0, SoftLimitBytes: 1_000, HardLimitBytes: 2_000, GraceBytes: 100,
 		Prices: PriceOptions{Global: &Price{Mode: PricePaid, Currency: "RUB", MinorUnitsPerUnit: 100}},
 	})

@@ -82,7 +82,7 @@ func TestCommercialProducerBindsSharedStatsServicePerRoute(t *testing.T) {
 		t.Fatalf("apply control-plane migrations: %v", err)
 	}
 	store, firstPolicy, sharedSource := newCommercialMeteringFixture(t, db, "commercial-producer-shared-a")
-	_, secondPolicy, secondSource := newCommercialMeteringFixture(t, db, "commercial-producer-shared-b")
+	_, secondPolicy, secondSource := newCommercialMeteringFixture(t, db, "commercial-producer-shared-b", "shared-period-b")
 	secondSource.OriginID = sharedSource.OriginID
 	secondSource.ExitID = sharedSource.ExitID
 	secondSource.CounterSourceID = sharedSource.CounterSourceID
