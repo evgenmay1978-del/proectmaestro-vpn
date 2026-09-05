@@ -1,6 +1,6 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## CURRENT — S4 951DACE ACTIVE; METERING RUNTIME STILL IN PROGRESS — 05.09.2026
+## CURRENT — S4 951DACE AND S2 72975A7 ACTIVE; METERING IN PROGRESS — 05.09.2026
 
 This checkpoint supersedes every older CURRENT/next-action statement below.
 S4 isolated commercial source `951dace559671bc9431605b967f8111963213a71` is now
@@ -49,7 +49,7 @@ The source also removes the accounting model's global timestamp-order rejection:
 independent Origin intervals retain their own timestamps, each debit is applied
 once, and the aggregate balance watermark remains the existing monotonic max.
 The focused reverse-Origin regression covers debit, max watermark and replay.
-These source changes are not deployed; do not enable the panel collector yet.
+These backend changes are not deployed; do not enable the panel collector yet.
 Known remaining accounting gaps: durable first-use admission (a single topup
 timestamp expires in5seconds and is insufficient), first real cumulative billing,
 all-Origin observation freshness distinct from balance's monotonic watermark,
@@ -60,7 +60,19 @@ existing reset=false query, return no invented counters and propagate failure.
 Its exact-SHA sidecar validation passed as recorded above; no new endpoint or
 service was added. Installed S4 remains951dace, not72975a7.
 Default commercial publication
-remains OFF. S1's running panel/bot are unchanged; S2/S3/S1 fleet rollout remains.
+remains OFF. S1's running panel/bot are unchanged. S2's isolated sidecar is now
+installed as detailed below; customer/CDN integration and S3/S1 rollout remain.
+The current Task6 source slice adds durable authenticated Origin observations
+and boot/route/period-bound first-use admission. An explicit first-cumulative
+adapter now reuses the existing DurableStore transaction/outbox/debit: full
+initial bytes are counted rather than discarded as a generic epoch baseline.
+Its fixture uses the real transaction and debit path, including unknown commit
+response and restart recovery, without handwritten debit/source/interval rows.
+Generic baseline/replay semantics and default-OFF are preserved. Independent
+review of the17 scoped files found no Critical/Important defects; cached gofmt
+parsed/formatted the owned files. GitHub exact-SHA CI is still required. The
+verified reserve provider, same-boot reset and strict period rollover remain
+open; this source checkpoint is not commercial launch readiness.
 
 Eye source now selects one registered original-tissue candidate: real scleral
 texture and a moist corner replace the flat procedural triangles, sampled strictly
@@ -82,17 +94,44 @@ OLCRTC to validate an eye edit. The existing workflow now offers the explicit
 no deferred-binary downloads, signing, APK build/upload or unrelated test runs.
 The normal Android mode/default remains unchanged. This mode does not prove a
 complete installable APK or final runtime visual acceptance.
+The compile-only workflow correction is pushed as
+`b3072937af4fe339aa437c4b2b42535819eece94`. The owner then explicitly requested
+missing eyelashes; that runtime/preview change is in progress. Dispatch the
+compile gate once after integrating the finished lash source, not for both the
+superseded lashless source and the new source.
 Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.
 
-S2 received one strict read-only pre-install baseline at2026-09-05T06:36:44Z:
-ordinary SSH/Caddy/nginx/Hysteria/AnyTLS/vpn_bot active, commercial ports free and
-commercial units/paths absent. No server change followed. Reuse the tested bundle
-with the standard profile; prepare S2-specific leaf certificates/runtime from the
-existing commercial trust and shared transport, without regenerating credentials.
-S2 is not yet a CDN Origin-group member. No interface mutation is planned; the
-older mixed interface-manager inventory is not a gate for unrelated listeners.
+S2 isolated commercial install is ACTIVE on05.09.2026. Reused exact GREEN source
+`72975a7a98711c74eac563191610ec6263a79799`, run `33950323822`, artifact `9964614929`;
+54,244,163-byte ZIP SHA-256
+`09247888ff520aaa4210ff841a014e56b075962d01ce3d42ec53a4ed0fcfe3c2`.
+The archive streamed directly from GitHub to S2, with no workstation archive.
+All nine package members and source/manifest were verified; manifest SHA-256
+`6bcb904c3c1c6118de7ce89cf42c8c35bc349787645b868e3d33dd26c4af7087`.
+S2-specific leaf certificates were signed once from existing commercial trust;
+only the required15 certificate files and byte-identical shared runtime were
+transferred. No shared transport credentials or private test subscription changed.
+Shipped standard-profile plan and locked apply exited0. Installed release
+`72975a7a9871-standard-2aedf96b649fe0e3`, config SHA-256
+`2c5a029bf5347ca03be512759e7ab32910361aeee08c8b249119d7323b711f42`,
+operator runtime-input SHA-256
+`2aedf96b649fe0e38b40f1d52b14ff9f48f77d83c8e40f8b905c8418bdf25cf4`.
+All six shipped checks are true. Only the two commercial units were installed;
+SSH/Caddy/nginx/Hysteria/AnyTLS/vpn_bot retain their original active MainPIDs.
+Protected preinstall-safety backup records the verified commercial ABSENT state,
+ordinary unit files and firewall hashes. Independent retained SSH survived apply;
+fresh strict SSH and post-install comparison passed, then the observer was closed.
+Firewall delta is exactly two new IPv4 TCP rules: relay18084 from the existing
+active S4 Origin only, and agent18443 from the current S1 controller only. All
+previous IPv4 rules, IPv6 rules and other protected files remain unchanged.
+Rollback uses the shipped standard-profile recovery-to-ABSENT plus deletion of
+only those two new exact peer rules, never a whole-firewall restore/reset.
+Do not repeat staging, certificate issuance, plan, apply or completed safety checks.
+S2 is not yet a CDN Origin-group member; authenticated cross-node runtime proof
+and customer integration remain. S4 is still951dace, not72975a7. No interface
+mutation, ordinary VPN restart, real charge, OTA or final traffic cutover occurred.
 
 Owner's global rule reiterated05.09: effectiveness and the shortest safe path to
 a working result. Reuse proven packages/procedures, parallelize only useful

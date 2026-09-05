@@ -95,6 +95,10 @@ included_grant_bytes,access_order_id,created_at_unix) VALUES(?,?,0,?,?,0,?,?)`,
 	if len(plan.Routes) != 1 {
 		t.Fatalf("routes = %#v", plan.Routes)
 	}
+	if pending := plan.Origins[0].PendingFirstCumulativeUsers; len(pending) != 1 ||
+		pending[0] != whiteListManagedEmail(entitlementID, exit.ExitID) {
+		t.Fatalf("unproven initial cumulative was offered to the baseline adapter: %#v", pending)
+	}
 	route := plan.Routes[0]
 	xrayIdentity, xrayOK := route.Entitlement.XrayIdentity()
 	if route.ManagedEmail != whiteListManagedEmail(entitlementID, exit.ExitID) || route.ExitID != exit.ExitID ||

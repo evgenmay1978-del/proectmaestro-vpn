@@ -286,7 +286,7 @@ type durableRead struct {
 // ApplyOrdered, and persists the event, checkpoint, interval, and projection
 // in one transaction.
 func (store *DurableStore) ApplyOrdered(ctx context.Context, event OrderedUsageEvent, policy Policy) (DurableResult, error) {
-	result, err := store.applyOrdered(ctx, event, policy, nil)
+	result, err := store.applyOrdered(ctx, event, policy, nil, false)
 	if err != nil {
 		return DurableResult{}, err
 	}
@@ -302,6 +302,16 @@ func (store *DurableStore) ApplyCommercialOrdered(
 	event CommercialOrderedUsageEvent,
 	policy Policy,
 	debiter CommercialDebiter,
+) (DurableResult, error) {
+	return store.applyCommercialOrdered(ctx, event, policy, debiter, false)
+}
+
+func (store *DurableStore) applyCommercialOrdered(
+	ctx context.Context,
+	event CommercialOrderedUsageEvent,
+	policy Policy,
+	debiter CommercialDebiter,
+	firstCumulative bool,
 ) (DurableResult, error) {
 	if store == nil || store.db == nil || ctx == nil || debiter == nil {
 		return DurableResult{}, ErrInvalidInput
@@ -320,7 +330,7 @@ func (store *DurableStore) ApplyCommercialOrdered(
 	); err != nil {
 		return DurableResult{}, err
 	}
-	result, err := store.applyOrdered(ctx, event.OrderedUsageEvent, policy, &binding)
+	result, err := store.applyOrdered(ctx, event.OrderedUsageEvent, policy, &binding, firstCumulative)
 	if err != nil {
 		if !errors.Is(err, ErrEventIDConflict) {
 			lateDiagnostic := result.Decision.Diagnostic == DiagnosticLateSample
@@ -401,11 +411,16 @@ func (store *DurableStore) applyOrdered(
 	event OrderedUsageEvent,
 	policy Policy,
 	commercialSource *CommercialSourceBinding,
+	firstCumulative bool,
 ) (DurableResult, error) {
-	if store == nil || store.db == nil || ctx == nil {
+	if store == nil || store.db == nil || ctx == nil || (firstCumulative && commercialSource == nil) {
 		return DurableResult{}, ErrInvalidInput
 	}
-	if _, _, err := ApplyOrdered(NewState(), event, policy); err != nil {
+	applySample := ApplyOrdered
+	if firstCumulative {
+		applySample = applyFirstCumulative
+	}
+	if _, _, err := applySample(NewState(), event, policy); err != nil {
 		return DurableResult{}, err
 	}
 	resolved, err := ResolvePrice(policy.Prices)
@@ -425,8 +440,13 @@ func (store *DurableStore) applyOrdered(
 	if err != nil {
 		return DurableResult{}, ErrDurableStateInvalid
 	}
+	eventVersion := 1
+	if firstCumulative {
+		// Preserve generic v1 hashes; a baseline cannot replay as a full debit.
+		eventVersion = 2
+	}
 	payloadSHA256, err := canonicalSHA256(canonicalEvent{
-		Version: 1, EventID: event.EventID, InstanceID: event.InstanceID,
+		Version: eventVersion, EventID: event.EventID, InstanceID: event.InstanceID,
 		MeterEpoch: event.MeterEpoch, XrayIdentity: event.XrayIdentity,
 		UplinkBytes: event.UplinkBytes, DownlinkBytes: event.DownlinkBytes,
 		CounterGeneration: event.CounterGeneration, SampleSequence: event.SampleSequence,
@@ -466,7 +486,7 @@ func (store *DurableStore) applyOrdered(
 		state.counters[key] = checkpoint
 	}
 
-	next, decision, err := ApplyOrdered(state, event, policy)
+	next, decision, err := applySample(state, event, policy)
 	if err != nil {
 		return DurableResult{}, err
 	}
@@ -510,6 +530,9 @@ func (store *DurableStore) applyOrdered(
 	)
 	if err != nil {
 		return DurableResult{}, err
+	}
+	if firstCumulative {
+		statements = append([]rqlite.Statement{commercialFirstCumulativeGuard(*commercialSource)}, statements...)
 	}
 	if _, err := store.db.Request(ctx, rqlite.Linearizable, true, statements...); err != nil {
 		if replay, resolvedErr := store.resolveWrite(ctx, event.EventID, payloadSHA256); resolvedErr == nil {

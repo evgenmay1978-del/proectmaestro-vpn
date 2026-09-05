@@ -221,6 +221,7 @@ type counter struct {
 type sampleOrder struct {
 	enabled              bool
 	generation, sequence uint64
+	firstCumulative      bool
 }
 
 type eventRecord struct {
@@ -326,10 +327,15 @@ func apply(state State, event UsageEvent, policy Policy, order sampleOrder) (Sta
 	key := meterKey{event.InstanceID, event.MeterEpoch, event.XrayIdentity}
 	period := periodKey{policy.entitlementID, policy.billingPeriodID}
 	old, hasCounter := state.counters[key]
+	if order.firstCumulative && hasCounter {
+		return state, Decision{}, ErrInvalidInput
+	}
 	diagnostic := Diagnostic("")
 	switch {
 	case !hasCounter:
-		diagnostic = DiagnosticEpochStarted
+		if !order.firstCumulative {
+			diagnostic = DiagnosticEpochStarted
+		}
 	case order.enabled:
 		switch {
 		case old.ordered && (order.generation < old.generation || (order.generation == old.generation && order.sequence <= old.sequence)):
@@ -348,7 +354,7 @@ func apply(state State, event UsageEvent, policy Policy, order sampleOrder) (Sta
 	}
 
 	var up, down, measured uint64
-	if hasCounter && diagnostic == "" {
+	if (hasCounter || order.firstCumulative) && diagnostic == "" {
 		up = event.UplinkBytes - old.up
 		down = event.DownlinkBytes - old.down
 		measured = down

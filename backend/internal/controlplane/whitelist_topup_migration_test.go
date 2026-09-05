@@ -10,8 +10,8 @@ func TestMigrationWhiteListTopUpOrdersIsV14AndKeepsLegacyOrdersAsAnchor(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 16 || len(migrations) != 16 {
-		t.Fatalf("schema chain = version %d/%d, want exact v16", SchemaVersion, len(migrations))
+	if SchemaVersion != 17 || len(migrations) != 17 {
+		t.Fatalf("schema chain = version %d/%d, want exact v17", SchemaVersion, len(migrations))
 	}
 	if migrations[12].Version != 13 || migrations[12].Path != "migrations/0013_whitelist_commercial_debit_outbox.sql" {
 		t.Fatalf("immutable v13 migration moved: %#v", migrations[12])

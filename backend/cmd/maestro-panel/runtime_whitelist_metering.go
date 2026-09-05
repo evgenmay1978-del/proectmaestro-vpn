@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,12 +29,18 @@ type runtimeWhiteListUsageLookup interface {
 type runtimeWhiteListMeteringControlPlane interface {
 	shadowbilling.CommercialDebiter
 	WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error)
+	RecordWhiteListOriginObservation(context.Context, controlplane.WhiteListOriginObservation) error
+	EnsureWhiteListMeteringBootstrap(context.Context, string, func(string) (controlplane.ExternalActionSender, bool)) error
 	ReconcileWhiteListSidecarIntents(
 		context.Context, string, func(string) (controlplane.ExternalActionSender, bool),
 	) error
 }
 
 type runtimeWhiteListMeteringStore interface {
+	ApplyCommercialFirstCumulative(
+		context.Context, shadowbilling.CommercialOrderedUsageEvent, shadowbilling.Policy,
+		shadowbilling.CommercialDebiter,
+	) (shadowbilling.DurableResult, error)
 	PendingCommercialDebitEntitlementIDs(context.Context) ([]string, error)
 	DrainCommercialDebits(context.Context, string, shadowbilling.CommercialDebiter) error
 	EnsureCommercialProducerCursor(
@@ -140,7 +147,17 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 		collector.startupRecovered = true
 	}
+	// A failed plan or poll cannot postpone health-based revocation until the
+	// unrelated 30-second renewal pass. The collector itself is default-OFF.
+	collector.reconcileNeeded = true
 
+	resolve := func(nodeID string) (controlplane.ExternalActionSender, bool) {
+		sender, ok := collector.senders[nodeID]
+		return sender, ok && sender != nil
+	}
+	if err := collector.control.EnsureWhiteListMeteringBootstrap(ctx, collector.workerID, resolve); err != nil {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
 	plan, err := collector.control.WhiteListMeteringPlan(ctx)
 	if err != nil {
 		return errRuntimeWhiteListMeteringUnavailable
@@ -176,10 +193,14 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			if _, ok := routes[email]; !ok {
 				return errRuntimeWhiteListMeteringUnavailable
 			}
+			if _, duplicate := seen[email]; duplicate {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
 			seen[email] = struct{}{}
 		}
+		available := make([]string, 0, len(snapshot.Users))
 		for _, user := range snapshot.Users {
-			route, ok := routes[user.Email]
+			_, ok := routes[user.Email]
 			if !ok {
 				return errRuntimeWhiteListMeteringUnavailable
 			}
@@ -187,12 +208,23 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 				return errRuntimeWhiteListMeteringUnavailable
 			}
 			seen[user.Email] = struct{}{}
-			if err := collector.applyUser(ctx, origin, route, snapshot.SampledAt, user); err != nil {
-				return errRuntimeWhiteListMeteringUnavailable
-			}
+			available = append(available, user.Email)
 		}
 		if len(seen) != len(routes) {
 			return errRuntimeWhiteListMeteringUnavailable
+		}
+		if err := collector.control.RecordWhiteListOriginObservation(ctx, controlplane.WhiteListOriginObservation{
+			Receipt: origin.Receipt, SampledAt: snapshot.SampledAt,
+			AvailableUsers: available, UnavailableUsers: snapshot.UnavailableUsers,
+		}); err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		for _, user := range snapshot.Users {
+			index := sort.SearchStrings(origin.PendingFirstCumulativeUsers, user.Email)
+			firstCumulative := index < len(origin.PendingFirstCumulativeUsers) && origin.PendingFirstCumulativeUsers[index] == user.Email
+			if err := collector.applyUser(ctx, origin, routes[user.Email], snapshot.SampledAt, user, firstCumulative); err != nil {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
 		}
 	}
 	return nil
@@ -204,6 +236,7 @@ func (collector *runtimeWhiteListMeteringCollector) applyUser(
 	route controlplane.WhiteListMeteringRoute,
 	sampledAt time.Time,
 	user sidecaragentclient.UsageUser,
+	firstCumulative bool,
 ) error {
 	sampledAtUnix := sampledAt.Unix()
 	if sampledAtUnix <= 0 || sampledAtUnix < route.Policy.PeriodStartsAtUnix ||
@@ -228,9 +261,14 @@ func (collector *runtimeWhiteListMeteringCollector) applyUser(
 	if err != nil {
 		return err
 	}
+	if firstCumulative && cursor.NextSampleSequence != 1 {
+		// A committed first interval can still await its balance receipt. Drain
+		// it before the next plan proves first accounting; never rebase or rearm.
+		return collector.store.DrainCommercialDebits(ctx, route.Entitlement.EntitlementID(), collector.control)
+	}
 	eventID := runtimeWhiteListMeteringEventID(cursor.MeterEpoch, route.ManagedEmail, cursor.NextSampleSequence)
 	collector.reconcileNeeded = true
-	_, err = collector.store.ApplyCommercialOrdered(ctx, shadowbilling.CommercialOrderedUsageEvent{
+	event := shadowbilling.CommercialOrderedUsageEvent{
 		OrderedUsageEvent: shadowbilling.OrderedUsageEvent{
 			UsageEvent: shadowbilling.UsageEvent{
 				EventID: eventID, InstanceID: origin.Origin.OriginID, MeterEpoch: cursor.MeterEpoch,
@@ -239,7 +277,12 @@ func (collector *runtimeWhiteListMeteringCollector) applyUser(
 			CounterGeneration: 1, SampleSequence: cursor.NextSampleSequence,
 		},
 		Source: cursor.Source, SampledAtUnix: sampledAtUnix,
-	}, policy, collector.control)
+	}
+	if firstCumulative {
+		_, err = collector.store.ApplyCommercialFirstCumulative(ctx, event, policy, collector.control)
+	} else {
+		_, err = collector.store.ApplyCommercialOrdered(ctx, event, policy, collector.control)
+	}
 	if err != nil {
 		return err
 	}

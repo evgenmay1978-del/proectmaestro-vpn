@@ -99,9 +99,64 @@ func TestRuntimeWhiteListMeteringRecoversPendingUsesExactCursorAndSkipsUnavailab
 		t.Fatalf("unavailable runPass: %v", err)
 	}
 	if store.pendingReads != 1 || len(store.sources) != 1 || len(store.events) != 1 ||
-		len(store.drains) != 2 || control.reconciles != 1 {
+		len(store.drains) != 2 || control.reconciles != 2 || len(control.observations) != 2 ||
+		len(control.observations[1].UnavailableUsers) != 1 {
 		t.Fatalf("unavailable user produced metering: reads=%d sources=%d events=%d drains=%d reconciles=%d",
 			store.pendingReads, len(store.sources), len(store.events), len(store.drains), control.reconciles)
+	}
+}
+
+func TestRuntimeWhiteListMeteringPersistsEmptyHealthAndAppliesFullFirstCumulative(t *testing.T) {
+	now := time.Unix(2_000_000, 0).UTC()
+	receipt := controlplane.WhiteListSidecarReceipt{ActionKey: "s4:1:empty", OriginID: "origin-s4",
+		XrayProcessBootID: "boot-s4", AppliedAt: now, ExpiresAt: now.Add(time.Minute)}
+	control := &runtimeWhiteListMeteringControl{plan: controlplane.WhiteListMeteringPlan{
+		Origins: []controlplane.WhiteListMeteringOrigin{{Origin: controlplane.WhiteListOrigin{NodeID: "s4", OriginID: "origin-s4"},
+			Desired: controlplane.WhiteListSidecarDesired{Action: controlplane.ExternalActionCommand{ActionKey: receipt.ActionKey}}, Receipt: receipt}},
+	}}
+	sender := &runtimeWhiteListMeteringSender{snapshot: sidecaragentclient.UsageSnapshot{
+		Receipt: sidecaragentclient.Receipt{ActionKey: receipt.ActionKey, OriginID: receipt.OriginID,
+			XrayProcessBootID: receipt.XrayProcessBootID, AppliedAt: now, ExpiresAt: receipt.ExpiresAt}, SampledAt: now,
+		Users: []sidecaragentclient.UsageUser{}, UnavailableUsers: []string{},
+	}}
+	store := &runtimeWhiteListMeteringStoreFake{}
+	collector := &runtimeWhiteListMeteringCollector{control: control, store: store, workerID: "worker-1",
+		senders: map[string]controlplane.ExternalActionSender{"s4": sender}}
+	if err := collector.runPass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if control.bootstraps != 1 || len(control.observations) != 1 || len(store.events) != 0 || len(store.sources) != 0 {
+		t.Fatal("empty authenticated health must be persisted without counter samples")
+	}
+	entitlement := runtimeWhiteListMeteringEntitlement(t, now)
+	email := "wl:" + entitlement.EntitlementID() + ":exit-nl"
+	control.plan.Routes = []controlplane.WhiteListMeteringRoute{{ManagedEmail: email, ExitID: "exit-nl", Entitlement: entitlement,
+		Policy: controlplane.WhiteListMeteringPolicy{BillingPeriodID: "period-1", PeriodStartsAtUnix: now.Add(-time.Hour).Unix(),
+			PeriodEndsAtUnix: now.Add(time.Hour).Unix(), Unit: "GB_DECIMAL", Basis: "UPLINK_PLUS_DOWNLINK", PriceMode: "FREE", PriceSource: "GLOBAL"},
+	}}
+	store.cursor = shadowbilling.CommercialProducerCursor{MeterEpoch: "first-epoch", NextSampleSequence: 1,
+		Source: shadowbilling.CommercialMeterSource{OriginID: "origin-s4", ExitID: "exit-nl", CounterSourceID: "first-bound-counter",
+			XrayProcessBootID: receipt.XrayProcessBootID, RouteXrayIdentity: email}}
+	control.plan.Origins[0].PendingFirstCumulativeUsers = []string{email}
+	sender.snapshot.Users = []sidecaragentclient.UsageUser{{Email: email, UplinkBytes: 19, DownlinkBytes: 23}}
+	if err := collector.runPass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(control.observations) != 2 || len(control.observations[1].AvailableUsers) != 1 ||
+		len(store.events) != 0 || len(store.firstEvents) != 1 || len(store.sources) != 1 || len(store.drains) != 1 {
+		t.Fatal("first cumulative must use the explicit full-debit adapter, never generic zero baseline")
+	}
+	first := store.firstEvents[0]
+	if first.Source != store.cursor.Source || first.CounterGeneration != 1 || first.SampleSequence != 1 ||
+		first.UplinkBytes != 19 || first.DownlinkBytes != 23 || first.SampledAtUnix != now.Unix() {
+		t.Fatalf("first cumulative source = %#v", first)
+	}
+	store.cursor.NextSampleSequence = 2
+	if err := collector.runPass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.firstEvents) != 1 || len(store.events) != 0 || len(store.drains) != 2 {
+		t.Fatal("pending first receipt must drain without a second initial event or checkpoint")
 	}
 }
 
@@ -237,8 +292,22 @@ func (sender *runtimeWhiteListMeteringSender) LookupUsage(context.Context, strin
 }
 
 type runtimeWhiteListMeteringControl struct {
-	plan       controlplane.WhiteListMeteringPlan
-	reconciles int
+	plan         controlplane.WhiteListMeteringPlan
+	reconciles   int
+	bootstraps   int
+	observations []controlplane.WhiteListOriginObservation
+}
+
+func (control *runtimeWhiteListMeteringControl) EnsureWhiteListMeteringBootstrap(
+	context.Context, string, func(string) (controlplane.ExternalActionSender, bool),
+) error {
+	control.bootstraps++
+	return nil
+}
+
+func (control *runtimeWhiteListMeteringControl) RecordWhiteListOriginObservation(_ context.Context, observation controlplane.WhiteListOriginObservation) error {
+	control.observations = append(control.observations, observation)
+	return nil
 }
 
 func (control *runtimeWhiteListMeteringControl) WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error) {
@@ -268,7 +337,18 @@ type runtimeWhiteListMeteringStoreFake struct {
 	drains       []string
 	sources      []shadowbilling.CommercialMeterSource
 	events       []shadowbilling.CommercialOrderedUsageEvent
+	firstEvents  []shadowbilling.CommercialOrderedUsageEvent
 	policies     []shadowbilling.Policy
+}
+
+func (store *runtimeWhiteListMeteringStoreFake) ApplyCommercialFirstCumulative(
+	_ context.Context, event shadowbilling.CommercialOrderedUsageEvent, policy shadowbilling.Policy, _ shadowbilling.CommercialDebiter,
+) (shadowbilling.DurableResult, error) {
+	store.firstEvents = append(store.firstEvents, event)
+	store.policies = append(store.policies, policy)
+	return shadowbilling.DurableResult{Decision: shadowbilling.Decision{Interval: &shadowbilling.UsageInterval{
+		UplinkBytes: event.UplinkBytes, DownlinkBytes: event.DownlinkBytes,
+	}}}, nil
 }
 
 func (store *runtimeWhiteListMeteringStoreFake) PendingCommercialDebitEntitlementIDs(context.Context) ([]string, error) {

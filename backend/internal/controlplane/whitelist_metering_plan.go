@@ -27,6 +27,9 @@ type WhiteListMeteringOrigin struct {
 	Origin  WhiteListOrigin
 	Desired WhiteListSidecarDesired
 	Receipt WhiteListSidecarReceipt
+	// A missing full initial debit must not enter the generic baseline adapter.
+	// This is per origin/boot, not a route-global or billing-period reset flag.
+	PendingFirstCumulativeUsers []string
 }
 
 type WhiteListMeteringRoute struct {
@@ -109,9 +112,25 @@ func (s *Service) WhiteListMeteringPlan(ctx context.Context) (WhiteListMeteringP
 		if receiptErr != nil || ValidateWhiteListSidecarReceipt(desired[index], receipt.XrayProcessBootID, receipt, now) != nil {
 			return WhiteListMeteringPlan{}, ErrUnavailable
 		}
-		plan.Origins = append(plan.Origins, WhiteListMeteringOrigin{
+		meteringOrigin := WhiteListMeteringOrigin{
 			Origin: origin, Desired: cloneWhiteListMeteringDesired(desired[index]), Receipt: receipt,
-		})
+			PendingFirstCumulativeUsers: []string{},
+		}
+		for _, email := range desired[index].ManagedUsers {
+			entitlementID, valid := whiteListMeteringEntitlementID(email, desired[index].ExitID)
+			observedOrigin := whiteListObservedOrigin{origin: origin, desired: desired[index], receipt: receipt}
+			row, admissionErr := s.whiteListAdmissionRow(ctx, entitlementID, desired[index].ExitID, observedOrigin)
+			period, _ := rowString(row, "billing_period_id")
+			admitted, _ := rowInt64(row, "admitted_at_unix")
+			if !valid || admissionErr != nil {
+				meteringOrigin.PendingFirstCumulativeUsers = append(meteringOrigin.PendingFirstCumulativeUsers, email)
+				continue
+			}
+			if _, proofErr := s.whiteListOriginAccountedThrough(ctx, entitlementID, desired[index].ExitID, period, admitted, observedOrigin); proofErr != nil {
+				meteringOrigin.PendingFirstCumulativeUsers = append(meteringOrigin.PendingFirstCumulativeUsers, email)
+			}
+		}
+		plan.Origins = append(plan.Origins, meteringOrigin)
 	}
 
 	entitlementIDs := make([]string, len(canonical.ManagedUsers))

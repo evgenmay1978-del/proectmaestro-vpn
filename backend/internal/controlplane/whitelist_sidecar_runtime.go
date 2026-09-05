@@ -52,6 +52,7 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 	}
 	factsByEntitlement := make(map[string]WhiteListPublicationFacts, len(state.publications))
 	decisions := make(map[string]WhiteListPublicationDecision, len(state.publications))
+	provisioningExits := make(map[string]string)
 	targetEntitlements := make([]string, 0, len(state.publications))
 	for entitlementID, publication := range state.publications {
 		facts, factsErr := s.whiteListRuntimePublicationFacts(ctx, now.Unix(), entitlementID, publication)
@@ -71,6 +72,14 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		decisions[entitlementID] = decision
 		if decision.Verdict == WhiteListPublicationPublishable {
 			targetEntitlements = append(targetEntitlements, entitlementID)
+		} else if releaseBindingExact {
+			for exitID := range state.credentials[entitlementID] {
+				if _, ready := s.whiteListMeteringAdmissionReady(ctx, entitlementID, exitID, true); ready {
+					provisioningExits[entitlementID] = exitID
+					targetEntitlements = append(targetEntitlements, entitlementID)
+					break
+				}
+			}
 		}
 	}
 	sort.Strings(targetEntitlements)
@@ -86,7 +95,7 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 	}
 	for entitlementID := range previousEntitlements {
 		decision, ok := decisions[entitlementID]
-		if ok && decision.Verdict == WhiteListPublicationPublishable {
+		if ok && (decision.Verdict == WhiteListPublicationPublishable || provisioningExits[entitlementID] == selectedExit.ExitID) {
 			continue
 		}
 		if !ok {
@@ -107,6 +116,11 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 	}
 	routes := make([]WhiteListManagedRoute, 0, len(targetEntitlements))
 	for _, entitlementID := range targetEntitlements {
+		if exitID, awaiting := provisioningExits[entitlementID]; awaiting {
+			if exitID != selectedExit.ExitID {
+				return ErrUnavailable
+			}
+		}
 		routes = append(routes, WhiteListManagedRoute{EntitlementID: entitlementID, ExitID: selectedExit.ExitID})
 	}
 	result, err := s.ReconcileWhiteListSidecarGeneration(
@@ -119,6 +133,14 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		return nil
 	}
 	for _, entitlementID := range targetEntitlements {
+		if _, awaiting := provisioningExits[entitlementID]; awaiting {
+			// Provisioning does not constitute publication. The next authenticated
+			// poll must bind the new generation before it can remain admitted.
+			if !result.Ready {
+				return ErrUnavailable
+			}
+			continue
+		}
 		facts := factsByEntitlement[entitlementID]
 		_, credentialUsable := state.credentials[entitlementID][selectedExit.ExitID]
 		facts.ReleaseBindingExact = releaseBindingExact && result.ReleaseID == releaseID
@@ -178,7 +200,18 @@ func (s *Service) whiteListRuntimePublicationFacts(
 	facts.ProjectionVersion = snapshot.Projection.Version
 	facts.ProjectionPending = snapshot.Projection.Pending
 	facts.AvailableBytes = snapshot.AvailableBytes
-	facts.ObservedThroughUnix = snapshot.Projection.FreshThroughUnix
+	// A balance watermark can be newer than a missing origin. Publication needs
+	// exact all-origin observations and applied first-cumulative accounting.
+	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
+	if err != nil {
+		return WhiteListPublicationFacts{}, err
+	}
+	for exitID := range state.credentials[entitlementID] {
+		if through, ready := s.whiteListMeteringAdmissionReady(ctx, entitlementID, exitID, false); ready {
+			facts.ObservedThroughUnix = through
+			break
+		}
+	}
 	return facts, nil
 }
 
