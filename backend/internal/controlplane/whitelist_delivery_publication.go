@@ -140,6 +140,11 @@ func (s *Service) WhiteListPublicationDelivery(
 	facts.ReceiptSetReady = receiptSetReady
 	facts.ReceiptsFreshUntilUnix = receiptsFreshUntil
 	facts.ApprovedNodeCount = len(desired)
+	if facts.ReleaseBindingExact && facts.CredentialUsable && receiptSetReady {
+		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReady(
+			ctx, entitlementID, exitID, state.previous,
+		)
+	}
 	decision := EvaluateWhiteListPublication(facts)
 	if decision.Verdict != WhiteListPublicationPublishable {
 		return WhiteListPublicationDelivery{Decision: decision}, nil

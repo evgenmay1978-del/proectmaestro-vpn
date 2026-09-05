@@ -24,10 +24,10 @@ CURRENT_INSTALLED_HOME = (
     ROOT
     / "design"
     / "mobile-4d-references"
-    / "08-owner-installed-test-home-2026-08-08.jpg"
+    / "10-owner-installed-home-2026-09-01.jpg"
 )
 CURRENT_INSTALLED_HOME_SHA256 = (
-    "9251457407f3aeee17b5281b32634e6c0d03e7fce3e9db12c16706444a9f800b"
+    "df82a090ba4ba3185509dd1ce5fccd5717932a50b27bac0f9b3d7490247a22e7"
 )
 
 
@@ -206,7 +206,7 @@ class MobileEyeStatePreviewRenderTest(unittest.TestCase):
             CURRENT_INSTALLED_HOME_SHA256,
         )
         with Image.open(CURRENT_INSTALLED_HOME) as source:
-            self.assertEqual(source.size, (591, 1280))
+            self.assertEqual(source.size, (1080, 2340))
             return source.convert("RGB").resize(
                 (390 * scale, 844 * scale),
                 Image.Resampling.LANCZOS,

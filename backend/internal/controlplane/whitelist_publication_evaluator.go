@@ -45,6 +45,9 @@ type WhiteListPublicationFacts struct {
 	ProjectionPending   bool
 	AvailableBytes      int64
 	ObservedThroughUnix int64
+	// Authenticated all-origin admission deadline, not billable usage freshness.
+	// Zero keeps the existing accounted-observation-only contract.
+	AdmissionFreshUntilUnix int64
 
 	ReleaseBindingExact bool
 
@@ -78,12 +81,24 @@ func EvaluateWhiteListPublication(facts WhiteListPublicationFacts) WhiteListPubl
 	if facts.ProjectionVersion <= 0 || facts.ProjectionPending {
 		return closedWhiteListPublication(WhiteListPublicationProjectionPending)
 	}
-	if facts.NowUnix <= 0 || facts.ObservedThroughUnix <= 0 ||
+	if facts.NowUnix <= 0 || facts.ObservedThroughUnix < 0 ||
 		facts.ObservedThroughUnix > facts.NowUnix ||
 		facts.ObservedThroughUnix > 9223372036854775806-whiteListObservationFreshnessSeconds {
 		return closedWhiteListPublication(WhiteListPublicationProjectionStale)
 	}
-	observationFreshUntil := facts.ObservedThroughUnix + whiteListObservationFreshnessSeconds
+	observationFreshUntil := int64(0)
+	if facts.ObservedThroughUnix > 0 {
+		observationFreshUntil = facts.ObservedThroughUnix + whiteListObservationFreshnessSeconds
+	}
+	if facts.AdmissionFreshUntilUnix != 0 {
+		if facts.AdmissionFreshUntilUnix <= facts.NowUnix ||
+			facts.AdmissionFreshUntilUnix-facts.NowUnix > whiteListObservationFreshnessSeconds {
+			return closedWhiteListPublication(WhiteListPublicationProjectionStale)
+		}
+		if observationFreshUntil == 0 || facts.AdmissionFreshUntilUnix < observationFreshUntil {
+			observationFreshUntil = facts.AdmissionFreshUntilUnix
+		}
+	}
 	if observationFreshUntil <= facts.NowUnix {
 		return closedWhiteListPublication(WhiteListPublicationProjectionStale)
 	}

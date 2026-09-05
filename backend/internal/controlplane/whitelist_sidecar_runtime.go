@@ -59,6 +59,9 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		if factsErr != nil {
 			return factsErr
 		}
+		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReady(
+			ctx, entitlementID, previousExit, state.previous,
+		)
 		facts.ReleaseBindingExact = releaseBindingExact
 		facts.CredentialUsable = whiteListRuntimeCredentialUsable(state.credentials[entitlementID], state.exits)
 		// This is the durable enable edge that the current pass is about to
@@ -200,18 +203,8 @@ func (s *Service) whiteListRuntimePublicationFacts(
 	facts.ProjectionVersion = snapshot.Projection.Version
 	facts.ProjectionPending = snapshot.Projection.Pending
 	facts.AvailableBytes = snapshot.AvailableBytes
-	// A balance watermark can be newer than a missing origin. Publication needs
-	// exact all-origin observations and applied first-cumulative accounting.
-	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
-	if err != nil {
-		return WhiteListPublicationFacts{}, err
-	}
-	for exitID := range state.credentials[entitlementID] {
-		if through, ready := s.whiteListMeteringAdmissionReady(ctx, entitlementID, exitID, false); ready {
-			facts.ObservedThroughUnix = through
-			break
-		}
-	}
+	// Metering readiness is resolved by the caller against its exact desired
+	// exit/generation; neither balance freshness nor another credential suffices.
 	return facts, nil
 }
 

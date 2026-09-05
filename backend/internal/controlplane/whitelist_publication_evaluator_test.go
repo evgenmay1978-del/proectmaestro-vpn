@@ -107,3 +107,39 @@ func TestEvaluateWhiteListPublicationPrecedenceAndFreshnessMinimum(t *testing.T)
 		t.Fatalf("minimum freshness decision=%#v", decision)
 	}
 }
+
+func TestEvaluateWhiteListPublicationUsesSeparateBoundedAdmissionDeadline(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		mutate  func(*WhiteListPublicationFacts)
+		verdict WhiteListPublicationVerdict
+		seconds int64
+	}{
+		{"awaiting first sample", func(*WhiteListPublicationFacts) {}, WhiteListPublicationPublishable, 3},
+		{"shorter receipt", func(f *WhiteListPublicationFacts) { f.ReceiptsFreshUntilUnix = f.NowUnix + 2 }, WhiteListPublicationPublishable, 2},
+		{"shorter primary access", func(f *WhiteListPublicationFacts) { f.PrimaryExpiresAtUnix = f.NowUnix + 1 }, WhiteListPublicationPublishable, 1},
+		{"missing admission", func(f *WhiteListPublicationFacts) { f.AdmissionFreshUntilUnix = 0 }, WhiteListPublicationProjectionStale, 0},
+		{"deadline boundary", func(f *WhiteListPublicationFacts) { f.AdmissionFreshUntilUnix = f.NowUnix }, WhiteListPublicationProjectionStale, 0},
+		{"unbounded admission", func(f *WhiteListPublicationFacts) { f.AdmissionFreshUntilUnix = f.NowUnix + 6 }, WhiteListPublicationProjectionStale, 0},
+		{"disabled", func(f *WhiteListPublicationFacts) { f.ActivationSource = WhiteListActivationDisabled }, WhiteListPublicationNoEntitlement, 0},
+		{"pending balance", func(f *WhiteListPublicationFacts) { f.ProjectionPending = true }, WhiteListPublicationProjectionPending, 0},
+		{"no balance", func(f *WhiteListPublicationFacts) { f.AvailableBytes = 0 }, WhiteListPublicationNoBalance, 0},
+		{"release mismatch", func(f *WhiteListPublicationFacts) { f.ReleaseBindingExact = false }, WhiteListPublicationReleaseMismatch, 0},
+		{"missing applied receipt", func(f *WhiteListPublicationFacts) { f.ReceiptSetReady = false }, WhiteListPublicationSidecarUnavailable, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			facts := validWhiteListPublicationFacts()
+			facts.ObservedThroughUnix = 0
+			facts.AdmissionFreshUntilUnix = facts.NowUnix + 3
+			test.mutate(&facts)
+			decision := EvaluateWhiteListPublication(facts)
+			wantUntil := int64(0)
+			if test.seconds != 0 {
+				wantUntil = facts.NowUnix + test.seconds
+			}
+			if decision.Verdict != test.verdict || decision.FreshUntilUnix != wantUntil || facts.ObservedThroughUnix != 0 {
+				t.Fatalf("admission decision=%#v facts=%#v", decision, facts)
+			}
+		})
+	}
+}

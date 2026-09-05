@@ -185,36 +185,37 @@ FROM whitelist_metering_origin_observations WHERE origin_id=?`, Args: []any{orig
 	return observed, nil
 }
 
-func (s *Service) whiteListAdmissionBase(ctx context.Context, entitlementID, exitID string) (string, int64, error) {
+func (s *Service) whiteListAdmissionBase(ctx context.Context, entitlementID, exitID string) (string, int64, int64, error) {
 	if s == nil || s.store == nil || s.clock == nil || ctx == nil || !validEntitlementID(entitlementID) || !validWhiteListID(exitID) {
-		return "", 0, ErrUnavailable
+		return "", 0, 0, ErrUnavailable
 	}
 	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
 	if err != nil {
-		return "", 0, err
+		return "", 0, 0, err
 	}
 	publication, ok := state.publications[entitlementID]
 	if !ok || !publication.Enabled || (publication.Source != WhiteListActivationConfirmedGBPurchase && publication.Source != WhiteListActivationAdminEnable) ||
 		publication.PrimaryStatus != "active" || publication.PrimaryExpiresAtUnix <= s.clock.Now().Unix() {
-		return "", 0, ErrUnavailable
+		return "", 0, 0, ErrUnavailable
 	}
 	if _, ok := state.credentials[entitlementID][exitID]; !ok || !state.exits[exitID].Healthy {
-		return "", 0, ErrUnavailable
+		return "", 0, 0, ErrUnavailable
 	}
 	now := s.clock.Now().Unix()
 	results, err := s.store.db.QueryLinearizable(ctx, whiteListMeteringPeriodRead(entitlementID, now))
 	if err != nil || len(results) != 1 || len(results[0].Rows) != 1 {
-		return "", 0, ErrUnavailable
+		return "", 0, 0, ErrUnavailable
 	}
 	period, ok := rowString(results[0].Rows[0], "period_id")
-	if !ok {
-		return "", 0, ErrUnavailable
+	periodEndsAt, endsOK := rowInt64(results[0].Rows[0], "ends_at_unix")
+	if !ok || !endsOK || periodEndsAt <= now {
+		return "", 0, 0, ErrUnavailable
 	}
 	balance, err := s.WhiteListBalanceSnapshot(ctx, now, entitlementID)
 	if err != nil || balance.Projection.Pending || balance.Projection.Version <= 0 || balance.AvailableBytes <= 0 {
-		return "", 0, ErrUnavailable
+		return "", 0, 0, ErrUnavailable
 	}
-	return period, balance.AvailableBytes, nil
+	return period, balance.AvailableBytes, periodEndsAt, nil
 }
 
 // AuthorizeWhiteListMeteringAdmission is a narrow internal entry point for a
@@ -229,7 +230,7 @@ func (s *Service) AuthorizeWhiteListMeteringAdmission(ctx context.Context, entit
 	if err != nil {
 		return err
 	}
-	period, available, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID)
+	period, available, _, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID)
 	if err != nil || available < required {
 		return ErrUnavailable
 	}
@@ -288,27 +289,54 @@ WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=?`
 	return row, nil
 }
 
-// allowAwaiting is used only for sidecar provisioning. Publication always needs
-// every origin's real, fully debited cumulative history in this exact period.
+// Provisioning may precede a managed desired set. This does not by itself
+// authorize publication: that also needs an exact post-provision observation.
 func (s *Service) whiteListMeteringAdmissionReady(ctx context.Context, entitlementID, exitID string, allowAwaiting bool) (int64, bool) {
-	period, available, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID)
+	through, _, ready := s.whiteListMeteringReadiness(ctx, entitlementID, exitID, allowAwaiting, nil)
+	return through, ready
+}
+
+// Returns usage history and a separate publication lease. The latter can be
+// renewed by healthy awaiting-first polls without inventing counter freshness.
+func (s *Service) whiteListMeteringPublicationReady(ctx context.Context, entitlementID, exitID string, desired map[string]WhiteListSidecarDesired) (int64, int64) {
+	if len(desired) == 0 {
+		return 0, 0
+	}
+	through, until, ready := s.whiteListMeteringReadiness(ctx, entitlementID, exitID, true, desired)
+	if !ready {
+		return 0, 0
+	}
+	return through, until
+}
+
+func (s *Service) whiteListMeteringReadiness(ctx context.Context, entitlementID, exitID string, allowAwaiting bool, requiredDesired map[string]WhiteListSidecarDesired) (int64, int64, bool) {
+	period, available, periodEndsAt, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID)
 	if err != nil {
-		return 0, false
+		return 0, 0, false
 	}
 	origins, err := s.whiteListObservedOrigins(ctx)
-	if err != nil {
-		return 0, false
+	if err != nil || (requiredDesired != nil && len(requiredDesired) != len(origins)) {
+		return 0, 0, false
 	}
 	through := int64(0)
-	now := s.clock.Now().Unix()
+	freshUntil := periodEndsAt
+	awaiting := false
+	now := s.clock.Now()
 	email := whiteListManagedEmail(entitlementID, exitID)
 	for _, origin := range origins {
 		if origin.desired.ExitID != exitID {
-			return 0, false
+			return 0, 0, false
+		}
+		if requiredDesired != nil {
+			current, ok := requiredDesired[origin.origin.OriginID]
+			if !ok || current.ExitID != exitID || !whiteListContainsUser(current.ManagedUsers, email) ||
+				ValidateWhiteListSidecarReceipt(current, origin.receipt.XrayProcessBootID, origin.receipt, now) != nil {
+				return 0, 0, false
+			}
 		}
 		row, err := s.whiteListAdmissionRow(ctx, entitlementID, exitID, origin)
 		if err != nil {
-			return 0, false
+			return 0, 0, false
 		}
 		boundPeriod, _ := rowString(row, "billing_period_id")
 		reserve, _ := rowInt64(row, "reserve_bytes")
@@ -316,24 +344,40 @@ func (s *Service) whiteListMeteringAdmissionReady(ctx context.Context, entitleme
 		observed, _ := rowInt64(row, "first_observed_at_unix")
 		zeroStart, _ := rowInt64(row, "zero_start_authorized")
 		admitted, _ := rowInt64(row, "admitted_at_unix")
-		if boundPeriod != period || reserve < 10_000_000 || available < reserve || until <= now || zeroStart != 1 {
-			return 0, false
+		if boundPeriod != period || reserve < 10_000_000 || available < reserve || until <= now.Unix() || zeroStart != 1 {
+			return 0, 0, false
+		}
+		for _, deadline := range []int64{until, origin.receipt.ExpiresAt.Unix(), origin.sampledAt + whiteListObservationTTLSeconds} {
+			if deadline < freshUntil {
+				freshUntil = deadline
+			}
 		}
 		if observed == 0 && allowAwaiting {
+			if requiredDesired != nil && !whiteListContainsUser(origin.unavailable, email) {
+				return 0, 0, false
+			}
+			awaiting = true
 			continue
 		}
 		if observed == 0 || !whiteListContainsUser(origin.available, email) {
-			return 0, false
+			return 0, 0, false
 		}
 		accounted, err := s.whiteListOriginAccountedThrough(ctx, entitlementID, exitID, period, admitted, origin)
 		if err != nil || accounted < origin.sampledAt {
-			return 0, false
+			return 0, 0, false
 		}
 		if through == 0 || accounted < through {
 			through = accounted
 		}
 	}
-	return through, true
+	if awaiting {
+		// A partial set of real samples is not an all-origin usage watermark.
+		through = 0
+	}
+	if freshUntil <= now.Unix() {
+		return 0, 0, false
+	}
+	return through, freshUntil, true
 }
 
 func whiteListContainsUser(users []string, email string) bool {
@@ -342,7 +386,7 @@ func whiteListContainsUser(users []string, email string) bool {
 }
 
 // The first cumulative interval must debit all bytes, not EPOCH_STARTED's
-// discarded baseline. The current accounting adapter cannot produce this yet.
+// discarded baseline. ApplyCommercialFirstCumulative supplies this proof.
 // Keeping the proof in existing immutable source/outbox/receipt rows avoids a
 // second authoritative 'accounted' flag. Crossing periods remains closed until
 // the accounting layer supplies an explicit boundary sample contract.
@@ -402,7 +446,7 @@ func (s *Service) EnsureWhiteListMeteringBootstrap(ctx context.Context, workerID
 	selected := ""
 	for entitlementID := range state.publications {
 		for exitID := range state.credentials[entitlementID] {
-			if _, _, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID); err != nil {
+			if _, _, _, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID); err != nil {
 				continue
 			}
 			if selected != "" && selected != exitID {

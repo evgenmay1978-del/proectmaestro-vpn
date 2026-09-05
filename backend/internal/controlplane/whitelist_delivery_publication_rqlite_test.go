@@ -11,7 +11,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistmetering"
 )
 
-func TestWhiteListPublicationDeliveryReadsCurrentDurableStateBySubscriptionToken(t *testing.T) {
+func TestWhiteListPublicationDeliveryFirstUseCycleWithoutSyntheticUsage(t *testing.T) {
 	db, service := newCustomerIntegritySQLite(t)
 	ctx := context.Background()
 	now := service.clock.Now()
@@ -115,12 +115,22 @@ FROM whitelist_first_use_admissions WHERE entitlement_id=? AND exit_id=?`, Args:
 	if err := service.AuthorizeWhiteListMeteringAdmission(ctx, entitlementID, exit.ExitID, reserve); err != nil {
 		t.Fatalf("authorize new first-use admission: %v", err)
 	}
+	beforeProvision, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
+	if err != nil || beforeProvision.Decision.Verdict == WhiteListPublicationPublishable ||
+		beforeProvision.Material != (WhiteListClientMaterial{}) {
+		t.Fatalf("empty bootstrap desired published client material: %#v, %v", beforeProvision, err)
+	}
 	if err := service.ReconcileWhiteListSidecarIntents(ctx, "worker-s2", resolveSender); err != nil {
 		t.Fatalf("ReconcileWhiteListSidecarIntents: %v", err)
 	}
 	currentReceipt, err := decodeWhiteListSidecarReceipt(sender.receipt)
 	if err != nil || currentReceipt.DesiredGeneration != 2 {
 		t.Fatalf("managed-user receipt = %#v, %v", currentReceipt, err)
+	}
+	beforePoll, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
+	if err != nil || beforePoll.Decision.Verdict == WhiteListPublicationPublishable ||
+		beforePoll.Material != (WhiteListClientMaterial{}) {
+		t.Fatalf("old empty-set health authorized a new managed generation: %#v, %v", beforePoll, err)
 	}
 	routeIdentity := "wl:" + entitlementID + ":" + exit.ExitID
 	if err := service.RecordWhiteListOriginObservation(ctx, WhiteListOriginObservation{
@@ -148,9 +158,44 @@ WHERE admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id
 		t.Fatalf("awaiting admission replay fabricated usage freshness: %#v, %v", admissionResults, err)
 	}
 	awaiting, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
-	if err != nil || awaiting.Decision.Verdict == WhiteListPublicationPublishable ||
-		awaiting.Material != (WhiteListClientMaterial{}) {
-		t.Fatalf("unavailable first-use counters published material: %#v, %v", awaiting, err)
+	if err != nil || awaiting.Decision.Verdict != WhiteListPublicationPublishable ||
+		awaiting.Decision.FreshUntilUnix != now.Unix()+5 || awaiting.Decision.ProjectionVersion != 1 ||
+		awaiting.Material.ClientID != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("proven first-use admission did not break the delivery/counter cycle: %#v, %v", awaiting, err)
+	}
+	// The client need not import within five seconds of payment. Only a new
+	// authenticated poll renews publication; it is never a zero usage sample.
+	now = now.Add(5 * time.Second)
+	service.clock = fixedClock{value: now}
+	stale, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
+	if err != nil || stale.Decision.Verdict == WhiteListPublicationPublishable || stale.Material != (WhiteListClientMaterial{}) {
+		t.Fatalf("first-use publication survived its health deadline: %#v, %v", stale, err)
+	}
+	now = now.Add(time.Second)
+	service.clock = fixedClock{value: now}
+	if err := service.RecordWhiteListOriginObservation(ctx, WhiteListOriginObservation{
+		Receipt: currentReceipt, SampledAt: now, UnavailableUsers: []string{routeIdentity},
+	}); err != nil {
+		t.Fatalf("refresh authenticated awaiting-first observation: %v", err)
+	}
+	awaiting, err = service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
+	if err != nil || awaiting.Decision.Verdict != WhiteListPublicationPublishable || awaiting.Decision.FreshUntilUnix != now.Unix()+5 {
+		t.Fatalf("durable awaiting-first admission expired with the initial poll: %#v, %v", awaiting, err)
+	}
+	untouched, err := service.WhiteListBalanceSnapshot(ctx, now.Unix(), entitlementID)
+	if err != nil || untouched.Projection.FreshThroughUnix != 0 || untouched.Projection.Version != 1 ||
+		untouched.Projection.LifetimeConsumedBytes != 0 || untouched.Projection.PurchasedRemainingBytes != 1_000_000_000 {
+		t.Fatalf("first-use delivery fabricated usage or a debit: %#v, %v", untouched, err)
+	}
+	usageResults, err := db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT
+(SELECT COUNT(*) FROM whitelist_metering_checkpoints WHERE entitlement_id=?) AS checkpoints,
+(SELECT COUNT(*) FROM whitelist_commercial_metering_sources WHERE entitlement_id=?) AS samples`,
+		Args: []any{entitlementID, entitlementID}})
+	usageRow, usageFound := firstRow(usageResults)
+	checkpoints, checkpointsOK := rowInt64(usageRow, "checkpoints")
+	samples, samplesOK := rowInt64(usageRow, "samples")
+	if err != nil || !usageFound || !checkpointsOK || !samplesOK || checkpoints != 0 || samples != 0 {
+		t.Fatalf("first-use health was persisted as counter history: %#v, %v", usageResults, err)
 	}
 
 	// This is a synthetic immutable accounting proof, not a call through the
@@ -200,11 +245,13 @@ WHERE outbox.event_id=?`, Args: []any{debit.IntervalID}})
 		t.Fatalf("publication delivery = %#v", got)
 	}
 
+	appliedReceipt := append([]byte{}, sender.receipt...)
 	sender.receipt = nil
 	restarted, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
 	if err != nil || restarted.Decision.Verdict == WhiteListPublicationPublishable {
 		t.Fatalf("receipt from a prior Xray boot remained publishable: %#v, %v", restarted, err)
 	}
+	sender.receipt = appliedReceipt
 
 	closed, err := service.WhiteListPublicationDelivery(ctx, "unknown-token", now, resolveSender)
 	if err != nil || closed.Decision.Verdict != WhiteListPublicationNoEntitlement {
@@ -220,6 +267,10 @@ WHERE outbox.event_id=?`, Args: []any{debit.IntervalID}})
 	}
 	if _, ready := service.whiteListMeteringAdmissionReady(ctx, entitlementID, exit.ExitID, true); ready {
 		t.Fatal("missing counters after first use reopened provisioning admission")
+	}
+	missing, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
+	if err != nil || missing.Decision.Verdict == WhiteListPublicationPublishable || missing.Material != (WhiteListClientMaterial{}) {
+		t.Fatalf("missing counters after first use reopened publication: %#v, %v", missing, err)
 	}
 	service, err = NewService(service.store, service.ids, service.clock)
 	if err != nil {
@@ -239,6 +290,10 @@ WHERE outbox.event_id=?`, Args: []any{debit.IntervalID}})
 	}
 	if _, ready := service.whiteListMeteringAdmissionReady(ctx, entitlementID, exit.ExitID, true); ready {
 		t.Fatal("restart and reserve refresh reopened missing-after-seen admission")
+	}
+	missing, err = service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
+	if err != nil || missing.Decision.Verdict == WhiteListPublicationPublishable || missing.Material != (WhiteListClientMaterial{}) {
+		t.Fatalf("restart and reserve refresh reopened missing-after-seen publication: %#v, %v", missing, err)
 	}
 
 	// A legitimate next paid period cannot reopen the same admitted lifetime.

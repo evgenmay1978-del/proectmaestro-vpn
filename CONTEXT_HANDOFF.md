@@ -94,6 +94,12 @@ unchanged. The real panel publication fixture, controlplane and shadowbilling
 passed in that run; the overall workflow and later gates did not. Do not rerun
 the unchanged failed SHA. The verified reserve provider,
 same-boot reset and strict period rollover remain open; this is not readiness.
+Corrected receipt-schema checkpoint8f77b40 passed ordinary Go tests, race and vet
+in HA33960728853. Its rqlite integration stage then failed only the explicit
+expected-table list, which omitted the two already registered migration0017
+tables: whitelist_first_use_admissions and whitelist_metering_origin_observations.
+Both exact names are now added; strict schema equality, foreign-key and checksum
+checks are preserved. The failed run is terminal, not an artifact/deployment pass.
 An additional actual first-use publication cycle is confirmed in source:
 public readiness requires a first debited sample before issuing client material,
 but a new client cannot produce that sample without the material. Empty desired
@@ -103,6 +109,22 @@ verified reserve, exact current period/boot, fresh all-Origin health and that
 user in current managed desired with the exact applied receipt. Do not fabricate
 usage freshness or synthetic customer bytes. Once observed, real available
 counters and applied debit remain mandatory; waiting must never rearm.
+That six-file production correction is now implemented and independently
+reviewed: publication readiness returns a separate AdmissionFreshUntilUnix,
+bound to every current managed desired/user, applied receipt, process boot,
+current paid period, verified reserve and authenticated Origin observation.
+Awaiting-first users must explicitly be unavailable in that current generation;
+empty bootstrap/old-generation observations cannot publish. The lease is capped
+by period/reserve/receipt/observation deadlines and primary expiry. No usage or
+balance freshness is invented; after a real observation, missing counters and
+incomplete accounting remain closed across restarts. Both delivery and reconcile
+resolve the exact selected exit, not any credential found during iteration.
+The existing durable lifecycle regression now covers material before the first
+sample, stale-health closure, fresh-poll renewal without zero samples/debits, and
+missing-after-seen closure; the evaluator regression preserves other gates and
+deadline minima. Root and independent six-file review found no Important defects;
+cached gofmt parsed the files. Exact-SHA execution is still pending. No reserve
+provider was invented and no production publication/collector flag was enabled.
 
 Eye source now selects one registered original-tissue candidate: real scleral
 texture and a moist corner replace the flat procedural triangles, sampled strictly
@@ -163,6 +185,14 @@ transport binaries and backend are unchanged. Root corrected filtered Groups
 state propagation before CI. The existing compile-only GitHub task now includes
 ProtocolVisibility, PhoneHomeProtocolOrder and PhoneHomeControlDeckContract
 tests alongside geometry; no APK/signing or deferred binary packaging is added.
+This20-file checkpoint is pushed as `8f77b409e577de6b0d17716191ac59588ada6fac`.
+Exact Android run `33960732689` compiled Kotlin and passed the four focused
+classes (job101292058636 SUCCESS). Its Python preview job101292058623 FAILED
+two assertions because the independent reference fixture still named the August
+screenshot. The fixture now binds the actual September file, its SHA-256 and
+1080x2340 dimensions together. The unchanged-outside-mask pixel assertions are
+preserved. Run only corrected preview after this fixture change; do not repeat
+the already-passed unchanged Kotlin job or call the overall Android run GREEN.
 
 Actual Android CDN integration remains missing: WhiteListClientInfo is parsed
 but no screen consumes it; TV parsing and runtime gate/selector are not wired.
@@ -173,6 +203,10 @@ balance. Existing links rendering labels CDN with the exit country; richer
 country/protocol labels and actual Happ/Incy display are not yet verified.
 Third-party balance display must use supported subscription statistics without
 misrepresenting the ordinary subscription as a capped CDN plan.
+The actual server commercial balance DTO supplies available_bytes plus separate
+included_remaining_bytes/purchased_remaining_bytes; the old Android /info parser
+expects remaining_limit_bytes. Wire the authoritative commercial balance rather
+than displaying a fabricated zero or silently substituting that legacy field.
 Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.

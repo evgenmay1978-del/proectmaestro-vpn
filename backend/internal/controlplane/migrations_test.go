@@ -56,6 +56,7 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 		"schema_migrations", "cluster_restore_state", "backup_rpo_state", "backup_rpo_attempts", "customers", "whitelist_entitlement_identities",
 		"whitelist_meter_epochs", "whitelist_billing_periods", "whitelist_commercial_metering_sources", "whitelist_commercial_debit_outbox", "whitelist_balance_entries", "whitelist_balance_projections", "whitelist_usage_applications", "whitelist_gb_products", "whitelist_topup_orders", "whitelist_topup_payment_claims", "whitelist_publication_controls", "whitelist_topup_results", "whitelist_renewal_intents",
 		"whitelist_route_credentials", "whitelist_sidecar_desired", "whitelist_sidecar_exits", "whitelist_sidecar_origins", "whitelist_sidecar_receipts",
+		"whitelist_first_use_admissions", "whitelist_metering_origin_observations",
 		"whitelist_metering_periods", "whitelist_metering_checkpoints", "whitelist_metering_events", "whitelist_metering_intervals", "whitelist_metering_projections",
 		"credentials", "subscription_tokens", "devices",
 		"tariff_versions", "orders", "active_order_guards", "payments", "trial_redemptions",
