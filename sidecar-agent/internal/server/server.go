@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/sidecar-agent/internal/agent"
 )
@@ -19,6 +20,7 @@ import (
 const (
 	DesiredPath         = "/v1/desired"
 	ReceiptPath         = "/v1/receipt"
+	UsagePath           = "/v1/usage"
 	ActionKeyHeader     = "X-Maestro-Action-Key"
 	DesiredSHA256Header = "X-Maestro-Desired-SHA256"
 	MaxRequestBytes     = agent.MaxDesiredBytes
@@ -27,6 +29,10 @@ const (
 type Applier interface {
 	Apply(context.Context, agent.Desired) (agent.Receipt, error)
 	LookupReceipt(context.Context, string) (agent.Receipt, error)
+}
+
+type usageReader interface {
+	Usage(context.Context, string) (agent.UsageSnapshot, error)
 }
 
 func NewHandler(applier Applier) http.Handler {
@@ -104,6 +110,46 @@ func NewHandler(applier Applier) http.Handler {
 			return
 		}
 		encoded, err := json.Marshal(receipt)
+		if err != nil {
+			response.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		response.Header().Set("Cache-Control", "no-store")
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write(encoded)
+	}))
+	mux.Handle(UsagePath, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if applier == nil || request.TLS == nil || len(request.TLS.VerifiedChains) == 0 {
+			response.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		actionKey := request.Header.Get(ActionKeyHeader)
+		if actionKey == "" || strings.TrimSpace(actionKey) != actionKey || strings.ContainsAny(actionKey, "\x00\r\n\t") {
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		reader, ok := applier.(usageReader)
+		if !ok {
+			response.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+		defer cancel()
+		snapshot, err := reader.Usage(ctx, actionKey)
+		if err != nil {
+			if errors.Is(err, agent.ErrNotFound) {
+				response.WriteHeader(http.StatusNotFound)
+				return
+			}
+			response.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		encoded, err := json.Marshal(snapshot)
 		if err != nil {
 			response.WriteHeader(http.StatusInternalServerError)
 			return

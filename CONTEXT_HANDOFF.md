@@ -1,5 +1,40 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## CURRENT OWNER OVERRIDE AND RUNTIME GAP — 05.09.2026
+
+The owner explicitly instructed: do not enter AdminVPS; continue server setup
+through SSH; fix the eye programmatically. This supersedes the earlier request
+to wait for provider-console access and the unanswered image-processing request.
+Do not reopen AdminVPS or ask for the same image-processing permission again.
+For bounded server configuration, retain strict host verification, the existing
+SSH path, a current scoped backup, an independent management session and a
+verified rollback. No ordinary SSH/firewall reset, private-subscription change,
+real customer charging, OTA/release publication or final traffic cutover follows
+from this instruction. OLCRTC and WDTT remain out of scope.
+
+The existing commercial Task 6 is not runtime-complete: non-test backend source
+has definitions but no runtime callers of `NewDurableStore`,
+`ApplyCommercialOrdered` or `DrainCommercialDebits`. Do not describe this as
+another new task or assume that deploying a flag connects counters to balances.
+The implementation now adds a read-only usage snapshot to the existing mTLS
+sidecar service, then must connect it to the existing durable debit path.
+Xray creates per-user counters lazily; a missing counter is unavailable, not
+zero. One unused managed user must not block metering of all other users.
+
+RED-only source `348a34096286035157b654656919a5550e0b7003` is pushed.
+GitHub run `33943009933`, sidecar job `101243932201`, proves the missing route:
+`TestUsageRouteRejectsMutationAndUnauthenticatedReads` received 404 instead of
+405 and 401. Policy and release-template jobs passed. This is expected RED,
+not a production-ready build; no repeat dispatch is needed for this SHA.
+
+Fresh SSH observations: S4 commercial agent, commercial Xray and isolated
+ingress are ACTIVE with PIDs 644257, 644242 and 646960; SSH is ACTIVE. S1 panel
+and primary bot are ACTIVE. Panel unit uses `/etc/maestro-panel.env`; its running
+environment has neither `MAESTRO_CONTROL_PLANE` nor
+`MAESTRO_WHITELIST_SIDECAR_ENABLE`. Panel binary SHA-256 is
+`867df76e07a4e1ca753c0cc3940d5d4da43c97c353e47c049efe9fa1f6ded83a`.
+No service, customer subscription or payment was changed by these observations.
+
 ## 0. CURRENT — TASK 15 S4 B441 AND ISOLATED INGRESS ACTIVE (05.09.2026)
 
 This section supersedes earlier status and next-step statements below. The sole

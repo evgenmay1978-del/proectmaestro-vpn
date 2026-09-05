@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/xtls/xray-core/app/proxyman/command"
+	statscommand "github.com/xtls/xray-core/app/stats/command"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/proxy/vless"
@@ -49,6 +50,7 @@ type handlerRPC interface {
 
 type Client struct {
 	handler     handlerRPC
+	stats       statsRPC
 	credentials CredentialSource
 	connection  *grpc.ClientConn
 }
@@ -72,7 +74,10 @@ func New(config Config, source CredentialSource) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("xray client: create HandlerService client")
 	}
-	return &Client{handler: command.NewHandlerServiceClient(connection), credentials: source, connection: connection}, nil
+	return &Client{
+		handler: command.NewHandlerServiceClient(connection), stats: statscommand.NewStatsServiceClient(connection),
+		credentials: source, connection: connection,
+	}, nil
 }
 
 func validAPIAddress(value string) bool {

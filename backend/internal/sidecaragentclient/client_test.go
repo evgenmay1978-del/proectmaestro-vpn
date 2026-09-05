@@ -20,6 +20,8 @@ import (
 	"net/http/httptrace"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -153,6 +155,98 @@ func TestClientRejectsOversizedDesiredBeforeNetwork(t *testing.T) {
 	}
 	if transport.posts.Load() != 0 || transport.gets.Load() != 0 {
 		t.Fatal("oversized request reached network")
+	}
+}
+
+func TestClientLooksUpTypedUsageOverExistingMTLSBinding(t *testing.T) {
+	files, serverTLS := testTLSFiles(t, "agent.test")
+	_, actionKey := testDesired(t)
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	availableEmail := "wl:wl-ent-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:exit-s4"
+	unavailableEmail := "wl:wl-ent-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:exit-s4"
+	want := UsageSnapshot{
+		Receipt: Receipt{
+			ActionKey: actionKey, OriginID: "origin-s4", ReleaseID: "release-1",
+			XrayProcessBootID: "boot-s4", ConfigDigest: strings.Repeat("a", 64),
+			DesiredGeneration: 2, ManagedUserSetDigest: testManagedUserSetDigest(t, []string{availableEmail, unavailableEmail}),
+			AppliedAt: now.Add(-time.Second), ExpiresAt: now.Add(30 * time.Second),
+		},
+		SampledAt: now,
+		Users: []UsageUser{
+			{Email: availableEmail, UplinkBytes: 10, DownlinkBytes: 20},
+		},
+		UnavailableUsers: []string{unavailableEmail},
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != UsagePath ||
+			request.Header.Get(ActionKeyHeader) != actionKey || request.TLS == nil ||
+			len(request.TLS.VerifiedChains) == 0 {
+			t.Fatalf("usage request method=%s path=%s tls=%v", request.Method, request.URL.Path, request.TLS != nil)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(want)
+	}))
+	server.TLS = serverTLS
+	server.StartTLS()
+	defer server.Close()
+
+	client, err := New(Config{
+		BaseURL: server.URL, ServerName: "agent.test", CAFile: files.ca,
+		CertFile: files.cert, KeyFile: files.key, RequestTimeout: time.Second,
+		ReceiptLookupTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got, err := client.LookupUsage(context.Background(), actionKey)
+	if err != nil {
+		t.Fatalf("LookupUsage: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("usage=%#v, want %#v", got, want)
+	}
+}
+
+func TestDecodeUsageRejectsMissingCountersAndManagedCoverageDrift(t *testing.T) {
+	_, actionKey := testDesired(t)
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	availableEmail := "wl:wl-ent-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:exit-s4"
+	otherEmail := "wl:wl-ent-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:exit-s4"
+	tests := []struct {
+		name         string
+		user         map[string]any
+		managedUsers []string
+	}{
+		{
+			name:         "missing uplink counter",
+			user:         map[string]any{"email": availableEmail, "downlink_bytes": uint64(20)},
+			managedUsers: []string{availableEmail},
+		},
+		{
+			name:         "null downlink counter",
+			user:         map[string]any{"email": availableEmail, "uplink_bytes": uint64(10), "downlink_bytes": nil},
+			managedUsers: []string{availableEmail},
+		},
+		{
+			name:         "managed coverage drift",
+			user:         map[string]any{"email": availableEmail, "uplink_bytes": uint64(10), "downlink_bytes": uint64(20)},
+			managedUsers: []string{availableEmail, otherEmail},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			receipt := testReceipt(actionKey)
+			receipt.ManagedUserSetDigest = testManagedUserSetDigest(t, test.managedUsers)
+			receipt.AppliedAt = now.Add(-time.Second)
+			receipt.ExpiresAt = now.Add(30 * time.Second)
+			payload := mustJSON(t, map[string]any{
+				"receipt": receipt, "sampled_at": now,
+				"users": []map[string]any{test.user}, "unavailable_users": []string{},
+			})
+			if _, err := decodeUsage(bytes.NewReader(payload), actionKey); !errors.Is(err, ErrDeliveryUnknown) {
+				t.Fatalf("decodeUsage error=%v", err)
+			}
+		})
 	}
 }
 
@@ -297,6 +391,15 @@ func testReceipt(actionKey string) testReceiptValue {
 		ConfigDigest: strings.Repeat("a", 64), DesiredGeneration: 2, ManagedUserSetDigest: strings.Repeat("b", 64),
 		AppliedAt: now, ExpiresAt: now.Add(30 * time.Second),
 	}
+}
+
+func testManagedUserSetDigest(t *testing.T, users []string) string {
+	t.Helper()
+	canonical := append([]string{}, users...)
+	sort.Strings(canonical)
+	raw := mustJSON(t, canonical)
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:])
 }
 
 func mustJSON(t *testing.T, value any) []byte {

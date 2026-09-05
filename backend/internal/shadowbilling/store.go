@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
@@ -49,6 +50,15 @@ type DurableStore struct {
 	commercialMu sync.Mutex
 }
 
+// CommercialProducerCursor binds one Xray process/reset epoch to the next
+// sequence after the latest durably accepted sample for one route identity.
+type CommercialProducerCursor struct {
+	// Source is the route-bound identity that must be passed unchanged to ApplyCommercialOrdered.
+	Source             CommercialMeterSource
+	MeterEpoch         string
+	NextSampleSequence uint64
+}
+
 // CommercialDebiter applies one accepted immutable commercial interval to the
 // prepaid balance. Implementations must be idempotent and persist the shared
 // CommercialDebitReceiptKey in idempotency_requests before returning nil.
@@ -62,6 +72,171 @@ func NewDurableStore(db rqlite.RQLite) (*DurableStore, error) {
 		return nil, ErrInvalidInput
 	}
 	return &DurableStore{db: db}, nil
+}
+
+// EnsureCommercialProducerCursor binds a physical counter source to one route,
+// creates or resolves its immutable meter epoch, and resumes accepted ordering.
+// Callers must pass the physical source, not a previously returned cursor Source.
+func (store *DurableStore) EnsureCommercialProducerCursor(
+	ctx context.Context,
+	physicalSource CommercialMeterSource,
+	createdAtUnix int64,
+) (CommercialProducerCursor, error) {
+	if store == nil || store.db == nil || ctx == nil ||
+		!validCommercialProducerSource(physicalSource) || createdAtUnix < 0 || createdAtUnix >= math.MaxInt64 {
+		return CommercialProducerCursor{}, ErrInvalidInput
+	}
+	source := bindCommercialProducerSource(physicalSource)
+	epochDigest := sha256.Sum256([]byte(
+		"maestro-whitelist-meter-epoch-v1\x00" + source.OriginID + "\x00" +
+			source.CounterSourceID + "\x00" + source.XrayProcessBootID + "\x00" +
+			uintText(source.ResetSequence),
+	))
+	candidateEpoch := "wl-meter-" + hex.EncodeToString(epochDigest[:])
+	insert := rqlite.Statement{
+		SQL: `INSERT OR IGNORE INTO whitelist_meter_epochs(
+meter_epoch,origin_id,counter_source_id,xray_process_boot_id,reset_sequence,created_at_unix)
+VALUES(?,?,?,?,?,?)`,
+		Args: []any{
+			candidateEpoch, source.OriginID, source.CounterSourceID,
+			source.XrayProcessBootID, source.ResetSequence, createdAtUnix,
+		},
+	}
+	reads := commercialProducerCursorReads(source)
+	results, requestErr := store.db.Request(
+		ctx, rqlite.Linearizable, true, append([]rqlite.Statement{insert}, reads...)...,
+	)
+	if requestErr == nil {
+		if len(results) != 3 {
+			return CommercialProducerCursor{}, ErrDurableStateInvalid
+		}
+		return commercialProducerCursorFromResults(results[1:], source)
+	}
+	results, err := store.db.QueryLinearizable(ctx, reads...)
+	if err != nil {
+		return CommercialProducerCursor{}, fmt.Errorf("shadowbilling: resolve commercial producer cursor: %w", requestErr)
+	}
+	cursor, err := commercialProducerCursorFromResults(results, source)
+	if err != nil {
+		return CommercialProducerCursor{}, fmt.Errorf("shadowbilling: resolve commercial producer cursor: %w", requestErr)
+	}
+	return cursor, nil
+}
+
+// PendingCommercialDebitEntitlementIDs enumerates committed intervals whose
+// exact balance receipt is still absent, including users no longer desired.
+func (store *DurableStore) PendingCommercialDebitEntitlementIDs(ctx context.Context) ([]string, error) {
+	if store == nil || store.db == nil || ctx == nil {
+		return nil, ErrInvalidInput
+	}
+	results, err := store.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: `SELECT DISTINCT outbox.entitlement_id AS entitlement_id
+FROM whitelist_commercial_debit_outbox AS outbox
+LEFT JOIN idempotency_requests AS receipt
+  ON receipt.scope=?
+ AND receipt.command_type=?
+ AND receipt.idempotency_key=outbox.receipt_key
+ AND receipt.request_hash=outbox.request_hash
+ AND receipt.resource_id=outbox.entitlement_id
+ AND receipt.status='applied'
+WHERE receipt.idempotency_key IS NULL
+ORDER BY outbox.entitlement_id`,
+		Args: []any{
+			whitelistmetering.CommercialDebitReceiptScope,
+			whitelistmetering.CommercialDebitReceiptCommand,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("shadowbilling: read pending commercial debit entitlements: %w", err)
+	}
+	if len(results) != 1 {
+		return nil, ErrDurableStateInvalid
+	}
+	entitlementIDs := make([]string, 0, len(results[0].Rows))
+	for _, row := range results[0].Rows {
+		entitlementID, parseErr := rowString(row, "entitlement_id")
+		if parseErr != nil || !exactCommercialIdentifier(entitlementID) ||
+			!strings.HasPrefix(entitlementID, "wl-ent-") {
+			return nil, ErrDurableStateInvalid
+		}
+		entitlementIDs = append(entitlementIDs, entitlementID)
+	}
+	return entitlementIDs, nil
+}
+
+func commercialProducerCursorReads(source CommercialMeterSource) []rqlite.Statement {
+	args := []any{
+		source.OriginID, source.CounterSourceID, source.XrayProcessBootID, source.ResetSequence,
+	}
+	return []rqlite.Statement{
+		{
+			SQL: `SELECT meter_epoch,origin_id,counter_source_id,xray_process_boot_id,reset_sequence
+FROM whitelist_meter_epochs
+WHERE origin_id=? AND counter_source_id=? AND xray_process_boot_id=? AND reset_sequence=?`,
+			Args: args,
+		},
+		{
+			SQL: `SELECT source.sample_sequence AS sample_sequence
+FROM whitelist_commercial_metering_sources AS source
+JOIN whitelist_meter_epochs AS epoch ON epoch.meter_epoch=source.meter_epoch
+WHERE epoch.origin_id=? AND epoch.counter_source_id=? AND epoch.xray_process_boot_id=?
+  AND epoch.reset_sequence=? AND source.route_xray_identity=? AND source.counter_generation='1'
+ORDER BY length(source.sample_sequence) DESC,source.sample_sequence DESC
+LIMIT 1`,
+			Args: append(append([]any(nil), args...), source.RouteXrayIdentity),
+		},
+	}
+}
+
+func commercialProducerCursorFromResults(
+	results []rqlite.Result,
+	source CommercialMeterSource,
+) (CommercialProducerCursor, error) {
+	if len(results) != 2 || len(results[0].Rows) != 1 || len(results[1].Rows) > 1 {
+		return CommercialProducerCursor{}, ErrDurableStateInvalid
+	}
+	row := results[0].Rows[0]
+	meterEpoch, meterEpochErr := rowString(row, "meter_epoch")
+	originID, originErr := rowString(row, "origin_id")
+	counterSourceID, counterSourceErr := rowString(row, "counter_source_id")
+	processBootID, processBootErr := rowString(row, "xray_process_boot_id")
+	resetSequence, resetErr := rowUint(row, "reset_sequence")
+	if meterEpochErr != nil || originErr != nil || counterSourceErr != nil || processBootErr != nil ||
+		resetErr != nil || !exactCommercialIdentifier(meterEpoch) || originID != source.OriginID ||
+		counterSourceID != source.CounterSourceID || processBootID != source.XrayProcessBootID ||
+		resetSequence != source.ResetSequence {
+		return CommercialProducerCursor{}, ErrDurableStateInvalid
+	}
+	next := uint64(1)
+	if len(results[1].Rows) == 1 {
+		accepted, parseErr := rowUint(results[1].Rows[0], "sample_sequence")
+		if parseErr != nil || accepted == math.MaxUint64 {
+			return CommercialProducerCursor{}, ErrDurableStateInvalid
+		}
+		next = accepted + 1
+	}
+	return CommercialProducerCursor{Source: source, MeterEpoch: meterEpoch, NextSampleSequence: next}, nil
+}
+
+func bindCommercialProducerSource(source CommercialMeterSource) CommercialMeterSource {
+	digest := sha256.Sum256([]byte(
+		"maestro-whitelist-counter-source-v1\x00" + source.CounterSourceID + "\x00" + source.RouteXrayIdentity,
+	))
+	source.CounterSourceID = "wl-counter-" + hex.EncodeToString(digest[:])
+	return source
+}
+
+func validCommercialProducerSource(source CommercialMeterSource) bool {
+	return exactCommercialIdentifier(source.OriginID) &&
+		exactCommercialIdentifier(source.ExitID) &&
+		exactCommercialIdentifier(source.CounterSourceID) &&
+		!strings.HasPrefix(source.CounterSourceID, "wl-counter-") &&
+		exactCommercialIdentifier(source.XrayProcessBootID) &&
+		exactCommercialIdentifier(source.RouteXrayIdentity) &&
+		source.ResetSequence < uint64(math.MaxInt64) &&
+		strings.Count(source.RouteXrayIdentity, ":") == 2 &&
+		strings.HasPrefix(source.RouteXrayIdentity, "wl:wl-ent-") &&
+		strings.HasSuffix(source.RouteXrayIdentity, ":"+source.ExitID)
 }
 
 type canonicalPolicy struct {

@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 340041,
-      "sha256": "22c35bc5d04309876f25e13b1d38f302b98aa1b2ec9e81ce61821ffb6d09f848",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. CURRENT \u2014 TASK 15 S4 B441 AND ISOLATED INGRESS ACTIVE (05.09.2026)\n\nThis section supersedes earlier status and next-step statements below. The sole\ncanonical branch is `codex/yandex-cdn-whitelist-task3-sync`. The source/package\ncheckpoint is `b4415daa90c95a38f"
+      "bytes": 342268,
+      "sha256": "3ddaf03979f2bd3377ecd3f6ddf064e3db4cd2609af3485a559a5882405248b8",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## CURRENT OWNER OVERRIDE AND RUNTIME GAP \u2014 05.09.2026\n\nThe owner explicitly instructed: do not enter AdminVPS; continue server setup\nthrough SSH; fix the eye programmatically. This supersedes the earlier request\nto wait for provider-console access and the unanswere"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
@@ -117,9 +117,9 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/PANEL_INTEGRATION.md",
-      "bytes": 1081,
-      "sha256": "7a458f22d073d4ab104c9152ad8c6c24b02f3948c1665e489bda06b7b2a79fa6",
-      "preview": "# Panel integration contract\nStatus: target-only. This is a conservative design record, not evidence of a live audit, deployment, migration, test completion, or approval.\n\n## Materialized policy\nPanel intent adds entitlement, profile, preset, approved edge, release, usage, tariff, limits, suspension and audit controls "
+      "bytes": 3449,
+      "sha256": "55f62cd4db0bd666e42c263e3351a4f08bcf8f7e27e69fa5ce2ae6e693e5b27b",
+      "preview": "# Panel integration contract\nStatus: source contracts and remaining integration requirements. Source implementation is not evidence of live deployment, migration, billing activation or production readiness.\n\n## Materialized policy\nPanel intent adds entitlement, profile, preset, approved edge, release, usage, tariff, li"
     },
     {
       "path": "docs/yandex-cdn-whitelist/PRODUCTION_FLEET_INVENTORY.md",

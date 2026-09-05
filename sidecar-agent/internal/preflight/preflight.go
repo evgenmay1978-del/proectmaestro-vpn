@@ -107,6 +107,15 @@ func NewChecker(config Config, system System, now func() time.Time) (*Checker, e
 	return &Checker{config: config, system: system, now: now}, nil
 }
 
+// ValidateRuntimeBinding reads protected runtime files only: no firewall command
+// or relay connection is needed when serving a counter snapshot.
+func (checker *Checker) ValidateRuntimeBinding(releaseID, configDigest string) error {
+	if checker == nil || releaseID != checker.config.ReleaseID || configDigest != checker.config.ConfigDigest {
+		return errors.New("relay preflight: runtime binding mismatch")
+	}
+	return checker.verifyRuntimeBindings()
+}
+
 func (checker *Checker) Validate(ctx context.Context, releaseID, configDigest, bootID, exitID string) error {
 	if checker == nil || releaseID != checker.config.ReleaseID || configDigest != checker.config.ConfigDigest ||
 		!safeIdentifier(bootID) || !supportedExit(exitID) {
