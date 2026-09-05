@@ -2,6 +2,15 @@ name: Isolated sidecar agent checks
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: Select the existing commercial bundle or the isolated session-fence source proof
+        required: true
+        default: commercial-bundle
+        type: choice
+        options:
+          - commercial-bundle
+          - runtime-fence-proof
   pull_request:
     paths:
       - '.github/workflows/sidecar-agent.yml'
@@ -60,8 +69,56 @@ jobs:
         working-directory: sidecar-agent
         run: go vet ./...
 
+      - name: Build isolated managed-session runtime proof
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'runtime-fence-proof'
+        working-directory: sidecar-agent
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ../dist-runtime-fence
+          go build -mod=readonly -trimpath -ldflags='-s -w -buildid=' \
+            -o ../dist-runtime-fence/maestro-xray-cdn-runtime ./cmd/maestro-xray-cdn-runtime
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path('../dist-runtime-fence')
+          binary = root / 'maestro-xray-cdn-runtime'
+          data = binary.read_bytes()
+          assert data[:6] == b'\x7fELF\x02\x01' and int.from_bytes(data[18:20], 'little') == 62
+          digest = hashlib.sha256(data).hexdigest()
+          manifest = {
+              'schema_version': 1,
+              'source_commit': os.environ['GITHUB_SHA'],
+              'workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
+              'xray_source_commit': '1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2',
+              'purpose': 'managed-session-fence-source-proof',
+              'deployable_commercial_bundle': False,
+              'agent_control_wiring_proven': False,
+              'binary': binary.name,
+              'bytes': len(data),
+              'sha256': digest,
+          }
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          (root / 'SHA256SUMS').write_text(digest + '  ' + binary.name + '\n')
+          PY
+
+      - name: Upload isolated runtime proof artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'runtime-fence-proof'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-xray-session-fence-proof-${{ github.sha }}
+          path: dist-runtime-fence/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Build immutable Linux amd64 commercial bundle
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.task != 'runtime-fence-proof'
         env:
           LC_ALL: C
           XRAY_ARCHIVE_SHA256: f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7
@@ -111,7 +168,7 @@ jobs:
           python ops/yandex_cdn_commercial/bundle.py verify --bundle "$dist"
 
       - name: Upload immutable commercial bundle
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.task != 'runtime-fence-proof'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: maestro-xray-cdn-commercial-${{ github.sha }}
