@@ -45,7 +45,7 @@ on:
 
 jobs:
   mobile-eye-state-preview:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-state-preview' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.task == 'mobile-eye-state-preview' || inputs.task == 'mobile-eye-compile') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

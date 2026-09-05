@@ -70,7 +70,10 @@ Its fixture uses the real transaction and debit path, including unknown commit
 response and restart recovery, without handwritten debit/source/interval rows.
 Generic baseline/replay semantics and default-OFF are preserved. Independent
 review of the17 scoped files found no Critical/Important defects; cached gofmt
-parsed/formatted the owned files. GitHub exact-SHA CI is still required. The
+parsed/formatted the owned files. Source was committed/pushed as
+`24192c7fed11a849748e0d5332c8ca213edb9d59`; exact HA run `33955605211` was observed
+IN_PROGRESS after one acknowledged dispatch. Retain that handle, do not redispatch
+because a status observation takes time. A passing result is not yet recorded. The
 verified reserve provider, same-boot reset and strict period rollover remain
 open; this source checkpoint is not commercial launch readiness.
 
@@ -95,10 +98,17 @@ no deferred-binary downloads, signing, APK build/upload or unrelated test runs.
 The normal Android mode/default remains unchanged. This mode does not prove a
 complete installable APK or final runtime visual acceptance.
 The compile-only workflow correction is pushed as
-`b3072937af4fe339aa437c4b2b42535819eece94`. The owner then explicitly requested
-missing eyelashes; that runtime/preview change is in progress. Dispatch the
-compile gate once after integrating the finished lash source, not for both the
-superseded lashless source and the new source.
+`b3072937af4fe339aa437c4b2b42535819eece94`. The owner explicitly requested missing
+eyelashes. Runtime and preview now share29 upper/12 lower authored follicles,
+lid attachment, irregular fan/curl and tapered dark-brown strands. The initially
+over-bright wire-like reflection was rejected and removed from both renderers.
+The selected actual-source preview is `eyelashes-dark-fan-preview`, not either
+older lashless/bright-wire image. Root viewed its enlarged open/closed comparison;
+independent review of the six visual files found no Critical/Important issues.
+This is not anatomical/device acceptance. The existing `mobile-eye-compile`
+mode now also selects the existing Python preview job, so one exact-SHA dispatch
+checks the actual preview and Kotlin together. Do not separately rerun the
+superseded lashless source or publish a test APK/OTA.
 Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.

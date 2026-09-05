@@ -315,6 +315,7 @@ internal fun LivingEyeMedallion(
                 phase = phase,
                 profile = integration,
             )
+            drawEyelashes(layerFit, phase)
         }
 
         // Свет по внутренней кромке кольца — СНАРУЖИ клипа: он должен ложиться на бронзу, а не
@@ -528,6 +529,28 @@ private fun DrawScope.drawEyelidOcclusion(
         Color(0xFF879380).copy(alpha = 42f / 255f),
         style = Stroke(layerFit.mapSourceLength(1.4f), cap = StrokeCap.Round, join = StrokeJoin.Round),
     )
+}
+
+private fun DrawScope.drawEyelashes(layerFit: LivingEyeLayerFit, phase: Float) {
+    livingEyeLashes(layerFit, phase).forEach { lash ->
+        // A filled curved ribbon tapers to a real point; no blunt, uniform stroke caps.
+        val halfWidth = lash.width / 2f
+        val path = Path().apply {
+            moveTo(lash.root.x - halfWidth, lash.root.y)
+            cubicTo(
+                lash.control1.x - halfWidth * 0.65f, lash.control1.y,
+                lash.control2.x - halfWidth * 0.20f, lash.control2.y,
+                lash.tip.x, lash.tip.y,
+            )
+            cubicTo(
+                lash.control2.x + halfWidth * 0.20f, lash.control2.y,
+                lash.control1.x + halfWidth * 0.65f, lash.control1.y,
+                lash.root.x + halfWidth, lash.root.y,
+            )
+            close()
+        }
+        drawPath(path, Color(0xFF281910).copy(alpha = lash.alpha))
+    }
 }
 
 private fun DrawScope.drawEyelidContactShadow(

@@ -43,6 +43,107 @@ internal data class LivingEyeLayerFit(
 
 internal data class LivingEyeLayerPoint(val x: Float, val y: Float)
 
+internal data class LivingEyeLash(
+    val root: LivingEyeLayerPoint,
+    val control1: LivingEyeLayerPoint,
+    val control2: LivingEyeLayerPoint,
+    val tip: LivingEyeLayerPoint,
+    val width: Float,
+    val alpha: Float,
+    val upper: Boolean,
+)
+
+/** Fixed follicles follow the actual lid margin, never gaze or a separately fitted eye. */
+internal fun livingEyeLashes(
+    layerFit: LivingEyeLayerFit,
+    closure: Float,
+): List<LivingEyeLash> {
+    val phase = closure.coerceIn(0f, 1f)
+    val contour = livingEyeApertureContour(layerFit, phase, seamOverlapPx = 0f)
+    fun lashes(specs: List<LivingEyeLashSpec>, upper: Boolean): List<LivingEyeLash> {
+        val lid = if (upper) contour.upper else contour.lower
+        return specs.map { spec ->
+            val x = lid.first().x + (lid.last().x - lid.first().x) * spec.fraction
+            val root = LivingEyeLayerPoint(x, livingEyeSourceYAtX(lid, x))
+            val length = layerFit.mapSourceLength(spec.length)
+            val fan = (spec.fraction - 0.46f) * 1.85f
+            val dx = length * (fan + spec.sweep * 0.45f)
+            val curl = length * spec.sweep * 1.2f
+            // Upper lashes roll down as that lid closes; the shorter lower row stays below it.
+            val dy = length * if (upper) -1f + 1.65f * phase else 1f
+            LivingEyeLash(
+                root = root,
+                control1 = LivingEyeLayerPoint(x + dx * 0.38f - curl * 0.25f, root.y + dy * 0.25f),
+                control2 = LivingEyeLayerPoint(x + dx * 0.78f + curl, root.y + dy * 0.88f),
+                tip = LivingEyeLayerPoint(x + dx + curl * 0.20f, root.y + dy * 0.68f),
+                width = layerFit.mapSourceLength(spec.width * 0.84f),
+                alpha = spec.alpha * if (upper) 1f else 1f - 0.7f * phase,
+                upper = upper,
+            )
+        }
+    }
+    return lashes(LIVING_EYE_UPPER_LASHES, upper = true) +
+        lashes(LIVING_EYE_LOWER_LASHES, upper = false)
+}
+
+private data class LivingEyeLashSpec(
+    val fraction: Float,
+    val length: Float,
+    val sweep: Float,
+    val width: Float,
+    val alpha: Float,
+)
+
+// Authored irregular follicles, not random per-frame noise or an evenly spaced spoke pattern.
+// Small, irregular pairs use different sweeps and lengths. Fan direction begins at the root,
+// with an independent curl along the shaft, rather than a row of vertical stalks with bent tips.
+private val LIVING_EYE_UPPER_LASHES = listOf(
+    LivingEyeLashSpec(0.082f, 23f, -0.27f, 3.2f, 0.78f),
+    LivingEyeLashSpec(0.125f, 32f, -0.13f, 3.9f, 0.89f),
+    LivingEyeLashSpec(0.136f, 27f, -0.31f, 3.3f, 0.84f),
+    LivingEyeLashSpec(0.188f, 41f, -0.05f, 4.2f, 0.94f),
+    LivingEyeLashSpec(0.225f, 48f, 0.12f, 3.9f, 0.92f),
+    LivingEyeLashSpec(0.234f, 34f, -0.22f, 3.3f, 0.85f),
+    LivingEyeLashSpec(0.284f, 51f, -0.04f, 4.1f, 0.95f),
+    LivingEyeLashSpec(0.312f, 42f, 0.20f, 3.5f, 0.87f),
+    LivingEyeLashSpec(0.320f, 55f, -0.17f, 4.2f, 0.96f),
+    LivingEyeLashSpec(0.363f, 45f, 0.10f, 3.7f, 0.90f),
+    LivingEyeLashSpec(0.373f, 59f, -0.10f, 4.1f, 0.93f),
+    LivingEyeLashSpec(0.417f, 46f, 0.25f, 3.3f, 0.84f),
+    LivingEyeLashSpec(0.449f, 63f, -0.18f, 4.4f, 0.97f),
+    LivingEyeLashSpec(0.456f, 52f, 0.12f, 3.9f, 0.91f),
+    LivingEyeLashSpec(0.495f, 60f, -0.27f, 3.5f, 0.88f),
+    LivingEyeLashSpec(0.542f, 49f, 0.20f, 4.1f, 0.93f),
+    LivingEyeLashSpec(0.550f, 64f, -0.07f, 4.2f, 0.96f),
+    LivingEyeLashSpec(0.590f, 52f, 0.29f, 3.5f, 0.86f),
+    LivingEyeLashSpec(0.633f, 67f, 0.04f, 4.2f, 0.95f),
+    LivingEyeLashSpec(0.641f, 55f, -0.20f, 3.7f, 0.90f),
+    LivingEyeLashSpec(0.680f, 63f, 0.18f, 4.1f, 0.94f),
+    LivingEyeLashSpec(0.723f, 50f, -0.13f, 3.5f, 0.88f),
+    LivingEyeLashSpec(0.731f, 60f, 0.27f, 4.2f, 0.96f),
+    LivingEyeLashSpec(0.770f, 48f, 0.02f, 3.9f, 0.93f),
+    LivingEyeLashSpec(0.810f, 57f, 0.32f, 4.1f, 0.95f),
+    LivingEyeLashSpec(0.818f, 43f, -0.10f, 3.5f, 0.87f),
+    LivingEyeLashSpec(0.859f, 50f, 0.23f, 3.9f, 0.92f),
+    LivingEyeLashSpec(0.891f, 37f, 0.05f, 3.5f, 0.88f),
+    LivingEyeLashSpec(0.900f, 33f, 0.29f, 3.3f, 0.83f),
+)
+
+private val LIVING_EYE_LOWER_LASHES = listOf(
+    LivingEyeLashSpec(0.145f, 16f, -0.18f, 1.8f, 0.58f),
+    LivingEyeLashSpec(0.207f, 21f, 0.12f, 2.1f, 0.68f),
+    LivingEyeLashSpec(0.279f, 18f, -0.14f, 1.8f, 0.61f),
+    LivingEyeLashSpec(0.334f, 26f, 0.20f, 2.3f, 0.72f),
+    LivingEyeLashSpec(0.403f, 22f, -0.21f, 2.0f, 0.65f),
+    LivingEyeLashSpec(0.469f, 28f, 0.06f, 2.3f, 0.71f),
+    LivingEyeLashSpec(0.542f, 23f, -0.17f, 1.8f, 0.62f),
+    LivingEyeLashSpec(0.598f, 30f, 0.23f, 2.3f, 0.73f),
+    LivingEyeLashSpec(0.672f, 25f, -0.05f, 2.1f, 0.67f),
+    LivingEyeLashSpec(0.728f, 31f, 0.27f, 2.3f, 0.72f),
+    LivingEyeLashSpec(0.793f, 22f, 0.03f, 2.0f, 0.64f),
+    LivingEyeLashSpec(0.859f, 20f, 0.18f, 1.8f, 0.59f),
+)
+
 internal data class LivingEyeApertureContour(
     val upper: List<LivingEyeLayerPoint>,
     val lower: List<LivingEyeLayerPoint>,

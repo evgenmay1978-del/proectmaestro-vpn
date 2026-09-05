@@ -8,6 +8,8 @@ Only approved owner references, the registered surround, and live anatomy are re
 from __future__ import annotations
 
 import argparse
+import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -18,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_PATH = ROOT / "design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg"
 MATERIAL_PATH = ROOT / "design/mobile-asset-redraw/materials/mobile_eye_surround_c.png"
 ANATOMY_DIR = ROOT / "app/src/main/res/drawable-nodpi"
+GEOMETRY_PATH = ROOT / "app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeLayerGeometry.kt"
 
 REPO_FONT_PATH = ROOT / "app/src/main/res/font/playfair_display.ttf"
 
@@ -131,6 +134,81 @@ def _contour_mask(scale: int, closure: float) -> Image.Image:
     polygon = [(_scaled(x, scale), _scaled(y, scale)) for x, y in upper + list(reversed(lower))]
     ImageDraw.Draw(mask).polygon(polygon, fill=255)
     return mask
+
+
+@lru_cache(maxsize=2)
+def _lash_specs(upper: bool) -> tuple[tuple[float, ...], ...]:
+    """Use the actual runtime's authored follicles, not a second artistic parameter set."""
+    name = "UPPER" if upper else "LOWER"
+    source = GEOMETRY_PATH.read_text(encoding="utf-8")
+    block = re.search(rf"LIVING_EYE_{name}_LASHES = listOf\((.*?)\n\)", source, re.S)
+    if block is None:
+        raise ValueError(f"Runtime {name.lower()} lash specifications are absent")
+    specs = tuple(tuple(float(value.strip().removesuffix("f")) for value in row.split(","))
+                  for row in re.findall(r"LivingEyeLashSpec\(([^)]+)\)", block.group(1)))
+    if not specs or any(len(spec) != 5 for spec in specs):
+        raise ValueError("Runtime lash specification shape changed")
+    return specs
+
+
+def lash_curves_dp(closure: float) -> list[tuple]:
+    """Same cubic centreline and lid-root projection as livingEyeLashes."""
+    phase = max(0.0, min(1.0, closure))
+    upper_lid, lower_lid = aperture_contours_dp(phase)
+    source_scale = _state_geometry_dp()[2] / LIVING_EYE_STATE_W
+    curves = []
+    for upper, lid in ((True, upper_lid), (False, lower_lid)):
+        for fraction, length, sweep, width, alpha in _lash_specs(upper):
+            x = lid[0][0] + (lid[-1][0] - lid[0][0]) * fraction
+            y = _interpolate_contour_y(tuple(lid), x)
+            length *= source_scale
+            fan = (fraction - 0.46) * 1.85
+            dx = length * (fan + sweep * 0.45)
+            curl = length * sweep * 1.2
+            dy = length * (-1 + 1.65 * phase if upper else 1)
+            curves.append(((x, y), (x + dx * 0.38 - curl * 0.25, y + dy * 0.25),
+                           (x + dx * 0.78 + curl, y + dy * 0.88), (x + dx + curl * 0.20, y + dy * 0.68),
+                           width * source_scale * 0.84, alpha * (1 if upper else 1 - 0.7 * phase), upper))
+    return curves
+
+
+def render_eyelashes(closure: float, scale: int = 2) -> Image.Image:
+    """Antialiased tapered ribbons, clipped only by the same bronze socket as runtime."""
+    center_x, center_y, medallion = _current_medallion_dp()
+    radius = medallion * (0.5 - 26.0 / 520.0)
+    origin = (int((center_x - radius - 2) * scale), int((center_y - radius - 2) * scale))
+    side = round((radius * 2 + 4) * scale)
+    supersample = 3  # Supersample only the small socket, not the full phone screenshot.
+    lashes = Image.new("RGBA", (side * supersample, side * supersample))
+
+    def cubic(points: tuple, t: float) -> tuple[float, float]:
+        weights = ((1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t ** 2, t ** 3)
+        return tuple(sum(weight * point[axis] for weight, point in zip(weights, points))
+                     for axis in (0, 1))
+
+    for root, control1, control2, tip, width, alpha, upper in lash_curves_dp(closure):
+        half = width / 2
+        edges = []
+        for sign in (-1, 1):
+            points = ((root[0] + sign * half, root[1]),
+                      (control1[0] + sign * half * 0.65, control1[1]),
+                      (control2[0] + sign * half * 0.20, control2[1]), tip)
+            edges.append([cubic(points, index / 16) for index in range(17)])
+        polygon = [((x * scale - origin[0]) * supersample, (y * scale - origin[1]) * supersample)
+                   for x, y in edges[0] + list(reversed(edges[1]))]
+        stroke = Image.new("RGBA", lashes.size)
+        ImageDraw.Draw(stroke).polygon(polygon, fill=(40, 25, 16, round(alpha * 255)))
+        lashes.alpha_composite(stroke)
+
+    bronze = Image.new("L", lashes.size)
+    ImageDraw.Draw(bronze).ellipse(
+        tuple((value * scale - origin[axis]) * supersample for value, axis in
+              ((center_x - radius, 0), (center_y - radius, 1),
+               (center_x + radius, 0), (center_y + radius, 1))), fill=255)
+    lashes.putalpha(ImageChops.multiply(lashes.getchannel("A"), bronze))
+    layer = Image.new("RGBA", (_scaled(DP_SIZE[0], scale), _scaled(DP_SIZE[1], scale)))
+    layer.alpha_composite(lashes.resize((side, side), Image.Resampling.LANCZOS), origin)
+    return layer
 
 
 def _material_mask(scale: int) -> Image.Image:
@@ -389,6 +467,7 @@ def render_home(state: str, scale: int = 2) -> Image.Image:
     eye, seam, _aperture, glow = render_living_eye_layers(closure=closure, scale=scale)
     canvas.alpha_composite(eye)
     canvas.alpha_composite(seam)
+    canvas.alpha_composite(render_eyelashes(closure, scale))
     if state == "connected":
         canvas.alpha_composite(glow)
         _draw_connected_status(canvas, load_reference(scale), scale)

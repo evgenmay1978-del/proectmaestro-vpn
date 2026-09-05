@@ -3,7 +3,7 @@
 The owner explicitly permitted programmatic raster processing. This is a local source candidate,
 not an APK/release, runtime screenshot, or completion of the three visual acceptance criteria.
 
-**Latest source:** registered original ocular tissue, described in the final section below.
+**Latest source:** registered original ocular tissue with lid-attached eyelashes, described below.
 The analytic spherical sclera and earlier experiments are superseded, not simultaneous options.
 
 - The green master `mobile_eye_surround_c.png`, bronze art, CLOSED state and shared anatomy fit
@@ -99,3 +99,62 @@ Only the sclera and this note changed in this pass. Alpha, iris, catchlight, out
 CLOSED/shared contour are unchanged; the existing invariant checks passed. The superseded sphere
 candidate remains recoverable in the task scratch `spherical-continuity` directory. No local
 heavy build, new generation, server action, commit or CI dispatch was performed.
+
+## Eyelashes: same moving lid edges, unchanged master
+
+The owner identified the missing lashes in the actual-source preview. A separate procedural layer
+now adds 29 upper and 12 shorter, lighter lower lashes. Authored unequal follicle spacing, length,
+sweep and opacity avoid identical radial spokes. Each hair is a narrow cubic ribbon tapering to a
+point, rooted directly on the existing interpolated lid contour. A half-width muted shaft reflection
+keeps dark hairs legible against the dark green relief, without a bright lash outline. Upper lashes
+roll down with closure; the lower row becomes less visible under the closed upper lid. The two aperture corners,
+green-master file, sclera/iris/catchlight assets and common anatomy transform are unchanged.
+
+The overlay is drawn after lid contact shadows and clipped by the bronze socket, not the eye
+opening. CLOSED still draws no ocular anatomy or glow; only the lashes now cover small parts of the
+original green fold. The preview reads the follicle specifications from the Kotlin source and
+uses the same cubic geometry with small-socket antialiasing. The existing closed-surround check
+retains pixel identity everywhere outside the explicit new lash support.
+
+New actual-source artifacts belong in task scratch `eye-programmatic-v1/eyelashes-preview`.
+They remain labelled scripted previews, not Android runtime captures. Geometry assertions cover
+root attachment during OPEN/half/CLOSED, deterministic irregularity and the sparser lower row.
+All 11 focused Pillow preview tests passed locally in 20.103 seconds, including retained fixed-corner,
+zero CLOSED anatomy/glow and outside-owned-pixel assertions. Full-home OPEN/CLOSED previews were rendered
+from these sources and inspected; lashes remain deliberately understated on the textured green material.
+Android compilation/device appearance and owner all-three visual acceptance remain pending;
+no local Gradle/Go/heavy tests, APK, server, Git write or CI action are part of this pass.
+
+### Home-size lash visibility correction
+
+Root review found that the first lash profile still disappeared at normal Home size. Its upper
+root width was only 0.51–0.73 dp and the shaft tapered below that; the half-width reflection lost
+further coverage during sampling over the master's high-frequency green relief. The lashes were
+already after contact shadows, outside the aperture clip and inside the bronze socket, so changing
+clip/order or repainting the master would not address that cause.
+
+The corrected authored profile increases upper roots to 1.02–1.40 dp, with unequal lengths and
+stronger lateral curls; a few closer follicle pairs break the regular spacing. Lower roots remain
+thinner (0.57–0.73 dp) and the lower row retains 12 hairs versus 29 above. The muted reflection is
+not brightened. The cubic tip now turns sideways after its arch, rather than reading as a nearly
+straight shaft when enlarged. Roots still use the same exact moving lid contour, including CLOSED;
+no anatomy asset, green-master pixel, layer ordering or clipping contract changed. Kotlin and Pillow
+share the revised cubic control factors; the preview consumes follicle values directly from Kotlin.
+A new full-Home comparison and
+enlarged two-state eye crop are rendered to scratch `eye-programmatic-v1/eyelashes-visible-preview`.
+
+### Latest lash style: dark chestnut, fanned roots, no reflected wire
+
+The thickened reflected profile above was rejected in detail review: the bright inner ribbon and
+near-vertical root tangents resembled a pale wire fence. The current candidate removes the entire
+half-width reflection and draws a single dark-chestnut (`#281910`) tapered shaft. Width is reduced
+16%, not increased for visibility. Fan inclination now starts at the root and varies across the
+lid; an independent authored sweep bends the mid-shaft rather than merely hooking a straight tip.
+Unequal close pairs alternate with wider gaps; paired hairs differ in length and curl. The lateral
+row fans toward the outer corner. Lower hairs remain fewer, shorter and lighter in opacity.
+
+Kotlin and Pillow use the same fan/curl factors and the same runtime follicle specifications. The
+master, aperture corners, blink attachment, bronze clip and test oracles are unchanged. This single
+style candidate is rendered to scratch `eye-programmatic-v1/eyelashes-dark-fan-preview`, including
+a two-state enlarged crop derived directly from its actual-source Home pixels. This is still a
+scripted source preview, not an Android screenshot or a claim of owner anatomical acceptance.

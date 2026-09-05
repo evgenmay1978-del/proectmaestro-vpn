@@ -99,6 +99,33 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
+    fun eyelashesStayOnTheSameLidsThroughClosureWithASparserLowerRow() {
+        val fit = fitLivingEyeLayer(520f, 520f)
+        for (phase in listOf(0f, 0.5f, 1f)) {
+            val contour = livingEyeApertureContour(fit, phase, seamOverlapPx = 0f)
+            val lashes = livingEyeLashes(fit, phase)
+            assertEquals(lashes, livingEyeLashes(fit, phase))
+            assertEquals(29, lashes.count { it.upper })
+            assertEquals(12, lashes.count { !it.upper })
+            lashes.forEach { lash ->
+                val lid = if (lash.upper) contour.upper else contour.lower
+                assertTrue(lash.root.x > lid.first().x && lash.root.x < lid.last().x)
+                val rightIndex = lid.indexOfFirst { it.x >= lash.root.x }
+                val left = lid[rightIndex - 1]
+                val right = lid[rightIndex]
+                val fraction = (lash.root.x - left.x) / (right.x - left.x)
+                assertEquals(left.y + (right.y - left.y) * fraction, lash.root.y, 0.001f)
+                assertTrue(lash.width > 0f && lash.alpha > 0f && lash.alpha <= 1f)
+                if (!lash.upper || phase == 1f) assertTrue(lash.tip.y > lash.root.y)
+                if (lash.upper && phase == 0f) assertTrue(lash.tip.y < lash.root.y)
+            }
+        }
+        val upper = livingEyeLashes(fit, 0f).filter { it.upper }
+        assertTrue(upper.map { it.tip.y - it.root.y }.distinct().size > 10)
+        assertTrue(upper.zipWithNext { a, b -> b.root.x - a.root.x }.distinct().size > 5)
+    }
+
+    @Test
     fun lidsCloseOntoOriginalGreenFoldWithFixedCorners() {
         val fit = fitLivingEyeLayer(520f, 520f)
         val open = livingEyeApertureContour(fit, closure = 0f, seamOverlapPx = 0f)

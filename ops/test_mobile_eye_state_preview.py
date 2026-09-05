@@ -117,6 +117,11 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             ImageFilter.MinFilter(3)
         )
         difference = ImageChops.difference(material_only, disconnected)
+        # The green master remains untouched; only the newly approved lashes cover its fold.
+        lash_support = MODULE.render_eyelashes(1.0, scale).getchannel("A").point(
+            lambda value: 255 if value else 0
+        )
+        required = ImageChops.multiply(required, ImageChops.invert(lash_support))
 
         self.assertIsNone(aperture.getbbox())
         self.assertIsNone(glow.getchannel("A").getbbox())
@@ -129,8 +134,34 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
             self.assertIsNone(
                 ImageChops.multiply(channel, required).getbbox(),
                 "full closure must be pixel-identical to the registered "
-                "emerald surround inside the original aperture",
+                "emerald surround outside the explicit eyelash overlay",
             )
+
+    def test_lashes_are_irregular_sparse_below_and_attached_during_blink(self) -> None:
+        upper_specs = MODULE._lash_specs(True)
+        lower_specs = MODULE._lash_specs(False)
+        self.assertEqual(len(upper_specs), 29)
+        self.assertEqual(len(lower_specs), 12)
+        self.assertLess(max(spec[1] for spec in lower_specs), max(spec[1] for spec in upper_specs))
+        self.assertGreater(len({round(b[0] - a[0], 4) for a, b in zip(upper_specs, upper_specs[1:])}), 5)
+        self.assertGreater(len({spec[1] for spec in upper_specs}), 10)
+        for closure in (0.0, 0.5, 1.0):
+            upper, lower = MODULE.aperture_contours_dp(closure)
+            curves = MODULE.lash_curves_dp(closure)
+            self.assertEqual(curves, MODULE.lash_curves_dp(closure))
+            for root, control1, control2, tip, width, alpha, is_upper in curves:
+                lid = upper if is_upper else lower
+                self.assertGreater(root[0], lid[0][0])
+                self.assertLess(root[0], lid[-1][0])
+                self.assertAlmostEqual(root[1], MODULE._interpolate_contour_y(tuple(lid), root[0]))
+                self.assertGreater(width, 0)
+                self.assertGreater(alpha, 0)
+                self.assertLessEqual(alpha, 1)
+                # The control points depart from a straight spoke and end in a zero-width tip.
+                cross = ((control2[0] - root[0]) * (tip[1] - root[1])
+                         - (control2[1] - root[1]) * (tip[0] - root[0]))
+                self.assertNotAlmostEqual(cross, 0, delta=0.000001)
+            self.assertIsNotNone(MODULE.render_eyelashes(closure).getchannel("A").getbbox())
 
     def test_connected_glow_fades_to_transparent_at_socket_boundary(self) -> None:
         scale = 2
