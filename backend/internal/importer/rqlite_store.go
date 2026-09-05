@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
@@ -185,6 +186,11 @@ SELECT key_version FROM (
 		if err != nil {
 			return nil, err
 		}
+		domainVersions, err := s.productionDomainKeyVersions(ctx)
+		if err != nil {
+			return nil, err
+		}
+		customerVersions = append(customerVersions, domainVersions...)
 		for _, version := range customerVersions {
 			if _, exists := seen[version]; !exists {
 				seen[version] = struct{}{}
@@ -289,6 +295,14 @@ func (s *RQLiteApplyStore) ReadShadowProjection(ctx context.Context, expectedSou
 	if !validShadowHex64(expectedSourceDigest) {
 		return ShadowProjection{}, ErrShadowExportUnavailable
 	}
+	settingEnvelopeSQL := ""
+	principalVersionSQL := `(SELECT CAST(json_extract(c.verifier_envelope,'$.key_version') AS INTEGER) FROM principal_credentials c
+ WHERE c.principal_id=p.principal_id AND c.active=1 ORDER BY c.credential_id LIMIT 1) AS verifier_key_version`
+	if s.customerProtection != nil {
+		settingEnvelopeSQL = ",s.secret_envelope"
+		principalVersionSQL = `(SELECT c.verifier_envelope FROM principal_credentials c
+ WHERE c.principal_id=p.principal_id AND c.active=1 ORDER BY c.credential_id LIMIT 1) AS verifier_envelope`
+	}
 	statements := make([]rqlite.Statement, 0, len(businessDigestQueries)+6)
 	for _, query := range businessDigestQueries {
 		statements = append(statements, rqlite.Statement{SQL: query.sql})
@@ -333,15 +347,14 @@ ORDER BY d.customer_id,d.node_id,p.protocol_tag`},
 COALESCE(result_expires_at_unix,0) AS result_expires_at_unix
 FROM orders ORDER BY order_id`},
 		rqlite.Statement{SQL: `SELECT c.setting_key,c.public_value_json,c.generation,
-s.secret_sha256,s.key_version
+s.secret_sha256,s.key_version` + settingEnvelopeSQL + `
 FROM cluster_settings c LEFT JOIN setting_secrets s ON s.setting_key=c.setting_key
 ORDER BY c.setting_key`},
 		rqlite.Statement{SQL: `SELECT p.principal_id,p.login_key_hmac,p.status,r.role_name,
 (SELECT COUNT(*) FROM principal_credentials c WHERE c.principal_id=p.principal_id AND c.active=1) AS credential_count,
 (SELECT c.verifier_sha256 FROM principal_credentials c
  WHERE c.principal_id=p.principal_id AND c.active=1 ORDER BY c.credential_id LIMIT 1) AS verifier_sha256,
-(SELECT CAST(json_extract(c.verifier_envelope,'$.key_version') AS INTEGER) FROM principal_credentials c
- WHERE c.principal_id=p.principal_id AND c.active=1 ORDER BY c.credential_id LIMIT 1) AS verifier_key_version
+` + principalVersionSQL + `
 FROM principals p LEFT JOIN principal_roles r ON r.principal_id=p.principal_id
 ORDER BY p.principal_id,r.role_name`},
 	)
@@ -529,6 +542,15 @@ ORDER BY p.principal_id,r.role_name`},
 			if !keyVersionOK || keyVersion <= 0 || keyVersion > int64(^uint(0)>>1) {
 				return ShadowProjection{}, ErrShadowExportUnavailable
 			}
+			if s.customerProtection != nil {
+				encoded, ok := shadowRowString(row, "secret_envelope")
+				if !ok {
+					return ShadowProjection{}, ErrShadowExportUnavailable
+				}
+				if _, err := s.productionDomainEnvelopeVersion(encoded, controlplane.SecretScope{OwnerType: "setting", OwnerID: key, Field: "secret", Kind: key}, secretSHA, int(keyVersion)); err != nil {
+					return ShadowProjection{}, ErrShadowExportUnavailable
+				}
+			}
 			setting.SecretSHA256, setting.SecretKeyVersion = secretSHA, int(keyVersion)
 		} else if row["key_version"] != nil {
 			return ShadowProjection{}, ErrShadowExportUnavailable
@@ -547,6 +569,17 @@ ORDER BY p.principal_id,r.role_name`},
 		credentialCount, countOK := applyRowInt(row["credential_count"])
 		verifierSHA, verifierOK := shadowRowString(row, "verifier_sha256")
 		verifierVersion, versionOK := applyRowInt(row["verifier_key_version"])
+		if s.customerProtection != nil {
+			encoded, ok := shadowRowString(row, "verifier_envelope")
+			if !ok || !principalOK || !verifierOK {
+				return ShadowProjection{}, ErrShadowExportUnavailable
+			}
+			version, err := s.productionDomainEnvelopeVersion(encoded, controlplane.SecretScope{OwnerType: "principal", OwnerID: principalID, Field: "password", Kind: "bcrypt"}, verifierSHA, 0)
+			if err != nil {
+				return ShadowProjection{}, ErrShadowExportUnavailable
+			}
+			verifierVersion, versionOK = int64(version), true
+		}
 		if !principalOK || !loginOK || !principalStatusOK || !roleOK || !countOK || credentialCount != 1 ||
 			!verifierOK || !versionOK || verifierVersion <= 0 || verifierVersion > int64(^uint(0)>>1) {
 			return ShadowProjection{}, ErrShadowExportUnavailable
@@ -1526,6 +1559,14 @@ func (s *RQLiteApplyStore) settingStatements(batch ApplyBatch, operation ApplyOp
 	if payload.Setting.Key == "" || len(payload.Setting.PublicValueJSON) == 0 {
 		return nil, errors.New("invalid canonical setting operation")
 	}
+	var productionValue *productionDomainValue
+	if s.customerProtection != nil {
+		var err error
+		productionValue, err = s.productionSettingValue(payload.Setting, payload.Secret)
+		if err != nil {
+			return nil, err
+		}
+	}
 	nowUnix := s.now().Unix()
 	gate := batchGateArgs(batch)
 	statements := []rqlite.Statement{{
@@ -1546,6 +1587,10 @@ WHERE cluster_settings.generation <= excluded.generation`,
 	if err != nil {
 		return nil, errors.New("cannot encode protected setting envelope")
 	}
+	encodedEnvelope, secretDigest, keyVersion := string(envelope), payload.Secret.SHA256, payload.Secret.KeyVersion
+	if productionValue != nil {
+		encodedEnvelope, secretDigest, keyVersion = productionValue.envelope, productionValue.digest, productionValue.keyVersion
+	}
 	statements = append(statements, rqlite.Statement{
 		SQL: `INSERT INTO setting_secrets(setting_key,secret_envelope,secret_sha256,key_version,updated_at_unix)
 SELECT ?,?,?,?,? WHERE ` + batchWriteGate + `
@@ -1553,7 +1598,7 @@ ON CONFLICT(setting_key) DO UPDATE SET
     secret_envelope=excluded.secret_envelope,secret_sha256=excluded.secret_sha256,
     key_version=excluded.key_version,updated_at_unix=excluded.updated_at_unix`,
 		Args: append([]any{
-			payload.Setting.Key, string(envelope), payload.Secret.SHA256, payload.Secret.KeyVersion, nowUnix,
+			payload.Setting.Key, encodedEnvelope, secretDigest, keyVersion, nowUnix,
 		}, gate...),
 	})
 	return statements, nil
@@ -1572,6 +1617,14 @@ func (s *RQLiteApplyStore) principalStatements(batch ApplyBatch, operation Apply
 	envelope, err := json.Marshal(secret)
 	if err != nil {
 		return nil, errors.New("cannot encode protected principal envelope")
+	}
+	encodedEnvelope, secretDigest := string(envelope), secret.SHA256
+	if s.customerProtection != nil {
+		value, err := s.productionPrincipalValue(principal, secret)
+		if err != nil {
+			return nil, err
+		}
+		encodedEnvelope, secretDigest = value.envelope, value.digest
 	}
 	nowUnix := s.now().Unix()
 	gate := batchGateArgs(batch)
@@ -1602,7 +1655,7 @@ ON CONFLICT(credential_id) DO UPDATE SET
     verifier_envelope=excluded.verifier_envelope,verifier_sha256=excluded.verifier_sha256,
     active=excluded.active`,
 		Args: append([]any{
-			credentialID, principal.InternalID, string(envelope), secret.SHA256, nowUnix,
+			credentialID, principal.InternalID, encodedEnvelope, secretDigest, nowUnix,
 		}, gate...),
 	})
 	return statements, nil

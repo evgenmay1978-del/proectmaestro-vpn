@@ -39,17 +39,20 @@ type ProductionCustomerIdentity struct {
 // canonical customer metadata, without decrypted credentials or raw device keys.
 // Callers cannot construct an enabled production adapter without validation.
 type ProductionCustomerProtection struct {
-	box             *controlplane.SecretBox
-	sourceDigest    string
-	rows            map[string]string
-	secrets         map[string]string
-	snapshotKind    string
-	parentDigest    string
-	capturedAt      time.Time
-	priorCustomers  map[string]LegacyCustomer
-	deviceKeys      map[string]map[string]bool
-	priorDeviceKeys map[string]map[string]bool
-	identityDigests map[string]string
+	box              *controlplane.SecretBox
+	sourceDigest     string
+	rows             map[string]string
+	secrets          map[string]string
+	snapshotKind     string
+	parentDigest     string
+	capturedAt       time.Time
+	priorCustomers   map[string]LegacyCustomer
+	deviceKeys       map[string]map[string]bool
+	priorDeviceKeys  map[string]map[string]bool
+	identityDigests  map[string]string
+	domainsValidated bool
+	settingRows      map[string]string
+	principalRows    map[string]string
 }
 
 func ValidateProductionCustomerIdentities(protection SnapshotProtection, box *controlplane.SecretBox) (*ProductionCustomerProtection, error) {
@@ -131,11 +134,14 @@ func validateProductionCustomerRows(protection SnapshotProtection, box *controlp
 		validated.rows[customer.SourceKey] = canonicalLegacyDigest(customer)
 		validated.secrets[secret.SecretID] = canonicalLegacyDigest(secret)
 	}
+	if err := validateProductionDomains(protection, validated, secrets); err != nil {
+		return nil, err
+	}
 	return validated, nil
 }
 
 func NewProductionRQLiteApplyStore(db rqlite.RQLite, now func() time.Time, customers *ProductionCustomerProtection, trials *TrialImportProtection) (*RQLiteApplyStore, error) {
-	if customers == nil || customers.box == nil || !validCanonicalSHA256(customers.sourceDigest) {
+	if customers == nil || customers.box == nil || !validCanonicalSHA256(customers.sourceDigest) || !customers.domainsValidated || customers.settingRows == nil || customers.principalRows == nil {
 		return nil, errInvalidProductionIdentity
 	}
 	var store *RQLiteApplyStore

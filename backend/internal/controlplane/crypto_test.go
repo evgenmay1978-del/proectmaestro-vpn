@@ -152,6 +152,73 @@ func TestLookupHMACAndCanonicalLoginKey(t *testing.T) {
 	}
 }
 
+func TestSecretBoxRebindPreservesAuthenticatedVersionAndChangesOnlyScope(t *testing.T) {
+	keys := map[int][]byte{6: bytes.Repeat([]byte{0x61}, 32), 7: bytes.Repeat([]byte{0x72}, 32)}
+	lookup := bytes.Repeat([]byte{0x83}, 32)
+	old, err := NewSecretBox(6, keys, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := NewSecretBox(7, keys, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := SecretScope{OwnerType: "principal", OwnerID: "legacy-owner", Field: "verifier", Kind: "password-verifier"}
+	target := SecretScope{OwnerType: "principal", OwnerID: "mapped-owner", Field: "password", Kind: "bcrypt"}
+	plain := []byte("synthetic-original-verifier-bytes")
+	original, err := old.Seal(source, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebound, err := current.Rebind(source, target, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebound.KeyVersion != 6 || bytes.Equal(rebound.Nonce, original.Nonce) || bytes.Equal(rebound.Ciphertext, original.Ciphertext) {
+		t.Fatal("rebind changed source version or reused encrypted material")
+	}
+	got, err := current.Open(target, rebound)
+	if err != nil || !bytes.Equal(got, plain) {
+		t.Fatal("rebind changed original plaintext")
+	}
+	if _, err := current.Open(source, rebound); err == nil {
+		t.Fatal("rebound envelope retained old AAD")
+	}
+	if got, err := current.Open(source, original); err != nil || !bytes.Equal(got, plain) {
+		t.Fatal("rebind mutated original envelope")
+	}
+	fresh, err := current.Seal(target, plain)
+	if err != nil || fresh.KeyVersion != 7 {
+		t.Fatal("ordinary Seal no longer uses current key")
+	}
+	wrong := source
+	wrong.OwnerID += "-wrong"
+	if _, err := current.Rebind(wrong, target, original); err == nil {
+		t.Fatal("incorrect source scope authenticated")
+	}
+	for _, mutate := range []func(*Envelope){func(e *Envelope) { e.KeyVersion = 7 }, func(e *Envelope) { e.Nonce[0] ^= 1 }, func(e *Envelope) { e.Ciphertext[0] ^= 1 }} {
+		changed := Envelope{KeyVersion: original.KeyVersion, Nonce: append([]byte(nil), original.Nonce...), Ciphertext: append([]byte(nil), original.Ciphertext...)}
+		mutate(&changed)
+		if _, err := current.Rebind(source, target, changed); err == nil {
+			t.Fatal("tampered source envelope authenticated")
+		}
+	}
+	missing, err := NewSecretBox(7, map[int][]byte{7: keys[7]}, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := missing.Rebind(source, target, original); err == nil {
+		t.Fatal("missing source key accepted")
+	}
+	if _, err := current.Rebind(source, SecretScope{}, original); err == nil {
+		t.Fatal("invalid target scope accepted")
+	}
+	var absent *SecretBox
+	if _, err := absent.Rebind(source, target, original); err == nil {
+		t.Fatal("nil secret box accepted")
+	}
+}
+
 func TestNewIDConcurrentUniqueness(t *testing.T) {
 	const goroutines = 100
 	const perGoroutine = 20

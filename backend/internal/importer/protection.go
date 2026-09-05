@@ -22,6 +22,8 @@ type SnapshotProtection struct {
 	HasTrials             bool
 	EncryptedSecrets      []LegacyEncryptedSecret
 	Customers             []LegacyCustomer
+	Settings              []LegacySetting
+	Principals            []LegacyPrincipal
 }
 
 func ProtectionFromSnapshot(snapshot Snapshot, parentSnapshots ...*Snapshot) SnapshotProtection {
@@ -40,6 +42,8 @@ func ProtectionFromSnapshot(snapshot Snapshot, parentSnapshots ...*Snapshot) Sna
 		HasTrials:             len(snapshot.Trials) > 0,
 		EncryptedSecrets:      append([]LegacyEncryptedSecret(nil), snapshot.EncryptedSecrets...),
 		Customers:             customers,
+		Settings:              cloneSettings(snapshot.Settings),
+		Principals:            clonePrincipals(snapshot.Principals),
 	}
 	if len(parentSnapshots) == 1 && parentSnapshots[0] != nil {
 		parent := ProtectionFromSnapshot(*parentSnapshots[0])

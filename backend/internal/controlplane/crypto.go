@@ -31,7 +31,8 @@ type SecretBox struct {
 }
 
 // NewSecretBox constructs a fail-closed credential protector. Previous
-// encryption versions may be supplied for reads; all new seals use current.
+// encryption versions may be supplied for reads and authenticated rebinding;
+// ordinary Seal always uses current.
 func NewSecretBox(current int, encryptionKeys map[int][]byte, hmacKey []byte) (*SecretBox, error) {
 	if current <= 0 || len(hmacKey) != secretKeyBytes {
 		return nil, errors.New("controlplane: invalid secret key configuration")
@@ -116,6 +117,32 @@ func (b *SecretBox) Open(scope SecretScope, envelope Envelope) ([]byte, error) {
 		return nil, errors.New("controlplane: secret authentication failed")
 	}
 	return plaintext, nil
+}
+
+// Rebind authenticates an existing envelope and changes its owning scope with
+// a fresh nonce. It preserves the authenticated source key version and exact
+// plaintext; callers cannot select another encryption version through this API.
+// Ordinary Seal remains the entry point for new values using the current key.
+func (b *SecretBox) Rebind(source, target SecretScope, envelope Envelope) (Envelope, error) {
+	plaintext, err := b.Open(source, envelope)
+	if err != nil {
+		return Envelope{}, err
+	}
+	defer func() {
+		for index := range plaintext {
+			plaintext[index] = 0
+		}
+	}()
+	aad, err := secretAAD(envelope.KeyVersion, target)
+	if err != nil {
+		return Envelope{}, err
+	}
+	aead := b.aeadByVersion[envelope.KeyVersion]
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return Envelope{}, errors.New("controlplane: generate secret nonce")
+	}
+	return Envelope{KeyVersion: envelope.KeyVersion, Nonce: nonce, Ciphertext: aead.Seal(nil, nonce, plaintext, aad)}, nil
 }
 
 // ReadyForVersions fails readiness when any durable envelope references a key
