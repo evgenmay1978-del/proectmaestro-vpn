@@ -49,8 +49,14 @@ body.
 - Canonical ingress source checkpoint
   `aad63b52c74aedd2c568f0ed4a6a9f912e31e262`, with sealed-workflow correction
   `26895992db384d8275c36720a622d96862505f69`, has scoped review and isolated
-  real nginx parser PASS. Both are b441 ancestors; no nginx package, ingress
-  service, public commercial allowance, or CDN switch is installed.
+  real nginx parser PASS. Both are b441 ancestors. The isolated custom unit is
+  now ACTIVE/enabled, PID `646960`, listener `28080`, unknown local path `404`.
+  Config SHA-256 `43291883decf99bcdc1bffbb2172a44fbc37a1f585da2371fa722e0953e2e739`,
+  unit SHA-256 `3fda8a55077918cd7e0e78a214df8b4c14d025ffdc0732f621534c16d02fd68d`,
+  and binary SHA-256 `1f16b72bea2f44e5d04fe6cf9e3e4b0dec53a82c50c7c1533c302a8ecaeccacf`
+  match reviewed inputs. Official nginx/nginx-common `1.24.0-2ubuntu7.17` were
+  installed once; default nginx stays masked/inactive. No public commercial
+  allowance or CDN switch exists.
 - The preceding immutable artifact
   `maestro-xray-cdn-commercial-dbbd950ab556b92b103cd51f5a4b2686acb74ef5`
   has ID `9955259827`, size `54137499` bytes, and archive SHA-256
@@ -93,7 +99,7 @@ hostname; no TOFU, password, new key, or port opening was used.
 
 | Node | Intended/live role observed | Ordinary services observed | Candidate ports | Other read-only facts | Mutation blockers |
 | --- | --- | --- | --- | --- | --- |
-| S4 | Existing x-ui/VPN and private CDN canary node; Ubuntu 24.04 x64 | Ordinary/private hashes, units/PIDs and strict SSH PASS after upgrade; commercial b441 ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444` | Console, preflight, locked apply and synthetic 2/3/4 receipts PASS; six status checks true; old package/proof retained | GET-only recovery PASS; unknown-outcome fault injection, ingress/CDN, client proof and deliberate rollback/re-apply open |
+| S4 | Existing x-ui/VPN and private CDN canary node; Ubuntu 24.04 x64 | Ordinary/private hashes, units/PIDs and strict SSH PASS; b441 and isolated ingress ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444`; ingress `28080` without public allowance | Console, preflight, b441/synthetic receipts, corrected ingress resume and isolated direct traffic PASS; default nginx masked; static firewall policy unchanged | GET-only recovery PASS; unknown-outcome fault injection, CDN/public-edge/counters/client proof and deliberate rollback/re-apply open |
 | S2 | Multi-protocol and bot node; Ubuntu 24.04 x64 | Hysteria, nginx, Caddy, and `vpn_bot` active | `18081/18082/18084/18443/18444` require a fresh preflight | Time/default-route/failed-unit checks sane; root filesystem about 70% used with about 2.8 GiB free; both systemd-networkd and networking active, so network ownership is unresolved | Verified service backup/restore and the remaining mutation preconditions are not proven; unresolved network ownership is an additional stop gate |
 | S3 | x-ui/VPN node; Ubuntu 22.04 x64 | x-ui active with child Xray under protected `/usr/local/x-ui` | `18081/18082/18084/18443/18444` require a fresh preflight | Time/default-route/failed-unit checks sane; identity continuity only; UFW inactive; both systemd-networkd and networking active | Verified backup/restore and current console proof are not proven; network ownership and reviewed firewall change remain stop gates |
 | Current S1 | Replacement public control plane; owner-authoritative pin and hostname matched; Ubuntu 24.04 x64 | maestro-panel, x-ui/Xray, Hysteria, and nginx active | `18081/18082/18084/18443/18444` require a fresh preflight | Strict pinned key-only SSH PASS; controller-source mTLS leaf with exact `maestro-whitelist-controller` SAN staged in a protected backup; live services unchanged | Console path, backup/restore, node deploy digest binding, firewall plan, and rollback under five minutes are not proven |
@@ -129,8 +135,30 @@ Origin group, a complete managed desired set on every Origin, mTLS controller
 reachability, exact four-rule firewall convergence, selected-exit country
 truth, commercial balance enforcement, automatic customer refresh, and live
 delivery through both bots and the channel. Reviewed source for the isolated
-two-path ingress now exists, but it is not installed and its firewall/CDN
-rollback is not exercised; the CDN gate remains `NO_GO`.
+two-path ingress is installed and its local unmatched-path rejection is proved.
+Direct authenticated traffic PASS used the existing synthetic generation 4
+identity through loopback SOCKS -> ingress `28080` -> commercial XHTTP/ML-KEM
+`28081` -> `exit-s4` relay -> HTTPS egress-check service (ipify); curl exit `0`, `468 ms`,
+S4 egress match. The owned client stopped; ordinary/private file and service
+baselines remained unchanged, with no desired POST or service/config/firewall/CDN
+mutation. This does not prove CDN/public-edge, counters or general device
+behavior. Deliberate firewall/CDN rollback remains open; CDN stays `NO_GO`.
+
+The original direct-traffic preflight stopped before client startup or traffic:
+root-relative checksum paths were checked from SSH cwd `/root`. This was not
+proven content drift. Failed evidence is retained; a separate helper/evidence
+family corrected only the checksum subprocess cwd to `/`, passed scoped review
+and syntax validation, and produced the direct PASS above.
+
+The first ingress attempt rolled back only the newly owned units after a false
+raw-ss padding mismatch. The first existing-install resume then stopped before
+starting because fail2ban legitimately changed SSH ban members. Both failures
+are retained. The corrected resume completed with identical socket ownership,
+ordinary/private hashes and unit/PIDs. Only IPv4 members in exact
+f2b-table/addr-set-sshd/ipv4_addr are normalized; every other rule/static set is
+compared exactly, with fail2ban PID `594973` and sshd jail active. No security
+service was disabled, old ban list restored, package reinstalled or private
+canary probed.
 
 Read-only identity discovery is complete for both existing bots: current S1
 `@MaestroSecureVPN_bot` / `vpnbot.service` and S2 `@MaestroSecureNaive_bot` /

@@ -15,9 +15,9 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 333391,
-      "sha256": "42b2f4cad792921801880126f3e02a5ac00c8c535e3a252a658dda64d75bc274",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. CURRENT \u2014 TASK 15 S4 B441 ACTIVE; SYNTHETIC 2/3/4 PASS (05.09.2026)\n\nThis section supersedes earlier status and next-step statements below. The sole\ncanonical branch is `codex/yandex-cdn-whitelist-task3-sync`. The source/package\ncheckpoint is `b4415daa90c95a38"
+      "bytes": 336571,
+      "sha256": "1a0af87f3e23e0674e44be1daad656718facf7c0cf56a34fd256f78dd4036ee8",
+      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442 \u0438 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0440\u0430\u0431\u043e\u0442\u044b\n\n## 0. CURRENT \u2014 TASK 15 S4 B441 AND ISOLATED INGRESS ACTIVE (05.09.2026)\n\nThis section supersedes earlier status and next-step statements below. The sole\ncanonical branch is `codex/yandex-cdn-whitelist-task3-sync`. The source/package\ncheckpoint is `b4415daa90c95a38f"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
@@ -63,9 +63,9 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_CANARY_EVIDENCE.md",
-      "bytes": 13517,
-      "sha256": "478cf170d8f77849e3c3cef200abb9886c1c33d9175179507d384131c2c69460",
-      "preview": "# Commercial white-list canary evidence\n\nStatus: 2026-09-05 checkpoint; b441 ACTIVE, six shipped checks true;\nsynthetic generations 2/3/4 PASS; full promotion remains NO_GO.\n\nThis file is the redacted Task 15 evidence index. It must never contain host\naddresses, credentials, UUIDs, certificate/private-key material, cus"
+      "bytes": 16279,
+      "sha256": "915ec7313f6ed73e1dcbebfa50f53ce3b08f70dd649c5c444d1909467e37479f",
+      "preview": "# Commercial white-list canary evidence\n\nStatus: 2026-09-05 checkpoint; b441 and isolated ingress ACTIVE;\nsynthetic generations 2/3/4 and direct ingress traffic PASS;\nfull promotion remains NO_GO.\n\nThis file is the redacted Task 15 evidence index. It must never contain host\naddresses, credentials, UUIDs, certificate/pr"
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLBACK.md",
@@ -75,8 +75,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/COMMERCIAL_ROLLOUT_RUNBOOK.md",
-      "bytes": 22741,
-      "sha256": "5012fc5633223c6089f272b270a5a0ec3ab092a044345137e5cd70736e9adfcb",
+      "bytes": 24866,
+      "sha256": "4d3d7d14754a2002fa90a29ac43a7ffa72c04bfa23dab7d51ded51b2cb0addb3",
       "preview": "# Commercial white-list staged rollout runbook\n\nStatus: executable gate contract; production mutation `NO_GO` until every\nprecondition below is evidenced for the exact node and exact package\n\nThis is the smallest approved production path: S4, then S2, then S3, then the\ncurrent owner-authoritative S1. A failure or unkno"
     },
     {
@@ -123,8 +123,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/PRODUCTION_FLEET_INVENTORY.md",
-      "bytes": 11402,
-      "sha256": "1ecc1f910c3e2b0872e66dcf450a1c155b70a957eb4b74145e7e3f5fdc86cc74",
+      "bytes": 13459,
+      "sha256": "7281b3b59ecedd231affc6732eb4a96f5c086d736001cbb82551b623b9f15849",
       "preview": "# Production fleet inventory for commercial white-list rollout\n\nStatus: read-only inventory; mutation `NO_GO`\n\nSnapshot refreshed: 2026-09-05. This document records sanitized inventory and\nbounded isolated commercial rollout evidence. It contains no host address, credential,\nUUID, subscription URL, customer record, cer"
     },
     {

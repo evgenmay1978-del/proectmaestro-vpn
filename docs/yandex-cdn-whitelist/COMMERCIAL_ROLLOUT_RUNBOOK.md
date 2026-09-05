@@ -69,7 +69,36 @@ The b441 source fixes selected-exit readiness timing and permits only TCP
 loopback health port 18444 in the pinned Xray freedom rule. Separate same-binary
 relay diagnostics returned authenticated 204 with that exact exception; this
 is diagnostic evidence separate from the now-passing installed synthetic
-receipts. Commercial ingress/CDN/client gates remain open.
+receipts.
+
+The isolated ingress is now ACTIVE/enabled on TCP `28080` (PID `646960`), with
+exact config/unit/binary hashes and local unmatched-path `404` PASS. Official
+nginx/nginx-common `1.24.0-2ubuntu7.17` were installed once; default nginx remains
+administrator-masked/inactive. Ordinary/private saved hashes, unit/PIDs, SSH and
+TCP/UDP `443` owners remain unchanged. No public `28080` allowance or CDN switch
+has occurred. Direct authenticated traffic now PASS: existing synthetic
+generation 4 through loopback SOCKS -> ingress `28080` -> commercial XHTTP/ML-KEM
+`28081` -> `exit-s4` relay -> HTTPS egress-check service (ipify), with curl exit `0` in
+`468 ms` and S4 egress match. The owned client stopped; ordinary/private files
+and service baseline remained unchanged. No desired POST, private probe or
+service/config/firewall/CDN mutation ran. CDN/public-edge, counters, general
+device proof and deliberate rollback gates remain open.
+
+The original traffic preflight failed before client startup or traffic because
+root-relative checksum entries were checked from SSH cwd `/root`, not because
+content drift was proved. Retain that evidence. A separately named helper and
+exclusive evidence directory used checksum subprocess cwd `/`; bounded review
+and syntax PASS preceded the successful direct proof.
+
+Retain both failed ingress attempts: the first installed then rolled back owned
+units after raw ss padding falsely failed equality; the next resume stopped in
+preflight because stateless nft still includes live fail2ban ban members. The
+reviewed successful resume ignores only ss formatting/queue occupancy and IPv4
+members in exact f2b-table/addr-set-sshd/ipv4_addr, while requiring fail2ban PID
+`594973`/sshd jail active and every other rule/static set unchanged. Never disable
+fail2ban, restore an old ban list, reinstall packages, or replay the installer
+to overcome those comparisons. See `ops/yandex_cdn_commercial/INGRESS_INSTALL_ROLLBACK.md`
+for the exact install-versus-resume boundary.
 
 ## Gate 0: exact commercial repository and artifact
 
@@ -292,11 +321,14 @@ for another node.
    Reviewed source exists at ingress checkpoint
    `aad63b52c74aedd2c568f0ed4a6a9f912e31e262`, with sealed-workflow correction
    `26895992db384d8275c36720a622d96862505f69`, both ancestors of b441.
-   Isolated real nginx parser validation passed as the intended user. No nginx
-   package/ingress service is installed; this remains separate from the
-   immutable sidecar package. Yandex CDN traffic is `NO_GO` until this boundary
-   and its exact rollback are installed and proved.
-6. Prove direct sidecar traffic, Yandex CDN traffic, literal-edge access with
+   The exact isolated ingress is now installed and ACTIVE on `28080`, with
+   intended-user parser and local unmatched-path `404` PASS. It remains separate
+   from the immutable sidecar package. No public allowance/CDN switch occurred;
+   Yandex CDN traffic stays `NO_GO` until functional transport and exact rollback
+   gates are proved.
+6. Isolated direct authenticated ingress/sidecar traffic is proved only for
+   the existing synthetic S4 identity and HTTPS request above. Still prove
+   Yandex CDN traffic, literal-edge access with
    correct SNI/Host, per-user uplink plus downlink counters, selected-exit
    country label truth, TCP, UDP, DNS, idle recovery, and a network transition.
 7. Prove ordinary service/process/listener/config identity and a real ordinary

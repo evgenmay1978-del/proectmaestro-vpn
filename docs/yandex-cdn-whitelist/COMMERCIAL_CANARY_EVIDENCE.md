@@ -1,7 +1,8 @@
 # Commercial white-list canary evidence
 
-Status: 2026-09-05 checkpoint; b441 ACTIVE, six shipped checks true;
-synthetic generations 2/3/4 PASS; full promotion remains NO_GO.
+Status: 2026-09-05 checkpoint; b441 and isolated ingress ACTIVE;
+synthetic generations 2/3/4 and direct ingress traffic PASS;
+full promotion remains NO_GO.
 
 This file is the redacted Task 15 evidence index. It must never contain host
 addresses, credentials, UUIDs, certificate/private-key material, customer
@@ -17,10 +18,10 @@ test ID, exact release/config identity, and digest.
 | Replacement exact-SHA CI | Yandex `33928873964`: all six jobs success, including Android `101204799664`, refreshed 2026-09-05; immutable `33928874093`/job `101203186787` and network `33928874014` GREEN | Repository/CI only; no reruns |
 | Installed b441 artifact | ID `9957942956`; `54141763` bytes; archive SHA-256 `7a74ff26f181c44456493958577005f938b417cd2eca501dab60376989736b7b`; manifest SHA-256 `a687657c43a20d77512a26ac73821c161513ddaebdb4dda6af466bde2855add5`; nine members verified | Direct S4 fetch/plan PASS; locked shipped apply EXIT 0; ACTIVE with six checks true |
 | Retained previous package | `3603f11bbc35a4a9d708c41db1bc13f0d2907805`, artifact `9956162284`; exact runs `33923773188`, `33923773196`, `33923773238` terminal GREEN | Previous install PASS; generation 1 functional proof failed; old package/proof retained |
-| Canonical ingress source | `aad63b52c74aedd2c568f0ed4a6a9f912e31e262`, workflow correction `26895992db384d8275c36720a622d96862505f69`; scoped review and isolated real nginx parser PASS | Included in b441 ancestry; no ingress installation or CDN switch |
+| Canonical ingress source/install | `aad63b52c74aedd2c568f0ed4a6a9f912e31e262`, workflow correction `26895992db384d8275c36720a622d96862505f69`; exact parser/config/unit/binary binding PASS | Custom unit ACTIVE/enabled on `28080`; default nginx masked/inactive; no public allowance or CDN switch |
 | Failed immutable artifact | `dbbd950ab556b92b103cd51f5a4b2686acb74ef5`, artifact ID `9955259827`; exact fetch and plan passed, but real first apply failed on relay-CA directory traversal | Retained failed evidence; must not be reapplied or modified in place |
 | Historical failed-install recovery | Operator returned `dbbd950...` to `ABSENT`; exact firewall rollback and ordinary/private baseline passed | Superseded by installed `3603f11...`; failed artifact retained |
-| Current recovery console | Earlier session expired with login CAPTCHA/direct VNC Unauthorized; owner authorized continuation; official QEMU console now connected/encrypted with Ubuntu tty1 login visible | Console PASS; fresh preflight remains required before bounded upgrade |
+| Recovery console / current access | Official QEMU connected/encrypted with Ubuntu tty1 was verified for completed operations; latest inventory has no IAB tabs and no connected Edge, so prior handles no longer exist | Historical console gate PASS; current access not confirmed; owner asked to connect Edge/open Yandex before CDN configuration/rollback capture |
 
 The earlier owner-reported mobile white-list pass remains useful historical
 evidence for the preserved private S4 canary, but it is not reused as current
@@ -30,7 +31,7 @@ Task 15 fleet, client-matrix, accounting, or production-readiness proof.
 
 | Node | Identity/role | Ordinary baseline | Candidate ports | Read-only verdict | Mutation verdict |
 | --- | --- | --- | --- | --- | --- |
-| S4 | Existing VPN plus private CDN canary node | Ordinary/private saved hashes, units/PIDs and strict SSH PASS after upgrade; commercial b441 ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444` | Console/preflight/locked apply and synthetic 2/3/4 receipts PASS; no nginx/firewall/CDN/private change | GET-only recovery PASS; unknown-outcome fault injection, ingress, client/CDN, rollback/re-apply and promotion open |
+| S4 | Existing VPN plus private CDN canary node | Ordinary/private saved hashes, units/PIDs and strict SSH PASS; b441 and isolated ingress ACTIVE | Private `18081/18082`; commercial Xray `28081/18084`, loopback API `28082`, agent `18443`, loopback health `18444`; ingress `28080` without public allowance | Console/preflight/apply, synthetic 2/3/4, corrected ingress resume and isolated direct traffic PASS; static firewall policy unchanged | GET-only recovery PASS; unknown-outcome fault injection, client/CDN/public-edge, counters, deliberate rollback/re-apply and promotion open |
 | S2 | Multi-protocol/bot node | Hysteria, nginx, Caddy, `vpn_bot` active | Five-port commercial set requires fresh proof | `READ_ONLY PASS`; network ownership unresolved | `NO_GO` |
 | S3 | x-ui/VPN node | x-ui with protected child Xray active | Five-port commercial set requires fresh proof | `READ_ONLY PASS`; network ownership unresolved | `NO_GO` |
 | Current S1 | Replacement public control plane | maestro-panel, x-ui/Xray, Hysteria, nginx active | Five-port commercial set requires fresh proof | Strict pinned SSH `PASS`; exact controller-source leaf staged only | `NO_GO` |
@@ -78,15 +79,36 @@ All receipts matched exact release/config/boot/generation/managed-set digest
 with freshness at most 30 seconds. Current desired generation 4 is resumed.
 Old generation 1 was retained byte-identical and never replayed. GET-only
 recovery did not simulate a lost response; unknown-outcome fault injection
-remains open. No real customer, nginx/firewall/CDN or private-canary change ran.
+remains open. No real customer, nginx/firewall/CDN or private-canary change ran
+during those synthetic phases; the later isolated ingress stage is below.
 
 The one existing paid Yandex CDN resource still points at the preserved private
 canary path. Reviewed canonical ingress source preserves the private path to
 `18081`, routes only the new secret commercial path to `28081`, preserves the
-full HTTP request, and returns `404` otherwise. It is not installed; its exact
-firewall/CDN rollback is not exercised. The Yandex CDN functional canary is
-therefore not runnable and remains `NO_GO`. No second paid CDN resource is
-authorized.
+full HTTP request, and returns `404` otherwise. The isolated unit is now
+ACTIVE/enabled, PID `646960`, listener `28080`; local unknown-path `404` PASS.
+No public ingress allowance or CDN switch exists. Isolated direct authenticated
+traffic passed; deliberate firewall/CDN rollback and CDN functional traffic
+proof remain open. No second paid CDN resource is authorized.
+
+| Ingress evidence | Result |
+| --- | --- |
+| Exact source/config parser | Config SHA-256 `43291883decf99bcdc1bffbb2172a44fbc37a1f585da2371fa722e0953e2e739`; parser as intended user PASS |
+| Exact unit/binary | Unit SHA-256 `3fda8a55077918cd7e0e78a214df8b4c14d025ffdc0732f621534c16d02fd68d`; nginx SHA-256 `1f16b72bea2f44e5d04fe6cf9e3e4b0dec53a82c50c7c1533c302a8ecaeccacf` |
+| Packages/default unit | Official nginx/nginx-common `1.24.0-2ubuntu7.17` installed once; never reinstalled; default nginx masked/inactive |
+| First install attempt | Custom start/404 passed; raw ss padding comparison failed; both newly owned units stopped and mask verified; failed evidence retained |
+| First existing-install resume | Failed preflight before any start: legitimate fail2ban SSH ban membership differed in stateless nft output; evidence retained |
+| Corrected independent resume | EXIT 0; ACTIVE/enabled on `28080`; ordinary/private hashes, unit/PIDs, SSH and TCP/UDP 443 socket identities unchanged |
+| Firewall comparison | Only IPv4 members in exact f2b-table/addr-set-sshd/ipv4_addr set normalized; all other rules/static sets exact; fail2ban PID `594973` active and sshd jail active |
+| Direct authenticated traffic | Existing synthetic generation 4 through loopback SOCKS -> `28080` ingress -> `28081` commercial XHTTP/ML-KEM -> `exit-s4` relay -> HTTPS egress-check service (ipify); curl exit 0, `468 ms`, S4 egress match |
+| Direct proof isolation | Owned test client stopped; ordinary/private hashes and service baseline unchanged; no desired POST, private probe, service/config/firewall or CDN mutation |
+| Retained direct preflight failure | Root-relative checksum entries were evaluated from `/root`, before client startup or traffic; corrected checksum subprocess cwd `/` and new exclusive evidence passed bounded review/syntax and the direct proof |
+| Remaining boundary | CDN/public-edge, counters, general device proof and deliberate ingress rollback not yet completed; no private-canary probe |
+
+Socket comparisons ignore formatting and queue occupancy, not ownership.
+Never disable fail2ban or restore a historical ban list for equality. A failed
+installation is not replayed over existing packages/assets; subsequent resumes
+use separate evidence and verify the exact prior failure and installed identity.
 
 ## Client and delivery matrix
 

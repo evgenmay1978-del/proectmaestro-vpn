@@ -1,6 +1,6 @@
 # MaestroVPN — актуальный контекст и передача работы
 
-## 0. CURRENT — TASK 15 S4 B441 ACTIVE; SYNTHETIC 2/3/4 PASS (05.09.2026)
+## 0. CURRENT — TASK 15 S4 B441 AND ISOLATED INGRESS ACTIVE (05.09.2026)
 
 This section supersedes earlier status and next-step statements below. The sole
 canonical branch is `codex/yandex-cdn-whitelist-task3-sync`. The source/package
@@ -53,14 +53,20 @@ HEAD does not replace that package identity or the installed release identity.
   identities. The initial connector download URL failed
   with HTTPError/zero bytes and was not retried; authenticated GitHub redirect
   download succeeded with the credential sent only to GitHub.
-- The recovery console is restored and verified connected/encrypted. The
+- The recovery console was restored and verified connected/encrypted for the
+  completed apply/install gates. The
   earlier AdminVPS session expired (login CAPTCHA; direct VNC `Unauthorized`).
   The owner has now authorized continuation and the authenticated product
-  panel is available with no CAPTCHA. The official QEMU console shows the
+  panel was available with no CAPTCHA. The official QEMU console showed the
   Ubuntu 24.04 tty1 login prompt. Fresh strict SSH, shipped previous-release
   status, ordinary hashes/units/PIDs and exact firewall baseline passed before
   apply. Post-upgrade ordinary/private saved hashes, unit/PID comparison and
   strict SSH also passed.
+  At the latest browser inventory, IAB has no tabs, the earlier AdminVPS tab
+  handles no longer exist, and Microsoft Edge is not connected. Current console
+  access is therefore not confirmed. The owner was asked to connect Edge/open
+  Yandex for the next CDN read-only configuration/rollback capture; do not
+  bypass authentication or change CDN configuration without restored access.
 - The exact protected upgrade change sheet was transferred before apply.
   Reviewed local generation helpers preserve the byte-identical previous
   `3603f11...` add proof and require explicit previous-commit binding. They passed
@@ -79,17 +85,56 @@ HEAD does not replace that package identity or the installed release identity.
   and was never replayed. No real customer or private-canary identity changed.
 - Ingress source `aad63b52c74aedd2c568f0ed4a6a9f912e31e262` and its sealed
   workflow correction `26895992db384d8275c36720a622d96862505f69` are ancestors
-  of b441. Real nginx parsing as the intended user passed in an isolated stage.
-  No nginx package, ingress service, public allowance, or CDN origin change is
-  installed; exact ingress rollback and functional commercial CDN proof remain
-  open. One existing paid CDN resource remains the approved design.
+  of b441. Isolated `maestro-cdn-ingress.service` is now ACTIVE/enabled, PID
+  `646960`, owning TCP `28080`; the unknown local path returned `404`. The exact
+  parser/config SHA-256 is
+  `43291883decf99bcdc1bffbb2172a44fbc37a1f585da2371fa722e0953e2e739`,
+  unit SHA-256 `3fda8a55077918cd7e0e78a214df8b4c14d025ffdc0732f621534c16d02fd68d`,
+  and installed nginx SHA-256
+  `1f16b72bea2f44e5d04fe6cf9e3e4b0dec53a82c50c7c1533c302a8ecaeccacf`.
+  Official `nginx`/`nginx-common` `1.24.0-2ubuntu7.17` were installed once from
+  verified local packages after exact dependency simulation; no reinstallation
+  occurred. The default nginx unit remains administrator-masked/inactive.
+- The first ingress attempt installed the packages/custom unit and passed
+  unknown-path `404`, then a raw `ss` padding difference falsely failed the web
+  listener comparison. Its owned-unit rollback stopped both newly owned nginx
+  units and verified the mask; ordinary/private files, unit/PIDs, SSH and actual
+  TCP/UDP `443` owners were unchanged. A separate resume preflight then stopped
+  before any start because even stateless nft output retains changing fail2ban
+  SSH ban members. Both failed attempts and their protected evidence are retained;
+  the installer was not replayed.
+- The separately reviewed correction compares socket identity without padding
+  or queue occupancy and normalizes only IPv4 members of the exact
+  `table inet f2b-table` / `set addr-set-sshd` / `type ipv4_addr` set. Its name,
+  type, all other rules/static sets and commercial source restrictions remain
+  exact. fail2ban is active with PID `594973` and the sshd jail active. The fresh
+  exclusive resume completed EXIT `0`; ordinary/private hashes, unit/PIDs,
+  `443` owners and static firewall policy PASS. Never disable fail2ban or restore
+  an old ban list to satisfy the comparison. No public `28080` allowance, CDN
+  change, or private subscription probe occurred. Deliberate ingress rollback
+  and CDN proof remain open; one existing paid CDN resource remains the approved
+  design.
+- Direct authenticated commercial ingress traffic now PASS: the existing
+  synthetic generation 4 identity traversed loopback SOCKS -> ingress `28080`
+  -> commercial XHTTP/ML-KEM `28081` -> `exit-s4` relay -> HTTPS egress-check
+  service (ipify).
+  Curl exited `0` in `468 ms`; the returned egress matched S4. The owned test
+  client stopped, and ordinary/private files and the service baseline remained
+  unchanged. No desired POST, private-subscription probe, service/config/firewall
+  or CDN mutation occurred. This is isolated direct-ingress evidence, not CDN,
+  public-edge, counters, or general device proof.
+  The original traffic preflight failed before client startup because saved
+  checksum paths were root-relative but SSH started in `/root`; it did not
+  prove content drift or send traffic. Its evidence is retained. The corrected
+  helper used checksum subprocess `cwd='/'` and fresh exclusive evidence;
+  bounded independent review and syntax validation passed before this proof.
 - Read-only bot identity discovery is complete: current S1
   `@MaestroSecureVPN_bot` uses `vpnbot.service`; S2 `@MaestroSecureNaive_bot`
   uses `vpn_bot.service`. Each was active with one process, webhook absent and
   pending count zero. `@maestrovpn` is configuration-backed; publishing rights
   and commercial delivery/refresh flows are not proven. No messages were sent.
 
-Next: finish ingress/direct/CDN proof, unknown-outcome fault injection,
+Next: finish CDN/public-edge and counters proof, unknown-outcome fault injection,
 deliberate rollback
 and same-release re-apply before S2 → S3 → S1. Full client/bot/channel/panel
 refresh, last-known-good recovery and continuous 48-hour accounting remain open.
