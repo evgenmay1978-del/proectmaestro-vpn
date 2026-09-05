@@ -31,6 +31,7 @@ on:
         type: choice
         options:
           - android
+          - reserve-measure
           - mobile-eye-compile
           - mobile-eye-ring-assets
           - mobile-eye-runtime-assets
@@ -44,6 +45,73 @@ on:
       - .github/workflows/android-test.yml
 
 jobs:
+  reserve-measure:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'reserve-measure' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Test measurement command and authenticated client boundary
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l cmd/maestro-reserve-measure/*.go)"
+          go test -count=1 ./cmd/maestro-reserve-measure ./internal/sidecaragentclient
+          go test -count=1 -race ./cmd/maestro-reserve-measure ./internal/sidecaragentclient
+          go vet ./cmd/maestro-reserve-measure ./internal/sidecaragentclient
+
+      - name: Build standalone read-only measurement binary
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist/reserve-measure
+          go build -trimpath -ldflags='-s -w -buildid=' -o ../dist/reserve-measure/maestro-reserve-measure ./cmd/maestro-reserve-measure
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path('../dist/reserve-measure')
+          binary = root / 'maestro-reserve-measure'
+          digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+          manifest = {
+              'schema_version': 1,
+              'source_commit': os.environ['GITHUB_SHA'],
+              'purpose': 'isolated-read-only-reserve-measurement',
+              'os': 'linux',
+              'arch': 'amd64',
+              'binary': binary.name,
+              'bytes': binary.stat().st_size,
+              'sha256': digest,
+          }
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          (root / 'SHA256SUMS').write_text(digest + '  ' + binary.name + '\n', encoding='ascii')
+          PY
+
+      - name: Upload exact-source measurement artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-reserve-measure-${{ github.sha }}
+          path: dist/reserve-measure/
+          if-no-files-found: error
+          retention-days: 14
+
   mobile-eye-state-preview:
     if: ${{ github.event_name == 'workflow_dispatch' && (inputs.task == 'mobile-eye-state-preview' || inputs.task == 'mobile-eye-compile') }}
     runs-on: ubuntu-latest
