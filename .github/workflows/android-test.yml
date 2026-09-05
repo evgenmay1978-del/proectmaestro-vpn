@@ -32,6 +32,7 @@ on:
         options:
           - android
           - reserve-measure
+          - xhttp-native
           - mobile-eye-compile
           - mobile-eye-ring-assets
           - mobile-eye-runtime-assets
@@ -45,6 +46,88 @@ on:
       - .github/workflows/android-test.yml
 
 jobs:
+  xhttp-native:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'xhttp-native' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: android-xhttp/go.mod
+          cache-dependency-path: android-xhttp/go.sum
+      - name: Test native lifecycle and protected socket boundary
+        working-directory: android-xhttp
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l *.go)"
+          go test -mod=readonly -count=1 ./...
+          go test -mod=readonly -count=1 -race ./...
+          go vet -mod=readonly ./...
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android NDK
+        run: |
+          set -euo pipefail
+          sdkmanager "ndk;28.0.13004108" >/dev/null
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
+      - name: Build both Android ABIs and verify JNI exports
+        working-directory: android-xhttp
+        env:
+          CGO_ENABLED: '1'
+          GOOS: android
+        run: |
+          set -euo pipefail
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for abi in arm64-v8a armeabi-v7a; do
+            mkdir -p "../dist/xhttp-native/$abi"
+            if [ "$abi" = arm64-v8a ]; then
+              export GOARCH=arm64
+              export CC="$toolchain/aarch64-linux-android23-clang"
+              unset GOARM
+            else
+              export GOARCH=arm GOARM=7
+              export CC="$toolchain/armv7a-linux-androideabi23-clang"
+            fi
+            library="../dist/xhttp-native/$abi/libmaestro_xhttp.so"
+            go build -mod=readonly -trimpath -buildmode=c-shared \
+              -ldflags='-s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384' -o "$library" .
+            "$toolchain/llvm-nm" --defined-only -D "$library" > "../dist/xhttp-native/$abi/exports.txt"
+            for symbol in JNI_OnLoad Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStart Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStop; do
+              grep -q " $symbol$" "../dist/xhttp-native/$abi/exports.txt"
+            done
+            "$toolchain/llvm-readelf" -h -l "$library" > "../dist/xhttp-native/$abi/elf.txt"
+          done
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path('../dist/xhttp-native')
+          libraries = []
+          for abi in ('arm64-v8a', 'armeabi-v7a'):
+              p = root / abi / 'libmaestro_xhttp.so'
+              libraries.append({'abi': abi, 'path': p.relative_to(root).as_posix(),
+                                'bytes': p.stat().st_size, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()})
+          manifest = {'schema_version': 1, 'source_commit': os.environ['GITHUB_SHA'],
+                      'xray_commit': '1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2',
+                      'ndk': '28.0.13004108', 'android_api': 23, 'libraries': libraries,
+                      'device_runtime_proven': False, 'apk_created': False}
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          PY
+      - name: Upload exact-source native libraries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-xhttp-native-${{ github.sha }}
+          path: dist/xhttp-native/
+          if-no-files-found: error
+          retention-days: 14
+
   reserve-measure:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'reserve-measure' }}
     permissions:
