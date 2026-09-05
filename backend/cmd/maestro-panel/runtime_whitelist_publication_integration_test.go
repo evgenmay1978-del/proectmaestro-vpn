@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -110,11 +111,13 @@ VALUES(?,?,0,?,?,0,?,?)`, Args: []any{periodID, entitlementID, now.Unix() - 100,
 	if err := collector.runPass(context.Background()); err != nil {
 		t.Fatalf("bootstrap empty desired and collector observation: %v", err)
 	}
-	if err := service.AuthorizeWhiteListMeteringAdmission(context.Background(), entitlementID, "exit-nl", controlplane.WhiteListAdmissionReserve{
-		MeasuredP999BytesPerSecond: 2_000_000, MeasuredAtUnix: now.Unix(), ValidUntilUnix: now.Unix() + 20,
-	}); err != nil {
-		t.Fatalf("authorize measured first-use reserve: %v", err)
+	// The real runtime caller must discover a paid candidate while Routes is
+	// still empty. A direct call to Authorize would hide a bootstrap deadlock.
+	reportPath := filepath.Join(t.TempDir(), "reserve.json")
+	if err := os.WriteFile(reportPath, []byte(runtimeReserveFixture), 0600); err != nil {
+		t.Fatal(err)
 	}
+	collector.reserves = runtimeWhiteListReserveFile(reportPath, clock.Now)
 	if err := collector.runPass(context.Background()); err != nil {
 		t.Fatalf("provision admitted managed desired: %v", err)
 	}

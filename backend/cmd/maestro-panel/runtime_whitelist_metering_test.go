@@ -346,12 +346,25 @@ func (sender *runtimeWhiteListMeteringSender) LookupUsage(context.Context, strin
 }
 
 type runtimeWhiteListMeteringControl struct {
+	candidates    []controlplane.WhiteListMeteringAdmissionCandidate
+	admissionCall func(context.Context, string, string, controlplane.WhiteListAdmissionReserve) error
 	plan          controlplane.WhiteListMeteringPlan
 	planCall      func(context.Context) (controlplane.WhiteListMeteringPlan, error)
 	reconcileCall func(context.Context) error
 	reconciles    int
 	bootstraps    int
 	observations  []controlplane.WhiteListOriginObservation
+}
+
+func (control *runtimeWhiteListMeteringControl) WhiteListMeteringAdmissionCandidates(context.Context) ([]controlplane.WhiteListMeteringAdmissionCandidate, error) {
+	return control.candidates, nil
+}
+
+func (control *runtimeWhiteListMeteringControl) AuthorizeWhiteListMeteringAdmission(ctx context.Context, entitlementID, exitID string, reserve controlplane.WhiteListAdmissionReserve) error {
+	if control.admissionCall == nil {
+		return errors.New("unexpected admission authorization")
+	}
+	return control.admissionCall(ctx, entitlementID, exitID, reserve)
 }
 
 func (control *runtimeWhiteListMeteringControl) EnsureWhiteListMeteringBootstrap(

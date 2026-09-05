@@ -121,6 +121,7 @@ func buildRQLitePanelRuntime(
 		runRQLiteBackground(
 			workerContext, service, service, service, meteringStore, workerID,
 			runtime.whiteListSidecarSenders, publicationEnabled,
+			runtimeWhiteListReserveFile(config.WhiteListReserveFile, dependencies.clock.Now),
 		)
 	}
 	return runtime, nil

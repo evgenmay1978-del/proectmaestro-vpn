@@ -32,6 +32,8 @@ type runtimeWhiteListUsageLookup interface {
 type runtimeWhiteListMeteringControlPlane interface {
 	shadowbilling.CommercialDebiter
 	WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error)
+	WhiteListMeteringAdmissionCandidates(context.Context) ([]controlplane.WhiteListMeteringAdmissionCandidate, error)
+	AuthorizeWhiteListMeteringAdmission(context.Context, string, string, controlplane.WhiteListAdmissionReserve) error
 	RecordWhiteListOriginObservation(context.Context, controlplane.WhiteListOriginObservation) error
 	EnsureWhiteListMeteringBootstrap(context.Context, string, func(string) (controlplane.ExternalActionSender, bool)) error
 	ReconcileWhiteListSidecarIntents(
@@ -62,6 +64,7 @@ type runtimeWhiteListMeteringCollector struct {
 	senders          map[string]controlplane.ExternalActionSender
 	startupRecovered bool
 	reconcileNeeded  bool
+	reserves         runtimeWhiteListReserveProvider
 }
 
 func newRuntimeWhiteListMeteringStore(database rqlite.RQLite) (*shadowbilling.DurableStore, error) {
@@ -77,6 +80,7 @@ func runRQLiteBackground(
 	workerID string,
 	senders map[string]controlplane.ExternalActionSender,
 	meteringEnabled bool,
+	reserves runtimeWhiteListReserveProvider,
 ) {
 	if ctx == nil || renewal == nil {
 		return
@@ -89,6 +93,7 @@ func runRQLiteBackground(
 			defer workers.Done()
 			runRuntimeWhiteListMetering(ctx, &runtimeWhiteListMeteringCollector{
 				control: metering, store: meteringStore, workerID: workerID, senders: senders,
+				reserves: reserves,
 			}, runtimeWhiteListMeteringInterval)
 		}()
 	}
@@ -234,7 +239,38 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			}
 		}
 	}
-	return nil
+	return collector.authorizeAdmissions(ctx)
+}
+
+// Run only after every authenticated Origin observation and debit succeeded.
+// Candidate discovery must not depend on already provisioned managed users.
+func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx context.Context) error {
+	if collector.reserves == nil {
+		return nil
+	}
+	reserves, err := collector.reserves(ctx)
+	if err != nil {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
+	candidates, err := collector.control.WhiteListMeteringAdmissionCandidates(ctx)
+	if err != nil {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
+	var admissionErr error
+	for _, candidate := range candidates {
+		reserve, measured := reserves[candidate.ExitID]
+		if !measured {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		if err := collector.control.AuthorizeWhiteListMeteringAdmission(ctx, candidate.EntitlementID, candidate.ExitID, reserve); err != nil {
+			// An ineligible account must not starve the remaining eligible accounts.
+			admissionErr = errRuntimeWhiteListMeteringUnavailable
+		}
+	}
+	return admissionErr
 }
 
 func (collector *runtimeWhiteListMeteringCollector) applyUser(

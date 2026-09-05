@@ -15,8 +15,8 @@ import (
 const whiteListObservationTTLSeconds int64 = 5
 
 // WhiteListAdmissionReserve is an explicit, verified measurement input, not a
-// configured default or a rate inferred from missing counters. No production
-// measurement provider is installed yet; its zero value denies admission.
+// configured default or a rate inferred from missing counters. The optional
+// runtime report provider supplies it; its zero value denies admission.
 type WhiteListAdmissionReserve struct {
 	MeasuredP999BytesPerSecond uint64
 	MeasuredAtUnix             int64
