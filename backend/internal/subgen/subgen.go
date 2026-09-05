@@ -14,6 +14,8 @@ package subgen
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 // VLESSCreds is a 3x-ui VLESS+Reality client.
@@ -71,7 +73,7 @@ type Customer struct {
 	AnyTLS *AnyTLSCreds
 	VLESS3 *VLESSCreds  // VLESS-Reality on the 3rd node (S3)
 	VLESS4 *VLESSCreds  // VLESS-Reality on the 4th node (S4); nil until S4_* env is configured
-	WG     *WGCreds     // AmneziaWG (S3) — gated on the with_awg libbox; ⛔ nil for ALL real customers
+	WG     *WGCreds     // AmneziaWG (S3); emitted only for a supported with_awg client version
 	OLC    *OLCRTCCreds // olcRTC (WebRTC video-disguise) — opt-in fallback; ⛔ emitted ONLY for login "wapmix" (creds-gate in the /sub handler), nil otherwise
 	VKTurn *VKTurnCreds // VK TURN/DTLS carrier — mobile-only manual fallback; gated by the /sub handler
 
@@ -116,15 +118,9 @@ type OLCRTCCreds struct {
 // Per-customer fields only; the shared obfuscation block (awg* consts) is global and MUST
 // byte-match the S3 server awg0.conf [Interface] (/root/.s3wg). ⛔ Only the `with_awg` libbox
 // parses an awg endpoint; the PLAIN shipping fleet libbox HARD-FAILS the whole config — so WG
-// must stay nil for every real customer until the with_awg libbox is the OTA'd fleet engine
-// (canary devices only). See [[amneziawg-app-support]].
-type WGCreds struct {
-	Server        string // peer (S3) address, e.g. "46.30.42.151"
-	Port          int    // peer (S3) UDP port, e.g. 443
-	PeerPublicKey string // S3 server public key (base64)
-	PrivateKey    string // THIS customer's client private key (base64)
-	LocalAddress  string // this customer's tunnel IP, e.g. "10.10.8.2/32"
-}
+// emission requires the existing supported-client version gate. Persisted credentials
+// are retained independently of that gate. See [[amneziawg-app-support]].
+type WGCreds = controlplane.WGCredentialIdentity
 
 const (
 	tagVLESS  = "vless"

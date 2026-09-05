@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-
-	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
 func TestWGCredentialRetainsTupleAndCannotChangeOwnerOrType(t *testing.T) {
 	service, box := testService(t, &recordingRQLite{})
-	identity := &subgen.WGCreds{Server: "wg.example.test", Port: 443, PeerPublicKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)), PrivateKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), LocalAddress: "10.10.8.2/32"}
+	identity := &WGCredentialIdentity{Server: "wg.example.test", Port: 443, PeerPublicKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)), PrivateKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), LocalAddress: "10.10.8.2/32"}
 	raw, err := EncodeWGCredentialIdentity(identity)
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +53,7 @@ func TestWGCredentialRetainsTupleAndCannotChangeOwnerOrType(t *testing.T) {
 			}
 		})
 	}
-	for _, mutate := range []func(*subgen.WGCreds){func(c *subgen.WGCreds) { c.PrivateKey = "short" }, func(c *subgen.WGCreds) { c.Port = 0 }, func(c *subgen.WGCreds) { c.LocalAddress = "missing-prefix" }, func(c *subgen.WGCreds) { c.Server = "" }} {
+	for _, mutate := range []func(*WGCredentialIdentity){func(c *WGCredentialIdentity) { c.PrivateKey = "short" }, func(c *WGCredentialIdentity) { c.Port = 0 }, func(c *WGCredentialIdentity) { c.LocalAddress = "missing-prefix" }, func(c *WGCredentialIdentity) { c.Server = "" }} {
 		changed := *identity
 		mutate(&changed)
 		if _, err := EncodeWGCredentialIdentity(&changed); err == nil {

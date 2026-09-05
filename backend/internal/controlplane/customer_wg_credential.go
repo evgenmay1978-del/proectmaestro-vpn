@@ -6,13 +6,22 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/netip"
-
-	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
+
+// WGCredentialIdentity is the complete per-account WireGuard credential value.
+// Subscription generation aliases this type so persistence has no dependency
+// on the renderer, which already consumes control-plane entitlements.
+type WGCredentialIdentity struct {
+	Server        string
+	Port          int
+	PeerPublicKey string
+	PrivateKey    string
+	LocalAddress  string
+}
 
 // EncodeWGCredentialIdentity retains the complete per-customer tuple. It never
 // derives keys, addresses, or peer settings from a shared topology.
-func EncodeWGCredentialIdentity(identity *subgen.WGCreds) (string, error) {
+func EncodeWGCredentialIdentity(identity *WGCredentialIdentity) (string, error) {
 	if identity == nil || !validCredentialIdentityPart(identity.Server) || identity.Port < 1 || identity.Port > 65535 {
 		return "", ErrInvalidState
 	}
@@ -32,11 +41,11 @@ func EncodeWGCredentialIdentity(identity *subgen.WGCreds) (string, error) {
 	return string(raw), nil
 }
 
-func DecodeWGCredentialIdentity(raw string) (*subgen.WGCreds, error) {
+func DecodeWGCredentialIdentity(raw string) (*WGCredentialIdentity, error) {
 	if len(raw) == 0 || len(raw) > 4096 {
 		return nil, ErrInvalidState
 	}
-	var identity subgen.WGCreds
+	var identity WGCredentialIdentity
 	if decodeCredentialIdentityJSON([]byte(raw), &identity) != nil {
 		return nil, ErrInvalidState
 	}
