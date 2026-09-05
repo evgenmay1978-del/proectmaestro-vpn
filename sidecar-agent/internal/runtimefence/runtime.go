@@ -19,12 +19,14 @@ const (
 	maxSessions     = 4096
 	maxUserSessions = 128
 	maxDrain        = 2 * time.Second
+	maxLease        = 5 * time.Second
 )
 
 var errDenied = errors.New("managed session denied")
 
 // Control is a compare-and-advance operation bound to this physical process and
-// its exact input configuration. Retries must retain the same generation/op.
+// its exact input configuration. Generation versions control operations, not
+// durable desired state. Retries retain generation, operation and lease length.
 type Control struct {
 	Schema       int    `json:"schema"`
 	Operation    string `json:"operation"`
@@ -32,27 +34,33 @@ type Control struct {
 	BootID       string `json:"boot_id"`
 	ConfigDigest string `json:"config_digest"`
 	Generation   uint64 `json:"generation"`
+	LeaseMS      uint32 `json:"lease_ms,omitempty"`
 }
 
 type Receipt struct {
-	Schema        int    `json:"schema"`
-	State         string `json:"state"`
-	Email         string `json:"email"`
-	BootID        string `json:"boot_id"`
-	ConfigDigest  string `json:"config_digest"`
-	Generation    uint64 `json:"generation"`
-	ResetSequence uint64 `json:"reset_sequence"`
-	ObservedAt    string `json:"observed_at"`
-	Uplink        *int64 `json:"uplink,omitempty"`
-	Downlink      *int64 `json:"downlink,omitempty"`
+	Schema           int     `json:"schema"`
+	State            string  `json:"state"`
+	Email            string  `json:"email"`
+	BootID           string  `json:"boot_id"`
+	ConfigDigest     string  `json:"config_digest"`
+	Generation       uint64  `json:"generation"`
+	ResetSequence    uint64  `json:"reset_sequence"`
+	ObservedAt       string  `json:"observed_at"`
+	Uplink           *int64  `json:"uplink,omitempty"`
+	Downlink         *int64  `json:"downlink,omitempty"`
+	LeaseExpiresAt   string  `json:"lease_expires_at,omitempty"`
+	LeaseRemainingMS *uint32 `json:"lease_remaining_ms,omitempty"`
 }
 
 type userState struct {
-	generation uint64
-	operation  string
-	allowed    bool
-	user       *protocol.MemoryUser
-	sessions   map[*stream]struct{}
+	generation    uint64
+	operation     string
+	allowed       bool
+	user          *protocol.MemoryUser
+	sessions      map[*stream]struct{}
+	leaseMS       uint32
+	leaseDeadline time.Time
+	leaseTimer    *time.Timer
 }
 
 type gate struct {
@@ -83,15 +91,70 @@ func validEmail(email string) bool {
 
 func (g *gate) notifyLocked() { close(g.changed); g.changed = make(chan struct{}) }
 
+func (g *gate) fenceLocked(u *userState) {
+	u.allowed = false
+	if u.leaseTimer != nil {
+		u.leaseTimer.Stop()
+		u.leaseTimer = nil
+	}
+	for s := range u.sessions {
+		s.stopLocked()
+	}
+	g.notifyLocked()
+}
+
+func (g *gate) expireLocked(u *userState, now time.Time) {
+	if u != nil && u.allowed && !now.Before(u.leaseDeadline) {
+		g.fenceLocked(u)
+	}
+}
+
+func (g *gate) expireLease(u *userState, generation uint64, deadline time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// Stop can race an already scheduled callback. A previous lease cannot
+	// fence a newer renewal or a replacement user's grant.
+	if g.closed || u.generation != generation || !u.leaseDeadline.Equal(deadline) {
+		return
+	}
+	g.expireLocked(u, time.Now())
+}
+
+func (g *gate) armLeaseLocked(u *userState, c Control, now time.Time) {
+	if u.leaseTimer != nil {
+		u.leaseTimer.Stop()
+	}
+	u.leaseMS = c.LeaseMS
+	u.leaseDeadline = now.Add(time.Duration(c.LeaseMS) * time.Millisecond)
+	deadline, generation := u.leaseDeadline, u.generation
+	u.leaseTimer = time.AfterFunc(time.Until(deadline), func() { g.expireLease(u, generation, deadline) })
+}
+
+func (g *gate) leaseReceiptLocked(u *userState, c Control) (*Receipt, error) {
+	now := time.Now()
+	g.expireLocked(u, now)
+	if !u.allowed {
+		return nil, errDenied
+	}
+	// Floor, never ceil: callers use request-start monotonic time plus this
+	// remaining duration. The wall-clock expiry is only a diagnostic hint.
+	remaining := uint32(u.leaseDeadline.Sub(now) / time.Millisecond)
+	r := g.receipt(c, "granted")
+	r.LeaseExpiresAt = u.leaseDeadline.UTC().Format(time.RFC3339Nano)
+	r.LeaseRemainingMS = &remaining
+	return r, nil
+}
+
 func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, sm stats.Manager) (*Receipt, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	if c.Schema != 1 || !validEmail(c.Email) || c.BootID != g.boot || c.ConfigDigest != g.digest || c.Generation == 0 || (c.Operation != "grant" && c.Operation != "fence") {
+	leasedOperation := c.Operation == "grant" || c.Operation == "renew"
+	if c.Schema != 1 || !validEmail(c.Email) || c.BootID != g.boot || c.ConfigDigest != g.digest || c.Generation == 0 || (!leasedOperation && c.Operation != "fence") || (leasedOperation && (c.LeaseMS == 0 || c.LeaseMS > uint32(maxLease/time.Millisecond))) || (c.Operation == "fence" && c.LeaseMS != 0) {
 		return nil, errDenied
 	}
 	g.mu.Lock()
-	if g.closed {
+	if g.closed || ctx.Err() != nil {
 		g.mu.Unlock()
 		return nil, errDenied
 	}
@@ -104,20 +167,31 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 		u = &userState{sessions: make(map[*stream]struct{})}
 		g.users[c.Email] = u
 	}
+	// A late renewal cannot win by getting the mutex before the timer callback.
+	g.expireLocked(u, time.Now())
 	if c.Generation < u.generation || (c.Generation == u.generation && c.Operation != u.operation) {
 		g.mu.Unlock()
 		return nil, errDenied
 	}
-	if c.Operation == "grant" {
+	if leasedOperation {
 		if user == nil || user.Email != c.Email {
 			g.mu.Unlock()
 			return nil, errDenied
 		}
 		if c.Generation == u.generation {
+			if !u.allowed || u.user != user || u.leaseMS != c.LeaseMS {
+				g.mu.Unlock()
+				return nil, errDenied
+			}
+		} else if c.Operation == "renew" {
+			now := time.Now()
+			g.expireLocked(u, now)
 			if !u.allowed || u.user != user {
 				g.mu.Unlock()
 				return nil, errDenied
 			}
+			u.generation, u.operation = c.Generation, c.Operation
+			g.armLeaseLocked(u, c, now)
 		} else {
 			// A removed/re-added user has a different MemoryUser. Old idle mux
 			// contexts retain the old pointer and must never inherit a new grant.
@@ -126,15 +200,14 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 				return nil, errDenied
 			}
 			u.generation, u.operation, u.allowed, u.user = c.Generation, c.Operation, true, user
+			g.armLeaseLocked(u, c, time.Now())
 		}
+		r, err := g.leaseReceiptLocked(u, c)
 		g.mu.Unlock()
-		return g.receipt(c, "granted"), nil
+		return r, err
 	}
 	u.generation, u.operation, u.allowed = c.Generation, c.Operation, false
-	for s := range u.sessions {
-		s.stopLocked()
-	}
-	g.notifyLocked()
+	g.fenceLocked(u)
 	deadline, cancel := context.WithTimeout(ctx, maxDrain)
 	defer cancel()
 	for len(u.sessions) != 0 {
@@ -194,6 +267,7 @@ func (g *gate) start(ctx context.Context, user *protocol.MemoryUser, interrupt f
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	u := g.users[user.Email]
+	g.expireLocked(u, time.Now())
 	if g.closed || u == nil || !u.allowed || u.user != user || g.count >= maxSessions || len(u.sessions) >= maxUserSessions {
 		return nil, nil, errDenied
 	}
@@ -207,6 +281,7 @@ func (g *gate) start(ctx context.Context, user *protocol.MemoryUser, interrupt f
 func (s *stream) begin() bool {
 	s.gate.mu.Lock()
 	defer s.gate.mu.Unlock()
+	s.gate.expireLocked(s.owner, time.Now())
 	if s.closing || !s.owner.allowed || s.gate.closed {
 		return false
 	}
@@ -264,10 +339,7 @@ func (g *gate) close() {
 	defer g.mu.Unlock()
 	g.closed = true
 	for _, u := range g.users {
-		u.allowed = false
-		for s := range u.sessions {
-			s.stopLocked()
-		}
+		g.fenceLocked(u)
 	}
 	g.notifyLocked()
 }

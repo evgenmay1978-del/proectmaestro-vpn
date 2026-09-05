@@ -39,7 +39,7 @@ func (s *service) Apply(ctx context.Context, request *wrapperspb.BytesValue) (*w
 		return nil, status.Error(codes.InvalidArgument, "invalid managed operation")
 	}
 	var user *protocol.MemoryUser
-	if c.Operation == "grant" {
+	if c.Operation == "grant" || c.Operation == "renew" {
 		h, err := s.inbounds.GetHandler(ctx, ManagedInbound)
 		if err != nil {
 			return nil, status.Error(codes.FailedPrecondition, "managed inbound unavailable")

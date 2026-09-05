@@ -33,7 +33,7 @@ func fixture(t *testing.T) (*gate, *protocol.MemoryUser, *xstats.Manager, Contro
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := Control{Schema: 1, Operation: "grant", Email: u.Email, BootID: g.boot, ConfigDigest: g.digest, Generation: 1}
+	c := Control{Schema: 1, Operation: "grant", Email: u.Email, BootID: g.boot, ConfigDigest: g.digest, Generation: 1, LeaseMS: 5000}
 	t.Cleanup(g.close)
 	return g, u, sm, c
 }
@@ -81,6 +81,7 @@ func TestDefaultDenyGenerationAndOldMuxIdentity(t *testing.T) {
 	}
 	registerPair(t, sm, u.Email)
 	c.Operation = "fence"
+	c.LeaseMS = 0
 	c.Generation++
 	r, err := g.apply(context.Background(), c, nil, sm)
 	if err != nil || r.Uplink == nil || *r.Uplink != 0 || r.ResetSequence != 0 {
@@ -88,6 +89,7 @@ func TestDefaultDenyGenerationAndOldMuxIdentity(t *testing.T) {
 	}
 	grant := c
 	grant.Operation = "grant"
+	grant.LeaseMS = 5000
 	if _, err := g.apply(context.Background(), grant, u, sm); err == nil {
 		t.Fatal("same generation changed operation")
 	}
@@ -144,6 +146,7 @@ func TestFenceWaitsForLatePinnedCounterMutationAfterWorkerReturn(t *testing.T) {
 	<-reader.entered
 	s.finish()
 	c.Operation = "fence"
+	c.LeaseMS = 0
 	c.Generation++
 	short, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	if r, err := g.apply(short, c, nil, sm); err == nil || r != nil {
@@ -172,6 +175,7 @@ func TestFenceWaitsForLatePinnedCounterMutationAfterWorkerReturn(t *testing.T) {
 func TestMissingOrOverflowedCountersDoNotProduceFinalReceipt(t *testing.T) {
 	g, u, sm, c := fixture(t)
 	c.Operation = "fence"
+	c.LeaseMS = 0
 	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
 		t.Fatal("invented absent counters")
 	}

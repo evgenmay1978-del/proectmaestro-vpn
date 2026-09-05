@@ -42,24 +42,51 @@ protected transport, not expose Commander publicly.
 Request fields:
 
 ```
-{"schema":1,"operation":"grant|fence","email":"wl:<identity>:exit-s1",
+{"schema":1,"operation":"grant|renew|fence","email":"wl:<identity>:exit-s1",
  "boot_id":"<physical process digest>","config_digest":"<input file SHA-256>",
- "generation":1}
+ "generation":1,"lease_ms":5000}
 ```
 
 Email also permits exits s2–s4. Generation is a nonzero uint64, scoped to that
-email and physical boot. It advances on each different operation; an exact
-same-generation same-operation retry is idempotent. A stale generation or a
-changed operation at the same generation is rejected. A grant requires the
+email and physical boot. It versions control operations, including each fresh
+renewal; it is not the durable desired-state generation. A future caller must
+map its stable desired/control binding and renewal sequence to this monotonic
+operation version, rather than update durable desired state every few seconds.
+An exact same-generation, same-operation, same-lease-length retry is idempotent
+and never extends a deadline. A stale generation or changed operation/length at
+the same generation is rejected. A grant requires the
 currently installed forward VLESS MemoryUser on `maestro-cdn-in`, with both user
 traffic counters enabled, no online counter, no Vision flow or reverse account.
 It is bound to that specific in-memory user. After a fence, grant requires
 RemoveUser/AddUser to create a new MemoryUser, preventing an old idle mux from
 inheriting the new authorization. The runtime does not provision users itself.
 
+Grant and renew require `lease_ms` from 1 through 5000; fence requires it to be
+absent or zero. Renew requires a higher operation generation, the same installed
+MemoryUser, and a lease which has not expired. It retains existing sessions and
+arms a fresh bounded deadline. Expiry, explicit fence, or runtime close prevents
+renewal, including delayed exact retries. Regrant after expiry/fence requires
+the replacement MemoryUser and completed drain described above.
+
+Deadlines use Go monotonic time. An independent timer autonomously denies and
+starts the existing cancel/interrupt drain at expiry. Dispatch admission, every
+counted I/O start, and renewal also check the deadline under the same gate lock,
+so delayed timer scheduling cannot authorize another operation. Old timer
+callbacks cannot fence a later renewal. Close/fence stops the active timer;
+failed or timed-out drain does not reopen admission. Autonomous expiry emits no
+final-counter receipt; an explicit fence must still prove true drain.
+
 A successful grant response has fields `schema`, `state` (`granted`), `email`,
 `boot_id`, `config_digest`, `generation`, `reset_sequence` (0), and `observed_at`
-(UTC RFC3339Nano). A successful fence additionally has signed 64-bit `uplink`
+(UTC RFC3339Nano). Successful grant and renew use state `granted` and additionally
+return `lease_expires_at` and `lease_remaining_ms`. The former is only a runtime
+wall-clock hint, never an exact byte cutoff, billing boundary, or clock authority.
+The latter floors the actual monotonic remaining duration to whole milliseconds;
+it can be zero near expiry and never exceeds 5000. A caller derives its local
+deadline from request-start monotonic time plus this remaining duration and
+rejects a zero/already elapsed result. Exact retries return the original expiry
+and decreasing remaining duration. A successful fence omits both lease fields
+and additionally has signed 64-bit `uplink`
 and `downlink` containing real nonnegative cumulative counters. No zero counters
 are invented when a counter pair is absent. A fence retry may observe a later
 timestamp; it never changes cumulative usage while that generation is fenced.
@@ -94,11 +121,13 @@ retained for the boot to reject stale commands; an API cannot forget a fence.
 The executable accepts one config file of at most 1 MiB and does not print its
 contents, credentials, requests or receipts.
 
-Required before deployment: wire the real agent control caller and add a
-renewable use lease of at most five seconds, with expiry-triggered fence and
-non-extending duplicate retries. The current desired receipt TTL/refresh loop
-does not provide this lease. This explicit grant/fence proof intentionally does
-not invent a second disconnected lease policy. Backend period transition must
+Compatibility: the method, BytesValue envelope and schema number remain the
+same, but unleased legacy grant requests are intentionally rejected. Callers
+must send a bounded lease, support renew and the non-extending retry contract,
+and use independent operation generations. No real caller or production
+deployment is supplied by this package. The existing desired receipt TTL and
+refresh loop cannot drive this lease; they must be wired explicitly before
+deployment, along with the actual control binding. Backend period transition must
 first revoke before the boundary, prove genuine drain, and debit this real
 final cumulative observation; this package alone does not complete period
 accounting, all-Origin admission, or commercial live readiness.
