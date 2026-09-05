@@ -72,6 +72,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.fantasy.fantasyFrame
+import com.maestrovpn.tv.compose.model.visibleActiveProtocol
+import com.maestrovpn.tv.compose.model.visibleProtocolTags
 import com.maestrovpn.tv.compose.premium.MobilePremiumButton
 import com.maestrovpn.tv.compose.premium.PremiumEmerald
 import com.maestrovpn.tv.compose.premium.PremiumGold
@@ -442,8 +444,7 @@ internal fun homeActiveProtocolLine(
     activeProtocol: String?,
     selected: String?,
 ): String? {
-    val main = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
-    if (main.isNullOrBlank()) return null
+    val main = visibleActiveProtocol(activeProtocol, selected) ?: return null
     val prefix = when (phoneHomeConnectionPresentation(connected, connecting)) {
         PhoneHomeConnectionPresentation.CONNECTING -> "Подключение"
         PhoneHomeConnectionPresentation.CONNECTED -> "Подключён"
@@ -457,7 +458,7 @@ internal fun homeButtonVisualHeight(bounds: PhoneHomeReferenceBounds): Float =
     bounds.bottom - bounds.top
 
 /**
- * Семь протоколов по дуге. Дуга — статический вертикальный сдвиг сектора по параболе от
+ * Доступные протоколы по дуге. Дуга — статический вертикальный сдвиг сектора по параболе от
  * центра ряда: крайние опускаются на [ARC_DROP], средние почти не двигаются. Это не старый
  * цилиндр: ни `rotationX`, ни привязки к скроллу, ни снэпа — палец и TalkBack получают
  * обычный ряд радиокнопок.
@@ -785,19 +786,16 @@ private fun SecondaryDeck(
 }
 
 /**
- * Порядок секторов дуги задан эталоном: Авто, VLESS, Hysteria2, AnyTLS, NaiveProxy, WEBRTC.
- * Между NaiveProxy и WEBRTC стоит WDTT (`vk-turn`): его нет на эталоне, но на телефоне это
- * рабочий протокол — прячет его только ТВ (`TvEskizHome.kt` filterNot), и терять его из
- * меню нельзя. Реальные теги приходят с бэкенда, поэтому неизвестные добавляются в конец, а
- * `olcrtc` присутствует всегда и последним — он показывается и без выданных кредов (замок +
- * запрос владельцу), ровно как в старом меню.
+ * Stable ordinary protocol order; preserve other backend entries after the known ones.
+ * Deferred transports are absent, including the cold-start fallback and credential teasers.
  */
 internal fun orderedHomeProtocols(protocols: List<String>): List<String> {
     // Cold-start selector gap: retain the owner-approved arc before runtime protocols arrive.
     if (protocols.isEmpty()) return HOME_PROTOCOL_ORDER
-    val known = HOME_PROTOCOL_ORDER.filter { it in protocols }
-    val extra = protocols.filter { it !in HOME_PROTOCOL_ORDER }
-    return (known + extra + "olcrtc").distinct()
+    val visible = visibleProtocolTags(protocols)
+    val known = HOME_PROTOCOL_ORDER.filter { it in visible }
+    val extra = visible.filter { it !in HOME_PROTOCOL_ORDER }
+    return (known + extra).distinct()
 }
 
 /**
@@ -825,7 +823,7 @@ internal fun homeProtocolSectorLabel(tag: String): String = when (tag) {
 }
 
 private val HOME_PROTOCOL_ORDER =
-    listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc")
+    listOf("auto", "vless", "hysteria2", "anytls", "naive")
 private const val SUPPORT_PHONE_LABEL = "8 977 811-65-64"
 private const val SUPPORT_PHONE_URI = "+79778116564"
 /** 1:1 к прежней строке статуса: ОТКЛЮЧЕНО = красная точка и красный текст. */

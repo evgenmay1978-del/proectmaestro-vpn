@@ -17,7 +17,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE_PATH = ROOT / "design/mobile-4d-references/08-owner-installed-test-home-2026-08-08.jpg"
+REFERENCE_PATH = ROOT / "design/mobile-4d-references/10-owner-installed-home-2026-09-01.jpg"
 MATERIAL_PATH = ROOT / "design/mobile-asset-redraw/materials/mobile_eye_surround_c.png"
 ANATOMY_DIR = ROOT / "app/src/main/res/drawable-nodpi"
 GEOMETRY_PATH = ROOT / "app/src/main/java/com/maestrovpn/tv/compose/screen/tvhome/LivingEyeLayerGeometry.kt"
@@ -166,9 +166,10 @@ def lash_curves_dp(closure: float) -> list[tuple]:
             dx = length * (fan + sweep * 0.45)
             curl = length * sweep * 1.2
             dy = length * (-1 + 1.65 * phase if upper else 1)
-            curves.append(((x, y), (x + dx * 0.38 - curl * 0.25, y + dy * 0.25),
+            root_projection = length * (0.72 - 0.32 * phase if upper else -0.45)
+            curves.append(((x, y), (x + dx * 0.38 - curl * 0.25, y + root_projection),
                            (x + dx * 0.78 + curl, y + dy * 0.88), (x + dx + curl * 0.20, y + dy * 0.68),
-                           width * source_scale * 0.84, alpha * (1 if upper else 1 - 0.7 * phase), upper))
+                           width * source_scale, min(1.0, alpha + 0.22) * (1 if upper else 1 - 0.7 * phase), upper))
     return curves
 
 
@@ -191,13 +192,33 @@ def render_eyelashes(closure: float, scale: int = 2) -> Image.Image:
         edges = []
         for sign in (-1, 1):
             points = ((root[0] + sign * half, root[1]),
-                      (control1[0] + sign * half * 0.65, control1[1]),
-                      (control2[0] + sign * half * 0.20, control2[1]), tip)
+                      (control1[0] + sign * half * 0.88, control1[1]),
+                      (control2[0] + sign * half * 0.50, control2[1]), tip)
             edges.append([cubic(points, index / 16) for index in range(17)])
         polygon = [((x * scale - origin[0]) * supersample, (y * scale - origin[1]) * supersample)
                    for x, y in edges[0] + list(reversed(edges[1]))]
         stroke = Image.new("RGBA", lashes.size)
-        ImageDraw.Draw(stroke).polygon(polygon, fill=(40, 25, 16, round(alpha * 255)))
+        stroke_draw = ImageDraw.Draw(stroke)
+        stroke_draw.polygon(polygon, fill=(8, 12, 6, round(alpha * 255)))
+        ridge_points = [cubic((root, control1, control2, tip), 0.18 + index * 0.06)
+                        for index in range(9)]
+        ridge_edges = []
+        for sign in (-1, 1):
+            ridge_edges.append([
+                ((x + sign * width * 0.09 * (index / 4 if index <= 4 else (8 - index) / 4))
+                 * scale - origin[0], y * scale - origin[1])
+                for index, (x, y) in enumerate(ridge_points)
+            ])
+        ridge_polygon = [(x * supersample, y * supersample)
+                         for x, y in ridge_edges[0] + list(reversed(ridge_edges[1]))]
+        # The ridge lies entirely inside the shaft; premix source-over here so ImageDraw's
+        # replacement semantics preserve the opaque dark hair without another full-size layer.
+        ridge_alpha = alpha * 0.64
+        combined_alpha = ridge_alpha + alpha * (1 - ridge_alpha)
+        ridge_colour = tuple(round((ridge * ridge_alpha + base * alpha * (1 - ridge_alpha))
+                                   / combined_alpha)
+                             for ridge, base in zip((82, 57, 29), (8, 12, 6)))
+        stroke_draw.polygon(ridge_polygon, fill=ridge_colour + (round(combined_alpha * 255),))
         lashes.alpha_composite(stroke)
 
     bronze = Image.new("L", lashes.size)
@@ -484,8 +505,8 @@ def _comparison(scale: int) -> Image.Image:
     draw = ImageDraw.Draw(board)
     font = _font(_scaled(14, scale))
     title = _font(_scaled(12, scale))
-    _center_text(draw, board.width // 2, _scaled(13, scale), "SCRIPTED PREVIEW — НЕ runtime screenshot", font, (207, 185, 130, 255))
-    _center_text(draw, board.width // 2, _scaled(29, scale), "Старый фон: кнопки WDTT/WEBRTC не подтверждают runtime-возможности", _font(_scaled(9, scale)), (207, 185, 130, 255))
+    _center_text(draw, board.width // 2, _scaled(13, scale), "ПРЕДПРОСМОТР — НЕ СНИМОК ПРИЛОЖЕНИЯ", font, (207, 185, 130, 255))
+    _center_text(draw, board.width // 2, _scaled(29, scale), "Основа: ваш экран от 01.09.2026", _font(_scaled(9, scale)), (207, 185, 130, 255))
     _center_text(draw, pad + disconnected.width // 2, _scaled(46, scale), "ОТКЛЮЧЕНО", title, (224, 104, 104, 255))
     _center_text(draw, disconnected.width + pad * 2 + connected.width // 2, _scaled(46, scale), "ПОДКЛЮЧЕНО", title, (91, 205, 133, 255))
     return board

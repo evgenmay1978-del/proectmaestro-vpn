@@ -84,7 +84,15 @@ Its exact HA run `33957336820` FAILED one order-fixture constraint:
 expires_at must equal created_at+86400. The fixture now retains created=now-100,
 confirmed=now-50 and derives expiry from that same creation time. Other CHECK
 constraints of this INSERT were inspected; no production constraint changed.
-Do not rerun either unchanged failed SHA. The verified reserve provider,
+The expiry fix was committed/pushed as
+`7d238e3566cbfa6bdc4f5a495afc5bc5ecb237d1`. Its HA run `33958591359`
+FAILED only `TestReceiptJSONContainsNoBusinessRowsOrSecrets`: the random
+Ed25519 signature contained a case-insensitive `uuid` substring. This was not a
+business-field leak. The receipt test now checks the exact public JSON field set
+instead of scanning signature bytes; production signing and tamper checks are
+unchanged. The real panel publication fixture, controlplane and shadowbilling
+passed in that run; the overall workflow and later gates did not. Do not rerun
+the unchanged failed SHA. The verified reserve provider,
 same-boot reset and strict period rollover remain open; this is not readiness.
 An additional actual first-use publication cycle is confirmed in source:
 public readiness requires a first debited sample before issuing client material,
@@ -137,7 +145,34 @@ inspection confirms sparse low-contrast tapered strands mostly fall below one
 phone pixel. The bounded correction keeps original green, aperture, corners and
 lid attachment, increases irregular paired-hair coverage and uses only a narrow
 muted shaft ridge. Verify the actual390dp phone rendering, not enlarged-only
-visibility. This visual correction is not yet a released APK.
+visibility. The current candidate shares58 upper/18 lower follicles between
+Kotlin and Pillow, with a dark tapered body, short muted shaft ridge and proximal
+curves crossing the ocular edge before curling outward. The dense outside-only
+candidate was rejected at390dp; the latest aperture-crossing candidate remains
+visually UNACCEPTED/WIP. It does not close any all-three visual acceptance gate.
+The preview now uses the owner's unchanged01.09.2026 installed-screen reference
+`design/mobile-4d-references/10-owner-installed-home-2026-09-01.jpg`, replacing
+the old August screenshot with baked deferred-protocol buttons. It remains a
+programmatic preview, not an installed runtime screenshot or released APK.
+
+Owner explicitly required WDTT/OLCRTC to disappear from the application. The
+current nine-file UI patch removes their exact aliases from phone/TV cards,
+Groups and status, and rejects manual/pending hidden selection. A hidden actual
+active transport is not relabelled AUTO. Runtime managers, stored profiles,
+transport binaries and backend are unchanged. Root corrected filtered Groups
+state propagation before CI. The existing compile-only GitHub task now includes
+ProtocolVisibility, PhoneHomeProtocolOrder and PhoneHomeControlDeckContract
+tests alongside geometry; no APK/signing or deferred binary packaging is added.
+
+Actual Android CDN integration remains missing: WhiteListClientInfo is parsed
+but no screen consumes it; TV parsing and runtime gate/selector are not wired.
+No fake CDN card or balance was added. Required product behavior is explicit
+paid-CDN selection only when enabled for that customer, a separate CDN balance
+in app/bot shared across devices/clients, and no ordinary-VPN debit from that
+balance. Existing links rendering labels CDN with the exit country; richer
+country/protocol labels and actual Happ/Incy display are not yet verified.
+Third-party balance display must use supported subscription statistics without
+misrepresenting the ordinary subscription as a capped CDN plan.
 Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.

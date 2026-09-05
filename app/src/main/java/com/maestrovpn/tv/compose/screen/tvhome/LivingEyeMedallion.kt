@@ -538,18 +538,45 @@ private fun DrawScope.drawEyelashes(layerFit: LivingEyeLayerFit, phase: Float) {
         val path = Path().apply {
             moveTo(lash.root.x - halfWidth, lash.root.y)
             cubicTo(
-                lash.control1.x - halfWidth * 0.65f, lash.control1.y,
-                lash.control2.x - halfWidth * 0.20f, lash.control2.y,
+                lash.control1.x - halfWidth * 0.88f, lash.control1.y,
+                lash.control2.x - halfWidth * 0.50f, lash.control2.y,
                 lash.tip.x, lash.tip.y,
             )
             cubicTo(
-                lash.control2.x + halfWidth * 0.20f, lash.control2.y,
-                lash.control1.x + halfWidth * 0.65f, lash.control1.y,
+                lash.control2.x + halfWidth * 0.50f, lash.control2.y,
+                lash.control1.x + halfWidth * 0.88f, lash.control1.y,
                 lash.root.x + halfWidth, lash.root.y,
             )
             close()
         }
-        drawPath(path, Color(0xFF281910).copy(alpha = lash.alpha))
+        drawPath(path, Color(0xFF080C06).copy(alpha = lash.alpha))
+
+        // A short, warm ridge stays inside the dark shaft: at most 18% of its root width,
+        // fading to zero at both ends and stopping well before the sharp tip. No full-length wire.
+        val ridgePoints = (0..8).map { index ->
+            val t = 0.18f + index * 0.06f
+            val u = 1f - t
+            LivingEyeLayerPoint(
+                x = u * u * u * lash.root.x + 3f * u * u * t * lash.control1.x +
+                    3f * u * t * t * lash.control2.x + t * t * t * lash.tip.x,
+                y = u * u * u * lash.root.y + 3f * u * u * t * lash.control1.y +
+                    3f * u * t * t * lash.control2.y + t * t * t * lash.tip.y,
+            )
+        }
+        val ridge = Path().apply {
+            ridgePoints.forEachIndexed { index, point ->
+                val taper = if (index <= 4) index / 4f else (8 - index) / 4f
+                val x = point.x - lash.width * 0.09f * taper
+                if (index == 0) moveTo(x, point.y) else lineTo(x, point.y)
+            }
+            ridgePoints.indices.reversed().forEach { index ->
+                val point = ridgePoints[index]
+                val taper = if (index <= 4) index / 4f else (8 - index) / 4f
+                lineTo(point.x + lash.width * 0.09f * taper, point.y)
+            }
+            close()
+        }
+        drawPath(ridge, Color(0xFF52391D).copy(alpha = lash.alpha * 0.64f))
     }
 }
 

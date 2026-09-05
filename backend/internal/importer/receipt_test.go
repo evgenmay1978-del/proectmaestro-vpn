@@ -104,11 +104,24 @@ func TestReceiptJSONContainsNoBusinessRowsOrSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{
-		"customer", "login", "token", "uuid", "sub_id", "ciphertext", "nonce", "secret",
-	} {
-		if bytes.Contains(bytes.ToLower(encoded), []byte(forbidden)) {
-			t.Fatalf("receipt leaked business/secret field %q: %s", forbidden, encoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	// Check the public receipt schema, not arbitrary substrings in a valid
+	// cryptographic signature. This full snapshot omits parent_source_sha256.
+	allowed := []string{
+		"schema_version", "run_id", "snapshot_kind", "source_sha256", "plan_sha256",
+		"target_sha256", "batch_count", "batch_receipt_sha256", "control_schema_version",
+		"control_schema_checksum", "target_config_sha256", "signer_key_id",
+		"completed_at_unix", "signature_b64",
+	}
+	if len(fields) != len(allowed) {
+		t.Fatalf("receipt contains %d fields, want exactly %d public fields", len(fields), len(allowed))
+	}
+	for _, name := range allowed {
+		if _, ok := fields[name]; !ok {
+			t.Fatalf("receipt is missing public field %q or contains a replacement business/secret field", name)
 		}
 	}
 }

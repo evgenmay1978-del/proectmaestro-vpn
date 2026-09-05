@@ -101,12 +101,16 @@ class LivingEyeLayerGeometryTest {
     @Test
     fun eyelashesStayOnTheSameLidsThroughClosureWithASparserLowerRow() {
         val fit = fitLivingEyeLayer(520f, 520f)
+        val openLashes = livingEyeLashes(fit, 0f)
+        assertTrue(openLashes.any { it.upper })
+        assertTrue(openLashes.any { !it.upper })
+        assertTrue(openLashes.count { !it.upper } < openLashes.count { it.upper })
+        val follicleIdentity = openLashes.map { it.root.x to it.upper }
         for (phase in listOf(0f, 0.5f, 1f)) {
             val contour = livingEyeApertureContour(fit, phase, seamOverlapPx = 0f)
             val lashes = livingEyeLashes(fit, phase)
             assertEquals(lashes, livingEyeLashes(fit, phase))
-            assertEquals(29, lashes.count { it.upper })
-            assertEquals(12, lashes.count { !it.upper })
+            assertEquals(follicleIdentity, lashes.map { it.root.x to it.upper })
             lashes.forEach { lash ->
                 val lid = if (lash.upper) contour.upper else contour.lower
                 assertTrue(lash.root.x > lid.first().x && lash.root.x < lid.last().x)

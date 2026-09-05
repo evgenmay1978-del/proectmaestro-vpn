@@ -1,6 +1,7 @@
 package com.maestrovpn.tv.compose.screen.tvhome
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,34 +16,33 @@ class PhoneHomeProtocolOrderTest {
         val backend = listOf("naive", "auto", "anytls", "vless", "hysteria2")
 
         assertEquals(
-            listOf("auto", "vless", "hysteria2", "anytls", "naive", "olcrtc"),
+            listOf("auto", "vless", "hysteria2", "anytls", "naive"),
             orderedHomeProtocols(backend),
         )
     }
 
     @Test
-    fun wdttKeepsItsSectorBetweenNaiveproxyAndWebrtc() {
-        val backend = listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn")
+    fun deferredTransportsHaveNoPhoneSector() {
+        val backend = listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc", "WEBRTC", "WDTT")
 
         val ordered = orderedHomeProtocols(backend)
 
         assertEquals(
-            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc"),
+            listOf("auto", "vless", "hysteria2", "anytls", "naive"),
             ordered,
         )
-        assertTrue("WDTT потерялся из меню телефона", "vk-turn" in ordered)
     }
 
     @Test
-    fun olcrtcIsAlwaysPresentExactlyOnceEvenIfBackendAlreadySentIt() {
-        assertEquals(1, orderedHomeProtocols(listOf("auto", "olcrtc")).count { it == "olcrtc" })
-        assertEquals(listOf("auto", "olcrtc"), orderedHomeProtocols(listOf("auto", "olcrtc")))
+    fun hiddenOnlyProfileDoesNotInventSelectableProtocols() {
+        assertEquals(emptyList<String>(), orderedHomeProtocols(listOf("vk-turn", "olcrtc")))
+        assertEquals(listOf("auto"), orderedHomeProtocols(listOf("auto", "olcrtc")))
     }
 
     @Test
     fun emptyRuntimeListKeepsEveryOwnerApprovedArcLabel() {
         assertEquals(
-            listOf("auto", "vless", "hysteria2", "anytls", "naive", "vk-turn", "olcrtc"),
+            listOf("auto", "vless", "hysteria2", "anytls", "naive"),
             orderedHomeProtocols(emptyList()),
         )
     }
@@ -51,7 +51,7 @@ class PhoneHomeProtocolOrderTest {
     fun unknownBackendTagsSurviveAfterTheKnownOnes() {
         val ordered = orderedHomeProtocols(listOf("trojan", "auto", "shadowsocks"))
 
-        assertEquals(listOf("auto", "trojan", "shadowsocks", "olcrtc"), ordered)
+        assertEquals(listOf("auto", "trojan", "shadowsocks"), ordered)
     }
 
     @Test
@@ -111,11 +111,17 @@ class PhoneHomeProtocolOrderTest {
     }
 
     @Test
-    fun webrtcIsOnlyALabelAndNeverReplacesTheRuntimeTag() {
-        // Владелец подписал сектор `WEBRTC`, но рантайм-тег обязан остаться `olcrtc`:
-        // по нему выбирается outbound и по нему же считается замок без кредов.
-        assertEquals("WEBRTC", homeProtocolLabel("olcrtc"))
-        assertEquals("olcRTC", protocolLabel("olcrtc"))
-        assertTrue("olcrtc" in orderedHomeProtocols(listOf("auto")))
+    fun tvMenuHasNoDeferredTeaserAndKeepsOrdinaryServerEntries() {
+        assertEquals(listOf("auto", "vless-s3", "awg"), visibleTvProtocols(listOf("auto", "vk-turn", "olcrtc", "vless-s3", "awg")))
+        assertEquals(emptyList<String>(), visibleTvProtocols(listOf("vk-turn", "olcrtc")))
+        assertEquals(listOf("auto", "vless", "hysteria2", "naive", "anytls", "vless-s3", "awg"), visibleTvProtocols(emptyList()))
+    }
+
+    @Test
+    fun phoneStatusOmitsHiddenTagsInEveryConnectionState() {
+        for ((connected, connecting) in listOf(false to false, false to true, true to false)) {
+            assertNull(homeActiveProtocolLine(connected, connecting, "vk-turn", "auto"))
+            assertNull(homeActiveProtocolLine(connected, connecting, null, "olcrtc"))
+        }
     }
 }

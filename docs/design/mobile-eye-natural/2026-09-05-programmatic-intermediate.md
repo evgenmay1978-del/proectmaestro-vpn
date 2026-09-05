@@ -3,8 +3,19 @@
 The owner explicitly permitted programmatic raster processing. This is a local source candidate,
 not an APK/release, runtime screenshot, or completion of the three visual acceptance criteria.
 
-**Latest source:** registered original ocular tissue with lid-attached eyelashes, described below.
-The analytic spherical sclera and earlier experiments are superseded, not simultaneous options.
+**Latest source — WIP, visually unaccepted:** registered original ocular tissue with
+58 upper / 18 lower lid-attached follicles, dark tapered bodies, short muted shaft
+ridges and proximal curves crossing the ocular edge. Kotlin and Pillow share the
+authored geometry. The owner rejected the prior dark-fan phone-scale visibility;
+the subsequent outside-only dense candidate also remained insufficient at390dp.
+The current aperture-crossing candidate has been rendered but is not accepted as
+anatomically convincing or as satisfying all three visual requirements.
+
+Current preview background is the owner's unchanged September reference
+`design/mobile-4d-references/10-owner-installed-home-2026-09-01.jpg`, not the
+August screenshot with baked WDTT/WEBRTC cards. It contains no invented CDN card.
+The analytic spherical sclera and earlier experiments below are superseded
+history, not simultaneous options. No APK or device visual proof is claimed.
 
 - The green master `mobile_eye_surround_c.png`, bronze art, CLOSED state and shared anatomy fit
   remain unchanged. Master SHA-256: `0f5d565c2a269579166723b7b59532cde7032cb0b7ea668847b95c5531f278ca`.

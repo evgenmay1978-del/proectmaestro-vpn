@@ -10,6 +10,7 @@ import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
 import com.maestrovpn.tv.compose.model.Group
 import com.maestrovpn.tv.compose.model.GroupItem
+import com.maestrovpn.tv.compose.model.isProtocolSelectionAllowed
 import com.maestrovpn.tv.compose.model.toList
 import com.maestrovpn.tv.constant.Status
 import com.maestrovpn.tv.database.ProfileManager
@@ -209,6 +210,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      *  highlight survives the Starting-phase repaint instead of flicking back to the default. */
     private fun withPendingSelect(groups: List<Group>): List<Group> {
         val p = pendingSelect ?: return groups
+        if (!isProtocolSelectionAllowed(p.first, p.second)) return groups
         return groups.map { g ->
             if (g.tag == p.first && g.items.any { it.tag == p.second }) g.copy(selected = p.second) else g
         }
@@ -280,6 +282,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      * that protocol (owner request).
      */
     fun setPendingSelect(groupTag: String, itemTag: String) {
+        if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
         pendingSelect = groupTag to itemTag
         val gen = pendingGeneration.incrementAndGet()
         updateState {
@@ -301,6 +304,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      * reports "auto", so the pick is always a real change.
      */
     private fun applyPendingSelection(groupTag: String, itemTag: String) {
+        if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // The box may have died between updateGroups and here (OOM/watchdog) — never push a
@@ -387,6 +391,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     }
 
     fun selectGroupItem(groupTag: String, itemTag: String) {
+        if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
         // Check if this is actually a different selection
         val currentGroup = uiState.value.groups.find { it.tag == groupTag }
         val isOlc = itemTag == OlcrtcManager.OUTBOUND_TAG

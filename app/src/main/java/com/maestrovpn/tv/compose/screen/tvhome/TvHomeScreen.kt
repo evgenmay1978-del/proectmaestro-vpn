@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.compose.component.NeonAccountCard
+import com.maestrovpn.tv.compose.model.visibleActiveProtocol
 import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.compose.theme.MaestroOrange
 import com.maestrovpn.tv.compose.theme.NeonGreen
@@ -201,7 +202,7 @@ internal fun PhoneStatusRow(
     // 1:1 к эталону owner: ОТКЛЮЧЕНО = красная точка + красный текст (было серебро/белый),
     // и строка протокола видна в ОБОИХ состояниях («Отключён: Vless-s3 • авто»).
     val stateRed = Color(0xFFFF4040)
-    val protoMain = if (!activeProtocol.isNullOrBlank()) activeProtocol else selected
+    val protoMain = visibleActiveProtocol(activeProtocol, selected)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),

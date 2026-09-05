@@ -140,15 +140,18 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
     def test_lashes_are_irregular_sparse_below_and_attached_during_blink(self) -> None:
         upper_specs = MODULE._lash_specs(True)
         lower_specs = MODULE._lash_specs(False)
-        self.assertEqual(len(upper_specs), 29)
-        self.assertEqual(len(lower_specs), 12)
+        self.assertTrue(upper_specs)
+        self.assertTrue(lower_specs)
+        self.assertLess(len(lower_specs), len(upper_specs))
         self.assertLess(max(spec[1] for spec in lower_specs), max(spec[1] for spec in upper_specs))
         self.assertGreater(len({round(b[0] - a[0], 4) for a, b in zip(upper_specs, upper_specs[1:])}), 5)
         self.assertGreater(len({spec[1] for spec in upper_specs}), 10)
+        follicle_identity = [(curve[0][0], curve[-1]) for curve in MODULE.lash_curves_dp(0.0)]
         for closure in (0.0, 0.5, 1.0):
             upper, lower = MODULE.aperture_contours_dp(closure)
             curves = MODULE.lash_curves_dp(closure)
             self.assertEqual(curves, MODULE.lash_curves_dp(closure))
+            self.assertEqual(follicle_identity, [(curve[0][0], curve[-1]) for curve in curves])
             for root, control1, control2, tip, width, alpha, is_upper in curves:
                 lid = upper if is_upper else lower
                 self.assertGreater(root[0], lid[0][0])

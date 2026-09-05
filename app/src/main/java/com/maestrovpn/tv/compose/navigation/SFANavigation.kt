@@ -1,7 +1,6 @@
 package com.maestrovpn.tv.compose.navigation
 
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,11 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.maestrovpn.tv.bg.OlcrtcManager
-import com.maestrovpn.tv.bg.WdttManager
-import com.maestrovpn.tv.compose.rememberIsTv
+import com.maestrovpn.tv.compose.model.isProtocolSelectionAllowed
+import com.maestrovpn.tv.compose.model.isProtocolVisibleInUi
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -123,12 +120,11 @@ fun SFANavHost(
                 IosKaringDialog(onDismiss = { showIosQr = false })
             }
             if (groupsViewModel != null) {
-                val isTv = rememberIsTv()
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
                 // the manual "select" group lists the protocol outbounds (auto/vless/hysteria2/…)
                 val selectGroup = groupsUi.groups.firstOrNull { it.tag == "select" }
-                    ?: groupsUi.groups.firstOrNull { it.selectable }
+                    ?: groupsUi.groups.firstOrNull { it.selectable && isProtocolVisibleInUi(it.tag) }
                 // Resolve the protocol ACTUALLY carrying traffic: follow the
                 // selector → urltest → … → leaf chain. With "auto", the urltest
                 // group's `selected` is the live lowest-latency pick, so this
@@ -139,26 +135,21 @@ fun SFANavHost(
                     val g = groupsUi.groups.firstOrNull { it.tag == activeProtocol } ?: break
                     activeProtocol = g.selected
                 }
-                val olcCtx = LocalContext.current
                 TvHomeScreen(
                     statusText = tvStatusText,
                     connected = connected,
                     connecting = serviceStatus == Status.Starting,
-                    protocols = selectGroup?.items?.map { it.tag }
-                        ?.filterNot { isTv && it == WdttManager.OUTBOUND_TAG } ?: emptyList(),
+                    // Each home filters before its fallback so a hidden-only profile stays empty.
+                    protocols = selectGroup?.items?.map { it.tag } ?: emptyList(),
                     selected = selectGroup?.selected,
                     activeProtocol = activeProtocol,
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
                     accountExpires = accountInfo.expiresDate,
                     hasSubProfile = accountInfo.hasSubProfile,
-                    // olcRTC teaser: the entry is shown to everyone, but only owner logins
-                    // (creds delivered via /info) can actually use it; hasCreds() gates the lock.
-                    hasOlcrtcCreds = OlcrtcManager.hasCreds(),
-                    olcrtcProvider = OlcrtcManager.provider(),
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag ->
-                        selectGroup?.let { g ->
+                        selectGroup?.takeIf { isProtocolSelectionAllowed(it.tag, tag) }?.let { g ->
                             if (serviceStatus == Status.Started) {
                                 // VPN already up — just switch the live protocol.
                                 groupsViewModel.selectGroupItem(g.tag, tag)
@@ -171,9 +162,6 @@ fun SFANavHost(
                                 if (serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
                             }
                         }
-                    },
-                    onSelectOlcrtc = {
-                        Toast.makeText(olcCtx, "olcRTC — по запросу у поддержки (@wapmixx)", Toast.LENGTH_LONG).show()
                     },
                     onBuy = { navController.navigate("buy") },
                     onEnterCode = { navController.navigate("claim") },
