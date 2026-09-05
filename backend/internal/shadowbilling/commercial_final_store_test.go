@@ -63,7 +63,7 @@ func TestCommercialFinalStoreKeepsSameOriginPeriodAndCounterGuards(t *testing.T)
 				f.clock.now = f.clock.now.Add(time.Second)
 				beforeEvents = 1
 			case "current period closed":
-				f.db.must(t, rqlite.Statement{SQL: `UPDATE whitelist_balance_projections SET current_period_id=NULL WHERE entitlement_id=?`, Args: []any{f.policy.EntitlementID()}})
+				f.db.must(t, rqlite.Statement{SQL: `UPDATE whitelist_balance_projections SET current_period_id=NULL,version=version+1 WHERE entitlement_id=?`, Args: []any{f.policy.EntitlementID()}})
 			case "authorization changed":
 				f.db.must(t, rqlite.Statement{SQL: `UPDATE idempotency_requests SET request_hash=? WHERE scope='whitelist-final-proof' AND command_type='accept-agent-fence' AND idempotency_key=?`, Args: []any{strings.Repeat("e", 64), f.final.ReceiptID}})
 			}

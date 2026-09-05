@@ -27,6 +27,28 @@ type commercialFinalFixture struct {
 	clock          *commercialFirstClock
 }
 
+type commercialFinalReceiptSender struct {
+	commercialFirstReceiptSender
+	dropResponse bool
+	lostResponse bool
+}
+
+func (sender *commercialFinalReceiptSender) Post(ctx context.Context, request []byte) ([]byte, error) {
+	raw, err := sender.commercialFirstReceiptSender.Post(ctx, request)
+	if err == nil && sender.dropResponse {
+		sender.lostResponse = true
+		return nil, controlplane.ErrUnavailable
+	}
+	return raw, err
+}
+
+func (sender *commercialFinalReceiptSender) LookupReceipt(ctx context.Context, actionKey string) ([]byte, error) {
+	if sender.lostResponse {
+		return nil, controlplane.ErrUnavailable
+	}
+	return sender.commercialFirstReceiptSender.LookupReceipt(ctx, actionKey)
+}
+
 func newCommercialFinalFixture(t *testing.T, preprovisionUnused ...bool) *commercialFinalFixture {
 	t.Helper()
 	ctx := context.Background()
@@ -78,7 +100,7 @@ func newCommercialFinalFixture(t *testing.T, preprovisionUnused ...bool) *commer
 	if err := service.StoreWhiteListRouteCredential(ctx, credential); err != nil {
 		t.Fatal(err)
 	}
-	sender := &commercialFirstReceiptSender{now: clock.now, bootID: source.XrayProcessBootID}
+	sender := &commercialFinalReceiptSender{commercialFirstReceiptSender: commercialFirstReceiptSender{now: clock.now, bootID: source.XrayProcessBootID}}
 	resolve := func(id string) (controlplane.ExternalActionSender, bool) { return sender, id == nodeID }
 	if err := service.EnsureWhiteListMeteringBootstrap(ctx, "final-worker", resolve); err != nil {
 		t.Fatal(err)
@@ -89,24 +111,32 @@ func newCommercialFinalFixture(t *testing.T, preprovisionUnused ...bool) *commer
 	if err := service.AuthorizeWhiteListMeteringAdmission(ctx, entitlementID, source.ExitID, controlplane.WhiteListAdmissionReserve{MeasuredP999BytesPerSecond: 2_000_000, MeasuredAtUnix: clock.now.Unix(), ValidUntilUnix: clock.now.Unix() + 20}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ReconcileWhiteListSidecarIntents(ctx, "final-worker", resolve); err != nil {
-		t.Fatal(err)
-	}
-	if err := service.RecordWhiteListOriginObservation(ctx, controlplane.WhiteListOriginObservation{Receipt: sender.receipt, SampledAt: clock.now, UnavailableUsers: []string{source.RouteXrayIdentity}}); err != nil {
-		t.Fatal(err)
+	unused := len(preprovisionUnused) > 0 && preprovisionUnused[0]
+	sender.dropResponse = unused
+	reconcileErr := service.ReconcileWhiteListSidecarIntents(ctx, "final-worker", resolve)
+	if unused {
+		if reconcileErr == nil || !sender.lostResponse || sender.receipt.DesiredGeneration != 2 {
+			t.Fatal("fixture did not retain a real desired/local receipt after unknown managed Apply")
+		}
+	} else {
+		if reconcileErr != nil {
+			t.Fatal(reconcileErr)
+		}
+		if err := service.RecordWhiteListOriginObservation(ctx, controlplane.WhiteListOriginObservation{Receipt: sender.receipt, SampledAt: clock.now, UnavailableUsers: []string{source.RouteXrayIdentity}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	up, down := int64(19), int64(23)
 	clock.now = clock.now.Add(time.Second)
 	final := sidecaragentclient.ManagedFinalReceipt{ActionKey: sender.receipt.ActionKey, OriginID: source.OriginID, ReleaseID: sender.receipt.ReleaseID, DesiredGeneration: sender.receipt.DesiredGeneration, ManagedUserSetDigest: sender.receipt.ManagedUserSetDigest,
 		Control: sidecaragentclient.ManagedControl{Schema: 2, Operation: "fence", Email: source.RouteXrayIdentity, BootID: source.XrayProcessBootID, ConfigDigest: sender.receipt.ConfigDigest, Generation: 3, ClockDomain: strings.Repeat("d", 64)},
 		Receipt: sidecaragentclient.ManagedReceipt{Schema: 2, State: "fenced", Email: source.RouteXrayIdentity, BootID: source.XrayProcessBootID, ConfigDigest: sender.receipt.ConfigDigest, Generation: 3, ObservedAt: clock.now.Format(time.RFC3339Nano), Uplink: &up, Downlink: &down, ClockDomain: strings.Repeat("d", 64)}}
-	if len(preprovisionUnused) > 0 && preprovisionUnused[0] {
+	if unused {
 		final.Receipt.State = "fenced_unused"
 		final.Receipt.Uplink = nil
 		final.Receipt.Downlink = nil
-		// Model the unknown first Apply response: desired/action is durable,
-		// while neither current health nor successful receipt reached backend.
-		db.must(t, rqlite.Statement{SQL: `DELETE FROM whitelist_metering_origin_observations WHERE origin_id=?`, Args: []any{source.OriginID}}, rqlite.Statement{SQL: `DELETE FROM whitelist_sidecar_receipts WHERE action_key=?`, Args: []any{final.ActionKey}})
+		// The lost response above left desired/action durable but never inserted
+		// a successful managed receipt or its observation in backend storage.
 	}
 	sealCommercialFinalFixture(t, &final)
 	authorization, err := service.AuthorizeWhiteListFinalReceipt(ctx, nodeID, final)

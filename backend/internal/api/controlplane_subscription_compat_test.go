@@ -17,8 +17,8 @@ func TestRenderWGUsesOnlyAccountTupleAndPreservesEngineGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	customer := controlplane.BusinessCustomer{Login: "fixture", Customer: controlplane.Customer{Access: controlplane.CustomerAccess{Credentials: map[string]string{"awg": raw}}}}
-	topology := subgen.Customer{WG: &subgen.WGCreds{Server: "wrong-shared-peer", PrivateKey: "wrong-shared-private"}}
+	customer := controlplane.BusinessCustomer{Login: "fixture", Customer: controlplane.Customer{Access: controlplane.CustomerAccess{Credentials: map[string]string{"awg": raw, "anytls": "ordinary-account-password"}}}}
+	topology := subgen.Customer{AnyTLS: &subgen.AnyTLSCreds{Server: "ordinary.example.test", Port: 443}, WG: &subgen.WGCreds{Server: "wrong-shared-peer", PrivateKey: "wrong-shared-private"}}
 	for _, allowed := range []bool{false, true} {
 		ua := "curl/8"
 		if allowed {

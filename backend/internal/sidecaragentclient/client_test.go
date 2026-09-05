@@ -288,7 +288,7 @@ func leaseSnapshotFixture(t *testing.T) UsageSnapshot {
 	receipt.ManagedUserSetDigest = testManagedUserSetDigest(t, emails)
 	receipt.AppliedAt = now
 	receipt.ExpiresAt = now.Add(30 * time.Second)
-	return UsageSnapshot{Receipt: receipt, SampledAt: now, Users: []UsageUser{}, UnavailableUsers: emails,
+	return UsageSnapshot{Receipt: Receipt(receipt), SampledAt: now, Users: []UsageUser{}, UnavailableUsers: emails,
 		LeaseChallenge: &UseLeaseChallenge{Schema: 2, Nonce: strings.Repeat("d", 64), ClockDomain: strings.Repeat("e", 64),
 			ReadStartedBoottimeNS: 10_000_000_000, MaxDeadlineBoottimeNS: 15_000_000_000, ManagedUsers: emails}}
 }
