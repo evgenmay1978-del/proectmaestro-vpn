@@ -1,12 +1,43 @@
 package api
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
+
+func TestRenderWGUsesOnlyAccountTupleAndPreservesEngineGate(t *testing.T) {
+	wg := &subgen.WGCreds{Server: "individual-wg.example.test", Port: 443, PeerPublicKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)), PrivateKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), LocalAddress: "10.10.8.2/32"}
+	raw, err := controlplane.EncodeWGCredentialIdentity(wg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	customer := controlplane.BusinessCustomer{Login: "fixture", Customer: controlplane.Customer{Access: controlplane.CustomerAccess{Credentials: map[string]string{"awg": raw}}}}
+	topology := subgen.Customer{WG: &subgen.WGCreds{Server: "wrong-shared-peer", PrivateKey: "wrong-shared-private"}}
+	for _, allowed := range []bool{false, true} {
+		ua := "curl/8"
+		if allowed {
+			ua = fmt.Sprintf("SFA/test (%d; sing-box test)", awgMinVC)
+		}
+		document, _, err := renderControlPlaneSubscription(customer, topology, subscriptionRenderOptions{ClientRequest: true, UserAgent: ua})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(document, []byte("wrong-shared")) || bytes.Contains(document, []byte(wg.PrivateKey)) != allowed || bytes.Contains(document, []byte(wg.Server)) != allowed {
+			t.Fatal("WG tuple ownership or engine gate changed")
+		}
+	}
+	delete(customer.Access.Credentials, "awg")
+	document, _, err := renderControlPlaneSubscription(customer, topology, subscriptionRenderOptions{UserAgent: fmt.Sprintf("SFA/test (%d; sing-box test)", awgMinVC)})
+	if err != nil || bytes.Contains(document, []byte("awg")) {
+		t.Fatal("missing account WG inherited topology credential")
+	}
+}
 
 func TestRenderControlPlaneSubscriptionUsesFrozenGenerator(t *testing.T) {
 	t.Parallel()

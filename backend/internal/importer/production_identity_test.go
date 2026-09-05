@@ -57,7 +57,17 @@ func setProductionFixtureIdentity(t *testing.T, snapshot *Snapshot, identity Pro
 	if err != nil {
 		t.Fatal(err)
 	}
-	credentials := map[string]string{"vless": identity.Customer.VLESS.UUID}
+	credentials := map[string]string{}
+	if identity.Customer.VLESS != nil {
+		credentials["vless"] = identity.Customer.VLESS.UUID
+	}
+	if identity.Customer.WG != nil {
+		raw, err := json.Marshal(identity.Customer.WG)
+		if err != nil {
+			t.Fatal(err)
+		}
+		credentials["awg"] = string(raw)
+	}
 	if identity.Customer.Hy2 != nil {
 		credentials["hysteria2"] = identity.Customer.Hy2.Pass
 	}
@@ -72,8 +82,11 @@ func setProductionFixtureIdentity(t *testing.T, snapshot *Snapshot, identity Pro
 		t.Fatal(err)
 	}
 	row.LoginKeyHMAC = box.LookupHMAC("customer-login", []byte(canonical))
-	row.UUIDHMAC = box.LookupHMAC("customer-uuid", []byte(identity.Customer.VLESS.UUID))
-	row.SubIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+	row.UUIDHMAC, row.SubIDHMAC = "", ""
+	if identity.Customer.VLESS != nil {
+		row.UUIDHMAC = box.LookupHMAC("customer-uuid", []byte(identity.Customer.VLESS.UUID))
+		row.SubIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+	}
 	row.TokenHMAC = box.LookupHMAC("subscription-token", []byte(identity.Customer.SubToken))
 	row.CredentialFingerprintHMAC = box.LookupHMAC("customer-credentials", fingerprint)
 	plaintext, err := json.Marshal(identity)

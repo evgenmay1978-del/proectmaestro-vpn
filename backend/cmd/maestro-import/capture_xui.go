@@ -89,6 +89,11 @@ func runCaptureXUIWithFactory(args []string, stdout, stderr io.Writer, factory c
 	// Validate every local binding before sending any request. No inferred node,
 	// panel UUID, subscription id or source-server replacement is permitted.
 	for _, customer := range customers {
+		// A retained Hy2/Naive/AnyTLS-only account has no XUI identity to look
+		// up. DecodeLegacyCustomers already rejects orphan VLESS3/4 records.
+		if customer.VLESS == nil {
+			continue
+		}
 		if customer.VLESS == nil || customer.VLESS.UUID == "" || customer.VLESS.Server == "" ||
 			(customer.VLESS3 != nil && customer.VLESS3.UUID != customer.VLESS.UUID) ||
 			(customer.VLESS4 != nil && customer.VLESS4.UUID != customer.VLESS.UUID) {

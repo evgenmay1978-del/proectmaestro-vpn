@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,122 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/sidecaragentclient"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistmetering"
 )
+
+type runtimeLeaseControlFake struct {
+	*runtimeWhiteListMeteringControl
+	targets  map[string]string
+	lease    func() (controlplane.WhiteListUseLeaseAuthorization, error)
+	finalErr error
+}
+
+func (c *runtimeLeaseControlFake) WhiteListUseLeaseTargets(context.Context) (map[string]string, error) {
+	return c.targets, nil
+}
+func (c *runtimeLeaseControlFake) AuthorizeWhiteListFinalReceipt(context.Context, string, sidecaragentclient.ManagedFinalReceipt) (controlplane.WhiteListFinalReceiptAuthorization, error) {
+	return controlplane.WhiteListFinalReceiptAuthorization{}, c.finalErr
+}
+func (c *runtimeLeaseControlFake) WhiteListUseLeaseAuthorizations(context.Context, controlplane.WhiteListMeteringPlan, func(string) (controlplane.ExternalActionSender, bool)) (controlplane.WhiteListUseLeaseAuthorization, error) {
+	return c.lease()
+}
+
+type runtimeLeaseStoreFake struct {
+	*runtimeWhiteListMeteringStoreFake
+}
+
+func (*runtimeLeaseStoreFake) ApplyCommercialFinalReceipt(context.Context, controlplane.WhiteListFinalReceiptAuthorization, shadowbilling.CommercialDebiter) (shadowbilling.DurableResult, error) {
+	return shadowbilling.DurableResult{}, errors.New("unexpected unverified final")
+}
+
+type runtimeLeaseSenderFake struct {
+	*runtimeWhiteListMeteringSender
+	page    sidecaragentclient.FinalReceiptPage
+	posted  []sidecaragentclient.UseLeaseRequest
+	postErr error
+	acks    int
+}
+
+func (s *runtimeLeaseSenderFake) LookupFinalReceipts(context.Context) (sidecaragentclient.FinalReceiptPage, error) {
+	return s.page, nil
+}
+func (s *runtimeLeaseSenderFake) AckFinalReceipts(context.Context, []sidecaragentclient.FinalReceiptACK) error {
+	s.acks++
+	return nil
+}
+func (s *runtimeLeaseSenderFake) PostUseLease(_ context.Context, r sidecaragentclient.UseLeaseRequest) (sidecaragentclient.UseLeaseResponse, error) {
+	s.posted = append(s.posted, r)
+	s.page.PendingUseLease = nil
+	return sidecaragentclient.UseLeaseResponse{Schema: 2, Nonce: r.Nonce, Complete: s.postErr == nil}, s.postErr
+}
+
+func TestRuntimeLeaseWaitsForEveryOriginAndNeverUsesBalanceAlone(t *testing.T) {
+	for _, failSecond := range []bool{false, true} {
+		t.Run(map[bool]string{false: "all-origins", true: "missing-origin"}[failSecond], func(t *testing.T) {
+			now := time.Unix(2_000_000, 0).UTC()
+			entitlement := runtimeWhiteListMeteringEntitlement(t, now)
+			email := "wl:" + entitlement.EntitlementID() + ":exit-s1"
+			raw, _ := json.Marshal([]string{email})
+			digest := sha256.Sum256(raw)
+			control := &runtimeLeaseControlFake{runtimeWhiteListMeteringControl: &runtimeWhiteListMeteringControl{}, targets: map[string]string{}}
+			store := &runtimeLeaseStoreFake{&runtimeWhiteListMeteringStoreFake{}}
+			senders := map[string]controlplane.ExternalActionSender{}
+			var leases []*runtimeLeaseSenderFake
+			for _, node := range []string{"s3", "s4"} {
+				origin := "origin-" + node
+				receipt := controlplane.WhiteListSidecarReceipt{ActionKey: node + ":1:" + strings.Repeat("a", 64), OriginID: origin, ReleaseID: "release-1", XrayProcessBootID: strings.Repeat("b", 64), ConfigDigest: strings.Repeat("c", 64), DesiredGeneration: 1, ManagedUserSetDigest: hex.EncodeToString(digest[:]), AppliedAt: now, ExpiresAt: now.Add(30 * time.Second)}
+				control.targets[origin] = node
+				control.plan.Origins = append(control.plan.Origins, controlplane.WhiteListMeteringOrigin{Origin: controlplane.WhiteListOrigin{OriginID: origin, NodeID: node}, Desired: controlplane.WhiteListSidecarDesired{Action: controlplane.ExternalActionCommand{ActionKey: receipt.ActionKey}}, Receipt: receipt})
+				sender := &runtimeLeaseSenderFake{runtimeWhiteListMeteringSender: &runtimeWhiteListMeteringSender{snapshot: sidecaragentclient.UsageSnapshot{Receipt: sidecaragentclient.Receipt{ActionKey: receipt.ActionKey, OriginID: origin, ReleaseID: receipt.ReleaseID, XrayProcessBootID: receipt.XrayProcessBootID, ConfigDigest: receipt.ConfigDigest, DesiredGeneration: 1, ManagedUserSetDigest: receipt.ManagedUserSetDigest, AppliedAt: now, ExpiresAt: receipt.ExpiresAt}, SampledAt: now, Users: []sidecaragentclient.UsageUser{}, UnavailableUsers: []string{email}, LeaseChallenge: &sidecaragentclient.UseLeaseChallenge{Schema: 2, Nonce: strings.Repeat("d", 64), ClockDomain: strings.Repeat("e", 64), ReadStartedBoottimeNS: 10_000_000_000, MaxDeadlineBoottimeNS: 15_000_000_000, ManagedUsers: []string{email}}}}, page: sidecaragentclient.FinalReceiptPage{Schema: 2, FinalReceipts: []sidecaragentclient.ManagedFinalReceipt{}}}
+				senders[node] = sender
+				leases = append(leases, sender)
+			}
+			control.plan.Routes = []controlplane.WhiteListMeteringRoute{{ManagedEmail: email, ExitID: "exit-s1", Entitlement: entitlement}}
+			control.lease = func() (controlplane.WhiteListUseLeaseAuthorization, error) {
+				if len(control.observations) != 2 || len(store.events) != 0 {
+					t.Fatal("lease before all authentic observations or fake counters")
+				}
+				return controlplane.WhiteListUseLeaseAuthorization{Emails: []string{email}, FreshFor: 3 * time.Second}, nil
+			}
+			if failSecond {
+				leases[1].lookupErr = errors.New("Origin unavailable")
+			}
+			collector := &runtimeWhiteListMeteringCollector{control: control, store: store, workerID: "lease-worker", senders: senders}
+			err := collector.runPass(context.Background())
+			if failSecond {
+				if err == nil || len(leases[0].posted) != 0 || len(leases[1].posted) != 0 {
+					t.Fatal("partial fleet authorized use")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, sender := range leases {
+				if len(sender.posted) != 1 || sender.posted[0].DeadlineBoottimeNS != 13_000_000_000 || len(sender.posted[0].Emails) != 1 || sender.posted[0].Emails[0] != email {
+					t.Fatalf("opaque anchored request: %#v", sender.posted)
+				}
+			}
+		})
+	}
+}
+
+func TestRuntimeLeaseRecoveryReplaysExactPendingAndNeverACKsUnsettledTail(t *testing.T) {
+	control := &runtimeLeaseControlFake{runtimeWhiteListMeteringControl: &runtimeWhiteListMeteringControl{}, targets: map[string]string{"origin-s4": "s4"}, finalErr: errors.New("period cannot settle")}
+	pending := sidecaragentclient.UseLeaseRequest{Schema: 2, Nonce: "original-nonce", DeadlineBoottimeNS: 17, Emails: []string{"original-subset"}}
+	sender := &runtimeLeaseSenderFake{runtimeWhiteListMeteringSender: &runtimeWhiteListMeteringSender{}, page: sidecaragentclient.FinalReceiptPage{Schema: 2, FinalReceipts: []sidecaragentclient.ManagedFinalReceipt{}, PendingUseLease: &pending}, postErr: errors.New("unknown exact operation")}
+	collector := &runtimeWhiteListMeteringCollector{control: control, store: &runtimeLeaseStoreFake{&runtimeWhiteListMeteringStoreFake{}}, senders: map[string]controlplane.ExternalActionSender{"s4": sender}}
+	if err := collector.drainFinalReceipts(context.Background(), control); err == nil || len(sender.posted) != 1 {
+		t.Fatal("unknown pending operation advanced")
+	}
+	want, _ := json.Marshal(pending)
+	got, _ := json.Marshal(sender.posted[0])
+	if !bytes.Equal(want, got) {
+		t.Fatal("pending authority deadline/subset recalculated")
+	}
+	sender.page = sidecaragentclient.FinalReceiptPage{Schema: 2, FinalReceipts: []sidecaragentclient.ManagedFinalReceipt{{OriginID: "origin-s4"}}}
+	if err := collector.drainFinalReceipts(context.Background(), control); err == nil || sender.acks != 0 || len(sender.posted) != 1 {
+		t.Fatal("unsettled removed-user tail ACKed or granted")
+	}
+}
 
 func TestRuntimeWhiteListMeteringRecoversPendingUsesExactCursorAndSkipsUnavailable(t *testing.T) {
 	now := time.Unix(2_000_000, 0).UTC()

@@ -149,6 +149,29 @@ func TestCaptureXUISingleNodeSourceRequiresOnlyItsConfiguredNode(t *testing.T) {
 	}
 }
 
+func TestCaptureXUIPreservesNonVLESSAccountWithoutLookup(t *testing.T) {
+	_, customers, args, _ := captureFixture(t)
+	customers[0].VLESS, customers[0].VLESS3, customers[0].VLESS4 = nil, nil, nil
+	customers[0].Hy2 = &subgen.Hy2Creds{Server: "hy.example.test", Port: 443, User: customers[0].Login, Pass: "synthetic-password"}
+	raw := writeCaptureJSON(t, args[1], customers)
+	var stdout, stderr bytes.Buffer
+	code := runCaptureXUIWithFactory(args, &stdout, &stderr, func(xui.Config) (captureXUIClient, error) {
+		t.Fatal("account without XUI identity triggered lookup")
+		return nil, nil
+	})
+	if code != exitClean {
+		t.Fatal("non-VLESS source could not be captured")
+	}
+	encoded, err := os.ReadFile(args[5])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var capture importer.LegacyXUICapture
+	if json.Unmarshal(encoded, &capture) != nil || len(capture.Bindings) != 0 || capture.CustomersSHA256 != runtimeSHA256Hex(raw) {
+		t.Fatal("capture fabricated XUI binding or lost complete source hash")
+	}
+}
+
 func TestCaptureXUIRejectsUnverifiedPanelIdentityWithoutOutput(t *testing.T) {
 	for _, failure := range []string{"missing", "email", "uuid", "sub-id", "error"} {
 		t.Run(failure, func(t *testing.T) {

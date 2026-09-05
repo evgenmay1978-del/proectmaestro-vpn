@@ -53,6 +53,8 @@ type Client struct {
 	stats       statsRPC
 	credentials CredentialSource
 	connection  *grpc.ClientConn
+	leaseRPC    leaseRPC
+	leaseClock  func() (string, int64, error)
 }
 
 type DirectoryCredentials struct {
@@ -76,7 +78,7 @@ func New(config Config, source CredentialSource) (*Client, error) {
 	}
 	return &Client{
 		handler: command.NewHandlerServiceClient(connection), stats: statscommand.NewStatsServiceClient(connection),
-		credentials: source, connection: connection,
+		credentials: source, connection: connection, leaseRPC: connection,
 	}, nil
 }
 

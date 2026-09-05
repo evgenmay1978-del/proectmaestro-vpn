@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -21,6 +22,9 @@ const (
 	DesiredPath         = "/v1/desired"
 	ReceiptPath         = "/v1/receipt"
 	UsagePath           = "/v1/usage"
+	UseLeasePath        = "/v1/use-lease"
+	LeaseReceiptsPath   = "/v1/lease-receipts"
+	LeaseAckPath        = "/v1/lease-ack"
 	ActionKeyHeader     = "X-Maestro-Action-Key"
 	DesiredSHA256Header = "X-Maestro-Desired-SHA256"
 	MaxRequestBytes     = agent.MaxDesiredBytes
@@ -33,6 +37,12 @@ type Applier interface {
 
 type usageReader interface {
 	Usage(context.Context, string) (agent.UsageSnapshot, error)
+}
+
+type leaseController interface {
+	UseLease(context.Context, agent.UseLeaseRequest) (agent.UseLeaseResult, error)
+	LeaseReceipts(context.Context) (agent.LeaseReceiptPage, error)
+	AckLeaseReceipts(context.Context, agent.LeaseReceiptAck) error
 }
 
 func NewHandler(applier Applier) http.Handler {
@@ -159,7 +169,121 @@ func NewHandler(applier Applier) http.Handler {
 		response.WriteHeader(http.StatusOK)
 		_, _ = response.Write(encoded)
 	}))
+	mux.Handle(UseLeasePath, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		controller, ok := authenticatedLeaseController(applier, response, request, http.MethodPost)
+		if !ok {
+			return
+		}
+		var command agent.UseLeaseRequest
+		if !readCanonicalLeaseBody(response, request, &command) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), 4*time.Second)
+		defer cancel()
+		result, err := controller.UseLease(ctx, command)
+		status := http.StatusOK
+		if err != nil || !result.Complete {
+			status = http.StatusServiceUnavailable
+			if errors.Is(err, agent.ErrConflict) {
+				status = http.StatusConflict
+			}
+		}
+		if result.Schema != 2 {
+			response.WriteHeader(status)
+			return
+		}
+		writeLeaseJSON(response, status, result)
+	}))
+	mux.Handle(LeaseReceiptsPath, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		controller, ok := authenticatedLeaseController(applier, response, request, http.MethodGet)
+		if !ok {
+			return
+		}
+		page, err := controller.LeaseReceipts(request.Context())
+		if err != nil {
+			response.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writeLeaseJSON(response, http.StatusOK, page)
+	}))
+	mux.Handle(LeaseAckPath, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		controller, ok := authenticatedLeaseController(applier, response, request, http.MethodPost)
+		if !ok {
+			return
+		}
+		var ack agent.LeaseReceiptAck
+		if !readCanonicalLeaseBody(response, request, &ack) {
+			return
+		}
+		if err := controller.AckLeaseReceipts(request.Context(), ack); err != nil {
+			status := http.StatusServiceUnavailable
+			if errors.Is(err, agent.ErrConflict) {
+				status = http.StatusConflict
+			}
+			response.WriteHeader(status)
+			return
+		}
+		writeLeaseJSON(response, http.StatusOK, struct {
+			Schema   int  `json:"schema"`
+			Complete bool `json:"complete"`
+		}{2, true})
+	}))
 	return mux
+}
+
+func authenticatedLeaseController(applier Applier, response http.ResponseWriter, request *http.Request, method string) (leaseController, bool) {
+	if request.Method != method {
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		return nil, false
+	}
+	if applier == nil || request.TLS == nil || len(request.TLS.VerifiedChains) == 0 {
+		response.WriteHeader(http.StatusUnauthorized)
+		return nil, false
+	}
+	controller, ok := applier.(leaseController)
+	if !ok {
+		response.WriteHeader(http.StatusServiceUnavailable)
+	}
+	return controller, ok
+}
+
+func readCanonicalLeaseBody(response http.ResponseWriter, request *http.Request, target any) bool {
+	defer request.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(request.Body, MaxRequestBytes+1))
+	if err != nil {
+		response.WriteHeader(http.StatusBadRequest)
+		return false
+	}
+	if len(raw) > MaxRequestBytes {
+		response.WriteHeader(http.StatusRequestEntityTooLarge)
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(target) != nil {
+		response.WriteHeader(http.StatusBadRequest)
+		return false
+	}
+	canonical, err := json.Marshal(target)
+	// The canonical typed body rejects duplicate/case-alias fields and trailing
+	// JSON before any durable mutation; the backend posts this same DTO encoding.
+	if err != nil || !bytes.Equal(canonical, raw) {
+		response.WriteHeader(http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func writeLeaseJSON(response http.ResponseWriter, status int, value any) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	response.Header().Set("Content-Type", "application/json")
+	response.Header().Set("Cache-Control", "no-store")
+	response.WriteHeader(status)
+	_, _ = response.Write(encoded)
 }
 
 func ServerTLSConfig(certificate tls.Certificate, clientCA *x509.CertPool, clientName string) *tls.Config {

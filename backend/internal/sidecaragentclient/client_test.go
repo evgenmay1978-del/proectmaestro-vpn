@@ -277,6 +277,216 @@ func TestDecodeUsageRejectsMissingCountersAndManagedCoverageDrift(t *testing.T) 
 	}
 }
 
+func leaseSnapshotFixture(t *testing.T) UsageSnapshot {
+	t.Helper()
+	_, action := testDesired(t)
+	now := time.Unix(2_000_000, 0).UTC()
+	emails := []string{"wl:wl-ent-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:exit-s1"}
+	receipt := testReceipt(action)
+	receipt.XrayProcessBootID = strings.Repeat("b", 64)
+	receipt.ConfigDigest = strings.Repeat("c", 64)
+	receipt.ManagedUserSetDigest = testManagedUserSetDigest(t, emails)
+	receipt.AppliedAt = now
+	receipt.ExpiresAt = now.Add(30 * time.Second)
+	return UsageSnapshot{Receipt: receipt, SampledAt: now, Users: []UsageUser{}, UnavailableUsers: emails,
+		LeaseChallenge: &UseLeaseChallenge{Schema: 2, Nonce: strings.Repeat("d", 64), ClockDomain: strings.Repeat("e", 64),
+			ReadStartedBoottimeNS: 10_000_000_000, MaxDeadlineBoottimeNS: 15_000_000_000, ManagedUsers: emails}}
+}
+
+func TestUseLeaseRequestKeepsOpaqueReadStartAndHonestUnavailableBootstrap(t *testing.T) {
+	snapshot := leaseSnapshotFixture(t)
+	request, err := NewUseLeaseRequest(snapshot, 2100*time.Millisecond, snapshot.UnavailableUsers)
+	if err != nil || request.DeadlineBoottimeNS != 12_100_000_000 || request.ReadStartedBoottimeNS != 10_000_000_000 || request.Nonce != snapshot.LeaseChallenge.Nonce {
+		t.Fatal("lease was rebased instead of anchored at agent read start")
+	}
+	if len(snapshot.Users) != 0 {
+		t.Fatal("bootstrap fabricated a real counter")
+	}
+	for _, budget := range []time.Duration{0, -time.Nanosecond, 5*time.Second + time.Nanosecond} {
+		if _, err := NewUseLeaseRequest(snapshot, budget, []string{}); err == nil {
+			t.Fatal("unbounded lease budget accepted")
+		}
+	}
+	if _, err := NewUseLeaseRequest(snapshot, time.Second, []string{"wl:other:exit-s1"}); err == nil {
+		t.Fatal("foreign email added to challenge")
+	}
+	for _, change := range []func(*UseLeaseChallenge){func(c *UseLeaseChallenge) { c.MaxDeadlineBoottimeNS++ }, func(c *UseLeaseChallenge) { c.ReadStartedBoottimeNS = 0 }, func(c *UseLeaseChallenge) { c.ManagedUsers = []string{} }, func(c *UseLeaseChallenge) { c.Schema = 1 }} {
+		bad := snapshot
+		copyChallenge := *snapshot.LeaseChallenge
+		bad.LeaseChallenge = &copyChallenge
+		change(bad.LeaseChallenge)
+		if _, err := decodeUsage(bytes.NewReader(mustJSON(t, bad)), snapshot.Receipt.ActionKey); err == nil {
+			t.Fatal("invalid lease challenge accepted")
+		}
+	}
+}
+
+func finalReceiptFixture(t *testing.T) ManagedFinalReceipt {
+	t.Helper()
+	snapshot := leaseSnapshotFixture(t)
+	email := snapshot.UnavailableUsers[0]
+	control := ManagedControl{Schema: 2, Operation: "fence", Email: email, BootID: snapshot.Receipt.XrayProcessBootID, ConfigDigest: snapshot.Receipt.ConfigDigest, Generation: 7, ClockDomain: snapshot.LeaseChallenge.ClockDomain}
+	up, down := int64(0), int64(19)
+	receipt := ManagedReceipt{Schema: 2, State: "fenced", Email: email, BootID: control.BootID, ConfigDigest: control.ConfigDigest, Generation: control.Generation, ObservedAt: snapshot.SampledAt.Format(time.RFC3339Nano), Uplink: &up, Downlink: &down, ClockDomain: control.ClockDomain}
+	proof := ManagedFinalReceipt{ActionKey: snapshot.Receipt.ActionKey, OriginID: snapshot.Receipt.OriginID, ReleaseID: snapshot.Receipt.ReleaseID, DesiredGeneration: snapshot.Receipt.DesiredGeneration, ManagedUserSetDigest: snapshot.Receipt.ManagedUserSetDigest, Control: control, Receipt: receipt}
+	identity := struct {
+		ActionKey            string         `json:"action_key"`
+		OriginID             string         `json:"origin_id"`
+		ReleaseID            string         `json:"release_id"`
+		DesiredGeneration    int64          `json:"desired_generation"`
+		ManagedUserSetDigest string         `json:"managed_user_set_digest"`
+		Control              ManagedControl `json:"control"`
+	}{proof.ActionKey, proof.OriginID, proof.ReleaseID, proof.DesiredGeneration, proof.ManagedUserSetDigest, proof.Control}
+	id := sha256.Sum256(mustJSON(t, identity))
+	hash := sha256.Sum256(mustJSON(t, proof.Proof()))
+	proof.ReceiptID = hex.EncodeToString(id[:])
+	proof.ProofSHA256 = hex.EncodeToString(hash[:])
+	return proof
+}
+
+func TestManagedFinalProofBindsRealCountersAndRejectsFabricatedUnused(t *testing.T) {
+	proof := finalReceiptFixture(t)
+	if ValidateManagedFinalReceipt(proof) != nil {
+		t.Fatal("valid actual final proof rejected")
+	}
+	for _, change := range []func(*ManagedFinalReceipt){
+		func(p *ManagedFinalReceipt) { p.Receipt.State = "fenced_unused" }, func(p *ManagedFinalReceipt) { p.Receipt.Uplink = nil },
+		func(p *ManagedFinalReceipt) { p.Control.Generation++ }, func(p *ManagedFinalReceipt) { p.Receipt.BootID = strings.Repeat("f", 64) },
+		func(p *ManagedFinalReceipt) { p.Receipt.ObservedAt = "2000-01-01T00:00:00Z" }, func(p *ManagedFinalReceipt) { p.ReceiptID = strings.Repeat("f", 64) },
+	} {
+		bad := proof
+		change(&bad)
+		if ValidateManagedFinalReceipt(bad) == nil {
+			t.Fatal("changed/partial final proof accepted")
+		}
+	}
+	if validFinalReceiptSet([]ManagedFinalReceipt{proof, proof}) {
+		t.Fatal("duplicate final envelope accepted")
+	}
+}
+
+func TestFinalReceiptReadAndExactACKDoNotDependOnCurrentUsage(t *testing.T) {
+	proof := finalReceiptFixture(t)
+	transport := &scriptedTransport{
+		get: func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path != LeaseReceiptsPath || request.Header.Get(ActionKeyHeader) != "" {
+				t.Fatal("final receipt recovery depends on current desired")
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(mustJSON(t, FinalReceiptPage{Schema: 2, FinalReceipts: []ManagedFinalReceipt{proof}})))}, nil
+		},
+		post: func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path != LeaseAckPath {
+				t.Fatal("unexpected receipt mutation path")
+			}
+			var body struct {
+				Schema   int               `json:"schema"`
+				Receipts []FinalReceiptACK `json:"receipts"`
+			}
+			if json.NewDecoder(request.Body).Decode(&body) != nil || body.Schema != 2 || len(body.Receipts) != 1 || body.Receipts[0].ReceiptID != proof.ReceiptID || body.Receipts[0].ProofSHA256 != proof.ProofSHA256 {
+				t.Fatal("ACK lost exact immutable proof binding")
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"schema":2,"complete":true}`))}, nil
+		},
+	}
+	client := newWithHTTPClient("https://agent.test", time.Second, time.Second, &http.Client{Transport: transport})
+	page, err := client.LookupFinalReceipts(context.Background())
+	if err != nil || len(page.FinalReceipts) != 1 {
+		t.Fatal("historical final receipt unavailable")
+	}
+	if err := client.AckFinalReceipts(context.Background(), []FinalReceiptACK{{proof.ReceiptID, proof.ProofSHA256}}); err != nil {
+		t.Fatal(err)
+	}
+	if transport.gets.Load() != 1 || transport.posts.Load() != 1 {
+		t.Fatal("receipt recovery replayed or polled unrelated endpoints")
+	}
+}
+
+func TestUseLeaseUnknownDeliveryDoesNotReplayOrManufactureAnotherNonce(t *testing.T) {
+	snapshot := leaseSnapshotFixture(t)
+	request, err := NewUseLeaseRequest(snapshot, time.Second, snapshot.UnavailableUsers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &scriptedTransport{post: func(actual *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(actual.Body)
+		if actual.URL.Path != UseLeasePath || !bytes.Equal(body, mustJSON(t, request)) {
+			t.Fatal("lease request changed in transit")
+		}
+		return nil, errors.New("uncertain transport")
+	}}
+	client := newWithHTTPClient("https://agent.test", time.Second, time.Second, &http.Client{Transport: transport})
+	if _, err := client.PostUseLease(context.Background(), request); !errors.Is(err, ErrDeliveryUnknown) {
+		t.Fatal("unknown grant delivery was accepted")
+	}
+	if transport.posts.Load() != 1 || transport.gets.Load() != 0 {
+		t.Fatal("unknown lease automatically replayed or used desired receipt recovery")
+	}
+}
+
+func TestUseLeaseAcceptsBoundedFullFleetProofsAboveUsageResponseCap(t *testing.T) {
+	snapshot := leaseSnapshotFixture(t)
+	request, err := NewUseLeaseRequest(snapshot, time.Second, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := UseLeaseResponse{Schema: 2, Nonce: request.Nonce, Complete: true, Receipts: make([]LeaseReceiptProof, 0, 4096)}
+	request.Emails = make([]string, 0, 4096)
+	remaining := uint32(900)
+	for index := 0; index < 4096; index++ {
+		email := "wl:wl-ent-" + hex.EncodeToString([]byte{byte(index >> 8), byte(index)}) + ":exit-s1"
+		request.Emails = append(request.Emails, email)
+		proof := finalReceiptFixture(t).Proof()
+		proof.OriginID = strings.Repeat("o", 256)
+		proof.ReleaseID = strings.Repeat("r", 256)
+		proof.Control.Operation = "grant"
+		proof.Control.Email = email
+		proof.Control.DeadlineBoottimeNS = request.DeadlineBoottimeNS
+		proof.Receipt.State = "granted"
+		proof.Receipt.Email = email
+		proof.Receipt.Uplink = nil
+		proof.Receipt.Downlink = nil
+		proof.Receipt.DeadlineBoottimeNS = request.DeadlineBoottimeNS
+		proof.Receipt.LeaseRemainingMS = &remaining
+		response.Receipts = append(response.Receipts, proof)
+	}
+	request.ManagedUserSetDigest = testManagedUserSetDigest(t, request.Emails)
+	for index := range response.Receipts {
+		response.Receipts[index].ManagedUserSetDigest = request.ManagedUserSetDigest
+	}
+	body := mustJSON(t, response)
+	if len(body) <= maxUsageResponseBytes || len(body) > 16<<20 {
+		t.Fatal("fixture must cover the real distinct operation-response bound")
+	}
+	transport := &scriptedTransport{post: func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body))}, nil
+	}}
+	client := newWithHTTPClient("https://agent.test", time.Second, time.Second, &http.Client{Transport: transport})
+	if got, err := client.PostUseLease(context.Background(), request); err != nil || len(got.Receipts) != 4096 {
+		t.Fatalf("full fleet proof response: %v", err)
+	}
+}
+
+func TestFinalPagePreservesExactPendingRequestWithoutNewChallenge(t *testing.T) {
+	snapshot := leaseSnapshotFixture(t)
+	pending, err := NewUseLeaseRequest(snapshot, time.Second, snapshot.UnavailableUsers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := FinalReceiptPage{Schema: 2, FinalReceipts: []ManagedFinalReceipt{}, PendingUseLease: &pending}
+	transport := &scriptedTransport{get: func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(mustJSON(t, page)))}, nil
+	}}
+	client := newWithHTTPClient("https://agent.test", time.Second, time.Second, &http.Client{Transport: transport})
+	got, err := client.LookupFinalReceipts(context.Background())
+	if err != nil || got.PendingUseLease == nil || !bytes.Equal(mustJSON(t, *got.PendingUseLease), mustJSON(t, pending)) {
+		t.Fatal("durable pending request changed during recovery")
+	}
+	snapshot.PendingUseLease = &pending
+	if validUsageSnapshot(snapshot, snapshot.Receipt.ActionKey) {
+		t.Fatal("new challenge accompanied an unresolved operation")
+	}
+}
+
 type scriptedTransport struct {
 	posts atomic.Int32
 	gets  atomic.Int32

@@ -163,6 +163,20 @@ WHERE admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id
 		awaiting.Material.ClientID != "11111111-1111-4111-8111-111111111111" {
 		t.Fatalf("proven first-use admission did not break the delivery/counter cycle: %#v, %v", awaiting, err)
 	}
+	leasePlan, err := service.WhiteListMeteringPlan(ctx)
+	if err != nil {
+		t.Fatalf("lease plan: %v", err)
+	}
+	lease, err := service.WhiteListUseLeaseAuthorizations(ctx, leasePlan, resolveSender)
+	if err != nil || len(lease.Emails) != 1 || lease.Emails[0] != routeIdentity || lease.FreshFor != 5*time.Second {
+		t.Fatalf("honest first-use lease: %#v %v", lease, err)
+	}
+	changedPlan := leasePlan
+	changedPlan.Origins = append([]WhiteListMeteringOrigin(nil), leasePlan.Origins...)
+	changedPlan.Origins[0].Desired.ConfigDigest = testDigest("f")
+	if _, err := service.WhiteListUseLeaseAuthorizations(ctx, changedPlan, resolveSender); err == nil {
+		t.Fatal("lease accepted a different sampled desired binding")
+	}
 	// The client need not import within five seconds of payment. Only a new
 	// authenticated poll renews publication; it is never a zero usage sample.
 	now = now.Add(5 * time.Second)
@@ -170,6 +184,10 @@ WHERE admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id
 	stale, err := service.WhiteListPublicationDelivery(ctx, access.SubscriptionToken, now, resolveSender)
 	if err != nil || stale.Decision.Verdict == WhiteListPublicationPublishable || stale.Material != (WhiteListClientMaterial{}) {
 		t.Fatalf("first-use publication survived its health deadline: %#v, %v", stale, err)
+	}
+	staleLease, leaseErr := service.WhiteListUseLeaseAuthorizations(ctx, leasePlan, resolveSender)
+	if leaseErr == nil && len(staleLease.Emails) != 0 {
+		t.Fatal("internal lease survived the same public freshness deadline")
 	}
 	now = now.Add(time.Second)
 	service.clock = fixedClock{value: now}

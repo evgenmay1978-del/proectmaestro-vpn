@@ -67,14 +67,17 @@ func (s *Service) openCustomerCredential(row map[string]any, customerID, protoco
 		return "", "", ErrUnavailable
 	}
 	if _, typed := marker["credential_identity_version"]; !typed {
+		if protocol == "awg" {
+			return "", "", ErrUnavailable
+		}
 		password, err := s.openCustomerSecret(row, "secret_envelope", customerID, "credential", protocol)
 		return password, "", err
 	}
 	var envelope naiveCredentialEnvelope
-	if protocol != "naive" || decodeCredentialIdentityJSON(raw, &envelope) != nil || envelope.IdentityVersion != 1 {
+	if (protocol != "naive" && protocol != "awg") || decodeCredentialIdentityJSON(raw, &envelope) != nil || envelope.IdentityVersion != 1 {
 		return "", "", ErrUnavailable
 	}
-	plain, err := s.store.secrets.Open(SecretScope{OwnerType: "customer", OwnerID: customerID, Field: "credential", Kind: "naive-identity-v1"}, envelope.Envelope)
+	plain, err := s.store.secrets.Open(SecretScope{OwnerType: "customer", OwnerID: customerID, Field: "credential", Kind: protocol + "-identity-v1"}, envelope.Envelope)
 	if err != nil {
 		return "", "", ErrUnavailable
 	}
@@ -83,6 +86,12 @@ func (s *Service) openCustomerCredential(row map[string]any, customerID, protoco
 			plain[i] = 0
 		}
 	}()
+	if protocol == "awg" {
+		if _, err := DecodeWGCredentialIdentity(string(plain)); err != nil {
+			return "", "", ErrUnavailable
+		}
+		return string(plain), "", nil
+	}
 	var identity naiveCredentialIdentity
 	if decodeCredentialIdentityJSON(plain, &identity) != nil ||
 		!validCredentialIdentityPart(identity.Username) || !validCredentialIdentityPart(identity.Password) {

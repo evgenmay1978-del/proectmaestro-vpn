@@ -52,11 +52,21 @@ func renderControlPlaneSubscription(customer controlplane.BusinessCustomer, topo
 	// Frozen provisionS3/provisionS4 reuse the customer's primary VLESS UUID.
 	configured.VLESS3 = configuredVLESS(topology.VLESS3, customer.Access.Credentials["vless"])
 	configured.VLESS4 = configuredVLESS(topology.VLESS4, customer.Access.Credentials["vless"])
+	configured.WG = nil
+	if raw := customer.Access.Credentials["awg"]; raw != "" {
+		var err error
+		configured.WG, err = controlplane.DecodeWGCredentialIdentity(raw)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	// Match the legacy HTTP handler for links, old/non-app clients, and normal
+	// requests. A saved WG tuple alone never enables an incompatible engine.
+	if configured.WG != nil && appVersionCode(options.UserAgent) < awgMinVC {
+		configured.WG = nil
+	}
 	if options.ClientRequest {
 		configured.DNSFakeIP = !dnsFakeIPOff
-		if configured.WG != nil && appVersionCode(options.UserAgent) < awgMinVC {
-			configured.WG = nil
-		}
 	}
 	// Share links retain Naive even for third-party clients: each link is
 	// independently usable. The Cronet gate applies only to a sing-box document.

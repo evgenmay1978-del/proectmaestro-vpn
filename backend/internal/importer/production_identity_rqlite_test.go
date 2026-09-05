@@ -5,6 +5,7 @@ package importer
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -55,8 +56,12 @@ func TestProductionImportOrdinarySubscriptionRoundTripRQLite(t *testing.T) {
 	snapshot.CapturedAt = time.Unix(databaseNow, 0).UTC()
 	identity.Customer.Expires = clock.Add(time.Hour)
 	identity.Customer.Devices = map[string]time.Time{originalDevice: clock.Add(-time.Hour), removedDevice: clock.Add(-2 * time.Hour)}
+	identity.Customer.WG = &subgen.WGCreds{Server: "wg.example.test", Port: 443, PeerPublicKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)), PrivateKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), LocalAddress: "10.10.8.2/32"}
+	snapshot.Customers[0].ProtocolTags = append(snapshot.Customers[0].ProtocolTags, "awg")
 	setProductionFixtureIdentity(t, &snapshot, identity, box)
-	plan, report := Plan(snapshot, testPlanOptions())
+	fullOptions := testPlanOptions()
+	fullOptions.SupportedProtocolTags = append(fullOptions.SupportedProtocolTags, "awg")
+	plan, report := Plan(snapshot, fullOptions)
 	if len(report.Blockers) != 0 {
 		t.Fatal("synthetic production reader plan blocked")
 	}
@@ -72,6 +77,7 @@ func TestProductionImportOrdinarySubscriptionRoundTripRQLite(t *testing.T) {
 	deltaIdentity.Customer.Devices = map[string]time.Time{originalDevice: identity.Customer.Devices[originalDevice]}
 	setProductionFixtureIdentity(t, &delta, deltaIdentity, box)
 	deltaOptions := testPlanOptions()
+	deltaOptions.SupportedProtocolTags = append(deltaOptions.SupportedProtocolTags, "awg")
 	deltaOptions.ParentSnapshot = &snapshot
 	deltaOptions.AppliedParentDigest = plan.SourceDigest
 	deltaPlan, deltaReport := Plan(delta, deltaOptions)
@@ -119,7 +125,7 @@ func TestProductionImportOrdinarySubscriptionRoundTripRQLite(t *testing.T) {
 			t.Fatal("actual production access reader lost original credentials or username")
 		}
 		state, err := service.BusinessSubscriptionSnapshot(ctx, want.Customer.SubToken, originalDevice)
-		if err != nil || !state.DeviceCommitted || state.DeviceKeyHMAC != box.LookupHMAC("device-identity", []byte(originalDevice)) || state.Customer.Access.CredentialUsernames["naive"] != want.Customer.Naive.Username {
+		if err != nil || !state.DeviceCommitted || state.DeviceKeyHMAC != box.LookupHMAC("device-identity", []byte(originalDevice)) || state.Customer.Access.CredentialUsernames["naive"] != want.Customer.Naive.Username || !reflect.DeepEqual(state.Customer.Access.Credentials, wantCredentials) {
 			t.Fatal("strong production reader lost imported device or username")
 		}
 		business := api.NewServiceBusiness(service, api.ServiceBusinessConfig{Now: clock.Now, SubscriptionTopology: want.Customer.ToSubgen()})
@@ -127,7 +133,9 @@ func TestProductionImportOrdinarySubscriptionRoundTripRQLite(t *testing.T) {
 		if err != nil || !result.Customer.Active || len(result.Document) == 0 {
 			t.Fatal("actual production subscription rejected imported credentials")
 		}
-		expected, err := subgen.GenerateSingbox(want.Customer.ToSubgen())
+		legacy := want.Customer.ToSubgen()
+		legacy.WG = nil // no app version: the legacy handler also withholds AWG
+		expected, err := subgen.GenerateSingbox(legacy)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -198,6 +206,7 @@ func TestProductionImportOrdinarySubscriptionRoundTripRQLite(t *testing.T) {
 	// The CAS must compare with the authenticated parent, not merely reject >.
 	stale, staleIdentity := productionDeltaFixture(t, delta, deltaIdentity, box)
 	staleOptions := testPlanOptions()
+	staleOptions.SupportedProtocolTags = append(staleOptions.SupportedProtocolTags, "awg")
 	staleOptions.ParentSnapshot = &delta
 	staleOptions.AppliedParentDigest = deltaPlan.SourceDigest
 	stalePlan, staleReport := Plan(stale, staleOptions)

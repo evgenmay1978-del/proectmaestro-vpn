@@ -87,6 +87,7 @@ func run() error {
 		Handler: xray, Store: stateStore, InboundTag: agent.DefaultInboundTag,
 		ReleaseID: configuration.releaseID, ConfigDigest: configuration.configDigest,
 		ProcessBootID: bootIdentity, Preflight: readinessPreflight, ReceiptTTL: agent.DefaultReceiptTTL,
+		ManagedLeaseEnabled: configuration.managedLeaseEnabled,
 	})
 	if err != nil {
 		return err
@@ -161,6 +162,7 @@ func run() error {
 }
 
 type configuration struct {
+	managedLeaseEnabled      bool
 	releaseID                string
 	configDigest             string
 	receiptDirectory         string
@@ -206,6 +208,16 @@ func loadConfiguration() (configuration, error) {
 	if configuration.releaseID == "" || !validDigest(configuration.configDigest) || !allAbsolute(configuration) ||
 		!validXrayAPIAddress(configuration.xrayAPIAddress) || !validXrayPIDPath(configuration.xrayPIDFile) {
 		return configuration, errors.New("sidecar agent: invalid environment configuration")
+	}
+	switch os.Getenv("MAESTRO_COMMERCIAL_RUNTIME_LEASE") {
+	case "", "false":
+	case "true":
+		if configuration.xrayPIDFile != commercialPIDPath || configuration.xrayAPIAddress != "127.0.0.1:28082" {
+			return configuration, errors.New("sidecar agent: runtime lease requires isolated commercial binding")
+		}
+		configuration.managedLeaseEnabled = true
+	default:
+		return configuration, errors.New("sidecar agent: invalid commercial runtime lease flag")
 	}
 	return configuration, nil
 }

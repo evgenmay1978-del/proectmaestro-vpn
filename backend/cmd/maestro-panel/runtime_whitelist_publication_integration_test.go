@@ -64,7 +64,7 @@ func TestPublicSubscriptionUsesProductionPublicationAdapterWithRealStorage(t *te
 	const accessOrderID = "publication-paid-access-order"
 	database.must(t,
 		rqlite.Statement{SQL: `INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix) VALUES('s4','S4',0,1,?)`, Args: []any{now.Unix()}},
-		rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_exits(exit_id,country_code,country_label,healthy,created_at_unix) VALUES('exit-nl','NL','Netherlands',1,?)`, Args: []any{now.Unix()}},
+		rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_exits(exit_id,country_code,country_label,healthy,created_at_unix) VALUES('exit-s1','NL','Netherlands',1,?)`, Args: []any{now.Unix()}},
 		rqlite.Statement{SQL: `INSERT INTO whitelist_sidecar_origins(origin_id,node_id,release_id,profile_id,preset_id,config_digest,active,created_at_unix) VALUES('origin-s4','s4','release-1','profile-1','preset-1',?,1,?)`, Args: []any{strings.Repeat("a", 64), now.Unix()}},
 		rqlite.Statement{SQL: `INSERT INTO orders(
 order_id,payment_code,buyer_scope,buyer_key_hmac,customer_id,tariff_version_id,
@@ -90,7 +90,7 @@ VALUES(?,?,0,?,?,0,?,?)`, Args: []any{periodID, entitlementID, now.Unix() - 100,
 	if err != nil {
 		t.Fatal(err)
 	}
-	routeCredential, err := controlplane.NewWhiteListRouteCredential(box, entitlementID, "exit-nl", material)
+	routeCredential, err := controlplane.NewWhiteListRouteCredential(box, entitlementID, "exit-s1", material)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ VALUES(?,?,0,?,?,0,?,?)`, Args: []any{periodID, entitlementID, now.Unix() - 100,
 		t.Fatalf("store route credential: %v", err)
 	}
 	sender := &publicationReceiptSender{
-		now: now, bootID: "boot-s4", receipts: make(map[string][]byte), managedUsers: make(map[string][]string),
+		now: now, bootID: strings.Repeat("b", 64), receipts: make(map[string][]byte), managedUsers: make(map[string][]string),
 	}
 	meteringStore, err := shadowbilling.NewDurableStore(database)
 	if err != nil {
@@ -116,7 +116,7 @@ VALUES(?,?,0,?,?,0,?,?)`, Args: []any{periodID, entitlementID, now.Unix() - 100,
 	// The real runtime caller must discover a paid candidate while Routes is
 	// still empty. A direct call to Authorize would hide a bootstrap deadlock.
 	reportPath := filepath.Join(t.TempDir(), "reserve.json")
-	if err := os.WriteFile(reportPath, []byte(runtimeReserveFixture), 0600); err != nil {
+	if err := os.WriteFile(reportPath, []byte(strings.ReplaceAll(runtimeReserveFixture, "exit-nl", "exit-s1")), 0600); err != nil {
 		t.Fatal(err)
 	}
 	collector.reserves = runtimeWhiteListReserveFile(reportPath, clock.Now)
@@ -131,6 +131,9 @@ VALUES(?,?,0,?,?,0,?,?)`, Args: []any{periodID, entitlementID, now.Unix() - 100,
 	sender.now, sender.countersAvailable = clock.Now(), true
 	if err := collector.runPass(context.Background()); err != nil {
 		t.Fatalf("observe and debit the actual first cumulative: %v", err)
+	}
+	if len(sender.leases) != 3 || len(sender.leases[2].Emails) != 1 || sender.leases[2].Emails[0] != "wl:"+entitlementID+":exit-s1" {
+		t.Fatal("actual collector did not authorize exact managed route after debit")
 	}
 	after, err := service.WhiteListBalanceSnapshot(context.Background(), clock.Now().Unix(), entitlementID)
 	if err != nil || after.Projection.Pending || after.AvailableBytes != 1_000_000_000-42 ||
@@ -214,6 +217,8 @@ type publicationReceiptSender struct {
 	receipts          map[string][]byte
 	managedUsers      map[string][]string
 	countersAvailable bool
+	usageSequence     int64
+	leases            []sidecaragentclient.UseLeaseRequest
 }
 
 func (sender *publicationReceiptSender) Post(_ context.Context, request []byte) ([]byte, error) {
@@ -258,7 +263,7 @@ func (sender *publicationReceiptSender) LookupUsage(ctx context.Context, actionK
 	if err != nil {
 		return sidecaragentclient.UsageSnapshot{}, err
 	}
-	snapshot := sidecaragentclient.UsageSnapshot{SampledAt: sender.now}
+	snapshot := sidecaragentclient.UsageSnapshot{SampledAt: sender.now, Users: []sidecaragentclient.UsageUser{}, UnavailableUsers: []string{}}
 	if err := json.Unmarshal(raw, &snapshot.Receipt); err != nil {
 		return sidecaragentclient.UsageSnapshot{}, err
 	}
@@ -269,7 +274,25 @@ func (sender *publicationReceiptSender) LookupUsage(ctx context.Context, actionK
 		}
 		snapshot.Users = append(snapshot.Users, sidecaragentclient.UsageUser{Email: email, UplinkBytes: 19, DownlinkBytes: 23})
 	}
+	sender.usageSequence++
+	nonce := sha256.Sum256([]byte(actionKey + ":" + strconv.FormatInt(sender.usageSequence, 10)))
+	readStart := int64(10*time.Second) + sender.usageSequence*int64(time.Second)
+	snapshot.LeaseChallenge = &sidecaragentclient.UseLeaseChallenge{Schema: 2, Nonce: hex.EncodeToString(nonce[:]), ClockDomain: strings.Repeat("d", 64), ReadStartedBoottimeNS: readStart, MaxDeadlineBoottimeNS: readStart + int64(5*time.Second), ManagedUsers: append([]string{}, sender.managedUsers[actionKey]...)}
 	return snapshot, nil
+}
+
+func (*publicationReceiptSender) LookupFinalReceipts(context.Context) (sidecaragentclient.FinalReceiptPage, error) {
+	return sidecaragentclient.FinalReceiptPage{Schema: 2, FinalReceipts: []sidecaragentclient.ManagedFinalReceipt{}}, nil
+}
+func (*publicationReceiptSender) AckFinalReceipts(context.Context, []sidecaragentclient.FinalReceiptACK) error {
+	return errors.New("unexpected final receipt ACK")
+}
+func (sender *publicationReceiptSender) PostUseLease(_ context.Context, request sidecaragentclient.UseLeaseRequest) (sidecaragentclient.UseLeaseResponse, error) {
+	if request.Schema != 2 || request.XrayProcessBootID != sender.bootID || request.DeadlineBoottimeNS <= request.ReadStartedBoottimeNS || request.DeadlineBoottimeNS-request.ReadStartedBoottimeNS > int64(5*time.Second) {
+		return sidecaragentclient.UseLeaseResponse{}, errors.New("invalid fixture use lease")
+	}
+	sender.leases = append(sender.leases, request)
+	return sidecaragentclient.UseLeaseResponse{Schema: 2, Nonce: request.Nonce, Complete: true, Receipts: []sidecaragentclient.LeaseReceiptProof{}}, nil
 }
 
 // publicationSQLite replaces only rqlite's network transport. Production

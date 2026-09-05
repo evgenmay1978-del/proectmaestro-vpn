@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -50,6 +51,12 @@ func TestControlPlaneSubscriptionPreservesFrozenRequestSemantics(t *testing.T) {
 					}},
 				}, Login: "fixture-login",
 			}
+			accountWG := &subgen.WGCreds{Server: "awg.example.test", Port: 443, PeerPublicKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)), PrivateKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), LocalAddress: "10.10.8.2/32"}
+			wgCredential, err := controlplane.EncodeWGCredentialIdentity(accountWG)
+			if err != nil {
+				t.Fatal(err)
+			}
+			customer.Access.Credentials["awg"] = wgCredential
 			business := NewServiceBusiness(nil, ServiceBusinessConfig{SubscriptionTopology: topology})
 			business.subscriptions = subscriptionRequestSource{customer: customer}
 			handler := NewControlPlane(business, Config{}).Handler()
@@ -78,7 +85,7 @@ func TestControlPlaneSubscriptionPreservesFrozenRequestSemantics(t *testing.T) {
 				wantCustomer.Naive = &subgen.NaiveCreds{Server: "naive.example.test", Port: 443, Username: "fixture-login", Password: "naive-password", SNI: "naive.example.test"}
 			}
 			if tc.awg {
-				wantCustomer.WG = &subgen.WGCreds{Server: "awg.example.test", Port: 443, PeerPublicKey: "peer-public", PrivateKey: "fixture-private", LocalAddress: "10.10.8.2/32"}
+				wantCustomer.WG = accountWG
 			}
 			var want []byte
 			wantContentType := "application/json"

@@ -25,8 +25,8 @@ var errInvalidProductionIdentity = errors.New("unsupported or inconsistent prote
 // LookupHMAC domains are customer-login (canonical login), subscription-token,
 // customer-uuid, subscription-id, and customer-credentials. The last hashes the
 // JSON encoding of the protocol -> raw credential map, with sorted JSON keys.
-// WG and independently provisioned VLESS3/4 UUIDs cannot currently be represented
-// by the production reader and must block migration before writes.
+// Independently provisioned VLESS3/4 UUIDs still block migration. Existing WG
+// tuples are retained in a separate typed credential; absent VLESS stays absent.
 type ProductionCustomerIdentity struct {
 	SchemaVersion int                  `json:"schema_version"`
 	Customer      legacystore.Customer `json:"customer"`
@@ -178,12 +178,24 @@ func openProductionIdentity(box *controlplane.SecretBox, sourceKey string, secre
 
 func productionCredentials(identity ProductionCustomerIdentity) (map[string]string, error) {
 	customer := identity.Customer
-	if customer.VLESS == nil || customer.VLESS.UUID == "" || customer.WG != nil ||
-		(customer.VLESS3 != nil && customer.VLESS3.UUID != customer.VLESS.UUID) ||
-		(customer.VLESS4 != nil && customer.VLESS4.UUID != customer.VLESS.UUID) {
+	if customer.VLESS == nil && (customer.VLESS3 != nil || customer.VLESS4 != nil) {
 		return nil, errInvalidProductionIdentity
 	}
-	credentials := map[string]string{"vless": customer.VLESS.UUID}
+	credentials := map[string]string{}
+	if customer.VLESS != nil {
+		if customer.VLESS.UUID == "" || (customer.VLESS3 != nil && customer.VLESS3.UUID != customer.VLESS.UUID) ||
+			(customer.VLESS4 != nil && customer.VLESS4.UUID != customer.VLESS.UUID) {
+			return nil, errInvalidProductionIdentity
+		}
+		credentials["vless"] = customer.VLESS.UUID
+	}
+	if customer.WG != nil {
+		raw, err := controlplane.EncodeWGCredentialIdentity(customer.WG)
+		if err != nil {
+			return nil, errInvalidProductionIdentity
+		}
+		credentials["awg"] = raw
+	}
 	if customer.Hy2 != nil {
 		if customer.Hy2.User != customer.Login {
 			return nil, errInvalidProductionIdentity
@@ -198,6 +210,9 @@ func productionCredentials(identity ProductionCustomerIdentity) (map[string]stri
 	}
 	if customer.AnyTLS != nil {
 		credentials["anytls"] = customer.AnyTLS.Password
+	}
+	if len(credentials) == 0 {
+		return nil, errInvalidProductionIdentity
 	}
 	for _, raw := range credentials {
 		if raw == "" || len(raw) > 4096 || strings.ContainsRune(raw, 0) {
@@ -233,11 +248,23 @@ func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer,
 	credentials, credentialErr := productionCredentials(identity)
 	if err != nil || credentialErr != nil || customer.Login != row.Login ||
 		customer.SubToken == "" || len(customer.SubToken) > 4096 || strings.ContainsRune(customer.SubToken, 0) ||
-		identity.SubID == "" || len(identity.SubID) > 4096 || strings.ContainsRune(identity.SubID, 0) ||
+		len(identity.SubID) > 4096 || strings.ContainsRune(identity.SubID, 0) ||
 		identity.Generation <= 0 || identity.Generation != row.Generation ||
 		customer.Expires.Unix() != row.ExpiresAtUnix ||
 		(row.Status != "active" && row.Status != "suspended") || customer.Disabled != (row.Status == "suspended") {
 		return errInvalidProductionIdentity
+	}
+	uuidHMAC, subIDHMAC := "", ""
+	if customer.VLESS == nil {
+		if identity.SubID != "" || len(identity.NodeSubIDs) != 0 {
+			return errInvalidProductionIdentity
+		}
+	} else {
+		if identity.SubID == "" {
+			return errInvalidProductionIdentity
+		}
+		uuidHMAC = box.LookupHMAC("customer-uuid", []byte(customer.VLESS.UUID))
+		subIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
 	}
 	for rawDevice, lastSeen := range customer.Devices {
 		if rawDevice == "" || len(rawDevice) > 4096 || strings.ContainsRune(rawDevice, 0) || lastSeen.Unix() < 0 || lastSeen.Unix() > 253402300799 {
@@ -251,8 +278,7 @@ func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer,
 	defer zeroBytes(fingerprint)
 	if box.LookupHMAC("customer-login", []byte(login)) != row.LoginKeyHMAC ||
 		box.LookupHMAC("subscription-token", []byte(customer.SubToken)) != row.TokenHMAC ||
-		box.LookupHMAC("customer-uuid", []byte(customer.VLESS.UUID)) != row.UUIDHMAC ||
-		box.LookupHMAC("subscription-id", []byte(identity.SubID)) != row.SubIDHMAC ||
+		uuidHMAC != row.UUIDHMAC || subIDHMAC != row.SubIDHMAC ||
 		box.LookupHMAC("customer-credentials", fingerprint) != row.CredentialFingerprintHMAC {
 		return errInvalidProductionIdentity
 	}
@@ -314,6 +340,11 @@ func (s *RQLiteApplyStore) productionCustomerValues(customer PlannedCustomer, se
 			var encoded []byte
 			var digest string
 			encoded, digest, err = controlplane.SealNaiveCredentialIdentity(protection.box, customer.InternalID, identity.Customer.Naive.Username, raw)
+			credentials[protocol] = productionSealedValue{base64.StdEncoding.EncodeToString(encoded), digest}
+		} else if protocol == "awg" {
+			var encoded []byte
+			var digest string
+			encoded, digest, err = controlplane.SealWGCredentialIdentity(protection.box, customer.InternalID, raw)
 			credentials[protocol] = productionSealedValue{base64.StdEncoding.EncodeToString(encoded), digest}
 		} else {
 			credentials[protocol], err = protection.sealValue(customer.InternalID, "credential", protocol, raw)

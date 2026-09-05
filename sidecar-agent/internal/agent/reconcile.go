@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/sidecar-agent/internal/runtimefence"
 )
 
 type Handler interface {
@@ -22,28 +24,32 @@ type ReadinessPreflight interface {
 }
 
 type ReconcilerConfig struct {
-	Handler       Handler
-	Store         *FileStore
-	InboundTag    string
-	ReleaseID     string
-	ConfigDigest  string
-	ProcessBootID func() (string, error)
-	Preflight     ReadinessPreflight
-	Now           func() time.Time
-	ReceiptTTL    time.Duration
+	Handler             Handler
+	Store               *FileStore
+	InboundTag          string
+	ReleaseID           string
+	ConfigDigest        string
+	ProcessBootID       func() (string, error)
+	Preflight           ReadinessPreflight
+	Now                 func() time.Time
+	ReceiptTTL          time.Duration
+	ManagedLeaseEnabled bool
+	LeaseClock          func() (string, int64, error)
 }
 
 type Reconciler struct {
-	handler       Handler
-	store         *FileStore
-	inboundTag    string
-	releaseID     string
-	configDigest  string
-	processBootID func() (string, error)
-	preflight     ReadinessPreflight
-	now           func() time.Time
-	receiptTTL    time.Duration
-	mutex         sync.Mutex
+	handler             Handler
+	store               *FileStore
+	inboundTag          string
+	releaseID           string
+	configDigest        string
+	processBootID       func() (string, error)
+	preflight           ReadinessPreflight
+	now                 func() time.Time
+	receiptTTL          time.Duration
+	mutex               sync.Mutex
+	managedLeaseEnabled bool
+	leaseClock          func() (string, int64, error)
 }
 
 func NewReconciler(config ReconcilerConfig) (*Reconciler, error) {
@@ -60,10 +66,19 @@ func NewReconciler(config ReconcilerConfig) (*Reconciler, error) {
 	if config.ReceiptTTL != DefaultReceiptTTL {
 		return nil, errors.New("sidecar agent: receipt TTL must be 30 seconds")
 	}
+	if config.ManagedLeaseEnabled {
+		if _, ok := config.Handler.(managedRuntimeController); !ok {
+			return nil, ErrLeaseUnavailable
+		}
+		if config.LeaseClock == nil {
+			config.LeaseClock = runtimefence.ReadLeaseClock
+		}
+	}
 	return &Reconciler{
 		handler: config.Handler, store: config.Store, inboundTag: config.InboundTag,
 		releaseID: config.ReleaseID, configDigest: config.ConfigDigest,
 		processBootID: config.ProcessBootID, preflight: config.Preflight, now: config.Now, receiptTTL: config.ReceiptTTL,
+		managedLeaseEnabled: config.ManagedLeaseEnabled, leaseClock: config.LeaseClock,
 	}, nil
 }
 
@@ -117,6 +132,9 @@ func (reconciler *Reconciler) LookupReceipt(ctx context.Context, actionKey strin
 }
 
 func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) (Receipt, error) {
+	if ctx == nil {
+		return Receipt{}, ErrInvalidDesired
+	}
 	if err := desired.validate(); err != nil || desired.ActionKey() == "" {
 		return Receipt{}, ErrInvalidDesired
 	}
@@ -125,6 +143,14 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	}
 	if desired.ConfigDigest != reconciler.configDigest {
 		return Receipt{}, errors.New("sidecar agent: config digest mismatch")
+	}
+	if reconciler.managedLeaseEnabled {
+		if len(desired.ManagedUsers) > maxLeaseUsers {
+			return Receipt{}, ErrLeaseCapacity
+		}
+		if err := reconciler.settleLeasePendingForReconcileLocked(ctx); err != nil {
+			return Receipt{}, err
+		}
 	}
 	stored, err := reconciler.store.LoadDesired()
 	switch {
@@ -135,8 +161,10 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	case err != nil && !errors.Is(err, ErrNotFound):
 		return Receipt{}, err
 	}
-	if err := reconciler.store.SaveDesired(desired); err != nil {
-		return Receipt{}, err
+	if !reconciler.managedLeaseEnabled {
+		if err := reconciler.store.SaveDesired(desired); err != nil {
+			return Receipt{}, err
+		}
 	}
 	bootID, err := reconciler.processBootID()
 	if err != nil || !safeIdentifier(bootID) {
@@ -148,8 +176,14 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, desired.ExitID); err != nil {
 		return Receipt{}, errors.New("sidecar agent: relay readiness preflight failed")
 	}
-	if err := reconciler.converge(ctx, desired); err != nil {
-		return Receipt{}, err
+	var convergeErr error
+	if reconciler.managedLeaseEnabled {
+		convergeErr = reconciler.convergeCommercial(ctx, desired, stored)
+	} else {
+		convergeErr = reconciler.converge(ctx, desired)
+	}
+	if convergeErr != nil {
+		return Receipt{}, convergeErr
 	}
 	if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, desired.ExitID); err != nil {
 		return Receipt{}, errors.New("sidecar agent: final relay readiness preflight failed")

@@ -2,6 +2,7 @@ package importer
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"math"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	legacystore "github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
 func legacyNormalizeFixture(t *testing.T) ([]byte, LegacyXUICapture, LegacyNormalizeOptions, *controlplane.SecretBox) {
@@ -131,6 +133,51 @@ func TestLegacyNormalizePreservesOrdinaryIdentityAndCaptureScope(t *testing.T) {
 	}
 	if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(snapshot), box); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLegacyNormalizePreservesObservedWGAndNonVLESSVariants(t *testing.T) {
+	for _, variant := range []string{"wg", "no-vless"} {
+		t.Run(variant, func(t *testing.T) {
+			raw, capture, options, box := legacyNormalizeFixture(t)
+			customers, err := DecodeLegacyCustomers(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			customer := &customers[0]
+			if variant == "wg" {
+				customer.WG = &subgen.WGCreds{Server: "wg.example.test", Port: 443, PeerPublicKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)), PrivateKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32)), LocalAddress: "10.10.8.2/32"}
+				options.ProtocolBindings = append(options.ProtocolBindings, LegacyProtocolBinding{Protocol: "awg", Server: customer.WG.Server, NodeID: "S3"})
+				options.PlanOptions.SupportedProtocolTags = append(options.PlanOptions.SupportedProtocolTags, "awg")
+			} else {
+				customer.VLESS, customer.VLESS3, customer.VLESS4 = nil, nil, nil
+				capture.Bindings = nil
+			}
+			raw = marshalNormalizeFixture(t, customers)
+			capture.CustomersSHA256 = sha256Hex(raw)
+			snapshot := normalizeFixture(t, raw, capture, options, box)
+			identity, err := openProductionIdentity(box, snapshot.Customers[0].SourceKey, snapshot.EncryptedSecrets[0])
+			if err != nil || !reflect.DeepEqual(identity.Customer, *customer) {
+				t.Fatal("observed source variant lost original credentials")
+			}
+			if variant == "no-vless" && (identity.SubID != "" || len(identity.NodeSubIDs) != 0 || snapshot.Customers[0].UUIDHMAC != "" || snapshot.Customers[0].SubIDHMAC != "") {
+				t.Fatal("absent VLESS identity was fabricated")
+			}
+			options.Parent = &snapshot
+			capture.CapturedAt = capture.CompletedAt.Add(time.Nanosecond)
+			capture.CompletedAt = capture.CapturedAt
+			options.Now = capture.CompletedAt
+			delta := normalizeFixture(t, raw, capture, options, box)
+			if delta.Customers[0].Generation != 1 {
+				t.Fatal("unchanged variant changed logical revision")
+			}
+			if variant == "no-vless" {
+				customer.VLESS3 = &subgen.VLESSCreds{UUID: "orphan"}
+				if _, err := DecodeLegacyCustomers(marshalNormalizeFixture(t, customers)); err == nil {
+					t.Fatal("orphan secondary VLESS accepted")
+				}
+			}
+		})
 	}
 }
 

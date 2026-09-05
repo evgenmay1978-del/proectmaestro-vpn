@@ -44,7 +44,7 @@ func applyFirstCumulative(state State, event OrderedUsageEvent, policy Policy) (
 // Admission and sample must belong to the same paid period: no first-use reset
 // or approximate allocation is authorized by a topup, restart, or period change.
 func commercialFirstCumulativeGuard(source CommercialSourceBinding) rqlite.Statement {
-	return rqlite.Statement{SQL: `SELECT CASE WHEN EXISTS (
+	return rqlite.Statement{SQL: `SELECT CASE WHEN (EXISTS (
 SELECT 1 FROM whitelist_first_use_admissions AS admission
 JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id
  AND period.entitlement_id=admission.entitlement_id
@@ -68,6 +68,19 @@ WHERE admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id
  AND instr(CAST(observation.available_users_json AS TEXT),'"' || ? || '"')>0
  AND instr(CAST(observation.unavailable_users_json AS TEXT),'"' || ? || '"')=0
 )
+OR EXISTS (
+ SELECT 1 FROM idempotency_requests AS accepted
+ JOIN idempotency_requests AS proof ON proof.scope='whitelist-final-proof'
+  AND proof.command_type='accept-agent-fence' AND proof.idempotency_key=accepted.idempotency_key
+  AND proof.resource_id=accepted.resource_id AND proof.status='applied'
+ JOIN whitelist_first_use_admissions AS admission ON admission.entitlement_id=accepted.resource_id
+ JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id AND period.entitlement_id=admission.entitlement_id
+ WHERE accepted.scope='whitelist-final-metering' AND accepted.command_type='accept-final-source'
+  AND accepted.operation_id=? AND accepted.request_hash=? AND accepted.resource_id=? AND accepted.status='applied'
+  AND admission.exit_id=? AND admission.origin_id=? AND admission.xray_process_boot_id=?
+  AND admission.billing_period_id=? AND admission.zero_start_authorized=1
+  AND period.starts_at_unix<=admission.admitted_at_unix AND admission.admitted_at_unix<=? AND ?<period.ends_at_unix
+))
 AND NOT EXISTS (
  SELECT 1 FROM whitelist_commercial_metering_sources AS previous
  JOIN whitelist_meter_epochs AS epoch ON epoch.meter_epoch=previous.meter_epoch
@@ -80,6 +93,8 @@ THEN 1 ELSE abs(-9223372036854775808) END AS first_cumulative_admission_guard`, 
 		source.EntitlementID, source.ExitID, source.OriginID, source.XrayProcessBootID, source.BillingPeriodID,
 		source.SampledAtUnix, source.SampledAtUnix, source.SampledAtUnix,
 		source.RouteXrayIdentity, source.RouteXrayIdentity, source.RouteXrayIdentity,
+		source.EventID, source.SourceSHA256, source.EntitlementID, source.ExitID, source.OriginID,
+		source.XrayProcessBootID, source.BillingPeriodID, source.SampledAtUnix, source.SampledAtUnix,
 		source.EntitlementID, source.ExitID, source.OriginID, source.XrayProcessBootID,
 		source.EntitlementID, source.OriginID, source.MeterEpoch, source.BaseXrayIdentity,
 	}}

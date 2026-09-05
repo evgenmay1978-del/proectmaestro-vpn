@@ -29,6 +29,22 @@ type runtimeWhiteListUsageLookup interface {
 	LookupUsage(context.Context, string) (sidecaragentclient.UsageSnapshot, error)
 }
 
+type runtimeWhiteListLeaseControlPlane interface {
+	WhiteListUseLeaseTargets(context.Context) (map[string]string, error)
+	AuthorizeWhiteListFinalReceipt(context.Context, string, sidecaragentclient.ManagedFinalReceipt) (controlplane.WhiteListFinalReceiptAuthorization, error)
+	WhiteListUseLeaseAuthorizations(context.Context, controlplane.WhiteListMeteringPlan, func(string) (controlplane.ExternalActionSender, bool)) (controlplane.WhiteListUseLeaseAuthorization, error)
+}
+
+type runtimeWhiteListLeaseSender interface {
+	LookupFinalReceipts(context.Context) (sidecaragentclient.FinalReceiptPage, error)
+	AckFinalReceipts(context.Context, []sidecaragentclient.FinalReceiptACK) error
+	PostUseLease(context.Context, sidecaragentclient.UseLeaseRequest) (sidecaragentclient.UseLeaseResponse, error)
+}
+
+type runtimeWhiteListFinalStore interface {
+	ApplyCommercialFinalReceipt(context.Context, controlplane.WhiteListFinalReceiptAuthorization, shadowbilling.CommercialDebiter) (shadowbilling.DurableResult, error)
+}
+
 type runtimeWhiteListMeteringControlPlane interface {
 	shadowbilling.CommercialDebiter
 	WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error)
@@ -167,6 +183,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		sender, ok := collector.senders[nodeID]
 		return sender, ok && sender != nil
 	}
+	leaseControl, leaseEnabled := collector.control.(runtimeWhiteListLeaseControlPlane)
+	if leaseEnabled {
+		if err := collector.drainFinalReceipts(ctx, leaseControl); err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+	}
 	if err := collector.control.EnsureWhiteListMeteringBootstrap(ctx, collector.workerID, resolve); err != nil {
 		return errRuntimeWhiteListMeteringUnavailable
 	}
@@ -184,6 +206,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 		routes[route.ManagedEmail] = route
 	}
+	snapshots := make(map[string]sidecaragentclient.UsageSnapshot, len(plan.Origins))
 	for _, origin := range plan.Origins {
 		sender, ok := collector.senders[origin.Origin.NodeID]
 		if !ok || sender == nil {
@@ -197,6 +220,15 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		if lookupErr != nil || !runtimeWhiteListUsageReceiptMatches(origin.Receipt, snapshot.Receipt) {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
+		if leaseEnabled {
+			if snapshot.LeaseChallenge == nil || snapshot.PendingUseLease != nil || len(snapshot.FinalReceipts) > 0 || snapshot.HasMoreFinalReceipts {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			if _, ok := sender.(runtimeWhiteListLeaseSender); !ok {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+		}
+		snapshots[origin.Origin.OriginID] = snapshot
 		if len(snapshot.Users)+len(snapshot.UnavailableUsers) != len(routes) {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
@@ -239,7 +271,102 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			}
 		}
 	}
-	return collector.authorizeAdmissions(ctx)
+	if err := collector.authorizeAdmissions(ctx); err != nil {
+		return err
+	}
+	if !leaseEnabled {
+		return nil
+	}
+	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
+	if err != nil {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
+	// One common conservative budget is anchored to each agent's own earlier
+	// read start. Backend wall time is never compared with remote BOOTTIME.
+	for _, origin := range plan.Origins {
+		if ctx.Err() != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		request, err := sidecaragentclient.NewUseLeaseRequest(snapshots[origin.Origin.OriginID], authorization.FreshFor, authorization.Emails)
+		if err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		sender := collector.senders[origin.Origin.NodeID].(runtimeWhiteListLeaseSender)
+		if _, err := sender.PostUseLease(ctx, request); err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+	}
+	return nil
+}
+
+// Drain retained evidence before requesting a new usage nonce, including
+// removed users and stale readiness. Exact pending bodies survive backend
+// restart in the agent journal; they are replayed verbatim, never renewed.
+func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx context.Context, control runtimeWhiteListLeaseControlPlane) error {
+	store, ok := collector.store.(runtimeWhiteListFinalStore)
+	if !ok {
+		return errRuntimeWhiteListMeteringUnavailable
+	}
+	targets, err := control.WhiteListUseLeaseTargets(ctx)
+	if err != nil {
+		return err
+	}
+	origins := make([]string, 0, len(targets))
+	for origin := range targets {
+		origins = append(origins, origin)
+	}
+	sort.Strings(origins)
+	for _, origin := range origins {
+		sender, ok := collector.senders[targets[origin]].(runtimeWhiteListLeaseSender)
+		if !ok {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		drained := false
+		for pageNumber := 0; pageNumber < 130; pageNumber++ {
+			if ctx.Err() != nil {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			page, err := sender.LookupFinalReceipts(ctx)
+			if err != nil || page.Schema != 2 || len(page.FinalReceipts) > 32 || page.HasMoreFinalReceipts && len(page.FinalReceipts) == 0 {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			ack := make([]sidecaragentclient.FinalReceiptACK, 0, len(page.FinalReceipts))
+			for _, final := range page.FinalReceipts {
+				if final.OriginID != origin {
+					return errRuntimeWhiteListMeteringUnavailable
+				}
+				authorization, err := control.AuthorizeWhiteListFinalReceipt(ctx, targets[origin], final)
+				if err != nil || !authorization.Verified() {
+					return errRuntimeWhiteListMeteringUnavailable
+				}
+				if !authorization.Unused() {
+					if _, err := store.ApplyCommercialFinalReceipt(ctx, authorization, collector.control); err != nil {
+						return errRuntimeWhiteListMeteringUnavailable
+					}
+				}
+				ack = append(ack, sidecaragentclient.FinalReceiptACK{ReceiptID: final.ReceiptID, ProofSHA256: final.ProofSHA256})
+			}
+			if len(ack) > 0 {
+				if err := sender.AckFinalReceipts(ctx, ack); err != nil {
+					return errRuntimeWhiteListMeteringUnavailable
+				}
+				continue
+			}
+			if page.PendingUseLease != nil {
+				if _, err := sender.PostUseLease(ctx, *page.PendingUseLease); err != nil {
+					return errRuntimeWhiteListMeteringUnavailable
+				}
+				continue
+			}
+			drained = true
+			break
+		}
+		// The bounded loop cannot authorize use on an unproven empty backlog.
+		if !drained {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+	}
+	return nil
 }
 
 // Run only after every authenticated Origin observation and debit succeeded.

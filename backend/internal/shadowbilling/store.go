@@ -313,6 +313,20 @@ func (store *DurableStore) applyCommercialOrdered(
 	debiter CommercialDebiter,
 	firstCumulative bool,
 ) (DurableResult, error) {
+	return store.applyCommercialFinalOrdered(ctx, event, policy, debiter, firstCumulative, nil)
+}
+
+// A final source proof can only enter through the authenticated final-receipt
+// adapter. Its source/sequence binding is committed with the metering event,
+// never reserved independently of the transaction which accepts that sequence.
+func (store *DurableStore) applyCommercialFinalOrdered(
+	ctx context.Context,
+	event CommercialOrderedUsageEvent,
+	policy Policy,
+	debiter CommercialDebiter,
+	firstCumulative bool,
+	finalProof *commercialFinalProof,
+) (DurableResult, error) {
 	if store == nil || store.db == nil || ctx == nil || debiter == nil {
 		return DurableResult{}, ErrInvalidInput
 	}
@@ -330,11 +344,11 @@ func (store *DurableStore) applyCommercialOrdered(
 	); err != nil {
 		return DurableResult{}, err
 	}
-	result, err := store.applyOrdered(ctx, event.OrderedUsageEvent, policy, &binding, firstCumulative)
+	result, err := store.applyOrderedWithFinal(ctx, event.OrderedUsageEvent, policy, &binding, firstCumulative, finalProof)
 	if err != nil {
 		if !errors.Is(err, ErrEventIDConflict) {
 			lateDiagnostic := result.Decision.Diagnostic == DiagnosticLateSample
-			conflict, resolveErr := store.resolveCommercialSourceConflict(ctx, binding, lateDiagnostic)
+			conflict, resolveErr := store.resolveCommercialSourceConflict(ctx, binding, lateDiagnostic, finalProof)
 			if resolveErr == nil && conflict {
 				return DurableResult{}, &EventIDConflictError{EventID: binding.EventID}
 			}
@@ -343,6 +357,11 @@ func (store *DurableStore) applyCommercialOrdered(
 	}
 	if err := store.verifyCommercialSource(ctx, binding); err != nil {
 		return DurableResult{}, err
+	}
+	if finalProof != nil {
+		if err := verifyCommercialFinalAcceptance(ctx, store.db, binding, finalProof); err != nil {
+			return DurableResult{}, err
+		}
 	}
 	if err := store.drainCommercialDebitsLocked(ctx, binding.EntitlementID, debiter); err != nil {
 		return DurableResult{}, fmt.Errorf("shadowbilling: debit commercial interval: %w", err)
@@ -413,8 +432,30 @@ func (store *DurableStore) applyOrdered(
 	commercialSource *CommercialSourceBinding,
 	firstCumulative bool,
 ) (DurableResult, error) {
-	if store == nil || store.db == nil || ctx == nil || (firstCumulative && commercialSource == nil) {
+	return store.applyOrderedWithFinal(ctx, event, policy, commercialSource, firstCumulative, nil)
+}
+
+func (store *DurableStore) applyOrderedWithFinal(
+	ctx context.Context,
+	event OrderedUsageEvent,
+	policy Policy,
+	commercialSource *CommercialSourceBinding,
+	firstCumulative bool,
+	finalProof *commercialFinalProof,
+) (DurableResult, error) {
+	if store == nil || store.db == nil || ctx == nil || ((firstCumulative || finalProof != nil) && commercialSource == nil) {
 		return DurableResult{}, ErrInvalidInput
+	}
+	var finalStatements []rqlite.Statement
+	if finalProof != nil {
+		if finalProof.event.OrderedUsageEvent != event || finalProof.firstCumulative != firstCumulative {
+			return DurableResult{}, ErrInvalidInput
+		}
+		var err error
+		finalStatements, err = commercialFinalAcceptanceStatements(*commercialSource, finalProof)
+		if err != nil || len(finalStatements) == 0 {
+			return DurableResult{}, ErrInvalidInput
+		}
 	}
 	applySample := ApplyOrdered
 	if firstCumulative {
@@ -490,6 +531,11 @@ func (store *DurableStore) applyOrdered(
 	if err != nil {
 		return DurableResult{}, err
 	}
+	if finalProof != nil && decision.Diagnostic != "" {
+		// A baseline or a late-sample diagnostic is not settlement of a final
+		// counter pair. Keep its proof pending instead of ACKing discarded bytes.
+		return DurableResult{}, ErrInvalidInput
+	}
 	remaining := policy.IncludedBytes
 	if value, ok := next.included[period]; ok {
 		remaining = value
@@ -526,7 +572,7 @@ func (store *DurableStore) applyOrdered(
 
 	statements, err := durableStatements(
 		event, canonical, policySHA256, payloadSHA256, loaded, next, result,
-		string(resultJSON), commercialSource,
+		string(resultJSON), commercialSource, finalProof,
 	)
 	if err != nil {
 		return DurableResult{}, err
@@ -534,6 +580,7 @@ func (store *DurableStore) applyOrdered(
 	if firstCumulative {
 		statements = append([]rqlite.Statement{commercialFirstCumulativeGuard(*commercialSource)}, statements...)
 	}
+	statements = append(finalStatements, statements...)
 	if _, err := store.db.Request(ctx, rqlite.Linearizable, true, statements...); err != nil {
 		if replay, resolvedErr := store.resolveWrite(ctx, event.EventID, payloadSHA256); resolvedErr == nil {
 			return replay, nil
@@ -695,6 +742,7 @@ func durableStatements(
 	result DurableResult,
 	resultJSON string,
 	commercialSource *CommercialSourceBinding,
+	finalProof *commercialFinalProof,
 ) ([]rqlite.Statement, error) {
 	statements := []rqlite.Statement{{
 		SQL: `INSERT INTO whitelist_metering_periods(
@@ -764,6 +812,10 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
 	})
 	if commercialSource != nil {
 		source := *commercialSource
+		// applyOrderedWithFinal prepends the authenticated proof/acceptance
+		// guards in this transaction. Only that path may accept an older
+		// timestamp after another Origin in the same period; same-Origin
+		// ordering, pending debits and the current paid-period CAS stay intact.
 		statements = append(statements,
 			rqlite.Statement{
 				SQL: `SELECT CASE WHEN
@@ -785,6 +837,7 @@ AND (
         NOT EXISTS(
             SELECT 1 FROM whitelist_commercial_metering_sources
             WHERE entitlement_id=? AND sampled_at_unix>?
+              AND (?=0 OR origin_id=? OR billing_period_id<>?)
         )
         AND NOT EXISTS(
             SELECT 1
@@ -812,6 +865,7 @@ THEN 1 ELSE abs(-9223372036854775808) END AS commercial_source_guard`,
 					boolInt(lateDiagnostic), source.EntitlementID, source.SampledAtUnix,
 					boolInt(lateDiagnostic),
 					source.EntitlementID, source.SampledAtUnix,
+					boolInt(finalProof != nil), source.OriginID, source.BillingPeriodID,
 					source.EntitlementID,
 					whitelistmetering.CommercialDebitReceiptScope,
 					whitelistmetering.CommercialDebitReceiptCommand,
@@ -1203,6 +1257,7 @@ func (store *DurableStore) resolveCommercialSourceConflict(
 	ctx context.Context,
 	want CommercialSourceBinding,
 	lateDiagnostic bool,
+	finalProof *commercialFinalProof,
 ) (bool, error) {
 	results, err := store.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT
@@ -1218,6 +1273,7 @@ EXISTS(
 EXISTS(
     SELECT 1 FROM whitelist_commercial_metering_sources
     WHERE entitlement_id=? AND sampled_at_unix>?
+      AND (?=0 OR origin_id=? OR billing_period_id<>?)
 ) AS sampled_at_conflict,
 NOT EXISTS(
     SELECT 1 FROM whitelist_commercial_metering_sources
@@ -1235,6 +1291,7 @@ EXISTS(
 			want.EventID, want.SourceSHA256, want.MeterEpoch, want.RouteXrayIdentity,
 			uintText(want.CounterGeneration), uintText(want.SampleSequence),
 			want.EntitlementID, want.SampledAtUnix,
+			boolInt(finalProof != nil), want.OriginID, want.BillingPeriodID,
 			want.EntitlementID, want.SampledAtUnix,
 			want.MeterEpoch, want.RouteXrayIdentity, want.ExitID,
 			want.EntitlementID, want.BillingPeriodID,

@@ -116,6 +116,19 @@ func testReconciler(t *testing.T, handler Handler, clock *time.Time, bootID *str
 	return testReconcilerWithPreflight(t, handler, clock, bootID, &fakeReadinessPreflight{})
 }
 
+func TestCommercialLeaseModeRequiresExplicitRuntimeCapability(t *testing.T) {
+	now := time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC)
+	boot := "legacy-upstream-boot"
+	r, store := testReconciler(t, newFakeHandler("ordinary:fixed", "canary:fixed"), &now, &boot)
+	if _, err := r.LeaseReceipts(context.Background()); !errors.Is(err, ErrLeaseUnavailable) {
+		t.Fatal("legacy runtime exposed lease capability")
+	}
+	if _, err := NewReconciler(ReconcilerConfig{Handler: newFakeHandler(), Store: store, InboundTag: DefaultInboundTag, ReleaseID: "release-12", ConfigDigest: strings.Repeat("a", 64),
+		ProcessBootID: func() (string, error) { return boot, nil }, Preflight: &fakeReadinessPreflight{}, ManagedLeaseEnabled: true}); !errors.Is(err, ErrLeaseUnavailable) {
+		t.Fatal("commercial mode accepted upstream without runtime fence capability")
+	}
+}
+
 func testReconcilerWithPreflight(t *testing.T, handler Handler, clock *time.Time, bootID *string, preflight ReadinessPreflight) (*Reconciler, *FileStore) {
 	t.Helper()
 	store, err := NewFileStore(t.TempDir(), 4)

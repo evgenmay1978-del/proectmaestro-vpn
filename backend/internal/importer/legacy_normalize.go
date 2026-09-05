@@ -77,18 +77,21 @@ func DecodeLegacyCustomers(raw []byte) ([]legacystore.Customer, error) {
 	logins, tokens, uuids := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	customers := make([]legacystore.Customer, 0, len(rows))
 	for _, row := range rows {
-		if row == nil || row.VLESS == nil {
+		if row == nil {
 			return nil, ErrLegacyNormalize
 		}
 		login, err := controlplane.CanonicalLoginKey(row.Login)
-		if err != nil || row.SubToken == "" || row.VLESS.UUID == "" || row.Expires.IsZero() ||
-			logins[login] || tokens[row.SubToken] || uuids[row.VLESS.UUID] {
+		if err != nil || row.SubToken == "" || row.Expires.IsZero() ||
+			logins[login] || tokens[row.SubToken] || (row.VLESS != nil && uuids[row.VLESS.UUID]) {
 			return nil, ErrLegacyNormalize
 		}
 		if _, err := productionCredentials(ProductionCustomerIdentity{Customer: *row}); err != nil {
 			return nil, ErrLegacyNormalize
 		}
-		logins[login], tokens[row.SubToken], uuids[row.VLESS.UUID] = true, true, true
+		logins[login], tokens[row.SubToken] = true, true
+		if row.VLESS != nil {
+			uuids[row.VLESS.UUID] = true
+		}
 		customers = append(customers, *row)
 	}
 	return customers, nil
@@ -292,7 +295,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	protocolNodes := map[string]string{}
 	for _, binding := range options.ProtocolBindings {
 		key := binding.Protocol + "\x00" + binding.Server
-		if (binding.Protocol != "hysteria2" && binding.Protocol != "naive" && binding.Protocol != "anytls") ||
+		if (binding.Protocol != "hysteria2" && binding.Protocol != "naive" && binding.Protocol != "anytls" && binding.Protocol != "awg") ||
 			binding.Server == "" || !legacyNodeID(binding.NodeID) || protocolNodes[key] != "" {
 			return failed()
 		}
@@ -373,13 +376,15 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			return failed()
 		}
 		row := LegacyCustomer{SourceKey: sourceKey, Login: customer.Login, LoginKeyHMAC: loginHMAC,
-			UUIDHMAC:                  box.LookupHMAC("customer-uuid", []byte(customer.VLESS.UUID)),
-			SubIDHMAC:                 box.LookupHMAC("subscription-id", []byte(identity.SubID)),
 			TokenHMAC:                 box.LookupHMAC("subscription-token", []byte(customer.SubToken)),
 			CredentialFingerprintHMAC: box.LookupHMAC("customer-credentials", fingerprint),
 			IdentitySecretRef:         "identity:" + loginHMAC, ProtocolTags: protocols, NodeIDs: nodeIDs,
 			ExpiresAtUnix: customer.Expires.Unix(), Generation: 1, Status: "active"}
 		zeroBytes(fingerprint)
+		if customer.VLESS != nil {
+			row.UUIDHMAC = box.LookupHMAC("customer-uuid", []byte(customer.VLESS.UUID))
+			row.SubIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+		}
 		if customer.Disabled {
 			row.Status = "suspended"
 		}
@@ -475,6 +480,9 @@ func legacyOtherServers(customer legacystore.Customer) map[string]string {
 	}
 	if customer.AnyTLS != nil {
 		servers["anytls"] = customer.AnyTLS.Server
+	}
+	if customer.WG != nil {
+		servers["awg"] = customer.WG.Server
 	}
 	return servers
 }

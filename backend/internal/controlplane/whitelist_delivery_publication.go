@@ -26,14 +26,15 @@ type WhiteListClientMaterial struct {
 // WhiteListPublicationDelivery is a side-effect-free view used by the public
 // subscription adapter. Material is populated only for a publishable decision.
 type WhiteListPublicationDelivery struct {
-	Decision     WhiteListPublicationDecision
-	Material     WhiteListClientMaterial
-	ExitID       string
-	CountryCode  string
-	CountryLabel string
-	ReleaseID    string
-	ProfileID    string
-	PresetID     string
+	Decision        WhiteListPublicationDecision
+	Material        WhiteListClientMaterial
+	ExitID          string
+	CountryCode     string
+	CountryLabel    string
+	ReleaseID       string
+	ProfileID       string
+	PresetID        string
+	desiredBindings []WhiteListSidecarDesired
 }
 
 // WhiteListPublicationDelivery resolves the subscription token through the
@@ -66,6 +67,22 @@ func (s *Service) WhiteListPublicationDelivery(
 		return WhiteListPublicationDelivery{}, ErrUnavailable
 	}
 	entitlementID := entitlement.EntitlementID()
+	return s.whiteListPublicationForEntitlement(ctx, entitlementID, now, resolveSender, true)
+}
+
+// Both internal runtime use and public token delivery resolve this same actual
+// all-Origin receipt, observation, debit and admission evidence. Internal use
+// never substitutes desired/readiness TTLs for fresh metering authority.
+func (s *Service) whiteListPublicationForEntitlement(
+	ctx context.Context, entitlementID string, now time.Time,
+	resolveSender func(string) (ExternalActionSender, bool), includeMaterial bool,
+) (WhiteListPublicationDelivery, error) {
+	closed := func(verdict WhiteListPublicationVerdict) WhiteListPublicationDelivery {
+		return WhiteListPublicationDelivery{Decision: closedWhiteListPublication(verdict)}
+	}
+	if s == nil || s.store == nil || s.store.db == nil || s.store.secrets == nil || ctx == nil || !validEntitlementID(entitlementID) || now.Unix() <= 0 {
+		return WhiteListPublicationDelivery{}, ErrUnavailable
+	}
 	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
 	if err != nil {
 		return WhiteListPublicationDelivery{}, err
@@ -149,14 +166,18 @@ func (s *Service) WhiteListPublicationDelivery(
 	if decision.Verdict != WhiteListPublicationPublishable {
 		return WhiteListPublicationDelivery{Decision: decision}, nil
 	}
-	material, err := s.whiteListClientMaterial(ctx, entitlementID, exitID)
-	if err != nil {
-		return WhiteListPublicationDelivery{}, err
+	var material WhiteListClientMaterial
+	if includeMaterial {
+		material, err = s.whiteListClientMaterial(ctx, entitlementID, exitID)
+		if err != nil {
+			return WhiteListPublicationDelivery{}, err
+		}
 	}
 	return WhiteListPublicationDelivery{
 		Decision: decision, Material: material, ExitID: exitID,
 		CountryCode: exit.CountryCode, CountryLabel: exit.CountryLabel,
 		ReleaseID: releaseID, ProfileID: profileID, PresetID: presetID,
+		desiredBindings: desired,
 	}, nil
 }
 

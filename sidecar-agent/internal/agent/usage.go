@@ -14,10 +14,14 @@ type UserUsage struct {
 }
 
 type UsageSnapshot struct {
-	Receipt          Receipt     `json:"receipt"`
-	SampledAt        time.Time   `json:"sampled_at"`
-	Users            []UserUsage `json:"users"`
-	UnavailableUsers []string    `json:"unavailable_users"`
+	Receipt              Receipt              `json:"receipt"`
+	SampledAt            time.Time            `json:"sampled_at"`
+	Users                []UserUsage          `json:"users"`
+	UnavailableUsers     []string             `json:"unavailable_users"`
+	LeaseChallenge       *LeaseChallenge      `json:"lease_challenge,omitempty"`
+	FinalReceipts        *[]FinalLeaseReceipt `json:"final_receipts,omitempty"`
+	HasMoreFinalReceipts *bool                `json:"has_more_final_receipts,omitempty"`
+	PendingUseLease      *UseLeaseRequest     `json:"pending_use_lease,omitempty"`
 }
 
 // Missing map entries mean an incomplete counter pair, never a zero sample.
@@ -75,6 +79,14 @@ func (reconciler *Reconciler) Usage(ctx context.Context, actionKey string) (Usag
 	if err := validateBinding(); err != nil {
 		return UsageSnapshot{}, err
 	}
+	var leaseDomain string
+	var leaseReadStarted int64
+	if reconciler.managedLeaseEnabled {
+		leaseDomain, leaseReadStarted, err = reconciler.leaseClockNow()
+		if err != nil {
+			return UsageSnapshot{}, err
+		}
+	}
 	values, err := counters.ManagedUserCounters(ctx, append([]string(nil), desired.ManagedUsers...))
 	if err != nil {
 		return UsageSnapshot{}, errors.New("sidecar agent: usage counters unavailable")
@@ -97,6 +109,20 @@ func (reconciler *Reconciler) Usage(ctx context.Context, actionKey string) (Usag
 	}
 	if len(result.Users) != len(values) {
 		return UsageSnapshot{}, errors.New("sidecar agent: usage counters escaped managed set")
+	}
+	if reconciler.managedLeaseEnabled {
+		result.LeaseChallenge, err = reconciler.saveLeaseChallengeLocked(desired, receipt, leaseDomain, leaseReadStarted)
+		if err != nil {
+			return UsageSnapshot{}, err
+		}
+		state, err := reconciler.store.loadLeaseState()
+		if err != nil {
+			return UsageSnapshot{}, err
+		}
+		page := finalReceiptPage(state)
+		result.FinalReceipts = &page.FinalReceipts
+		result.HasMoreFinalReceipts = &page.HasMoreFinalReceipts
+		result.PendingUseLease = page.PendingUseLease
 	}
 	return result, nil
 }

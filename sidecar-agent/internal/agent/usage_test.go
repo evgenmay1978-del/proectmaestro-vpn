@@ -56,6 +56,10 @@ func TestUsageSnapshotBindsCurrentGenerationWithoutChangingState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wire, encodeErr := json.Marshal(got)
+	if encodeErr != nil || strings.Contains(string(wire), "lease_challenge") || strings.Contains(string(wire), "final_receipts") || strings.Contains(string(wire), "pending_use_lease") {
+		t.Fatal("default-off usage wire gained commercial lease fields")
+	}
 	if got.Receipt != receipt || !got.SampledAt.Equal(now) ||
 		!reflect.DeepEqual(got.Users, []UserUsage{{Email: "wl:one:exit-s1", UplinkBytes: 799, DownlinkBytes: 3564}}) ||
 		!reflect.DeepEqual(got.UnavailableUsers, []string{"wl:unused:exit-s1"}) {
