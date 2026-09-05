@@ -387,6 +387,135 @@ class CommercialOperatorTests(unittest.TestCase):
             xray_archive_sha256=XRAY_ARCHIVE_SHA,
         )
 
+    def _write_managed_bundle(self, *, source_commit: str = SECOND_SHA, binary: bytes = b"managed-runtime\n") -> dict:
+        (self.bundle_dir / "manifest.json").unlink()
+        (self.bundle_dir / "bin/xray").write_bytes(binary)
+        return bundle.create_manifest(
+            self.bundle_dir, source_commit=source_commit, managed_runtime=True,
+            xray_module_version=bundle.XRAY_MODULE_VERSION,
+        )
+
+    def test_managed_manifest_binds_exact_source_schema_clock_and_s4_only(self) -> None:
+        manifest = self._write_managed_bundle()
+        self.assertEqual(manifest["schema"], bundle.MANAGED_SCHEMA)
+        self.assertEqual(manifest["managed_runtime"], {
+            "kind": "maestro-managed-runtime", "source_commit": SECOND_SHA,
+            "xray_module_version": "v0.0.0-20260509173629-1bdb488c9ec0",
+            "xray_source_commit": "1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2",
+            "control_schema": 2, "lease_clock": "linux:CLOCK_BOOTTIME", "max_lease_ms": 5000,
+        })
+        self.assertEqual(set(manifest["profiles"]), {"s4-commercial"})
+        self.assertNotIn("xray_archive_sha256", manifest)
+        self.assertNotIn("xray_version", manifest)
+        pristine = (self.bundle_dir / "manifest.json").read_bytes()
+        variants = []
+        for key, value in (("source_commit", FULL_SHA), ("control_schema", 1),
+                           ("lease_clock", "linux:CLOCK_MONOTONIC"), ("max_lease_ms", 5001),
+                           ("xray_module_version", "v26.5.9"), ("xray_source_commit", FULL_SHA)):
+            changed = json.loads(pristine)
+            changed["managed_runtime"][key] = value
+            variants.append(changed)
+        changed = json.loads(pristine)
+        changed["xray_archive_sha256"] = XRAY_ARCHIVE_SHA
+        variants.append(changed)
+        changed = json.loads(pristine)
+        changed["profiles"]["standard"] = changed["profiles"]["s4-commercial"]
+        variants.append(changed)
+        for changed in variants:
+            with self.subTest(manifest=changed):
+                raw = (json.dumps(changed, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode()
+                (self.bundle_dir / "manifest.json").write_bytes(raw)
+                with self.assertRaises(bundle.ManifestError):
+                    bundle.verify_manifest(self.bundle_dir)
+        (self.bundle_dir / "manifest.json").write_bytes(pristine)
+
+    def test_managed_standard_profile_stops_before_commands_or_writes(self) -> None:
+        self._write_managed_bundle()
+        with self.assertRaisesRegex(OperationError, "bundle_profile_mismatch"):
+            self._operator("standard").apply()
+        self.assertEqual(self.system.commands, [])
+        self.assertFalse(self.root.exists())
+
+    def test_managed_s4_environment_and_release_identity_survive_status(self) -> None:
+        self._write_managed_bundle()
+        operator = self._operator("s4-commercial")
+        plan = operator.plan()
+        self.assertTrue(plan["managed_lease_configured"])
+        result = operator.apply()
+        self.assertEqual(result["status"], "ACTIVE")
+        self.assertEqual(result["runtime_kind"], "maestro-managed-runtime")
+        self.assertTrue(result["managed_lease_configured"])
+        target = operator._current_target()
+        self.assertIsNotNone(target)
+        environment = (target / "agent.env").read_bytes()
+        self.assertIn(b"MAESTRO_COMMERCIAL_RUNTIME_LEASE=true\n", environment)
+        self.assertIn(b"MAESTRO_XRAY_API_ADDRESS=127.0.0.1:28082\n", environment)
+        metadata = json.loads((target / "release.json").read_bytes())
+        self.assertEqual(metadata["schema"], "maestro-xray-cdn-commercial-release-v3")
+        self.assertEqual(metadata["runtime_identity"], bundle.managed_runtime_identity(SECOND_SHA))
+        (target / "agent.env").write_bytes(environment.replace(b"RUNTIME_LEASE=true", b"RUNTIME_LEASE=false"))
+        self.assertEqual(operator.status()["status"], "DRIFT")
+        self.assertFalse(operator.status()["managed_lease_configured"])
+
+    def test_managed_upgrade_and_rollback_report_release_local_variant(self) -> None:
+        operator = self._operator("s4-commercial")
+        legacy = operator.apply()
+        self.assertEqual(legacy["runtime_kind"], "upstream-xray")
+        self.assertFalse(legacy["managed_lease_configured"])
+        legacy_target = operator._current_target()
+        legacy_environment = (legacy_target / "agent.env").read_bytes()
+        # Same commit and input material must still identify a different runtime.
+        self._write_managed_bundle(source_commit=FULL_SHA)
+        managed = operator.apply()
+        self.assertNotEqual(managed["release_id"], legacy["release_id"])
+        self.assertTrue(managed["managed_lease_configured"])
+        rolled_back = operator.rollback()
+        self.assertEqual(rolled_back["release_id"], legacy["release_id"])
+        self.assertEqual(rolled_back["status"], "ACTIVE")
+        self.assertEqual(rolled_back["runtime_kind"], "upstream-xray")
+        self.assertFalse(rolled_back["managed_lease_configured"])
+        self.assertEqual((legacy_target / "agent.env").read_bytes(), legacy_environment)
+        restored = operator.rollback()
+        self.assertEqual(restored["release_id"], managed["release_id"])
+        self.assertTrue(restored["managed_lease_configured"])
+
+    def test_upstream_release_cannot_claim_managed_lease_configuration(self) -> None:
+        operator = self._operator("s4-commercial")
+        operator.apply()
+        target = operator._current_target()
+        environment_path = target / "agent.env"
+        changed = environment_path.read_bytes() + b"MAESTRO_COMMERCIAL_RUNTIME_LEASE=true\n"
+        environment_path.write_bytes(changed)
+        metadata_path = target / "release.json"
+        metadata = json.loads(metadata_path.read_bytes())
+        metadata["release_inventory"]["agent.env"] = operator._fingerprint(changed, 0o640)
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        result = operator.status()
+        self.assertEqual(result["status"], "DRIFT")
+        self.assertFalse(result["managed_lease_configured"])
+
+    @unittest.skipUnless(os.environ.get("MAESTRO_MANAGED_RUNTIME_BINARY"), "requires the exact CI-built managed runtime")
+    def test_managed_binary_validates_existing_production_template(self) -> None:
+        binary = Path(os.environ["MAESTRO_MANAGED_RUNTIME_BINARY"])
+        self._write_managed_bundle(binary=binary.read_bytes())
+        template = Path(__file__).parents[1] / "templates" / "config.json.tmpl"
+        (self.bundle_dir / "templates/config.json.tmpl").write_bytes(template.read_bytes())
+        self._write_managed_bundle(binary=binary.read_bytes())
+        certificate, key = self.base / "synthetic.crt", self.base / "synthetic.key"
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=maestro-commercial-ci", "-addext", "basicConstraints=critical,CA:TRUE",
+            "-keyout", str(key), "-out", str(certificate),
+        ], check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for path in self.certs.rglob("*"):
+            if path.is_file():
+                path.write_bytes(key.read_bytes() if path.suffix == ".key" else certificate.read_bytes())
+        operator = self._operator("s4-commercial")
+        operator.run = _default_runner
+        result = operator.plan()
+        self.assertTrue(result["managed_lease_configured"])
+        self.assertFalse(self.root.exists())
+
     def _operator(self, profile: str = "standard") -> CommercialOperator:
         test_owner = (
             (os.getuid(), os.getgid())

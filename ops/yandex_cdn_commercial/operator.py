@@ -227,9 +227,12 @@ class CommercialOperator:
 
     def _bundle(self) -> dict[str, Any]:
         try:
-            return bundle.verify_manifest(self.bundle_dir)
+            manifest = bundle.verify_manifest(self.bundle_dir)
         except (bundle.ManifestError, OSError) as error:
             raise OperationError(str(error)) from error
+        if self.profile.name not in manifest["profiles"]:
+            raise OperationError("bundle_profile_mismatch")
+        return manifest
 
     @staticmethod
     def _read_protected(path: Path, *, limit: int = 1 << 20) -> bytes:
@@ -348,7 +351,7 @@ class CommercialOperator:
             raise OperationError("rendered_profile_mismatch")
         return encoded
 
-    def _environment_bytes(self, release_id: str, config_sha: str) -> bytes:
+    def _environment_bytes(self, release_id: str, config_sha: str, manifest: dict[str, Any]) -> bytes:
         environment = {
             "MAESTRO_ACTIVE_ORIGIN_IPS_FILE": BASE_PATH + "/current/runtime/active-origin-ips.json",
             "MAESTRO_AGENT_SERVER_CERT": BASE_PATH + "/current/runtime/agent-server/server.crt",
@@ -369,6 +372,10 @@ class CommercialOperator:
             "MAESTRO_XRAY_CONFIG_FILE": BASE_PATH + "/current/config.json",
             "MAESTRO_XRAY_PID_FILE": "/run/maestro-xray-cdn-commercial-pid/xray.pid",
         }
+        if manifest["schema"] == bundle.MANAGED_SCHEMA:
+            if self.profile.name != "s4-commercial":
+                raise OperationError("bundle_profile_mismatch")
+            environment["MAESTRO_COMMERCIAL_RUNTIME_LEASE"] = "true"
         return "".join(f"{key}={value}\n" for key, value in sorted(environment.items())).encode()
 
     @staticmethod
@@ -430,13 +437,15 @@ class CommercialOperator:
             "certificate_sha256": {relative: _sha256(raw) for relative, raw in sorted(certificates.items())},
             "config_sha256": config_sha,
             "controller_source_ip_sha256": _sha256(_canonical(material["controller_source_ip"])),
-            "environment_template_sha256": _sha256(self._environment_bytes("<RELEASE_ID>", config_sha)),
+            "environment_template_sha256": _sha256(self._environment_bytes("<RELEASE_ID>", config_sha, manifest)),
             "managed_credential_sha256": managed,
             "profile": self.profile.name,
             "relay_credential_sha256": relay,
             "source_commit": manifest["source_commit"],
             "validated_config_bytes_sha256": _sha256(config),
         }
+        if manifest["schema"] == bundle.MANAGED_SCHEMA:
+            identity["runtime_identity"] = bundle.runtime_identity(manifest)
         return _sha256(_canonical(identity))
 
     def _prepare(self) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any], dict[str, bytes], bytes, str, str, str]:
@@ -486,6 +495,8 @@ class CommercialOperator:
             "proxy_target": self.profile.proxy_target,
             "release_id": release_id,
             "runtime_input_sha256": runtime_input_sha,
+            "runtime_kind": bundle.runtime_identity(manifest)["kind"],
+            "managed_lease_configured": manifest["schema"] == bundle.MANAGED_SCHEMA,
             "units": [self.profile.xray_unit, self.profile.agent_unit],
         }
 
@@ -589,7 +600,7 @@ class CommercialOperator:
         releases = self._rooted(BASE_PATH + "/releases")
         releases.mkdir(parents=True, exist_ok=True)
         final = releases / release_id
-        environment = self._environment_bytes(release_id, config_sha)
+        environment = self._environment_bytes(release_id, config_sha, manifest)
         release_metadata = {
             "agent_sha256": _sha256(members["bin/maestro-xray-cdn-agent"]),
             "config_sha256": config_sha,
@@ -602,6 +613,9 @@ class CommercialOperator:
             "source_commit": manifest["source_commit"],
             "xray_sha256": _sha256(members["bin/xray"]),
         }
+        if manifest["schema"] == bundle.MANAGED_SCHEMA:
+            release_metadata["schema"] = "maestro-xray-cdn-commercial-release-v3"
+            release_metadata["runtime_identity"] = bundle.runtime_identity(manifest)
         if final.exists() or final.is_symlink():
             try:
                 metadata = json.loads((final / "release.json").read_bytes())
@@ -733,8 +747,26 @@ class CommercialOperator:
             and metadata.get("agent_sha256") == release_inventory["maestro-xray-cdn-agent"].get("sha256")
             and metadata.get("xray_sha256") == release_inventory["xray"].get("sha256")
         )
-        metadata_ok = (
+        # A rollback is judged by the previous release's own immutable variant,
+        # never by the currently supplied bundle. Legacy Xray has no lease gate.
+        managed_runtime = metadata.get("schema") == "maestro-xray-cdn-commercial-release-v3"
+        runtime_identity_ok = (
+            self.profile.name == "s4-commercial"
+            and re.fullmatch(r"[0-9a-f]{40}", str(metadata.get("source_commit", ""))) is not None
+            and _canonical(metadata.get("runtime_identity")) == _canonical(bundle.managed_runtime_identity(metadata["source_commit"]))
+        ) if managed_runtime else (
             metadata.get("schema") == "maestro-xray-cdn-commercial-release-v2"
+            and "runtime_identity" not in metadata
+        )
+        try:
+            lease_lines = [line for line in (target / "agent.env").read_bytes().splitlines()
+                           if line.startswith(b"MAESTRO_COMMERCIAL_RUNTIME_LEASE=")]
+            lease_environment_ok = lease_lines == [b"MAESTRO_COMMERCIAL_RUNTIME_LEASE=true"] if managed_runtime else not lease_lines
+        except OSError:
+            lease_environment_ok = False
+        metadata_ok = (
+            runtime_identity_ok
+            and lease_environment_ok
             and metadata.get("profile") == self.profile.name
             and metadata.get("release_id") == target.name
             and re.fullmatch(r"[0-9a-f]{64}", str(metadata.get("runtime_input_sha256", ""))) is not None
@@ -765,6 +797,8 @@ class CommercialOperator:
             "release_id": target.name,
             "runtime_input_sha256": metadata.get("runtime_input_sha256", ""),
             "source_commit": metadata.get("source_commit", ""),
+            "runtime_kind": "maestro-managed-runtime" if managed_runtime else "upstream-xray",
+            "managed_lease_configured": managed_runtime and runtime_identity_ok and lease_environment_ok,
             "status": "ACTIVE" if active else "DRIFT",
         }
 

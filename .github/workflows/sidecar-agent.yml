@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - commercial-bundle
+          - managed-commercial-bundle
           - runtime-fence-proof
           - runtime-module-graph
   pull_request:
@@ -210,6 +211,79 @@ jobs:
         with:
           name: maestro-xray-cdn-commercial-${{ github.sha }}
           path: dist-commercial
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Build S4 managed commercial bundle from the exact source
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'managed-commercial-bundle'
+        env:
+          LC_ALL: C
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          dist="$GITHUB_WORKSPACE/dist-managed-commercial"
+          build="$RUNNER_TEMP/managed-commercial-build"
+          test ! -e "$dist"
+          test ! -e "$build"
+          mkdir -m 0700 "$build"
+          (
+            cd sidecar-agent
+            go mod verify
+            go list -mod=readonly -m -json github.com/xtls/xray-core > "$build/xray-module.json"
+            python - "$build/xray-module.json" <<'PY'
+          import json
+          import sys
+          module = json.load(open(sys.argv[1], encoding='utf-8'))
+          assert module['Path'] == 'github.com/xtls/xray-core'
+          assert module['Version'] == 'v0.0.0-20260509173629-1bdb488c9ec0'
+          assert 'Replace' not in module
+          PY
+            for pass in a b; do
+              go build -mod=readonly -trimpath -buildvcs=true -ldflags='-s -w -buildid=' \
+                -o "$build/xray-$pass" ./cmd/maestro-xray-cdn-runtime
+              go build -mod=readonly -trimpath -buildvcs=true -ldflags='-s -w -buildid=' \
+                -o "$build/agent-$pass" ./cmd/maestro-xray-cdn-agent
+            done
+          )
+          cmp "$build/xray-a" "$build/xray-b"
+          cmp "$build/agent-a" "$build/agent-b"
+          for binary in "$build/xray-a" "$build/agent-a"; do
+            readelf -h "$binary" | grep -F 'Class:' | grep -F 'ELF64'
+            readelf -h "$binary" | grep -F 'Machine:' | grep -F 'Advanced Micro Devices X86-64'
+            go version -m "$binary" | grep -F "vcs.revision=$GITHUB_SHA"
+            go version -m "$binary" | grep -F 'vcs.modified=false'
+          done
+          "$build/xray-a" version | grep -F 'Maestro managed-session proof runtime'
+          install -d -m 0755 "$dist/bin" "$dist/lib" "$dist/templates" "$dist/systemd" "$dist/sysusers"
+          install -m 0755 "$build/xray-a" "$dist/bin/xray"
+          install -m 0755 "$build/agent-a" "$dist/bin/maestro-xray-cdn-agent"
+          install -m 0755 ops/yandex_cdn_commercial/operator.py "$dist/bin/maestro-xray-cdn-commercial-operator"
+          install -m 0644 ops/yandex_cdn_commercial/bundle.py "$dist/lib/commercial_bundle.py"
+          install -m 0644 ops/yandex_cdn_commercial/templates/config.json.tmpl "$dist/templates/config.json.tmpl"
+          install -m 0644 ops/yandex_cdn_commercial/systemd/maestro-xray-cdn-commercial.service "$dist/systemd/maestro-xray-cdn-commercial.service"
+          install -m 0644 ops/yandex_cdn_commercial/systemd/maestro-xray-cdn-commercial-agent.service "$dist/systemd/maestro-xray-cdn-commercial-agent.service"
+          install -m 0644 ops/yandex_cdn_commercial/sysusers/maestro-xray-cdn-commercial.conf "$dist/sysusers/maestro-xray-cdn-commercial.conf"
+          install -m 0644 ops/yandex_cdn_commercial/rollback.json "$dist/rollback.json"
+          python ops/yandex_cdn_commercial/bundle.py create-managed \
+            --bundle "$dist" --source-commit "$GITHUB_SHA" \
+            --xray-module-version v0.0.0-20260509173629-1bdb488c9ec0
+          python ops/yandex_cdn_commercial/bundle.py verify --bundle "$dist"
+          MAESTRO_MANAGED_RUNTIME_BINARY="$dist/bin/xray" python -m unittest \
+            ops.yandex_cdn_commercial.tests.test_commercial_operator -v
+
+      - name: Upload S4 managed commercial bundle
+        if: github.event_name == 'workflow_dispatch' && inputs.task == 'managed-commercial-bundle'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-xray-cdn-managed-commercial-${{ github.sha }}
+          path: dist-managed-commercial
           if-no-files-found: error
           compression-level: 0
           overwrite: false

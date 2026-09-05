@@ -14,8 +14,11 @@ from typing import Any
 
 
 SCHEMA = "maestro-xray-cdn-commercial-bundle-v1"
+MANAGED_SCHEMA = "maestro-xray-cdn-commercial-bundle-v2"
 XRAY_VERSION = "26.5.9"
 XRAY_ARCHIVE_SHA256 = "f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7"
+XRAY_MODULE_VERSION = "v0.0.0-20260509173629-1bdb488c9ec0"
+XRAY_SOURCE_COMMIT = "1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2"
 MANIFEST_NAME = "manifest.json"
 EXECUTABLE_MEMBERS = {
     "bin/maestro-xray-cdn-agent",
@@ -51,6 +54,25 @@ def _canonical(value: Any) -> bytes:
 
 def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def managed_runtime_identity(source_commit: str) -> dict[str, Any]:
+    return {
+        "kind": "maestro-managed-runtime",
+        "source_commit": source_commit,
+        "xray_module_version": XRAY_MODULE_VERSION,
+        "xray_source_commit": XRAY_SOURCE_COMMIT,
+        "control_schema": 2,
+        "lease_clock": "linux:CLOCK_BOOTTIME",
+        "max_lease_ms": 5000,
+    }
+
+
+def runtime_identity(manifest: dict[str, Any]) -> dict[str, Any]:
+    if manifest["schema"] == MANAGED_SCHEMA:
+        return dict(manifest["managed_runtime"])
+    return {"kind": "upstream-xray", "xray_version": manifest["xray_version"],
+            "xray_archive_sha256": manifest["xray_archive_sha256"]}
 
 
 def _member_metadata(root: Path, relative: str) -> dict[str, Any]:
@@ -90,11 +112,18 @@ def create_manifest(
     root: Path | str,
     *,
     source_commit: str,
-    xray_version: str,
-    xray_archive_sha256: str,
+    xray_version: str | None = None,
+    xray_archive_sha256: str | None = None,
+    managed_runtime: bool = False,
+    xray_module_version: str | None = None,
 ) -> dict[str, Any]:
     bundle_root = Path(root).resolve(strict=True)
-    if not _COMMIT_RE.fullmatch(source_commit) or xray_version != XRAY_VERSION or xray_archive_sha256 != XRAY_ARCHIVE_SHA256:
+    if not _COMMIT_RE.fullmatch(source_commit):
+        _fail("bundle_identity_invalid")
+    if managed_runtime:
+        if xray_version is not None or xray_archive_sha256 is not None or xray_module_version != XRAY_MODULE_VERSION:
+            _fail("bundle_identity_invalid")
+    elif xray_version != XRAY_VERSION or xray_archive_sha256 != XRAY_ARCHIVE_SHA256 or xray_module_version is not None:
         _fail("bundle_identity_invalid")
     _exact_members(bundle_root, manifest_expected=False)
     members = [_member_metadata(bundle_root, relative) for relative in MEMBERS]
@@ -117,6 +146,11 @@ def create_manifest(
         "xray_archive_sha256": xray_archive_sha256,
         "xray_version": xray_version,
     }
+    if managed_runtime:
+        manifest["schema"] = MANAGED_SCHEMA
+        manifest["managed_runtime"] = managed_runtime_identity(source_commit)
+        manifest["profiles"].pop("standard")
+        del manifest["xray_archive_sha256"], manifest["xray_version"]
     output = bundle_root / MANIFEST_NAME
     if output.exists() or output.is_symlink():
         _fail("bundle_manifest_exists")
@@ -140,17 +174,27 @@ def verify_manifest(root: Path | str) -> dict[str, Any]:
         _fail("bundle_manifest_invalid")
     if _canonical(manifest) != raw:
         _fail("bundle_manifest_noncanonical")
-    expected_keys = {"arch", "deployment_scope", "members", "os", "profiles", "rollback", "schema", "source_commit", "xray_archive_sha256", "xray_version"}
-    if set(manifest) != expected_keys or manifest["schema"] != SCHEMA or manifest["os"] != "linux" or manifest["arch"] != "amd64":
+    if not isinstance(manifest, dict):
+        _fail("bundle_manifest_invalid")
+    managed_runtime = manifest.get("schema") == MANAGED_SCHEMA
+    expected_keys = {"arch", "deployment_scope", "members", "os", "profiles", "rollback", "schema", "source_commit"}
+    expected_keys |= {"managed_runtime"} if managed_runtime else {"xray_archive_sha256", "xray_version"}
+    if set(manifest) != expected_keys or manifest["schema"] not in (SCHEMA, MANAGED_SCHEMA) or manifest["os"] != "linux" or manifest["arch"] != "amd64":
         _fail("bundle_manifest_invalid")
     if manifest["deployment_scope"] != "commercial_yandex_cdn_sidecar_only" or not _COMMIT_RE.fullmatch(manifest.get("source_commit", "")):
         _fail("bundle_manifest_invalid")
-    if manifest["xray_version"] != XRAY_VERSION or manifest["xray_archive_sha256"] != XRAY_ARCHIVE_SHA256:
+    if managed_runtime:
+        if _canonical(manifest["managed_runtime"]) != _canonical(managed_runtime_identity(manifest["source_commit"])):
+            _fail("bundle_manifest_invalid")
+    elif manifest["xray_version"] != XRAY_VERSION or manifest["xray_archive_sha256"] != XRAY_ARCHIVE_SHA256:
         _fail("bundle_manifest_invalid")
-    if manifest.get("profiles") != {
+    profiles = {
         "s4-commercial": {"agent_port": 18443, "api_port": 28082, "proxy_target": "http://127.0.0.1:28081", "relay_port": 18084, "xhttp_port": 28081},
         "standard": {"agent_port": 18443, "api_port": 18082, "proxy_target": "http://127.0.0.1:18081", "relay_port": 18084, "xhttp_port": 18081},
-    }:
+    }
+    if managed_runtime:
+        profiles.pop("standard")
+    if manifest.get("profiles") != profiles:
         _fail("bundle_manifest_invalid")
     if manifest.get("rollback") != {
         "active_pointer": "/opt/maestro-xray-cdn-commercial/current",
@@ -178,12 +222,18 @@ def main() -> int:
     create.add_argument("--source-commit", required=True)
     create.add_argument("--xray-version", required=True)
     create.add_argument("--xray-archive-sha256", required=True)
+    managed = subparsers.add_parser("create-managed")
+    managed.add_argument("--bundle", required=True)
+    managed.add_argument("--source-commit", required=True)
+    managed.add_argument("--xray-module-version", required=True)
     verify = subparsers.add_parser("verify")
     verify.add_argument("--bundle", required=True)
     args = parser.parse_args()
     try:
         if args.command == "create":
             result = create_manifest(args.bundle, source_commit=args.source_commit, xray_version=args.xray_version, xray_archive_sha256=args.xray_archive_sha256)
+        elif args.command == "create-managed":
+            result = create_manifest(args.bundle, source_commit=args.source_commit, managed_runtime=True, xray_module_version=args.xray_module_version)
         else:
             result = verify_manifest(args.bundle)
     except (ManifestError, OSError) as error:
