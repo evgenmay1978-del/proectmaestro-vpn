@@ -809,8 +809,9 @@ internal fun orderedHomeProtocols(protocols: List<String>): List<String> {
     if (protocols.isEmpty()) return HOME_PROTOCOL_ORDER
     val visible = visibleProtocolTags(protocols)
     val known = HOME_PROTOCOL_ORDER.filter { it in visible }
-    val extra = visible.filter { it !in HOME_PROTOCOL_ORDER }
-    return (known + extra).distinct()
+    val cdn = visible.filter { it.startsWith("cdn:") }
+    val extra = visible.filter { it !in HOME_PROTOCOL_ORDER && !it.startsWith("cdn:") }
+    return (known + cdn + extra).distinct()
 }
 
 /**

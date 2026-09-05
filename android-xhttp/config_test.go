@@ -65,6 +65,7 @@ func TestTransportRejectsUnsafeFields(t *testing.T) {
 		"path_fragment":          func(v *transport) { v.Path = "/path#fragment" },
 		"path_absolute":          func(v *transport) { v.Path = "https://cdn.example.com/path" },
 		"path_traversal":         func(v *transport) { v.Path = "/path/../secret" },
+		"path_oversize":          func(v *transport) { v.Path = "/" + strings.Repeat("a", 2048) },
 		"uuid":                   func(v *transport) { v.ClientID = "invalid" },
 		"encryption":             func(v *transport) { v.Encryption = "none" },
 		"socks_port":             func(v *transport) { v.SocksPort = 80 },
@@ -82,7 +83,16 @@ func TestTransportRejectsUnsafeFields(t *testing.T) {
 	}
 }
 
-func TestGeneratedConfigHasOnlyAuthenticatedLoopbackAndXHTTP(t *testing.T) {
+func TestTransportPreservesPublished2048BytePath(t *testing.T) {
+	v := fixtureTransport()
+	v.Path = "/" + strings.Repeat("a", 2047)
+	got, err := parseTransport(fixtureJSON(t, v))
+	if err != nil || got.Path != v.Path {
+		t.Fatal("published path rejected or changed")
+	}
+}
+
+func TestGeneratedConfigHasNoListenerAndOnlyXHTTP(t *testing.T) {
 	v := fixtureTransport()
 	raw, err := v.config(7)
 	if err != nil {
@@ -100,24 +110,12 @@ func TestGeneratedConfigHasOnlyAuthenticatedLoopbackAndXHTTP(t *testing.T) {
 			t.Fatal("unexpected config capability")
 		}
 	}
-	var inbounds []struct {
-		Listen   string
-		Protocol string
-		Settings struct {
-			Auth     string
-			UDP      bool
-			Accounts []struct {
-				User string
-				Pass string
-			}
-		}
+	var inbounds []json.RawMessage
+	if json.Unmarshal(config["inbounds"], &inbounds) != nil || len(inbounds) != 0 {
+		t.Fatal("Xray must not expose a listener")
 	}
-	if json.Unmarshal(config["inbounds"], &inbounds) != nil ||
-		len(inbounds) != 1 || inbounds[0].Listen != "127.0.0.1" ||
-		inbounds[0].Protocol != "socks" || inbounds[0].Settings.Auth != "password" ||
-		inbounds[0].Settings.UDP || len(inbounds[0].Settings.Accounts) != 1 ||
-		inbounds[0].Settings.Accounts[0].Pass != v.SocksPass {
-		t.Fatal("invalid TCP-only SOCKS boundary")
+	if bytes.Contains(raw, []byte(v.SocksUser)) || bytes.Contains(raw, []byte(v.SocksPass)) {
+		t.Fatal("loopback credentials escaped into core configuration")
 	}
 	var outbounds []struct {
 		Protocol       string

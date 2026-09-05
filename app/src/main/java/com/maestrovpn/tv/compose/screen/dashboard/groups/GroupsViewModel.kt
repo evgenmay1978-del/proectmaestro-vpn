@@ -6,6 +6,11 @@ import io.nekohasekai.libbox.OutboundGroup
 import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.bg.UpdateProfileWork
 import com.maestrovpn.tv.bg.WdttManager
+import com.maestrovpn.tv.Application
+import com.maestrovpn.tv.utils.DeviceFormFactor
+import com.maestrovpn.tv.whitelist.WhiteListRuntimeClient
+import com.maestrovpn.tv.whitelist.WhiteListSelection
+import com.maestrovpn.tv.whitelist.WhiteListSession
 import com.maestrovpn.tv.compose.base.BaseViewModel
 import com.maestrovpn.tv.compose.base.ScreenEvent
 import com.maestrovpn.tv.compose.model.Group
@@ -70,6 +75,9 @@ data class GroupsUiState(
     val isLoading: Boolean = false,
     val expandedGroups: Set<String> = emptySet(),
     val showCloseConnectionsSnackbar: Boolean = false,
+    val cdnOptions: List<String> = emptyList(),
+    val cdnSelected: String? = null,
+    val cdnActive: String? = null,
 )
 
 sealed class GroupsEvent : ScreenEvent {
@@ -112,6 +120,31 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     @Volatile private var wdttWatchdog: Job? = null
 
     init {
+        if (!DeviceFormFactor.isTelevision(Application.application)) {
+            viewModelScope.launch {
+                combine(WhiteListSelection.view, RemoteControlManager.remoteServer) { value, remote ->
+                    value to (remote == null)
+                }.collect { (value, local) ->
+                    updateState { copy(cdnOptions = if (local) value.labels.keys.toList() else emptyList(),
+                        cdnSelected = value.selected.takeIf { local }, cdnActive = value.active.takeIf { local }) }
+                }
+            }
+            // Menu projection only. The existing VPN service performs its own authenticated fetch.
+            viewModelScope.launch(Dispatchers.IO) {
+                while (isActive) {
+                    val account = WhiteListSelection.account()
+                    val network = WhiteListSession.network()
+                    val visible = AppLifecycleObserver.isForeground.value && AppLifecycleObserver.isScreenOn.value &&
+                        RemoteControlManager.remoteServer.value == null
+                    val runtime = if (visible && network != null && account.first >= 0) runCatching {
+                        val url = ProfileManager.get(account.first)?.typed?.remoteURL
+                        if (url != null) WhiteListRuntimeClient.fetch(url, network) else null
+                    }.getOrNull() else null
+                    WhiteListSelection.preview(account, network, runtime)
+                    delay(1_000)
+                }
+            }
+        }
         if (sharedCommandClient != null) {
             commandClient = sharedCommandClient
             isUsingSharedClient = true
@@ -283,6 +316,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
      */
     fun setPendingSelect(groupTag: String, itemTag: String) {
         if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
+        if (selectCdnOrRestore(groupTag, itemTag)) return
         pendingSelect = groupTag to itemTag
         val gen = pendingGeneration.incrementAndGet()
         updateState {
@@ -390,8 +424,35 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         }
     }
 
+    fun selectCdn(itemTag: String): Boolean {
+        if (!itemTag.startsWith("cdn:") || RemoteControlManager.remoteServer.value != null ||
+            DeviceFormFactor.isTelevision(Application.application)) return false
+        pendingSelect = null
+        pendingGeneration.incrementAndGet()
+        return WhiteListSelection.select(itemTag, WhiteListSession.network()).also { accepted ->
+            if (!accepted) sendError(IllegalStateException("CDN: обновите список подключений"))
+        }
+    }
+
+    /** CDN requests never reach libbox's direct selector or the deferred transport managers. */
+    private fun selectCdnOrRestore(groupTag: String, itemTag: String): Boolean {
+        val cdn = itemTag.startsWith("cdn:")
+        if (cdn) { selectCdn(itemTag); return true }
+        if (RemoteControlManager.remoteServer.value != null || DeviceFormFactor.isTelevision(Application.application)) return cdn
+        val managed = WhiteListSelection.current() != null || WhiteListSelection.view.value.active != null
+        if (!cdn && !managed) return false
+        if (groupTag != "select") return true
+        pendingSelect = null
+        pendingGeneration.incrementAndGet()
+        if (!WhiteListSelection.select(itemTag, WhiteListSession.network())) {
+            sendError(IllegalStateException("CDN: обновите список подключений"))
+        }
+        return true
+    }
+
     fun selectGroupItem(groupTag: String, itemTag: String) {
         if (!isProtocolSelectionAllowed(groupTag, itemTag)) return
+        if (selectCdnOrRestore(groupTag, itemTag)) return
         // Check if this is actually a different selection
         val currentGroup = uiState.value.groups.find { it.tag == groupTag }
         val isOlc = itemTag == OlcrtcManager.OUTBOUND_TAG

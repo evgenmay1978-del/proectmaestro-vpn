@@ -6,15 +6,20 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	xnet "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/transport/internet"
 )
 
-type fakeInstance struct{ closed int }
+type fakeInstance struct{ closed atomic.Int32 }
 
-func (i *fakeInstance) Close() error { i.closed++; return nil }
+func (i *fakeInstance) Close() error { i.closed.Add(1); return nil }
+func (i *fakeInstance) Dial(context.Context, xnet.Destination) (net.Conn, error) {
+	return nil, errors.New("fixture refuses network")
+}
 
 func TestEngineLifecycleAndFailedStartCleanup(t *testing.T) {
 	instance := &fakeInstance{}
@@ -27,7 +32,9 @@ func TestEngineLifecycleAndFailedStartCleanup(t *testing.T) {
 			return instance, nil
 		},
 	}
-	raw := fixtureJSON(t, fixtureTransport())
+	value := fixtureTransport()
+	value.SocksPort = availablePort(t)
+	raw := fixtureJSON(t, value)
 	protect := func(int64, int) bool { return false }
 	if manager.Start(1, raw, protect) != statusOK {
 		t.Fatal("start")
@@ -35,17 +42,17 @@ func TestEngineLifecycleAndFailedStartCleanup(t *testing.T) {
 	if manager.Start(2, raw, protect) != statusBusy {
 		t.Fatal("second engine accepted")
 	}
-	if manager.Stop(2) != statusOK || instance.closed != 0 {
+	if manager.Stop(2) != statusOK || instance.closed.Load() != 0 {
 		t.Fatal("stale stop changed current engine")
 	}
-	if manager.Stop(1) != statusOK || manager.Stop(1) != statusOK || instance.closed != 1 {
+	if manager.Stop(1) != statusOK || manager.Stop(1) != statusOK || instance.closed.Load() != 1 {
 		t.Fatal("stop is not idempotent")
 	}
 	if manager.Start(1, raw, protect) != statusStaleSession {
 		t.Fatal("session ID reused")
 	}
 	fail = true
-	if manager.Start(2, raw, protect) != statusStartFailed || instance.closed != 2 ||
+	if manager.Start(2, raw, protect) != statusStartFailed || instance.closed.Load() != 2 ||
 		manager.session != nil || manager.dialer.current.Load() != nil {
 		t.Fatal("failed start left a live engine/session")
 	}
@@ -92,5 +99,33 @@ func TestRealXrayAuthenticatedSOCKSStartStop(t *testing.T) {
 	if extra, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), time.Second); err == nil {
 		_ = extra.Close()
 		t.Fatal("listener survived stop")
+	}
+}
+
+func TestFailedSOCKSBindClosesStartedCoreAndRevokesSession(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	value := fixtureTransport()
+	value.SocksPort = listener.Addr().(*net.TCPAddr).Port
+	instance := &fakeInstance{}
+	manager := &engineManager{start: func(context.Context, []byte) (runningInstance, error) {
+		return instance, nil
+	}}
+	defer manager.Stop(2)
+	raw := fixtureJSON(t, value)
+	protect := func(int64, int) bool { return false }
+	if manager.Start(1, raw, protect) != statusStartFailed || instance.closed.Load() != 1 ||
+		manager.session != nil || manager.dialer.current.Load() != nil || manager.poisoned {
+		t.Fatal("failed listener bind left a core/session or hid successful cleanup")
+	}
+	if manager.Start(1, raw, protect) != statusStaleSession {
+		t.Fatal("failed generation reused")
+	}
+	_ = listener.Close()
+	if manager.Start(2, raw, protect) != statusOK || manager.Stop(2) != statusOK || instance.closed.Load() != 2 {
+		t.Fatal("cleaned-up bind failure prevented a later valid generation")
 	}
 }

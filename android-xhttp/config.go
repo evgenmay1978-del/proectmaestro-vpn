@@ -95,7 +95,7 @@ func (v transport) validate() error {
 	}
 	// Preserve the literal server path, without allowing query/fragment/userinfo.
 	path, err := url.ParseRequestURI(v.Path)
-	if err != nil || len(v.Path) < 2 || len(v.Path) > 1024 ||
+	if err != nil || len(v.Path) < 2 || len(v.Path) > 2048 ||
 		!strings.HasPrefix(v.Path, "/") || strings.HasPrefix(v.Path, "//") ||
 		path.IsAbs() || path.Host != "" || path.RawQuery != "" || path.Fragment != "" ||
 		strings.ContainsAny(v.Path, "?#\\") || strings.Contains(v.Path, "/../") ||
@@ -162,16 +162,9 @@ func (v transport) config(sessionID int64) ([]byte, error) {
 	// cookie and cannot borrow a newer account's socket protector.
 	return json.Marshal(map[string]any{
 		"log": map[string]any{"access": "none", "error": "none", "loglevel": "none"},
-		"inbounds": []any{map[string]any{
-			"tag": "maestro-cdn-socks", "listen": "127.0.0.1", "port": v.SocksPort,
-			"protocol": "socks",
-			"settings": map[string]any{
-				// Xray's UDP filter trusts the peer IP after one association.
-				// Loopback IP is shared by other apps, so only authenticated TCP is enabled.
-				"auth": "password", "udp": false, "ip": "127.0.0.1",
-				"accounts": []any{map[string]any{"user": v.SocksUser, "pass": v.SocksPass}},
-			},
-		}},
+		// The authenticated TCP/UOT boundary is owned by this module. Xray has
+		// no listening inbound, especially no IP-authorized SOCKS UDP listener.
+		"inbounds": []any{},
 		"outbounds": []any{map[string]any{
 			"tag": "maestro-cdn", "protocol": "vless",
 			"settings": map[string]any{

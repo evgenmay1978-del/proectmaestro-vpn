@@ -38,6 +38,9 @@ import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.ktx.hasPermission
 import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.vendor.Vendor
+import com.maestrovpn.tv.whitelist.WhiteListConfig
+import com.maestrovpn.tv.whitelist.WhiteListSelection
+import com.maestrovpn.tv.whitelist.WhiteListSession
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -45,6 +48,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 class BoxService(private val service: Service, private val platformInterface: PlatformInterface) : CommandServerHandler {
@@ -88,6 +93,19 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private val binder = ServiceBinder(status)
     private val notification = ServiceNotification(status, service)
     private lateinit var commandServer: CommandServer
+    private val contentMutex = Mutex()
+    private val whiteListSession = (service as? VPNService)?.let { vpn ->
+        WhiteListSession(vpn) { expired ->
+            val version = WhiteListSelection.version()
+            val shouldStop = WhiteListSelection.current() == null || WhiteListSelection.matches(expired)
+            GlobalScope.launch(Dispatchers.Main) {
+                if (shouldStop && WhiteListSelection.version() == version) {
+                    WhiteListSelection.clear(expired)
+                    stopService()
+                }
+            }
+        }
+    }
 
     private var receiverRegistered = false
     // Held for the whole tunnel lifetime so the CPU stays awake in Doze and the engine's
@@ -98,6 +116,15 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
+                    WhiteListSelection.ACTION -> {
+                        val requested = WhiteListSelection.current() ?: return
+                        GlobalScope.launch(Dispatchers.IO) {
+                            if (status.value != Status.Started) return@launch
+                            runCatching { reloadSelectedContent(requested) }.onFailure {
+                                stopAndAlert(Alert.CreateService, "CDN: подключение недоступно")
+                            }
+                        }
+                    }
                     Action.SERVICE_CLOSE -> {
                         stopService()
                     }
@@ -119,12 +146,12 @@ class BoxService(private val service: Service, private val platformInterface: Pl
 
     private var lastProfileName = ""
 
-    private fun buildOverrideOptions(content: String): OverrideOptions =
+    private fun buildOverrideOptions(content: String, cdn: Boolean = false): OverrideOptions =
         OverrideOptions().apply {
             autoRedirect = Settings.autoRedirect
             val appPackage = Application.application.packageName
             val wdttOwnPackageBypass =
-                service is VPNService &&
+                !cdn && service is VPNService &&
                     !DeviceFormFactor.isTelevision(Application.application) &&
                     WdttVpnPolicy.hasWdttOutbound(content)
             val perAppEnabled = Vendor.isPerAppProxyAvailable() && Settings.perAppProxyEnabled
@@ -144,13 +171,64 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             }
         }
 
+    /** Serialize native configuration changes; the latest explicit request wins. */
+    private suspend fun applySelectedContent(content: String, sourceAccount: Pair<Long, Long>, expected: WhiteListSelection.Request? = null): Boolean = contentMutex.withLock {
+        if (expected != null && !WhiteListSelection.matches(expected)) return@withLock true
+        if (expected != null && whiteListSession?.ready(expected) == true && WhiteListSelection.view.value.active == expected.tag) return@withLock true
+        repeat(3) {
+            if (status.value == Status.Stopping || status.value == Status.Stopped) return@withLock false
+            check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
+            val request = WhiteListSelection.current()
+            check(request == null || (request.profileId to request.revision) == sourceAccount) { "Выбранный аккаунт изменился" }
+            check(request != null || !WhiteListSelection.requiresExplicitChoice()) { "CDN: выберите подключение" }
+            whiteListSession?.close()
+            val cdn = request?.tag?.startsWith("cdn:") == true
+            try {
+                val effective = when {
+                    cdn -> requireNotNull(whiteListSession?.prepare(content, requireNotNull(request))) { "CDN unavailable" }
+                    request != null -> WhiteListConfig.selectOrdinary(content, request.tag)
+                    else -> content
+                }
+                if (request != null && !WhiteListSelection.matches(request)) return@repeat
+                check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
+                commandServer.startOrReloadService(effective, buildOverrideOptions(effective, cdn))
+                if (status.value == Status.Stopping || status.value == Status.Stopped) {
+                    whiteListSession?.close()
+                    closeService()
+                    return@withLock false
+                }
+                if (request != null && !WhiteListSelection.matches(request)) return@repeat
+                check(WhiteListSelection.account() == sourceAccount) { "Выбранный аккаунт изменился" }
+                if (cdn && whiteListSession?.ready(requireNotNull(request)) != true) error("CDN expired")
+                if (request != null) WhiteListSelection.started(request)
+                return@withLock true
+            } catch (e: Exception) {
+                whiteListSession?.close()
+                if (request != null && !WhiteListSelection.matches(request)) return@repeat
+                // A libbox parse error could contain a fragment of the ephemeral credentials.
+                if (cdn) throw IllegalStateException("CDN: подключение недоступно")
+                throw e
+            }
+        }
+        error("Selection changed")
+    }
+
+    private suspend fun reloadSelectedContent(request: WhiteListSelection.Request) {
+        if (!WhiteListSelection.matches(request)) return
+        val sourceAccount = WhiteListSelection.account()
+        if (sourceAccount != (request.profileId to request.revision)) return
+        val profile = requireNotNull(ProfileManager.get(request.profileId))
+        applySelectedContent(File(profile.typed.path).readText(), sourceAccount, request)
+    }
+
     private suspend fun startService() {
         try {
             withContext(Dispatchers.Main) {
                 notification.show(lastProfileName, R.string.status_starting)
             }
 
-            val selectedProfileId = Settings.selectedProfile
+            val sourceAccount = WhiteListSelection.account()
+            val selectedProfileId = sourceAccount.first
             if (selectedProfileId == -1L) {
                 stopAndAlert(Alert.EmptyConfiguration)
                 return
@@ -176,10 +254,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             DefaultNetworkMonitor.start()
 
             try {
-                commandServer.startOrReloadService(
-                    content,
-                    buildOverrideOptions(content),
-                )
+                if (!applySelectedContent(content, sourceAccount)) return
             } catch (e: Exception) {
                 stopAndAlert(Alert.CreateService, e.message)
                 return
@@ -198,12 +273,20 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 }
             }
 
-            status.postValue(Status.Started)
-            acquireWakeLock()   // keep the CPU alive so the tunnel survives screen-off / Doze
-            withContext(Dispatchers.Main) {
+            val started = withContext(Dispatchers.Main) {
+                if (status.value == Status.Stopping || status.value == Status.Stopped) return@withContext false
+                status.value = Status.Started
                 notification.show(lastProfileName, R.string.status_started)
+                true
             }
+            if (!started) return
+            acquireWakeLock()   // keep the CPU alive so the tunnel survives screen-off / Doze
             notification.start()
+            // A selection received after configuration applied but while status was Starting
+            // has no live command feed yet. Consume it here instead of losing that wake-up.
+            WhiteListSelection.current()?.let { requested ->
+                if (whiteListSession?.ready(requested) != true) reloadSelectedContent(requested)
+            }
         } catch (e: Exception) {
             stopAndAlert(Alert.StartService, e.message)
             return
@@ -211,6 +294,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     override fun serviceStop() {
+        whiteListSession?.close()
+        WhiteListSelection.clear()
         releaseWakeLock()
         notification.close()
         status.postValue(Status.Starting)
@@ -255,7 +340,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // olcRTC child would be orphaned (idle, no traffic). Reap it; the user re-selects olcRTC
         // to respawn. No-op when olcRTC wasn't running.
         OlcrtcManager.stop()
-        val selectedProfileId = Settings.selectedProfile
+        val sourceAccount = WhiteListSelection.account()
+        val selectedProfileId = sourceAccount.first
         if (selectedProfileId == -1L) {
             stopAndAlert(Alert.EmptyConfiguration)
             return
@@ -274,10 +360,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         }
         lastProfileName = profile.name
         try {
-            commandServer.startOrReloadService(
-                content,
-                buildOverrideOptions(content),
-            )
+            if (!applySelectedContent(content, sourceAccount)) return
         } catch (e: Exception) {
             stopAndAlert(Alert.CreateService, e.message)
             return
@@ -356,6 +439,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
         // stopping/stopped.
         if (status.value == Status.Stopping || status.value == Status.Stopped) return
         status.value = Status.Stopping
+        whiteListSession?.close()
+        WhiteListSelection.clear()
         releaseWakeLock()
         if (receiverRegistered) {
             service.unregisterReceiver(receiver)
@@ -414,6 +499,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     }
 
     private suspend fun stopAndAlert(type: Alert, message: String? = null) {
+        whiteListSession?.close()
+        WhiteListSelection.clear()
         Settings.startedByUser = false
         releaseWakeLock()
         val pfd = fileDescriptor
@@ -459,6 +546,7 @@ class BoxService(private val service: Service, private val platformInterface: Pl
                 receiver,
                 IntentFilter().apply {
                     addAction(Action.SERVICE_CLOSE)
+                    addAction(WhiteListSelection.ACTION)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
                     }
@@ -490,6 +578,8 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     internal fun onBind(): IBinder = binder
 
     internal fun onDestroy() {
+        whiteListSession?.destroy()
+        WhiteListSelection.destroyed()
         binder.close()
     }
 

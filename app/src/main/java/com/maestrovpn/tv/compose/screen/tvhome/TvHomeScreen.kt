@@ -252,7 +252,9 @@ internal fun protocolIcon(tag: String): ImageVector = when (tag) {
 }
 
 /** Friendly chip label; "auto" is the urltest pick = the lowest-latency protocol. */
-internal fun protocolLabel(tag: String): String = when (tag) {
+internal fun protocolLabel(tag: String): String = if (tag.startsWith("cdn:")) {
+    com.maestrovpn.tv.whitelist.WhiteListSelection.label(tag) ?: "CDN"
+} else when (tag) {
     "auto" -> "Авто"
     "hysteria2" -> "Hysteria2"
     "vless" -> "VLESS"
@@ -264,7 +266,7 @@ internal fun protocolLabel(tag: String): String = when (tag) {
 }
 
 /** Short recommendation badge under each protocol chip (unified style). */
-internal fun protocolBadge(tag: String): String = when (tag) {
+internal fun protocolBadge(tag: String): String = if (tag.startsWith("cdn:")) "При ограничениях" else when (tag) {
     "auto" -> "Рекомендуется"
     "vless", "vless-s3" -> "Оптимальный"
     "hysteria2" -> "Самый быстрый"

@@ -2,7 +2,10 @@ module github.com/evgenmay1978-del/proectmaestro-vpn/android-xhttp
 
 go 1.26
 
-require github.com/xtls/xray-core v0.0.0-20260509173629-1bdb488c9ec0
+require (
+	github.com/sagernet/sing v0.5.1
+	github.com/xtls/xray-core v0.0.0-20260509173629-1bdb488c9ec0
+)
 
 require (
 	github.com/apernet/quic-go v0.59.1-0.20260425001925-6c6cc9bcb716 // indirect
@@ -17,7 +20,6 @@ require (
 	github.com/pires/go-proxyproto v0.12.0 // indirect
 	github.com/refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
-	github.com/sagernet/sing v0.5.1 // indirect
 	github.com/sagernet/sing-shadowsocks v0.2.7 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/vishvananda/netlink v1.3.1 // indirect

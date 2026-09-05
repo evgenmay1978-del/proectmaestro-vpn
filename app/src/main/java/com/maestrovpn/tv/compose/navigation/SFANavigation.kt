@@ -140,9 +140,9 @@ fun SFANavHost(
                     connected = connected,
                     connecting = serviceStatus == Status.Starting,
                     // Each home filters before its fallback so a hidden-only profile stays empty.
-                    protocols = selectGroup?.items?.map { it.tag } ?: emptyList(),
-                    selected = selectGroup?.selected,
-                    activeProtocol = activeProtocol,
+                    protocols = ((selectGroup?.items?.map { it.tag } ?: emptyList()).filterNot { it.startsWith("cdn:") } + groupsUi.cdnOptions).distinct(),
+                    selected = groupsUi.cdnSelected ?: selectGroup?.selected?.takeUnless { it.startsWith("cdn:") && groupsUi.cdnActive != it },
+                    activeProtocol = groupsUi.cdnActive ?: activeProtocol?.takeUnless { it.startsWith("cdn:") },
                     accountLogin = accountInfo.login,
                     daysLeft = accountInfo.daysLeft,
                     accountExpires = accountInfo.expiresDate,
@@ -150,7 +150,9 @@ fun SFANavHost(
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag ->
                         selectGroup?.takeIf { isProtocolSelectionAllowed(it.tag, tag) }?.let { g ->
-                            if (serviceStatus == Status.Started) {
+                            if (tag.startsWith("cdn:")) {
+                                if (groupsViewModel.selectCdn(tag) && serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
+                            } else if (serviceStatus == Status.Started) {
                                 // VPN already up — just switch the live protocol.
                                 groupsViewModel.selectGroupItem(g.tag, tag)
                             } else {
