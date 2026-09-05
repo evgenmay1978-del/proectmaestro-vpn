@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
@@ -12,6 +13,10 @@ var errInvalidSnapshotProtection = errors.New("invalid snapshot protection")
 
 type SnapshotProtection struct {
 	SourceDigest          string
+	SnapshotKind          string
+	ParentSourceDigest    string
+	CapturedAt            time.Time
+	Parent                *SnapshotProtection
 	ClusterHMACKeySHA256  string
 	LegacyTrialSaltSHA256 string
 	HasTrials             bool
@@ -19,20 +24,28 @@ type SnapshotProtection struct {
 	Customers             []LegacyCustomer
 }
 
-func ProtectionFromSnapshot(snapshot Snapshot) SnapshotProtection {
+func ProtectionFromSnapshot(snapshot Snapshot, parentSnapshots ...*Snapshot) SnapshotProtection {
 	customers := append([]LegacyCustomer(nil), snapshot.Customers...)
 	for index := range customers {
 		customers[index].ProtocolTags = append([]string(nil), customers[index].ProtocolTags...)
 		customers[index].NodeIDs = append([]string(nil), customers[index].NodeIDs...)
 	}
-	return SnapshotProtection{
+	protection := SnapshotProtection{
 		SourceDigest:          digestSnapshot(snapshot),
+		SnapshotKind:          snapshot.SnapshotKind,
+		ParentSourceDigest:    snapshot.ParentSourceDigest,
+		CapturedAt:            snapshot.CapturedAt,
 		ClusterHMACKeySHA256:  snapshot.ClusterHMACKeySHA256,
 		LegacyTrialSaltSHA256: snapshot.LegacyTrialSaltSHA256,
 		HasTrials:             len(snapshot.Trials) > 0,
 		EncryptedSecrets:      append([]LegacyEncryptedSecret(nil), snapshot.EncryptedSecrets...),
 		Customers:             customers,
 	}
+	if len(parentSnapshots) == 1 && parentSnapshots[0] != nil {
+		parent := ProtectionFromSnapshot(*parentSnapshots[0])
+		protection.Parent = &parent
+	}
+	return protection
 }
 
 func ValidateSnapshotProtection(

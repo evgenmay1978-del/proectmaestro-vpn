@@ -498,9 +498,9 @@ func TestProductionFactoryRejectsUnsupportedTypedIdentityBeforeNetwork(t *testin
 	}
 	identity := importer.ProductionCustomerIdentity{SchemaVersion: 1, SubID: "synthetic-sub-id", Generation: 1,
 		Customer: legacystore.Customer{Login: "SyntheticFactoryCustomer", SubToken: "synthetic-token", Expires: time.Unix(2_100_000_000, 0),
-			VLESS:   &subgen.VLESSCreds{UUID: "4d29cf7f-8581-4243-baba-d39eb481256c"},
-			Devices: map[string]time.Time{"PRIVATE-DEVICE-MARKER": time.Unix(1, 0)}}}
-	snapshot := importer.Snapshot{FormatVersion: 2, SnapshotKind: "full", ClusterHMACKeySHA256: hexSHA256(files.hmacKey),
+			VLESS: &subgen.VLESSCreds{UUID: "4d29cf7f-8581-4243-baba-d39eb481256c"},
+			WG:    &subgen.WGCreds{PrivateKey: "PRIVATE-WG-MARKER"}}}
+	snapshot := importer.Snapshot{FormatVersion: 2, SnapshotKind: "full", CapturedAt: time.Unix(2_000_000_000, 0).UTC(), ClusterHMACKeySHA256: hexSHA256(files.hmacKey),
 		Customers: []importer.LegacyCustomer{{SourceKey: "factory-customer", IdentitySecretRef: "factory-customer-secret",
 			Login: identity.Customer.Login, Generation: identity.Generation, ExpiresAtUnix: identity.Customer.Expires.Unix(),
 			Status: "active", ProtocolTags: []string{"vless"}, NodeIDs: []string{"S1"}}}}
@@ -509,7 +509,7 @@ func TestProductionFactoryRejectsUnsupportedTypedIdentityBeforeNetwork(t *testin
 	db, verifier := &runtimeRQLite{}, &runtimeSchemaVerifier{}
 	_, err = buildProductionApplyRuntime(context.Background(), runtimeConfig(files, importer.ProtectionFromSnapshot(snapshot)),
 		runtimeDependencies(files, db, verifier, &newCalls))
-	if err == nil || strings.Contains(err.Error(), "PRIVATE-DEVICE-MARKER") || newCalls != 0 || verifier.calls != 0 || db.requestCalls != 0 {
+	if err == nil || strings.Contains(err.Error(), "PRIVATE-WG-MARKER") || newCalls != 0 || verifier.calls != 0 || db.requestCalls != 0 {
 		t.Fatal("unsupported typed legacy identity crossed the production pre-apply boundary")
 	}
 }

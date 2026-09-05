@@ -603,7 +603,8 @@ func equalShadowStrings(left, right []string) bool {
 }
 
 func (s *RQLiteApplyStore) BeginOrResume(ctx context.Context, run ApplyRun) (RunProgress, error) {
-	if s.customerProtection != nil && run.SourceDigest != s.customerProtection.sourceDigest {
+	if s.customerProtection != nil && (run.SourceDigest != s.customerProtection.sourceDigest ||
+		run.SnapshotKind != s.customerProtection.snapshotKind || run.ParentDigest != s.customerProtection.parentDigest) {
 		return RunProgress{}, errInvalidProductionIdentity
 	}
 	if run.RunID == "" || (run.SnapshotKind != "full" && run.SnapshotKind != "delta") ||
@@ -611,6 +612,11 @@ func (s *RQLiteApplyStore) BeginOrResume(ctx context.Context, run ApplyRun) (Run
 		(run.SnapshotKind == "full" && run.ParentDigest != "") ||
 		(run.SnapshotKind == "delta" && len(run.ParentDigest) != 64) {
 		return RunProgress{}, errors.New("invalid import run")
+	}
+	if s.customerProtection != nil {
+		if err := s.verifyProductionParentReceipt(ctx, run); err != nil {
+			return RunProgress{}, err
+		}
 	}
 	var parent any
 	if run.ParentDigest != "" {
@@ -1304,20 +1310,42 @@ func (s *RQLiteApplyStore) customerStatements(batch ApplyBatch, operation ApplyO
 	}
 	gate := batchGateArgs(batch)
 	tokenID := sha256Hex([]byte("subscription-token\x00" + customer.InternalID))
+	generationUpdate := "generation=excluded.generation,updated_at_unix=excluded.updated_at_unix\nWHERE customers.generation <= excluded.generation"
+	generationInsert := "?"
+	var generationArgs []any
+	customerArgs := []any{customer.InternalID, customer.DisplayLogin, customer.LoginKeyHMAC, customer.Status, customer.ExpiresAtUnix}
+	if s.customerProtection != nil {
+		// The authenticated parent supplies the exact previous revision. A CAS
+		// loss (including a competing update to the same next revision) aborts
+		// the entire transaction through the existing nonnegative CHECK.
+		generationUpdate = "generation=-1,updated_at_unix=excluded.updated_at_unix"
+		if prior, exists := s.customerProtection.priorCustomers[customer.SourceKey]; exists {
+			// A missing prior target must not be silently recreated either.
+			generationInsert = "CASE WHEN EXISTS(SELECT 1 FROM customers WHERE customer_id=?) THEN ? ELSE -1 END"
+			customerArgs = append(customerArgs, customer.InternalID)
+			generationUpdate = `generation=CASE WHEN customers.generation=? AND customers.status=? AND customers.expires_at_unix=?
+AND EXISTS(SELECT 1 FROM imported_entity_state e WHERE e.entity_kind='customer' AND e.source_key=? AND e.target_id=customers.customer_id AND e.canonical_sha256=? AND e.lifecycle='active')
+THEN excluded.generation ELSE -1 END,updated_at_unix=excluded.updated_at_unix`
+			prior.ProtocolTags = append([]string(nil), prior.ProtocolTags...)
+			sort.Strings(prior.ProtocolTags)
+			prior.NodeIDs = append([]string(nil), prior.NodeIDs...)
+			sort.Strings(prior.NodeIDs)
+			generationArgs = []any{prior.Generation, prior.Status, prior.ExpiresAtUnix, prior.SourceKey, canonicalLegacyDigest(prior)}
+		}
+	}
+	customerArgs = append(customerArgs, customer.Generation, nowUnix, nowUnix)
+	customerArgs = append(customerArgs, gate...)
+	customerArgs = append(customerArgs, generationArgs...)
 	statements := []rqlite.Statement{
 		{
 			SQL: `INSERT INTO customers(
     customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix
-) SELECT ?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+) SELECT ?,?,?,?,?,` + generationInsert + `,?,? WHERE ` + batchWriteGate + `
 ON CONFLICT(customer_id) DO UPDATE SET
     display_login=excluded.display_login,login_key_hmac=excluded.login_key_hmac,
     status=excluded.status,expires_at_unix=excluded.expires_at_unix,
-    generation=excluded.generation,updated_at_unix=excluded.updated_at_unix
-WHERE customers.generation <= excluded.generation`,
-			Args: append([]any{
-				customer.InternalID, customer.DisplayLogin, customer.LoginKeyHMAC, customer.Status,
-				customer.ExpiresAtUnix, customer.Generation, nowUnix, nowUnix,
-			}, gate...),
+    ` + generationUpdate,
+			Args: customerArgs,
 		},
 		{
 			SQL: `INSERT INTO subscription_tokens(
@@ -1353,13 +1381,9 @@ ON CONFLICT(credential_id) DO UPDATE SET
 		})
 	}
 	if s.customerProtection != nil {
-		// Retain the original authenticated identity, including source-only fields,
-		// independently of the reader-specific derived credential envelopes.
-		original, err := s.encryptedSecretStatements(batch, ApplyOperation{CanonicalJSON: envelope})
-		if err != nil {
-			return nil, err
-		}
-		statements = append(statements, original...)
+		// The mutable desired_node_state below retains the complete protected
+		// source identity. An immutable imported_secrets owner slot cannot accept
+		// a final delta with a changed expiry or device map.
 		args := []any{customer.InternalID}
 		for _, protocol := range protocols {
 			args = append(args, protocol)
@@ -1367,6 +1391,11 @@ ON CONFLICT(credential_id) DO UPDATE SET
 		statements = append(statements, rqlite.Statement{SQL: `UPDATE credentials SET enabled=0
 WHERE customer_id=? AND protocol NOT IN (` + sqlPlaceholders(len(protocols)) + `) AND ` + batchWriteGate,
 			Args: append(args, gate...)})
+		deviceStatements, err := s.productionDeviceStatements(batch, customer, secret)
+		if err != nil {
+			return nil, err
+		}
+		statements = append(statements, deviceStatements...)
 	}
 	protocolDeleteArgs := []any{customer.InternalID, "maestro-core"}
 	for _, protocolTag := range customer.ProtocolTags {

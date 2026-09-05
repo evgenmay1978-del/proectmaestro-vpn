@@ -15,8 +15,9 @@ import (
 var canonicalCustomerProtocols = []string{"anytls", "hysteria2", "naive", "vless"}
 
 type CustomerAccess struct {
-	SubscriptionToken string            `json:"subscription_token"`
-	Credentials       map[string]string `json:"credentials"`
+	SubscriptionToken   string            `json:"subscription_token"`
+	Credentials         map[string]string `json:"credentials"`
+	CredentialUsernames map[string]string `json:"credential_usernames,omitempty"`
 }
 
 type sealedCustomerSecret struct {
@@ -132,11 +133,17 @@ ORDER BY cr.protocol`,
 			}
 			access.SubscriptionToken = raw
 		}
-		raw, openErr := s.openCustomerSecret(row, "secret_envelope", customerID, "credential", protocol)
+		raw, username, openErr := s.openCustomerCredential(row, customerID, protocol)
 		if openErr != nil {
 			return CustomerAccess{}, openErr
 		}
 		access.Credentials[protocol] = raw
+		if username != "" {
+			if access.CredentialUsernames == nil {
+				access.CredentialUsernames = make(map[string]string)
+			}
+			access.CredentialUsernames[protocol] = username
+		}
 	}
 	if access.SubscriptionToken == "" || len(access.Credentials) == 0 {
 		return CustomerAccess{}, ErrUnavailable
@@ -175,9 +182,13 @@ func accessPayload(access CustomerAccess) map[string]any {
 		protocols = append(protocols, protocol)
 	}
 	sort.Strings(protocols)
-	return map[string]any{
+	payload := map[string]any{
 		"subscription_token": access.SubscriptionToken,
 		"credentials":        access.Credentials,
 		"protocols":          protocols,
 	}
+	if len(access.CredentialUsernames) != 0 {
+		payload["credential_usernames"] = access.CredentialUsernames
+	}
+	return payload
 }

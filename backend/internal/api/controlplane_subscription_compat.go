@@ -43,7 +43,11 @@ func renderControlPlaneSubscription(customer controlplane.BusinessCustomer, topo
 	configured.Name = customer.Login
 	configured.VLESS = configuredVLESS(topology.VLESS, customer.Access.Credentials["vless"])
 	configured.Hy2 = configuredHy2(topology.Hy2, customer.Login, customer.Access.Credentials["hysteria2"])
-	configured.Naive = configuredNaive(topology.Naive, customer.Login, customer.Access.Credentials["naive"])
+	naiveUsername := customer.Login
+	if importedUsername := customer.Access.CredentialUsernames["naive"]; importedUsername != "" {
+		naiveUsername = importedUsername
+	}
+	configured.Naive = configuredNaive(topology.Naive, naiveUsername, customer.Access.Credentials["naive"])
 	configured.AnyTLS = configuredAnyTLS(topology.AnyTLS, customer.Access.Credentials["anytls"])
 	// Frozen provisionS3/provisionS4 reuse the customer's primary VLESS UUID.
 	configured.VLESS3 = configuredVLESS(topology.VLESS3, customer.Access.Credentials["vless"])

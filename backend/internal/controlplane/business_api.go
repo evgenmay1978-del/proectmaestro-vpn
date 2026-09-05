@@ -76,10 +76,10 @@ func (s *Service) BusinessCustomerByID(ctx context.Context, customerID string) (
 	}
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT customer_id,display_login,status,expires_at_unix,generation,
-       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0) AS device_count,
-       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0),0) AS last_seen_at_unix
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?),0) AS last_seen_at_unix
 FROM customers WHERE customer_id=? AND status<>'deleted' LIMIT 1`,
-		Args: []any{customerID},
+		Args: []any{s.clock.Now().Unix() - legacyDeviceTTLSeconds, s.clock.Now().Unix() - legacyDeviceTTLSeconds, customerID},
 	})
 	if err != nil {
 		return BusinessCustomer{}, ErrUnavailable
@@ -111,10 +111,10 @@ FROM customers WHERE customer_id=? AND status<>'deleted' LIMIT 1`,
 func (s *Service) businessCustomer(ctx context.Context, customer Customer) (BusinessCustomer, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT display_login,
-       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0) AS device_count,
-       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0),0) AS last_seen_at_unix
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?),0) AS last_seen_at_unix
 FROM customers WHERE customer_id=? LIMIT 1`,
-		Args: []any{customer.ID},
+		Args: []any{s.clock.Now().Unix() - legacyDeviceTTLSeconds, s.clock.Now().Unix() - legacyDeviceTTLSeconds, customer.ID},
 	})
 	if err != nil {
 		return BusinessCustomer{}, ErrUnavailable
@@ -154,12 +154,12 @@ func (s *Service) ListBusinessCustomersPage(ctx context.Context, afterLogin, aft
 func (s *Service) listBusinessCustomers(ctx context.Context, afterLogin, afterCustomerID string, limit int) ([]BusinessCustomer, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `
 SELECT customer_id,display_login,status,expires_at_unix,generation,
-       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0) AS device_count,
-       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0),0) AS last_seen_at_unix
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?),0) AS last_seen_at_unix
 FROM customers WHERE status<>'deleted'
 AND (?='' OR display_login>? OR (display_login=? AND customer_id>?))
 ORDER BY display_login,customer_id LIMIT ?`,
-		Args: []any{afterLogin, afterLogin, afterLogin, afterCustomerID, limit},
+		Args: []any{s.clock.Now().Unix() - legacyDeviceTTLSeconds, s.clock.Now().Unix() - legacyDeviceTTLSeconds, afterLogin, afterLogin, afterLogin, afterCustomerID, limit},
 	})
 	if err != nil || len(results) != 1 {
 		return nil, ErrUnavailable
@@ -203,8 +203,8 @@ func (s *Service) BusinessCustomerDevices(ctx context.Context, login string) ([]
 	}
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT device_id,COALESCE(last_seen_at_unix,0) AS last_seen_at_unix
-FROM devices WHERE customer_id=? AND revoked=0 ORDER BY device_id`,
-		Args: []any{customer.ID},
+FROM devices WHERE customer_id=? AND revoked=0 AND last_seen_at_unix>=? ORDER BY device_id`,
+		Args: []any{customer.ID, s.clock.Now().Unix() - legacyDeviceTTLSeconds},
 	})
 	if err != nil || len(results) != 1 {
 		return nil, ErrUnavailable

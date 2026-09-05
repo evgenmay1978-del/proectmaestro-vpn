@@ -112,7 +112,7 @@ func run(args []string, stdout, stderr io.Writer, factory applyRuntimeFactory) i
 		writeError(stderr, "expected plan digest does not match")
 		return exitInputSystem
 	}
-	protection := importer.ProtectionFromSnapshot(snapshot)
+	protection := importer.ProtectionFromSnapshot(snapshot, planOptions.ParentSnapshot)
 	if !validApplyOptions(options, protection.HasTrials) {
 		writeError(stderr, "apply requires run id and protected inputs")
 		return exitInputSystem

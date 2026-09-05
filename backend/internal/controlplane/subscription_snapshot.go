@@ -44,7 +44,7 @@ func (s *Service) BusinessSubscriptionSnapshot(ctx context.Context, rawToken, ra
 		SQL: `SELECT c.customer_id,c.display_login,c.status,c.expires_at_unix,c.generation,
 st.token_hmac,st.token_envelope,st.generation AS token_generation,
 cr.protocol,cr.secret_envelope,cr.generation AS credential_generation,
-EXISTS(SELECT 1 FROM devices d WHERE d.customer_id=c.customer_id AND d.device_key_hmac=? AND d.revoked=0) AS device_committed,
+EXISTS(SELECT 1 FROM devices d WHERE d.customer_id=c.customer_id AND d.device_key_hmac=? AND d.revoked=0 AND d.last_seen_at_unix>=?) AS device_committed,
 COALESCE((SELECT MAX(generation) FROM cluster_settings),0) AS settings_generation,
 COALESCE((SELECT MAX(version) FROM schema_migrations),0) AS schema_version,
 COALESCE((SELECT b.restore_epoch FROM backup_rpo_state b
@@ -57,7 +57,7 @@ LEFT JOIN credentials cr ON cr.customer_id=c.customer_id AND cr.enabled=1
 AND cr.generation=(SELECT MAX(c2.generation) FROM credentials c2 WHERE c2.customer_id=c.customer_id AND c2.protocol=cr.protocol AND c2.enabled=1)
 WHERE st.token_hmac=? AND st.revoked=0 AND c.status<>'deleted'
 ORDER BY cr.protocol`,
-		Args: []any{deviceHMAC, tokenHMAC},
+		Args: []any{deviceHMAC, s.clock.Now().Unix() - legacyDeviceTTLSeconds, tokenHMAC},
 	})
 	if err != nil {
 		return BusinessSubscriptionSnapshot{}, ErrUnavailable
@@ -139,11 +139,17 @@ ORDER BY cr.protocol`,
 	access := CustomerAccess{SubscriptionToken: rawStoredToken, Credentials: make(map[string]string, len(credentialRows))}
 	for _, row := range credentialRows {
 		protocol, _ := rowString(row, "protocol")
-		raw, openErr := s.openCustomerSecret(row, "secret_envelope", customerID, "credential", protocol)
+		raw, username, openErr := s.openCustomerCredential(row, customerID, protocol)
 		if openErr != nil {
 			return BusinessSubscriptionSnapshot{}, ErrInvalidState
 		}
 		access.Credentials[protocol] = raw
+		if username != "" {
+			if access.CredentialUsernames == nil {
+				access.CredentialUsernames = make(map[string]string)
+			}
+			access.CredentialUsernames[protocol] = username
+		}
 	}
 	return BusinessSubscriptionSnapshot{
 		Customer: BusinessCustomer{Customer: Customer{

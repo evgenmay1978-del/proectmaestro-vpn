@@ -8,6 +8,10 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
+// Matches the existing legacy store's deviceTTL. Expired rows remain available
+// for provenance but do not authorize admission or occupy an active device slot.
+const legacyDeviceTTLSeconds int64 = 60 * 24 * 60 * 60
+
 func (s *Service) ClaimDevice(
 	ctx context.Context,
 	customerID string,
@@ -24,32 +28,33 @@ func (s *Service) ClaimDevice(
 		return DeviceClaim{}, errors.New("controlplane: generate device identifier")
 	}
 	now := s.clock.Now().Unix()
+	cutoff := now - legacyDeviceTTLSeconds
 	deviceHMAC := s.store.secrets.LookupHMAC("device-identity", []byte(rawDeviceIdentity))
 	actorHMAC := s.store.secrets.LookupHMAC("audit-actor", []byte(customerID))
 	resourceHMAC := s.store.secrets.LookupHMAC("audit-resource", []byte(customerID+"\x00"+deviceHMAC))
 	statements := []rqlite.Statement{{
 		SQL: `INSERT INTO devices(device_id, customer_id, device_key_hmac, platform, last_seen_at_unix, revoked, created_at_unix)
 SELECT ?, ?, ?, ?, ?, 0, ?
-WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0)
+WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0 AND last_seen_at_unix>=?)
    OR ? = 0
-   OR (SELECT COUNT(*) FROM devices WHERE customer_id = ? AND revoked = 0) < ?
+   OR (SELECT COUNT(*) FROM devices WHERE customer_id = ? AND revoked = 0 AND last_seen_at_unix>=?) < ?
 ON CONFLICT(customer_id, device_key_hmac) DO UPDATE SET
 platform = excluded.platform, last_seen_at_unix = excluded.last_seen_at_unix, revoked = 0
 WHERE devices.platform IS NOT excluded.platform
 	OR devices.last_seen_at_unix IS NOT excluded.last_seen_at_unix
 	OR devices.revoked <> 0`,
-		Args: []any{deviceID, customerID, deviceHMAC, platform, now, now, customerID, deviceHMAC, limit, customerID, limit},
+		Args: []any{deviceID, customerID, deviceHMAC, platform, now, now, customerID, deviceHMAC, cutoff, limit, customerID, cutoff, limit},
 	}, backupRPODirtyGenerationStatement(now), {
 		SQL: `INSERT INTO audit_events(event_id, actor_hmac, action, resource_type, resource_id_hmac, created_at_unix)
 SELECT ?, ?, 'device.claim', 'device', ?, ?
-WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0)
+WHERE EXISTS (SELECT 1 FROM devices WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0 AND last_seen_at_unix>=?)
 ON CONFLICT(event_id) DO NOTHING`,
-		Args: []any{auditID("device", deviceHMAC, 0, now), actorHMAC, resourceHMAC, now, customerID, deviceHMAC},
+		Args: []any{auditID("device", deviceHMAC, 0, now), actorHMAC, resourceHMAC, now, customerID, deviceHMAC, cutoff},
 	}, {
 		SQL: `SELECT device_id FROM devices
-WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0
+WHERE customer_id = ? AND device_key_hmac = ? AND revoked = 0 AND last_seen_at_unix>=?
 LIMIT 1`,
-		Args: []any{customerID, deviceHMAC},
+		Args: []any{customerID, deviceHMAC, cutoff},
 	}}
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, statements...)
 	if err != nil {
@@ -84,6 +89,7 @@ func (s *Service) ClaimSubscriptionDevice(ctx context.Context, command Subscript
 		return DeviceClaim{}, errors.New("controlplane: generate device identifier")
 	}
 	now := s.clock.Now().Unix()
+	cutoff := now - legacyDeviceTTLSeconds
 	deviceHMAC := s.store.secrets.LookupHMAC("device-identity", []byte(command.RawDeviceIdentity))
 	actorHMAC := s.store.secrets.LookupHMAC("audit-actor", []byte(command.CustomerID))
 	resourceHMAC := s.store.secrets.LookupHMAC("audit-resource", []byte(command.CustomerID+"\x00"+deviceHMAC))
@@ -109,18 +115,18 @@ AND EXISTS (
 	}
 	claimArgs := []any{deviceID, command.CustomerID, deviceHMAC, platform, now, now}
 	claimArgs = append(claimArgs, eligibilityArgs...)
-	claimArgs = append(claimArgs, command.CustomerID, deviceHMAC, command.Limit, command.CustomerID, command.Limit)
+	claimArgs = append(claimArgs, command.CustomerID, deviceHMAC, cutoff, command.Limit, command.CustomerID, cutoff, command.Limit)
 	auditArgs := []any{auditID("device", deviceHMAC+"\x00"+deviceID, 0, now), actorHMAC, resourceHMAC, now}
-	auditArgs = append(auditArgs, command.CustomerID, deviceHMAC)
-	outcomeArgs := []any{command.CustomerID, deviceHMAC}
+	auditArgs = append(auditArgs, command.CustomerID, deviceHMAC, cutoff)
+	outcomeArgs := []any{command.CustomerID, deviceHMAC, cutoff}
 	outcomeArgs = append(outcomeArgs, eligibilityArgs...)
 	outcomeArgs = append(outcomeArgs, eligibilityArgs...)
-	outcomeArgs = append(outcomeArgs, command.Limit, command.CustomerID, command.Limit)
+	outcomeArgs = append(outcomeArgs, command.Limit, command.CustomerID, cutoff, command.Limit)
 	statements := []rqlite.Statement{{
 		SQL: `INSERT INTO devices(device_id,customer_id,device_key_hmac,platform,last_seen_at_unix,revoked,created_at_unix)
 SELECT ?,?,?,?,?,0,? WHERE ` + eligibility + `
-AND (EXISTS (SELECT 1 FROM devices WHERE customer_id=? AND device_key_hmac=? AND revoked=0)
-  OR ?=0 OR (SELECT COUNT(*) FROM devices WHERE customer_id=? AND revoked=0)<?)
+AND (EXISTS (SELECT 1 FROM devices WHERE customer_id=? AND device_key_hmac=? AND revoked=0 AND last_seen_at_unix>=?)
+  OR ?=0 OR (SELECT COUNT(*) FROM devices WHERE customer_id=? AND revoked=0 AND last_seen_at_unix>=?)<?)
 ON CONFLICT(customer_id,device_key_hmac) DO UPDATE SET
 platform=excluded.platform,last_seen_at_unix=excluded.last_seen_at_unix,revoked=0
 WHERE devices.platform IS NOT excluded.platform
@@ -131,18 +137,18 @@ RETURNING device_id,unixepoch() AS admitted_at_unix`,
 	}, backupRPODirtyGenerationStatement(now), {
 		SQL: `INSERT INTO audit_events(event_id,actor_hmac,action,resource_type,resource_id_hmac,created_at_unix)
 SELECT ?,?,'device.claim','device',?,? WHERE changes()=1
-AND EXISTS (SELECT 1 FROM devices WHERE customer_id=? AND device_key_hmac=? AND revoked=0)
+AND EXISTS (SELECT 1 FROM devices WHERE customer_id=? AND device_key_hmac=? AND revoked=0 AND last_seen_at_unix>=?)
 RETURNING event_id`,
 		Args: auditArgs,
 	}, {
 		SQL: `WITH admitted_device AS (
-SELECT device_id FROM devices WHERE customer_id=? AND device_key_hmac=? AND revoked=0 LIMIT 1
+SELECT device_id FROM devices WHERE customer_id=? AND device_key_hmac=? AND revoked=0 AND last_seen_at_unix>=? LIMIT 1
 )
 SELECT CASE WHEN ` + eligibility + ` THEN 0 ELSE 1 END AS state_changed,
 CASE WHEN EXISTS (SELECT 1 FROM admitted_device) THEN 1 ELSE 0 END AS admitted,
 (SELECT device_id FROM admitted_device) AS device_id,
 CASE WHEN ` + eligibility + ` AND ?>0
-AND (SELECT COUNT(*) FROM devices WHERE customer_id=? AND revoked=0)>=? THEN 1 ELSE 0 END AS at_limit,
+AND (SELECT COUNT(*) FROM devices WHERE customer_id=? AND revoked=0 AND last_seen_at_unix>=?)>=? THEN 1 ELSE 0 END AS at_limit,
 unixepoch() AS database_now_unix`,
 		Args: outcomeArgs,
 	}}

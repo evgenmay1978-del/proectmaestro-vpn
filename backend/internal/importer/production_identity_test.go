@@ -31,7 +31,7 @@ func productionIdentityFixture(t *testing.T) (Snapshot, ProductionCustomerIdenti
 			VLESS3: &subgen.VLESSCreds{Server: "s3.example.test", Port: 443, UUID: uuid, SNI: "example.test", Fingerprint: "chrome"},
 			VLESS4: &subgen.VLESSCreds{Server: "s4.example.test", Port: 443, UUID: uuid, SNI: "example.test", Fingerprint: "chrome"},
 			Hy2:    &subgen.Hy2Creds{Server: "hy.example.test", Port: 443, User: login, Pass: "synthetic-hy-password", SNI: "example.test"},
-			Naive:  &subgen.NaiveCreds{Server: "naive.example.test", Port: 443, Username: login, Password: "synthetic-naive-password", SNI: "example.test"},
+			Naive:  &subgen.NaiveCreds{Server: "naive.example.test", Port: 443, Username: "mtv_" + login, Password: "synthetic-naive-password", SNI: "example.test"},
 			AnyTLS: &subgen.AnyTLSCreds{Server: "tls.example.test", Port: 443, Password: "synthetic-anytls-password", SNI: "example.test"},
 		}}
 	snapshot := decodeFixture(t, "customers-valid.json")
@@ -51,7 +51,7 @@ func setProductionFixtureIdentity(t *testing.T, snapshot *Snapshot, identity Pro
 	row.Generation = identity.Generation
 	row.Status = "active"
 	if identity.Customer.Disabled {
-		row.Status = "disabled"
+		row.Status = "suspended"
 	}
 	canonical, err := controlplane.CanonicalLoginKey(row.Login)
 	if err != nil {
@@ -128,9 +128,9 @@ func TestProductionIdentityDerivesExactReaderScopesAndRetainsOriginal(t *testing
 			encoded, field = statement.Args[3].(string), "credential"
 		case strings.Contains(statement.SQL, "INSERT INTO subscription_tokens("):
 			encoded, field, kind = statement.Args[3].(string), "token", "subscription"
-		case strings.Contains(statement.SQL, "INSERT INTO imported_secrets("):
+		case strings.Contains(statement.SQL, "INSERT INTO desired_node_state("):
 			var preserved LegacyEncryptedSecret
-			if json.Unmarshal([]byte(statement.Args[6].(string)), &preserved) != nil || preserved != snapshot.EncryptedSecrets[0] {
+			if json.Unmarshal([]byte(statement.Args[4].(string)), &preserved) != nil || preserved != snapshot.EncryptedSecrets[0] {
 				t.Fatal("original encrypted identity was not preserved")
 			}
 			originalFound = true
@@ -144,6 +144,17 @@ func TestProductionIdentityDerivesExactReaderScopesAndRetainsOriginal(t *testing
 			t.Fatal("derived envelope is not in production reader format")
 		}
 		plain, err := box.Open(controlplane.SecretScope{OwnerType: "customer", OwnerID: plan.Customers[0].InternalID, Field: field, Kind: kind}, envelope)
+		if field == "credential" && kind == "naive" {
+			plain, err = box.Open(controlplane.SecretScope{OwnerType: "customer", OwnerID: plan.Customers[0].InternalID, Field: field, Kind: "naive-identity-v1"}, envelope)
+			var named struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}
+			if err != nil || json.Unmarshal(plain, &named) != nil || named.Username != identity.Customer.Naive.Username {
+				t.Fatal("original Naive username was not retained")
+			}
+			plain = []byte(named.Password)
+		}
 		if err != nil {
 			t.Fatal("derived envelope does not authenticate under production scope")
 		}
@@ -172,17 +183,17 @@ func TestProductionIdentityRejectsUnsupportedMappingBeforeStoreCreation(t *testi
 	cases := map[string]func(*Snapshot, *ProductionCustomerIdentity){
 		"distinct-vless3": func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Customer.VLESS3.UUID = "different" },
 		"distinct-vless4": func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Customer.VLESS4.UUID = "different" },
-		"devices": func(_ *Snapshot, i *ProductionCustomerIdentity) {
-			i.Customer.Devices = map[string]time.Time{"synthetic-device": time.Unix(1, 0)}
+		"invalid-device": func(_ *Snapshot, i *ProductionCustomerIdentity) {
+			i.Customer.Devices = map[string]time.Time{"": time.Unix(1, 0)}
 		},
 		"wireguard": func(_ *Snapshot, i *ProductionCustomerIdentity) {
 			i.Customer.WG = &subgen.WGCreds{PrivateKey: "synthetic"}
 		},
-		"hy2-login":          func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Customer.Hy2.User = "other" },
-		"naive-login":        func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Customer.Naive.Username = "other" },
-		"missing-sub-id":     func(_ *Snapshot, i *ProductionCustomerIdentity) { i.SubID = "" },
-		"missing-generation": func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Generation = 0 },
-		"missing-protocol":   func(s *Snapshot, _ *ProductionCustomerIdentity) { s.Customers[0].ProtocolTags = []string{"vless"} },
+		"hy2-login":           func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Customer.Hy2.User = "other" },
+		"missing-naive-login": func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Customer.Naive.Username = "" },
+		"missing-sub-id":      func(_ *Snapshot, i *ProductionCustomerIdentity) { i.SubID = "" },
+		"missing-generation":  func(_ *Snapshot, i *ProductionCustomerIdentity) { i.Generation = 0 },
+		"missing-protocol":    func(s *Snapshot, _ *ProductionCustomerIdentity) { s.Customers[0].ProtocolTags = []string{"vless"} },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -214,7 +225,7 @@ func TestProductionIdentityRejectsUnsupportedMappingBeforeStoreCreation(t *testi
 			case "generation":
 				row.Generation++
 			case "status":
-				row.Status = "disabled"
+				row.Status = "suspended"
 			}
 			if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(snapshot), box); err == nil {
 				t.Fatal("identity metadata mismatch accepted")
@@ -252,9 +263,11 @@ func TestProductionIdentityTracksDerivedEnvelopeKeyVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
-		{{Rows: []map[string]any{{"key_version": int64(7)}}}},
-		{{Rows: []map[string]any{{"envelope": value.envelope}}}},
+		{{}},
+		{{Rows: []map[string]any{{"envelope": value.envelope, "encoding": "access"}}}},
 	}}
+	original, _ := json.Marshal(snapshot.EncryptedSecrets[0])
+	db.queryResponses[1][0].Rows = append(db.queryResponses[1][0].Rows, map[string]any{"envelope": string(original), "encoding": "identity"})
 	store, err := NewProductionRQLiteApplyStore(db, time.Now, protection, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -262,5 +275,58 @@ func TestProductionIdentityTracksDerivedEnvelopeKeyVersions(t *testing.T) {
 	versions, err := store.ReadReferencedKeyVersions(context.Background())
 	if err != nil || !reflect.DeepEqual(versions, []int{7, 8}) {
 		t.Fatal("key readiness omitted either original or reader-derived envelope key")
+	}
+}
+
+func TestProductionIdentityAcceptsDevicesAndSuspendedLegacyAccount(t *testing.T) {
+	snapshot, identity, box := productionIdentityFixture(t)
+	identity.Customer.Disabled = true
+	identity.Customer.Devices = map[string]time.Time{"original-device": snapshot.CapturedAt.Add(-time.Hour)}
+	setProductionFixtureIdentity(t, &snapshot, identity, box)
+	if snapshot.Customers[0].Status != "suspended" {
+		t.Fatal("disabled legacy account did not map to supported suspended status")
+	}
+	if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(snapshot), box); err != nil {
+		t.Fatal("ordinary disabled/device identity remains unsupported")
+	}
+	snapshot.Customers[0].Status = "disabled"
+	if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(snapshot), box); err == nil {
+		t.Fatal("unsupported SQL customer status passed pre-apply validation")
+	}
+}
+
+func TestProductionDeltaRequiresARevisionForChangedProtectedIdentity(t *testing.T) {
+	for _, kind := range []string{"devices", "naive-username", "expiry", "unchanged"} {
+		t.Run(kind, func(t *testing.T) {
+			parent, identity, box := productionIdentityFixture(t)
+			delta := parent
+			delta.Customers = append([]LegacyCustomer(nil), parent.Customers...)
+			delta.EncryptedSecrets = nil
+			delta.SnapshotKind = "delta"
+			delta.ParentSourceDigest = digestSnapshot(parent)
+			delta.CapturedAt = parent.CapturedAt.Add(time.Second)
+			switch kind {
+			case "devices":
+				identity.Customer.Devices = map[string]time.Time{"original-device": parent.CapturedAt.Add(-time.Hour)}
+			case "naive-username":
+				named := *identity.Customer.Naive
+				named.Username = "different-original-username"
+				identity.Customer.Naive = &named
+			case "expiry":
+				identity.Customer.Expires = identity.Customer.Expires.Add(time.Hour)
+			}
+			setProductionFixtureIdentity(t, &delta, identity, box)
+			protected, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(delta, &parent), box)
+			if kind == "unchanged" {
+				if err != nil || protected == nil || delta.EncryptedSecrets[0].SHA256 != parent.EncryptedSecrets[0].SHA256 || delta.EncryptedSecrets[0].CiphertextB64 == parent.EncryptedSecrets[0].CiphertextB64 {
+					t.Fatal("unchanged cumulative identity with fresh encryption nonce was rejected")
+				}
+			} else if err == nil || protected != nil {
+				t.Fatal("changed protected identity reused the parent's desired revision")
+			}
+			if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(delta), box); err == nil {
+				t.Fatal("delta without authenticated parent crossed pre-apply validation")
+			}
+		})
 	}
 }
