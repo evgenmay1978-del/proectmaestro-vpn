@@ -18,7 +18,10 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/sidecaragentclient"
 )
 
-const runtimeWhiteListMeteringInterval = 2 * time.Second
+const (
+	runtimeWhiteListMeteringInterval   = 2 * time.Second
+	runtimeWhiteListMeteringPassBudget = 5 * time.Second
+)
 
 var errRuntimeWhiteListMeteringUnavailable = errors.New("white-list metering runtime is unavailable")
 
@@ -121,11 +124,19 @@ func runRuntimeWhiteListMetering(
 }
 
 func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context) (runErr error) {
+	started := time.Now()
+	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
+	// Recovery must keep time to reconcile even when sampling exhausts its budget.
+	reconcileContext, cancelReconcile := context.WithDeadline(ctx, started.Add(runtimeWhiteListMeteringPassBudget))
+	defer cancelReconcile()
+	ctx, cancelSampling := context.WithDeadline(reconcileContext, started.Add(runtimeWhiteListMeteringInterval))
+	defer cancelSampling()
+	collector.reconcileNeeded = true
 	defer func() {
 		if !collector.reconcileNeeded {
 			return
 		}
-		if err := collector.reconcile(ctx); err != nil {
+		if err := collector.reconcile(reconcileContext); err != nil {
 			if runErr == nil {
 				runErr = errRuntimeWhiteListMeteringUnavailable
 			}
@@ -147,10 +158,6 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 		collector.startupRecovered = true
 	}
-	// A failed plan or poll cannot postpone health-based revocation until the
-	// unrelated 30-second renewal pass. The collector itself is default-OFF.
-	collector.reconcileNeeded = true
-
 	resolve := func(nodeID string) (controlplane.ExternalActionSender, bool) {
 		sender, ok := collector.senders[nodeID]
 		return sender, ok && sender != nil

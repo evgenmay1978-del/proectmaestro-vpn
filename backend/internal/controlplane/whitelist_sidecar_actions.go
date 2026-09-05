@@ -48,6 +48,12 @@ func (s *Service) ExecuteWhiteListSidecarAction(
 			return WhiteListSidecarReceipt{}, ErrUnavailable
 		}
 		lookupContext := context.WithoutCancel(ctx)
+		if deadline, ok := ctx.Deadline(); ok {
+			// Unknown delivery may be recovered, but never beyond its caller's budget.
+			var cancelLookup context.CancelFunc
+			lookupContext, cancelLookup = context.WithDeadline(lookupContext, deadline)
+			defer cancelLookup()
+		}
 		var err error
 		response, err = lookup.LookupReceipt(lookupContext, desired.Action.ActionKey)
 		if err != nil {

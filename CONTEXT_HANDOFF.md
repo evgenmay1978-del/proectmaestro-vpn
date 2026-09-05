@@ -10,7 +10,7 @@
 - Канонический репозиторий: `evgenmay1978-del/proectmaestro-vpn`.
 - Единственная рабочая/push-ветка: `codex/yandex-cdn-whitelist-task3-sync`.
 - Worktree: `C:/Users/User/Documents/Codex/2026-08-05/new-chat/mvpn-yandex-cdn-whitelist-task3-sync`.
-- Последний проверенный Android source: `61076496484144a921d2f28ac83b016c5e459f8b`; backend остаётся проверенным на `7d98663ccca2c99224ad501c0f0a437221727c4c` и после него не менялся в Git.
+- Последний проверенный Android source: `61076496484144a921d2f28ac83b016c5e459f8b`; последняя GREEN backend база — `7d98663ccca2c99224ad501c0f0a437221727c4c`. Новое изменение metering deadlines ниже ожидает exact-SHA HA; не считать его live.
 - Последующий HEAD может содержать handoff/manifest и исправление docs-check; не путать его с SHA проверенной Android сборки.
 - HA run [33961608220](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961608220) **SUCCESS**: Go tests, race, vet, rqlite integration и workflow сборки.
 - Preview run [33961612988](https://github.com/evgenmay1978-del/proectmaestro-vpn/actions/runs/33961612988) **SUCCESS** на том же SHA.
@@ -108,8 +108,12 @@ S2 ещё НЕ добавлен в CDN Origin group. S4 НЕ обновлён д
 
 `AuthorizeWhiteListMeteringAdmission` уже существует, production reserve provider/caller отсутствует.
 Admission candidates должны браться из publications+credentials: plan.Routes содержит только уже
-managed users и при прямом wiring оставит bootstrap deadlock. Ticker2s не ограничивает runPass:
-Origin/DB calls последовательны, rqlite timeout10s; collector/revoke latency ещё не доказана.
+managed users и при прямом wiring оставит bootstrap deadlock. В новых исходниках sampling получает
+deadline start+2s, reconcile — отдельный start+5s; startup recovery failure также вызывает reconcile.
+Оба receipt-recovery пути сохраняют deadline поверх WithoutCancel и не повторяют неизвестный POST.
+Независимый six-file review CLEAN; четыре focused regressions добавлены, Go tests только в GitHub.
+Это cooperative budgets, НЕ доказанная частота sampling/revoke: Origin/DB calls последовательны,
+mutex/нагрузка и live latency ещё требуют существующего canary gate.
 Same-boot producer всегда передаёт reset_sequence0/counter_generation1; точный closing sample
 при смене периода/outage не производится. Approved plan задаёт формулу p99.9, но не window,
 population, sample count или freshness: их нельзя заменить выдуманным числом. Существующий

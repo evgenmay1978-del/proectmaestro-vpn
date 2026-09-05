@@ -158,6 +158,33 @@ func TestClientRejectsOversizedDesiredBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestClientUnknownPostRecoveryPreservesCallerDeadline(t *testing.T) {
+	payload, _ := testDesired(t)
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	transport := &scriptedTransport{
+		post: func(request *http.Request) (*http.Response, error) {
+			httptrace.ContextClientTrace(request.Context()).WroteRequest(httptrace.WroteRequestInfo{})
+			return nil, context.DeadlineExceeded
+		},
+		get: func(request *http.Request) (*http.Response, error) {
+			got, ok := request.Context().Deadline()
+			if !ok || !got.Equal(deadline) {
+				t.Fatal("unknown POST recovery discarded the caller operation deadline")
+			}
+			return nil, context.DeadlineExceeded
+		},
+	}
+	client := newWithHTTPClient("https://agent.test", time.Second, 2*time.Minute, &http.Client{Transport: transport})
+	if _, err := client.Post(ctx, payload); !errors.Is(err, ErrDeliveryUnknown) {
+		t.Fatalf("Post error=%v", err)
+	}
+	if transport.posts.Load() != 1 || transport.gets.Load() != 1 {
+		t.Fatal("recovery must be one receipt read, never a second POST")
+	}
+}
+
 func TestClientLooksUpTypedUsageOverExistingMTLSBinding(t *testing.T) {
 	files, serverTLS := testTLSFiles(t, "agent.test")
 	_, actionKey := testDesired(t)

@@ -174,7 +174,14 @@ func (client *Client) Post(ctx context.Context, desired []byte) ([]byte, error) 
 		if !wroteRequest {
 			return nil, ErrBeforeSend
 		}
-		receipt, lookupErr := client.LookupReceipt(context.WithoutCancel(ctx), actionKey)
+		lookupContext := context.WithoutCancel(ctx)
+		if deadline, ok := ctx.Deadline(); ok {
+			// Detach cancellation for exact receipt recovery, not the operation budget.
+			var cancelLookup context.CancelFunc
+			lookupContext, cancelLookup = context.WithDeadline(lookupContext, deadline)
+			defer cancelLookup()
+		}
+		receipt, lookupErr := client.LookupReceipt(lookupContext, actionKey)
 		if lookupErr == nil {
 			return receipt, nil
 		}

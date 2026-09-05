@@ -278,6 +278,60 @@ func runtimeWhiteListMeteringEntitlement(t *testing.T, now time.Time) controlpla
 	return entitlement
 }
 
+func TestRuntimeWhiteListMeteringSamplingTimeoutKeepsBoundedReconcileAlive(t *testing.T) {
+	var sampleDeadline time.Time
+	control := &runtimeWhiteListMeteringControl{
+		planCall: func(ctx context.Context) (controlplane.WhiteListMeteringPlan, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok || deadline.After(time.Now().Add(2*time.Second)) {
+				t.Fatal("sampling must have its own two-second deadline")
+			}
+			sampleDeadline = deadline
+			<-ctx.Done()
+			return controlplane.WhiteListMeteringPlan{}, ctx.Err()
+		},
+		reconcileCall: func(ctx context.Context) error {
+			deadline, ok := ctx.Deadline()
+			if !ok || deadline.Sub(sampleDeadline) != 3*time.Second || ctx.Err() != nil {
+				t.Fatal("sampling timeout must leave the remaining pass budget for reconcile")
+			}
+			return nil
+		},
+	}
+	collector := &runtimeWhiteListMeteringCollector{
+		control: control, store: &runtimeWhiteListMeteringStoreFake{}, workerID: "worker",
+		senders: map[string]controlplane.ExternalActionSender{"s4": &runtimeWhiteListMeteringSender{}},
+	}
+	if err := collector.runPass(context.Background()); !errors.Is(err, errRuntimeWhiteListMeteringUnavailable) {
+		t.Fatalf("runPass error=%v", err)
+	}
+	if control.reconciles != 1 || collector.reconcileNeeded {
+		t.Fatal("timed-out sampling skipped successful health reconciliation")
+	}
+}
+
+func TestRuntimeWhiteListMeteringRecoveryFailureStillReconcilesAndRetainsPending(t *testing.T) {
+	control := &runtimeWhiteListMeteringControl{
+		reconcileCall: func(ctx context.Context) error {
+			if _, ok := ctx.Deadline(); !ok {
+				t.Fatal("reconcile must remain bounded even on startup failure")
+			}
+			return context.DeadlineExceeded
+		},
+	}
+	collector := &runtimeWhiteListMeteringCollector{
+		control: control, store: &runtimeWhiteListMeteringStoreFake{pendingErr: context.DeadlineExceeded},
+		workerID: "worker",
+		senders:  map[string]controlplane.ExternalActionSender{"s4": &runtimeWhiteListMeteringSender{}},
+	}
+	if err := collector.runPass(context.Background()); !errors.Is(err, errRuntimeWhiteListMeteringUnavailable) {
+		t.Fatalf("runPass error=%v", err)
+	}
+	if control.reconciles != 1 || !collector.reconcileNeeded || collector.startupRecovered {
+		t.Fatal("failed recovery/reconcile must remain pending without suppressing revoke attempts")
+	}
+}
+
 type runtimeWhiteListMeteringSender struct {
 	snapshot  sidecaragentclient.UsageSnapshot
 	lookupErr error
@@ -292,10 +346,12 @@ func (sender *runtimeWhiteListMeteringSender) LookupUsage(context.Context, strin
 }
 
 type runtimeWhiteListMeteringControl struct {
-	plan         controlplane.WhiteListMeteringPlan
-	reconciles   int
-	bootstraps   int
-	observations []controlplane.WhiteListOriginObservation
+	plan          controlplane.WhiteListMeteringPlan
+	planCall      func(context.Context) (controlplane.WhiteListMeteringPlan, error)
+	reconcileCall func(context.Context) error
+	reconciles    int
+	bootstraps    int
+	observations  []controlplane.WhiteListOriginObservation
 }
 
 func (control *runtimeWhiteListMeteringControl) EnsureWhiteListMeteringBootstrap(
@@ -310,7 +366,10 @@ func (control *runtimeWhiteListMeteringControl) RecordWhiteListOriginObservation
 	return nil
 }
 
-func (control *runtimeWhiteListMeteringControl) WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error) {
+func (control *runtimeWhiteListMeteringControl) WhiteListMeteringPlan(ctx context.Context) (controlplane.WhiteListMeteringPlan, error) {
+	if control.planCall != nil {
+		return control.planCall(ctx)
+	}
 	return control.plan, nil
 }
 
@@ -319,7 +378,7 @@ func (*runtimeWhiteListMeteringControl) DebitCommercialInterval(context.Context,
 }
 
 func (control *runtimeWhiteListMeteringControl) ReconcileWhiteListSidecarIntents(
-	_ context.Context,
+	ctx context.Context,
 	_ string,
 	resolve func(string) (controlplane.ExternalActionSender, bool),
 ) error {
@@ -327,11 +386,15 @@ func (control *runtimeWhiteListMeteringControl) ReconcileWhiteListSidecarIntents
 		return errors.New("missing test sender")
 	}
 	control.reconciles++
+	if control.reconcileCall != nil {
+		return control.reconcileCall(ctx)
+	}
 	return nil
 }
 
 type runtimeWhiteListMeteringStoreFake struct {
 	pending      []string
+	pendingErr   error
 	cursor       shadowbilling.CommercialProducerCursor
 	pendingReads int
 	drains       []string
@@ -353,7 +416,7 @@ func (store *runtimeWhiteListMeteringStoreFake) ApplyCommercialFirstCumulative(
 
 func (store *runtimeWhiteListMeteringStoreFake) PendingCommercialDebitEntitlementIDs(context.Context) ([]string, error) {
 	store.pendingReads++
-	return append([]string(nil), store.pending...), nil
+	return append([]string(nil), store.pending...), store.pendingErr
 }
 
 func (store *runtimeWhiteListMeteringStoreFake) DrainCommercialDebits(

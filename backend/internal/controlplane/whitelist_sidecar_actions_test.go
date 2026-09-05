@@ -126,6 +126,48 @@ func TestReconcileWhiteListSidecarGenerationFailsClosedBeforeSendForUnhealthyExi
 	}
 }
 
+func TestExecuteWhiteListSidecarUnknownRecoveryPreservesDeadlineWithoutResend(t *testing.T) {
+	db, service := newCustomerIntegritySQLite(t)
+	desired := seedWhiteListSidecarActionFixture(t, db, "origin-s4", "s4", testDigest("a"))
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	sender := &deadlineReceiptSender{
+		desiredReceiptSender: desiredReceiptSender{now: service.clock.Now(), bootID: "boot-s4"},
+		t:                    t, deadline: deadline,
+	}
+	first, err := service.ExecuteWhiteListSidecarAction(ctx, desired, "panel-a", sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.ExecuteWhiteListSidecarAction(ctx, desired, "panel-a", sender)
+	if err != nil || first != second || sender.posts != 1 || sender.lookups == 0 {
+		t.Fatalf("receipt recovery/replay error=%v posts=%d lookups=%d", err, sender.posts, sender.lookups)
+	}
+}
+
+type deadlineReceiptSender struct {
+	desiredReceiptSender
+	t        *testing.T
+	deadline time.Time
+	lookups  int
+}
+
+func (sender *deadlineReceiptSender) Post(ctx context.Context, request []byte) ([]byte, error) {
+	if _, err := sender.desiredReceiptSender.Post(ctx, request); err != nil {
+		return nil, err
+	}
+	return nil, errors.New("unknown after send")
+}
+
+func (sender *deadlineReceiptSender) LookupReceipt(ctx context.Context, actionKey string) ([]byte, error) {
+	sender.lookups++
+	if got, ok := ctx.Deadline(); !ok || !got.Equal(sender.deadline) {
+		sender.t.Fatal("control-plane recovery discarded the operation deadline")
+	}
+	return sender.desiredReceiptSender.LookupReceipt(ctx, actionKey)
+}
+
 type desiredReceiptSender struct {
 	posts   int
 	now     time.Time
