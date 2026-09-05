@@ -160,10 +160,49 @@ VALUES(?,?,0,?,?,0,?,?)`, Args: []any{periodID, entitlementID, now.Unix() - 100,
 	if !strings.Contains(string(published), publicHost) || !strings.Contains(string(published), "type=xhttp") || !strings.Contains(string(published), encryption) {
 		t.Fatalf("public production adapter omitted CDN node: %q", published)
 	}
+	nativeRequest := func(token string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "https://sub.example.invalid/account/whitelist-runtime", nil)
+		request.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	bareRequest := func() *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/sub/"+customer.Access.SubscriptionToken, nil))
+		return response
+	}
+	bareBefore := bareRequest()
+	if bareBefore.Code != http.StatusOK {
+		t.Fatal("ordinary baseline unavailable")
+	}
+	nativeResponse := nativeRequest(customer.Access.SubscriptionToken)
+	var native api.WhiteListNativeRuntimeView
+	if nativeResponse.Code != http.StatusOK || json.Unmarshal(nativeResponse.Body.Bytes(), &native) != nil ||
+		native.SchemaVersion != 1 || native.ProjectionVersion != after.Projection.Version || native.DesiredGeneration <= 0 ||
+		native.IssuedAtUnix != clock.Now().Unix() || native.FreshUntilUnix <= native.IssuedAtUnix ||
+		native.FreshUntilUnix-native.IssuedAtUnix > 5 || len(native.Profiles) != 1 ||
+		native.Profiles[0].Address != publicHost || native.Profiles[0].Encryption != encryption ||
+		native.Profiles[0].TransportReleaseID != "release-1" || nativeResponse.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("native route did not use actual fresh production publication adapter")
+	}
+	unknownNative := nativeRequest("unknown-native-test-token")
+	if unknownNative.Code != http.StatusNotFound || strings.Contains(unknownNative.Body.String(), "client_id") {
+		t.Fatal("native route failed unknown-token isolation")
+	}
 	sender.receipts = nil
 	closed := request()
 	if closed.Code != http.StatusServiceUnavailable || strings.Contains(closed.Body.String(), publicHost) {
 		t.Fatalf("missing current-boot receipt did not fail closed: status=%d body=%q", closed.Code, closed.Body.String())
+	}
+	nativeClosed := nativeRequest(customer.Access.SubscriptionToken)
+	if nativeClosed.Code != http.StatusServiceUnavailable || strings.Contains(nativeClosed.Body.String(), "profiles") ||
+		strings.Contains(nativeClosed.Body.String(), publicHost) {
+		t.Fatal("native route served credentials without a current Origin receipt")
+	}
+	bareAfter := bareRequest()
+	if bareAfter.Code != http.StatusOK || bareAfter.Body.String() != bareBefore.Body.String() {
+		t.Fatal("native publication failure changed the ordinary bare subscription")
 	}
 }
 
