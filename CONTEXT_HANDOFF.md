@@ -1,5 +1,102 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 0. CURRENT — TASK 15 S4 B441 ACTIVE; SYNTHETIC 2/3/4 PASS (05.09.2026)
+
+This section supersedes earlier status and next-step statements below. The sole
+canonical branch is `codex/yandex-cdn-whitelist-task3-sync`. The source/package
+checkpoint is `b4415daa90c95a38f9a7b9adea7642c66e63a420`; a later documentation
+HEAD does not replace that package identity or the installed release identity.
+
+- Installed S4 commercial source is now
+  `b4415daa90c95a38f9a7b9adea7642c66e63a420`, release
+  `b4415daa90c9-s4commercial-bc65f9447a8e945a`, `ACTIVE` with all six shipped
+  status checks true after the locked shipped operator apply exited `0`.
+  Config SHA-256 is
+  `5fd67f3bf80fc3a7c0bfae1de32d421b66ee11ac95bff8ea3f851ca71d052f38`.
+  Previous package/release `3603f11bbc35a4a9d708c41db1bc13f0d2907805` /
+  `3603f11bbc35-s4commercial-afb832ce9e32f3a4` is retained.
+  The reviewed source-restricted relay/agent firewall delta is retained after
+  strict SSH and independent-observer PASS. Ordinary services and the private
+  working canary remain unchanged; no public commercial ingress/CDN switch ran.
+- Previous `3603f11...` synthetic generation 1 was persisted with no proven
+  receipt: the one delivered
+  POST returned HTTP `503` in `6240 ms`, and exact-action receipt GET returned
+  `404`. It must never be replayed. Recovery of that action is GET-only. The
+  preceding curl `56`/HTTP `000` failed before HTTP because its TLS client sent
+  an extra CA; the explicit leaf-only unsent-transport correction was used once
+  and is exhausted. This historical failed attempt is retained as evidence,
+  superseded by the b441 proofs below.
+- Two confirmed source defects are corrected in b441: readiness validation now
+  probes only the selected exit within the action budget while retaining full
+  runtime/configuration/credential/firewall validation; inventory still checks
+  all four exits. The exact Xray `26.5.9` freedom exception permits only TCP
+  loopback health port `18444`. A separate same-binary authenticated VLESS
+  diagnostic changed from private-target blocking to HTTP `204`; diagnostic
+  processes stopped without restarting installed services. Scoped reviews PASS.
+- Exact b441 Yandex run `33928873964` now has all six jobs terminal GREEN:
+  format `101203186261`, race/vet `101204020725`, rqlite `101204020765`, offline
+  `101204020770`, commercial `101204020803`, Android `101204799664`. The Android
+  completion was refreshed directly from GitHub on 05.09.2026. HA immutable run
+  `33928874093`/job `101203186787` and network run `33928874014` are GREEN.
+  No workflow was rerun to obtain this checkpoint.
+- Artifact `9957942956`, `54141763` bytes, archive SHA-256
+  `7a74ff26f181c44456493958577005f938b417cd2eca501dab60376989736b7b`,
+  is downloaded directly to S4 and staged with all nine members verified.
+  Manifest SHA-256 is
+  `a687657c43a20d77512a26ac73821c161513ddaebdb4dda6af466bde2855add5`.
+  The shipped upgrade `plan` passed, binding release
+  `b4415daa90c9-s4commercial-bc65f9447a8e945a`, config SHA-256
+  `5fd67f3bf80fc3a7c0bfae1de32d421b66ee11ac95bff8ea3f851ca71d052f38`,
+  and runtime-input SHA-256
+  `bc65f9447a8e945a4b7b8686859f54e7f05408f6477b2171047724ed3dde3f34`.
+  The exact locked shipped apply and synthetic receipts below now bind these
+  identities. The initial connector download URL failed
+  with HTTPError/zero bytes and was not retried; authenticated GitHub redirect
+  download succeeded with the credential sent only to GitHub.
+- The recovery console is restored and verified connected/encrypted. The
+  earlier AdminVPS session expired (login CAPTCHA; direct VNC `Unauthorized`).
+  The owner has now authorized continuation and the authenticated product
+  panel is available with no CAPTCHA. The official QEMU console shows the
+  Ubuntu 24.04 tty1 login prompt. Fresh strict SSH, shipped previous-release
+  status, ordinary hashes/units/PIDs and exact firewall baseline passed before
+  apply. Post-upgrade ordinary/private saved hashes, unit/PID comparison and
+  strict SSH also passed.
+- The exact protected upgrade change sheet was transferred before apply.
+  Reviewed local generation helpers preserve the byte-identical previous
+  `3603f11...` add proof and require explicit previous-commit binding. They passed
+  syntax/scoped review, then executed on S4 after ACTIVE/baseline proof. Nine
+  protected files were transferred to S1. Generations `2/3/4` bind b441 and
+  previous commit `3603f11bbc35a4a9d708c41db1bc13f0d2907805` without changing
+  the previous proof.
+- Synthetic add generation 2: POST `200`/`263 ms`, receipt GET `200`/`146 ms`;
+  revoke generation 3: POST `200`/`290 ms`, GET `200`/`149 ms`; resume generation
+  4: POST `200`/`232 ms`, GET `200`/`152 ms`. All receipts matched the exact
+  release/config/boot/generation/managed-set digest and freshness at most 30 s.
+  A separate GET-only resume recovery returned `200`/`198 ms`, with no POST sent
+  and zero replayed requests. This proves read-only receipt recovery; no lost
+  response was simulated and fault-injection recovery remains unproven.
+  Current desired generation 4 is resumed. Old generation 1 remains retained
+  and was never replayed. No real customer or private-canary identity changed.
+- Ingress source `aad63b52c74aedd2c568f0ed4a6a9f912e31e262` and its sealed
+  workflow correction `26895992db384d8275c36720a622d96862505f69` are ancestors
+  of b441. Real nginx parsing as the intended user passed in an isolated stage.
+  No nginx package, ingress service, public allowance, or CDN origin change is
+  installed; exact ingress rollback and functional commercial CDN proof remain
+  open. One existing paid CDN resource remains the approved design.
+- Read-only bot identity discovery is complete: current S1
+  `@MaestroSecureVPN_bot` uses `vpnbot.service`; S2 `@MaestroSecureNaive_bot`
+  uses `vpn_bot.service`. Each was active with one process, webhook absent and
+  pending count zero. `@maestrovpn` is configuration-backed; publishing rights
+  and commercial delivery/refresh flows are not proven. No messages were sent.
+
+Next: finish ingress/direct/CDN proof, unknown-outcome fault injection,
+deliberate rollback
+and same-release re-apply before S2 → S3 → S1. Full client/bot/channel/panel
+refresh, last-known-good recovery and continuous 48-hour accounting remain open.
+The private subscription/credential stays active and unprobed. Customer traffic
+cutover, real charges, release/signing/OTA, OLCRTC and WDTT remain outside scope;
+production Android remains ordinary-only `1.0.157`.
+
 ## 0. WHITE-LIST COMMERCIAL DELIVERY — TASK 13 DELIVERY GREEN; TASK 14 NEXT (04.09.2026)
 
 - Единственная рабочая/push-ветка остаётся
@@ -4334,3 +4431,127 @@ active until the full fleet, client/bot/channel refresh matrix, last-known-good
 recovery, and continuous 48-hour accounting window are green; any mismatch
 retains it. No live server, customer traffic, real charge, OTA/release
 publication, OLCRTC, or WDTT state changed in this package slice.
+
+## 2026-09-05 - Historical Task 15 recovered S4 first-install checkpoint
+
+The first S4 deployment candidate was code/package SHA
+`dbbd950ab556b92b103cd51f5a4b2686acb74ef5`. Exact-SHA runs were green: Yandex
+CDN release `33921272744` (commercial package job `101180838339`), HA immutable
+artifact `33921272756`, and HA S4 network package `33921272769`. Two bounded
+independent reviews found no code blocker. Artifact `9955259827` is
+`maestro-xray-cdn-commercial-dbbd950ab556b92b103cd51f5a4b2686acb74ef5`,
+size `54137499`, archive SHA-256
+`64b41f53592fc3a3b5c82da45028f851a85811ea11725ed713b16ce67b484981`,
+and manifest SHA-256
+`b005eba27a5ab5a95038dae7ce5dc26e440fb42b599af8e38b31abceb14246e4`.
+The exact shipped S4 operator plan passed with config SHA-256
+`8ff75a7e4718610cf20866aadc7e6903d69362d7455d60735ddef47daa41e7a1`
+and runtime-input SHA-256
+`57a9aeba7bca9f07fdac0c72311baeba9d2709f24b2bc4a5378b22c8ba1043d5`.
+
+That immutable package is retained as failed evidence and must not be applied
+again. Its first S4 apply reached the real Xray `ExecStartPre` and failed
+because `runtime/relay-ca` was agent-owned `0750`, so the Xray service identity
+could not traverse the directory to read its own `0640` CA files. The operator
+recovered to `ABSENT`. The exact commercial firewall delta was then rolled back
+and a full fresh baseline proved ordinary/private files, PIDs, listeners, UFW,
+route, time synchronization, capacity, and failed-unit state unchanged. No
+commercial installation or commercial firewall rule remained live at that
+historical recovery point; the subsequent `3603f11...` installation below
+supersedes that state.
+
+The minimal correction is code SHA
+`3603f11bbc35a4a9d708c41db1bc13f0d2907805`: the relay-CA directory is
+`root:xray` `0750`, its certificate files remain Xray-owned `0640`, and the
+agent retains read access through its existing supplementary Xray group. The
+commercial package job `101188536793` is green and produced artifact
+`9956162284`,
+`maestro-xray-cdn-commercial-3603f11bbc35a4a9d708c41db1bc13f0d2907805`,
+size `54137499`, archive SHA-256
+`8274c235b47b54ad0bfa2e76f6c7f2dabf8a34476bdd0f0cceb421fc86a99bc5`.
+The exact direct S4 fetch and shipped operator `plan` passed: manifest SHA-256
+`623fa69d3ebe00dca99595d73d5287c9b63b7a6346def2ea4252d441fb10268c`,
+config SHA-256
+`8ff75a7e4718610cf20866aadc7e6903d69362d7455d60735ddef47daa41e7a1`,
+runtime-input SHA-256
+`afb832ce9e32f3a4b088222989f3e24d46a2c4d3efbb458e214c286925cbb928`,
+and release identity `3603f11bbc35-s4commercial-afb832ce9e32f3a4`. Exact CI
+runs `33923773188`, `33923773196`, and `33923773238` are terminal green,
+including Android job `101189660919`.
+
+The exact `3603f11...` operator apply is now `ACTIVE` on S4. All six shipped
+inventory/process/listener/unit checks passed and the release, config, and
+runtime-input digests match the plan. Xray owns commercial `28081/18084`, its
+API is loopback `28082`, and the agent owns `18443` with loopback health on
+`18444`. The two services are enabled and run as their separate intended users;
+the agent has the existing supplementary Xray group. The corrected firewall
+was committed only after separate strict-SSH and independent-observer proofs.
+Fresh ordinary/private file hashes, units, PIDs, route, time synchronization,
+and failed-unit state remain unchanged. No CDN or customer switch occurred;
+synthetic receipt proof is not yet recorded here.
+
+Canonical ingress source checkpoint
+`aad63b52c74aedd2c568f0ed4a6a9f912e31e262` adds only the protected renderer,
+dual-path nginx template, isolated custom unit, install/rollback contract, unit
+tests, and its CI invocation. It was independently reviewed `PASS`; three
+targeted tests and Python compilation are green. This source checkpoint is not
+a replacement for immutable sidecar deployment identity `3603f11...`.
+
+S4 evidence before mutation: strict pinned SSH and connected encrypted QEMU
+console PASS; SSH remains on `22` with IPv4 and IPv6 UFW allowances; time is
+synchronized; one default route and no failed units were observed. The
+protected backup `maestro-commercial-s4-20260904-qzBchh` has archive SHA-256
+`b1aa962a5b33e3eb352ae132814729a189752b6186893f995750605c7cf28f95`;
+the SQLite snapshot SHA-256 is
+`cd2a5525f4289f04ec8ca15c4ca0218d3917608a3ec1f443a8eaa012cea2c6ae`.
+SQLite quick-check, byte match, isolated restore, ordinary-file hashes, and
+unchanged live ordinary hashes/PIDs passed. S4 PKI inputs passed chain, SAN,
+EKU, expiry, key-match, and mode checks; Xray stays pinned to official `26.5.9`.
+Current S1 strict pinned key-only SSH is restored, and the corrected
+controller-source client leaf with exact `maestro-whitelist-controller` SAN is
+protected-staged; S1 services were not changed.
+
+Corrected errors that must not recur:
+
+- Do not push workflow changes with the stored HTTPS OAuth credential; it lacks
+  workflow scope. The repository SSH identity successfully publishes the
+  canonical branch without exposing or changing a token.
+- The immutable CLI must set `sys.dont_write_bytecode` before importing its
+  bundled library; direct execution must never add `lib/__pycache__`.
+- First-install parser validation must rewrite certificate and error-log paths
+  only in its temporary validation copy. Production rendered bytes and digest
+  must retain `/opt/.../current/runtime` and the production log path.
+- Xray `26.5.9` accepts `verifyPeerCertByName` as a comma-separated string and
+  rejects removed `verifyPeerCertInNames`. The exact package job now exercises
+  the real pinned parser before upload; synthetic-only opt-in retains parser
+  stderr while default production execution still suppresses it.
+- Commercial preflight includes health port `18444` in addition to the four
+  transport/API/relay/agent ports. The controller client SAN is
+  `maestro-whitelist-controller`, not the earlier prepared-only name.
+- `runtime/relay-ca` must be `root:xray` `0750`; its CA files remain Xray-owned
+  `0640`, and the agent uses its existing supplementary Xray group. Do not
+  repair an immutable failed release in place with an ad-hoc `chmod`.
+- The legacy sealed release validator is an identity-specific private-canary
+  baseline for `18081/18080`, not a commercial `28081` pre-install gate.
+  Post-install receipts and client evidence cannot be required before the
+  isolated unit exists; they remain mandatory after install and before any
+  publication.
+- The current Yandex workflow runs the full Android toolchain and APK job even
+  for an operator-only permission change. Do not cancel or weaken the current
+  gate; a later reviewed input-path condition may remove this repeated CI wait.
+- Never expand a short commit ID by inference: obtain the full deployment or
+  source checkpoint only with `git rev-parse` or GitHub metadata. The initial
+  ingress source status message violated this rule and was corrected before any
+  ingress staging or server use.
+- In PowerShell, pass every repetition-guard option and value as separate argv
+  elements. Two bookkeeping calls accidentally fused an option with its value;
+  the parser rejected them, no server business action repeated, and both records
+  were closed with explicit argv arrays and their existing evidence.
+
+One paid Yandex CDN resource remains the approved design. Reviewed canonical
+source now describes the dual-path ingress needed to preserve the private path
+on `18081` while routing a new secret commercial path to `28081`, but it is not
+installed or live. Its `28080` firewall delta, exact rollback exercise, and the
+CDN switch are still `NO_GO`; no second paid resource is authorized.
+Production Android remains `1.0.157` ordinary-only. Customer publication,
+charging, OTA/signing, OLCRTC, and WDTT remain unchanged and unauthorized.

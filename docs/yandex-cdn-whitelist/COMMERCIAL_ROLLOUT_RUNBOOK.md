@@ -17,9 +17,10 @@ no node is skipped and no parallel rollout is allowed.
   `18081/18082` remain active and unchanged throughout the rollout.
 - Only isolated commercial sidecar/agent files and units from one reviewed
   immutable package may be staged. S4 commercial uses the distinct
-  `28081/28082` XHTTP/API pair and may retain `18084/18443` for relay/agent only
-  when all four commercial ports are freshly proved free. Every other node uses
-  the standard `18081/18082/18084/18443` profile and must recheck all four ports.
+  `28081/28082` XHTTP/API pair and may retain `18084/18443` for relay/agent plus
+  `18444` for agent health only when all five commercial ports are freshly
+  proved free. Every other node uses the standard
+  `18081/18082/18084/18443/18444` profile and must recheck all five ports.
 - Customer CDN/LTE publication defaults `OFF`. A route becomes visible only
   after a confirmed GB purchase or explicit admin enable and the full
   fail-closed publication verdict. Ordinary renewal does not enable CDN/LTE.
@@ -31,15 +32,85 @@ no node is skipped and no parallel rollout is allowed.
   be promoted to fill that gap.
 - OLCRTC and WDTT remain frozen.
 
-## Gate 0: exact repository and artifact
+## Current checkpoint (2026-09-05)
 
-Run the existing repository gates from a clean checkout of the candidate exact
-SHA. `TASK15_RELEASE_DIR` must be an absolute protected candidate-release
-directory and `TASK15_EVIDENCE_TRUST` must be an absolute protected regular
-evidence-trust file for that same candidate. The operator supplies both values
-from the protected change sheet; they must never be pasted into Git, chat, or
-this runbook. Missing, relative, wrong-type, unreadable, or mismatched inputs
-are `STOP`.
+Installed S4 release is now `b4415daa90c9-s4commercial-bc65f9447a8e945a`
+from `b4415daa90c95a38f9a7b9adea7642c66e63a420`, ACTIVE with six shipped
+status checks true after the locked shipped apply exited 0. This source/package
+has scoped review and exact CI GREEN (Yandex `33928873964`, including Android
+`101204799664`; immutable `33928874093`; network `33928874014`). Artifact
+`9957942956` has nine verified members and matching plan/apply identities;
+previous `3603f11...` package and proof are retained. Package/deployed identities remain distinct from a
+later documentation HEAD. Exact digests are in `COMMERCIAL_CANARY_EVIDENCE.md`.
+
+The earlier AdminVPS session expired with login CAPTCHA and direct VNC
+Unauthorized. The owner now authorized continuation and the product panel is
+authenticated with no CAPTCHA. The official QEMU recovery console is now
+connected/encrypted with the Ubuntu tty1 login visible. Fresh strict SSH,
+previous shipped status, ordinary hashes/units/PIDs and exact firewall baseline
+passed; the reviewed change sheet was transferred before the bounded upgrade.
+Post-upgrade ordinary/private saved hashes, units/PIDs and strict SSH PASS.
+Authenticated panel access or strict SSH alone does not replace console proof.
+
+Previous `3603f11...` synthetic generation 1 is persisted after one POST
+returned HTTP 503 in 6240 ms and exact receipt GET returned 404. Recovery is
+GET-only. Never replay it or reuse the exhausted unsent-TLS correction. The
+reviewed local helper uses explicit previous-commit binding to the saved
+`3603f11...` proof and advances add/revoke/resume to generations 2/3/4. It has
+executed on S4 after exact ACTIVE and ordinary-baseline proof; nine protected
+files were transferred to S1. Add 2, revoke 3 and resume 4 each returned POST
+200 and exact receipt GET 200. Receipts matched release/config/boot/generation/
+managed-set digest and freshness at most 30 seconds. A separate GET-only resume
+lookup returned 200 with no POST and zero request replays. Current desired is
+resumed generation 4; the old generation 1 proof is unchanged. No response loss
+was simulated: unknown-outcome fault injection remains an open Gate 2 proof.
+
+The b441 source fixes selected-exit readiness timing and permits only TCP
+loopback health port 18444 in the pinned Xray freedom rule. Separate same-binary
+relay diagnostics returned authenticated 204 with that exact exception; this
+is diagnostic evidence separate from the now-passing installed synthetic
+receipts. Commercial ingress/CDN/client gates remain open.
+
+## Gate 0: exact commercial repository and artifact
+
+The pre-install gate for the isolated commercial S4 unit is satisfied only when
+all of the following bind the same candidate code SHA and package:
+
+1. the required exact-SHA GitHub jobs are green, including the commercial
+   package job;
+2. the immutable `maestro-xray-cdn-commercial-<SHA>` artifact, manifest, member
+   modes, sizes, and SHA-256 values match the protected staged bytes;
+3. an independent scoped review has no unresolved blocker;
+4. the package job has rendered synthetic protected runtime/certificate inputs
+   and passed the real pinned Xray parser through the commercial operator
+   `plan` before artifact upload;
+5. the S4 operator `plan` passes with the actual protected runtime and
+   certificate inputs without changing a service, firewall, or active path;
+6. every fresh Gate 1 condition is green for S4.
+
+Post-install receipts, real client evidence, rollback/re-apply evidence, and
+fleet or billing observations are deliberately not Gate 0 inputs: they are
+produced by Gates 2-5 after the isolated unit exists. They remain mandatory for
+promotion and publication. Moving them after isolated installation removes a
+circular dependency; it does not authorize customer traffic, charging, or a
+CDN publication.
+
+### Legacy private-canary sealed baseline only
+
+The existing `validate-yandex-cdn-release` wrappers below validate the sealed
+private-canary release/evidence schema whose identity is the legacy
+`18081/18080` target/fallback. They remain an integrity baseline for that
+private canary. They do **not** validate the commercial `28081` profile and
+must not be relabelled as a commercial Gate 0 result. The missing commercial
+publication-time equivalent remains unresolved; final publication is `NO_GO`
+until the applicable final acceptance gates have identity-correct evidence.
+
+When validating that legacy baseline, `TASK15_RELEASE_DIR` must be an absolute
+protected private-canary release directory and `TASK15_EVIDENCE_TRUST` must be
+an absolute protected regular evidence-trust file for the same private-canary
+candidate. The operator supplies both values from its protected change sheet;
+they must never be pasted into Git, chat, or this runbook. Missing, relative,
+wrong-type, unreadable, mismatched, or commercial-candidate inputs are `STOP`.
 
 Linux guard check: execute this block by itself immediately before the wrapper
 action, with no intervening command or action:
@@ -166,8 +237,10 @@ Repeat this gate immediately before each node. Save only redacted evidence.
 4. Compare ordinary units, executable paths, and listeners byte-for-byte with
    the accepted before-state. Any drift is `STOP`.
 5. On S4, require the existing private canary to retain `18081/18082` and prove
-   commercial `28081/28082/18084/18443` free. On every other node, prove the
-   standard `18081/18082/18084/18443` set free before staging.
+   commercial `28081/28082/18084/18443/18444` free for first installation. For
+   an upgrade, prove those ports belong only to the exact installed commercial
+   release and match the shipped upgrade plan. On every other node, prove the
+   standard `18081/18082/18084/18443/18444` set free before staging.
 6. Capture the exact service/data backup using the verified service-specific
    backup procedure. Prove its integrity and run the exact restore command on
    an isolated restore target. A copied live SQLite main file, an unverified
@@ -204,14 +277,32 @@ for another node.
    expected listeners, loopback health, and a fresh exact receipt.
 4. With one test route identity, prove add, revoke, receipt recovery after an
    unknown outcome, and resume. Each result must converge the exact managed set
-   while static/private-canary users remain unchanged.
-5. Prove direct sidecar traffic, Yandex CDN traffic, literal-edge access with
+   while static/private-canary users remain unchanged. Preserve any prior
+   delivered proof byte-for-byte; bind an upgrade to its exact previous commit
+   and use strictly higher generations only after the new release is ACTIVE.
+   Curl TLS failure before HTTP permits only an explicitly verified unsent
+   correction. Once HTTP was delivered, unknown/failed outcome is GET-only;
+   changing transport never authorizes another POST of that generation.
+5. Before changing the existing paid CDN resource, prove an independently
+   reviewed isolated ingress and rollback: the preserved private path must
+   still proxy to `18081`, the new secret commercial path must proxy to
+   `28081`, method/path/query/body must be retained, and every other path must
+   return `404`. The CDN origin switch must use the same existing resource and
+   have an exact rollback; creating a second paid resource is not authorized.
+   Reviewed source exists at ingress checkpoint
+   `aad63b52c74aedd2c568f0ed4a6a9f912e31e262`, with sealed-workflow correction
+   `26895992db384d8275c36720a622d96862505f69`, both ancestors of b441.
+   Isolated real nginx parser validation passed as the intended user. No nginx
+   package/ingress service is installed; this remains separate from the
+   immutable sidecar package. Yandex CDN traffic is `NO_GO` until this boundary
+   and its exact rollback are installed and proved.
+6. Prove direct sidecar traffic, Yandex CDN traffic, literal-edge access with
    correct SNI/Host, per-user uplink plus downlink counters, selected-exit
    country label truth, TCP, UDP, DNS, idle recovery, and a network transition.
-6. Prove ordinary service/process/listener/config identity and a real ordinary
+7. Prove ordinary service/process/listener/config identity and a real ordinary
    client baseline remain unchanged. Any regression triggers immediate
    rollback.
-7. Execute one deliberate commercial rollback using
+8. Execute one deliberate commercial rollback using
    `COMMERCIAL_ROLLBACK.md`, demonstrate restoration in under five minutes,
    and retain the private canary. Then re-apply the same immutable release and
    repeat the complete S4 validation. A different artifact is not a re-apply.
