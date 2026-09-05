@@ -126,6 +126,7 @@ func ValidateSnapshotProtection(
 		KeyVersion:            envelope.KeyVersion,
 		EncryptedSaltEnvelope: string(encoded),
 		SaltSHA256:            protection.LegacyTrialSaltSHA256,
+		box:                   box,
 	}, nil
 }
 

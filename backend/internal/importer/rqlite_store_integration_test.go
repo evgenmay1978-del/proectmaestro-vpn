@@ -542,9 +542,14 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 	trial.SourceKey = "integration-legacy-trial-v1"
 	trial.LegacyAnchorHMAC = strings.Repeat("9", 64)
 	trial.CurrentHMAC = strings.Repeat("a", 64)
+	protection := validatedTrialProtectionFixture(t, 1)
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
-	snapshot.Trials = []LegacyTrial{trial}
-	snapshot.LegacyTrialSaltSHA256 = protectedTrialImportFixture().SaltSHA256
+	anchorUse := legacyOnlyTrialFixture("legacy-anchor-v1")
+	anchorUse.SourceKey = "integration-legacy-anchor-use-v1"
+	drmUse := legacyOnlyTrialFixture("legacy-drm-v1")
+	drmUse.SourceKey = "integration-legacy-drm-use-v1"
+	snapshot.Trials = []LegacyTrial{trial, anchorUse, drmUse}
+	snapshot.LegacyTrialSaltSHA256 = protection.SaltSHA256
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
 		t.Fatalf("unexpected trial blockers: %#v", report.Blockers)
@@ -555,7 +560,7 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 	}
 	selected := make([]ApplyOperation, 0, 1)
 	for _, operation := range operations {
-		if operation.Entity == "trial" {
+		if operation.Entity == "trial" && operation.Key == trial.SourceKey {
 			selected = append(selected, operation)
 		}
 	}
@@ -567,21 +572,21 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 		Digest: digestBatch(selected), Operations: selected,
 	}
 	backupCleanup.Expect(task6BackupRPOCleanupExpectation{
-		DirtyGenerationDelta: 1, UpdatedAtUnix: 1_500_000,
+		DirtyGenerationDelta: 3, UpdatedAtUnix: 1_500_000,
 		Receipt: task6ImportRunReceipt{
 			RunID: batch.RunID, SourceDigest: plan.SourceDigest, PlanDigest: plan.PlanDigest, Status: "applying",
 		},
 	})
-	protection := protectedTrialImportFixture()
+	unknown := &task6CommittedUnknownRQLite{RQLite: db}
 	store, err := NewRQLiteApplyStoreWithTrialProtection(
-		db, func() time.Time { return time.Unix(1_500_000, 0) }, protection,
+		unknown, func() time.Time { return time.Unix(1_500_000, 0) }, protection,
 	)
 	if err != nil {
 		t.Fatalf("NewRQLiteApplyStoreWithTrialProtection: %v", err)
 	}
 	if _, err := store.BeginOrResume(ctx, ApplyRun{
 		RunID: batch.RunID, SnapshotKind: "full", SourceDigest: plan.SourceDigest,
-		PlanDigest: plan.PlanDigest, BatchCount: 1,
+		PlanDigest: plan.PlanDigest, BatchCount: 2,
 	}); err != nil {
 		t.Fatalf("trial BeginOrResume: %v", err)
 	}
@@ -619,6 +624,86 @@ WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
 		results[1].Rows[0]["lookup_secret_id"] != "legacy-trial-salt-v1" ||
 		results[2].Rows[0]["batch_digest"] != batch.Digest || results[2].Rows[0]["status"] != "applied" {
 		t.Fatalf("protected trial verification mismatch: %#v", results)
+	}
+	// Reconstruct validation and the store as a restarted importer would. The
+	// new nonce differs even when the salt and encryption key version are equal.
+	resumedProtection := validatedTrialProtectionFixture(t, 1)
+	if resumedProtection.box == protection.box || resumedProtection.KeyVersion != protection.KeyVersion || resumedProtection.EncryptedSaltEnvelope == protection.EncryptedSaltEnvelope {
+		t.Fatal("restart fixture did not create fresh validation/encryption state")
+	}
+	store, err = NewRQLiteApplyStoreWithTrialProtection(unknown, func() time.Time { return time.Unix(1_500_000, 0) }, resumedProtection)
+	if err != nil {
+		t.Fatalf("construct restarted importer: %v", err)
+	}
+	beforeTyped, err := store.InspectTarget(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed := ApplyBatch{RunID: batch.RunID, PlanDigest: batch.PlanDigest, Index: 1}
+	for _, operation := range operations {
+		if operation.Entity == "trial" && operation.Key != trial.SourceKey {
+			typed.Operations = append(typed.Operations, operation)
+		}
+	}
+	if len(typed.Operations) != 2 {
+		t.Fatal("both legacy-only maps must be in the second batch")
+	}
+	typed.Digest = digestBatch(typed.Operations)
+	conflict := typed
+	duplicate := anchorUse
+	duplicate.SourceKey = "integration-legacy-anchor-collision-v1"
+	encoded, err := json.Marshal(duplicate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict.Operations = append(append([]ApplyOperation(nil), typed.Operations...), ApplyOperation{Entity: "trial", Key: duplicate.SourceKey, CanonicalJSON: encoded})
+	conflict.Digest = digestBatch(conflict.Operations)
+	if _, err := store.CommitBatch(ctx, conflict); err == nil {
+		t.Fatal("colliding typed source committed")
+	}
+	afterConflict, err := store.InspectTarget(ctx)
+	if err != nil || afterConflict.BusinessDigest != beforeTyped.BusinessDigest {
+		t.Fatal("typed collision failed to roll back its use rows and salt writes")
+	}
+	results, err = db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT source_key FROM imported_legacy_trial_uses WHERE source_key IN (?,?,?)`, Args: []any{anchorUse.SourceKey, drmUse.SourceKey, duplicate.SourceKey}},
+		rqlite.Statement{SQL: `SELECT batch_digest FROM import_batches WHERE import_run_id=? AND batch_index=1`, Args: []any{batch.RunID}},
+	)
+	if err != nil || len(results) != 2 || len(results[0].Rows) != 0 || len(results[1].Rows) != 0 {
+		t.Fatal("failed typed batch left a row or receipt")
+	}
+	unknown.injectNext = true
+	typedReceipt, err := store.CommitBatch(ctx, typed)
+	if err != nil || typedReceipt.Digest != typed.Digest || !typedReceipt.AlreadyApplied {
+		t.Fatalf("typed unknown outcome did not resolve to its exact receipt: %v", err)
+	}
+	afterTyped, err := store.InspectTarget(ctx)
+	if err != nil || afterTyped.BusinessDigest == beforeTyped.BusinessDigest {
+		t.Fatal("legacy-only use rows are missing from the business digest")
+	}
+	results, err = db.QueryLinearizable(ctx,
+		rqlite.Statement{SQL: `SELECT source_key,hash_kind,legacy_hmac,lookup_secret_id,imported_at_unix FROM imported_legacy_trial_uses WHERE source_key IN (?,?) ORDER BY source_key`, Args: []any{anchorUse.SourceKey, drmUse.SourceKey}},
+		rqlite.Statement{SQL: `SELECT source_key FROM imported_trial_identities WHERE source_key IN (?,?)`, Args: []any{anchorUse.SourceKey, drmUse.SourceKey}},
+		rqlite.Statement{SQL: `SELECT key_version,CAST(secret_envelope AS TEXT) AS secret_envelope FROM imported_secrets WHERE secret_id=?`, Args: []any{legacyTrialSaltSecretID}},
+	)
+	if err != nil || len(results) != 3 || len(results[0].Rows) != 2 || len(results[1].Rows) != 0 || len(results[2].Rows) != 1 {
+		t.Fatal("typed use import lost rows or invented current identities")
+	}
+	if results[2].Rows[0]["secret_envelope"] != protection.EncryptedSaltEnvelope || !rqliteIntegerEquals(results[2].Rows[0]["key_version"], int64(protection.KeyVersion)) || *store.trialProtection != resumedProtection {
+		t.Fatal("resumed import changed the immutable salt or shared protection state")
+	}
+	for index, row := range results[0].Rows {
+		wantKind := []string{"anchor", "drm"}[index]
+		if row["hash_kind"] != wantKind || row["legacy_hmac"] != anchorUse.LegacyAnchorHMAC || row["lookup_secret_id"] != "legacy-trial-salt-v1" || !rqliteIntegerEquals(row["imported_at_unix"], 1_500_000) {
+			t.Fatal("typed use did not retain its exact hash/kind/salt")
+		}
+	}
+	if replay, err := store.CommitBatch(ctx, typed); err != nil || !replay.AlreadyApplied || replay.Digest != typed.Digest {
+		t.Fatalf("typed exact replay: %v", err)
+	}
+	afterReplay, err := store.InspectTarget(ctx)
+	if err != nil || afterReplay.BusinessDigest != afterTyped.BusinessDigest {
+		t.Fatal("typed replay changed durable business state")
 	}
 }
 

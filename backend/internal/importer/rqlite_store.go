@@ -24,12 +24,13 @@ type RQLiteApplyStore struct {
 	customerProtection *ProductionCustomerProtection
 }
 
-// TrialImportProtection contains only the already encrypted legacy lookup
-// salt. Plaintext salt is never part of an import plan, report or SQL args.
+// TrialImportProtection carries the encrypted legacy lookup salt and its
+// internal verifier. Plaintext salt is never part of a plan, report or SQL args.
 type TrialImportProtection struct {
 	KeyVersion            int
 	EncryptedSaltEnvelope string
 	SaltSHA256            string
+	box                   *controlplane.SecretBox
 }
 
 const legacyTrialSaltSecretID = "legacy-trial-salt-v1"
@@ -241,6 +242,7 @@ AND s.target_id=p.customer_id AND s.lifecycle='deleted') ORDER BY p.customer_id,
 SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='encrypted_secret'
 AND s.target_id=i.secret_id AND s.lifecycle='deleted') ORDER BY i.secret_id`},
 	{"imported_trial_identities", "SELECT * FROM imported_trial_identities ORDER BY source_key"},
+	{"imported_legacy_trial_uses", "SELECT * FROM imported_legacy_trial_uses ORDER BY source_key"},
 	{"principals", "SELECT * FROM principals ORDER BY principal_id"},
 	{"principal_roles", "SELECT * FROM principal_roles ORDER BY principal_id,role_name"},
 	{"principal_credentials", "SELECT * FROM principal_credentials ORDER BY credential_id"},
@@ -821,9 +823,13 @@ func (s *RQLiteApplyStore) CommitBatch(ctx context.Context, batch ApplyBatch) (B
 		return previous, nil
 	}
 
+	batchStore, err := s.withDurableTrialProtection(ctx, batch)
+	if err != nil {
+		return BatchReceipt{}, err
+	}
 	statements := []rqlite.Statement{beginBatchStatement(batch)}
 	for _, operation := range batch.Operations {
-		operationStatements, err := s.operationStatements(batch, operation)
+		operationStatements, err := batchStore.operationStatements(batch, operation)
 		if err != nil {
 			return BatchReceipt{}, err
 		}
@@ -1250,6 +1256,92 @@ ON CONFLICT(secret_id) DO UPDATE SET
 	return statements, nil
 }
 
+// withDurableTrialProtection authenticates the existing salt before reusing its
+// exact bytes. Freshly sealing the same salt after restart must not rewrite an
+// immutable imported_secrets row. No shared store/protection state is changed.
+func (s *RQLiteApplyStore) withDurableTrialProtection(ctx context.Context, batch ApplyBatch) (*RQLiteApplyStore, error) {
+	hasTrial := false
+	for _, operation := range batch.Operations {
+		if operation.Entity == "trial" {
+			hasTrial = true
+			break
+		}
+	}
+	if !hasTrial || s.trialProtection == nil {
+		return s, nil
+	}
+	box := s.trialProtection.box
+	if box == nil && s.customerProtection != nil {
+		box = s.customerProtection.box
+	}
+	if box == nil {
+		// The generic fixture adapter retains its original strict-write behavior.
+		return s, nil
+	}
+	invalid := errors.New("invalid durable legacy trial salt")
+	if !validCanonicalSHA256(s.trialProtection.SaltSHA256) {
+		return nil, invalid
+	}
+	results, err := s.db.QueryLinearizable(ctx, rqlite.Statement{
+		SQL: `SELECT secret_id,owner_type,owner_source_key,field,kind,key_version,
+CAST(secret_envelope AS TEXT) AS secret_envelope,secret_sha256 FROM imported_secrets
+WHERE secret_id=? OR (owner_type='trial_lookup' AND owner_source_key='legacy' AND field='salt') LIMIT 2`,
+		Args: []any{legacyTrialSaltSecretID},
+	})
+	if err != nil || len(results) != 1 || len(results[0].Rows) > 1 {
+		return nil, invalid
+	}
+	copyStore := *s
+	copyProtection := *s.trialProtection
+	copyStore.trialProtection = &copyProtection
+	if len(results[0].Rows) == 0 {
+		// A concurrent insert is still checked by the immutable SQL trigger.
+		return &copyStore, nil
+	}
+	row := results[0].Rows[0]
+	for name, want := range map[string]string{
+		"secret_id": legacyTrialSaltSecretID, "owner_type": "trial_lookup",
+		"owner_source_key": "legacy", "field": "salt", "kind": "hmac-key",
+		"secret_sha256": s.trialProtection.SaltSHA256,
+	} {
+		if got, ok := row[name].(string); !ok || got != want {
+			return nil, invalid
+		}
+	}
+	version, versionOK := applyRowInt(row["key_version"])
+	_, textVersion := row["key_version"].(string)
+	encoded, encodedOK := row["secret_envelope"].(string)
+	if !versionOK || textVersion || version <= 0 || int64(int(version)) != version || !encodedOK {
+		return nil, invalid
+	}
+	var envelope struct {
+		KeyVersion    int    `json:"key_version"`
+		NonceB64      string `json:"nonce_b64"`
+		CiphertextB64 string `json:"ciphertext_b64"`
+	}
+	if decodeCanonicalOperation([]byte(encoded), &envelope) != nil || envelope.KeyVersion != int(version) {
+		return nil, invalid
+	}
+	nonce, nonceOK := decodeCanonicalBase64(envelope.NonceB64)
+	ciphertext, ciphertextOK := decodeCanonicalBase64(envelope.CiphertextB64)
+	if !nonceOK || !ciphertextOK {
+		return nil, invalid
+	}
+	plaintext, err := box.Open(controlplane.SecretScope{
+		OwnerType: "trial_lookup", OwnerID: "legacy", Field: "salt", Kind: "hmac-key",
+	}, controlplane.Envelope{KeyVersion: envelope.KeyVersion, Nonce: nonce, Ciphertext: ciphertext})
+	if err != nil {
+		return nil, invalid
+	}
+	valid := len(plaintext) != 0 && sha256Hex(plaintext) == s.trialProtection.SaltSHA256
+	zeroBytes(plaintext)
+	if !valid {
+		return nil, invalid
+	}
+	copyProtection.KeyVersion, copyProtection.EncryptedSaltEnvelope = int(version), encoded
+	return &copyStore, nil
+}
+
 func (s *RQLiteApplyStore) trialStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
 	if s.trialProtection == nil {
 		return nil, errors.New("protected legacy trial salt is required")
@@ -1258,9 +1350,7 @@ func (s *RQLiteApplyStore) trialStatements(batch ApplyBatch, operation ApplyOper
 	if err := decodeCanonicalOperation(operation.CanonicalJSON, &trial); err != nil {
 		return nil, err
 	}
-	if trial.SourceKey == "" || operation.Key != trial.SourceKey ||
-		len(trial.LegacyAnchorHMAC) != 64 || len(trial.CurrentHMAC) != 64 ||
-		trial.ExpiresAtUnix < 0 {
+	if !validLegacyTrialIdentity(trial) || operation.Key != trial.SourceKey {
 		return nil, errors.New("invalid canonical trial identity")
 	}
 	used := 0
@@ -1270,7 +1360,7 @@ func (s *RQLiteApplyStore) trialStatements(batch ApplyBatch, operation ApplyOper
 	protection := s.trialProtection
 	nowUnix := s.now().Unix()
 	gate := batchGateArgs(batch)
-	return []rqlite.Statement{{
+	statements := []rqlite.Statement{{
 		SQL: `INSERT INTO imported_secrets(
     secret_id,owner_type,owner_source_key,field,kind,key_version,
     secret_envelope,secret_sha256,imported_at_unix
@@ -1284,7 +1374,26 @@ ON CONFLICT(secret_id) DO UPDATE SET
 			legacyTrialSaltSecretID, "trial_lookup", "legacy", "salt", "hmac-key",
 			protection.KeyVersion, protection.EncryptedSaltEnvelope, protection.SaltSHA256, nowUnix,
 		}, gate...),
-	}, {
+	}}
+	if trial.IdentityKind != "" {
+		hashKind := "anchor"
+		if trial.IdentityKind == "legacy-drm-v1" {
+			hashKind = "drm"
+		}
+		// The insert trigger authenticates the immutable identity even for an
+		// upsert, so preserve its original timestamp before the INSERT executes.
+		return append(statements, rqlite.Statement{
+			SQL: `INSERT INTO imported_legacy_trial_uses(
+    source_key,hash_kind,legacy_hmac,lookup_secret_id,imported_at_unix
+) SELECT ?,?,?,?,COALESCE((SELECT imported_at_unix FROM imported_legacy_trial_uses WHERE source_key=?),?)
+WHERE ` + batchWriteGate + `
+ON CONFLICT(source_key) DO UPDATE SET
+    hash_kind=excluded.hash_kind,legacy_hmac=excluded.legacy_hmac,
+    lookup_secret_id=excluded.lookup_secret_id,imported_at_unix=excluded.imported_at_unix`,
+			Args: append([]any{trial.SourceKey, hashKind, trial.LegacyAnchorHMAC, legacyTrialSaltSecretID, trial.SourceKey, nowUnix}, gate...),
+		}), nil
+	}
+	return append(statements, rqlite.Statement{
 		SQL: `INSERT INTO imported_trial_identities(
     source_key,legacy_anchor_hmac,current_hmac,used,expires_at_unix,
     lookup_secret_id,imported_at_unix
@@ -1298,7 +1407,7 @@ ON CONFLICT(source_key) DO UPDATE SET
 			trial.SourceKey, trial.LegacyAnchorHMAC, trial.CurrentHMAC, used,
 			trial.ExpiresAtUnix, legacyTrialSaltSecretID, nowUnix,
 		}, gate...),
-	}}, nil
+	}), nil
 }
 
 func sqlPlaceholders(count int) string {

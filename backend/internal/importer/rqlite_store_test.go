@@ -1,7 +1,9 @@
 package importer
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
@@ -1113,10 +1116,13 @@ func TestRQLiteApplyStoreCommitsTrialWithProtectedSaltAsTypedRows(t *testing.T) 
 	}
 }
 
-func canonicalTrialBatch(t *testing.T) ApplyBatch {
+func canonicalTrialBatch(t *testing.T, trials ...LegacyTrial) ApplyBatch {
 	t.Helper()
 	snapshot := decodeFixture(t, "bot-bindings-v1.json")
 	snapshot.Trials = []LegacyTrial{legacyTrialFixture()}
+	if len(trials) != 0 {
+		snapshot.Trials = append([]LegacyTrial(nil), trials...)
+	}
 	snapshot.LegacyTrialSaltSHA256 = protectedTrialImportFixture().SaltSHA256
 	plan, report := Plan(snapshot, testPlanOptions())
 	if len(report.Blockers) != 0 {
@@ -1138,6 +1144,226 @@ func canonicalTrialBatch(t *testing.T) ApplyBatch {
 	}
 	t.Fatal("canonical trial operation is missing")
 	return ApplyBatch{}
+}
+
+func legacyOnlyTrialFixture(kind string) LegacyTrial {
+	return LegacyTrial{
+		SourceKey: "legacy-only-" + kind, IdentityKind: kind,
+		LegacyAnchorHMAC: strings.Repeat("d", 64), Used: true,
+	}
+}
+
+func validatedTrialProtectionFixture(t *testing.T, version int, saltOverride ...[]byte) TrialImportProtection {
+	t.Helper()
+	hmacKey := bytes.Repeat([]byte{0x73}, 32)
+	box, err := controlplane.NewSecretBox(version, map[int][]byte{
+		1: bytes.Repeat([]byte{0x71}, 32), 2: bytes.Repeat([]byte{0x72}, 32),
+	}, hmacKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	salt := []byte("synthetic-restart-legacy-trial-salt")
+	if len(saltOverride) != 0 {
+		salt = saltOverride[0]
+	}
+	protection, err := ValidateSnapshotProtection(SnapshotProtection{
+		HasTrials: true, ClusterHMACKeySHA256: sha256Hex(hmacKey), LegacyTrialSaltSHA256: sha256Hex(salt),
+	}, box, hmacKey, salt)
+	if err != nil || protection == nil {
+		t.Fatalf("validate synthetic trial protection: %v", err)
+	}
+	return *protection
+}
+
+func durableTrialSaltFixture(protection TrialImportProtection) map[string]any {
+	return map[string]any{
+		"secret_id": legacyTrialSaltSecretID, "owner_type": "trial_lookup", "owner_source_key": "legacy",
+		"field": "salt", "kind": "hmac-key", "key_version": int64(protection.KeyVersion),
+		"secret_envelope": protection.EncryptedSaltEnvelope, "secret_sha256": protection.SaltSHA256,
+	}
+}
+
+func TestAuthenticatedTrialSaltReusesExactDurableCipherWithoutMutatingStore(t *testing.T) {
+	durable := validatedTrialProtectionFixture(t, 1)
+	fresh := validatedTrialProtectionFixture(t, 2)
+	if durable.EncryptedSaltEnvelope == fresh.EncryptedSaltEnvelope || durable.box == fresh.box {
+		t.Fatal("restart fixture did not create a fresh protector/envelope")
+	}
+	batch := canonicalTrialBatch(t, legacyOnlyTrialFixture("legacy-anchor-v1"))
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}}, {{Rows: []map[string]any{durableTrialSaltFixture(durable)}}}, receiptQueryResult(batch),
+	}}
+	store, err := NewRQLiteApplyStoreWithTrialProtection(db, time.Now, fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatalf("authenticated resumed batch: %v", err)
+	}
+	if db.queryCalls != 3 || len(db.requests) != 1 || *store.trialProtection != fresh {
+		t.Fatal("salt reuse changed shared protection or crossed the expected transaction boundary")
+	}
+	found := false
+	for _, statement := range db.requests[0].statements {
+		if strings.Contains(statement.SQL, "INSERT INTO imported_secrets") {
+			found = true
+			if statement.Args[5] != durable.KeyVersion || statement.Args[6] != durable.EncryptedSaltEnvelope || statement.Args[7] != durable.SaltSHA256 {
+				t.Fatal("salt write did not preserve the authenticated durable key/ciphertext/hash")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("resumed trial batch omitted its protected salt binding")
+	}
+}
+
+func TestAuthenticatedTrialSaltRejectsCorruptTargetBeforeWrite(t *testing.T) {
+	durable := validatedTrialProtectionFixture(t, 1)
+	fresh := validatedTrialProtectionFixture(t, 2)
+	otherPlaintext := validatedTrialProtectionFixture(t, 1, []byte("different-synthetic-salt"))
+	wrongScope, err := durable.box.Seal(controlplane.SecretScope{OwnerType: "trial_lookup", OwnerID: "legacy", Field: "salt", Kind: "other"}, []byte("synthetic-restart-legacy-trial-salt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongScopeJSON, err := json.Marshal(map[string]any{"key_version": wrongScope.KeyVersion, "nonce_b64": wrongScope.Nonce, "ciphertext_b64": wrongScope.Ciphertext})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(map[string]any)
+	}{
+		{"wrong id", func(row map[string]any) { row["secret_id"] = "other-salt" }},
+		{"wrong owner", func(row map[string]any) { row["owner_type"] = "setting" }},
+		{"wrong owner id", func(row map[string]any) { row["owner_source_key"] = "other" }},
+		{"wrong field", func(row map[string]any) { row["field"] = "token" }},
+		{"wrong kind", func(row map[string]any) { row["kind"] = "bearer" }},
+		{"wrong hash", func(row map[string]any) { row["secret_sha256"] = strings.Repeat("a", 64) }},
+		{"text version", func(row map[string]any) { row["key_version"] = "1" }},
+		{"version mismatch", func(row map[string]any) { row["key_version"] = int64(2) }},
+		{"corrupt ciphertext", func(row map[string]any) {
+			row["secret_envelope"] = strings.Replace(durable.EncryptedSaltEnvelope, `"ciphertext_b64":"`, `"ciphertext_b64":"AAAA`, 1)
+		}},
+		{"valid ciphertext wrong plaintext", func(row map[string]any) { row["secret_envelope"] = otherPlaintext.EncryptedSaltEnvelope }},
+		{"valid ciphertext wrong AAD", func(row map[string]any) { row["secret_envelope"] = string(wrongScopeJSON) }},
+		{"unknown envelope field", func(row map[string]any) {
+			row["secret_envelope"] = strings.TrimSuffix(durable.EncryptedSaltEnvelope, "}") + `,"unknown":true}`
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			row := durableTrialSaltFixture(durable)
+			test.change(row)
+			db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}, {{Rows: []map[string]any{row}}}}}
+			store, err := NewRQLiteApplyStoreWithTrialProtection(db, time.Now, fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			batch := canonicalTrialBatch(t, legacyOnlyTrialFixture("legacy-drm-v1"))
+			if _, err := store.CommitBatch(context.Background(), batch); err == nil || len(db.requests) != 0 || *store.trialProtection != fresh {
+				t.Fatal("corrupt durable salt reached a write or changed the store")
+			}
+		})
+	}
+}
+
+func TestAuthenticatedTrialSaltMissingRowRetainsStrictWriteAndReceiptReplay(t *testing.T) {
+	fresh := validatedTrialProtectionFixture(t, 1)
+	batch := canonicalTrialBatch(t, legacyOnlyTrialFixture("legacy-anchor-v1"))
+	db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{
+		{{Rows: nil}}, {{Rows: nil}}, receiptQueryResult(batch), receiptQueryResult(batch),
+	}}
+	store, err := NewRQLiteApplyStoreWithTrialProtection(db, time.Now, fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range db.requests[0].statements {
+		if strings.Contains(statement.SQL, "INSERT INTO imported_secrets") && statement.Args[6] != fresh.EncryptedSaltEnvelope {
+			t.Fatal("read miss did not use its validated fresh salt")
+		}
+	}
+	if replay, err := store.CommitBatch(context.Background(), batch); err != nil || !replay.AlreadyApplied || db.queryCalls != 4 || len(db.requests) != 1 {
+		t.Fatal("committed receipt replay read the salt or wrote again")
+	}
+	// A row introduced after the miss cannot be silently accepted: the strict
+	// transaction failure remains visible and the absent receipt cannot resolve it.
+	raced := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}, {{Rows: nil}}, {{Rows: nil}}}, requestError: errors.New("immutable salt conflict")}
+	store, err = NewRQLiteApplyStoreWithTrialProtection(raced, time.Now, fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitBatch(context.Background(), batch); err == nil || len(raced.requests) != 1 {
+		t.Fatal("read-miss concurrent conflict was accepted without a receipt")
+	}
+}
+
+func TestRQLiteApplyStoreKeepsLegacyOnlyTrialsWithoutCurrentIdentity(t *testing.T) {
+	for _, kind := range []string{"legacy-anchor-v1", "legacy-drm-v1"} {
+		t.Run(kind, func(t *testing.T) {
+			trial := legacyOnlyTrialFixture(kind)
+			batch := canonicalTrialBatch(t, trial)
+			db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}, receiptQueryResult(batch)}}
+			store, err := NewRQLiteApplyStoreWithTrialProtection(db, func() time.Time { return time.Unix(1_500_000, 0) }, protectedTrialImportFixture())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.CommitBatch(context.Background(), batch); err != nil {
+				t.Fatalf("legacy-only batch: %v", err)
+			}
+			if len(db.requests) != 1 || !db.requests[0].transaction {
+				t.Fatal("legacy-only use and receipt were not submitted atomically")
+			}
+			found := false
+			for _, statement := range db.requests[0].statements {
+				if strings.Contains(statement.SQL, "INSERT INTO imported_trial_identities") {
+					t.Fatal("legacy-only source invented a current identity")
+				}
+				if strings.Contains(statement.SQL, "INSERT INTO imported_legacy_trial_uses") {
+					found = true
+					wantKind := "anchor"
+					if kind == "legacy-drm-v1" {
+						wantKind = "drm"
+					}
+					if len(statement.Args) < 4 || fmt.Sprint(statement.Args[:4]) != fmt.Sprint([]any{trial.SourceKey, wantKind, trial.LegacyAnchorHMAC, "legacy-trial-salt-v1"}) {
+						t.Fatal("stored legacy-only identity lost its typed hash/salt binding")
+					}
+				}
+			}
+			if !found {
+				t.Fatal("typed legacy-only use is missing from the transaction")
+			}
+		})
+	}
+}
+
+func TestRQLiteApplyStoreRejectsInvalidLegacyOnlyOperationBeforeWrite(t *testing.T) {
+	for _, change := range []func(*LegacyTrial){
+		func(v *LegacyTrial) { v.IdentityKind = "unknown" },
+		func(v *LegacyTrial) { v.CurrentHMAC = strings.Repeat("e", 64) },
+		func(v *LegacyTrial) { v.Used = false },
+		func(v *LegacyTrial) { v.ExpiresAtUnix = 1 },
+		func(v *LegacyTrial) { v.LegacyAnchorHMAC = strings.Repeat("D", 64) },
+	} {
+		trial := legacyOnlyTrialFixture("legacy-anchor-v1")
+		batch := canonicalTrialBatch(t, trial)
+		change(&trial)
+		encoded, err := json.Marshal(trial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		batch.Operations[0].CanonicalJSON = encoded
+		batch.Digest = digestBatch(batch.Operations)
+		db := &applyStoreRQLite{queryResponses: [][]rqlite.Result{{{Rows: nil}}}}
+		store, err := NewRQLiteApplyStoreWithTrialProtection(db, time.Now, protectedTrialImportFixture())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.CommitBatch(context.Background(), batch); err == nil || len(db.requests) != 0 {
+			t.Fatal("invalid legacy-only operation reached a write")
+		}
+	}
 }
 
 func legacyTrialFixture() LegacyTrial {

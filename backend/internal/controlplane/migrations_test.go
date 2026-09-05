@@ -67,7 +67,7 @@ func TestMigrationsApplyIdempotentlyAndVerifySchema(t *testing.T) {
 		"operation_batches", "cluster_settings", "setting_members", "setting_secrets",
 		"principals", "principal_roles", "principal_credentials", "web_sessions",
 		"rate_limit_buckets", "import_runs", "import_batches", "imported_secrets", "backup_watermarks",
-		"imported_trial_identities", "imported_entity_state", "import_delete_receipts",
+		"imported_trial_identities", "imported_legacy_trial_uses", "imported_entity_state", "import_delete_receipts",
 		"audit_events", "health_write_canary",
 	}
 	sort.Strings(wantTables)

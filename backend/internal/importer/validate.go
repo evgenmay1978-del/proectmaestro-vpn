@@ -100,8 +100,7 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 	legacyTrialHMACs := make(map[string]string, len(snapshot.Trials))
 	currentTrialHMACs := make(map[string]string, len(snapshot.Trials))
 	for _, trial := range snapshot.Trials {
-		if trial.SourceKey == "" || len(trial.LegacyAnchorHMAC) != 64 ||
-			len(trial.CurrentHMAC) != 64 || trial.ExpiresAtUnix < 0 {
+		if !validLegacyTrialIdentity(trial) {
 			add("invalid_trial_identity", "trial", trial.SourceKey)
 		}
 		if previous, exists := trialSources[trial.SourceKey]; exists && previous != trial {
@@ -109,12 +108,14 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 		} else {
 			trialSources[trial.SourceKey] = trial
 		}
-		collision(legacyTrialHMACs, trial.LegacyAnchorHMAC, trial.SourceKey, func() {
+		collision(legacyTrialHMACs, trial.IdentityKind+"\x00"+trial.LegacyAnchorHMAC, trial.SourceKey, func() {
 			add("trial_identity_collision", "trial", trial.SourceKey)
 		})
-		collision(currentTrialHMACs, trial.CurrentHMAC, trial.SourceKey, func() {
-			add("trial_identity_collision", "trial", trial.SourceKey)
-		})
+		if trial.IdentityKind == "" {
+			collision(currentTrialHMACs, trial.CurrentHMAC, trial.SourceKey, func() {
+				add("trial_identity_collision", "trial", trial.SourceKey)
+			})
+		}
 	}
 
 	secrets := make(map[string]struct{}, len(snapshot.EncryptedSecrets))
@@ -393,6 +394,20 @@ func collision(index map[string]string, value, sourceKey string, onCollision fun
 	index[value] = sourceKey
 }
 
+func validLegacyTrialIdentity(trial LegacyTrial) bool {
+	if trial.SourceKey == "" {
+		return false
+	}
+	switch trial.IdentityKind {
+	case "":
+		return len(trial.LegacyAnchorHMAC) == 64 && len(trial.CurrentHMAC) == 64 && trial.ExpiresAtUnix >= 0
+	case "legacy-anchor-v1", "legacy-drm-v1":
+		return validCanonicalSHA256(trial.LegacyAnchorHMAC) && trial.CurrentHMAC == "" && trial.Used && trial.ExpiresAtUnix == 0
+	default:
+		return false
+	}
+}
+
 func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 	plan := ImportPlan{
 		FormatVersion:          snapshot.FormatVersion,
@@ -437,21 +452,21 @@ func Plan(snapshot Snapshot, options PlanOptions) (ImportPlan, Report) {
 	}
 	for _, order := range snapshot.Orders {
 		planned := PlannedOrder{
-			InternalID:        deterministicID(options.Namespace, "order", order.SourceKey),
-			SourceKey:         order.SourceKey,
+			InternalID:         deterministicID(options.Namespace, "order", order.SourceKey),
+			SourceKey:          order.SourceKey,
 			CustomerInternalID: customerInternalIDs[order.CustomerSourceKey],
-			CustomerSourceKey: order.CustomerSourceKey,
-			BuyerScope:        order.BuyerScope,
-			BuyerKeyHMAC:      order.BuyerKeyHMAC,
-			TariffVersionID:   order.TariffVersionID,
-			AmountMinor:       order.AmountMinor,
-			Currency:          order.Currency,
-			DurationDays:      order.DurationDays,
-			PaymentCode:       order.PaymentCode,
-			CreatedAtUnix:     order.CreatedAtUnix,
-			ExpiresAtUnix:     order.CreatedAtUnix + 86400,
-			ResultGeneration:  order.ResultGeneration,
-			ImportState:       order.State,
+			CustomerSourceKey:  order.CustomerSourceKey,
+			BuyerScope:         order.BuyerScope,
+			BuyerKeyHMAC:       order.BuyerKeyHMAC,
+			TariffVersionID:    order.TariffVersionID,
+			AmountMinor:        order.AmountMinor,
+			Currency:           order.Currency,
+			DurationDays:       order.DurationDays,
+			PaymentCode:        order.PaymentCode,
+			CreatedAtUnix:      order.CreatedAtUnix,
+			ExpiresAtUnix:      order.CreatedAtUnix + 86400,
+			ResultGeneration:   order.ResultGeneration,
+			ImportState:        order.State,
 		}
 		if order.State == "pending" && order.Credited {
 			planned.PaymentState = "confirmed"
@@ -573,16 +588,16 @@ func sortPlan(plan *ImportPlan) {
 
 func planCounts(plan ImportPlan) map[string]int {
 	return map[string]int{
-		"customers":          len(plan.Customers),
-		"orders":             len(plan.Orders),
-		"trials":             len(plan.Trials),
-		"bot_bindings":       len(plan.BotBindings),
-		"settings":           len(plan.Settings),
-		"principals":         len(plan.Principals),
-		"encrypted_secrets":  len(plan.EncryptedSecrets),
-		"deletes":            len(plan.Deletes),
-		"bot_poll_states":    len(plan.BotPollStates),
-		"pending_callbacks":  len(plan.PendingCallbacks),
+		"customers":            len(plan.Customers),
+		"orders":               len(plan.Orders),
+		"trials":               len(plan.Trials),
+		"bot_bindings":         len(plan.BotBindings),
+		"settings":             len(plan.Settings),
+		"principals":           len(plan.Principals),
+		"encrypted_secrets":    len(plan.EncryptedSecrets),
+		"deletes":              len(plan.Deletes),
+		"bot_poll_states":      len(plan.BotPollStates),
+		"pending_callbacks":    len(plan.PendingCallbacks),
 		"credential_rotations": len(plan.BotCredentialRotations),
 	}
 }

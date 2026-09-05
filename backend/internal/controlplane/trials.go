@@ -101,7 +101,11 @@ func (identity *trialMutationIdentity) eligibility() (string, []any) {
 	// introduced after the read, so a concurrent import cannot bypass this gate.
 	return `NOT EXISTS (SELECT 1 FROM trial_redemptions WHERE trial_code_hmac=? OR device_key_hmac=?)
 AND NOT EXISTS (SELECT 1 FROM imported_trial_identities WHERE used=1 AND
-(current_hmac IN (?,?) OR legacy_anchor_hmac IN (?,?) OR lookup_secret_id<>?))`,
+(current_hmac IN (?,?) OR legacy_anchor_hmac IN (?,?) OR lookup_secret_id<>?))
+AND NOT EXISTS (SELECT 1 FROM imported_legacy_trial_uses WHERE
+ (hash_kind='anchor' AND legacy_hmac=?) OR (hash_kind='drm' AND legacy_hmac=?) OR lookup_secret_id<>?)
+AND NOT EXISTS (SELECT 1 FROM import_runs WHERE status<>'applied')`,
 		[]any{identity.anchorHMAC, identity.deviceHMAC, identity.anchorHMAC, identity.deviceHMAC,
+			identity.legacyAnchorHMAC, identity.legacyDeviceHMAC, identity.legacySecretID,
 			identity.legacyAnchorHMAC, identity.legacyDeviceHMAC, identity.legacySecretID}
 }

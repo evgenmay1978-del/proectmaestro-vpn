@@ -14,8 +14,8 @@ func TestMigrationWhiteListSidecarIsExactV15Upgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if SchemaVersion != 17 || len(migrations) != 17 {
-		t.Fatalf("schema chain = version %d/%d, want exact v17", SchemaVersion, len(migrations))
+	if SchemaVersion != 18 || len(migrations) != 18 {
+		t.Fatalf("schema chain = version %d/%d, want exact v18", SchemaVersion, len(migrations))
 	}
 	if migrations[13].Path != "migrations/0014_whitelist_topup_orders.sql" {
 		t.Fatalf("v14 moved: %#v", migrations[13])

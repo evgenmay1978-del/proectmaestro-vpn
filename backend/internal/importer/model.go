@@ -16,8 +16,8 @@ var (
 
 type Snapshot struct {
 	FormatVersion          int                           `json:"format_version"`
-	ClusterHMACKeySHA256    string                        `json:"cluster_hmac_key_sha256"`
-	LegacyTrialSaltSHA256   string                        `json:"legacy_trial_salt_sha256,omitempty"`
+	ClusterHMACKeySHA256   string                        `json:"cluster_hmac_key_sha256"`
+	LegacyTrialSaltSHA256  string                        `json:"legacy_trial_salt_sha256,omitempty"`
 	SnapshotKind           string                        `json:"snapshot_kind"`
 	ParentSourceDigest     string                        `json:"parent_source_digest,omitempty"`
 	CapturedAt             time.Time                     `json:"captured_at"`
@@ -36,19 +36,19 @@ type Snapshot struct {
 }
 
 type LegacyCustomer struct {
-	SourceKey                 string `json:"source_key"`
-	Login                     string `json:"login"`
-	LoginKeyHMAC              string `json:"login_key_hmac"`
-	UUIDHMAC                  string `json:"uuid_hmac"`
-	SubIDHMAC                 string `json:"sub_id_hmac"`
-	TokenHMAC                 string `json:"token_hmac"`
-	CredentialFingerprintHMAC string `json:"credential_fingerprint_hmac"`
-	IdentitySecretRef         string `json:"identity_secret_ref"`
+	SourceKey                 string   `json:"source_key"`
+	Login                     string   `json:"login"`
+	LoginKeyHMAC              string   `json:"login_key_hmac"`
+	UUIDHMAC                  string   `json:"uuid_hmac"`
+	SubIDHMAC                 string   `json:"sub_id_hmac"`
+	TokenHMAC                 string   `json:"token_hmac"`
+	CredentialFingerprintHMAC string   `json:"credential_fingerprint_hmac"`
+	IdentitySecretRef         string   `json:"identity_secret_ref"`
 	ProtocolTags              []string `json:"protocol_tags"`
 	NodeIDs                   []string `json:"node_ids"`
-	ExpiresAtUnix             int64  `json:"expires_at_unix"`
-	Generation                int64  `json:"generation"`
-	Status                    string `json:"status"`
+	ExpiresAtUnix             int64    `json:"expires_at_unix"`
+	Generation                int64    `json:"generation"`
+	Status                    string   `json:"status"`
 }
 
 type LegacyOrder struct {
@@ -69,7 +69,10 @@ type LegacyOrder struct {
 }
 
 type LegacyTrial struct {
-	SourceKey        string `json:"source_key"`
+	SourceKey string `json:"source_key"`
+	// Empty retains the dual-HMAC contract; legacy-only kinds identify the
+	// original anchor or DRM hash stored in LegacyAnchorHMAC without raw input.
+	IdentityKind     string `json:"identity_kind,omitempty"`
 	LegacyAnchorHMAC string `json:"legacy_anchor_hmac"`
 	CurrentHMAC      string `json:"current_hmac"`
 	Used             bool   `json:"used"`
@@ -77,10 +80,10 @@ type LegacyTrial struct {
 }
 
 type LegacyBotBinding struct {
-	BotIdentityHMAC     string `json:"bot_identity_hmac"`
+	BotIdentityHMAC      string `json:"bot_identity_hmac"`
 	TokenFingerprintHMAC string `json:"token_fingerprint_hmac"`
-	CredentialVersion  int    `json:"credential_version"`
-	SchemaFingerprint  string `json:"schema_fingerprint"`
+	CredentialVersion    int    `json:"credential_version"`
+	SchemaFingerprint    string `json:"schema_fingerprint"`
 }
 
 type LegacySetting struct {
@@ -118,15 +121,15 @@ type LegacyDelete struct {
 }
 
 type LegacyBotPollState struct {
-	BotIdentityHMAC            string `json:"bot_identity_hmac"`
+	BotIdentityHMAC             string `json:"bot_identity_hmac"`
 	CurrentTokenFingerprintHMAC string `json:"current_token_fingerprint_hmac"`
-	CredentialVersion         int    `json:"credential_version"`
-	NextUpdateID              int64  `json:"next_update_id"`
-	CapturedFence             uint64 `json:"captured_fence"`
+	CredentialVersion           int    `json:"credential_version"`
+	NextUpdateID                int64  `json:"next_update_id"`
+	CapturedFence               uint64 `json:"captured_fence"`
 }
 
 type LegacyCallback struct {
-	BotIdentityHMAC       string `json:"bot_identity_hmac"`
+	BotIdentityHMAC      string `json:"bot_identity_hmac"`
 	TokenFingerprintHMAC string `json:"token_fingerprint_hmac"`
 	CredentialVersion    int    `json:"credential_version"`
 	CallbackHMAC         string `json:"callback_hmac"`
@@ -136,12 +139,12 @@ type LegacyCallback struct {
 }
 
 type LegacyBotCredentialRotation struct {
-	BotIdentityHMAC        string `json:"bot_identity_hmac"`
+	BotIdentityHMAC         string `json:"bot_identity_hmac"`
 	OldTokenFingerprintHMAC string `json:"old_token_fingerprint_hmac"`
 	NewTokenFingerprintHMAC string `json:"new_token_fingerprint_hmac"`
-	OldCredentialVersion  int    `json:"old_credential_version"`
-	NewCredentialVersion  int    `json:"new_credential_version"`
-	AuditDigest           string `json:"audit_digest"`
+	OldCredentialVersion    int    `json:"old_credential_version"`
+	NewCredentialVersion    int    `json:"new_credential_version"`
+	AuditDigest             string `json:"audit_digest"`
 }
 
 type PlanOptions struct {
@@ -154,20 +157,20 @@ type PlanOptions struct {
 }
 
 type PlannedCustomer struct {
-	InternalID                string `json:"internal_id"`
-	SourceKey                 string `json:"source_key"`
-	DisplayLogin              string `json:"display_login"`
-	LoginKeyHMAC              string `json:"login_key_hmac"`
-	UUIDHMAC                  string `json:"uuid_hmac"`
-	SubIDHMAC                 string `json:"sub_id_hmac"`
-	TokenHMAC                 string `json:"token_hmac"`
-	CredentialFingerprintHMAC string `json:"credential_fingerprint_hmac"`
-	IdentitySecretRef         string `json:"identity_secret_ref"`
+	InternalID                string   `json:"internal_id"`
+	SourceKey                 string   `json:"source_key"`
+	DisplayLogin              string   `json:"display_login"`
+	LoginKeyHMAC              string   `json:"login_key_hmac"`
+	UUIDHMAC                  string   `json:"uuid_hmac"`
+	SubIDHMAC                 string   `json:"sub_id_hmac"`
+	TokenHMAC                 string   `json:"token_hmac"`
+	CredentialFingerprintHMAC string   `json:"credential_fingerprint_hmac"`
+	IdentitySecretRef         string   `json:"identity_secret_ref"`
 	ProtocolTags              []string `json:"protocol_tags"`
 	NodeIDs                   []string `json:"node_ids"`
-	ExpiresAtUnix             int64  `json:"expires_at_unix"`
-	Generation                int64  `json:"generation"`
-	Status                    string `json:"status"`
+	ExpiresAtUnix             int64    `json:"expires_at_unix"`
+	Generation                int64    `json:"generation"`
+	Status                    string   `json:"status"`
 }
 
 type PlannedOrder struct {
@@ -213,27 +216,27 @@ type PlannedDelete struct {
 }
 
 type ImportPlan struct {
-	FormatVersion          int                       `json:"format_version"`
-	ClusterHMACKeySHA256    string                    `json:"cluster_hmac_key_sha256"`
-	LegacyTrialSaltSHA256   string                    `json:"legacy_trial_salt_sha256,omitempty"`
-	SnapshotKind     string                    `json:"snapshot_kind"`
-	ParentSourceDigest string                  `json:"parent_source_digest,omitempty"`
-	SourceDigest     string                    `json:"source_digest"`
-	PlanDigest       string                    `json:"plan_digest"`
-	Customers        []PlannedCustomer         `json:"customers"`
-	Orders           []PlannedOrder            `json:"orders"`
-	Trials           []LegacyTrial             `json:"trials"`
-	BotBindings      []LegacyBotBinding        `json:"bot_bindings"`
-	Settings         []LegacySetting           `json:"settings"`
-	Principals       []PlannedPrincipal        `json:"principals"`
-	EncryptedSecrets []LegacyEncryptedSecret   `json:"encrypted_secrets"`
-	Deletes          []PlannedDelete           `json:"deletes"`
-	CascadeDeletes   []PlannedDelete           `json:"cascade_deletes,omitempty"`
-	BotPollStates    []LegacyBotPollState       `json:"bot_poll_states"`
-	PendingCallbacks []LegacyCallback           `json:"pending_callbacks"`
+	FormatVersion          int                           `json:"format_version"`
+	ClusterHMACKeySHA256   string                        `json:"cluster_hmac_key_sha256"`
+	LegacyTrialSaltSHA256  string                        `json:"legacy_trial_salt_sha256,omitempty"`
+	SnapshotKind           string                        `json:"snapshot_kind"`
+	ParentSourceDigest     string                        `json:"parent_source_digest,omitempty"`
+	SourceDigest           string                        `json:"source_digest"`
+	PlanDigest             string                        `json:"plan_digest"`
+	Customers              []PlannedCustomer             `json:"customers"`
+	Orders                 []PlannedOrder                `json:"orders"`
+	Trials                 []LegacyTrial                 `json:"trials"`
+	BotBindings            []LegacyBotBinding            `json:"bot_bindings"`
+	Settings               []LegacySetting               `json:"settings"`
+	Principals             []PlannedPrincipal            `json:"principals"`
+	EncryptedSecrets       []LegacyEncryptedSecret       `json:"encrypted_secrets"`
+	Deletes                []PlannedDelete               `json:"deletes"`
+	CascadeDeletes         []PlannedDelete               `json:"cascade_deletes,omitempty"`
+	BotPollStates          []LegacyBotPollState          `json:"bot_poll_states"`
+	PendingCallbacks       []LegacyCallback              `json:"pending_callbacks"`
 	BotCredentialRotations []LegacyBotCredentialRotation `json:"bot_credential_rotations"`
-	Counts           map[string]int            `json:"counts"`
-	Blockers         []Blocker                 `json:"-"`
+	Counts                 map[string]int                `json:"counts"`
+	Blockers               []Blocker                     `json:"-"`
 }
 
 type Blocker struct {
@@ -312,7 +315,7 @@ type ApplyOptions struct {
 }
 
 type ApplyResult struct {
-	Counts        map[string]int
-	TargetDigest  string
+	Counts         map[string]int
+	TargetDigest   string
 	AppliedBatches int
 }

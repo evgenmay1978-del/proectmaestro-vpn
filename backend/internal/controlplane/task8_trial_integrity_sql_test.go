@@ -215,3 +215,191 @@ func TestTask8TrialUnrelatedImportedIdentityRemainsEligibleSQLite(t *testing.T) 
 		t.Fatal("fresh trial with imported history did not replay identically")
 	}
 }
+
+func seedIntegrityLegacyOnlyTrial(t *testing.T, db *customerIntegritySQLite, service *Service, source, kind, value string) {
+	t.Helper()
+	salt := []byte("task8-synthetic-legacy-only-salt")
+	rows := db.must(t, rqlite.Statement{SQL: `SELECT secret_id FROM imported_secrets WHERE secret_id='legacy-trial-salt-v1'`})
+	if len(rows[0].Rows) == 0 {
+		envelope, err := service.store.secrets.Seal(SecretScope{OwnerType: "trial_lookup", OwnerID: "legacy", Field: "salt", Kind: "hmac-key"}, salt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(map[string]any{"key_version": envelope.KeyVersion, "nonce_b64": envelope.Nonce, "ciphertext_b64": envelope.Ciphertext})
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(salt)
+		db.must(t, rqlite.Statement{SQL: `INSERT INTO imported_secrets(secret_id,owner_type,owner_source_key,field,kind,key_version,secret_envelope,secret_sha256,imported_at_unix)
+VALUES ('legacy-trial-salt-v1','trial_lookup','legacy','salt','hmac-key',?,?,?,1)`, Args: []any{envelope.KeyVersion, encoded, hex.EncodeToString(digest[:])}})
+	}
+	db.must(t, rqlite.Statement{SQL: `INSERT INTO imported_legacy_trial_uses(source_key,hash_kind,legacy_hmac,lookup_secret_id,imported_at_unix)
+VALUES (?,?,?,'legacy-trial-salt-v1',1)`, Args: []any{source, kind, integrityHMAC(salt, value)}})
+}
+
+func trialIntegritySnapshot(t *testing.T, db *customerIntegritySQLite) []rqlite.Result {
+	t.Helper()
+	return append(db.snapshot(t), db.must(t,
+		rqlite.Statement{SQL: `SELECT * FROM imported_legacy_trial_uses ORDER BY source_key`},
+		rqlite.Statement{SQL: `SELECT * FROM import_runs ORDER BY import_run_id`},
+		rqlite.Statement{SQL: `SELECT * FROM import_batches ORDER BY import_run_id,batch_index`},
+	)...)
+}
+
+func seedIntegrityTrialImport(t *testing.T, db *customerIntegritySQLite, status string) {
+	t.Helper()
+	var target, completed any
+	if status == "applied" {
+		target, completed = strings.Repeat("3", 64), int64(2)
+	}
+	statements := []rqlite.Statement{{SQL: `INSERT INTO import_runs(import_run_id,snapshot_kind,source_sha256,plan_sha256,target_sha256,batch_count,status,started_at_unix,completed_at_unix)
+VALUES ('trial-import','full',?,?,?,2,?,1,?)`, Args: []any{strings.Repeat("1", 64), strings.Repeat("2", 64), target, status, completed}}}
+	if status == "applied" {
+		statements = append(statements,
+			rqlite.Statement{SQL: `INSERT INTO import_batches VALUES ('trial-import',0,?,1,'applied',1)`, Args: []any{strings.Repeat("4", 64)}},
+			rqlite.Statement{SQL: `INSERT INTO import_batches VALUES ('trial-import',1,?,1,'applied',2)`, Args: []any{strings.Repeat("5", 64)}},
+		)
+	}
+	db.must(t, statements...)
+}
+
+func TestTask8LegacyOnlyTrialsStayUsedAndKeepHashKindsSQLite(t *testing.T) {
+	for _, test := range []struct {
+		kind, value string
+		denied      bool
+	}{
+		{"anchor", "used-anchor", true},
+		{"drm", "drm:used-device", true},
+		{"drm", "used-anchor", false},
+		{"anchor", "drm:used-device", false},
+	} {
+		t.Run(test.kind+"/"+test.value, func(t *testing.T) {
+			db, service := newCustomerIntegritySQLite(t)
+			seedIntegrityLegacyOnlyTrial(t, db, service, "used-source", test.kind, test.value)
+			before := trialIntegritySnapshot(t, db)
+			command := RedeemTrialCommand{Login: "Candidate", Anchor: "used-anchor", DRMIdentity: "used-device", Days: 7, IdempotencyKey: "candidate"}
+			first, err := service.RedeemTrial(context.Background(), command)
+			if test.denied {
+				if err == nil || !reflect.DeepEqual(before, trialIntegritySnapshot(t, db)) {
+					t.Fatal("permanently used legacy identity was accepted or mutated durable state")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unrelated typed hash blocked fresh trial: %v", err)
+				}
+				replay, err := service.RedeemTrial(context.Background(), command)
+				if err != nil || !reflect.DeepEqual(first, replay) {
+					t.Fatal("fresh trial did not replay its exact committed result")
+				}
+			}
+			if len(db.must(t, rqlite.Statement{SQL: `SELECT source_key FROM imported_trial_identities`})[0].Rows) != 0 {
+				t.Fatal("legacy-only use invented a dual/current identity")
+			}
+		})
+	}
+}
+
+func TestTask8LegacyOnlyTrialStorageIsImmutableSQLite(t *testing.T) {
+	db, service := newCustomerIntegritySQLite(t)
+	seedIntegrityLegacyOnlyTrial(t, db, service, "used-source", "anchor", "used-anchor")
+	// The same opaque hash may occur in the other ledger, but not twice in one kind.
+	db.must(t, rqlite.Statement{SQL: `INSERT INTO imported_legacy_trial_uses SELECT 'other-kind','drm',legacy_hmac,lookup_secret_id,imported_at_unix FROM imported_legacy_trial_uses WHERE source_key='used-source'`})
+	db.must(t, rqlite.Statement{SQL: `UPDATE imported_legacy_trial_uses SET legacy_hmac=legacy_hmac WHERE source_key='used-source'`})
+	db.must(t, rqlite.Statement{SQL: `INSERT INTO imported_secrets(secret_id,owner_type,owner_source_key,field,kind,key_version,secret_envelope,secret_sha256,imported_at_unix)
+VALUES ('wrong-salt','setting','legacy','salt','hmac-key',1,'opaque',?,1)`, Args: []any{strings.Repeat("a", 64)}})
+	before := trialIntegritySnapshot(t, db)
+	for _, sql := range []string{
+		`UPDATE imported_legacy_trial_uses SET hash_kind='drm' WHERE source_key='used-source'`,
+		`UPDATE imported_legacy_trial_uses SET legacy_hmac=printf('%064d',0) WHERE source_key='used-source'`,
+		`UPDATE imported_legacy_trial_uses SET source_key='changed' WHERE source_key='used-source'`,
+		`UPDATE imported_legacy_trial_uses SET lookup_secret_id='wrong-salt' WHERE source_key='used-source'`,
+		`UPDATE imported_legacy_trial_uses SET imported_at_unix=2 WHERE source_key='used-source'`,
+		`DELETE FROM imported_legacy_trial_uses WHERE source_key='used-source'`,
+		`INSERT INTO imported_legacy_trial_uses SELECT 'duplicate',hash_kind,legacy_hmac,lookup_secret_id,imported_at_unix FROM imported_legacy_trial_uses WHERE source_key='used-source'`,
+		`INSERT INTO imported_legacy_trial_uses SELECT 'wrong-owner','anchor',printf('%064d',0),'wrong-salt',1`,
+		`INSERT INTO imported_legacy_trial_uses SELECT 'unknown-salt','anchor',printf('%064d',0),'absent',1`,
+		`INSERT INTO imported_legacy_trial_uses SELECT 'bad-hash','anchor',upper(legacy_hmac),lookup_secret_id,1 FROM imported_legacy_trial_uses WHERE source_key='used-source'`,
+		`INSERT INTO imported_legacy_trial_uses SELECT 'bad-kind','unknown',legacy_hmac,lookup_secret_id,1 FROM imported_legacy_trial_uses WHERE source_key='used-source'`,
+		`INSERT OR REPLACE INTO imported_legacy_trial_uses SELECT source_key,hash_kind,printf('%064d',0),lookup_secret_id,imported_at_unix FROM imported_legacy_trial_uses WHERE source_key='used-source'`,
+		`INSERT INTO imported_trial_identities SELECT source_key,legacy_hmac,printf('%064d',0),1,0,lookup_secret_id,1 FROM imported_legacy_trial_uses WHERE source_key='used-source'`,
+	} {
+		if _, err := db.execute(context.Background(), true, rqlite.Statement{SQL: sql}); err == nil {
+			t.Fatalf("immutable legacy-use constraint accepted: %s", sql)
+		}
+		if !reflect.DeepEqual(before, trialIntegritySnapshot(t, db)) {
+			t.Fatal("rejected legacy-use statement changed durable state")
+		}
+	}
+	db.must(t, rqlite.Statement{SQL: `INSERT INTO imported_trial_identities VALUES ('old-dual',printf('%064d',1),printf('%064d',2),1,0,'legacy-trial-salt-v1',1)`})
+	if _, err := db.execute(context.Background(), true, rqlite.Statement{SQL: `INSERT INTO imported_legacy_trial_uses VALUES ('old-dual','anchor',printf('%064d',3),'legacy-trial-salt-v1',1)`}); err == nil {
+		t.Fatal("existing dual source was replaced by a legacy-only identity")
+	}
+}
+
+func TestTask8TrialDeniedDuringUnresolvedImportSQLite(t *testing.T) {
+	for _, status := range []string{"applying", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			db, service := newCustomerIntegritySQLite(t)
+			seedIntegrityLegacyOnlyTrial(t, db, service, "unrelated", "anchor", "other-anchor")
+			seedIntegrityTrialImport(t, db, status)
+			// One committed batch cannot authorize redemption before the rest of the ledger arrives.
+			db.must(t, rqlite.Statement{SQL: `INSERT INTO import_batches VALUES ('trial-import',0,?,1,'applied',1)`, Args: []any{strings.Repeat("4", 64)}})
+			before := trialIntegritySnapshot(t, db)
+			_, err := service.RedeemTrial(context.Background(), RedeemTrialCommand{Login: "Fresh", Anchor: "fresh-anchor", Days: 7, IdempotencyKey: "fresh"})
+			if err == nil || !reflect.DeepEqual(before, trialIntegritySnapshot(t, db)) {
+				t.Fatal("unresolved partial import permitted a trial or mutated customer state")
+			}
+		})
+	}
+}
+
+func TestTask8TrialImportAfterSaltReadCannotBypassGateSQLite(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		knownSalt   bool
+		status      string
+		matchingUse bool
+	}{
+		{"import-starts-after-read", true, "applying", false},
+		{"unknown-salt-even-after-completion", false, "applied", false},
+		{"matching-use-arrives-after-read", true, "applied", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, service := newCustomerIntegritySQLite(t)
+			if test.knownSalt {
+				seedIntegrityLegacyOnlyTrial(t, db, service, "known", "anchor", "other-anchor")
+			}
+			var before []rqlite.Result
+			db.beforeRequest = func() {
+				if !test.knownSalt {
+					seedIntegrityLegacyOnlyTrial(t, db, service, "new-salt", "anchor", "other-anchor")
+				}
+				if test.matchingUse {
+					seedIntegrityLegacyOnlyTrial(t, db, service, "concurrent-use", "anchor", "fresh-anchor")
+				}
+				seedIntegrityTrialImport(t, db, test.status)
+				before = trialIntegritySnapshot(t, db)
+			}
+			_, err := service.RedeemTrial(context.Background(), RedeemTrialCommand{Login: "Fresh", Anchor: "fresh-anchor", Days: 7, IdempotencyKey: "race"})
+			if before == nil || err == nil || !reflect.DeepEqual(before, trialIntegritySnapshot(t, db)) {
+				t.Fatal("import committed after the salt read bypassed the atomic trial claim")
+			}
+		})
+	}
+}
+
+func TestTask8CompletedLegacyImportAllowsFreshTrialSQLite(t *testing.T) {
+	db, service := newCustomerIntegritySQLite(t)
+	seedIntegrityLegacyOnlyTrial(t, db, service, "old-anchor", "anchor", "other-anchor")
+	seedIntegrityLegacyOnlyTrial(t, db, service, "old-drm", "drm", "drm:other-device")
+	seedIntegrityTrialImport(t, db, "applied")
+	command := RedeemTrialCommand{Login: "Fresh", Anchor: "fresh-anchor", DRMIdentity: "fresh-device", Days: 7, IdempotencyKey: "completed-import"}
+	first, err := service.RedeemTrial(context.Background(), command)
+	if err != nil {
+		t.Fatalf("completed import blocked a fresh trial: %v", err)
+	}
+	replay, err := service.RedeemTrial(context.Background(), command)
+	if err != nil || !reflect.DeepEqual(first, replay) {
+		t.Fatal("fresh trial after import did not replay exactly")
+	}
+}

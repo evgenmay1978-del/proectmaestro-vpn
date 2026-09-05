@@ -332,6 +332,10 @@ func (f *runtimeRQLite) QueryLinearizable(
 	if len(statements) == 1 && strings.Contains(statements[0].SQL, "SELECT secret_envelope AS envelope") {
 		return []rqlite.Result{{}}, nil
 	}
+	if len(statements) == 1 && len(statements[0].Args) == 0 && statements[0].SQL == `SELECT 'setting' AS owner,setting_key AS owner_id,secret_envelope AS envelope,secret_sha256 AS digest,key_version FROM setting_secrets
+UNION ALL SELECT 'principal' AS owner,principal_id AS owner_id,verifier_envelope AS envelope,verifier_sha256 AS digest,0 AS key_version FROM principal_credentials` {
+		return []rqlite.Result{{}}, nil
+	}
 	return f.linearResults, nil
 }
 
@@ -421,7 +425,7 @@ func TestProductionFactoryCallsVerifyIdentityButNeverApply(t *testing.T) {
 		t.Fatalf("buildProductionApplyRuntime: %v", err)
 	}
 	if got == nil || got.Store == nil || verifier.calls != 1 || newCalls != 1 ||
-		db.linearCalls != 2 || db.requestCalls != 0 {
+		db.linearCalls != 3 || db.requestCalls != 0 {
 		t.Fatalf("runtime=%#v new=%d verify=%d linear=%d request=%d",
 			got, newCalls, verifier.calls, db.linearCalls, db.requestCalls)
 	}

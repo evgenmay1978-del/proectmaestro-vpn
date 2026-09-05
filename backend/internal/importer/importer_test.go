@@ -257,7 +257,7 @@ func TestPlanOperationsBindSettingAndPrincipalSecrets(t *testing.T) {
 		t.Fatalf("setting secret is not owner-bound: %#v", settingPayload)
 	}
 	var principalPayload struct {
-		Principal        map[string]any       `json:"principal"`
+		Principal        map[string]any        `json:"principal"`
 		CredentialSecret LegacyEncryptedSecret `json:"credential_secret"`
 	}
 	if err := json.Unmarshal(principalOperation.CanonicalJSON, &principalPayload); err != nil {
@@ -289,20 +289,20 @@ func TestBotCredentialRotationChainMustBeLinearAndReachCurrentRoute(t *testing.T
 	valid.BotBindings[0].CredentialVersion = 3
 	valid.BotCredentialRotations = []LegacyBotCredentialRotation{
 		{
-			BotIdentityHMAC: botIdentity,
+			BotIdentityHMAC:         botIdentity,
 			OldTokenFingerprintHMAC: firstFingerprint,
 			NewTokenFingerprintHMAC: middleFingerprint,
-			OldCredentialVersion: 1,
-			NewCredentialVersion: 2,
-			AuditDigest: strings.Repeat("5", 64),
+			OldCredentialVersion:    1,
+			NewCredentialVersion:    2,
+			AuditDigest:             strings.Repeat("5", 64),
 		},
 		{
-			BotIdentityHMAC: botIdentity,
+			BotIdentityHMAC:         botIdentity,
 			OldTokenFingerprintHMAC: middleFingerprint,
 			NewTokenFingerprintHMAC: currentFingerprint,
-			OldCredentialVersion: 2,
-			NewCredentialVersion: 3,
-			AuditDigest: strings.Repeat("6", 64),
+			OldCredentialVersion:    2,
+			NewCredentialVersion:    3,
+			AuditDigest:             strings.Repeat("6", 64),
 		},
 	}
 	if _, report := Plan(valid, testPlanOptions()); len(report.Blockers) != 0 {
@@ -314,20 +314,20 @@ func TestBotCredentialRotationChainMustBeLinearAndReachCurrentRoute(t *testing.T
 	fork.BotBindings[0].CredentialVersion = 3
 	fork.BotCredentialRotations = []LegacyBotCredentialRotation{
 		{
-			BotIdentityHMAC: botIdentity,
+			BotIdentityHMAC:         botIdentity,
 			OldTokenFingerprintHMAC: firstFingerprint,
 			NewTokenFingerprintHMAC: middleFingerprint,
-			OldCredentialVersion: 1,
-			NewCredentialVersion: 2,
-			AuditDigest: strings.Repeat("5", 64),
+			OldCredentialVersion:    1,
+			NewCredentialVersion:    2,
+			AuditDigest:             strings.Repeat("5", 64),
 		},
 		{
-			BotIdentityHMAC: botIdentity,
+			BotIdentityHMAC:         botIdentity,
 			OldTokenFingerprintHMAC: firstFingerprint,
 			NewTokenFingerprintHMAC: currentFingerprint,
-			OldCredentialVersion: 1,
-			NewCredentialVersion: 3,
-			AuditDigest: strings.Repeat("6", 64),
+			OldCredentialVersion:    1,
+			NewCredentialVersion:    3,
+			AuditDigest:             strings.Repeat("6", 64),
 		},
 	}
 	if _, report := Plan(fork, testPlanOptions()); !hasBlockerCode(report.Blockers, "bot_credential_rotation_fork") {
@@ -361,6 +361,75 @@ func TestEncryptedSecretIdentityCollisionIsBlocking(t *testing.T) {
 	_, report := Plan(snapshot, testPlanOptions())
 	if !hasBlockerCode(report.Blockers, "encrypted_secret_collision") {
 		t.Fatalf("encrypted secret collision blockers = %#v", report.Blockers)
+	}
+}
+
+func TestLegacyOnlyTrialKindsPreserveBothHashMaps(t *testing.T) {
+	snapshot := decodeFixture(t, "bot-bindings-v1.json")
+	snapshot.LegacyTrialSaltSHA256 = protectedTrialImportFixture().SaltSHA256
+	snapshot.Trials = []LegacyTrial{
+		{SourceKey: "used-anchor", IdentityKind: "legacy-anchor-v1", LegacyAnchorHMAC: strings.Repeat("a", 64), Used: true},
+		{SourceKey: "used-drm", IdentityKind: "legacy-drm-v1", LegacyAnchorHMAC: strings.Repeat("a", 64), Used: true},
+	}
+	plan, report := Plan(snapshot, testPlanOptions())
+	if len(report.Blockers) != 0 || !reflect.DeepEqual(plan.Trials, snapshot.Trials) {
+		t.Fatal("typed legacy hash maps were rejected or changed")
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeSnapshot(encoded)
+	if err != nil || !reflect.DeepEqual(decoded.Trials, snapshot.Trials) {
+		t.Fatal("snapshot round trip lost the legacy-only identity discriminator")
+	}
+	changed := snapshot.Trials[1]
+	changed.IdentityKind = "legacy-anchor-v1"
+	snapshot.Trials[1] = changed
+	_, report = Plan(snapshot, testPlanOptions())
+	if !hasBlockerCode(report.Blockers, "trial_identity_collision") {
+		t.Fatal("two sources claimed the same typed legacy hash")
+	}
+	snapshot.Trials[1].IdentityKind = "legacy-drm-v1"
+	snapshot.Trials[1].SourceKey = snapshot.Trials[0].SourceKey
+	_, report = Plan(snapshot, testPlanOptions())
+	if !hasBlockerCode(report.Blockers, "trial_identity_collision") {
+		t.Fatal("one source was allowed to change identity kind")
+	}
+}
+
+func TestLegacyOnlyTrialValidationRejectsInventedOrUnusedIdentity(t *testing.T) {
+	valid := LegacyTrial{SourceKey: "legacy-use", IdentityKind: "legacy-anchor-v1", LegacyAnchorHMAC: strings.Repeat("b", 64), Used: true}
+	for _, test := range []struct {
+		name   string
+		change func(*LegacyTrial)
+	}{
+		{"unknown kind", func(v *LegacyTrial) { v.IdentityKind = "legacy-v1" }},
+		{"missing kind", func(v *LegacyTrial) { v.IdentityKind = "" }},
+		{"missing source", func(v *LegacyTrial) { v.SourceKey = "" }},
+		{"invented current", func(v *LegacyTrial) { v.CurrentHMAC = strings.Repeat("c", 64) }},
+		{"unused", func(v *LegacyTrial) { v.Used = false }},
+		{"invented expiry", func(v *LegacyTrial) { v.ExpiresAtUnix = 1 }},
+		{"negative expiry", func(v *LegacyTrial) { v.ExpiresAtUnix = -1 }},
+		{"uppercase hash", func(v *LegacyTrial) { v.LegacyAnchorHMAC = strings.Repeat("B", 64) }},
+		{"nonhex hash", func(v *LegacyTrial) { v.LegacyAnchorHMAC = strings.Repeat("z", 64) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			trial := valid
+			test.change(&trial)
+			snapshot := decodeFixture(t, "bot-bindings-v1.json")
+			snapshot.LegacyTrialSaltSHA256 = protectedTrialImportFixture().SaltSHA256
+			snapshot.Trials = []LegacyTrial{trial}
+			_, report := Plan(snapshot, testPlanOptions())
+			if !hasBlockerCode(report.Blockers, "invalid_trial_identity") {
+				t.Fatal("invalid legacy-only identity was accepted")
+			}
+		})
+	}
+	old := legacyTrialFixture()
+	encoded, err := json.Marshal(old)
+	if err != nil || bytes.Contains(encoded, []byte(`"identity_kind"`)) || !validLegacyTrialIdentity(old) {
+		t.Fatal("existing dual identity wire contract changed")
 	}
 }
 
