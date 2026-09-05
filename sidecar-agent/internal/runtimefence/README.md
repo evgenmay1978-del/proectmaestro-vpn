@@ -85,10 +85,18 @@ The latter floors the actual monotonic remaining duration to whole milliseconds;
 it can be zero near expiry and never exceeds 5000. A caller derives its local
 deadline from request-start monotonic time plus this remaining duration and
 rejects a zero/already elapsed result. Exact retries return the original expiry
-and decreasing remaining duration. A successful fence omits both lease fields
-and additionally has signed 64-bit `uplink`
-and `downlink` containing real nonnegative cumulative counters. No zero counters
-are invented when a counter pair is absent. A fence retry may observe a later
+and decreasing remaining duration. A successful fence omits both lease fields.
+State `fenced` additionally has signed 64-bit `uplink` and `downlink` containing
+real nonnegative cumulative counters; an existing complete zero pair still uses
+this state. State `fenced_unused` is permitted only when both counters are absent,
+no successful managed `gate.start` has ever occurred for this email during the
+physical process boot, and the same complete session-drain proof has finished.
+Its UP/DOWN fields are absent, never substituted zeros. The ever-started history
+survives replacement MemoryUsers and regrants for that email. A partial pair or
+missing counters after any successful start still fails closed. `fenced_unused`
+allows a caller to distinguish a safely fenced, never-dispatched identity from
+an unavailable usage sample; it is not a byte sample or an asserted cutoff time.
+A fence retry may observe a later
 timestamp; it never changes cumulative usage while that generation is fenced.
 
 The boot digest is SHA-256 of actual kernel boot ID, NUL, PID, NUL, Linux process

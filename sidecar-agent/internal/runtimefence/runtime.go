@@ -53,9 +53,11 @@ type Receipt struct {
 }
 
 type userState struct {
-	generation    uint64
-	operation     string
-	allowed       bool
+	generation uint64
+	operation  string
+	allowed    bool
+	// Retained for this email's entire physical boot, including regrants.
+	everStarted   bool
 	user          *protocol.MemoryUser
 	sessions      map[*stream]struct{}
 	leaseMS       uint32
@@ -231,6 +233,14 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 		return nil, deadline.Err()
 	}
 	up, down := sm.GetCounter(counterName(c.Email, "uplink")), sm.GetCounter(counterName(c.Email, "downlink"))
+	if up == nil && down == nil && !u.everStarted {
+		// Admission is closed and the registry has fully drained above. With
+		// no successful start in this physical boot, absence is proven unused,
+		// not a fabricated zero sample or an accounting boundary timestamp.
+		r := g.receipt(c, "fenced_unused")
+		g.mu.Unlock()
+		return r, nil
+	}
 	if up == nil || down == nil {
 		g.mu.Unlock()
 		return nil, errors.New("final counters unavailable")
@@ -273,6 +283,7 @@ func (g *gate) start(ctx context.Context, user *protocol.MemoryUser, interrupt f
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	s := &stream{gate: g, owner: u, cancel: cancel, interrupt: interrupt}
+	u.everStarted = true
 	u.sessions[s] = struct{}{}
 	g.count++
 	return ctx, s, nil

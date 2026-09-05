@@ -172,13 +172,96 @@ func TestFenceWaitsForLatePinnedCounterMutationAfterWorkerReturn(t *testing.T) {
 	}
 }
 
-func TestMissingOrOverflowedCountersDoNotProduceFinalReceipt(t *testing.T) {
+func TestNeverStartedFenceReturnsUnusedWithoutCounterSample(t *testing.T) {
+	for _, granted := range []bool{false, true} {
+		name := "never_granted"
+		if granted {
+			name = "granted_but_never_started"
+		}
+		t.Run(name, func(t *testing.T) {
+			g, u, sm, c := fixture(t)
+			if _, _, err := g.start(context.Background(), u, func() {}); err == nil {
+				t.Fatal("ungranted start accepted")
+			}
+			if granted {
+				if _, err := g.apply(context.Background(), c, u, sm); err != nil {
+					t.Fatal(err)
+				}
+				c.Generation++
+			}
+			c.Operation, c.LeaseMS = "fence", 0
+			for attempt := 0; attempt < 2; attempt++ {
+				r, err := g.apply(context.Background(), c, nil, sm)
+				if err != nil || r == nil || r.State != "fenced_unused" || r.Uplink != nil || r.Downlink != nil || r.LeaseRemainingMS != nil || r.LeaseExpiresAt != "" || r.BootID != g.boot || r.Generation != c.Generation {
+					t.Fatalf("invalid unused receipt: %v %v", r, err)
+				}
+			}
+			if sm.GetCounter(counterName(u.Email, "uplink")) != nil || sm.GetCounter(counterName(u.Email, "downlink")) != nil {
+				t.Fatal("unused fence created zero counters")
+			}
+		})
+	}
+}
+
+func TestPartialCounterPairCannotBeCertifiedUnused(t *testing.T) {
+	for _, direction := range []string{"uplink", "downlink"} {
+		t.Run(direction, func(t *testing.T) {
+			g, u, sm, c := fixture(t)
+			if _, err := sm.RegisterCounter(counterName(u.Email, direction)); err != nil {
+				t.Fatal(err)
+			}
+			c.Operation, c.LeaseMS = "fence", 0
+			if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
+				t.Fatal("partial counters certified as unused")
+			}
+		})
+	}
+}
+
+func TestSuccessfulStartPermanentlyForbidsUnusedReceiptForPhysicalBoot(t *testing.T) {
+	g, u, sm, c := fixture(t)
+	if _, err := g.apply(context.Background(), c, u, sm); err != nil {
+		t.Fatal(err)
+	}
+	_, s, err := g.start(context.Background(), u, func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.finish()
+	waitEmpty(t, g)
+	c.Operation, c.LeaseMS = "fence", 0
+	c.Generation++
+	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
+		t.Fatal("missing counters after successful dispatch certified unused")
+	}
+	// Replacing the MemoryUser does not create a new physical counter lifetime.
+	replacement := &protocol.MemoryUser{Email: u.Email, Account: &vless.MemoryAccount{}}
+	c.Operation, c.LeaseMS = "grant", 5000
+	c.Generation++
+	if _, err := g.apply(context.Background(), c, replacement, sm); err != nil {
+		t.Fatal(err)
+	}
+	c.Operation, c.LeaseMS = "fence", 0
+	c.Generation++
+	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
+		t.Fatal("regrant erased successful-start history")
+	}
+}
+
+func TestRealZeroCounterPairProducesOrdinaryFencedReceipt(t *testing.T) {
+	g, u, sm, c := fixture(t)
+	registerPair(t, sm, u.Email)
+	c.Operation, c.LeaseMS = "fence", 0
+	r, err := g.apply(context.Background(), c, nil, sm)
+	if err != nil || r == nil || r.State != "fenced" || r.Uplink == nil || r.Downlink == nil || *r.Uplink != 0 || *r.Downlink != 0 {
+		t.Fatalf("real zero pair lost: %v %v", r, err)
+	}
+}
+
+func TestNegativeCountersDoNotProduceFinalReceipt(t *testing.T) {
 	g, u, sm, c := fixture(t)
 	c.Operation = "fence"
 	c.LeaseMS = 0
-	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
-		t.Fatal("invented absent counters")
-	}
 	registerPair(t, sm, u.Email)
 	sm.GetCounter(counterName(u.Email, "uplink")).Add(-1)
 	if r, err := g.apply(context.Background(), c, nil, sm); err == nil || r != nil {
