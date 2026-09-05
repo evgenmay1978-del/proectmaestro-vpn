@@ -79,9 +79,22 @@ admission/first-debit proof; it now exercises empty observation, verified reserv
 managed desired state and actual42-byte debit through the production collector
 and durable SQLite-backed services. HTTP200 and missing-receipt503 assertions
 remain. No production validator or billing behavior was weakened. Only these
-two fixture files are corrected; one new exact-SHA HA run is required after
-push. Do not rerun unchanged24192c7. The verified reserve provider, same-boot
-reset and strict period rollover remain open; this is not launch readiness.
+two fixture files were corrected in `4cb5b5a68f4ac761c4e5f9cd7b3bd4d622f5f5c9`.
+Its exact HA run `33957336820` FAILED one order-fixture constraint:
+expires_at must equal created_at+86400. The fixture now retains created=now-100,
+confirmed=now-50 and derives expiry from that same creation time. Other CHECK
+constraints of this INSERT were inspected; no production constraint changed.
+Do not rerun either unchanged failed SHA. The verified reserve provider,
+same-boot reset and strict period rollover remain open; this is not readiness.
+An additional actual first-use publication cycle is confirmed in source:
+public readiness requires a first debited sample before issuing client material,
+but a new client cannot produce that sample without the material. Empty desired
+bootstrap alone does not solve it. The next production correction must permit
+only a separately proven awaiting-first admission: paid/admin enabled, adequate
+verified reserve, exact current period/boot, fresh all-Origin health and that
+user in current managed desired with the exact applied receipt. Do not fabricate
+usage freshness or synthetic customer bytes. Once observed, real available
+counters and applied debit remain mandatory; waiting must never rearm.
 
 Eye source now selects one registered original-tissue candidate: real scleral
 texture and a moist corner replace the flat procedural triangles, sampled strictly
@@ -108,7 +121,7 @@ The compile-only workflow correction is pushed as
 eyelashes. Runtime and preview now share29 upper/12 lower authored follicles,
 lid attachment, irregular fan/curl and tapered dark-brown strands. The initially
 over-bright wire-like reflection was rejected and removed from both renderers.
-The selected actual-source preview is `eyelashes-dark-fan-preview`, not either
+The prior actual-source preview is `eyelashes-dark-fan-preview`, not either
 older lashless/bright-wire image. Root viewed its enlarged open/closed comparison;
 independent review of the six visual files found no Critical/Important issues.
 This is not anatomical/device acceptance. The existing `mobile-eye-compile`
@@ -118,6 +131,13 @@ checks the actual preview and Kotlin together. Eyelash source
 `33956214651` is SUCCESS, both Python preview and Kotlin compilation/geometry
 tests passed. No APK was assembled, signed or published. Do not separately
 rerun this completed validation, superseded lashless source or publish test OTA.
+The owner then rejected dark-fan visibility: lashes still disappear at normal
+phone scale. Its previous visual selection is superseded, not accepted. Source
+inspection confirms sparse low-contrast tapered strands mostly fall below one
+phone pixel. The bounded correction keeps original green, aperture, corners and
+lid attachment, increases irregular paired-hair coverage and uses only a narrow
+muted shaft ridge. Verify the actual390dp phone rendering, not enlarged-only
+visibility. This visual correction is not yet a released APK.
 Do not repeat either failed run unchanged or claim that either compiled an APK. All-three
 final visual/runtime acceptance remains OPEN, no APK/OTA publication. Superseded
 spherical candidates are recoverable scratch only, not alternative live assets.

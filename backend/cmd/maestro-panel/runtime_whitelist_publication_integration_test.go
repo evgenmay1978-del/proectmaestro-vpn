@@ -69,7 +69,7 @@ amount_minor,currency,duration_days,created_at_unix,expires_at_unix,payment_stat
 provisioning_state,decision,confirmed_at_unix,result_expires_at_unix,result_generation,operation_id)
 VALUES(?,'AA1122334455','publication-integration',?,?,'tariff_1m_v1',40000,'RUB',30,?,?,'confirmed','applied','confirmed',?,?,1,?)`,
 			Args: []any{accessOrderID, strings.Repeat("c", 64), customer.ID, now.Unix() - 100,
-				now.Unix() + 86400, now.Unix() - 50, now.Unix() + 30*86400, "publication-paid-operation"}},
+				now.Unix() - 100 + 86400, now.Unix() - 50, now.Unix() + 30*86400, "publication-paid-operation"}},
 		rqlite.Statement{SQL: `INSERT INTO whitelist_billing_periods(
 period_id,entitlement_id,period_ordinal,starts_at_unix,ends_at_unix,included_grant_bytes,access_order_id,created_at_unix)
 VALUES(?,?,0,?,?,0,?,?)`, Args: []any{periodID, entitlementID, now.Unix() - 100, now.Unix() + 86400, accessOrderID, now.Unix()}},
