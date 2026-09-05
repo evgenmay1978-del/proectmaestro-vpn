@@ -49,6 +49,31 @@ func (fake *fakeApplier) LookupReceipt(_ context.Context, actionKey string) (age
 	return fake.lookupResult, nil
 }
 
+func TestUsageRouteRejectsMutationAndUnauthenticatedReads(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		method string
+		status int
+	}{
+		{name: "post is not a counter reset or mutation", method: http.MethodPost, status: http.StatusMethodNotAllowed},
+		{name: "get requires verified mtls", method: http.MethodGet, status: http.StatusUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			applier := &fakeApplier{}
+			request := httptest.NewRequest(test.method, "/v1/usage", nil)
+			request.Header.Set(ActionKeyHeader, "node-s1:1:"+strings.Repeat("a", 64))
+			response := httptest.NewRecorder()
+			NewHandler(applier).ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d", response.Code, test.status)
+			}
+			if applier.called != 0 || applier.lookupCalled != 0 {
+				t.Fatalf("rejected usage request accessed desired/receipt state: apply=%d lookup=%d", applier.called, applier.lookupCalled)
+			}
+		})
+	}
+}
+
 func canonicalDesired(t *testing.T) []byte {
 	t.Helper()
 	managed := []string{"wl:one:exit-s1"}
