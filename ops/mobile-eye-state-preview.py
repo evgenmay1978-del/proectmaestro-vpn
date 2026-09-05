@@ -43,6 +43,7 @@ APERTURE_LOWER = (
     (860, 1133), (900, 1115), (932, 1098), (957, 1083),
 )
 GLOW_INNER_EDGE = 0.82
+GLOW_OUTER_FADE_START = 0.98
 GLOW_MAX_ALPHA = 0.22 * 0.7
 
 
@@ -200,10 +201,20 @@ def render_living_eye_layers(closure: float, scale: int = 2) -> tuple[Image.Imag
         centre = (_scaled(center_x, scale), _scaled(center_y, scale))
         outer = _scaled(medallion * (0.5 - 26.0 / 520.0), scale)
         glow_draw = ImageDraw.Draw(glow)
+        midpoint = (GLOW_INNER_EDGE + 1.0) / 2.0
+        fade_start_alpha = 0.25 + 0.75 * (GLOW_OUTER_FADE_START - midpoint) / (1.0 - midpoint)
         for band in range(18):
             t = band / 17
-            radius = int(outer * (1.0 - t * (1.0 - GLOW_INNER_EDGE)))
-            alpha = round(255 * GLOW_MAX_ALPHA * (1.0 - t) ** 2)
+            fraction = 1.0 - t * (1.0 - GLOW_INNER_EDGE)
+            radius = int(outer * fraction)
+            # Match the runtime radial stops, including the transparent outer edge.
+            if fraction > GLOW_OUTER_FADE_START:
+                strength = fade_start_alpha * (1.0 - fraction) / (1.0 - GLOW_OUTER_FADE_START)
+            elif fraction > midpoint:
+                strength = 0.25 + 0.75 * (fraction - midpoint) / (1.0 - midpoint)
+            else:
+                strength = 0.25 * (fraction - GLOW_INNER_EDGE) / (midpoint - GLOW_INNER_EDGE)
+            alpha = round(255 * GLOW_MAX_ALPHA * strength)
             glow_draw.ellipse(
                 (centre[0] - radius, centre[1] - radius, centre[0] + radius, centre[1] + radius),
                 outline=(46, 190, 108, alpha),

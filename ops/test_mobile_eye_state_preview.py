@@ -118,6 +118,28 @@ class MobileEyeStatePreviewGeometryTest(unittest.TestCase):
                 "emerald surround inside the original aperture",
             )
 
+    def test_connected_glow_fades_to_transparent_at_socket_boundary(self) -> None:
+        scale = 2
+        _eye, _seam, _aperture, glow = MODULE.render_living_eye_layers(
+            closure=0.0,
+            scale=scale,
+        )
+        center_x, center_y, medallion = MODULE._current_medallion_dp()
+        center = (round(center_x * scale), round(center_y * scale))
+        outer_radius = round(medallion * 0.45 * scale)
+
+        self.assertEqual(
+            glow.getpixel((center[0] + outer_radius, center[1]))[3],
+            0,
+            "the connected glow must fade out before the circle ends, "
+            "not leave an opaque cut-off rim",
+        )
+        self.assertGreater(
+            glow.getchannel("A").getextrema()[1],
+            0,
+            "fading the edge must retain the connection glow",
+        )
+
     def test_connected_contact_seam_uses_runtime_alpha(self) -> None:
         _eye, seam, _aperture, _glow = MODULE.render_living_eye_layers(
             closure=0.0,

@@ -331,6 +331,9 @@ internal fun LivingEyeMedallion(
         if (glowValue > 0.01f) {
             val centre = Offset(size.width / 2f, size.height / 2f)
             val glowRadius = medallion / 2f - bronzeInset
+            val glowMidpoint = (GLOW_INNER_EDGE + 1f) / 2f
+            val fadeStartAlpha = 0.25f + 0.75f *
+                (GLOW_OUTER_FADE_START - glowMidpoint) / (1f - glowMidpoint)
             drawCircle(
                 brush = Brush.radialGradient(
                     colorStops = arrayOf(
@@ -338,9 +341,13 @@ internal fun LivingEyeMedallion(
                         GLOW_INNER_EDGE to Color.Transparent,
                         // Промежуточная точка делает набор квадратичным: у кромки свет есть, а к
                         // радужке спадает быстро. Один линейный переход давал ореол поверх глаза.
-                        (GLOW_INNER_EDGE + (1f - GLOW_INNER_EDGE) * 0.5f) to
+                        glowMidpoint to
                             GLOW_TINT.copy(alpha = GLOW_MAX_ALPHA * glowValue * 0.25f),
-                        1f to GLOW_TINT.copy(alpha = GLOW_MAX_ALPHA * glowValue),
+                        // Preserve the existing ramp until the final 2% of the radius, then
+                        // fade out before the circle ends instead of leaving a hard green rim.
+                        GLOW_OUTER_FADE_START to
+                            GLOW_TINT.copy(alpha = GLOW_MAX_ALPHA * glowValue * fadeStartAlpha),
+                        1f to Color.Transparent,
                     ),
                     center = centre,
                     radius = glowRadius,
@@ -573,6 +580,7 @@ private const val GLOW_CONNECTED = 0.7f
 // Доля радиуса, до которой свет полностью прозрачен: центр не засвечиваем. 0.82 и alpha 0.22
 // вместо прежних 0.55 и 0.5 — при них свет ложился пеленой поверх глаза (владелец 31.07).
 private const val GLOW_INNER_EDGE = 0.82f
+private const val GLOW_OUTER_FADE_START = 0.98f
 private const val GLOW_MAX_ALPHA = 0.22f
 private val GLOW_TINT = Color(0xFF2EBE6C)
 private val EYE_CONTACT_SHADOW = Color(0xFF061409)

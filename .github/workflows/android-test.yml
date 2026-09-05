@@ -33,6 +33,7 @@ on:
           - android
           - mobile-eye-ring-assets
           - mobile-eye-runtime-assets
+          - mobile-eye-state-preview
   pull_request:
     paths:
       - 'app/**'
@@ -42,6 +43,39 @@ on:
       - .github/workflows/android-test.yml
 
 jobs:
+  mobile-eye-state-preview:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-state-preview' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned Pillow
+        run: python -m pip install --disable-pip-version-check 'Pillow==11.3.0'
+
+      - name: Test eye-state behavior
+        run: python -m unittest ops.test_mobile_eye_state_preview
+
+      - name: Render OFF and ON without an APK
+        run: python ops/mobile-eye-state-preview.py --scale 2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-eye-state-preview-${{ github.sha }}
+          path: |
+            build/mobile-eye-state-preview/home-disconnected.png
+            build/mobile-eye-state-preview/home-connected.png
+            build/mobile-eye-state-preview/home-eye-states-comparison.png
+          if-no-files-found: error
+
   mobile-eye-ring-assets:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-ring-assets' }}
     runs-on: ubuntu-latest

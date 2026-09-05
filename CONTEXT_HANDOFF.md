@@ -157,13 +157,24 @@ production Android remains ordinary-only `1.0.157`.
 
 Eye side-task while CDN UI access is unconfirmed: the
 [05.09 source diagnosis and registered open-eye candidate](docs/design/mobile-eye-natural/2026-09-05-registered-open-candidate.md)
-are archived as documentation only, with the unchanged PNG and exact prompt.
+were archived at `279e34f16c24326bb416e7ff8c801282f0279f90`, with the unchanged
+PNG and exact prompt.
 The candidate is PREVIEW ONLY, not accepted or integrated; all three visual
-criteria remain open. No APK, Kotlin, runtime atlas or TV change occurred.
-The next eye step is one anatomy-only composite registered to the original
+criteria remain open. That artwork checkpoint changed no APK or runtime source.
+A separate [bounded glow-edge correction](docs/design/mobile-eye-natural/2026-09-05-glow-outer-edge-taper.md)
+is now source-implemented, not installed: Kotlin preserves the original ramp
+through radius `0.98`, then tapers to transparent; the lightweight preview
+mirrors it. One boundary test observed RED (`39 != 0`), then two focused tests
+passed, including closed-material invariance; independent source review CLEAN.
+The new manual `mobile-eye-state-preview` task runs only Pillow tests/render
+and uploads exact-SHA OFF/ON images. Dispatch and image acceptance are pending.
+Keep `[skip ci]` on this and later post-preview documentation commits to prevent
+automatic APK builds; never call skipped/pending checks GREEN. No animation,
+aperture, atlas, TV or installed app change occurred. After the image gate,
+the artwork step remains one anatomy-only composite registered to the original
 closed material, preserving blink/gaze and the single ring placement owner;
-no numeric fix is confirmed. This does not replace the commercial priority or
-close any CDN/public-edge gate above.
+no aperture numeric fix is confirmed. Commercial b441/private state and the
+priority and CDN/public-edge gates above remain unchanged.
 
 ## 0. WHITE-LIST COMMERCIAL DELIVERY — TASK 13 DELIVERY GREEN; TASK 14 NEXT (04.09.2026)
 
