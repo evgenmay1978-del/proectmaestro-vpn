@@ -167,10 +167,23 @@ through radius `0.98`, then tapers to transparent; the lightweight preview
 mirrors it. One boundary test observed RED (`39 != 0`), then two focused tests
 passed, including closed-material invariance; independent source review CLEAN.
 The new manual `mobile-eye-state-preview` task runs only Pillow tests/render
-and uploads exact-SHA OFF/ON images. Dispatch and image acceptance are pending.
+and uploads exact-SHA OFF/ON images. Run `33940310334` and focused job
+`101236295752` succeeded on source `7dff0773b217f7a634db304147020b1ed0537f02`;
+the ring/runtime/Android build jobs were all SKIPPED, not GREEN. Artifact
+`9961583414` is `6545629` bytes, with verified ZIP SHA-256
+`28bdfd1f47ef6892d70207d51fc15b5063dd37263e2c6058d5a0a870d75cf2a5`.
+Its three unchanged PNGs are durable under
+`docs/design/mobile-eye-natural/preview-7dff077/`; exact PNG hashes are in the
+glow note. Visual review found the OFF fold extends much farther than the ON
+eye and the legacy gold/brown inner rim remains visible. All three visual
+criteria remain open; scripted states/static buttons are not runtime evidence.
+Further artwork attempts were not integrated: full-master edit altered green,
+iris was RGB without alpha, and sclera generation returned HTTP 400
+`moderation_blocked` without an artifact or retry. No failed artwork was copied
+into the repository; native crop/clip is only an unvalidated idea.
 Keep `[skip ci]` on this and later post-preview documentation commits to prevent
-automatic APK builds; never call skipped/pending checks GREEN. No animation,
-aperture, atlas, TV or installed app change occurred. After the image gate,
+automatic APK builds; no Kotlin compilation, APK or device proof occurred.
+No animation, aperture, atlas, TV or installed app change occurred. After the image gate,
 the artwork step remains one anatomy-only composite registered to the original
 closed material, preserving blink/gaze and the single ring placement owner;
 no aperture numeric fix is confirmed. Commercial b441/private state and the
