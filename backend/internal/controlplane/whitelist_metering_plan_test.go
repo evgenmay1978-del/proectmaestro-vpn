@@ -21,7 +21,7 @@ func TestWhiteListMeteringPlanBindsDesiredReceiptRouteAndCurrentPrepaidPeriod(t 
 	entitlementID := entitlement.EntitlementID()
 	origin := WhiteListOrigin{
 		OriginID: "origin-s4", NodeID: "s4", ReleaseID: "release-1",
-		ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("metering-plan"),
+		ProfileID: "profile-1", PresetID: "preset-1", ConfigDigest: testDigest("a"),
 		Active: true,
 	}
 	exit := WhiteListExit{ExitID: "exit-nl", CountryCode: "NL", CountryLabel: "Netherlands", Healthy: true}

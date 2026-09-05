@@ -325,10 +325,6 @@ func ApplyUsage(state State, request ApplyUsageRequest, replay *OperationRecord)
 	if request.FreshThroughUnix > period.EndsAtUnix {
 		return Transition{}, ErrPeriodConflict
 	}
-	if request.FreshThroughUnix < next.Projection.FreshThroughUnix {
-		return Transition{}, ErrPeriodConflict
-	}
-
 	allocation := UsageAllocation{}
 	journal := make([]JournalIntent, 0, 4)
 	changed := false

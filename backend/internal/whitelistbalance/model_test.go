@@ -500,6 +500,54 @@ func TestApplyUsageRejectsWrongOrCrossedPeriodAtomically(t *testing.T) {
 	}
 }
 
+func TestApplyUsageAcceptsReverseCrossOriginSamplesAndKeepsFreshnessMaximum(t *testing.T) {
+	state := mustBalanceState(t, 0, 100)
+	laterSample := ApplyUsageRequest{
+		OperationID:      "usage-origin-s4",
+		PeriodID:         "period-1",
+		MeterEpoch:       "epoch-origin-s4",
+		IntervalID:       "interval-origin-s4",
+		AppliedAtUnix:    180,
+		IntervalEndUnix:  180,
+		FreshThroughUnix: 180,
+		Bytes:            10,
+		PrimaryActive:    true,
+	}
+	later := mustApply(t, state, laterSample)
+	earlierSample := ApplyUsageRequest{
+		OperationID:      "usage-origin-s2",
+		PeriodID:         "period-1",
+		MeterEpoch:       "epoch-origin-s2",
+		IntervalID:       "interval-origin-s2",
+		AppliedAtUnix:    181,
+		IntervalEndUnix:  150,
+		FreshThroughUnix: 150,
+		Bytes:            20,
+		PrimaryActive:    true,
+	}
+	earlier := mustApply(t, later.State, earlierSample)
+	projection := mustProjection(t, earlier.State)
+	if projection.PurchasedRemainingBytes != 70 || projection.LifetimeConsumedBytes != 30 ||
+		projection.FreshThroughUnix != 180 {
+		t.Fatalf("reverse-origin projection = %#v", projection)
+	}
+	if len(later.Journal) != 1 || later.Journal[0].MeterEpoch != laterSample.MeterEpoch ||
+		later.Journal[0].IntervalID != laterSample.IntervalID || len(earlier.Journal) != 1 ||
+		earlier.Journal[0].MeterEpoch != earlierSample.MeterEpoch ||
+		earlier.Journal[0].IntervalID != earlierSample.IntervalID {
+		t.Fatalf("reverse-origin journals later=%#v earlier=%#v", later.Journal, earlier.Journal)
+	}
+
+	beforeReplay := cloneTestState(earlier.State)
+	replayed, err := ApplyUsage(earlier.State, earlierSample, &earlier.Record)
+	if err != nil {
+		t.Fatalf("ApplyUsage replay: %v", err)
+	}
+	if !replayed.Replayed || len(replayed.Journal) != 0 || !reflect.DeepEqual(replayed.State, beforeReplay) {
+		t.Fatalf("reverse-origin replay was not a no-op: %#v", replayed)
+	}
+}
+
 func TestApplyUsageRejectsFreshnessBeyondBoundPeriodAndKeepsPending(t *testing.T) {
 	state := mustNewState(t)
 	state = mustSchedule(t, state, SchedulePeriodRequest{

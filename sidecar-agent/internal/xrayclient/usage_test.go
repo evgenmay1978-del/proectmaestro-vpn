@@ -2,6 +2,7 @@ package xrayclient
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -20,10 +21,11 @@ func (rpc localStatsRPC) QueryStats(ctx context.Context, request *statscommand.Q
 
 type invalidStatsRPC struct {
 	response *statscommand.QueryStatsResponse
+	err      error
 }
 
 func (rpc invalidStatsRPC) QueryStats(context.Context, *statscommand.QueryStatsRequest, ...grpc.CallOption) (*statscommand.QueryStatsResponse, error) {
-	return rpc.response, nil
+	return rpc.response, rpc.err
 }
 
 func TestManagedCountersReadWithoutResetAndIsolateMissingUsers(t *testing.T) {
@@ -54,6 +56,9 @@ func TestManagedCountersReadWithoutResetAndIsolateMissingUsers(t *testing.T) {
 	if want := map[string][2]uint64{"wl:one:exit-s1": {799, 3564}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("managed counters = %#v, want %#v", got, want)
 	}
+	if empty, err := client.ManagedUserCounters(ctx, nil); err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty managed counters = %#v, err = %v", empty, err)
+	}
 	for name, value := range values {
 		if got := manager.GetCounter(name).Value(); got != value {
 			t.Fatalf("read reset counter %q: got %d, want %d", name, got, value)
@@ -62,6 +67,14 @@ func TestManagedCountersReadWithoutResetAndIsolateMissingUsers(t *testing.T) {
 	if manager.GetCounter("user>>>wl:two:exit-s1>>>traffic>>>downlink") != nil ||
 		manager.GetCounter("user>>>wl:unused:exit-s1>>>traffic>>>uplink") != nil {
 		t.Fatal("read fabricated missing counters")
+	}
+}
+
+func TestManagedCountersEmptyUsersRejectStatsServiceFailure(t *testing.T) {
+	client := &Client{stats: invalidStatsRPC{err: errors.New("StatsService unavailable")}}
+	got, err := client.ManagedUserCounters(context.Background(), nil)
+	if err == nil || got != nil {
+		t.Fatalf("empty managed counters = %#v, err = %v; want query failure", got, err)
 	}
 }
 
@@ -74,7 +87,7 @@ func TestManagedCountersRejectCorruptRequestedStats(t *testing.T) {
 		"nil reply": nil,
 	} {
 		t.Run(label, func(t *testing.T) {
-			client := &Client{stats: invalidStatsRPC{response}}
+			client := &Client{stats: invalidStatsRPC{response: response}}
 			if _, err := client.ManagedUserCounters(context.Background(), []string{"wl:one:exit-s1"}); err == nil {
 				t.Fatal("corrupt counter response accepted")
 			}

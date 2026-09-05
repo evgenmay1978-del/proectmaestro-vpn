@@ -33,18 +33,35 @@ the returned bound cursor, while unavailable users create no samples. The
 thirty-second ordinary renewal loop is unchanged. Independent review found one
 partial-pass revoke delay; a persistent reconcile-needed marker now forces
 reconciliation even after a later origin fails and remains set until success.
-One focused regression covers that failure. Heavy Go validation is GitHub-only
-and still pending for this new source checkpoint; do not deploy the panel yet.
+One focused regression covers that failure. Collector source `38cdaee` was
+pushed; HA run `33948823926` failed because its ordinary test referenced an
+integration-tag-only confirmed-order helper. Correction `10f729b` inlined that
+fixture. Run `33949619104` then compiled, but exposed invalid sidecar-origin
+fixture parameters at `whitelist_metering_plan_test.go:50`: `testDigest` accepts
+one hex character, not a descriptive label. The one-line fix reuses the ordinary
+valid `testDigest("a")` fixture; the remaining fixture chain was checked against
+the actual validators without weakening them. Both failed runs are terminal:
+do not rerun their unchanged SHAs. Next exact-source GitHub validation is pending.
+The source also removes the accounting model's global timestamp-order rejection:
+independent Origin intervals retain their own timestamps, each debit is applied
+once, and the aggregate balance watermark remains the existing monotonic max.
+The focused reverse-Origin regression covers debit, max watermark and replay.
+These source changes are not deployed; do not enable the panel collector yet.
 Known remaining accounting gaps: durable first-use admission (a single topup
 timestamp expires in5seconds and is insufficient), first real cumulative billing,
 all-Origin observation freshness distinct from balance's monotonic watermark,
 counter reset/period boundary handling and the approved safety reserve. An empty
-managed set currently skips the real StatsService query; do not mistake that
-empty response for pre-provision collector health. Default commercial publication
+managed set on deployed source951dace still skips the real StatsService query.
+The reviewed source fix removes only that fast path: even empty sets call the
+existing reset=false query, return no invented counters and propagate failure.
+It awaits exact-SHA GitHub validation; no new endpoint or service was added.
+Default commercial publication
 remains OFF. S1's running panel/bot are unchanged; S2/S3/S1 fleet rollout remains.
 
 Eye source has a reviewed but unaccepted programmatic intermediate: common
-registered corners/seam, true-alpha iris, neutral sclera and whole-eye lid shadow.
+registered corners/seam, true-alpha iris, spherical sclera shading aligned with
+the existing catchlight and whole-eye lid shadow. The aperture edge still reads
+as a flat cutout; further global brightening does not address that specific flaw.
 Original green/CLOSED are preserved; all three visual acceptance conditions are
 still OPEN, no APK/OTA. Keep its eight local owned files; do not claim eye done.
 

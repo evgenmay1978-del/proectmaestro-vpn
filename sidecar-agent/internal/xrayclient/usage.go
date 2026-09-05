@@ -14,6 +14,7 @@ type statsRPC interface {
 
 // ManagedUserCounters returns only complete pairs for the requested managed
 // identities. Xray creates counters lazily: absent pairs remain absent.
+// Empty requests still require a successful StatsService query.
 func (client *Client) ManagedUserCounters(ctx context.Context, users []string) (map[string][2]uint64, error) {
 	if client == nil || client.stats == nil || ctx == nil {
 		return nil, errors.New("xray client: StatsService unavailable")
@@ -27,9 +28,6 @@ func (client *Client) ManagedUserCounters(ctx context.Context, users []string) (
 		names["user>>>"+email+">>>traffic>>>downlink"] = struct{}{}
 	}
 	result := make(map[string][2]uint64, len(users))
-	if len(users) == 0 {
-		return result, nil
-	}
 	response, err := client.stats.QueryStats(ctx, &statscommand.QueryStatsRequest{Pattern: "user>>>wl:", Reset_: false})
 	if err != nil || response == nil {
 		return nil, errors.New("xray client: StatsService query failed")
