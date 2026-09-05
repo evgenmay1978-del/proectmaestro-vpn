@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -17,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -273,9 +275,18 @@ func (sender *publicationReceiptSender) LookupUsage(ctx context.Context, actionK
 // publicationSQLite replaces only rqlite's network transport. Production
 // migrations, constraints, storage services and the public renderer are real.
 type publicationSQLite struct {
-	python string
-	path   string
+	command  *exec.Cmd
+	input    io.WriteCloser
+	output   io.ReadCloser
+	scanner  *bufio.Scanner
+	serial   chan struct{}
+	stopped  chan struct{}
+	exited   chan struct{}
+	stopOnce sync.Once
+	cancel   context.CancelFunc
 }
+
+const publicationSQLiteMaxFrame = 8 << 20
 
 func newPublicationSQLite(t *testing.T) *publicationSQLite {
 	t.Helper()
@@ -283,7 +294,130 @@ func newPublicationSQLite(t *testing.T) *publicationSQLite {
 	if err != nil {
 		t.Fatal("Python SQLite is required for publication integration test")
 	}
-	return &publicationSQLite{python: python, path: filepath.Join(t.TempDir(), "publication.sqlite")}
+	path := filepath.Join(t.TempDir(), "publication.sqlite")
+	lifetime, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	command := exec.CommandContext(lifetime, python, "-u", "-c", publicationSQLiteProgram, path)
+	command.WaitDelay = time.Second
+	input, err := command.StdinPipe()
+	if err != nil {
+		cancel()
+		t.Fatalf("publication SQLite stdin: %v", err)
+	}
+	output, err := command.StdoutPipe()
+	if err != nil {
+		input.Close()
+		cancel()
+		t.Fatalf("publication SQLite stdout: %v", err)
+	}
+	command.Stderr = io.Discard
+	if err := command.Start(); err != nil {
+		input.Close()
+		output.Close()
+		cancel()
+		t.Fatalf("start publication SQLite: %v", err)
+	}
+	db := &publicationSQLite{
+		command: command, input: input, output: output, scanner: bufio.NewScanner(output),
+		serial: make(chan struct{}, 1), stopped: make(chan struct{}), exited: make(chan struct{}), cancel: cancel,
+	}
+	db.scanner.Buffer(make([]byte, 4096), publicationSQLiteMaxFrame)
+	go func() {
+		_ = command.Wait()
+		close(db.exited)
+	}()
+	// Registered after TempDir, so the child is reaped before SQLite files are removed.
+	t.Cleanup(db.close)
+	startup, stopStartup := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stopStartup()
+	ready, err := db.exchange(startup, nil)
+	if err != nil || string(ready) != `{"ready": true}` {
+		db.stop()
+		t.Fatalf("publication SQLite startup handshake: %v", err)
+	}
+	return db
+}
+
+func (db *publicationSQLite) stop() {
+	db.stopOnce.Do(func() {
+		close(db.stopped)
+		db.cancel()
+		_ = db.command.Process.Kill()
+		_ = db.input.Close()
+		_ = db.output.Close()
+	})
+}
+
+func (db *publicationSQLite) close() {
+	db.stop()
+	<-db.exited
+}
+
+func (db *publicationSQLite) exchange(ctx context.Context, input []byte) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	select {
+	case <-ctx.Done():
+		db.stop()
+		return nil, ctx.Err()
+	case <-db.stopped:
+		return nil, errors.New("publication SQLite fixture is closed")
+	case db.serial <- struct{}{}:
+	}
+	defer func() { <-db.serial }()
+	if err := ctx.Err(); err != nil {
+		db.stop()
+		return nil, err
+	}
+	select {
+	case <-db.stopped:
+		return nil, errors.New("publication SQLite fixture is closed")
+	default:
+	}
+	type reply struct {
+		output []byte
+		err    error
+	}
+	completed := make(chan reply, 1)
+	go func() {
+		if input != nil {
+			written, err := db.input.Write(input)
+			if err == nil && written != len(input) {
+				err = io.ErrShortWrite
+			}
+			if err != nil {
+				completed <- reply{err: err}
+				return
+			}
+		}
+		if !db.scanner.Scan() {
+			err := db.scanner.Err()
+			if err == nil {
+				err = io.EOF
+			}
+			completed <- reply{err: err}
+			return
+		}
+		completed <- reply{output: append([]byte(nil), db.scanner.Bytes()...)}
+	}()
+	select {
+	case <-ctx.Done():
+		db.stop()
+		<-completed
+		return nil, ctx.Err()
+	case <-db.stopped:
+		<-completed
+		return nil, errors.New("publication SQLite fixture is closed")
+	case result := <-completed:
+		if err := ctx.Err(); err != nil {
+			db.stop()
+			return nil, err
+		}
+		if result.err != nil {
+			db.stop()
+			return nil, fmt.Errorf("publication SQLite process: %w", result.err)
+		}
+		return result.output, nil
+	}
 }
 
 func (db *publicationSQLite) Request(ctx context.Context, _ rqlite.Consistency, transaction bool, statements ...rqlite.Statement) ([]rqlite.Result, error) {
@@ -326,11 +460,13 @@ func (db *publicationSQLite) execute(ctx context.Context, transaction bool, stat
 	if err != nil {
 		return nil, err
 	}
-	command := exec.CommandContext(ctx, db.python, "-c", publicationSQLiteProgram, db.path)
-	command.Stdin = bytes.NewReader(input)
-	output, err := command.CombinedOutput()
+	if len(input) >= publicationSQLiteMaxFrame {
+		db.stop()
+		return nil, errors.New("publication SQLite request exceeds frame limit")
+	}
+	output, err := db.exchange(ctx, append(input, '\n'))
 	if err != nil {
-		return nil, fmt.Errorf("publication SQLite process: %w", err)
+		return nil, err
 	}
 	var response struct {
 		Results []rqlite.Result `json:"results"`
@@ -338,6 +474,7 @@ func (db *publicationSQLite) execute(ctx context.Context, transaction bool, stat
 		Index   int             `json:"index"`
 	}
 	if err := json.Unmarshal(output, &response); err != nil {
+		db.stop()
 		return nil, fmt.Errorf("decode publication SQLite response: %w", err)
 	}
 	if response.Error != "" {
@@ -346,31 +483,81 @@ func (db *publicationSQLite) execute(ctx context.Context, transaction bool, stat
 	return response.Results, nil
 }
 
+func TestPublicationSQLiteTransactionFailureRollsBackBeforeNextRequest(t *testing.T) {
+	db := newPublicationSQLite(t)
+	db.must(t, rqlite.Statement{SQL: `CREATE TABLE fixture(id INTEGER PRIMARY KEY, data BLOB NOT NULL)`})
+	_, err := db.Request(context.Background(), rqlite.Strong, true,
+		rqlite.Statement{SQL: `INSERT INTO fixture(id,data) VALUES(1,?)`, Args: []any{[]byte{1, 2, 3}}},
+		rqlite.Statement{SQL: `INSERT INTO fixture(id,data) VALUES(1,?)`, Args: []any{[]byte{4}}},
+	)
+	var statementError *rqlite.StatementError
+	if !errors.As(err, &statementError) || statementError.Index != 1 {
+		t.Fatalf("transaction constraint error: %v", err)
+	}
+	result, err := db.QueryStrong(context.Background(), rqlite.Statement{SQL: `SELECT COUNT(*) AS count FROM fixture`})
+	if err != nil || len(result) != 1 || len(result[0].Rows) != 1 || result[0].Rows[0]["count"] != float64(0) {
+		t.Fatalf("failed transaction leaked into next request: %#v, %v", result, err)
+	}
+	db.must(t, rqlite.Statement{SQL: `INSERT INTO fixture(id,data) VALUES(1,?)`, Args: []any{[]byte{1, 2, 3}}})
+	result, err = db.QueryStrong(context.Background(), rqlite.Statement{SQL: `SELECT data FROM fixture WHERE id=1`})
+	if err != nil || len(result) != 1 || len(result[0].Rows) != 1 || result[0].Rows[0]["data"] != "AQID" {
+		t.Fatalf("next transaction/blob result: %#v, %v", result, err)
+	}
+}
+
+func TestPublicationSQLiteCancellationPoisonsProcess(t *testing.T) {
+	db := newPublicationSQLite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := db.QueryStrong(ctx, rqlite.Statement{SQL: `WITH RECURSIVE counter(value) AS (
+SELECT 1 UNION ALL SELECT value+1 FROM counter WHERE value<1000000000
+) SELECT sum(value) FROM counter`})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("cancelled SQLite request: %v", err)
+	}
+	if _, err := db.QueryStrong(context.Background(), rqlite.Statement{SQL: `SELECT 1`}); err == nil {
+		t.Fatal("cancelled SQLite child silently resumed")
+	}
+}
+
 const publicationSQLiteProgram = `
 import base64, json, sqlite3, sys
-payload = json.load(sys.stdin)
+MAX_FRAME = 8 * 1024 * 1024
 connection = sqlite3.connect(sys.argv[1], isolation_level=None)
 connection.row_factory = sqlite3.Row
 connection.create_function("unixepoch", 0, lambda: 2000000)
 connection.execute("PRAGMA foreign_keys=ON")
-results = []
-index = -1
 def value(item):
     return base64.b64encode(item).decode() if isinstance(item, bytes) else item
+print(json.dumps({"ready": True}), flush=True)
 try:
-    if payload["transaction"]:
-        connection.execute("BEGIN IMMEDIATE")
-    for index, statement in enumerate(payload["statements"]):
-        args = [base64.b64decode(arg["blob"]) if isinstance(arg, dict) and "blob" in arg else arg for arg in statement.get("args") or []]
-        cursor = connection.execute(statement["sql"], args)
-        results.append({"Rows": [{key: value(row[key]) for key in row.keys()} for row in cursor.fetchall()], "RowsAffected": max(cursor.rowcount, 0)})
-    if payload["transaction"]:
-        connection.commit()
-    print(json.dumps({"results": results}))
-except sqlite3.Error as error:
-    if payload["transaction"]:
-        connection.rollback()
-    print(json.dumps({"error": str(error), "index": index}))
+    while True:
+        request = sys.stdin.buffer.readline(MAX_FRAME + 1)
+        if not request:
+            break
+        if len(request) > MAX_FRAME or not request.endswith(b"\n"):
+            raise ValueError("request exceeds frame limit")
+        payload = json.loads(request)
+        results = []
+        index = -1
+        try:
+            if payload["transaction"]:
+                connection.execute("BEGIN IMMEDIATE")
+            for index, statement in enumerate(payload["statements"]):
+                args = [base64.b64decode(arg["blob"]) if isinstance(arg, dict) and "blob" in arg else arg for arg in statement.get("args") or []]
+                cursor = connection.execute(statement["sql"], args)
+                results.append({"Rows": [{key: value(row[key]) for key in row.keys()} for row in cursor.fetchall()], "RowsAffected": max(cursor.rowcount, 0)})
+            if payload["transaction"]:
+                connection.commit()
+            response = {"results": results}
+        except sqlite3.Error as error:
+            if payload["transaction"]:
+                connection.rollback()
+            response = {"error": str(error), "index": index}
+        output = json.dumps(response)
+        if len(output.encode("utf-8")) + 1 > MAX_FRAME:
+            raise ValueError("response exceeds frame limit")
+        print(output, flush=True)
 finally:
     connection.close()
 `
