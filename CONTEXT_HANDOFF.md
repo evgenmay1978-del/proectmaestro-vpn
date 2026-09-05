@@ -18,10 +18,21 @@ Usage endpoint, typed client and durable producer source are pushed as
 `101249330264`, failed only the new two-user fixture because its shared helper
 assigned both customers the globally unique billing-period ID `period-1`.
 The bounded correction gives the second fixture its own period while preserving
-all prior defaults and assertions. This is a test-data correction, not a change
-to billing logic; validate it once on the next exact SHA, never rerun the failed
-SHA unchanged. Production collection, paid publication and deployment are still
-not enabled by these source commits.
+all prior defaults and assertions. Corrected source
+`a51fdcf2ebc29eb6063bf185a1b4656dfca4a4cc` has exact-SHA HA run `33945528212`
+SUCCESS. Do not redispatch the completed run. This is a test-data correction,
+not a change to billing logic. Production collection and paid publication are
+still not enabled by these source commits.
+
+The dedicated sidecar workflow now reuses the existing sealed commercial-bundle
+build and artifact upload after its tests, only on manual dispatch. It produces
+`maestro-xray-cdn-commercial-<exact SHA>` with the same nine members and manifest
+as the existing commercial operator; no Android build or new deployment path.
+Next server action is a scoped S4 commercial upgrade using the existing protected
+runtime inputs and rollback, after the new immutable artifact is verified.
+Restart only the isolated commercial Xray/agent via the shipped operator;
+ordinary services, private subscription, ingress routing and firewall stay
+unchanged. Until apply and live status succeed, deployed source remains b441.
 
 The existing commercial Task 6 is not runtime-complete: non-test backend source
 has definitions but no runtime callers of `NewDurableStore`,
