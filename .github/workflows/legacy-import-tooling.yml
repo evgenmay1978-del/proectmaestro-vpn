@@ -9,6 +9,7 @@ on:
       - backend/cmd/maestro-import/**
       - backend/internal/importer/**
       - backend/internal/xui/**
+      - backend/internal/subgen/**
       - backend/internal/controlplane/customer*.go
       - backend/go.mod
       - backend/go.sum
