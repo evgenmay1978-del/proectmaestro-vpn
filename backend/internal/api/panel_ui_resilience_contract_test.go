@@ -45,3 +45,29 @@ func TestPanelUIUsesBoundedPaginationPartialFailuresAndRealOrderStates(t *testin
 		t.Fatal("pagination/resilience edit crossed into frozen OLCRTC/WDTT code")
 	}
 }
+
+func TestPanelCDNRetryJournalDistinguishesRejectedAndUnknownOperations(t *testing.T) {
+	start := strings.Index(panelHTML, "function bindCustomerCDN(login)")
+	end := strings.Index(panelHTML, "function changePwDlg()")
+	if start < 0 || end <= start {
+		t.Fatal("missing CDN dialog boundary")
+	}
+	dialog := panelHTML[start:end]
+	for _, required := range []string{
+		"var alreadyUncertain=!!pending.uncertain;pending.uncertain=true",
+		"var rejected=!alreadyUncertain&&([400,403,404].indexOf(e.status)>=0||(e.status===409&&e.message==='controlplane: conflict'))",
+		"if(rejected){sessionStorage.removeItem(storageKey);pending=null",
+		"'Idempotency-Key':pending.key",
+		"body:JSON.stringify(pending.command)",
+	} {
+		if !strings.Contains(dialog, required) {
+			t.Fatalf("missing retry contract %q", required)
+		}
+	}
+	if !strings.Contains(panelHTML, "error.status=r.status;throw error") {
+		t.Fatal("HTTP errors lose status")
+	}
+	if strings.Index(dialog, "pending.uncertain=true") > strings.Index(dialog, "api('api/whitelist',") {
+		t.Fatal("uncertainty was persisted after sending")
+	}
+}

@@ -382,6 +382,7 @@ SELECT entitlement.entitlement_id,
        period.ends_at_unix,
        period.included_grant_bytes,
        period.access_order_id,
+       period.customer_access_source_id,
        COALESCE((
            SELECT SUM(entry.included_delta_bytes)
            FROM whitelist_balance_entries AS entry
@@ -462,14 +463,19 @@ ORDER BY period.period_ordinal`, Args: []any{entitlementID}})
 			startsAt, startsOK := rowInt64(row, "starts_at_unix")
 			endsAt, endsOK := rowInt64(row, "ends_at_unix")
 			includedGrant, grantOK := rowInt64(row, "included_grant_bytes")
-			accessOrderID, orderOK := rowString(row, "access_order_id")
+			accessOrderID, orderOK := optionalRowString(row, "access_order_id")
+			customerSourceID, sourceOK := optionalRowString(row, "customer_access_source_id")
+			if _, exists := row["customer_access_source_id"]; !exists && accessOrderID != "" {
+				sourceOK = true
+			}
 			outstanding, outstandingOK := rowInt64(row, "included_outstanding_bytes")
-			if !ordinalOK || !startsOK || !endsOK || !grantOK || !orderOK || !outstandingOK {
+			if !ordinalOK || !startsOK || !endsOK || !grantOK || !orderOK || !sourceOK || !outstandingOK {
 				return loadedWhiteListBalance{}, ErrUnavailable
 			}
 			period := whitelistbalance.Period{
 				ID: periodID, Ordinal: ordinal, StartsAtUnix: startsAt, EndsAtUnix: endsAt,
 				IncludedGrantBytes: includedGrant, AccessOrderID: accessOrderID,
+				CustomerAccessSourceID: customerSourceID,
 			}
 			loaded.State.Periods = append(loaded.State.Periods, period)
 			loaded.State.IncludedOutstandingBytes[periodID] = outstanding

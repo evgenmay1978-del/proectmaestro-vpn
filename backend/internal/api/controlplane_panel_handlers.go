@@ -246,6 +246,7 @@ func (s *ControlPlaneServer) registerControlPlanePanel(mux *http.ServeMux) {
 	mux.HandleFunc(prefix+"api/password", s.handleControlPlanePanelPassword)
 	mux.HandleFunc(prefix+"api/customers", s.handleControlPlanePanelCustomers)
 	mux.HandleFunc(prefix+"api/customer", s.handleControlPlanePanelCustomer)
+	mux.HandleFunc(prefix+"api/whitelist", s.handleControlPlanePanelWhiteList)
 	mux.HandleFunc(prefix+"api/stats", s.handleControlPlanePanelStats)
 	mux.HandleFunc(prefix+"api/orders", s.handleControlPlanePanelOrders)
 	mux.HandleFunc(prefix+"api/order/confirm", s.handleControlPlanePanelOrderConfirm)

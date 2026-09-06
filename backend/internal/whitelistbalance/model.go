@@ -41,12 +41,13 @@ const (
 )
 
 type Period struct {
-	ID                 string
-	Ordinal            int64
-	StartsAtUnix       int64
-	EndsAtUnix         int64
-	IncludedGrantBytes int64
-	AccessOrderID      string
+	ID                     string
+	Ordinal                int64
+	StartsAtUnix           int64
+	EndsAtUnix             int64
+	IncludedGrantBytes     int64
+	AccessOrderID          string
+	CustomerAccessSourceID string `json:",omitempty"`
 }
 
 type BalanceProjection struct {
@@ -589,7 +590,9 @@ func validateState(state State) error {
 }
 
 func validatePeriod(period Period) error {
-	if !validID(period.ID) || !validID(period.AccessOrderID) {
+	orderSource := validID(period.AccessOrderID) && period.CustomerAccessSourceID == ""
+	customerSource := period.AccessOrderID == "" && validID(period.CustomerAccessSourceID) && period.IncludedGrantBytes == 0
+	if !validID(period.ID) || (!orderSource && !customerSource) {
 		return ErrInvalid
 	}
 	for _, value := range []int64{period.Ordinal, period.StartsAtUnix, period.EndsAtUnix, period.IncludedGrantBytes} {

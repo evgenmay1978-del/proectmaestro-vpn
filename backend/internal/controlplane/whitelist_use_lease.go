@@ -103,8 +103,7 @@ func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID str
 		periodResults, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT period.period_id,period.starts_at_unix,period.ends_at_unix,period.included_grant_bytes,admission.admitted_at_unix
 FROM whitelist_first_use_admissions AS admission
 JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id AND period.entitlement_id=admission.entitlement_id
-JOIN orders AS access_order ON access_order.order_id=period.access_order_id AND access_order.customer_id=? AND access_order.payment_state='confirmed' AND access_order.decision='confirmed' AND access_order.confirmed_at_unix IS NOT NULL
-WHERE admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id=? AND admission.xray_process_boot_id=? AND admission.zero_start_authorized=1`, Args: []any{accountID, entitlementID, desired.ExitID, final.OriginID, final.Control.BootID}})
+WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id=? AND admission.xray_process_boot_id=? AND admission.zero_start_authorized=1`, Args: []any{entitlementID, desired.ExitID, final.OriginID, final.Control.BootID}})
 		if err != nil || len(periodResults) != 1 || len(periodResults[0].Rows) != 1 {
 			return closed, ErrUnavailable
 		}

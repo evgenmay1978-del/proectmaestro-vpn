@@ -59,7 +59,7 @@ function fmtBytes(n){n=+n||0;if(n<1024)return n+' Б';var u=['КБ','МБ','ГБ
 function fmtAgo(s){if(!s)return '—';var d=(Date.now()-new Date(s))/1000;if(d<0)return 'только что';if(d<120)return 'только что';if(d<3600)return Math.floor(d/60)+' мин назад';if(d<86400)return Math.floor(d/3600)+' ч назад';return Math.floor(d/86400)+' дн назад';}
 function isOnline(s){if(!s)return false;return (Date.now()-new Date(s))/1000 < 1200;}
 function newIdempotencyKey(){if(window.crypto&&crypto.randomUUID)return crypto.randomUUID();return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)+'-'+Math.random().toString(36).slice(2);}
-function api(path,opts){opts=opts||{};opts.credentials='same-origin';opts.headers=opts.headers||{};if(opts.body){opts.headers['Content-Type']='application/json';opts.method=opts.method||'POST';}var method=(opts.method||'GET').toUpperCase();if(CSRF)opts.headers['X-CSRF']=CSRF;if(method!=='GET'&&method!=='HEAD'&&!opts.headers['Idempotency-Key'])opts.headers['Idempotency-Key']=newIdempotencyKey();return fetch(BASE+path,opts).then(function(r){if(r.status===401){CSRF=null;PERMS=[];showLogin('Сессия истекла — войди снова');throw new Error('unauth');}return r.text().then(function(t){var j=null;try{j=t?JSON.parse(t):{};}catch(e){}if(!r.ok)throw new Error((j&&j.error)||t||('HTTP '+r.status));return j;});});}
+function api(path,opts){opts=opts||{};opts.credentials='same-origin';opts.headers=opts.headers||{};if(opts.body){opts.headers['Content-Type']='application/json';opts.method=opts.method||'POST';}var method=(opts.method||'GET').toUpperCase();if(CSRF)opts.headers['X-CSRF']=CSRF;if(method!=='GET'&&method!=='HEAD'&&!opts.headers['Idempotency-Key'])opts.headers['Idempotency-Key']=newIdempotencyKey();return fetch(BASE+path,opts).then(function(r){if(r.status===401){CSRF=null;PERMS=[];showLogin('Сессия истекла — войди снова');var authError=new Error('unauth');authError.status=401;throw authError;}return r.text().then(function(t){var j=null;try{j=t?JSON.parse(t):{};}catch(e){}if(!r.ok){var error=new Error((j&&j.error)||t||('HTTP '+r.status));error.status=r.status;throw error;}return j;});});}
 function post(path,obj){return api(path,{body:JSON.stringify(obj||{})});}
 
 function showLogin(msg){document.getElementById('app').innerHTML=
@@ -153,14 +153,43 @@ function custDlg(login){api('api/customer?login='+encodeURIComponent(login)).the
     '<button class="btn sm" id="d_rst">Сброс устройств</button>'+
     (c.disabled?'<button class="btn sm" id="d_en">Включить</button>':'<button class="btn dng sm" id="d_dis">Отключить</button>')+
   '</div>'+
+  '<div class="field" style="border-top:1px solid var(--line);padding-top:10px"><label>CDN</label><span id="d_cdn_state">Загрузка…</span></div>'+
+  (can('settings.critical')?'<div class="field"><label></label><button class="btn sm" id="d_cdn_on">Включить CDN</button> <button class="btn sm" id="d_cdn_off">Отключить CDN</button></div><div class="field"><label>Добавить ГБ</label><input id="d_cdn_gb" type="number" min="1" max="9223372036" step="1" value="1" style="width:100px"> <button class="btn pri sm" id="d_cdn_add">Добавить</button></div>':'')+
+  '<div class="mut" id="d_cdn_note">1 ГБ = 1 000 000 000 байт. При отключении остаток сохраняется.</div>'+
   '<div class="field" style="border-top:1px solid var(--line);padding-top:10px;margin-top:12px"><label></label><button class="btn dng" id="d_del">Удалить клиента</button> <span class="mut">насовсем (панель + VLESS-узлы)</span></div>');
  el('d_ext').onclick=function(){doAction({action:'extend',login:login,days:+el('d_days').value||30},'Продлён на '+(el('d_days').value)+'д');};
  el('d_set').onclick=function(){if(!el('d_date').value)return;doAction({action:'set_expiry',login:login,expires:new Date(el('d_date').value+'T12:00:00Z').toISOString()},'Дата установлена');};
  el('d_rst').onclick=function(){doAction({action:'reset_devices',login:login},'Устройства сброшены');};
+ bindCustomerCDN(login);
  if(el('d_dis'))el('d_dis').onclick=function(){doAction({action:'disable',login:login},login+' отключён');};
  if(el('d_en'))el('d_en').onclick=function(){doAction({action:'enable',login:login},login+' включён');};
  el('d_del').onclick=function(){if(!confirm('Удалить клиента '+login+' насовсем? Уберёт из панели и со всех настроенных целевых сервисов.'))return;post('api/action',{action:'delete',login:login}).then(function(){toast(login+' удалён');closeModal();renderCust();}).catch(function(e){toast('Ошибка: '+e.message);});};
 }).catch(function(e){toast('Ошибка: '+e.message);});}
+
+function bindCustomerCDN(login){
+ var state=el('d_cdn_state'),note=el('d_cdn_note'),storageKey='maestro.cdn.pending:'+BASE+':'+encodeURIComponent(login),pending=null,busy=false;
+ function show(v){if(el('d_cdn_state')!==state)return;state.textContent=(v.enabled?'Включён':'Отключён')+' · остаток '+(Number(v.remaining_bytes)/1000000000).toLocaleString('ru-RU',{maximumFractionDigits:3})+' ГБ'+(!v.primary_active?' · основной доступ неактивен':'');}
+ function buttons(){if(el('d_cdn_state')!==state)return;['d_cdn_on','d_cdn_off','d_cdn_add'].forEach(function(id){if(el(id))el(id).disabled=busy;});}
+ try{var saved=sessionStorage.getItem(storageKey);if(saved)pending=JSON.parse(saved);}catch(e){note.textContent='Не удалось открыть журнал операции. Повторное начисление заблокировано.';return;}
+ function refresh(){api('api/whitelist?login='+encodeURIComponent(login)).then(show).catch(function(){if(el('d_cdn_state')===state)state.textContent='Состояние временно недоступно';});}
+ function send(action){
+  if(busy)return;
+  var gb=action==='credit'?Number(el('d_cdn_gb').value):0;
+  if(action==='credit'&&(!Number.isSafeInteger(gb)||gb<1||gb>9223372036)){toast('Введи целое число ГБ от 1 до 9 223 372 036');return;}
+  var command={login:login,action:action,gb:gb};
+  if(pending&&JSON.stringify(pending.command)!==JSON.stringify(command)){toast('Сначала повтори незавершённую операцию с прежним количеством ГБ');return;}
+  if(!pending){pending={key:newIdempotencyKey(),command:command};try{sessionStorage.setItem(storageKey,JSON.stringify(pending));}catch(e){pending=null;toast('Не удалось сохранить операцию для безопасного повтора');return;}}
+  var alreadyUncertain=!!pending.uncertain;pending.uncertain=true;
+  try{sessionStorage.setItem(storageKey,JSON.stringify(pending));}catch(e){toast('Не удалось сохранить операцию для безопасного повтора');return;}
+  busy=true;buttons();note.textContent='Выполняется…';
+  api('api/whitelist',{body:JSON.stringify(pending.command),headers:{'Idempotency-Key':pending.key}}).then(function(v){sessionStorage.removeItem(storageKey);pending=null;show(v);note.textContent='1 ГБ = 1 000 000 000 байт. При отключении остаток сохраняется.';toast(action==='credit'?'ГБ добавлены':action==='enable'?'CDN включён':'CDN отключён');}).catch(function(e){var rejected=!alreadyUncertain&&([400,403,404].indexOf(e.status)>=0||(e.status===409&&e.message==='controlplane: conflict'));if(rejected){sessionStorage.removeItem(storageKey);pending=null;note.textContent='Операция отклонена: '+e.message+'. Можно выбрать другое действие.';}else{note.textContent='Операция не подтверждена: '+e.message+'. Повтори ту же кнопку; повтор не начисляет ГБ второй раз.';}}).then(function(){busy=false;buttons();});
+ }
+ if(pending){if(pending.command&&pending.command.login===login&&el('d_cdn_gb')){el('d_cdn_gb').value=pending.command.gb||1;note.textContent='Есть неподтверждённая операция. Повтори ту же кнопку для получения результата.';}else{note.textContent='Журнал операции повреждён; изменения заблокированы.';busy=true;buttons();return;}}
+ if(el('d_cdn_on'))el('d_cdn_on').onclick=function(){send('enable');};
+ if(el('d_cdn_off'))el('d_cdn_off').onclick=function(){send('disable');};
+ if(el('d_cdn_add'))el('d_cdn_add').onclick=function(){send('credit');};
+ refresh();
+}
 
 function changePwDlg(){modal('<h3>Смена пароля панели</h3>'+
  '<div class="field"><label>Текущий</label><input id="pw_cur" type="password" style="min-width:180px"></div>'+

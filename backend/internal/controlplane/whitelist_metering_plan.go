@@ -228,11 +228,7 @@ func whiteListMeteringPeriodRead(entitlementID string, nowUnix int64) rqlite.Sta
 period.period_id,period.starts_at_unix,period.ends_at_unix,period.included_grant_bytes
 FROM whitelist_entitlement_identities AS identity
 JOIN whitelist_billing_periods AS period ON period.entitlement_id=identity.entitlement_id
-JOIN orders AS access_order ON access_order.order_id=period.access_order_id
- AND access_order.customer_id=identity.customer_id
- AND access_order.payment_state='confirmed' AND access_order.decision='confirmed'
- AND access_order.confirmed_at_unix IS NOT NULL
-WHERE identity.entitlement_id=? AND period.starts_at_unix<=? AND ?<period.ends_at_unix
+WHERE ` + whiteListPeriodAuthoritySQL + ` AND identity.entitlement_id=? AND period.starts_at_unix<=? AND ?<period.ends_at_unix
 ORDER BY period.period_ordinal`, Args: []any{entitlementID, nowUnix, nowUnix}}
 }
 

@@ -130,6 +130,17 @@ func TestLegacyXUIAbsencePreservesAuthenticatedOtherProtocolKindsSQLite(t *testi
 			if err := service.UpsertDesired(ctx, desired); err != nil {
 				t.Fatalf("other protocol upsert blocked: %v", err)
 			}
+			// Upsert already emits this exact target. Remove only that event to
+			// exercise recovery of lost delivery while retaining desired authority.
+			removed := db.must(t, rqlite.Statement{SQL: `DELETE FROM outbox_events
+WHERE aggregate_type='desired_node_state' AND aggregate_id=? AND node_id=?
+AND service_name=? AND operation_id=? AND generation=? AND event_kind=?`, Args: []any{
+				customer.ID + ":S1:" + desired.ServiceName, desired.NodeID,
+				desired.ServiceName, desired.OperationID, desired.Generation, desired.EventKind,
+			}})
+			if len(removed) != 1 || removed[0].RowsAffected != 1 {
+				t.Fatal("fixture did not remove exactly the emitted other-protocol event")
+			}
 			if count, err := service.ReconcileNode(ctx, ReconcileNodeCommand{NodeID: "S1", ServiceName: desired.ServiceName}); err != nil || count != 1 {
 				t.Fatalf("other protocol reconcile blocked: count=%d err=%v", count, err)
 			}

@@ -46,12 +46,12 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v1 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 17 {
+	if len(db.requestCalls) != 18 {
 		t.Fatalf("requests=%d, want v2-v18 transactions", len(db.requestCalls))
 	}
 
@@ -145,6 +145,7 @@ func TestApplyUpgradesExactV1PrefixWithoutReapplyingV1(t *testing.T) {
 	requireV16MigrationRequest(t, db.requestCalls[14], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[15], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[16], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[17], migrations[18])
 }
 
 func TestOrderedMigrationsUpgradeExactV4PrefixAppliesV5ThroughV18(t *testing.T) {
@@ -171,12 +172,12 @@ func TestOrderedMigrationsUpgradeExactV4PrefixAppliesV5ThroughV18(t *testing.T) 
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v4 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 14 {
+	if len(db.requestCalls) != 15 {
 		t.Fatalf("requests=%d, want v5 through v18", len(db.requestCalls))
 	}
 	v5 := db.requestCalls[0]
@@ -234,6 +235,7 @@ func TestOrderedMigrationsUpgradeExactV4PrefixAppliesV5ThroughV18(t *testing.T) 
 	requireV16MigrationRequest(t, db.requestCalls[11], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[12], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[13], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[14], migrations[18])
 }
 
 func TestOrderedMigrationsExactV5PrefixAppliesV6ThroughV18(t *testing.T) {
@@ -260,12 +262,12 @@ func TestOrderedMigrationsExactV5PrefixAppliesV6ThroughV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v5 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 13 {
+	if len(db.requestCalls) != 14 {
 		t.Fatalf("exact v5 prefix performed %d migration transaction(s), want thirteen", len(db.requestCalls))
 	}
 	v6 := db.requestCalls[0]
@@ -291,6 +293,7 @@ func TestOrderedMigrationsExactV5PrefixAppliesV6ThroughV18(t *testing.T) {
 	requireV16MigrationRequest(t, db.requestCalls[10], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[11], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[12], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[13], migrations[18])
 }
 
 func TestOrderedMigrationsExactV10PrefixAppliesV11ThroughV18(t *testing.T) {
@@ -317,12 +320,12 @@ func TestOrderedMigrationsExactV10PrefixAppliesV11ThroughV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v10 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 8 {
+	if len(db.requestCalls) != 9 {
 		t.Fatalf("exact v10 prefix performed %d migration transaction(s), want v11 through v18", len(db.requestCalls))
 	}
 	requireV11MigrationRequest(t, db.requestCalls[0], migrations[10])
@@ -333,6 +336,7 @@ func TestOrderedMigrationsExactV10PrefixAppliesV11ThroughV18(t *testing.T) {
 	requireV16MigrationRequest(t, db.requestCalls[5], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[6], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[7], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[8], migrations[18])
 }
 
 func TestOrderedMigrationsExactV11PrefixAppliesV12ThroughV18(t *testing.T) {
@@ -359,12 +363,12 @@ func TestOrderedMigrationsExactV11PrefixAppliesV12ThroughV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v11 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 7 {
+	if len(db.requestCalls) != 8 {
 		t.Fatalf("exact v11 prefix performed %d migration transaction(s), want v12 through v18", len(db.requestCalls))
 	}
 	requireV12MigrationRequest(t, db.requestCalls[0], migrations[11])
@@ -374,6 +378,7 @@ func TestOrderedMigrationsExactV11PrefixAppliesV12ThroughV18(t *testing.T) {
 	requireV16MigrationRequest(t, db.requestCalls[4], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[5], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[6], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[7], migrations[18])
 }
 
 func TestOrderedMigrationsExactV12PrefixAppliesV13ThroughV18(t *testing.T) {
@@ -400,12 +405,12 @@ func TestOrderedMigrationsExactV12PrefixAppliesV13ThroughV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v12 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 6 {
+	if len(db.requestCalls) != 7 {
 		t.Fatalf("exact v12 prefix performed %d migration transaction(s), want v13 through v18", len(db.requestCalls))
 	}
 	requireV13MigrationRequest(t, db.requestCalls[0], migrations[12])
@@ -414,6 +419,7 @@ func TestOrderedMigrationsExactV12PrefixAppliesV13ThroughV18(t *testing.T) {
 	requireV16MigrationRequest(t, db.requestCalls[3], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[4], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[5], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[6], migrations[18])
 }
 
 func TestOrderedMigrationsExactV13PrefixAppliesV14ThroughV18(t *testing.T) {
@@ -440,12 +446,12 @@ func TestOrderedMigrationsExactV13PrefixAppliesV14ThroughV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v13 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 5 {
+	if len(db.requestCalls) != 6 {
 		t.Fatalf("exact v13 prefix performed %d migration transaction(s), want v14 through v18", len(db.requestCalls))
 	}
 	requireV14MigrationRequest(t, db.requestCalls[0], migrations[13])
@@ -453,6 +459,7 @@ func TestOrderedMigrationsExactV13PrefixAppliesV14ThroughV18(t *testing.T) {
 	requireV16MigrationRequest(t, db.requestCalls[2], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[3], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[4], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[5], migrations[18])
 }
 
 func TestOrderedMigrationsExactV14PrefixAppliesV15ThroughV18(t *testing.T) {
@@ -479,18 +486,19 @@ func TestOrderedMigrationsExactV14PrefixAppliesV15ThroughV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v14 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 4 {
+	if len(db.requestCalls) != 5 {
 		t.Fatalf("exact v14 prefix performed %d migration transaction(s), want v15 through v18", len(db.requestCalls))
 	}
 	requireV15MigrationRequest(t, db.requestCalls[0], migrations[14])
 	requireV16MigrationRequest(t, db.requestCalls[1], migrations[15])
 	requireV17MigrationRequest(t, db.requestCalls[2], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[3], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[4], migrations[18])
 }
 
 func TestOrderedMigrationsExactV16PrefixAppliesV17AndV18(t *testing.T) {
@@ -521,16 +529,17 @@ func TestOrderedMigrationsExactV16PrefixAppliesV17AndV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript(), resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v16 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 2 {
+	if len(db.requestCalls) != 3 {
 		t.Fatalf("exact v16 prefix performed %d migration transaction(s), want v17 and v18", len(db.requestCalls))
 	}
 	requireV17MigrationRequest(t, db.requestCalls[0], migrations[16])
 	requireV18MigrationRequest(t, db.requestCalls[1], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[2], migrations[18])
 }
 
 func TestOrderedMigrationsExactV17PrefixAppliesOnlyV18(t *testing.T) {
@@ -560,15 +569,16 @@ func TestOrderedMigrationsExactV17PrefixAppliesOnlyV18(t *testing.T) {
 			rowsScript(expectedWhiteListCommercialMeteringTriggerRows(t, migrations[11], migrations[12], migrations[13])...),
 			rowsScript(expectedWhiteListTopUpTableRows(t, migrations[13])...),
 		},
-		requests: []scriptedResult{resultsScript()},
+		requests: []scriptedResult{resultsScript(), resultsScript()},
 	}
 	if err := NewMigrator(db).Apply(context.Background()); err != nil {
 		t.Fatalf("Apply v17 prefix: %v", err)
 	}
-	if len(db.requestCalls) != 1 {
+	if len(db.requestCalls) != 2 {
 		t.Fatalf("exact v17 prefix performed %d transactions, want only v18", len(db.requestCalls))
 	}
 	requireV18MigrationRequest(t, db.requestCalls[0], migrations[17])
+	requireV19MigrationRequest(t, db.requestCalls[1], migrations[18])
 }
 
 func TestVerifyIdentityRejectsMissingOrChangedCriticalWhiteListTrigger(t *testing.T) {
@@ -762,9 +772,9 @@ func requireExactV9MigrationChain(t *testing.T, migrations []migration) {
 
 func requireExactV15MigrationChain(t *testing.T, migrations []migration) {
 	t.Helper()
-	if SchemaVersion != 18 || len(migrations) != 18 {
+	if SchemaVersion != 19 || len(migrations) != 19 {
 		t.Fatalf(
-			"migration chain is not exactly v1-v18: SchemaVersion=%d count=%d",
+			"migration chain is not exactly v1-v19: SchemaVersion=%d count=%d",
 			SchemaVersion,
 			len(migrations),
 		)

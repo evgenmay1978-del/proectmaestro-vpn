@@ -794,9 +794,26 @@ func (s *Service) SetWhiteListPublication(
 		if loadErr != nil {
 			return WhiteListPublicationResult{}, loadErr
 		}
+		activePeriod := false
+		if loaded.State.Projection != nil {
+			for _, period := range loaded.State.Periods {
+				if period.ID == loaded.State.Projection.CurrentPeriodID && period.StartsAtUnix <= nowUnix && nowUnix < period.EndsAtUnix {
+					activePeriod = true
+				}
+			}
+		}
+		if !activePeriod {
+			if err := s.ensureWhiteListAdminAccessPeriod(ctx, command); err != nil {
+				return WhiteListPublicationResult{}, err
+			}
+			loaded, loadErr = s.loadWhiteListBalance(ctx, nowUnix, command.EntitlementID)
+			if loadErr != nil {
+				return WhiteListPublicationResult{}, loadErr
+			}
+		}
 		snapshot, snapshotErr := whitelistbalance.Snapshot(loaded.State, loaded.PrimaryActive)
 		if snapshotErr != nil || !loaded.PrimaryActive || loaded.CommercialPending ||
-			snapshot.Frozen || snapshot.UsableBytes <= 0 || snapshot.Projection.Pending {
+			snapshot.Frozen || snapshot.Projection.Pending {
 			return WhiteListPublicationResult{}, ErrConflict
 		}
 	}
@@ -838,7 +855,6 @@ JOIN whitelist_billing_periods AS period ON period.period_id=projection.current_
 WHERE entitlement.entitlement_id=? AND customer.status='active' AND customer.expires_at_unix>?
 AND period.starts_at_unix<=? AND period.ends_at_unix>?
 AND projection.pending=0
-AND projection.included_remaining_bytes+projection.purchased_remaining_bytes>0
 AND NOT EXISTS(SELECT 1 FROM whitelist_commercial_debit_outbox AS debit_outbox
 WHERE debit_outbox.entitlement_id=entitlement.entitlement_id AND NOT EXISTS(
 SELECT 1 FROM idempotency_requests AS debit_receipt
@@ -1253,7 +1269,7 @@ WHERE scope=? AND command_type='whitelist_publication_set' AND idempotency_key=?
 	status, statusOK := rowString(row, "status")
 	responseJSON, responseOK := rowString(row, "response_json")
 	if !hashOK || !resourceOK || storedHash != requestHash || resourceID != entitlementID {
-		return WhiteListPublicationResult{}, true, ErrConflict
+		return WhiteListPublicationResult{}, true, errWhiteListRetryConflict
 	}
 	if !operationOK || !statusOK || status != "applied" || !responseOK {
 		return WhiteListPublicationResult{}, true, ErrUnavailable

@@ -6,6 +6,32 @@ import (
 	"testing"
 )
 
+func TestCustomerAccessPeriodRequiresExactlyOneSourceAndNoIncludedGrant(t *testing.T) {
+	period := Period{ID: "admin-period", StartsAtUnix: 100, EndsAtUnix: 200, CustomerAccessSourceID: "captured-customer-access"}
+	if err := validatePeriod(period); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*Period){func(p *Period) { p.AccessOrderID = "paid-order" }, func(p *Period) { p.CustomerAccessSourceID = "" }, func(p *Period) { p.IncludedGrantBytes = 1 }} {
+		invalid := period
+		change(&invalid)
+		if err := validatePeriod(invalid); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("invalid source accepted: %#v %v", invalid, err)
+		}
+	}
+	state := mustNewState(t)
+	state.Periods = []Period{period}
+	state.IncludedOutstandingBytes[period.ID] = 0
+	state.Projection = &BalanceProjection{EntitlementID: state.EntitlementID, CurrentPeriodID: period.ID, PurchasedRemainingBytes: 3 * GBDecimal, Version: 1}
+	active, err := Snapshot(state, true)
+	if err != nil || active.UsableBytes != 3*GBDecimal {
+		t.Fatalf("active: %#v %v", active, err)
+	}
+	inactive, err := Snapshot(state, false)
+	if err != nil || inactive.UsableBytes != 0 || inactive.AvailableBytes != 3*GBDecimal {
+		t.Fatalf("inactive lost credit: %#v %v", inactive, err)
+	}
+}
+
 func TestScheduleFirstZeroGrantHasNoImplicitCreditOrJournal(t *testing.T) {
 	state := mustNewState(t)
 	before := cloneTestState(state)
