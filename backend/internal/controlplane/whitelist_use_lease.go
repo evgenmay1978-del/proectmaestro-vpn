@@ -180,11 +180,10 @@ func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID str
 	if !ok {
 		return closed, ErrUnavailable
 	}
-	desiredExits, routesOK := whiteListMeteringManagedExitSet(desired.ManagedUsers, entitlementID)
-	if !routesOK {
-		return closed, ErrUnavailable
-	}
-	if _, exists := desiredExits[exitID]; !exists {
+	desiredExits, currentRoutesOK := whiteListMeteringManagedExitSet(desired.ManagedUsers, entitlementID)
+	_, exactExit := desiredExits[exitID]
+	legacyRouteOK := !currentRoutesOK && len(desiredExits) == 1 && desired.ExitID == exitID
+	if !exactExit || (!currentRoutesOK && !legacyRouteOK) {
 		return closed, ErrUnavailable
 	}
 	identityResults, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT customer_id FROM whitelist_entitlement_identities WHERE entitlement_id=?`, Args: []any{entitlementID}})
