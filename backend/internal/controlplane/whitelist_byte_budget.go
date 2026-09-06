@@ -18,17 +18,42 @@ func whiteListPerRouteByteBudget(totalBytes int64) (int64, bool) {
 	return perRoute, perRoute > 0
 }
 
+func whiteListMeteringAdmissionCandidateExitSets(candidates []WhiteListMeteringAdmissionCandidate) (map[string]whiteListMeteringExitSet, bool) {
+	sets := make(map[string]whiteListMeteringExitSet)
+	for _, candidate := range candidates {
+		if !validEntitlementID(candidate.EntitlementID) || !routeCredentialExit(candidate.ExitID) {
+			return nil, false
+		}
+		if sets[candidate.EntitlementID] == nil {
+			sets[candidate.EntitlementID] = whiteListMeteringExitSet{}
+		}
+		if _, duplicate := sets[candidate.EntitlementID][candidate.ExitID]; duplicate {
+			return nil, false
+		}
+		sets[candidate.EntitlementID][candidate.ExitID] = struct{}{}
+	}
+	for _, exits := range sets {
+		if len(exits) != whiteListCommercialExitCount {
+			return nil, false
+		}
+	}
+	return sets, len(sets) > 0
+}
+
 // Filter before taking the fresh counter snapshot. A funded allocation needs
 // no refill transaction until half its chunk is consumed. This grants nothing:
 // every use lease still rechecks actual settlement, balance, boot and freshness.
 func (s *Service) WhiteListByteBudgetRefillCandidates(ctx context.Context, plan WhiteListMeteringPlan, candidates []WhiteListMeteringAdmissionCandidate, chunkBytes int64) ([]WhiteListMeteringAdmissionCandidate, error) {
 	routeChunkBytes, chunkOK := whiteListPerRouteByteBudget(chunkBytes)
-	routeSets, routesOK := whiteListMeteringPlanExitSets(plan.Routes)
-	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || !chunkOK || !routesOK || len(plan.Origins) == 0 {
+	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || !chunkOK || len(plan.Origins) == 0 {
 		return nil, ErrUnavailable
 	}
 	if len(candidates) == 0 {
 		return candidates, nil
+	}
+	candidateSets, candidatesOK := whiteListMeteringAdmissionCandidateExitSets(candidates)
+	if !candidatesOK {
+		return nil, ErrUnavailable
 	}
 	minimum := routeChunkBytes / 2
 	if minimum == 0 {
@@ -36,7 +61,7 @@ func (s *Service) WhiteListByteBudgetRefillCandidates(ctx context.Context, plan 
 	}
 	statements := make([]rqlite.Statement, 0, len(candidates))
 	for _, candidate := range candidates {
-		exits, exists := routeSets[candidate.EntitlementID]
+		exits, exists := candidateSets[candidate.EntitlementID]
 		if !exists {
 			return nil, ErrUnavailable
 		}
@@ -86,6 +111,10 @@ func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, ent
 	if err != nil {
 		return err
 	}
+	if _, exitsReady := whiteListRequiredRuntimeExits(state.exits); !exitsReady ||
+		!whiteListRuntimeCredentialUsable(state.credentials[entitlementID], state.exits) {
+		return ErrUnavailable
+	}
 	period, _, _, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state)
 	if err != nil {
 		return err
@@ -97,13 +126,6 @@ func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, ent
 	now := s.clock.Now().Unix()
 	statements := make([]rqlite.Statement, 0, len(origins)*2)
 	for _, origin := range origins {
-		exits, routesOK := whiteListMeteringManagedExitSet(origin.desired.ManagedUsers, entitlementID)
-		if !routesOK {
-			return ErrUnavailable
-		}
-		if _, exists := exits[exitID]; !exists {
-			return ErrUnavailable
-		}
 		if err := s.whiteListByteAllocationNewLifetime(ctx, entitlementID, exitID, origin); err != nil {
 			return err
 		}
