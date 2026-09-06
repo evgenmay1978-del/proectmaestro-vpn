@@ -236,7 +236,7 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("sidecar agent client: load client certificate")
 	}
-	transport := &http.Transport{TLSClientConfig: &tls.Config{
+	transport := &http.Transport{ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{
 		MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: config.ServerName,
 		Certificates: []tls.Certificate{certificate}, NextProtos: []string{"h2", "http/1.1"},
 	}}
