@@ -316,6 +316,35 @@ func (client *Client) Post(ctx context.Context, desired []byte) ([]byte, error) 
 	}
 }
 
+// RecoverEmptyDesired resumes only an exact deterministic fence/remove action.
+// A missing receipt is not evidence that delivery never happened: the agent
+// resumes its durable journal and rejects conflicting or older generations.
+func (client *Client) RecoverEmptyDesired(ctx context.Context, actionKey string, desired []byte) ([]byte, error) {
+	if ctx == nil || len(desired) == 0 || len(desired) > MaxRequestBytes || !validActionKey(actionKey) {
+		return nil, ErrInvalidRequest
+	}
+	var binding struct {
+		NodeID       string   `json:"node_id"`
+		Generation   int64    `json:"generation"`
+		ManagedUsers []string `json:"managed_users"`
+	}
+	if json.Unmarshal(desired, &binding) != nil || binding.ManagedUsers == nil || len(binding.ManagedUsers) != 0 || binding.Generation < 1 {
+		return nil, ErrInvalidRequest
+	}
+	digest := sha256.Sum256(desired)
+	if actionKey != binding.NodeID+":"+strconv.FormatInt(binding.Generation, 10)+":"+hex.EncodeToString(digest[:]) {
+		return nil, ErrInvalidRequest
+	}
+	receipt, err := client.LookupReceipt(ctx, actionKey)
+	if !errors.Is(err, ErrReceiptNotFound) {
+		return receipt, err
+	}
+	if ctx.Err() != nil {
+		return nil, ErrDeliveryUnknown
+	}
+	return client.Post(ctx, append([]byte(nil), desired...))
+}
+
 // LookupReceipt performs one read-only exact-action-key lookup.
 func (client *Client) LookupReceipt(ctx context.Context, actionKey string) ([]byte, error) {
 	if client == nil || client.httpClient == nil || ctx == nil || client.lookupTimeout <= 0 ||
