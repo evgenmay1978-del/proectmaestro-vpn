@@ -215,6 +215,41 @@ def configured_customer_api(customer_token: str) -> CustomerAPI:
     return CustomerAPI(os.getenv("MAESTRO_URL"), customer_token)
 
 
+def legacy_customer_logins(chat_id: int) -> tuple[str, ...]:
+    """Read only existing account bindings for this exact private Telegram ID."""
+    if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id <= 0:
+        return ()
+    module_root = Path(__file__).resolve().parent
+    if module_root == Path("/root/vpn_bot/handlers"):
+        path = Path("/root/vpn_bot/data/bot.db")
+        query = "SELECT client_email FROM users WHERE tg_id=? AND is_bound=1"
+        arguments = (chat_id,)
+    elif module_root == Path("/opt/vpn_bot"):
+        path = module_root / "bot_minimal.db"
+        query = "SELECT proxy_user FROM binds WHERE tg_id=? UNION SELECT proxy_user FROM subscriptions WHERE tg_id=?"
+        arguments = (chat_id, chat_id)
+    else:
+        return ()
+    try:
+        info = path.lstat()
+        if path.is_symlink() or not path.is_file() or info.st_uid != 0 or info.st_nlink != 1 or info.st_mode & 0o022:
+            return ()
+        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2) as connection:
+            connection.execute("PRAGMA query_only=ON")
+            rows = connection.execute(query, arguments).fetchmany(3)
+        if len(rows) > 2:
+            return ()
+        return tuple(sorted({str(row[0]).strip() for row in rows if isinstance(row[0], str)
+                             and re.fullmatch(r"[A-Za-z0-9_.@+-]{1,96}", row[0].strip())}))
+    except (OSError, sqlite3.Error):
+        return ()
+
+
+def legacy_customer_choice_key(login: str) -> str:
+    import hashlib
+    return hashlib.sha256(("maestro-account-choice\0" + login).encode()).hexdigest()[:24]
+
+
 def build_customer_router(store: CustomerBindingStore):
     """Return the production aiogram child router without importing aiogram in unit tests."""
     from aiogram import F, Router
@@ -230,9 +265,42 @@ def build_customer_router(store: CustomerBindingStore):
         login, customer_token = binding
         return CustomerFlow(configured_customer_api(customer_token), login, customer_token)
 
+    async def resolve_customer_callback(callback, choice: str | None = None):
+        message = callback.message
+        if message.chat.type != "private" or message.chat.id != callback.from_user.id:
+            await callback.answer("Откройте личный чат с ботом.", show_alert=True)
+            return None, True
+        flow = flow_for(message.chat.id)
+        if flow is not None:
+            return flow, False
+        logins = legacy_customer_logins(message.chat.id)
+        if choice is not None:
+            logins = tuple(login for login in logins if legacy_customer_choice_key(login) == choice)
+            if len(logins) != 1:
+                await callback.answer("Список аккаунтов изменился. Откройте кабинет снова.", show_alert=True)
+                return None, True
+        elif len(logins) > 1:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=login, callback_data=callback_data("account", legacy_customer_choice_key(login)))
+            ] for login in logins])
+            await callback.answer()
+            await message.answer("Выберите вашу подписку:", reply_markup=keyboard, parse_mode=None)
+            return None, True
+        if not logins:
+            return None, False
+        try:
+            login, customer_token = await claim_customer_login(logins[0])
+            if login != logins[0]:
+                raise ValueError("known account profile mismatch")
+            store.bind(message.chat.id, login, customer_token)
+        except Exception:
+            await callback.answer("Ваш аккаунт найден. Данные временно недоступны, откройте кабинет чуть позже.", show_alert=True)
+            return None, True
+        return flow_for(message.chat.id), False
+
     async def require_flow(callback: CallbackQuery) -> CustomerFlow | None:
-        flow = flow_for(callback.message.chat.id)
-        if flow is None:
+        flow, handled = await resolve_customer_callback(callback)
+        if flow is None and not handled:
             await callback.answer("Сначала откройте /start с вашей ссылкой Maestro.", show_alert=True)
         return flow
 
@@ -269,6 +337,13 @@ def build_customer_router(store: CustomerBindingStore):
                 raise ValueError("invalid callback")
         except (AttributeError, ValueError):
             await callback.answer("Неверное действие.", show_alert=True)
+            return
+        if action == "account":
+            flow, handled = await resolve_customer_callback(callback, opaque_id)
+            if handled or flow is None:
+                return
+            await callback.message.answer(await flow.show_balance())
+            await callback.answer()
             return
         flow = await require_flow(callback)
         if flow is None:

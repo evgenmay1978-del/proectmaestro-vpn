@@ -37,6 +37,56 @@ type WhiteListPublicationDelivery struct {
 	desiredBindings []WhiteListSidecarDesired
 }
 
+// This snapshot belongs to one authorization call. Its immutable origin
+// proofs are shared across accounts, while their deadlines are rechecked.
+type whiteListPublicationOriginSnapshot struct {
+	observations []whiteListObservedOrigin
+	liveReceipts map[string]WhiteListSidecarReceipt
+}
+
+func (snapshot *whiteListPublicationOriginSnapshot) observedAt(state whiteListSidecarRuntimeState, now time.Time) ([]whiteListObservedOrigin, error) {
+	if snapshot == nil || len(snapshot.observations) == 0 || len(snapshot.observations) != len(state.origins) {
+		return nil, ErrUnavailable
+	}
+	for index, observed := range snapshot.observations {
+		origin := state.origins[index]
+		desired, ok := state.previous[origin.OriginID]
+		if !ok || observed.origin.OriginID != origin.OriginID || observed.desired.DesiredSHA256 != desired.DesiredSHA256 ||
+			desired.NodeID != origin.NodeID || desired.ReleaseID != origin.ReleaseID || desired.ProfileID != origin.ProfileID ||
+			desired.PresetID != origin.PresetID || desired.ConfigDigest != origin.ConfigDigest ||
+			ValidateWhiteListSidecarReceipt(desired, observed.receipt.XrayProcessBootID, observed.receipt, now) != nil ||
+			observed.sampledAt < observed.receipt.AppliedAt.Unix() || observed.sampledAt > now.Unix() ||
+			now.Unix()-observed.sampledAt >= whiteListObservationTTLSeconds ||
+			!whiteListObservationCoverage(desired.ManagedUsers, observed.available, observed.unavailable) {
+			return nil, ErrUnavailable
+		}
+	}
+	return snapshot.observations, nil
+}
+
+func (s *Service) loadWhiteListPublicationOrigins(ctx context.Context, state whiteListSidecarRuntimeState, resolve func(string) (ExternalActionSender, bool)) (*whiteListPublicationOriginSnapshot, error) {
+	observed, err := s.whiteListObservedOriginsFromState(ctx, state)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := &whiteListPublicationOriginSnapshot{observations: observed, liveReceipts: make(map[string]WhiteListSidecarReceipt, len(observed))}
+	for _, origin := range observed {
+		sender, ok := resolve(origin.origin.NodeID)
+		lookup, lookupOK := sender.(whiteListSidecarReceiptLookup)
+		if !ok || !lookupOK {
+			return nil, ErrUnavailable
+		}
+		raw, lookupErr := lookup.LookupReceipt(ctx, origin.desired.Action.ActionKey)
+		live, decodeErr := decodeWhiteListSidecarReceipt(raw)
+		if lookupErr != nil || decodeErr != nil || !whiteListSidecarReceiptPersistedEqual(origin.receipt, live) ||
+			ValidateWhiteListSidecarReceipt(origin.desired, live.XrayProcessBootID, live, s.clock.Now()) != nil {
+			return nil, ErrUnavailable
+		}
+		snapshot.liveReceipts[origin.desired.Action.ActionKey] = live
+	}
+	return snapshot, nil
+}
+
 // WhiteListPublicationDelivery resolves the subscription token through the
 // existing durable customer, entitlement, balance, desired-state and receipt
 // records. Unknown tokens and missing entitlements are ordinary-only; corrupt
@@ -90,11 +140,13 @@ func (s *Service) whiteListPublicationForEntitlement(
 func (s *Service) whiteListPublicationForEntitlementFromState(
 	ctx context.Context, entitlementID string, now time.Time,
 	resolveSender func(string) (ExternalActionSender, bool), includeMaterial bool, state whiteListSidecarRuntimeState,
+	shared ...*whiteListPublicationOriginSnapshot,
 ) (WhiteListPublicationDelivery, error) {
 	closed := func(verdict WhiteListPublicationVerdict) WhiteListPublicationDelivery {
 		return WhiteListPublicationDelivery{Decision: closedWhiteListPublication(verdict)}
 	}
-	if s == nil || s.store == nil || s.store.db == nil || s.store.secrets == nil || ctx == nil || !validEntitlementID(entitlementID) || now.Unix() <= 0 {
+	if s == nil || s.store == nil || s.store.db == nil || s.store.secrets == nil || ctx == nil || !validEntitlementID(entitlementID) || now.Unix() <= 0 ||
+		len(shared) > 1 || (len(shared) == 1 && shared[0] == nil) {
 		return WhiteListPublicationDelivery{}, ErrUnavailable
 	}
 	publication, ok := state.publications[entitlementID]
@@ -139,22 +191,46 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	receiptsFreshUntil := int64(0)
 	receiptSetReady := len(receiptStatements) > 0 && resolveSender != nil
 	if receiptSetReady {
-		results, queryErr := s.store.db.QueryLinearizable(ctx, receiptStatements...)
-		if queryErr != nil || len(results) != len(desired) {
-			return WhiteListPublicationDelivery{}, ErrUnavailable
+		var results []rqlite.Result
+		if len(shared) == 0 {
+			var queryErr error
+			results, queryErr = s.store.db.QueryLinearizable(ctx, receiptStatements...)
+			if queryErr != nil || len(results) != len(desired) {
+				return WhiteListPublicationDelivery{}, ErrUnavailable
+			}
 		}
-		for index, result := range results {
-			stored, storedErr := whiteListSidecarReceiptFromResults([]rqlite.Result{result})
+		for index := range desired {
+			var stored, live WhiteListSidecarReceipt
+			var storedErr, lookupErr, liveErr error
+			checkedAt := now
+			if len(shared) == 1 {
+				observations, observationErr := shared[0].observedAt(state, s.clock.Now())
+				if observationErr != nil || len(observations) != len(desired) {
+					return WhiteListPublicationDelivery{}, ErrUnavailable
+				}
+				stored = observations[index].receipt
+				var found bool
+				live, found = shared[0].liveReceipts[desired[index].Action.ActionKey]
+				if !found {
+					return WhiteListPublicationDelivery{}, ErrUnavailable
+				}
+				checkedAt = s.clock.Now()
+			} else {
+				stored, storedErr = whiteListSidecarReceiptFromResults(results[index : index+1])
+			}
 			sender, senderOK := resolveSender(desired[index].NodeID)
 			lookup, lookupOK := sender.(whiteListSidecarReceiptLookup)
 			if storedErr != nil || !senderOK || !lookupOK {
 				receiptSetReady = false
 				break
 			}
-			raw, lookupErr := lookup.LookupReceipt(ctx, desired[index].Action.ActionKey)
-			live, liveErr := decodeWhiteListSidecarReceipt(raw)
+			if len(shared) == 0 {
+				var raw []byte
+				raw, lookupErr = lookup.LookupReceipt(ctx, desired[index].Action.ActionKey)
+				live, liveErr = decodeWhiteListSidecarReceipt(raw)
+			}
 			if lookupErr != nil || liveErr != nil || !whiteListSidecarReceiptPersistedEqual(stored, live) ||
-				ValidateWhiteListSidecarReceipt(desired[index], live.XrayProcessBootID, live, now) != nil {
+				ValidateWhiteListSidecarReceipt(desired[index], live.XrayProcessBootID, live, checkedAt) != nil {
 				receiptSetReady = false
 				break
 			}
@@ -169,7 +245,7 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	facts.ApprovedNodeCount = len(desired)
 	if facts.ReleaseBindingExact && facts.CredentialUsable && receiptSetReady {
 		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReadyFromState(
-			ctx, entitlementID, exitID, state.previous, state,
+			ctx, entitlementID, exitID, state.previous, state, shared...,
 		)
 	}
 	decision := EvaluateWhiteListPublication(facts)

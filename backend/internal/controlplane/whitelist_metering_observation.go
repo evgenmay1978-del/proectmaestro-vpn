@@ -155,26 +155,31 @@ func (s *Service) whiteListObservedOriginsFromState(ctx context.Context, state w
 	if len(state.origins) == 0 {
 		return nil, ErrUnavailable
 	}
-	now := s.clock.Now()
-	observed := make([]whiteListObservedOrigin, 0, len(state.origins))
+	statements := make([]rqlite.Statement, 0, len(state.origins)*2)
 	for _, origin := range state.origins {
 		desired, ok := state.previous[origin.OriginID]
 		if !ok || desired.NodeID != origin.NodeID || desired.ReleaseID != origin.ReleaseID ||
 			desired.ProfileID != origin.ProfileID || desired.PresetID != origin.PresetID || desired.ConfigDigest != origin.ConfigDigest {
 			return nil, ErrUnavailable
 		}
-		results, err := s.store.db.QueryLinearizable(ctx, whiteListSidecarReceiptRead(desired.Action.ActionKey),
+		statements = append(statements, whiteListSidecarReceiptRead(desired.Action.ActionKey),
 			rqlite.Statement{SQL: `SELECT action_key,sampled_at_unix,observation_sha256,
 CAST(available_users_json AS TEXT) AS available_users,CAST(unavailable_users_json AS TEXT) AS unavailable_users
 FROM whitelist_metering_origin_observations WHERE origin_id=?`, Args: []any{origin.OriginID}})
-		if err != nil || len(results) != 2 {
-			return nil, ErrUnavailable
-		}
-		receipt, err := whiteListSidecarReceiptFromResults(results[:1])
+	}
+	results, err := s.store.db.QueryLinearizable(ctx, statements...)
+	if err != nil || len(results) != len(statements) {
+		return nil, ErrUnavailable
+	}
+	now := s.clock.Now()
+	observed := make([]whiteListObservedOrigin, 0, len(state.origins))
+	for index, origin := range state.origins {
+		desired := state.previous[origin.OriginID]
+		receipt, err := whiteListSidecarReceiptFromResults(results[index*2 : index*2+1])
 		if err != nil || ValidateWhiteListSidecarReceipt(desired, receipt.XrayProcessBootID, receipt, now) != nil {
 			return nil, ErrUnavailable
 		}
-		row, ok := firstRow(results[1:])
+		row, ok := firstRow(results[index*2+1 : index*2+2])
 		action, _ := rowString(row, "action_key")
 		sampled, sampledOK := rowInt64(row, "sampled_at_unix")
 		hash, _ := rowString(row, "observation_sha256")
@@ -325,11 +330,11 @@ func (s *Service) whiteListMeteringPublicationReady(ctx context.Context, entitle
 	return s.whiteListMeteringPublicationReadyFromState(ctx, entitlementID, exitID, desired, state)
 }
 
-func (s *Service) whiteListMeteringPublicationReadyFromState(ctx context.Context, entitlementID, exitID string, desired map[string]WhiteListSidecarDesired, state whiteListSidecarRuntimeState) (int64, int64) {
+func (s *Service) whiteListMeteringPublicationReadyFromState(ctx context.Context, entitlementID, exitID string, desired map[string]WhiteListSidecarDesired, state whiteListSidecarRuntimeState, shared ...*whiteListPublicationOriginSnapshot) (int64, int64) {
 	if len(desired) == 0 {
 		return 0, 0
 	}
-	through, until, ready := s.whiteListMeteringReadinessFromState(ctx, entitlementID, exitID, true, desired, state)
+	through, until, ready := s.whiteListMeteringReadinessFromState(ctx, entitlementID, exitID, true, desired, state, shared...)
 	if !ready {
 		return 0, 0
 	}
@@ -344,12 +349,20 @@ func (s *Service) whiteListMeteringReadiness(ctx context.Context, entitlementID,
 	return s.whiteListMeteringReadinessFromState(ctx, entitlementID, exitID, allowAwaiting, requiredDesired, state)
 }
 
-func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entitlementID, exitID string, allowAwaiting bool, requiredDesired map[string]WhiteListSidecarDesired, state whiteListSidecarRuntimeState) (int64, int64, bool) {
+func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entitlementID, exitID string, allowAwaiting bool, requiredDesired map[string]WhiteListSidecarDesired, state whiteListSidecarRuntimeState, shared ...*whiteListPublicationOriginSnapshot) (int64, int64, bool) {
+	if len(shared) > 1 || (len(shared) == 1 && shared[0] == nil) {
+		return 0, 0, false
+	}
 	period, available, periodEndsAt, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state)
 	if err != nil {
 		return 0, 0, false
 	}
-	origins, err := s.whiteListObservedOriginsFromState(ctx, state)
+	var origins []whiteListObservedOrigin
+	if len(shared) == 1 {
+		origins, err = shared[0].observedAt(state, s.clock.Now())
+	} else {
+		origins, err = s.whiteListObservedOriginsFromState(ctx, state)
+	}
 	if err != nil || (requiredDesired != nil && len(requiredDesired) != len(origins)) {
 		return 0, 0, false
 	}
