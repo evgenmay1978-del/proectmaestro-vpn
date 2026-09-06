@@ -5,6 +5,22 @@
 [CONTEXT_HANDOFF_HISTORY_2026-09-05.md](CONTEXT_HANDOFF_HISTORY_2026-09-05.md).
 Историю открывать по конкретной необходимости; старые CURRENT/next-action не действуют.
 
+## Текущий установленный результат — 06.09.2026
+
+Этот раздел заменяет устаревшие live/next-action утверждения ниже. Новые тесты и тестовые CI запрещены без прямого запроса владельца; выполнены необходимые build-only сборки и установка, OTA не было.
+
+- Native controller на S1: `bc215709f17eb963d3fcb1e510cc9cf9e4897eac`, active/enabled, binary SHA256 `e0f455d3bcedaacfc34e46c2cf3fa3c4853aae40cf888cb2d87cb989b477705c`. Build-only run34027178485 SUCCESS, тестовый job skipped. Полный импорт завершён:49 клиентов,110 trials,4 settings,1 owner principal; реальные платёжные заявки не создавались.
+- Все четыре commercial sidecar установлены и работают на bundle `49ecb6bc903c7509d29b21bcd288a92334219de9`. В native DB зарегистрированы origin `commercial-s4` и exits S1–S4; credentials provisioning и защищённый client template подключены. Старый synthetic desired S4 сохранён в архиве, private canary не затрагивался.
+- Публичная панель получила раздел «CDN · баланс и ГБ»: включение/отключение и начисление целого числа ГБ от1. Страница открывается; финансовые действия за владельца не выполнялись.
+- `/account/` обслуживается native controller. `/sub/` проходит через него к действующему ordinary panel: обычная авторизация и серверы остаются актуальными, CDN добавляется только при PUBLISHABLE. Для INCY bare URL автоматически получает links-format; default JSON приложения сохранён. Исправлены copy_url и выдача Karing.
+- Включено read-only зеркало `MAESTRO_LEGACY_PRIMARY_FILE=/var/lib/maestro/customers.json`: точные сроки/статусы обновляются перед авторизацией и CDN runtime; новые legacy логины получают native identity без изменения wallet/ordinary credentials. Смена токена закрывает доступ вместо переноса чужого баланса. Вход/импорт на устройстве владельцем после этой установки ещё не подтверждён.
+- Оба существующих бота обновлены: после `/start` видна кнопка «Мой VPN · CDN», вход по логину, баланс и статус, HTTPS format=links и QR для внешних клиентов. CDN checkout с owner confirm/credit установлен, продажи остаются выключенными. Обычные оплаты сохранены, новых pollers и отправленных при установке сообщений нет.
+- Фактическая жалоба владельца: INCY не добавил ссылку. Наблюдался запрос INCY с200 без links-format; исправление уже установлено. Ждём реальный результат владельца, не подменяем его компиляцией. APK158 ordinary VPN ранее подтверждён владельцем; нового APK/OTA нет.
+- Оставшийся запуск CDN: доступ к существующему Yandex Cloud resource не найден, вопрос владельцу задан; ingress подготовлен, но cloud origin/публичный28080 не переключены. Реального reserve report также нет, выдумывать измерения и самостоятельно запускать тестовый трафик нельзя. Пока эти части не подключены, коммерческий CDN и его продажи закрыты.
+- Точные receipts и обратимые helpers: `C:/Users/User/Documents/Codex/2026-09-05/files-pasted-by-the-user-maestrovpn/work/`. Последние: `controller-upgraded-bc21570.json`, `native-cdn-topology-applied.json`, `legacy-subscription-overlay-connected.json`, `visible-cabinet-installed-s1.json`, `visible-cabinet-installed-s2.json`. Nginx SHA256 `39acc88356c396f46f94289e2199a6ca855814be6749d8bf6502e58c0aa99bc4`. Не повторять уже выполненные установки.
+
+Ниже сохранены предшествующие контрольные точки и ограничения. Их прежние утверждения «не deployed/не импортировано» не являются текущим состоянием.
+
 ## 1. Откуда продолжать
 
 - Канонический репозиторий: `evgenmay1978-del/proectmaestro-vpn`.
