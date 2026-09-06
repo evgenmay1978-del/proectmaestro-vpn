@@ -1,10 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -56,6 +60,10 @@ func (s *ControlPlaneServer) handleControlPlaneCustomerCabinet(w http.ResponseWr
 			return
 		}
 	}
+	var ok bool
+	if r, ok = customerCabinetCommandRequest(w, r); !ok {
+		return
+	}
 	switch r.URL.Path {
 	case "/cabinet/":
 		if !requireControlPlaneMethod(w, r, http.MethodGet) {
@@ -98,6 +106,51 @@ func (s *ControlPlaneServer) handleControlPlaneCustomerCabinet(w http.ResponseWr
 		}
 		s.controlPlaneNotFound(w, r)
 	}
+}
+
+// The configured CDN currently forwards GET/HEAD/OPTIONS only. A same-origin
+// browser can carry these three authenticated mutations in an explicit header,
+// without putting a login or subscription token in the URL. An ordinary GET
+// never mutates anything, and the existing POST handlers retain all guards.
+func customerCabinetCommandRequest(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
+	values := r.Header.Values("X-Maestro-Command")
+	if len(values) == 0 {
+		return r, true
+	}
+	allowed := r.URL.Path == "/cabinet/api/claim" || r.URL.Path == "/cabinet/api/order"
+	if rest, ok := strings.CutPrefix(r.URL.Path, "/cabinet/api/order/"); ok {
+		parts := strings.Split(rest, "/")
+		allowed = len(parts) == 2 && parts[0] != "" && parts[1] == "paid-claim"
+	}
+	reject := func() (*http.Request, bool) {
+		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid cabinet command"})
+		return nil, false
+	}
+	if !allowed || r.Method != http.MethodGet || len(values) != 1 || len(values[0]) == 0 || len(values[0]) > 4096 ||
+		r.ContentLength > 0 || len(r.TransferEncoding) != 0 || strings.TrimSpace(r.Header.Get("Idempotency-Key")) == "" {
+		return reject()
+	}
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(values[0])
+	if err != nil || len(raw) > 4096 {
+		return reject()
+	}
+	var command struct {
+		Method string          `json:"method"`
+		Body   json.RawMessage `json:"body"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&command) != nil || command.Method != http.MethodPost || len(command.Body) == 0 ||
+		decoder.Decode(new(any)) != io.EOF {
+		return reject()
+	}
+	restored := r.Clone(r.Context())
+	restored.Method = http.MethodPost
+	restored.Body = io.NopCloser(bytes.NewReader(command.Body))
+	restored.ContentLength = int64(len(command.Body))
+	restored.Header.Del("X-Maestro-Command")
+	restored.Header.Set("Content-Type", "application/json")
+	return restored, true
 }
 
 func (s *ControlPlaneServer) handleCustomerCabinetLogin(w http.ResponseWriter, r *http.Request) {
