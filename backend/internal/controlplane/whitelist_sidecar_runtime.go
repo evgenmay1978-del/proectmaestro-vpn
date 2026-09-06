@@ -224,6 +224,7 @@ func whiteListRuntimeCredentialUsable(available map[string]struct{}, exits map[s
 }
 
 func (s *Service) loadWhiteListSidecarRuntimeState(ctx context.Context) (whiteListSidecarRuntimeState, error) {
+	primaryErr := s.refreshLegacyPrimaryRuntime(ctx)
 	results, err := s.store.db.QueryLinearizable(ctx,
 		rqlite.Statement{SQL: `SELECT origin_id,node_id,release_id,profile_id,preset_id,config_digest,active
 FROM whitelist_sidecar_origins WHERE active=1 ORDER BY origin_id`},
@@ -296,6 +297,13 @@ ORDER BY control.entitlement_id`},
 		state.publications[entitlementID] = whiteListRuntimePublication{
 			Enabled: enabled == 1, Source: WhiteListActivationSource(source),
 			PrimaryStatus: primaryStatus, PrimaryExpiresAtUnix: primaryExpiresAtUnix,
+		}
+		if primaryErr != nil {
+			// Retain enough state to revoke an existing route. A failed registry
+			// read must not authorize admission or renew a stale primary account.
+			publication := state.publications[entitlementID]
+			publication.PrimaryStatus = "suspended"
+			state.publications[entitlementID] = publication
 		}
 	}
 	for _, row := range results[3].Rows {

@@ -96,6 +96,11 @@ func buildRQLitePanelRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("rqlite runtime: service unavailable: %w", err)
 	}
+	legacyPrimary, err := newRuntimeLegacyPrimaryFile(config.LegacyPrimaryFile)
+	if err != nil {
+		return nil, err
+	}
+	service.SetLegacyPrimarySource(legacyPrimary)
 	meteringStore, err := newRuntimeWhiteListMeteringStore(database)
 	if err != nil {
 		return nil, fmt.Errorf("rqlite runtime: metering store unavailable: %w", err)

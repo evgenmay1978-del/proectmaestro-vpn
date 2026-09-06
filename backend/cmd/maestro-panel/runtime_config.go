@@ -18,6 +18,7 @@ type rqliteRuntimeConfig struct {
 	KeyBundleFile              string
 	WhiteListReserveFile       string
 	LegacySubscriptionUpstream string
+	LegacyPrimaryFile          string
 }
 
 type configuredRuntimeFactories struct {
@@ -56,6 +57,7 @@ func readRQLiteRuntimeConfig(getenv func(string) string) (rqliteRuntimeConfig, e
 		KeyBundleFile:              strings.TrimSpace(getenv("MAESTRO_RQLITE_KEY_BUNDLE_FILE")),
 		WhiteListReserveFile:       strings.TrimSpace(getenv("MAESTRO_WHITELIST_RESERVE_FILE")),
 		LegacySubscriptionUpstream: strings.TrimSpace(getenv("MAESTRO_LEGACY_SUB_UPSTREAM")),
+		LegacyPrimaryFile:          strings.TrimSpace(getenv("MAESTRO_LEGACY_PRIMARY_FILE")),
 	}
 	rawEndpoints := strings.Split(getenv("MAESTRO_RQLITE_ENDPOINTS"), ",")
 	seen := make(map[string]struct{}, len(rawEndpoints))

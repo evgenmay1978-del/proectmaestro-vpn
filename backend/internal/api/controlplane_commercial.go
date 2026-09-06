@@ -114,6 +114,7 @@ type CommercialDeliveryView struct {
 	Client    string `json:"client"`
 	Format    string `json:"format"`
 	URL       string `json:"url"`
+	CopyURL   string `json:"copy_url,omitempty"`
 }
 
 func (s *ControlPlaneServer) handleControlPlaneCommercialCatalog(w http.ResponseWriter, r *http.Request) {
@@ -263,7 +264,7 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialDelivery(w http.Respons
 		return
 	}
 	client := strings.ToLower(strings.TrimSpace(request.Client))
-	if client != "incy" && client != "happ" {
+	if client != "incy" && client != "happ" && client != "karing" {
 		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}

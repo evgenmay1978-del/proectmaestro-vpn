@@ -24,9 +24,10 @@ var (
 
 // Delivery is the client-facing subscription descriptor for a supported client.
 type Delivery struct {
-	Client string
-	Format string
-	URL    string
+	Client  string
+	Format  string
+	URL     string
+	CopyURL string
 }
 
 // BuildDelivery validates a private subscription URL and returns the client-safe
@@ -43,13 +44,14 @@ func BuildDelivery(client, subscriptionURL string) (Delivery, error) {
 		if err != nil {
 			return Delivery{}, ErrDeliveryEncoding
 		}
-		return Delivery{Client: client, Format: IncyOneTapFormat, URL: oneTapURL}, nil
+		return Delivery{Client: client, Format: IncyOneTapFormat, URL: oneTapURL, CopyURL: linksURL}, nil
 	case HappDeliveryClient:
-		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: linksURL}, nil
+		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: linksURL, CopyURL: linksURL}, nil
 	case KaringDeliveryClient:
 		return Delivery{
-			Client: client,
-			Format: KaringInstallConfigFormat,
+			Client:  client,
+			Format:  KaringInstallConfigFormat,
+			CopyURL: linksURL,
 			URL: "karing://install-config?url=" + url.QueryEscape(linksURL) +
 				"&name=" + url.QueryEscape("MaestroVPN"),
 		}, nil

@@ -20,9 +20,10 @@ type IDSource interface {
 }
 
 type Service struct {
-	store *Store
-	ids   IDSource
-	clock Clock
+	store         *Store
+	ids           IDSource
+	clock         Clock
+	legacyPrimary *legacyPrimaryMirror
 }
 
 func NewService(store *Store, ids IDSource, clock Clock) (*Service, error) {
@@ -36,11 +37,17 @@ func (s *Service) CustomerByToken(ctx context.Context, rawToken string) (Custome
 	if rawToken == "" {
 		return Customer{}, ErrNotFound
 	}
+	if err := s.refreshLegacyPrimary(ctx, "", rawToken); err != nil {
+		return Customer{}, err
+	}
 	lookup := s.store.secrets.LookupHMAC("subscription-token", []byte(rawToken))
 	return s.store.customerByLookup(ctx, "st.token_hmac", lookup)
 }
 
 func (s *Service) CustomerByLogin(ctx context.Context, login string) (Customer, error) {
+	if err := s.refreshLegacyPrimary(ctx, login, ""); err != nil {
+		return Customer{}, err
+	}
 	identity, err := s.ResolveCustomerLogin(ctx, login)
 	if err != nil {
 		return Customer{}, err

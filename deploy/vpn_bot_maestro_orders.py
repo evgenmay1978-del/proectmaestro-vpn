@@ -226,7 +226,7 @@ async def show_app_subscription(cb: CallbackQuery):
             [InlineKeyboardButton(text=label, url=value)] for label, value in buttons
         ]) if buttons else None
         await cb.message.answer_photo(
-            BufferedInputFile(_qr_png(sub_url), filename="maestrovpn_sub.png"),
+            BufferedInputFile(_qr_png(deliveries.happ_url), filename="maestrovpn_sub.png"),
             caption=caption,
             parse_mode="HTML",
             reply_markup=keyboard,

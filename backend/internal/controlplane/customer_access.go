@@ -117,6 +117,9 @@ AND cr.generation=(SELECT max(c2.generation) FROM credentials c2 WHERE c2.custom
 ORDER BY cr.protocol`,
 		Args: []any{customerID},
 	})
+	if err == nil && len(results) == 1 && len(results[0].Rows) == 0 && s.legacyPrimary != nil {
+		return s.legacyPrimaryTokenAccess(ctx, customerID)
+	}
 	if err != nil || len(results) != 1 || len(results[0].Rows) == 0 {
 		return CustomerAccess{}, ErrUnavailable
 	}

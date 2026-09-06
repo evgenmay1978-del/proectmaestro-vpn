@@ -10,7 +10,7 @@ import re
 import secrets
 import sqlite3
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -36,6 +36,18 @@ def panel_base_url(configured: str | None = None) -> str:
     if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
         return value
     raise ValueError("MAESTRO_URL must use HTTPS or explicit loopback HTTP")
+
+
+def subscription_copy_url(raw: str) -> str:
+    """Select the URI-list representation without changing the private token."""
+    parsed = urlparse(str(raw or ""))
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+            or parsed.password is not None or parsed.fragment
+            or not re.fullmatch(r"/sub/[^/]+", parsed.path)):
+        raise ValueError("invalid subscription copy URL")
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query["format"] = ["links"]
+    return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
 def callback_data(action: str, opaque_id: str) -> str:
@@ -172,10 +184,15 @@ class CustomerFlow:
     async def delivery(self, client: str) -> dict:
         result = await self.api.delivery(client)
         if client == "incy" and result.get("format") == "INCY_ONE_TAP":
-            return {"copy_url": result["url"], "label": "Ссылка для Incy"}
+            copy_url = result.get("copy_url")
+            if not copy_url:
+                # The old controller exposes only a deep link for INCY.
+                # Its Happ descriptor is the same account's plain HTTPS URL.
+                copy_url = (await self.api.delivery("happ"))["url"]
+            return {"copy_url": subscription_copy_url(copy_url), "open_url": result["url"], "label": "HTTPS-ссылка для Incy"}
         if client == "happ" and result.get("format") == "COPY_HTTPS_URL_AND_QR":
             return {
-                "url": result["url"],
+                "url": subscription_copy_url(result.get("copy_url") or result["url"]),
                 "steps": (
                     "1. Скопируйте HTTPS-ссылку.",
                     "2. Откройте Happ.",
@@ -184,7 +201,10 @@ class CustomerFlow:
                 ),
             }
         if client == "karing" and result.get("format") == "KARING_INSTALL_CONFIG":
-            return {"copy_url": result["url"], "label": "Ссылка для Karing"}
+            copy_url = result.get("copy_url")
+            if not copy_url:
+                copy_url = (parse_qs(urlparse(result["url"]).query).get("url") or [""])[0]
+            return {"copy_url": subscription_copy_url(copy_url), "open_url": result["url"], "label": "HTTPS-ссылка для Karing"}
         raise ValueError("unexpected subscription delivery result")
 
     def support_text(self) -> str:
@@ -284,14 +304,14 @@ def build_customer_router(store: CustomerBindingStore):
             happ = await flow.delivery("happ")
             karing = await flow.delivery("karing")
             await callback.message.answer(
-                "1. Для Incy скопируйте ссылку ниже, откройте импорт подписки и вставьте её:\n"
+                "1. Для Incy скопируйте HTTPS-ссылку ниже, откройте импорт подписки и вставьте её:\n"
                 f"{incy['copy_url']}\n\n"
-                "2. Для Karing скопируйте ссылку ниже, откройте импорт подписки и вставьте её:\n"
+                "2. Для Karing скопируйте HTTPS-ссылку ниже, откройте импорт подписки и вставьте её:\n"
                 f"{karing['copy_url']}\n\n"
                 "3. Для Happ используйте QR из следующего сообщения.\n"
                 "4. Убедитесь, что профиль MaestroVPN появился.\n\n"
-                "MaestroVPN 1.0.157 показывает только обычные серверы. "
-                "После покупки ГБ CDN/LTE появится в Incy, Happ и Karing.",
+                "В приложение MaestroVPN входите по логину. "
+                "Для CDN нужен включённый доступ и баланс ГБ. После изменения обновите подписку в клиенте.",
             )
             import qrcode
             from io import BytesIO

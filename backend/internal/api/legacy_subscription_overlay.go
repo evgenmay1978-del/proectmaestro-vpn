@@ -67,6 +67,17 @@ func WrapLegacySubscriptions(
 		if legacySubscriptionToken(request) != "" {
 			request.Header.Set("Accept-Encoding", "identity")
 			query := request.URL.Query()
+			_, formatSelected := query["format"]
+			_, appSelected := query["app"]
+			incy := strings.EqualFold(strings.TrimSpace(request.Header.Get("X-Client")), "INCY") ||
+				strings.HasPrefix(strings.ToUpper(request.UserAgent()), "INCY/")
+			if incy && !formatSelected && !appSelected {
+				// INCY accepts URI lists and Xray JSON, not the ordinary sing-box
+				// JSON. Existing bare subscription URLs therefore need only this
+				// client-specific representation selection; legacy still authorizes.
+				query.Set("format", "links")
+				request.URL.RawQuery = query.Encode()
+			}
 			if query.Get("app") == "karing" || query.Get("format") == "links" {
 				// A legacy validator covers ordinary nodes only. CDN access or
 				// balance may have changed while those nodes remained identical.

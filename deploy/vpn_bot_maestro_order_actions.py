@@ -2,7 +2,7 @@
 
 import re
 from typing import NamedTuple
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 
 TOPUP_CONFIRM_PREFIX = "mwcf:"
@@ -27,6 +27,17 @@ class AdminDeliveryChoices(NamedTuple):
     karing_url: str
 
 
+def subscription_copy_url(raw: str) -> str:
+    parsed = urlsplit(str(raw or ""))
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+            or parsed.password is not None or parsed.fragment
+            or not re.fullmatch(r"/sub/[^/]+", parsed.path)):
+        raise ValueError("invalid subscription copy URL")
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query["format"] = ["links"]
+    return urlunsplit(parsed._replace(query=urlencode(query, doseq=True)))
+
+
 def admin_delivery_choices(deliveries: dict) -> AdminDeliveryChoices:
     expected = {
         "incy": "INCY_ONE_TAP",
@@ -44,21 +55,25 @@ def admin_delivery_choices(deliveries: dict) -> AdminDeliveryChoices:
             or not descriptor["url"].strip()
         ):
             raise ValueError("invalid admin subscription delivery")
-        urls[client] = descriptor["url"]
+        urls[client] = descriptor.get("copy_url") or descriptor["url"]
+    # Keep accepting the prior controller contract during the rolling upgrade.
+    # One-tap descriptors remain available at the API, while these captions
+    # intentionally give a normal HTTPS URL accepted by every import field.
+    fallback = subscription_copy_url(urls["happ"])
+    for client in ("incy", "karing"):
+        if urlsplit(urls[client]).scheme != "https":
+            urls[client] = fallback
     return AdminDeliveryChoices(
-        incy_url=urls["incy"],
-        happ_url=urls["happ"],
-        karing_url=urls["karing"],
+        incy_url=subscription_copy_url(urls["incy"]),
+        happ_url=fallback,
+        karing_url=subscription_copy_url(urls["karing"]),
     )
 
 
 def admin_delivery_button_urls(choices: AdminDeliveryChoices) -> tuple[tuple[str, str], ...]:
-    buttons = []
-    for label, value in (("Открыть в Incy", choices.incy_url), ("Открыть в Karing", choices.karing_url)):
-        parsed = urlsplit(value)
-        if parsed.scheme in {"http", "https"} and parsed.hostname and parsed.username is None and parsed.password is None:
-            buttons.append((label, value))
-    return tuple(buttons)
+    # A normal subscription URL downloads data; it does not open the named app.
+    # Telegram's URL buttons also cannot carry the custom incy/karing schemes.
+    return ()
 
 
 def admin_subscription_caption(
@@ -76,17 +91,11 @@ def admin_subscription_caption(
         f"Клиент: <code>{login}</code>\n"
         f"Статус: {status}  •  до {expires}{days}\n"
         f"Протоколы ({protocol_count}): {protocols}\n\n"
-        "1. MaestroVPN 1.0.157: отсканируйте QR или вставьте обычную ссылку. "
-        "В этой версии доступны только обычные серверы:\n"
-        f"<code>{sub_url}</code>\n\n"
-        "2. Incy: скопируйте ссылку, откройте импорт подписки и вставьте её:\n"
-        f"<code>{deliveries.incy_url}</code>\n\n"
-        "3. Happ: скопируйте HTTPS-ссылку или используйте QR:\n"
+        "1. Приложение MaestroVPN активируется по логину клиента.\n\n"
+        "2. Incy, Happ или Karing: скопируйте HTTPS-ссылку целиком и добавьте подписку, "
+        "либо отсканируйте QR:\n"
         f"<code>{deliveries.happ_url}</code>\n\n"
-        "4. Karing: скопируйте ссылку, откройте импорт подписки и вставьте её:\n"
-        f"<code>{deliveries.karing_url}</code>\n\n"
-        "CDN/LTE доступен только через Incy, Happ или Karing после покупки ГБ. "
-        "В MaestroVPN 1.0.157 CDN/LTE не появится до отдельного разрешённого обновления приложения."
+        "Для CDN нужен включённый доступ и баланс ГБ. После изменения обновите подписку в клиенте."
     )
 
 

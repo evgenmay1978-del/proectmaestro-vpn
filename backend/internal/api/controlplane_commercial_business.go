@@ -223,7 +223,7 @@ func subscriptionDeliveryForClient(client, url string) (CommercialDeliveryView, 
 	if err != nil {
 		return CommercialDeliveryView{}, err
 	}
-	return CommercialDeliveryView{Client: client, Format: delivery.Format, URL: delivery.URL}, nil
+	return CommercialDeliveryView{Client: client, Format: delivery.Format, URL: delivery.URL, CopyURL: delivery.CopyURL}, nil
 }
 
 func (b *ServiceBusiness) commercialOrderFromBusiness(ctx context.Context, accountID, orderID string) (CommercialOrderView, error) {
