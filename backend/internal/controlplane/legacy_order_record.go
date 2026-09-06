@@ -39,8 +39,24 @@ type LegacyOrderSourceRow struct {
 	CreditedPresent bool
 }
 
-func LegacyOrderRecordScope(key string) SecretScope {
-	return SecretScope{OwnerType: "legacy_order", OwnerID: key, Field: "source_record", Kind: LegacyOrderRecordKind}
+func LegacyOrderRecordScope(key, recordSHA string) SecretScope {
+	return SecretScope{OwnerType: "legacy_order", OwnerID: key, Field: "source_record:" + recordSHA, Kind: LegacyOrderRecordKind}
+}
+
+// Stored metadata chooses one exact AAD. The unsuffixed field is the original
+// read-only archive variant; every new record uses its content-addressed field.
+// No failed decryption is retried under another scope.
+func LegacyOrderStoredRecordScope(key, recordSHA, field string) (SecretScope, error) {
+	if !legacyBindingSHA(key) || !legacyBindingSHA(recordSHA) {
+		return SecretScope{}, ErrConflict
+	}
+	scope := LegacyOrderRecordScope(key, recordSHA)
+	if field == "source_record" {
+		scope.Field = field
+	} else if field != scope.Field {
+		return SecretScope{}, ErrConflict
+	}
+	return scope, nil
 }
 func LegacyOrderSourceScope(sha string) SecretScope {
 	return SecretScope{OwnerType: "legacy_order_source", OwnerID: sha, Field: "source_json", Kind: LegacyOrderSourceKind}

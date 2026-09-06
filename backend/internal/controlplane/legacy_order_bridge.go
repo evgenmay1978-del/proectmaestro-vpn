@@ -155,14 +155,19 @@ func (s *Service) loadLegacyOrderKey(ctx context.Context, key string) (legacyOrd
 		return slot, ErrUnavailable
 	}
 	slot.envelopeSHA = LegacyOrderDigest([]byte(slot.encoded))
-	for field, want := range map[string]string{"owner_type": "legacy_order", "owner_source_key": key, "field": "source_record", "kind": LegacyOrderRecordKind, "secret_sha256": slot.secretSHA, "target_id": slot.secretID, "canonical_sha256": slot.envelopeSHA, "lifecycle": "active"} {
+	storedField, ok := rowString(row, "field")
+	scope, scopeErr := LegacyOrderStoredRecordScope(key, slot.secretSHA, storedField)
+	if !ok || scopeErr != nil {
+		return slot, ErrUnavailable
+	}
+	for field, want := range map[string]string{"owner_type": "legacy_order", "owner_source_key": key, "field": scope.Field, "kind": LegacyOrderRecordKind, "secret_sha256": slot.secretSHA, "target_id": slot.secretID, "canonical_sha256": slot.envelopeSHA, "lifecycle": "active"} {
 		got, ok := rowString(row, field)
 		if !ok || got != want {
 			return slot, ErrUnavailable
 		}
 	}
 	var secret legacyOrderSecret
-	if decodeLegacyNodeJSON([]byte(slot.encoded), &secret) != nil || secret.SecretID != slot.secretID || secret.OwnerType != "legacy_order" || secret.OwnerSourceKey != key || secret.Field != "source_record" || secret.Kind != LegacyOrderRecordKind || secret.SHA256 != slot.secretSHA {
+	if decodeLegacyNodeJSON([]byte(slot.encoded), &secret) != nil || secret.SecretID != slot.secretID || secret.OwnerType != "legacy_order" || secret.OwnerSourceKey != key || secret.Field != scope.Field || secret.Kind != LegacyOrderRecordKind || secret.SHA256 != slot.secretSHA {
 		return slot, ErrUnavailable
 	}
 	version, ok := rowInt64(row, "key_version")
@@ -177,7 +182,7 @@ func (s *Service) loadLegacyOrderKey(ctx context.Context, key string) (legacyOrd
 	if err != nil || base64.StdEncoding.EncodeToString(ciphertext) != secret.CiphertextB64 {
 		return slot, ErrUnavailable
 	}
-	plain, err := s.store.secrets.Open(LegacyOrderRecordScope(key), Envelope{KeyVersion: secret.KeyVersion, Nonce: nonce, Ciphertext: ciphertext})
+	plain, err := s.store.secrets.Open(scope, Envelope{KeyVersion: secret.KeyVersion, Nonce: nonce, Ciphertext: ciphertext})
 	if err != nil {
 		return slot, ErrUnavailable
 	}

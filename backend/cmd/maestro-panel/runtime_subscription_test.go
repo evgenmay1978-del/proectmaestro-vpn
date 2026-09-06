@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,20 @@ type runtimeSubscriptionDatabase struct {
 }
 
 func (database *runtimeSubscriptionDatabase) QueryLinearizable(_ context.Context, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	if len(statements) == 3 && statements[0].SQL == `SELECT c.generation,s.secret_envelope,s.secret_sha256 FROM cluster_settings c LEFT JOIN setting_secrets s ON s.setting_key=c.setting_key WHERE c.setting_key=?` {
+		if len(statements[0].Args) != 1 {
+			return nil, fmt.Errorf("unexpected runtime setting binding")
+		}
+		key, ok := statements[0].Args[0].(string)
+		if !ok || key != "olcrtc" && key != "vkturn" ||
+			statements[1].SQL != `SELECT member_key,member_value_json,generation FROM setting_members WHERE setting_key=? ORDER BY member_key` || !reflect.DeepEqual(statements[1].Args, []any{key}) ||
+			statements[2].SQL != `SELECT i.secret_id,i.secret_sha256,e.lifecycle FROM imported_secrets i LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE i.owner_type='setting' AND i.owner_source_key=? AND i.field='secret' AND i.kind=? AND i.secret_id LIKE ? ORDER BY i.secret_id` || !reflect.DeepEqual(statements[2].Args, []any{key, key, "runtime-setting-v1:" + key + ":%"}) {
+			return nil, fmt.Errorf("unexpected runtime setting source query")
+		}
+		// This ordinary environment-topology fixture has no imported runtime
+		// setting, members or source archive. Other query shapes still fail.
+		return []rqlite.Result{{}, {}, {}}, nil
+	}
 	if len(statements) != 1 {
 		return nil, fmt.Errorf("unexpected fixture query batch")
 	}

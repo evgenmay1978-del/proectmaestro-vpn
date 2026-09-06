@@ -35,6 +35,23 @@ type runtimeAPIReadDB struct {
 }
 
 func (db *runtimeAPIReadDB) QueryLinearizable(ctx context.Context, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	const customerDetailSQL = `SELECT display_login,
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?),0) AS last_seen_at_unix
+FROM customers WHERE customer_id=? LIMIT 1`
+	if len(statements) == 1 && statements[0].SQL == customerDetailSQL {
+		args := statements[0].Args
+		cutoff := int64(2_000_000) - int64((60*24*time.Hour)/time.Second)
+		if len(args) != 3 || args[0] != cutoff || args[1] != cutoff {
+			return nil, errors.New("unexpected runtime customer detail binding")
+		}
+		for _, row := range db.rows {
+			if row["customer_id"] == args[2] {
+				return []rqlite.Result{{Rows: []map[string]any{row}}}, nil
+			}
+		}
+		return []rqlite.Result{{}}, nil
+	}
 	const otaSQL = `SELECT c.public_value_json,s.secret_envelope,s.secret_sha256,i.secret_id,i.secret_sha256 AS source_sha256,e.lifecycle FROM cluster_settings c LEFT JOIN setting_secrets s ON s.setting_key=c.setting_key LEFT JOIN imported_secrets i ON i.owner_type='setting' AND i.owner_source_key='ota' AND i.field='secret' AND i.kind='ota' AND i.secret_id LIKE 'runtime-setting-v1:ota:%' LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE c.setting_key='ota'`
 	if len(statements) == 1 && statements[0].SQL == otaSQL && len(statements[0].Args) == 0 {
 		var rows []map[string]any

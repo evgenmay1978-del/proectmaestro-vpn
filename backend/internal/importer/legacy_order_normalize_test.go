@@ -103,6 +103,17 @@ func TestNativeOrdersFinalDeltaRetainsPriorCiphertextAndAdvancesOnlyChangedOrder
 			t.Fatal("final delta rewrote immutable source evidence")
 		}
 	}
+	owners := map[string]string{}
+	for id, secret := range proof.secrets {
+		owner := secret.OwnerType + "\x00" + secret.OwnerSourceKey + "\x00" + secret.Field
+		if previous, exists := owners[owner]; exists && previous != id {
+			t.Fatal("delta archive collides with immutable SQL owner identity")
+		}
+		owners[owner] = id
+		if secret.Kind == controlplane.LegacyOrderRecordKind && secret.Field != controlplane.LegacyOrderRecordScope(secret.OwnerSourceKey, secret.SHA256).Field {
+			t.Fatal("new source record is not content-addressed")
+		}
+	}
 	for _, order := range orders {
 		key := box.LookupHMAC(controlplane.LegacyOrderLookupDomain, []byte(order.ID))
 		want := int64(1)

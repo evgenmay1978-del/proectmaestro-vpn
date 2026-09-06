@@ -64,3 +64,38 @@ func TestLegacyOrderTransitionNeverRewritesTermsOrReopensGrant(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyOrderArchiveSelectsExactContentBoundAAD(t *testing.T) {
+	box, err := NewSecretBox(1, map[int][]byte{1: bytes.Repeat([]byte{1}, 32)}, bytes.Repeat([]byte{2}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := box.LookupHMAC(LegacyOrderLookupDomain, []byte("synthetic-order"))
+	plain := []byte("synthetic-original-record")
+	sha := LegacyOrderDigest(plain)
+	current := LegacyOrderRecordScope(key, sha)
+	other := LegacyOrderRecordScope(key, strings.Repeat("f", 64))
+	if current.Field == other.Field {
+		t.Fatal("record revisions share immutable archive field")
+	}
+	for _, scope := range []SecretScope{current, {OwnerType: "legacy_order", OwnerID: key, Field: "source_record", Kind: LegacyOrderRecordKind}} {
+		sealed, err := box.Seal(scope, plain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected, err := LegacyOrderStoredRecordScope(key, sha, scope.Field)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opened, err := box.Open(selected, sealed)
+		if err != nil || !bytes.Equal(opened, plain) {
+			t.Fatal("explicit stored scope lost original ciphertext")
+		}
+		if _, err := box.Open(other, sealed); err == nil {
+			t.Fatal("record ciphertext accepted under another revision")
+		}
+	}
+	if _, err := LegacyOrderStoredRecordScope(key, sha, other.Field); err == nil {
+		t.Fatal("mismatched content-addressed metadata accepted")
+	}
+}

@@ -109,6 +109,7 @@ type panelWhiteListCommittedReadDB struct {
 	accountID, entitlementID, requestHash string
 	resolvedCredit                        bool
 	ensureCalls                           int
+	businessReads                         int
 }
 
 func (db *panelWhiteListCommittedReadDB) Request(_ context.Context, consistency rqlite.Consistency, transaction bool, statements ...rqlite.Statement) ([]rqlite.Result, error) {
@@ -123,6 +124,18 @@ func (db *panelWhiteListCommittedReadDB) Request(_ context.Context, consistency 
 }
 
 func (db *panelWhiteListCommittedReadDB) QueryLinearizable(ctx context.Context, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	const businessCustomerRead = `SELECT display_login,
+       (SELECT COUNT(*) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?) AS device_count,
+       COALESCE((SELECT MAX(d.last_seen_at_unix) FROM devices d WHERE d.customer_id=customers.customer_id AND d.revoked=0 AND d.last_seen_at_unix>=?),0) AS last_seen_at_unix
+FROM customers WHERE customer_id=? LIMIT 1`
+	if len(statements) == 1 && statements[0].SQL == businessCustomerRead {
+		args := statements[0].Args
+		if len(args) != 3 || args[2] != db.accountID || len(db.rows) != 1 || db.rows[0]["customer_id"] != db.accountID {
+			return nil, errors.New("unexpected committed-credit customer read")
+		}
+		db.businessReads++
+		return []rqlite.Result{{Rows: db.rows}}, nil
+	}
 	if len(statements) == 1 && statements[0].SQL == "SELECT request_hash,status,response_json FROM idempotency_requests WHERE scope=? AND command_type=? AND idempotency_key=?" {
 		args := statements[0].Args
 		if len(args) != 3 || args[0] != "whitelist_manual_credit:"+db.entitlementID || args[1] != "whitelist_manual_credit" || args[2] != "committed-credit" {
@@ -176,8 +189,8 @@ func TestPanelCDNCommittedCreditReadFailureRemainsRetryable(t *testing.T) {
 	business := NewServiceBusiness(service, ServiceBusinessConfig{Now: clock.Now})
 	_, err = business.PanelWhiteListAdmin(context.Background(), panelWhiteListCommand{Login: "Exact", Action: "credit", GB: 3, Actor: "owner", IdempotencyKey: "committed-credit"})
 	var httpErr interface{ HTTPStatus() int }
-	if !db.resolvedCredit || db.ensureCalls != 1 || !errors.Is(err, controlplane.ErrUnavailable) || !errors.As(err, &httpErr) || httpErr.HTTPStatus() != http.StatusServiceUnavailable {
-		t.Fatalf("committed credit read was classified as rejection: resolved=%v ensures=%d err=%v", db.resolvedCredit, db.ensureCalls, err)
+	if !db.resolvedCredit || db.ensureCalls != 1 || db.businessReads != 1 || !errors.Is(err, controlplane.ErrUnavailable) || !errors.As(err, &httpErr) || httpErr.HTTPStatus() != http.StatusServiceUnavailable {
+		t.Fatalf("committed credit read was classified as rejection: resolved=%v ensures=%d business_reads=%d err=%v", db.resolvedCredit, db.ensureCalls, db.businessReads, err)
 	}
 	_, lookupErr := business.PanelWhiteListBalance(context.Background(), "Exact")
 	if !errors.Is(lookupErr, controlplane.ErrNotFound) {

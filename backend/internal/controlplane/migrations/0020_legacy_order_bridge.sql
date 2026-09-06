@@ -25,7 +25,7 @@ BEFORE INSERT ON imported_legacy_order_aliases
 WHEN NOT EXISTS(SELECT 1 FROM imported_secrets i JOIN imported_entity_state e
  ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id
  WHERE i.secret_id=NEW.record_secret_id AND i.owner_type='legacy_order'
- AND i.owner_source_key=NEW.order_key_hmac AND i.field='source_record' AND i.kind='legacy-order-record-v1'
+ AND i.owner_source_key=NEW.order_key_hmac AND (i.field='source_record' OR i.field='source_record:'||NEW.record_sha256) AND i.kind='legacy-order-record-v1'
  AND i.secret_sha256=NEW.record_sha256 AND e.target_id=i.secret_id AND e.lifecycle='active')
 BEGIN
  SELECT RAISE(ABORT,'legacy order record binding missing');
@@ -41,7 +41,7 @@ WHEN NEW.order_key_hmac<>OLD.order_key_hmac OR NEW.imported_at_unix<>OLD.importe
  OR (OLD.accepted_order_id IS NOT NULL AND (NEW.accepted_order_id IS NOT OLD.accepted_order_id OR NEW.accepted_at_unix IS NOT OLD.accepted_at_unix OR NEW.record_secret_id<>OLD.record_secret_id OR NEW.record_sha256<>OLD.record_sha256 OR NEW.source_sha256<>OLD.source_sha256 OR NEW.source_revision<>OLD.source_revision OR NEW.historical_grant<>OLD.historical_grant))
  OR (NEW.record_secret_id<>OLD.record_secret_id AND (OLD.accepted_order_id IS NOT NULL OR NEW.source_revision<=OLD.source_revision))
  OR (NEW.accepted_order_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM orders o WHERE o.order_id=NEW.accepted_order_id AND o.customer_id=NEW.customer_id AND o.buyer_scope='legacy-import' AND o.buyer_key_hmac=NEW.order_key_hmac AND o.created_at_unix=NEW.accepted_at_unix))
- OR NOT EXISTS(SELECT 1 FROM imported_secrets i JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id WHERE i.secret_id=NEW.record_secret_id AND i.owner_type='legacy_order' AND i.owner_source_key=NEW.order_key_hmac AND i.field='source_record' AND i.kind='legacy-order-record-v1' AND i.secret_sha256=NEW.record_sha256 AND e.target_id=i.secret_id AND e.lifecycle='active')
+ OR NOT EXISTS(SELECT 1 FROM imported_secrets i JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id WHERE i.secret_id=NEW.record_secret_id AND i.owner_type='legacy_order' AND i.owner_source_key=NEW.order_key_hmac AND (i.field='source_record' OR i.field='source_record:'||NEW.record_sha256) AND i.kind='legacy-order-record-v1' AND i.secret_sha256=NEW.record_sha256 AND e.target_id=i.secret_id AND e.lifecycle='active')
 BEGIN
  SELECT RAISE(ABORT,'legacy order alias transition rejected');
 END

@@ -12,7 +12,7 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
-func seedNativeLegacyOrder(t *testing.T, db *customerIntegritySQLite, service *Service, order legacyorder.Order, customer *Customer) {
+func seedNativeLegacyOrder(t *testing.T, db *customerIntegritySQLite, service *Service, order legacyorder.Order, customer *Customer, legacyField ...bool) {
 	t.Helper()
 	box := service.store.secrets
 	row, _ := json.Marshal(order)
@@ -32,7 +32,10 @@ func seedNativeLegacyOrder(t *testing.T, db *customerIntegritySQLite, service *S
 	}
 	plain, _ := json.Marshal(record)
 	sha := LegacyOrderDigest(plain)
-	scope := LegacyOrderRecordScope(record.OrderKeyHMAC)
+	scope := LegacyOrderRecordScope(record.OrderKeyHMAC, sha)
+	if len(legacyField) == 1 && legacyField[0] {
+		scope.Field = "source_record"
+	}
 	envelope, err := box.Seal(scope, plain)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +86,7 @@ func TestLegacyPendingAcceptanceRestartsAndGrantsOnceWithOriginalIdentitySQLite(
 			ctx := context.Background()
 			customer := seedExactLoginCustomer(t, db, service, "OrderCustomer")
 			if suspended {
-				db.must(t, rqlite.Statement{SQL: `UPDATE customers SET status='suspended' WHERE customer_id=?`, Args: []any{customer.ID}}, rqlite.Statement{SQL: `UPDATE subscription_tokens SET revoked=1,revoked_at_unix=1900000 WHERE customer_id=?`, Args: []any{customer.ID}}, rqlite.Statement{SQL: `UPDATE credentials SET enabled=0 WHERE customer_id=?`, Args: []any{customer.ID}})
+				db.must(t, rqlite.Statement{SQL: `UPDATE customers SET status='suspended' WHERE customer_id=?`, Args: []any{customer.ID}}, rqlite.Statement{SQL: `UPDATE subscription_tokens SET revoked=1,revoked_at_unix=unixepoch() WHERE customer_id=?`, Args: []any{customer.ID}}, rqlite.Statement{SQL: `UPDATE credentials SET enabled=0 WHERE customer_id=?`, Args: []any{customer.ID}})
 			}
 			order := testLegacyRawOrder("ord_pending", "OrderCustomer", "", "pending")
 			seedNativeLegacyOrder(t, db, service, order, &customer)
@@ -155,5 +158,60 @@ func TestLegacyPendingCancellationWinsAcceptanceRaceSQLite(t *testing.T) {
 	rows := db.must(t, rqlite.Statement{SQL: `SELECT order_id FROM orders`}, rqlite.Statement{SQL: `SELECT payment_id FROM payments`})
 	if len(rows[0].Rows) != 0 || len(rows[1].Rows) != 0 {
 		t.Fatal("losing decision created a grant")
+	}
+}
+
+func TestLegacyOrderArchiveRevisionsCoexistWithoutRewritingSourceSQLite(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(map[bool]string{false: "content-addressed-parent", true: "original-parent"}[legacy], func(t *testing.T) {
+			db, service := newCustomerIntegritySQLite(t)
+			ctx := context.Background()
+			customer := seedExactLoginCustomer(t, db, service, "ArchiveCustomer")
+			order := testLegacyRawOrder("ord_archive", "ArchiveCustomer", "", "pending")
+			seedNativeLegacyOrder(t, db, service, order, &customer, legacy)
+			prior, err := service.loadLegacyOrder(ctx, order.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			order.Status, order.Credited, order.SubToken = "paid", true, customer.Access.SubscriptionToken
+			record := prior.record
+			record.Revision++
+			record.SourceRow, _ = json.Marshal(order)
+			rawSource, _ := json.Marshal([]legacyorder.Order{order})
+			record.OrdersSHA256 = LegacyOrderDigest(rawSource)
+			archive := func(value LegacyOrderRecord, badField bool) []rqlite.Statement {
+				plain, _ := json.Marshal(value)
+				sha := LegacyOrderDigest(plain)
+				scope := LegacyOrderRecordScope(value.OrderKeyHMAC, sha)
+				if badField {
+					scope.Field = LegacyOrderRecordScope(value.OrderKeyHMAC, prior.secretSHA).Field
+				}
+				envelope, err := service.store.secrets.Seal(scope, plain)
+				if err != nil {
+					t.Fatal(err)
+				}
+				secret := legacyOrderSecret{SecretID: LegacyOrderRecordID(value.OrderKeyHMAC, sha), OwnerType: scope.OwnerType, OwnerSourceKey: scope.OwnerID, Field: scope.Field, Kind: scope.Kind, KeyVersion: envelope.KeyVersion, NonceB64: base64.StdEncoding.EncodeToString(envelope.Nonce), CiphertextB64: base64.StdEncoding.EncodeToString(envelope.Ciphertext), SHA256: sha}
+				encoded, _ := json.Marshal(secret)
+				return []rqlite.Statement{{SQL: `INSERT INTO imported_secrets(secret_id,owner_type,owner_source_key,field,kind,key_version,secret_envelope,secret_sha256,imported_at_unix) VALUES(?,?,?,?,?,?,?,?,2000001)`, Args: []any{secret.SecretID, secret.OwnerType, secret.OwnerSourceKey, secret.Field, secret.Kind, secret.KeyVersion, string(encoded), sha}}, {SQL: `INSERT INTO imported_entity_state(entity_kind,source_key,target_id,canonical_sha256,lifecycle,updated_at_unix) VALUES('encrypted_secret',?,?,?,'active',2000001)`, Args: []any{secret.SecretID, secret.SecretID, LegacyOrderDigest(encoded)}}, {SQL: `UPDATE imported_legacy_order_aliases SET record_secret_id=?,record_sha256=?,source_sha256=?,source_revision=?,historical_grant=1 WHERE order_key_hmac=?`, Args: []any{secret.SecretID, sha, value.OrdersSHA256, value.Revision, value.OrderKeyHMAC}}}
+			}
+			db.must(t, archive(record, false)...)
+			rows := db.must(t, rqlite.Statement{SQL: `SELECT secret_envelope FROM imported_secrets WHERE secret_id=?`, Args: []any{prior.secretID}}, rqlite.Statement{SQL: `SELECT secret_id FROM imported_secrets WHERE owner_type='legacy_order' AND owner_source_key=?`, Args: []any{record.OrderKeyHMAC}})
+			encoded, ok := rowString(rows[0].Rows[0], "secret_envelope")
+			if !ok || encoded != prior.encoded || len(rows[1].Rows) != 2 {
+				t.Fatal("immutable order revision was overwritten or collided")
+			}
+			got, err := service.LegacyOrderByID(ctx, order.ID)
+			if err != nil || got.Order != order || !got.HistoricalGrant {
+				t.Fatal("real bridge cannot read advanced content-addressed alias")
+			}
+			record.Revision++
+			before := db.snapshot(t)
+			if _, err := db.Request(ctx, rqlite.Linearizable, true, archive(record, true)...); err == nil {
+				t.Fatal("alias accepted a field bound to another record hash")
+			}
+			if !reflect.DeepEqual(before, db.snapshot(t)) {
+				t.Fatal("rejected archive binding left partial history")
+			}
+		})
 	}
 }

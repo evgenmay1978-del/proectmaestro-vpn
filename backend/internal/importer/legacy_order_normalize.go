@@ -44,7 +44,11 @@ func openLegacyOrderSecret(box *controlplane.SecretBox, secret LegacyEncryptedSe
 			return nil, errInvalidSnapshotProtection
 		}
 	case controlplane.LegacyOrderRecordKind:
-		scope = controlplane.LegacyOrderRecordScope(secret.OwnerSourceKey)
+		var err error
+		scope, err = controlplane.LegacyOrderStoredRecordScope(secret.OwnerSourceKey, secret.SHA256, secret.Field)
+		if err != nil {
+			return nil, errInvalidSnapshotProtection
+		}
 		if !validCanonicalSHA256(secret.OwnerSourceKey) || secret.SecretID != controlplane.LegacyOrderRecordID(secret.OwnerSourceKey, secret.SHA256) {
 			return nil, errInvalidSnapshotProtection
 		}
@@ -327,7 +331,8 @@ func normalizeLegacyOrderSource(snapshot *Snapshot, input *LegacyOrderSource, bo
 				zeroBytes(record.SourceRow)
 				return ErrLegacyNormalize
 			}
-			secret, err = sealLegacyOrderSecret(box, controlplane.LegacyOrderRecordScope(record.OrderKeyHMAC), controlplane.LegacyOrderRecordID(record.OrderKeyHMAC, sha256Hex(plain)), plain)
+			recordSHA := sha256Hex(plain)
+			secret, err = sealLegacyOrderSecret(box, controlplane.LegacyOrderRecordScope(record.OrderKeyHMAC, recordSHA), controlplane.LegacyOrderRecordID(record.OrderKeyHMAC, recordSHA), plain)
 			zeroBytes(plain)
 			if err != nil {
 				zeroBytes(record.SourceRow)
