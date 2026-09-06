@@ -32,6 +32,7 @@ type runtimeAPIReadDB struct {
 	markers  map[string][]map[string]any
 	wb       string
 	ota      map[string]any
+	otaReads int
 }
 
 func (db *runtimeAPIReadDB) QueryLinearizable(ctx context.Context, statements ...rqlite.Statement) ([]rqlite.Result, error) {
@@ -54,6 +55,7 @@ FROM customers WHERE customer_id=? LIMIT 1`
 	}
 	const otaSQL = `SELECT c.public_value_json,s.secret_envelope,s.secret_sha256,i.secret_id,i.secret_sha256 AS source_sha256,e.lifecycle FROM cluster_settings c LEFT JOIN setting_secrets s ON s.setting_key=c.setting_key LEFT JOIN imported_secrets i ON i.owner_type='setting' AND i.owner_source_key='ota' AND i.field='secret' AND i.kind='ota' AND i.secret_id LIKE 'runtime-setting-v1:ota:%' LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE c.setting_key='ota'`
 	if len(statements) == 1 && statements[0].SQL == otaSQL && len(statements[0].Args) == 0 {
+		db.otaReads++
 		var rows []map[string]any
 		if db.ota != nil {
 			rows = []map[string]any{db.ota}
@@ -342,17 +344,17 @@ func TestRuntimeDomainsOTAAbsenceRequiresAuthenticatedEvidence(t *testing.T) {
 	raw, _ := json.Marshal(envelope)
 	public, _ := json.Marshal(map[string]string{"state": "absent", "source_sha256": digest})
 	db.ota = map[string]any{"public_value_json": string(public), "secret_envelope": base64.StdEncoding.EncodeToString(raw), "secret_sha256": digest, "source_sha256": digest, "secret_id": "runtime-setting-v1:ota:" + digest, "lifecycle": "active"}
-	handler := NewControlPlane(business, Config{}).Handler()
+	handler := NewControlPlane(business, Config{UpdateDir: t.TempDir()}).Handler()
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/update/update.json", nil))
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("authenticated absence status=%d", response.Code)
+	if response.Code != http.StatusNotFound || db.otaReads != 1 {
+		t.Fatalf("authenticated absence status=%d reads=%d", response.Code, db.otaReads)
 	}
 	db.ota["secret_envelope"] = db.settings["olcrtc"]["secret_envelope"]
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/update/update.json", nil))
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("forged absence status=%d", response.Code)
+	if response.Code != http.StatusServiceUnavailable || db.otaReads != 2 {
+		t.Fatalf("forged absence status=%d reads=%d", response.Code, db.otaReads)
 	}
 	if db.requests != 0 {
 		t.Fatal("OTA absence lookup mutated data")
