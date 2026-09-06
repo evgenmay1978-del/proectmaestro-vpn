@@ -24,6 +24,8 @@ type SnapshotProtection struct {
 	Customers             []LegacyCustomer
 	Settings              []LegacySetting
 	Principals            []LegacyPrincipal
+	SourceHashes          map[string]string
+	Trials                []LegacyTrial
 }
 
 func ProtectionFromSnapshot(snapshot Snapshot, parentSnapshots ...*Snapshot) SnapshotProtection {
@@ -39,11 +41,16 @@ func ProtectionFromSnapshot(snapshot Snapshot, parentSnapshots ...*Snapshot) Sna
 		CapturedAt:            snapshot.CapturedAt,
 		ClusterHMACKeySHA256:  snapshot.ClusterHMACKeySHA256,
 		LegacyTrialSaltSHA256: snapshot.LegacyTrialSaltSHA256,
-		HasTrials:             len(snapshot.Trials) > 0,
+		HasTrials:             len(snapshot.Trials) > 0 || hasConvertedTrialSource(snapshot.SourceHashes),
 		EncryptedSecrets:      append([]LegacyEncryptedSecret(nil), snapshot.EncryptedSecrets...),
 		Customers:             customers,
 		Settings:              cloneSettings(snapshot.Settings),
 		Principals:            clonePrincipals(snapshot.Principals),
+		SourceHashes:          make(map[string]string, len(snapshot.SourceHashes)),
+		Trials:                append([]LegacyTrial(nil), snapshot.Trials...),
+	}
+	for key, value := range snapshot.SourceHashes {
+		protection.SourceHashes[key] = value
 	}
 	if len(parentSnapshots) == 1 && parentSnapshots[0] != nil {
 		parent := ProtectionFromSnapshot(*parentSnapshots[0])
@@ -91,6 +98,10 @@ func ValidateSnapshotProtection(
 			return nil, errInvalidSnapshotProtection
 		}
 	}
+	ledger, err := validateNativeTrialProof(protection, box)
+	if err != nil || (ledger != nil && !protection.HasTrials) {
+		return nil, errInvalidSnapshotProtection
+	}
 	if !protection.HasTrials {
 		if protection.LegacyTrialSaltSHA256 != "" || len(rawTrialSalt) != 0 {
 			return nil, errInvalidSnapshotProtection
@@ -127,6 +138,7 @@ func ValidateSnapshotProtection(
 		EncryptedSaltEnvelope: string(encoded),
 		SaltSHA256:            protection.LegacyTrialSaltSHA256,
 		box:                   box,
+		ledger:                ledger,
 	}, nil
 }
 

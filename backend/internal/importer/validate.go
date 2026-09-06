@@ -21,7 +21,10 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 	if !validCanonicalSHA256(snapshot.ClusterHMACKeySHA256) {
 		add("invalid_cluster_hmac_key_digest", "snapshot", "")
 	}
-	if len(snapshot.Trials) > 0 {
+	if !validateTrialSourceShape(snapshot.SourceHashes, snapshot.EncryptedSecrets) {
+		add("invalid_native_trial_source_evidence", "snapshot", "")
+	}
+	if len(snapshot.Trials) > 0 || hasConvertedTrialSource(snapshot.SourceHashes) {
 		if !validCanonicalSHA256(snapshot.LegacyTrialSaltSHA256) {
 			add("missing_or_invalid_legacy_trial_salt_digest", "snapshot", "")
 		}
@@ -342,8 +345,11 @@ func validateDelta(snapshot Snapshot, options PlanOptions, add func(string, stri
 	if snapshot.ClusterHMACKeySHA256 != options.ParentSnapshot.ClusterHMACKeySHA256 {
 		add("delta_cluster_hmac_key_mismatch", "snapshot", "")
 	}
-	if len(snapshot.Trials) > 0 && snapshot.LegacyTrialSaltSHA256 != options.ParentSnapshot.LegacyTrialSaltSHA256 {
+	if (len(snapshot.Trials) > 0 || hasConvertedTrialSource(snapshot.SourceHashes)) && snapshot.LegacyTrialSaltSHA256 != options.ParentSnapshot.LegacyTrialSaltSHA256 {
 		add("delta_legacy_trial_salt_mismatch", "snapshot", "")
+	}
+	if hasConvertedTrialSource(snapshot.SourceHashes) != hasConvertedTrialSource(options.ParentSnapshot.SourceHashes) {
+		add("delta_native_trial_source_scope_mismatch", "snapshot", "")
 	}
 	if digestSnapshot(*options.ParentSnapshot) != snapshot.ParentSourceDigest {
 		add("delta_parent_digest_mismatch", "snapshot", "")

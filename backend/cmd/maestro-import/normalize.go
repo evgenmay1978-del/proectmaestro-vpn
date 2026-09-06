@@ -39,12 +39,13 @@ type normalizeFileStamp struct {
 func runNormalize(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("normalize", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var customersPath, capturePath, inventoryPath, keyPath, parentPath, outputPath string
+	var customersPath, capturePath, inventoryPath, keyPath, parentPath, outputPath, trialSaltPath string
 	var maxCaptureAge time.Duration
 	flags.StringVar(&customersPath, "customers", "", "protected raw customers JSON")
 	flags.StringVar(&capturePath, "xui-capture", "", "protected capture-xui output")
 	flags.StringVar(&inventoryPath, "inventory", "", "protected source inventory and protocol bindings")
 	flags.StringVar(&keyPath, "key-file", "", "existing protected import key bundle")
+	flags.StringVar(&trialSaltPath, "legacy-trial-salt-file", "", "protected exact effective legacy trial salt; enables native trial conversion")
 	flags.StringVar(&parentPath, "parent-snapshot", "", "authenticated initial full snapshot for final delta")
 	flags.StringVar(&outputPath, "output", "", "new protected Snapshot v2 file")
 	flags.DurationVar(&maxCaptureAge, "max-capture-age", 0, "explicit maximum age of the XUI/source capture")
@@ -90,6 +91,8 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 		return fail()
 	}
 	sources := map[string]importer.LegacySourcePresence{}
+	var rawTrialLedger []byte
+	defer func() { zero(rawTrialLedger) }()
 	for _, domain := range []string{"orders", "trials", "settings", "principals"} {
 		input, exists := inventory.Sources[domain]
 		if !exists || input.Path == "" {
@@ -108,10 +111,26 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 				return fail()
 			}
 			sources[domain] = importer.LegacySourcePresence{State: "present", SHA256: runtimeSHA256Hex(data)}
-			zero(data)
+			if domain == "trials" && trialSaltPath != "" {
+				rawTrialLedger = data
+			} else {
+				zero(data)
+			}
 		default:
 			return fail()
 		}
+	}
+	var trialSource *importer.LegacyTrialSource
+	if trialSaltPath != "" {
+		if sources["trials"].State != "present" {
+			return fail()
+		}
+		salt, err := read(trialSaltPath)
+		if err != nil {
+			return fail()
+		}
+		defer zero(salt)
+		trialSource = &importer.LegacyTrialSource{RawJSON: rawTrialLedger, Salt: salt}
 	}
 	// Capture the key file fingerprint too; never expose its contents or name in
 	// errors. loadKeyBundle remains the single parser/key-policy implementation.
@@ -150,6 +169,7 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	snapshot, err := importer.NormalizeLegacyCustomers(raw, capture, box, keys.HMACKey, importer.LegacyNormalizeOptions{
 		Now: time.Now().UTC(), MaxCaptureAge: maxCaptureAge, Sources: sources,
 		ProtocolBindings: inventory.ProtocolBindings, Parent: parent, PlanOptions: defaultPlanOptions(),
+		TrialSource: trialSource,
 	})
 	if err != nil {
 		return fail()
@@ -175,7 +195,11 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	if len(report.Blockers) != 0 {
 		return fail()
 	}
-	if _, err := importer.ValidateSnapshotProtection(protection, box, keys.HMACKey, nil); err != nil {
+	var salt []byte
+	if trialSource != nil {
+		salt = trialSource.Salt
+	}
+	if _, err := importer.ValidateSnapshotProtection(protection, box, keys.HMACKey, salt); err != nil {
 		return fail()
 	}
 	if _, err := importer.ValidateProductionCustomerIdentities(protection, box); err != nil {
@@ -186,6 +210,10 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	}
 	_, _ = fmt.Fprintln(stdout, "customer preparation snapshot written; cutover_ready=false")
 	for _, domain := range []string{"orders", "trials", "settings", "principals"} {
+		if domain == "trials" && trialSource != nil {
+			_, _ = fmt.Fprintf(stdout, "trials=present; conversion performed; used_identities=%d\n", len(snapshot.Trials))
+			continue
+		}
 		_, _ = fmt.Fprintf(stdout, "%s=%s; conversion not performed\n", domain, sources[domain].State)
 	}
 	return exitClean

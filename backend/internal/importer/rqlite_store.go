@@ -31,6 +31,7 @@ type TrialImportProtection struct {
 	EncryptedSaltEnvelope string
 	SaltSHA256            string
 	box                   *controlplane.SecretBox
+	ledger                *legacyTrialProof
 }
 
 const legacyTrialSaltSecretID = "legacy-trial-salt-v1"
@@ -638,6 +639,12 @@ func equalShadowStrings(left, right []string) bool {
 }
 
 func (s *RQLiteApplyStore) BeginOrResume(ctx context.Context, run ApplyRun) (RunProgress, error) {
+	if s.trialProtection != nil && s.trialProtection.ledger != nil {
+		proof := s.trialProtection.ledger
+		if run.SourceDigest != proof.sourceDigest || run.SnapshotKind != proof.snapshotKind || run.ParentDigest != proof.parentDigest {
+			return RunProgress{}, errInvalidSnapshotProtection
+		}
+	}
 	if s.customerProtection != nil && (run.SourceDigest != s.customerProtection.sourceDigest ||
 		run.SnapshotKind != s.customerProtection.snapshotKind || run.ParentDigest != s.customerProtection.parentDigest) {
 		return RunProgress{}, errInvalidProductionIdentity
@@ -1231,6 +1238,14 @@ func (s *RQLiteApplyStore) encryptedSecretStatements(batch ApplyBatch, operation
 		secret.NonceB64 == "" || secret.CiphertextB64 == "" || len(secret.SHA256) != 64 {
 		return nil, errors.New("invalid canonical encrypted secret")
 	}
+	if reservedTrialEvidence(secret) {
+		if s.trialProtection == nil || s.trialProtection.ledger == nil || operation.Key != secret.SecretID {
+			return nil, errInvalidSnapshotProtection
+		}
+		if expected, ok := s.trialProtection.ledger.evidence[secret.SecretID]; !ok || expected != secret {
+			return nil, errInvalidSnapshotProtection
+		}
+	}
 	envelope, err := json.Marshal(secret)
 	if err != nil {
 		return nil, errors.New("cannot encode protected standalone envelope")
@@ -1253,6 +1268,9 @@ ON CONFLICT(secret_id) DO UPDATE SET
 		}, gate...),
 	}}
 	statements = append(statements, entityStateUpsertStatement(batch, "encrypted_secret", secret.SecretID, secret.SecretID, canonicalLegacyDigest(secret), nowUnix))
+	if reservedTrialEvidence(secret) {
+		statements = append([]rqlite.Statement{trialSaltStatement(batch, s.trialProtection, nowUnix)}, statements...)
+	}
 	return statements, nil
 }
 
@@ -1264,7 +1282,21 @@ func (s *RQLiteApplyStore) withDurableTrialProtection(ctx context.Context, batch
 	for _, operation := range batch.Operations {
 		if operation.Entity == "trial" {
 			hasTrial = true
-			break
+		}
+		if operation.Entity == "encrypted_secret" {
+			var secret LegacyEncryptedSecret
+			if decodeCanonicalOperation(operation.CanonicalJSON, &secret) != nil {
+				return nil, errInvalidSnapshotProtection
+			}
+			if reservedTrialEvidence(secret) {
+				if s.trialProtection == nil || s.trialProtection.ledger == nil || operation.Key != secret.SecretID {
+					return nil, errInvalidSnapshotProtection
+				}
+				if expected, ok := s.trialProtection.ledger.evidence[secret.SecretID]; !ok || expected != secret {
+					return nil, errInvalidSnapshotProtection
+				}
+				hasTrial = true
+			}
 		}
 	}
 	if !hasTrial || s.trialProtection == nil {
@@ -1353,28 +1385,18 @@ func (s *RQLiteApplyStore) trialStatements(batch ApplyBatch, operation ApplyOper
 	if !validLegacyTrialIdentity(trial) || operation.Key != trial.SourceKey {
 		return nil, errors.New("invalid canonical trial identity")
 	}
+	if s.trialProtection.ledger != nil {
+		if expected, ok := s.trialProtection.ledger.trials[trial.SourceKey]; !ok || expected != trial {
+			return nil, errInvalidSnapshotProtection
+		}
+	}
 	used := 0
 	if trial.Used {
 		used = 1
 	}
-	protection := s.trialProtection
 	nowUnix := s.now().Unix()
 	gate := batchGateArgs(batch)
-	statements := []rqlite.Statement{{
-		SQL: `INSERT INTO imported_secrets(
-    secret_id,owner_type,owner_source_key,field,kind,key_version,
-    secret_envelope,secret_sha256,imported_at_unix
-) SELECT ?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
-ON CONFLICT(secret_id) DO UPDATE SET
-    owner_type=excluded.owner_type,owner_source_key=excluded.owner_source_key,
-    field=excluded.field,kind=excluded.kind,key_version=excluded.key_version,
-    secret_envelope=excluded.secret_envelope,secret_sha256=excluded.secret_sha256,
-    imported_at_unix=imported_secrets.imported_at_unix`,
-		Args: append([]any{
-			legacyTrialSaltSecretID, "trial_lookup", "legacy", "salt", "hmac-key",
-			protection.KeyVersion, protection.EncryptedSaltEnvelope, protection.SaltSHA256, nowUnix,
-		}, gate...),
-	}}
+	statements := []rqlite.Statement{trialSaltStatement(batch, s.trialProtection, nowUnix)}
 	if trial.IdentityKind != "" {
 		hashKind := "anchor"
 		if trial.IdentityKind == "legacy-drm-v1" {
@@ -1408,6 +1430,21 @@ ON CONFLICT(source_key) DO UPDATE SET
 			trial.ExpiresAtUnix, legacyTrialSaltSecretID, nowUnix,
 		}, gate...),
 	}), nil
+}
+
+func trialSaltStatement(batch ApplyBatch, protection *TrialImportProtection, nowUnix int64) rqlite.Statement {
+	return rqlite.Statement{
+		SQL: `INSERT INTO imported_secrets(
+    secret_id,owner_type,owner_source_key,field,kind,key_version,
+    secret_envelope,secret_sha256,imported_at_unix
+) SELECT ?,?,?,?,?,?,?,?,? WHERE ` + batchWriteGate + `
+ON CONFLICT(secret_id) DO UPDATE SET
+    owner_type=excluded.owner_type,owner_source_key=excluded.owner_source_key,
+    field=excluded.field,kind=excluded.kind,key_version=excluded.key_version,
+    secret_envelope=excluded.secret_envelope,secret_sha256=excluded.secret_sha256,
+    imported_at_unix=imported_secrets.imported_at_unix`,
+		Args: append([]any{legacyTrialSaltSecretID, "trial_lookup", "legacy", "salt", "hmac-key", protection.KeyVersion, protection.EncryptedSaltEnvelope, protection.SaltSHA256, nowUnix}, batchGateArgs(batch)...),
+	}
 }
 
 func sqlPlaceholders(count int) string {

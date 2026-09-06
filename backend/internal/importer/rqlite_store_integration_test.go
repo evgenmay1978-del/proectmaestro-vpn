@@ -3,6 +3,7 @@
 package importer
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -18,6 +19,145 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
+
+func TestRQLiteNativeTrialEmptyFullThenUsedDeltaAndRestart(t *testing.T) {
+	db, err := rqlite.New(rqlite.Config{Endpoints: []string{"http://127.0.0.1:4401", "http://127.0.0.1:4403", "http://127.0.0.1:4405"}, Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	if err := controlplane.NewMigrator(db).Apply(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cleanup := task6RegisterIntegrationBackupSeedCleanup(t, db)
+	emptyRaw := []byte("{\n \"redeemed_anchors\":{},\"redeemed_drm\":{},\"audit\":[{\"native_trial_fixture\":\"empty-v1\"}]\n}\n")
+	parent, initialProtection := nativeTrialSnapshotFixture(t, emptyRaw, nil)
+	parentPlan, report := Plan(parent, testPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatalf("empty native plan: %v", report.Blockers)
+	}
+	parentOps, err := planOperations(parentPlan)
+	if err != nil || len(parentOps) != 1 {
+		t.Fatal("empty ledger must retain one evidence operation")
+	}
+	hash := sha256Hex([]byte("native-trial-integration-used-map-v1"))
+	usedRaw := []byte(`{"redeemed_anchors":{"` + hash + `":"synthetic-native-used"},"redeemed_drm":{"` + hash + `":"synthetic-native-used"},"audit":[{"native_trial_fixture":"used-v1"}]}`)
+	delta, deltaProtection := nativeTrialSnapshotFixture(t, usedRaw, &parent)
+	deltaOptions := testPlanOptions()
+	deltaOptions.ParentSnapshot = &parent
+	deltaOptions.AppliedParentDigest = digestSnapshot(parent)
+	deltaPlan, report := Plan(delta, deltaOptions)
+	if len(report.Blockers) != 0 {
+		t.Fatalf("used native delta plan: %v", report.Blockers)
+	}
+	deltaOps, err := planOperations(deltaPlan)
+	if err != nil || len(deltaOps) != 4 {
+		t.Fatal("delta must contain both kinds and both raw evidence records")
+	}
+	const nowUnix int64 = 1_650_000
+	parentRun := "importer-native-trial-empty-full-v1"
+	deltaRun := "importer-native-trial-used-delta-v1"
+	cleanup.Expect(task6BackupRPOCleanupExpectation{DirtyGenerationDelta: 3, UpdatedAtUnix: nowUnix, Receipt: task6ImportRunReceipt{RunID: deltaRun, SourceDigest: deltaPlan.SourceDigest, PlanDigest: deltaPlan.PlanDigest, Status: "applying"}})
+	unknown := &task6CommittedUnknownRQLite{RQLite: db}
+	store, err := NewRQLiteApplyStoreWithTrialProtection(unknown, func() time.Time { return time.Unix(nowUnix, 0) }, initialProtection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginOrResume(ctx, ApplyRun{RunID: parentRun, SnapshotKind: "full", SourceDigest: parentPlan.SourceDigest, PlanDigest: parentPlan.PlanDigest, BatchCount: 1}); err != nil {
+		t.Fatal(err)
+	}
+	parentBatch := ApplyBatch{RunID: parentRun, PlanDigest: parentPlan.PlanDigest, Index: 0, Operations: parentOps, Digest: digestBatch(parentOps)}
+	if _, err := store.CommitBatch(ctx, parentBatch); err != nil {
+		t.Fatal(err)
+	}
+	readProtected := func() []rqlite.Result {
+		result, err := db.QueryLinearizable(ctx,
+			rqlite.Statement{SQL: `SELECT key_version,CAST(secret_envelope AS TEXT) AS secret_envelope,secret_sha256 FROM imported_secrets WHERE secret_id=?`, Args: []any{legacyTrialSaltSecretID}},
+			rqlite.Statement{SQL: `SELECT source_key,hash_kind,legacy_hmac FROM imported_legacy_trial_uses WHERE legacy_hmac=? ORDER BY hash_kind`, Args: []any{hash}},
+			rqlite.Statement{SQL: `SELECT secret_id,CAST(secret_envelope AS TEXT) AS secret_envelope FROM imported_secrets WHERE secret_id IN (?,?) ORDER BY secret_id`, Args: []any{legacyTrialEvidencePrefix + sha256Hex(emptyRaw), legacyTrialEvidencePrefix + sha256Hex(usedRaw)}},
+		)
+		if err != nil || len(result) != 3 {
+			t.Fatal("cannot inspect protected trial fixture")
+		}
+		return result
+	}
+	before := readProtected()
+	if len(before[0].Rows) != 1 || before[0].Rows[0]["secret_sha256"] != initialProtection.SaltSHA256 || len(before[1].Rows) != 0 || len(before[2].Rows) != 1 {
+		t.Fatal("empty ledger did not persist salt and raw evidence without fake used rows")
+	}
+	state, err := store.InspectTarget(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Complete(ctx, ApplyCompletion{RunID: parentRun, SourceDigest: parentPlan.SourceDigest, PlanDigest: parentPlan.PlanDigest, TargetDigest: state.BusinessDigest}); err != nil {
+		t.Fatal(err)
+	}
+	// New validation and SecretBox create a fresh salt nonce after restart.
+	if deltaProtection.box == initialProtection.box || deltaProtection.EncryptedSaltEnvelope == initialProtection.EncryptedSaltEnvelope {
+		t.Fatal("restart fixture reused in-memory salt protection")
+	}
+	store, err = NewRQLiteApplyStoreWithTrialProtection(unknown, func() time.Time { return time.Unix(nowUnix, 0) }, deltaProtection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginOrResume(ctx, ApplyRun{RunID: deltaRun, SnapshotKind: "delta", SourceDigest: deltaPlan.SourceDigest, ParentDigest: deltaPlan.ParentSourceDigest, PlanDigest: deltaPlan.PlanDigest, BatchCount: 1}); err != nil {
+		t.Fatal(err)
+	}
+	batch := ApplyBatch{RunID: deltaRun, PlanDigest: deltaPlan.PlanDigest, Index: 0, Operations: deltaOps, Digest: digestBatch(deltaOps)}
+	forged := batch
+	forged.Operations = append([]ApplyOperation(nil), batch.Operations...)
+	for index, operation := range forged.Operations {
+		if operation.Entity != "encrypted_secret" {
+			continue
+		}
+		var secret LegacyEncryptedSecret
+		if json.Unmarshal(operation.CanonicalJSON, &secret) != nil {
+			t.Fatal("fixture evidence")
+		}
+		secret.SHA256 = strings.Repeat("f", 64)
+		forged.Operations[index].CanonicalJSON, _ = json.Marshal(secret)
+		break
+	}
+	forged.Digest = digestBatch(forged.Operations)
+	if _, err := store.CommitBatch(ctx, forged); err == nil {
+		t.Fatal("forged source evidence committed")
+	}
+	if task6IntegrationDirtyGeneration(t, ctx, db) != cleanup.baseline.DirtyGeneration+2 {
+		t.Fatal("rejected source proof wrote business state")
+	}
+	unknown.injectNext = true
+	if receipt, err := store.CommitBatch(ctx, batch); err != nil || !receipt.AlreadyApplied {
+		t.Fatalf("unknown commit did not recover native source receipt: %v", err)
+	}
+	after := readProtected()
+	beforeSalt, _ := json.Marshal(before[0])
+	afterSalt, _ := json.Marshal(after[0])
+	if !bytes.Equal(beforeSalt, afterSalt) || len(after[1].Rows) != 2 || len(after[2].Rows) != 2 {
+		t.Fatal("delta changed durable salt or lost typed rows/raw evidence")
+	}
+	for _, row := range after[2].Rows {
+		encoded, ok := row["secret_envelope"].(string)
+		var secret LegacyEncryptedSecret
+		if !ok || json.Unmarshal([]byte(encoded), &secret) != nil {
+			t.Fatal("invalid stored native evidence")
+		}
+		raw, err := openTrialEvidence(deltaProtection.box, secret)
+		want := usedRaw
+		if secret.SHA256 == sha256Hex(emptyRaw) {
+			want = emptyRaw
+		}
+		if err != nil || !bytes.Equal(raw, want) {
+			t.Fatal("stored source audit bytes changed")
+		}
+	}
+	if replay, err := store.CommitBatch(ctx, batch); err != nil || !replay.AlreadyApplied {
+		t.Fatalf("native exact replay: %v", err)
+	}
+	if task6IntegrationDirtyGeneration(t, ctx, db) != cleanup.baseline.DirtyGeneration+3 {
+		t.Fatal("native full/complete/delta/replay dirty accounting differs")
+	}
+}
 
 type task6CommittedUnknownRQLite struct {
 	rqlite.RQLite
@@ -602,7 +742,7 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 	}
 
 	results, err := db.QueryLinearizable(ctx,
-		rqlite.Statement{SQL: `SELECT owner_type,owner_source_key,field,kind,key_version,secret_sha256
+		rqlite.Statement{SQL: `SELECT owner_type,owner_source_key,field,kind,key_version,secret_sha256,CAST(secret_envelope AS TEXT) AS secret_envelope
 FROM imported_secrets WHERE secret_id='legacy-trial-salt-v1'`},
 		rqlite.Statement{SQL: `SELECT legacy_anchor_hmac,current_hmac,used,expires_at_unix,lookup_secret_id
 FROM imported_trial_identities WHERE source_key=?`, Args: []any{trial.SourceKey}},
@@ -627,6 +767,13 @@ WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
 		results[1].Rows[0]["lookup_secret_id"] != "legacy-trial-salt-v1" ||
 		results[2].Rows[0]["batch_digest"] != batch.Digest || results[2].Rows[0]["status"] != "applied" {
 		t.Fatalf("protected trial verification mismatch: %#v", results)
+	}
+	// Another protected trial import may already own the immutable salt row.
+	// Restart must preserve that authenticated durable envelope, not this
+	// process's freshly generated nonce.
+	durableSaltEnvelope, ok := results[0].Rows[0]["secret_envelope"].(string)
+	if !ok || durableSaltEnvelope == "" {
+		t.Fatal("protected trial salt has no durable envelope")
 	}
 	// Reconstruct validation and the store as a restarted importer would. The
 	// new nonce differs even when the salt and encryption key version are equal.
@@ -692,7 +839,7 @@ WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
 	if err != nil || len(results) != 3 || len(results[0].Rows) != 2 || len(results[1].Rows) != 0 || len(results[2].Rows) != 1 {
 		t.Fatal("typed use import lost rows or invented current identities")
 	}
-	if results[2].Rows[0]["secret_envelope"] != protection.EncryptedSaltEnvelope || !rqliteIntegerEquals(results[2].Rows[0]["key_version"], int64(protection.KeyVersion)) || *store.trialProtection != resumedProtection {
+	if results[2].Rows[0]["secret_envelope"] != durableSaltEnvelope || !rqliteIntegerEquals(results[2].Rows[0]["key_version"], int64(protection.KeyVersion)) || *store.trialProtection != resumedProtection {
 		t.Fatal("resumed import changed the immutable salt or shared protection state")
 	}
 	for index, row := range results[0].Rows {

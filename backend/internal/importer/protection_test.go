@@ -10,6 +10,40 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
+func TestNativeTrialProtectionBindsRawEvidenceRowsPresenceAndExactSalt(t *testing.T) {
+	hash := strings.Repeat("d", 64)
+	snapshot, verified := nativeTrialSnapshotFixture(t, []byte(`{"redeemed_anchors":{"`+hash+`":"synthetic-login"},"audit":[{"note":"private-audit"}]}`), nil)
+	for _, name := range []string{"missing-marker", "missing-evidence", "wrong-aad", "wrong-raw-hash", "missing-used-row", "fake-current-hmac", "wrong-salt", "false-has-trials", "mixed-presence"} {
+		t.Run(name, func(t *testing.T) {
+			protection := ProtectionFromSnapshot(snapshot)
+			salt := []byte("synthetic-restart-legacy-trial-salt")
+			switch name {
+			case "missing-marker":
+				delete(protection.SourceHashes, legacyTrialConvertedSource)
+			case "missing-evidence":
+				protection.EncryptedSecrets = nil
+			case "wrong-aad":
+				protection.EncryptedSecrets[0].Field = "other"
+			case "wrong-raw-hash":
+				protection.EncryptedSecrets[0].SHA256 = strings.Repeat("e", 64)
+			case "missing-used-row":
+				protection.Trials = nil
+			case "fake-current-hmac":
+				protection.Trials[0].CurrentHMAC = strings.Repeat("f", 64)
+			case "wrong-salt":
+				salt = append(salt, '\n')
+			case "false-has-trials":
+				protection.HasTrials = false
+			case "mixed-presence":
+				protection.SourceHashes["legacy:trials:absent"] = sha256Hex([]byte("absent"))
+			}
+			if _, err := ValidateSnapshotProtection(protection, verified.box, bytes.Repeat([]byte{0x73}, 32), salt); err == nil {
+				t.Fatal("mismatched native trial proof authenticated")
+			}
+		})
+	}
+}
+
 type snapshotProtectionFixture struct {
 	snapshot   Snapshot
 	box        *controlplane.SecretBox
@@ -55,12 +89,12 @@ func newSnapshotProtectionFixture(t *testing.T) snapshotProtectionFixture {
 	}
 	return snapshotProtectionFixture{
 		snapshot: Snapshot{
-			FormatVersion:           2,
-			SnapshotKind:            "full",
-			ClusterHMACKeySHA256:    sha256Hex(hmacKey),
-			LegacyTrialSaltSHA256:   sha256Hex(trialSalt),
-			Trials:                  []LegacyTrial{{SourceKey: "trial-alpha"}},
-			EncryptedSecrets:        secrets,
+			FormatVersion:         2,
+			SnapshotKind:          "full",
+			ClusterHMACKeySHA256:  sha256Hex(hmacKey),
+			LegacyTrialSaltSHA256: sha256Hex(trialSalt),
+			Trials:                []LegacyTrial{{SourceKey: "trial-alpha"}},
+			EncryptedSecrets:      secrets,
 		},
 		box:        box,
 		hmacKey:    hmacKey,

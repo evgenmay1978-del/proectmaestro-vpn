@@ -11,10 +11,118 @@ import (
 	"testing"
 	"time"
 
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/importer"
 	legacystore "github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
+
+func TestNormalizeCLINativeTrialSourceRetainsEmptyLedgerAndExactSalt(t *testing.T) {
+	for _, empty := range []bool{true, false} {
+		t.Run(map[bool]string{true: "empty", false: "used"}[empty], func(t *testing.T) {
+			fixture := newNormalizeCLIFixture(t)
+			data, err := os.ReadFile(fixture.inventory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var inventory normalizeInventory
+			if json.Unmarshal(data, &inventory) != nil {
+				t.Fatal("inventory fixture")
+			}
+			input := inventory.Sources["trials"]
+			input.State = "present"
+			inventory.Sources["trials"] = input
+			hash := strings.Repeat("a", 64)
+			raw := []byte("{\n \"redeemed_anchors\":{},\"redeemed_drm\":{},\"audit\":[{\"note\":\"private-trial-audit\"}]\n}\n")
+			if !empty {
+				raw = []byte(`{"redeemed_anchors":{"` + hash + `":"private-trial-login"},"redeemed_drm":{"` + hash + `":"private-trial-login"},"audit":[]}`)
+			}
+			if os.WriteFile(input.Path, raw, 0o600) != nil {
+				t.Fatal("trial source fixture")
+			}
+			writeNormalizeFixtureJSON(t, fixture.inventory, inventory)
+			salt := []byte("exact protected trial salt\n")
+			saltPath := filepath.Join(filepath.Dir(fixture.output), "trial-salt")
+			if os.WriteFile(saltPath, salt, 0o600) != nil {
+				t.Fatal("salt fixture")
+			}
+			args := append(append([]string(nil), fixture.args...), "--legacy-trial-salt-file", saltPath)
+			var stdout, stderr bytes.Buffer
+			if code := run(args, &stdout, &stderr, nil); code != exitClean {
+				t.Fatalf("native normalize exit %d", code)
+			}
+			encoded, err := os.ReadFile(fixture.output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := importer.DecodeSnapshot(encoded)
+			if err != nil || snapshot.LegacyTrialSaltSHA256 != runtimeSHA256Hex(salt) || !importer.ProtectionFromSnapshot(snapshot).HasTrials {
+				t.Fatal("empty ledger/salt binding lost")
+			}
+			wantRows := 2
+			if empty {
+				wantRows = 0
+			}
+			if len(snapshot.Trials) != wantRows || !strings.Contains(stdout.String(), "conversion performed") || !strings.Contains(stdout.String(), "cutover_ready=false") {
+				t.Fatal("conversion scope misreported")
+			}
+			keys, err := loadKeyBundle(fixture.key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer keys.zero()
+			box, err := controlplane.NewSecretBox(keys.CurrentKeyVersion, keys.EncryptionKeys, keys.HMACKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, secret := range snapshot.EncryptedSecrets {
+				if secret.OwnerType != "trial_evidence" {
+					continue
+				}
+				nonce, _ := base64.StdEncoding.DecodeString(secret.NonceB64)
+				cipher, _ := base64.StdEncoding.DecodeString(secret.CiphertextB64)
+				plain, err := box.Open(controlplane.SecretScope{OwnerType: secret.OwnerType, OwnerID: secret.OwnerSourceKey, Field: secret.Field, Kind: secret.Kind}, controlplane.Envelope{KeyVersion: secret.KeyVersion, Nonce: nonce, Ciphertext: cipher})
+				if err != nil || !bytes.Equal(plain, raw) {
+					t.Fatal("CLI evidence changed raw source bytes")
+				}
+				found = true
+			}
+			if !found {
+				t.Fatal("raw evidence missing")
+			}
+			for _, secret := range []string{string(salt), "private-trial-audit", "private-trial-login"} {
+				if strings.Contains(stdout.String()+stderr.String()+string(encoded), secret) {
+					t.Fatal("raw trial data leaked")
+				}
+			}
+			stdout.Reset()
+			stderr.Reset()
+			if code := run(args, &stdout, &stderr, nil); code != exitInputSystem {
+				t.Fatal("existing protected output overwritten")
+			}
+			after, _ := os.ReadFile(fixture.output)
+			if !bytes.Equal(after, encoded) {
+				t.Fatal("failed repeat changed snapshot")
+			}
+		})
+	}
+}
+
+func TestNormalizeCLIRejectsSaltWithoutPresentTrialSource(t *testing.T) {
+	fixture := newNormalizeCLIFixture(t)
+	saltPath := filepath.Join(filepath.Dir(fixture.output), "trial-salt")
+	if os.WriteFile(saltPath, []byte("salt"), 0o600) != nil {
+		t.Fatal("salt fixture")
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(append(fixture.args, "--legacy-trial-salt-file", saltPath), &stdout, &stderr, nil); code != exitInputSystem {
+		t.Fatal("absent trial source accepted salt")
+	}
+	if _, err := os.Lstat(fixture.output); !os.IsNotExist(err) {
+		t.Fatal("invalid source published output")
+	}
+}
 
 type normalizeCLIFixture struct {
 	args                                       []string

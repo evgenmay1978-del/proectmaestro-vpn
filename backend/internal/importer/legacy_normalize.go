@@ -59,6 +59,7 @@ type LegacyNormalizeOptions struct {
 	ProtocolBindings []LegacyProtocolBinding
 	Parent           *Snapshot
 	PlanOptions      PlanOptions
+	TrialSource      *LegacyTrialSource
 }
 
 // DecodeLegacyCustomers deliberately avoids store.Open: absent sources and
@@ -311,7 +312,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			parent.SourceHashes["scope:"+LegacyCustomerPreparationScope] != snapshot.SourceHashes["scope:"+LegacyCustomerPreparationScope] {
 			return failed()
 		}
-		if _, err := ValidateSnapshotProtection(ProtectionFromSnapshot(parent), box, hmacKey, nil); err != nil {
+		if _, err := ValidateSnapshotProtection(ProtectionFromSnapshot(parent), box, hmacKey, trialSourceSalt(options.TrialSource)); err != nil {
 			return failed()
 		}
 		if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(parent), box); err != nil {
@@ -437,6 +438,9 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			return failed()
 		}
 	}
+	if normalizeLegacyTrialSource(&snapshot, options.TrialSource, box, options.Parent) != nil {
+		return failed()
+	}
 	sort.Slice(snapshot.Customers, func(i, j int) bool { return snapshot.Customers[i].SourceKey < snapshot.Customers[j].SourceKey })
 	sort.Slice(snapshot.EncryptedSecrets, func(i, j int) bool {
 		return snapshot.EncryptedSecrets[i].SecretID < snapshot.EncryptedSecrets[j].SecretID
@@ -455,7 +459,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		return failed()
 	}
 	protection := ProtectionFromSnapshot(snapshot, options.Parent)
-	if _, err := ValidateSnapshotProtection(protection, box, hmacKey, nil); err != nil {
+	if _, err := ValidateSnapshotProtection(protection, box, hmacKey, trialSourceSalt(options.TrialSource)); err != nil {
 		return failed()
 	}
 	if _, err := ValidateProductionCustomerIdentities(protection, box); err != nil {
