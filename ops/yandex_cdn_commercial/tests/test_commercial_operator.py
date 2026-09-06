@@ -124,14 +124,6 @@ class CommercialOperatorTests(unittest.TestCase):
         direct = next(outbound for outbound in document["outbounds"] if outbound["tag"] == "direct")
         self.assertEqual(direct, {
             "protocol": "freedom",
-            "settings": {
-                "finalRules": [{
-                    "action": "allow",
-                    "network": "tcp",
-                    "ip": ["127.0.0.1/32"],
-                    "port": 18444,
-                }],
-            },
             "tag": "direct",
         })
 
