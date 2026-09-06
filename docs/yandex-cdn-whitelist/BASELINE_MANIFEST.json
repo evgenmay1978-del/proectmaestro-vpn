@@ -15,15 +15,15 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 72468,
-      "sha256": "3808733a852d56a4837df78a17beca712604bbdc6399168919782d86bf27759d",
-      "preview": "# MaestroVPN \u2014 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u0430\u044f \u0442\u043e\u0447\u043a\u0430 \u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0435\u043d\u0438\u044f\n\n\u041e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e 06.09.2026. \u042d\u0442\u043e \u0442\u0435\u043a\u0443\u0449\u0438\u0439 handoff, \u0430 \u043d\u0435 \u043d\u043e\u0432\u044b\u0439 \u043f\u0440\u043e\u0435\u043a\u0442 \u0438\u043b\u0438 \u043d\u043e\u0432\u044b\u0439 \u043f\u043b\u0430\u043d.\n\u041f\u043e\u043b\u043d\u0430\u044f \u043f\u0440\u0435\u0436\u043d\u044f\u044f \u0438\u0441\u0442\u043e\u0440\u0438\u044f \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0430 \u0431\u0435\u0437 \u043f\u043e\u0442\u0435\u0440\u044c \u0432\n[CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>](CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>).\n\u0418\u0441\u0442\u043e\u0440\u0438\u044e \u043e\u0442\u043a\u0440\u044b\u0432\u0430\u0442\u044c \u043f\u043e \u043a\u043e\u043d\u043a\u0440\u0435\u0442\u043d\u043e\u0439 \u043d\u0435\u043e\u0431\u0445\u043e\u0434\u0438\u043c\u043e\u0441\u0442\u0438; \u0441\u0442\u0430\u0440\u044b\u0435 CURRENT/next-a"
+      "bytes": 73657,
+      "sha256": "bbf4fa95ca68137583708823fdd15b295a8772c9f8c969e0bfaea0e4d0e2ff8d",
+      "preview": "# MaestroVPN — актуальная точка продолжения\n\nОбновлено 06.09.2026. Это текущий handoff, а не новый проект или новый план.\nПолная прежняя история сохранена без потерь в\n[CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>](CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>).\nИсторию открывать по конкретной необходимости; старые CURRENT/next-a"
     },
     {
       "path": "docs/superpowers/plans/2026-08-20-yandex-cdn-whitelist.md",
       "bytes": 5053,
       "sha256": "cb19c9ca2a220e3be6bc53bf347936e403e1f1a7d73bdfc6d0119fb12d5a864a",
-      "preview": "# Yandex Cloud CDN White-List Transport \u2014 execution plan\n\n## Authority and constraints\n\n- Binding requirements: `docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md`, created verbatim from the owner request in Task 1.\n- Production is read-only. Do not restart/update 3x-ui or Xray, modify existing UUIDs/inbounds/ports/fire"
+      "preview": "# Yandex Cloud CDN White-List Transport — execution plan\n\n## Authority and constraints\n\n- Binding requirements: `docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md`, created verbatim from the owner request in Task 1.\n- Production is read-only. Do not restart/update 3x-ui or Xray, modify existing UUIDs/inbounds/ports/fire"
     },
     {
       "path": "docs/yandex-cdn-whitelist/ADR_MAP.md",
@@ -113,7 +113,7 @@
       "path": "docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md",
       "bytes": 75599,
       "sha256": "98c4b62326da95bf450d197000f914542595c4d63298c74ec7a74d77766d0c5f",
-      "preview": "# CODEX BOOTSTRAP MASTER TASK\n# MaestroVPN / Maestro Panel\n# Yandex Cloud CDN White-List Transport\n# Per-Client Management + Per-GB Billing\n# Production-Safe Engineering Program\n\n\u0422\u044b \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0448\u044c \u0441 \u0440\u0435\u0430\u043b\u044c\u043d\u043e\u0439 \u0441\u0438\u0441\u0442\u0435\u043c\u043e\u0439 MaestroVPN, Maestro Panel, backend,\n\u0431\u043e\u0442\u0430\u043c\u0438, \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u043c\u0438, 3x-ui, Xray, \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0430\u043c\u0438 \u0438 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u043c\u0438 \u043a\u043b\u0438\u0435\u043d\u0442\u0430\u043c\u0438.\n\n\u042d"
+      "preview": "# CODEX BOOTSTRAP MASTER TASK\n# MaestroVPN / Maestro Panel\n# Yandex Cloud CDN White-List Transport\n# Per-Client Management + Per-GB Billing\n# Production-Safe Engineering Program\n\nТы работаешь с реальной системой MaestroVPN, Maestro Panel, backend,\nботами, серверами, 3x-ui, Xray, подписками и существующими клиентами.\n\nЭ"
     },
     {
       "path": "docs/yandex-cdn-whitelist/PANEL_INTEGRATION.md",
@@ -173,7 +173,7 @@
       "path": "docs/yandex-cdn-whitelist/TEST_RESULTS.md",
       "bytes": 7525,
       "sha256": "b7d9140d8f49dd7d156cd84a2d78372c3c8eea094fab730483790cd2d1d11ed6",
-      "preview": "# Test results register\nStatus: target-only by default. The two dated CDN records below are live;\nall other unlisted transport, client, subscription, metering, billing and\ncanary claims remain target-only.\n\n## 2026-09-02 \u2014 commercial delivery Tasks 5\u20137 repository gate\n\n- Exact implementation checkpoint:\n  `670e19dcd092"
+      "preview": "# Test results register\nStatus: target-only by default. The two dated CDN records below are live;\nall other unlisted transport, client, subscription, metering, billing and\ncanary claims remain target-only.\n\n## 2026-09-02 — commercial delivery Tasks 5–7 repository gate\n\n- Exact implementation checkpoint:\n  `670e19dcd092"
     },
     {
       "path": "docs/yandex-cdn-whitelist/TRAFFIC_METERING.md",
@@ -191,109 +191,109 @@
       "path": "docs/yandex-cdn-whitelist/VERIFIED_FACTS.md",
       "bytes": 1790,
       "sha256": "05c06e6447cad8b501d23263d84c59543e9a2bc16e0773ab753ebd81e8f492d8",
-      "preview": "# Verified facts and provenance register\n\nStatus: target-only. This register does not call any server, CDN, client, backup, billing path, or edge \u201cverified\u201d without dated, cited evidence.\n\n| Class | Meaning | Permitted wording |\n| --- | --- | --- |\n| OWNER-PROVIDED ACCEPTANCE CLAIM | Owner/master requirement. | Owner-p"
+      "preview": "# Verified facts and provenance register\n\nStatus: target-only. This register does not call any server, CDN, client, backup, billing path, or edge “verified” without dated, cited evidence.\n\n| Class | Meaning | Permitted wording |\n| --- | --- | --- |\n| OWNER-PROVIDED ACCEPTANCE CLAIM | Owner/master requirement. | Owner-p"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0001.md",
       "bytes": 1497,
       "sha256": "9f4e3b4019c0de2e532c76f4eb6202d0a58f639f4fa4627a294bbee50b0d5793",
-      "preview": "# ADR-0001 \u2014 sidecar/reconciler boundary\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nsidecar/reconciler boundary\n\n## Problem\nChoose a safe target for sidecar/reconciler boundary without coupling it to ordinary VPN or claiming "
+      "preview": "# ADR-0001 — sidecar/reconciler boundary\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nsidecar/reconciler boundary\n\n## Problem\nChoose a safe target for sidecar/reconciler boundary without coupling it to ordinary VPN or claiming "
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0002.md",
       "bytes": 1485,
       "sha256": "6d6d3e627a4d86aae888baa8e727e2dccfd89c26d3730dfcbc2fefb3d781d4b8",
-      "preview": "# ADR-0002 \u2014 3x-ui raw-field preservation\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\n3x-ui raw-field preservation\n\n## Problem\nChoose a safe target for 3x-ui raw-field preservation without coupling it to ordinary VPN or claimi"
+      "preview": "# ADR-0002 — 3x-ui raw-field preservation\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\n3x-ui raw-field preservation\n\n## Problem\nChoose a safe target for 3x-ui raw-field preservation without coupling it to ordinary VPN or claimi"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0003.md",
       "bytes": 1450,
       "sha256": "ae6d9b98d3f4e3f778d35627a63e0af4bb5ddc155976f0ff5fe7c669e3b97b44",
-      "preview": "# ADR-0003 \u2014 pinned Xray provenance\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\npinned Xray provenance\n\n## Problem\nChoose a safe target for pinned Xray provenance without coupling it to ordinary VPN or claiming unobserved beha"
+      "preview": "# ADR-0003 — pinned Xray provenance\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\npinned Xray provenance\n\n## Problem\nChoose a safe target for pinned Xray provenance without coupling it to ordinary VPN or claiming unobserved beha"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0004.md",
       "bytes": 1486,
       "sha256": "d97c3813c934d20175c0017fe58a41a32716d9b987f87e14c202b85d4fba8580",
-      "preview": "# ADR-0004 \u2014 capability preset versioning\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ncapability preset versioning\n\n## Problem\nChoose a safe target for capability preset versioning without coupling it to ordinary VPN or claimi"
+      "preview": "# ADR-0004 — capability preset versioning\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ncapability preset versioning\n\n## Problem\nChoose a safe target for capability preset versioning without coupling it to ordinary VPN or claimi"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0005.md",
       "bytes": 1468,
       "sha256": "f74da1d517d0e13e00814d6661cb90d615f0a7c3171bfae486f698ebd0ffd383",
-      "preview": "# ADR-0005 \u2014 idle downlink recovery\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nidle downlink recovery\n\n## Problem\nChoose a safe target for idle downlink recovery without coupling it to ordinary VPN or claiming unobserved beha"
+      "preview": "# ADR-0005 — idle downlink recovery\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nidle downlink recovery\n\n## Problem\nChoose a safe target for idle downlink recovery without coupling it to ordinary VPN or claiming unobserved beha"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0006.md",
       "bytes": 1533,
       "sha256": "0a50d231af8f7ec597f013683a7ea8b583bbca040e924abd78b2437a103f149d",
-      "preview": "# ADR-0006 \u2014 immutable release pointer\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nimmutable release pointer\n\n## Problem\nChoose a safe target for immutable release pointer without coupling it to ordinary VPN or claiming unobse"
+      "preview": "# ADR-0006 — immutable release pointer\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nimmutable release pointer\n\n## Problem\nChoose a safe target for immutable release pointer without coupling it to ordinary VPN or claiming unobse"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0007.md",
       "bytes": 1476,
       "sha256": "a8a9c9251f010c3ec2d2369df702cb9a27e1f3d27968ca8c12b6d686787974bd",
-      "preview": "# ADR-0007 \u2014 opaque stats identity\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nopaque stats identity\n\n## Problem\nChoose a safe target for opaque stats identity without coupling it to ordinary VPN or claiming unobserved behavio"
+      "preview": "# ADR-0007 — opaque stats identity\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nopaque stats identity\n\n## Problem\nChoose a safe target for opaque stats identity without coupling it to ordinary VPN or claiming unobserved behavio"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0008.md",
       "bytes": 1551,
       "sha256": "53838707ec9f4de04d550ffdc2121a9e9ec82d136724ac0339f8f7253b33e57f",
-      "preview": "# ADR-0008 \u2014 desired-state user reconciliation\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ndesired-state user reconciliation\n\n## Problem\nChoose a safe target for desired-state user reconciliation without coupling it to ordinar"
+      "preview": "# ADR-0008 — desired-state user reconciliation\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ndesired-state user reconciliation\n\n## Problem\nChoose a safe target for desired-state user reconciliation without coupling it to ordinar"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0009.md",
       "bytes": 1451,
       "sha256": "a8704b6ed772647ae31724425887f5853a6e2f082b6c3cee65ca2468da942d5c",
-      "preview": "# ADR-0009 \u2014 edge approval evidence\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nedge approval evidence\n\n## Problem\nChoose a safe target for edge approval evidence without coupling it to ordinary VPN or claiming unobserved beha"
+      "preview": "# ADR-0009 — edge approval evidence\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nedge approval evidence\n\n## Problem\nChoose a safe target for edge approval evidence without coupling it to ordinary VPN or claiming unobserved beha"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0010.md",
       "bytes": 1497,
       "sha256": "af0373c2f311ac1d1beb0deaf5322fc1072aba374e94bb3d514d1f6e22fa00d6",
-      "preview": "# ADR-0010 \u2014 additive subscription rendering\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nadditive subscription rendering\n\n## Problem\nChoose a safe target for additive subscription rendering without coupling it to ordinary VPN "
+      "preview": "# ADR-0010 — additive subscription rendering\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nadditive subscription rendering\n\n## Problem\nChoose a safe target for additive subscription rendering without coupling it to ordinary VPN "
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0011.md",
       "bytes": 1487,
       "sha256": "4b64b42636ebd6411caeb3e18e1756bba43ca75d745c3b5a1e738ed7d7d5a075",
-      "preview": "# ADR-0011 \u2014 server-side counter source\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nserver-side counter source\n\n## Problem\nChoose a safe target for server-side counter source without coupling it to ordinary VPN or claiming uno"
+      "preview": "# ADR-0011 — server-side counter source\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nserver-side counter source\n\n## Problem\nChoose a safe target for server-side counter source without coupling it to ordinary VPN or claiming uno"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0012.md",
       "bytes": 1499,
       "sha256": "79998cffe2dec3d9e9de353c211b65a51cc0a0d8039e020573f96e71a13e86af",
-      "preview": "# ADR-0012 \u2014 epoch-scoped cumulative delta\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nepoch-scoped cumulative delta\n\n## Problem\nChoose a safe target for epoch-scoped cumulative delta without coupling it to ordinary VPN or cla"
+      "preview": "# ADR-0012 — epoch-scoped cumulative delta\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nepoch-scoped cumulative delta\n\n## Problem\nChoose a safe target for epoch-scoped cumulative delta without coupling it to ordinary VPN or cla"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0013.md",
       "bytes": 1499,
       "sha256": "a96f7133754f6c0e12c6aea0f47f61957dd7b50ca6cf3129ad0f95f1c2d02e07",
-      "preview": "# ADR-0013 \u2014 immutable financial ledger\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nimmutable financial ledger\n\n## Problem\nChoose a safe target for immutable financial ledger without coupling it to ordinary VPN or claiming uno"
+      "preview": "# ADR-0013 — immutable financial ledger\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nimmutable financial ledger\n\n## Problem\nChoose a safe target for immutable financial ledger without coupling it to ordinary VPN or claiming uno"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0014.md",
       "bytes": 1508,
       "sha256": "4ec0d1072ae756a83e67acbf4fd94da1ab1fa862dcc57a58a65e484017f8dc7d",
-      "preview": "# ADR-0014 \u2014 entitlement-only suspension\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nentitlement-only suspension\n\n## Problem\nChoose a safe target for entitlement-only suspension without coupling it to ordinary VPN or claiming "
+      "preview": "# ADR-0014 — entitlement-only suspension\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nentitlement-only suspension\n\n## Problem\nChoose a safe target for entitlement-only suspension without coupling it to ordinary VPN or claiming "
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0015.md",
       "bytes": 1487,
       "sha256": "c54cb487951104b4729dd3e7247b8678318084980f019d9b1752b61632e5e339",
-      "preview": "# ADR-0015 \u2014 official-prefix origin policy\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nofficial-prefix origin policy\n\n## Problem\nChoose a safe target for official-prefix origin policy without coupling it to ordinary VPN or cla"
+      "preview": "# ADR-0015 — official-prefix origin policy\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nofficial-prefix origin policy\n\n## Problem\nChoose a safe target for official-prefix origin policy without coupling it to ordinary VPN or cla"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0016.md",
       "bytes": 1460,
       "sha256": "d6dc284b2635c31a03b87d1ed910ce37c647faa944f5450dcf213ad60a6694a6",
-      "preview": "# ADR-0016 \u2014 gated canary progression\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ngated canary progression\n\n## Problem\nChoose a safe target for gated canary progression without coupling it to ordinary VPN or claiming unobserve"
+      "preview": "# ADR-0016 — gated canary progression\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\ngated canary progression\n\n## Problem\nChoose a safe target for gated canary progression without coupling it to ordinary VPN or claiming unobserve"
     },
     {
       "path": "docs/yandex-cdn-whitelist/adr/ADR-0017.md",
       "bytes": 1517,
       "sha256": "35e77da4dfdafc8af156dff6fe72a48a9a1691b3eca94e41bdeb4687b059d186",
-      "preview": "# ADR-0017 \u2014 scoped immutable rollback\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nscoped immutable rollback\n\n## Problem\nChoose a safe target for scoped immutable rollback without coupling it to ordinary VPN or claiming unobse"
+      "preview": "# ADR-0017 — scoped immutable rollback\n\nStatus: proposed. Target-only; no deployment, audit result, measurement, or operational completion is claimed.\n\n## Topic-specific target\nscoped immutable rollback\n\n## Problem\nChoose a safe target for scoped immutable rollback without coupling it to ordinary VPN or claiming unobse"
     },
     {
       "path": "docs/yandex-cdn-whitelist/references/XHTTP_USER_REFERENCE.md",
