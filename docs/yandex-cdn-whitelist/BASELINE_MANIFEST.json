@@ -15,8 +15,8 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 75553,
-      "sha256": "5e620beeaca49c3de997f59540c5a2cce398fc7f9fb32af88874a37cef17c4bf",
+      "bytes": 76676,
+      "sha256": "1ba3e8c79e82d477d65b266eea79884ecd576a6247b3ccdaccaf78409d833c93",
       "preview": "# MaestroVPN — актуальная точка продолжения\n\nОбновлено 06.09.2026. Это текущий handoff, а не новый проект или новый план.\nПолная прежняя история сохранена без потерь в\n[CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>](CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>).\nИсторию открывать по конкретной необходимости; старые CURRENT/next-a"
     },
     {
@@ -111,8 +111,8 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md",
-      "bytes": 81821,
-      "sha256": "e3dfeac4899836f1252dac1be302a2411770b48d21b1c98fba2ed0fc334adfb0",
+      "bytes": 81888,
+      "sha256": "a7b370b46ae0036e72cdec4dd85a698a11cc2ae94b86d92079fd1d86241672de",
       "preview": "# Актуальные требования владельца — 06.09.2026\n\nЗафиксировано по прямому запросу: «Запиши все. Мои требования дабы не забыл». Этот раздел имеет приоритет над прежними процессными требованиями ниже. Историческое задание сохранено целиком.\n\n1. Нужен работающий связанный сервис: серверы, панель, Telegram-боты, MaestroVPN "
     },
     {
