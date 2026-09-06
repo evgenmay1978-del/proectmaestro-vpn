@@ -1,4 +1,4 @@
--- Durable payload reservations. Issuance is not a balance debit.
+-- MaestroVPN HA durable payload reservations. Issuance is not a balance debit.
 -- A lost process retains its unknown reservation until an authenticated final fence.
 
 -- maestro:statement

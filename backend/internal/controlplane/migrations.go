@@ -490,6 +490,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 18, path: "migrations/0018_legacy_trial_uses.sql"},
 		{version: 19, path: "migrations/0019_whitelist_admin_credit.sql"},
 		{version: 20, path: "migrations/0020_legacy_order_bridge.sql"},
+		{version: 21, path: "migrations/0021_whitelist_byte_allocations.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {
