@@ -1049,6 +1049,10 @@ WHERE desired_target=1 AND retired=0 AND ` + batchWriteGate,
 	}, nil
 }
 
+func reservedTrialSecretIdentity(id string) bool {
+	return id == legacyTrialSaltSecretID || strings.HasPrefix(id, legacyTrialEvidencePrefix)
+}
+
 func (s *RQLiteApplyStore) encryptedSecretDeleteStatements(batch ApplyBatch, operation ApplyOperation) ([]rqlite.Statement, error) {
 	var deletion PlannedDelete
 	if err := decodeCanonicalOperation(operation.CanonicalJSON, &deletion); err != nil {
@@ -1056,6 +1060,7 @@ func (s *RQLiteApplyStore) encryptedSecretDeleteStatements(batch ApplyBatch, ope
 	}
 	if deletion.Entity != "encrypted_secret" || operation.Key != deletion.SourceKey ||
 		deletion.SourceKey == "" || deletion.TargetID != deletion.SourceKey ||
+		reservedTrialSecretIdentity(deletion.SourceKey) ||
 		!validCanonicalSHA256(deletion.ExpectedPriorDigest) || deletion.PriorGeneration != 0 ||
 		deletion.NextGeneration != 0 || deletion.TombstoneID != "" || deletion.Tombstone {
 		return nil, errors.New("invalid canonical encrypted-secret delete")
@@ -1280,6 +1285,19 @@ ON CONFLICT(secret_id) DO UPDATE SET
 func (s *RQLiteApplyStore) withDurableTrialProtection(ctx context.Context, batch ApplyBatch) (*RQLiteApplyStore, error) {
 	hasTrial := false
 	for _, operation := range batch.Operations {
+		if operation.Tombstone {
+			// A logical delete contains PlannedDelete, never a secret envelope.
+			// Native trial evidence and its salt remain immutable even when a
+			// caller bypasses the producer's cumulative-source validation.
+			if operation.Entity == "encrypted_secret" {
+				var deletion PlannedDelete
+				if decodeCanonicalOperation(operation.CanonicalJSON, &deletion) != nil ||
+					reservedTrialSecretIdentity(operation.Key) || reservedTrialSecretIdentity(deletion.SourceKey) || reservedTrialSecretIdentity(deletion.TargetID) {
+					return nil, errInvalidSnapshotProtection
+				}
+			}
+			continue
+		}
 		if operation.Entity == "trial" {
 			hasTrial = true
 		}

@@ -178,3 +178,33 @@ func TestNativeTrialProofRejectsForgedOperationBeforeWrites(t *testing.T) {
 		t.Fatal("protection aliases source hash map")
 	}
 }
+
+func TestNativeTrialEvidenceAndSaltRejectLogicalDeletionBeforeWrites(t *testing.T) {
+	snapshot, protection := nativeTrialSnapshotFixture(t, []byte(`{}`), nil)
+	for _, id := range []string{snapshot.EncryptedSecrets[0].SecretID, legacyTrialSaltSecretID} {
+		for _, validated := range []bool{false, true} {
+			deletion := PlannedDelete{Entity: "encrypted_secret", SourceKey: id, TargetID: id, ExpectedPriorDigest: strings.Repeat("a", 64)}
+			raw, err := json.Marshal(deletion)
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := ApplyOperation{Entity: "encrypted_secret", Key: id, Tombstone: true, CanonicalJSON: raw}
+			batch := ApplyBatch{RunID: "native-trial-delete", PlanDigest: strings.Repeat("b", 64), Operations: []ApplyOperation{operation}}
+			batch.Digest = digestBatch(batch.Operations)
+			db := &applyStoreRQLite{}
+			store := &RQLiteApplyStore{db: db, now: func() time.Time { return time.Unix(1_600_000, 0) }}
+			if validated {
+				store.trialProtection = &protection
+			}
+			if _, err := store.CommitBatch(context.Background(), batch); err == nil {
+				t.Fatal("native trial evidence or salt accepted a logical deletion")
+			}
+			if len(db.requests) != 0 || db.queryCalls != 1 {
+				t.Fatal("reserved deletion crossed the receipt-only preflight boundary")
+			}
+			if statements, err := store.encryptedSecretDeleteStatements(batch, operation); err == nil || len(statements) != 0 {
+				t.Fatal("direct delete builder produced SQL for reserved trial material")
+			}
+		}
+	}
+}

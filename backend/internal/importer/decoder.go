@@ -26,7 +26,7 @@ func DecodeSnapshot(data []byte) (Snapshot, error) {
 	if !validCanonicalSHA256(snapshot.ClusterHMACKeySHA256) {
 		return Snapshot{}, errInvalidSnapshot
 	}
-	if len(snapshot.Trials) > 0 {
+	if len(snapshot.Trials) > 0 || hasConvertedTrialSource(snapshot.SourceHashes) {
 		if !validCanonicalSHA256(snapshot.LegacyTrialSaltSHA256) {
 			return Snapshot{}, errInvalidSnapshot
 		}
