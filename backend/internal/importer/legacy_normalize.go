@@ -54,15 +54,16 @@ type LegacySourcePresence struct {
 }
 
 type LegacyNormalizeOptions struct {
-	Now              time.Time
-	MaxCaptureAge    time.Duration
-	Sources          map[string]LegacySourcePresence
-	ProtocolBindings []LegacyProtocolBinding
-	Parent           *Snapshot
-	PlanOptions      PlanOptions
-	TrialSource      *LegacyTrialSource
-	OrderSource      *LegacyOrderSource
-	RuntimeSource    *LegacyRuntimeSource
+	Now                  time.Time
+	MaxCaptureAge        time.Duration
+	Sources              map[string]LegacySourcePresence
+	ProtocolBindings     []LegacyProtocolBinding
+	Parent               *Snapshot
+	PlanOptions          PlanOptions
+	TrialSource          *LegacyTrialSource
+	OrderSource          *LegacyOrderSource
+	RuntimeSource        *LegacyRuntimeSource
+	CompleteNativeImport bool
 }
 
 // DecodeLegacyCustomers deliberately avoids store.Open: absent sources and
@@ -313,9 +314,12 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	planOptions := options.PlanOptions
 	if options.Parent != nil {
 		parent := *options.Parent
+		parentScope, parentPreparation := parent.SourceHashes["scope:"+LegacyCustomerPreparationScope]
 		if parent.SnapshotKind != "full" || !capture.CapturedAt.After(parent.CapturedAt) ||
 			parent.ClusterHMACKeySHA256 != snapshot.ClusterHMACKeySHA256 ||
-			parent.SourceHashes["scope:"+LegacyCustomerPreparationScope] != snapshot.SourceHashes["scope:"+LegacyCustomerPreparationScope] {
+			parentPreparation == options.CompleteNativeImport ||
+			(parentPreparation && parentScope != snapshot.SourceHashes["scope:"+LegacyCustomerPreparationScope]) ||
+			(options.CompleteNativeImport && !nativeImportSourcesComplete(parent.SourceHashes)) {
 			return failed()
 		}
 		if _, err := ValidateSnapshotProtection(ProtectionFromSnapshot(parent), box, hmacKey, trialSourceSalt(options.TrialSource)); err != nil {
@@ -474,6 +478,21 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	if normalizeLegacyRuntimeSource(&snapshot, raw, options.RuntimeSource, box, options.Now, options.MaxCaptureAge, options.Parent) != nil {
 		return failed()
 	}
+	if options.CompleteNativeImport {
+		if options.OrderSource == nil || options.TrialSource == nil || options.RuntimeSource == nil || len(options.RuntimeSource.RawOTAAbsence) == 0 || !nativeImportSourcesComplete(snapshot.SourceHashes) {
+			return failed()
+		}
+		protection := ProtectionFromSnapshot(snapshot, options.Parent)
+		if _, err := ValidateSnapshotProtection(protection, box, hmacKey, trialSourceSalt(options.TrialSource)); err != nil {
+			return failed()
+		}
+		if _, err := ValidateProductionCustomerIdentities(protection, box); err != nil {
+			return failed()
+		}
+		// This flag lifts only the preparatory apply prohibition. Planning,
+		// protected publication and live cutover gates remain independent.
+		delete(snapshot.SourceHashes, "scope:"+LegacyCustomerPreparationScope)
+	}
 	sort.Slice(snapshot.Customers, func(i, j int) bool { return snapshot.Customers[i].SourceKey < snapshot.Customers[j].SourceKey })
 	sort.Slice(snapshot.EncryptedSecrets, func(i, j int) bool {
 		return snapshot.EncryptedSecrets[i].SecretID < snapshot.EncryptedSecrets[j].SecretID
@@ -499,6 +518,31 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		return failed()
 	}
 	return snapshot, nil
+}
+
+func nativeImportSourcesComplete(hashes map[string]string) bool {
+	for _, key := range []string{"customers", "xui_capture", "protocol_bindings", legacyOrdersConvertedSource, legacyTrialConvertedSource, "legacy:settings:runtime-converted-v1", "legacy:principals:runtime-converted-v1", "legacy:ota:absent-v1"} {
+		if !validCanonicalSHA256(hashes[key]) {
+			return false
+		}
+	}
+	if hashes["legacy:settings:runtime-converted-v1"] != hashes["legacy:principals:runtime-converted-v1"] {
+		return false
+	}
+	for key, value := range hashes {
+		if !validCanonicalSHA256(value) {
+			return false
+		}
+		switch key {
+		case "customers", "xui_capture", "protocol_bindings", "source_inventory", "scope:" + LegacyCustomerPreparationScope,
+			legacyOrdersConvertedSource, legacyTrialConvertedSource, "legacy:settings:runtime-converted-v1", "legacy:principals:runtime-converted-v1", "legacy:ota:absent-v1", legacyRuntimeCurrentCapture, legacyRuntimeCurrentOTA:
+		default:
+			if !strings.HasPrefix(key, legacyOrderAliasPrefix) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type legacyVLESSBinding struct{ server, uuid string }

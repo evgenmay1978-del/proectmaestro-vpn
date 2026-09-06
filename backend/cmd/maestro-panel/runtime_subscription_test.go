@@ -112,7 +112,7 @@ func (database *runtimeSubscriptionDatabase) QueryLinearizable(_ context.Context
 		key, ok := statements[0].Args[0].(string)
 		if !ok || key != "olcrtc" && key != "vkturn" ||
 			statements[1].SQL != `SELECT member_key,member_value_json,generation FROM setting_members WHERE setting_key=? ORDER BY member_key` || !reflect.DeepEqual(statements[1].Args, []any{key}) ||
-			statements[2].SQL != `SELECT i.secret_id,i.secret_sha256,e.lifecycle FROM imported_secrets i LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE i.owner_type='setting' AND i.owner_source_key=? AND i.field='secret' AND i.kind=? AND i.secret_id LIKE ? ORDER BY i.secret_id` || !reflect.DeepEqual(statements[2].Args, []any{key, key, "runtime-setting-v1:" + key + ":%"}) {
+			statements[2].SQL != `SELECT i.secret_id,i.secret_sha256,i.secret_envelope AS source_envelope,i.key_version,e.canonical_sha256 AS source_envelope_sha256,e.lifecycle FROM imported_secrets i LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE i.owner_type='setting' AND i.owner_source_key=? AND i.field='secret' AND i.kind=? AND i.secret_id LIKE ? ORDER BY i.secret_id` || !reflect.DeepEqual(statements[2].Args, []any{key, key, "runtime-setting-v1:" + key + ":%"}) {
 			return nil, fmt.Errorf("unexpected runtime setting source query")
 		}
 		// This ordinary environment-topology fixture has no imported runtime

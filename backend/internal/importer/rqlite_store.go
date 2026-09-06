@@ -1799,6 +1799,9 @@ func (s *RQLiteApplyStore) settingStatements(batch ApplyBatch, operation ApplyOp
 			return nil, err
 		}
 	}
+	if s.customerProtection != nil && s.customerProtection.snapshotKind == "delta" && payload.Secret != nil && reservedRuntimeSecret(*payload.Secret) {
+		return s.preserveRuntimeSetting(batch, payload.Setting, *payload.Secret)
+	}
 	nowUnix := s.now().Unix()
 	gate := batchGateArgs(batch)
 	statements := []rqlite.Statement{{
@@ -1882,6 +1885,9 @@ func (s *RQLiteApplyStore) principalStatements(batch ApplyBatch, operation Apply
 			return nil, err
 		}
 		encodedEnvelope, secretDigest = value.envelope, value.digest
+	}
+	if s.customerProtection != nil && s.customerProtection.snapshotKind == "delta" && reservedRuntimeSecret(secret) {
+		return s.preserveRuntimePrincipal(batch, principal, secret)
 	}
 	nowUnix := s.now().Unix()
 	gate := batchGateArgs(batch)

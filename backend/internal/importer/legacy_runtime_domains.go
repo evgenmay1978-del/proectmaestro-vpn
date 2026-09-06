@@ -349,16 +349,25 @@ func cloneRuntimeSettings(values []LegacySetting) []LegacySetting {
 }
 
 func reservedRuntimeSecret(secret LegacyEncryptedSecret) bool {
-	return reservedRuntimeSecretID(secret.SecretID) || secret.OwnerType == "legacy_runtime_source"
+	return reservedRuntimeSecretID(secret.SecretID) || secret.OwnerType == "legacy_runtime_source" || secret.OwnerType == "legacy_runtime_ota_source"
 }
 
 func reservedRuntimeSecretID(id string) bool {
-	return strings.HasPrefix(id, "legacy-runtime-source-v1:") || strings.HasPrefix(id, "runtime-setting-v1:") || strings.HasPrefix(id, "runtime-panel-password-v1:")
+	return strings.HasPrefix(id, "legacy-runtime-source-v1:") || strings.HasPrefix(id, "legacy-runtime-ota-source-v1:") || strings.HasPrefix(id, "runtime-setting-v1:") || strings.HasPrefix(id, "runtime-panel-password-v1:")
 }
 
 // An encrypted source capsule authenticates every derived native row. A marker
 // or a typed member list alone cannot enable the production adapter.
 func validateNativeRuntimeProof(protection SnapshotProtection, box *controlplane.SecretBox) (map[string]string, error) {
+	if protection.SnapshotKind == "delta" && (hasNativeRuntimeSource(protection.SourceHashes) || (protection.Parent != nil && hasNativeRuntimeSource(protection.Parent.SourceHashes))) {
+		return validateNativeRuntimeDeltaProof(protection, box)
+	}
+	if _, exists := protection.SourceHashes[legacyRuntimeCurrentCapture]; exists {
+		return nil, ErrLegacyRuntimeDomains
+	}
+	if _, exists := protection.SourceHashes[legacyRuntimeCurrentOTA]; exists {
+		return nil, ErrLegacyRuntimeDomains
+	}
 	sha, present := protection.SourceHashes["legacy:settings:runtime-converted-v1"]
 	principalSHA, principalPresent := protection.SourceHashes["legacy:principals:runtime-converted-v1"]
 	reserved := map[string]LegacyEncryptedSecret{}
@@ -517,8 +526,11 @@ func normalizeLegacyRuntimeSource(snapshot *Snapshot, rawCustomers []byte, sourc
 	// its before/after process tuple; the importer independently binds its exact
 	// customer bytes and freshness. It never makes a new live observation.
 	var capsule LegacyRuntimeCapsule
-	if runtimeDomainDecode(source.RawCapsule, &capsule) != nil || parent != nil {
+	if runtimeDomainDecode(source.RawCapsule, &capsule) != nil {
 		return ErrLegacyRuntimeDomains
+	}
+	if parent != nil {
+		return normalizeLegacyRuntimeDelta(snapshot, rawCustomers, source, box, now, maxAge, parent)
 	}
 	for _, domain := range []string{"settings", "principals"} {
 		if sourceSHA, present := snapshot.SourceHashes["legacy:"+domain+":present-unconverted"]; present && sourceSHA != sha256Hex(source.RawCapsule) {

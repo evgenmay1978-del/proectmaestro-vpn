@@ -12,6 +12,15 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistbalance"
 )
 
+type whiteListAdminRQLiteIDs struct{ IDSource }
+
+func (ids whiteListAdminRQLiteIDs) NewID(prefix string) (string, error) {
+	if prefix == "wl-ent" {
+		return NewID(prefix)
+	}
+	return ids.IDSource.NewID(prefix)
+}
+
 func newWhiteListAdminRQLite(t *testing.T) (rqlite.RQLite, *Service, string, string, int64) {
 	t.Helper()
 	db := task7DB(t)
@@ -19,6 +28,7 @@ func newWhiteListAdminRQLite(t *testing.T) (rqlite.RQLite, *Service, string, str
 	customer := "customer_" + task7Name(t, "admin-credit")
 	task7SeedCanonicalFixtureCustomer(t, db, task7FixtureSecretBox(t), customer, "active", now+86400, 7)
 	service := whiteListBalanceRQLiteService(t, db, now, "admin")
+	service.ids = whiteListAdminRQLiteIDs{service.ids}
 	entitlement, err := service.EnsureWhiteListEntitlement(task7Context(t), customer)
 	if err != nil {
 		t.Fatal(err)

@@ -123,7 +123,7 @@ func TestAssignWBRoomUsesCanonicalOLCRTCTransaction(t *testing.T) {
 	}
 	service, box := testService(t, db)
 	identity := canonicalLoginIdentityScript(box, "alice", Customer{ID: "setting-alice", Status: "active", Generation: 1})
-	db.linear = append(append([]scriptedResult{identity}, db.linear...), identity)
+	db.linear = append(append([]scriptedResult{legacyRuntimeAbsentScript(), identity}, db.linear...), identity)
 	if err := service.AssignWBRoom(context.Background(), "alice", "room-1", "wb-idempotency-1"); err != nil {
 		t.Fatalf("AssignWBRoom: %v", err)
 	}
@@ -173,8 +173,8 @@ func TestAssignWBRoomAliceThenBobKeepsRoomsIsolated(t *testing.T) {
 	oldReads := db.linear
 	oldReads[2].results[1].Rows[0]["member_key"] = secrets.LookupHMAC("setting-member:olcrtc", []byte("alice"))
 	db.linear = []scriptedResult{
-		alice, oldReads[0], oldReads[1], alice,
-		bob, oldReads[2], alice, oldReads[3], alice, bob,
+		legacyRuntimeAbsentScript(), alice, oldReads[0], oldReads[1], alice,
+		legacyRuntimeAbsentScript(), bob, oldReads[2], alice, oldReads[3], alice, bob,
 	}
 	for _, assignment := range []struct{ login, room, key string }{
 		{login: "alice", room: "room-alice", key: "wb-room-alice"},
@@ -269,7 +269,7 @@ func TestAssignWBRoomRejectsAmbiguousLegacyGlobalRoom(t *testing.T) {
 		rqlite.Result{},
 	)}}
 	service, box := testService(t, db)
-	db.linear = append([]scriptedResult{canonicalLoginIdentityScript(box, "alice", Customer{})}, db.linear...)
+	db.linear = append([]scriptedResult{legacyRuntimeAbsentScript(), canonicalLoginIdentityScript(box, "alice", Customer{})}, db.linear...)
 	err := service.AssignWBRoom(context.Background(), "alice", "room-alice", "legacy-ambiguous")
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("ambiguous legacy assignment error = %v, want ErrConflict", err)
@@ -284,6 +284,7 @@ func TestAssignWBRoomMigratesSingleMatchingLegacyRoom(t *testing.T) {
 	service, secrets := testService(t, db)
 	memberHMAC := secrets.LookupHMAC("setting-member:olcrtc", []byte("alice"))
 	db.linear = []scriptedResult{
+		legacyRuntimeAbsentScript(),
 		canonicalLoginIdentityScript(secrets, "alice", Customer{ID: "setting-alice", Status: "active", Generation: 1}),
 		resultsScript(
 			rqlite.Result{Rows: []map[string]any{{"public_value_json": `{"room":"legacy-room","provider":"wbstream"}`, "generation": int64(1)}}},

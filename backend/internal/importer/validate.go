@@ -190,6 +190,7 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 	}
 	for _, setting := range snapshot.Settings {
 		memberIDs := map[string]bool{}
+		inherited := inheritedRuntimeSetting(snapshot, setting, options)
 		for _, member := range setting.Members {
 			var customer *LegacyCustomer
 			for index := range snapshot.Customers {
@@ -198,7 +199,7 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 					break
 				}
 			}
-			if (setting.Key != "olcrtc" && setting.Key != "vkturn") || setting.SecretRef == "" || customer == nil || member.Login != customer.Login || member.LoginHMAC != customer.LoginKeyHMAC || member.CustomerSHA256 != canonicalLegacyDigest(*customer) || member.CustomerID != deterministicID("maestro-legacy-v1", "customer", member.CustomerSourceKey) || !validCanonicalSHA256(member.MemberHMAC) || memberIDs[member.MemberHMAC] {
+			if (setting.Key != "olcrtc" && setting.Key != "vkturn") || setting.SecretRef == "" || customer == nil || member.Login != customer.Login || member.LoginHMAC != customer.LoginKeyHMAC || (!inherited && member.CustomerSHA256 != canonicalLegacyDigest(*customer)) || member.CustomerID != deterministicID("maestro-legacy-v1", "customer", member.CustomerSourceKey) || !validCanonicalSHA256(member.MemberHMAC) || memberIDs[member.MemberHMAC] {
 				add("invalid_setting_member", "setting", setting.Key)
 			}
 			memberIDs[member.MemberHMAC] = true

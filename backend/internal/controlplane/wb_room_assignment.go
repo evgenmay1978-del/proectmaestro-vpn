@@ -97,6 +97,9 @@ func (s *Service) AssignWBRoom(ctx context.Context, login, room, idempotencyKey 
 	if s == nil || strings.TrimSpace(login) == "" || room == "" || idempotencyKey == "" {
 		return errors.New("controlplane: invalid WB room assignment")
 	}
+	if handled, err := s.assignLegacyWBRoom(ctx, login, room, idempotencyKey); handled {
+		return err
+	}
 	identity, err := s.ResolveCustomerLogin(ctx, login)
 	if err != nil {
 		return err

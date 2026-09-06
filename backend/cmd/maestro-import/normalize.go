@@ -41,13 +41,14 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(io.Discard)
 	var customersPath, capturePath, inventoryPath, keyPath, parentPath, outputPath, trialSaltPath, runtimeCapsulePath, otaAbsencePath string
 	var maxCaptureAge time.Duration
-	var convertOrders bool
+	var convertOrders, completeNativeImport bool
 	flags.StringVar(&customersPath, "customers", "", "protected raw customers JSON")
 	flags.StringVar(&capturePath, "xui-capture", "", "protected capture-xui output")
 	flags.StringVar(&inventoryPath, "inventory", "", "protected source inventory and protocol bindings")
 	flags.StringVar(&keyPath, "key-file", "", "existing protected import key bundle")
 	flags.StringVar(&trialSaltPath, "legacy-trial-salt-file", "", "protected exact effective legacy trial salt; enables native trial conversion")
 	flags.BoolVar(&convertOrders, "convert-legacy-orders", false, "preserve raw orders and public aliases from the protected inventory source")
+	flags.BoolVar(&completeNativeImport, "complete-native-import", false, "require every native source and authenticated domain before permitting apply")
 	flags.StringVar(&runtimeCapsulePath, "legacy-runtime-capsule", "", "protected native runtime settings and effective panel identity capture")
 	flags.StringVar(&otaAbsencePath, "legacy-ota-absence", "", "protected source-bound evidence that the active OTA directory is absent")
 	flags.StringVar(&parentPath, "parent-snapshot", "", "authenticated initial full snapshot for final delta")
@@ -59,6 +60,9 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	}
 	if flags.Parse(args) != nil || flags.NArg() != 0 || maxCaptureAge <= 0 ||
 		customersPath == "" || capturePath == "" || inventoryPath == "" || keyPath == "" || outputPath == "" {
+		return fail()
+	}
+	if completeNativeImport && (!convertOrders || trialSaltPath == "" || runtimeCapsulePath == "" || otaAbsencePath == "") {
 		return fail()
 	}
 	stamps := []normalizeFileStamp{}
@@ -204,9 +208,10 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	snapshot, err := importer.NormalizeLegacyCustomers(raw, capture, box, keys.HMACKey, importer.LegacyNormalizeOptions{
 		Now: time.Now().UTC(), MaxCaptureAge: maxCaptureAge, Sources: sources,
 		ProtocolBindings: inventory.ProtocolBindings, Parent: parent, PlanOptions: defaultPlanOptions(),
-		TrialSource:   trialSource,
-		OrderSource:   orderSource,
-		RuntimeSource: runtimeSource,
+		TrialSource:          trialSource,
+		OrderSource:          orderSource,
+		RuntimeSource:        runtimeSource,
+		CompleteNativeImport: completeNativeImport,
 	})
 	if err != nil {
 		return fail()
@@ -245,10 +250,18 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	if writeNormalizeOutput(outputPath, encoded) != nil {
 		return fail()
 	}
-	_, _ = fmt.Fprintln(stdout, "customer preparation snapshot written; cutover_ready=false")
+	if completeNativeImport {
+		_, _ = fmt.Fprintln(stdout, "native import snapshot written; apply_eligible=true; cutover_ready=false")
+	} else {
+		_, _ = fmt.Fprintln(stdout, "customer preparation snapshot written; cutover_ready=false")
+	}
 	for _, domain := range []string{"orders", "trials", "settings", "principals"} {
 		if domain == "trials" && trialSource != nil {
 			_, _ = fmt.Fprintf(stdout, "trials=present; conversion performed; used_identities=%d\n", len(snapshot.Trials))
+			continue
+		}
+		if (domain == "orders" && orderSource != nil) || ((domain == "settings" || domain == "principals") && runtimeSource != nil) {
+			_, _ = fmt.Fprintf(stdout, "%s=present; conversion performed\n", domain)
 			continue
 		}
 		_, _ = fmt.Fprintf(stdout, "%s=%s; conversion not performed\n", domain, sources[domain].State)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,9 +14,127 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/importer"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/olcconf"
 	legacystore "github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/store"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/vkturnconf"
+	"golang.org/x/crypto/bcrypt"
 )
+
+func TestNormalizeCLICompleteNativeImportPublishesApplyEligibleAuthenticatedSource(t *testing.T) {
+	fixture := newNormalizeCLIFixture(t)
+	directory := filepath.Dir(fixture.output)
+	raw, err := os.ReadFile(fixture.customers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var original []legacystore.Customer
+	if json.Unmarshal(raw, &original) != nil || len(original) != 1 {
+		t.Fatal("customer fixture")
+	}
+	customerRaw, err := json.Marshal(original[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var customers []legacystore.Customer
+	now := time.Now().UTC()
+	capture := importer.LegacyXUICapture{SchemaVersion: 1, CapturedAt: now.Add(-3 * time.Second), CompletedAt: now.Add(-2 * time.Second)}
+	for i, login := range vkturnconf.AllowedLogins() {
+		var customer legacystore.Customer
+		if json.Unmarshal(customerRaw, &customer) != nil {
+			t.Fatal("customer clone")
+		}
+		customer.Login, customer.SubToken = login, "complete-sub-"+login
+		customer.VLESS.UUID = fmt.Sprintf("123e4567-e89b-42d3-a456-%012d", i+1)
+		customer.Naive.Username = "complete-naive-" + login
+		customers = append(customers, customer)
+		capture.Bindings = append(capture.Bindings, importer.LegacyNodeCapture{Login: login, NodeID: "S1", Server: customer.VLESS.Server, UUID: customer.VLESS.UUID, SubID: "complete-existing-subid-" + login})
+	}
+	raw = writeNormalizeFixtureJSON(t, fixture.customers, customers)
+	capture.CustomersSHA256 = runtimeSHA256Hex(raw)
+	writeNormalizeFixtureJSON(t, fixture.capture, capture)
+	verifier, err := bcrypt.GenerateFromPassword([]byte("synthetic-complete-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := importer.LegacyRuntimeProcess{PID: 123, StartTicks: 456, ExecutableSHA256: strings.Repeat("a", 64), EnvironmentSHA256: strings.Repeat("b", 64), CustomersSHA256: runtimeSHA256Hex(raw)}
+	capsule := importer.LegacyRuntimeCapsule{SchemaVersion: 1, CapturedAt: now.Add(-time.Second), CompletedAt: now, ProcessBefore: process, ProcessAfter: process, CustomerCount: len(customers), Environment: map[string]string{"MAESTRO_OLC_FILE": "", "MAESTRO_OLC_LOGINS": "", "MAESTRO_VKTURN_FILE": "/var/lib/maestro/vkturn.json", "MAESTRO_PANEL_PATH": "/synthetic-panel/", "MAESTRO_PANEL_PASSWORD_HASH": "file-wins", "MAESTRO_PANEL_PW_FILE": "", "MAESTRO_OLC_WB_TOKEN_FILE": ""}, Files: map[string]importer.LegacyRuntimeFile{}}
+	olc := olcconf.Config{Enabled: true, Provider: "telemost", Transport: "vp8channel", Room: "synthetic-room", Key: strings.Repeat("1", 64), Logins: vkturnconf.AllowedLogins()}
+	vk := vkturnconf.Config{Enabled: true, MinVersionCode: 200, Server: "synthetic-wdtt.example:443", VKHashes: []string{"synthetic-vk-hash"}, Clients: map[string]vkturnconf.Client{}}
+	wgKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	for _, login := range vkturnconf.AllowedLogins() {
+		vk.Clients[login] = vkturnconf.Client{Password: "synthetic-password-" + login, WG: subgen.VKTurnCreds{PrivateKey: wgKey, PeerPublicKey: wgKey, LocalAddress: "10.80.0.2/32"}}
+	}
+	olcRaw, _ := json.Marshal(olc)
+	vkRaw, _ := json.Marshal(vk)
+	for _, file := range []struct {
+		key, path string
+		raw       []byte
+	}{{"olcrtc", "/var/lib/maestro/olcrtc.json", olcRaw}, {"vkturn", "/var/lib/maestro/vkturn.json", vkRaw}, {"panel_password", "/var/lib/maestro/panel-pw.hash", verifier}, {"wb_token", "/var/lib/maestro/wb.token", []byte("synthetic-wb-token")}} {
+		capsule.Files[file.key] = importer.LegacyRuntimeFile{Path: file.path, State: "present", RawBase64: base64.StdEncoding.EncodeToString(file.raw), SHA256: runtimeSHA256Hex(file.raw)}
+	}
+	capsulePath := filepath.Join(directory, "runtime-capsule.json")
+	capsuleRaw := writeNormalizeFixtureJSON(t, capsulePath, capsule)
+	otaPath := filepath.Join(directory, "ota-source.json")
+	writeNormalizeFixtureJSON(t, otaPath, importer.LegacyRuntimeOTAAbsence{SchemaVersion: 1, ObservedAt: now, Process: process, Directory: "/var/lib/maestro/update", State: "absent", RuntimeCapsuleSHA256: runtimeSHA256Hex(capsuleRaw)})
+	for _, domain := range []string{"settings", "principals"} {
+		fixture.sources[domain] = normalizeSourceInput{State: "present", Path: capsulePath}
+	}
+	trialsPath := fixture.sources["trials"].Path
+	fixture.sources["trials"] = normalizeSourceInput{State: "present", Path: trialsPath}
+	if os.WriteFile(trialsPath, []byte(`{"redeemed_anchors":{},"redeemed_drm":{},"audit":[]}`), 0o600) != nil || os.WriteFile(fixture.sources["orders"].Path, []byte(`[]`), 0o600) != nil {
+		t.Fatal("native ledger sources")
+	}
+	saltPath := filepath.Join(directory, "legacy-trial-salt")
+	if os.WriteFile(saltPath, []byte("synthetic-complete-trial-salt"), 0o600) != nil {
+		t.Fatal("salt")
+	}
+	writeNormalizeFixtureJSON(t, fixture.inventory, normalizeInventory{SchemaVersion: 1, Scope: importer.LegacyCustomerPreparationScope, Sources: fixture.sources, ProtocolBindings: []importer.LegacyProtocolBinding{{Protocol: "naive", Server: customers[0].Naive.Server, NodeID: "S1"}}})
+	args := append(append([]string(nil), fixture.args...), "--convert-legacy-orders", "--legacy-trial-salt-file", saltPath, "--legacy-runtime-capsule", capsulePath, "--legacy-ota-absence", otaPath, "--complete-native-import")
+	var stdout, stderr bytes.Buffer
+	if code := run(args, &stdout, &stderr, nil); code != exitClean {
+		t.Fatalf("complete normalization failed: %d", code)
+	}
+	encoded, err := os.ReadFile(fixture.output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := importer.DecodeSnapshot(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, preparation := snapshot.SourceHashes["scope:"+importer.LegacyCustomerPreparationScope]; preparation {
+		t.Fatal("real CLI still forbids apply")
+	}
+	if !strings.Contains(stdout.String(), "apply_eligible=true") || strings.Contains(stdout.String(), "conversion not performed") || !strings.Contains(stdout.String(), "cutover_ready=false") {
+		t.Fatal("CLI misreported native conversion or live readiness")
+	}
+	_, report := importer.Plan(snapshot, defaultPlanOptions())
+	if len(report.Blockers) != 0 {
+		t.Fatal("complete snapshot planner blocked")
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--snapshot", fixture.output, "--mode", "apply", "--report", filepath.Join(directory, "apply-report.json")}, &stdout, &stderr, nil); code != exitInputSystem || !strings.Contains(stderr.String(), "expected plan digest does not match") {
+		t.Fatal("apply failed at obsolete preparation gate")
+	}
+	for _, mode := range []string{"missing-all-converters", "absent-runtime-file"} {
+		t.Run(mode, func(t *testing.T) {
+			other := newNormalizeCLIFixture(t)
+			invalid := append(append([]string(nil), other.args...), "--complete-native-import")
+			if mode == "absent-runtime-file" {
+				invalid = append(invalid, "--convert-legacy-orders", "--legacy-trial-salt-file", saltPath, "--legacy-runtime-capsule", filepath.Join(directory, "missing-capsule"), "--legacy-ota-absence", otaPath)
+			}
+			var out, errOut bytes.Buffer
+			if code := run(invalid, &out, &errOut, nil); code != exitInputSystem {
+				t.Fatal("incomplete native source published")
+			}
+			if _, err := os.Lstat(other.output); !os.IsNotExist(err) {
+				t.Fatal("failed completion wrote output")
+			}
+		})
+	}
+}
 
 func TestNormalizeCLINativeTrialSourceRetainsEmptyLedgerAndExactSalt(t *testing.T) {
 	for _, empty := range []bool{true, false} {

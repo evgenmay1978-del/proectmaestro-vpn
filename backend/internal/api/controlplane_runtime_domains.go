@@ -136,3 +136,42 @@ func runtimeVKView(value controlplane.LegacyRuntimeSetting) (VKTurnView, error) 
 	}
 	return VKTurnView{Enabled: config.Enabled, Server: config.Server}, nil
 }
+
+func (b *ServiceBusiness) updateLegacyVKTurn(ctx context.Context, current controlplane.LegacyRuntimeSetting, request json.RawMessage, expected int64, idempotencyKey string, toggle bool) (SettingView, error) {
+	var config vkturnconf.Config
+	if decodeRuntimeConfig(current.ConfigJSON(), &config) != nil || config.Validate() != nil {
+		return SettingView{}, businessError(controlplane.ErrUnavailable)
+	}
+	var edit struct {
+		vkTurnSaveReq
+		ExpectedVersion *int64 `json:"expected_version"`
+	}
+	if decodeRuntimeConfig(request, &edit) != nil {
+		return SettingView{}, businessError(controlplane.ErrForbidden)
+	}
+	if edit.ExpectedVersion != nil {
+		if expected != 0 && expected != *edit.ExpectedVersion {
+			return SettingView{}, businessError(controlplane.ErrConflict)
+		}
+		expected = *edit.ExpectedVersion
+	}
+	next := applyVKTurnEdit(&config, edit.vkTurnSaveReq)
+	if next.Validate() != nil {
+		return SettingView{}, businessError(controlplane.ErrForbidden)
+	}
+	configJSON, _ := json.Marshal(next)
+	public, _ := json.Marshal(VKTurnView{Enabled: next.Enabled, Server: next.Server})
+	commandType := "setting.vkturn.update"
+	if toggle {
+		commandType = "setting.vkturn.enabled"
+	}
+	result, err := b.service.UpdateLegacyRuntimeSetting(ctx, controlplane.LegacyRuntimeSettingUpdate{
+		Current: current, ExpectedGeneration: expected, CommandType: commandType,
+		IdempotencyKey: idempotencyKey, Actor: "panel", RequestJSON: request,
+		ConfigJSON: configJSON, PublicValueJSON: public,
+	})
+	if err != nil {
+		return SettingView{}, businessError(err)
+	}
+	return SettingView{Key: "vkturn", Version: result.Generation, Value: public}, nil
+}

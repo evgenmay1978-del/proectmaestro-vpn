@@ -803,6 +803,27 @@ func (b *ServiceBusiness) UpdateSetting(ctx context.Context, command UpdateSetti
 	if strings.TrimSpace(command.IdempotencyKey) == "" {
 		return SettingView{}, businessError(controlplane.ErrForbidden)
 	}
+	if command.Key == "vkturn" {
+		return b.UpdateVKTurn(ctx, UpdateVKTurnCommand{Value: command.Value, ExpectedVersion: command.ExpectedVersion, IdempotencyKey: command.IdempotencyKey})
+	}
+	if command.Key == "olcrtc" {
+		if _, err := b.service.ReadLegacyRuntimeSetting(ctx, "olcrtc"); !errors.Is(err, controlplane.ErrNotFound) {
+			if err != nil {
+				return SettingView{}, businessError(err)
+			}
+			return SettingView{}, businessError(controlplane.ErrForbidden)
+		}
+	}
+	return b.updateConventionalSetting(ctx, command)
+}
+
+func (b *ServiceBusiness) updateConventionalSetting(ctx context.Context, command UpdateSettingCommand) (SettingView, error) {
+	if err := b.available(); err != nil {
+		return SettingView{}, err
+	}
+	if strings.TrimSpace(command.IdempotencyKey) == "" {
+		return SettingView{}, businessError(controlplane.ErrForbidden)
+	}
 	result, err := b.service.UpdateSetting(ctx, controlplane.SettingUpdate{
 		Key: command.Key, ExpectedGeneration: command.ExpectedVersion, PublicValueJSON: string(command.Value), Actor: "panel",
 		CommandType: "setting." + command.Key + ".update", IdempotencyKey: command.IdempotencyKey,
@@ -847,6 +868,16 @@ func (b *ServiceBusiness) SetOLCRTCRoom(ctx context.Context, command SetOLCRTCRo
 	if strings.TrimSpace(command.IdempotencyKey) == "" {
 		return SettingView{}, businessError(controlplane.ErrForbidden)
 	}
+	if current, err := b.service.ReadLegacyRuntimeSetting(ctx, "olcrtc"); !errors.Is(err, controlplane.ErrNotFound) {
+		if err != nil {
+			return SettingView{}, businessError(err)
+		}
+		result, public, err := b.service.SetLegacyOLCRoom(ctx, current, command.Login, command.Room, command.Provider, command.ExpectedVersion, command.IdempotencyKey, "setting.olcrtc.room")
+		if err != nil {
+			return SettingView{}, businessError(err)
+		}
+		return SettingView{Key: "olcrtc", Version: result.Generation, Value: public}, nil
+	}
 	setting, err := b.service.ReadBusinessSetting(ctx, "olcrtc")
 	if err != nil && !errors.Is(err, controlplane.ErrNotFound) {
 		return SettingView{}, businessError(err)
@@ -886,6 +917,16 @@ func (b *ServiceBusiness) SetOLCRTCGrant(ctx context.Context, command SetOLCRTCG
 	}
 	if strings.TrimSpace(command.IdempotencyKey) == "" {
 		return SettingView{}, businessError(controlplane.ErrForbidden)
+	}
+	if current, err := b.service.ReadLegacyRuntimeSetting(ctx, "olcrtc"); !errors.Is(err, controlplane.ErrNotFound) {
+		if err != nil {
+			return SettingView{}, businessError(err)
+		}
+		result, public, err := b.service.SetLegacyOLCGrant(ctx, current, command.Login, command.Enabled, command.ExpectedVersion, command.IdempotencyKey)
+		if err != nil {
+			return SettingView{}, businessError(err)
+		}
+		return SettingView{Key: "olcrtc", Version: result.Generation, Value: public}, nil
 	}
 	setting, err := b.service.ReadBusinessSetting(ctx, "olcrtc")
 	if err != nil {
@@ -1022,12 +1063,28 @@ func (b *ServiceBusiness) VKTurnState(ctx context.Context) (VKTurnView, error) {
 }
 
 func (b *ServiceBusiness) UpdateVKTurn(ctx context.Context, command UpdateVKTurnCommand) (SettingView, error) {
-	return b.UpdateSetting(ctx, UpdateSettingCommand{Key: "vkturn", ExpectedVersion: command.ExpectedVersion, Value: command.Value, IdempotencyKey: command.IdempotencyKey})
+	if err := b.available(); err != nil {
+		return SettingView{}, err
+	}
+	if current, err := b.service.ReadLegacyRuntimeSetting(ctx, "vkturn"); !errors.Is(err, controlplane.ErrNotFound) {
+		if err != nil {
+			return SettingView{}, businessError(err)
+		}
+		return b.updateLegacyVKTurn(ctx, current, command.Value, command.ExpectedVersion, command.IdempotencyKey, false)
+	}
+	return b.updateConventionalSetting(ctx, UpdateSettingCommand{Key: "vkturn", ExpectedVersion: command.ExpectedVersion, Value: command.Value, IdempotencyKey: command.IdempotencyKey})
 }
 
 func (b *ServiceBusiness) SetVKTurnEnabled(ctx context.Context, command SetVKTurnEnabledCommand) (SettingView, error) {
 	if err := b.available(); err != nil {
 		return SettingView{}, err
+	}
+	if current, err := b.service.ReadLegacyRuntimeSetting(ctx, "vkturn"); !errors.Is(err, controlplane.ErrNotFound) {
+		if err != nil {
+			return SettingView{}, businessError(err)
+		}
+		request, _ := json.Marshal(map[string]bool{"enabled": command.Enabled})
+		return b.updateLegacyVKTurn(ctx, current, request, command.ExpectedVersion, command.IdempotencyKey, true)
 	}
 	setting, err := b.service.ReadBusinessSetting(ctx, "vkturn")
 	if errors.Is(err, controlplane.ErrNotFound) {
@@ -1041,7 +1098,7 @@ func (b *ServiceBusiness) SetVKTurnEnabled(ctx context.Context, command SetVKTur
 	}
 	value["enabled"] = command.Enabled
 	raw, _ := json.Marshal(value)
-	return b.UpdateSetting(ctx, UpdateSettingCommand{Key: "vkturn", ExpectedVersion: command.ExpectedVersion, Value: raw, IdempotencyKey: command.IdempotencyKey})
+	return b.updateConventionalSetting(ctx, UpdateSettingCommand{Key: "vkturn", ExpectedVersion: command.ExpectedVersion, Value: raw, IdempotencyKey: command.IdempotencyKey})
 }
 
 func (b *ServiceBusiness) ClusterStatus(ctx context.Context) (ClusterStatusView, error) {

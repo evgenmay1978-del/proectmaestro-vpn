@@ -56,6 +56,8 @@ type LegacyRuntimeSetting struct {
 	document   LegacyRuntimeSettingDocument
 	digest     string
 	generation int64
+	source     LegacyRuntimeSettingDocument
+	sourceSHA  string
 }
 
 func (value LegacyRuntimeSetting) Generation() int64 { return value.generation }
@@ -115,6 +117,7 @@ func decodeRuntimeDomain(raw []byte, into any) error {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
 	if decoder.Decode(into) != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		return ErrUnavailable
 	}
@@ -220,7 +223,7 @@ func (s *Service) ReadLegacyRuntimeSetting(ctx context.Context, key string) (Leg
 	results, err := s.store.db.QueryLinearizable(ctx,
 		rqlite.Statement{SQL: `SELECT c.generation,s.secret_envelope,s.secret_sha256 FROM cluster_settings c LEFT JOIN setting_secrets s ON s.setting_key=c.setting_key WHERE c.setting_key=?`, Args: []any{key}},
 		rqlite.Statement{SQL: `SELECT member_key,member_value_json,generation FROM setting_members WHERE setting_key=? ORDER BY member_key`, Args: []any{key}},
-		rqlite.Statement{SQL: `SELECT i.secret_id,i.secret_sha256,e.lifecycle FROM imported_secrets i LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE i.owner_type='setting' AND i.owner_source_key=? AND i.field='secret' AND i.kind=? AND i.secret_id LIKE ? ORDER BY i.secret_id`, Args: []any{key, key, "runtime-setting-v1:" + key + ":%"}},
+		rqlite.Statement{SQL: `SELECT i.secret_id,i.secret_sha256,i.secret_envelope AS source_envelope,i.key_version,e.canonical_sha256 AS source_envelope_sha256,e.lifecycle FROM imported_secrets i LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE i.owner_type='setting' AND i.owner_source_key=? AND i.field='secret' AND i.kind=? AND i.secret_id LIKE ? ORDER BY i.secret_id`, Args: []any{key, key, "runtime-setting-v1:" + key + ":%"}},
 	)
 	if err != nil || len(results) != 3 {
 		return LegacyRuntimeSetting{}, ErrUnavailable
@@ -241,15 +244,15 @@ func (s *Service) ReadLegacyRuntimeSetting(ctx context.Context, key string) (Leg
 	if !eOK || !dOK || !gOK || generation < 1 {
 		return LegacyRuntimeSetting{}, ErrUnavailable
 	}
-	value, err := AuthenticateLegacyRuntimeSetting(s.store.secrets, key, encoded, digest)
-	if err != nil || len(results[1].Rows) != len(value.document.Members) || len(results[2].Rows) != 1 {
+	if len(results[2].Rows) != 1 {
 		return LegacyRuntimeSetting{}, ErrUnavailable
 	}
-	marker := results[2].Rows[0]
-	sourceID, sOK := rowString(marker, "secret_id")
-	sourceSHA, hOK := rowString(marker, "secret_sha256")
-	lifecycle, lOK := rowString(marker, "lifecycle")
-	if !sOK || !hOK || !lOK || sourceID != "runtime-setting-v1:"+key+":"+value.document.CapsuleSHA256 || sourceSHA != digest || lifecycle != "active" {
+	source, err := authenticateRuntimeSource(s.store.secrets, key, results[2].Rows[0])
+	if err != nil {
+		return LegacyRuntimeSetting{}, err
+	}
+	value, err := authenticateRuntimeCurrent(s.store.secrets, key, encoded, digest, generation, source)
+	if err != nil || len(results[1].Rows) != len(value.document.Members) {
 		return LegacyRuntimeSetting{}, ErrUnavailable
 	}
 	members := map[string]bool{}
@@ -267,7 +270,7 @@ func (s *Service) ReadLegacyRuntimeSetting(ctx context.Context, key string) (Leg
 	}
 	for _, member := range value.document.Members {
 		identity, err := s.ResolveCustomerLogin(ctx, member.Login)
-		if err != nil || !identity.Exists() || !identity.ExactLegacy() || identity.CustomerID() != member.CustomerID || identity.source != member.CustomerSourceKey || identity.digest != member.CustomerSHA256 || !members[identity.SettingMemberHMAC(key)] {
+		if err != nil || !identity.Exists() || !identity.ExactLegacy() || identity.CustomerID() != member.CustomerID || identity.source != member.CustomerSourceKey || identity.LookupHMAC() != member.LoginHMAC || !members[identity.SettingMemberHMAC(key)] {
 			return LegacyRuntimeSetting{}, ErrUnavailable
 		}
 	}

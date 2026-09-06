@@ -67,7 +67,7 @@ FROM customers WHERE customer_id=? LIMIT 1`
 		key, ok := statements[0].Args[0].(string)
 		if !ok || !reflect.DeepEqual(statements[0].Args, []any{key}) ||
 			statements[1].SQL != `SELECT member_key,member_value_json,generation FROM setting_members WHERE setting_key=? ORDER BY member_key` || !reflect.DeepEqual(statements[1].Args, []any{key}) ||
-			statements[2].SQL != `SELECT i.secret_id,i.secret_sha256,e.lifecycle FROM imported_secrets i LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE i.owner_type='setting' AND i.owner_source_key=? AND i.field='secret' AND i.kind=? AND i.secret_id LIKE ? ORDER BY i.secret_id` || !reflect.DeepEqual(statements[2].Args, []any{key, key, "runtime-setting-v1:" + key + ":%"}) {
+			statements[2].SQL != `SELECT i.secret_id,i.secret_sha256,i.secret_envelope AS source_envelope,i.key_version,e.canonical_sha256 AS source_envelope_sha256,e.lifecycle FROM imported_secrets i LEFT JOIN imported_entity_state e ON e.entity_kind='encrypted_secret' AND e.source_key=i.secret_id AND e.target_id=i.secret_id WHERE i.owner_type='setting' AND i.owner_source_key=? AND i.field='secret' AND i.kind=? AND i.secret_id LIKE ? ORDER BY i.secret_id` || !reflect.DeepEqual(statements[2].Args, []any{key, key, "runtime-setting-v1:" + key + ":%"}) {
 			return nil, errors.New("unexpected runtime fixture binding")
 		}
 		var rows []map[string]any
@@ -136,7 +136,10 @@ func runtimeAPIFixture(t *testing.T) (*ServiceBusiness, *runtimeAPIReadDB, contr
 		sum := sha256.Sum256(plain)
 		digest := hex.EncodeToString(sum[:])
 		db.settings[key] = map[string]any{"generation": int64(7), "secret_envelope": base64.StdEncoding.EncodeToString(raw), "secret_sha256": digest}
-		db.markers[key] = []map[string]any{{"secret_id": "runtime-setting-v1:" + key + ":" + doc.CapsuleSHA256, "secret_sha256": digest, "lifecycle": "active"}}
+		id := "runtime-setting-v1:" + key + ":" + doc.CapsuleSHA256
+		source, _ := json.Marshal(map[string]any{"secret_id": id, "owner_type": "setting", "owner_source_key": key, "field": "secret", "kind": key, "key_version": envelope.KeyVersion, "nonce_b64": base64.StdEncoding.EncodeToString(envelope.Nonce), "ciphertext_b64": base64.StdEncoding.EncodeToString(envelope.Ciphertext), "sha256": digest})
+		sourceSHA := sha256.Sum256(source)
+		db.markers[key] = []map[string]any{{"secret_id": id, "secret_sha256": digest, "lifecycle": "active", "source_envelope": string(source), "key_version": int64(envelope.KeyVersion), "source_envelope_sha256": hex.EncodeToString(sourceSHA[:])}}
 	}
 	wb, err := box.Seal(controlplane.SecretScope{OwnerType: "setting", OwnerID: "wbstream", Field: "secret", Kind: "wbstream"}, []byte("protected-wb-account-token"))
 	if err != nil {
