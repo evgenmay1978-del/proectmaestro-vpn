@@ -24,7 +24,10 @@ const (
 	runtimeWhiteListMeteringPassBudget = 5 * time.Second
 )
 
-var errRuntimeWhiteListMeteringUnavailable = errors.New("white-list metering runtime is unavailable")
+var (
+	errRuntimeWhiteListMeteringUnavailable = errors.New("white-list metering runtime is unavailable")
+	errRuntimeWhiteListFreshLeaseNonce     = errors.New("white-list metering requires a fresh lease nonce")
+)
 
 type runtimeWhiteListUsageLookup interface {
 	LookupUsage(context.Context, string) (sidecaragentclient.UsageSnapshot, error)
@@ -146,7 +149,14 @@ func runRuntimeWhiteListMetering(
 		return
 	}
 	runPass := func() {
-		if err := collector.runPass(ctx); err != nil && ctx.Err() == nil {
+		err := collector.runPass(ctx)
+		if errors.Is(err, errRuntimeWhiteListFreshLeaseNonce) && ctx.Err() == nil {
+			// A completed deny-only rearm is expected to return HTTP 503 with a
+			// verified fresh-nonce response. Start one new full pass immediately;
+			// it drains final receipts before reading a new agent nonce.
+			err = collector.runPass(ctx)
+		}
+		if err != nil && ctx.Err() == nil {
 			log.Printf("white-list metering reconciliation deferred: %v", err)
 		}
 	}
@@ -402,10 +412,21 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}()
 	}
 	deliveriesWait.Wait()
+	freshNonceNeeded := false
 	for index, deliveryErr := range deliveryErrors {
+		if errors.Is(deliveryErr, sidecaragentclient.ErrFreshLeaseNonceNeeded) {
+			freshNonceNeeded = true
+			continue
+		}
 		if deliveryErr != nil {
 			return fmt.Errorf("lease delivery to %s: %w (context: %v)", deliveries[index].originID, deliveryErr, ctx.Err())
 		}
+	}
+	if freshNonceNeeded {
+		if unchangedByteRoutes && authorization.ProvisioningComplete {
+			collector.reconcileNeeded = false
+		}
+		return errRuntimeWhiteListFreshLeaseNonce
 	}
 	if unchangedByteRoutes && authorization.ProvisioningComplete {
 		// Every exact existing route was freshly authorized and installed after
@@ -502,7 +523,9 @@ func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx conte
 				continue
 			}
 			if page.PendingUseLease != nil {
-				if _, err := sender.PostUseLease(ctx, *page.PendingUseLease); err != nil {
+				if _, err := sender.PostUseLease(ctx, *page.PendingUseLease); errors.Is(err, sidecaragentclient.ErrFreshLeaseNonceNeeded) {
+					return errRuntimeWhiteListFreshLeaseNonce
+				} else if err != nil {
 					return errRuntimeWhiteListMeteringUnavailable
 				}
 				continue

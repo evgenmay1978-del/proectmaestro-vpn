@@ -52,6 +52,7 @@ var (
 	ErrUsageNotFound         = errors.New("sidecar agent client: usage snapshot not found")
 	ErrStaleGeneration       = errors.New("sidecar agent client: stale desired generation")
 	ErrRequestRejected       = errors.New("sidecar agent client: request rejected")
+	ErrFreshLeaseNonceNeeded = fmt.Errorf("%w: fresh lease nonce required", ErrRequestRejected)
 )
 
 type Config struct {
@@ -457,6 +458,9 @@ func (client *Client) PostUseLease(ctx context.Context, value UseLeaseRequest) (
 			}
 			granted[proof.Control.Email] = true
 		}
+	}
+	if status == http.StatusServiceUnavailable && !response.Complete && response.NeedsFreshNonce {
+		return response, ErrFreshLeaseNonceNeeded
 	}
 	if status != http.StatusOK || !response.Complete || response.NeedsFreshNonce {
 		return response, ErrRequestRejected
