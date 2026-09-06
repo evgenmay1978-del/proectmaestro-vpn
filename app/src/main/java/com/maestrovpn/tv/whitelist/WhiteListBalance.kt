@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.whitelist
 
+import com.maestrovpn.tv.utils.MaestroSub
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,6 +12,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.longOrNull
 import java.math.BigDecimal
+import java.io.IOException
 import java.net.URI
 import java.net.URL
 import java.text.DecimalFormat
@@ -50,48 +52,54 @@ object WhiteListBalanceClient {
         subscriptionUrl: String,
         openConnection: (URL) -> HttpsURLConnection,
     ): WhiteListBalance? {
-        var connection: HttpsURLConnection? = null
-        return try {
-            val source = URI(subscriptionUrl)
-            if (!source.scheme.equals("https", ignoreCase = true) || source.rawUserInfo != null ||
-                source.host.isNullOrBlank() || (source.port != -1 && source.port !in 1..65_535)
-            ) return null
-            if (!source.rawPath.orEmpty().startsWith("/sub/")) return null
-            val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1)
-                ?: return null
-            if (token == "." || token == "..") return null
-            val endpoint = URI("https", null, source.host, source.port, "/account/whitelist-balance", null, null).toURL()
-            val request = openConnection(endpoint)
-            connection = request
-            request.requestMethod = "GET"
-            request.instanceFollowRedirects = false
-            request.useCaches = false
-            request.connectTimeout = TIMEOUT_MS
-            request.readTimeout = TIMEOUT_MS
-            request.setRequestProperty("Authorization", "Bearer $token")
-            request.setRequestProperty("Accept", "application/json")
-            request.setRequestProperty("Cache-Control", "no-store")
-            if (request.responseCode != HttpsURLConnection.HTTP_OK || request.contentLength > MAX_RESPONSE_BYTES) return null
+        val source = runCatching { URI(subscriptionUrl) }.getOrNull() ?: return null
+        if (!source.scheme.equals("https", ignoreCase = true) || source.rawUserInfo != null ||
+            source.host.isNullOrBlank() || (source.port != -1 && source.port !in 1..65_535)
+        ) return null
+        if (!source.rawPath.orEmpty().startsWith("/sub/")) return null
+        val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
+        if (token == "." || token == "..") return null
+        val endpoints = listOf(URI("https", null, source.host, source.port, "/account/whitelist-balance", null, null).toURL()) +
+            listOfNotNull(MaestroSub.cdnFallbackUrl(subscriptionUrl, "/cabinet/api/balance")?.let(::URL))
+        for (endpoint in endpoints) {
+            var connection: HttpsURLConnection? = null
+            try {
+                val request = openConnection(endpoint)
+                connection = request
+                request.requestMethod = "GET"
+                request.instanceFollowRedirects = false
+                request.useCaches = false
+                request.connectTimeout = TIMEOUT_MS
+                request.readTimeout = TIMEOUT_MS
+                request.setRequestProperty("Authorization", "Bearer $token")
+                request.setRequestProperty("Accept", "application/json")
+                request.setRequestProperty("Cache-Control", "no-store")
+                val status = request.responseCode
+                if (status in 500..599 || status == -1) continue
+                if (status != HttpsURLConnection.HTTP_OK || request.contentLength > MAX_RESPONSE_BYTES) return null
 
-            val buffer = ByteArray(MAX_RESPONSE_BYTES + 1)
-            var used = 0
-            request.inputStream.use { input ->
-                while (used < buffer.size) {
-                    val count = input.read(buffer, used, buffer.size - used)
-                    if (count < 0) break
-                    used += count
+                val buffer = ByteArray(MAX_RESPONSE_BYTES + 1)
+                var used = 0
+                request.inputStream.use { input ->
+                    while (used < buffer.size) {
+                        val count = input.read(buffer, used, buffer.size - used)
+                        if (count < 0) break
+                        used += count
+                    }
                 }
+                if (used > MAX_RESPONSE_BYTES) return null
+                return parse(String(buffer, 0, used, Charsets.UTF_8))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                // Authorisation and malformed successful responses never trigger fallback.
+            } catch (_: Exception) {
+                return null
+            } finally {
+                connection?.disconnect()
             }
-            if (used > MAX_RESPONSE_BYTES) return null
-            parse(String(buffer, 0, used, Charsets.UTF_8))
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // Unavailable, unauthorised or malformed is unknown, never a fabricated zero balance.
-            null
-        } finally {
-            connection?.disconnect()
         }
+        return null
     }
 
     private fun parse(raw: String): WhiteListBalance? {

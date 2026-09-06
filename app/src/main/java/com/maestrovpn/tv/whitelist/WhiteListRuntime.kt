@@ -3,6 +3,7 @@ package com.maestrovpn.tv.whitelist
 import android.net.Network
 import android.os.SystemClock
 import com.maestrovpn.tv.bg.UpdateProfileWork
+import com.maestrovpn.tv.utils.MaestroSub
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +14,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.net.URI
 import java.net.URL
+import java.io.IOException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.HttpsURLConnection
@@ -57,40 +59,49 @@ internal object WhiteListRuntimeClient {
         clock: () -> Long,
         open: (URL) -> HttpsURLConnection,
     ): WhiteListRuntime? {
-        var connection: HttpsURLConnection? = null
-        var deadline: java.util.concurrent.ScheduledFuture<*>? = null
-        val started = clock()
-        return try {
-            val source = URI(subscriptionUrl)
-            if (source.scheme != "https" || source.rawUserInfo != null || source.host.isNullOrBlank() ||
-                source.rawFragment != null || (source.port != -1 && source.port !in 1..65_535)
-            ) return null
-            val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
-            if (token == "." || token == "..") return null
-            val endpoint = URI("https", null, source.host, source.port, "/account/whitelist-runtime", null, null).toURL()
-            val request = open(endpoint)
-            connection = request
-            request.requestMethod = "GET"
-            request.instanceFollowRedirects = false
-            request.useCaches = false
-            request.connectTimeout = REQUEST_LIMIT_MS.toInt()
-            request.readTimeout = REQUEST_LIMIT_MS.toInt()
-            request.setRequestProperty("Authorization", "Bearer $token")
-            request.setRequestProperty("Accept", "application/json")
-            request.setRequestProperty("Cache-Control", "no-store")
-            deadline = deadlineExecutor.schedule({ request.disconnect() }, REQUEST_LIMIT_MS, TimeUnit.MILLISECONDS)
-            if (request.responseCode != 200 || request.contentLength > LIMIT) return null
-            val bytes = request.inputStream.use { it.readBytesBounded(LIMIT) } ?: return null
-            if (clock() - started !in 0..REQUEST_LIMIT_MS) return null
-            parse(bytes.toString(Charsets.UTF_8), started, clock())
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            null
-        } finally {
-            deadline?.cancel(false)
-            connection?.disconnect()
+        val source = runCatching { URI(subscriptionUrl) }.getOrNull() ?: return null
+        if (source.scheme != "https" || source.rawUserInfo != null || source.host.isNullOrBlank() ||
+            source.rawFragment != null || (source.port != -1 && source.port !in 1..65_535)
+        ) return null
+        val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
+        if (token == "." || token == "..") return null
+        val endpoints = listOf(URI("https", null, source.host, source.port, "/account/whitelist-runtime", null, null).toURL()) +
+            listOfNotNull(MaestroSub.cdnFallbackUrl(subscriptionUrl, "/cabinet/api/runtime")?.let(::URL))
+        for (endpoint in endpoints) {
+            var connection: HttpsURLConnection? = null
+            var deadline: java.util.concurrent.ScheduledFuture<*>? = null
+            // A retry has its own response freshness window, never the previous lease's.
+            val started = clock()
+            try {
+                val request = open(endpoint)
+                connection = request
+                request.requestMethod = "GET"
+                request.instanceFollowRedirects = false
+                request.useCaches = false
+                request.connectTimeout = REQUEST_LIMIT_MS.toInt()
+                request.readTimeout = REQUEST_LIMIT_MS.toInt()
+                request.setRequestProperty("Authorization", "Bearer $token")
+                request.setRequestProperty("Accept", "application/json")
+                request.setRequestProperty("Cache-Control", "no-store")
+                deadline = deadlineExecutor.schedule({ request.disconnect() }, REQUEST_LIMIT_MS, TimeUnit.MILLISECONDS)
+                val status = request.responseCode
+                if (status in 500..599 || status == -1) continue
+                if (status != 200 || request.contentLength > LIMIT) return null
+                val bytes = request.inputStream.use { it.readBytesBounded(LIMIT) } ?: return null
+                if (clock() - started !in 0..REQUEST_LIMIT_MS) continue
+                return parse(bytes.toString(Charsets.UTF_8), started, clock())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                // Only a transport failure or 5xx can try the fixed CDN endpoint.
+            } catch (_: Exception) {
+                return null
+            } finally {
+                deadline?.cancel(false)
+                connection?.disconnect()
+            }
         }
+        return null
     }
 
     private fun java.io.InputStream.readBytesBounded(limit: Int): ByteArray? {

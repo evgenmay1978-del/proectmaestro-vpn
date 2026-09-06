@@ -1,6 +1,14 @@
 name: Build signed CDN APK only
 
 on:
+  workflow_call:
+    inputs:
+      native_artifact_id:
+        type: string
+        default: '9974061182'
+      native_artifact_sha256:
+        type: string
+        default: 'be2245314aaa1d3504a6ff5600be56dc0474a9550c1dfd400efc032385d5dd63'
   workflow_dispatch:
     inputs:
       native_artifact_id:

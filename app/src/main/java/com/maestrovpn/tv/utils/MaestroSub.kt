@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.MediaDrm
 import android.os.Build
 import android.provider.Settings
+import com.maestrovpn.tv.BuildConfig
+import java.net.URI
 import java.util.UUID
 
 /**
@@ -23,6 +25,24 @@ import java.util.UUID
 object MaestroSub {
     private const val PREFS = "maestro_device"
     private const val KEY = "device_id"
+    internal const val CDN_ORIGIN = "https://cdn-test.wapmixx.ru"
+
+    /** Only the canonical panel's subscription may send its credential to our CDN. */
+    internal fun cdnFallbackUrl(subUrl: String, accountPath: String? = null): String? = try {
+        val source = URI(subUrl)
+        val panel = URI(BuildConfig.BACKEND_URL)
+        val token = Regex("^/sub/([A-Za-z0-9._~+\\-]+=*)$").matchEntire(source.path.orEmpty())
+            ?.groupValues?.get(1)
+        if (source.scheme != "https" || source.host != panel.host || source.port != panel.port ||
+            source.rawUserInfo != null || token == null || token == "." || token == ".."
+        ) null
+        else if (accountPath != null) {
+            require(accountPath == "/cabinet/api/balance" || accountPath == "/cabinet/api/runtime")
+            CDN_ORIGIN + accountPath
+        } else {
+            CDN_ORIGIN + source.rawPath + (source.rawQuery?.let { "?$it" } ?: "")
+        }
+    } catch (_: Exception) { null }
 
     /**
      * Stable per-DEVICE id. Persisted once; on FIRST generation it is derived from ANDROID_ID so a

@@ -31,6 +31,7 @@ on:
         type: choice
         options:
           - android
+          - cdn-apk-build-only
           - reserve-measure
           - xhttp-native
           - cdn-runtime-test-apk
@@ -47,6 +48,14 @@ on:
       - .github/workflows/android-test.yml
 
 jobs:
+  cdn-apk-build-only:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'cdn-apk-build-only' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cdn-apk-build.yml
+    secrets: inherit
+
   cdn-runtime-test-apk:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'cdn-runtime-test-apk' }}
     needs: xhttp-native

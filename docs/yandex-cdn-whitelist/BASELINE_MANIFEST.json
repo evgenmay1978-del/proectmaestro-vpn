@@ -15,8 +15,8 @@
     },
     {
       "path": "CONTEXT_HANDOFF.md",
-      "bytes": 73657,
-      "sha256": "bbf4fa95ca68137583708823fdd15b295a8772c9f8c969e0bfaea0e4d0e2ff8d",
+      "bytes": 75553,
+      "sha256": "5e620beeaca49c3de997f59540c5a2cce398fc7f9fb32af88874a37cef17c4bf",
       "preview": "# MaestroVPN — актуальная точка продолжения\n\nОбновлено 06.09.2026. Это текущий handoff, а не новый проект или новый план.\nПолная прежняя история сохранена без потерь в\n[CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>](CONTEXT_HANDOFF_HISTORY_2026-<REDACTED>).\nИсторию открывать по конкретной необходимости; старые CURRENT/next-a"
     },
     {
@@ -111,9 +111,9 @@
     },
     {
       "path": "docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md",
-      "bytes": 75599,
-      "sha256": "98c4b62326da95bf450d197000f914542595c4d63298c74ec7a74d77766d0c5f",
-      "preview": "# CODEX BOOTSTRAP MASTER TASK\n# MaestroVPN / Maestro Panel\n# Yandex Cloud CDN White-List Transport\n# Per-Client Management + Per-GB Billing\n# Production-Safe Engineering Program\n\nТы работаешь с реальной системой MaestroVPN, Maestro Panel, backend,\nботами, серверами, 3x-ui, Xray, подписками и существующими клиентами.\n\nЭ"
+      "bytes": 81821,
+      "sha256": "e3dfeac4899836f1252dac1be302a2411770b48d21b1c98fba2ed0fc334adfb0",
+      "preview": "# Актуальные требования владельца — 06.09.2026\n\nЗафиксировано по прямому запросу: «Запиши все. Мои требования дабы не забыл». Этот раздел имеет приоритет над прежними процессными требованиями ниже. Историческое задание сохранено целиком.\n\n1. Нужен работающий связанный сервис: серверы, панель, Telegram-боты, MaestroVPN "
     },
     {
       "path": "docs/yandex-cdn-whitelist/PANEL_INTEGRATION.md",
