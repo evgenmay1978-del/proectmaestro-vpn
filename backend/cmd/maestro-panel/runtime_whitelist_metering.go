@@ -181,7 +181,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		// Prepaid byte ceilings bound forwarding independently of processing time.
 		// Keep the original five-second observation and BOOTTIME lease deadlines;
 		// this only lets durable recovery/accounting finish before cancellation.
-		passBudget, processingBudget = 10*time.Second, 5*time.Second
+		passBudget, processingBudget = 15*time.Second, 5*time.Second
 	}
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
@@ -358,6 +358,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		leaseContext, cancelLease := context.WithTimeout(reconcileContext, processingBudget)
 		defer cancelLease()
 		ctx = leaseContext
+		freshAvailable := make(map[string]map[string]struct{}, len(plan.Origins))
 		stage = "lease challenge refresh"
 		for _, origin := range plan.Origins {
 			sender := collector.senders[origin.Origin.NodeID]
@@ -371,7 +372,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 				return errRuntimeWhiteListMeteringUnavailable
 			}
 			seen := make(map[string]struct{}, len(routes))
-			available := make([]string, 0, len(snapshot.Users))
+			available := make(map[string]struct{}, len(snapshot.Users))
 			for _, email := range snapshot.UnavailableUsers {
 				if _, ok := routes[email]; !ok {
 					return errRuntimeWhiteListMeteringUnavailable
@@ -389,17 +390,15 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 					return errRuntimeWhiteListMeteringUnavailable
 				}
 				seen[user.Email] = struct{}{}
-				available = append(available, user.Email)
+				available[user.Email] = struct{}{}
 			}
 			if len(seen) != len(routes) {
 				return errRuntimeWhiteListMeteringUnavailable
 			}
-			if err := collector.control.RecordWhiteListOriginObservation(ctx, controlplane.WhiteListOriginObservation{
-				Receipt: origin.Receipt, SampledAt: snapshot.SampledAt,
-				AvailableUsers: available, UnavailableUsers: snapshot.UnavailableUsers,
-			}); err != nil {
-				return errRuntimeWhiteListMeteringUnavailable
-			}
+			// This second read refreshes only the short-lived agent nonce. Its
+			// counters are settled by the next pass before they can advance the
+			// durable accounted-through observation.
+			freshAvailable[origin.Origin.OriginID] = available
 			snapshots[origin.Origin.OriginID] = snapshot
 			snapshotReceivedAt[origin.Origin.OriginID] = receivedAt
 		}
@@ -434,6 +433,11 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	for _, origin := range plan.Origins {
 		if ctx.Err() != nil {
 			return errRuntimeWhiteListMeteringUnavailable
+		}
+		for email := range authorizedRoutes {
+			if _, ok := freshAvailable[origin.Origin.OriginID][email]; !ok {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
 		}
 		// FreshFor is remaining time at authorization. Convert it once to a
 		// duration from the received snapshot, which is later than the agent's

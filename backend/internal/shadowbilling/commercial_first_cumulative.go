@@ -44,8 +44,17 @@ func applyFirstCumulative(state State, event OrderedUsageEvent, policy Policy) (
 // Admission and sample must belong to the same paid period: no first-use reset
 // or approximate allocation is authorized by a topup, restart, or period change.
 func commercialFirstCumulativeGuard(source CommercialSourceBinding) rqlite.Statement {
-	return rqlite.Statement{SQL: `SELECT CASE WHEN (EXISTS (
-SELECT 1 FROM whitelist_first_use_admissions AS admission
+	return rqlite.Statement{SQL: `WITH admission_authority AS (
+ SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,
+  admitted_at_unix,zero_start_authorized,first_observed_at_unix
+ FROM whitelist_first_use_admissions
+ UNION ALL
+ SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,
+  admitted_at_unix,1 AS zero_start_authorized,first_observed_at_unix
+ FROM whitelist_byte_allocations
+)
+SELECT CASE WHEN (EXISTS (
+SELECT 1 FROM admission_authority AS admission
 JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id
  AND period.entitlement_id=admission.entitlement_id
 JOIN whitelist_metering_origin_observations AS observation ON observation.origin_id=admission.origin_id
@@ -73,7 +82,7 @@ OR EXISTS (
  JOIN idempotency_requests AS proof ON proof.scope='whitelist-final-proof'
   AND proof.command_type='accept-agent-fence' AND proof.idempotency_key=accepted.idempotency_key
   AND proof.resource_id=accepted.resource_id AND proof.status='applied'
- JOIN whitelist_first_use_admissions AS admission ON admission.entitlement_id=accepted.resource_id
+ JOIN admission_authority AS admission ON admission.entitlement_id=accepted.resource_id
  JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id AND period.entitlement_id=admission.entitlement_id
  WHERE accepted.scope='whitelist-final-metering' AND accepted.command_type='accept-final-source'
   AND accepted.operation_id=? AND accepted.request_hash=? AND accepted.resource_id=? AND accepted.status='applied'
