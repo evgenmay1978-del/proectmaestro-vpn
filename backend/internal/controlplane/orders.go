@@ -570,6 +570,9 @@ WHERE desired_target=1 AND retired=0 ORDER BY node_id,service_name`,
 		if !nodeOK || !serviceOK {
 			return nil, ErrUnavailable
 		}
+		if err := s.appendLegacyXUIAbsence(ctx, prepared.CustomerID, nodeID, payload); err != nil {
+			return nil, err
+		}
 		envelope, digest, sealErr := s.store.secrets.SealDesiredPayload(DesiredPayloadScope{
 			NodeID: nodeID, ServiceID: serviceName, CustomerID: prepared.CustomerID,
 			Generation: prepared.CustomerGeneration, OperationID: operationID,

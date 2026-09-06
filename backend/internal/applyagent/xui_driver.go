@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 const XUIPayloadKind = "xui-user-v1"
@@ -205,6 +207,16 @@ func (d *xuiDriver) validateSnapshot(snapshot MaterializedSnapshot) error {
 			entry.Generation <= 0 ||
 			entry.CustomerID == "" ||
 			entry.OperationID == "" {
+			return ErrInvalidCommand
+		}
+		if entry.Tombstone && len(entry.Body) == 0 {
+			continue
+		}
+		var body map[string]json.RawMessage
+		if json.Unmarshal(entry.Body, &body) != nil {
+			return ErrInvalidCommand
+		}
+		if _, quarantined := body[controlplane.LegacyXUIAbsenceMarker]; quarantined {
 			return ErrInvalidCommand
 		}
 	}

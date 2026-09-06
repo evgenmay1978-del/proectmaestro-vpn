@@ -29,6 +29,7 @@ func TestSameGenerationSameHashDoesNotRewriteOperation(t *testing.T) {
 		rqlite.Result{},
 		rqlite.Result{Rows: []map[string]any{task6DesiredEvidence()}},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 	if err := service.UpsertDesired(context.Background(), desiredFixture(5, testDesiredSHA)); err != nil {
 		t.Fatalf("same generation/hash retry: %v", err)
@@ -45,7 +46,7 @@ func TestDuplicateReceiptIsExactHashNoOp(t *testing.T) {
 		requests: []scriptedResult{resultsScript(
 			rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 		)},
-		linear: []scriptedResult{rowsScript(map[string]any{
+		linear: []scriptedResult{legacyXUIAbsentScript("customer-1", "s2"), rowsScript(map[string]any{
 			"receipt_id": "receipt-1", "customer_id": "customer-1",
 			"node_id": "s2", "service_name": "xui", "operation_id": "operation-1",
 			"generation": int64(8), "cluster_epoch": int64(6),
@@ -63,8 +64,8 @@ func TestDuplicateReceiptIsExactHashNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exact duplicate receipt retry: %v", err)
 	}
-	if len(db.linearCalls) != 1 {
-		t.Fatalf("duplicate receipt exact-read calls=%d, want 1", len(db.linearCalls))
+	if len(db.linearCalls) != 2 {
+		t.Fatalf("duplicate receipt absence and exact-read calls=%d, want 2", len(db.linearCalls))
 	}
 }
 
@@ -73,6 +74,7 @@ func TestAppliedTombstoneReceiptAcknowledgesRequiredTarget(t *testing.T) {
 		rqlite.Result{Rows: []map[string]any{{"receipt_id": "receipt-1"}}},
 		rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 	err := service.RecordApplyReceipt(context.Background(), ApplyReceipt{
 		ReceiptID: "receipt-1", CustomerID: "customer-1", NodeID: "s2", ServiceName: "xui",

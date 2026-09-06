@@ -124,6 +124,7 @@ func captureBackupRPOFlowStatements(t *testing.T, flow string) []rqlite.Statemen
 			rqlite.Result{RowsAffected: 1}, rqlite.Result{},
 			rqlite.Result{Rows: []map[string]any{task6DesiredEvidence()}},
 		)}}
+		db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 		service, _ := testService(t, db)
 		if err := service.UpsertDesired(context.Background(), desiredFixture(5, testDesiredSHA)); err != nil {
 			t.Fatalf("capture UpsertDesired: %v", err)

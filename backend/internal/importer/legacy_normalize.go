@@ -33,11 +33,12 @@ type LegacyXUICapture struct {
 }
 
 type LegacyNodeCapture struct {
-	Login  string `json:"login"`
-	NodeID string `json:"node_id"`
-	Server string `json:"server"`
-	UUID   string `json:"uuid"`
-	SubID  string `json:"sub_id"`
+	Login          string                                 `json:"login"`
+	NodeID         string                                 `json:"node_id"`
+	Server         string                                 `json:"server"`
+	UUID           string                                 `json:"uuid"`
+	SubID          string                                 `json:"sub_id"`
+	ObservedAbsent *controlplane.LegacyXUIAbsenceEvidence `json:"observed_absent,omitempty"`
 }
 
 // Non-XUI protocols require an explicit source server -> production node map.
@@ -287,11 +288,14 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		key := binding.Login + "\x00" + binding.NodeID
 		if _, exists := bindings[key]; exists || binding.Login == "" || binding.Server == "" ||
 			(binding.NodeID != "S1" && binding.NodeID != "S3" && binding.NodeID != "S4") ||
-			binding.SubID == "" || len(binding.SubID) > 4096 || strings.ContainsRune(binding.SubID, 0) ||
-			subIDs[binding.NodeID+"\x00"+binding.SubID] {
+			!validLegacyNodeCapture(binding, capture, options.Now, options.MaxCaptureAge) ||
+			(binding.SubID != "" && subIDs[binding.NodeID+"\x00"+binding.SubID]) {
 			return failed()
 		}
-		bindings[key], subIDs[binding.NodeID+"\x00"+binding.SubID] = binding, true
+		bindings[key] = binding
+		if binding.SubID != "" {
+			subIDs[binding.NodeID+"\x00"+binding.SubID] = true
+		}
 	}
 	protocolNodes := map[string]string{}
 	for _, binding := range options.ProtocolBindings {
@@ -358,7 +362,23 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			if !exists || binding.UUID != creds.uuid || binding.Server != creds.server {
 				return failed()
 			}
-			identity.NodeSubIDs[nodeID], nodes[nodeID], usedBindings[key] = binding.SubID, true, true
+			if binding.ObservedAbsent != nil {
+				if identity.ObservedAbsent == nil {
+					identity.ObservedAbsent = map[string]controlplane.LegacyXUIAbsenceEvidence{}
+				}
+				identity.ObservedAbsent[nodeID] = *binding.ObservedAbsent
+			} else {
+				identity.NodeSubIDs[nodeID] = binding.SubID
+			}
+			nodes[nodeID], usedBindings[key] = true, true
+		}
+		if prior, exists := parentIdentities[sourceKey]; exists {
+			for node, evidence := range prior.ObservedAbsent {
+				if _, stillAbsent := identity.ObservedAbsent[node]; !stillAbsent {
+					return failed()
+				}
+				identity.ObservedAbsent[node] = evidence
+			}
 		}
 		identity.SubID = identity.NodeSubIDs["S1"]
 		credentials, err := productionCredentials(identity)
@@ -394,7 +414,9 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		zeroBytes(fingerprint)
 		if customer.VLESS != nil {
 			row.UUIDHMAC = box.LookupHMAC("customer-uuid", []byte(customer.VLESS.UUID))
-			row.SubIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+			if identity.SubID != "" {
+				row.SubIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+			}
 		}
 		if customer.Disabled {
 			row.Status = "suspended"
@@ -426,6 +448,9 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		}
 		snapshot.Customers = append(snapshot.Customers, row)
 		snapshot.EncryptedSecrets = append(snapshot.EncryptedSecrets, secret)
+		if appendLegacyNodeAbsences(&snapshot, row, identity, box, options.Parent) != nil {
+			return failed()
+		}
 		seenSources[sourceKey] = true
 	}
 	if len(usedBindings) != len(bindings) {

@@ -17,8 +17,9 @@ import (
 )
 
 type captureXUIConfig struct {
-	SchemaVersion int              `json:"schema_version"`
-	Nodes         []captureXUINode `json:"nodes"`
+	SchemaVersion  int                          `json:"schema_version"`
+	Nodes          []captureXUINode             `json:"nodes"`
+	ObservedAbsent []importer.LegacyNodeCapture `json:"observed_absent,omitempty"`
 }
 
 type captureXUINode struct {
@@ -86,6 +87,15 @@ func runCaptureXUIWithFactory(args []string, stdout, stderr io.Writer, factory c
 		return exitInputSystem
 	}
 	capture := importer.LegacyXUICapture{SchemaVersion: 1, CapturedAt: capturedAt, CustomersSHA256: sourceSHA, Bindings: make([]importer.LegacyNodeCapture, 0, len(customers))}
+	absent := map[string]importer.LegacyNodeCapture{}
+	for _, binding := range cfg.ObservedAbsent {
+		key := binding.Login + "\x00" + binding.NodeID
+		if _, duplicate := absent[key]; duplicate || !importer.ValidateLegacyAbsentCaptureBinding(binding, sourceSHA, capturedAt, importCommandLimit) {
+			writeError(stderr, "protected absent binding evidence is invalid")
+			return exitInputSystem
+		}
+		absent[key] = binding
+	}
 	// Validate every local binding before sending any request. No inferred node,
 	// panel UUID, subscription id or source-server replacement is permitted.
 	for _, customer := range customers {
@@ -113,8 +123,21 @@ func runCaptureXUIWithFactory(args []string, stdout, stderr io.Writer, factory c
 				writeError(stderr, "customer server does not match capture node")
 				return exitInputSystem
 			}
+			key := binding.Login + "\x00" + binding.NodeID
+			if proof, ok := absent[key]; ok {
+				if proof.Server != binding.Server || proof.UUID != binding.UUID {
+					writeError(stderr, "protected absent binding does not match source")
+					return exitInputSystem
+				}
+				binding.ObservedAbsent = proof.ObservedAbsent
+				delete(absent, key)
+			}
 			capture.Bindings = append(capture.Bindings, binding)
 		}
+	}
+	if len(absent) != 0 {
+		writeError(stderr, "protected absent binding does not match source")
+		return exitInputSystem
 	}
 	clients := make(map[string]captureXUIClient, len(nodes))
 	for i := range capture.Bindings {
@@ -123,6 +146,9 @@ func runCaptureXUIWithFactory(args []string, stdout, stderr io.Writer, factory c
 			return exitInputSystem
 		}
 		binding := &capture.Bindings[i]
+		if binding.ObservedAbsent != nil {
+			continue
+		}
 		client := clients[binding.NodeID]
 		if client == nil {
 			client, err = factory(nodes[binding.NodeID].Config)

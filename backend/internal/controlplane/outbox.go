@@ -17,15 +17,15 @@ const nodeLeaseTTLSeconds int64 = 90
 // DesiredState is one absolute encrypted service target. A generation is
 // immutable: retries may repeat its hash, but may never replace it.
 type DesiredState struct {
-	CustomerID   string
-	NodeID       string
-	ServiceName  string
-	OperationID  string
-	EventKind    string
-	Generation   int64
-	Payload      Envelope
+	CustomerID    string
+	NodeID        string
+	ServiceName   string
+	OperationID   string
+	EventKind     string
+	Generation    int64
+	Payload       Envelope
 	PayloadSHA256 string
-	Tombstone    bool
+	Tombstone     bool
 }
 
 type LeaseRequest struct {
@@ -86,6 +86,14 @@ func (s *Service) UpsertDesired(ctx context.Context, desired DesiredState) error
 	if hex.EncodeToString(payloadDigest[:]) != desired.PayloadSHA256 {
 		return errors.New("controlplane: desired payload hash mismatch")
 	}
+	absence, err := s.legacyXUIAbsence(ctx, desired.CustomerID, desired.NodeID)
+	if err != nil {
+		return err
+	}
+	if !s.legacyAbsentPayloadAllowed(absence, DesiredPayloadScope{CustomerID: desired.CustomerID, NodeID: desired.NodeID, ServiceID: desired.ServiceName, OperationID: desired.OperationID, Generation: desired.Generation, Tombstone: desired.Tombstone}, desired.Payload, desired.PayloadSHA256) {
+		return ErrForbidden
+	}
+	absenceGuard, absenceArgs := absence.guard()
 	eventID, err := s.ids.NewID("event")
 	if err != nil {
 		return errors.New("controlplane: generate outbox event")
@@ -101,7 +109,7 @@ func (s *Service) UpsertDesired(ctx context.Context, desired DesiredState) error
 customer_id,node_id,service_name,generation,desired_envelope,desired_sha256,status,updated_at_unix,tombstone,operation_id)
 SELECT ?,?,?,?,?,?,'pending',?,?,?
 FROM node_services
-WHERE node_id=? AND service_name=? AND desired_target=1 AND retired=0
+WHERE node_id=? AND service_name=? AND desired_target=1 AND retired=0 AND ` + absenceGuard + `
 ON CONFLICT(customer_id,node_id,service_name) DO UPDATE SET
 generation=excluded.generation,
 desired_envelope=excluded.desired_envelope,
@@ -111,11 +119,11 @@ updated_at_unix=excluded.updated_at_unix,
 tombstone=excluded.tombstone,
 operation_id=excluded.operation_id
 WHERE excluded.generation > desired_node_state.generation
-RETURNING generation,desired_sha256`, Args: []any{
+RETURNING generation,desired_sha256`, Args: append([]any{
 			desired.CustomerID, desired.NodeID, desired.ServiceName, desired.Generation,
 			payload, desired.PayloadSHA256, now, tombstone, desired.OperationID,
 			desired.NodeID, desired.ServiceName,
-		}},
+		}, absenceArgs...)},
 		rqlite.Statement{SQL: `INSERT INTO outbox_events(
 event_id,aggregate_type,aggregate_id,generation,event_type,payload_envelope,payload_sha256,
 status,available_at_unix,attempts,created_at_unix,node_id,service_name,operation_id,event_kind)
@@ -231,6 +239,10 @@ func (s *Service) RecordApplyReceipt(ctx context.Context, receipt ApplyReceipt) 
 		!canonicalRestoreHex(receipt.DesiredSHA256) || !canonicalRestoreHex(receipt.ObservedSHA256) {
 		return errors.New("controlplane: invalid apply receipt")
 	}
+	absenceGuard, absenceArgs, err := s.legacyXUIReceiptGuard(ctx, receipt)
+	if err != nil {
+		return err
+	}
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true,
 		rqlite.Statement{SQL: `INSERT INTO node_apply_receipts(
 receipt_id,customer_id,node_id,service_name,generation,desired_sha256,status,
@@ -247,9 +259,9 @@ WHERE nl.node_id=? AND nl.service_name=? AND nl.holder_id=?
   AND cr.restore_epoch=? AND nl.cluster_epoch=?
   AND n.node_incarnation=? AND nl.node_incarnation=?
   AND nl.lease_fence=? AND dns.generation=? AND dns.desired_sha256=?
-  AND dns.operation_id=?
+  AND dns.operation_id=? AND ` + absenceGuard + `
 ON CONFLICT(customer_id,node_id,service_name,generation) DO NOTHING
-RETURNING receipt_id`, Args: []any{
+RETURNING receipt_id`, Args: append([]any{
 			receipt.ReceiptID, receipt.CustomerID, receipt.NodeID, receipt.ServiceName,
 			receipt.Generation, receipt.DesiredSHA256, receipt.ObservedSHA256,
 			receipt.ClusterEpoch, receipt.NodeIncarnation, receipt.LeaseFence, receipt.OperationID,
@@ -257,7 +269,7 @@ RETURNING receipt_id`, Args: []any{
 			receipt.ClusterEpoch, receipt.ClusterEpoch, receipt.NodeIncarnation,
 			receipt.NodeIncarnation, receipt.LeaseFence, receipt.Generation,
 			receipt.DesiredSHA256, receipt.OperationID,
-		}},
+		}, absenceArgs...)},
 		backupRPODirtyGenerationStatement(s.clock.Now().Unix()),
 		rqlite.Statement{SQL: `UPDATE desired_node_state SET status='applied',updated_at_unix=unixepoch()
 WHERE customer_id=? AND node_id=? AND service_name=? AND generation=? AND desired_sha256=?
@@ -350,6 +362,11 @@ func (s *Service) ReconcileNode(ctx context.Context, command ReconcileNodeComman
 		return 0, errors.New("controlplane: invalid reconcile command")
 	}
 	customerID := strings.TrimSpace(command.CustomerID)
+	command.CustomerID = customerID
+	absenceGuard, absenceArgs, err := s.legacyXUIReconcileGuard(ctx, command)
+	if err != nil {
+		return 0, err
+	}
 	results, err := s.store.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `
 INSERT INTO outbox_events(
 event_id,aggregate_type,aggregate_id,generation,event_type,payload_envelope,payload_sha256,
@@ -363,11 +380,12 @@ JOIN node_services ns ON ns.node_id=d.node_id AND ns.service_name=d.service_name
 WHERE d.node_id=? AND d.service_name=? AND d.operation_id IS NOT NULL
   AND (?='' OR d.customer_id=?)
   AND ns.desired_target=1 AND ns.retired=0
+  AND ` + absenceGuard + `
   AND NOT EXISTS(SELECT 1 FROM outbox_events o
       WHERE o.operation_id=d.operation_id AND o.node_id=d.node_id
         AND o.service_name=d.service_name AND o.generation=d.generation
         AND o.event_kind='customer_desired')
-ON CONFLICT DO NOTHING`, Args: []any{command.NodeID, command.ServiceName, customerID, customerID}})
+ON CONFLICT DO NOTHING`, Args: append([]any{command.NodeID, command.ServiceName, customerID, customerID}, absenceArgs...)})
 	if err != nil || len(results) != 1 {
 		return 0, errors.New("controlplane: reconcile unavailable")
 	}

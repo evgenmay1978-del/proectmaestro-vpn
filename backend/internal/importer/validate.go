@@ -21,6 +21,11 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 	if !validCanonicalSHA256(snapshot.ClusterHMACKeySHA256) {
 		add("invalid_cluster_hmac_key_digest", "snapshot", "")
 	}
+	for _, deletion := range snapshot.Deletes {
+		if deletion.Entity == "encrypted_secret" && strings.HasPrefix(deletion.SourceKey, controlplane.LegacyXUIAbsenceKind+":") {
+			add("immutable_legacy_node_binding", "encrypted_secret", deletion.SourceKey)
+		}
+	}
 	if !validateTrialSourceShape(snapshot.SourceHashes, snapshot.EncryptedSecrets) {
 		add("invalid_native_trial_source_evidence", "snapshot", "")
 	}

@@ -1061,6 +1061,7 @@ func (s *RQLiteApplyStore) encryptedSecretDeleteStatements(batch ApplyBatch, ope
 	if deletion.Entity != "encrypted_secret" || operation.Key != deletion.SourceKey ||
 		deletion.SourceKey == "" || deletion.TargetID != deletion.SourceKey ||
 		reservedTrialSecretIdentity(deletion.SourceKey) ||
+		strings.HasPrefix(deletion.SourceKey, controlplane.LegacyXUIAbsenceKind+":") ||
 		!validCanonicalSHA256(deletion.ExpectedPriorDigest) || deletion.PriorGeneration != 0 ||
 		deletion.NextGeneration != 0 || deletion.TombstoneID != "" || deletion.Tombstone {
 		return nil, errors.New("invalid canonical encrypted-secret delete")
@@ -1242,6 +1243,14 @@ func (s *RQLiteApplyStore) encryptedSecretStatements(batch ApplyBatch, operation
 		secret.Field == "" || secret.Kind == "" || secret.KeyVersion <= 0 ||
 		secret.NonceB64 == "" || secret.CiphertextB64 == "" || len(secret.SHA256) != 64 {
 		return nil, errors.New("invalid canonical encrypted secret")
+	}
+	if reservedNodeAbsence(secret) {
+		if s.customerProtection == nil || operation.Key != secret.SecretID {
+			return nil, errInvalidProductionIdentity
+		}
+		if expected, ok := s.customerProtection.nodeAbsences[secret.SecretID]; !ok || expected != secret {
+			return nil, errInvalidProductionIdentity
+		}
 	}
 	if reservedTrialEvidence(secret) {
 		if s.trialProtection == nil || s.trialProtection.ledger == nil || operation.Key != secret.SecretID {
@@ -1593,6 +1602,11 @@ WHERE customer_id=? AND protocol NOT IN (` + sqlPlaceholders(len(protocols)) + `
 			return nil, err
 		}
 		statements = append(statements, deviceStatements...)
+		bindingStatements, err := s.productionNodeAbsenceStatements(batch, customer)
+		if err != nil {
+			return nil, err
+		}
+		statements = append(statements, bindingStatements...)
 	}
 	protocolDeleteArgs := []any{customer.InternalID, "maestro-core"}
 	for _, protocolTag := range customer.ProtocolTags {

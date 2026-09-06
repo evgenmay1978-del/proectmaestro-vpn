@@ -307,6 +307,9 @@ WHERE desired_target=1 AND retired=0 ORDER BY node_id,service_name`,
 		if access := accessPayload(customer.Access); access != nil {
 			payload["access"] = access
 		}
+		if err := s.appendLegacyXUIAbsence(ctx, customer.ID, nodeID, payload); err != nil {
+			return nil, err
+		}
 		envelope, digest, sealErr := s.store.secrets.SealDesiredPayload(DesiredPayloadScope{
 			NodeID: nodeID, ServiceID: serviceName, CustomerID: customer.ID, Generation: customer.Generation,
 			OperationID: operationID, PayloadKind: kind, Tombstone: tombstone,

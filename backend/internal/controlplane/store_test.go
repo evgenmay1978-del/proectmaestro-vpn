@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -22,8 +23,9 @@ type recordedCall struct {
 }
 
 type scriptedResult struct {
-	results []rqlite.Result
-	err     error
+	results       []rqlite.Result
+	err           error
+	expectedQuery *rqlite.Statement
 }
 
 func rowsScript(rows ...map[string]any) scriptedResult {
@@ -83,6 +85,12 @@ func (f *recordingRQLite) QueryLinearizable(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.linearCalls = append(f.linearCalls, recordedCall{level: rqlite.Linearizable, statements: cloneStatements(statements)})
+	if len(f.linear) > 0 && f.linear[0].expectedQuery != nil {
+		expected := f.linear[0].expectedQuery
+		if len(statements) != 1 || strings.Join(strings.Fields(statements[0].SQL), " ") != strings.Join(strings.Fields(expected.SQL), " ") || !reflect.DeepEqual(statements[0].Args, expected.Args) {
+			return nil, errors.New("unexpected linearizable query or arguments")
+		}
+	}
 	return popScripted(&f.linear)
 }
 
@@ -136,6 +144,17 @@ func (s *sequenceIDs) NewID(prefix string) (string, error) {
 
 func testService(t *testing.T, db rqlite.RQLite) (*Service, *SecretBox) {
 	t.Helper()
+	if scripted, ok := db.(*recordingRQLite); ok {
+		t.Cleanup(func() {
+			scripted.mu.Lock()
+			defer scripted.mu.Unlock()
+			for _, remaining := range scripted.linear {
+				if remaining.expectedQuery != nil {
+					t.Error("explicit expected linearizable query was not consumed")
+				}
+			}
+		})
+	}
 	encryptionKey := bytes.Repeat([]byte{0x61}, 32)
 	hmacKey := bytes.Repeat([]byte{0x62}, 32)
 	secrets, err := NewSecretBox(1, map[int][]byte{1: encryptionKey}, hmacKey)

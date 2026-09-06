@@ -91,6 +91,11 @@ func canonicalMutationDB(existing bool) *recordingRQLite {
 		linear = append(linear, rowsScript(canonicalMutationAccessRows()...))
 	}
 	linear = append(linear, rowsScript(map[string]any{"node_id": "s1", "service_name": "x-ui"}))
+	targetCustomerID := customer.ID
+	if !existing {
+		targetCustomerID = "customer_00000000000000000000000000000001"
+	}
+	linear = append(linear, legacyXUIAbsentScript(targetCustomerID, "s1"))
 	return &recordingRQLite{linear: linear, requestFn: canonicalCustomerResult}
 }
 

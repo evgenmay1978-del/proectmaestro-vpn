@@ -23,6 +23,7 @@ func TestTask6UpsertDesiredUsesStrictMutationOutboxDirtyAndExactEvidence(t *test
 		rqlite.Result{Rows: []map[string]any{{"dirty_generation": int64(2)}}},
 		rqlite.Result{Rows: []map[string]any{task6DesiredEvidence()}},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 	if err := service.UpsertDesired(context.Background(), desiredFixture(5, testDesiredSHA)); err != nil {
 		t.Fatalf("UpsertDesired: %v", err)
@@ -58,6 +59,7 @@ func TestTask6UpsertDesiredExactReplaySucceedsWithoutMutation(t *testing.T) {
 		rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 		rqlite.Result{Rows: []map[string]any{task6DesiredEvidence()}},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 	if err := service.UpsertDesired(context.Background(), desiredFixture(5, testDesiredSHA)); err != nil {
 		t.Fatalf("exact desired replay: %v", err)
@@ -70,6 +72,7 @@ func TestTask6RecordApplyReceiptBumpsOnlyAfterNewReceipt(t *testing.T) {
 		rqlite.Result{Rows: []map[string]any{{"dirty_generation": int64(2)}}},
 		rqlite.Result{RowsAffected: 1}, rqlite.Result{RowsAffected: 1}, rqlite.Result{},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 	receipt := ApplyReceipt{
 		ReceiptID: "receipt-task6", CustomerID: "customer-1", NodeID: "s2", ServiceName: "xui",

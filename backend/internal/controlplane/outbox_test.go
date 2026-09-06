@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	testDesiredSHA  = "f5f8197e669855d4ced22399d9e922b4c9b66ba020c63f121a57df4d693e7015"
-	testObservedSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testDesiredSHA     = "f5f8197e669855d4ced22399d9e922b4c9b66ba020c63f121a57df4d693e7015"
+	testObservedSHA    = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	testConflictingSHA = "943a5f37cc56e5f10ba27f2eab99bbe5461222ea5ccfeaa2a34e603e691708ff"
 )
 
@@ -30,6 +30,7 @@ func TestDesiredGenerationNeverMovesBackward(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
 		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 
 	err := service.UpsertDesired(context.Background(), desiredFixture(4, testDesiredSHA))
@@ -51,6 +52,7 @@ func TestSameGenerationDifferentPayloadHashConflicts(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
 		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 
 	desired := desiredFixture(5, testConflictingSHA)
@@ -102,6 +104,7 @@ func TestStaleLeaseCannotRecordReceipt(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
 		rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 	)}}
+	db.linear = []scriptedResult{legacyXUIAbsentScript("customer-1", "s2")}
 	service, _ := testService(t, db)
 	err := service.RecordApplyReceipt(context.Background(), ApplyReceipt{
 		ReceiptID: "receipt-1", CustomerID: "customer-1", NodeID: "s2", ServiceName: "xui",
@@ -129,6 +132,7 @@ func TestReconcileRepairsMissingOutboxFromDesiredSnapshot(t *testing.T) {
 	db := &recordingRQLite{requests: []scriptedResult{resultsScript(
 		rqlite.Result{RowsAffected: 1},
 	)}}
+	db.linear = []scriptedResult{legacyXUIReconcileEmptyScript(ReconcileNodeCommand{NodeID: "s2", ServiceName: "xui"})}
 	service, _ := testService(t, db)
 	repaired, err := service.ReconcileNode(context.Background(), ReconcileNodeCommand{
 		NodeID: "s2", ServiceName: "xui",

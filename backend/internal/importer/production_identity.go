@@ -29,11 +29,12 @@ var errInvalidProductionIdentity = errors.New("unsupported or inconsistent prote
 // Independently provisioned VLESS3/4 UUIDs still block migration. Existing WG
 // tuples are retained in a separate typed credential; absent VLESS stays absent.
 type ProductionCustomerIdentity struct {
-	SchemaVersion int                  `json:"schema_version"`
-	Customer      legacystore.Customer `json:"customer"`
-	SubID         string               `json:"sub_id"`
-	Generation    int64                `json:"generation"`
-	NodeSubIDs    map[string]string    `json:"node_sub_ids,omitempty"`
+	SchemaVersion  int                                              `json:"schema_version"`
+	Customer       legacystore.Customer                             `json:"customer"`
+	SubID          string                                           `json:"sub_id"`
+	Generation     int64                                            `json:"generation"`
+	NodeSubIDs     map[string]string                                `json:"node_sub_ids,omitempty"`
+	ObservedAbsent map[string]controlplane.LegacyXUIAbsenceEvidence `json:"observed_absent,omitempty"`
 }
 
 // ProductionCustomerProtection retains validated digests, lookup HMACs and
@@ -54,6 +55,7 @@ type ProductionCustomerProtection struct {
 	domainsValidated bool
 	settingRows      map[string]string
 	principalRows    map[string]string
+	nodeAbsences     map[string]LegacyEncryptedSecret
 }
 
 func ValidateProductionCustomerIdentities(protection SnapshotProtection, box *controlplane.SecretBox) (*ProductionCustomerProtection, error) {
@@ -145,6 +147,9 @@ func validateProductionCustomerRows(protection SnapshotProtection, box *controlp
 		validated.secrets[secret.SecretID] = canonicalLegacyDigest(secret)
 	}
 	if err := validateProductionDomains(protection, validated, secrets); err != nil {
+		return nil, err
+	}
+	if err := validateProductionNodeAbsences(protection, validated, secrets); err != nil {
 		return nil, err
 	}
 	return validated, nil
@@ -240,9 +245,9 @@ func productionCredentials(identity ProductionCustomerIdentity) (map[string]stri
 
 func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer, identity ProductionCustomerIdentity) error {
 	customer := identity.Customer
-	if identity.NodeSubIDs != nil {
+	if identity.NodeSubIDs != nil || len(identity.ObservedAbsent) > 0 {
 		expected := legacyVLESSNodes(customer)
-		if len(identity.NodeSubIDs) != len(expected) || identity.NodeSubIDs["S1"] != identity.SubID {
+		if len(identity.NodeSubIDs)+len(identity.ObservedAbsent) != len(expected) || identity.NodeSubIDs["S1"] != identity.SubID {
 			return errInvalidProductionIdentity
 		}
 		for node, subID := range identity.NodeSubIDs {
@@ -254,6 +259,23 @@ func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer,
 				if rowNode == node {
 					found = true
 				}
+			}
+			if !found {
+				return errInvalidProductionIdentity
+			}
+		}
+	}
+	if len(identity.ObservedAbsent) > 0 {
+		for node, evidence := range identity.ObservedAbsent {
+			if _, exists := legacyVLESSNodes(customer)[node]; !exists || !evidence.Valid() {
+				return errInvalidProductionIdentity
+			}
+			if _, present := identity.NodeSubIDs[node]; present {
+				return errInvalidProductionIdentity
+			}
+			found := false
+			for _, rowNode := range row.NodeIDs {
+				found = found || rowNode == node
 			}
 			if !found {
 				return errInvalidProductionIdentity
@@ -272,15 +294,17 @@ func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer,
 	}
 	uuidHMAC, subIDHMAC := "", ""
 	if customer.VLESS == nil {
-		if identity.SubID != "" || len(identity.NodeSubIDs) != 0 {
+		if identity.SubID != "" || len(identity.NodeSubIDs) != 0 || len(identity.ObservedAbsent) != 0 {
 			return errInvalidProductionIdentity
 		}
 	} else {
-		if identity.SubID == "" {
+		if _, absent := identity.ObservedAbsent["S1"]; identity.SubID == "" && !absent {
 			return errInvalidProductionIdentity
 		}
 		uuidHMAC = box.LookupHMAC("customer-uuid", []byte(customer.VLESS.UUID))
-		subIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+		if identity.SubID != "" {
+			subIDHMAC = box.LookupHMAC("subscription-id", []byte(identity.SubID))
+		}
 	}
 	for rawDevice, lastSeen := range customer.Devices {
 		if rawDevice == "" || len(rawDevice) > 4096 || strings.ContainsRune(rawDevice, 0) || lastSeen.Unix() < 0 || lastSeen.Unix() > 253402300799 {
