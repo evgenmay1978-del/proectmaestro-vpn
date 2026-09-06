@@ -43,7 +43,7 @@ func (b *ServiceBusiness) applyWhiteListPublication(ctx context.Context, token s
 	defer cancel()
 	publication, err := b.cfg.WhiteListPublicationSource.WhiteListPublication(timed, token, now)
 	if err != nil {
-		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
+		return ordinary, nil
 	}
 	switch publication.Verdict {
 	case WhiteListNoEntitlement, WhiteListNoBalance:
@@ -51,14 +51,14 @@ func (b *ServiceBusiness) applyWhiteListPublication(ctx context.Context, token s
 	case WhiteListPublishable:
 		// Continue and validate the publishable projection below.
 	default:
-		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
+		return ordinary, nil
 	}
 	if publication.ProjectionVersion <= 0 || publication.DesiredGeneration <= 0 || publication.FreshThrough.IsZero() || !publication.FreshThrough.After(now) || len(publication.Nodes) == 0 {
-		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
+		return ordinary, nil
 	}
 	augmented, err := subgen.AppendWhiteListShareLinks(string(ordinary.Document), publication.Nodes)
 	if err != nil {
-		return SubscriptionSnapshot{}, businessError(controlplane.ErrUnavailable)
+		return ordinary, nil
 	}
 	ordinary.Document = []byte(augmented)
 	sum := sha256.Sum256(ordinary.Document)
