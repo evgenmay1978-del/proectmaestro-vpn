@@ -12,8 +12,9 @@ import (
 )
 
 type WhiteListUseLeaseAuthorization struct {
-	Emails   []string
-	FreshFor time.Duration
+	Emails               []string
+	FreshFor             time.Duration
+	FreshnessEvaluatedAt time.Time
 	// Missing entries retain the explicit legacy measured mode. Byte mode is
 	// bound independently for each physical Origin and shared account email.
 	CumulativeByteCeilings     map[string]map[string]int64
@@ -266,11 +267,13 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	if ctx.Err() != nil {
 		return WhiteListUseLeaseAuthorization{Emails: []string{}}, ErrUnavailable
 	}
-	remaining := until.Sub(s.clock.Now())
+	evaluatedAt := s.clock.Now()
+	remaining := until.Sub(evaluatedAt)
 	if remaining <= 0 || remaining > 5*time.Second {
 		return WhiteListUseLeaseAuthorization{Emails: []string{}}, ErrUnavailable
 	}
 	sort.Strings(closed.Emails)
 	closed.FreshFor = remaining
+	closed.FreshnessEvaluatedAt = evaluatedAt
 	return closed, nil
 }

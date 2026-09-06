@@ -250,6 +250,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	ctx, cancelSampling := context.WithTimeout(reconcileContext, runtimeWhiteListMeteringInterval)
 	defer cancelSampling()
 	snapshots := make(map[string]sidecaragentclient.UsageSnapshot, len(plan.Origins))
+	snapshotReceivedAt := make(map[string]time.Time, len(plan.Origins))
 	for _, origin := range plan.Origins {
 		stage = "origin usage lookup"
 		sender, ok := collector.senders[origin.Origin.NodeID]
@@ -261,6 +262,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			return errRuntimeWhiteListMeteringUnavailable
 		}
 		snapshot, lookupErr := lookup.LookupUsage(ctx, origin.Desired.Action.ActionKey)
+		receivedAt := time.Now()
 		if lookupErr != nil || !runtimeWhiteListUsageReceiptMatches(origin.Receipt, snapshot.Receipt) {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
@@ -273,6 +275,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			}
 		}
 		snapshots[origin.Origin.OriginID] = snapshot
+		snapshotReceivedAt[origin.Origin.OriginID] = receivedAt
 		if len(snapshot.Users)+len(snapshot.UnavailableUsers) != len(routes) {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
@@ -327,7 +330,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	stage = "use lease authorization"
 	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
 	if err != nil {
-		return errRuntimeWhiteListMeteringUnavailable
+		return fmt.Errorf("lease authorization: %w (context: %v)", err, ctx.Err())
 	}
 	// One common conservative budget is anchored to each agent's own earlier
 	// read start. Backend wall time is never compared with remote BOOTTIME.
@@ -336,17 +339,27 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		if ctx.Err() != nil {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
-		request, err := sidecaragentclient.NewUseLeaseRequest(snapshots[origin.Origin.OriginID], authorization.FreshFor, authorization.Emails)
+		// FreshFor is remaining time at authorization. Convert it once to a
+		// duration from the received snapshot, which is later than the agent's
+		// read start. The unchanged BOOTTIME anchor therefore remains conservative.
+		budget := authorization.FreshFor
+		if !authorization.FreshnessEvaluatedAt.IsZero() {
+			budget += authorization.FreshnessEvaluatedAt.Sub(snapshotReceivedAt[origin.Origin.OriginID])
+		}
+		if budget > 5*time.Second {
+			budget = 5 * time.Second
+		}
+		request, err := sidecaragentclient.NewUseLeaseRequest(snapshots[origin.Origin.OriginID], budget, authorization.Emails)
 		if collector.byteBudgetBytes > 0 {
-			request, err = sidecaragentclient.NewByteBudgetUseLeaseRequest(snapshots[origin.Origin.OriginID], authorization.FreshFor, authorization.Emails,
+			request, err = sidecaragentclient.NewByteBudgetUseLeaseRequest(snapshots[origin.Origin.OriginID], budget, authorization.Emails,
 				authorization.CumulativeByteCeilings[origin.Origin.OriginID], authorization.ByteBudgetFenceGenerations[origin.Origin.OriginID])
 		}
 		if err != nil {
-			return errRuntimeWhiteListMeteringUnavailable
+			return fmt.Errorf("lease request: %w (context: %v)", err, ctx.Err())
 		}
 		sender := collector.senders[origin.Origin.NodeID].(runtimeWhiteListLeaseSender)
 		if _, err := sender.PostUseLease(ctx, request); err != nil {
-			return errRuntimeWhiteListMeteringUnavailable
+			return fmt.Errorf("lease delivery: %w (context: %v)", err, ctx.Err())
 		}
 	}
 	return nil
