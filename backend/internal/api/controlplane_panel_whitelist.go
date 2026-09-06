@@ -23,16 +23,17 @@ type panelWhiteListCommand struct {
 }
 
 type panelWhiteListView struct {
-	Enabled          bool  `json:"enabled"`
-	PrimaryActive    bool  `json:"primary_active"`
-	RemainingBytes   int64 `json:"remaining_bytes,string"`
-	IncludedBytes    int64 `json:"included_bytes,string"`
-	PurchasedBytes   int64 `json:"purchased_bytes,string"`
-	PeriodEndsAtUnix int64 `json:"period_ends_at_unix"`
+	PublicationVerdict string `json:"publication_verdict"`
+	Enabled            bool   `json:"enabled"`
+	PrimaryActive      bool   `json:"primary_active"`
+	RemainingBytes     int64  `json:"remaining_bytes,string"`
+	IncludedBytes      int64  `json:"included_bytes,string"`
+	PurchasedBytes     int64  `json:"purchased_bytes,string"`
+	PeriodEndsAtUnix   int64  `json:"period_ends_at_unix"`
 }
 
 func (b *ServiceBusiness) PanelWhiteListBalance(ctx context.Context, login string) (panelWhiteListView, error) {
-	var view panelWhiteListView
+	view := panelWhiteListView{PublicationVerdict: string(WhiteListNoEntitlement)}
 	customer, err := b.CustomerByLogin(ctx, login)
 	if err != nil {
 		return view, err
@@ -54,6 +55,7 @@ func (b *ServiceBusiness) PanelWhiteListBalance(ctx context.Context, login strin
 		return view, businessError(err)
 	}
 	view.Enabled = publication.Enabled
+	view.PublicationVerdict = string(b.whiteListBalanceVerdict(ctx, customer.CustomerID, publication.Enabled, snapshot))
 	view.PrimaryActive = snapshot.PrimaryActive
 	view.RemainingBytes = snapshot.AvailableBytes
 	view.IncludedBytes = snapshot.Projection.IncludedRemainingBytes

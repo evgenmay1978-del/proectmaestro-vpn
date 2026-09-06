@@ -7,6 +7,7 @@ import (
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistbalance"
 )
 
 var _ CommercialBusiness = (*ServiceBusiness)(nil)
@@ -154,19 +155,7 @@ func (b *ServiceBusiness) WhiteListBalance(ctx context.Context, accountID string
 	if snapshot.PrimaryActive {
 		primaryState = "active"
 	}
-	verdict := WhiteListPublishable
-	switch {
-	case !publication.Enabled:
-		verdict = WhiteListPublicationDisabled
-	case !snapshot.PrimaryActive:
-		verdict = WhiteListPrimaryExpired
-	case snapshot.Projection.Pending:
-		verdict = WhiteListProjectionPending
-	case snapshot.Frozen:
-		verdict = WhiteListProjectionStale
-	case snapshot.AvailableBytes <= 0:
-		verdict = WhiteListNoBalance
-	}
+	verdict := b.whiteListBalanceVerdict(ctx, accountID, publication.Enabled, snapshot)
 	return WhiteListBalanceView{
 		AccountID:               accountID,
 		IncludedRemainingBytes:  snapshot.Projection.IncludedRemainingBytes,
@@ -174,6 +163,47 @@ func (b *ServiceBusiness) WhiteListBalance(ctx context.Context, accountID string
 		AvailableBytes:          snapshot.AvailableBytes, PeriodEndsAtUnix: snapshot.PeriodEndsUnix,
 		PrimaryAccessState: primaryState, PublicationVerdict: string(verdict),
 	}, nil
+}
+
+// A positive wallet is not evidence that the CDN profiles can be issued. Keep
+// the known balance visible when the actual publication source is unavailable.
+func (b *ServiceBusiness) whiteListBalanceVerdict(ctx context.Context, accountID string, enabled bool, snapshot whitelistbalance.BalanceSnapshot) WhiteListPublicationVerdict {
+	switch {
+	case !enabled:
+		return WhiteListPublicationDisabled
+	case !snapshot.PrimaryActive:
+		return WhiteListPrimaryExpired
+	case snapshot.Projection.Pending:
+		return WhiteListProjectionPending
+	case snapshot.Frozen:
+		return WhiteListProjectionStale
+	case snapshot.AvailableBytes <= 0:
+		return WhiteListNoBalance
+	}
+	if b.cfg.WhiteListPublicationSource == nil || ctx == nil || ctx.Err() != nil {
+		return WhiteListSidecarUnavailable
+	}
+	timed, cancel := context.WithTimeout(ctx, b.cfg.WhiteListPublicationTimeout)
+	defer cancel()
+	customer, err := b.service.BusinessCustomerByID(timed, accountID)
+	if err != nil || customer.Access.SubscriptionToken == "" {
+		return WhiteListSidecarUnavailable
+	}
+	publication, err := b.cfg.WhiteListPublicationSource.WhiteListPublication(timed, customer.Access.SubscriptionToken, b.requestNow())
+	if err != nil || timed.Err() != nil {
+		return WhiteListSidecarUnavailable
+	}
+	switch publication.Verdict {
+	case WhiteListPublishable:
+		if _, err := nativeWhiteListRuntimeView(publication, b.requestNow()); err == nil {
+			return WhiteListPublishable
+		}
+	case WhiteListNoEntitlement, WhiteListPrimaryExpired, WhiteListNoBalance,
+		WhiteListProjectionPending, WhiteListProjectionStale, WhiteListReleaseMismatch,
+		WhiteListSidecarUnavailable, WhiteListPublicationDisabled:
+		return publication.Verdict
+	}
+	return WhiteListSidecarUnavailable
 }
 
 func (b *ServiceBusiness) SetWhiteListPublication(ctx context.Context, command CommercialPublicationCommand) (CommercialPublicationView, error) {
