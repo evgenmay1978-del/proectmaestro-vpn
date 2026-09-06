@@ -189,7 +189,7 @@ func NewHandler(applier Applier) http.Handler {
 				status = http.StatusConflict
 			}
 		}
-		if result.Schema != 2 {
+		if (result.Schema != 2 && result.Schema != 3) || result.Schema != command.Schema {
 			response.WriteHeader(status)
 			return
 		}
