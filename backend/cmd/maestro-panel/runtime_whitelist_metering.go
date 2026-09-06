@@ -212,14 +212,18 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	if err := collector.control.EnsureWhiteListMeteringBootstrap(ctx, collector.workerID, resolve); err != nil {
 		return fmt.Errorf("metering bootstrap after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
 	}
-	// Recovery and an empty bootstrap do not sample traffic or grant use. Their
-	// work must not consume the fresh sampling window before its first read.
-	ctx, cancelSampling := context.WithTimeout(reconcileContext, runtimeWhiteListMeteringInterval)
-	defer cancelSampling()
 	stage = "metering plan"
 	plan, err := collector.control.WhiteListMeteringPlan(ctx)
 	if err != nil {
 		return fmt.Errorf("metering plan after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
+	}
+	var candidates []controlplane.WhiteListMeteringAdmissionCandidate
+	if collector.byteBudgetBytes > 0 {
+		stage = "candidate preparation"
+		candidates, err = collector.control.WhiteListMeteringAdmissionCandidates(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	routes := make(map[string]controlplane.WhiteListMeteringRoute, len(plan.Routes))
 	for _, route := range plan.Routes {
@@ -231,6 +235,10 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 		routes[route.ManagedEmail] = route
 	}
+	// Plan and candidate discovery grant no runtime authority. Start the fresh
+	// sampling window at the first counter read; all admission rechecks follow it.
+	ctx, cancelSampling := context.WithTimeout(reconcileContext, runtimeWhiteListMeteringInterval)
+	defer cancelSampling()
 	snapshots := make(map[string]sidecaragentclient.UsageSnapshot, len(plan.Origins))
 	for _, origin := range plan.Origins {
 		stage = "origin usage lookup"
@@ -300,7 +308,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 	}
 	stage = "account admission"
-	if err := collector.authorizeAdmissions(ctx); err != nil {
+	if err := collector.authorizeAdmissions(ctx, candidates); err != nil {
 		return err
 	}
 	if !leaseEnabled {
@@ -412,15 +420,21 @@ func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx conte
 
 // Run only after every authenticated Origin observation and debit succeeded.
 // Candidate discovery must not depend on already provisioned managed users.
-func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx context.Context) error {
+func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx context.Context, prepared ...[]controlplane.WhiteListMeteringAdmissionCandidate) error {
 	if collector.byteBudgetBytes > 0 {
 		budgetControl, ok := collector.control.(runtimeWhiteListByteBudgetControlPlane)
 		if !ok {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
-		candidates, err := collector.control.WhiteListMeteringAdmissionCandidates(ctx)
-		if err != nil {
-			return fmt.Errorf("candidate discovery: %w", err)
+		var candidates []controlplane.WhiteListMeteringAdmissionCandidate
+		if len(prepared) == 1 {
+			candidates = prepared[0]
+		} else {
+			var err error
+			candidates, err = collector.control.WhiteListMeteringAdmissionCandidates(ctx)
+			if err != nil {
+				return fmt.Errorf("candidate discovery: %w", err)
+			}
 		}
 		var admissionErr error
 		admitted := 0

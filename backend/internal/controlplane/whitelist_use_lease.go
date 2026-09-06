@@ -201,13 +201,24 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	}
 	now := s.clock.Now()
 	until := now.Add(5 * time.Second)
+	var state whiteListSidecarRuntimeState
+	if len(plan.Routes) > 0 {
+		if s.store == nil || s.store.db == nil || s.store.secrets == nil {
+			return closed, ErrUnavailable
+		}
+		var err error
+		state, err = s.loadWhiteListSidecarRuntimeState(ctx)
+		if err != nil {
+			return closed, err
+		}
+	}
 	seen := map[string]bool{}
 	for _, route := range plan.Routes {
 		if seen[route.ManagedEmail] || route.ManagedEmail != whiteListManagedEmail(route.Entitlement.EntitlementID(), route.ExitID) {
 			return closed, ErrUnavailable
 		}
 		seen[route.ManagedEmail] = true
-		delivery, err := s.whiteListPublicationForEntitlement(ctx, route.Entitlement.EntitlementID(), now, resolve, false)
+		delivery, err := s.whiteListPublicationForEntitlementFromState(ctx, route.Entitlement.EntitlementID(), now, resolve, false, state)
 		if err != nil {
 			return closed, err
 		}

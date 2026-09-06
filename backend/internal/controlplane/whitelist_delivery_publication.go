@@ -77,15 +77,25 @@ func (s *Service) whiteListPublicationForEntitlement(
 	ctx context.Context, entitlementID string, now time.Time,
 	resolveSender func(string) (ExternalActionSender, bool), includeMaterial bool,
 ) (WhiteListPublicationDelivery, error) {
-	closed := func(verdict WhiteListPublicationVerdict) WhiteListPublicationDelivery {
-		return WhiteListPublicationDelivery{Decision: closedWhiteListPublication(verdict)}
-	}
 	if s == nil || s.store == nil || s.store.db == nil || s.store.secrets == nil || ctx == nil || !validEntitlementID(entitlementID) || now.Unix() <= 0 {
 		return WhiteListPublicationDelivery{}, ErrUnavailable
 	}
 	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
 	if err != nil {
 		return WhiteListPublicationDelivery{}, err
+	}
+	return s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolveSender, includeMaterial, state)
+}
+
+func (s *Service) whiteListPublicationForEntitlementFromState(
+	ctx context.Context, entitlementID string, now time.Time,
+	resolveSender func(string) (ExternalActionSender, bool), includeMaterial bool, state whiteListSidecarRuntimeState,
+) (WhiteListPublicationDelivery, error) {
+	closed := func(verdict WhiteListPublicationVerdict) WhiteListPublicationDelivery {
+		return WhiteListPublicationDelivery{Decision: closedWhiteListPublication(verdict)}
+	}
+	if s == nil || s.store == nil || s.store.db == nil || s.store.secrets == nil || ctx == nil || !validEntitlementID(entitlementID) || now.Unix() <= 0 {
+		return WhiteListPublicationDelivery{}, ErrUnavailable
 	}
 	publication, ok := state.publications[entitlementID]
 	if !ok {
@@ -158,8 +168,8 @@ func (s *Service) whiteListPublicationForEntitlement(
 	facts.ReceiptsFreshUntilUnix = receiptsFreshUntil
 	facts.ApprovedNodeCount = len(desired)
 	if facts.ReleaseBindingExact && facts.CredentialUsable && receiptSetReady {
-		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReady(
-			ctx, entitlementID, exitID, state.previous,
+		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReadyFromState(
+			ctx, entitlementID, exitID, state.previous, state,
 		)
 	}
 	decision := EvaluateWhiteListPublication(facts)

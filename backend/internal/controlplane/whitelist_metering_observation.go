@@ -318,7 +318,18 @@ func (s *Service) whiteListMeteringPublicationReady(ctx context.Context, entitle
 	if len(desired) == 0 {
 		return 0, 0
 	}
-	through, until, ready := s.whiteListMeteringReadiness(ctx, entitlementID, exitID, true, desired)
+	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
+	if err != nil {
+		return 0, 0
+	}
+	return s.whiteListMeteringPublicationReadyFromState(ctx, entitlementID, exitID, desired, state)
+}
+
+func (s *Service) whiteListMeteringPublicationReadyFromState(ctx context.Context, entitlementID, exitID string, desired map[string]WhiteListSidecarDesired, state whiteListSidecarRuntimeState) (int64, int64) {
+	if len(desired) == 0 {
+		return 0, 0
+	}
+	through, until, ready := s.whiteListMeteringReadinessFromState(ctx, entitlementID, exitID, true, desired, state)
 	if !ready {
 		return 0, 0
 	}
@@ -330,6 +341,10 @@ func (s *Service) whiteListMeteringReadiness(ctx context.Context, entitlementID,
 	if err != nil {
 		return 0, 0, false
 	}
+	return s.whiteListMeteringReadinessFromState(ctx, entitlementID, exitID, allowAwaiting, requiredDesired, state)
+}
+
+func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entitlementID, exitID string, allowAwaiting bool, requiredDesired map[string]WhiteListSidecarDesired, state whiteListSidecarRuntimeState) (int64, int64, bool) {
 	period, available, periodEndsAt, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state)
 	if err != nil {
 		return 0, 0, false
