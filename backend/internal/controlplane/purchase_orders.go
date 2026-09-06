@@ -31,6 +31,7 @@ type PurchaseOrderCommand struct {
 	Actor           string
 	Channel         string
 	SourceEventID   string
+	LoginIdentity   *CustomerLoginIdentity
 }
 
 type purchaseOrderRequestIdentity struct {
@@ -59,6 +60,16 @@ func (s *Service) PurchaseOrderIdentityHMAC(source, supplied string) (string, er
 		return "", err
 	}
 	return s.store.secrets.LookupHMAC("legacy-order-identity:"+source, []byte(normalized)), nil
+}
+
+// PurchaseOrderLoginIdentityHMAC preserves exact imported identities while the
+// static helper above retains the established canonical wire compatibility.
+func (s *Service) PurchaseOrderLoginIdentityHMAC(ctx context.Context, raw string) (string, error) {
+	identity, err := s.ResolveCustomerLogin(ctx, raw)
+	if err != nil {
+		return "", err
+	}
+	return identity.PurchaseIdentityHMAC(), nil
 }
 
 func normalizePurchaseOrderIdentity(source, supplied string) (string, error) {
@@ -108,6 +119,20 @@ func (s *Service) CreatePurchaseOrder(ctx context.Context, command PurchaseOrder
 	}
 	if !validPurchaseOrderIdentityBinding(identitySource, identityHMAC) {
 		return OrderView{}, errors.New("controlplane: invalid purchase identity binding")
+	}
+	identityGuard := "1=1"
+	var identityGuardArgs []any
+	if command.LoginIdentity != nil {
+		identity := *command.LoginIdentity
+		if identity.box != s.store.secrets || identitySource != PurchaseOrderIdentityLogin || identity.PurchaseIdentityHMAC() != identityHMAC || identity.CustomerID() != customerID {
+			return OrderView{}, ErrConflict
+		}
+		identityGuard, identityGuardArgs = identity.guardSQL()
+	} else if identitySource == PurchaseOrderIdentityLogin {
+		// Legacy in-process callers may still pass a canonical fingerprint. It
+		// must never address a member of an exact imported family without proof.
+		identityGuard = `NOT EXISTS(SELECT 1 FROM imported_entity_state e WHERE e.entity_kind='customer' AND e.target_id=? AND e.source_key GLOB ?)`
+		identityGuardArgs = []any{customerID, LegacyExactCustomerSourcePrefix + "*"}
 	}
 	mode := "new"
 	if customerID != "" {
@@ -170,15 +195,25 @@ func (s *Service) CreatePurchaseOrder(ctx context.Context, command PurchaseOrder
 		return OrderView{}, errors.New("controlplane: encode purchase order response")
 	}
 
-	guard := "1=1"
-	var guardArgs []any
+	guard := identityGuard
+	guardArgs := append([]any(nil), identityGuardArgs...)
 	statements := make([]rqlite.Statement, 0, 16)
+	if identityGuard != "1=1" {
+		// Deliberately invalid status aborts the transaction on proof drift,
+		// including before the unconditional backup dirty-generation write.
+		statements = append(statements, rqlite.Statement{
+			SQL: `INSERT INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,
+resource_id,decision,operation_id,status,created_at_unix)
+SELECT ?,'create',?,?,?,?,?,'purchase-order-identity-rejected',? WHERE NOT (` + identityGuard + `)`,
+			Args: append([]any{purchaseOrderIdempotencyScope, operationID, requestHash, orderID, mode, operationID, now}, identityGuardArgs...),
+		})
+	}
 	if idempotencyKey != "" {
 		statements = append(statements, rqlite.Statement{
 			SQL: `INSERT OR IGNORE INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,
 resource_id,decision,operation_id,status,response_json,created_at_unix,applied_at_unix)
-VALUES(?,'create',?,?,?,?,?,'applying',NULL,unixepoch(),NULL)`,
-			Args: []any{purchaseOrderIdempotencyScope, idempotencyKey, requestHash, orderID, mode, operationID},
+SELECT ?,'create',?,?,?,?,?,'applying',NULL,unixepoch(),NULL WHERE ` + identityGuard,
+			Args: append([]any{purchaseOrderIdempotencyScope, idempotencyKey, requestHash, orderID, mode, operationID}, identityGuardArgs...),
 		})
 		guard = `EXISTS (SELECT 1 FROM idempotency_requests WHERE scope=? AND command_type='create'
 AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying')`
@@ -192,8 +227,9 @@ AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying
 		customerAuditID = auditID("purchase-customer-create", customerID, 1, now)
 		statements = append(statements, rqlite.Statement{
 			SQL: `INSERT INTO customers(customer_id,display_login,login_key_hmac,status,expires_at_unix,generation,created_at_unix,updated_at_unix)
-SELECT ?,?,?,'expired',unixepoch(),1,unixepoch(),unixepoch() WHERE ` + guard,
-			Args: append([]any{customerID, displayLogin, loginHMAC}, guardArgs...),
+SELECT ?,?,?,'expired',unixepoch(),1,unixepoch(),unixepoch() WHERE ` + guard + `
+AND NOT EXISTS(SELECT 1 FROM imported_entity_state e WHERE e.entity_kind='customer' AND e.source_key GLOB ?)`,
+			Args: append(append([]any{customerID, displayLogin, loginHMAC}, guardArgs...), LegacyExactCustomerSourcePrefix+loginHMAC+":*"),
 		})
 		customer := Customer{ID: customerID, Status: "expired", Generation: 1, Access: access.Access}
 		accessGuard := guard + ` AND EXISTS (SELECT 1 FROM customers

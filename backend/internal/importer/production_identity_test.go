@@ -82,6 +82,11 @@ func setProductionFixtureIdentity(t *testing.T, snapshot *Snapshot, identity Pro
 		t.Fatal(err)
 	}
 	row.LoginKeyHMAC = box.LookupHMAC("customer-login", []byte(canonical))
+	if strings.HasPrefix(row.SourceKey, controlplane.LegacyExactCustomerSourcePrefix) {
+		canonicalHMAC := row.LoginKeyHMAC
+		row.LoginKeyHMAC = box.LookupHMAC(controlplane.LegacyExactCustomerLoginHMACDomain, []byte(row.Login))
+		row.SourceKey = controlplane.LegacyExactCustomerSourcePrefix + canonicalHMAC + ":" + row.LoginKeyHMAC
+	}
 	row.UUIDHMAC, row.SubIDHMAC = "", ""
 	if identity.Customer.VLESS != nil {
 		row.UUIDHMAC = box.LookupHMAC("customer-uuid", []byte(identity.Customer.VLESS.UUID))

@@ -48,7 +48,9 @@ func TestServiceBusinessRequestWBRoomExecutesDurableProvider(t *testing.T) {
 	}}
 	sender := wbSenderStub{}
 	assigner := &wbRoomAssignerSpy{}
+	resolver, _ := newExactLoginBusinessFixture(t)
 	business := &ServiceBusiness{
+		service:         resolver.service,
 		externalActions: runner,
 		wbSender:        sender,
 		workerID:        "panel-s2",
@@ -98,7 +100,9 @@ func TestServiceBusinessRequestWBRoomRejectsMalformedSucceededResponse(t *testin
 				ID: "wb-action-1", State: "succeeded", Response: test.response,
 			}}
 			assigner := &wbRoomAssignerSpy{}
+			resolver, _ := newExactLoginBusinessFixture(t)
 			business := &ServiceBusiness{
+				service:         resolver.service,
 				externalActions: runner,
 				wbSender:        wbSenderStub{},
 				workerID:        "panel-s2",
@@ -124,7 +128,9 @@ func TestServiceBusinessRequestWBRoomDoesNotAssignNonSucceeded(t *testing.T) {
 				ID: "wb-action-1", State: state, Response: []byte(`{"room":"room-1"}`),
 			}}
 			assigner := &wbRoomAssignerSpy{}
+			resolver, _ := newExactLoginBusinessFixture(t)
 			business := &ServiceBusiness{
+				service:         resolver.service,
 				externalActions: runner,
 				wbSender:        wbSenderStub{},
 				workerID:        "panel-s2",

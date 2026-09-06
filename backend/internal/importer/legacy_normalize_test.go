@@ -62,14 +62,14 @@ func TestDecodeLegacyCustomersRejectsLossyInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"canonical-login", "token", "uuid"} {
+	for _, name := range []string{"exact-login", "token", "uuid"} {
 		t.Run(name, func(t *testing.T) {
 			other := customers[0]
 			vless := *other.VLESS
 			other.VLESS, other.VLESS3, other.VLESS4 = &vless, nil, nil
 			other.Login, other.SubToken, other.VLESS.UUID = "DifferentSyntheticLogin", "different-synthetic-token", "different-synthetic-uuid"
-			if name == "canonical-login" {
-				other.Login = strings.ToLower(customers[0].Login)
+			if name == "exact-login" {
+				other.Login = customers[0].Login
 			}
 			if name == "token" {
 				other.SubToken = customers[0].SubToken

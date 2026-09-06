@@ -41,12 +41,14 @@ func (s *Service) CustomerByToken(ctx context.Context, rawToken string) (Custome
 }
 
 func (s *Service) CustomerByLogin(ctx context.Context, login string) (Customer, error) {
-	canonical, err := CanonicalLoginKey(login)
+	identity, err := s.ResolveCustomerLogin(ctx, login)
 	if err != nil {
+		return Customer{}, err
+	}
+	if !identity.Exists() || !identity.hasToken {
 		return Customer{}, ErrNotFound
 	}
-	lookup := s.store.secrets.LookupHMAC("customer-login", []byte(canonical))
-	return s.store.customerByLookup(ctx, "c.login_key_hmac", lookup)
+	return identity.customer, nil
 }
 
 func (s *Service) Tariffs(ctx context.Context) ([]Tariff, error) {

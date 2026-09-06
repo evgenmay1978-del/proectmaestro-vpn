@@ -80,15 +80,15 @@ func DecodeLegacyCustomers(raw []byte) ([]legacystore.Customer, error) {
 		if row == nil {
 			return nil, ErrLegacyNormalize
 		}
-		login, err := controlplane.CanonicalLoginKey(row.Login)
+		_, err := controlplane.CanonicalLoginKey(row.Login)
 		if err != nil || row.SubToken == "" || row.Expires.IsZero() ||
-			logins[login] || tokens[row.SubToken] || (row.VLESS != nil && uuids[row.VLESS.UUID]) {
+			logins[row.Login] || tokens[row.SubToken] || (row.VLESS != nil && uuids[row.VLESS.UUID]) {
 			return nil, ErrLegacyNormalize
 		}
 		if _, err := productionCredentials(ProductionCustomerIdentity{Customer: *row}); err != nil {
 			return nil, ErrLegacyNormalize
 		}
-		logins[login], tokens[row.SubToken] = true, true
+		logins[row.Login], tokens[row.SubToken] = true, true
 		if row.VLESS != nil {
 			uuids[row.VLESS.UUID] = true
 		}
@@ -302,6 +302,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		protocolNodes[key] = binding.NodeID
 	}
 	parentRows, parentIdentities := map[string]LegacyCustomer{}, map[string]ProductionCustomerIdentity{}
+	parentLogins := map[string]LegacyCustomer{}
 	planOptions := options.PlanOptions
 	if options.Parent != nil {
 		parent := *options.Parent
@@ -326,10 +327,11 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		}
 		for _, row := range parent.Customers {
 			identity, err := openProductionIdentity(box, row.SourceKey, secrets[row.IdentitySecretRef])
-			if err != nil {
+			if err != nil || parentLogins[identity.Customer.Login].SourceKey != "" {
 				return failed()
 			}
 			parentRows[row.SourceKey], parentIdentities[row.SourceKey] = row, identity
+			parentLogins[identity.Customer.Login] = row
 		}
 		snapshot.SnapshotKind, snapshot.ParentSourceDigest = "delta", digestSnapshot(parent)
 		planOptions.ParentSnapshot, planOptions.AppliedParentDigest = options.Parent, snapshot.ParentSourceDigest
@@ -337,8 +339,16 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	usedBindings, seenSources := map[string]bool{}, map[string]bool{}
 	for _, customer := range customers {
 		login, _ := controlplane.CanonicalLoginKey(customer.Login)
-		loginHMAC := box.LookupHMAC("customer-login", []byte(login))
-		sourceKey := "s1:customer:" + loginHMAC
+		canonicalHMAC := box.LookupHMAC("customer-login", []byte(login))
+		loginHMAC := box.LookupHMAC(controlplane.LegacyExactCustomerLoginHMACDomain, []byte(customer.Login))
+		sourceKey := controlplane.LegacyExactCustomerSourcePrefix + canonicalHMAC + ":" + loginHMAC
+		secretRef := "identity:" + loginHMAC
+		// A cumulative capture preserves each authenticated parent's identity
+		// mode and mapping. It never turns an existing canonical account into a
+		// new exact account or changes the original case-sensitive login.
+		if prior, exists := parentLogins[customer.Login]; exists {
+			sourceKey, loginHMAC, secretRef = prior.SourceKey, prior.LoginKeyHMAC, prior.IdentitySecretRef
+		}
 		identity := ProductionCustomerIdentity{SchemaVersion: 1, Customer: customer, Generation: 1, NodeSubIDs: map[string]string{}}
 		nodes := map[string]bool{}
 		for nodeID, creds := range legacyVLESSNodes(customer) {
@@ -378,7 +388,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		row := LegacyCustomer{SourceKey: sourceKey, Login: customer.Login, LoginKeyHMAC: loginHMAC,
 			TokenHMAC:                 box.LookupHMAC("subscription-token", []byte(customer.SubToken)),
 			CredentialFingerprintHMAC: box.LookupHMAC("customer-credentials", fingerprint),
-			IdentitySecretRef:         "identity:" + loginHMAC, ProtocolTags: protocols, NodeIDs: nodeIDs,
+			IdentitySecretRef:         secretRef, ProtocolTags: protocols, NodeIDs: nodeIDs,
 			ExpiresAtUnix: customer.Expires.Unix(), Generation: 1, Status: "active"}
 		zeroBytes(fingerprint)
 		if customer.VLESS != nil {

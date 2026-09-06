@@ -17,7 +17,7 @@ type olcrtcRoomAssignments struct {
 	Rooms map[string]olcrtcRoomAssignment `json:"rooms"`
 }
 
-func (s *Service) decodeWBRoomAssignments(setting BusinessSetting, canonicalLogin string) (olcrtcRoomAssignments, error) {
+func (s *Service) decodeWBRoomAssignments(ctx context.Context, setting BusinessSetting, target CustomerLoginIdentity) (olcrtcRoomAssignments, error) {
 	state := olcrtcRoomAssignments{Rooms: map[string]olcrtcRoomAssignment{}}
 	if len(setting.PublicValueJSON) == 0 {
 		return state, nil
@@ -31,20 +31,39 @@ func (s *Service) decodeWBRoomAssignments(setting BusinessSetting, canonicalLogi
 		if err := json.Unmarshal(rawRooms, &persisted); err != nil {
 			return olcrtcRoomAssignments{}, ErrUnavailable
 		}
-		for login, room := range persisted {
-			canonical, err := CanonicalLoginKey(login)
+		keys := make([]string, 0, len(persisted))
+		for login := range persisted {
+			keys = append(keys, login)
+		}
+		sort.Strings(keys)
+		matchedMembers := 0
+		for _, login := range keys {
+			room := persisted[login]
+			identity, err := s.ResolveCustomerLogin(ctx, login)
 			if err != nil {
-				return olcrtcRoomAssignments{}, ErrUnavailable
+				return olcrtcRoomAssignments{}, err
 			}
 			room.Room = strings.TrimSpace(room.Room)
 			room.Provider = strings.TrimSpace(room.Provider)
 			if room.Room == "" || room.Provider == "" {
 				return olcrtcRoomAssignments{}, ErrUnavailable
 			}
-			if _, duplicate := state.Rooms[canonical]; duplicate {
+			if _, duplicate := state.Rooms[identity.Login()]; duplicate {
 				return olcrtcRoomAssignments{}, ErrConflict
 			}
-			state.Rooms[canonical] = room
+			if value, member := setting.Members[identity.SettingMemberHMAC("olcrtc")]; member {
+				var membership struct {
+					Enabled bool `json:"enabled"`
+				}
+				if json.Unmarshal(value, &membership) != nil || !membership.Enabled {
+					return olcrtcRoomAssignments{}, ErrConflict
+				}
+				matchedMembers++
+			}
+			state.Rooms[identity.Login()] = room
+		}
+		if matchedMembers != len(setting.Members) {
+			return olcrtcRoomAssignments{}, ErrConflict
 		}
 		return state, nil
 	}
@@ -61,42 +80,41 @@ func (s *Service) decodeWBRoomAssignments(setting BusinessSetting, canonicalLogi
 		return olcrtcRoomAssignments{}, ErrConflict
 	}
 	if len(setting.Members) == 1 {
-		expected := s.store.secrets.LookupHMAC("setting-member:olcrtc", []byte(canonicalLogin))
+		expected := target.SettingMemberHMAC("olcrtc")
 		if _, matches := setting.Members[expected]; !matches {
 			return olcrtcRoomAssignments{}, ErrConflict
 		}
 	}
-	state.Rooms[canonicalLogin] = legacy
+	state.Rooms[target.Login()] = legacy
 	return state, nil
 }
 
 // AssignWBRoom records a successful provider response through the canonical
 // OLCRTC setting transaction, including desired state and its outbox event.
 func (s *Service) AssignWBRoom(ctx context.Context, login, room, idempotencyKey string) error {
-	login = strings.TrimSpace(login)
 	room = strings.TrimSpace(room)
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	if s == nil || login == "" || room == "" || idempotencyKey == "" {
+	if s == nil || strings.TrimSpace(login) == "" || room == "" || idempotencyKey == "" {
 		return errors.New("controlplane: invalid WB room assignment")
 	}
-	canonicalLogin, err := CanonicalLoginKey(login)
+	identity, err := s.ResolveCustomerLogin(ctx, login)
 	if err != nil {
-		return errors.New("controlplane: invalid WB room assignment")
+		return err
 	}
 
 	setting, err := s.ReadBusinessSetting(ctx, "olcrtc")
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
 	}
-	state, err := s.decodeWBRoomAssignments(setting, canonicalLogin)
+	state, err := s.decodeWBRoomAssignments(ctx, setting, identity)
 	if err != nil {
 		return err
 	}
 	nextRoom := olcrtcRoomAssignment{Room: room, Provider: "wbstream"}
-	if current, ok := state.Rooms[canonicalLogin]; ok && current == nextRoom {
+	if current, ok := state.Rooms[identity.Login()]; ok && current == nextRoom {
 		return nil
 	}
-	state.Rooms[canonicalLogin] = nextRoom
+	state.Rooms[identity.Login()] = nextRoom
 	members := make([]string, 0, len(state.Rooms))
 	for member := range state.Rooms {
 		members = append(members, member)
@@ -114,8 +132,8 @@ func (s *Service) AssignWBRoom(ctx context.Context, login, room, idempotencyKey 
 	_, err = s.UpdateSetting(ctx, SettingUpdate{
 		Key: "olcrtc", ExpectedGeneration: setting.Generation, PublicValueJSON: string(value),
 		Members: members, Actor: "panel", CommandType: "setting.olcrtc.wbroom",
-		IdempotencyKey: idempotencyKey, TargetMembers: []string{canonicalLogin},
-		TargetPayloads: map[string]string{canonicalLogin: string(targetValue)},
+		IdempotencyKey: idempotencyKey, TargetMembers: []string{identity.Login()},
+		TargetPayloads: map[string]string{identity.Login(): string(targetValue)},
 	})
 	return err
 }

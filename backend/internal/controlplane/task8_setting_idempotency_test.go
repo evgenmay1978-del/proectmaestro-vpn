@@ -67,7 +67,8 @@ func TestTask8SettingMutationIsIdempotentAndPublishesOLCRTC(t *testing.T) {
 		}}}
 		return results, nil
 	}
-	service, _ := testService(t, db)
+	service, box := testService(t, db)
+	db.linear = append(db.linear, canonicalLoginIdentityScript(box, "alice", Customer{ID: "setting-alice", Status: "active", Generation: 1}))
 	result, err := service.UpdateSetting(context.Background(), SettingUpdate{
 		Key: "olcrtc", ExpectedGeneration: 3, PublicValueJSON: `{"room":"room-1"}`,
 		Actor: "owner", CommandType: "setting.olcrtc.room", IdempotencyKey: "idem-room-1",
@@ -120,7 +121,9 @@ func TestAssignWBRoomUsesCanonicalOLCRTCTransaction(t *testing.T) {
 		}}}
 		return results, nil
 	}
-	service, _ := testService(t, db)
+	service, box := testService(t, db)
+	identity := canonicalLoginIdentityScript(box, "alice", Customer{ID: "setting-alice", Status: "active", Generation: 1})
+	db.linear = append(append([]scriptedResult{identity}, db.linear...), identity)
 	if err := service.AssignWBRoom(context.Background(), "alice", "room-1", "wb-idempotency-1"); err != nil {
 		t.Fatalf("AssignWBRoom: %v", err)
 	}
@@ -165,6 +168,14 @@ func TestAssignWBRoomAliceThenBobKeepsRoomsIsolated(t *testing.T) {
 		return results, nil
 	}
 	service, secrets := testService(t, db)
+	alice := canonicalLoginIdentityScript(secrets, "alice", Customer{ID: "setting-alice", Status: "active", Generation: 1})
+	bob := canonicalLoginIdentityScript(secrets, "bob", Customer{ID: "setting-bob", Status: "active", Generation: 1})
+	oldReads := db.linear
+	oldReads[2].results[1].Rows[0]["member_key"] = secrets.LookupHMAC("setting-member:olcrtc", []byte("alice"))
+	db.linear = []scriptedResult{
+		alice, oldReads[0], oldReads[1], alice,
+		bob, oldReads[2], alice, oldReads[3], alice, bob,
+	}
 	for _, assignment := range []struct{ login, room, key string }{
 		{login: "alice", room: "room-alice", key: "wb-room-alice"},
 		{login: "bob", room: "room-bob", key: "wb-room-bob"},
@@ -208,12 +219,15 @@ func TestAssignWBRoomAliceThenBobKeepsRoomsIsolated(t *testing.T) {
 		if index == 1 && (len(state.Rooms) != 2 || state.Rooms["bob"].Room != "room-bob" || state.Rooms["bob"].Provider != "wbstream") {
 			t.Fatalf("Bob state overwrote or lost a room: %#v", state.Rooms)
 		}
-		if len(desired) != 1 || len(desired[0].Args) < 6 {
+		if len(desired) != 1 || len(desired[0].Args) < 7 {
 			t.Fatalf("transaction %d desired writes = %d, want one isolated target", index, len(desired))
 		}
 		login := []string{"alice", "bob"}[index]
 		wantTarget := secrets.LookupHMAC("customer-login", []byte(login))
-		if gotTarget, _ := desired[0].Args[5].(string); gotTarget != wantTarget {
+		if gotID, _ := desired[0].Args[5].(string); gotID != "setting-"+login {
+			t.Fatalf("transaction %d customer ID = %q, want exact resolved %s", index, gotID, login)
+		}
+		if gotTarget, _ := desired[0].Args[6].(string); gotTarget != wantTarget {
 			t.Fatalf("transaction %d target = %q, want only %s", index, gotTarget, login)
 		}
 		encodedEnvelope, ok := desired[0].Args[1].([]byte)
@@ -254,7 +268,8 @@ func TestAssignWBRoomRejectsAmbiguousLegacyGlobalRoom(t *testing.T) {
 		}},
 		rqlite.Result{},
 	)}}
-	service, _ := testService(t, db)
+	service, box := testService(t, db)
+	db.linear = append([]scriptedResult{canonicalLoginIdentityScript(box, "alice", Customer{})}, db.linear...)
 	err := service.AssignWBRoom(context.Background(), "alice", "room-alice", "legacy-ambiguous")
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("ambiguous legacy assignment error = %v, want ErrConflict", err)
@@ -269,12 +284,14 @@ func TestAssignWBRoomMigratesSingleMatchingLegacyRoom(t *testing.T) {
 	service, secrets := testService(t, db)
 	memberHMAC := secrets.LookupHMAC("setting-member:olcrtc", []byte("alice"))
 	db.linear = []scriptedResult{
+		canonicalLoginIdentityScript(secrets, "alice", Customer{ID: "setting-alice", Status: "active", Generation: 1}),
 		resultsScript(
 			rqlite.Result{Rows: []map[string]any{{"public_value_json": `{"room":"legacy-room","provider":"wbstream"}`, "generation": int64(1)}}},
 			rqlite.Result{Rows: []map[string]any{{"member_key": memberHMAC, "member_value_json": `{"enabled":true}`}}},
 			rqlite.Result{},
 		),
 		resultsScript(rqlite.Result{}),
+		canonicalLoginIdentityScript(secrets, "alice", Customer{ID: "setting-alice", Status: "active", Generation: 1}),
 	}
 	db.requestFn = func(statements []rqlite.Statement) ([]rqlite.Result, error) {
 		if len(statements) == 0 || len(statements[0].Args) < 3 {

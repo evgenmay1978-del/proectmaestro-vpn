@@ -572,7 +572,7 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 		Digest: digestBatch(selected), Operations: selected,
 	}
 	backupCleanup.Expect(task6BackupRPOCleanupExpectation{
-		DirtyGenerationDelta: 3, UpdatedAtUnix: 1_500_000,
+		DirtyGenerationDelta: 2, UpdatedAtUnix: 1_500_000,
 		Receipt: task6ImportRunReceipt{
 			RunID: batch.RunID, SourceDigest: plan.SourceDigest, PlanDigest: plan.PlanDigest, Status: "applying",
 		},
@@ -589,6 +589,9 @@ func TestRQLiteApplyStoreWritesProtectedLegacyTrialIdentity(t *testing.T) {
 		PlanDigest: plan.PlanDigest, BatchCount: 2,
 	}); err != nil {
 		t.Fatalf("trial BeginOrResume: %v", err)
+	}
+	if task6IntegrationDirtyGeneration(t, ctx, db) != backupCleanup.baseline.DirtyGeneration {
+		t.Fatal("beginning a trial import changed the business backup generation")
 	}
 	receipt, err := store.CommitBatch(ctx, batch)
 	if err != nil {
@@ -704,6 +707,9 @@ WHERE import_run_id=? AND batch_index=0`, Args: []any{batch.RunID}},
 	afterReplay, err := store.InspectTarget(ctx)
 	if err != nil || afterReplay.BusinessDigest != afterTyped.BusinessDigest {
 		t.Fatal("typed replay changed durable business state")
+	}
+	if task6IntegrationDirtyGeneration(t, ctx, db) != backupCleanup.baseline.DirtyGeneration+2 {
+		t.Fatal("two committed trial batches, rollback and exact replay changed the backup generation unexpectedly")
 	}
 }
 

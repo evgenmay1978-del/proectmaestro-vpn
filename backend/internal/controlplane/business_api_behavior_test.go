@@ -24,7 +24,7 @@ func TestBusinessCustomerReadDecryptsAccessWithoutPersistedCiphertextLeakage(t *
 		t.Fatal(err)
 	}
 	db.linear = []scriptedResult{
-		resultsScript(rqlite.Result{Rows: []map[string]any{{"customer_id": "customer-1", "status": "active", "expires_at_unix": int64(2_100_000), "generation": int64(7)}}}),
+		canonicalLoginIdentityScript(box, "alice", Customer{ID: "customer-1", Status: "active", ExpiresAtUnix: 2_100_000, Generation: 7}),
 		resultsScript(rqlite.Result{Rows: []map[string]any{{"display_login": "alice"}}}),
 		resultsScript(rqlite.Result{Rows: []map[string]any{{"protocol": "vless", "token_envelope": encodedEnvelope(t, tokenEnvelope), "secret_envelope": encodedEnvelope(t, credentialEnvelope)}}}),
 	}

@@ -73,6 +73,7 @@ type customerMutation struct {
 	trialAnchor   string
 	trialDevice   string
 	trialIdentity *trialMutationIdentity
+	loginIdentity CustomerLoginIdentity
 }
 
 type storedCustomerResponse struct {
@@ -111,26 +112,37 @@ func (s *Service) SetCustomerExpiry(ctx context.Context, command SetExpiryComman
 }
 
 func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation) (Customer, error) {
-	canonical, err := CanonicalLoginKey(mutation.login)
+	_, err := CanonicalLoginKey(mutation.login)
 	if err != nil || strings.TrimSpace(mutation.idempotency) == "" {
 		return Customer{}, errors.New("controlplane: invalid customer command")
 	}
 	if mutation.days < 0 || (mutation.days == 0 && mutation.expiresAt == 0 && mutation.status == "active" && (mutation.commandType != "customer.enable" && mutation.commandType != "customer.reset-devices")) {
 		return Customer{}, errors.New("controlplane: invalid customer duration")
 	}
-	requestHash, err := customerMutationHash(mutation, canonical)
+	identity, err := s.store.resolveCustomerLogin(ctx, mutation.login)
 	if err != nil {
 		return Customer{}, err
 	}
-	scope := "customer:" + s.store.secrets.LookupHMAC("customer-login", []byte(canonical))
+	mutation.loginIdentity = identity
+	if identity.ExactLegacy() {
+		mutation.login = identity.Login()
+	}
+	requestHash, err := customerMutationHash(mutation, identity.Login())
+	if err != nil {
+		return Customer{}, err
+	}
+	scope := "customer:" + identity.LookupHMAC()
 	if saved, ok, resolveErr := s.resolveCustomerMutation(ctx, scope, mutation, requestHash); resolveErr != nil || ok {
+		if resolveErr == nil && (!identity.Exists() || saved.ID != identity.CustomerID()) {
+			return Customer{}, ErrUnavailable
+		}
 		return saved, resolveErr
 	}
 
-	current, exists, err := s.customerForMutation(ctx, canonical)
-	if err != nil {
-		return Customer{}, err
+	if identity.lifecycle == "deleted" {
+		return Customer{}, ErrNotFound
 	}
+	current, exists := identity.customer, identity.Exists()
 	if mutation.requireNew && exists {
 		return Customer{}, ErrConflict
 	}
@@ -200,7 +212,7 @@ func (s *Service) mutateCustomer(ctx context.Context, mutation customerMutation)
 			return Customer{}, err
 		}
 	}
-	statements, err := s.customerMutationStatements(scope, canonical, mutation, requestHash, current, next, exists, operationID, targets, access, now)
+	statements, err := s.customerMutationStatements(scope, identity.Login(), mutation, requestHash, current, next, exists, operationID, targets, access, now)
 	if err != nil {
 		return Customer{}, err
 	}
@@ -272,29 +284,6 @@ WHERE scope=? AND command_type=? AND idempotency_key=?`,
 	return customer, true, nil
 }
 
-func (s *Service) customerForMutation(ctx context.Context, canonical string) (Customer, bool, error) {
-	lookup := s.store.secrets.LookupHMAC("customer-login", []byte(canonical))
-	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
-		SQL:  `SELECT customer_id,status,expires_at_unix,generation FROM customers WHERE login_key_hmac=?`,
-		Args: []any{lookup},
-	})
-	if err != nil {
-		return Customer{}, false, ErrUnavailable
-	}
-	if len(results) == 0 || len(results[0].Rows) == 0 {
-		return Customer{}, false, nil
-	}
-	row := results[0].Rows[0]
-	id, idOK := rowString(row, "customer_id")
-	status, statusOK := rowString(row, "status")
-	expires, expiresOK := rowInt64(row, "expires_at_unix")
-	generation, generationOK := rowInt64(row, "generation")
-	if !idOK || !statusOK || !expiresOK || !generationOK {
-		return Customer{}, false, ErrUnavailable
-	}
-	return Customer{ID: id, Status: status, ExpiresAtUnix: expires, Generation: generation}, true, nil
-}
-
 func (s *Service) customerMutationTargets(ctx context.Context, customer Customer, operationID string, tombstone bool) ([]desiredTarget, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{
 		SQL: `SELECT node_id,service_name FROM node_services
@@ -349,16 +338,17 @@ func (s *Service) customerMutationStatements(
 	access customerAccessMint,
 	now int64,
 ) ([]rqlite.Statement, error) {
-	loginHMAC := s.store.secrets.LookupHMAC("customer-login", []byte(canonical))
+	loginHMAC := mutation.loginIdentity.LookupHMAC()
+	identityGuard, identityArgs := mutation.loginIdentity.guardSQL()
 	claim := rqlite.Statement{
 		SQL: `INSERT OR IGNORE INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,
 resource_id,decision,operation_id,status,created_at_unix)
-SELECT ?,?,?,?,?,?,?,'applying',?`,
-		Args: []any{scope, mutation.commandType, mutation.idempotency, requestHash, next.ID, next.Status, operationID, now},
+SELECT ?,?,?,?,?,?,?,'applying',? WHERE ` + identityGuard,
+		Args: append([]any{scope, mutation.commandType, mutation.idempotency, requestHash, next.ID, next.Status, operationID, now}, identityArgs...),
 	}
 	if mutation.trialIdentity != nil {
 		eligible, args := mutation.trialIdentity.eligibility()
-		claim.SQL += " WHERE " + eligible
+		claim.SQL += " AND " + eligible
 		claim.Args = append(claim.Args, args...)
 	}
 	statements := []rqlite.Statement{claim}

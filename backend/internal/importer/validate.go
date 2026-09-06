@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
@@ -37,7 +39,8 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 	}
 
 	customersBySource := make(map[string]LegacyCustomer, len(snapshot.Customers))
-	loginKeys := make(map[string]string)
+	loginKeys := make(map[string]LegacyCustomer)
+	originalLogins := make(map[string]bool)
 	uuidHMACs := make(map[string]string)
 	subIDHMACs := make(map[string]string)
 	tokenHMACs := make(map[string]string)
@@ -72,9 +75,26 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 			}
 		}
 		customersBySource[customer.SourceKey] = customer
-		collision(loginKeys, strings.ToLower(strings.TrimSpace(customer.Login)), customer.SourceKey, func() {
+		login := strings.ToLower(strings.TrimSpace(customer.Login))
+		_, exactHMAC, exact := controlplane.ParseLegacyExactCustomerSource(customer.SourceKey)
+		if exact && originalLogins[customer.Login] {
 			add("login_collision", "customer", customer.SourceKey)
-		})
+		}
+		originalLogins[customer.Login] = true
+		if strings.HasPrefix(customer.SourceKey, controlplane.LegacyExactCustomerSourcePrefix) {
+			if _, err := controlplane.CanonicalLoginKey(customer.Login); !exact || err != nil || exactHMAC != customer.LoginKeyHMAC {
+				add("invalid_exact_customer_identity", "customer", customer.SourceKey)
+			}
+		}
+		if previous, exists := loginKeys[login]; exists {
+			_, _, previousExact := controlplane.ParseLegacyExactCustomerSource(previous.SourceKey)
+			if (exact && previousExact && previous.Login == customer.Login) ||
+				((!exact || !previousExact) && previous.SourceKey != customer.SourceKey) {
+				add("login_collision", "customer", customer.SourceKey)
+			}
+		} else {
+			loginKeys[login] = customer
+		}
 		collision(uuidHMACs, customer.UUIDHMAC, customer.SourceKey, func() {
 			add("uuid_collision", "customer", customer.SourceKey)
 		})

@@ -22,7 +22,8 @@ var errInvalidProductionIdentity = errors.New("unsupported or inconsistent prote
 // Generation is the declared migration revision (initial 1, changed delta +1),
 // not a historical accounting generation: neither is in legacy customer JSON.
 //
-// LookupHMAC domains are customer-login (canonical login), subscription-token,
+// LookupHMAC domains are customer-login (canonical login),
+// legacy-customer-login-exact-v1 (original case-sensitive login), subscription-token,
 // customer-uuid, subscription-id, and customer-credentials. The last hashes the
 // JSON encoding of the protocol -> raw credential map, with sorted JSON keys.
 // Independently provisioned VLESS3/4 UUIDs still block migration. Existing WG
@@ -72,12 +73,21 @@ func ValidateProductionCustomerIdentities(protection SnapshotProtection, box *co
 			return nil, errInvalidProductionIdentity
 		}
 		validated.priorDeviceKeys = parent.deviceKeys
+		parentLogins := make(map[string]LegacyCustomer, len(protection.Parent.Customers))
 		for _, row := range protection.Parent.Customers {
+			if _, duplicate := parentLogins[row.Login]; duplicate {
+				return nil, errInvalidProductionIdentity
+			}
+			parentLogins[row.Login] = row
 			row.ProtocolTags = append([]string(nil), row.ProtocolTags...)
 			row.NodeIDs = append([]string(nil), row.NodeIDs...)
 			validated.priorCustomers[row.SourceKey] = row
 		}
 		for _, row := range protection.Customers {
+			if prior, exists := parentLogins[row.Login]; exists &&
+				(prior.SourceKey != row.SourceKey || prior.LoginKeyHMAC != row.LoginKeyHMAC || prior.IdentitySecretRef != row.IdentitySecretRef) {
+				return nil, errInvalidProductionIdentity
+			}
 			if prior, exists := validated.priorCustomers[row.SourceKey]; exists {
 				if row.Generation < prior.Generation || (row.Generation == prior.Generation &&
 					(validated.rows[row.SourceKey] != parent.rows[row.SourceKey] || validated.identityDigests[row.SourceKey] != parent.identityDigests[row.SourceKey])) {
@@ -282,7 +292,16 @@ func validateProductionIdentity(box *controlplane.SecretBox, row LegacyCustomer,
 		return errInvalidProductionIdentity
 	}
 	defer zeroBytes(fingerprint)
-	if box.LookupHMAC("customer-login", []byte(login)) != row.LoginKeyHMAC ||
+	loginHMAC := box.LookupHMAC("customer-login", []byte(login))
+	if strings.HasPrefix(row.SourceKey, controlplane.LegacyExactCustomerSourcePrefix) {
+		canonicalHMAC, exactHMAC, ok := controlplane.ParseLegacyExactCustomerSource(row.SourceKey)
+		expectedExact := box.LookupHMAC(controlplane.LegacyExactCustomerLoginHMACDomain, []byte(customer.Login))
+		if !ok || canonicalHMAC != loginHMAC || exactHMAC != expectedExact {
+			return errInvalidProductionIdentity
+		}
+		loginHMAC = expectedExact
+	}
+	if loginHMAC != row.LoginKeyHMAC ||
 		box.LookupHMAC("subscription-token", []byte(customer.SubToken)) != row.TokenHMAC ||
 		uuidHMAC != row.UUIDHMAC || subIDHMAC != row.SubIDHMAC ||
 		box.LookupHMAC("customer-credentials", fingerprint) != row.CredentialFingerprintHMAC {

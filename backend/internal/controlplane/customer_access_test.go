@@ -147,6 +147,7 @@ func appendAccessReplay(t *testing.T, service *Service, db *recordingRQLite, com
 		})
 	}
 	db.linear = append(db.linear,
+		canonicalLoginIdentityScript(service.store.secrets, command.Login, customer),
 		rowsScript(map[string]any{
 			"request_hash": requestHash, "status": "applied", "response_json": string(responseJSON),
 		}),

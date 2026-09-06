@@ -359,7 +359,8 @@ func (b *ServiceBusiness) CreateOrder(ctx context.Context, command CreateOrderCo
 	created, err := b.service.CreatePurchaseOrder(ctx, controlplane.PurchaseOrderCommand{
 		TariffVersionID: version, CustomerID: identity.CustomerID, IdempotencyKey: command.IdempotencyKey,
 		IdentitySource: identity.Source, IdentityHMAC: identity.HMAC,
-		Actor: "legacy-http", Channel: "legacy-http", SourceEventID: command.IdempotencyKey,
+		LoginIdentity: identity.LoginIdentity,
+		Actor:         "legacy-http", Channel: "legacy-http", SourceEventID: command.IdempotencyKey,
 	})
 	if err != nil {
 		return OrderView{}, businessError(err)
@@ -372,9 +373,10 @@ func (b *ServiceBusiness) CreateOrder(ctx context.Context, command CreateOrderCo
 }
 
 type legacyOrderIdentityBinding struct {
-	CustomerID string
-	Source     string
-	HMAC       string
+	CustomerID    string
+	Source        string
+	HMAC          string
+	LoginIdentity *controlplane.CustomerLoginIdentity
 }
 
 func (b *ServiceBusiness) legacyOrderIdentity(ctx context.Context, command CreateOrderCommand) (legacyOrderIdentityBinding, error) {
@@ -400,26 +402,24 @@ func (b *ServiceBusiness) legacyOrderIdentity(ctx context.Context, command Creat
 		}
 		return legacyOrderIdentityBinding{}, businessError(err)
 	}
-	if login := strings.TrimSpace(command.Login); login != "" {
-		binding := legacyOrderIdentityBinding{Source: controlplane.PurchaseOrderIdentityLogin}
-		digest, err := b.service.PurchaseOrderIdentityHMAC(binding.Source, command.Login)
+	if strings.TrimSpace(command.Login) != "" {
+		identity, err := b.service.ResolveCustomerLogin(ctx, command.Login)
 		if err != nil {
 			return legacyOrderIdentityBinding{}, businessError(err)
 		}
-		binding.HMAC = digest
-		customer, err := b.service.BusinessCustomerByLogin(ctx, login)
-		if err == nil {
-			if customer.Status != "active" && customer.Status != "expired" {
-				// Legacy disabled-account reactivation is intentionally not part of purchasing.
-				return legacyOrderIdentityBinding{}, businessError(controlplane.ErrForbidden)
-			}
-			binding.CustomerID = customer.ID
+		binding := legacyOrderIdentityBinding{Source: controlplane.PurchaseOrderIdentityLogin,
+			HMAC: identity.PurchaseIdentityHMAC(), CustomerID: identity.CustomerID(), LoginIdentity: &identity}
+		if !identity.Exists() {
 			return binding, nil
 		}
-		if errors.Is(err, controlplane.ErrNotFound) {
-			return binding, nil
+		customer, err := b.service.BusinessCustomerByID(ctx, identity.CustomerID())
+		if err != nil {
+			return legacyOrderIdentityBinding{}, businessError(err)
 		}
-		return legacyOrderIdentityBinding{}, businessError(err)
+		if customer.Status != "active" && customer.Status != "expired" {
+			return legacyOrderIdentityBinding{}, businessError(controlplane.ErrForbidden)
+		}
+		return binding, nil
 	}
 	binding := legacyOrderIdentityBinding{Source: controlplane.PurchaseOrderIdentityNone}
 	digest, err := b.service.PurchaseOrderIdentityHMAC(binding.Source, "")
@@ -721,7 +721,11 @@ func (b *ServiceBusiness) OLCRTCState(ctx context.Context) (OLCRTCView, error) {
 	if err != nil {
 		return OLCRTCView{}, businessError(err)
 	}
-	view, err := olcrtcViewFromValue(setting.PublicValueJSON)
+	value, _, err := b.resolveOLCRTCSetting(ctx, setting.PublicValueJSON)
+	if err != nil {
+		return OLCRTCView{}, businessError(err)
+	}
+	view, err := olcrtcViewFromValue(value)
 	if err != nil {
 		return OLCRTCView{}, businessError(err)
 	}
@@ -739,8 +743,19 @@ func (b *ServiceBusiness) SetOLCRTCRoom(ctx context.Context, command SetOLCRTCRo
 	if err != nil && !errors.Is(err, controlplane.ErrNotFound) {
 		return SettingView{}, businessError(err)
 	}
-	mutation, err := nextOLCRTCRoomSetting(
-		setting.PublicValueJSON, command.Login, command.Room, command.Provider,
+	value, identities, err := b.resolveOLCRTCSetting(ctx, setting.PublicValueJSON)
+	if err != nil {
+		return SettingView{}, businessError(err)
+	}
+	if _, err := resolvedOLCRTCMembers(setting.Members, identities); err != nil {
+		return SettingView{}, businessError(err)
+	}
+	identity, err := b.service.ResolveCustomerLogin(ctx, command.Login)
+	if err != nil {
+		return SettingView{}, businessError(err)
+	}
+	mutation, err := nextOLCRTCRoomSettingForIdentity(
+		value, identity.Login(), command.Room, command.Provider,
 	)
 	if err != nil {
 		return SettingView{}, businessError(err)
@@ -768,11 +783,22 @@ func (b *ServiceBusiness) SetOLCRTCGrant(ctx context.Context, command SetOLCRTCG
 	if err != nil {
 		return SettingView{}, businessError(err)
 	}
-	login, targetValue, err := olcrtcGrantTargetValue(setting.PublicValueJSON, command.Login, command.Enabled)
+	value, identities, err := b.resolveOLCRTCSetting(ctx, setting.PublicValueJSON)
 	if err != nil {
 		return SettingView{}, businessError(err)
 	}
-	members := settingMemberKeys(setting.Members)
+	identity, err := b.service.ResolveCustomerLogin(ctx, command.Login)
+	if err != nil {
+		return SettingView{}, businessError(err)
+	}
+	login, targetValue, err := olcrtcGrantTargetValueForIdentity(value, identity.Login(), command.Enabled)
+	if err != nil {
+		return SettingView{}, businessError(err)
+	}
+	members, err := resolvedOLCRTCMembers(setting.Members, identities)
+	if err != nil {
+		return SettingView{}, businessError(err)
+	}
 	if command.Enabled && !containsString(members, login) {
 		members = append(members, login)
 	}
@@ -780,14 +806,14 @@ func (b *ServiceBusiness) SetOLCRTCGrant(ctx context.Context, command SetOLCRTCG
 		members = removeString(members, login)
 	}
 	result, err := b.service.UpdateSetting(ctx, controlplane.SettingUpdate{
-		Key: "olcrtc", ExpectedGeneration: command.ExpectedVersion, PublicValueJSON: string(setting.PublicValueJSON),
+		Key: "olcrtc", ExpectedGeneration: command.ExpectedVersion, PublicValueJSON: string(value),
 		Members: members, Actor: "panel", CommandType: "setting.olcrtc.grant", IdempotencyKey: command.IdempotencyKey,
 		TargetMembers: []string{login}, TargetPayloads: map[string]string{login: string(targetValue)},
 	})
 	if err != nil {
 		return SettingView{}, businessError(err)
 	}
-	return SettingView{Key: "olcrtc", Version: result.Generation, Value: setting.PublicValueJSON}, nil
+	return SettingView{Key: "olcrtc", Version: result.Generation, Value: value}, nil
 }
 
 func (b *ServiceBusiness) WBTokenStatus(ctx context.Context) (SecretStatusView, error) {
@@ -816,16 +842,17 @@ func (b *ServiceBusiness) SetWBToken(ctx context.Context, command SetSecretComma
 }
 
 func (b *ServiceBusiness) RequestWBRoom(ctx context.Context, command RequestWBRoomCommand) (ExternalActionView, error) {
-	if b == nil || b.externalActions == nil || b.wbSender == nil || b.workerID == "" || b.wbRooms == nil {
+	if b == nil || b.service == nil || b.externalActions == nil || b.wbSender == nil || b.workerID == "" || b.wbRooms == nil {
 		return ExternalActionView{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
 	if strings.TrimSpace(command.Login) == "" || strings.TrimSpace(command.ActionKey) == "" || strings.TrimSpace(command.IdempotencyKey) == "" {
 		return ExternalActionView{}, businessError(controlplane.ErrForbidden)
 	}
-	login, err := controlplane.CanonicalLoginKey(command.Login)
+	identity, err := b.service.ResolveCustomerLogin(ctx, command.Login)
 	if err != nil {
-		return ExternalActionView{}, businessError(controlplane.ErrForbidden)
+		return ExternalActionView{}, businessError(err)
 	}
+	login := identity.Login()
 	request, _ := json.Marshal(map[string]string{"login": login})
 	actionCommand := controlplane.ExternalActionCommand{
 		Type: "wb.room", ResourceID: login, ActionKey: command.ActionKey, ReplacesActionKey: command.ReplacesActionKey, Request: request,
@@ -1098,18 +1125,88 @@ func decodeOLCRTCRooms(value json.RawMessage) (map[string]map[string]string, err
 		return nil, controlplane.ErrUnavailable
 	}
 	for login, room := range persisted {
-		canonical, err := controlplane.CanonicalLoginKey(login)
-		if err != nil {
+		if _, err := controlplane.CanonicalLoginKey(login); err != nil {
 			return nil, controlplane.ErrUnavailable
 		}
-		if _, duplicate := rooms[canonical]; duplicate {
+		if _, duplicate := rooms[login]; duplicate {
 			return nil, controlplane.ErrUnavailable
 		}
-		rooms[canonical] = map[string]string{
+		rooms[login] = map[string]string{
 			"room": strings.TrimSpace(room["room"]), "provider": strings.TrimSpace(room["provider"]),
 		}
 	}
 	return rooms, nil
+}
+
+func (b *ServiceBusiness) resolveOLCRTCSetting(ctx context.Context, value json.RawMessage) (json.RawMessage, map[string]controlplane.CustomerLoginIdentity, error) {
+	identities := make(map[string]controlplane.CustomerLoginIdentity)
+	if len(value) == 0 {
+		return value, identities, nil
+	}
+	var document map[string]json.RawMessage
+	if json.Unmarshal(value, &document) != nil || document == nil {
+		return nil, nil, controlplane.ErrUnavailable
+	}
+	if _, hasRooms := document["rooms"]; !hasRooms {
+		return value, identities, nil
+	}
+	rooms, err := decodeOLCRTCRooms(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys := make([]string, 0, len(rooms))
+	for raw := range rooms {
+		keys = append(keys, raw)
+	}
+	sort.Strings(keys)
+	resolved := make(map[string]map[string]string, len(rooms))
+	for _, raw := range keys {
+		identity, err := b.service.ResolveCustomerLogin(ctx, raw)
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, duplicate := resolved[identity.Login()]; duplicate {
+			return nil, nil, controlplane.ErrConflict
+		}
+		if rooms[raw]["room"] == "" || rooms[raw]["provider"] == "" {
+			return nil, nil, controlplane.ErrUnavailable
+		}
+		resolved[identity.Login()], identities[identity.Login()] = rooms[raw], identity
+	}
+	document["rooms"], err = json.Marshal(resolved)
+	if err != nil {
+		return nil, nil, controlplane.ErrUnavailable
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return nil, nil, controlplane.ErrUnavailable
+	}
+	return encoded, identities, nil
+}
+
+func resolvedOLCRTCMembers(members map[string]json.RawMessage, identities map[string]controlplane.CustomerLoginIdentity) ([]string, error) {
+	logins := make([]string, 0, len(members))
+	matched := make(map[string]bool, len(members))
+	for _, identity := range identities {
+		key := identity.SettingMemberHMAC("olcrtc")
+		value, enabled := members[key]
+		if !enabled {
+			continue
+		}
+		var membership struct {
+			Enabled bool `json:"enabled"`
+		}
+		if json.Unmarshal(value, &membership) != nil || !membership.Enabled || matched[key] {
+			return nil, controlplane.ErrConflict
+		}
+		matched[key] = true
+		logins = append(logins, identity.Login())
+	}
+	if len(matched) != len(members) {
+		return nil, controlplane.ErrConflict
+	}
+	sort.Strings(logins)
+	return logins, nil
 }
 
 func olcrtcViewFromValue(value json.RawMessage) (OLCRTCView, error) {
@@ -1145,11 +1242,15 @@ func olcrtcGrantTargetValue(value json.RawMessage, login string, enabled bool) (
 	if err != nil {
 		return "", nil, controlplane.ErrForbidden
 	}
+	return olcrtcGrantTargetValueForIdentity(value, canonical, enabled)
+}
+
+func olcrtcGrantTargetValueForIdentity(value json.RawMessage, login string, enabled bool) (string, json.RawMessage, error) {
 	rooms, err := decodeOLCRTCRooms(value)
 	if err != nil {
 		return "", nil, err
 	}
-	room, assigned := rooms[canonical]
+	room, assigned := rooms[login]
 	if enabled && (!assigned || strings.TrimSpace(room["room"]) == "" || strings.TrimSpace(room["provider"]) == "") {
 		return "", nil, controlplane.ErrConflict
 	}
@@ -1162,7 +1263,7 @@ func olcrtcGrantTargetValue(value json.RawMessage, login string, enabled bool) (
 	if err != nil {
 		return "", nil, controlplane.ErrUnavailable
 	}
-	return canonical, targetValue, nil
+	return login, targetValue, nil
 }
 
 func nextOLCRTCRoomSetting(current json.RawMessage, login, room, provider string) (olcrtcSettingMutation, error) {
@@ -1170,6 +1271,10 @@ func nextOLCRTCRoomSetting(current json.RawMessage, login, room, provider string
 	if err != nil {
 		return olcrtcSettingMutation{}, controlplane.ErrForbidden
 	}
+	return nextOLCRTCRoomSettingForIdentity(current, canonical, room, provider)
+}
+
+func nextOLCRTCRoomSettingForIdentity(current json.RawMessage, login, room, provider string) (olcrtcSettingMutation, error) {
 	room = strings.TrimSpace(room)
 	provider = strings.TrimSpace(provider)
 	if room == "" || provider == "" {
@@ -1180,7 +1285,7 @@ func nextOLCRTCRoomSetting(current json.RawMessage, login, room, provider string
 		return olcrtcSettingMutation{}, err
 	}
 	target := map[string]string{"room": room, "provider": provider}
-	rooms[canonical] = target
+	rooms[login] = target
 	members := make([]string, 0, len(rooms))
 	for member := range rooms {
 		members = append(members, member)
@@ -1195,7 +1300,7 @@ func nextOLCRTCRoomSetting(current json.RawMessage, login, room, provider string
 		return olcrtcSettingMutation{}, controlplane.ErrUnavailable
 	}
 	return olcrtcSettingMutation{
-		Login: canonical, Value: value, TargetValue: targetValue, Members: members,
+		Login: login, Value: value, TargetValue: targetValue, Members: members,
 	}, nil
 }
 

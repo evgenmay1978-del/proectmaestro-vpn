@@ -79,6 +79,10 @@ func (s *Store) updateSettingIdempotent(
 		strings.TrimSpace(update.IdempotencyKey) == "" || mutationToken == "" || requestHash == "" {
 		return SettingResult{}, errors.New("controlplane: invalid idempotent setting update")
 	}
+	identities, identityGuard, identityArgs, err := s.resolveSettingCustomerIdentities(ctx, update)
+	if err != nil {
+		return SettingResult{}, err
+	}
 	now := s.clock.Now().Unix()
 	next := update.ExpectedGeneration + 1
 	responseBytes, err := json.Marshal(storedSettingResponse{Generation: next})
@@ -90,6 +94,11 @@ AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying
 	guardArgs := []any{update.CommandType, update.IdempotencyKey, requestHash, mutationToken}
 	settingGuard := `EXISTS(SELECT 1 FROM cluster_settings WHERE setting_key=? AND generation=? AND last_mutation_token=?)`
 	settingGuardArgs := []any{update.Key, next, mutationToken}
+	settingCASArgs := []any{update.Key, update.PublicValueJSON, next, now, mutationToken}
+	settingCASArgs = append(settingCASArgs, guardArgs...)
+	settingCASArgs = append(settingCASArgs, update.Key, update.ExpectedGeneration)
+	settingCASArgs = append(settingCASArgs, identityArgs...)
+	settingCASArgs = append(settingCASArgs, update.ExpectedGeneration)
 	statements := []rqlite.Statement{{
 		SQL: `INSERT OR IGNORE INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,
 resource_id,decision,operation_id,status,created_at_unix)
@@ -98,23 +107,17 @@ VALUES('setting',?,?,?,?, 'accepted',?,'applying',?)`, Args: []any{
 		},
 	}, {
 		SQL: `INSERT INTO cluster_settings(setting_key,public_value_json,generation,updated_at_unix,last_mutation_token)
-SELECT ?,?,?,?,? WHERE ` + guard + ` AND COALESCE((SELECT generation FROM cluster_settings WHERE setting_key=?),0)=?
+SELECT ?,?,?,?,? WHERE ` + guard + ` AND COALESCE((SELECT generation FROM cluster_settings WHERE setting_key=?),0)=? AND ` + identityGuard + `
 ON CONFLICT(setting_key) DO UPDATE SET public_value_json=excluded.public_value_json,
 generation=excluded.generation,updated_at_unix=excluded.updated_at_unix,last_mutation_token=excluded.last_mutation_token
-WHERE cluster_settings.generation=? RETURNING generation`, Args: append([]any{
-			update.Key, update.PublicValueJSON, next, now, mutationToken,
-		}, append(guardArgs, update.Key, update.ExpectedGeneration, update.ExpectedGeneration)...),
+WHERE cluster_settings.generation=? RETURNING generation`, Args: settingCASArgs,
 	}, backupRPOSettingDirtyGenerationStatement(now, update.Key, next, mutationToken), {
 		SQL:  `DELETE FROM setting_members WHERE setting_key=? AND ` + settingGuard + ` AND ` + guard,
 		Args: append([]any{update.Key}, append(settingGuardArgs, guardArgs...)...),
 	}}
 	if len(update.Members) > 0 {
 		for _, member := range update.Members {
-			canonical, canonicalErr := CanonicalLoginKey(member)
-			if canonicalErr != nil {
-				return SettingResult{}, errors.New("controlplane: invalid setting member")
-			}
-			memberHMAC := s.secrets.LookupHMAC("setting-member:"+update.Key, []byte(canonical))
+			memberHMAC := identities[member].SettingMemberHMAC(update.Key)
 			statements = append(statements, rqlite.Statement{
 				SQL: `INSERT INTO setting_members(setting_key,member_key,member_value_json,generation)
 SELECT ?,?,'{"enabled":true}',? WHERE ` + settingGuard + ` AND ` + guard + `
@@ -151,11 +154,8 @@ SELECT ?,?,?, 'cluster_setting',?,? WHERE ` + settingGuard + ` AND ` + guard + `
 	})
 	if update.Key == "olcrtc" && len(update.TargetMembers) > 0 {
 		for _, member := range update.TargetMembers {
-			canonical, canonicalErr := CanonicalLoginKey(member)
-			if canonicalErr != nil {
-				return SettingResult{}, errors.New("controlplane: invalid olcrtc target")
-			}
-			desiredJSON, ok := update.TargetPayloads[canonical]
+			identity := identities[member]
+			desiredJSON, ok := update.TargetPayloads[member]
 			if !ok {
 				return SettingResult{}, errors.New("controlplane: missing olcrtc target payload")
 			}
@@ -170,17 +170,16 @@ SELECT ?,?,?, 'cluster_setting',?,? WHERE ` + settingGuard + ` AND ` + guard + `
 				return SettingResult{}, errors.New("controlplane: encode olcrtc desired state")
 			}
 			digest := sha256.Sum256(envelopeBytes)
-			loginHMAC := s.secrets.LookupHMAC("customer-login", []byte(canonical))
 			statements = append(statements, rqlite.Statement{
 				SQL: `INSERT INTO desired_node_state(customer_id,node_id,service_name,generation,desired_envelope,
 desired_sha256,status,updated_at_unix,tombstone,operation_id)
 SELECT c.customer_id,ns.node_id,'s3-olcrtc',?,?,?,'pending',?,0,? FROM customers c
 JOIN node_services ns ON ns.service_name='s3-olcrtc' AND ns.desired_target=1 AND ns.apply_enabled=1 AND ns.fenced=0 AND ns.retired=0
-WHERE c.login_key_hmac=? AND ` + settingGuard + ` AND ` + guard + `
+WHERE c.customer_id=? AND c.login_key_hmac=? AND ` + settingGuard + ` AND ` + guard + `
 ON CONFLICT(customer_id,node_id,service_name) DO UPDATE SET generation=excluded.generation,
 desired_envelope=excluded.desired_envelope,desired_sha256=excluded.desired_sha256,status='pending',
 updated_at_unix=excluded.updated_at_unix,tombstone=0,operation_id=excluded.operation_id`,
-				Args: append([]any{next, envelopeBytes, hex.EncodeToString(digest[:]), now, mutationToken, loginHMAC}, append(settingGuardArgs, guardArgs...)...),
+				Args: append([]any{next, envelopeBytes, hex.EncodeToString(digest[:]), now, mutationToken, identity.CustomerID(), identity.LookupHMAC()}, append(settingGuardArgs, guardArgs...)...),
 			})
 		}
 		statements = append(statements, rqlite.Statement{

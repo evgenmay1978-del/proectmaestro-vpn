@@ -104,46 +104,81 @@ func validSettingUpdate(update SettingUpdate) bool {
 	}
 	targets := make(map[string]struct{}, len(update.TargetMembers))
 	for _, login := range update.TargetMembers {
-		canonical, err := CanonicalLoginKey(login)
-		if err != nil || login != canonical {
+		if _, err := CanonicalLoginKey(login); err != nil {
 			return false
 		}
-		if _, duplicate := targets[canonical]; duplicate {
+		if _, duplicate := targets[login]; duplicate {
 			return false
 		}
-		targets[canonical] = struct{}{}
+		targets[login] = struct{}{}
 	}
 	if len(update.TargetPayloads) != len(targets) {
 		return false
 	}
 	for login, payload := range update.TargetPayloads {
-		canonical, err := CanonicalLoginKey(login)
-		if err != nil || login != canonical || !json.Valid([]byte(payload)) {
+		if _, err := CanonicalLoginKey(login); err != nil || !json.Valid([]byte(payload)) {
 			return false
 		}
-		if _, targeted := targets[canonical]; !targeted {
+		if _, targeted := targets[login]; !targeted {
 			return false
 		}
 	}
 	return true
 }
 
+func (s *Store) resolveSettingCustomerIdentities(ctx context.Context, update SettingUpdate) (map[string]CustomerLoginIdentity, string, []any, error) {
+	identities := make(map[string]CustomerLoginIdentity)
+	guards := make([]string, 0, len(update.Members)+len(update.TargetMembers))
+	var args []any
+	for _, members := range [][]string{update.Members, update.TargetMembers} {
+		for _, raw := range members {
+			if _, exists := identities[raw]; exists {
+				continue
+			}
+			identity, err := s.resolveCustomerLogin(ctx, raw)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			identities[raw] = identity
+			guard, binding := identity.guardSQL()
+			guards = append(guards, "("+guard+")")
+			args = append(args, binding...)
+		}
+	}
+	seenTargets := make(map[string]bool, len(update.TargetMembers))
+	for _, raw := range update.TargetMembers {
+		key := identities[raw].LookupHMAC()
+		if seenTargets[key] {
+			return nil, "", nil, ErrConflict
+		}
+		seenTargets[key] = true
+	}
+	if len(guards) == 0 {
+		return identities, "1", nil, nil
+	}
+	return identities, strings.Join(guards, " AND "), args, nil
+}
+
 func (s *Store) updateSetting(ctx context.Context, update SettingUpdate, mutationToken string) (SettingResult, error) {
 	if !validSettingUpdate(update) || mutationToken == "" {
 		return SettingResult{}, errors.New("controlplane: invalid setting update")
+	}
+	identities, identityGuard, identityArgs, err := s.resolveSettingCustomerIdentities(ctx, update)
+	if err != nil {
+		return SettingResult{}, err
 	}
 	now := s.clock.Now().Unix()
 	next := update.ExpectedGeneration + 1
 	statements := []rqlite.Statement{{
 		SQL: `INSERT INTO cluster_settings(setting_key, public_value_json, generation, updated_at_unix, last_mutation_token)
 SELECT ?, ?, ?, ?, ?
-WHERE COALESCE((SELECT generation FROM cluster_settings WHERE setting_key = ?), 0) = ?
+WHERE COALESCE((SELECT generation FROM cluster_settings WHERE setting_key = ?), 0) = ? AND ` + identityGuard + `
 ON CONFLICT(setting_key) DO UPDATE SET public_value_json = excluded.public_value_json,
 generation = excluded.generation, updated_at_unix = excluded.updated_at_unix,
 last_mutation_token = excluded.last_mutation_token
 WHERE cluster_settings.generation = ?
 RETURNING generation`,
-		Args: []any{update.Key, update.PublicValueJSON, next, now, mutationToken, update.Key, update.ExpectedGeneration, update.ExpectedGeneration},
+		Args: append(append([]any{update.Key, update.PublicValueJSON, next, now, mutationToken, update.Key, update.ExpectedGeneration}, identityArgs...), update.ExpectedGeneration),
 	}, backupRPOSettingDirtyGenerationStatement(now, update.Key, next, mutationToken), {
 		SQL: `DELETE FROM setting_members WHERE setting_key = ? AND EXISTS
 (SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?)`,
@@ -153,11 +188,7 @@ RETURNING generation`,
 		values := make([]string, 0, len(update.Members))
 		args := make([]any, 0, len(update.Members)*7)
 		for _, member := range update.Members {
-			canonical, err := CanonicalLoginKey(member)
-			if err != nil {
-				return SettingResult{}, errors.New("controlplane: invalid setting member")
-			}
-			memberHMAC := s.secrets.LookupHMAC("setting-member:"+update.Key, []byte(canonical))
+			memberHMAC := identities[member].SettingMemberHMAC(update.Key)
 			values = append(values, `SELECT ?, ?, ?, ? WHERE EXISTS
 (SELECT 1 FROM cluster_settings WHERE setting_key = ? AND generation = ? AND last_mutation_token = ?)`)
 			args = append(args, update.Key, memberHMAC, `{"enabled":true}`, next, update.Key, next, mutationToken)

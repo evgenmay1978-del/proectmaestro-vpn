@@ -190,7 +190,11 @@ func TestMutableSettingsUseVersionCASAndAudit(t *testing.T) {
 		rqlite.Result{Rows: []map[string]any{{"generation": 2}}},
 		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 	)}}
-	service, _ := testService(t, db)
+	service, box := testService(t, db)
+	db.linear = []scriptedResult{
+		canonicalLoginIdentityScript(box, "owner-a", Customer{}),
+		canonicalLoginIdentityScript(box, "owner-b", Customer{}),
+	}
 	result, err := service.UpdateSetting(context.Background(), SettingUpdate{
 		Key:                "ota",
 		ExpectedGeneration: 1,

@@ -78,18 +78,35 @@ func TestExtendAndRenewUseDistinctExpiryRules(t *testing.T) {
 }
 
 func canonicalMutationDB(existing bool) *recordingRQLite {
-	linear := []scriptedResult{rowsScript()}
+	box, err := NewSecretBox(1, map[int][]byte{1: bytes.Repeat([]byte{0x61}, 32)}, bytes.Repeat([]byte{0x62}, 32))
+	if err != nil {
+		panic(err)
+	}
+	var customer Customer
 	if existing {
-		linear = append(linear, rowsScript(map[string]any{
-			"customer_id": "customer_1", "status": "active",
-			"expires_at_unix": int64(2_500_000), "generation": int64(1),
-		}))
+		customer = Customer{ID: "customer_1", Status: "active", ExpiresAtUnix: 2_500_000, Generation: 1}
+	}
+	linear := []scriptedResult{canonicalLoginIdentityScript(box, "Alice", customer), rowsScript()}
+	if existing {
 		linear = append(linear, rowsScript(canonicalMutationAccessRows()...))
-	} else {
-		linear = append(linear, rowsScript())
 	}
 	linear = append(linear, rowsScript(map[string]any{"node_id": "s1", "service_name": "x-ui"}))
 	return &recordingRQLite{linear: linear, requestFn: canonicalCustomerResult}
+}
+
+func canonicalLoginIdentityScript(box *SecretBox, display string, customer Customer) scriptedResult {
+	if customer.ID == "" {
+		return rowsScript(map[string]any{"customer_id": nil, "source_key": nil, "exact_family": int64(0), "has_token": int64(0)})
+	}
+	canonical, err := CanonicalLoginKey(display)
+	if err != nil {
+		panic(err)
+	}
+	return rowsScript(map[string]any{
+		"customer_id": customer.ID, "display_login": display, "login_key_hmac": box.LookupHMAC("customer-login", []byte(canonical)),
+		"status": customer.Status, "expires_at_unix": customer.ExpiresAtUnix, "generation": customer.Generation,
+		"source_key": nil, "target_id": nil, "canonical_sha256": nil, "lifecycle": nil, "exact_family": int64(0), "has_token": int64(1),
+	})
 }
 
 func canonicalCustomerResult(statements []rqlite.Statement) ([]rqlite.Result, error) {
