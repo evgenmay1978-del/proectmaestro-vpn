@@ -149,7 +149,7 @@ func (desired Desired) validate() error {
 		}
 	}
 	for _, email := range desired.ManagedUsers {
-		if !managedEmailForExit(email, desired.ExitID) {
+		if _, ok := managedEmailExit(email); !ok {
 			return ErrInvalidDesired
 		}
 	}
@@ -161,11 +161,19 @@ func (desired Desired) validate() error {
 }
 
 func managedEmailForExit(email, exitID string) bool {
+	managedExitID, ok := managedEmailExit(email)
+	return ok && managedExitID == exitID
+}
+
+func managedEmailExit(email string) (string, bool) {
 	if !safeEmail(email) || !strings.HasPrefix(email, ManagedPrefix) {
-		return false
+		return "", false
 	}
 	parts := strings.Split(email, ":")
-	return len(parts) == 3 && parts[0] == "wl" && parts[1] != "" && parts[2] == exitID
+	if len(parts) != 3 || parts[0] != "wl" || parts[1] == "" || !supportedExit(parts[2]) {
+		return "", false
+	}
+	return parts[2], true
 }
 
 func supportedExit(exitID string) bool {

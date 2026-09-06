@@ -144,6 +144,10 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if desired.ConfigDigest != reconciler.configDigest {
 		return Receipt{}, errors.New("sidecar agent: config digest mismatch")
 	}
+	exitIDs, err := desiredExitIDs(desired)
+	if err != nil {
+		return Receipt{}, err
+	}
 	if reconciler.managedLeaseEnabled {
 		if len(desired.ManagedUsers) > maxLeaseUsers {
 			return Receipt{}, ErrLeaseCapacity
@@ -173,7 +177,7 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if err := reconciler.store.InvalidateReceiptsExceptBoot(bootID); err != nil {
 		return Receipt{}, err
 	}
-	if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, desired.ExitID); err != nil {
+	if err := reconciler.preflightExits(ctx, bootID, exitIDs); err != nil {
 		return Receipt{}, errors.New("sidecar agent: relay readiness preflight failed")
 	}
 	var convergeErr error
@@ -185,7 +189,7 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if convergeErr != nil {
 		return Receipt{}, convergeErr
 	}
-	if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, desired.ExitID); err != nil {
+	if err := reconciler.preflightExits(ctx, bootID, exitIDs); err != nil {
 		return Receipt{}, errors.New("sidecar agent: final relay readiness preflight failed")
 	}
 	// One action/boot produces one immutable readiness receipt. A real refresh
@@ -238,7 +242,7 @@ func (reconciler *Reconciler) converge(ctx context.Context, desired Desired) err
 	}
 	sort.Strings(replacements)
 	for _, email := range sortedDifference(desiredManaged, currentManaged) {
-		if !managedEmailForExit(email, desired.ExitID) {
+		if _, ok := managedEmailExit(email); !ok {
 			return ErrInvalidDesired
 		}
 		if err := reconciler.handler.AddUser(ctx, reconciler.inboundTag, email); err != nil {
@@ -288,6 +292,35 @@ func (reconciler *Reconciler) converge(ctx context.Context, desired Desired) err
 		}
 	}
 	return nil
+}
+
+func (reconciler *Reconciler) preflightExits(ctx context.Context, bootID string, exitIDs []string) error {
+	for _, exitID := range exitIDs {
+		if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, exitID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func desiredExitIDs(desired Desired) ([]string, error) {
+	if !supportedExit(desired.ExitID) {
+		return nil, ErrInvalidDesired
+	}
+	exitSet := map[string]struct{}{desired.ExitID: {}}
+	for _, email := range desired.ManagedUsers {
+		exitID, ok := managedEmailExit(email)
+		if !ok {
+			return nil, ErrInvalidDesired
+		}
+		exitSet[exitID] = struct{}{}
+	}
+	exitIDs := make([]string, 0, len(exitSet))
+	for exitID := range exitSet {
+		exitIDs = append(exitIDs, exitID)
+	}
+	sort.Strings(exitIDs)
+	return exitIDs, nil
 }
 
 func verifyStaticUsers(current, expected []string) error {
