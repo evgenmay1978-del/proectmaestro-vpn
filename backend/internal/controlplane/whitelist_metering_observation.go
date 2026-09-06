@@ -472,6 +472,10 @@ func (s *Service) EnsureWhiteListMeteringBootstrap(ctx context.Context, workerID
 			return nil
 		}
 		changed := false
+		emptyManagedDigest, err := whiteListCanonicalDigest([]string{})
+		if err != nil {
+			return ErrUnavailable
+		}
 		reads := make([]rqlite.Statement, 0, len(state.origins))
 		for index, origin := range state.origins {
 			prior, exists := state.previous[origin.OriginID]
@@ -491,9 +495,9 @@ AND NOT EXISTS(SELECT 1 FROM whitelist_first_use_admissions WHERE origin_id=?)
 AND NOT EXISTS(SELECT 1 FROM whitelist_byte_allocations WHERE origin_id=?)
 AND NOT EXISTS(SELECT 1 FROM whitelist_metering_events WHERE instance_id=?)
 AND NOT EXISTS(SELECT 1 FROM whitelist_sidecar_desired WHERE origin_id=?
-AND json_array_length(CAST(payload_json AS TEXT),'$.managed_users')>0) AS unused_history`, Args: []any{
+AND managed_user_set_digest<>?) AS unused_history`, Args: []any{
 				origin.OriginID, origin.ReleaseID, origin.ConfigDigest, origin.OriginID,
-				prior.Action.ActionKey, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID,
+				prior.Action.ActionKey, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID, emptyManagedDigest,
 			}})
 		}
 		if !changed {
