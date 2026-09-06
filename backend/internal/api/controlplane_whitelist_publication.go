@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/subgen"
 )
 
