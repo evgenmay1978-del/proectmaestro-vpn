@@ -81,6 +81,8 @@ func (s *ControlPlaneServer) handleControlPlaneCustomerCabinet(w http.ResponseWr
 		s.handleControlPlaneCommercialProfile(w, r)
 	case "/cabinet/api/balance":
 		s.handleControlPlaneCommercialBalance(w, r)
+	case "/cabinet/api/runtime":
+		s.handleControlPlaneWhiteListNativeRuntime(w, r)
 	case "/cabinet/api/catalog":
 		s.handleControlPlaneCommercialCatalog(w, r)
 	case "/cabinet/api/tariffs":
