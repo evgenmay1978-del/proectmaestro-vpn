@@ -8,6 +8,22 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 internal object WhiteListConfig {
+    /** Recover the saved ordinary choice; never select direct/block or an injected CDN node. */
+    fun ordinaryTag(base: String): String? {
+        val root = Json.parseToJsonElement(base) as JsonObject
+        val outbounds = (root["outbounds"] as JsonArray).map { it as JsonObject }
+        fun JsonObject.text(key: String) = (this[key] as? JsonPrimitive)?.content
+        if (outbounds.any { it.text("tag")?.startsWith("cdn:") == true }) return null
+        val selector = outbounds.singleOrNull { it.text("tag") == "select" && it.text("type") == "selector" } ?: return null
+        val choices = (selector["outbounds"] as JsonArray).mapNotNull { (it as? JsonPrimitive)?.content }
+        val usable = choices.filter { tag ->
+            outbounds.any { it.text("tag") == tag && it.text("type") in setOf(
+                "selector", "urltest", "vless", "hysteria2", "naive", "anytls", "trojan", "vmess", "shadowsocks", "wireguard",
+            ) }
+        }
+        return selector.text("default")?.takeIf { it in usable } ?: "auto".takeIf { it in usable } ?: usable.firstOrNull()
+    }
+
     /** Only an explicitly selected CDN session uses this ephemeral variant. */
     fun inject(base: String, route: WhiteListRuntimeRoute, port: Int, user: String, pass: String): String {
         require(port in 1024..65_535 && user.isNotBlank() && pass.isNotBlank() && user != pass)

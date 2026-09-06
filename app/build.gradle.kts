@@ -110,8 +110,18 @@ if (task7TestOverrideActive) {
     }
 }
 
-val effectiveVersionName = task7TestVersionNameProperty ?: productionVersionName
-val effectiveVersionCode = task7TestVersionCode ?: productionVersionCode
+val cdnApkProperty = providers.gradleProperty("maestroCdnApk").orNull
+require(cdnApkProperty == null || cdnApkProperty == "true") { "maestroCdnApk must be true when supplied" }
+val cdnApkBuild = cdnApkProperty == "true"
+if (cdnApkBuild) {
+    require(!task7TestOverrideActive) { "CDN APK and Task 7 version overrides cannot be combined" }
+    require(listOf(releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all { it.isNotEmpty() } &&
+        file("release.keystore").isFile) { "CDN APK requires the existing stable signing keystore and all signing properties" }
+    require(1015900 > productionVersionCode) { "CDN APK version must exceed the source version" }
+}
+
+val effectiveVersionName = if (cdnApkBuild) "1.0.159-cdn" else task7TestVersionNameProperty ?: productionVersionName
+val effectiveVersionCode = if (cdnApkBuild) 1015900 else task7TestVersionCode ?: productionVersionCode
 android {
     namespace = "com.maestrovpn.tv"
     compileSdk = 36

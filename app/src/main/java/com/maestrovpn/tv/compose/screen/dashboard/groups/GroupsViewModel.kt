@@ -429,8 +429,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
             DeviceFormFactor.isTelevision(Application.application)) return false
         pendingSelect = null
         pendingGeneration.incrementAndGet()
-        return WhiteListSelection.select(itemTag, WhiteListSession.network()).also { accepted ->
-            if (!accepted) sendError(IllegalStateException("CDN: обновите список подключений"))
+        val network = WhiteListSession.network()
+        return WhiteListSelection.select(itemTag, network).also { accepted ->
+            if (!accepted) sendError(IllegalStateException(
+                if (network == null) "CDN доступен только через мобильную сеть" else "CDN: обновите список подключений",
+            ))
         }
     }
 

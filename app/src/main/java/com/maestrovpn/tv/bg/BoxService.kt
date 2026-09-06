@@ -95,13 +95,24 @@ class BoxService(private val service: Service, private val platformInterface: Pl
     private lateinit var commandServer: CommandServer
     private val contentMutex = Mutex()
     private val whiteListSession = (service as? VPNService)?.let { vpn ->
-        WhiteListSession(vpn) { expired ->
-            val version = WhiteListSelection.version()
-            val shouldStop = WhiteListSelection.current() == null || WhiteListSelection.matches(expired)
-            GlobalScope.launch(Dispatchers.Main) {
-                if (shouldStop && WhiteListSelection.version() == version) {
-                    WhiteListSelection.clear(expired)
-                    stopService()
+        WhiteListSession(vpn) { expired, ordinaryTag ->
+            val restored = ordinaryTag?.let { WhiteListSelection.restoreOrdinary(expired, it) }
+            if (restored != null) {
+                GlobalScope.launch(Dispatchers.IO) {
+                    // Starting already consumes the replaced request in applySelectedContent.
+                    if (status.value != Status.Started) return@launch
+                    runCatching { reloadSelectedContent(restored) }.onFailure {
+                        stopAndAlert(Alert.CreateService, "Не удалось восстановить обычное подключение")
+                    }
+                }
+            } else {
+                val version = WhiteListSelection.version()
+                val shouldStop = WhiteListSelection.current() == null || WhiteListSelection.matches(expired)
+                GlobalScope.launch(Dispatchers.Main) {
+                    if (shouldStop && WhiteListSelection.version() == version) {
+                        WhiteListSelection.clear(expired)
+                        stopService()
+                    }
                 }
             }
         }
@@ -205,6 +216,10 @@ class BoxService(private val service: Service, private val platformInterface: Pl
             } catch (e: Exception) {
                 whiteListSession?.close()
                 if (request != null && !WhiteListSelection.matches(request)) return@repeat
+                if (cdn && WhiteListSession.network() == null) {
+                    val ordinaryTag = WhiteListConfig.ordinaryTag(content)
+                    if (ordinaryTag != null && WhiteListSelection.restoreOrdinary(requireNotNull(request), ordinaryTag) != null) return@repeat
+                }
                 // A libbox parse error could contain a fragment of the ephemeral credentials.
                 if (cdn) throw IllegalStateException("CDN: подключение недоступно")
                 throw e

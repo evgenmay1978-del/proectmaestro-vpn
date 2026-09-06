@@ -55,18 +55,19 @@ internal object WhiteListSelection {
 
     @Synchronized fun preview(account: Pair<Long, Long>, network: Network?, runtime: WhiteListRuntime?) {
         if (account != WhiteListSelection.account()) return
+        val allowed = WhiteListSession.isCellular(network)
         previewAccount = account
-        previewNetwork = network
-        previewDeadline = runtime?.deadlineMillis ?: 0L
+        previewNetwork = network.takeIf { allowed }
+        previewDeadline = runtime?.deadlineMillis?.takeIf { allowed } ?: 0L
         val active = mutableView.value.active
-        val labels = runtime?.profiles?.associate { it.tag to it.label }.orEmpty().toMutableMap()
-        if (active != null) mutableView.value.labels[active]?.let { labels[active] = it }
+        val labels = runtime?.takeIf { allowed }?.profiles?.associate { it.tag to it.label }.orEmpty().toMutableMap()
+        if (allowed && active != null) mutableView.value.labels[active]?.let { labels[active] = it }
         mutableView.value = mutableView.value.copy(labels = labels)
     }
 
     @Synchronized fun select(tag: String, network: Network?): Boolean {
         if (tag.startsWith("cdn:")) {
-            if (network == null || network != previewNetwork || previewAccount != account() ||
+            if (!WhiteListSession.isCellular(network) || network != previewNetwork || previewAccount != account() ||
                 SystemClock.elapsedRealtime() >= previewDeadline || tag !in mutableView.value.labels) return false
         } else if (request == null && mutableView.value.active == null) return false
         val account = account()
@@ -76,6 +77,19 @@ internal object WhiteListSelection {
         invalidations.forEach { it() }
         Application.application.sendBroadcast(Intent(ACTION).setPackage(Application.application.packageName))
         return true
+    }
+
+    /** A network handover revokes CDN consent; returning to cellular never resumes it. */
+    @Synchronized fun restoreOrdinary(value: Request, tag: String): Request? {
+        if (!matches(value) || !value.tag.startsWith("cdn:") || tag.startsWith("cdn:")) return null
+        if (!preferences.edit().putBoolean("requires-explicit-choice", false).commit()) return null
+        val restored = Request(++epoch, value.profileId, value.revision, tag, SystemClock.elapsedRealtime())
+        request = restored
+        previewDeadline = 0
+        previewNetwork = null
+        previewAccount = null
+        mutableView.value = View()
+        return restored
     }
 
     @Synchronized fun started(value: Request): Boolean {

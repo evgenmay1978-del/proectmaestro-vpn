@@ -1,7 +1,9 @@
 package com.maestrovpn.tv.whitelist
 
+import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import com.maestrovpn.tv.Application
@@ -28,12 +30,27 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /** Only BoxService owns this capability; the foreground preview cannot renew a session. */
-internal class WhiteListSession(private val vpn: VPNService, private val onExpired: (WhiteListSelection.Request) -> Unit) : SocketProtector {
+internal class WhiteListSession(private val vpn: VPNService, private val onExpired: (WhiteListSelection.Request, String?) -> Unit) : SocketProtector {
     companion object {
         private val ids = AtomicInteger()
         private val expiryExecutor = Executors.newSingleThreadScheduledExecutor { Thread(it, "cdn-lease-expiry").apply { isDaemon = true } }
         private val stopExecutor = Executors.newCachedThreadPool { Thread(it, "cdn-native-stop").apply { isDaemon = true } }
         private val dnsExecutor = Executors.newFixedThreadPool(2) { Thread(it, "cdn-network-dns").apply { isDaemon = true } }
+        fun isCellular(network: Network?): Boolean = try {
+            val caps = network?.let { Application.connectivity.getNetworkCapabilities(it) }
+            caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) &&
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                Application.connectivity.allNetworks.none { candidate ->
+                    val other = Application.connectivity.getNetworkCapabilities(candidate)
+                    other != null && other.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                        other.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        other.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                }
+        } catch (_: Exception) { false }
+
         fun network(): Network? {
             return try {
                 val active = Application.connectivity.activeNetwork
@@ -41,14 +58,17 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                 val candidate = if (activeCaps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true) active
                     else DefaultNetworkMonitor.defaultNetwork
                 if (candidate == null) return null
-                val caps = Application.connectivity.getNetworkCapabilities(candidate) ?: return null
-                candidate.takeIf { caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
+                candidate.takeIf { isCellular(it) }
             } catch (_: Exception) { null }
         }
     }
 
     private class Permit(val id: Long, val request: WhiteListSelection.Request, val network: Network,
-        val route: WhiteListRuntimeRoute, val desiredGeneration: Long, @Volatile var deadline: Long)
+        val route: WhiteListRuntimeRoute, val desiredGeneration: Long, @Volatile var deadline: Long,
+        val ordinaryTag: String?) {
+        val wifiGuard = Any()
+        var wifiCallback: ConnectivityManager.NetworkCallback? = null
+    }
     private val permit = AtomicReference<Permit?>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var renewal: Job? = null
@@ -80,17 +100,24 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         val user = credential()
         val pass = credential()
         val content = WhiteListConfig.inject(base, route, port, user, pass)
-        val live = Permit(id, request, network, route, runtime.desiredGeneration, runtime.deadlineMillis)
+        val live = Permit(id, request, network, route, runtime.desiredGeneration, runtime.deadlineMillis,
+            WhiteListConfig.ordinaryTag(base))
         permit.set(live)
         WhiteListSelection.addInvalidation(invalidated)
         listenerKey.set(live)
-        DefaultNetworkListener.start(live) { if (it != network) expire(live) }
-        if (!valid(live)) { DefaultNetworkListener.stop(live); expire(live); return null }
+        DefaultNetworkListener.start(live) {
+            if (it != network || !isCellular(it)) expire(live, restoreOrdinary = true)
+        }
+        if (!watchWifi(live) || !valid(live)) {
+            DefaultNetworkListener.stop(live)
+            expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+            return null
+        }
         armExpiry(live)
         val payload = WhiteListConfig.payload(route, address, port, user, pass)
         val result = try { XhttpNative.nativeStart(id, payload, this) } finally { payload.fill(0) }
         if (result != 0 || !valid(live)) {
-            expire(live)
+            expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
             stopPending = stopExecutor.submit { XhttpNative.nativeStop(id) }
             return null
         }
@@ -101,7 +128,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                 synchronized(live) {
                     if (!valid(live) || fresh == null || !fresh.fresh(SystemClock.elapsedRealtime()) ||
                         fresh.desiredGeneration != live.desiredGeneration || fresh.profiles.singleOrNull { it.tag == request.tag } != live.route) {
-                        expire(live)
+                        expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
                     } else {
                         live.deadline = fresh.deadlineMillis
                         armExpiry(live)
@@ -116,36 +143,79 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
     private fun valid(live: Permit): Boolean = permit.get() === live && SystemClock.elapsedRealtime() < live.deadline &&
         WhiteListSelection.matches(live.request) && network() == live.network
 
+    private fun watchWifi(live: Permit): Boolean = synchronized(live.wifiGuard) {
+        if (permit.get() !== live) return@synchronized false
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                // Also revoke when Wi-Fi is connected but Android temporarily keeps
+                // cellular as its preferred network. No traffic probes are involved.
+                expire(live, restoreOrdinary = true)
+            }
+        }
+        live.wifiCallback = callback
+        try {
+            Application.connectivity.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    .build(),
+                callback,
+            )
+            permit.get() === live
+        } catch (_: Exception) {
+            live.wifiCallback = null
+            false
+        }
+    }
+
+    private fun stopWatchingWifi(live: Permit) {
+        val callback = synchronized(live.wifiGuard) { live.wifiCallback.also { live.wifiCallback = null } }
+        if (callback != null) runCatching { Application.connectivity.unregisterNetworkCallback(callback) }
+    }
+
     override fun protectSocket(sessionId: Long, fd: Int): Boolean {
         val live = permit.get() ?: return false
-        if (sessionId != live.id || fd < 0 || !valid(live)) return false
+        if (sessionId != live.id || fd < 0) return false
+        if (!valid(live)) {
+            expire(live, restoreOrdinary = network() != live.network)
+            return false
+        }
         return try {
             if (!vpn.protect(fd)) false else {
                 ParcelFileDescriptor.fromFd(fd).use { live.network.bindSocket(it.fileDescriptor) }
-                valid(live)
+                valid(live).also { valid ->
+                    if (!valid) expire(live, restoreOrdinary = network() != live.network)
+                }
             }
         } catch (_: Exception) { false }
     }
 
     private fun armExpiry(live: Permit) {
         expiryExecutor.schedule({
-            synchronized(live) { if (permit.get() === live && !valid(live)) expire(live) }
+            synchronized(live) {
+                if (permit.get() === live && !valid(live)) expire(live, restoreOrdinary = network() != live.network)
+            }
         }, (live.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
     }
-    private fun expire(live: Permit) {
+    private fun expire(live: Permit, restoreOrdinary: Boolean = false) {
         if (!permit.compareAndSet(live, null)) return
         renewal?.cancel()
         WhiteListSelection.removeInvalidation(invalidated)
         stopPending = stopExecutor.submit { XhttpNative.nativeStop(live.id) }
+        stopWatchingWifi(live)
         listenerKey.compareAndSet(live, null)
         stopExecutor.execute { runBlocking { DefaultNetworkListener.stop(live) } }
-        onExpired(live.request)
+        onExpired(live.request, live.ordinaryTag.takeIf { restoreOrdinary })
     }
     fun close() {
         val live = permit.getAndSet(null)
         renewal?.cancel()
         renewal = null
-        if (live != null) stopPending = stopExecutor.submit { XhttpNative.nativeStop(live.id) }
+        if (live != null) {
+            stopPending = stopExecutor.submit { XhttpNative.nativeStop(live.id) }
+            stopWatchingWifi(live)
+        }
         WhiteListSelection.removeInvalidation(invalidated)
         listenerKey.getAndSet(null)?.let { key -> stopExecutor.execute { runBlocking { DefaultNetworkListener.stop(key) } } }
     }
