@@ -16,6 +16,10 @@ type WhiteListUseLeaseAuthorization struct {
 	Emails               []string
 	FreshFor             time.Duration
 	FreshnessEvaluatedAt time.Time
+	// AuthorityExpiresAt excludes only the short observation deadline. Byte
+	// ceilings still cap forwarding while the caller refreshes an authenticated
+	// agent nonce after this authorization.
+	AuthorityExpiresAt time.Time
 	// ProvisioningComplete only permits skipping duplicate reconciliation;
 	// it grants no runtime authority and defaults to false.
 	ProvisioningComplete bool
@@ -213,6 +217,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	}
 	now := s.clock.Now()
 	until := now.Add(5 * time.Second)
+	var authorityUntil time.Time
 	var state whiteListSidecarRuntimeState
 	var origins *whiteListPublicationOriginSnapshot
 	if len(plan.Routes) > 0 {
@@ -245,6 +250,22 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 		}
 		if delivery.Decision.Verdict != WhiteListPublicationPublishable {
 			continue
+		}
+		publication := state.publications[route.Entitlement.EntitlementID()]
+		hardDeadlines := []time.Time{
+			time.Unix(publication.PrimaryExpiresAtUnix, 0),
+			time.Unix(route.Policy.PeriodEndsAtUnix, 0),
+		}
+		for _, origin := range byOrigin {
+			hardDeadlines = append(hardDeadlines, origin.Receipt.ExpiresAt)
+		}
+		for _, deadline := range hardDeadlines {
+			if !deadline.After(now) {
+				return closed, ErrUnavailable
+			}
+			if authorityUntil.IsZero() || deadline.Before(authorityUntil) {
+				authorityUntil = deadline
+			}
 		}
 		stage = "delivery binding"
 		if delivery.ExitID != route.ExitID || len(delivery.desiredBindings) != len(byOrigin) {
@@ -316,5 +337,6 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	sort.Strings(closed.Emails)
 	closed.FreshFor = remaining
 	closed.FreshnessEvaluatedAt = evaluatedAt
+	closed.AuthorityExpiresAt = authorityUntil
 	return closed, nil
 }

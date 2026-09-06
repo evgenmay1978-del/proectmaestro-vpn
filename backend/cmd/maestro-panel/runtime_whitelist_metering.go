@@ -354,15 +354,31 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		return nil
 	}
 	// Byte accounting and admission writes can consume most of the first
-	// five-second sampling phase. Start the separately bounded lease phase, then
-	// refresh the read-only agent snapshot and persist its availability before
-	// authorization, so the client receives nearly the full runtime window.
-	// Counters are never reset; the next pass settles newer cumulative values.
+	// five-second sampling phase. Start the separately bounded lease phase and
+	// authorize the settled observation before fetching a new agent nonce.
 	if collector.byteBudgetBytes > 0 {
 		cancelSampling()
 		leaseContext, cancelLease := context.WithTimeout(reconcileContext, processingBudget)
 		defer cancelLease()
 		ctx = leaseContext
+	}
+	stage = "use lease authorization"
+	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
+	if err != nil {
+		return fmt.Errorf("lease authorization: %w (context: %v)", err, ctx.Err())
+	}
+	authorizedRoutes := make(map[string]struct{}, len(authorization.Emails))
+	for _, email := range authorization.Emails {
+		if _, exists := routes[email]; !exists {
+			unchangedByteRoutes = false
+		}
+		if _, duplicate := authorizedRoutes[email]; duplicate {
+			unchangedByteRoutes = false
+		}
+		authorizedRoutes[email] = struct{}{}
+	}
+	unchangedByteRoutes = unchangedByteRoutes && len(authorizedRoutes) == len(routes)
+	if collector.byteBudgetBytes > 0 {
 		stage = "lease challenge refresh"
 		for _, origin := range plan.Origins {
 			sender := collector.senders[origin.Origin.NodeID]
@@ -407,22 +423,6 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			snapshotReceivedAt[origin.Origin.OriginID] = receivedAt
 		}
 	}
-	stage = "use lease authorization"
-	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
-	if err != nil {
-		return fmt.Errorf("lease authorization: %w (context: %v)", err, ctx.Err())
-	}
-	authorizedRoutes := make(map[string]struct{}, len(authorization.Emails))
-	for _, email := range authorization.Emails {
-		if _, exists := routes[email]; !exists {
-			unchangedByteRoutes = false
-		}
-		if _, duplicate := authorizedRoutes[email]; duplicate {
-			unchangedByteRoutes = false
-		}
-		authorizedRoutes[email] = struct{}{}
-	}
-	unchangedByteRoutes = unchangedByteRoutes && len(authorizedRoutes) == len(routes)
 	// One common conservative budget is anchored to each agent's own earlier
 	// read start. Backend wall time is never compared with remote BOOTTIME.
 	// Prepare every request before delivering any of them, then deliver once per
@@ -453,6 +453,13 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		budget := authorization.FreshFor
 		if !authorization.FreshnessEvaluatedAt.IsZero() {
 			budget += authorization.FreshnessEvaluatedAt.Sub(snapshotReceivedAt[origin.Origin.OriginID])
+		}
+		if collector.byteBudgetBytes > 0 && len(authorization.Emails) > 0 {
+			budget = 5 * time.Second
+			hardRemaining := authorization.AuthorityExpiresAt.Sub(snapshotReceivedAt[origin.Origin.OriginID])
+			if hardRemaining < budget {
+				budget = hardRemaining
+			}
 		}
 		if budget > 5*time.Second {
 			budget = 5 * time.Second
