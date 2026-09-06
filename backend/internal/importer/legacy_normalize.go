@@ -584,7 +584,9 @@ func nativeImportSourcesComplete(hashes map[string]string) bool {
 		case "customers", "xui_capture", "protocol_bindings", "source_inventory", "scope:" + LegacyCustomerPreparationScope,
 			legacyOrdersConvertedSource, legacyTrialConvertedSource, "legacy:settings:runtime-converted-v1", "legacy:principals:runtime-converted-v1", "legacy:ota:absent-v1", legacyRuntimeCurrentCapture, legacyRuntimeCurrentOTA:
 		default:
-			if !strings.HasPrefix(key, legacyOrderAliasPrefix) {
+			// Existing XUI absences are authenticated customer-source evidence.
+			// The identity validator below binds each record to its customer/node.
+			if !strings.HasPrefix(key, legacyOrderAliasPrefix) && !strings.HasPrefix(key, controlplane.LegacyXUIAbsenceKind+":") {
 				return false
 			}
 		}
