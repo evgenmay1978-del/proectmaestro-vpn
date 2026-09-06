@@ -285,7 +285,7 @@ COALESCE(current_period_id,'') AS current_period_id,
 included_remaining_bytes,purchased_remaining_bytes,lifetime_consumed_bytes,
 uncovered_bytes,version,pending,fresh_through_unix
 FROM whitelist_balance_projections WHERE entitlement_id=?`, Args: []any{entitlementID}})
-	currentPeriodID, currentOK := rowString(row, "current_period_id")
+	currentPeriodID, currentOK := rowStringAllowEmpty(row, "current_period_id")
 	included, includedOK := rowInt64(row, "included_remaining_bytes")
 	purchased, purchasedOK := rowInt64(row, "purchased_remaining_bytes")
 	consumed, consumedOK := rowInt64(row, "lifetime_consumed_bytes")
