@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strconv"
@@ -161,8 +162,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
 	reconcileContext, cancelReconcile := context.WithDeadline(ctx, started.Add(runtimeWhiteListMeteringPassBudget))
 	defer cancelReconcile()
-	ctx, cancelSampling := context.WithDeadline(reconcileContext, started.Add(runtimeWhiteListMeteringInterval))
-	defer cancelSampling()
+	ctx = reconcileContext
 	collector.reconcileNeeded = true
 	defer func() {
 		if !collector.reconcileNeeded {
@@ -197,15 +197,19 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	leaseControl, leaseEnabled := collector.control.(runtimeWhiteListLeaseControlPlane)
 	if leaseEnabled {
 		if err := collector.drainFinalReceipts(ctx, leaseControl); err != nil {
-			return errRuntimeWhiteListMeteringUnavailable
+			return fmt.Errorf("final receipt drain: %w", err)
 		}
 	}
 	if err := collector.control.EnsureWhiteListMeteringBootstrap(ctx, collector.workerID, resolve); err != nil {
-		return errRuntimeWhiteListMeteringUnavailable
+		return fmt.Errorf("metering bootstrap after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
 	}
+	// Recovery and an empty bootstrap do not sample traffic or grant use. Their
+	// work must not consume the fresh sampling window before its first read.
+	ctx, cancelSampling := context.WithTimeout(reconcileContext, runtimeWhiteListMeteringInterval)
+	defer cancelSampling()
 	plan, err := collector.control.WhiteListMeteringPlan(ctx)
 	if err != nil {
-		return errRuntimeWhiteListMeteringUnavailable
+		return fmt.Errorf("metering plan after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
 	}
 	routes := make(map[string]controlplane.WhiteListMeteringRoute, len(plan.Routes))
 	for _, route := range plan.Routes {
