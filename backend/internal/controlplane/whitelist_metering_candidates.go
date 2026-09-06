@@ -30,7 +30,7 @@ func (s *Service) WhiteListMeteringAdmissionCandidates(ctx context.Context) ([]W
 	candidates := make([]WhiteListMeteringAdmissionCandidate, 0)
 	for entitlementID := range state.publications {
 		for exitID := range state.credentials[entitlementID] {
-			if _, _, _, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID); err != nil {
+			if _, _, _, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state); err != nil {
 				if contextErr := ctx.Err(); contextErr != nil {
 					return nil, contextErr
 				}

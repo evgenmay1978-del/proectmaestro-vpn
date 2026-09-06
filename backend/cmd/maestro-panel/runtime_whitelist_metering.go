@@ -420,7 +420,7 @@ func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx cont
 		}
 		candidates, err := collector.control.WhiteListMeteringAdmissionCandidates(ctx)
 		if err != nil {
-			return errRuntimeWhiteListMeteringUnavailable
+			return fmt.Errorf("candidate discovery: %w", err)
 		}
 		var admissionErr error
 		admitted := 0

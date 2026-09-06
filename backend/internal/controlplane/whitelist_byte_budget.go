@@ -16,11 +16,15 @@ func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, ent
 	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || chunkBytes <= 0 || chunkBytes > 9223372036854775806 {
 		return ErrUnavailable
 	}
-	period, _, _, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID)
+	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
 	if err != nil {
 		return err
 	}
-	origins, err := s.whiteListObservedOrigins(ctx)
+	period, _, _, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state)
+	if err != nil {
+		return err
+	}
+	origins, err := s.whiteListObservedOriginsFromState(ctx, state)
 	if err != nil || len(origins) == 0 {
 		return ErrUnavailable
 	}

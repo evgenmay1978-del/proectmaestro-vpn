@@ -148,6 +148,10 @@ func (s *Service) whiteListObservedOrigins(ctx context.Context) ([]whiteListObse
 	if err != nil {
 		return nil, err
 	}
+	return s.whiteListObservedOriginsFromState(ctx, state)
+}
+
+func (s *Service) whiteListObservedOriginsFromState(ctx context.Context, state whiteListSidecarRuntimeState) ([]whiteListObservedOrigin, error) {
 	if len(state.origins) == 0 {
 		return nil, ErrUnavailable
 	}
@@ -196,6 +200,10 @@ func (s *Service) whiteListAdmissionBase(ctx context.Context, entitlementID, exi
 	if err != nil {
 		return "", 0, 0, err
 	}
+	return s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state)
+}
+
+func (s *Service) whiteListAdmissionBaseFromState(ctx context.Context, entitlementID, exitID string, state whiteListSidecarRuntimeState) (string, int64, int64, error) {
 	publication, ok := state.publications[entitlementID]
 	if !ok || !publication.Enabled || (publication.Source != WhiteListActivationConfirmedGBPurchase && publication.Source != WhiteListActivationAdminEnable) ||
 		publication.PrimaryStatus != "active" || publication.PrimaryExpiresAtUnix <= s.clock.Now().Unix() {
@@ -318,11 +326,15 @@ func (s *Service) whiteListMeteringPublicationReady(ctx context.Context, entitle
 }
 
 func (s *Service) whiteListMeteringReadiness(ctx context.Context, entitlementID, exitID string, allowAwaiting bool, requiredDesired map[string]WhiteListSidecarDesired) (int64, int64, bool) {
-	period, available, periodEndsAt, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID)
+	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
 	if err != nil {
 		return 0, 0, false
 	}
-	origins, err := s.whiteListObservedOrigins(ctx)
+	period, available, periodEndsAt, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state)
+	if err != nil {
+		return 0, 0, false
+	}
+	origins, err := s.whiteListObservedOriginsFromState(ctx, state)
 	if err != nil || (requiredDesired != nil && len(requiredDesired) != len(origins)) {
 		return 0, 0, false
 	}
