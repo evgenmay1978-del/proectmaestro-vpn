@@ -520,6 +520,11 @@ func (s *ControlPlaneServer) handleControlPlanePanelOrders(w http.ResponseWriter
 		return
 	}
 	rawCursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	family := strings.TrimSpace(r.URL.Query().Get("family"))
+	if family != "" && family != CommercialOrderFamilyWhiteListTopUp {
+		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid family"})
+		return
+	}
 	limit, cursor, valid := s.controlPlanePanelPage(r, "orders")
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	if !valid || (rawCursor != "" && cursor.Filter != status) {
@@ -550,6 +555,10 @@ func (s *ControlPlaneServer) handleControlPlanePanelOrders(w http.ResponseWriter
 		}
 		nextCursor = encodedCursor
 	}
+	if family == CommercialOrderFamilyWhiteListTopUp {
+		s.controlPlanePanelCommercialOrders(w, r, orders, nextCursor)
+		return
+	}
 	writeControlPlaneJSON(w, http.StatusOK, map[string]any{"orders": toPanelOrders(orders), "next_cursor": nextCursor})
 }
 
@@ -565,6 +574,9 @@ func (s *ControlPlaneServer) handleControlPlanePanelOrderConfirm(w http.Response
 		OrderID string `json:"order_id"`
 	}
 	if !decodeControlPlaneBody(w, r, &request) {
+		return
+	}
+	if s.controlPlanePanelCommercialDecision(w, r, request.OrderID, principal.ID, true) {
 		return
 	}
 	result, err := s.business.ConfirmPayment(r.Context(), ConfirmPaymentCommand{
@@ -591,6 +603,9 @@ func (s *ControlPlaneServer) handleControlPlanePanelOrderCancel(w http.ResponseW
 		OrderID string `json:"order_id"`
 	}
 	if !decodeControlPlaneBody(w, r, &request) {
+		return
+	}
+	if s.controlPlanePanelCommercialDecision(w, r, request.OrderID, principal.ID, false) {
 		return
 	}
 	order, err := s.business.CancelOrder(r.Context(), CancelOrderCommand{

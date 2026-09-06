@@ -2,8 +2,18 @@
 from functools import wraps
 import os
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 LOGIN_PROMPT = "Введите ваш логин MaestroVPN ответом на это сообщение."
+CDN_GUIDE = (
+    "CDN — запасное подключение для мобильного интернета с белыми списками, "
+    "когда обычные подключения не работают.\n\n"
+    "Обычная подписка — основной VPN. Пакет CDN — отдельные гигабайты "
+    "в дополнение к действующей обычной подписке.\n\n"
+    "Дома и по Wi-Fi используйте обычный VLESS или Hy2. CDN выключайте, "
+    "чтобы не тратить купленные ГБ.\n"
+    "Выключайте CDN вручную при переходе на Wi-Fi."
+)
 
 
 def cdn_preparing():
@@ -14,14 +24,55 @@ def customer_balance_text(balance):
     available = max(0, int(balance.get("available_bytes") or 0))
     gigabytes = f"{available / 1_000_000_000:.2f}".rstrip("0").rstrip(".")
     primary_active = str(balance.get("primary_access_state") or "").upper() == "ACTIVE"
-    primary = "Обычный VPN: активен." if primary_active else "Обычный VPN: неактивен."
+    primary = "Обычная подписка: активна." if primary_active else "Обычная подписка: неактивна."
     if cdn_preparing():
-        cdn = "CDN: готовится к подключению. Покупка CDN пока закрыта."
+        cdn = "CDN при белых списках: готовится. Продажа ГБ пока закрыта."
     elif str(balance.get("publication_verdict") or "").upper() == "PUBLISHABLE":
-        cdn = "CDN: подключён."
+        cdn = "CDN при белых списках: доступен."
     else:
-        cdn = "CDN: сейчас не подключён."
+        cdn = "CDN при белых списках: сейчас недоступен."
     return f"{primary}\n{cdn}\nБаланс CDN: {gigabytes} ГБ."
+
+
+def browser_cabinet_url():
+    value = os.getenv("MAESTRO_CUSTOMER_WEB_URL", "https://cdn-test.wapmixx.ru/cabinet/").strip()
+    parsed = urlsplit(value)
+    if (parsed.scheme == "https" and parsed.hostname and parsed.username is None
+            and parsed.password is None and not parsed.query and not parsed.fragment):
+        return value
+    return ""
+
+
+def cabinet_keyboard(section="main", authenticated=True):
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    rows = []
+    if section == "cdn":
+        if authenticated and not cdn_preparing():
+            rows.append([InlineKeyboardButton(text="Купить ГБ CDN", callback_data="mc:gigabytes:menu")])
+        if not authenticated:
+            rows.append([InlineKeyboardButton(text="Войти по логину", callback_data="mc:home:login")])
+        elif authenticated:
+            rows.append([InlineKeyboardButton(text="Обновить баланс CDN", callback_data="mc:home:cdn")])
+        browser_url = browser_cabinet_url()
+        if browser_url:
+            rows.append([InlineKeyboardButton(text="Кабинет без Telegram", url=browser_url)])
+        rows.append([InlineKeyboardButton(text="Моя обычная подписка", callback_data="mc:home:menu")])
+    else:
+        rows = [
+            [InlineKeyboardButton(text="Обычная подписка и баланс", callback_data="mc:balance:menu")],
+            [InlineKeyboardButton(text="CDN при белых списках", callback_data="mc:home:cdn")],
+            [InlineKeyboardButton(text="Подключить устройство", callback_data="mc:devices:menu")],
+            [InlineKeyboardButton(text="Помощь", callback_data="mc:help:menu")],
+        ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def cdn_purchase_guidance():
+    if cdn_preparing():
+        return "CDN ещё готовится к подключению. Сейчас мы не принимаем оплату за пакеты ГБ."
+    if browser_cabinet_url():
+        return "Если Telegram недоступен, откройте «Кабинет без Telegram» в браузере. Сохраните адрес заранее."
+    return "Пополняйте ГБ заранее, пока Telegram доступен. Покупка без Telegram пока не подключена."
 
 
 def is_customer_login_reply(message):
@@ -39,18 +90,28 @@ def customer_login_command(message):
     return SimpleNamespace(command="maestro", args=message.text.strip())
 
 
-async def send_customer_dashboard(message, flow):
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+async def send_customer_dashboard(message, flow, section="main"):
     try:
         balance = await flow.show_balance()
     except Exception:
         state = "CDN: готовится к подключению." if cdn_preparing() else "Статус CDN временно недоступен."
         balance = state + "\nБаланс сейчас не удалось получить. Повторите «Моя подписка и баланс»."
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=label, callback_data=value)] for label, value in flow.menu_actions()
-    ])
-    await message.answer(f"Личный кабинет MaestroVPN\nЛогин: {flow.login}\n\n{balance}",
-        reply_markup=keyboard, parse_mode=None)
+    if section == "cdn":
+        text = f"CDN при белых списках\n\n{balance}\n\n{CDN_GUIDE}\n\n{cdn_purchase_guidance()}"
+    else:
+        text = (f"MaestroVPN · Моя подписка\nЛогин: {flow.login}\n\n{balance}\n\n"
+            "Обычный VPN используйте каждый день; продление — в основном меню /start.\n"
+            "CDN нужен только при белых списках. Для него покупается отдельный пакет ГБ.\n"
+            "Дома и по Wi-Fi выбирайте обычный VLESS/Hy2, CDN выключайте.")
+    await message.answer(text, reply_markup=cabinet_keyboard(section), parse_mode=None)
+
+
+async def send_customer_help(message, flow):
+    text = ("MaestroVPN: обычная подписка и CDN\n\n" + CDN_GUIDE
+        + "\n\nДля MaestroVPN используйте свой логин. Для Incy, Happ и Karing "
+        "откройте «Подключить устройство» и скопируйте HTTPS-ссылку подписки.\n\n"
+        + cdn_purchase_guidance())
+    await message.answer(text, reply_markup=cabinet_keyboard("cdn"), parse_mode=None)
 
 
 async def open_customer_dashboard(callback, flow):
@@ -58,12 +119,18 @@ async def open_customer_dashboard(callback, flow):
         await callback.answer("Откройте личный чат с ботом.", show_alert=True)
         return
     await callback.answer()
+    section = "cdn" if callback.data == "mc:home:cdn" else "main"
     if flow is None:
+        if section == "cdn":
+            await callback.message.answer("CDN при белых списках\n\n" + CDN_GUIDE + "\n\n"
+                + cdn_purchase_guidance() + "\n\nВойдите по логину, чтобы увидеть свой баланс.",
+                reply_markup=cabinet_keyboard("cdn", authenticated=False), parse_mode=None)
+            return
         from aiogram.types import ForceReply
         await callback.message.answer(LOGIN_PROMPT,
             reply_markup=ForceReply(selective=True, input_field_placeholder="Ваш логин MaestroVPN"))
         return
-    await send_customer_dashboard(callback.message, flow)
+    await send_customer_dashboard(callback.message, flow, section)
 
 
 def with_customer_entry(handler):
@@ -73,11 +140,14 @@ def with_customer_entry(handler):
         result = await handler(message, *args, **kwargs)
         if message.chat.type == "private":
             from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-            text = "Личный кабинет: ваша подписка и баланс CDN."
+            text = ("Обычная подписка — для ежедневного VPN.\n"
+                "CDN — отдельный пакет ГБ только для мобильных белых списков.\n"
+                "Дома и по Wi-Fi выбирайте VLESS/Hy2 и выключайте CDN.")
             if cdn_preparing():
-                text += "\nCDN готовится к подключению."
+                text += "\nПродажа CDN ещё не открыта."
             await message.answer(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Мой VPN · CDN", callback_data="mc:home:menu")]
+                [InlineKeyboardButton(text="Моя обычная подписка", callback_data="mc:home:menu")],
+                [InlineKeyboardButton(text="CDN при белых списках", callback_data="mc:home:cdn")]
             ]))
         return result
     return wrapped

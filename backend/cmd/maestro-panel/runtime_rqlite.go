@@ -203,18 +203,19 @@ func runRQLiteReconcilers(
 
 func rqliteAPIConfigFromEnvironment() api.Config {
 	return api.Config{
-		AdminToken:         os.Getenv("MAESTRO_ADMIN_TOKEN"),
-		PanelPath:          os.Getenv("MAESTRO_PANEL_PATH"),
-		PanelPasswordHash:  os.Getenv("MAESTRO_PANEL_PASSWORD_HASH"),
-		PanelPWFile:        env("MAESTRO_PANEL_PW_FILE", "/var/lib/maestro/panel-pw.hash"),
-		SubBaseURL:         env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
-		SBPPhone:           os.Getenv("MAESTRO_SBP_PHONE"),
-		PayURL:             os.Getenv("MAESTRO_SBP_PAY_URL"),
-		UpdateDir:          env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
-		ReportDir:          env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
-		EnforceDeviceLimit: deviceLimitEnforced(env("MAESTRO_DEVICE_LIMIT", "on")),
-		TrialDays:          atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
-		TrialIPQuota:       atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
+		AdminToken:              os.Getenv("MAESTRO_ADMIN_TOKEN"),
+		PanelPath:               os.Getenv("MAESTRO_PANEL_PATH"),
+		PanelPasswordHash:       os.Getenv("MAESTRO_PANEL_PASSWORD_HASH"),
+		PanelPWFile:             env("MAESTRO_PANEL_PW_FILE", "/var/lib/maestro/panel-pw.hash"),
+		SubBaseURL:              env("MAESTRO_SUB_BASE", "https://wapmixx.ru:8910"),
+		SBPPhone:                os.Getenv("MAESTRO_SBP_PHONE"),
+		PayURL:                  os.Getenv("MAESTRO_SBP_PAY_URL"),
+		CustomerCDNSalesEnabled: os.Getenv("MAESTRO_CUSTOMER_CDN_SALES_ENABLE") == "1",
+		UpdateDir:               env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
+		ReportDir:               env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
+		EnforceDeviceLimit:      deviceLimitEnforced(env("MAESTRO_DEVICE_LIMIT", "on")),
+		TrialDays:               atoi(os.Getenv("MAESTRO_TRIAL_DAYS"), 2),
+		TrialIPQuota:            atoi(os.Getenv("MAESTRO_TRIAL_IP_QUOTA"), 3),
 	}
 }
 

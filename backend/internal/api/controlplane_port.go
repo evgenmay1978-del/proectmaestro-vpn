@@ -528,6 +528,7 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 	mux.HandleFunc("/order", s.handleControlPlaneCreateOrder)
 	mux.HandleFunc("/order/", s.handleControlPlaneOrder)
 	mux.HandleFunc("/account/profile", s.handleControlPlaneCommercialProfile)
+	mux.HandleFunc("/cabinet/", s.handleControlPlaneCustomerCabinet)
 	mux.HandleFunc("/account/whitelist-balance", s.handleControlPlaneCommercialBalance)
 	mux.HandleFunc("/account/whitelist-runtime", s.handleControlPlaneWhiteListNativeRuntime)
 	mux.HandleFunc("/account/subscription-delivery", s.handleControlPlaneCommercialDelivery)

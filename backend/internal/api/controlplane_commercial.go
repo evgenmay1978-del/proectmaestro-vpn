@@ -68,6 +68,7 @@ type CommercialOrderDecisionCommand struct {
 
 type CommercialOrderView struct {
 	AccountID     string `json:"-"`
+	Login         string `json:"login,omitempty"`
 	OrderID       string `json:"order_id"`
 	PaymentCode   string `json:"payment_code,omitempty"`
 	ProductID     string `json:"product_id"`
