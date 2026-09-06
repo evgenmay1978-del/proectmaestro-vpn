@@ -188,7 +188,22 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, desired.ExitID); err != nil {
 		return Receipt{}, errors.New("sidecar agent: final relay readiness preflight failed")
 	}
-	receipt, err := receiptFor(desired, bootID, reconciler.now(), reconciler.receiptTTL)
+	// One action/boot produces one immutable readiness receipt. A real refresh
+	// still performs both preflights and convergence above, but does not invent
+	// new timestamps for an action the controller has already journaled.
+	now := reconciler.now()
+	if existing, err := reconciler.store.LoadReceipt(desired.ActionKey()); err == nil {
+		if !receiptMatchesDesired(existing, desired, bootID) {
+			return Receipt{}, ErrConflict
+		}
+		if !existing.ReadyAt(now) {
+			return Receipt{}, ErrNotFound
+		}
+		return existing, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return Receipt{}, err
+	}
+	receipt, err := receiptFor(desired, bootID, now, reconciler.receiptTTL)
 	if err != nil {
 		return Receipt{}, err
 	}

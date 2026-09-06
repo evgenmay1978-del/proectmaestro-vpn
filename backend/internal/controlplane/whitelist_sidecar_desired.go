@@ -119,6 +119,13 @@ func BuildWhiteListSidecarDesired(
 	previous map[string]WhiteListSidecarDesired, origins []WhiteListOrigin,
 	routes []WhiteListManagedRoute, exit WhiteListExit,
 ) ([]WhiteListSidecarDesired, error) {
+	return buildWhiteListSidecarDesired(previous, origins, routes, exit, false)
+}
+
+func buildWhiteListSidecarDesired(
+	previous map[string]WhiteListSidecarDesired, origins []WhiteListOrigin,
+	routes []WhiteListManagedRoute, exit WhiteListExit, renewReadiness bool,
+) ([]WhiteListSidecarDesired, error) {
 	if _, err := BuildWhiteListRouteMatrix(origins, routes, exit); err != nil {
 		return nil, err
 	}
@@ -155,7 +162,7 @@ func BuildWhiteListSidecarDesired(
 				return nil, errors.New("controlplane: invalid previous white-list desired generation")
 			}
 			generation = prior.Generation
-			if !whiteListDesiredSemanticallyEqual(prior, origin, exit.ExitID, staticUsers, managedUsers, managedDigest) {
+			if renewReadiness || !whiteListDesiredSemanticallyEqual(prior, origin, exit.ExitID, staticUsers, managedUsers, managedDigest) {
 				generation++
 			}
 		}

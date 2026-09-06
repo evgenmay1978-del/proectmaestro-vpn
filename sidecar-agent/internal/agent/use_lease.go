@@ -449,6 +449,7 @@ func reserveLeaseControl(state *leaseState, command *pendingLeaseCommand, bindin
 	}
 	user.Generation++
 	user.Phase = "unknown"
+	user.ReadinessActionKey = ""
 	if schema == 3 {
 		user.BudgetSchema = 3
 		if operation != "fence" {
@@ -689,6 +690,8 @@ func (reconciler *Reconciler) convergeCommercial(ctx context.Context, desired, p
 		return ErrLeaseUnavailable
 	}
 	managed, expected := managedSet(current), stringSet(desired.ManagedUsers)
+	readinessOnly := len(state.FinalReceipts) == 0 && readinessGenerationOnly(previous, desired)
+	readinessChanged := false
 	retiring := managedSet(current)
 	for _, email := range previous.ManagedUsers {
 		retiring[email] = struct{}{}
@@ -726,7 +729,18 @@ func (reconciler *Reconciler) convergeCommercial(ctx context.Context, desired, p
 				return ErrLeaseUnavailable
 			}
 		}
-		if present && tracked && matches && user.Binding.ActionKey == desired.ActionKey() && (user.Phase == "ready" || (user.Phase == "active" && now < user.DeadlineBoottimeNS)) {
+		preserveBinding := user.Binding.ActionKey == desired.ActionKey() ||
+			(len(state.FinalReceipts) == 0 && user.ReadinessActionKey == desired.ActionKey()) ||
+			(readinessOnly && (user.Binding == bindingForDesired(previous) || user.ReadinessActionKey == previous.ActionKey()))
+		if present && tracked && matches && preserveBinding && (user.Phase == "ready" || (user.Phase == "active" && now < user.DeadlineBoottimeNS)) {
+			// A readiness generation carries no new runtime authority. Keep the
+			// prior binding for authentic final tails until a subsequent successful
+			// grant/renew adopts the new desired binding; lease and byte cap stay put.
+			if user.Binding.ActionKey != desired.ActionKey() && user.ReadinessActionKey != desired.ActionKey() {
+				user.ReadinessActionKey = desired.ActionKey()
+				state.Users[leaseUserKey(boot, email)] = user
+				readinessChanged = true
+			}
 			continue
 		}
 		binding := bindingForDesired(desired)
@@ -751,6 +765,13 @@ func (reconciler *Reconciler) convergeCommercial(ctx context.Context, desired, p
 			return err
 		}
 	} else {
+		// Record continuity before SaveDesired so a repeated action or a crash
+		// between desired and receipt persistence cannot force an extra fence.
+		if readinessChanged {
+			if err := reconciler.store.saveLeaseState(state); err != nil {
+				return err
+			}
+		}
 		if err := reconciler.store.SaveDesired(desired); err != nil {
 			return err
 		}

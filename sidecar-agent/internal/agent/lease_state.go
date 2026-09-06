@@ -76,6 +76,7 @@ type LeaseReceiptAckItem struct {
 }
 
 type leaseUserState struct {
+	ReadinessActionKey    string       `json:"readiness_action_key,omitempty"`
 	BootID                string       `json:"boot_id"`
 	Email                 string       `json:"email"`
 	Generation            uint64       `json:"generation"`
@@ -181,6 +182,9 @@ func validateLeaseState(state leaseState) error {
 			return ErrLeaseUnavailable
 		}
 		if user.Phase == "active" && user.DeadlineBoottimeNS <= 0 {
+			return ErrLeaseUnavailable
+		}
+		if user.ReadinessActionKey != "" && (!validLeaseActionKey(user.ReadinessActionKey) || (user.Phase != "ready" && user.Phase != "active")) {
 			return ErrLeaseUnavailable
 		}
 		if (user.BudgetSchema != 0 && user.BudgetSchema != 3) || user.CumulativeByteCeiling < 0 || user.CumulativeBytes < 0 ||

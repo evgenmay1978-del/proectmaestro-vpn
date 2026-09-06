@@ -447,6 +447,56 @@ FROM history`, Args: []any{
 	return through, nil
 }
 
+// Readiness expires independently of an immutable successful action. Advance
+// only its generation, preserving every old receipt and the exact user set.
+// The agent keeps matching live sessions; this does not grant use or bytes.
+func (s *Service) refreshWhiteListMeteringReadiness(ctx context.Context, workerID string, state whiteListSidecarRuntimeState, resolve func(string) (ExternalActionSender, bool)) (bool, error) {
+	if len(state.previous) == 0 {
+		return false, nil
+	}
+	managed, exitID, err := whiteListPreviousManagedState(state.previous)
+	if err != nil {
+		return false, err
+	}
+	reads := make([]rqlite.Statement, 0, len(state.origins))
+	for index, origin := range state.origins {
+		prior, exists := state.previous[origin.OriginID]
+		if !exists || prior.NodeID != origin.NodeID || prior.ReleaseID != origin.ReleaseID ||
+			prior.ProfileID != origin.ProfileID || prior.PresetID != origin.PresetID || prior.ConfigDigest != origin.ConfigDigest {
+			return false, nil
+		}
+		state.origins[index].StaticUsers = append([]string{}, prior.StaticUsers...)
+		reads = append(reads, whiteListSidecarReceiptRead(prior.Action.ActionKey))
+	}
+	results, err := s.store.db.QueryLinearizable(ctx, reads...)
+	if err != nil || len(results) != len(reads) {
+		return false, ErrUnavailable
+	}
+	renew, recoverDelivery := false, false
+	for index := range results {
+		receipt, err := whiteListSidecarReceiptFromResults(results[index : index+1])
+		if err != nil {
+			recoverDelivery = true
+			continue
+		}
+		renew = renew || !receipt.ExpiresAt.After(s.clock.Now().Add(10*time.Second))
+	}
+	if !renew && !recoverDelivery {
+		return true, nil
+	}
+	exit, exists := state.exits[exitID]
+	if !exists || !exit.Healthy {
+		return true, ErrUnavailable
+	}
+	routes := make([]WhiteListManagedRoute, 0, len(managed))
+	for entitlementID := range managed {
+		routes = append(routes, WhiteListManagedRoute{EntitlementID: entitlementID, ExitID: exitID})
+	}
+	// An unknown delivery must be recovered under its original action key.
+	_, err = s.reconcileWhiteListSidecarGeneration(ctx, state.previous, state.origins, routes, exit, workerID, resolve, renew && !recoverDelivery)
+	return true, err
+}
+
 // EnsureWhiteListMeteringBootstrap is invoked only by the explicitly enabled
 // collector. It installs no managed users, merely a current empty desired set
 // that can produce an authenticated StatsService health observation.
@@ -460,6 +510,9 @@ func (s *Service) EnsureWhiteListMeteringBootstrap(ctx context.Context, workerID
 	}
 	if len(state.origins) == 0 {
 		return nil
+	}
+	if handled, err := s.refreshWhiteListMeteringReadiness(ctx, workerID, state, resolve); handled || err != nil {
+		return err
 	}
 	selected := ""
 	replacingEmpty := len(state.previous) != 0
@@ -500,12 +553,12 @@ AND managed_user_set_digest<>?) AS unused_history`, Args: []any{
 				prior.Action.ActionKey, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID, emptyManagedDigest,
 			}})
 		}
-		if !changed {
-			return nil
-		}
 		exit, exists := state.exits[previousExit]
 		if !exists || !exit.Healthy {
 			return ErrUnavailable
+		}
+		if !changed {
+			return nil
 		}
 		results, err := s.store.db.QueryLinearizable(ctx, reads...)
 		if err != nil || len(results) != len(reads) {

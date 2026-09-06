@@ -30,6 +30,9 @@ func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, ent
 		if origin.desired.ExitID != exitID {
 			return ErrUnavailable
 		}
+		if err := s.whiteListByteAllocationNewLifetime(ctx, entitlementID, exitID, origin); err != nil {
+			return err
+		}
 		key := []any{entitlementID, exitID, origin.origin.OriginID, origin.receipt.XrayProcessBootID}
 		args := append(append([]any{}, key...), origin.receipt.ActionKey, period, now, now, origin.origin.OriginID, origin.hash)
 		args = append(args, key...)
@@ -72,6 +75,32 @@ AND EXISTS(SELECT 1 FROM whitelist_metering_origin_observations WHERE origin_id=
 		boundPeriod, _ := rowString(row, "billing_period_id")
 		outstanding, _ := rowInt64(row, "outstanding_bytes")
 		if err != nil || boundPeriod != period || outstanding <= 0 {
+			return ErrUnavailable
+		}
+	}
+	return nil
+}
+
+// Payload bytes may be represented as base64 TEXT by the database transport.
+// Decode the immutable desired history before authorizing a first zero-based
+// allocation. Existing allocations retain their counters and skip this check.
+func (s *Service) whiteListByteAllocationNewLifetime(ctx context.Context, entitlementID, exitID string, origin whiteListObservedOrigin) error {
+	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT desired.*
+FROM whitelist_sidecar_desired AS desired
+LEFT JOIN whitelist_sidecar_receipts AS receipt ON receipt.action_key=desired.action_key
+WHERE desired.origin_id=? AND (receipt.action_key IS NULL OR receipt.xray_process_boot_id=?)
+AND NOT EXISTS(SELECT 1 FROM whitelist_byte_allocations WHERE ` + whiteListByteAllocationKeySQL + `)
+ORDER BY desired.desired_generation`, Args: []any{
+		origin.origin.OriginID, origin.receipt.XrayProcessBootID,
+		entitlementID, exitID, origin.origin.OriginID, origin.receipt.XrayProcessBootID,
+	}})
+	if err != nil || len(results) != 1 {
+		return ErrUnavailable
+	}
+	email := whiteListManagedEmail(entitlementID, exitID)
+	for _, row := range results[0].Rows {
+		desired, err := whiteListRuntimeDesiredFromRow(row)
+		if err != nil || whiteListContainsUser(desired.ManagedUsers, email) {
 			return ErrUnavailable
 		}
 	}

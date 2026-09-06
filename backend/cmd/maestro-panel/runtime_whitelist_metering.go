@@ -116,6 +116,9 @@ func runRQLiteBackground(
 	}
 	if meteringEnabled && metering != nil && meteringStore != nil &&
 		strings.TrimSpace(workerID) != "" && len(senders) > 0 {
+		// The collector orders receipt renewal, fresh counters and publication.
+		// A second sidecar worker must not revoke between those durable steps.
+		sidecar = nil
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
@@ -158,6 +161,7 @@ func runRuntimeWhiteListMetering(
 
 func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context) (runErr error) {
 	started := time.Now()
+	stage := "startup recovery"
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
 	reconcileContext, cancelReconcile := context.WithDeadline(ctx, started.Add(runtimeWhiteListMeteringPassBudget))
@@ -165,6 +169,9 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	ctx = reconcileContext
 	collector.reconcileNeeded = true
 	defer func() {
+		if runErr != nil {
+			runErr = fmt.Errorf("%s after %s: %w", stage, time.Since(started).Round(time.Millisecond), runErr)
+		}
 		if !collector.reconcileNeeded {
 			return
 		}
@@ -195,11 +202,13 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		return sender, ok && sender != nil
 	}
 	leaseControl, leaseEnabled := collector.control.(runtimeWhiteListLeaseControlPlane)
+	stage = "final receipt drain"
 	if leaseEnabled {
 		if err := collector.drainFinalReceipts(ctx, leaseControl); err != nil {
 			return fmt.Errorf("final receipt drain: %w", err)
 		}
 	}
+	stage = "empty bootstrap"
 	if err := collector.control.EnsureWhiteListMeteringBootstrap(ctx, collector.workerID, resolve); err != nil {
 		return fmt.Errorf("metering bootstrap after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
 	}
@@ -207,6 +216,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	// work must not consume the fresh sampling window before its first read.
 	ctx, cancelSampling := context.WithTimeout(reconcileContext, runtimeWhiteListMeteringInterval)
 	defer cancelSampling()
+	stage = "metering plan"
 	plan, err := collector.control.WhiteListMeteringPlan(ctx)
 	if err != nil {
 		return fmt.Errorf("metering plan after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
@@ -223,6 +233,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	}
 	snapshots := make(map[string]sidecaragentclient.UsageSnapshot, len(plan.Origins))
 	for _, origin := range plan.Origins {
+		stage = "origin usage lookup"
 		sender, ok := collector.senders[origin.Origin.NodeID]
 		if !ok || sender == nil {
 			return errRuntimeWhiteListMeteringUnavailable
@@ -272,6 +283,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		if len(seen) != len(routes) {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
+		stage = "origin observation persistence"
 		if err := collector.control.RecordWhiteListOriginObservation(ctx, controlplane.WhiteListOriginObservation{
 			Receipt: origin.Receipt, SampledAt: snapshot.SampledAt,
 			AvailableUsers: available, UnavailableUsers: snapshot.UnavailableUsers,
@@ -279,6 +291,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			return errRuntimeWhiteListMeteringUnavailable
 		}
 		for _, user := range snapshot.Users {
+			stage = "actual usage settlement"
 			index := sort.SearchStrings(origin.PendingFirstCumulativeUsers, user.Email)
 			firstCumulative := index < len(origin.PendingFirstCumulativeUsers) && origin.PendingFirstCumulativeUsers[index] == user.Email
 			if err := collector.applyUser(ctx, origin, routes[user.Email], snapshot.SampledAt, user, firstCumulative); err != nil {
@@ -286,12 +299,14 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			}
 		}
 	}
+	stage = "account admission"
 	if err := collector.authorizeAdmissions(ctx); err != nil {
 		return err
 	}
 	if !leaseEnabled {
 		return nil
 	}
+	stage = "use lease authorization"
 	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
 	if err != nil {
 		return errRuntimeWhiteListMeteringUnavailable
@@ -299,6 +314,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	// One common conservative budget is anchored to each agent's own earlier
 	// read start. Backend wall time is never compared with remote BOOTTIME.
 	for _, origin := range plan.Origins {
+		stage = "use lease delivery"
 		if ctx.Err() != nil {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
@@ -406,13 +422,22 @@ func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx cont
 		if err != nil {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
+		var admissionErr error
+		admitted := 0
 		for _, candidate := range candidates {
 			if ctx.Err() != nil {
 				return errRuntimeWhiteListMeteringUnavailable
 			}
 			// An exhausted account cannot stop other accounts. Lease authority
 			// independently requires a committed positive allocation below.
-			_ = budgetControl.AuthorizeWhiteListByteBudgetAdmission(ctx, candidate.EntitlementID, candidate.ExitID, collector.byteBudgetBytes)
+			if err := budgetControl.AuthorizeWhiteListByteBudgetAdmission(ctx, candidate.EntitlementID, candidate.ExitID, collector.byteBudgetBytes); err != nil {
+				admissionErr = err
+			} else {
+				admitted++
+			}
+		}
+		if admitted == 0 && admissionErr != nil {
+			return fmt.Errorf("no byte budget admission: %w (context: %v)", admissionErr, ctx.Err())
 		}
 		return nil
 	}

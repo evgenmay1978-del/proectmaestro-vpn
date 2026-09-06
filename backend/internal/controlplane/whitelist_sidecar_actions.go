@@ -81,6 +81,14 @@ func (s *Service) ReconcileWhiteListSidecarGeneration(
 	routes []WhiteListManagedRoute, exit WhiteListExit, workerID string,
 	resolveSender func(string) (ExternalActionSender, bool),
 ) (WhiteListSidecarGenerationResult, error) {
+	return s.reconcileWhiteListSidecarGeneration(ctx, previous, origins, routes, exit, workerID, resolveSender, false)
+}
+
+func (s *Service) reconcileWhiteListSidecarGeneration(
+	ctx context.Context, previous map[string]WhiteListSidecarDesired, origins []WhiteListOrigin,
+	routes []WhiteListManagedRoute, exit WhiteListExit, workerID string,
+	resolveSender func(string) (ExternalActionSender, bool), renewReadiness bool,
+) (WhiteListSidecarGenerationResult, error) {
 	removingManagedUsers := false
 	if len(routes) == 0 {
 		for _, prior := range previous {
@@ -111,7 +119,7 @@ func (s *Service) ReconcileWhiteListSidecarGeneration(
 	if active == 0 {
 		return WhiteListSidecarGenerationResult{}, ErrConflict
 	}
-	desired, err := BuildWhiteListSidecarDesired(previous, origins, routes, exit)
+	desired, err := buildWhiteListSidecarDesired(previous, origins, routes, exit, renewReadiness)
 	if err != nil || len(desired) != active {
 		return WhiteListSidecarGenerationResult{}, ErrConflict
 	}
