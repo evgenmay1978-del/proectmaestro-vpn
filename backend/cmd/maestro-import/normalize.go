@@ -54,14 +54,18 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&parentPath, "parent-snapshot", "", "authenticated initial full snapshot for final delta")
 	flags.StringVar(&outputPath, "output", "", "new protected Snapshot v2 file")
 	flags.DurationVar(&maxCaptureAge, "max-capture-age", 0, "explicit maximum age of the XUI/source capture")
+	stage := "ARGUMENTS"
 	fail := func() int {
-		writeError(stderr, "customer normalization input or output is invalid")
+		// Stage values are fixed code labels, never source paths, parser errors,
+		// database responses or fields from the protected input.
+		writeError(stderr, "normalization failed [NORM_"+stage+"]")
 		return exitInputSystem
 	}
 	if flags.Parse(args) != nil || flags.NArg() != 0 || maxCaptureAge <= 0 ||
 		customersPath == "" || capturePath == "" || inventoryPath == "" || keyPath == "" || outputPath == "" {
 		return fail()
 	}
+	stage = "COMPLETE_ARGUMENTS"
 	if completeNativeImport && (!convertOrders || trialSaltPath == "" || runtimeCapsulePath == "" || otaAbsencePath == "") {
 		return fail()
 	}
@@ -74,26 +78,31 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 		stamps = append(stamps, normalizeFileStamp{path: path, sha: runtimeSHA256Hex(data)})
 		return data, nil
 	}
+	stage = "CUSTOMERS_READ"
 	raw, err := read(customersPath)
 	if err != nil {
 		return fail()
 	}
 	defer zero(raw)
+	stage = "CAPTURE_READ"
 	captureBytes, err := read(capturePath)
 	if err != nil {
 		return fail()
 	}
 	defer zero(captureBytes)
 	var capture importer.LegacyXUICapture
+	stage = "CAPTURE_JSON"
 	if strictRuntimeJSON(captureBytes, &capture) != nil {
 		return fail()
 	}
+	stage = "INVENTORY_READ"
 	inventoryBytes, err := read(inventoryPath)
 	if err != nil {
 		return fail()
 	}
 	defer zero(inventoryBytes)
 	var inventory normalizeInventory
+	stage = "INVENTORY_SCHEMA"
 	if strictRuntimeJSON(inventoryBytes, &inventory) != nil || inventory.SchemaVersion != 1 ||
 		inventory.Scope != importer.LegacyCustomerPreparationScope || len(inventory.Sources) != 4 {
 		return fail()
@@ -104,6 +113,7 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	defer func() { zero(rawTrialLedger) }()
 	defer func() { zero(rawOrders) }()
 	for _, domain := range []string{"orders", "trials", "settings", "principals"} {
+		stage = "INVENTORY_" + strings.ToUpper(domain)
 		input, exists := inventory.Sources[domain]
 		if !exists || input.Path == "" {
 			return fail()
@@ -136,6 +146,7 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	var orderSource *importer.LegacyOrderSource
 	var runtimeSource *importer.LegacyRuntimeSource
 	if runtimeCapsulePath != "" {
+		stage = "RUNTIME_CAPSULE_READ"
 		data, err := read(runtimeCapsulePath)
 		if err != nil {
 			return fail()
@@ -144,6 +155,7 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 		runtimeSource = &importer.LegacyRuntimeSource{RawCapsule: data}
 	}
 	if otaAbsencePath != "" {
+		stage = "OTA_ABSENCE_READ"
 		if runtimeSource == nil {
 			return fail()
 		}
@@ -155,15 +167,18 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 		runtimeSource.RawOTAAbsence = data
 	}
 	if convertOrders {
+		stage = "ORDER_SOURCE_PRESENCE"
 		if sources["orders"].State != "present" {
 			return fail()
 		}
 		orderSource = &importer.LegacyOrderSource{RawJSON: rawOrders}
 	}
 	if trialSaltPath != "" {
+		stage = "TRIAL_SOURCE_PRESENCE"
 		if sources["trials"].State != "present" {
 			return fail()
 		}
+		stage = "TRIAL_SALT_READ"
 		salt, err := read(trialSaltPath)
 		if err != nil {
 			return fail()
@@ -173,26 +188,31 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	}
 	// Capture the key file fingerprint too; never expose its contents or name in
 	// errors. loadKeyBundle remains the single parser/key-policy implementation.
+	stage = "KEY_FILE_READ"
 	keyBytes, err := read(keyPath)
 	if err != nil {
 		return fail()
 	}
 	zero(keyBytes)
+	stage = "KEY_BUNDLE"
 	keys, err := loadKeyBundle(keyPath)
 	if err != nil {
 		return fail()
 	}
 	defer keys.zero()
+	stage = "SECRET_BOX"
 	box, err := controlplane.NewSecretBox(keys.CurrentKeyVersion, keys.EncryptionKeys, keys.HMACKey)
 	if err != nil {
 		return fail()
 	}
 	var parent *importer.Snapshot
 	if parentPath != "" {
+		stage = "PARENT_READ"
 		data, err := read(parentPath)
 		if err != nil {
 			return fail()
 		}
+		stage = "PARENT_DECODE"
 		decoded, decodeErr := importer.DecodeSnapshot(data)
 		zero(data)
 		if decodeErr != nil {
@@ -200,6 +220,7 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 		}
 		parent = &decoded
 	}
+	stage = "OUTPUT_INPUT_ALIAS"
 	for _, stamp := range stamps {
 		if normalizeSamePath(stamp.path, outputPath) {
 			return fail()
@@ -214,14 +235,17 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 		CompleteNativeImport: completeNativeImport,
 	})
 	if err != nil {
+		stage = importer.LegacyNormalizeFailureStage(err)
 		return fail()
 	}
 	// Inventory bytes are retained by digest as well as the normalized presence
 	// facts. Source path strings themselves do not enter ordinary identity rows.
 	snapshot.SourceHashes["source_inventory"] = runtimeSHA256Hex(inventoryBytes)
+	stage = "INPUT_RECHECK"
 	if verifyNormalizeFiles(stamps) != nil {
 		return fail()
 	}
+	stage = "OUTPUT_ENCODING"
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return fail()
@@ -232,6 +256,7 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	planOptions := defaultPlanOptions()
 	planOptions.ParentSnapshot = parent
 	planOptions.AppliedParentDigest = snapshot.ParentSourceDigest
+	stage = "OUTPUT_PLAN"
 	_, report := importer.Plan(snapshot, planOptions)
 	protection := importer.ProtectionFromSnapshot(snapshot, parent)
 	if len(report.Blockers) != 0 {
@@ -241,12 +266,15 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	if trialSource != nil {
 		salt = trialSource.Salt
 	}
+	stage = "OUTPUT_PROTECTION"
 	if _, err := importer.ValidateSnapshotProtection(protection, box, keys.HMACKey, salt); err != nil {
 		return fail()
 	}
+	stage = "OUTPUT_IDENTITY"
 	if _, err := importer.ValidateProductionCustomerIdentities(protection, box); err != nil {
 		return fail()
 	}
+	stage = "OUTPUT_PUBLICATION"
 	if writeNormalizeOutput(outputPath, encoded) != nil {
 		return fail()
 	}

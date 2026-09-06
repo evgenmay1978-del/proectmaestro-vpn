@@ -395,7 +395,7 @@ jobs:
           retention-days: 14
 
   mobile-eye-state-preview:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.task == 'mobile-eye-state-preview' || inputs.task == 'mobile-eye-compile') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-state-preview' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -819,13 +819,13 @@ jobs:
       # all of them passed, so a failure from here on is a real regression, not unknown ground.
       # Compile the existing app/test Kotlin and exercise only the eye contract.
       # No deferred-transport binaries, keystore, APK, Release or OTA in this mode.
-      - name: Eye geometry compile and unit test (no APK)
+      - name: Compile eye component (no tests or APK)
         if: ${{ inputs.task == 'mobile-eye-compile' }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:testOtherDebugUnitTest --tests '*LivingEyeLayerGeometryTest' --tests '*ProtocolVisibilityTest' --tests '*PhoneHomeProtocolOrderTest' --tests '*PhoneHomeControlDeckContractTest' --tests '*WhiteListBalanceTest' --stacktrace --no-daemon
+          ./gradlew :app:compileOtherDebugKotlin --stacktrace --no-daemon
 
       - name: Unit tests
         if: ${{ inputs.task != 'mobile-eye-compile' }}

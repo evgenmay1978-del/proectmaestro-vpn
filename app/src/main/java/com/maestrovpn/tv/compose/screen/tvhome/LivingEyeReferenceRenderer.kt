@@ -26,8 +26,8 @@ internal class ReferenceEyeMesh {
     val openLower = FloatArray(GRID + 1)
     val currentUpper = FloatArray(GRID + 1)
     val currentLower = FloatArray(GRID + 1)
-    val marginUpper = FloatArray(REFERENCE_EYE_MARGINS.size)
-    val marginLower = FloatArray(REFERENCE_EYE_MARGINS.size)
+    val marginUpper = FloatArray(REFERENCE_EYE_CONTROLS.size)
+    val marginLower = FloatArray(REFERENCE_EYE_CONTROLS.size)
 
     init {
         for (column in 0..GRID) {
@@ -45,7 +45,7 @@ internal class ReferenceEyeMesh {
             currentUpper[column] = upper + (seam - upper) * phase
             currentLower[column] = lower + (seam - lower) * phase
         }
-        REFERENCE_EYE_MARGINS.forEachIndexed { index, source ->
+        REFERENCE_EYE_CONTROLS.forEachIndexed { index, source ->
             val seam = source.upper * 0.25f + source.lower * 0.75f
             marginUpper[index] = source.upper + (seam - source.upper) * phase
             marginLower[index] = source.lower + (seam - source.lower) * phase
@@ -79,49 +79,48 @@ internal fun DrawScope.drawReferenceEye(
             dstSize = IntSize((width * scale).roundToInt().coerceAtLeast(1),
                 (height * scale).roundToInt().coerceAtLeast(1)), filterQuality = FilterQuality.High)
     }
+    fun eyeBand(start: Float, end: Float): Path {
+        fun control(index: Int, fraction: Float): Offset = point(
+            REFERENCE_EYE_CONTROLS[index].x,
+            mesh.marginUpper[index] + (mesh.marginLower[index] - mesh.marginUpper[index]) * fraction,
+        )
+        return Path().apply {
+            val first = control(0, start)
+            moveTo(first.x, first.y)
+            fun segment(a: Int, b: Int, c: Int, fraction: Float) {
+                val p1 = control(a, fraction)
+                val p2 = control(b, fraction)
+                val p3 = control(c, fraction)
+                cubicTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+            }
+            segment(1, 2, 3, start)
+            segment(4, 5, 6, start)
+            segment(5, 4, 3, end)
+            segment(2, 1, 0, end)
+            close()
+        }
+    }
     val socket = Path().apply { addOval(Rect(left, top, left + radius * 2f, top + radius * 2f)) }
     clipPath(socket) {
         if (livingEyeRenderPolicy(phase).eyeLayersEnabled) {
-            val aperture = Path().apply {
-                REFERENCE_EYE_MARGINS.forEachIndexed { index, source ->
-                    val p = point(source.x, mesh.marginUpper[index])
-                    if (index == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
-                }
-                REFERENCE_EYE_MARGINS.indices.reversed().forEach { index ->
-                    val p = point(REFERENCE_EYE_MARGINS[index].x, mesh.marginLower[index])
-                    lineTo(p.x, p.y)
-                }
-                close()
-            }
+            val aperture = eyeBand(0f, 1f)
             clipPath(aperture) {
                 layer(sclera, 0f, 0f, REFERENCE_EYE_SIZE, REFERENCE_EYE_SIZE)
                 // Preserve the old physical gaze amplitude at the new source resolution.
                 val dx = gazeX * 0.42f
                 val dy = gazeY * 0.42f
-                layer(iris, 113f + dx, 107f + dy, 144f, 144f)
-                val pupilCenter = point(185f + dx, 179f + dy)
+                layer(iris, 113f + dx, 111f + dy, 144f, 144f)
+                val pupilCenter = point(185f + dx, 183f + dy)
                 val pupilRadius = (25.5f * pupilScale + 1.8f) * scale
                 drawCircle(Brush.radialGradient(
                     0f to Color(0xFF010605), 0.86f to Color(0xFF020807),
                     1f to Color(0x000A150C), center = pupilCenter, radius = pupilRadius),
                     radius = pupilRadius, center = pupilCenter)
-                layer(catchlight, 161f + dx * 0.08f, 130f + dy * 0.08f, 48f, 48f)
+                layer(catchlight, 161f + dx * 0.08f, 134f + dy * 0.08f, 48f, 48f)
                 // The upper lid casts a soft contact shadow over the whole globe,
                 // including the iris and corneal reflection, as it closes.
                 repeat(8) { band ->
-                    val shadow = Path().apply {
-                        REFERENCE_EYE_MARGINS.forEachIndexed { index, source ->
-                            val p = point(source.x, mesh.marginUpper[index] +
-                                (mesh.marginLower[index] - mesh.marginUpper[index]) * band / 8f * 0.22f)
-                            if (index == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
-                        }
-                        REFERENCE_EYE_MARGINS.indices.reversed().forEach { index ->
-                            val p = point(REFERENCE_EYE_MARGINS[index].x, mesh.marginUpper[index] +
-                                (mesh.marginLower[index] - mesh.marginUpper[index]) * (band + 1) / 8f * 0.22f)
-                            lineTo(p.x, p.y)
-                        }
-                        close()
-                    }
+                    val shadow = eyeBand(band / 8f * 0.22f, (band + 1) / 8f * 0.22f)
                     val fade = 1f - (band + 0.5f) / 8f
                     drawPath(shadow, Color(0xFF020905).copy(alpha = (0.12f + phase * 0.35f) * fade * fade))
                 }
@@ -146,9 +145,17 @@ internal fun DrawScope.drawReferenceEye(
         }
         if (phase > 0.9f) {
             val seam = Path().apply {
-                REFERENCE_EYE_MARGINS.forEachIndexed { index, source ->
-                    val p = point(source.x, source.upper * 0.25f + source.lower * 0.75f)
-                    if (index == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
+                fun control(index: Int): Offset {
+                    val source = REFERENCE_EYE_CONTROLS[index]
+                    return point(source.x, source.upper * 0.25f + source.lower * 0.75f)
+                }
+                val first = control(0)
+                moveTo(first.x, first.y)
+                for (offset in listOf(0, 3)) {
+                    val a = control(offset + 1)
+                    val b = control(offset + 2)
+                    val c = control(offset + 3)
+                    cubicTo(a.x, a.y, b.x, b.y, c.x, c.y)
                 }
             }
             drawPath(seam, Color(0xFF06130B).copy(alpha = ((phase - 0.9f) * 10f).coerceIn(0f, 1f)),

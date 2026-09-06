@@ -19,6 +19,22 @@ import (
 
 var ErrLegacyNormalize = errors.New("legacy customer capture is incomplete, inconsistent, or unsupported")
 
+// The stage is assigned only by this normalizer. It never contains source
+// values or a wrapped parser/cryptographic error; the old public error remains
+// unchanged for callers which do not request the diagnostic code.
+type legacyNormalizeFailure struct{ stage string }
+
+func (failure *legacyNormalizeFailure) Error() string { return ErrLegacyNormalize.Error() }
+func (failure *legacyNormalizeFailure) Unwrap() error { return ErrLegacyNormalize }
+
+func LegacyNormalizeFailureStage(err error) string {
+	var failure *legacyNormalizeFailure
+	if errors.As(err, &failure) && failure != nil {
+		return failure.stage
+	}
+	return "NORMALIZER"
+}
+
 const LegacyCustomerPreparationScope = "customer-preparation-v1"
 
 // LegacyXUICapture contains existing identities, never panel access credentials.
@@ -246,9 +262,14 @@ func rejectDuplicateLegacyJSON(raw []byte) error {
 }
 
 func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *controlplane.SecretBox, hmacKey []byte, options LegacyNormalizeOptions) (Snapshot, error) {
-	failed := func() (Snapshot, error) { return Snapshot{}, ErrLegacyNormalize }
+	stage := "CUSTOMER_DECODE"
+	failed := func() (Snapshot, error) { return Snapshot{}, &legacyNormalizeFailure{stage: stage} }
 	customers, err := DecodeLegacyCustomers(raw)
-	if err != nil || box == nil || len(hmacKey) != 32 || options.Now.IsZero() || options.MaxCaptureAge <= 0 ||
+	if err != nil {
+		return failed()
+	}
+	stage = "CAPTURE_BINDING"
+	if box == nil || len(hmacKey) != 32 || options.Now.IsZero() || options.MaxCaptureAge <= 0 ||
 		capture.SchemaVersion != 1 || capture.CustomersSHA256 != sha256Hex(raw) || capture.CapturedAt.IsZero() ||
 		capture.CapturedAt.Unix() <= 0 || capture.CompletedAt.Before(capture.CapturedAt) || capture.CompletedAt.After(options.Now) ||
 		options.Now.Sub(capture.CapturedAt) > options.MaxCaptureAge {
@@ -262,6 +283,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		}}
 	// Every unsupported source domain must be accounted for. These facts remain
 	// visible and digest-bound in the Snapshot; this output is never cutover proof.
+	stage = "SOURCE_PRESENCE"
 	if len(options.Sources) != 4 {
 		return failed()
 	}
@@ -287,6 +309,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	}
 	bindings := map[string]LegacyNodeCapture{}
 	subIDs := map[string]bool{}
+	stage = "XUI_BINDINGS"
 	for _, binding := range capture.Bindings {
 		key := binding.Login + "\x00" + binding.NodeID
 		if _, exists := bindings[key]; exists || binding.Login == "" || binding.Server == "" ||
@@ -301,6 +324,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		}
 	}
 	protocolNodes := map[string]string{}
+	stage = "PROTOCOL_BINDINGS"
 	for _, binding := range options.ProtocolBindings {
 		key := binding.Protocol + "\x00" + binding.Server
 		if (binding.Protocol != "hysteria2" && binding.Protocol != "naive" && binding.Protocol != "anytls" && binding.Protocol != "awg") ||
@@ -313,6 +337,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	parentLogins := map[string]LegacyCustomer{}
 	planOptions := options.PlanOptions
 	if options.Parent != nil {
+		stage = "PARENT_BINDING"
 		parent := *options.Parent
 		parentScope, parentPreparation := parent.SourceHashes["scope:"+LegacyCustomerPreparationScope]
 		if parent.SnapshotKind != "full" || !capture.CapturedAt.After(parent.CapturedAt) ||
@@ -322,12 +347,15 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			(options.CompleteNativeImport && !nativeImportSourcesComplete(parent.SourceHashes)) {
 			return failed()
 		}
+		stage = "PARENT_PROTECTION"
 		if _, err := ValidateSnapshotProtection(ProtectionFromSnapshot(parent), box, hmacKey, trialSourceSalt(options.TrialSource)); err != nil {
 			return failed()
 		}
+		stage = "PARENT_IDENTITY"
 		if _, err := ValidateProductionCustomerIdentities(ProtectionFromSnapshot(parent), box); err != nil {
 			return failed()
 		}
+		stage = "PARENT_PLAN"
 		_, report := Plan(parent, options.PlanOptions)
 		if len(report.Blockers) != 0 {
 			return failed()
@@ -337,6 +365,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			secrets[secret.SecretID] = secret
 		}
 		for _, row := range parent.Customers {
+			stage = "PARENT_CUSTOMER_IDENTITY"
 			identity, err := openProductionIdentity(box, row.SourceKey, secrets[row.IdentitySecretRef])
 			if err != nil || parentLogins[identity.Customer.Login].SourceKey != "" {
 				return failed()
@@ -349,6 +378,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	}
 	usedBindings, seenSources := map[string]bool{}, map[string]bool{}
 	for _, customer := range customers {
+		stage = "CUSTOMER_XUI_MATCH"
 		login, _ := controlplane.CanonicalLoginKey(customer.Login)
 		canonicalHMAC := box.LookupHMAC("customer-login", []byte(login))
 		loginHMAC := box.LookupHMAC(controlplane.LegacyExactCustomerLoginHMACDomain, []byte(customer.Login))
@@ -387,6 +417,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			}
 		}
 		identity.SubID = identity.NodeSubIDs["S1"]
+		stage = "CUSTOMER_CREDENTIALS"
 		credentials, err := productionCredentials(identity)
 		if err != nil {
 			return failed()
@@ -396,6 +427,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			protocols = append(protocols, protocol)
 		}
 		sort.Strings(protocols)
+		stage = "CUSTOMER_PROTOCOL_MAP"
 		for protocol, server := range legacyOtherServers(customer) {
 			nodeID := protocolNodes[protocol+"\x00"+server]
 			if nodeID == "" {
@@ -408,6 +440,7 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 			nodeIDs = append(nodeIDs, nodeID)
 		}
 		sort.Strings(nodeIDs)
+		stage = "CUSTOMER_IDENTITY"
 		fingerprint, err := json.Marshal(credentials)
 		if err != nil {
 			return failed()
@@ -454,38 +487,47 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		}
 		snapshot.Customers = append(snapshot.Customers, row)
 		snapshot.EncryptedSecrets = append(snapshot.EncryptedSecrets, secret)
+		stage = "CUSTOMER_ABSENCE_PROOF"
 		if appendLegacyNodeAbsences(&snapshot, row, identity, box, options.Parent) != nil {
 			return failed()
 		}
 		seenSources[sourceKey] = true
 	}
+	stage = "XUI_BINDING_COVERAGE"
 	if len(usedBindings) != len(bindings) {
 		return failed()
 	}
 	// Removal requires explicit deletion semantics; a cumulative capture must not
 	// accidentally turn a disappeared source record into a retained target user.
+	stage = "PARENT_CUSTOMER_COVERAGE"
 	for sourceKey := range parentRows {
 		if !seenSources[sourceKey] {
 			return failed()
 		}
 	}
+	stage = "TRIAL_CONVERSION"
 	if normalizeLegacyTrialSource(&snapshot, options.TrialSource, box, options.Parent) != nil {
 		return failed()
 	}
+	stage = "ORDER_CONVERSION"
 	if normalizeLegacyOrderSource(&snapshot, options.OrderSource, box, options.Parent) != nil {
 		return failed()
 	}
+	stage = "RUNTIME_CONVERSION"
 	if normalizeLegacyRuntimeSource(&snapshot, raw, options.RuntimeSource, box, options.Now, options.MaxCaptureAge, options.Parent) != nil {
 		return failed()
 	}
 	if options.CompleteNativeImport {
+		stage = "COMPLETE_SOURCE_SET"
 		if options.OrderSource == nil || options.TrialSource == nil || options.RuntimeSource == nil || len(options.RuntimeSource.RawOTAAbsence) == 0 || !nativeImportSourcesComplete(snapshot.SourceHashes) {
 			return failed()
 		}
 		protection := ProtectionFromSnapshot(snapshot, options.Parent)
+		stage = "COMPLETE_PROTECTION"
 		if _, err := ValidateSnapshotProtection(protection, box, hmacKey, trialSourceSalt(options.TrialSource)); err != nil {
 			return failed()
 		}
+		stage = "COMPLETE_IDENTITY"
 		if _, err := ValidateProductionCustomerIdentities(protection, box); err != nil {
 			return failed()
 		}
@@ -497,23 +539,28 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 	sort.Slice(snapshot.EncryptedSecrets, func(i, j int) bool {
 		return snapshot.EncryptedSecrets[i].SecretID < snapshot.EncryptedSecrets[j].SecretID
 	})
+	stage = "SNAPSHOT_ENCODING"
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return failed()
 	}
+	stage = "SNAPSHOT_DECODE"
 	_, err = DecodeSnapshot(encoded)
 	zeroBytes(encoded)
 	if err != nil {
 		return failed()
 	}
+	stage = "SNAPSHOT_PLAN"
 	_, report := Plan(snapshot, planOptions)
 	if len(report.Blockers) != 0 {
 		return failed()
 	}
 	protection := ProtectionFromSnapshot(snapshot, options.Parent)
+	stage = "SNAPSHOT_PROTECTION"
 	if _, err := ValidateSnapshotProtection(protection, box, hmacKey, trialSourceSalt(options.TrialSource)); err != nil {
 		return failed()
 	}
+	stage = "SNAPSHOT_IDENTITY"
 	if _, err := ValidateProductionCustomerIdentities(protection, box); err != nil {
 		return failed()
 	}
