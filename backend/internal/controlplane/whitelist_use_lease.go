@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"time"
@@ -191,11 +192,18 @@ ORDER BY origin.origin_id`})
 // applied its actual debit. This method independently rechecks that durable
 // state with the same evaluator as public delivery. It cannot grant by token,
 // refresh desired state, or manufacture an initial counter observation.
-func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan WhiteListMeteringPlan, resolve func(string) (ExternalActionSender, bool)) (WhiteListUseLeaseAuthorization, error) {
+func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan WhiteListMeteringPlan, resolve func(string) (ExternalActionSender, bool)) (authorization WhiteListUseLeaseAuthorization, runErr error) {
 	closed := WhiteListUseLeaseAuthorization{Emails: []string{}, CumulativeByteCeilings: map[string]map[string]int64{}, ByteBudgetFenceGenerations: map[string]map[string]uint64{}}
+	stage := "input"
+	defer func() {
+		if runErr != nil {
+			runErr = fmt.Errorf("controlplane: use lease authorization %s: %w", stage, runErr)
+		}
+	}()
 	if s == nil || s.clock == nil || ctx == nil || resolve == nil || len(plan.Origins) == 0 {
 		return closed, ErrUnavailable
 	}
+	stage = "origin index"
 	byOrigin := make(map[string]WhiteListMeteringOrigin, len(plan.Origins))
 	for _, origin := range plan.Origins {
 		if byOrigin[origin.Origin.OriginID].Origin.OriginID != "" {
@@ -208,6 +216,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	var state whiteListSidecarRuntimeState
 	var origins *whiteListPublicationOriginSnapshot
 	if len(plan.Routes) > 0 {
+		stage = "runtime state"
 		if s.store == nil || s.store.db == nil || s.store.secrets == nil {
 			return closed, ErrUnavailable
 		}
@@ -216,6 +225,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 		if err != nil {
 			return closed, err
 		}
+		stage = "origin proofs"
 		origins, err = s.loadWhiteListPublicationOrigins(ctx, state, resolve)
 		if err != nil {
 			return closed, err
@@ -223,10 +233,12 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	}
 	seen := map[string]bool{}
 	for _, route := range plan.Routes {
+		stage = "route binding"
 		if seen[route.ManagedEmail] || route.ManagedEmail != whiteListManagedEmail(route.Entitlement.EntitlementID(), route.ExitID) {
 			return closed, ErrUnavailable
 		}
 		seen[route.ManagedEmail] = true
+		stage = "route publication"
 		delivery, err := s.whiteListPublicationForEntitlementFromState(ctx, route.Entitlement.EntitlementID(), now, resolve, false, state, origins)
 		if err != nil {
 			return closed, err
@@ -234,6 +246,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 		if delivery.Decision.Verdict != WhiteListPublicationPublishable {
 			continue
 		}
+		stage = "delivery binding"
 		if delivery.ExitID != route.ExitID || len(delivery.desiredBindings) != len(byOrigin) {
 			return closed, ErrUnavailable
 		}
@@ -244,6 +257,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 				!whiteListContainsUser(desired.ManagedUsers, route.ManagedEmail) {
 				return closed, ErrUnavailable
 			}
+			stage = "admission"
 			admission, err := s.whiteListAdmissionRow(ctx, route.Entitlement.EntitlementID(), route.ExitID,
 				whiteListObservedOrigin{origin: origin.Origin, desired: origin.Desired, receipt: origin.Receipt})
 			if err != nil {
@@ -251,6 +265,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 			}
 			mode, _ := rowString(admission, "admission_mode")
 			if mode == "bytes" {
+				stage = "byte budget"
 				ceiling, ceilingOK := rowInt64(admission, "cumulative_byte_ceiling")
 				outstanding, outstandingOK := rowInt64(admission, "outstanding_bytes")
 				fenceText, fenceOK := rowString(admission, "last_fenced_generation")
@@ -273,8 +288,10 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 		closed.Emails = append(closed.Emails, route.ManagedEmail)
 	}
 	if ctx.Err() != nil {
+		stage = "context"
 		return WhiteListUseLeaseAuthorization{Emails: []string{}}, ErrUnavailable
 	}
+	stage = "remaining freshness"
 	evaluatedAt := s.clock.Now()
 	remaining := until.Sub(evaluatedAt)
 	if remaining <= 0 || remaining > 5*time.Second {
