@@ -144,6 +144,10 @@ func (s *Service) CreateWhiteListTopUpOrder(
 	); found || resolveErr != nil {
 		return saved, resolveErr
 	}
+	// Replays above retain their accepted terms; new purchases use current offers.
+	if !isCurrentWhiteListProductID(command.ProductID) {
+		return WhiteListTopUpOrder{}, ErrConflict
+	}
 
 	nowUnix := s.clock.Now().Unix()
 	prepared, err := s.prepareWhiteListTopUp(ctx, nowUnix, command.EntitlementID, command.ProductID)

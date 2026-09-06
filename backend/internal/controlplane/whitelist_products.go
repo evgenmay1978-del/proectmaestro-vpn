@@ -21,6 +21,39 @@ type WhiteListProduct struct {
 	Unit        string
 }
 
+// New offers have distinct immutable identities. Existing orders continue to
+// resolve their original products and prices through WhiteListProducts.
+var currentWhiteListProductIDs = [...]string{
+	"wl-gb-1-20260906", "wl-gb-5-20260906", "wl-gb-10-20260906",
+	"wl-gb-25-20260906", "wl-gb-50-20260906",
+}
+
+func isCurrentWhiteListProductID(productID string) bool {
+	for _, id := range currentWhiteListProductIDs {
+		if id == productID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) WhiteListCatalogProducts(ctx context.Context) ([]WhiteListProduct, error) {
+	products, err := s.WhiteListProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	current := make([]WhiteListProduct, 0, len(currentWhiteListProductIDs))
+	for _, product := range products {
+		if isCurrentWhiteListProductID(product.ProductID) {
+			current = append(current, product)
+		}
+	}
+	if len(current) != len(currentWhiteListProductIDs) {
+		return nil, ErrUnavailable
+	}
+	return current, nil
+}
+
 func (s *Service) WhiteListProducts(ctx context.Context) ([]WhiteListProduct, error) {
 	if s == nil || s.store == nil || s.store.db == nil {
 		return nil, ErrUnavailable

@@ -280,18 +280,14 @@ func (s *ControlPlaneServer) controlPlanePanelCommercialOrders(w http.ResponseWr
 		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
 		return
 	}
-	catalog, err := s.commercial.CommercialCatalog(r.Context())
-	if err != nil {
-		writeControlPlaneCommercialError(w, err)
-		return
-	}
-	productIDs := make(map[string]bool, len(catalog.Products))
-	for _, product := range catalog.Products {
-		productIDs[product.ID] = true
-	}
 	result := make([]CommercialOrderView, 0)
 	for _, order := range orders {
-		if !productIDs[order.Tariff] {
+		binding, err := s.commercial.CommercialOrderBinding(r.Context(), order.OrderID)
+		if err != nil {
+			writeControlPlaneCommercialError(w, err)
+			return
+		}
+		if binding.Family != CommercialOrderFamilyWhiteListTopUp {
 			continue
 		}
 		view, err := reader.CommercialOrder(r.Context(), order.OrderID)

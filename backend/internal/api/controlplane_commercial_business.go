@@ -19,7 +19,7 @@ func (b *ServiceBusiness) CommercialCatalog(ctx context.Context) (CommercialCata
 	if len(access) == 0 {
 		return CommercialCatalogView{}, businessError(controlplane.ErrNotFound)
 	}
-	products, err := b.service.WhiteListProducts(ctx)
+	products, err := b.service.WhiteListCatalogProducts(ctx)
 	if err != nil {
 		return CommercialCatalogView{}, businessError(err)
 	}
