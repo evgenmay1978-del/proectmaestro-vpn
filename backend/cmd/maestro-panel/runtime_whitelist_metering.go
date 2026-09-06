@@ -272,6 +272,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	defer cancelSampling()
 	snapshots := make(map[string]sidecaragentclient.UsageSnapshot, len(plan.Origins))
 	snapshotReceivedAt := make(map[string]time.Time, len(plan.Origins))
+	accountedAvailable := make(map[string]map[string]struct{}, len(plan.Origins))
 	freshAvailable := make(map[string]map[string]struct{}, len(plan.Origins))
 	for _, origin := range plan.Origins {
 		stage = "origin usage lookup"
@@ -312,6 +313,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			seen[email] = struct{}{}
 		}
 		available := make([]string, 0, len(snapshot.Users))
+		accounted := make(map[string]struct{}, len(snapshot.Users))
 		for _, user := range snapshot.Users {
 			_, ok := routes[user.Email]
 			if !ok {
@@ -322,6 +324,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			}
 			seen[user.Email] = struct{}{}
 			available = append(available, user.Email)
+			accounted[user.Email] = struct{}{}
 		}
 		if len(seen) != len(routes) {
 			return errRuntimeWhiteListMeteringUnavailable
@@ -333,6 +336,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}); err != nil {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
+		accountedAvailable[origin.Origin.OriginID] = accounted
 		for _, user := range snapshot.Users {
 			stage = "actual usage settlement"
 			index := sort.SearchStrings(origin.PendingFirstCumulativeUsers, user.Email)
@@ -436,7 +440,9 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 		if collector.byteBudgetBytes > 0 {
 			for email := range authorizedRoutes {
-				if _, ok := freshAvailable[origin.Origin.OriginID][email]; !ok {
+				_, accounted := accountedAvailable[origin.Origin.OriginID][email]
+				_, fresh := freshAvailable[origin.Origin.OriginID][email]
+				if accounted != fresh {
 					return errRuntimeWhiteListMeteringUnavailable
 				}
 			}
