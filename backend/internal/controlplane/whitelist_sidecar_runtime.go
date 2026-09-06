@@ -65,8 +65,8 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		if factsErr != nil {
 			return factsErr
 		}
-		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReady(
-			ctx, entitlementID, previousExit, state.previous,
+		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReadyFromState(
+			ctx, entitlementID, previousExit, state.previous, state,
 		)
 		facts.ReleaseBindingExact = releaseBindingExact
 		facts.CredentialUsable = whiteListRuntimeCredentialUsable(state.credentials[entitlementID], state.exits)
@@ -83,7 +83,7 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 			targetEntitlements = append(targetEntitlements, entitlementID)
 		} else if releaseBindingExact {
 			for exitID := range state.credentials[entitlementID] {
-				if _, ready := s.whiteListMeteringAdmissionReady(ctx, entitlementID, exitID, true); ready {
+				if _, _, ready := s.whiteListMeteringReadinessFromState(ctx, entitlementID, exitID, true, nil, state); ready {
 					provisioningExits[entitlementID] = exitID
 					targetEntitlements = append(targetEntitlements, entitlementID)
 					break

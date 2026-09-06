@@ -3,11 +3,59 @@ package controlplane
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
 const whiteListByteAllocationKeySQL = `entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=?`
+
+// Filter before taking the fresh counter snapshot. A funded allocation needs
+// no refill transaction until half its chunk is consumed. This grants nothing:
+// every use lease still rechecks actual settlement, balance, boot and freshness.
+func (s *Service) WhiteListByteBudgetRefillCandidates(ctx context.Context, plan WhiteListMeteringPlan, candidates []WhiteListMeteringAdmissionCandidate, chunkBytes int64) ([]WhiteListMeteringAdmissionCandidate, error) {
+	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || chunkBytes <= 0 || len(plan.Origins) == 0 {
+		return nil, ErrUnavailable
+	}
+	if len(candidates) == 0 {
+		return candidates, nil
+	}
+	minimum := chunkBytes / 2
+	if minimum == 0 {
+		minimum = 1
+	}
+	statements := make([]rqlite.Statement, 0, len(candidates))
+	for _, candidate := range candidates {
+		now := s.clock.Now().Unix()
+		args := []any{candidate.EntitlementID, candidate.ExitID, minimum, now, now}
+		bindings := make([]string, 0, len(plan.Origins))
+		for _, origin := range plan.Origins {
+			bindings = append(bindings, "(allocation.origin_id=? AND allocation.xray_process_boot_id=?)")
+			args = append(args, origin.Origin.OriginID, origin.Receipt.XrayProcessBootID)
+		}
+		statements = append(statements, rqlite.Statement{SQL: `SELECT COUNT(*) AS funded_origins
+FROM whitelist_byte_allocation_balances AS allocation
+JOIN whitelist_billing_periods AS period ON period.period_id=allocation.billing_period_id AND period.entitlement_id=allocation.entitlement_id
+WHERE allocation.entitlement_id=? AND allocation.exit_id=? AND allocation.outstanding_bytes>=?
+AND period.starts_at_unix<=? AND ?<period.ends_at_unix AND (` + strings.Join(bindings, " OR ") + `)`, Args: args})
+	}
+	results, err := s.store.db.QueryLinearizable(ctx, statements...)
+	if err != nil || len(results) != len(candidates) {
+		return nil, ErrUnavailable
+	}
+	needed := make([]WhiteListMeteringAdmissionCandidate, 0, len(candidates))
+	for index, candidate := range candidates {
+		row, ok := firstRow(results[index : index+1])
+		funded, valid := rowInt64(row, "funded_origins")
+		if !ok || !valid {
+			return nil, ErrUnavailable
+		}
+		if funded != int64(len(plan.Origins)) {
+			needed = append(needed, candidate)
+		}
+	}
+	return needed, nil
+}
 
 // AuthorizeWhiteListByteBudgetAdmission reserves existing prepaid bytes. The
 // chunk is refill granularity, never a measured throughput or a usage debit.

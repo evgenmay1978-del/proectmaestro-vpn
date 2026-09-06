@@ -51,6 +51,10 @@ type runtimeWhiteListByteBudgetControlPlane interface {
 	CompleteWhiteListByteBudgetFinal(context.Context, controlplane.WhiteListFinalReceiptAuthorization) error
 }
 
+type runtimeWhiteListByteBudgetRefillControlPlane interface {
+	WhiteListByteBudgetRefillCandidates(context.Context, controlplane.WhiteListMeteringPlan, []controlplane.WhiteListMeteringAdmissionCandidate, int64) ([]controlplane.WhiteListMeteringAdmissionCandidate, error)
+}
+
 type runtimeWhiteListMeteringControlPlane interface {
 	shadowbilling.CommercialDebiter
 	WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error)
@@ -223,6 +227,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		candidates, err = collector.control.WhiteListMeteringAdmissionCandidates(ctx)
 		if err != nil {
 			return err
+		}
+		if refill, ok := collector.control.(runtimeWhiteListByteBudgetRefillControlPlane); ok {
+			candidates, err = refill.WhiteListByteBudgetRefillCandidates(ctx, plan, candidates, collector.byteBudgetBytes)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	routes := make(map[string]controlplane.WhiteListMeteringRoute, len(plan.Routes))
