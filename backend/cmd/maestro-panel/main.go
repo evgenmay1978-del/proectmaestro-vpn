@@ -417,6 +417,7 @@ func buildRuntimeWhiteListSidecarSenders(
 			return nil, errors.New("white-list sidecar client is unavailable")
 		}
 		senders[nodeID] = sender
+		senders[strings.ToUpper(nodeID)] = sender
 	}
 	return senders, nil
 }
