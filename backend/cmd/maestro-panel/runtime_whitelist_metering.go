@@ -166,9 +166,16 @@ func runRuntimeWhiteListMetering(
 func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context) (runErr error) {
 	started := time.Now()
 	stage := "startup recovery"
+	passBudget, processingBudget := runtimeWhiteListMeteringPassBudget, runtimeWhiteListMeteringInterval
+	if collector.byteBudgetBytes > 0 {
+		// Prepaid byte ceilings bound forwarding independently of processing time.
+		// Keep the original five-second observation and BOOTTIME lease deadlines;
+		// this only lets durable recovery/accounting finish before cancellation.
+		passBudget, processingBudget = 10*time.Second, 5*time.Second
+	}
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
-	reconcileContext, cancelReconcile := context.WithDeadline(ctx, started.Add(runtimeWhiteListMeteringPassBudget))
+	reconcileContext, cancelReconcile := context.WithDeadline(ctx, started.Add(passBudget))
 	defer cancelReconcile()
 	ctx = reconcileContext
 	collector.reconcileNeeded = true
@@ -247,7 +254,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	}
 	// Plan and candidate discovery grant no runtime authority. Start the fresh
 	// sampling window at the first counter read; all admission rechecks follow it.
-	ctx, cancelSampling := context.WithTimeout(reconcileContext, runtimeWhiteListMeteringInterval)
+	ctx, cancelSampling := context.WithTimeout(reconcileContext, processingBudget)
 	defer cancelSampling()
 	snapshots := make(map[string]sidecaragentclient.UsageSnapshot, len(plan.Origins))
 	snapshotReceivedAt := make(map[string]time.Time, len(plan.Origins))
