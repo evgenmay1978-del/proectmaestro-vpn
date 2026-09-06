@@ -109,13 +109,18 @@ func buildRQLitePanelRuntime(
 		return nil, fmt.Errorf("rqlite runtime: worker identity unavailable: %w", err)
 	}
 	publicationEnabled := len(whiteListPublicationEnabled) == 1 && whiteListPublicationEnabled[0]
+	publicationSource := runtimeWhiteListPublicationSource(service, publicationEnabled, dependencies.whiteListSidecarSenders)
 	business := api.NewServiceBusiness(service, rqliteServiceBusinessConfig(
 		apiConfig, wbSender, workerID,
-		runtimeWhiteListPublicationSource(service, publicationEnabled, dependencies.whiteListSidecarSenders),
+		publicationSource,
 	))
 	server := api.NewControlPlane(business, apiConfig)
+	handler, err := api.WrapLegacySubscriptions(server.Handler(), config.LegacySubscriptionUpstream, publicationSource, time.Second)
+	if err != nil {
+		return nil, err
+	}
 	runtime := &panelRuntime{
-		mode: "rqlite", business: business, handler: server.Handler(),
+		mode: "rqlite", business: business, handler: handler,
 	}
 	runtime.background = func(workerContext context.Context) {
 		runRQLiteBackground(

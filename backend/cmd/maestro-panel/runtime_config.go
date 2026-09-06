@@ -11,12 +11,13 @@ import (
 var errInvalidRQLiteRuntime = errors.New("invalid rqlite runtime configuration")
 
 type rqliteRuntimeConfig struct {
-	Endpoints            []string
-	CAFile               string
-	CertFile             string
-	KeyFile              string
-	KeyBundleFile        string
-	WhiteListReserveFile string
+	Endpoints                  []string
+	CAFile                     string
+	CertFile                   string
+	KeyFile                    string
+	KeyBundleFile              string
+	WhiteListReserveFile       string
+	LegacySubscriptionUpstream string
 }
 
 type configuredRuntimeFactories struct {
@@ -49,11 +50,12 @@ func buildConfiguredRuntime(
 
 func readRQLiteRuntimeConfig(getenv func(string) string) (rqliteRuntimeConfig, error) {
 	config := rqliteRuntimeConfig{
-		CAFile:               strings.TrimSpace(getenv("MAESTRO_RQLITE_CA_FILE")),
-		CertFile:             strings.TrimSpace(getenv("MAESTRO_RQLITE_CERT_FILE")),
-		KeyFile:              strings.TrimSpace(getenv("MAESTRO_RQLITE_KEY_FILE")),
-		KeyBundleFile:        strings.TrimSpace(getenv("MAESTRO_RQLITE_KEY_BUNDLE_FILE")),
-		WhiteListReserveFile: strings.TrimSpace(getenv("MAESTRO_WHITELIST_RESERVE_FILE")),
+		CAFile:                     strings.TrimSpace(getenv("MAESTRO_RQLITE_CA_FILE")),
+		CertFile:                   strings.TrimSpace(getenv("MAESTRO_RQLITE_CERT_FILE")),
+		KeyFile:                    strings.TrimSpace(getenv("MAESTRO_RQLITE_KEY_FILE")),
+		KeyBundleFile:              strings.TrimSpace(getenv("MAESTRO_RQLITE_KEY_BUNDLE_FILE")),
+		WhiteListReserveFile:       strings.TrimSpace(getenv("MAESTRO_WHITELIST_RESERVE_FILE")),
+		LegacySubscriptionUpstream: strings.TrimSpace(getenv("MAESTRO_LEGACY_SUB_UPSTREAM")),
 	}
 	rawEndpoints := strings.Split(getenv("MAESTRO_RQLITE_ENDPOINTS"), ",")
 	seen := make(map[string]struct{}, len(rawEndpoints))
