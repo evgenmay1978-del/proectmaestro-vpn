@@ -66,6 +66,7 @@ jobs:
             go build -mod=readonly -trimpath -buildvcs=true -ldflags='-s -w -buildid=' \
               -o "$dist/bin/maestro-xray-cdn-agent" ./cmd/maestro-xray-cdn-agent
           )
+          chmod 0755 "$dist/bin/xray" "$dist/bin/maestro-xray-cdn-agent"
           install -m 0755 ops/yandex_cdn_commercial/operator.py "$dist/bin/maestro-xray-cdn-commercial-operator"
           install -m 0644 ops/yandex_cdn_commercial/bundle.py "$dist/lib/commercial_bundle.py"
           install -m 0644 ops/yandex_cdn_commercial/templates/config.json.tmpl "$dist/templates/config.json.tmpl"

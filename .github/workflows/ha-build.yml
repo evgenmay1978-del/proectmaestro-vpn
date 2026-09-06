@@ -42,6 +42,7 @@ jobs:
           GOARCH: amd64
         run: |
           set -euo pipefail
+          umask 077
           mkdir -p ../dist
           go build -mod=readonly -trimpath -buildvcs=true \
             -ldflags "-s -w -X github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api.BuildCommit=$GITHUB_SHA" \
