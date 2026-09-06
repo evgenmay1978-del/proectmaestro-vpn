@@ -46,6 +46,7 @@ type ServiceBusiness struct {
 	service              *controlplane.Service
 	subscriptions        subscriptionCustomerSource
 	subscriptionStates   subscriptionStateSource
+	runtimeSettings      runtimeSettingSource
 	cfg                  ServiceBusinessConfig
 	externalActions      externalActionRunner
 	wbSender             controlplane.ExternalActionSender
@@ -85,6 +86,7 @@ func NewServiceBusiness(service *controlplane.Service, cfg ServiceBusinessConfig
 	if service != nil {
 		business.subscriptions = service
 		business.subscriptionStates = service
+		business.runtimeSettings = service
 		business.wbRooms = service
 	}
 	return business
@@ -327,6 +329,13 @@ func (b *ServiceBusiness) ApprovedOTA(ctx context.Context) (OTAManifestView, err
 	if err := b.available(); err != nil {
 		return OTAManifestView{}, err
 	}
+	absent, err := b.service.ReadLegacyOTAAbsent(ctx)
+	if err != nil && !errors.Is(err, controlplane.ErrNotFound) {
+		return OTAManifestView{}, businessError(err)
+	}
+	if absent {
+		return OTAManifestView{}, businessError(controlplane.ErrNotFound)
+	}
 	approval, err := b.service.ApprovedOTA(ctx)
 	if err != nil {
 		return OTAManifestView{}, businessError(err)
@@ -435,6 +444,13 @@ func (b *ServiceBusiness) OrderByID(ctx context.Context, orderID string) (OrderV
 		return OrderView{}, err
 	}
 	if _, err := b.service.OrderByID(ctx, orderID); err != nil {
+		if errors.Is(err, controlplane.ErrNotFound) {
+			legacy, legacyErr := b.service.LegacyOrderByID(ctx, orderID)
+			if legacyErr != nil {
+				return OrderView{}, businessError(legacyErr)
+			}
+			return b.nativeLegacyOrderView(legacy), nil
+		}
 		return OrderView{}, businessError(err)
 	}
 	order, err := b.service.BusinessOrderByID(ctx, orderID)
@@ -460,9 +476,53 @@ func (b *ServiceBusiness) ListOrders(ctx context.Context, filter OrderFilter) ([
 	if err != nil {
 		return nil, businessError(err)
 	}
+	legacy, legacyErr := b.service.ListLegacyOrders(ctx)
+	if legacyErr != nil {
+		return nil, businessError(legacyErr)
+	}
+	if len(legacy) > 0 && filter.Limit > 0 {
+		orders, err = b.service.ListBusinessOrders(ctx, filter.Status)
+		if err != nil {
+			return nil, businessError(err)
+		}
+	}
 	views := make([]OrderView, 0, len(orders))
+	linked := map[string]bool{}
+	for _, order := range legacy {
+		if order.InternalOrderID != "" {
+			linked[order.InternalOrderID] = true
+		}
+	}
 	for _, order := range orders {
+		if linked[order.OrderID] {
+			continue
+		}
 		views = append(views, b.rawOrderView(order))
+	}
+	for _, order := range legacy {
+		view := b.nativeLegacyOrderView(order)
+		if filter.Status == "" || filter.Status == view.Status || filter.Status == view.PaymentState {
+			views = append(views, view)
+		}
+	}
+	if len(legacy) > 0 {
+		sort.Slice(views, func(i, j int) bool {
+			if views[i].CreatedAtUnix != views[j].CreatedAtUnix {
+				return views[i].CreatedAtUnix > views[j].CreatedAtUnix
+			}
+			return views[i].OrderID > views[j].OrderID
+		})
+		filtered := views[:0]
+		for _, view := range views {
+			if filter.AfterCreatedAtUnix > 0 && (view.CreatedAtUnix > filter.AfterCreatedAtUnix || (view.CreatedAtUnix == filter.AfterCreatedAtUnix && view.OrderID >= filter.AfterOrderID)) {
+				continue
+			}
+			filtered = append(filtered, view)
+		}
+		views = filtered
+		if filter.Limit > 0 && len(views) > filter.Limit {
+			views = views[:filter.Limit]
+		}
 	}
 	return views, nil
 }
@@ -475,6 +535,13 @@ func (b *ServiceBusiness) MarkPaymentClaimed(ctx context.Context, command ClaimP
 		OrderID: command.OrderID, Actor: "legacy-http", Channel: "legacy-http", SourceEventID: command.IdempotencyKey,
 	})
 	if err != nil {
+		if errors.Is(err, controlplane.ErrNotFound) {
+			legacy, legacyErr := b.service.LegacyOrderByID(ctx, command.OrderID)
+			if legacyErr != nil {
+				return OrderView{}, businessError(legacyErr)
+			}
+			return b.nativeLegacyOrderView(legacy), nil
+		}
 		return OrderView{}, businessError(err)
 	}
 	return OrderView{OrderID: claimed.OrderID, Status: "awaiting_confirm", PaymentState: string(claimed.PaymentState)}, nil
@@ -486,6 +553,24 @@ func (b *ServiceBusiness) ConfirmPayment(ctx context.Context, command ConfirmPay
 	}
 	pending, err := b.service.BusinessOrderByID(ctx, command.OrderID)
 	if err != nil {
+		if errors.Is(err, controlplane.ErrNotFound) {
+			legacy, confirmed, legacyErr := b.service.ConfirmLegacyOrder(ctx, command.OrderID, command.Actor)
+			if legacyErr != nil {
+				return ConfirmPaymentResult{}, businessError(legacyErr)
+			}
+			result := ConfirmPaymentResult{Order: b.nativeLegacyOrderView(legacy), LegacyHistory: legacy.HistoricalGrant}
+			if legacy.CustomerID != "" {
+				customer, customerErr := b.service.BusinessCustomerByID(ctx, legacy.CustomerID)
+				if customerErr != nil {
+					return ConfirmPaymentResult{}, businessError(customerErr)
+				}
+				result.Customer = b.customerView(customer)
+			}
+			if confirmed.OperationID != "" {
+				result.Operation = OperationView{ID: confirmed.OperationID, State: "pending"}
+			}
+			return result, nil
+		}
 		return ConfirmPaymentResult{}, businessError(err)
 	}
 	confirmed, err := b.service.ConfirmPayment(ctx, controlplane.ConfirmPaymentCommand{
@@ -519,6 +604,12 @@ func (b *ServiceBusiness) CancelOrder(ctx context.Context, command CancelOrderCo
 		OrderID: command.OrderID, IdempotencyKey: command.IdempotencyKey, Actor: command.Actor, Channel: "legacy-http",
 	})
 	if err != nil {
+		if errors.Is(err, controlplane.ErrNotFound) {
+			if legacyErr := b.service.CancelLegacyOrder(ctx, command.OrderID, command.Actor); legacyErr != nil {
+				return OrderView{}, businessError(legacyErr)
+			}
+			return OrderView{OrderID: command.OrderID, Status: "canceled", PaymentState: string(controlplane.PaymentCanceled)}, nil
+		}
 		return OrderView{}, businessError(err)
 	}
 	order, err := b.service.BusinessOrderByID(ctx, result.OrderID)
@@ -549,6 +640,15 @@ func (b *ServiceBusiness) subscriptionSnapshotForRequest(ctx context.Context, to
 	}
 	snapshot := SubscriptionSnapshot{Customer: b.customerView(customer), AsOf: b.requestNow()}
 	if !snapshot.Customer.Active {
+		return snapshot, nil
+	}
+	runtime, err := b.subscriptionRuntime(ctx, snapshot.Customer, options, -1)
+	if err != nil {
+		return SubscriptionSnapshot{}, businessError(err)
+	}
+	options.Runtime = &runtime
+	snapshot.RuntimeIdentity, snapshot.RuntimeInfo = runtime.Identity, runtime.Info
+	if options.endpoint() == subscriptionEndpointInfo || options.endpoint() == subscriptionEndpointHelpers {
 		return snapshot, nil
 	}
 	if len(customer.Access.Credentials) == 0 {
@@ -720,6 +820,14 @@ func (b *ServiceBusiness) OLCRTCState(ctx context.Context) (OLCRTCView, error) {
 	setting, err := b.service.ReadBusinessSetting(ctx, "olcrtc")
 	if err != nil {
 		return OLCRTCView{}, businessError(err)
+	}
+	if setting.SecretConfigured {
+		value, err := b.service.ReadLegacyRuntimeSetting(ctx, "olcrtc")
+		if err != nil {
+			return OLCRTCView{}, businessError(err)
+		}
+		view, err := runtimeOLCView(value)
+		return view, businessError(err)
 	}
 	value, _, err := b.resolveOLCRTCSetting(ctx, setting.PublicValueJSON)
 	if err != nil {
@@ -898,6 +1006,14 @@ func (b *ServiceBusiness) VKTurnState(ctx context.Context) (VKTurnView, error) {
 	if err != nil {
 		return VKTurnView{}, businessError(err)
 	}
+	if setting.SecretConfigured {
+		value, err := b.service.ReadLegacyRuntimeSetting(ctx, "vkturn")
+		if err != nil {
+			return VKTurnView{}, businessError(err)
+		}
+		view, err := runtimeVKView(value)
+		return view, businessError(err)
+	}
 	var view VKTurnView
 	if err := json.Unmarshal(setting.PublicValueJSON, &view); err != nil {
 		return VKTurnView{}, businessError(controlplane.ErrUnavailable)
@@ -1070,6 +1186,19 @@ func (b *ServiceBusiness) rawOrderView(order controlplane.BusinessOrder) OrderVi
 		Status: string(order.PaymentState), PaymentState: string(order.PaymentState),
 		ProvisioningState: order.ProvisioningState, ResultGeneration: order.ResultGeneration,
 	}
+}
+
+func (b *ServiceBusiness) nativeLegacyOrderView(legacy controlplane.LegacyOrderView) OrderView {
+	order := legacy.Order
+	state := string(controlplane.PaymentPending)
+	if order.Status == "paid" || order.Credited {
+		state = string(controlplane.PaymentConfirmed)
+	}
+	view := OrderView{CreatedAtUnix: order.CreatedAt.Unix(), OrderID: order.ID, Code: order.Code, RUB: order.Rub, Days: order.Days, Tariff: order.Tariff, SBPPhone: b.cfg.SBPPhone, PayURL: b.cfg.PayURL, Status: order.Status, PaymentState: state}
+	if order.Status == "paid" {
+		view.SubURL = b.subscriptionURL(order.SubToken)
+	}
+	return view
 }
 
 func (b *ServiceBusiness) creationOrderView(order controlplane.BusinessOrder) OrderView {

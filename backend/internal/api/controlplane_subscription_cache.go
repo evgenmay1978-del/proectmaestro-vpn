@@ -254,6 +254,20 @@ func (cache *subscriptionCache) store(
 		if entry.Version.Identity == version.Identity && version.VerifiedAt.Before(entry.Version.VerifiedAt) {
 			return
 		}
+		// Compare runtime versions inside this exact request variant only. They
+		// must not change the existing customer/device authorization ordering.
+		if entry.Version.Identity == version.Identity && snapshot.Customer.Active {
+			next, previous := snapshot.RuntimeIdentity, entry.Snapshot.RuntimeIdentity
+			if next.OLCGeneration < previous.OLCGeneration || next.VKGeneration < previous.VKGeneration {
+				return
+			}
+			if next.OLCGeneration == previous.OLCGeneration && next.VKGeneration == previous.VKGeneration && next.Digest != previous.Digest {
+				state.version++
+				cache.deleteTokenLocked(tokenHMAC)
+				cache.cleanupEpochLocked(tokenHMAC)
+				return
+			}
+		}
 	}
 	safeSnapshot := cloneSubscriptionSnapshot(snapshot)
 	safeSnapshot.Customer.SubURL = ""
@@ -424,6 +438,7 @@ func cloneSubscriptionSnapshot(snapshot SubscriptionSnapshot) SubscriptionSnapsh
 	clone := snapshot
 	clone.Customer = cloneCustomerView(snapshot.Customer)
 	clone.Document = append(json.RawMessage(nil), snapshot.Document...)
+	clone.RuntimeInfo = append(json.RawMessage(nil), snapshot.RuntimeInfo...)
 	return clone
 }
 
@@ -435,7 +450,8 @@ func subscriptionVariant(options subscriptionRenderOptions) string {
 		Links         bool                     `json:"links"`
 		DNSFakeIPOff  bool                     `json:"dns_fake_ip_off"`
 		AWGMinimum    int                      `json:"awg_minimum"`
-	}{options.endpoint(), options.ClientRequest, options.UserAgent, options.Links, dnsFakeIPOff, awgMinVC})
+		Platform      string                   `json:"platform"`
+	}{options.endpoint(), options.ClientRequest, options.UserAgent, options.Links, dnsFakeIPOff, awgMinVC, options.Platform})
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
 }
@@ -473,7 +489,7 @@ func (b *ServiceBusiness) subscriptionSnapshotWithState(ctx context.Context, tok
 	active := state.Customer.Status == "active" && time.Unix(state.Customer.ExpiresAtUnix, 0).After(now)
 	requireCredentials := options.endpoint() == subscriptionEndpointBase
 	if active && requireCredentials && len(state.Customer.Access.Credentials) == 0 {
-		return b.renderBusinessSubscriptionState(state, options, now)
+		return b.renderBusinessSubscriptionState(ctx, state, options, now)
 	}
 	admit := active && options.endpoint() != subscriptionEndpointInfo && gateEnabled && options.DeviceID != ""
 	if admit {
@@ -514,7 +530,7 @@ func (b *ServiceBusiness) subscriptionSnapshotWithState(ctx context.Context, tok
 				changedActive := changed.Customer.Status == "active" && time.Unix(changed.Customer.ExpiresAtUnix, 0).After(changedAt)
 				if !changedActive || (requireCredentials && len(changed.Customer.Access.Credentials) == 0) {
 					b.subscriptionCache.invalidate(tokenHMAC, deviceHMAC)
-					return b.renderBusinessSubscriptionState(changed, options, changedAt)
+					return b.renderBusinessSubscriptionState(ctx, changed, options, changedAt)
 				}
 				state = changed
 				now = changedAt
@@ -587,7 +603,7 @@ func (b *ServiceBusiness) subscriptionSnapshotWithState(ctx context.Context, tok
 			}
 		}
 	}
-	snapshot, err := b.renderBusinessSubscriptionState(state, options, now)
+	snapshot, err := b.renderBusinessSubscriptionState(ctx, state, options, now)
 	if err != nil {
 		b.subscriptionCache.invalidate(tokenHMAC, deviceHMAC)
 		return SubscriptionSnapshot{}, err
@@ -657,9 +673,18 @@ func sameSubscriptionAdmissionAuthorization(expected, actual controlplane.Busine
 		(!requireCredentials || len(actual.Customer.Access.Credentials) > 0)
 }
 
-func (b *ServiceBusiness) renderBusinessSubscriptionState(state controlplane.BusinessSubscriptionSnapshot, options subscriptionRenderOptions, now time.Time) (SubscriptionSnapshot, error) {
+func (b *ServiceBusiness) renderBusinessSubscriptionState(ctx context.Context, state controlplane.BusinessSubscriptionSnapshot, options subscriptionRenderOptions, now time.Time) (SubscriptionSnapshot, error) {
 	snapshot := SubscriptionSnapshot{Customer: b.customerViewAt(state.Customer, now), AsOf: now}
-	if !snapshot.Customer.Active || options.endpoint() == subscriptionEndpointInfo || options.endpoint() == subscriptionEndpointHelpers {
+	if !snapshot.Customer.Active || options.endpoint() == subscriptionEndpointHelpers {
+		return snapshot, nil
+	}
+	runtime, err := b.subscriptionRuntime(ctx, snapshot.Customer, options, state.SettingsGeneration)
+	if err != nil {
+		return SubscriptionSnapshot{}, businessError(err)
+	}
+	snapshot.RuntimeIdentity, snapshot.RuntimeInfo = runtime.Identity, runtime.Info
+	options.Runtime = &runtime
+	if options.endpoint() == subscriptionEndpointInfo {
 		return snapshot, nil
 	}
 	if len(state.Customer.Access.Credentials) == 0 {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
@@ -35,6 +36,13 @@ func (b *ServiceBusiness) CommercialOrderBinding(ctx context.Context, orderID st
 	}
 	order, err := b.service.BusinessOrderByID(ctx, orderID)
 	if err != nil {
+		if errors.Is(err, controlplane.ErrNotFound) {
+			legacy, legacyErr := b.service.LegacyOrderByID(ctx, orderID)
+			if legacyErr != nil {
+				return CommercialOrderBindingView{}, businessError(legacyErr)
+			}
+			return CommercialOrderBindingView{OrderID: legacy.Order.ID, Family: CommercialOrderFamilyAccess, AccountID: legacy.CustomerID}, nil
+		}
 		return CommercialOrderBindingView{}, businessError(err)
 	}
 	products, err := b.service.WhiteListProducts(ctx)

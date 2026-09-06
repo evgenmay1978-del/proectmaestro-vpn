@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 19
+	SchemaVersion = 20
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -47,6 +47,7 @@ var expectedSchemaTables = []string{
 	"import_delete_receipts",
 	"import_runs",
 	"imported_entity_state",
+	"imported_legacy_order_aliases",
 	"imported_legacy_trial_uses",
 	"imported_secrets",
 	"imported_trial_identities",
@@ -487,6 +488,7 @@ func loadMigrations() ([]migration, error) {
 		{version: 17, path: "migrations/0017_whitelist_metering_observations.sql"},
 		{version: 18, path: "migrations/0018_legacy_trial_uses.sql"},
 		{version: 19, path: "migrations/0019_whitelist_admin_credit.sql"},
+		{version: 20, path: "migrations/0020_legacy_order_bridge.sql"},
 	}
 	migrations := make([]migration, 0, len(specs))
 	for _, spec := range specs {

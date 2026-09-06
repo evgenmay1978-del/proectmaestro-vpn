@@ -18,12 +18,12 @@ type ShadowURLShapes struct {
 }
 
 type ShadowExport struct {
-	SchemaVersion          int              `json:"schema_version"`
-	Customers              []ShadowCustomer `json:"customers"`
-	Orders                 []ShadowOrder    `json:"orders"`
+	SchemaVersion         int              `json:"schema_version"`
+	Customers             []ShadowCustomer `json:"customers"`
+	Orders                []ShadowOrder    `json:"orders"`
 	SettingsFingerprint   string           `json:"settings_fingerprint"`
 	PrincipalsFingerprint string           `json:"principals_fingerprint"`
-	OTA                    ShadowOTA        `json:"ota_manifest"`
+	OTA                   ShadowOTA        `json:"ota_manifest"`
 }
 
 type ShadowCustomer struct {
@@ -43,10 +43,30 @@ type ShadowOrder struct {
 }
 
 type ShadowOTA struct {
-	VersionCode int64  `json:"version_code"`
-	VersionName string `json:"version_name"`
-	APKSHA256   string `json:"apk_sha256"`
-	APKSize     int64  `json:"apk_size"`
+	State        string `json:"state,omitempty"`
+	SourceSHA256 string `json:"source_sha256,omitempty"`
+	VersionCode  int64  `json:"version_code"`
+	VersionName  string `json:"version_name"`
+	APKSHA256    string `json:"apk_sha256"`
+	APKSize      int64  `json:"apk_size"`
+}
+
+func (value ShadowOTA) MarshalJSON() ([]byte, error) {
+	if value.State == "absent" {
+		return json.Marshal(struct {
+			State        string `json:"state"`
+			SourceSHA256 string `json:"source_sha256"`
+		}{value.State, value.SourceSHA256})
+	}
+	type present ShadowOTA
+	return json.Marshal(present(value))
+}
+
+func validShadowOTA(value ShadowOTA) bool {
+	if value.State == "absent" {
+		return validShadowHex64(value.SourceSHA256) && value.VersionCode == 0 && value.VersionName == "" && value.APKSHA256 == "" && value.APKSize == 0
+	}
+	return value.State == "" && value.SourceSHA256 == "" && value.VersionCode >= 0 && value.VersionName != "" && validShadowHex64(value.APKSHA256) && value.APKSize >= 0
 }
 
 func EncodeShadowExport(value ShadowExport) ([]byte, error) {
@@ -63,17 +83,16 @@ func EncodeShadowExport(value ShadowExport) ([]byte, error) {
 
 func canonicalShadowExport(value ShadowExport) (ShadowExport, error) {
 	if value.SchemaVersion != 1 || !validShadowHex64(value.SettingsFingerprint) ||
-		!validShadowHex64(value.PrincipalsFingerprint) || value.OTA.VersionCode < 0 ||
-		value.OTA.VersionName == "" || !validShadowHex64(value.OTA.APKSHA256) || value.OTA.APKSize < 0 {
+		!validShadowHex64(value.PrincipalsFingerprint) || !validShadowOTA(value.OTA) {
 		return ShadowExport{}, ErrShadowExportInvalid
 	}
 	canonical := ShadowExport{
-		SchemaVersion:          value.SchemaVersion,
+		SchemaVersion:         value.SchemaVersion,
 		SettingsFingerprint:   value.SettingsFingerprint,
 		PrincipalsFingerprint: value.PrincipalsFingerprint,
-		OTA:                    value.OTA,
-		Customers:              make([]ShadowCustomer, len(value.Customers)),
-		Orders:                 make([]ShadowOrder, len(value.Orders)),
+		OTA:                   value.OTA,
+		Customers:             make([]ShadowCustomer, len(value.Customers)),
+		Orders:                make([]ShadowOrder, len(value.Orders)),
 	}
 	identities := make(map[string]struct{}, len(value.Customers))
 	for index, customer := range value.Customers {

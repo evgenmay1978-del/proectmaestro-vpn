@@ -35,6 +35,7 @@ type orderRecord struct {
 	CustomerGeneration  int64
 	DBNow               int64
 	OriginChatHMAC      string
+	LegacyAccess        *legacyOrderAccess
 }
 
 type desiredTarget struct {
@@ -318,12 +319,13 @@ AND idempotency_key=? AND request_hash=? AND operation_id=? AND status='applying
 				"order:" + command.OrderID, command.IdempotencyKey, requestHash, operationID},
 		}, {
 			SQL: `UPDATE customers SET status='active',expires_at_unix=?,generation=?,updated_at_unix=unixepoch()
-WHERE customer_id=? AND generation=? AND expires_at_unix=? AND status IN ('active','expired')
+WHERE customer_id=? AND generation=? AND expires_at_unix=? AND (status IN ('active','expired') OR (status='suspended' AND EXISTS(SELECT 1 FROM imported_legacy_order_aliases a WHERE a.accepted_order_id=? AND a.customer_id=customers.customer_id AND a.historical_grant=0 AND a.cancelled_at_unix IS NULL)))
 AND EXISTS(SELECT 1 FROM orders WHERE order_id=? AND operation_id=? AND payment_state='confirmed')
 RETURNING generation`,
 			Args: []any{result.ExpiresAtUnix, result.Generation, prepared.CustomerID,
-				prepared.CustomerGeneration - 1, prepared.CustomerPriorExpiry, command.OrderID, operationID},
+				prepared.CustomerGeneration - 1, prepared.CustomerPriorExpiry, command.OrderID, command.OrderID, operationID},
 		}}
+		appendLegacyOrderAccessStatements(&statements, prepared, command.OrderID, operationID)
 		statements = append(statements, backupRPODirtyGenerationStatement(now))
 		appendWhiteListOrdinaryRenewalIntent(&statements, prepared, command.OrderID, operationID)
 		for _, target := range targets {
@@ -518,7 +520,7 @@ func (s *Service) prepareConfirm(ctx context.Context, command ConfirmPaymentComm
 o.expires_at_unix,o.payment_state,o.origin_bot_id,o.origin_chat_key_hmac,
 c.expires_at_unix AS customer_expires_at_unix,c.generation AS customer_generation,unixepoch() AS db_now
 FROM orders o JOIN customers c ON c.customer_id=o.customer_id
-WHERE o.order_id=? AND o.tariff_version_id=? AND c.status IN ('active','expired')`,
+WHERE o.order_id=? AND o.tariff_version_id=? AND (c.status IN ('active','expired') OR (c.status='suspended' AND EXISTS(SELECT 1 FROM imported_legacy_order_aliases a WHERE a.accepted_order_id=o.order_id AND a.customer_id=c.customer_id AND a.historical_grant=0 AND a.cancelled_at_unix IS NULL)))`,
 		Args: []any{command.OrderID, command.TariffVersionID},
 	})
 	if err != nil {
@@ -544,11 +546,21 @@ WHERE o.order_id=? AND o.tariff_version_id=? AND c.status IN ('active','expired'
 		base = prepared.DBNow
 	}
 	prepared.CustomerExpiry = base + prepared.View.DurationSeconds
+	prepared.LegacyAccess, err = s.legacyOrderRenewalAccess(ctx, command.OrderID, prepared.CustomerID)
+	if err != nil {
+		return orderRecord{}, err
+	}
 	return prepared, nil
 }
 
 func (s *Service) confirmTargets(ctx context.Context, prepared orderRecord, operationID string) ([]desiredTarget, error) {
-	access, err := s.customerAccess(ctx, prepared.CustomerID)
+	var access CustomerAccess
+	var err error
+	if prepared.LegacyAccess != nil {
+		access = prepared.LegacyAccess.value
+	} else {
+		access, err = s.customerAccess(ctx, prepared.CustomerID)
+	}
 	if err != nil {
 		return nil, err
 	}

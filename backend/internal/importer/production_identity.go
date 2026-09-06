@@ -56,6 +56,8 @@ type ProductionCustomerProtection struct {
 	settingRows      map[string]string
 	principalRows    map[string]string
 	nodeAbsences     map[string]LegacyEncryptedSecret
+	legacyOrders     *nativeLegacyOrderProof
+	runtimeSecrets   map[string]string
 }
 
 func ValidateProductionCustomerIdentities(protection SnapshotProtection, box *controlplane.SecretBox) (*ProductionCustomerProtection, error) {
@@ -152,6 +154,16 @@ func validateProductionCustomerRows(protection SnapshotProtection, box *controlp
 	if err := validateProductionNodeAbsences(protection, validated, secrets); err != nil {
 		return nil, err
 	}
+	orderProof, err := validateNativeLegacyOrderProof(protection, box)
+	if err != nil {
+		return nil, err
+	}
+	validated.legacyOrders = orderProof
+	runtimeProof, err := validateNativeRuntimeProof(protection, box)
+	if err != nil {
+		return nil, err
+	}
+	validated.runtimeSecrets = runtimeProof
 	return validated, nil
 }
 

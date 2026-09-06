@@ -244,6 +244,7 @@ SELECT 1 FROM imported_entity_state s WHERE s.entity_kind='encrypted_secret'
 AND s.target_id=i.secret_id AND s.lifecycle='deleted') ORDER BY i.secret_id`},
 	{"imported_trial_identities", "SELECT * FROM imported_trial_identities ORDER BY source_key"},
 	{"imported_legacy_trial_uses", "SELECT * FROM imported_legacy_trial_uses ORDER BY source_key"},
+	{"imported_legacy_order_aliases", "SELECT * FROM imported_legacy_order_aliases ORDER BY order_key_hmac"},
 	{"principals", "SELECT * FROM principals ORDER BY principal_id"},
 	{"principal_roles", "SELECT * FROM principal_roles ORDER BY principal_id,role_name"},
 	{"principal_credentials", "SELECT * FROM principal_credentials ORDER BY credential_id"},
@@ -522,8 +523,20 @@ ORDER BY p.principal_id,r.role_name`},
 	}
 
 	settingRows := results[offset+4].Rows
-	if len(settingRows) != tableCounts["cluster_settings"] || tableCounts["setting_members"] != 0 {
+	if len(settingRows) != tableCounts["cluster_settings"] {
 		return ShadowProjection{}, ErrShadowExportUnavailable
+	}
+	memberRows := map[string][]map[string]any{}
+	for _, table := range tables {
+		if table.Name == "setting_members" {
+			for _, row := range table.Rows {
+				key, ok := shadowRowString(row, "setting_key")
+				if !ok || (key != "olcrtc" && key != "vkturn") {
+					return ShadowProjection{}, ErrShadowExportUnavailable
+				}
+				memberRows[key] = append(memberRows[key], row)
+			}
+		}
 	}
 	settingKeys := make(map[string]struct{}, len(settingRows))
 	for _, row := range settingRows {
@@ -538,6 +551,25 @@ ORDER BY p.principal_id,r.role_name`},
 		}
 		settingKeys[key] = struct{}{}
 		setting := ShadowProjectionSetting{Key: key, PublicValueJSON: json.RawMessage(publicJSON), Generation: generation}
+		if rows := memberRows[key]; len(rows) > 0 {
+			setting.Members = map[string]json.RawMessage{}
+			for _, member := range rows {
+				id, iOK := shadowRowString(member, "member_key")
+				body, bOK := shadowRowString(member, "member_value_json")
+				version, vOK := applyRowInt(member["generation"])
+				if !iOK || !bOK || !vOK || version != generation || !validCanonicalSHA256(id) || setting.Members[id] != nil {
+					return ShadowProjection{}, ErrShadowExportUnavailable
+				}
+				var enabled struct {
+					Enabled bool `json:"enabled"`
+				}
+				if runtimeDomainDecode([]byte(body), &enabled) != nil || !enabled.Enabled {
+					return ShadowProjection{}, ErrShadowExportUnavailable
+				}
+				setting.Members[id] = json.RawMessage(`{"enabled":true}`)
+			}
+		}
+		delete(memberRows, key)
 		if secretSHA, exists := nullableApplyString(row["secret_sha256"]); !exists {
 			return ShadowProjection{}, ErrShadowExportUnavailable
 		} else if secretSHA != "" {
@@ -559,6 +591,9 @@ ORDER BY p.principal_id,r.role_name`},
 			return ShadowProjection{}, ErrShadowExportUnavailable
 		}
 		projection.Settings = append(projection.Settings, setting)
+	}
+	if len(memberRows) != 0 {
+		return ShadowProjection{}, ErrShadowExportUnavailable
 	}
 
 	principalRows := results[offset+5].Rows
@@ -1061,6 +1096,8 @@ func (s *RQLiteApplyStore) encryptedSecretDeleteStatements(batch ApplyBatch, ope
 	if deletion.Entity != "encrypted_secret" || operation.Key != deletion.SourceKey ||
 		deletion.SourceKey == "" || deletion.TargetID != deletion.SourceKey ||
 		reservedTrialSecretIdentity(deletion.SourceKey) ||
+		reservedRuntimeSecretID(deletion.SourceKey) ||
+		strings.HasPrefix(deletion.SourceKey, controlplane.LegacyOrderRecordKind+":") || strings.HasPrefix(deletion.SourceKey, controlplane.LegacyOrderSourceKind+":") ||
 		strings.HasPrefix(deletion.SourceKey, controlplane.LegacyXUIAbsenceKind+":") ||
 		!validCanonicalSHA256(deletion.ExpectedPriorDigest) || deletion.PriorGeneration != 0 ||
 		deletion.NextGeneration != 0 || deletion.TombstoneID != "" || deletion.Tombstone {
@@ -1252,6 +1289,16 @@ func (s *RQLiteApplyStore) encryptedSecretStatements(batch ApplyBatch, operation
 			return nil, errInvalidProductionIdentity
 		}
 	}
+	if reservedRuntimeSecret(secret) {
+		if s.customerProtection == nil || operation.Key != secret.SecretID || s.customerProtection.runtimeSecrets[secret.SecretID] != canonicalLegacyDigest(secret) {
+			return nil, ErrLegacyRuntimeDomains
+		}
+	}
+	if reservedLegacyOrderSecret(secret) {
+		if s.customerProtection == nil || s.customerProtection.legacyOrders == nil || operation.Key != secret.SecretID || s.customerProtection.legacyOrders.secrets[secret.SecretID] != secret {
+			return nil, errInvalidSnapshotProtection
+		}
+	}
 	if reservedTrialEvidence(secret) {
 		if s.trialProtection == nil || s.trialProtection.ledger == nil || operation.Key != secret.SecretID {
 			return nil, errInvalidSnapshotProtection
@@ -1284,6 +1331,13 @@ ON CONFLICT(secret_id) DO UPDATE SET
 	statements = append(statements, entityStateUpsertStatement(batch, "encrypted_secret", secret.SecretID, secret.SecretID, canonicalLegacyDigest(secret), nowUnix))
 	if reservedTrialEvidence(secret) {
 		statements = append([]rqlite.Statement{trialSaltStatement(batch, s.trialProtection, nowUnix)}, statements...)
+	}
+	if reservedLegacyOrderSecret(secret) {
+		aliases, err := s.nativeLegacyOrderStatements(batch, operation, s.customerProtection.legacyOrders)
+		if err != nil {
+			return nil, err
+		}
+		statements = append(statements, aliases...)
 	}
 	return statements, nil
 }
@@ -1758,6 +1812,15 @@ WHERE cluster_settings.generation <= excluded.generation`,
 			payload.Setting.Key, string(payload.Setting.PublicValueJSON), payload.Setting.Generation, nowUnix,
 		}, gate...),
 	}}
+	if payload.Secret != nil && reservedRuntimeSecret(*payload.Secret) {
+		// Native source membership and ciphertext are one CAS-protected value.
+		// A concurrent winner must abort the entire import batch before any
+		// dependent member, source-evidence or secret write can survive.
+		before := rqlite.Statement{SQL: `SELECT CASE WHEN NOT (` + batchWriteGate + `) OR ((NOT EXISTS(SELECT 1 FROM cluster_settings WHERE setting_key=?) OR EXISTS(SELECT 1 FROM cluster_settings WHERE setting_key=? AND (generation<? OR (generation=? AND public_value_json=?)))) AND NOT EXISTS(SELECT 1 FROM imported_secrets WHERE owner_type='setting' AND owner_source_key=? AND field='secret' AND secret_id LIKE 'runtime-setting-v1:%' AND (secret_id<>? OR secret_sha256<>?))) THEN 1 ELSE json('native-setting-cas-conflict') END`, Args: append(batchGateArgs(batch), payload.Setting.Key, payload.Setting.Key, payload.Setting.Generation, payload.Setting.Generation, string(payload.Setting.PublicValueJSON), payload.Setting.Key, payload.Secret.SecretID, payload.Secret.SHA256)}
+		after := rqlite.Statement{SQL: `SELECT CASE WHEN NOT (` + batchWriteGate + `) OR EXISTS(SELECT 1 FROM cluster_settings WHERE setting_key=? AND generation=? AND public_value_json=?) THEN 1 ELSE json('native-setting-cas-conflict') END`, Args: append(batchGateArgs(batch), payload.Setting.Key, payload.Setting.Generation, string(payload.Setting.PublicValueJSON))}
+		statements = append([]rqlite.Statement{before}, statements...)
+		statements = append(statements, after)
+	}
 	if payload.Secret == nil {
 		return statements, nil
 	}
@@ -1779,6 +1842,22 @@ ON CONFLICT(setting_key) DO UPDATE SET
 			payload.Setting.Key, encodedEnvelope, secretDigest, keyVersion, nowUnix,
 		}, gate...),
 	})
+	members, err := s.productionRuntimeMemberStatements(batch, payload.Setting, payload.Secret)
+	if err != nil {
+		return nil, err
+	}
+	statements = append(statements, members...)
+	if reservedRuntimeSecret(*payload.Secret) {
+		sourceRaw, err := json.Marshal(payload.Secret)
+		if err != nil {
+			return nil, err
+		}
+		evidence, err := s.encryptedSecretStatements(batch, ApplyOperation{Entity: "encrypted_secret", Key: payload.Secret.SecretID, CanonicalJSON: sourceRaw})
+		if err != nil {
+			return nil, err
+		}
+		statements = append(statements, evidence...)
+	}
 	return statements, nil
 }
 

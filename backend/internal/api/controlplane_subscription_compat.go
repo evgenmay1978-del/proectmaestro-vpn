@@ -15,6 +15,8 @@ type subscriptionRenderOptions struct {
 	Endpoint           subscriptionEndpointKind
 	DeviceID           string
 	EnforceDeviceLimit bool
+	Platform           string
+	Runtime            *subscriptionRuntimeProjection
 }
 
 type subscriptionEndpointKind string
@@ -40,6 +42,10 @@ type requestSubscriptionSource interface {
 
 func renderControlPlaneSubscription(customer controlplane.BusinessCustomer, topology subgen.Customer, options subscriptionRenderOptions) (json.RawMessage, string, error) {
 	configured := topology
+	configured.OLC, configured.VKTurn = nil, nil
+	if options.Runtime != nil {
+		configured.OLC, configured.VKTurn = options.Runtime.OLC, options.Runtime.VKTurn
+	}
 	configured.Name = customer.Login
 	configured.VLESS = configuredVLESS(topology.VLESS, customer.Access.Credentials["vless"])
 	configured.Hy2 = configuredHy2(topology.Hy2, customer.Login, customer.Access.Credentials["hysteria2"])

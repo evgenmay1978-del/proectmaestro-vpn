@@ -26,6 +26,7 @@ type SnapshotProtection struct {
 	Principals            []LegacyPrincipal
 	SourceHashes          map[string]string
 	Trials                []LegacyTrial
+	Orders                []LegacyOrder
 }
 
 func ProtectionFromSnapshot(snapshot Snapshot, parentSnapshots ...*Snapshot) SnapshotProtection {
@@ -48,6 +49,7 @@ func ProtectionFromSnapshot(snapshot Snapshot, parentSnapshots ...*Snapshot) Sna
 		Principals:            clonePrincipals(snapshot.Principals),
 		SourceHashes:          make(map[string]string, len(snapshot.SourceHashes)),
 		Trials:                append([]LegacyTrial(nil), snapshot.Trials...),
+		Orders:                append([]LegacyOrder(nil), snapshot.Orders...),
 	}
 	for key, value := range snapshot.SourceHashes {
 		protection.SourceHashes[key] = value
@@ -101,6 +103,12 @@ func ValidateSnapshotProtection(
 	ledger, err := validateNativeTrialProof(protection, box)
 	if err != nil || (ledger != nil && !protection.HasTrials) {
 		return nil, errInvalidSnapshotProtection
+	}
+	if _, err := validateNativeLegacyOrderProof(protection, box); err != nil {
+		return nil, err
+	}
+	if _, err := validateNativeRuntimeProof(protection, box); err != nil {
+		return nil, err
 	}
 	if !protection.HasTrials {
 		if protection.LegacyTrialSaltSHA256 != "" || len(rawTrialSalt) != 0 {

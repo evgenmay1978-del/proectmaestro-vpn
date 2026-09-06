@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 var (
@@ -87,10 +89,11 @@ type LegacyBotBinding struct {
 }
 
 type LegacySetting struct {
-	Key             string          `json:"key"`
-	PublicValueJSON json.RawMessage `json:"public_value_json"`
-	Generation      int64           `json:"generation"`
-	SecretRef       string          `json:"secret_ref,omitempty"`
+	Key             string                             `json:"key"`
+	PublicValueJSON json.RawMessage                    `json:"public_value_json"`
+	Generation      int64                              `json:"generation"`
+	SecretRef       string                             `json:"secret_ref,omitempty"`
+	Members         []controlplane.LegacyRuntimeMember `json:"members,omitempty"`
 }
 
 type LegacyPrincipal struct {

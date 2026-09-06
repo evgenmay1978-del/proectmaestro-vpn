@@ -202,9 +202,31 @@ type ConfirmPaymentCommand struct {
 }
 
 type ConfirmPaymentResult struct {
-	Order     OrderView     `json:"order"`
-	Customer  CustomerView  `json:"customer"`
-	Operation OperationView `json:"operation"`
+	Order         OrderView     `json:"order"`
+	Customer      CustomerView  `json:"customer"`
+	Operation     OperationView `json:"operation"`
+	LegacyHistory bool          `json:"-"`
+}
+
+// History may truthfully have neither a surviving customer nor a current
+// provisioning operation. Ordinary confirmation keeps its original shape.
+func (result ConfirmPaymentResult) MarshalJSON() ([]byte, error) {
+	type ordinary ConfirmPaymentResult
+	if !result.LegacyHistory {
+		return json.Marshal(ordinary(result))
+	}
+	view := struct {
+		Order     OrderView      `json:"order"`
+		Customer  *CustomerView  `json:"customer,omitempty"`
+		Operation *OperationView `json:"operation,omitempty"`
+	}{Order: result.Order}
+	if result.Customer.CustomerID != "" {
+		view.Customer = &result.Customer
+	}
+	if result.Operation.ID != "" {
+		view.Operation = &result.Operation
+	}
+	return json.Marshal(view)
 }
 
 type CancelOrderCommand struct {
@@ -214,13 +236,15 @@ type CancelOrderCommand struct {
 }
 
 type SubscriptionSnapshot struct {
-	ContentType   string          `json:"-"`
-	ETag          string          `json:"-"`
-	ContentLength int             `json:"-"`
-	Customer      CustomerView    `json:"customer"`
-	Document      json.RawMessage `json:"document"`
-	Cached        bool            `json:"cached,omitempty"`
-	AsOf          time.Time       `json:"-"`
+	ContentType     string                      `json:"-"`
+	ETag            string                      `json:"-"`
+	ContentLength   int                         `json:"-"`
+	Customer        CustomerView                `json:"customer"`
+	Document        json.RawMessage             `json:"document"`
+	Cached          bool                        `json:"cached,omitempty"`
+	AsOf            time.Time                   `json:"-"`
+	RuntimeInfo     json.RawMessage             `json:"-"`
+	RuntimeIdentity subscriptionRuntimeIdentity `json:"-"`
 }
 
 type TouchDeviceCommand struct {

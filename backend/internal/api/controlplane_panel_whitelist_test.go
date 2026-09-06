@@ -1,11 +1,19 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
 type panelWhiteListTestBusiness struct {
@@ -91,5 +99,88 @@ func TestPanelCDNRejectsFractionalWireAndMissingCSRFBeforeMutation(t *testing.T)
 		if response.Code == http.StatusOK || len(b.commands) != 0 {
 			t.Fatalf("invalid mutation accepted: %s", test.body)
 		}
+	}
+}
+
+// The real service resolves an already committed credit. Only its subsequent
+// customer read fails, reproducing the retry path after an unknown response.
+type panelWhiteListCommittedReadDB struct {
+	*exactLoginAPIReadDB
+	accountID, entitlementID, requestHash string
+	resolvedCredit                        bool
+	ensureCalls                           int
+}
+
+func (db *panelWhiteListCommittedReadDB) Request(_ context.Context, consistency rqlite.Consistency, transaction bool, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	if consistency != rqlite.Linearizable || !transaction || len(statements) != 3 ||
+		!strings.HasPrefix(statements[0].SQL, "INSERT INTO whitelist_entitlement_identities(") ||
+		len(statements[0].Args) != 3 || statements[0].Args[2] != db.accountID ||
+		!strings.HasPrefix(statements[2].SQL, "SELECT c.customer_id, wei.entitlement_id") {
+		return nil, errors.New("unexpected committed-credit fixture write")
+	}
+	db.ensureCalls++
+	return []rqlite.Result{{}, {}, {Rows: []map[string]any{{"customer_id": db.accountID, "entitlement_id": db.entitlementID}}}}, nil
+}
+
+func (db *panelWhiteListCommittedReadDB) QueryLinearizable(ctx context.Context, statements ...rqlite.Statement) ([]rqlite.Result, error) {
+	if len(statements) == 1 && statements[0].SQL == "SELECT request_hash,status,response_json FROM idempotency_requests WHERE scope=? AND command_type=? AND idempotency_key=?" {
+		args := statements[0].Args
+		if len(args) != 3 || args[0] != "whitelist_manual_credit:"+db.entitlementID || args[1] != "whitelist_manual_credit" || args[2] != "committed-credit" {
+			return nil, errors.New("unexpected committed-credit receipt identity")
+		}
+		db.resolvedCredit = true
+		// A concurrent account removal makes the following real lookup return 404.
+		db.exactLoginAPIReadDB.rows = nil
+		return []rqlite.Result{{Rows: []map[string]any{{"request_hash": db.requestHash, "status": "applied", "response_json": `{"operation_id":"committed-operation","credit_id":"committed-credit","bytes":3000000000,"purchased_remaining_bytes":3000000000,"projection_version":1}`}}}}, nil
+	}
+	return db.exactLoginAPIReadDB.QueryLinearizable(ctx, statements...)
+}
+
+type panelWhiteListCommittedIDs struct{}
+
+func (panelWhiteListCommittedIDs) NewID(prefix string) (string, error) {
+	if prefix != "wl-ent" {
+		return "", errors.New("unexpected ID allocation during credit replay")
+	}
+	return "wl-ent_" + strings.Repeat("a", 32), nil
+}
+
+func TestPanelCDNCommittedCreditReadFailureRemainsRetryable(t *testing.T) {
+	_, source := newExactLoginBusinessFixture(t, "Exact")
+	box, err := controlplane.NewSecretBox(1, map[int][]byte{1: bytes.Repeat([]byte{0x51}, 32)}, bytes.Repeat([]byte{0x52}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &panelWhiteListCommittedReadDB{exactLoginAPIReadDB: source, accountID: source.rows[0]["customer_id"].(string), entitlementID: "wl-ent-" + strings.Repeat("a", 32)}
+	raw, err := json.Marshal(struct {
+		Version       int
+		EntitlementID string
+		GB            int64
+		Actor         string
+		Kind          string
+	}{1, db.entitlementID, 3, box.LookupHMAC("audit-actor", []byte("owner")), "whitelist_manual_credit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(raw)
+	db.requestHash = hex.EncodeToString(digest[:])
+	clock := exactLoginAPIClock{}
+	store, err := controlplane.NewStore(db, box, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := controlplane.NewService(store, panelWhiteListCommittedIDs{}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	business := NewServiceBusiness(service, ServiceBusinessConfig{Now: clock.Now})
+	_, err = business.PanelWhiteListAdmin(context.Background(), panelWhiteListCommand{Login: "Exact", Action: "credit", GB: 3, Actor: "owner", IdempotencyKey: "committed-credit"})
+	var httpErr interface{ HTTPStatus() int }
+	if !db.resolvedCredit || db.ensureCalls != 1 || !errors.Is(err, controlplane.ErrUnavailable) || !errors.As(err, &httpErr) || httpErr.HTTPStatus() != http.StatusServiceUnavailable {
+		t.Fatalf("committed credit read was classified as rejection: resolved=%v ensures=%d err=%v", db.resolvedCredit, db.ensureCalls, err)
+	}
+	_, lookupErr := business.PanelWhiteListBalance(context.Background(), "Exact")
+	if !errors.Is(lookupErr, controlplane.ErrNotFound) {
+		t.Fatalf("fixture did not reproduce the post-commit 404: %v", lookupErr)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 func requireControlPlaneMethod(w http.ResponseWriter, r *http.Request, method string) bool {
@@ -244,6 +246,7 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 			ClientRequest: !info && !helpers, UserAgent: r.UserAgent(),
 			Links:    !info && !helpers && (query.Get("app") == "karing" || query.Get("format") == "links"),
 			Endpoint: endpoint, DeviceID: device, EnforceDeviceLimit: s.cfg.EnforceDeviceLimit,
+			Platform: query.Get("platform"),
 		})
 	} else {
 		snapshot, err = s.business.SubscriptionSnapshot(r.Context(), rest)
@@ -257,7 +260,7 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 		asOf = time.Now()
 	}
 	if info {
-		writeControlPlaneSubInfo(w, snapshot.Customer, asOf)
+		writeControlPlaneSubInfo(w, snapshot.Customer, asOf, snapshot.RuntimeInfo)
 		return
 	}
 	if !snapshot.Customer.Active || !snapshot.Customer.Expires.After(asOf) {
@@ -284,7 +287,7 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 	_, _ = w.Write(snapshot.Document)
 }
 
-func writeControlPlaneSubInfo(w http.ResponseWriter, customer CustomerView, asOf time.Time) {
+func writeControlPlaneSubInfo(w http.ResponseWriter, customer CustomerView, asOf time.Time, runtimeInfo json.RawMessage) {
 	untilExpiry := customer.Expires.Sub(asOf)
 	daysLeft := int(untilExpiry / (24 * time.Hour))
 	if untilExpiry > 0 && untilExpiry%(24*time.Hour) != 0 {
@@ -294,12 +297,25 @@ func writeControlPlaneSubInfo(w http.ResponseWriter, customer CustomerView, asOf
 		daysLeft = 0
 	}
 	active := customer.Active && untilExpiry > 0
-	writeControlPlaneJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"login":     customer.Login,
 		"expires":   customer.Expires,
 		"days_left": daysLeft,
 		"active":    active,
-	})
+	}
+	if active && len(runtimeInfo) != 0 {
+		var runtime map[string]json.RawMessage
+		if json.Unmarshal(runtimeInfo, &runtime) != nil {
+			writeControlPlaneBusinessError(w, businessError(controlplane.ErrUnavailable))
+			return
+		}
+		for _, key := range []string{"olcrtc", "features", "vk_turn"} {
+			if value, ok := runtime[key]; ok {
+				out[key] = value
+			}
+		}
+	}
+	writeControlPlaneJSON(w, http.StatusOK, out)
 }
 
 func (s *ControlPlaneServer) handleControlPlaneOTA(w http.ResponseWriter, r *http.Request) {

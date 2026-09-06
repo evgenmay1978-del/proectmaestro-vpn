@@ -61,6 +61,8 @@ type LegacyNormalizeOptions struct {
 	Parent           *Snapshot
 	PlanOptions      PlanOptions
 	TrialSource      *LegacyTrialSource
+	OrderSource      *LegacyOrderSource
+	RuntimeSource    *LegacyRuntimeSource
 }
 
 // DecodeLegacyCustomers deliberately avoids store.Open: absent sources and
@@ -464,6 +466,12 @@ func NormalizeLegacyCustomers(raw []byte, capture LegacyXUICapture, box *control
 		}
 	}
 	if normalizeLegacyTrialSource(&snapshot, options.TrialSource, box, options.Parent) != nil {
+		return failed()
+	}
+	if normalizeLegacyOrderSource(&snapshot, options.OrderSource, box, options.Parent) != nil {
+		return failed()
+	}
+	if normalizeLegacyRuntimeSource(&snapshot, raw, options.RuntimeSource, box, options.Now, options.MaxCaptureAge, options.Parent) != nil {
 		return failed()
 	}
 	sort.Slice(snapshot.Customers, func(i, j int) bool { return snapshot.Customers[i].SourceKey < snapshot.Customers[j].SourceKey })

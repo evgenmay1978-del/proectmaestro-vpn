@@ -42,6 +42,7 @@ type ShadowProjectionSetting struct {
 	Generation       int64
 	SecretSHA256     string
 	SecretKeyVersion int
+	Members          map[string]json.RawMessage
 }
 
 type ShadowProjectionPrincipal struct {
@@ -162,6 +163,19 @@ func shadowCandidateSettings(values []ShadowProjectionSetting) (string, ShadowOT
 			return "", ShadowOTA{}, ErrShadowExportInvalid
 		}
 		row := shadowSettingFingerprintRow{Key: setting.Key, PublicValueJSON: publicValue, Generation: setting.Generation}
+		if len(setting.Members) > 0 {
+			if setting.Key != "olcrtc" && setting.Key != "vkturn" {
+				return "", ShadowOTA{}, ErrShadowExportInvalid
+			}
+			row.Members = make(map[string]json.RawMessage, len(setting.Members))
+			for key, raw := range setting.Members {
+				value, err := canonicalPublicJSON(raw)
+				if !validShadowHex64(key) || err != nil || string(value) != `{"enabled":true}` {
+					return "", ShadowOTA{}, ErrShadowExportInvalid
+				}
+				row.Members[key] = value
+			}
+		}
 		if setting.SecretSHA256 != "" || setting.SecretKeyVersion != 0 {
 			if !validShadowHex64(setting.SecretSHA256) || setting.SecretKeyVersion <= 0 {
 				return "", ShadowOTA{}, ErrShadowExportInvalid
@@ -170,12 +184,9 @@ func shadowCandidateSettings(values []ShadowProjectionSetting) (string, ShadowOT
 		}
 		rows = append(rows, row)
 		if setting.Key == "ota" {
-			if row.SecretSHA256 != "" {
-				return "", ShadowOTA{}, ErrShadowExportInvalid
-			}
 			otaCount++
 			ota, err = parseShadowOTA(publicValue)
-			if err != nil {
+			if err != nil || (ota.State == "absent" && row.SecretSHA256 != ota.SourceSHA256) || (ota.State != "absent" && row.SecretSHA256 != "") {
 				return "", ShadowOTA{}, ErrShadowExportInvalid
 			}
 		}

@@ -7,27 +7,30 @@ import (
 )
 
 type shadowSettingFingerprintRow struct {
-	Key              string          `json:"key"`
-	PublicValueJSON  json.RawMessage `json:"public_value_json"`
-	Generation       int64           `json:"generation"`
-	SecretSHA256     string          `json:"secret_sha256,omitempty"`
-	SecretKeyVersion int             `json:"secret_key_version,omitempty"`
+	Key              string                     `json:"key"`
+	PublicValueJSON  json.RawMessage            `json:"public_value_json"`
+	Generation       int64                      `json:"generation"`
+	SecretSHA256     string                     `json:"secret_sha256,omitempty"`
+	SecretKeyVersion int                        `json:"secret_key_version,omitempty"`
+	Members          map[string]json.RawMessage `json:"members,omitempty"`
 }
 
 type shadowPrincipalFingerprintRow struct {
-	InternalID        string   `json:"internal_id"`
-	LoginKeyHMAC      string   `json:"login_key_hmac"`
-	Status            string   `json:"status"`
-	Roles             []string `json:"roles"`
-	VerifierSHA256    string   `json:"verifier_sha256"`
-	VerifierKeyVersion int     `json:"verifier_key_version"`
+	InternalID         string   `json:"internal_id"`
+	LoginKeyHMAC       string   `json:"login_key_hmac"`
+	Status             string   `json:"status"`
+	Roles              []string `json:"roles"`
+	VerifierSHA256     string   `json:"verifier_sha256"`
+	VerifierKeyVersion int      `json:"verifier_key_version"`
 }
 
 type shadowOTAPublicValue struct {
-	VersionCode *int64  `json:"versionCode"`
-	VersionName *string `json:"versionName"`
-	SHA256      *string `json:"sha256"`
-	Size        *int64  `json:"size"`
+	State        string  `json:"state,omitempty"`
+	SourceSHA256 string  `json:"source_sha256,omitempty"`
+	VersionCode  *int64  `json:"versionCode"`
+	VersionName  *string `json:"versionName"`
+	SHA256       *string `json:"sha256"`
+	Size         *int64  `json:"size"`
 }
 
 func ShadowFromPlan(plan ImportPlan, shapes ShadowURLShapes) (ShadowExport, error) {
@@ -48,12 +51,12 @@ func ShadowFromPlan(plan ImportPlan, shapes ShadowURLShapes) (ShadowExport, erro
 		return ShadowExport{}, ErrShadowExportInvalid
 	}
 	export := ShadowExport{
-		SchemaVersion:          1,
+		SchemaVersion:         1,
 		SettingsFingerprint:   settingsFingerprint,
 		PrincipalsFingerprint: principalsFingerprint,
-		OTA:                    ota,
-		Customers:              make([]ShadowCustomer, 0, len(plan.Customers)),
-		Orders:                 make([]ShadowOrder, 0, len(plan.Orders)),
+		OTA:                   ota,
+		Customers:             make([]ShadowCustomer, 0, len(plan.Customers)),
+		Orders:                make([]ShadowOrder, 0, len(plan.Orders)),
 	}
 	for _, customer := range plan.Customers {
 		secret, exists := secrets[customer.IdentitySecretRef]
@@ -131,6 +134,18 @@ func shadowSettings(
 		row := shadowSettingFingerprintRow{
 			Key: setting.Key, PublicValueJSON: publicValue, Generation: setting.Generation,
 		}
+		if len(setting.Members) > 0 {
+			if setting.Key != "olcrtc" && setting.Key != "vkturn" {
+				return "", ShadowOTA{}, ErrShadowExportInvalid
+			}
+			row.Members = make(map[string]json.RawMessage, len(setting.Members))
+			for _, member := range setting.Members {
+				if !validShadowHex64(member.MemberHMAC) || !validShadowHex64(member.CustomerID) || !validShadowHex64(member.CustomerSHA256) || !validShadowHex64(member.LoginHMAC) || member.Login == "" || member.CustomerSourceKey == "" || row.Members[member.MemberHMAC] != nil {
+					return "", ShadowOTA{}, ErrShadowExportInvalid
+				}
+				row.Members[member.MemberHMAC] = json.RawMessage(`{"enabled":true}`)
+			}
+		}
 		if setting.SecretRef != "" {
 			secret, exists := secrets[setting.SecretRef]
 			if !exists || secret.OwnerType != "setting" || secret.OwnerSourceKey != setting.Key {
@@ -141,12 +156,9 @@ func shadowSettings(
 		}
 		rows = append(rows, row)
 		if setting.Key == "ota" {
-			if setting.SecretRef != "" {
-				return "", ShadowOTA{}, ErrShadowExportInvalid
-			}
 			otaCount++
 			ota, err = parseShadowOTA(publicValue)
-			if err != nil {
+			if err != nil || (ota.State == "absent" && (row.SecretSHA256 != ota.SourceSHA256 || setting.SecretRef != "runtime-setting-v1:ota:"+ota.SourceSHA256)) || (ota.State != "absent" && setting.SecretRef != "") {
 				return "", ShadowOTA{}, ErrShadowExportInvalid
 			}
 		}
@@ -214,7 +226,16 @@ func parseShadowOTA(raw json.RawMessage) (ShadowOTA, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var value shadowOTAPublicValue
-	if err := decoder.Decode(&value); err != nil || requireShadowEOF(decoder) != nil ||
+	if err := decoder.Decode(&value); err != nil || requireShadowEOF(decoder) != nil {
+		return ShadowOTA{}, ErrShadowExportInvalid
+	}
+	if value.State == "absent" {
+		if !validShadowHex64(value.SourceSHA256) || value.VersionCode != nil || value.VersionName != nil || value.SHA256 != nil || value.Size != nil {
+			return ShadowOTA{}, ErrShadowExportInvalid
+		}
+		return ShadowOTA{State: "absent", SourceSHA256: value.SourceSHA256}, nil
+	}
+	if value.State != "" || value.SourceSHA256 != "" ||
 		value.VersionCode == nil || value.VersionName == nil || value.SHA256 == nil || value.Size == nil ||
 		*value.VersionCode < 0 || *value.VersionName == "" || !validShadowHex64(*value.SHA256) || *value.Size < 0 {
 		return ShadowOTA{}, ErrShadowExportInvalid

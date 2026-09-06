@@ -22,9 +22,15 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 		add("invalid_cluster_hmac_key_digest", "snapshot", "")
 	}
 	for _, deletion := range snapshot.Deletes {
+		if deletion.Entity == "encrypted_secret" && (strings.HasPrefix(deletion.SourceKey, controlplane.LegacyOrderRecordKind+":") || strings.HasPrefix(deletion.SourceKey, controlplane.LegacyOrderSourceKind+":")) {
+			add("immutable_legacy_order_history", "encrypted_secret", deletion.SourceKey)
+		}
 		if deletion.Entity == "encrypted_secret" && strings.HasPrefix(deletion.SourceKey, controlplane.LegacyXUIAbsenceKind+":") {
 			add("immutable_legacy_node_binding", "encrypted_secret", deletion.SourceKey)
 		}
+	}
+	if hasConvertedOrderSource(snapshot.SourceHashes) && (len(snapshot.Orders) != 0 || !validCanonicalSHA256(snapshot.SourceHashes[legacyOrdersConvertedSource]) || snapshot.SourceHashes["legacy:orders:present-unconverted"] != "" || snapshot.SourceHashes["legacy:orders:absent"] != "") {
+		add("invalid_native_order_source_evidence", "snapshot", "")
 	}
 	if !validateTrialSourceShape(snapshot.SourceHashes, snapshot.EncryptedSecrets) {
 		add("invalid_native_trial_source_evidence", "snapshot", "")
@@ -183,6 +189,20 @@ func Validate(snapshot Snapshot, options PlanOptions) []Blocker {
 		}
 	}
 	for _, setting := range snapshot.Settings {
+		memberIDs := map[string]bool{}
+		for _, member := range setting.Members {
+			var customer *LegacyCustomer
+			for index := range snapshot.Customers {
+				if snapshot.Customers[index].SourceKey == member.CustomerSourceKey {
+					customer = &snapshot.Customers[index]
+					break
+				}
+			}
+			if (setting.Key != "olcrtc" && setting.Key != "vkturn") || setting.SecretRef == "" || customer == nil || member.Login != customer.Login || member.LoginHMAC != customer.LoginKeyHMAC || member.CustomerSHA256 != canonicalLegacyDigest(*customer) || member.CustomerID != deterministicID("maestro-legacy-v1", "customer", member.CustomerSourceKey) || !validCanonicalSHA256(member.MemberHMAC) || memberIDs[member.MemberHMAC] {
+				add("invalid_setting_member", "setting", setting.Key)
+			}
+			memberIDs[member.MemberHMAC] = true
+		}
 		if setting.SecretRef == "" {
 			continue
 		}
@@ -590,6 +610,7 @@ func cloneSettings(settings []LegacySetting) []LegacySetting {
 	for index, setting := range settings {
 		result[index] = setting
 		result[index].PublicValueJSON = append(json.RawMessage(nil), setting.PublicValueJSON...)
+		result[index].Members = append([]controlplane.LegacyRuntimeMember(nil), setting.Members...)
 	}
 	return result
 }

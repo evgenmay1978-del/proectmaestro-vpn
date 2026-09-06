@@ -39,13 +39,17 @@ type normalizeFileStamp struct {
 func runNormalize(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("normalize", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var customersPath, capturePath, inventoryPath, keyPath, parentPath, outputPath, trialSaltPath string
+	var customersPath, capturePath, inventoryPath, keyPath, parentPath, outputPath, trialSaltPath, runtimeCapsulePath, otaAbsencePath string
 	var maxCaptureAge time.Duration
+	var convertOrders bool
 	flags.StringVar(&customersPath, "customers", "", "protected raw customers JSON")
 	flags.StringVar(&capturePath, "xui-capture", "", "protected capture-xui output")
 	flags.StringVar(&inventoryPath, "inventory", "", "protected source inventory and protocol bindings")
 	flags.StringVar(&keyPath, "key-file", "", "existing protected import key bundle")
 	flags.StringVar(&trialSaltPath, "legacy-trial-salt-file", "", "protected exact effective legacy trial salt; enables native trial conversion")
+	flags.BoolVar(&convertOrders, "convert-legacy-orders", false, "preserve raw orders and public aliases from the protected inventory source")
+	flags.StringVar(&runtimeCapsulePath, "legacy-runtime-capsule", "", "protected native runtime settings and effective panel identity capture")
+	flags.StringVar(&otaAbsencePath, "legacy-ota-absence", "", "protected source-bound evidence that the active OTA directory is absent")
 	flags.StringVar(&parentPath, "parent-snapshot", "", "authenticated initial full snapshot for final delta")
 	flags.StringVar(&outputPath, "output", "", "new protected Snapshot v2 file")
 	flags.DurationVar(&maxCaptureAge, "max-capture-age", 0, "explicit maximum age of the XUI/source capture")
@@ -92,7 +96,9 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	}
 	sources := map[string]importer.LegacySourcePresence{}
 	var rawTrialLedger []byte
+	var rawOrders []byte
 	defer func() { zero(rawTrialLedger) }()
+	defer func() { zero(rawOrders) }()
 	for _, domain := range []string{"orders", "trials", "settings", "principals"} {
 		input, exists := inventory.Sources[domain]
 		if !exists || input.Path == "" {
@@ -113,6 +119,8 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 			sources[domain] = importer.LegacySourcePresence{State: "present", SHA256: runtimeSHA256Hex(data)}
 			if domain == "trials" && trialSaltPath != "" {
 				rawTrialLedger = data
+			} else if domain == "orders" && convertOrders {
+				rawOrders = data
 			} else {
 				zero(data)
 			}
@@ -121,6 +129,33 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	var trialSource *importer.LegacyTrialSource
+	var orderSource *importer.LegacyOrderSource
+	var runtimeSource *importer.LegacyRuntimeSource
+	if runtimeCapsulePath != "" {
+		data, err := read(runtimeCapsulePath)
+		if err != nil {
+			return fail()
+		}
+		defer zero(data)
+		runtimeSource = &importer.LegacyRuntimeSource{RawCapsule: data}
+	}
+	if otaAbsencePath != "" {
+		if runtimeSource == nil {
+			return fail()
+		}
+		data, err := read(otaAbsencePath)
+		if err != nil {
+			return fail()
+		}
+		defer zero(data)
+		runtimeSource.RawOTAAbsence = data
+	}
+	if convertOrders {
+		if sources["orders"].State != "present" {
+			return fail()
+		}
+		orderSource = &importer.LegacyOrderSource{RawJSON: rawOrders}
+	}
 	if trialSaltPath != "" {
 		if sources["trials"].State != "present" {
 			return fail()
@@ -169,7 +204,9 @@ func runNormalize(args []string, stdout, stderr io.Writer) int {
 	snapshot, err := importer.NormalizeLegacyCustomers(raw, capture, box, keys.HMACKey, importer.LegacyNormalizeOptions{
 		Now: time.Now().UTC(), MaxCaptureAge: maxCaptureAge, Sources: sources,
 		ProtocolBindings: inventory.ProtocolBindings, Parent: parent, PlanOptions: defaultPlanOptions(),
-		TrialSource: trialSource,
+		TrialSource:   trialSource,
+		OrderSource:   orderSource,
+		RuntimeSource: runtimeSource,
 	})
 	if err != nil {
 		return fail()
