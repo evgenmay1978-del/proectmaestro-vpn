@@ -47,6 +47,7 @@ type leaseController interface {
 
 func NewHandler(applier Applier) http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle(CredentialPath, credentialHandler(applier))
 	mux.Handle(DesiredPath, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
 			response.WriteHeader(http.StatusMethodNotAllowed)

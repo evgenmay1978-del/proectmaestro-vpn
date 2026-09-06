@@ -55,11 +55,23 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var credentialSource xrayclient.CredentialSource = xrayclient.DirectoryCredentials{Directory: configuration.credentialDirectory}
+	if configuration.managedLeaseEnabled {
+		managedCredentials, err := xrayclient.NewManagedCredentials(
+			xrayclient.DirectoryCredentials{Directory: configuration.credentialDirectory},
+			"/var/lib/maestro-xray-cdn-commercial-agent/credentials",
+		)
+		if err != nil {
+			return err
+		}
+		defer managedCredentials.Close()
+		credentialSource = managedCredentials
+	}
 	xray, err := xrayclient.New(xrayclient.Config{
 		Address: configuration.xrayAPIAddress, ServerName: configuration.xrayServerName,
 		ClientCertFile: configuration.xrayClientCert, ClientKeyFile: configuration.xrayClientKey,
 		CAFile: configuration.xrayCA,
-	}, xrayclient.DirectoryCredentials{Directory: configuration.credentialDirectory})
+	}, credentialSource)
 	if err != nil {
 		return err
 	}

@@ -18,7 +18,7 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 	ctx context.Context,
 	workerID string,
 	resolveSender func(string) (ExternalActionSender, bool),
-) error {
+) (resultErr error) {
 	if s == nil || s.store == nil || s.store.db == nil || ctx == nil ||
 		strings.TrimSpace(workerID) == "" || resolveSender == nil {
 		return ErrConflict
@@ -27,6 +27,12 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 	if err != nil {
 		return err
 	}
+	credentialErr := s.prepareWhiteListRouteCredentials(ctx, &state, resolveSender)
+	defer func() {
+		if resultErr == nil {
+			resultErr = credentialErr
+		}
+	}()
 	previousEntitlements, previousExit, err := whiteListPreviousManagedState(state.previous)
 	if err != nil {
 		return err

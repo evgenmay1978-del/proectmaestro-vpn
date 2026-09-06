@@ -391,6 +391,7 @@ func readRuntimeWhiteListSidecarConfig(getenv func(string) string) (runtimeWhite
 		nodes[nodeID] = sidecaragentclient.Config{
 			BaseURL: baseURL, ServerName: serverName, CAFile: caFile, CertFile: certFile, KeyFile: keyFile,
 			RequestTimeout: 5 * time.Second, ReceiptLookupTimeout: 2 * time.Second,
+			CredentialTemplateFile: strings.TrimSpace(getenv("MAESTRO_WHITELIST_CLIENT_TEMPLATE_FILE")),
 		}
 	}
 	return runtimeWhiteListSidecarConfig{Enabled: true, Nodes: nodes}, nil

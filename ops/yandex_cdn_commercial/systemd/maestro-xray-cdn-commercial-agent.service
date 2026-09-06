@@ -15,7 +15,7 @@ ExecStart=/opt/maestro-xray-cdn-commercial/current/maestro-xray-cdn-agent
 Restart=on-failure
 RestartSec=5s
 UMask=0077
-StateDirectory=maestro-xray-cdn-commercial-agent/receipts
+StateDirectory=maestro-xray-cdn-commercial-agent/receipts maestro-xray-cdn-commercial-agent/credentials
 StateDirectoryMode=0700
 NoNewPrivileges=true
 AmbientCapabilities=CAP_NET_ADMIN
@@ -37,7 +37,7 @@ RemoveIPC=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 ReadOnlyPaths=/opt/maestro-xray-cdn-commercial/current /proc/sys/kernel/random/boot_id /run/maestro-xray-cdn-commercial-pid/xray.pid
-ReadWritePaths=/var/lib/maestro-xray-cdn-commercial-agent/receipts
+ReadWritePaths=/var/lib/maestro-xray-cdn-commercial-agent/receipts /var/lib/maestro-xray-cdn-commercial-agent/credentials
 
 [Install]
 WantedBy=multi-user.target maestro-xray-cdn-commercial.service

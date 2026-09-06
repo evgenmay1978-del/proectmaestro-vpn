@@ -8,6 +8,11 @@ on:
     branches:
       - codex/yandex-cdn-whitelist-task3-sync
   workflow_dispatch:
+    inputs:
+      build_only:
+        description: Compile the panel artifact without running tests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,7 +22,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  compile-panel:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_only == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Compile panel
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+          go build -mod=readonly -trimpath -buildvcs=true \
+            -ldflags "-s -w -X github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/api.BuildCommit=$GITHUB_SHA" \
+            -o ../dist/maestro-panel ./cmd/maestro-panel
+      - name: Bind artifact to source
+        run: |
+          python ops/ha/build_manifest.py create \
+            --artifact-root dist --output dist/manifest.json \
+            --repository "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" \
+            --commit-sha "$GITHUB_SHA" --workflow-run-id "$GITHUB_RUN_ID" \
+            --workflow-run-attempt "$GITHUB_RUN_ATTEMPT" --go-version "$(go env GOVERSION)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maestro-panel-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
   build-panel-artifact:
+    if: inputs.build_only != true
     name: Build immutable panel artifact
     runs-on: ubuntu-24.04
     timeout-minutes: 45

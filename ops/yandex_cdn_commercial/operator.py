@@ -597,8 +597,12 @@ class CommercialOperator:
         runtime_input_sha: str,
         release_id: str,
     ) -> Path:
+        root_owner = self.owner_resolver("root")
+        # The operator runs with umask 077. Both ancestors must still allow the
+        # service accounts to reach their separately protected release files.
+        self._protect_directory(self._rooted(BASE_PATH), 0o751, root_owner)
         releases = self._rooted(BASE_PATH + "/releases")
-        releases.mkdir(parents=True, exist_ok=True)
+        self._protect_directory(releases, 0o751, root_owner)
         final = releases / release_id
         environment = self._environment_bytes(release_id, config_sha, manifest)
         release_metadata = {
@@ -634,7 +638,6 @@ class CommercialOperator:
         if stage.exists():
             shutil.rmtree(stage)
         stage.mkdir(mode=0o750)
-        root_owner = self.owner_resolver("root")
         xray_owner = self.owner_resolver("maestro-xray-cdn")
         agent_owner = self.owner_resolver("maestro-xray-cdn-agent")
         self._protect_directory(stage, 0o750, (root_owner[0], xray_owner[1]))

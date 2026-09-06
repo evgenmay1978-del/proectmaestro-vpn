@@ -54,20 +54,22 @@ var (
 )
 
 type Config struct {
-	BaseURL              string
-	ServerName           string
-	CAFile               string
-	CertFile             string
-	KeyFile              string
-	RequestTimeout       time.Duration
-	ReceiptLookupTimeout time.Duration
+	BaseURL                string
+	ServerName             string
+	CAFile                 string
+	CertFile               string
+	KeyFile                string
+	RequestTimeout         time.Duration
+	ReceiptLookupTimeout   time.Duration
+	CredentialTemplateFile string
 }
 
 type Client struct {
-	baseURL        string
-	requestTimeout time.Duration
-	lookupTimeout  time.Duration
-	httpClient     *http.Client
+	baseURL                string
+	requestTimeout         time.Duration
+	lookupTimeout          time.Duration
+	httpClient             *http.Client
+	credentialTemplateFile string
 }
 
 type Receipt struct {
@@ -239,7 +241,9 @@ func New(config Config) (*Client, error) {
 			return errors.New("sidecar agent client: redirects are not allowed")
 		},
 	}
-	return newWithHTTPClient(baseURL, config.RequestTimeout, config.ReceiptLookupTimeout, httpClient), nil
+	client := newWithHTTPClient(baseURL, config.RequestTimeout, config.ReceiptLookupTimeout, httpClient)
+	client.credentialTemplateFile = config.CredentialTemplateFile
+	return client, nil
 }
 
 func newWithHTTPClient(baseURL string, requestTimeout, lookupTimeout time.Duration, httpClient *http.Client) *Client {
