@@ -21,12 +21,19 @@ try:
 except ImportError:
     from maestro_customer_cdn_actions import build_topup_callback, topup_admin_request
 
-PRODUCTS = {5: "wl-gb-5-v1", 20: "wl-gb-20-v1", 50: "wl-gb-50-v1", 100: "wl-gb-100-v1"}
+PRODUCTS = {1: "wl-gb-1-20260906", 5: "wl-gb-5-20260906", 10: "wl-gb-10-20260906",
+            25: "wl-gb-25-20260906", 50: "wl-gb-50-20260906"}
+LEGACY_PRODUCTS = frozenset({"wl-gb-5-v1", "wl-gb-20-v1", "wl-gb-50-v1", "wl-gb-100-v1"})
 OPAQUE = re.compile(r"[A-Za-z0-9_-]{1,58}\Z")
 
 
 def enabled():
     return os.getenv("MAESTRO_CUSTOMER_CDN_PURCHASES_ENABLE") == "1"
+
+
+def test_customer_enabled(login, chat_id):
+    return (os.getenv("MAESTRO_CUSTOMER_CDN_TEST_LOGIN") == "cdntest0906"
+            and login == "cdntest0906" and type(chat_id) is int and chat_id in owner_ids())
 
 
 def callback(action, identity):
@@ -70,7 +77,7 @@ class CDNCheckout:
     def __init__(self, binding_store):
         self.path = binding_store.path
         self.locks = {}
-        if not enabled():
+        if not enabled() and os.getenv("MAESTRO_CUSTOMER_CDN_TEST_LOGIN") != "cdntest0906":
             return
         native_url()
         owner_ids()
@@ -88,7 +95,7 @@ class CDNCheckout:
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row
             row = connection.execute("SELECT * FROM customer_cdn_orders WHERE order_id=?", (order_id,)).fetchone()
-        if row is None or row["product_id"] not in PRODUCTS.values():
+        if row is None or row["product_id"] not in set(PRODUCTS.values()) | LEGACY_PRODUCTS:
             raise ValueError("unknown CDN order")
         return dict(row)
 
@@ -162,8 +169,10 @@ class CDNCheckout:
             await cb.message.answer("По этому заказу уже принято решение. Для новой покупки снова откройте выбор пакетов.")
             return
         details = "\n".join(value for value in (("СБП: " + phone) if phone else "", pay_url) if value)
+        instruction = ("Тестовая покупка: реальный перевод не нужен. Нажмите «Я оплатил»."
+            if test_customer_enabled(flow.login, cb.message.chat.id) else "После перевода нажмите «Я оплатил».")
         await cb.message.answer(f"CDN: {gigabytes} ГБ — {product['amount_minor'] / 100:g} ₽.\n{details}\n"
-            f"Комментарий к переводу: {flow.login}\nПосле перевода нажмите «Я оплатил».", parse_mode=None,
+            f"Комментарий к переводу: {flow.login}\n{instruction}", parse_mode=None,
             reply_markup=self.keyboard([("Я оплатил", callback("paid", row["order_id"]))]))
 
     async def paid(self, cb, flow, order_id):
@@ -184,9 +193,12 @@ class CDNCheckout:
                 if owner in notified:
                     continue
                 try:
+                    instruction = ("Тестовая заявка без перевода: подтвердите для проверки начисления."
+                        if test_customer_enabled(row["login"], row["chat_id"])
+                        else "Подтвердите только после получения перевода.")
                     await cb.bot.send_message(owner, f"CDN — заявка об оплате\nЛогин: {row['login']}\n"
                         f"Пакет: {row['bytes'] // 1_000_000_000} ГБ\nСумма: {row['amount_minor'] / 100:g} ₽\n"
-                        f"Заказ: {order_id}\nПодтвердите только после получения перевода.", parse_mode=None,
+                        f"Заказ: {order_id}\n{instruction}", parse_mode=None,
                         reply_markup=self.keyboard([("Подтвердить оплату", callback("cf", order_id)), ("Отклонить", callback("cr", order_id))]))
                     self.update(order_id, notified_owner=owner); notified.add(owner)
                 except Exception:
@@ -226,11 +238,12 @@ class CDNCheckout:
             await cb.message.edit_text((cb.message.text or "CDN заявка") + "\n\n" + result, parse_mode=None, reply_markup=None)
 
     async def dispatch(self, cb, action, identity, flow=None):
-        if not enabled():
-            await cb.answer("Покупка CDN пока недоступна.", show_alert=True)
-            return
         if cb.message.chat.type != "private" or cb.message.chat.id != cb.from_user.id:
             await cb.answer("Откройте личный чат с ботом.", show_alert=True)
+            return
+        if (not enabled() and action not in ("cf", "cr")
+                and not test_customer_enabled(getattr(flow, "login", None), cb.from_user.id)):
+            await cb.answer("Покупка CDN пока недоступна.", show_alert=True)
             return
         try:
             if action in ("cf", "cr"):

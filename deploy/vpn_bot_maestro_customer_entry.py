@@ -4,6 +4,11 @@ import os
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
+try:
+    from .maestro_customer_cdn import test_customer_enabled
+except ImportError:
+    from maestro_customer_cdn import test_customer_enabled
+
 LOGIN_PROMPT = "Введите ваш логин MaestroVPN ответом на это сообщение."
 CDN_GUIDE = (
     "CDN — запасное подключение для мобильного интернета с белыми списками, "
@@ -43,11 +48,11 @@ def browser_cabinet_url():
     return ""
 
 
-def cabinet_keyboard(section="main", authenticated=True):
+def cabinet_keyboard(section="main", authenticated=True, test_checkout=False):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     rows = []
     if section == "cdn":
-        if authenticated and not cdn_preparing():
+        if authenticated and (not cdn_preparing() or test_checkout):
             rows.append([InlineKeyboardButton(text="Купить ГБ CDN", callback_data="mc:gigabytes:menu")])
         if not authenticated:
             rows.append([InlineKeyboardButton(text="Войти по логину", callback_data="mc:home:login")])
@@ -91,6 +96,8 @@ def customer_login_command(message):
 
 
 async def send_customer_dashboard(message, flow, section="main"):
+    test_checkout = (message.chat.type == "private"
+        and test_customer_enabled(flow.login, message.chat.id))
     try:
         balance = await flow.show_balance()
     except Exception:
@@ -103,7 +110,9 @@ async def send_customer_dashboard(message, flow, section="main"):
             "Обычный VPN используйте каждый день; продление — в основном меню /start.\n"
             "CDN нужен только при белых списках. Для него покупается отдельный пакет ГБ.\n"
             "Дома и по Wi-Fi выбирайте обычный VLESS/Hy2, CDN выключайте.")
-    await message.answer(text, reply_markup=cabinet_keyboard(section), parse_mode=None)
+    if test_checkout:
+        text += "\n\nТестовая покупка: выберите пакет, затем нажмите «Я оплатил». Реальный перевод для этой проверки не нужен."
+    await message.answer(text, reply_markup=cabinet_keyboard(section, test_checkout=test_checkout), parse_mode=None)
 
 
 async def send_customer_help(message, flow):
@@ -111,7 +120,9 @@ async def send_customer_help(message, flow):
         + "\n\nДля MaestroVPN используйте свой логин. Для Incy, Happ и Karing "
         "откройте «Подключить устройство» и скопируйте HTTPS-ссылку подписки.\n\n"
         + cdn_purchase_guidance())
-    await message.answer(text, reply_markup=cabinet_keyboard("cdn"), parse_mode=None)
+    test_checkout = (message.chat.type == "private"
+        and test_customer_enabled(flow.login, message.chat.id))
+    await message.answer(text, reply_markup=cabinet_keyboard("cdn", test_checkout=test_checkout), parse_mode=None)
 
 
 async def open_customer_dashboard(callback, flow):
