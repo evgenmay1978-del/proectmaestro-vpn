@@ -348,6 +348,57 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	if !leaseEnabled {
 		return nil
 	}
+	// Accounting and admission writes can consume most of the five-second
+	// challenge window. Refresh the read-only agent snapshot after those writes
+	// and persist its availability before authorizing the lease, so the client
+	// receives nearly the full bounded runtime window instead of an already
+	// expiring grant. Counters are never reset; the next pass settles any newer
+	// cumulative values from this refresh.
+	stage = "lease challenge refresh"
+	for _, origin := range plan.Origins {
+		sender := collector.senders[origin.Origin.NodeID]
+		lookup := sender.(runtimeWhiteListUsageLookup)
+		snapshot, lookupErr := lookup.LookupUsage(ctx, origin.Desired.Action.ActionKey)
+		receivedAt := time.Now()
+		if lookupErr != nil || !runtimeWhiteListUsageReceiptMatches(origin.Receipt, snapshot.Receipt) ||
+			snapshot.LeaseChallenge == nil || snapshot.PendingUseLease != nil ||
+			len(snapshot.FinalReceipts) > 0 || snapshot.HasMoreFinalReceipts ||
+			len(snapshot.Users)+len(snapshot.UnavailableUsers) != len(routes) {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		seen := make(map[string]struct{}, len(routes))
+		available := make([]string, 0, len(snapshot.Users))
+		for _, email := range snapshot.UnavailableUsers {
+			if _, ok := routes[email]; !ok {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			if _, duplicate := seen[email]; duplicate {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			seen[email] = struct{}{}
+		}
+		for _, user := range snapshot.Users {
+			if _, ok := routes[user.Email]; !ok {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			if _, duplicate := seen[user.Email]; duplicate {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			seen[user.Email] = struct{}{}
+			available = append(available, user.Email)
+		}
+		if len(seen) != len(routes) {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		if err := collector.control.RecordWhiteListOriginObservation(ctx, controlplane.WhiteListOriginObservation{
+			Receipt: origin.Receipt, SampledAt: snapshot.SampledAt,
+			AvailableUsers: available, UnavailableUsers: snapshot.UnavailableUsers,
+		}); err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		snapshots[origin.Origin.OriginID] = snapshot
+		snapshotReceivedAt[origin.Origin.OriginID] = receivedAt
+	}
 	stage = "use lease authorization"
 	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
 	if err != nil {
