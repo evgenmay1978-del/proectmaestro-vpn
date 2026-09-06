@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -19,6 +20,16 @@ func legacyRuntimeAbsentScript() scriptedResult {
 
 func seedRuntimeMutationOLC(t *testing.T) (*customerIntegritySQLite, *Service, LegacyRuntimeSetting, olcconf.Config) {
 	t.Helper()
+	db, service, config := seedRuntimeMutationOLCRows(t, false)
+	value, err := service.ReadLegacyRuntimeSetting(context.Background(), "olcrtc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, service, value, config
+}
+
+func seedRuntimeMutationOLCRows(t *testing.T, corruptArchive bool) (*customerIntegritySQLite, *Service, olcconf.Config) {
+	t.Helper()
 	db, service := newCustomerIntegritySQLite(t)
 	config := olcconf.Config{Enabled: true, Provider: "telemost", Transport: "vp8channel", Logins: []string{"Alice", "alice"}, Rooms: map[string]olcconf.RoomKey{
 		"Alice": {Room: "https://telemost.yandex.ru/j/upper-fixture", Key: strings.Repeat("a", 64)},
@@ -35,7 +46,24 @@ func seedRuntimeMutationOLC(t *testing.T) (*customerIntegritySQLite, *Service, L
 		doc.Members = append(doc.Members, LegacyRuntimeMember{Login: login, CustomerID: identity.CustomerID(), CustomerSourceKey: identity.source, CustomerSHA256: identity.digest, LoginHMAC: identity.LookupHMAC(), MemberHMAC: identity.SettingMemberHMAC("olcrtc")})
 	}
 	encoded, digest := runtimeDomainCipher(t, service.store.secrets, "olcrtc", doc)
-	seedRuntimeDomainMarker(t, db, "olcrtc", doc.CapsuleSHA256, digest, encoded)
+	archiveEncoded := encoded
+	if corruptArchive {
+		// Corrupt only the source ciphertext before its immutable INSERT. The
+		// current target remains valid; the archive metadata hashes this actual
+		// corrupted envelope, so the reader must reject its failed AEAD proof.
+		raw, err := base64.StdEncoding.DecodeString(encoded)
+		var envelope Envelope
+		if err != nil || json.Unmarshal(raw, &envelope) != nil || len(envelope.Ciphertext) == 0 {
+			t.Fatal("invalid corruption fixture envelope")
+		}
+		envelope.Ciphertext[len(envelope.Ciphertext)-1] ^= 1
+		raw, err = json.Marshal(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		archiveEncoded = base64.StdEncoding.EncodeToString(raw)
+	}
+	seedRuntimeDomainMarker(t, db, "olcrtc", doc.CapsuleSHA256, digest, archiveEncoded)
 	db.must(t, rqlite.Statement{SQL: `INSERT INTO cluster_settings(setting_key,public_value_json,generation,updated_at_unix) VALUES('olcrtc',?,1,1)`, Args: []any{string(legacyRuntimeOLCPublic(config))}},
 		rqlite.Statement{SQL: `INSERT INTO setting_secrets(setting_key,secret_envelope,secret_sha256,key_version,updated_at_unix) VALUES('olcrtc',?,?,1,1)`, Args: []any{encoded, digest}},
 		rqlite.Statement{SQL: `INSERT INTO nodes(node_id,display_name,is_voter,enabled,created_at_unix) VALUES('runtime-node','Runtime fixture',0,1,1)`},
@@ -43,11 +71,7 @@ func seedRuntimeMutationOLC(t *testing.T) (*customerIntegritySQLite, *Service, L
 	for _, member := range doc.Members {
 		db.must(t, rqlite.Statement{SQL: `INSERT INTO setting_members(setting_key,member_key,member_value_json,generation) VALUES('olcrtc',?,'{"enabled":true}',1)`, Args: []any{member.MemberHMAC}})
 	}
-	value, err := service.ReadLegacyRuntimeSetting(context.Background(), "olcrtc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db, service, value, config
+	return db, service, config
 }
 
 func TestLegacyRuntimeRoomGrantRestartPreservesArchiveAndKeysSQLite(t *testing.T) {
@@ -116,12 +140,12 @@ func TestLegacyRuntimeStableCustomerRevisionAndCorruptSourceSQLite(t *testing.T)
 	if _, err := service.ReadLegacyRuntimeSetting(ctx, "olcrtc"); err != nil {
 		t.Fatalf("ordinary expiry delta invalidated stable runtime identity: %v", err)
 	}
-	db.must(t, rqlite.Statement{SQL: `UPDATE imported_secrets SET secret_envelope='{}' WHERE owner_type='setting' AND owner_source_key='olcrtc'`})
-	before := db.snapshot(t)
-	if _, err := service.ReadLegacyRuntimeSetting(ctx, "olcrtc"); !errors.Is(err, ErrUnavailable) {
+	corruptDB, corruptService, _ := seedRuntimeMutationOLCRows(t, true)
+	before := corruptDB.snapshot(t)
+	if _, err := corruptService.ReadLegacyRuntimeSetting(ctx, "olcrtc"); !errors.Is(err, ErrUnavailable) {
 		t.Fatal("corrupt source archive accepted")
 	}
-	if !reflect.DeepEqual(before, db.snapshot(t)) {
+	if !reflect.DeepEqual(before, corruptDB.snapshot(t)) {
 		t.Fatal("failed source authentication wrote state")
 	}
 }
