@@ -27,6 +27,7 @@ const (
 var (
 	errRuntimeWhiteListMeteringUnavailable = errors.New("white-list metering runtime is unavailable")
 	errRuntimeWhiteListFreshLeaseNonce     = errors.New("white-list metering requires a fresh lease nonce")
+	errRuntimeWhiteListDebitPending        = errors.New("white-list durable commercial debit is pending")
 )
 
 type runtimeWhiteListUsageLookup interface {
@@ -86,15 +87,28 @@ type runtimeWhiteListMeteringStore interface {
 	) (shadowbilling.DurableResult, error)
 }
 
+type runtimeWhiteListCachedLeaseAuthority struct {
+	planFingerprint [sha256.Size]byte
+	authorization   controlplane.WhiteListUseLeaseAuthorization
+}
+
+type runtimeWhiteListLeaseDelivery struct {
+	originID string
+	sender   runtimeWhiteListLeaseSender
+	request  sidecaragentclient.UseLeaseRequest
+}
+
 type runtimeWhiteListMeteringCollector struct {
-	control          runtimeWhiteListMeteringControlPlane
-	store            runtimeWhiteListMeteringStore
-	workerID         string
-	senders          map[string]controlplane.ExternalActionSender
-	startupRecovered bool
-	reconcileNeeded  bool
-	reserves         runtimeWhiteListReserveProvider
-	byteBudgetBytes  int64
+	control               runtimeWhiteListMeteringControlPlane
+	store                 runtimeWhiteListMeteringStore
+	workerID              string
+	senders               map[string]controlplane.ExternalActionSender
+	startupRecovered      bool
+	reconcileNeeded       bool
+	reserves              runtimeWhiteListReserveProvider
+	byteBudgetBytes       int64
+	cachedLeaseAuthority  *runtimeWhiteListCachedLeaseAuthority
+	leaseAuthorityChanged bool
 }
 
 func newRuntimeWhiteListMeteringStore(database rqlite.RQLite) (*shadowbilling.DurableStore, error) {
@@ -176,6 +190,9 @@ func runRuntimeWhiteListMetering(
 func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context) (runErr error) {
 	started := time.Now()
 	stage := "startup recovery"
+	cachedLeaseAuthority := collector.cachedLeaseAuthority
+	collector.cachedLeaseAuthority = nil
+	protectedByEarlyLease := false
 	passBudget, processingBudget := runtimeWhiteListMeteringPassBudget, runtimeWhiteListMeteringInterval
 	if collector.byteBudgetBytes > 0 {
 		// Prepaid byte ceilings bound forwarding independently of processing time.
@@ -190,10 +207,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	ctx = reconcileContext
 	collector.reconcileNeeded = true
 	defer func() {
+		preserveExactLease := runErr != nil && collector.byteBudgetBytes > 0 &&
+			protectedByEarlyLease && errors.Is(runErr, errRuntimeWhiteListDebitPending)
 		if runErr != nil {
 			runErr = fmt.Errorf("%s after %s: %w", stage, time.Since(started).Round(time.Millisecond), runErr)
 		}
-		if !collector.reconcileNeeded {
+		if preserveExactLease || !collector.reconcileNeeded {
 			return
 		}
 		if err := collector.reconcile(reconcileContext); err != nil {
@@ -225,8 +244,13 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	leaseControl, leaseEnabled := collector.control.(runtimeWhiteListLeaseControlPlane)
 	stage = "final receipt drain"
 	if leaseEnabled {
+		collector.leaseAuthorityChanged = false
 		if err := collector.drainFinalReceipts(ctx, leaseControl); err != nil {
+			cachedLeaseAuthority = nil
 			return fmt.Errorf("final receipt drain: %w", err)
+		}
+		if collector.leaseAuthorityChanged {
+			cachedLeaseAuthority = nil
 		}
 	}
 	stage = "empty bootstrap"
@@ -237,6 +261,10 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	plan, err := collector.control.WhiteListMeteringPlan(ctx)
 	if err != nil {
 		return fmt.Errorf("metering plan after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
+	}
+	planFingerprint, planFingerprintOK := runtimeWhiteListLeasePlanFingerprint(plan)
+	if cachedLeaseAuthority == nil || !planFingerprintOK || cachedLeaseAuthority.planFingerprint != planFingerprint {
+		cachedLeaseAuthority = nil
 	}
 	var candidates []controlplane.WhiteListMeteringAdmissionCandidate
 	unchangedByteRoutes := false
@@ -312,39 +340,92 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			}
 			seen[email] = struct{}{}
 		}
-		available := make([]string, 0, len(snapshot.Users))
 		accounted := make(map[string]struct{}, len(snapshot.Users))
 		for _, user := range snapshot.Users {
-			_, ok := routes[user.Email]
-			if !ok {
+			if _, ok := routes[user.Email]; !ok {
 				return errRuntimeWhiteListMeteringUnavailable
 			}
 			if _, duplicate := seen[user.Email]; duplicate {
 				return errRuntimeWhiteListMeteringUnavailable
 			}
 			seen[user.Email] = struct{}{}
-			available = append(available, user.Email)
 			accounted[user.Email] = struct{}{}
 		}
 		if len(seen) != len(routes) {
 			return errRuntimeWhiteListMeteringUnavailable
+		}
+		accountedAvailable[origin.Origin.OriginID] = accounted
+	}
+
+	earlyDeliveries, earlyLeaseReady := collector.prepareCachedByteLeaseDeliveries(
+		plan, snapshots, snapshotReceivedAt, cachedLeaseAuthority,
+	)
+	earlyDeliveryErrors := make([]error, len(earlyDeliveries))
+	var earlyDeliveriesWait sync.WaitGroup
+	if earlyLeaseReady {
+		earlyDeliveriesWait.Add(len(earlyDeliveries))
+		for index := range earlyDeliveries {
+			index := index
+			go func() {
+				defer earlyDeliveriesWait.Done()
+				_, earlyDeliveryErrors[index] = earlyDeliveries[index].sender.PostUseLease(ctx, earlyDeliveries[index].request)
+			}()
+		}
+	}
+
+	var usageErr error
+	for _, origin := range plan.Origins {
+		snapshot := snapshots[origin.Origin.OriginID]
+		available := make([]string, 0, len(snapshot.Users))
+		for _, user := range snapshot.Users {
+			available = append(available, user.Email)
 		}
 		stage = "origin observation persistence"
 		if err := collector.control.RecordWhiteListOriginObservation(ctx, controlplane.WhiteListOriginObservation{
 			Receipt: origin.Receipt, SampledAt: snapshot.SampledAt,
 			AvailableUsers: available, UnavailableUsers: snapshot.UnavailableUsers,
 		}); err != nil {
-			return errRuntimeWhiteListMeteringUnavailable
+			usageErr = errRuntimeWhiteListMeteringUnavailable
+			break
 		}
-		accountedAvailable[origin.Origin.OriginID] = accounted
 		for _, user := range snapshot.Users {
 			stage = "actual usage settlement"
 			index := sort.SearchStrings(origin.PendingFirstCumulativeUsers, user.Email)
 			firstCumulative := index < len(origin.PendingFirstCumulativeUsers) && origin.PendingFirstCumulativeUsers[index] == user.Email
 			if err := collector.applyUser(ctx, origin, routes[user.Email], snapshot.SampledAt, user, firstCumulative); err != nil {
-				return errRuntimeWhiteListMeteringUnavailable
+				if errors.Is(err, errRuntimeWhiteListDebitPending) {
+					usageErr = err
+				} else {
+					usageErr = errRuntimeWhiteListMeteringUnavailable
+				}
+				break
 			}
 		}
+		if usageErr != nil {
+			break
+		}
+	}
+
+	if earlyLeaseReady {
+		earlyDeliveriesWait.Wait()
+		stage = "early use lease delivery"
+		freshNonceNeeded := false
+		for index, deliveryErr := range earlyDeliveryErrors {
+			if errors.Is(deliveryErr, sidecaragentclient.ErrFreshLeaseNonceNeeded) {
+				freshNonceNeeded = true
+				continue
+			}
+			if deliveryErr != nil {
+				return fmt.Errorf("early lease delivery to %s: %w (context: %v)", earlyDeliveries[index].originID, deliveryErr, ctx.Err())
+			}
+		}
+		if freshNonceNeeded {
+			return errRuntimeWhiteListFreshLeaseNonce
+		}
+		protectedByEarlyLease = len(earlyDeliveries) == len(plan.Origins)
+	}
+	if usageErr != nil {
+		return usageErr
 	}
 	stage = "account admission"
 	if err := collector.authorizeAdmissions(ctx, candidates); err != nil {
@@ -428,12 +509,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	// Prepare every request before delivering any of them, then deliver once per
 	// distinct node in parallel. Sequential cross-Origin delivery can consume a
 	// later agent's five-second nonce before its request reaches that agent.
-	type leaseDelivery struct {
-		originID string
-		sender   runtimeWhiteListLeaseSender
-		request  sidecaragentclient.UseLeaseRequest
-	}
-	deliveries := make([]leaseDelivery, 0, len(plan.Origins))
+	deliveries := make([]runtimeWhiteListLeaseDelivery, 0, len(plan.Origins))
 	for _, origin := range plan.Origins {
 		if ctx.Err() != nil {
 			return errRuntimeWhiteListMeteringUnavailable
@@ -473,7 +549,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			return fmt.Errorf("lease request: %w (context: %v)", err, ctx.Err())
 		}
 		sender := collector.senders[origin.Origin.NodeID].(runtimeWhiteListLeaseSender)
-		deliveries = append(deliveries, leaseDelivery{originID: origin.Origin.OriginID, sender: sender, request: request})
+		deliveries = append(deliveries, runtimeWhiteListLeaseDelivery{originID: origin.Origin.OriginID, sender: sender, request: request})
 	}
 	stage = "use lease delivery"
 	deliveryErrors := make([]error, len(deliveries))
@@ -503,6 +579,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 		return errRuntimeWhiteListFreshLeaseNonce
 	}
+	if collector.byteBudgetBytes > 0 && planFingerprintOK && len(authorization.Emails) > 0 {
+		collector.cachedLeaseAuthority = &runtimeWhiteListCachedLeaseAuthority{
+			planFingerprint: planFingerprint,
+			authorization:   runtimeWhiteListCloneUseLeaseAuthorization(authorization),
+		}
+	}
 	if unchangedByteRoutes && authorization.ProvisioningComplete {
 		// Every exact existing route was freshly authorized and installed after
 		// settlement. Repeating membership reconciliation would change nothing
@@ -510,6 +592,182 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		collector.reconcileNeeded = false
 	}
 	return nil
+}
+
+func runtimeWhiteListLeasePlanFingerprint(plan controlplane.WhiteListMeteringPlan) ([sha256.Size]byte, bool) {
+	var empty [sha256.Size]byte
+	if len(plan.Origins) == 0 || len(plan.Routes) == 0 {
+		return empty, false
+	}
+	origins := append([]controlplane.WhiteListMeteringOrigin(nil), plan.Origins...)
+	sort.Slice(origins, func(i, j int) bool { return origins[i].Origin.OriginID < origins[j].Origin.OriginID })
+	routes := append([]controlplane.WhiteListMeteringRoute(nil), plan.Routes...)
+	sort.Slice(routes, func(i, j int) bool { return routes[i].ManagedEmail < routes[j].ManagedEmail })
+	digest := sha256.New()
+	writeField := func(value string) {
+		_, _ = digest.Write([]byte(strconv.Itoa(len(value))))
+		_, _ = digest.Write([]byte{':'})
+		_, _ = digest.Write([]byte(value))
+	}
+	writeField("maestro-white-list-lease-plan-v1")
+	for index, origin := range origins {
+		if origin.Origin.OriginID == "" || origin.Origin.NodeID == "" || origin.Desired.Action.ActionKey == "" ||
+			origin.Receipt.XrayProcessBootID == "" || (index > 0 && origins[index-1].Origin.OriginID == origin.Origin.OriginID) {
+			return empty, false
+		}
+		for _, value := range []string{
+			"origin", origin.Origin.OriginID, origin.Origin.NodeID, origin.Origin.ReleaseID,
+			origin.Origin.ProfileID, origin.Origin.PresetID, origin.Origin.ConfigDigest,
+			strconv.FormatBool(origin.Origin.Active), origin.Desired.OriginID, origin.Desired.NodeID,
+			origin.Desired.ReleaseID, origin.Desired.ProfileID, origin.Desired.PresetID,
+			origin.Desired.ExitID, strconv.FormatInt(origin.Desired.Generation, 10),
+			origin.Desired.ConfigDigest, origin.Desired.ManagedUserSetDigest, origin.Desired.DesiredSHA256,
+			origin.Desired.Action.Type, origin.Desired.Action.ResourceID, origin.Desired.Action.ActionKey,
+			origin.Desired.Action.ReplacesActionKey, strconv.FormatInt(origin.Desired.Action.LeaseFence, 10),
+			origin.Receipt.ActionKey, origin.Receipt.OriginID, origin.Receipt.ReleaseID,
+			origin.Receipt.XrayProcessBootID, origin.Receipt.ConfigDigest,
+			strconv.FormatInt(origin.Receipt.DesiredGeneration, 10), origin.Receipt.ManagedUserSetDigest,
+			strconv.FormatInt(origin.Receipt.AppliedAt.UnixNano(), 10),
+			strconv.FormatInt(origin.Receipt.ExpiresAt.UnixNano(), 10),
+		} {
+			writeField(value)
+		}
+	}
+	for index, route := range routes {
+		if route.ManagedEmail == "" || route.ExitID == "" || route.Entitlement.EntitlementID() == "" ||
+			(index > 0 && routes[index-1].ManagedEmail == route.ManagedEmail) {
+			return empty, false
+		}
+		for _, value := range []string{
+			"route", route.ManagedEmail, route.ExitID, route.Entitlement.EntitlementID(),
+			string(route.Entitlement.State()), route.Entitlement.TransportProfileID(),
+			route.Entitlement.CompatibilityPresetID(), route.Entitlement.TransportReleaseID(),
+			route.Policy.BillingPeriodID, strconv.FormatInt(route.Policy.PeriodStartsAtUnix, 10),
+			strconv.FormatInt(route.Policy.PeriodEndsAtUnix, 10), route.Policy.Unit, route.Policy.Basis,
+			strconv.FormatUint(route.Policy.IncludedBytes, 10), strconv.FormatUint(route.Policy.SoftLimitBytes, 10),
+			strconv.FormatUint(route.Policy.HardLimitBytes, 10), strconv.FormatUint(route.Policy.GraceBytes, 10),
+			route.Policy.PriceMode, route.Policy.PriceSource, route.Policy.Currency,
+			strconv.FormatUint(route.Policy.MinorUnitsPerUnit, 10),
+		} {
+			writeField(value)
+		}
+	}
+	var fingerprint [sha256.Size]byte
+	copy(fingerprint[:], digest.Sum(nil))
+	return fingerprint, true
+}
+
+func runtimeWhiteListCloneUseLeaseAuthorization(source controlplane.WhiteListUseLeaseAuthorization) controlplane.WhiteListUseLeaseAuthorization {
+	clone := source
+	clone.Emails = append([]string(nil), source.Emails...)
+	clone.CumulativeByteCeilings = make(map[string]map[string]int64, len(source.CumulativeByteCeilings))
+	for originID, sourceCeilings := range source.CumulativeByteCeilings {
+		ceilings := make(map[string]int64, len(sourceCeilings))
+		for email, ceiling := range sourceCeilings {
+			ceilings[email] = ceiling
+		}
+		clone.CumulativeByteCeilings[originID] = ceilings
+	}
+	clone.ByteBudgetFenceGenerations = make(map[string]map[string]uint64, len(source.ByteBudgetFenceGenerations))
+	for originID, sourceFences := range source.ByteBudgetFenceGenerations {
+		fences := make(map[string]uint64, len(sourceFences))
+		for email, generation := range sourceFences {
+			fences[email] = generation
+		}
+		clone.ByteBudgetFenceGenerations[originID] = fences
+	}
+	return clone
+}
+
+func (collector *runtimeWhiteListMeteringCollector) prepareCachedByteLeaseDeliveries(
+	plan controlplane.WhiteListMeteringPlan,
+	snapshots map[string]sidecaragentclient.UsageSnapshot,
+	snapshotReceivedAt map[string]time.Time,
+	cached *runtimeWhiteListCachedLeaseAuthority,
+) ([]runtimeWhiteListLeaseDelivery, bool) {
+	fingerprint, fingerprintOK := runtimeWhiteListLeasePlanFingerprint(plan)
+	if collector == nil || cached == nil || !fingerprintOK || fingerprint != cached.planFingerprint ||
+		len(plan.Origins) == 0 || len(plan.Routes) == 0 || len(snapshots) != len(plan.Origins) ||
+		len(snapshotReceivedAt) != len(plan.Origins) {
+		return nil, false
+	}
+	authorization := cached.authorization
+	if len(authorization.Emails) == 0 || !sort.StringsAreSorted(authorization.Emails) ||
+		authorization.AuthorityExpiresAt.IsZero() || len(authorization.CumulativeByteCeilings) != len(plan.Origins) ||
+		len(authorization.ByteBudgetFenceGenerations) != len(plan.Origins) {
+		return nil, false
+	}
+	routes := make(map[string]struct{}, len(plan.Routes))
+	for _, route := range plan.Routes {
+		if route.ManagedEmail == "" {
+			return nil, false
+		}
+		routes[route.ManagedEmail] = struct{}{}
+	}
+	authorized := make(map[string]struct{}, len(authorization.Emails))
+	for index, email := range authorization.Emails {
+		if _, current := routes[email]; !current || (index > 0 && authorization.Emails[index-1] == email) {
+			return nil, false
+		}
+		authorized[email] = struct{}{}
+	}
+	deliveries := make([]runtimeWhiteListLeaseDelivery, 0, len(plan.Origins))
+	for _, origin := range plan.Origins {
+		snapshot, snapshotOK := snapshots[origin.Origin.OriginID]
+		receivedAt, receivedOK := snapshotReceivedAt[origin.Origin.OriginID]
+		originCeilings, ceilingsOK := authorization.CumulativeByteCeilings[origin.Origin.OriginID]
+		originFences, fencesOK := authorization.ByteBudgetFenceGenerations[origin.Origin.OriginID]
+		if !snapshotOK || !receivedOK || receivedAt.IsZero() || !ceilingsOK || !fencesOK ||
+			len(snapshot.Users) != len(authorization.Emails) || len(originCeilings) != len(authorization.Emails) ||
+			len(originFences) != len(authorization.Emails) {
+			return nil, false
+		}
+		emails := make([]string, 0, len(snapshot.Users))
+		seen := make(map[string]struct{}, len(snapshot.Users))
+		ceilings := make(map[string]int64, len(snapshot.Users))
+		fences := make(map[string]uint64, len(snapshot.Users))
+		for _, user := range snapshot.Users {
+			if _, allowed := authorized[user.Email]; !allowed {
+				return nil, false
+			}
+			if _, duplicate := seen[user.Email]; duplicate {
+				return nil, false
+			}
+			ceiling, ceilingOK := originCeilings[user.Email]
+			fence, fenceOK := originFences[user.Email]
+			if !ceilingOK || !fenceOK || ceiling <= 0 || user.UplinkBytes > uint64(ceiling) ||
+				user.DownlinkBytes > uint64(ceiling)-user.UplinkBytes {
+				return nil, false
+			}
+			seen[user.Email] = struct{}{}
+			emails = append(emails, user.Email)
+			ceilings[user.Email] = ceiling
+			fences[user.Email] = fence
+		}
+		if len(seen) != len(authorization.Emails) {
+			return nil, false
+		}
+		sort.Strings(emails)
+		budget := 5 * time.Second
+		if hardRemaining := authorization.AuthorityExpiresAt.Sub(receivedAt); hardRemaining < budget {
+			budget = hardRemaining
+		}
+		if budget <= 0 {
+			return nil, false
+		}
+		request, err := sidecaragentclient.NewByteBudgetUseLeaseRequest(snapshot, budget, emails, ceilings, fences)
+		if err != nil {
+			return nil, false
+		}
+		sender, ok := collector.senders[origin.Origin.NodeID].(runtimeWhiteListLeaseSender)
+		if !ok {
+			return nil, false
+		}
+		deliveries = append(deliveries, runtimeWhiteListLeaseDelivery{
+			originID: origin.Origin.OriginID, sender: sender, request: request,
+		})
+	}
+	return deliveries, len(deliveries) == len(plan.Origins)
 }
 
 func runtimeWhiteListCandidatesMatchPlan(candidates []controlplane.WhiteListMeteringAdmissionCandidate, plan controlplane.WhiteListMeteringPlan) bool {
@@ -568,6 +826,9 @@ func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx conte
 			page, err := sender.LookupFinalReceipts(ctx)
 			if err != nil || page.Schema != 2 || len(page.FinalReceipts) > 32 || page.HasMoreFinalReceipts && len(page.FinalReceipts) == 0 {
 				return errRuntimeWhiteListMeteringUnavailable
+			}
+			if len(page.FinalReceipts) > 0 || page.PendingUseLease != nil {
+				collector.leaseAuthorityChanged = true
 			}
 			ack := make([]sidecaragentclient.FinalReceiptACK, 0, len(page.FinalReceipts))
 			for _, final := range page.FinalReceipts {
@@ -715,7 +976,10 @@ func (collector *runtimeWhiteListMeteringCollector) applyUser(
 	if firstCumulative && cursor.NextSampleSequence != 1 {
 		// A committed first interval can still await its balance receipt. Drain
 		// it before the next plan proves first accounting; never rebase or rearm.
-		return collector.store.DrainCommercialDebits(ctx, route.Entitlement.EntitlementID(), collector.control)
+		if err := collector.store.DrainCommercialDebits(ctx, route.Entitlement.EntitlementID(), collector.control); err != nil {
+			return fmt.Errorf("%w: %v", errRuntimeWhiteListDebitPending, err)
+		}
+		return nil
 	}
 	eventID := runtimeWhiteListMeteringEventID(cursor.MeterEpoch, route.ManagedEmail, cursor.NextSampleSequence)
 	collector.reconcileNeeded = true
@@ -738,7 +1002,7 @@ func (collector *runtimeWhiteListMeteringCollector) applyUser(
 		return err
 	}
 	if err := collector.store.DrainCommercialDebits(ctx, route.Entitlement.EntitlementID(), collector.control); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errRuntimeWhiteListDebitPending, err)
 	}
 	return nil
 }
