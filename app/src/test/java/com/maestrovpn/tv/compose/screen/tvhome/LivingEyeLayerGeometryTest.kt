@@ -146,4 +146,38 @@ class LivingEyeLayerGeometryTest {
         assertEquals(open.lower.first(), closed.lower.first())
         assertEquals(open.lower.last(), closed.lower.last())
     }
+
+    @Test
+    fun openTextureIsIdentityAndSocketEdgesStayFixedWhileBlinking() {
+        for (x in 0..360 step 3) {
+            for (y in 0..360 step 3) {
+                assertEquals(y.toFloat(), referenceEyeWarpY(x.toFloat(), y.toFloat(), 0f), 0.0001f)
+            }
+            for (phase in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
+                assertEquals(0f, referenceEyeWarpY(x.toFloat(), 0f, phase), 0.0001f)
+                assertEquals(360f, referenceEyeWarpY(x.toFloat(), 360f, phase), 0.0001f)
+                val ys = (0..360).map { referenceEyeWarpY(x.toFloat(), it.toFloat(), phase) }
+                assertTrue(ys.all { it.isFinite() && it >= 0f && it <= 360f })
+                assertTrue(ys.zipWithNext().all { (a, b) -> a <= b + 0.0001f })
+            }
+        }
+    }
+
+    @Test
+    fun theSameCanthiAndTextureMeetWithoutRevealingTheOldBakedSlit() {
+        REFERENCE_EYE_MARGINS.forEach { source ->
+            val half = referenceEyeMargin(source.x, 0.5f)
+            val closed = referenceEyeMargin(source.x, 1f)
+            assertEquals((source.lower - source.upper) / 2f, half.lower - half.upper, 0.0001f)
+            assertEquals(closed.upper, closed.lower, 0.0001f)
+            assertEquals(closed.upper, referenceEyeWarpY(source.x, source.upper, 1f), 0.0001f)
+            assertEquals(closed.lower, referenceEyeWarpY(source.x, source.lower, 1f), 0.0001f)
+        }
+        for (corner in listOf(REFERENCE_EYE_MARGINS.first(), REFERENCE_EYE_MARGINS.last())) {
+            assertEquals(corner, referenceEyeMargin(corner.x, 1f))
+        }
+        // Cover the entire registered 650px material guard without painting bronze.
+        assertEquals(650f, REFERENCE_EYE_SOCKET_FRACTION * (2f * 2160f * 260f / 853f), 0.001f)
+        assertTrue(REFERENCE_EYE_SOCKET_FRACTION < 0.5f)
+    }
 }

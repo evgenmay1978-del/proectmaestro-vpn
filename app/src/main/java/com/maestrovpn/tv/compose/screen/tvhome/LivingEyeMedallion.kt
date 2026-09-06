@@ -4,7 +4,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -13,20 +12,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.res.imageResource
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import com.maestrovpn.tv.R
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -36,27 +23,14 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.ln
-import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
- * Phone-only living version of the owner's eye.
- *
- * The carved plaque, baked bronze and eye-surround live in the fixed phone background and are drawn
- * exactly once. This layer keeps the anatomy live while the aperture reveals that same surround:
- *
- *  * one aperture closes onto the original green fold with fixed corners;
- *  * closing the aperture exposes the registered emerald relief below, with no state-frame swap;
- *  * sclera stays registered;
- *  * iris and pupil perform short saccades together;
- *  * the pupil changes radius inside a fixed outer iris;
- *  * the corneal catchlight follows only 8% of gaze translation;
- *  * full closure leaves no visible iris, sclera or pupil beneath the contact seam.
- *
- * Source measurements and reconstruction limits are recorded in
- * `docs/design/mobile-eye-natural/asset_metadata.json`.
+ * The owner's reference form with the original emerald grain and gold veins.
+ * Blink, connection, gaze, touch and pupil clocks are unchanged. One registered
+ * green texture forms both moving lids; there is no second baked slit beneath it.
  */
 @Composable
 internal fun LivingEyeMedallion(
@@ -66,17 +40,18 @@ internal fun LivingEyeMedallion(
     modifier: Modifier = Modifier,
 ) {
 
-    val sclera = ImageBitmap.imageResource(R.drawable.mobile_eye_sclera)
-    val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_iris)
-    val catchlight = ImageBitmap.imageResource(R.drawable.mobile_eye_catchlight)
+    val lids = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_lids)
+    val sclera = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_sclera)
+    val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_iris)
+    val catchlight = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_catchlight)
+    val mesh = remember { ReferenceEyeMesh() }
 
-    // 0 = open aperture, 1 = zero-height aperture over baked eye-surround material.
+    // 0 = reference opening; 1 = the same textured lids meeting at the contact seam.
     val lidPhase = remember { Animatable(1f) }
     val blinkEyeShift = remember { Animatable(0f) }
     val gazeX = remember { Animatable(0f) } // source-frame pixels
     val gazeY = remember { Animatable(0f) }
     val pupilScale = remember { Animatable(PUPIL_DARK_SCALE) }
-    val glow = remember { Animatable(0f) }
 
     val blinkRandom = remember { Random(System.nanoTime().toInt()) }
     val gazeRandom = remember { Random(System.nanoTime().toInt() xor 0x4D414553) }
@@ -184,172 +159,18 @@ internal fun LivingEyeMedallion(
         }
     }
 
-    // Свет следует состоянию туннеля, а не таймеру: гаснет на отключении, РАЗГОРАЕТСЯ пока идёт
-    // подключение (с лёгким пульсом, чтобы читалось «работает, а не завис»), и держится ровно,
-    // когда связь есть.
-    //
-    // ⛔ На ветке `feat/mobile-4d-redesign` этот блок читал отдельный `EyeState`, но тот коммит
-    // правит `SFANavigation.kt` и `TvHomeScreen.kt` — файлы под нулевым TV-диффом. Здесь тот же
-    // сигнал уже приходит через `opennessOverride` (0f / 0.5f / null), который выставляет
-    // телефонный `Mobile4DHome`. Вид тот же, ТВ не задет.
-    LaunchedEffect(connected, opennessOverride) {
-        when {
-            opennessOverride != null && opennessOverride <= 0.01f ->
-                glow.animateTo(0f, tween(durationMillis = 220))
-
-            opennessOverride != null -> {
-                glow.animateTo(
-                    GLOW_CONNECTING_MIN,
-                    tween(durationMillis = 420, easing = LinearOutSlowInEasing),
-                )
-                while (true) {
-                    glow.animateTo(GLOW_CONNECTING_MAX, tween(durationMillis = 780, easing = LinearEasing))
-                    glow.animateTo(GLOW_CONNECTING_MIN, tween(durationMillis = 780, easing = LinearEasing))
-                }
-            }
-
-            connected -> glow.animateTo(
-                GLOW_CONNECTED,
-                tween(durationMillis = 620, easing = LinearOutSlowInEasing),
-            )
-
-            else -> glow.animateTo(0f, tween(durationMillis = 220))
-        }
-    }
-
     Canvas(modifier = modifier) {
-        // The bronze socket clips the live anatomy. The registered ring and emerald eye-surround
-        // stay below this Canvas, becoming the visible lids as the aperture closes.
-        val bronzeInset = livingEyeBronzeInset(size.width, size.height)
-        val medallion = minOf(size.width, size.height)
-        val integration = livingEyeIntegrationProfile(size.width, size.height)
-        val phase = lidPhase.value.coerceIn(0f, 1f)
-        val renderPolicy = livingEyeRenderPolicy(phase)
-        val bronzeClip = Path().apply {
-            addOval(
-                Rect(
-                    left = (size.width - medallion) / 2f + bronzeInset,
-                    top = (size.height - medallion) / 2f + bronzeInset,
-                    right = (size.width + medallion) / 2f - bronzeInset,
-                    bottom = (size.height + medallion) / 2f - bronzeInset,
-                ),
-            )
-        }
-        clipPath(bronzeClip) {
-            val layerFit = integration.layerFit
-            val contour = livingEyeApertureContour(
-                layerFit = layerFit,
-                closure = phase,
-                seamOverlapPx = 0f,
-            )
-            val aperture = contour.toPath()
-            // Do not rely on renderer behavior for a degenerate closed Path: full closure disables
-            // anatomy explicitly and reveals the registered emerald eye-surround below.
-            if (renderPolicy.eyeLayersEnabled) {
-                clipPath(aperture) {
-                    drawSourceLayer(
-                        image = sclera,
-                        sourceX = SCLERA_X,
-                        sourceY = SCLERA_Y,
-                        sourceWidth = SCLERA_WIDTH,
-                        sourceHeight = SCLERA_HEIGHT,
-                        layerFit = layerFit,
-                    )
-
-                    // During a routine blink the globe moves a trace down and medially.
-                    val irisX = gazeX.value - BLINK_NASAL_SHIFT * blinkEyeShift.value
-                    val irisY = gazeY.value + BLINK_DOWN_SHIFT * blinkEyeShift.value
-                    drawSourceLayer(
-                        image = iris,
-                        sourceX = IRIS_X + irisX,
-                        sourceY = IRIS_Y + irisY,
-                        sourceWidth = IRIS_SIZE,
-                        sourceHeight = IRIS_SIZE,
-                        layerFit = layerFit,
-                    )
-
-                    val pupilCenter = sourcePoint(
-                        layerFit = layerFit,
-                        x = PUPIL_CENTER_X + irisX,
-                        y = PUPIL_CENTER_Y + irisY,
-                    )
-                    val pupilRadius = layerFit.mapSourceLength(
-                        PUPIL_NEUTRAL_RADIUS * pupilScale.value,
-                    )
-                    drawCircle(
-                        color = Color(0xFF0A2414),
-                        radius = pupilRadius + layerFit.mapSourceLength(3f),
-                        center = pupilCenter,
-                    )
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFF000100),
-                                Color(0xFF010302),
-                                Color(0xFF07150C),
-                            ),
-                            center = pupilCenter,
-                            radius = pupilRadius,
-                        ),
-                        radius = pupilRadius,
-                        center = pupilCenter,
-                    )
-
-                    // The first Purkinje image belongs to the cornea/light, not to the iris.
-                    drawSourceLayer(
-                        image = catchlight,
-                        sourceX = CATCHLIGHT_X + irisX * CATCHLIGHT_GAZE_FRACTION,
-                        sourceY = CATCHLIGHT_Y + irisY * CATCHLIGHT_GAZE_FRACTION,
-                        sourceWidth = CATCHLIGHT_SIZE,
-                        sourceHeight = CATCHLIGHT_SIZE,
-                        layerFit = layerFit,
-                    )
-                    // The same lid shades the entire globe, including iris and corneal reflection.
-                    drawEyelidOcclusion(contour, layerFit)
-                }
-            }
-
-            // The transient aperture shadow fades out before the baked closed fold takes ownership.
-            drawEyelidContactShadow(
-                layerFit = layerFit,
-                phase = phase,
-                profile = integration,
-            )
-            drawEyelashes(layerFit, phase)
-        }
-
-        // Свет по внутренней кромке кольца — СНАРУЖИ клипа: он должен ложиться на бронзу, а не
-        // подрезаться ею. Центр НАМЕРЕННО прозрачный: заливая середину, мы засветили бы радужку
-        // и зрачок — самое ценное в кадре. Читается как свет из-под бронзы, а не как пятно сверху.
-        val glowValue = if (renderPolicy.glowEnabled) glow.value else 0f
-        if (glowValue > 0.01f) {
-            val centre = Offset(size.width / 2f, size.height / 2f)
-            val glowRadius = medallion / 2f - bronzeInset
-            val glowMidpoint = (GLOW_INNER_EDGE + 1f) / 2f
-            val fadeStartAlpha = 0.25f + 0.75f *
-                (GLOW_OUTER_FADE_START - glowMidpoint) / (1f - glowMidpoint)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0f to Color.Transparent,
-                        GLOW_INNER_EDGE to Color.Transparent,
-                        // Промежуточная точка делает набор квадратичным: у кромки свет есть, а к
-                        // радужке спадает быстро. Один линейный переход давал ореол поверх глаза.
-                        glowMidpoint to
-                            GLOW_TINT.copy(alpha = GLOW_MAX_ALPHA * glowValue * 0.25f),
-                        // Preserve the existing ramp until the final 2% of the radius, then
-                        // fade out before the circle ends instead of leaving a hard green rim.
-                        GLOW_OUTER_FADE_START to
-                            GLOW_TINT.copy(alpha = GLOW_MAX_ALPHA * glowValue * fadeStartAlpha),
-                        1f to Color.Transparent,
-                    ),
-                    center = centre,
-                    radius = glowRadius,
-                ),
-                radius = glowRadius,
-                center = centre,
-            )
-        }
+        drawReferenceEye(
+            lids = lids,
+            sclera = sclera,
+            iris = iris,
+            catchlight = catchlight,
+            mesh = mesh,
+            closure = lidPhase.value,
+            gazeX = gazeX.value - BLINK_NASAL_SHIFT * blinkEyeShift.value,
+            gazeY = gazeY.value + BLINK_DOWN_SHIFT * blinkEyeShift.value,
+            pupilScale = pupilScale.value,
+        )
     }
 }
 
@@ -454,225 +275,10 @@ private fun Random.nextBlinkDelayMillis(): Long {
 private fun Random.nextFloat(from: Float, until: Float): Float =
     nextDouble(from.toDouble(), until.toDouble()).toFloat()
 
-private fun DrawScope.drawSourceLayer(
-    image: ImageBitmap,
-    sourceX: Float,
-    sourceY: Float,
-    sourceWidth: Float,
-    sourceHeight: Float,
-    layerFit: LivingEyeLayerFit,
-    alpha: Float = 1f,
-) {
-    val left = layerFit.mapSourceX(sourceX)
-    val top = layerFit.mapSourceY(sourceY)
-    val width = layerFit.mapSourceLengthX(sourceWidth)
-    val height = layerFit.mapSourceLengthY(sourceHeight)
-    drawImage(
-        image = image,
-        srcOffset = IntOffset.Zero,
-        srcSize = IntSize(image.width, image.height),
-        dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
-        dstSize = IntSize(
-            width.roundToInt().coerceAtLeast(1),
-            height.roundToInt().coerceAtLeast(1),
-        ),
-        alpha = alpha.coerceIn(0f, 1f),
-        filterQuality = FilterQuality.High,
-    )
-}
-
-
-private fun DrawScope.drawEyelidOcclusion(
-    contour: LivingEyeApertureContour,
-    layerFit: LivingEyeLayerFit,
-) {
-    fun band(start: Float, end: Float): Path = Path().apply {
-        contour.upper.indices.forEach { index ->
-            val upper = contour.upper[index]
-            val lower = contour.lower[index]
-            val y = upper.y + (lower.y - upper.y) * start
-            if (index == 0) moveTo(upper.x, y) else lineTo(upper.x, y)
-        }
-        contour.upper.indices.reversed().forEach { index ->
-            val upper = contour.upper[index]
-            val lower = contour.lower[index]
-            lineTo(upper.x, upper.y + (lower.y - upper.y) * end)
-        }
-        close()
-    }
-
-    // Small contour-following bands keep the cast shadow registered while the lid blinks.
-    repeat(24) { index ->
-        val remaining = 1f - (index + 0.5f) / 24f
-        drawPath(
-            band(index / 24f * 0.30f, (index + 1) / 24f * 0.30f),
-            Color(0xFF030905).copy(alpha = 0.82f * remaining * remaining),
-        )
-    }
-    repeat(12) { index ->
-        val remaining = 1f - (index + 0.5f) / 12f
-        drawPath(
-            band(1f - (index + 1) / 12f * 0.08f, 1f - index / 12f * 0.08f),
-            Color(0xFF030905).copy(alpha = 0.42f * remaining * remaining),
-        )
-    }
-    val wetMargin = Path().apply {
-        contour.upper.indices.forEach { index ->
-            val upper = contour.upper[index]
-            val lower = contour.lower[index]
-            val y = lower.y - (lower.y - upper.y) * 0.014f
-            if (index == 0) moveTo(upper.x, y) else lineTo(upper.x, y)
-        }
-    }
-    drawPath(
-        wetMargin,
-        Color(0xFF879380).copy(alpha = 42f / 255f),
-        style = Stroke(layerFit.mapSourceLength(1.4f), cap = StrokeCap.Round, join = StrokeJoin.Round),
-    )
-}
-
-private fun DrawScope.drawEyelashes(layerFit: LivingEyeLayerFit, phase: Float) {
-    livingEyeLashes(layerFit, phase).forEach { lash ->
-        // A filled curved ribbon tapers to a real point; no blunt, uniform stroke caps.
-        val halfWidth = lash.width / 2f
-        val path = Path().apply {
-            moveTo(lash.root.x - halfWidth, lash.root.y)
-            cubicTo(
-                lash.control1.x - halfWidth * 0.88f, lash.control1.y,
-                lash.control2.x - halfWidth * 0.50f, lash.control2.y,
-                lash.tip.x, lash.tip.y,
-            )
-            cubicTo(
-                lash.control2.x + halfWidth * 0.50f, lash.control2.y,
-                lash.control1.x + halfWidth * 0.88f, lash.control1.y,
-                lash.root.x + halfWidth, lash.root.y,
-            )
-            close()
-        }
-        drawPath(path, Color(0xFF080C06).copy(alpha = lash.alpha))
-
-        // A short, warm ridge stays inside the dark shaft: at most 18% of its root width,
-        // fading to zero at both ends and stopping well before the sharp tip. No full-length wire.
-        val ridgePoints = (0..8).map { index ->
-            val t = 0.18f + index * 0.06f
-            val u = 1f - t
-            LivingEyeLayerPoint(
-                x = u * u * u * lash.root.x + 3f * u * u * t * lash.control1.x +
-                    3f * u * t * t * lash.control2.x + t * t * t * lash.tip.x,
-                y = u * u * u * lash.root.y + 3f * u * u * t * lash.control1.y +
-                    3f * u * t * t * lash.control2.y + t * t * t * lash.tip.y,
-            )
-        }
-        val ridge = Path().apply {
-            ridgePoints.forEachIndexed { index, point ->
-                val taper = if (index <= 4) index / 4f else (8 - index) / 4f
-                val x = point.x - lash.width * 0.09f * taper
-                if (index == 0) moveTo(x, point.y) else lineTo(x, point.y)
-            }
-            ridgePoints.indices.reversed().forEach { index ->
-                val point = ridgePoints[index]
-                val taper = if (index <= 4) index / 4f else (8 - index) / 4f
-                lineTo(point.x + lash.width * 0.09f * taper, point.y)
-            }
-            close()
-        }
-        drawPath(ridge, Color(0xFF52391D).copy(alpha = lash.alpha * 0.64f))
-    }
-}
-
-private fun DrawScope.drawEyelidContactShadow(
-    layerFit: LivingEyeLayerFit,
-    phase: Float,
-    profile: LivingEyeIntegrationProfile,
-) {
-    val closure = phase.coerceIn(0f, 1f)
-
-    fun drawContour(path: Path, alphaMultiplier: Float) {
-        val alpha = profile.contactSeamAlpha * alphaMultiplier
-        if (alpha <= 0.01f) return
-        drawPath(
-            path = path,
-            color = EYE_CONTACT_SHADOW.copy(alpha = alpha),
-            style = Stroke(
-                width = profile.contactSeamWidthPx,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            ),
-        )
-    }
-
-    val apertureShadowAlpha = 1f - closure
-    drawContour(
-        eyelidContactPath(layerFit, closure, upper = true),
-        alphaMultiplier = apertureShadowAlpha,
-    )
-    drawContour(
-        eyelidContactPath(layerFit, closure, upper = false),
-        alphaMultiplier = apertureShadowAlpha,
-    )
-}
-
-private fun eyelidContactPath(
-    layerFit: LivingEyeLayerFit,
-    closure: Float,
-    upper: Boolean,
-): Path {
-    val contour = livingEyeApertureContour(layerFit, closure, seamOverlapPx = 0f)
-    val points = if (upper) contour.upper else contour.lower
-    return Path().apply {
-        points.forEachIndexed { index, point ->
-            if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
-        }
-    }
-}
-
-private fun LivingEyeApertureContour.toPath(): Path = Path().apply {
-    upper.forEachIndexed { index, point ->
-        if (index == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
-    }
-    lower.asReversed().forEach { point ->
-        lineTo(point.x, point.y)
-    }
-    close()
-}
-
-private fun sourcePoint(layerFit: LivingEyeLayerFit, x: Float, y: Float): Offset = Offset(
-    layerFit.mapSourceX(x),
-    layerFit.mapSourceY(y),
-)
-
-private const val SCLERA_X = 300f
-private const val SCLERA_Y = 900f
-private const val SCLERA_WIDTH = 740f
-private const val SCLERA_HEIGHT = 300f
-
-private const val IRIS_X = 535f
-private const val IRIS_Y = 900f
-private const val IRIS_SIZE = 292f
-private const val PUPIL_CENTER_X = 681f
-private const val PUPIL_CENTER_Y = 1045f
 private const val PUPIL_NEUTRAL_RADIUS = 54f
 private const val PUPIL_BRIGHT_SCALE = 43f / PUPIL_NEUTRAL_RADIUS
 private const val PUPIL_DARK_SCALE = 66f / PUPIL_NEUTRAL_RADIUS
-
-private const val CATCHLIGHT_X = 635f
-private const val CATCHLIGHT_Y = 945f
-private const val CATCHLIGHT_SIZE = 90f
-private const val CATCHLIGHT_GAZE_FRACTION = 0.08f
-
 private const val MAX_GAZE_X = 7f
 private const val MAX_GAZE_Y = 4f
 private const val BLINK_NASAL_SHIFT = 1.2f
 private const val BLINK_DOWN_SHIFT = 2f
-
-// Свечение: на подключении пульсирует между MIN и MAX, на «подключено» держится ровно.
-private const val GLOW_CONNECTING_MIN = 0.45f
-private const val GLOW_CONNECTING_MAX = 1f
-private const val GLOW_CONNECTED = 0.7f
-// Доля радиуса, до которой свет полностью прозрачен: центр не засвечиваем. 0.82 и alpha 0.22
-// вместо прежних 0.55 и 0.5 — при них свет ложился пеленой поверх глаза (владелец 31.07).
-private const val GLOW_INNER_EDGE = 0.82f
-private const val GLOW_OUTER_FADE_START = 0.98f
-private const val GLOW_MAX_ALPHA = 0.22f
-private val GLOW_TINT = Color(0xFF2EBE6C)
-private val EYE_CONTACT_SHADOW = Color(0xFF061409)
