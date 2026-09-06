@@ -458,12 +458,70 @@ func (s *Service) EnsureWhiteListMeteringBootstrap(ctx context.Context, workerID
 	if err != nil {
 		return err
 	}
-	if len(state.previous) != 0 || len(state.origins) == 0 {
+	if len(state.origins) == 0 {
 		return nil
 	}
 	selected := ""
+	replacingEmpty := len(state.previous) != 0
+	if replacingEmpty {
+		managed, previousExit, err := whiteListPreviousManagedState(state.previous)
+		if err != nil {
+			return err
+		}
+		if len(managed) != 0 {
+			return nil
+		}
+		changed := false
+		reads := make([]rqlite.Statement, 0, len(state.origins))
+		for index, origin := range state.origins {
+			prior, exists := state.previous[origin.OriginID]
+			if !exists {
+				return ErrUnavailable
+			}
+			changed = changed || prior.ReleaseID != origin.ReleaseID || prior.ConfigDigest != origin.ConfigDigest
+			state.origins[index].StaticUsers = append([]string{}, prior.StaticUsers...)
+			// An explicitly changed release/config may replace a never-used
+			// empty bootstrap. Retain every old desired/action/receipt and deny
+			// this path if any admitted lifetime or accounting tail exists.
+			reads = append(reads, rqlite.Statement{SQL: `SELECT
+EXISTS(SELECT 1 FROM whitelist_sidecar_origins WHERE origin_id=? AND release_id=? AND config_digest=? AND active=1)
+AND EXISTS(SELECT 1 FROM whitelist_sidecar_desired WHERE origin_id=? AND action_key=?
+AND desired_generation=(SELECT MAX(desired_generation) FROM whitelist_sidecar_desired WHERE origin_id=?))
+AND NOT EXISTS(SELECT 1 FROM whitelist_first_use_admissions WHERE origin_id=?)
+AND NOT EXISTS(SELECT 1 FROM whitelist_byte_allocations WHERE origin_id=?)
+AND NOT EXISTS(SELECT 1 FROM whitelist_metering_events WHERE instance_id=?)
+AND NOT EXISTS(SELECT 1 FROM whitelist_sidecar_desired WHERE origin_id=?
+AND json_array_length(CAST(payload_json AS TEXT),'$.managed_users')>0) AS unused_history`, Args: []any{
+				origin.OriginID, origin.ReleaseID, origin.ConfigDigest, origin.OriginID,
+				prior.Action.ActionKey, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID, origin.OriginID,
+			}})
+		}
+		if !changed {
+			return nil
+		}
+		exit, exists := state.exits[previousExit]
+		if !exists || !exit.Healthy {
+			return ErrUnavailable
+		}
+		results, err := s.store.db.QueryLinearizable(ctx, reads...)
+		if err != nil || len(results) != len(reads) {
+			return ErrUnavailable
+		}
+		for index := range results {
+			row, ok := firstRow(results[index : index+1])
+			unused, valid := rowInt64(row, "unused_history")
+			if !ok || !valid || unused != 1 {
+				return ErrUnavailable
+			}
+		}
+		selected = previousExit
+	}
+	eligible := false
 	for entitlementID := range state.publications {
 		for exitID := range state.credentials[entitlementID] {
+			if replacingEmpty && exitID != selected {
+				continue
+			}
 			if _, _, _, err := s.whiteListAdmissionBase(ctx, entitlementID, exitID); err != nil {
 				continue
 			}
@@ -471,9 +529,10 @@ func (s *Service) EnsureWhiteListMeteringBootstrap(ctx context.Context, workerID
 				return ErrUnavailable
 			}
 			selected = exitID
+			eligible = true
 		}
 	}
-	if selected == "" {
+	if selected == "" || !eligible {
 		return nil
 	}
 	_, err = s.ReconcileWhiteListSidecarGeneration(ctx, state.previous, state.origins, nil, state.exits[selected], workerID, resolve)
