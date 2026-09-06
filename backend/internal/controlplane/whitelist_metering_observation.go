@@ -404,10 +404,7 @@ func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entit
 				freshUntil = deadline
 			}
 		}
-		if observed == 0 && allowAwaiting {
-			if requiredDesired != nil && !whiteListContainsUser(origin.unavailable, email) {
-				return 0, 0, false
-			}
+		if allowAwaiting && whiteListContainsUser(origin.unavailable, email) {
 			awaiting = true
 			continue
 		}
