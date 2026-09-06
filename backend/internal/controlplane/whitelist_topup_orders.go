@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
@@ -531,35 +532,64 @@ func (s *Service) ConfirmWhiteListTopUpPayment(
 		accessOrderID, periodEndsAtUnix, accessErr := s.whiteListTopUpAccessOrder(
 			ctx, record.View.EntitlementID, nowUnix,
 		)
-		if accessErr != nil {
+		if errors.Is(accessErr, ErrConflict) && len(loaded.State.Periods) == 0 {
+			// A customer created in the ordinary panel has real active access but
+			// no native access order. Capture that existing access with zero bytes;
+			// payment, purchased credit and publication remain in the transaction below.
+			if err := s.ensureWhiteListAdminAccessPeriod(ctx, SetWhiteListPublicationCommand{
+				EntitlementID:  record.View.EntitlementID,
+				IdempotencyKey: whiteListSourceKey("topup-first-access", command.OrderID),
+				Actor:          command.Actor,
+			}); err != nil {
+				return ConfirmWhiteListTopUpPaymentResult{}, err
+			}
+			nowUnix = s.clock.Now().Unix()
+			loaded, err = s.loadWhiteListBalance(ctx, nowUnix, record.View.EntitlementID)
+			if err != nil {
+				return ConfirmWhiteListTopUpPaymentResult{}, err
+			}
+			if loaded.RenewalPending {
+				return ConfirmWhiteListTopUpPaymentResult{}, ErrUnavailable
+			}
+			if !loaded.PrimaryActive || loaded.CommercialPending {
+				return ConfirmWhiteListTopUpPaymentResult{}, ErrConflict
+			}
+			period, ok = activeWhiteListTopUpPeriod(loaded.State.Periods, nowUnix)
+			if !ok {
+				return ConfirmWhiteListTopUpPaymentResult{}, ErrConflict
+			}
+			creditState = loaded.State
+		} else if accessErr != nil {
 			return ConfirmWhiteListTopUpPaymentResult{}, accessErr
 		}
-		periodID, idErr := s.ids.NewID("whitelist-period")
-		if idErr != nil {
-			return ConfirmWhiteListTopUpPaymentResult{}, ErrUnavailable
+		if !ok {
+			periodID, idErr := s.ids.NewID("whitelist-period")
+			if idErr != nil {
+				return ConfirmWhiteListTopUpPaymentResult{}, ErrUnavailable
+			}
+			periodOperationID, idErr := s.ids.NewID("whitelist-topup-period")
+			if idErr != nil {
+				return ConfirmWhiteListTopUpPaymentResult{}, ErrUnavailable
+			}
+			period, err = newWhiteListTopUpPeriod(
+				loaded.State.Periods, periodID, accessOrderID, nowUnix, periodEndsAtUnix,
+			)
+			if err != nil {
+				return ConfirmWhiteListTopUpPaymentResult{}, ErrConflict
+			}
+			scheduled, scheduleErr := whitelistbalance.SchedulePeriod(
+				loaded.State,
+				whitelistbalance.SchedulePeriodRequest{
+					OperationID: periodOperationID, NowUnix: nowUnix, Period: period,
+				},
+				nil,
+			)
+			if scheduleErr != nil || len(scheduled.Journal) != 0 || scheduled.Result.Projection.Pending {
+				return ConfirmWhiteListTopUpPaymentResult{}, ErrConflict
+			}
+			scheduledPeriod = &scheduled
+			creditState = scheduled.State
 		}
-		periodOperationID, idErr := s.ids.NewID("whitelist-topup-period")
-		if idErr != nil {
-			return ConfirmWhiteListTopUpPaymentResult{}, ErrUnavailable
-		}
-		period, err = newWhiteListTopUpPeriod(
-			loaded.State.Periods, periodID, accessOrderID, nowUnix, periodEndsAtUnix,
-		)
-		if err != nil {
-			return ConfirmWhiteListTopUpPaymentResult{}, ErrConflict
-		}
-		scheduled, scheduleErr := whitelistbalance.SchedulePeriod(
-			loaded.State,
-			whitelistbalance.SchedulePeriodRequest{
-				OperationID: periodOperationID, NowUnix: nowUnix, Period: period,
-			},
-			nil,
-		)
-		if scheduleErr != nil || len(scheduled.Journal) != 0 || scheduled.Result.Projection.Pending {
-			return ConfirmWhiteListTopUpPaymentResult{}, ErrConflict
-		}
-		scheduledPeriod = &scheduled
-		creditState = scheduled.State
 	}
 	operationID, err := s.ids.NewID("whitelist-topup-confirm")
 	if err != nil {
