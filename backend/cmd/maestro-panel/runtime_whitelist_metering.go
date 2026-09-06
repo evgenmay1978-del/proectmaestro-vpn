@@ -272,6 +272,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	defer cancelSampling()
 	snapshots := make(map[string]sidecaragentclient.UsageSnapshot, len(plan.Origins))
 	snapshotReceivedAt := make(map[string]time.Time, len(plan.Origins))
+	freshAvailable := make(map[string]map[string]struct{}, len(plan.Origins))
 	for _, origin := range plan.Origins {
 		stage = "origin usage lookup"
 		sender, ok := collector.senders[origin.Origin.NodeID]
@@ -358,7 +359,6 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		leaseContext, cancelLease := context.WithTimeout(reconcileContext, processingBudget)
 		defer cancelLease()
 		ctx = leaseContext
-		freshAvailable := make(map[string]map[string]struct{}, len(plan.Origins))
 		stage = "lease challenge refresh"
 		for _, origin := range plan.Origins {
 			sender := collector.senders[origin.Origin.NodeID]
@@ -434,9 +434,11 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		if ctx.Err() != nil {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
-		for email := range authorizedRoutes {
-			if _, ok := freshAvailable[origin.Origin.OriginID][email]; !ok {
-				return errRuntimeWhiteListMeteringUnavailable
+		if collector.byteBudgetBytes > 0 {
+			for email := range authorizedRoutes {
+				if _, ok := freshAvailable[origin.Origin.OriginID][email]; !ok {
+					return errRuntimeWhiteListMeteringUnavailable
+				}
 			}
 		}
 		// FreshFor is remaining time at authorization. Convert it once to a
