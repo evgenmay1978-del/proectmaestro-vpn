@@ -15,6 +15,9 @@ type WhiteListUseLeaseAuthorization struct {
 	Emails               []string
 	FreshFor             time.Duration
 	FreshnessEvaluatedAt time.Time
+	// ProvisioningComplete only permits skipping duplicate reconciliation;
+	// it grants no runtime authority and defaults to false.
+	ProvisioningComplete bool
 	// Missing entries retain the explicit legacy measured mode. Byte mode is
 	// bound independently for each physical Origin and shared account email.
 	CumulativeByteCeilings     map[string]map[string]int64
@@ -276,6 +279,22 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	remaining := until.Sub(evaluatedAt)
 	if remaining <= 0 || remaining > 5*time.Second {
 		return WhiteListUseLeaseAuthorization{Emails: []string{}}, ErrUnavailable
+	}
+	prepared := make(map[string]bool, len(plan.Routes))
+	for _, route := range plan.Routes {
+		entitlementID := route.Entitlement.EntitlementID()
+		if _, stored := state.credentials[entitlementID][route.ExitID]; stored && routeCredentialAlreadyDesired(&state, entitlementID, route.ExitID) {
+			prepared[entitlementID] = true
+		}
+	}
+	closed.ProvisioningComplete = len(plan.Routes) > 0 && len(state.origins) > 0
+	for entitlementID, publication := range state.publications {
+		if publication.Enabled && publication.PrimaryStatus == "active" && publication.PrimaryExpiresAtUnix > evaluatedAt.Unix() && !prepared[entitlementID] {
+			// Discovery omits identities without route credentials. They still
+			// require reconciliation, even when every existing route is renewed.
+			closed.ProvisioningComplete = false
+			break
+		}
 	}
 	sort.Strings(closed.Emails)
 	closed.FreshFor = remaining

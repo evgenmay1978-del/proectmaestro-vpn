@@ -229,12 +229,16 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		return fmt.Errorf("metering plan after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
 	}
 	var candidates []controlplane.WhiteListMeteringAdmissionCandidate
+	unchangedByteRoutes := false
 	if collector.byteBudgetBytes > 0 {
 		stage = "candidate preparation"
 		candidates, err = collector.control.WhiteListMeteringAdmissionCandidates(ctx)
 		if err != nil {
 			return err
 		}
+		// Compare the full candidate set before funded routes are filtered out.
+		// A first admission or changed membership still needs reconciliation.
+		unchangedByteRoutes = runtimeWhiteListCandidatesMatchPlan(candidates, plan)
 		if refill, ok := collector.control.(runtimeWhiteListByteBudgetRefillControlPlane); ok {
 			candidates, err = refill.WhiteListByteBudgetRefillCandidates(ctx, plan, candidates, collector.byteBudgetBytes)
 			if err != nil {
@@ -339,6 +343,17 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	if err != nil {
 		return fmt.Errorf("lease authorization: %w (context: %v)", err, ctx.Err())
 	}
+	authorizedRoutes := make(map[string]struct{}, len(authorization.Emails))
+	for _, email := range authorization.Emails {
+		if _, exists := routes[email]; !exists {
+			unchangedByteRoutes = false
+		}
+		if _, duplicate := authorizedRoutes[email]; duplicate {
+			unchangedByteRoutes = false
+		}
+		authorizedRoutes[email] = struct{}{}
+	}
+	unchangedByteRoutes = unchangedByteRoutes && len(authorizedRoutes) == len(routes)
 	// One common conservative budget is anchored to each agent's own earlier
 	// read start. Backend wall time is never compared with remote BOOTTIME.
 	for _, origin := range plan.Origins {
@@ -369,7 +384,39 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			return fmt.Errorf("lease delivery: %w (context: %v)", err, ctx.Err())
 		}
 	}
+	if unchangedByteRoutes && authorization.ProvisioningComplete {
+		// Every exact existing route was freshly authorized and installed after
+		// settlement. Repeating membership reconciliation would change nothing
+		// and delay the next sample; every error path retains the normal defer.
+		collector.reconcileNeeded = false
+	}
 	return nil
+}
+
+func runtimeWhiteListCandidatesMatchPlan(candidates []controlplane.WhiteListMeteringAdmissionCandidate, plan controlplane.WhiteListMeteringPlan) bool {
+	if len(plan.Origins) == 0 || len(plan.Routes) == 0 || len(candidates) != len(plan.Routes) {
+		return false
+	}
+	remaining := make(map[controlplane.WhiteListMeteringAdmissionCandidate]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.EntitlementID == "" || candidate.ExitID == "" {
+			return false
+		}
+		if _, duplicate := remaining[candidate]; duplicate {
+			return false
+		}
+		remaining[candidate] = struct{}{}
+	}
+	for _, route := range plan.Routes {
+		candidate := controlplane.WhiteListMeteringAdmissionCandidate{
+			EntitlementID: route.Entitlement.EntitlementID(), ExitID: route.ExitID,
+		}
+		if _, exists := remaining[candidate]; !exists {
+			return false
+		}
+		delete(remaining, candidate)
+	}
+	return len(remaining) == 0
 }
 
 // Drain retained evidence before requesting a new usage nonce, including
