@@ -356,8 +356,16 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	unchangedByteRoutes = unchangedByteRoutes && len(authorizedRoutes) == len(routes)
 	// One common conservative budget is anchored to each agent's own earlier
 	// read start. Backend wall time is never compared with remote BOOTTIME.
+	// Prepare every request before delivering any of them, then deliver once per
+	// distinct node in parallel. Sequential cross-Origin delivery can consume a
+	// later agent's five-second nonce before its request reaches that agent.
+	type leaseDelivery struct {
+		originID string
+		sender   runtimeWhiteListLeaseSender
+		request  sidecaragentclient.UseLeaseRequest
+	}
+	deliveries := make([]leaseDelivery, 0, len(plan.Origins))
 	for _, origin := range plan.Origins {
-		stage = "use lease delivery"
 		if ctx.Err() != nil {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
@@ -380,8 +388,23 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			return fmt.Errorf("lease request: %w (context: %v)", err, ctx.Err())
 		}
 		sender := collector.senders[origin.Origin.NodeID].(runtimeWhiteListLeaseSender)
-		if _, err := sender.PostUseLease(ctx, request); err != nil {
-			return fmt.Errorf("lease delivery: %w (context: %v)", err, ctx.Err())
+		deliveries = append(deliveries, leaseDelivery{originID: origin.Origin.OriginID, sender: sender, request: request})
+	}
+	stage = "use lease delivery"
+	deliveryErrors := make([]error, len(deliveries))
+	var deliveriesWait sync.WaitGroup
+	deliveriesWait.Add(len(deliveries))
+	for index := range deliveries {
+		index := index
+		go func() {
+			defer deliveriesWait.Done()
+			_, deliveryErrors[index] = deliveries[index].sender.PostUseLease(ctx, deliveries[index].request)
+		}()
+	}
+	deliveriesWait.Wait()
+	for index, deliveryErr := range deliveryErrors {
+		if deliveryErr != nil {
+			return fmt.Errorf("lease delivery to %s: %w (context: %v)", deliveries[index].originID, deliveryErr, ctx.Err())
 		}
 	}
 	if unchangedByteRoutes && authorization.ProvisioningComplete {
