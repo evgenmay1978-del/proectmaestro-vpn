@@ -98,6 +98,9 @@ func (e *TransportError) Unwrap() error { return e.Err }
 // Config defines cluster endpoints and optional HTTP mTLS/Basic Auth.
 type Config struct {
 	Endpoints []string
+	// PreferFirstEndpoint keeps the first endpoint until a transport failure;
+	// default false retains round-robin selection.
+	PreferFirstEndpoint bool
 
 	Username string
 	Password string
@@ -128,6 +131,7 @@ type Client struct {
 	maxResponseBytes int64
 	maxBackupBytes   int64
 	next             atomic.Uint64
+	preferFirst      bool
 }
 
 // New validates all configuration and builds an HTTP client which never
@@ -178,6 +182,7 @@ func New(cfg Config) (*Client, error) {
 		},
 		maxResponseBytes: maxResponseBytes,
 		maxBackupBytes:   maxBackupBytes,
+		preferFirst:      cfg.PreferFirstEndpoint,
 	}, nil
 }
 
@@ -248,8 +253,12 @@ func (c *Client) Request(
 	transaction bool,
 	statements ...Statement,
 ) ([]Result, error) {
-	endpoint := c.endpoints[c.startIndex()]
-	return c.requestAt(ctx, endpoint, level, transaction, true, statements)
+	index := c.startIndex()
+	results, err := c.requestAt(ctx, c.endpoints[index], level, transaction, true, statements)
+	// An uncertain write is never replayed. Only the next request may use a
+	// different endpoint, while the caller resolves this operation's outcome.
+	c.rotateFailedEndpoint(ctx, index, err)
+	return results, err
 }
 
 // QueryLinearizable may try each configured endpoint once because it is
@@ -277,11 +286,15 @@ func (c *Client) query(
 	start := c.startIndex()
 	var lastErr error
 	for offset := range c.endpoints {
-		endpoint := c.endpoints[(start+offset)%len(c.endpoints)]
-		results, err := c.requestAt(ctx, endpoint, level, false, false, statements)
+		index := (start + offset) % len(c.endpoints)
+		results, err := c.requestAt(ctx, c.endpoints[index], level, false, false, statements)
 		if err == nil {
+			if c.preferFirst && offset > 0 {
+				c.next.Store(uint64(index))
+			}
 			return results, nil
 		}
+		c.rotateFailedEndpoint(ctx, index, err)
 		var statementErr *StatementError
 		if errors.As(err, &statementErr) || ctx.Err() != nil {
 			return nil, err
@@ -292,7 +305,20 @@ func (c *Client) query(
 }
 
 func (c *Client) startIndex() int {
+	if c.preferFirst {
+		return int(c.next.Load() % uint64(len(c.endpoints)))
+	}
 	return int((c.next.Add(1) - 1) % uint64(len(c.endpoints)))
+}
+
+func (c *Client) rotateFailedEndpoint(ctx context.Context, index int, err error) {
+	if !c.preferFirst || ctx == nil || errors.Is(ctx.Err(), context.Canceled) {
+		return
+	}
+	var transportErr *TransportError
+	if errors.As(err, &transportErr) {
+		c.next.CompareAndSwap(uint64(index), uint64((index+1)%len(c.endpoints)))
+	}
 }
 
 func (c *Client) requestAt(

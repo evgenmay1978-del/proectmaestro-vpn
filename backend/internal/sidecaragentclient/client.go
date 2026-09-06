@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -544,7 +545,7 @@ func (client *Client) leaseJSON(ctx context.Context, method, path string, value,
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return 0, ErrDeliveryUnknown
+		return 0, fmt.Errorf("%w (lease transport deadline: %t)", ErrDeliveryUnknown, errors.Is(bounded.Err(), context.DeadlineExceeded))
 	}
 	defer response.Body.Close()
 	responseLimit := maxUsageResponseBytes
@@ -555,12 +556,12 @@ func (client *Client) leaseJSON(ctx context.Context, method, path string, value,
 	}
 	raw, err = io.ReadAll(io.LimitReader(response.Body, int64(responseLimit)+1))
 	if err != nil || len(raw) == 0 || len(raw) > responseLimit {
-		return response.StatusCode, ErrDeliveryUnknown
+		return response.StatusCode, fmt.Errorf("%w (lease HTTP %d, body bytes %d, read error %t)", ErrDeliveryUnknown, response.StatusCode, len(raw), err != nil)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(target) != nil {
-		return response.StatusCode, ErrDeliveryUnknown
+		return response.StatusCode, fmt.Errorf("%w (lease HTTP %d, invalid JSON shape)", ErrDeliveryUnknown, response.StatusCode)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {

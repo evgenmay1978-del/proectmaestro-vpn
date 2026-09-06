@@ -76,7 +76,8 @@ func buildRQLitePanelRuntime(
 	}
 	database, err := dependencies.newClient(rqlite.Config{
 		Endpoints: config.Endpoints, CAFile: config.CAFile, CertFile: config.CertFile, KeyFile: config.KeyFile,
-		Timeout: 10 * time.Second, MaxResponseBytes: 8 << 20, MaxBackupBytes: 1 << 30,
+		PreferFirstEndpoint: true,
+		Timeout:             10 * time.Second, MaxResponseBytes: 8 << 20, MaxBackupBytes: 1 << 30,
 	})
 	if err != nil || database == nil {
 		return nil, fmt.Errorf("rqlite runtime: client unavailable: %w", err)
@@ -234,9 +235,10 @@ func rqliteServiceBusinessConfig(
 		SubBaseURL: apiConfig.SubBaseURL, SBPPhone: apiConfig.SBPPhone,
 		PayURL: apiConfig.PayURL, TrialDays: apiConfig.TrialDays,
 		WBRoomSender: wbSender, WorkerID: workerID,
-		SubscriptionTopology:       rqliteSubscriptionTopologyFromEnvironment(),
-		DeviceLimitFor:             rqliteDeviceLimitFor(apiConfig.EnforceDeviceLimit),
-		WhiteListPublicationSource: publicationSource,
+		SubscriptionTopology:        rqliteSubscriptionTopologyFromEnvironment(),
+		DeviceLimitFor:              rqliteDeviceLimitFor(apiConfig.EnforceDeviceLimit),
+		WhiteListPublicationSource:  publicationSource,
+		WhiteListPublicationTimeout: 5 * time.Second,
 	}
 }
 
