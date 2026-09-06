@@ -22,16 +22,18 @@ import (
 const maxLegacyLinksBytes = ((1 << 20) + 2) / 3 * 4
 
 // WrapLegacySubscriptions keeps the live legacy server authoritative for token,
-// expiry, device admission and every ordinary subscription byte. Only an already
-// accepted base64 share-link response can receive paid native CDN publication.
+// expiry, device admission and all ordinary protocol settings. Verified endpoint
+// labels may add country names. Only an already accepted base64 share-link
+// response can receive paid native CDN publication.
 // JSON, helper/info responses and all legacy rejection responses pass unchanged.
 func WrapLegacySubscriptions(
 	next http.Handler,
 	upstream string,
 	publication WhiteListPublicationSource,
 	publicationTimeout time.Duration,
+	topologies ...subgen.Customer,
 ) (http.Handler, error) {
-	if next == nil {
+	if next == nil || len(topologies) > 1 {
 		return nil, errors.New("legacy subscription upstream unavailable")
 	}
 	if upstream == "" {
@@ -49,6 +51,10 @@ func WrapLegacySubscriptions(
 	}
 	if publicationTimeout <= 0 {
 		publicationTimeout = time.Second
+	}
+	var labeler legacyShareLabeler
+	if len(topologies) == 1 {
+		labeler = newLegacyShareLabeler(topologies[0])
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
@@ -88,7 +94,7 @@ func WrapLegacySubscriptions(
 		}
 	}
 	proxy.ModifyResponse = func(response *http.Response) error {
-		return appendLegacyPaidWhiteList(response, publication, publicationTimeout)
+		return appendLegacyPaidWhiteList(response, publication, publicationTimeout, labeler)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if strings.HasPrefix(request.URL.Path, "/sub/") {
@@ -115,6 +121,7 @@ func appendLegacyPaidWhiteList(
 	response *http.Response,
 	publication WhiteListPublicationSource,
 	timeout time.Duration,
+	labelers ...legacyShareLabeler,
 ) error {
 	token := legacySubscriptionToken(response.Request)
 	if token == "" || response.StatusCode != http.StatusOK || response.Body == nil {
@@ -124,7 +131,11 @@ func appendLegacyPaidWhiteList(
 	if err != nil || mediaType != "text/plain" || response.Header.Get("Content-Encoding") != "" {
 		return nil
 	}
-	if publication == nil {
+	var labeler legacyShareLabeler
+	if len(labelers) == 1 {
+		labeler = labelers[0]
+	}
+	if publication == nil && labeler == nil {
 		response.Header.Set("X-Maestro-CDN", "disabled")
 		return nil
 	}
@@ -143,6 +154,16 @@ func appendLegacyPaidWhiteList(
 	// Validate the actual representation, independent of client query spelling.
 	// No JSON-to-links conversion can discard or alter legacy protocol settings.
 	if _, err := subgen.AppendWhiteListShareLinks(string(ordinary), nil); err != nil {
+		return nil
+	}
+	if labeler != nil {
+		if renamed, err := labeler(string(ordinary)); err == nil && renamed != string(ordinary) {
+			ordinary = []byte(renamed)
+			setLegacySubscriptionBody(response, renamed)
+		}
+	}
+	if publication == nil {
+		response.Header.Set("X-Maestro-CDN", "disabled")
 		return nil
 	}
 	now := time.Now().UTC()
@@ -167,19 +188,23 @@ func appendLegacyPaidWhiteList(
 		response.Header.Set("X-Maestro-CDN", "unavailable")
 		return nil
 	}
-	response.Body = io.NopCloser(strings.NewReader(augmented))
-	response.ContentLength = int64(len(augmented))
-	response.Header.Set("Content-Length", fmt.Sprint(len(augmented)))
-	response.Header.Set("Cache-Control", "no-store")
+	setLegacySubscriptionBody(response, augmented)
 	response.Header.Set("X-Maestro-CDN", "included")
+	return nil
+}
+
+func setLegacySubscriptionBody(response *http.Response, document string) {
+	response.Body = io.NopCloser(strings.NewReader(document))
+	response.ContentLength = int64(len(document))
+	response.Header.Set("Content-Length", fmt.Sprint(len(document)))
+	response.Header.Set("Cache-Control", "no-store")
 	response.Header.Del("Last-Modified")
 	response.Header.Del("Content-MD5")
 	response.Header.Del("Digest")
 	response.Header.Del("Content-Range")
 	response.Header.Del("Accept-Ranges")
-	sum := sha256.Sum256([]byte(augmented))
+	sum := sha256.Sum256([]byte(document))
 	response.Header.Set("ETag", fmt.Sprintf("\"%x\"", sum))
-	return nil
 }
 
 type legacySubscriptionReadCloser struct {
