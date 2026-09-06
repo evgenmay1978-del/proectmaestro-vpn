@@ -33,10 +33,15 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 			resultErr = credentialErr
 		}
 	}()
-	previousEntitlements, previousExit, err := whiteListPreviousManagedState(state.previous)
+	previousRoutes, previousExit, err := whiteListPreviousManagedRoutes(state.previous)
 	if err != nil {
 		return err
 	}
+	previousEntitlements := make(map[string]struct{}, len(previousRoutes))
+	for _, route := range previousRoutes {
+		previousEntitlements[route.EntitlementID] = struct{}{}
+	}
+	exits, exitsReady := whiteListRequiredRuntimeExits(state.exits)
 	now := s.clock.Now()
 	releaseID := ""
 	releaseBindingExact := true
@@ -58,36 +63,58 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 	}
 	factsByEntitlement := make(map[string]WhiteListPublicationFacts, len(state.publications))
 	decisions := make(map[string]WhiteListPublicationDecision, len(state.publications))
-	provisioningExits := make(map[string]string)
+	provisioning := make(map[string]bool)
 	targetEntitlements := make([]string, 0, len(state.publications))
 	for entitlementID, publication := range state.publications {
 		facts, factsErr := s.whiteListRuntimePublicationFacts(ctx, now.Unix(), entitlementID, publication)
 		if factsErr != nil {
 			return factsErr
 		}
-		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReadyFromState(
-			ctx, entitlementID, previousExit, state.previous, state,
-		)
 		facts.ReleaseBindingExact = releaseBindingExact
-		facts.CredentialUsable = whiteListRuntimeCredentialUsable(state.credentials[entitlementID], state.exits)
-		// This is the durable enable edge that the current pass is about to
-		// reconcile. Exact receipt readiness replaces it after delivery below.
+		facts.CredentialUsable = exitsReady && whiteListRuntimeCredentialUsable(state.credentials[entitlementID], state.exits)
 		facts.DesiredGeneration = 1
 		facts.ReceiptSetReady = approvedNodeCount > 0
 		facts.ReceiptsFreshUntilUnix = now.Unix() + 1
 		facts.ApprovedNodeCount = approvedNodeCount
+		if facts.CredentialUsable {
+			ready := true
+			for _, exit := range exits {
+				through, until := s.whiteListMeteringPublicationReadyFromState(
+					ctx, entitlementID, exit.ExitID, state.previous, state,
+				)
+				if until <= now.Unix() {
+					ready = false
+					break
+				}
+				if facts.ObservedThroughUnix == 0 || (through > 0 && through < facts.ObservedThroughUnix) {
+					facts.ObservedThroughUnix = through
+				}
+				if facts.AdmissionFreshUntilUnix == 0 || until < facts.AdmissionFreshUntilUnix {
+					facts.AdmissionFreshUntilUnix = until
+				}
+			}
+			if !ready {
+				facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = 0, 0
+			}
+		}
 		decision := EvaluateWhiteListPublication(facts)
 		factsByEntitlement[entitlementID] = facts
 		decisions[entitlementID] = decision
 		if decision.Verdict == WhiteListPublicationPublishable {
 			targetEntitlements = append(targetEntitlements, entitlementID)
-		} else if releaseBindingExact {
-			for exitID := range state.credentials[entitlementID] {
-				if _, _, ready := s.whiteListMeteringReadinessFromState(ctx, entitlementID, exitID, true, nil, state); ready {
-					provisioningExits[entitlementID] = exitID
-					targetEntitlements = append(targetEntitlements, entitlementID)
+			continue
+		}
+		if releaseBindingExact && facts.CredentialUsable {
+			allAwaiting := true
+			for _, exit := range exits {
+				if _, _, ready := s.whiteListMeteringReadinessFromState(ctx, entitlementID, exit.ExitID, true, nil, state); !ready {
+					allAwaiting = false
 					break
 				}
+			}
+			if allAwaiting {
+				provisioning[entitlementID] = true
+				targetEntitlements = append(targetEntitlements, entitlementID)
 			}
 		}
 	}
@@ -95,42 +122,33 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 	if len(targetEntitlements) == 0 && len(previousEntitlements) == 0 {
 		return nil
 	}
-
-	selectedExit, err := whiteListSelectedRuntimeExit(
-		targetEntitlements, previousExit, state.credentials, state.exits,
-	)
+	selectedExit, err := whiteListSelectedRuntimeExit(targetEntitlements, previousExit, state.credentials, state.exits)
 	if err != nil {
 		return err
 	}
 	for entitlementID := range previousEntitlements {
 		decision, ok := decisions[entitlementID]
-		if ok && (decision.Verdict == WhiteListPublicationPublishable || provisioningExits[entitlementID] == selectedExit.ExitID) {
+		if ok && (decision.Verdict == WhiteListPublicationPublishable || provisioning[entitlementID]) {
 			continue
 		}
 		if !ok {
 			decision = closedWhiteListPublication(WhiteListPublicationNoEntitlement)
 		}
-		intent, changed, deriveErr := DeriveWhiteListPublicationIntent(
-			entitlementID, true, decision,
-		)
+		intent, changed, deriveErr := DeriveWhiteListPublicationIntent(entitlementID, true, decision)
 		if deriveErr != nil || !changed || intent.Action != WhiteListPublicationRevoke {
 			return ErrConflict
 		}
 	}
-
 	for index := range state.origins {
 		if previous, ok := state.previous[state.origins[index].OriginID]; ok {
 			state.origins[index].StaticUsers = append([]string{}, previous.StaticUsers...)
 		}
 	}
-	routes := make([]WhiteListManagedRoute, 0, len(targetEntitlements))
+	routes := make([]WhiteListManagedRoute, 0, len(targetEntitlements)*whiteListRequiredExitCount)
 	for _, entitlementID := range targetEntitlements {
-		if exitID, awaiting := provisioningExits[entitlementID]; awaiting {
-			if exitID != selectedExit.ExitID {
-				return ErrUnavailable
-			}
+		for _, exit := range exits {
+			routes = append(routes, WhiteListManagedRoute{EntitlementID: entitlementID, ExitID: exit.ExitID})
 		}
-		routes = append(routes, WhiteListManagedRoute{EntitlementID: entitlementID, ExitID: selectedExit.ExitID})
 	}
 	result, err := s.ReconcileWhiteListSidecarGeneration(
 		ctx, state.previous, state.origins, routes, selectedExit, workerID, resolveSender,
@@ -142,18 +160,15 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		return nil
 	}
 	for _, entitlementID := range targetEntitlements {
-		if _, awaiting := provisioningExits[entitlementID]; awaiting {
-			// Provisioning does not constitute publication. The next authenticated
-			// poll must bind the new generation before it can remain admitted.
+		if provisioning[entitlementID] {
 			if !result.Ready {
 				return ErrUnavailable
 			}
 			continue
 		}
 		facts := factsByEntitlement[entitlementID]
-		_, credentialUsable := state.credentials[entitlementID][selectedExit.ExitID]
 		facts.ReleaseBindingExact = releaseBindingExact && result.ReleaseID == releaseID
-		facts.CredentialUsable = credentialUsable && selectedExit.Healthy
+		facts.CredentialUsable = whiteListRuntimeCredentialUsable(state.credentials[entitlementID], state.exits)
 		facts.DesiredGeneration = result.Generation
 		facts.ReceiptSetReady = result.Ready
 		facts.ReceiptsFreshUntilUnix = result.FreshUntil.Unix()
@@ -215,12 +230,16 @@ func (s *Service) whiteListRuntimePublicationFacts(
 }
 
 func whiteListRuntimeCredentialUsable(available map[string]struct{}, exits map[string]WhiteListExit) bool {
-	for exitID := range available {
-		if exit, ok := exits[exitID]; ok && exit.Healthy {
-			return true
+	required, ok := whiteListRequiredRuntimeExits(exits)
+	if !ok {
+		return false
+	}
+	for _, exit := range required {
+		if _, exists := available[exit.ExitID]; !exists {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (s *Service) loadWhiteListSidecarRuntimeState(ctx context.Context) (whiteListSidecarRuntimeState, error) {
@@ -370,8 +389,7 @@ func whiteListRuntimeDesiredFromRow(row map[string]any) (WhiteListSidecarDesired
 	return desired, nil
 }
 
-func whiteListPreviousManagedState(previous map[string]WhiteListSidecarDesired) (map[string]struct{}, string, error) {
-	managed := make(map[string]struct{})
+func whiteListPreviousManagedRoutes(previous map[string]WhiteListSidecarDesired) ([]WhiteListManagedRoute, string, error) {
 	exitID := ""
 	var canonical []string
 	for _, desired := range previous {
@@ -388,17 +406,25 @@ func whiteListPreviousManagedState(previous map[string]WhiteListSidecarDesired) 
 			return nil, "", ErrConflict
 		}
 	}
+	routes := make([]WhiteListManagedRoute, 0, len(canonical))
 	for _, user := range canonical {
-		prefix := "wl:"
-		suffix := ":" + exitID
-		if !strings.HasPrefix(user, prefix) || !strings.HasSuffix(user, suffix) || len(user) <= len(prefix)+len(suffix) {
+		entitlementID, routeExitID, ok := whiteListMeteringManagedRouteIdentity(user)
+		if !ok {
 			return nil, "", ErrConflict
 		}
-		entitlementID := strings.TrimSuffix(strings.TrimPrefix(user, prefix), suffix)
-		if !validWhiteListID(entitlementID) {
-			return nil, "", ErrConflict
-		}
-		managed[entitlementID] = struct{}{}
+		routes = append(routes, WhiteListManagedRoute{EntitlementID: entitlementID, ExitID: routeExitID})
+	}
+	return routes, exitID, nil
+}
+
+func whiteListPreviousManagedState(previous map[string]WhiteListSidecarDesired) (map[string]struct{}, string, error) {
+	routes, exitID, err := whiteListPreviousManagedRoutes(previous)
+	if err != nil {
+		return nil, "", err
+	}
+	managed := make(map[string]struct{}, len(routes))
+	for _, route := range routes {
+		managed[route.EntitlementID] = struct{}{}
 	}
 	return managed, exitID, nil
 }
@@ -409,45 +435,21 @@ func whiteListSelectedRuntimeExit(
 	credentials map[string]map[string]struct{},
 	exits map[string]WhiteListExit,
 ) (WhiteListExit, error) {
-	if len(entitlementIDs) == 0 {
-		if previousExit == "" {
-			return WhiteListExit{}, ErrUnavailable
-		}
-		exit := exits[previousExit]
-		exit.ExitID = previousExit
-		return exit, nil
-	}
-	common := make(map[string]struct{})
-	for index, entitlementID := range entitlementIDs {
-		available := credentials[entitlementID]
-		if len(available) == 0 {
-			return WhiteListExit{}, ErrUnavailable
-		}
-		if index == 0 {
-			for exitID := range available {
-				common[exitID] = struct{}{}
-			}
-			continue
-		}
-		for exitID := range common {
-			if _, ok := available[exitID]; !ok {
-				delete(common, exitID)
-			}
-		}
-	}
-	selected := ""
-	if _, stable := common[previousExit]; stable {
-		selected = previousExit
-	} else if len(common) == 1 {
-		for exitID := range common {
-			selected = exitID
-		}
-	} else {
-		return WhiteListExit{}, ErrConflict
-	}
-	exit, ok := exits[selected]
-	if !ok || !exit.Healthy {
+	required, ok := whiteListRequiredRuntimeExits(exits)
+	if !ok {
 		return WhiteListExit{}, ErrUnavailable
 	}
-	return exit, nil
+	for _, entitlementID := range entitlementIDs {
+		for _, exit := range required {
+			if _, exists := credentials[entitlementID][exit.ExitID]; !exists {
+				return WhiteListExit{}, ErrUnavailable
+			}
+		}
+	}
+	for _, exit := range required {
+		if exit.ExitID == previousExit {
+			return exit, nil
+		}
+	}
+	return required[0], nil
 }

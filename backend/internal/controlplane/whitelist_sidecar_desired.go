@@ -126,8 +126,14 @@ func buildWhiteListSidecarDesired(
 	previous map[string]WhiteListSidecarDesired, origins []WhiteListOrigin,
 	routes []WhiteListManagedRoute, exit WhiteListExit, renewReadiness bool,
 ) ([]WhiteListSidecarDesired, error) {
-	if _, err := BuildWhiteListRouteMatrix(origins, routes, exit); err != nil {
-		return nil, err
+	if exit.ExitID == "" || !routeCredentialExit(exit.ExitID) ||
+		(len(routes) > 0 && (exit.CountryCode == "" || exit.CountryLabel == "")) {
+		return nil, errors.New("controlplane: invalid white-list exit")
+	}
+	for _, route := range routes {
+		if !validEntitlementID(route.EntitlementID) || !routeCredentialExit(route.ExitID) {
+			return nil, errors.New("controlplane: invalid white-list managed route")
+		}
 	}
 	managedUsers := make([]string, 0, len(routes))
 	seenManaged := make(map[string]struct{}, len(routes))

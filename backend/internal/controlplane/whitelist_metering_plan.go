@@ -117,16 +117,16 @@ func (s *Service) WhiteListMeteringPlan(ctx context.Context) (WhiteListMeteringP
 			PendingFirstCumulativeUsers: []string{},
 		}
 		for _, email := range desired[index].ManagedUsers {
-			entitlementID, valid := whiteListMeteringEntitlementID(email, desired[index].ExitID)
+			entitlementID, exitID, valid := whiteListMeteringManagedRouteIdentity(email)
 			observedOrigin := whiteListObservedOrigin{origin: origin, desired: desired[index], receipt: receipt}
-			row, admissionErr := s.whiteListAdmissionRow(ctx, entitlementID, desired[index].ExitID, observedOrigin)
+			row, admissionErr := s.whiteListAdmissionRow(ctx, entitlementID, exitID, observedOrigin)
 			period, _ := rowString(row, "billing_period_id")
 			admitted, _ := rowInt64(row, "admitted_at_unix")
 			if !valid || admissionErr != nil {
 				meteringOrigin.PendingFirstCumulativeUsers = append(meteringOrigin.PendingFirstCumulativeUsers, email)
 				continue
 			}
-			if _, proofErr := s.whiteListOriginAccountedThrough(ctx, entitlementID, desired[index].ExitID, period, admitted, observedOrigin); proofErr != nil {
+			if _, proofErr := s.whiteListOriginAccountedThrough(ctx, entitlementID, exitID, period, admitted, observedOrigin); proofErr != nil {
 				meteringOrigin.PendingFirstCumulativeUsers = append(meteringOrigin.PendingFirstCumulativeUsers, email)
 			}
 		}
@@ -134,13 +134,14 @@ func (s *Service) WhiteListMeteringPlan(ctx context.Context) (WhiteListMeteringP
 	}
 
 	entitlementIDs := make([]string, len(canonical.ManagedUsers))
+	exitIDs := make([]string, len(canonical.ManagedUsers))
 	periodReads := make([]rqlite.Statement, len(canonical.ManagedUsers))
 	for index, managedEmail := range canonical.ManagedUsers {
-		entitlementID, ok := whiteListMeteringEntitlementID(managedEmail, canonical.ExitID)
+		entitlementID, exitID, ok := whiteListMeteringManagedRouteIdentity(managedEmail)
 		if !ok {
 			return WhiteListMeteringPlan{}, ErrUnavailable
 		}
-		entitlementIDs[index] = entitlementID
+		entitlementIDs[index], exitIDs[index] = entitlementID, exitID
 		periodReads[index] = whiteListMeteringPeriodRead(entitlementID, now.Unix())
 	}
 	if len(periodReads) == 0 {
@@ -167,7 +168,7 @@ func (s *Service) WhiteListMeteringPlan(ctx context.Context) (WhiteListMeteringP
 			!includedOK || includedGrantBytes != 0 {
 			return WhiteListMeteringPlan{}, ErrUnavailable
 		}
-		material, materialErr := s.whiteListClientMaterial(ctx, entitlementID, canonical.ExitID)
+		material, materialErr := s.whiteListClientMaterial(ctx, entitlementID, exitIDs[index])
 		if materialErr != nil {
 			return WhiteListMeteringPlan{}, materialErr
 		}
@@ -190,7 +191,7 @@ func (s *Service) WhiteListMeteringPlan(ctx context.Context) (WhiteListMeteringP
 		}
 		plan.Routes = append(plan.Routes, WhiteListMeteringRoute{
 			ManagedEmail: canonical.ManagedUsers[index],
-			ExitID:       canonical.ExitID,
+			ExitID:       exitIDs[index],
 			Entitlement:  entitlement,
 			Policy: WhiteListMeteringPolicy{
 				BillingPeriodID: periodID, PeriodStartsAtUnix: startsAtUnix, PeriodEndsAtUnix: endsAtUnix,
@@ -214,13 +215,24 @@ func whiteListMeteringManagedUsersCanonical(users []string) bool {
 	return true
 }
 
-func whiteListMeteringEntitlementID(managedEmail, exitID string) (string, bool) {
-	prefix, suffix := "wl:", ":"+exitID
-	if !strings.HasPrefix(managedEmail, prefix) || !strings.HasSuffix(managedEmail, suffix) {
-		return "", false
+func whiteListMeteringManagedRouteIdentity(managedEmail string) (string, string, bool) {
+	if !strings.HasPrefix(managedEmail, "wl:") {
+		return "", "", false
 	}
-	entitlementID := strings.TrimSuffix(strings.TrimPrefix(managedEmail, prefix), suffix)
-	return entitlementID, validEntitlementID(entitlementID) && whiteListManagedEmail(entitlementID, exitID) == managedEmail
+	value := strings.TrimPrefix(managedEmail, "wl:")
+	separator := strings.LastIndexByte(value, ':')
+	if separator <= 0 || separator == len(value)-1 {
+		return "", "", false
+	}
+	entitlementID, exitID := value[:separator], value[separator+1:]
+	valid := validEntitlementID(entitlementID) && routeCredentialExit(exitID) &&
+		whiteListManagedEmail(entitlementID, exitID) == managedEmail
+	return entitlementID, exitID, valid
+}
+
+func whiteListMeteringEntitlementID(managedEmail, exitID string) (string, bool) {
+	entitlementID, managedExitID, ok := whiteListMeteringManagedRouteIdentity(managedEmail)
+	return entitlementID, ok && managedExitID == exitID
 }
 
 func whiteListMeteringPeriodRead(entitlementID string, nowUnix int64) rqlite.Statement {

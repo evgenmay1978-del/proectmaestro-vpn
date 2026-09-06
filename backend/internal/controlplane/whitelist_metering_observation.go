@@ -96,16 +96,16 @@ available_users_json=excluded.available_users_json,unavailable_users_json=exclud
 observation_sha256=excluded.observation_sha256`, Args: []any{receipt.OriginID, receipt.ActionKey,
 		observation.SampledAt.Unix(), now.Unix(), string(available), string(unavailable), hash}}}
 	for _, email := range observation.AvailableUsers {
-		entitlementID, valid := whiteListMeteringEntitlementID(email, desired.ExitID)
+		entitlementID, exitID, valid := whiteListMeteringManagedRouteIdentity(email)
 		if !valid {
 			return ErrConflict
 		}
 		statements = append(statements, rqlite.Statement{SQL: `UPDATE whitelist_first_use_admissions SET first_observed_at_unix=?
 WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=? AND first_observed_at_unix=0`,
-			Args: []any{observation.SampledAt.Unix(), entitlementID, desired.ExitID, receipt.OriginID, receipt.XrayProcessBootID}})
+			Args: []any{observation.SampledAt.Unix(), entitlementID, exitID, receipt.OriginID, receipt.XrayProcessBootID}})
 		statements = append(statements, rqlite.Statement{SQL: `UPDATE whitelist_byte_allocations SET first_observed_at_unix=?
 WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=? AND first_observed_at_unix=0`,
-			Args: []any{observation.SampledAt.Unix(), entitlementID, desired.ExitID, receipt.OriginID, receipt.XrayProcessBootID}})
+			Args: []any{observation.SampledAt.Unix(), entitlementID, exitID, receipt.OriginID, receipt.XrayProcessBootID}})
 	}
 	// Resolve an unknown transaction result with exact readback, as receipt writes
 	// do. Health never calls the billing store or advances a balance watermark.
@@ -256,9 +256,6 @@ func (s *Service) AuthorizeWhiteListMeteringAdmission(ctx context.Context, entit
 	}
 	statements := make([]rqlite.Statement, 0, len(origins))
 	for _, origin := range origins {
-		if origin.desired.ExitID != exitID {
-			return ErrUnavailable
-		}
 		statements = append(statements, rqlite.Statement{SQL: `INSERT INTO whitelist_first_use_admissions
 (entitlement_id,exit_id,origin_id,xray_process_boot_id,admitted_action_key,billing_period_id,admitted_at_unix,
 zero_start_authorized,first_observed_at_unix,reserve_bytes,reserve_measured_at_unix,reserve_until_unix)
@@ -372,12 +369,9 @@ func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entit
 	now := s.clock.Now()
 	email := whiteListManagedEmail(entitlementID, exitID)
 	for _, origin := range origins {
-		if origin.desired.ExitID != exitID {
-			return 0, 0, false
-		}
 		if requiredDesired != nil {
 			current, ok := requiredDesired[origin.origin.OriginID]
-			if !ok || current.ExitID != exitID || !whiteListContainsUser(current.ManagedUsers, email) ||
+			if !ok || !whiteListContainsUser(current.ManagedUsers, email) ||
 				ValidateWhiteListSidecarReceipt(current, origin.receipt.XrayProcessBootID, origin.receipt, now) != nil {
 				return 0, 0, false
 			}
@@ -494,7 +488,7 @@ func (s *Service) refreshWhiteListMeteringReadiness(ctx context.Context, workerI
 	if len(state.previous) == 0 {
 		return false, nil
 	}
-	managed, exitID, err := whiteListPreviousManagedState(state.previous)
+	routes, exitID, err := whiteListPreviousManagedRoutes(state.previous)
 	if err != nil {
 		return false, err
 	}
@@ -528,10 +522,7 @@ func (s *Service) refreshWhiteListMeteringReadiness(ctx context.Context, workerI
 	if !exists || !exit.Healthy {
 		return true, ErrUnavailable
 	}
-	routes := make([]WhiteListManagedRoute, 0, len(managed))
-	for entitlementID := range managed {
-		routes = append(routes, WhiteListManagedRoute{EntitlementID: entitlementID, ExitID: exitID})
-	}
+	routes = append([]WhiteListManagedRoute(nil), routes...)
 	// An unknown delivery must be recovered under its original action key.
 	_, err = s.reconcileWhiteListSidecarGeneration(ctx, state.previous, state.origins, routes, exit, workerID, resolve, renew && !recoverDelivery)
 	return true, err

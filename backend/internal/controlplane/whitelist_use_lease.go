@@ -6,11 +6,87 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/sidecaragentclient"
 )
+
+const whiteListCommercialExitCount = 4
+
+type whiteListMeteringExitSet map[string]struct{}
+
+func whiteListMeteringRouteFromManagedEmail(managedEmail string) (entitlementID, exitID string, ok bool) {
+	if !strings.HasPrefix(managedEmail, "wl:") {
+		return "", "", false
+	}
+	remainder := strings.TrimPrefix(managedEmail, "wl:")
+	separator := strings.IndexByte(remainder, ':')
+	if separator <= 0 || separator == len(remainder)-1 {
+		return "", "", false
+	}
+	exitID = remainder[separator+1:]
+	entitlementID, ok = whiteListMeteringEntitlementID(managedEmail, exitID)
+	return entitlementID, exitID, ok && routeCredentialExit(exitID)
+}
+
+func whiteListMeteringManagedExitSet(managedUsers []string, entitlementID string) (whiteListMeteringExitSet, bool) {
+	if !validEntitlementID(entitlementID) {
+		return nil, false
+	}
+	exits := whiteListMeteringExitSet{}
+	prefix := "wl:" + entitlementID + ":"
+	for _, managedEmail := range managedUsers {
+		if !strings.HasPrefix(managedEmail, prefix) {
+			continue
+		}
+		parsedEntitlementID, exitID, ok := whiteListMeteringRouteFromManagedEmail(managedEmail)
+		if !ok || parsedEntitlementID != entitlementID {
+			return nil, false
+		}
+		if _, duplicate := exits[exitID]; duplicate {
+			return nil, false
+		}
+		exits[exitID] = struct{}{}
+	}
+	return exits, len(exits) == whiteListCommercialExitCount
+}
+
+func whiteListMeteringPlanExitSets(routes []WhiteListMeteringRoute) (map[string]whiteListMeteringExitSet, bool) {
+	sets := map[string]whiteListMeteringExitSet{}
+	for _, route := range routes {
+		entitlementID := route.Entitlement.EntitlementID()
+		if !validEntitlementID(entitlementID) || !routeCredentialExit(route.ExitID) || route.ManagedEmail != whiteListManagedEmail(entitlementID, route.ExitID) {
+			return nil, false
+		}
+		if sets[entitlementID] == nil {
+			sets[entitlementID] = whiteListMeteringExitSet{}
+		}
+		if _, duplicate := sets[entitlementID][route.ExitID]; duplicate {
+			return nil, false
+		}
+		sets[entitlementID][route.ExitID] = struct{}{}
+	}
+	for _, exits := range sets {
+		if len(exits) != whiteListCommercialExitCount {
+			return nil, false
+		}
+	}
+	return sets, true
+}
+
+func whiteListMeteringExitSetsEqual(left, right whiteListMeteringExitSet) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for exitID := range left {
+		if _, exists := right[exitID]; !exists {
+			return false
+		}
+	}
+	return true
+}
 
 type WhiteListUseLeaseAuthorization struct {
 	Emails               []string
@@ -100,8 +176,15 @@ func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID str
 			return closed, ErrUnavailable
 		}
 	}
-	entitlementID, ok := whiteListMeteringEntitlementID(final.Control.Email, desired.ExitID)
+	entitlementID, exitID, ok := whiteListMeteringRouteFromManagedEmail(final.Control.Email)
 	if !ok {
+		return closed, ErrUnavailable
+	}
+	desiredExits, routesOK := whiteListMeteringManagedExitSet(desired.ManagedUsers, entitlementID)
+	if !routesOK {
+		return closed, ErrUnavailable
+	}
+	if _, exists := desiredExits[exitID]; !exists {
 		return closed, ErrUnavailable
 	}
 	identityResults, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT customer_id FROM whitelist_entitlement_identities WHERE entitlement_id=?`, Args: []any{entitlementID}})
@@ -116,13 +199,13 @@ func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID str
 	if err != nil {
 		return closed, ErrUnavailable
 	}
-	route := WhiteListMeteringRoute{ManagedEmail: final.Control.Email, ExitID: desired.ExitID, Entitlement: entitlement}
+	route := WhiteListMeteringRoute{ManagedEmail: final.Control.Email, ExitID: exitID, Entitlement: entitlement}
 	if final.Receipt.State == "fenced" {
 		periodResults, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT period.period_id,period.starts_at_unix,period.ends_at_unix,period.included_grant_bytes,admission.admitted_at_unix
 FROM (SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,admitted_at_unix,zero_start_authorized FROM whitelist_first_use_admissions
 UNION ALL SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,admitted_at_unix,1 FROM whitelist_byte_allocations) AS admission
 JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id AND period.entitlement_id=admission.entitlement_id
-WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id=? AND admission.xray_process_boot_id=? AND admission.zero_start_authorized=1`, Args: []any{entitlementID, desired.ExitID, final.OriginID, final.Control.BootID}})
+WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id=? AND admission.xray_process_boot_id=? AND admission.zero_start_authorized=1`, Args: []any{entitlementID, exitID, final.OriginID, final.Control.BootID}})
 		if err != nil || len(periodResults) != 1 || len(periodResults[0].Rows) != 1 {
 			return closed, ErrUnavailable
 		}
@@ -135,7 +218,7 @@ WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND adm
 		if !periodOK || period == "" || !startOK || !endOK || !includedOK || included != 0 || !admittedOK || start > admitted || admitted > observed.Unix() || observed.Unix() >= end {
 			return closed, ErrUnavailable
 		}
-		material, err := s.whiteListClientMaterial(ctx, entitlementID, desired.ExitID)
+		material, err := s.whiteListClientMaterial(ctx, entitlementID, exitID)
 		if err != nil {
 			return closed, ErrUnavailable
 		}
@@ -204,7 +287,8 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 			runErr = fmt.Errorf("controlplane: use lease authorization %s: %w", stage, runErr)
 		}
 	}()
-	if s == nil || s.clock == nil || ctx == nil || resolve == nil || len(plan.Origins) == 0 {
+	routeSets, routesOK := whiteListMeteringPlanExitSets(plan.Routes)
+	if s == nil || s.clock == nil || ctx == nil || resolve == nil || len(plan.Origins) == 0 || !routesOK {
 		return closed, ErrUnavailable
 	}
 	stage = "origin index"
@@ -236,22 +320,22 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 			return closed, err
 		}
 	}
-	seen := map[string]bool{}
 	for _, route := range plan.Routes {
 		stage = "route binding"
-		if seen[route.ManagedEmail] || route.ManagedEmail != whiteListManagedEmail(route.Entitlement.EntitlementID(), route.ExitID) {
+		entitlementID := route.Entitlement.EntitlementID()
+		expectedExits, exists := routeSets[entitlementID]
+		if !exists {
 			return closed, ErrUnavailable
 		}
-		seen[route.ManagedEmail] = true
 		stage = "route publication"
-		delivery, err := s.whiteListPublicationForEntitlementFromState(ctx, route.Entitlement.EntitlementID(), now, resolve, false, state, origins)
+		delivery, err := s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolve, false, state, origins)
 		if err != nil {
 			return closed, err
 		}
 		if delivery.Decision.Verdict != WhiteListPublicationPublishable {
 			continue
 		}
-		publication := state.publications[route.Entitlement.EntitlementID()]
+		publication := state.publications[entitlementID]
 		hardDeadlines := []time.Time{
 			time.Unix(publication.PrimaryExpiresAtUnix, 0),
 			time.Unix(route.Policy.PeriodEndsAtUnix, 0),
@@ -268,18 +352,32 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 			}
 		}
 		stage = "delivery binding"
-		if delivery.ExitID != route.ExitID || len(delivery.desiredBindings) != len(byOrigin) {
+		if len(delivery.Routes) != len(expectedExits) || len(delivery.desiredBindings) != len(byOrigin) {
+			return closed, ErrUnavailable
+		}
+		deliveredExits := whiteListMeteringExitSet{}
+		for _, deliveredRoute := range delivery.Routes {
+			if _, expected := expectedExits[deliveredRoute.ExitID]; !expected {
+				return closed, ErrUnavailable
+			}
+			if _, duplicate := deliveredExits[deliveredRoute.ExitID]; duplicate {
+				return closed, ErrUnavailable
+			}
+			deliveredExits[deliveredRoute.ExitID] = struct{}{}
+		}
+		if !whiteListMeteringExitSetsEqual(deliveredExits, expectedExits) {
 			return closed, ErrUnavailable
 		}
 		for _, desired := range delivery.desiredBindings {
 			origin, exists := byOrigin[desired.OriginID]
+			desiredExits, managedRoutesOK := whiteListMeteringManagedExitSet(desired.ManagedUsers, entitlementID)
 			if !exists || desired.Action.ActionKey != origin.Desired.Action.ActionKey || desired.Generation != origin.Desired.Generation ||
 				desired.ConfigDigest != origin.Desired.ConfigDigest || desired.ManagedUserSetDigest != origin.Desired.ManagedUserSetDigest ||
-				!whiteListContainsUser(desired.ManagedUsers, route.ManagedEmail) {
+				!managedRoutesOK || !whiteListMeteringExitSetsEqual(desiredExits, expectedExits) || !whiteListContainsUser(desired.ManagedUsers, route.ManagedEmail) {
 				return closed, ErrUnavailable
 			}
 			stage = "admission"
-			admission, err := s.whiteListAdmissionRow(ctx, route.Entitlement.EntitlementID(), route.ExitID,
+			admission, err := s.whiteListAdmissionRow(ctx, entitlementID, route.ExitID,
 				whiteListObservedOrigin{origin: origin.Origin, desired: origin.Desired, receipt: origin.Receipt})
 			if err != nil {
 				return closed, err
@@ -318,11 +416,14 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	if remaining <= 0 || remaining > 5*time.Second {
 		return WhiteListUseLeaseAuthorization{Emails: []string{}}, ErrUnavailable
 	}
-	prepared := make(map[string]bool, len(plan.Routes))
-	for _, route := range plan.Routes {
-		entitlementID := route.Entitlement.EntitlementID()
-		if _, stored := state.credentials[entitlementID][route.ExitID]; stored && routeCredentialAlreadyDesired(&state, entitlementID, route.ExitID) {
-			prepared[entitlementID] = true
+	prepared := make(map[string]bool, len(routeSets))
+	for entitlementID, exits := range routeSets {
+		prepared[entitlementID] = true
+		for exitID := range exits {
+			if _, stored := state.credentials[entitlementID][exitID]; !stored || !routeCredentialAlreadyDesired(&state, entitlementID, exitID) {
+				prepared[entitlementID] = false
+				break
+			}
 		}
 	}
 	closed.ProvisioningComplete = len(plan.Routes) > 0 && len(state.origins) > 0

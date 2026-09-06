@@ -88,8 +88,32 @@ func (s *Service) existingWhiteListRouteMaterial(ctx context.Context, entitlemen
 	return material, true, err
 }
 
+const whiteListRequiredExitCount = 4
+
+var whiteListRequiredExitIDs = [whiteListRequiredExitCount]string{"exit-s1", "exit-s2", "exit-s3", "exit-s4"}
+
 func routeCredentialExit(exitID string) bool {
 	return exitID == "exit-s1" || exitID == "exit-s2" || exitID == "exit-s3" || exitID == "exit-s4"
+}
+
+func whiteListRequiredRuntimeExits(exits map[string]WhiteListExit) ([]WhiteListExit, bool) {
+	result := make([]WhiteListExit, 0, whiteListRequiredExitCount)
+	for _, exitID := range whiteListRequiredExitIDs {
+		exit, ok := exits[exitID]
+		if !ok || !exit.Healthy {
+			return nil, false
+		}
+		exit.ExitID = exitID
+		result = append(result, exit)
+	}
+	return result, true
+}
+
+func whiteListPerRouteChunkBytes(totalBytes int64) (int64, bool) {
+	if totalBytes <= 0 || totalBytes%whiteListRequiredExitCount != 0 {
+		return 0, false
+	}
+	return totalBytes / whiteListRequiredExitCount, true
 }
 
 func validRouteCredentialTemplate(template WhiteListClientMaterial) bool {
@@ -129,23 +153,9 @@ func decodeRouteCredentialTemplate(raw []byte) (WhiteListClientMaterial, error) 
 func (s *Service) prepareWhiteListRouteCredentials(
 	ctx context.Context, state *whiteListSidecarRuntimeState, resolveSender func(string) (ExternalActionSender, bool),
 ) error {
-	_, previousExit, err := whiteListPreviousManagedState(state.previous)
-	if err != nil {
-		return err
-	}
-	exits := make([]string, 0, len(state.exits))
-	for exitID, exit := range state.exits {
-		if exit.Healthy && routeCredentialExit(exitID) {
-			exits = append(exits, exitID)
-		}
-	}
-	sort.Strings(exits)
-	if len(exits) == 0 || len(state.origins) == 0 {
+	exits, exitsReady := whiteListRequiredRuntimeExits(state.exits)
+	if !exitsReady || len(state.origins) == 0 {
 		return nil
-	}
-	selectedExit := exits[0]
-	if exit, ok := state.exits[previousExit]; ok && exit.Healthy && routeCredentialExit(previousExit) {
-		selectedExit = previousExit
 	}
 	releaseID := state.origins[0].ReleaseID
 	installers := make(map[string]whiteListCredentialInstaller, len(state.origins))
@@ -173,81 +183,87 @@ func (s *Service) prepareWhiteListRouteCredentials(
 	var deferredErr error
 	var template WhiteListClientMaterial
 	templateLoaded := false
+entitlementLoop:
 	for _, entitlementID := range entitlements {
 		publication := state.publications[entitlementID]
 		if !publication.Enabled || publication.PrimaryStatus != "active" || publication.PrimaryExpiresAtUnix <= s.clock.Now().Unix() {
 			continue
 		}
-		_, stored := state.credentials[entitlementID][selectedExit]
-		if stored && routeCredentialAlreadyDesired(state, entitlementID, selectedExit) {
-			continue
-		}
-		closeForPass := func() {
-			publication.Enabled = false
-			state.publications[entitlementID] = publication
-			// The admission fallback must not re-add a route whose credential was
-			// not installed on every Origin. This is only the current in-memory view.
-			delete(state.credentials, entitlementID)
-			deferredErr = ErrUnavailable
-		}
 		balance, err := s.WhiteListBalanceSnapshot(ctx, s.clock.Now().Unix(), entitlementID)
 		if err != nil {
-			closeForPass()
+			publication.Enabled = false
+			state.publications[entitlementID] = publication
+			delete(state.credentials, entitlementID)
+			deferredErr = ErrUnavailable
 			continue
 		}
 		if balance.AvailableBytes <= 0 || balance.Projection.Pending {
 			continue
 		}
-		// Existing externally provisioned senders remain supported. New automatic
-		// credentials require the authenticated install capability on every Origin.
-		if len(installers) != len(state.origins) {
-			if !stored {
+		for _, exit := range exits {
+			exitID := exit.ExitID
+			_, stored := state.credentials[entitlementID][exitID]
+			if stored && routeCredentialAlreadyDesired(state, entitlementID, exitID) {
+				continue
+			}
+			closeForPass := func() {
+				publication.Enabled = false
+				state.publications[entitlementID] = publication
+				delete(state.credentials, entitlementID)
+				deferredErr = ErrUnavailable
+			}
+			// Existing externally provisioned senders remain supported. New automatic
+			// credentials require the authenticated install capability on every Origin.
+			if len(installers) != len(state.origins) {
+				if !stored {
+					closeForPass()
+					continue entitlementLoop
+				}
+				continue
+			}
+			var material WhiteListClientMaterial
+			if stored {
+				material, err = s.whiteListClientMaterial(ctx, entitlementID, exitID)
+			} else {
+				if !templateLoaded {
+					if templateSource == nil {
+						closeForPass()
+						continue entitlementLoop
+					}
+					raw, readErr := templateSource.WhiteListCredentialTemplate(ctx)
+					if readErr == nil {
+						template, readErr = decodeRouteCredentialTemplate(raw)
+					}
+					clear(raw)
+					if readErr != nil {
+						closeForPass()
+						continue entitlementLoop
+					}
+					templateLoaded = true
+				}
+				material, err = s.EnsureWhiteListRouteCredential(ctx, entitlementID, exitID, template)
+			}
+			if err != nil {
 				closeForPass()
+				continue entitlementLoop
 			}
-			continue
-		}
-		var material WhiteListClientMaterial
-		if stored {
-			material, err = s.whiteListClientMaterial(ctx, entitlementID, selectedExit)
-		} else {
-			if !templateLoaded {
-				if templateSource == nil {
-					closeForPass()
-					continue
+			installed := true
+			for _, origin := range state.origins {
+				if err := installers[origin.OriginID].InstallCredential(ctx, origin.ReleaseID, origin.ConfigDigest,
+					whiteListManagedEmail(entitlementID, exitID), material.ClientID); err != nil {
+					installed = false
+					break
 				}
-				raw, readErr := templateSource.WhiteListCredentialTemplate(ctx)
-				if readErr == nil {
-					template, readErr = decodeRouteCredentialTemplate(raw)
-				}
-				clear(raw)
-				if readErr != nil {
-					closeForPass()
-					continue
-				}
-				templateLoaded = true
 			}
-			material, err = s.EnsureWhiteListRouteCredential(ctx, entitlementID, selectedExit, template)
-		}
-		if err != nil {
-			closeForPass()
-			continue
-		}
-		installed := true
-		for _, origin := range state.origins {
-			if err := installers[origin.OriginID].InstallCredential(ctx, origin.ReleaseID, origin.ConfigDigest,
-				whiteListManagedEmail(entitlementID, selectedExit), material.ClientID); err != nil {
-				installed = false
-				break
+			if !installed {
+				closeForPass()
+				continue entitlementLoop
 			}
+			if state.credentials[entitlementID] == nil {
+				state.credentials[entitlementID] = make(map[string]struct{})
+			}
+			state.credentials[entitlementID][exitID] = struct{}{}
 		}
-		if !installed {
-			closeForPass()
-			continue
-		}
-		if state.credentials[entitlementID] == nil {
-			state.credentials[entitlementID] = make(map[string]struct{})
-		}
-		state.credentials[entitlementID][selectedExit] = struct{}{}
 	}
 	return deferredErr
 }
@@ -256,7 +272,7 @@ func routeCredentialAlreadyDesired(state *whiteListSidecarRuntimeState, entitlem
 	email := whiteListManagedEmail(entitlementID, exitID)
 	for _, origin := range state.origins {
 		previous, ok := state.previous[origin.OriginID]
-		if !ok || previous.ExitID != exitID || previous.ReleaseID != origin.ReleaseID || previous.ConfigDigest != origin.ConfigDigest {
+		if !ok || previous.ReleaseID != origin.ReleaseID || previous.ConfigDigest != origin.ConfigDigest {
 			return false
 		}
 		found := false

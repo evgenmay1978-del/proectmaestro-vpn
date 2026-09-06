@@ -64,12 +64,13 @@ JOIN whitelist_sidecar_desired AS desired ON desired.action_key=receipt.action_k
 JOIN whitelist_sidecar_origins AS origin ON origin.origin_id=desired.origin_id
 WHERE admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id=?
  AND admission.xray_process_boot_id=? AND admission.billing_period_id=? AND admission.zero_start_authorized=1
+ AND ?=('wl:' || admission.entitlement_id || ':' || admission.exit_id)
  AND admission.first_observed_at_unix>0 AND admission.admitted_at_unix<=admission.first_observed_at_unix
  AND admission.first_observed_at_unix<=? AND period.starts_at_unix<=admission.admitted_at_unix AND ?<period.ends_at_unix
  AND observation.sampled_at_unix=? AND observation.checked_at_unix>=observation.sampled_at_unix
  AND observation.checked_at_unix-observation.sampled_at_unix<5
  AND receipt.applied_at_unix<=observation.sampled_at_unix AND observation.checked_at_unix<receipt.expires_at_unix
- AND desired.exit_id=admission.exit_id AND desired.origin_id=admission.origin_id
+ AND desired.origin_id=admission.origin_id
  AND origin.active=1 AND origin.node_id=desired.node_id AND origin.release_id=desired.release_id
  AND origin.profile_id=desired.profile_id AND origin.preset_id=desired.preset_id AND origin.config_digest=desired.config_digest
  AND desired.desired_generation=(SELECT MAX(current.desired_generation) FROM whitelist_sidecar_desired AS current WHERE current.origin_id=origin.origin_id)
@@ -100,6 +101,7 @@ AND NOT EXISTS (
 )
 THEN 1 ELSE abs(-9223372036854775808) END AS first_cumulative_admission_guard`, Args: []any{
 		source.EntitlementID, source.ExitID, source.OriginID, source.XrayProcessBootID, source.BillingPeriodID,
+		source.RouteXrayIdentity,
 		source.SampledAtUnix, source.SampledAtUnix, source.SampledAtUnix,
 		source.RouteXrayIdentity, source.RouteXrayIdentity, source.RouteXrayIdentity,
 		source.EventID, source.SourceSHA256, source.EntitlementID, source.ExitID, source.OriginID,

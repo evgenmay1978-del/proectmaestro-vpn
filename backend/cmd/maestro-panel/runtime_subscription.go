@@ -14,6 +14,8 @@ import (
 
 const runtimeWhiteListXHTTPExtra = `{"sessionIDPlacement":"query","sessionIDKey":"auth","sessionIDLength":16,"seqPlacement":"query","seqKey":"chunk_id","uplinkHTTPMethod":"GET","uplinkDataPlacement":"body"}`
 
+const runtimeWhiteListExitCount = 4
+
 type rqliteWhiteListPublicationSource struct {
 	service       *controlplane.Service
 	resolveSender func(string) (controlplane.ExternalActionSender, bool)
@@ -51,18 +53,28 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 	if delivery.Decision.Verdict != controlplane.WhiteListPublicationPublishable {
 		return snapshot, nil
 	}
-	snapshot.Nodes = []subgen.WhiteListNode{{
-		Protocol: "vless", Network: "xhttp", Address: delivery.Material.PublicHost, Port: 443,
-		TLS: true, ServerName: delivery.Material.PublicHost, Host: delivery.Material.PublicHost,
-		Path: delivery.Material.SecretPath, Mode: "packet-up", UplinkHTTPMethod: "GET",
-		UplinkDataPlacement: "body", ClientID: delivery.Material.ClientID,
-		Encryption: delivery.Material.ClientEncryption, Security: "tls",
-		ALPN: []string{"h2"}, Fingerprint: "firefox",
-		Extra:          url.QueryEscape(runtimeWhiteListXHTTPExtra),
-		Label:          fmt.Sprintf("Maestro CDN — %s", delivery.CountryLabel),
-		DomainFallback: true, TransportProfileID: delivery.ProfileID,
-		CompatibilityPresetID: delivery.PresetID, TransportReleaseID: delivery.ReleaseID,
-	}}
+	if len(delivery.Routes) != runtimeWhiteListExitCount {
+		return api.WhiteListPublicationSnapshot{}, controlplane.ErrUnavailable
+	}
+	nodes := make([]subgen.WhiteListNode, 0, runtimeWhiteListExitCount)
+	for index, route := range delivery.Routes {
+		if route.ExitID != fmt.Sprintf("exit-s%d", index+1) {
+			return api.WhiteListPublicationSnapshot{}, controlplane.ErrUnavailable
+		}
+		nodes = append(nodes, subgen.WhiteListNode{
+			Protocol: "vless", Network: "xhttp", Address: route.Material.PublicHost, Port: 443,
+			TLS: true, ServerName: route.Material.PublicHost, Host: route.Material.PublicHost,
+			Path: route.Material.SecretPath, Mode: "packet-up", UplinkHTTPMethod: "GET",
+			UplinkDataPlacement: "body", ClientID: route.Material.ClientID,
+			Encryption: route.Material.ClientEncryption, Security: "tls",
+			ALPN: []string{"h2"}, Fingerprint: "firefox",
+			Extra:          url.QueryEscape(runtimeWhiteListXHTTPExtra),
+			Label:          fmt.Sprintf("Maestro CDN — %s", route.CountryLabel),
+			DomainFallback: true, TransportProfileID: delivery.ProfileID,
+			CompatibilityPresetID: delivery.PresetID, TransportReleaseID: delivery.ReleaseID,
+		})
+	}
+	snapshot.Nodes = nodes
 	return snapshot, nil
 }
 

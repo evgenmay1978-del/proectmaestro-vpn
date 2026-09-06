@@ -10,22 +10,39 @@ import (
 
 const whiteListByteAllocationKeySQL = `entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=?`
 
+func whiteListPerRouteByteBudget(totalBytes int64) (int64, bool) {
+	if totalBytes <= 0 || totalBytes%whiteListCommercialExitCount != 0 {
+		return 0, false
+	}
+	perRoute := totalBytes / whiteListCommercialExitCount
+	return perRoute, perRoute > 0
+}
+
 // Filter before taking the fresh counter snapshot. A funded allocation needs
 // no refill transaction until half its chunk is consumed. This grants nothing:
 // every use lease still rechecks actual settlement, balance, boot and freshness.
 func (s *Service) WhiteListByteBudgetRefillCandidates(ctx context.Context, plan WhiteListMeteringPlan, candidates []WhiteListMeteringAdmissionCandidate, chunkBytes int64) ([]WhiteListMeteringAdmissionCandidate, error) {
-	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || chunkBytes <= 0 || len(plan.Origins) == 0 {
+	routeChunkBytes, chunkOK := whiteListPerRouteByteBudget(chunkBytes)
+	routeSets, routesOK := whiteListMeteringPlanExitSets(plan.Routes)
+	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || !chunkOK || !routesOK || len(plan.Origins) == 0 {
 		return nil, ErrUnavailable
 	}
 	if len(candidates) == 0 {
 		return candidates, nil
 	}
-	minimum := chunkBytes / 2
+	minimum := routeChunkBytes / 2
 	if minimum == 0 {
 		minimum = 1
 	}
 	statements := make([]rqlite.Statement, 0, len(candidates))
 	for _, candidate := range candidates {
+		exits, exists := routeSets[candidate.EntitlementID]
+		if !exists {
+			return nil, ErrUnavailable
+		}
+		if _, exists = exits[candidate.ExitID]; !exists {
+			return nil, ErrUnavailable
+		}
 		now := s.clock.Now().Unix()
 		args := []any{candidate.EntitlementID, candidate.ExitID, minimum, now, now}
 		bindings := make([]string, 0, len(plan.Origins))
@@ -61,7 +78,8 @@ AND period.starts_at_unix<=? AND ?<period.ends_at_unix AND (` + strings.Join(bin
 // chunk is refill granularity, never a measured throughput or a usage debit.
 // Every origin, exit and retained process lifetime shares the same SQL budget.
 func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, entitlementID, exitID string, chunkBytes int64) error {
-	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || chunkBytes <= 0 || chunkBytes > 9223372036854775806 {
+	routeChunkBytes, chunkOK := whiteListPerRouteByteBudget(chunkBytes)
+	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || !chunkOK || routeChunkBytes > 9223372036854775806 || !routeCredentialExit(exitID) {
 		return ErrUnavailable
 	}
 	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
@@ -79,7 +97,11 @@ func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, ent
 	now := s.clock.Now().Unix()
 	statements := make([]rqlite.Statement, 0, len(origins)*2)
 	for _, origin := range origins {
-		if origin.desired.ExitID != exitID {
+		exits, routesOK := whiteListMeteringManagedExitSet(origin.desired.ManagedUsers, entitlementID)
+		if !routesOK {
+			return ErrUnavailable
+		}
+		if _, exists := exits[exitID]; !exists {
 			return ErrUnavailable
 		}
 		if err := s.whiteListByteAllocationNewLifetime(ctx, entitlementID, exitID, origin); err != nil {
@@ -114,7 +136,7 @@ AND projection.pending=0 AND projection.uncovered_bytes=0 AND customer.status='a
 ),0),updated_at_unix=?
 WHERE ` + whiteListByteAllocationKeySQL + ` AND billing_period_id=?
 AND EXISTS(SELECT 1 FROM whitelist_metering_origin_observations WHERE origin_id=? AND observation_sha256=?)`, Args: []any{
-			chunkBytes, len(origins) - index, now, now, entitlementID, exitID, origin.origin.OriginID,
+			routeChunkBytes, len(origins) - index, now, now, entitlementID, exitID, origin.origin.OriginID,
 			origin.receipt.XrayProcessBootID, period, origin.origin.OriginID, origin.hash,
 		}})
 	}

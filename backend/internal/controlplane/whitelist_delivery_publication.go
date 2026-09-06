@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,10 +24,18 @@ type WhiteListClientMaterial struct {
 	ClientEncryptionProofRef string `json:"client_encryption_proof_ref"`
 }
 
+type WhiteListPublicationRoute struct {
+	Material     WhiteListClientMaterial
+	ExitID       string
+	CountryCode  string
+	CountryLabel string
+}
+
 // WhiteListPublicationDelivery is a side-effect-free view used by the public
 // subscription adapter. Material is populated only for a publishable decision.
 type WhiteListPublicationDelivery struct {
 	Decision        WhiteListPublicationDecision
+	Routes          []WhiteListPublicationRoute
 	Material        WhiteListClientMaterial
 	ExitID          string
 	CountryCode     string
@@ -158,7 +167,8 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 		return WhiteListPublicationDelivery{}, err
 	}
 
-	releaseID, profileID, presetID, exitID := "", "", "", ""
+	releaseID, profileID, presetID, referenceExitID := "", "", "", ""
+	managedUserSetDigest := ""
 	generation := int64(0)
 	releaseExact := len(state.origins) > 0
 	desired := make([]WhiteListSidecarDesired, 0, len(state.origins))
@@ -171,17 +181,34 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 		}
 		if releaseID == "" {
 			releaseID, profileID, presetID = current.ReleaseID, current.ProfileID, current.PresetID
-			exitID, generation = current.ExitID, current.Generation
+			referenceExitID, generation = current.ExitID, current.Generation
+			managedUserSetDigest = current.ManagedUserSetDigest
 		} else if current.ReleaseID != releaseID || current.ProfileID != profileID || current.PresetID != presetID ||
-			current.ExitID != exitID || current.Generation != generation {
+			current.ExitID != referenceExitID || current.Generation != generation ||
+			current.ManagedUserSetDigest != managedUserSetDigest {
 			releaseExact = false
 		}
 		desired = append(desired, current)
 	}
-	facts.ReleaseBindingExact = releaseExact && len(desired) == len(state.origins)
-	exit, exitOK := state.exits[exitID]
-	_, credentialOK := state.credentials[entitlementID][exitID]
-	facts.CredentialUsable = exitOK && exit.Healthy && credentialOK
+	exitIDs, routeSetExact := whiteListPublicationRouteExitIDs(entitlementID, desired)
+	referenceExitFound := false
+	routes := make([]WhiteListPublicationRoute, 0, len(exitIDs))
+	credentialsUsable := routeSetExact
+	for _, exitID := range exitIDs {
+		exit, exitOK := state.exits[exitID]
+		_, credentialOK := state.credentials[entitlementID][exitID]
+		if !exitOK || !exit.Healthy || !credentialOK {
+			credentialsUsable = false
+		}
+		if exitID == referenceExitID {
+			referenceExitFound = true
+		}
+		routes = append(routes, WhiteListPublicationRoute{
+			ExitID: exitID, CountryCode: exit.CountryCode, CountryLabel: exit.CountryLabel,
+		})
+	}
+	facts.ReleaseBindingExact = releaseExact && routeSetExact && referenceExitFound && len(desired) == len(state.origins)
+	facts.CredentialUsable = credentialsUsable
 	facts.DesiredGeneration = generation
 
 	receiptStatements := make([]rqlite.Statement, 0, len(desired))
@@ -244,27 +271,93 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	facts.ReceiptsFreshUntilUnix = receiptsFreshUntil
 	facts.ApprovedNodeCount = len(desired)
 	if facts.ReleaseBindingExact && facts.CredentialUsable && receiptSetReady {
-		facts.ObservedThroughUnix, facts.AdmissionFreshUntilUnix = s.whiteListMeteringPublicationReadyFromState(
-			ctx, entitlementID, exitID, state.previous, state, shared...,
-		)
+		meteringReady := len(routes) == whiteListRequiredPublicationRouteCount
+		for index := range routes {
+			observedThrough, admissionFreshUntil := s.whiteListMeteringPublicationReadyFromState(
+				ctx, entitlementID, routes[index].ExitID, state.previous, state, shared...,
+			)
+			if observedThrough <= 0 || admissionFreshUntil <= now.Unix() {
+				meteringReady = false
+				break
+			}
+			if facts.ObservedThroughUnix == 0 || observedThrough < facts.ObservedThroughUnix {
+				facts.ObservedThroughUnix = observedThrough
+			}
+			if facts.AdmissionFreshUntilUnix == 0 || admissionFreshUntil < facts.AdmissionFreshUntilUnix {
+				facts.AdmissionFreshUntilUnix = admissionFreshUntil
+			}
+		}
+		if !meteringReady {
+			facts.ObservedThroughUnix = 0
+			facts.AdmissionFreshUntilUnix = 0
+		}
 	}
 	decision := EvaluateWhiteListPublication(facts)
 	if decision.Verdict != WhiteListPublicationPublishable {
 		return WhiteListPublicationDelivery{Decision: decision}, nil
 	}
-	var material WhiteListClientMaterial
+	var referenceRoute WhiteListPublicationRoute
 	if includeMaterial {
-		material, err = s.whiteListClientMaterial(ctx, entitlementID, exitID)
-		if err != nil {
-			return WhiteListPublicationDelivery{}, err
+		seenCountries := make(map[string]struct{}, len(routes))
+		seenLabels := make(map[string]struct{}, len(routes))
+		seenClientIDs := make(map[string]struct{}, len(routes))
+		for index := range routes {
+			routes[index].Material, err = s.whiteListClientMaterial(ctx, entitlementID, routes[index].ExitID)
+			if err != nil || routes[index].CountryCode == "" || routes[index].CountryLabel == "" {
+				return WhiteListPublicationDelivery{}, ErrUnavailable
+			}
+			_, countryExists := seenCountries[routes[index].CountryCode]
+			_, labelExists := seenLabels[routes[index].CountryLabel]
+			_, clientExists := seenClientIDs[routes[index].Material.ClientID]
+			if countryExists || labelExists || clientExists {
+				return WhiteListPublicationDelivery{}, ErrUnavailable
+			}
+			seenCountries[routes[index].CountryCode] = struct{}{}
+			seenLabels[routes[index].CountryLabel] = struct{}{}
+			seenClientIDs[routes[index].Material.ClientID] = struct{}{}
+		}
+	}
+	for _, route := range routes {
+		if route.ExitID == referenceExitID {
+			referenceRoute = route
+			break
 		}
 	}
 	return WhiteListPublicationDelivery{
-		Decision: decision, Material: material, ExitID: exitID,
-		CountryCode: exit.CountryCode, CountryLabel: exit.CountryLabel,
+		Decision: decision, Routes: routes,
+		Material: referenceRoute.Material, ExitID: referenceRoute.ExitID,
+		CountryCode: referenceRoute.CountryCode, CountryLabel: referenceRoute.CountryLabel,
 		ReleaseID: releaseID, ProfileID: profileID, PresetID: presetID,
 		desiredBindings: desired,
 	}, nil
+}
+
+const whiteListRequiredPublicationRouteCount = 4
+
+func whiteListPublicationRouteExitIDs(entitlementID string, desired []WhiteListSidecarDesired) ([]string, bool) {
+	required := []string{"exit-s1", "exit-s2", "exit-s3", "exit-s4"}
+	prefix := "wl:" + entitlementID + ":"
+	if len(desired) == 0 {
+		return nil, false
+	}
+	for _, binding := range desired {
+		exitIDs := make([]string, 0, whiteListRequiredPublicationRouteCount)
+		for _, managedUser := range binding.ManagedUsers {
+			if !strings.HasPrefix(managedUser, prefix) {
+				continue
+			}
+			exitID := strings.TrimPrefix(managedUser, prefix)
+			if exitID == "" || managedUser != whiteListManagedEmail(entitlementID, exitID) {
+				return nil, false
+			}
+			exitIDs = append(exitIDs, exitID)
+		}
+		sort.Strings(exitIDs)
+		if !whiteListStringsEqual(exitIDs, required) {
+			return nil, false
+		}
+	}
+	return required, true
 }
 
 func (s *Service) whiteListClientMaterial(ctx context.Context, entitlementID, exitID string) (WhiteListClientMaterial, error) {
