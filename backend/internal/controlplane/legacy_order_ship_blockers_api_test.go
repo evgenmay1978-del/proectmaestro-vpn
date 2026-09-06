@@ -247,7 +247,8 @@ func TestLegacyOrderIdentitySuspensionAndLoginCompatibilitySQLite(t *testing.T) 
 		}
 	}
 
-	faultStore, err := controlplane.NewStore(f6QueryFailureDB{RQLite: fixture.db, fragment: "FROM customers c"}, fixture.box, fixture.clock)
+	// Token lookup uses FROM; the bound login resolver uses LEFT JOIN.
+	faultStore, err := controlplane.NewStore(f6QueryFailureDB{RQLite: fixture.db, fragment: "customers c"}, fixture.box, fixture.clock)
 	if err != nil {
 		t.Fatalf("fault store: %v", err)
 	}

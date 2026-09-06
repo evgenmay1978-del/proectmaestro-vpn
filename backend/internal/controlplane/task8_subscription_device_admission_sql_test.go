@@ -305,7 +305,7 @@ func newF5SubscriptionFixtureWithIDs(t *testing.T, deviceLimitFor func(string) i
 	const customerID = "f5-customer"
 	sqlite.must(t, rqlite.Statement{SQL: `INSERT INTO node_services(node_id,service_name,desired_target,apply_enabled,fenced,retired,updated_at_unix)
 VALUES ('S4','s4',1,1,0,0,2000000)`})
-	seedS4CanaryCustomer(t, sqlite, box, customerID, "F5 User", "f5-operation", "f5-envelope", strings.Repeat("a", 64))
+	seedS4CanaryCustomer(t, sqlite, box, customerID, customerID, "f5-operation", "f5-envelope", strings.Repeat("a", 64))
 	sqlite.must(t, rqlite.Statement{SQL: `UPDATE customers SET expires_at_unix=?,updated_at_unix=? WHERE customer_id=?`, Args: []any{
 		startedAt.Add(24 * time.Hour).Unix(), startedAt.Unix(), customerID,
 	}})

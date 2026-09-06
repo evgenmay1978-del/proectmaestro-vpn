@@ -64,6 +64,10 @@ func TestSettingFailedCASAtCommittedNextGenerationCannotMutateWinnerSQLite(t *te
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	db.linear = []scriptedResult{
+		canonicalLoginIdentityScript(secrets, "winner-member", Customer{}),
+		canonicalLoginIdentityScript(secrets, "loser-member", Customer{}),
+	}
 
 	const settingKey = "task5-sqlite-setting"
 	winnerSecret, err := secrets.Seal(
@@ -106,6 +110,10 @@ func TestSettingFailedCASAtCommittedNextGenerationCannotMutateWinnerSQLite(t *te
 	)
 	if len(snapshots) != 2 {
 		t.Fatalf("snapshots=%d, want 2", len(snapshots))
+	}
+	winnerSetting, ok := snapshots[0]["setting"].([]any)
+	if !ok || len(winnerSetting) < 3 || winnerSetting[1] != `{"owner":"winner"}` || winnerSetting[2] != float64(2) {
+		t.Fatalf("SQLite winner CAS did not commit generation 2: %v", snapshots[0]["setting"])
 	}
 	if !reflect.DeepEqual(snapshots[0]["dirty"], snapshots[1]["dirty"]) {
 		t.Fatalf("failed CAS changed dirty generation: winner=%v loser=%v", snapshots[0]["dirty"], snapshots[1]["dirty"])
@@ -241,6 +249,21 @@ CREATE TABLE audit_events (
     resource_type TEXT NOT NULL,
     resource_id_hmac TEXT NOT NULL,
     created_at_unix INTEGER NOT NULL
+);
+-- The fixture's allowlist names have no customer or imported exact family.
+-- These are the actual empty lookup boundaries used by the identity guard.
+CREATE TABLE customers (
+    customer_id TEXT PRIMARY KEY,
+    login_key_hmac TEXT NOT NULL UNIQUE,
+    display_login TEXT NOT NULL
+);
+CREATE TABLE imported_entity_state (
+    entity_kind TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    canonical_sha256 TEXT NOT NULL,
+    lifecycle TEXT NOT NULL,
+    PRIMARY KEY(entity_kind, source_key)
 );
 INSERT INTO cluster_restore_state(singleton_id, restore_epoch, activated) VALUES (1, 1, 1);
 INSERT INTO backup_rpo_state(singleton_id, restore_epoch, dirty_generation, verified_generation, phase, updated_at_unix) VALUES (1, 1, 10, 0, 'dirty', 1);

@@ -173,7 +173,9 @@ func TestExactLoginProofDriftAndMissingBindingFailClosedSQLite(t *testing.T) {
 	db.beforeRequest = func() {
 		db.must(t, rqlite.Statement{SQL: `UPDATE imported_entity_state SET canonical_sha256=? WHERE entity_kind='customer' AND target_id=?`, Args: []any{strings.Repeat("e", 64), upper.ID}})
 	}
-	if _, err := service.ExtendCustomer(ctx, ExtendCustomerCommand{Login: "Alice", Days: 1, IdempotencyKey: "proof-race"}); !errors.Is(err, ErrUnavailable) {
+	// A failed transaction identity guard inserts no claim; the existing
+	// mutation response contract reports that empty result as a conflict.
+	if _, err := service.ExtendCustomer(ctx, ExtendCustomerCommand{Login: "Alice", Days: 1, IdempotencyKey: "proof-race"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("proof drift: %v", err)
 	}
 	if !reflect.DeepEqual(before, db.snapshot(t)) {

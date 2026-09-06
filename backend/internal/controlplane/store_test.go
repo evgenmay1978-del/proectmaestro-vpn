@@ -391,7 +391,8 @@ func TestSettingCASGatesEveryDependentMutation(t *testing.T) {
 		rqlite.Result{Rows: []map[string]any{{"generation": 2}}},
 		rqlite.Result{}, rqlite.Result{}, rqlite.Result{}, rqlite.Result{},
 	)}}
-	service, _ := testService(t, db)
+	service, box := testService(t, db)
+	db.linear = []scriptedResult{canonicalLoginIdentityScript(box, "owner-a", Customer{})}
 	_, err := service.UpdateSetting(context.Background(), SettingUpdate{
 		Key: "ota", ExpectedGeneration: 1, PublicValueJSON: `{"version_code":155}`,
 		Members: []string{"owner-a"}, Actor: "owner",
