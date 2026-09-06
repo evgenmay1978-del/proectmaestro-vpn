@@ -33,7 +33,7 @@ type leaseRPC interface {
 	Invoke(context.Context, string, any, any, ...grpc.CallOption) error
 }
 
-// ApplyManagedControl sends exactly one caller-owned schema-2 operation on the
+// ApplyManagedControl sends exactly one caller-owned schema-2/3 operation on the
 // existing isolated mTLS connection. It neither creates authority nor retries.
 // The caller supplies a bounded context and durably records the complete tuple
 // before calling. A nonzero receipt with ErrManagedLeaseNotLive is verified
@@ -88,7 +88,7 @@ func (client *Client) ApplyManagedControl(ctx context.Context, control runtimefe
 }
 
 func validManagedControl(control runtimefence.Control) bool {
-	if control.Schema != 2 || control.Generation == 0 || !managedEmail.MatchString(control.Email) ||
+	if (control.Schema != 2 && control.Schema != 3) || (control.Schema == 2 && control.CumulativeByteCeiling != 0) || control.Generation == 0 || !managedEmail.MatchString(control.Email) ||
 		len(control.Email) > 200 || !utf8.ValidString(control.Email) ||
 		!managedDigest(control.BootID) || !managedDigest(control.ConfigDigest) || !managedDigest(control.ClockDomain) {
 		return false
@@ -100,9 +100,9 @@ func validManagedControl(control runtimefence.Control) bool {
 	}
 	switch control.Operation {
 	case "grant", "renew":
-		return control.DeadlineBoottimeNS > 0
+		return control.DeadlineBoottimeNS > 0 && (control.Schema == 2 || control.CumulativeByteCeiling > 0)
 	case "fence":
-		return control.DeadlineBoottimeNS == 0
+		return control.DeadlineBoottimeNS == 0 && control.CumulativeByteCeiling == 0
 	default:
 		return false
 	}
@@ -124,6 +124,12 @@ func managedReceiptMatches(control runtimefence.Control, receipt runtimefence.Re
 	if receipt.Schema != control.Schema || receipt.Email != control.Email || receipt.BootID != control.BootID ||
 		receipt.ConfigDigest != control.ConfigDigest || receipt.Generation != control.Generation ||
 		receipt.ClockDomain != control.ClockDomain || receipt.ResetSequence != 0 {
+		return false
+	}
+	if receipt.CumulativeByteCeiling != control.CumulativeByteCeiling ||
+		(control.Schema == 2 && receipt.CumulativeBytes != nil) ||
+		(control.Schema == 3 && (receipt.CumulativeBytes == nil || *receipt.CumulativeBytes < 0)) ||
+		(control.Schema == 3 && control.Operation != "fence" && *receipt.CumulativeBytes > control.CumulativeByteCeiling) {
 		return false
 	}
 	observed, err := time.Parse(time.RFC3339Nano, receipt.ObservedAt)

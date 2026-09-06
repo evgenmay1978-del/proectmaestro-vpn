@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +18,7 @@ type rqliteRuntimeConfig struct {
 	KeyFile                    string
 	KeyBundleFile              string
 	WhiteListReserveFile       string
+	WhiteListByteBudgetBytes   int64
 	LegacySubscriptionUpstream string
 	LegacyPrimaryFile          string
 }
@@ -58,6 +60,13 @@ func readRQLiteRuntimeConfig(getenv func(string) string) (rqliteRuntimeConfig, e
 		WhiteListReserveFile:       strings.TrimSpace(getenv("MAESTRO_WHITELIST_RESERVE_FILE")),
 		LegacySubscriptionUpstream: strings.TrimSpace(getenv("MAESTRO_LEGACY_SUB_UPSTREAM")),
 		LegacyPrimaryFile:          strings.TrimSpace(getenv("MAESTRO_LEGACY_PRIMARY_FILE")),
+	}
+	if value := strings.TrimSpace(getenv("MAESTRO_WHITELIST_BYTE_BUDGET_BYTES")); value != "" {
+		budget, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || budget < 0 || (budget > 0 && config.WhiteListReserveFile != "") {
+			return rqliteRuntimeConfig{}, errInvalidRQLiteRuntime
+		}
+		config.WhiteListByteBudgetBytes = budget
 	}
 	rawEndpoints := strings.Split(getenv("MAESTRO_RQLITE_ENDPOINTS"), ",")
 	seen := make(map[string]struct{}, len(rawEndpoints))

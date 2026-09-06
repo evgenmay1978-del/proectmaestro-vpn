@@ -17,7 +17,7 @@ import (
 
 const (
 	// SchemaVersion is the newest immutable control-plane migration.
-	SchemaVersion = 20
+	SchemaVersion = 21
 	voterCount    = 3
 
 	migrationDelimiter = "-- maestro:statement"
@@ -92,6 +92,7 @@ var expectedSchemaTables = []string{
 	"whitelist_commercial_debit_outbox",
 	"whitelist_balance_entries",
 	"whitelist_balance_projections",
+	"whitelist_byte_allocations",
 	"whitelist_usage_applications",
 	"whitelist_metering_checkpoints",
 	"whitelist_metering_events",

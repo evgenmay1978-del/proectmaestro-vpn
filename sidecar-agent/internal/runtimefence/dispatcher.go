@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
 	xnet "github.com/xtls/xray-core/common/net"
@@ -86,9 +85,25 @@ func (d *Dispatcher) DispatchLink(ctx context.Context, dest xnet.Destination, li
 		return err
 	}
 	defer s.finish()
-	counted := dispatcher.WrapLink(ctx, d.policy, d.stats, &transport.Link{Reader: link.Reader, Writer: link.Writer})
-	tracked := &transport.Link{Reader: &trackedReader{s: s, Reader: counted.Reader}, Writer: &trackedWriter{s: s, Writer: counted.Writer}}
+	up, down, err := d.userCounters(u.Email)
+	if err != nil {
+		return err
+	}
+	datagram := dest.Network == xnet.Network_UDP
+	tracked := &transport.Link{
+		Reader: &trackedReader{s: s, Reader: &buf.TimeoutWrapperReader{Reader: link.Reader}, counter: up, datagram: datagram},
+		Writer: &trackedWriter{s: s, Writer: link.Writer, counter: down, datagram: datagram},
+	}
 	return d.managed.DispatchLink(ctx, dest, tracked)
+}
+
+func (d *Dispatcher) userCounters(email string) (stats.Counter, stats.Counter, error) {
+	up, eu := stats.GetOrRegisterCounter(d.stats, counterName(email, "uplink"))
+	down, ed := stats.GetOrRegisterCounter(d.stats, counterName(email, "downlink"))
+	if eu != nil || ed != nil || up == nil || down == nil {
+		return nil, nil, errDenied
+	}
+	return up, down, nil
 }
 
 func (d *Dispatcher) Dispatch(ctx context.Context, dest xnet.Destination) (*transport.Link, error) {
@@ -115,18 +130,18 @@ func (d *Dispatcher) Dispatch(ctx context.Context, dest xnet.Destination) (*tran
 		common.Interrupt(dw)
 		return nil, err
 	}
-	up, eu := stats.GetOrRegisterCounter(d.stats, counterName(u.Email, "uplink"))
-	down, ed := stats.GetOrRegisterCounter(d.stats, counterName(u.Email, "downlink"))
-	if eu != nil || ed != nil || up == nil || down == nil {
+	up, down, err := d.userCounters(u.Email)
+	if err != nil {
 		s.finish()
 		return nil, errDenied
 	}
 	// Match pinned getLink: count UP before the inbound pipe write, not when
 	// its reader eventually consumes bytes. XUDP requires outside.Reader to
 	// remain exactly *pipe.Reader, including when its mux session is resumed.
-	outside.Writer = &trackedWriter{s: s, Writer: &dispatcher.SizeStatWriter{Counter: up, Writer: uw}}
+	datagram := dest.Network == xnet.Network_UDP
+	outside.Writer = &trackedWriter{s: s, Writer: uw, counter: up, datagram: datagram}
 	inside.Reader = &trackedReader{s: s, Reader: ur}
-	inside.Writer = &trackedWriter{s: s, Writer: &dispatcher.SizeStatWriter{Counter: down, Writer: dw}}
+	inside.Writer = &trackedWriter{s: s, Writer: dw, counter: down, datagram: datagram}
 	go func() { defer s.finish(); _ = d.managed.DispatchLink(ctx, dest, inside) }()
 	return outside, nil
 }
@@ -134,6 +149,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, dest xnet.Destination) (*tran
 type trackedReader struct {
 	s *stream
 	buf.Reader
+	counter  stats.Counter
+	datagram bool
 }
 
 func (r *trackedReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
@@ -141,7 +158,17 @@ func (r *trackedReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		return nil, io.ErrClosedPipe
 	}
 	defer r.s.end()
-	return r.Reader.ReadMultiBuffer()
+	mb, err := r.Reader.ReadMultiBuffer()
+	if r.counter == nil {
+		return mb, err
+	}
+	mb, terminal := r.s.admitBytes(mb, r.counter, r.datagram)
+	if terminal {
+		// Readers may return a final prefix with EOF. The caller still owns
+		// and consumes that prefix before acting on the terminal condition.
+		return mb, io.EOF
+	}
+	return mb, err
 }
 func (r *trackedReader) Interrupt()   { common.Interrupt(r.Reader) }
 func (r *trackedReader) Close() error { return common.Close(r.Reader) }
@@ -149,6 +176,8 @@ func (r *trackedReader) Close() error { return common.Close(r.Reader) }
 type trackedWriter struct {
 	s *stream
 	buf.Writer
+	counter  stats.Counter
+	datagram bool
 }
 
 func (w *trackedWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
@@ -157,7 +186,22 @@ func (w *trackedWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 		return io.ErrClosedPipe
 	}
 	defer w.s.end()
-	return w.Writer.WriteMultiBuffer(mb)
+	terminal := false
+	if w.counter != nil {
+		mb, terminal = w.s.admitBytes(mb, w.counter, w.datagram)
+		if len(mb) == 0 && terminal {
+			return io.ErrClosedPipe
+		}
+	}
+	// buf.Writer reports only an error, not the accepted byte count. Once
+	// admitted, a prefix is charged exactly once even on an ambiguous error.
+	if err := w.Writer.WriteMultiBuffer(mb); err != nil {
+		return err
+	}
+	if terminal {
+		return io.ErrClosedPipe
+	}
+	return nil
 }
 func (w *trackedWriter) Interrupt()   { common.Interrupt(w.Writer) }
 func (w *trackedWriter) Close() error { return common.Close(w.Writer) }

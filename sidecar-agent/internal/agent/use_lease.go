@@ -17,16 +17,18 @@ type managedRuntimeController interface {
 }
 
 type UseLeaseRequest struct {
-	Schema                int      `json:"schema"`
-	ActionKey             string   `json:"action_key"`
-	XrayProcessBootID     string   `json:"xray_process_boot_id"`
-	ConfigDigest          string   `json:"config_digest"`
-	ManagedUserSetDigest  string   `json:"managed_user_set_digest"`
-	Nonce                 string   `json:"nonce"`
-	ClockDomain           string   `json:"clock_domain"`
-	ReadStartedBoottimeNS int64    `json:"read_started_boottime_ns"`
-	DeadlineBoottimeNS    int64    `json:"deadline_boottime_ns"`
-	Emails                []string `json:"emails"`
+	Schema                   int               `json:"schema"`
+	ActionKey                string            `json:"action_key"`
+	XrayProcessBootID        string            `json:"xray_process_boot_id"`
+	ConfigDigest             string            `json:"config_digest"`
+	ManagedUserSetDigest     string            `json:"managed_user_set_digest"`
+	Nonce                    string            `json:"nonce"`
+	ClockDomain              string            `json:"clock_domain"`
+	ReadStartedBoottimeNS    int64             `json:"read_started_boottime_ns"`
+	DeadlineBoottimeNS       int64             `json:"deadline_boottime_ns"`
+	Emails                   []string          `json:"emails"`
+	CumulativeByteCeilings   map[string]int64  `json:"cumulative_byte_ceilings,omitempty"`
+	ExpectedFenceGenerations map[string]uint64 `json:"expected_fence_generations,omitempty"`
 }
 
 type UseLeaseResult struct {
@@ -46,14 +48,19 @@ func validManagedLeaseEmail(email string) bool {
 }
 
 func validUseLeaseRequest(request UseLeaseRequest) bool {
-	if request.Schema != 2 || !validLeaseActionKey(request.ActionKey) || !safeIdentifier(request.XrayProcessBootID) || !validDigest(request.ConfigDigest) ||
+	if (request.Schema != 2 && request.Schema != 3) || !validLeaseActionKey(request.ActionKey) || !safeIdentifier(request.XrayProcessBootID) || !validDigest(request.ConfigDigest) ||
 		!validDigest(request.ManagedUserSetDigest) || !validDigest(request.Nonce) || !validDigest(request.ClockDomain) || request.ReadStartedBoottimeNS <= 0 ||
 		request.DeadlineBoottimeNS <= request.ReadStartedBoottimeNS || request.DeadlineBoottimeNS-request.ReadStartedBoottimeNS > int64(5*time.Second) ||
 		request.Emails == nil || len(request.Emails) > maxLeaseUsers || !strictlySortedUnique(request.Emails) {
 		return false
 	}
+	if (request.Schema == 2 && (len(request.CumulativeByteCeilings) != 0 || len(request.ExpectedFenceGenerations) != 0)) ||
+		(request.Schema == 3 && (len(request.CumulativeByteCeilings) != len(request.Emails) || len(request.ExpectedFenceGenerations) != len(request.Emails))) {
+		return false
+	}
 	for _, email := range request.Emails {
-		if !validManagedLeaseEmail(email) {
+		_, hasFenceGeneration := request.ExpectedFenceGenerations[email]
+		if !validManagedLeaseEmail(email) || (request.Schema == 3 && (request.CumulativeByteCeilings[email] <= 0 || !hasFenceGeneration)) {
 			return false
 		}
 	}
@@ -61,21 +68,27 @@ func validUseLeaseRequest(request UseLeaseRequest) bool {
 }
 
 func validLeaseControl(control runtimefence.Control) bool {
-	if control.Schema != 2 || !validManagedLeaseEmail(control.Email) || !safeIdentifier(control.BootID) || !validDigest(control.ConfigDigest) || !validDigest(control.ClockDomain) || control.Generation == 0 {
+	if (control.Schema != 2 && control.Schema != 3) || (control.Schema == 2 && control.CumulativeByteCeiling != 0) || !validManagedLeaseEmail(control.Email) || !safeIdentifier(control.BootID) || !validDigest(control.ConfigDigest) || !validDigest(control.ClockDomain) || control.Generation == 0 {
 		return false
 	}
 	switch control.Operation {
 	case "grant", "renew":
-		return control.DeadlineBoottimeNS > 0
+		return control.DeadlineBoottimeNS > 0 && (control.Schema == 2 || control.CumulativeByteCeiling > 0)
 	case "fence":
-		return control.DeadlineBoottimeNS == 0
+		return control.DeadlineBoottimeNS == 0 && control.CumulativeByteCeiling == 0
 	}
 	return false
 }
 
 func validateLeaseReceipt(control runtimefence.Control, receipt runtimefence.Receipt) error {
-	if !validLeaseControl(control) || receipt.Schema != 2 || receipt.Email != control.Email || receipt.BootID != control.BootID || receipt.ConfigDigest != control.ConfigDigest ||
+	if !validLeaseControl(control) || receipt.Schema != control.Schema || receipt.Email != control.Email || receipt.BootID != control.BootID || receipt.ConfigDigest != control.ConfigDigest ||
 		receipt.Generation != control.Generation || receipt.ClockDomain != control.ClockDomain || receipt.ResetSequence != 0 {
+		return ErrLeaseUnavailable
+	}
+	if receipt.CumulativeByteCeiling != control.CumulativeByteCeiling ||
+		(control.Schema == 2 && receipt.CumulativeBytes != nil) ||
+		(control.Schema == 3 && (receipt.CumulativeBytes == nil || *receipt.CumulativeBytes < 0)) ||
+		(control.Schema == 3 && control.Operation != "fence" && *receipt.CumulativeBytes > control.CumulativeByteCeiling) {
 		return ErrLeaseUnavailable
 	}
 	observed, err := time.Parse(time.RFC3339Nano, receipt.ObservedAt)
@@ -204,6 +217,7 @@ func (reconciler *Reconciler) UseLease(ctx context.Context, request UseLeaseRequ
 	if reconciler == nil || !reconciler.managedLeaseEnabled || ctx == nil || !validUseLeaseRequest(request) {
 		return UseLeaseResult{}, ErrLeaseUnavailable
 	}
+	request = cloneUseLeaseRequest(request)
 	reconciler.mutex.Lock()
 	defer reconciler.mutex.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -320,7 +334,10 @@ func (reconciler *Reconciler) currentLeaseResult(result UseLeaseResult, request 
 		proof, hasProof := proofs[email]
 		if !exists || !hasProof || user.Phase != "active" || user.ConfigDigest != request.ConfigDigest || user.ClockDomain != domain || user.Binding != bindingForDesired(desired) ||
 			user.DeadlineBoottimeNS != request.DeadlineBoottimeNS || proof.LeaseBinding != user.Binding || proof.Control.Generation != user.Generation ||
-			proof.Control.DeadlineBoottimeNS != request.DeadlineBoottimeNS || proof.Control.Operation == "fence" || validateLeaseReceipt(proof.Control, proof.Receipt) != nil {
+			proof.Control.DeadlineBoottimeNS != request.DeadlineBoottimeNS || proof.Control.Operation == "fence" || proof.Control.Schema != request.Schema ||
+			proof.Control.CumulativeByteCeiling != request.CumulativeByteCeilings[email] ||
+			(request.Schema == 3 && (user.BudgetSchema != 3 || user.CumulativeByteCeiling != request.CumulativeByteCeilings[email] || user.LastFencedGeneration != request.ExpectedFenceGenerations[email])) ||
+			validateLeaseReceipt(proof.Control, proof.Receipt) != nil {
 			live = false
 		}
 	}
@@ -332,7 +349,13 @@ func (reconciler *Reconciler) currentLeaseResult(result UseLeaseResult, request 
 }
 
 func (reconciler *Reconciler) planUseLeaseLocked(state *leaseState, desired Desired, request UseLeaseRequest, now int64) (*pendingLeaseCommand, error) {
-	command := &pendingLeaseCommand{Key: leaseHash(request), Request: &request, Result: UseLeaseResult{Schema: 2, Nonce: request.Nonce, Receipts: []LeaseReceiptProof{}}}
+	// Fence epochs bind credit to the final receipt whose unused reservation
+	// may already have been returned. Reject stale credit before reserving any
+	// fresh runtime generation, even when the request carries a fresh nonce.
+	if !matchesByteFenceGenerations(state, request) {
+		return nil, ErrConflict
+	}
+	command := &pendingLeaseCommand{Key: leaseHash(request), Request: &request, Result: UseLeaseResult{Schema: request.Schema, Nonce: request.Nonce, Receipts: []LeaseReceiptProof{}}}
 	authorized := stringSet(request.Emails)
 	rearm := map[string]bool{}
 	fence := map[string]bool{}
@@ -342,7 +365,14 @@ func (reconciler *Reconciler) planUseLeaseLocked(state *leaseState, desired Desi
 			return nil, ErrLeaseUnavailable
 		}
 		_, allow := authorized[email]
+		if allow && request.Schema == 2 && user.BudgetSchema == 3 {
+			return nil, ErrLeaseUnavailable
+		}
 		if allow && user.Phase != "ready" && !(user.Phase == "active" && now < user.DeadlineBoottimeNS) {
+			rearm[email] = true
+			fence[email] = true
+		}
+		if allow && request.Schema == 3 && user.Phase == "active" && user.BudgetSchema != 3 {
 			rearm[email] = true
 			fence[email] = true
 		}
@@ -394,13 +424,38 @@ func reserveLeaseControl(state *leaseState, command *pendingLeaseCommand, bindin
 	if user.Generation == math.MaxUint64 || user.ClockDomain != domain || user.ConfigDigest != digest {
 		return ErrLeaseUnavailable
 	}
-	user.Generation++
-	user.Phase = "unknown"
-	state.Users[key] = user
-	control := runtimefence.Control{Schema: 2, Operation: operation, Email: email, BootID: boot, ConfigDigest: digest, Generation: user.Generation, ClockDomain: domain, DeadlineBoottimeNS: deadline}
+	schema, ceiling := 2, int64(0)
+	if operation == "fence" {
+		// A possibly accepted budgeted grant keeps its schema even after an
+		// unknown RPC result or restart, so cleanup retains the actual byte tail.
+		if user.BudgetSchema == 3 {
+			schema = 3
+		}
+	} else if command.Request != nil {
+		schema = command.Request.Schema
+		ceiling = command.Request.CumulativeByteCeilings[email]
+		if user.BudgetSchema == 3 && schema != 3 {
+			return ErrLeaseUnavailable
+		}
+		expectedFence, hasFenceGeneration := command.Request.ExpectedFenceGenerations[email]
+		if schema == 3 && (!hasFenceGeneration || expectedFence != user.LastFencedGeneration || ceiling <= 0 || ceiling < user.CumulativeBytes ||
+			(operation == "renew" && ceiling < user.CumulativeByteCeiling)) {
+			return ErrLeaseUnavailable
+		}
+	}
+	control := runtimefence.Control{Schema: schema, Operation: operation, Email: email, BootID: boot, ConfigDigest: digest, Generation: user.Generation + 1, ClockDomain: domain, DeadlineBoottimeNS: deadline, CumulativeByteCeiling: ceiling}
 	if !validLeaseControl(control) || !validLeaseBinding(binding) {
 		return ErrLeaseUnavailable
 	}
+	user.Generation++
+	user.Phase = "unknown"
+	if schema == 3 {
+		user.BudgetSchema = 3
+		if operation != "fence" {
+			user.CumulativeByteCeiling = ceiling
+		}
+	}
+	state.Users[key] = user
 	command.Steps = append(command.Steps, leaseStep{Kind: "control", Email: email, BootID: boot, Binding: binding, Control: &control})
 	if operation == "fence" {
 		count := len(state.FinalReceipts)
@@ -449,6 +504,9 @@ func (reconciler *Reconciler) executeLeasePendingLocked(ctx context.Context, sta
 				return pending.Result, ErrLeaseUnavailable
 			}
 			if control.Operation != "fence" {
+				if control.Schema == 3 && (pending.Request == nil || pending.Request.ExpectedFenceGenerations[step.Email] != user.LastFencedGeneration) {
+					return pending.Result, ErrConflict
+				}
 				domain, now, clockErr := reconciler.leaseClockNow()
 				if clockErr != nil || domain != control.ClockDomain {
 					return pending.Result, ErrLeaseUnavailable
@@ -470,11 +528,24 @@ func (reconciler *Reconciler) executeLeasePendingLocked(ctx context.Context, sta
 			if validateLeaseReceipt(control, receipt) != nil {
 				return pending.Result, ErrLeasePending
 			}
+			if control.Schema == 3 {
+				if *receipt.CumulativeBytes < user.CumulativeBytes {
+					return pending.Result, ErrLeasePending
+				}
+				user.BudgetSchema = 3
+				user.CumulativeBytes = *receipt.CumulativeBytes
+			}
 			proof := LeaseReceiptProof{LeaseBinding: step.Binding, Control: control, Receipt: receipt}
 			pending.Result.Receipts = append(pending.Result.Receipts, proof)
 			user.Binding = step.Binding
 			user.DeadlineBoottimeNS = control.DeadlineBoottimeNS
 			if control.Operation == "fence" {
+				if control.Schema == 3 {
+					if control.Generation < user.LastFencedGeneration {
+						return pending.Result, ErrConflict
+					}
+					user.LastFencedGeneration = control.Generation
+				}
 				user.Phase = "fenced"
 				final := FinalLeaseReceipt{ReceiptID: leaseOperationID(step.Binding, control), ProofSHA256: leaseHash(proof), LeaseReceiptProof: proof}
 				if old, exists := state.FinalReceipts[final.ReceiptID]; exists && old.ProofSHA256 != final.ProofSHA256 {

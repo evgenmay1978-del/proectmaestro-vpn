@@ -29,14 +29,15 @@ var errDenied = errors.New("managed session denied")
 // durable desired state. Retries retain generation, operation and absolute
 // BOOTTIME deadline, even when an RPC is delayed or its result is unknown.
 type Control struct {
-	Schema             int    `json:"schema"`
-	Operation          string `json:"operation"`
-	Email              string `json:"email"`
-	BootID             string `json:"boot_id"`
-	ConfigDigest       string `json:"config_digest"`
-	Generation         uint64 `json:"generation"`
-	ClockDomain        string `json:"clock_domain"`
-	DeadlineBoottimeNS int64  `json:"deadline_boottime_ns,omitempty"`
+	Schema                int    `json:"schema"`
+	Operation             string `json:"operation"`
+	Email                 string `json:"email"`
+	BootID                string `json:"boot_id"`
+	ConfigDigest          string `json:"config_digest"`
+	Generation            uint64 `json:"generation"`
+	ClockDomain           string `json:"clock_domain"`
+	DeadlineBoottimeNS    int64  `json:"deadline_boottime_ns,omitempty"`
+	CumulativeByteCeiling int64  `json:"cumulative_byte_ceiling,omitempty"`
 }
 
 // Reject old/duration-only wire requests before the RPC handler looks up users.
@@ -44,7 +45,7 @@ type Control struct {
 func (c *Control) UnmarshalJSON(data []byte) error {
 	type wireControl Control
 	var wire wireControl
-	if err := decode(data, &wire); err != nil || wire.Schema != 2 {
+	if err := decode(data, &wire); err != nil || (wire.Schema != 2 && wire.Schema != 3) || (wire.Schema == 2 && wire.CumulativeByteCeiling != 0) {
 		return errors.New("invalid managed control schema")
 	}
 	*c = Control(wire)
@@ -52,19 +53,21 @@ func (c *Control) UnmarshalJSON(data []byte) error {
 }
 
 type Receipt struct {
-	Schema             int     `json:"schema"`
-	State              string  `json:"state"`
-	Email              string  `json:"email"`
-	BootID             string  `json:"boot_id"`
-	ConfigDigest       string  `json:"config_digest"`
-	Generation         uint64  `json:"generation"`
-	ResetSequence      uint64  `json:"reset_sequence"`
-	ObservedAt         string  `json:"observed_at"`
-	Uplink             *int64  `json:"uplink,omitempty"`
-	Downlink           *int64  `json:"downlink,omitempty"`
-	ClockDomain        string  `json:"clock_domain"`
-	DeadlineBoottimeNS int64   `json:"deadline_boottime_ns,omitempty"`
-	LeaseRemainingMS   *uint32 `json:"lease_remaining_ms,omitempty"`
+	Schema                int     `json:"schema"`
+	State                 string  `json:"state"`
+	Email                 string  `json:"email"`
+	BootID                string  `json:"boot_id"`
+	ConfigDigest          string  `json:"config_digest"`
+	Generation            uint64  `json:"generation"`
+	ResetSequence         uint64  `json:"reset_sequence"`
+	ObservedAt            string  `json:"observed_at"`
+	Uplink                *int64  `json:"uplink,omitempty"`
+	Downlink              *int64  `json:"downlink,omitempty"`
+	ClockDomain           string  `json:"clock_domain"`
+	DeadlineBoottimeNS    int64   `json:"deadline_boottime_ns,omitempty"`
+	LeaseRemainingMS      *uint32 `json:"lease_remaining_ms,omitempty"`
+	CumulativeByteCeiling int64   `json:"cumulative_byte_ceiling,omitempty"`
+	CumulativeBytes       *int64  `json:"cumulative_bytes,omitempty"`
 }
 
 type userState struct {
@@ -77,6 +80,13 @@ type userState struct {
 	sessions        map[*stream]struct{}
 	leaseDeadlineNS int64
 	leaseTimer      *time.Timer
+	controlSchema   int
+	controlCeiling  int64
+	byteCeiling     int64
+	cumulativeBytes int64
+	byteLimited     bool
+	budgetExhausted bool
+	fenceComplete   bool
 }
 
 type gate struct {
@@ -184,7 +194,7 @@ func (g *gate) leaseReceiptLocked(u *userState, c Control) (*Receipt, error) {
 	// Remaining time is an advisory floor. The shared absolute deadline, not
 	// receipt-time plus this duration, remains the caller/runtime authority.
 	remaining := uint32((u.leaseDeadlineNS - now) / int64(time.Millisecond))
-	r := g.receipt(c, "granted")
+	r := g.receipt(c, "granted", u)
 	r.DeadlineBoottimeNS = u.leaseDeadlineNS
 	r.LeaseRemainingMS = &remaining
 	return r, nil
@@ -195,7 +205,7 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 		return nil, ctx.Err()
 	}
 	leasedOperation := c.Operation == "grant" || c.Operation == "renew"
-	if c.Schema != 2 || !validEmail(c.Email) || c.BootID != g.boot || c.ConfigDigest != g.digest || c.ClockDomain != g.clockDomain || c.Generation == 0 || (!leasedOperation && c.Operation != "fence") || (leasedOperation && c.DeadlineBoottimeNS <= 0) || (c.Operation == "fence" && c.DeadlineBoottimeNS != 0) {
+	if (c.Schema != 2 && c.Schema != 3) || !validEmail(c.Email) || c.BootID != g.boot || c.ConfigDigest != g.digest || c.ClockDomain != g.clockDomain || c.Generation == 0 || (!leasedOperation && c.Operation != "fence") || (leasedOperation && c.DeadlineBoottimeNS <= 0) || (c.Operation == "fence" && c.DeadlineBoottimeNS != 0) || (c.Schema == 2 && c.CumulativeByteCeiling != 0) || (c.Schema == 3 && leasedOperation && c.CumulativeByteCeiling <= 0) || (c.Operation == "fence" && c.CumulativeByteCeiling != 0) {
 		return nil, errDenied
 	}
 	g.mu.Lock()
@@ -221,11 +231,17 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 	if clockErr == nil {
 		g.expireLocked(u, now)
 	}
-	if c.Generation < u.generation || (c.Generation == u.generation && c.Operation != u.operation) {
+	if c.Generation < u.generation || (c.Generation == u.generation && (c.Operation != u.operation || c.Schema != u.controlSchema || c.CumulativeByteCeiling != u.controlCeiling)) {
 		g.mu.Unlock()
 		return nil, errDenied
 	}
 	if leasedOperation {
+		// A physical-boot cumulative budget cannot be reset by a reconnect,
+		// a renewal, or a downgrade to the legacy measured-lease protocol.
+		if (u.byteLimited && c.Schema != 3) || (c.Schema == 3 && (c.CumulativeByteCeiling < u.cumulativeBytes || (c.CumulativeByteCeiling < u.byteCeiling && (c.Operation == "renew" || !u.fenceComplete)))) {
+			g.mu.Unlock()
+			return nil, errDenied
+		}
 		// Check at use time, not when the caller sent the RPC. An expired
 		// absolute deadline cannot be converted to a fresh duration here.
 		now, clockErr = g.nowLocked()
@@ -253,6 +269,9 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 				return nil, errDenied
 			}
 			u.generation, u.operation = c.Generation, c.Operation
+			u.controlSchema, u.controlCeiling = c.Schema, c.CumulativeByteCeiling
+			u.fenceComplete = false
+			u.setByteCeiling(c)
 			u.leaseDeadlineNS = c.DeadlineBoottimeNS
 			g.scheduleLeaseWakeLocked(u, now)
 		} else {
@@ -263,6 +282,9 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 				return nil, errDenied
 			}
 			u.generation, u.operation, u.allowed, u.user = c.Generation, c.Operation, true, user
+			u.controlSchema, u.controlCeiling = c.Schema, c.CumulativeByteCeiling
+			u.fenceComplete = false
+			u.setByteCeiling(c)
 			u.leaseDeadlineNS = c.DeadlineBoottimeNS
 			g.scheduleLeaseWakeLocked(u, now)
 		}
@@ -271,6 +293,8 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 		return r, err
 	}
 	u.generation, u.operation, u.allowed = c.Generation, c.Operation, false
+	u.controlSchema, u.controlCeiling = c.Schema, c.CumulativeByteCeiling
+	u.fenceComplete = false
 	g.fenceLocked(u)
 	deadline, cancel := context.WithTimeout(ctx, maxDrain)
 	defer cancel()
@@ -299,7 +323,8 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 		// Admission is closed and the registry has fully drained above. With
 		// no successful start in this physical boot, absence is proven unused,
 		// not a fabricated zero sample or an accounting boundary timestamp.
-		r := g.receipt(c, "fenced_unused")
+		r := g.receipt(c, "fenced_unused", u)
+		u.fenceComplete = true
 		g.mu.Unlock()
 		return r, nil
 	}
@@ -312,14 +337,31 @@ func (g *gate) apply(ctx context.Context, c Control, user *protocol.MemoryUser, 
 		g.mu.Unlock()
 		return nil, errors.New("invalid final counters")
 	}
-	r := g.receipt(c, "fenced")
+	if c.Schema == 3 && (uv > u.cumulativeBytes || dv != u.cumulativeBytes-uv) {
+		g.mu.Unlock()
+		return nil, errors.New("final counters do not match cumulative byte budget")
+	}
+	r := g.receipt(c, "fenced", u)
 	r.Uplink, r.Downlink = &uv, &dv
+	u.fenceComplete = true
 	g.mu.Unlock()
 	return r, nil
 }
 
-func (g *gate) receipt(c Control, state string) *Receipt {
-	return &Receipt{Schema: 2, State: state, Email: c.Email, BootID: g.boot, ConfigDigest: g.digest, Generation: c.Generation, ClockDomain: g.clockDomain, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+func (u *userState) setByteCeiling(c Control) {
+	if c.Schema == 3 {
+		u.byteLimited, u.byteCeiling = true, c.CumulativeByteCeiling
+		u.budgetExhausted = u.cumulativeBytes >= u.byteCeiling
+	}
+}
+
+func (g *gate) receipt(c Control, state string, u *userState) *Receipt {
+	r := &Receipt{Schema: c.Schema, State: state, Email: c.Email, BootID: g.boot, ConfigDigest: g.digest, Generation: c.Generation, ClockDomain: g.clockDomain, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	if c.Schema == 3 {
+		total := u.cumulativeBytes
+		r.CumulativeByteCeiling, r.CumulativeBytes = c.CumulativeByteCeiling, &total
+	}
+	return r
 }
 
 func counterName(email, direction string) string {
@@ -344,7 +386,7 @@ func (g *gate) start(ctx context.Context, user *protocol.MemoryUser, interrupt f
 		return nil, nil, err
 	}
 	g.expireLocked(u, now)
-	if g.closed || u == nil || !u.allowed || u.user != user || g.count >= maxSessions || len(u.sessions) >= maxUserSessions {
+	if g.closed || u == nil || !u.allowed || u.budgetExhausted || u.user != user || g.count >= maxSessions || len(u.sessions) >= maxUserSessions {
 		return nil, nil, errDenied
 	}
 	ctx, cancel := context.WithCancel(ctx)

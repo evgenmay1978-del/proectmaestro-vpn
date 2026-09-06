@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
@@ -13,6 +14,10 @@ import (
 type WhiteListUseLeaseAuthorization struct {
 	Emails   []string
 	FreshFor time.Duration
+	// Missing entries retain the explicit legacy measured mode. Byte mode is
+	// bound independently for each physical Origin and shared account email.
+	CumulativeByteCeilings     map[string]map[string]int64
+	ByteBudgetFenceGenerations map[string]map[string]uint64
 }
 
 // A value can only be issued after authenticating the retained agent proof
@@ -44,6 +49,10 @@ func (a WhiteListFinalReceiptAuthorization) Receipt() sidecaragentclient.Managed
 	if v.Receipt.Downlink != nil {
 		x := *v.Receipt.Downlink
 		v.Receipt.Downlink = &x
+	}
+	if v.Receipt.CumulativeBytes != nil {
+		x := *v.Receipt.CumulativeBytes
+		v.Receipt.CumulativeBytes = &x
 	}
 	return v
 }
@@ -101,7 +110,8 @@ func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID str
 	route := WhiteListMeteringRoute{ManagedEmail: final.Control.Email, ExitID: desired.ExitID, Entitlement: entitlement}
 	if final.Receipt.State == "fenced" {
 		periodResults, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT period.period_id,period.starts_at_unix,period.ends_at_unix,period.included_grant_bytes,admission.admitted_at_unix
-FROM whitelist_first_use_admissions AS admission
+FROM (SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,admitted_at_unix,zero_start_authorized FROM whitelist_first_use_admissions
+UNION ALL SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,admitted_at_unix,1 FROM whitelist_byte_allocations) AS admission
 JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id AND period.entitlement_id=admission.entitlement_id
 WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id=? AND admission.xray_process_boot_id=? AND admission.zero_start_authorized=1`, Args: []any{entitlementID, desired.ExitID, final.OriginID, final.Control.BootID}})
 		if err != nil || len(periodResults) != 1 || len(periodResults[0].Rows) != 1 {
@@ -178,7 +188,7 @@ ORDER BY origin.origin_id`})
 // state with the same evaluator as public delivery. It cannot grant by token,
 // refresh desired state, or manufacture an initial counter observation.
 func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan WhiteListMeteringPlan, resolve func(string) (ExternalActionSender, bool)) (WhiteListUseLeaseAuthorization, error) {
-	closed := WhiteListUseLeaseAuthorization{Emails: []string{}}
+	closed := WhiteListUseLeaseAuthorization{Emails: []string{}, CumulativeByteCeilings: map[string]map[string]int64{}, ByteBudgetFenceGenerations: map[string]map[string]uint64{}}
 	if s == nil || s.clock == nil || ctx == nil || resolve == nil || len(plan.Origins) == 0 {
 		return closed, ErrUnavailable
 	}
@@ -213,6 +223,27 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 				desired.ConfigDigest != origin.Desired.ConfigDigest || desired.ManagedUserSetDigest != origin.Desired.ManagedUserSetDigest ||
 				!whiteListContainsUser(desired.ManagedUsers, route.ManagedEmail) {
 				return closed, ErrUnavailable
+			}
+			admission, err := s.whiteListAdmissionRow(ctx, route.Entitlement.EntitlementID(), route.ExitID,
+				whiteListObservedOrigin{origin: origin.Origin, desired: origin.Desired, receipt: origin.Receipt})
+			if err != nil {
+				return closed, err
+			}
+			mode, _ := rowString(admission, "admission_mode")
+			if mode == "bytes" {
+				ceiling, ceilingOK := rowInt64(admission, "cumulative_byte_ceiling")
+				outstanding, outstandingOK := rowInt64(admission, "outstanding_bytes")
+				fenceText, fenceOK := rowString(admission, "last_fenced_generation")
+				fenceGeneration, fenceErr := strconv.ParseUint(fenceText, 10, 64)
+				if !ceilingOK || !outstandingOK || !fenceOK || fenceErr != nil || ceiling <= 0 || outstanding <= 0 {
+					return closed, ErrUnavailable
+				}
+				if closed.CumulativeByteCeilings[desired.OriginID] == nil {
+					closed.CumulativeByteCeilings[desired.OriginID] = map[string]int64{}
+					closed.ByteBudgetFenceGenerations[desired.OriginID] = map[string]uint64{}
+				}
+				closed.CumulativeByteCeilings[desired.OriginID][route.ManagedEmail] = ceiling
+				closed.ByteBudgetFenceGenerations[desired.OriginID][route.ManagedEmail] = fenceGeneration
 			}
 		}
 		freshUntil := time.Unix(delivery.Decision.FreshUntilUnix, 0)

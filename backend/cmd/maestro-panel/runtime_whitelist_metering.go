@@ -45,6 +45,11 @@ type runtimeWhiteListFinalStore interface {
 	ApplyCommercialFinalReceipt(context.Context, controlplane.WhiteListFinalReceiptAuthorization, shadowbilling.CommercialDebiter) (shadowbilling.DurableResult, error)
 }
 
+type runtimeWhiteListByteBudgetControlPlane interface {
+	AuthorizeWhiteListByteBudgetAdmission(context.Context, string, string, int64) error
+	CompleteWhiteListByteBudgetFinal(context.Context, controlplane.WhiteListFinalReceiptAuthorization) error
+}
+
 type runtimeWhiteListMeteringControlPlane interface {
 	shadowbilling.CommercialDebiter
 	WhiteListMeteringPlan(context.Context) (controlplane.WhiteListMeteringPlan, error)
@@ -81,6 +86,7 @@ type runtimeWhiteListMeteringCollector struct {
 	startupRecovered bool
 	reconcileNeeded  bool
 	reserves         runtimeWhiteListReserveProvider
+	byteBudgetBytes  int64
 }
 
 func newRuntimeWhiteListMeteringStore(database rqlite.RQLite) (*shadowbilling.DurableStore, error) {
@@ -97,11 +103,16 @@ func runRQLiteBackground(
 	senders map[string]controlplane.ExternalActionSender,
 	meteringEnabled bool,
 	reserves runtimeWhiteListReserveProvider,
+	byteBudgetBytes ...int64,
 ) {
 	if ctx == nil || renewal == nil {
 		return
 	}
 	var workers sync.WaitGroup
+	var byteBudget int64
+	if len(byteBudgetBytes) == 1 {
+		byteBudget = byteBudgetBytes[0]
+	}
 	if meteringEnabled && metering != nil && meteringStore != nil &&
 		strings.TrimSpace(workerID) != "" && len(senders) > 0 {
 		workers.Add(1)
@@ -109,7 +120,7 @@ func runRQLiteBackground(
 			defer workers.Done()
 			runRuntimeWhiteListMetering(ctx, &runtimeWhiteListMeteringCollector{
 				control: metering, store: meteringStore, workerID: workerID, senders: senders,
-				reserves: reserves,
+				reserves: reserves, byteBudgetBytes: byteBudget,
 			}, runtimeWhiteListMeteringInterval)
 		}()
 	}
@@ -288,6 +299,10 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			return errRuntimeWhiteListMeteringUnavailable
 		}
 		request, err := sidecaragentclient.NewUseLeaseRequest(snapshots[origin.Origin.OriginID], authorization.FreshFor, authorization.Emails)
+		if collector.byteBudgetBytes > 0 {
+			request, err = sidecaragentclient.NewByteBudgetUseLeaseRequest(snapshots[origin.Origin.OriginID], authorization.FreshFor, authorization.Emails,
+				authorization.CumulativeByteCeilings[origin.Origin.OriginID], authorization.ByteBudgetFenceGenerations[origin.Origin.OriginID])
+		}
 		if err != nil {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
@@ -344,6 +359,12 @@ func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx conte
 						return errRuntimeWhiteListMeteringUnavailable
 					}
 				}
+				if final.Control.Schema == 3 {
+					budgetControl, ok := collector.control.(runtimeWhiteListByteBudgetControlPlane)
+					if !ok || budgetControl.CompleteWhiteListByteBudgetFinal(ctx, authorization) != nil {
+						return errRuntimeWhiteListMeteringUnavailable
+					}
+				}
 				ack = append(ack, sidecaragentclient.FinalReceiptACK{ReceiptID: final.ReceiptID, ProofSHA256: final.ProofSHA256})
 			}
 			if len(ack) > 0 {
@@ -372,6 +393,25 @@ func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx conte
 // Run only after every authenticated Origin observation and debit succeeded.
 // Candidate discovery must not depend on already provisioned managed users.
 func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx context.Context) error {
+	if collector.byteBudgetBytes > 0 {
+		budgetControl, ok := collector.control.(runtimeWhiteListByteBudgetControlPlane)
+		if !ok {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		candidates, err := collector.control.WhiteListMeteringAdmissionCandidates(ctx)
+		if err != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
+		for _, candidate := range candidates {
+			if ctx.Err() != nil {
+				return errRuntimeWhiteListMeteringUnavailable
+			}
+			// An exhausted account cannot stop other accounts. Lease authority
+			// independently requires a committed positive allocation below.
+			_ = budgetControl.AuthorizeWhiteListByteBudgetAdmission(ctx, candidate.EntitlementID, candidate.ExitID, collector.byteBudgetBytes)
+		}
+		return nil
+	}
 	if collector.reserves == nil {
 		return nil
 	}

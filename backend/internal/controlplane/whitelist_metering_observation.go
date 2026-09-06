@@ -103,6 +103,9 @@ observation_sha256=excluded.observation_sha256`, Args: []any{receipt.OriginID, r
 		statements = append(statements, rqlite.Statement{SQL: `UPDATE whitelist_first_use_admissions SET first_observed_at_unix=?
 WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=? AND first_observed_at_unix=0`,
 			Args: []any{observation.SampledAt.Unix(), entitlementID, desired.ExitID, receipt.OriginID, receipt.XrayProcessBootID}})
+		statements = append(statements, rqlite.Statement{SQL: `UPDATE whitelist_byte_allocations SET first_observed_at_unix=?
+WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=? AND first_observed_at_unix=0`,
+			Args: []any{observation.SampledAt.Unix(), entitlementID, desired.ExitID, receipt.OriginID, receipt.XrayProcessBootID}})
 	}
 	// Resolve an unknown transaction result with exact readback, as receipt writes
 	// do. Health never calls the billing store or advances a balance watermark.
@@ -280,10 +283,15 @@ AND EXISTS(SELECT 1 FROM whitelist_metering_origin_observations WHERE origin_id=
 
 func (s *Service) whiteListAdmissionRow(ctx context.Context, entitlementID, exitID string, origin whiteListObservedOrigin) (map[string]any, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT billing_period_id,admitted_at_unix,zero_start_authorized,
-first_observed_at_unix,reserve_bytes,reserve_measured_at_unix,reserve_until_unix FROM whitelist_first_use_admissions
-WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=?`, Args: []any{entitlementID, exitID, origin.origin.OriginID, origin.receipt.XrayProcessBootID}})
+first_observed_at_unix,reserve_bytes,reserve_measured_at_unix,reserve_until_unix,'measured' AS admission_mode,
+NULL AS outstanding_bytes,NULL AS cumulative_byte_ceiling,NULL AS last_fenced_generation FROM whitelist_first_use_admissions
+WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=?
+UNION ALL SELECT billing_period_id,admitted_at_unix,1,first_observed_at_unix,NULL,NULL,NULL,'bytes',outstanding_bytes,cumulative_byte_ceiling,last_fenced_generation
+FROM whitelist_byte_allocation_balances WHERE entitlement_id=? AND exit_id=? AND origin_id=? AND xray_process_boot_id=?`,
+		Args: []any{entitlementID, exitID, origin.origin.OriginID, origin.receipt.XrayProcessBootID,
+			entitlementID, exitID, origin.origin.OriginID, origin.receipt.XrayProcessBootID}})
 	row, ok := firstRow(results)
-	if err != nil || !ok {
+	if err != nil || !ok || len(results) != 1 || len(results[0].Rows) != 1 {
 		return nil, ErrUnavailable
 	}
 	return row, nil
@@ -344,7 +352,17 @@ func (s *Service) whiteListMeteringReadiness(ctx context.Context, entitlementID,
 		observed, _ := rowInt64(row, "first_observed_at_unix")
 		zeroStart, _ := rowInt64(row, "zero_start_authorized")
 		admitted, _ := rowInt64(row, "admitted_at_unix")
-		if boundPeriod != period || reserve < 10_000_000 || available < reserve || until <= now.Unix() || zeroStart != 1 {
+		mode, _ := rowString(row, "admission_mode")
+		if boundPeriod != period || zeroStart != 1 {
+			return 0, 0, false
+		}
+		if mode == "bytes" {
+			outstanding, ok := rowInt64(row, "outstanding_bytes")
+			if !ok || outstanding <= 0 {
+				return 0, 0, false
+			}
+			until = periodEndsAt
+		} else if mode != "measured" || reserve < 10_000_000 || available < reserve || until <= now.Unix() {
 			return 0, 0, false
 		}
 		for _, deadline := range []int64{until, origin.receipt.ExpiresAt.Unix(), origin.sampledAt + whiteListObservationTTLSeconds} {

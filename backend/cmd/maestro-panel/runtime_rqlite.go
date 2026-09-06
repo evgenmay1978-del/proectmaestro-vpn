@@ -132,6 +132,7 @@ func buildRQLitePanelRuntime(
 			workerContext, service, service, service, meteringStore, workerID,
 			runtime.whiteListSidecarSenders, publicationEnabled,
 			runtimeWhiteListReserveFile(config.WhiteListReserveFile, dependencies.clock.Now),
+			config.WhiteListByteBudgetBytes,
 		)
 	}
 	return runtime, nil

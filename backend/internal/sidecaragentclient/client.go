@@ -114,30 +114,33 @@ type UseLeaseChallenge struct {
 }
 
 type ManagedControl struct {
-	Schema             int    `json:"schema"`
-	Operation          string `json:"operation"`
-	Email              string `json:"email"`
-	BootID             string `json:"boot_id"`
-	ConfigDigest       string `json:"config_digest"`
-	Generation         uint64 `json:"generation"`
-	ClockDomain        string `json:"clock_domain"`
-	DeadlineBoottimeNS int64  `json:"deadline_boottime_ns,omitempty"`
+	Schema                int    `json:"schema"`
+	Operation             string `json:"operation"`
+	Email                 string `json:"email"`
+	BootID                string `json:"boot_id"`
+	ConfigDigest          string `json:"config_digest"`
+	Generation            uint64 `json:"generation"`
+	ClockDomain           string `json:"clock_domain"`
+	DeadlineBoottimeNS    int64  `json:"deadline_boottime_ns,omitempty"`
+	CumulativeByteCeiling int64  `json:"cumulative_byte_ceiling,omitempty"`
 }
 
 type ManagedReceipt struct {
-	Schema             int     `json:"schema"`
-	State              string  `json:"state"`
-	Email              string  `json:"email"`
-	BootID             string  `json:"boot_id"`
-	ConfigDigest       string  `json:"config_digest"`
-	Generation         uint64  `json:"generation"`
-	ResetSequence      uint64  `json:"reset_sequence"`
-	ObservedAt         string  `json:"observed_at"`
-	Uplink             *int64  `json:"uplink,omitempty"`
-	Downlink           *int64  `json:"downlink,omitempty"`
-	ClockDomain        string  `json:"clock_domain"`
-	DeadlineBoottimeNS int64   `json:"deadline_boottime_ns,omitempty"`
-	LeaseRemainingMS   *uint32 `json:"lease_remaining_ms,omitempty"`
+	Schema                int     `json:"schema"`
+	State                 string  `json:"state"`
+	Email                 string  `json:"email"`
+	BootID                string  `json:"boot_id"`
+	ConfigDigest          string  `json:"config_digest"`
+	Generation            uint64  `json:"generation"`
+	ResetSequence         uint64  `json:"reset_sequence"`
+	ObservedAt            string  `json:"observed_at"`
+	Uplink                *int64  `json:"uplink,omitempty"`
+	Downlink              *int64  `json:"downlink,omitempty"`
+	ClockDomain           string  `json:"clock_domain"`
+	DeadlineBoottimeNS    int64   `json:"deadline_boottime_ns,omitempty"`
+	LeaseRemainingMS      *uint32 `json:"lease_remaining_ms,omitempty"`
+	CumulativeByteCeiling int64   `json:"cumulative_byte_ceiling,omitempty"`
+	CumulativeBytes       *int64  `json:"cumulative_bytes,omitempty"`
 }
 
 type ManagedFinalReceipt struct {
@@ -175,16 +178,18 @@ type FinalReceiptACK struct {
 }
 
 type UseLeaseRequest struct {
-	Schema                int      `json:"schema"`
-	ActionKey             string   `json:"action_key"`
-	XrayProcessBootID     string   `json:"xray_process_boot_id"`
-	ConfigDigest          string   `json:"config_digest"`
-	ManagedUserSetDigest  string   `json:"managed_user_set_digest"`
-	Nonce                 string   `json:"nonce"`
-	ClockDomain           string   `json:"clock_domain"`
-	ReadStartedBoottimeNS int64    `json:"read_started_boottime_ns"`
-	DeadlineBoottimeNS    int64    `json:"deadline_boottime_ns"`
-	Emails                []string `json:"emails"`
+	Schema                   int               `json:"schema"`
+	ActionKey                string            `json:"action_key"`
+	XrayProcessBootID        string            `json:"xray_process_boot_id"`
+	ConfigDigest             string            `json:"config_digest"`
+	ManagedUserSetDigest     string            `json:"managed_user_set_digest"`
+	Nonce                    string            `json:"nonce"`
+	ClockDomain              string            `json:"clock_domain"`
+	ReadStartedBoottimeNS    int64             `json:"read_started_boottime_ns"`
+	DeadlineBoottimeNS       int64             `json:"deadline_boottime_ns"`
+	Emails                   []string          `json:"emails"`
+	CumulativeByteCeilings   map[string]int64  `json:"cumulative_byte_ceilings,omitempty"`
+	ExpectedFenceGenerations map[string]uint64 `json:"expected_fence_generations,omitempty"`
 }
 
 type UseLeaseResponse struct {
@@ -395,10 +400,7 @@ func NewUseLeaseRequest(snapshot UsageSnapshot, budget time.Duration, emails []s
 // Lease requests never get retried or recovered as a fresh grant here. The
 // agent journals exact operations; uncertainty leaves the old deadline intact.
 func (client *Client) PostUseLease(ctx context.Context, value UseLeaseRequest) (UseLeaseResponse, error) {
-	if value.Schema != 2 || !validActionKey(value.ActionKey) || !validLeaseDigest(value.XrayProcessBootID) ||
-		!validLeaseDigest(value.ConfigDigest) || !validLeaseDigest(value.ManagedUserSetDigest) || !validLeaseDigest(value.Nonce) ||
-		!validLeaseDigest(value.ClockDomain) || value.ReadStartedBoottimeNS <= 0 || value.DeadlineBoottimeNS <= value.ReadStartedBoottimeNS ||
-		value.DeadlineBoottimeNS-value.ReadStartedBoottimeNS > int64(5*time.Second) || !validLeaseEmails(value.Emails) {
+	if !validPendingUseLease(value) {
 		return UseLeaseResponse{}, ErrInvalidRequest
 	}
 	var response UseLeaseResponse
@@ -406,7 +408,7 @@ func (client *Client) PostUseLease(ctx context.Context, value UseLeaseRequest) (
 	if err != nil {
 		return UseLeaseResponse{}, err
 	}
-	if response.Schema != 2 || response.Nonce != value.Nonce || response.Receipts == nil || len(response.Receipts) > maxLeaseUsers {
+	if response.Schema != value.Schema || response.Nonce != value.Nonce || response.Receipts == nil || len(response.Receipts) > maxLeaseUsers {
 		return UseLeaseResponse{}, ErrDeliveryUnknown
 	}
 	granted := make(map[string]bool, len(value.Emails))
@@ -416,6 +418,9 @@ func (client *Client) PostUseLease(ctx context.Context, value UseLeaseRequest) (
 			return UseLeaseResponse{}, ErrDeliveryUnknown
 		}
 		if proof.Control.Operation != "fence" {
+			if proof.Control.Schema != value.Schema || proof.Control.CumulativeByteCeiling != value.CumulativeByteCeilings[proof.Control.Email] {
+				return UseLeaseResponse{}, ErrDeliveryUnknown
+			}
 			index := sort.SearchStrings(value.Emails, proof.Control.Email)
 			if proof.ActionKey != value.ActionKey || proof.ManagedUserSetDigest != value.ManagedUserSetDigest || proof.Control.DeadlineBoottimeNS != value.DeadlineBoottimeNS || index == len(value.Emails) || value.Emails[index] != proof.Control.Email || granted[proof.Control.Email] {
 				return UseLeaseResponse{}, ErrDeliveryUnknown
@@ -544,7 +549,7 @@ func validLeaseDigest(value string) bool {
 }
 
 func validPendingUseLease(value UseLeaseRequest) bool {
-	return value.Schema == 2 && validActionKey(value.ActionKey) && validLeaseDigest(value.XrayProcessBootID) &&
+	return validByteCeilings(value.Schema, value.Emails, value.CumulativeByteCeilings, value.ExpectedFenceGenerations) && validActionKey(value.ActionKey) && validLeaseDigest(value.XrayProcessBootID) &&
 		validLeaseDigest(value.ConfigDigest) && validLeaseDigest(value.ManagedUserSetDigest) && validLeaseDigest(value.Nonce) &&
 		validLeaseDigest(value.ClockDomain) && value.ReadStartedBoottimeNS > 0 && value.DeadlineBoottimeNS > value.ReadStartedBoottimeNS &&
 		value.DeadlineBoottimeNS-value.ReadStartedBoottimeNS <= int64(5*time.Second) && validLeaseEmails(value.Emails)
@@ -580,9 +585,14 @@ func validLeaseChallenge(value *UseLeaseChallenge, users []string) bool {
 func validLeaseProof(proof LeaseReceiptProof) bool {
 	c, r := proof.Control, proof.Receipt
 	if !validActionKey(proof.ActionKey) || proof.OriginID == "" || proof.ReleaseID == "" || proof.DesiredGeneration <= 0 || !validLeaseDigest(proof.ManagedUserSetDigest) ||
-		c.Schema != 2 || r.Schema != 2 || !validLeaseEmails([]string{c.Email}) || r.Email != c.Email || !validLeaseDigest(c.BootID) || r.BootID != c.BootID ||
+		(c.Schema != 2 && c.Schema != 3) || r.Schema != c.Schema || !validLeaseEmails([]string{c.Email}) || r.Email != c.Email || !validLeaseDigest(c.BootID) || r.BootID != c.BootID ||
 		!validLeaseDigest(c.ConfigDigest) || r.ConfigDigest != c.ConfigDigest || c.Generation == 0 || r.Generation != c.Generation ||
 		!validLeaseDigest(c.ClockDomain) || r.ClockDomain != c.ClockDomain || r.ResetSequence != 0 {
+		return false
+	}
+	if r.CumulativeByteCeiling != c.CumulativeByteCeiling ||
+		(c.Schema == 2 && (c.CumulativeByteCeiling != 0 || r.CumulativeBytes != nil)) ||
+		(c.Schema == 3 && (r.CumulativeBytes == nil || *r.CumulativeBytes < 0)) {
 		return false
 	}
 	observed, err := time.Parse(time.RFC3339Nano, r.ObservedAt)
@@ -590,15 +600,18 @@ func validLeaseProof(proof LeaseReceiptProof) bool {
 		return false
 	}
 	if c.Operation == "fence" {
-		if c.DeadlineBoottimeNS != 0 || r.DeadlineBoottimeNS != 0 || r.LeaseRemainingMS != nil {
+		if c.CumulativeByteCeiling != 0 || c.DeadlineBoottimeNS != 0 || r.DeadlineBoottimeNS != 0 || r.LeaseRemainingMS != nil {
 			return false
 		}
 		if r.State == "fenced_unused" {
-			return r.Uplink == nil && r.Downlink == nil
+			return r.Uplink == nil && r.Downlink == nil && (c.Schema == 2 || *r.CumulativeBytes == 0)
+		}
+		if c.Schema == 3 && (r.Uplink == nil || r.Downlink == nil || *r.Uplink < 0 || *r.Downlink < 0 || *r.Uplink > *r.CumulativeBytes || *r.Downlink > *r.CumulativeBytes-*r.Uplink) {
+			return false
 		}
 		return r.State == "fenced" && r.Uplink != nil && r.Downlink != nil && *r.Uplink >= 0 && *r.Downlink >= 0
 	}
-	return (c.Operation == "grant" || c.Operation == "renew") && r.State == "granted" && c.DeadlineBoottimeNS > 0 && r.DeadlineBoottimeNS == c.DeadlineBoottimeNS &&
+	return (c.Operation == "grant" || c.Operation == "renew") && (c.Schema == 2 || (c.CumulativeByteCeiling > 0 && *r.CumulativeBytes <= c.CumulativeByteCeiling)) && r.State == "granted" && c.DeadlineBoottimeNS > 0 && r.DeadlineBoottimeNS == c.DeadlineBoottimeNS &&
 		r.LeaseRemainingMS != nil && *r.LeaseRemainingMS <= 5000 && r.Uplink == nil && r.Downlink == nil
 }
 

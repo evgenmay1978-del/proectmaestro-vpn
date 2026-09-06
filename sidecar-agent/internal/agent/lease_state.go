@@ -76,14 +76,18 @@ type LeaseReceiptAckItem struct {
 }
 
 type leaseUserState struct {
-	BootID             string       `json:"boot_id"`
-	Email              string       `json:"email"`
-	Generation         uint64       `json:"generation"`
-	ClockDomain        string       `json:"clock_domain"`
-	ConfigDigest       string       `json:"config_digest"`
-	Binding            LeaseBinding `json:"binding"`
-	Phase              string       `json:"phase"`
-	DeadlineBoottimeNS int64        `json:"deadline_boottime_ns,omitempty"`
+	BootID                string       `json:"boot_id"`
+	Email                 string       `json:"email"`
+	Generation            uint64       `json:"generation"`
+	ClockDomain           string       `json:"clock_domain"`
+	ConfigDigest          string       `json:"config_digest"`
+	Binding               LeaseBinding `json:"binding"`
+	Phase                 string       `json:"phase"`
+	DeadlineBoottimeNS    int64        `json:"deadline_boottime_ns,omitempty"`
+	BudgetSchema          int          `json:"budget_schema,omitempty"`
+	CumulativeByteCeiling int64        `json:"cumulative_byte_ceiling,omitempty"`
+	CumulativeBytes       int64        `json:"cumulative_bytes,omitempty"`
+	LastFencedGeneration  uint64       `json:"last_fenced_generation,omitempty"`
 }
 
 type savedLeaseChallenge struct {
@@ -179,11 +183,23 @@ func validateLeaseState(state leaseState) error {
 		if user.Phase == "active" && user.DeadlineBoottimeNS <= 0 {
 			return ErrLeaseUnavailable
 		}
+		if (user.BudgetSchema != 0 && user.BudgetSchema != 3) || user.CumulativeByteCeiling < 0 || user.CumulativeBytes < 0 ||
+			user.LastFencedGeneration > user.Generation ||
+			(user.BudgetSchema == 0 && (user.CumulativeByteCeiling != 0 || user.CumulativeBytes != 0 || user.LastFencedGeneration != 0)) ||
+			(user.BudgetSchema == 3 && user.Phase == "active" && (user.CumulativeByteCeiling <= 0 || user.CumulativeBytes > user.CumulativeByteCeiling)) {
+			return ErrLeaseUnavailable
+		}
 	}
 	for id, final := range state.FinalReceipts {
 		if id != final.ReceiptID || final.Control.Operation != "fence" || validateLeaseReceipt(final.Control, final.Receipt) != nil ||
 			!validLeaseBinding(final.LeaseBinding) || final.ReceiptID != leaseOperationID(final.LeaseBinding, final.Control) || final.ProofSHA256 != leaseHash(final.LeaseReceiptProof) {
 			return ErrLeaseUnavailable
+		}
+		if final.Control.Schema == 3 {
+			user, exists := state.Users[leaseUserKey(final.Control.BootID, final.Control.Email)]
+			if !exists || user.LastFencedGeneration < final.Control.Generation {
+				return ErrLeaseUnavailable
+			}
 		}
 	}
 	if state.Challenge != nil {
@@ -200,6 +216,9 @@ func validateLeaseState(state leaseState) error {
 			return ErrLeaseUnavailable
 		}
 		if p.Request != nil && (p.Key != leaseHash(*p.Request) || !validUseLeaseRequest(*p.Request)) {
+			return ErrLeaseUnavailable
+		}
+		if p.Request != nil && (p.Result.Schema != p.Request.Schema || p.Result.Nonce != p.Request.Nonce) {
 			return ErrLeaseUnavailable
 		}
 		if p.Request == nil {
@@ -222,6 +241,16 @@ func validateLeaseState(state leaseState) error {
 				if p.Request == nil && step.Control.Operation != "fence" {
 					return ErrLeaseUnavailable
 				}
+				if step.Control.Schema == 3 && user.BudgetSchema != 3 {
+					return ErrLeaseUnavailable
+				}
+				if step.Control.Operation != "fence" && (p.Request == nil || step.Control.Schema != p.Request.Schema ||
+					step.Control.CumulativeByteCeiling != p.Request.CumulativeByteCeilings[step.Email]) {
+					return ErrLeaseUnavailable
+				}
+				if step.Control.Operation != "fence" && step.Control.Schema == 3 && p.Request.ExpectedFenceGenerations[step.Email] != user.LastFencedGeneration {
+					return ErrLeaseUnavailable
+				}
 			case "remove", "add":
 				if step.Control != nil {
 					return ErrLeaseUnavailable
@@ -231,7 +260,7 @@ func validateLeaseState(state leaseState) error {
 			}
 		}
 	}
-	if state.Completed != nil && (!validDigest(state.Completed.RequestSHA256) || state.Completed.Result.Schema != 2 || !validDigest(state.Completed.Result.Nonce)) {
+	if state.Completed != nil && (!validDigest(state.Completed.RequestSHA256) || (state.Completed.Result.Schema != 2 && state.Completed.Result.Schema != 3) || !validDigest(state.Completed.Result.Nonce)) {
 		return ErrLeaseUnavailable
 	}
 	return nil
@@ -279,8 +308,7 @@ func finalReceiptPage(state leaseState) LeaseReceiptPage {
 	})
 	page := LeaseReceiptPage{Schema: 2, FinalReceipts: make([]FinalLeaseReceipt, 0, maxFinalReceiptPage), HasMoreFinalReceipts: len(ids) > maxFinalReceiptPage}
 	if state.Pending != nil && state.Pending.Request != nil {
-		request := *state.Pending.Request
-		request.Emails = append([]string{}, request.Emails...)
+		request := cloneUseLeaseRequest(*state.Pending.Request)
 		page.PendingUseLease = &request
 	}
 	if len(ids) > maxFinalReceiptPage {

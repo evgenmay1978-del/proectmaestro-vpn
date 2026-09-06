@@ -143,7 +143,8 @@ SELECT ?,identity.entitlement_id,customer.customer_id,customer.generation,custom
 FROM whitelist_entitlement_identities AS identity JOIN customers AS customer ON customer.customer_id=identity.customer_id
 WHERE identity.entitlement_id=? AND customer.status='active' AND customer.expires_at_unix>?
 AND NOT EXISTS(SELECT 1 FROM whitelist_billing_periods WHERE entitlement_id=identity.entitlement_id AND ends_at_unix>?)
-AND NOT EXISTS(SELECT 1 FROM whitelist_first_use_admissions WHERE entitlement_id=identity.entitlement_id)`, Args: []any{sourceID, now, operation, hash, s.auditActor(command.Actor), command.EntitlementID, now, now}},
+AND NOT EXISTS(SELECT 1 FROM whitelist_first_use_admissions WHERE entitlement_id=identity.entitlement_id)
+AND NOT EXISTS(SELECT 1 FROM whitelist_byte_allocations WHERE entitlement_id=identity.entitlement_id)`, Args: []any{sourceID, now, operation, hash, s.auditActor(command.Actor), command.EntitlementID, now, now}},
 			rqlite.Statement{SQL: `INSERT INTO whitelist_billing_periods(period_id,entitlement_id,period_ordinal,starts_at_unix,ends_at_unix,included_grant_bytes,access_order_id,created_at_unix,customer_access_source_id)
 SELECT ?,source.entitlement_id,COALESCE((SELECT MAX(period_ordinal)+1 FROM whitelist_billing_periods WHERE entitlement_id=source.entitlement_id),0),source.captured_at_unix,source.customer_expires_at_unix,0,NULL,?,source.source_id
 FROM whitelist_customer_access_sources AS source WHERE source.source_id=? AND source.operation_id=?`, Args: []any{next.CurrentPeriodID, now, sourceID, operation}})
