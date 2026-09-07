@@ -129,6 +129,38 @@ func EvaluateWhiteListPublication(facts WhiteListPublicationFacts) WhiteListPubl
 	}
 }
 
+// Subscription links follow the Xray panel model: active entitlement,
+// credentials and positive byte balance control visibility. Runtime receipts
+// and the authenticated short lease enforce forwarding on the server.
+func evaluateWhiteListSubscriptionPublication(facts WhiteListPublicationFacts) WhiteListPublicationDecision {
+	if !whiteListActivationPermitted(facts.ActivationSource) ||
+		facts.EntitlementID == "" || facts.ActivationEntitlementID != facts.EntitlementID ||
+		facts.EntitlementState != EntitlementActive {
+		return closedWhiteListPublication(WhiteListPublicationNoEntitlement)
+	}
+	if facts.PrimaryStatus != "active" || facts.PrimaryExpiresAtUnix <= facts.NowUnix {
+		return closedWhiteListPublication(WhiteListPublicationPrimaryExpired)
+	}
+	if facts.ProjectionVersion <= 0 || facts.ProjectionPending {
+		return closedWhiteListPublication(WhiteListPublicationProjectionPending)
+	}
+	if facts.AvailableBytes <= 0 {
+		return closedWhiteListPublication(WhiteListPublicationNoBalance)
+	}
+	if !facts.ReleaseBindingExact {
+		return closedWhiteListPublication(WhiteListPublicationReleaseMismatch)
+	}
+	if !facts.CredentialUsable || facts.DesiredGeneration <= 0 || facts.ApprovedNodeCount <= 0 {
+		return closedWhiteListPublication(WhiteListPublicationSidecarUnavailable)
+	}
+	return WhiteListPublicationDecision{
+		Verdict:           WhiteListPublicationPublishable,
+		ProjectionVersion: facts.ProjectionVersion,
+		DesiredGeneration: facts.DesiredGeneration,
+		FreshUntilUnix:    facts.PrimaryExpiresAtUnix,
+	}
+}
+
 func whiteListActivationPermitted(source WhiteListActivationSource) bool {
 	return source == WhiteListActivationConfirmedGBPurchase ||
 		source == WhiteListActivationAdminEnable

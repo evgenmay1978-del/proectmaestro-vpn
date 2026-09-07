@@ -216,13 +216,14 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	facts.ReleaseBindingExact = releaseExact && routeSetExact && referenceExitFound && len(desired) == len(state.origins)
 	facts.CredentialUsable = credentialsUsable
 	facts.DesiredGeneration = generation
+	stableSubscription := includeMaterial && len(shared) == 0
 
 	receiptStatements := make([]rqlite.Statement, 0, len(desired))
 	for _, current := range desired {
 		receiptStatements = append(receiptStatements, whiteListSidecarReceiptRead(current.Action.ActionKey))
 	}
 	receiptsFreshUntil := int64(0)
-	receiptSetReady := len(receiptStatements) > 0 && resolveSender != nil
+	receiptSetReady := !stableSubscription && len(receiptStatements) > 0 && resolveSender != nil
 	validatedReceipts := make(map[string]WhiteListSidecarReceipt, len(desired))
 	if receiptSetReady {
 		var results []rqlite.Result
@@ -313,6 +314,9 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 		}
 	}
 	decision := EvaluateWhiteListPublication(facts)
+	if stableSubscription {
+		decision = evaluateWhiteListSubscriptionPublication(facts)
+	}
 	if decision.Verdict != WhiteListPublicationPublishable {
 		return WhiteListPublicationDelivery{Decision: decision}, nil
 	}
