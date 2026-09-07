@@ -100,6 +100,16 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		decision := EvaluateWhiteListPublication(facts)
 		factsByEntitlement[entitlementID] = facts
 		decisions[entitlementID] = decision
+		_, wasManaged := previousEntitlements[entitlementID]
+		if wasManaged && decision.Verdict == WhiteListPublicationProjectionStale &&
+			facts.AvailableBytes > 0 && releaseBindingExact && facts.CredentialUsable {
+			// Keep the paid route installed while its short observation lease is
+			// renewed. The agent still denies traffic when the use lease expires;
+			// removing the user here would restart the same bootstrap cycle.
+			provisioning[entitlementID] = true
+			targetEntitlements = append(targetEntitlements, entitlementID)
+			continue
+		}
 		if decision.Verdict == WhiteListPublicationPublishable {
 			targetEntitlements = append(targetEntitlements, entitlementID)
 			continue
