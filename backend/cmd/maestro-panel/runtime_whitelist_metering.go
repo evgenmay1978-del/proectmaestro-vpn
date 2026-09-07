@@ -388,6 +388,21 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			usageErr = errRuntimeWhiteListMeteringUnavailable
 			break
 		}
+	}
+	if usageErr != nil {
+		return usageErr
+	}
+	if collector.byteBudgetBytes > 0 {
+		// A newly applied desired generation has a new Xray boot ID. Reserve its
+		// prepaid byte ceiling after every Origin observation and before accepting
+		// that boot's first cumulative counter.
+		stage = "account admission"
+		if err := collector.authorizeAdmissions(ctx, candidates); err != nil {
+			return err
+		}
+	}
+	for _, origin := range plan.Origins {
+		snapshot := snapshots[origin.Origin.OriginID]
 		for _, user := range snapshot.Users {
 			stage = "actual usage settlement"
 			index := sort.SearchStrings(origin.PendingFirstCumulativeUsers, user.Email)
@@ -427,9 +442,11 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	if usageErr != nil {
 		return usageErr
 	}
-	stage = "account admission"
-	if err := collector.authorizeAdmissions(ctx, candidates); err != nil {
-		return err
+	if collector.byteBudgetBytes == 0 {
+		stage = "account admission"
+		if err := collector.authorizeAdmissions(ctx, candidates); err != nil {
+			return err
+		}
 	}
 	if !leaseEnabled {
 		return nil
