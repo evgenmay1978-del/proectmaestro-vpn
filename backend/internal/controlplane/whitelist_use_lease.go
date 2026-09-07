@@ -331,7 +331,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 		delivery, evaluated := deliveries[entitlementID]
 		if !evaluated {
 			var err error
-			delivery, err = s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolve, false, state, origins)
+			delivery, err = s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolve, true, state, origins)
 			if err != nil {
 				return closed, err
 			}
