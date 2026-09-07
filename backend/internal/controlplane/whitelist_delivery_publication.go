@@ -49,12 +49,14 @@ type WhiteListPublicationDelivery struct {
 // This snapshot belongs to one authorization call. Its immutable origin
 // proofs are shared across accounts, while their deadlines are rechecked.
 type whiteListPublicationOriginSnapshot struct {
-	observations []whiteListObservedOrigin
-	liveReceipts map[string]WhiteListSidecarReceipt
+	observations              []whiteListObservedOrigin
+	liveReceipts              map[string]WhiteListSidecarReceipt
+	observationsValidatedUnix int64
 }
 
 func (snapshot *whiteListPublicationOriginSnapshot) observedAt(state whiteListSidecarRuntimeState, now time.Time) ([]whiteListObservedOrigin, error) {
-	if snapshot == nil || len(snapshot.observations) == 0 || len(snapshot.observations) != len(state.origins) {
+	if snapshot == nil || len(snapshot.observations) == 0 || len(snapshot.observations) != len(state.origins) ||
+		snapshot.observationsValidatedUnix <= 0 || snapshot.observationsValidatedUnix > now.Unix() {
 		return nil, ErrUnavailable
 	}
 	for index, observed := range snapshot.observations {
@@ -64,8 +66,8 @@ func (snapshot *whiteListPublicationOriginSnapshot) observedAt(state whiteListSi
 			desired.NodeID != origin.NodeID || desired.ReleaseID != origin.ReleaseID || desired.ProfileID != origin.ProfileID ||
 			desired.PresetID != origin.PresetID || desired.ConfigDigest != origin.ConfigDigest ||
 			ValidateWhiteListSidecarReceipt(desired, observed.receipt.XrayProcessBootID, observed.receipt, now) != nil ||
-			observed.sampledAt < observed.receipt.AppliedAt.Unix() || observed.sampledAt > now.Unix() ||
-			now.Unix()-observed.sampledAt >= whiteListAccountedObservationTTLSeconds ||
+			observed.sampledAt < observed.receipt.AppliedAt.Unix() || observed.sampledAt > snapshot.observationsValidatedUnix ||
+			snapshot.observationsValidatedUnix-observed.sampledAt >= whiteListAccountedObservationTTLSeconds ||
 			!whiteListObservationCoverage(desired.ManagedUsers, observed.available, observed.unavailable) {
 			return nil, ErrUnavailable
 		}
@@ -78,7 +80,11 @@ func (s *Service) loadWhiteListPublicationOrigins(ctx context.Context, state whi
 	if err != nil {
 		return nil, err
 	}
-	snapshot := &whiteListPublicationOriginSnapshot{observations: observed, liveReceipts: make(map[string]WhiteListSidecarReceipt, len(observed))}
+	snapshot := &whiteListPublicationOriginSnapshot{
+		observations:              observed,
+		liveReceipts:              make(map[string]WhiteListSidecarReceipt, len(observed)),
+		observationsValidatedUnix: s.clock.Now().Unix(),
+	}
 	for _, origin := range observed {
 		sender, ok := resolve(origin.origin.NodeID)
 		lookup, lookupOK := sender.(whiteListSidecarReceiptLookup)
