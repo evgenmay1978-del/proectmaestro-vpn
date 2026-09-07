@@ -295,7 +295,7 @@ func ServerTLSConfig(certificate tls.Certificate, clientCA *x509.CertPool, clien
 		ClientCAs:    clientCA,
 		NextProtos:   []string{"h2", "http/1.1"},
 		VerifyConnection: func(state tls.ConnectionState) error {
-			if len(state.PeerCertificates) != 1 || len(state.VerifiedChains) == 0 || clientName == "" {
+			if len(state.PeerCertificates) == 0 || len(state.VerifiedChains) == 0 || clientName == "" {
 				return errors.New("sidecar server: invalid client certificate")
 			}
 			if err := state.PeerCertificates[0].VerifyHostname(clientName); err != nil {
