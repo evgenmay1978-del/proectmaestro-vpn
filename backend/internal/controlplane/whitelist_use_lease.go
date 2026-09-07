@@ -15,6 +15,8 @@ import (
 
 const whiteListCommercialExitCount = 4
 
+const whiteListUseLeaseWindow = 60 * time.Second
+
 type whiteListMeteringExitSet map[string]struct{}
 
 func whiteListMeteringRouteFromManagedEmail(managedEmail string) (entitlementID, exitID string, ok bool) {
@@ -299,7 +301,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 		byOrigin[origin.Origin.OriginID] = origin
 	}
 	now := s.clock.Now()
-	until := now.Add(5 * time.Second)
+	until := now.Add(whiteListUseLeaseWindow)
 	var authorityUntil time.Time
 	var state whiteListSidecarRuntimeState
 	var origins *whiteListPublicationOriginSnapshot
@@ -418,7 +420,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	stage = "remaining freshness"
 	evaluatedAt := s.clock.Now()
 	remaining := until.Sub(evaluatedAt)
-	if remaining <= 0 || remaining > 5*time.Second {
+	if remaining <= 0 || remaining > whiteListUseLeaseWindow {
 		return WhiteListUseLeaseAuthorization{Emails: []string{}}, ErrUnavailable
 	}
 	prepared := make(map[string]bool, len(routeSets))

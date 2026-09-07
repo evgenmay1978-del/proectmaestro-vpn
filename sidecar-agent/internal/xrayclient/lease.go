@@ -29,6 +29,8 @@ var (
 
 const managedControlMaxBytes = 4096
 
+const managedLeaseWindow = 60 * time.Second
+
 type leaseRPC interface {
 	Invoke(context.Context, string, any, any, ...grpc.CallOption) error
 }
@@ -57,7 +59,7 @@ func (client *Client) ApplyManagedControl(ctx context.Context, control runtimefe
 	if leasing {
 		domain, now, err := readClock()
 		if err != nil || domain != control.ClockDomain || now <= 0 ||
-			control.DeadlineBoottimeNS <= now || control.DeadlineBoottimeNS-now > int64(5*time.Second) {
+			control.DeadlineBoottimeNS <= now || control.DeadlineBoottimeNS-now > int64(managedLeaseWindow) {
 			return runtimefence.Receipt{}, ErrInvalidManagedControl
 		}
 		started = now
@@ -140,7 +142,7 @@ func managedReceiptMatches(control runtimefence.Control, receipt runtimefence.Re
 	if control.Operation != "fence" {
 		return receipt.State == "granted" && receipt.Uplink == nil && receipt.Downlink == nil &&
 			receipt.DeadlineBoottimeNS == control.DeadlineBoottimeNS &&
-			receipt.LeaseRemainingMS != nil && *receipt.LeaseRemainingMS <= 5000
+			receipt.LeaseRemainingMS != nil && *receipt.LeaseRemainingMS <= uint32(managedLeaseWindow/time.Millisecond)
 	}
 	if receipt.DeadlineBoottimeNS != 0 || receipt.LeaseRemainingMS != nil {
 		return false

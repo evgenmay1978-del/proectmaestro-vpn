@@ -16,6 +16,8 @@ type managedRuntimeController interface {
 	ApplyManagedControl(context.Context, runtimefence.Control) (runtimefence.Receipt, error)
 }
 
+const managedLeaseWindow = 60 * time.Second
+
 type UseLeaseRequest struct {
 	Schema                   int               `json:"schema"`
 	ActionKey                string            `json:"action_key"`
@@ -50,7 +52,7 @@ func validManagedLeaseEmail(email string) bool {
 func validUseLeaseRequest(request UseLeaseRequest) bool {
 	if (request.Schema != 2 && request.Schema != 3) || !validLeaseActionKey(request.ActionKey) || !safeIdentifier(request.XrayProcessBootID) || !validDigest(request.ConfigDigest) ||
 		!validDigest(request.ManagedUserSetDigest) || !validDigest(request.Nonce) || !validDigest(request.ClockDomain) || request.ReadStartedBoottimeNS <= 0 ||
-		request.DeadlineBoottimeNS <= request.ReadStartedBoottimeNS || request.DeadlineBoottimeNS-request.ReadStartedBoottimeNS > int64(5*time.Second) ||
+		request.DeadlineBoottimeNS <= request.ReadStartedBoottimeNS || request.DeadlineBoottimeNS-request.ReadStartedBoottimeNS > int64(managedLeaseWindow) ||
 		request.Emails == nil || len(request.Emails) > maxLeaseUsers || !strictlySortedUnique(request.Emails) {
 		return false
 	}
@@ -113,7 +115,7 @@ func validateLeaseReceipt(control runtimefence.Control, receipt runtimefence.Rec
 		}
 		return nil
 	}
-	if receipt.State != "granted" || receipt.DeadlineBoottimeNS != control.DeadlineBoottimeNS || receipt.LeaseRemainingMS == nil || *receipt.LeaseRemainingMS > 5000 || receipt.Uplink != nil || receipt.Downlink != nil {
+	if receipt.State != "granted" || receipt.DeadlineBoottimeNS != control.DeadlineBoottimeNS || receipt.LeaseRemainingMS == nil || *receipt.LeaseRemainingMS > uint32(managedLeaseWindow/time.Millisecond) || receipt.Uplink != nil || receipt.Downlink != nil {
 		return ErrLeaseUnavailable
 	}
 	return nil
@@ -191,7 +193,7 @@ func pruneAcknowledgedLeaseHistory(state *leaseState, currentBoot string) {
 
 func (reconciler *Reconciler) saveLeaseChallengeLocked(desired Desired, receipt Receipt, domain string, started int64) (*LeaseChallenge, error) {
 	currentDomain, now, err := reconciler.leaseClockNow()
-	if err != nil || currentDomain != domain || now < started || started > math.MaxInt64-int64(5*time.Second) || now >= started+int64(5*time.Second) {
+	if err != nil || currentDomain != domain || now < started || started > math.MaxInt64-int64(managedLeaseWindow) || now >= started+int64(managedLeaseWindow) {
 		return nil, ErrLeaseUnavailable
 	}
 	state, err := reconciler.store.loadLeaseState()
@@ -205,7 +207,7 @@ func (reconciler *Reconciler) saveLeaseChallengeLocked(desired Desired, receipt 
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, ErrLeaseUnavailable
 	}
-	challenge := LeaseChallenge{Schema: 2, Nonce: hex.EncodeToString(nonce), ClockDomain: domain, ReadStartedBoottimeNS: started, MaxDeadlineBoottimeNS: started + int64(5*time.Second), ManagedUsers: append([]string{}, desired.ManagedUsers...)}
+	challenge := LeaseChallenge{Schema: 2, Nonce: hex.EncodeToString(nonce), ClockDomain: domain, ReadStartedBoottimeNS: started, MaxDeadlineBoottimeNS: started + int64(managedLeaseWindow), ManagedUsers: append([]string{}, desired.ManagedUsers...)}
 	state.Challenge = &savedLeaseChallenge{Challenge: challenge, Receipt: receipt}
 	if err := reconciler.store.saveLeaseState(state); err != nil {
 		return nil, err

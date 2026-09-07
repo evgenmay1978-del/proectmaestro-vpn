@@ -19,7 +19,7 @@ const (
 	maxSessions     = 4096
 	maxUserSessions = 128
 	maxDrain        = 2 * time.Second
-	maxLease        = 5 * time.Second
+	maxLease        = 60 * time.Second
 )
 
 var errDenied = errors.New("managed session denied")

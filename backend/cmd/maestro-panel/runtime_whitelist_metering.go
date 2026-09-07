@@ -22,6 +22,7 @@ import (
 const (
 	runtimeWhiteListMeteringInterval   = 2 * time.Second
 	runtimeWhiteListMeteringPassBudget = 5 * time.Second
+	runtimeWhiteListUseLeaseWindow     = 60 * time.Second
 )
 
 var (
@@ -196,9 +197,9 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	passBudget, processingBudget := runtimeWhiteListMeteringPassBudget, runtimeWhiteListMeteringInterval
 	if collector.byteBudgetBytes > 0 {
 		// Prepaid byte ceilings bound forwarding independently of processing time.
-		// Keep the original five-second observation and BOOTTIME lease deadlines;
-		// this only lets durable recovery/accounting finish before cancellation.
-		passBudget, processingBudget = 15*time.Second, 5*time.Second
+		// Give the controller enough time to finish durable accounting before it
+		// refreshes the independently enforced BOOTTIME lease.
+		passBudget, processingBudget = 30*time.Second, 15*time.Second
 	}
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
@@ -548,14 +549,14 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			budget += authorization.FreshnessEvaluatedAt.Sub(snapshotReceivedAt[origin.Origin.OriginID])
 		}
 		if collector.byteBudgetBytes > 0 && len(authorization.Emails) > 0 {
-			budget = 5 * time.Second
+			budget = runtimeWhiteListUseLeaseWindow
 			hardRemaining := authorization.AuthorityExpiresAt.Sub(snapshotReceivedAt[origin.Origin.OriginID])
 			if hardRemaining < budget {
 				budget = hardRemaining
 			}
 		}
-		if budget > 5*time.Second {
-			budget = 5 * time.Second
+		if budget > runtimeWhiteListUseLeaseWindow {
+			budget = runtimeWhiteListUseLeaseWindow
 		}
 		request, err := sidecaragentclient.NewUseLeaseRequest(snapshots[origin.Origin.OriginID], budget, authorization.Emails)
 		if collector.byteBudgetBytes > 0 {
@@ -765,7 +766,7 @@ func (collector *runtimeWhiteListMeteringCollector) prepareCachedByteLeaseDelive
 			return nil, false
 		}
 		sort.Strings(emails)
-		budget := 5 * time.Second
+		budget := runtimeWhiteListUseLeaseWindow
 		if hardRemaining := authorization.AuthorityExpiresAt.Sub(receivedAt); hardRemaining < budget {
 			budget = hardRemaining
 		}

@@ -19,7 +19,7 @@ const (
 	SchemaVersion     = 1
 	ManagedPrefix     = "wl:"
 	DefaultInboundTag = "maestro-cdn-in"
-	DefaultReceiptTTL = 30 * time.Second
+	DefaultReceiptTTL = 2 * time.Minute
 	RefreshInterval   = 10 * time.Second
 	MaxDesiredBytes   = 1 << 20
 )

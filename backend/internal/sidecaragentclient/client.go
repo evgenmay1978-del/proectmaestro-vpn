@@ -36,6 +36,7 @@ const (
 	maxUsageResponseBytes = 4 << 20
 	maxLeaseUsers         = 4096
 	maxLeaseFinalReceipts = 32
+	maxUseLeaseWindow     = 60 * time.Second
 )
 
 type definitelyNotSentError string
@@ -407,7 +408,7 @@ func (client *Client) LookupUsage(ctx context.Context, actionKey string) (UsageS
 // conservative freshness duration, never a translation of the backend clock.
 func NewUseLeaseRequest(snapshot UsageSnapshot, budget time.Duration, emails []string) (UseLeaseRequest, error) {
 	if !validUsageSnapshot(snapshot, snapshot.Receipt.ActionKey) || snapshot.LeaseChallenge == nil ||
-		budget <= 0 || budget > 5*time.Second || !validLeaseEmails(emails) {
+		budget <= 0 || budget > maxUseLeaseWindow || !validLeaseEmails(emails) {
 		return UseLeaseRequest{}, ErrInvalidRequest
 	}
 	challenge := snapshot.LeaseChallenge
@@ -585,7 +586,7 @@ func validPendingUseLease(value UseLeaseRequest) bool {
 	return validByteCeilings(value.Schema, value.Emails, value.CumulativeByteCeilings, value.ExpectedFenceGenerations) && validActionKey(value.ActionKey) && validLeaseDigest(value.XrayProcessBootID) &&
 		validLeaseDigest(value.ConfigDigest) && validLeaseDigest(value.ManagedUserSetDigest) && validLeaseDigest(value.Nonce) &&
 		validLeaseDigest(value.ClockDomain) && value.ReadStartedBoottimeNS > 0 && value.DeadlineBoottimeNS > value.ReadStartedBoottimeNS &&
-		value.DeadlineBoottimeNS-value.ReadStartedBoottimeNS <= int64(5*time.Second) && validLeaseEmails(value.Emails)
+		value.DeadlineBoottimeNS-value.ReadStartedBoottimeNS <= int64(maxUseLeaseWindow) && validLeaseEmails(value.Emails)
 }
 
 func validLeaseEmails(emails []string) bool {
@@ -603,7 +604,7 @@ func validLeaseEmails(emails []string) bool {
 
 func validLeaseChallenge(value *UseLeaseChallenge, users []string) bool {
 	if value == nil || value.Schema != 2 || !validLeaseDigest(value.Nonce) || !validLeaseDigest(value.ClockDomain) || value.ReadStartedBoottimeNS <= 0 ||
-		value.ReadStartedBoottimeNS > math.MaxInt64-int64(5*time.Second) || value.MaxDeadlineBoottimeNS != value.ReadStartedBoottimeNS+int64(5*time.Second) ||
+		value.ReadStartedBoottimeNS > math.MaxInt64-int64(maxUseLeaseWindow) || value.MaxDeadlineBoottimeNS != value.ReadStartedBoottimeNS+int64(maxUseLeaseWindow) ||
 		!validLeaseEmails(value.ManagedUsers) || len(value.ManagedUsers) != len(users) {
 		return false
 	}
@@ -645,7 +646,7 @@ func validLeaseProof(proof LeaseReceiptProof) bool {
 		return r.State == "fenced" && r.Uplink != nil && r.Downlink != nil && *r.Uplink >= 0 && *r.Downlink >= 0
 	}
 	return (c.Operation == "grant" || c.Operation == "renew") && (c.Schema == 2 || (c.CumulativeByteCeiling > 0 && *r.CumulativeBytes <= c.CumulativeByteCeiling)) && r.State == "granted" && c.DeadlineBoottimeNS > 0 && r.DeadlineBoottimeNS == c.DeadlineBoottimeNS &&
-		r.LeaseRemainingMS != nil && *r.LeaseRemainingMS <= 5000 && r.Uplink == nil && r.Downlink == nil
+		r.LeaseRemainingMS != nil && *r.LeaseRemainingMS <= uint32(maxUseLeaseWindow/time.Millisecond) && r.Uplink == nil && r.Downlink == nil
 }
 
 func (value ManagedFinalReceipt) Proof() LeaseReceiptProof {

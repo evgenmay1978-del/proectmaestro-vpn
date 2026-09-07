@@ -64,7 +64,7 @@ func NewReconciler(config ReconcilerConfig) (*Reconciler, error) {
 		config.ReceiptTTL = DefaultReceiptTTL
 	}
 	if config.ReceiptTTL != DefaultReceiptTTL {
-		return nil, errors.New("sidecar agent: receipt TTL must be 30 seconds")
+		return nil, errors.New("sidecar agent: receipt TTL must be two minutes")
 	}
 	if config.ManagedLeaseEnabled {
 		if _, ok := config.Handler.(managedRuntimeController); !ok {
