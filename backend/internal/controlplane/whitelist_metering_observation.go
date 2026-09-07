@@ -415,7 +415,7 @@ func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entit
 				freshUntil = deadline
 			}
 		}
-		if allowAwaiting && ((observed == 0 && whiteListContainsUser(origin.unavailable, email)) ||
+		if allowAwaiting && (((mode == "bytes" || observed == 0) && whiteListContainsUser(origin.unavailable, email)) ||
 			(requiredDesired == nil && !whiteListContainsUser(origin.desired.ManagedUsers, email))) {
 			awaiting = true
 			continue
