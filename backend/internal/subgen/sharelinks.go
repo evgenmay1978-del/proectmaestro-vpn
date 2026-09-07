@@ -37,7 +37,9 @@ func ShareLinks(c Customer) string {
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 }
 
-func tag(flag, proto, name string) string {\n\treturn url.PathEscape(flag + " MaestroVPN " + proto + " " + name)\n}
+func tag(flag, proto, name string) string {
+	return url.PathEscape(flag + " MaestroVPN " + proto + " " + name)
+}
 
 func vlessLink(v *VLESSCreds, flag, name string) string {
 	q := url.Values{}
