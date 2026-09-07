@@ -65,7 +65,7 @@ func (snapshot *whiteListPublicationOriginSnapshot) observedAt(state whiteListSi
 			desired.PresetID != origin.PresetID || desired.ConfigDigest != origin.ConfigDigest ||
 			ValidateWhiteListSidecarReceipt(desired, observed.receipt.XrayProcessBootID, observed.receipt, now) != nil ||
 			observed.sampledAt < observed.receipt.AppliedAt.Unix() || observed.sampledAt > now.Unix() ||
-			now.Unix()-observed.sampledAt >= whiteListObservationTTLSeconds ||
+			now.Unix()-observed.sampledAt >= whiteListAccountedObservationTTLSeconds ||
 			!whiteListObservationCoverage(desired.ManagedUsers, observed.available, observed.unavailable) {
 			return nil, ErrUnavailable
 		}

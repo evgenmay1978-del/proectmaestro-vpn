@@ -12,7 +12,10 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/whitelistmetering"
 )
 
-const whiteListObservationTTLSeconds int64 = 5
+const (
+	whiteListObservationTTLSeconds          int64 = 5
+	whiteListAccountedObservationTTLSeconds int64 = 30
+)
 
 // WhiteListAdmissionReserve is an explicit, verified measurement input, not a
 // configured default or a rate inferred from missing counters. The optional
@@ -187,7 +190,7 @@ FROM whitelist_metering_origin_observations WHERE origin_id=?`, Args: []any{orig
 		unavailable, _ := rowString(row, "unavailable_users")
 		item := whiteListObservedOrigin{origin: origin, desired: desired, receipt: receipt, sampledAt: sampled, hash: hash}
 		if !ok || !sampledOK || action != receipt.ActionKey || sampled < receipt.AppliedAt.Unix() || sampled > now.Unix() ||
-			now.Unix()-sampled >= whiteListObservationTTLSeconds || json.Unmarshal([]byte(available), &item.available) != nil ||
+			now.Unix()-sampled >= whiteListAccountedObservationTTLSeconds || json.Unmarshal([]byte(available), &item.available) != nil ||
 			json.Unmarshal([]byte(unavailable), &item.unavailable) != nil ||
 			!whiteListObservationCoverage(desired.ManagedUsers, item.available, item.unavailable) {
 			return nil, ErrUnavailable
@@ -366,6 +369,7 @@ func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entit
 	through := int64(0)
 	freshUntil := periodEndsAt
 	awaiting := false
+	allByteBudgeted := true
 	now := s.clock.Now()
 	email := whiteListManagedEmail(entitlementID, exitID)
 	for _, origin := range origins {
@@ -396,10 +400,17 @@ func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entit
 				return 0, 0, false
 			}
 			until = periodEndsAt
-		} else if mode != "measured" || reserve < 10_000_000 || available < reserve || until <= now.Unix() {
-			return 0, 0, false
+		} else {
+			allByteBudgeted = false
+			if mode != "measured" || reserve < 10_000_000 || available < reserve || until <= now.Unix() {
+				return 0, 0, false
+			}
 		}
-		for _, deadline := range []int64{until, origin.receipt.ExpiresAt.Unix(), origin.sampledAt + whiteListObservationTTLSeconds} {
+		deadlines := []int64{until, origin.receipt.ExpiresAt.Unix()}
+		if mode != "bytes" {
+			deadlines = append(deadlines, origin.sampledAt+whiteListObservationTTLSeconds)
+		}
+		for _, deadline := range deadlines {
 			if deadline < freshUntil {
 				freshUntil = deadline
 			}
@@ -423,6 +434,16 @@ func (s *Service) whiteListMeteringReadinessFromState(ctx context.Context, entit
 	if awaiting {
 		// A partial set of real samples is not an all-origin usage watermark.
 		through = 0
+	}
+	if allByteBudgeted {
+		// Persisted observations may age while all Origins and debits are settled.
+		// Absolute byte ceilings still cap usage, while the agent receives no more
+		// than a fresh five-second lease and therefore fails closed on controller loss.
+		through = 0
+		leaseUntil := now.Unix() + whiteListObservationFreshnessSeconds
+		if leaseUntil < freshUntil {
+			freshUntil = leaseUntil
+		}
 	}
 	if freshUntil <= now.Unix() {
 		return 0, 0, false
