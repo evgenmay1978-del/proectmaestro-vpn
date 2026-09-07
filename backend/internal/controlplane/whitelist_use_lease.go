@@ -319,6 +319,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 			return closed, err
 		}
 	}
+	deliveries := make(map[string]WhiteListPublicationDelivery, len(routeSets))
 	for _, route := range plan.Routes {
 		stage = "route binding"
 		entitlementID := route.Entitlement.EntitlementID()
@@ -327,9 +328,14 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 			return closed, ErrUnavailable
 		}
 		stage = "route publication"
-		delivery, err := s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolve, false, state, origins)
-		if err != nil {
-			return closed, err
+		delivery, evaluated := deliveries[entitlementID]
+		if !evaluated {
+			var err error
+			delivery, err = s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolve, false, state, origins)
+			if err != nil {
+				return closed, err
+			}
+			deliveries[entitlementID] = delivery
 		}
 		if delivery.Decision.Verdict != WhiteListPublicationPublishable {
 			continue
