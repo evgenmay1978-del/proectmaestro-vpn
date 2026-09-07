@@ -272,16 +272,18 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	facts.ApprovedNodeCount = len(desired)
 	if facts.ReleaseBindingExact && facts.CredentialUsable && receiptSetReady {
 		meteringReady := len(routes) == whiteListRequiredPublicationRouteCount
+		observedThroughInitialized := false
 		for index := range routes {
 			observedThrough, admissionFreshUntil := s.whiteListMeteringPublicationReadyFromState(
 				ctx, entitlementID, routes[index].ExitID, state.previous, state, shared...,
 			)
-			if observedThrough <= 0 || admissionFreshUntil <= now.Unix() {
+			if admissionFreshUntil <= now.Unix() {
 				meteringReady = false
 				break
 			}
-			if facts.ObservedThroughUnix == 0 || observedThrough < facts.ObservedThroughUnix {
+			if !observedThroughInitialized || observedThrough < facts.ObservedThroughUnix {
 				facts.ObservedThroughUnix = observedThrough
+				observedThroughInitialized = true
 			}
 			if facts.AdmissionFreshUntilUnix == 0 || admissionFreshUntil < facts.AdmissionFreshUntilUnix {
 				facts.AdmissionFreshUntilUnix = admissionFreshUntil
