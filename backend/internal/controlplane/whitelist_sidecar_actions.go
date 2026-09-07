@@ -24,8 +24,8 @@ type whiteListSidecarReceiptLookup interface {
 	LookupReceipt(context.Context, string) ([]byte, error)
 }
 
-type whiteListEmptyDesiredRecovery interface {
-	RecoverEmptyDesired(context.Context, string, []byte) ([]byte, error)
+type whiteListDesiredRecovery interface {
+	RecoverDesired(context.Context, string, []byte) ([]byte, error)
 }
 
 func (s *Service) ExecuteWhiteListSidecarAction(
@@ -59,11 +59,12 @@ func (s *Service) ExecuteWhiteListSidecarAction(
 			defer cancelLookup()
 		}
 		var err error
-		if recovery, ok := sender.(whiteListEmptyDesiredRecovery); ok && executeErr == nil &&
-			result.State == "unknown" && len(desired.ManagedUsers) == 0 {
-			// The action lease was acquired above. Only the same empty desired
-			// may resume its durable fence/remove journal; no use is granted.
-			response, err = recovery.RecoverEmptyDesired(lookupContext, desired.Action.ActionKey, desired.Action.Request)
+		if recovery, ok := sender.(whiteListDesiredRecovery); ok && executeErr == nil &&
+			result.State == "unknown" {
+			// The action lease was acquired above. Only the exact deterministic
+			// desired is retried; the agent accepts an identical generation and
+			// rejects stale or conflicting payloads.
+			response, err = recovery.RecoverDesired(lookupContext, desired.Action.ActionKey, desired.Action.Request)
 		} else {
 			response, err = lookup.LookupReceipt(lookupContext, desired.Action.ActionKey)
 		}

@@ -318,19 +318,18 @@ func (client *Client) Post(ctx context.Context, desired []byte) ([]byte, error) 
 	}
 }
 
-// RecoverEmptyDesired resumes only an exact deterministic fence/remove action.
-// A missing receipt is not evidence that delivery never happened: the agent
-// resumes its durable journal and rejects conflicting or older generations.
-func (client *Client) RecoverEmptyDesired(ctx context.Context, actionKey string, desired []byte) ([]byte, error) {
+// RecoverDesired retries only an exact deterministic desired action after a
+// missing receipt. The agent accepts the identical generation idempotently and
+// rejects conflicting or older generations.
+func (client *Client) RecoverDesired(ctx context.Context, actionKey string, desired []byte) ([]byte, error) {
 	if ctx == nil || len(desired) == 0 || len(desired) > MaxRequestBytes || !validActionKey(actionKey) {
 		return nil, ErrInvalidRequest
 	}
 	var binding struct {
-		NodeID       string   `json:"node_id"`
-		Generation   int64    `json:"generation"`
-		ManagedUsers []string `json:"managed_users"`
+		NodeID     string `json:"node_id"`
+		Generation int64  `json:"generation"`
 	}
-	if json.Unmarshal(desired, &binding) != nil || binding.ManagedUsers == nil || len(binding.ManagedUsers) != 0 || binding.Generation < 1 {
+	if json.Unmarshal(desired, &binding) != nil || binding.NodeID == "" || binding.Generation < 1 {
 		return nil, ErrInvalidRequest
 	}
 	digest := sha256.Sum256(desired)
