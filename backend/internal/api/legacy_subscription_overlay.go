@@ -21,6 +21,8 @@ import (
 
 const maxLegacyLinksBytes = ((1 << 20) + 2) / 3 * 4
 
+type legacySubscriptionXrayJSONKey struct{}
+
 // WrapLegacySubscriptions keeps the live legacy server authoritative for token,
 // expiry, device admission and all ordinary protocol settings. Verified endpoint
 // labels may add country names. Only an already accepted base64 share-link
@@ -77,14 +79,16 @@ func WrapLegacySubscriptions(
 			_, appSelected := query["app"]
 			incy := strings.EqualFold(strings.TrimSpace(request.Header.Get("X-Client")), "INCY") ||
 				strings.HasPrefix(strings.ToUpper(request.UserAgent()), "INCY/")
-			if incy && !formatSelected && !appSelected {
-				// INCY accepts URI lists and Xray JSON, not the ordinary sing-box
-				// JSON. Existing bare subscription URLs therefore need only this
-				// client-specific representation selection; legacy still authorizes.
+			xrayJSON := query.Get("format") == "xray" || incy && !formatSelected && !appSelected
+			if xrayJSON {
+				// The loopback legacy panel remains authoritative for token, expiry
+				// and device admission. Ask it for its validated link form, then
+				// replace that accepted response with the paid full-Xray CDN form.
+				*request = *request.WithContext(context.WithValue(request.Context(), legacySubscriptionXrayJSONKey{}, true))
 				query.Set("format", "links")
 				request.URL.RawQuery = query.Encode()
 			}
-			if query.Get("app") == "karing" || query.Get("format") == "links" {
+			if xrayJSON || query.Get("app") == "karing" || query.Get("format") == "links" {
 				// A legacy validator covers ordinary nodes only. CDN access or
 				// balance may have changed while those nodes remained identical.
 				for _, header := range []string{"If-None-Match", "If-Modified-Since", "If-Range", "Range"} {
@@ -156,6 +160,8 @@ func appendLegacyPaidWhiteList(
 	if _, err := subgen.AppendWhiteListShareLinks(string(ordinary), nil); err != nil {
 		return nil
 	}
+	response.Header.Set("Profile-Title", "base64:TWFlc3Ryb1ZQTg==")
+	response.Header.Set("Content-Disposition", `attachment; filename="MaestroVPN"`)
 	if labeler != nil {
 		if renamed, err := labeler(string(ordinary)); err == nil && renamed != string(ordinary) {
 			ordinary = []byte(renamed)
@@ -181,6 +187,17 @@ func appendLegacyPaidWhiteList(
 	if snapshot.ProjectionVersion <= 0 || snapshot.DesiredGeneration <= 0 ||
 		!snapshot.FreshThrough.After(time.Now()) || len(snapshot.Nodes) == 0 || len(snapshot.Nodes) > 16 {
 		response.Header.Set("X-Maestro-CDN", "unavailable")
+		return nil
+	}
+	if xrayJSON, _ := response.Request.Context().Value(legacySubscriptionXrayJSONKey{}).(bool); xrayJSON {
+		document, err := subgen.WhiteListXrayJSONSubscriptions(snapshot.Nodes)
+		if err != nil {
+			response.Header.Set("X-Maestro-CDN", "unavailable")
+			return nil
+		}
+		setLegacySubscriptionBody(response, string(document))
+		response.Header.Set("Content-Type", "application/json")
+		response.Header.Set("X-Maestro-CDN", "included")
 		return nil
 	}
 	augmented, err := subgen.AppendWhiteListShareLinks(string(ordinary), snapshot.Nodes)

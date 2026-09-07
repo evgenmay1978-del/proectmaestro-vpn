@@ -40,13 +40,21 @@ func BuildDelivery(client, subscriptionURL string) (Delivery, error) {
 
 	switch client {
 	case IncyDeliveryClient:
-		oneTapURL, err := encodeIncyOneTap(linksURL)
+		xrayURL, err := BuildXraySubscriptionURL(subscriptionURL)
+		if err != nil {
+			return Delivery{}, err
+		}
+		oneTapURL, err := encodeIncyOneTap(xrayURL)
 		if err != nil {
 			return Delivery{}, ErrDeliveryEncoding
 		}
-		return Delivery{Client: client, Format: IncyOneTapFormat, URL: oneTapURL, CopyURL: linksURL}, nil
+		return Delivery{Client: client, Format: IncyOneTapFormat, URL: oneTapURL, CopyURL: xrayURL}, nil
 	case HappDeliveryClient:
-		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: linksURL, CopyURL: linksURL}, nil
+		xrayURL, err := BuildXraySubscriptionURL(subscriptionURL)
+		if err != nil {
+			return Delivery{}, err
+		}
+		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: xrayURL, CopyURL: xrayURL}, nil
 	case KaringDeliveryClient:
 		return Delivery{
 			Client:  client,
@@ -58,6 +66,22 @@ func BuildDelivery(client, subscriptionURL string) (Delivery, error) {
 	default:
 		return Delivery{}, ErrUnsupportedDeliveryClient
 	}
+}
+
+// BuildXraySubscriptionURL preserves the private token while selecting the
+// full-Xray CDN representation proven by the existing Incy subscription.
+func BuildXraySubscriptionURL(rawURL string) (string, error) {
+	if !isValidSubscriptionURL(rawURL) {
+		return "", ErrInvalidSubscriptionURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", ErrInvalidSubscriptionURL
+	}
+	query := parsed.Query()
+	query.Set("format", "xray")
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
 }
 
 // BuildLinksSubscriptionURL preserves the existing subscription token while
@@ -84,7 +108,7 @@ func isValidSubscriptionURL(rawURL string) bool {
 	if parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || parsed.ForceQuery || strings.Contains(rawURL, "#") {
 		return false
 	}
-	if parsed.RawQuery != "" && parsed.RawQuery != "format=links" {
+	if parsed.RawQuery != "" && parsed.RawQuery != "format=links" && parsed.RawQuery != "format=xray" {
 		return false
 	}
 
