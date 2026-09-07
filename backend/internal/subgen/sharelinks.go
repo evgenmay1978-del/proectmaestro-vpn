@@ -14,32 +14,32 @@ import (
 func ShareLinks(c Customer) string {
 	var links []string
 	if c.VLESS != nil {
-		links = append(links, vlessLink(c.VLESS, c.Name))
+		links = append(links, vlessLink(c.VLESS, "🇪🇸", c.Name))
 	}
 	if c.Hy2 != nil {
-		links = append(links, hy2Link(c.Hy2, c.Name))
+		links = append(links, hy2Link(c.Hy2, "🇨🇿", c.Name))
 	}
 	if c.Naive != nil {
-		links = append(links, naiveLink(c.Naive, c.Name))
+		links = append(links, naiveLink(c.Naive, "🇨🇿", c.Name))
 	}
 	if c.AnyTLS != nil {
-		links = append(links, anytlsLink(c.AnyTLS, c.Name))
+		links = append(links, anytlsLink(c.AnyTLS, "🇨🇿", c.Name))
 	}
 	if c.VLESS3 != nil {
-		links = append(links, vlessLink(c.VLESS3, c.Name+" S3"))
+		links = append(links, vlessLink(c.VLESS3, "🇳🇱", c.Name+" S3"))
 	}
 	// S4 must be here too, not only in the sing-box JSON: iPhone customers run Karing and
 	// import THIS list. Adding a node only to GenerateSingbox would silently skip every
 	// non-Android customer.
 	if c.VLESS4 != nil {
-		links = append(links, vlessLink(c.VLESS4, c.Name+" S4"))
+		links = append(links, vlessLink(c.VLESS4, "🇩🇪", c.Name+" S4"))
 	}
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 }
 
-func tag(proto, name string) string { return url.PathEscape("MaestroVPN " + proto + " " + name) }
+func tag(flag, proto, name string) string {\n\treturn url.PathEscape(flag + " MaestroVPN " + proto + " " + name)\n}
 
-func vlessLink(v *VLESSCreds, name string) string {
+func vlessLink(v *VLESSCreds, flag, name string) string {
 	q := url.Values{}
 	q.Set("encryption", "none")
 	q.Set("security", "reality")
@@ -51,10 +51,10 @@ func vlessLink(v *VLESSCreds, name string) string {
 	if v.Flow != "" {
 		q.Set("flow", v.Flow)
 	}
-	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", v.UUID, v.Server, v.Port, q.Encode(), tag("VLESS", name))
+	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", v.UUID, v.Server, v.Port, q.Encode(), tag(flag, "VLESS", name))
 }
 
-func hy2Link(h *Hy2Creds, name string) string {
+func hy2Link(h *Hy2Creds, flag, name string) string {
 	q := url.Values{}
 	q.Set("sni", h.SNI)
 	if h.Insecure {
@@ -63,20 +63,20 @@ func hy2Link(h *Hy2Creds, name string) string {
 	// userinfo encoding (RFC 3986): space → %20, NOT '+'. QueryEscape would emit
 	// '+' which a client decodes as a literal plus, corrupting the password.
 	auth := url.UserPassword(h.User, h.Pass).String()
-	return fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s", auth, h.Server, h.Port, q.Encode(), tag("Hy2", name))
+	return fmt.Sprintf("hysteria2://%s@%s:%d?%s#%s", auth, h.Server, h.Port, q.Encode(), tag(flag, "Hy2", name))
 }
 
-func naiveLink(n *NaiveCreds, name string) string {
+func naiveLink(n *NaiveCreds, flag, name string) string {
 	auth := url.UserPassword(n.Username, n.Password).String()
-	return fmt.Sprintf("naive+https://%s@%s:%d#%s", auth, n.Server, n.Port, tag("Naive", name))
+	return fmt.Sprintf("naive+https://%s@%s:%d#%s", auth, n.Server, n.Port, tag(flag, "Naive", name))
 }
 
-func anytlsLink(a *AnyTLSCreds, name string) string {
+func anytlsLink(a *AnyTLSCreds, flag, name string) string {
 	q := url.Values{}
 	q.Set("sni", a.SNI)
 	if a.Insecure {
 		q.Set("insecure", "1")
 	}
 	// Password is hex (randHex) → no reserved chars, safe as raw userinfo.
-	return fmt.Sprintf("anytls://%s@%s:%d?%s#%s", a.Password, a.Server, a.Port, q.Encode(), tag("AnyTLS", name))
+	return fmt.Sprintf("anytls://%s@%s:%d?%s#%s", a.Password, a.Server, a.Port, q.Encode(), tag(flag, "AnyTLS", name))
 }

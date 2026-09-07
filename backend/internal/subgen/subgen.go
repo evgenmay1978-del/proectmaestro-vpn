@@ -123,12 +123,12 @@ type OLCRTCCreds struct {
 type WGCreds = controlplane.WGCredentialIdentity
 
 const (
-	tagVLESS  = "vless"
-	tagVLESS3 = "vless-s3" // VLESS-Reality on the 3rd node
-	tagVLESS4 = "vless-s4" // VLESS-Reality on the 4th node (S4)
-	tagHy2    = "hysteria2"
-	tagNaive  = "naive"
-	tagAnyTLS = "anytls"
+	tagVLESS  = "🇪🇸 MaestroVPN VLESS"
+	tagVLESS3 = "🇳🇱 MaestroVPN VLESS S3" // VLESS-Reality on the 3rd node
+	tagVLESS4 = "🇩🇪 MaestroVPN VLESS S4" // VLESS-Reality on the 4th node (S4)
+	tagHy2    = "🇨🇿 MaestroVPN Hysteria2"
+	tagNaive  = "🇨🇿 MaestroVPN Naive"
+	tagAnyTLS = "🇨🇿 MaestroVPN AnyTLS"
 	tagWG     = "awg"     // AmneziaWG endpoint on the 3rd node (S3); official amneziawg-go schema
 	tagOLC    = "olcrtc"  // olcRTC SOCKS5 outbound (app exec's libolcrtc.so → 127.0.0.1:olcrtcSocksPort)
 	tagVKTurn = "vk-turn" // WireGuard over the local WDTT VK TURN/DTLS relay

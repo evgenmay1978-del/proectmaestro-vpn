@@ -61,6 +61,10 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 		if route.ExitID != fmt.Sprintf("exit-s%d", index+1) {
 			return api.WhiteListPublicationSnapshot{}, controlplane.ErrUnavailable
 		}
+		flag := runtimeCountryFlag(route.CountryCode)
+		if flag == "" {
+			return api.WhiteListPublicationSnapshot{}, controlplane.ErrUnavailable
+		}
 		nodes = append(nodes, subgen.WhiteListNode{
 			Protocol: "vless", Network: "xhttp", Address: route.Material.PublicHost, Port: 443,
 			TLS: true, ServerName: route.Material.PublicHost, Host: route.Material.PublicHost,
@@ -69,13 +73,20 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 			Encryption: route.Material.ClientEncryption, Security: "tls",
 			ALPN: []string{"h2"}, Fingerprint: "firefox",
 			Extra:          url.QueryEscape(runtimeWhiteListXHTTPExtra),
-			Label:          fmt.Sprintf("Maestro CDN — %s", route.CountryLabel),
+			Label:          fmt.Sprintf("%s MaestroVPN CDN — %s", flag, route.CountryLabel),
 			DomainFallback: true, TransportProfileID: delivery.ProfileID,
 			CompatibilityPresetID: delivery.PresetID, TransportReleaseID: delivery.ReleaseID,
 		})
 	}
 	snapshot.Nodes = nodes
 	return snapshot, nil
+}
+
+func runtimeCountryFlag(code string) string {
+	if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+		return ""
+	}
+	return string([]rune{0x1F1E6 + rune(code[0]-'A'), 0x1F1E6 + rune(code[1]-'A')})
 }
 
 // Keep the frozen legacy provisioning topology without constructing its JSON
