@@ -217,6 +217,7 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	}
 	receiptsFreshUntil := int64(0)
 	receiptSetReady := len(receiptStatements) > 0 && resolveSender != nil
+	validatedReceipts := make(map[string]WhiteListSidecarReceipt, len(desired))
 	if receiptSetReady {
 		var results []rqlite.Result
 		if len(shared) == 0 {
@@ -261,6 +262,7 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 				receiptSetReady = false
 				break
 			}
+			validatedReceipts[desired[index].OriginID] = live
 			expiresAt := live.ExpiresAt.Unix()
 			if receiptsFreshUntil == 0 || expiresAt < receiptsFreshUntil {
 				receiptsFreshUntil = expiresAt
@@ -271,27 +273,37 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	facts.ReceiptsFreshUntilUnix = receiptsFreshUntil
 	facts.ApprovedNodeCount = len(desired)
 	if facts.ReleaseBindingExact && facts.CredentialUsable && receiptSetReady {
-		meteringReady := len(routes) == whiteListRequiredPublicationRouteCount
-		observedThroughInitialized := false
-		for index := range routes {
-			observedThrough, admissionFreshUntil := s.whiteListMeteringPublicationReadyFromState(
-				ctx, entitlementID, routes[index].ExitID, state.previous, state, shared...,
+		if includeMaterial {
+			// Subscription pulls happen independently of the five-second metering
+			// cadence. Current live receipts plus positive allocations for this
+			// exact process boot are enough to show links; the agent's short use
+			// lease still gates every forwarded byte.
+			facts.AdmissionFreshUntilUnix = s.whiteListPublicationByteBudgetFreshUntil(
+				ctx, entitlementID, routes, state, validatedReceipts, now,
 			)
-			if admissionFreshUntil <= now.Unix() {
-				meteringReady = false
-				break
+		} else {
+			meteringReady := len(routes) == whiteListRequiredPublicationRouteCount
+			observedThroughInitialized := false
+			for index := range routes {
+				observedThrough, admissionFreshUntil := s.whiteListMeteringPublicationReadyFromState(
+					ctx, entitlementID, routes[index].ExitID, state.previous, state, shared...,
+				)
+				if admissionFreshUntil <= now.Unix() {
+					meteringReady = false
+					break
+				}
+				if !observedThroughInitialized || observedThrough < facts.ObservedThroughUnix {
+					facts.ObservedThroughUnix = observedThrough
+					observedThroughInitialized = true
+				}
+				if facts.AdmissionFreshUntilUnix == 0 || admissionFreshUntil < facts.AdmissionFreshUntilUnix {
+					facts.AdmissionFreshUntilUnix = admissionFreshUntil
+				}
 			}
-			if !observedThroughInitialized || observedThrough < facts.ObservedThroughUnix {
-				facts.ObservedThroughUnix = observedThrough
-				observedThroughInitialized = true
+			if !meteringReady {
+				facts.ObservedThroughUnix = 0
+				facts.AdmissionFreshUntilUnix = 0
 			}
-			if facts.AdmissionFreshUntilUnix == 0 || admissionFreshUntil < facts.AdmissionFreshUntilUnix {
-				facts.AdmissionFreshUntilUnix = admissionFreshUntil
-			}
-		}
-		if !meteringReady {
-			facts.ObservedThroughUnix = 0
-			facts.AdmissionFreshUntilUnix = 0
 		}
 	}
 	decision := EvaluateWhiteListPublication(facts)
@@ -332,6 +344,44 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 		ReleaseID: releaseID, ProfileID: profileID, PresetID: presetID,
 		desiredBindings: desired,
 	}, nil
+}
+
+func (s *Service) whiteListPublicationByteBudgetFreshUntil(
+	ctx context.Context, entitlementID string, routes []WhiteListPublicationRoute,
+	state whiteListSidecarRuntimeState, receipts map[string]WhiteListSidecarReceipt, now time.Time,
+) int64 {
+	if len(routes) != whiteListRequiredPublicationRouteCount || len(receipts) != len(state.origins) {
+		return 0
+	}
+	freshUntil := now.Unix() + whiteListObservationFreshnessSeconds
+	for _, route := range routes {
+		period, available, periodEndsAt, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, route.ExitID, state)
+		if err != nil || available <= 0 {
+			return 0
+		}
+		if periodEndsAt < freshUntil {
+			freshUntil = periodEndsAt
+		}
+		for _, origin := range state.origins {
+			receipt, ok := receipts[origin.OriginID]
+			if !ok {
+				return 0
+			}
+			row, err := s.whiteListByteAllocationRow(ctx, entitlementID, route.ExitID, origin.OriginID, receipt.XrayProcessBootID)
+			boundPeriod, periodOK := rowString(row, "billing_period_id")
+			outstanding, outstandingOK := rowInt64(row, "outstanding_bytes")
+			if err != nil || !periodOK || !outstandingOK || boundPeriod != period || outstanding <= 0 {
+				return 0
+			}
+			if receipt.ExpiresAt.Unix() < freshUntil {
+				freshUntil = receipt.ExpiresAt.Unix()
+			}
+		}
+	}
+	if freshUntil <= now.Unix() {
+		return 0
+	}
+	return freshUntil
 }
 
 const whiteListRequiredPublicationRouteCount = 4
