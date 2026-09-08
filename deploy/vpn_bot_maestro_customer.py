@@ -38,15 +38,15 @@ def panel_base_url(configured: str | None = None) -> str:
     raise ValueError("MAESTRO_URL must use HTTPS or explicit loopback HTTP")
 
 
-def subscription_copy_url(raw: str) -> str:
-    """Select the full-Xray JSON representation without changing the private token."""
+def subscription_copy_url(raw: str, client: str = "incy") -> str:
+    """Select the client's representation without changing the private token."""
     parsed = urlparse(str(raw or ""))
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
             or parsed.password is not None or parsed.fragment
             or not re.fullmatch(r"/sub/[^/]+", parsed.path)):
         raise ValueError("invalid subscription copy URL")
     query = parse_qs(parsed.query, keep_blank_values=True)
-    query["format"] = ["xray"]
+    query["format"] = ["links" if client == "karing" else "xray"]
     return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
@@ -204,7 +204,9 @@ class CustomerFlow:
             copy_url = result.get("copy_url")
             if not copy_url:
                 copy_url = (parse_qs(urlparse(result["url"]).query).get("url") or [""])[0]
-            return {"copy_url": subscription_copy_url(copy_url), "open_url": result["url"], "label": "HTTPS-ссылка для Karing"}
+            copy_url = subscription_copy_url(copy_url, "karing")
+            open_url = "karing://install-config?" + urlencode({"url": copy_url, "name": "MaestroVPN"})
+            return {"copy_url": copy_url, "open_url": open_url, "label": "HTTPS-ссылка для Karing"}
         raise ValueError("unexpected subscription delivery result")
 
     def support_text(self) -> str:
@@ -254,7 +256,7 @@ def build_customer_router(store: CustomerBindingStore):
     """Return the production aiogram child router without importing aiogram in unit tests."""
     from aiogram import F, Router
     from aiogram.filters import CommandStart
-    from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+    from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
     router = Router(name="maestro_customer")
 
@@ -375,27 +377,20 @@ def build_customer_router(store: CustomerBindingStore):
             await flow.claim_paid(opaque_id)
             await callback.message.answer("Заявка об оплате отправлена владельцу на подтверждение.")
         elif action == "devices":
-            incy = await flow.delivery("incy")
-            happ = await flow.delivery("happ")
-            karing = await flow.delivery("karing")
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=label, callback_data=callback_data("client_" + client, "open"))
+            ] for client, label in (("karing", "Karing"), ("happ", "HAPP"), ("incy", "INCY"))])
+            await callback.message.answer("Выберите приложение:", reply_markup=keyboard, parse_mode=None)
+        elif action in {"client_karing", "client_happ", "client_incy"}:
+            client = action.removeprefix("client_")
+            delivery = await flow.delivery(client)
+            copy_url = delivery.get("copy_url") or delivery["url"]
+            label = {"karing": "Karing", "happ": "HAPP", "incy": "INCY"}[client]
             await callback.message.answer(
-                "1. Для Incy скопируйте HTTPS-ссылку ниже, откройте импорт подписки и вставьте её:\n"
-                f"{incy['copy_url']}\n\n"
-                "2. Для Karing скопируйте HTTPS-ссылку ниже, откройте импорт подписки и вставьте её:\n"
-                f"{karing['copy_url']}\n\n"
-                "3. Для Happ используйте QR из следующего сообщения.\n"
-                "4. Убедитесь, что профиль MaestroVPN появился.\n\n"
-                "В приложение MaestroVPN входите по логину. "
-                "Для CDN нужен включённый доступ и баланс ГБ. После изменения обновите подписку в клиенте.",
-            )
-            import qrcode
-            from io import BytesIO
-            qr = qrcode.make(happ["url"])
-            image = BytesIO()
-            qr.save(image, format="PNG")
-            await callback.message.answer_photo(
-                BufferedInputFile(image.getvalue(), filename="maestro_happ.png"),
-                caption="\n".join((*happ["steps"], happ["url"])),
+                f"MaestroVPN для {label}\n\n"
+                f"Скопируйте ссылку и добавьте её как подписку в {label}:\n{copy_url}\n\n"
+                "После покупки CDN обновите эту же подписку в приложении.",
+                parse_mode=None,
             )
         elif action == "help":
             await callback.message.answer(flow.support_text())

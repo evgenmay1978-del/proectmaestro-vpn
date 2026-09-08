@@ -263,10 +263,14 @@ func ordinaryVLESSXrayJSONConfigs(encoded string) ([]xrayJSONFullConfig, error) 
 					StreamSettings: &stream,
 				},
 				{Tag: "direct", Protocol: "freedom"},
+				{Tag: "block-quic", Protocol: "blackhole"},
 			},
 			Routing: xrayJSONFullRouting{
 				DomainStrategy: "AsIs",
-				Rules:          []xrayJSONFullRoutingRule{{Type: "field", Network: "tcp,udp", OutboundTag: "maestro-vless"}},
+				Rules: []xrayJSONFullRoutingRule{
+					{Type: "field", Network: "udp", Port: "443", OutboundTag: "block-quic"},
+					{Type: "field", Network: "tcp,udp", OutboundTag: "maestro-vless"},
+				},
 			},
 		})
 		labels[parsed.Fragment] = struct{}{}

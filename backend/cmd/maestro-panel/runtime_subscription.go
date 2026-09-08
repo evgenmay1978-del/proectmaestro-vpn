@@ -16,6 +16,10 @@ const runtimeWhiteListXHTTPExtra = `{"sessionIDPlacement":"query","sessionIDKey"
 
 const runtimeWhiteListExitCount = 4
 
+// Use the same Yandex CDN edge address as the owner-confirmed working profile.
+// TLS SNI and HTTP Host remain the public CDN hostname below.
+const runtimeWhiteListDialAddress = "188.72.111.7"
+
 type rqliteWhiteListPublicationSource struct {
 	service       *controlplane.Service
 	resolveSender func(string) (controlplane.ExternalActionSender, bool)
@@ -66,7 +70,7 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 			return api.WhiteListPublicationSnapshot{}, controlplane.ErrUnavailable
 		}
 		nodes = append(nodes, subgen.WhiteListNode{
-			Protocol: "vless", Network: "xhttp", Address: route.Material.PublicHost, Port: 443,
+			Protocol: "vless", Network: "xhttp", Address: runtimeWhiteListDialAddress, Port: 443,
 			TLS: true, ServerName: route.Material.PublicHost, Host: route.Material.PublicHost,
 			Path: route.Material.SecretPath, Mode: "packet-up", UplinkHTTPMethod: "GET",
 			UplinkDataPlacement: "body", ClientID: route.Material.ClientID,

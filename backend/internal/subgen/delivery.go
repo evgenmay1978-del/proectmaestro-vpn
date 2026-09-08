@@ -48,11 +48,15 @@ func BuildDelivery(client, subscriptionURL string) (Delivery, error) {
 	case HappDeliveryClient:
 		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: xrayURL, CopyURL: xrayURL}, nil
 	case KaringDeliveryClient:
+		linksURL, err := BuildLinksSubscriptionURL(subscriptionURL)
+		if err != nil {
+			return Delivery{}, err
+		}
 		return Delivery{
 			Client:  client,
 			Format:  KaringInstallConfigFormat,
-			CopyURL: xrayURL,
-			URL: "karing://install-config?url=" + url.QueryEscape(xrayURL) +
+			CopyURL: linksURL,
+			URL: "karing://install-config?url=" + url.QueryEscape(linksURL) +
 				"&name=" + url.QueryEscape("MaestroVPN"),
 		}, nil
 	default:

@@ -82,8 +82,11 @@ func WrapLegacySubscriptions(
 			incy := strings.EqualFold(client, "INCY") ||
 				userAgent == "INCY" || strings.HasPrefix(userAgent, "INCY/")
 			karing := strings.EqualFold(client, "KARING") || userAgent == "KARING" || strings.HasPrefix(userAgent, "KARING/")
-			xrayJSON := query.Get("format") == "xray" || strings.EqualFold(strings.TrimSpace(query.Get("app")), "karing") ||
-				(incy || karing) && !formatSelected && !appSelected
+			xrayJSON := query.Get("format") == "xray" || incy && !formatSelected && !appSelected
+			if !formatSelected && (strings.EqualFold(strings.TrimSpace(query.Get("app")), "karing") || karing && !appSelected) {
+				query.Set("format", "links")
+				request.URL.RawQuery = query.Encode()
+			}
 			if xrayJSON {
 				// The loopback legacy panel remains authoritative for token, expiry
 				// and device admission. Ask it for its validated link form, then
