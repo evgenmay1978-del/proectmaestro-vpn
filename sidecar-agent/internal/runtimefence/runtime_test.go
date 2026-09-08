@@ -55,7 +55,7 @@ func deadlineAfter(t *testing.T, g *gate, remaining time.Duration) int64 {
 func registerPair(t *testing.T, sm stats.Manager, email string) {
 	t.Helper()
 	for _, direction := range []string{"uplink", "downlink"} {
-		if _, err := stats.GetOrRegisterCounter(sm, counterName(email, direction)); err != nil {
+		if _, err := sm.GetOrRegisterCounter(counterName(email, direction)); err != nil {
 			t.Fatal(err)
 		}
 	}

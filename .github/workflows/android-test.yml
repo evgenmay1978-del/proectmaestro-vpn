@@ -166,7 +166,7 @@ jobs:
               assert info.file_size <= 16384
               manifest = json.loads(z.read(info))
               assert manifest['schema_version'] == 1 and manifest['source_commit'] == os.environ['GITHUB_SHA']
-              assert manifest['xray_commit'] == '1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2'
+              assert manifest['xray_commit'] == '5ca6f4b7d4dc20a881d4330e498892697627ec0c'
               assert manifest['ndk'] == '28.0.13004108' and manifest['android_api'] == 23
               libraries = manifest['libraries']
               assert len(libraries) == 2 and {x['abi'] for x in libraries} == {'arm64-v8a', 'armeabi-v7a'}
@@ -323,7 +323,7 @@ jobs:
               libraries.append({'abi': abi, 'path': p.relative_to(root).as_posix(),
                                 'bytes': p.stat().st_size, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()})
           manifest = {'schema_version': 1, 'source_commit': os.environ['GITHUB_SHA'],
-                      'xray_commit': '1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2',
+                      'xray_commit': '5ca6f4b7d4dc20a881d4330e498892697627ec0c',
                       'ndk': '28.0.13004108', 'android_api': 23, 'libraries': libraries,
                       'device_runtime_proven': False, 'apk_created': False}
           (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')

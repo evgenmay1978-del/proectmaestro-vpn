@@ -518,8 +518,8 @@ jobs:
       - name: Build immutable Linux amd64 commercial bundle
         env:
           LC_ALL: C
-          XRAY_ARCHIVE_SHA256: f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7
-          XRAY_VERSION: 26.5.9
+          XRAY_ARCHIVE_SHA256: 8195d909f1109b8f3d99eefe401a3c451d7bf4af71f24d3815420f77e5dd2a40
+          XRAY_VERSION: 26.7.28
         run: |
           set -euo pipefail
           umask 077

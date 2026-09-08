@@ -116,7 +116,7 @@ jobs:
                   raise SystemExit('native_manifest_invalid')
               manifest = json.loads(bundle.read('manifest.json'))
               if (manifest.get('schema_version') != 1 or manifest.get('source_commit') != source or
-                  manifest.get('xray_commit') != '1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2' or
+                  manifest.get('xray_commit') != '5ca6f4b7d4dc20a881d4330e498892697627ec0c' or
                   manifest.get('ndk') != '28.0.13004108' or manifest.get('android_api') != 23):
                   raise SystemExit('native_build_pin_mismatch')
               libraries = manifest['libraries']

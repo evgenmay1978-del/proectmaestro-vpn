@@ -76,7 +76,7 @@ jobs:
           install -m 0644 ops/yandex_cdn_commercial/rollback.json "$dist/rollback.json"
           python ops/yandex_cdn_commercial/bundle.py create-managed \
             --bundle "$dist" --source-commit "$GITHUB_SHA" \
-            --xray-module-version v0.0.0-20260509173629-1bdb488c9ec0
+            --xray-module-version v0.0.0-20260728075948-5ca6f4b7d4dc
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: maestro-xray-cdn-managed-commercial-${{ github.sha }}
@@ -184,7 +184,7 @@ jobs:
               'schema_version': 1,
               'source_commit': os.environ['GITHUB_SHA'],
               'workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
-              'xray_source_commit': '1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2',
+              'xray_source_commit': '5ca6f4b7d4dc20a881d4330e498892697627ec0c',
               'purpose': 'managed-session-fence-source-proof',
               'deployable_commercial_bundle': False,
               'agent_control_wiring_proven': False,
@@ -209,8 +209,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.task == 'commercial-bundle'
         env:
           LC_ALL: C
-          XRAY_ARCHIVE_SHA256: f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7
-          XRAY_VERSION: 26.5.9
+          XRAY_ARCHIVE_SHA256: 8195d909f1109b8f3d99eefe401a3c451d7bf4af71f24d3815420f77e5dd2a40
+          XRAY_VERSION: 26.7.28
         run: |
           set -euo pipefail
           umask 077
@@ -292,7 +292,7 @@ jobs:
           import sys
           module = json.load(open(sys.argv[1], encoding='utf-8'))
           assert module['Path'] == 'github.com/xtls/xray-core'
-          assert module['Version'] == 'v0.0.0-20260509173629-1bdb488c9ec0'
+          assert module['Version'] == 'v0.0.0-20260728075948-5ca6f4b7d4dc'
           assert 'Replace' not in module
           PY
             for pass in a b; do
@@ -323,7 +323,7 @@ jobs:
           install -m 0644 ops/yandex_cdn_commercial/rollback.json "$dist/rollback.json"
           python ops/yandex_cdn_commercial/bundle.py create-managed \
             --bundle "$dist" --source-commit "$GITHUB_SHA" \
-            --xray-module-version v0.0.0-20260509173629-1bdb488c9ec0
+            --xray-module-version v0.0.0-20260728075948-5ca6f4b7d4dc
           python ops/yandex_cdn_commercial/bundle.py verify --bundle "$dist"
           MAESTRO_MANAGED_RUNTIME_BINARY="$dist/bin/xray" python -m unittest \
             ops.yandex_cdn_commercial.tests.test_commercial_operator -v

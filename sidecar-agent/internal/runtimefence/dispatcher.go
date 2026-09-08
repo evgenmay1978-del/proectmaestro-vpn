@@ -98,8 +98,8 @@ func (d *Dispatcher) DispatchLink(ctx context.Context, dest xnet.Destination, li
 }
 
 func (d *Dispatcher) userCounters(email string) (stats.Counter, stats.Counter, error) {
-	up, eu := stats.GetOrRegisterCounter(d.stats, counterName(email, "uplink"))
-	down, ed := stats.GetOrRegisterCounter(d.stats, counterName(email, "downlink"))
+	up, eu := d.stats.GetOrRegisterCounter(counterName(email, "uplink"))
+	down, ed := d.stats.GetOrRegisterCounter(counterName(email, "downlink"))
 	if eu != nil || ed != nil || up == nil || down == nil {
 		return nil, nil, errDenied
 	}

@@ -77,9 +77,13 @@ func WrapLegacySubscriptions(
 			query := request.URL.Query()
 			_, formatSelected := query["format"]
 			_, appSelected := query["app"]
-			incy := strings.EqualFold(strings.TrimSpace(request.Header.Get("X-Client")), "INCY") ||
-				strings.HasPrefix(strings.ToUpper(request.UserAgent()), "INCY/")
-			xrayJSON := query.Get("format") == "xray" || incy && !formatSelected && !appSelected
+			client := strings.TrimSpace(request.Header.Get("X-Client"))
+			userAgent := strings.ToUpper(strings.TrimSpace(request.UserAgent()))
+			incy := strings.EqualFold(client, "INCY") ||
+				userAgent == "INCY" || strings.HasPrefix(userAgent, "INCY/")
+			karing := strings.EqualFold(client, "KARING") || userAgent == "KARING" || strings.HasPrefix(userAgent, "KARING/")
+			xrayJSON := query.Get("format") == "xray" || strings.EqualFold(strings.TrimSpace(query.Get("app")), "karing") ||
+				(incy || karing) && !formatSelected && !appSelected
 			if xrayJSON {
 				// The loopback legacy panel remains authoritative for token, expiry
 				// and device admission. Ask it for its validated link form, then
@@ -139,7 +143,8 @@ func appendLegacyPaidWhiteList(
 	if len(labelers) == 1 {
 		labeler = labelers[0]
 	}
-	if publication == nil && labeler == nil {
+	xrayJSON, _ := response.Request.Context().Value(legacySubscriptionXrayJSONKey{}).(bool)
+	if publication == nil && labeler == nil && !xrayJSON {
 		response.Header.Set("X-Maestro-CDN", "disabled")
 		return nil
 	}
@@ -168,6 +173,15 @@ func appendLegacyPaidWhiteList(
 			setLegacySubscriptionBody(response, renamed)
 		}
 	}
+	var ordinaryXray []byte
+	if xrayJSON {
+		ordinaryXray, err = subgen.WhiteListCombinedXrayJSONSubscription(string(ordinary), nil)
+		if err != nil {
+			return errors.New("legacy Xray subscription unavailable")
+		}
+		setLegacySubscriptionBody(response, string(ordinaryXray))
+		response.Header.Set("Content-Type", "application/json")
+	}
 	if publication == nil {
 		response.Header.Set("X-Maestro-CDN", "disabled")
 		return nil
@@ -189,10 +203,12 @@ func appendLegacyPaidWhiteList(
 		response.Header.Set("X-Maestro-CDN", "unavailable")
 		return nil
 	}
-	if xrayJSON, _ := response.Request.Context().Value(legacySubscriptionXrayJSONKey{}).(bool); xrayJSON {
-		document, err := subgen.WhiteListXrayJSONSubscriptions(snapshot.Nodes)
+	if xrayJSON {
+		document, err := subgen.WhiteListCombinedXrayJSONSubscription(string(ordinary), snapshot.Nodes)
 		if err != nil {
 			response.Header.Set("X-Maestro-CDN", "unavailable")
+			setLegacySubscriptionBody(response, string(ordinaryXray))
+			response.Header.Set("Content-Type", "application/json")
 			return nil
 		}
 		setLegacySubscriptionBody(response, string(document))

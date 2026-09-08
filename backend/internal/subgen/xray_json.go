@@ -3,6 +3,9 @@ package subgen
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
+	"strconv"
+	"strings"
 )
 
 const maxWhiteListXrayJSONSubscriptionBytes = 64 << 10
@@ -91,6 +94,44 @@ func WhiteListXrayJSONSubscriptions(nodes []WhiteListNode) ([]byte, error) {
 	if len(nodes) == 0 || len(nodes) > 16 {
 		return nil, errInvalidWhiteListNode
 	}
+	configs, err := whiteListXrayJSONConfigs(nodes)
+	if err != nil {
+		return nil, err
+	}
+	return marshalWhiteListXrayJSONConfigs(configs)
+}
+
+// WhiteListCombinedXrayJSONSubscription keeps every ordinary VLESS/Reality
+// profile from the already accepted legacy subscription and appends the paid
+// CDN profiles. Protocols that are not Xray full-config outbounds remain in the
+// unchanged universal links representation.
+func WhiteListCombinedXrayJSONSubscription(ordinary string, nodes []WhiteListNode) ([]byte, error) {
+	ordinaryConfigs, err := ordinaryVLESSXrayJSONConfigs(ordinary)
+	if err != nil {
+		return nil, err
+	}
+	cdnConfigs, err := whiteListXrayJSONConfigs(nodes)
+	if err != nil {
+		return nil, err
+	}
+	configs := append(ordinaryConfigs, cdnConfigs...)
+	if len(configs) == 0 || len(configs) > 32 {
+		return nil, errInvalidOrdinarySubscription
+	}
+	labels := make(map[string]struct{}, len(configs))
+	for _, config := range configs {
+		if _, exists := labels[config.Remarks]; exists {
+			return nil, errInvalidOrdinarySubscription
+		}
+		labels[config.Remarks] = struct{}{}
+	}
+	return marshalWhiteListXrayJSONConfigs(configs)
+}
+
+func whiteListXrayJSONConfigs(nodes []WhiteListNode) ([]xrayJSONFullConfig, error) {
+	if len(nodes) > 16 {
+		return nil, errInvalidWhiteListNode
+	}
 	configs := make([]xrayJSONFullConfig, 0, len(nodes))
 	labels := make(map[string]struct{}, len(nodes))
 	clientIDs := make(map[string]struct{}, len(nodes))
@@ -112,40 +153,29 @@ func WhiteListXrayJSONSubscriptions(nodes []WhiteListNode) ([]byte, error) {
 		if err := json.Unmarshal([]byte(extra), &xhttp); err != nil {
 			return nil, errInvalidWhiteListNode
 		}
+		tlsSettings := xrayJSONFullTLSSettings{ServerName: node.ServerName}
+		xhttpSettings := xrayJSONXHTTPSettings{
+			Host:                node.Host,
+			Path:                node.Path,
+			Mode:                node.Mode,
+			UplinkHTTPMethod:    xhttp.UplinkHTTPMethod,
+			UplinkDataPlacement: xhttp.UplinkDataPlacement,
+			SessionIDPlacement:  xhttp.SessionIDPlacement,
+			SessionIDKey:        xhttp.SessionIDKey,
+			SessionIDLength:     xhttp.SessionIDLength,
+			SeqPlacement:        xhttp.SeqPlacement,
+			SeqKey:              xhttp.SeqKey,
+		}
 		stream := xrayJSONFullStreamSettings{
-			Network:  node.Network,
-			Security: node.Security,
-			TLSSettings: xrayJSONFullTLSSettings{
-				ServerName: node.ServerName,
-			},
-			XHTTPSettings: xrayJSONXHTTPSettings{
-				Host:                node.Host,
-				Path:                node.Path,
-				Mode:                node.Mode,
-				UplinkHTTPMethod:    xhttp.UplinkHTTPMethod,
-				UplinkDataPlacement: xhttp.UplinkDataPlacement,
-				SessionIDPlacement:  xhttp.SessionIDPlacement,
-				SessionIDKey:        xhttp.SessionIDKey,
-				SessionIDLength:     xhttp.SessionIDLength,
-				SeqPlacement:        xhttp.SeqPlacement,
-				SeqKey:              xhttp.SeqKey,
-			},
+			Network:       node.Network,
+			Security:      node.Security,
+			TLSSettings:   &tlsSettings,
+			XHTTPSettings: &xhttpSettings,
 		}
 		configs = append(configs, xrayJSONFullConfig{
-			Remarks: node.Label,
-			Log:     xrayJSONLog{LogLevel: "warning"},
-			Inbounds: []xrayJSONFullInbound{
-				{
-					Tag: "socks", Protocol: "socks", Listen: "127.0.0.1", Port: 10808,
-					Settings: xrayJSONSOCKSSettings{Auth: "noauth", UDP: true},
-					Sniffing: &xrayJSONSniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}},
-				},
-				{
-					Tag: "http", Protocol: "http", Listen: "127.0.0.1", Port: 10809,
-					Settings: xrayJSONHTTPSettings{AllowTransparent: false},
-					Sniffing: &xrayJSONSniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}},
-				},
-			},
+			Remarks:  node.Label,
+			Log:      xrayJSONLog{LogLevel: "warning"},
+			Inbounds: xrayJSONClientInbounds(),
 			Outbounds: []xrayJSONFullOutbound{
 				{
 					Tag: whiteListXrayJSONOutboundTag, Protocol: "vless",
@@ -172,6 +202,111 @@ func WhiteListXrayJSONSubscriptions(nodes []WhiteListNode) ([]byte, error) {
 		labels[node.Label] = struct{}{}
 		clientIDs[node.ClientID] = struct{}{}
 	}
+	return configs, nil
+}
+
+func ordinaryVLESSXrayJSONConfigs(encoded string) ([]xrayJSONFullConfig, error) {
+	decoded, err := decodeOrdinaryWhiteListSubscription(encoded)
+	if err != nil {
+		return nil, err
+	}
+	configs := make([]xrayJSONFullConfig, 0, 3)
+	labels := make(map[string]struct{})
+	identities := make(map[string]struct{})
+	for _, line := range strings.Split(string(decoded), "\n") {
+		if !strings.HasPrefix(strings.ToLower(line), "vless://") {
+			continue
+		}
+		parsed, err := url.Parse(line)
+		if err != nil || !strings.EqualFold(parsed.Scheme, "vless") || parsed.User == nil || parsed.Path != "" {
+			return nil, errInvalidOrdinarySubscription
+		}
+		clientID := parsed.User.Username()
+		if _, hasPassword := parsed.User.Password(); hasPassword || !validCanonicalUUID(clientID) {
+			return nil, errInvalidOrdinarySubscription
+		}
+		address := parsed.Hostname()
+		port, portErr := strconv.Atoi(parsed.Port())
+		query := parsed.Query()
+		if portErr != nil || port <= 0 || port > 65535 || !validWhiteListDialAddress(address) ||
+			!singleXrayQueryValues(query, "encryption", "security", "sni", "fp", "pbk", "sid", "type", "flow") ||
+			query.Get("encryption") != "none" || query.Get("security") != "reality" || query.Get("type") != "tcp" ||
+			!validWhiteListServerName(query.Get("sni")) || query.Get("fp") == "" || query.Get("pbk") == "" || query.Get("sid") == "" ||
+			len(query.Get("fp")) > 64 || len(query.Get("pbk")) > 1024 || len(query.Get("sid")) > 64 ||
+			(query.Get("flow") != "" && query.Get("flow") != "xtls-rprx-vision") ||
+			!validWhiteListPublicLabelSyntax(parsed.Fragment) {
+			return nil, errInvalidOrdinarySubscription
+		}
+		identity := strings.ToLower(address) + ":" + strconv.Itoa(port)
+		if _, exists := labels[parsed.Fragment]; exists {
+			return nil, errInvalidOrdinarySubscription
+		}
+		if _, exists := identities[identity]; exists {
+			return nil, errInvalidOrdinarySubscription
+		}
+		reality := xrayJSONRealitySettings{
+			ServerName: query.Get("sni"), Fingerprint: query.Get("fp"),
+			PublicKey: query.Get("pbk"), ShortID: query.Get("sid"),
+		}
+		stream := xrayJSONFullStreamSettings{Network: "tcp", Security: "reality", RealitySettings: &reality}
+		configs = append(configs, xrayJSONFullConfig{
+			Remarks:  parsed.Fragment,
+			Log:      xrayJSONLog{LogLevel: "warning"},
+			Inbounds: xrayJSONClientInbounds(),
+			Outbounds: []xrayJSONFullOutbound{
+				{
+					Tag: "maestro-vless", Protocol: "vless",
+					Settings: xrayJSONVLESSSettings{VNext: []xrayJSONVNext{{
+						Address: address, Port: port,
+						Users: []xrayJSONVLESSUser{{ID: clientID, Encryption: "none", Flow: query.Get("flow")}},
+					}}},
+					StreamSettings: &stream,
+				},
+				{Tag: "direct", Protocol: "freedom"},
+			},
+			Routing: xrayJSONFullRouting{
+				DomainStrategy: "AsIs",
+				Rules:          []xrayJSONFullRoutingRule{{Type: "field", Network: "tcp,udp", OutboundTag: "maestro-vless"}},
+			},
+		})
+		labels[parsed.Fragment] = struct{}{}
+		identities[identity] = struct{}{}
+	}
+	if len(configs) == 0 || len(configs) > 16 {
+		return nil, errInvalidOrdinarySubscription
+	}
+	return configs, nil
+}
+
+func singleXrayQueryValues(values url.Values, allowed ...string) bool {
+	allowedKeys := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		allowedKeys[key] = struct{}{}
+	}
+	for key, entries := range values {
+		if _, ok := allowedKeys[key]; !ok || len(entries) != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func xrayJSONClientInbounds() []xrayJSONFullInbound {
+	return []xrayJSONFullInbound{
+		{
+			Tag: "socks", Protocol: "socks", Listen: "127.0.0.1", Port: 10808,
+			Settings: xrayJSONSOCKSSettings{Auth: "noauth", UDP: true},
+			Sniffing: &xrayJSONSniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}},
+		},
+		{
+			Tag: "http", Protocol: "http", Listen: "127.0.0.1", Port: 10809,
+			Settings: xrayJSONHTTPSettings{AllowTransparent: false},
+			Sniffing: &xrayJSONSniffing{Enabled: true, DestOverride: []string{"http", "tls", "quic"}},
+		},
+	}
+}
+
+func marshalWhiteListXrayJSONConfigs(configs []xrayJSONFullConfig) ([]byte, error) {
 	rendered, err := json.Marshal(configs)
 	if err != nil {
 		return nil, errInvalidWhiteListNode
@@ -234,6 +369,7 @@ type xrayJSONVNext struct {
 type xrayJSONVLESSUser struct {
 	ID         string `json:"id"`
 	Encryption string `json:"encryption"`
+	Flow       string `json:"flow,omitempty"`
 }
 
 type xrayJSONStreamSettings struct {
@@ -306,14 +442,22 @@ type xrayJSONFullOutbound struct {
 }
 
 type xrayJSONFullStreamSettings struct {
-	Network       string                   `json:"network"`
-	Security      string                   `json:"security"`
-	TLSSettings   xrayJSONFullTLSSettings  `json:"tlsSettings"`
-	XHTTPSettings xrayJSONXHTTPSettings    `json:"xhttpSettings"`
+	Network         string                   `json:"network"`
+	Security        string                   `json:"security"`
+	TLSSettings     *xrayJSONFullTLSSettings `json:"tlsSettings,omitempty"`
+	XHTTPSettings   *xrayJSONXHTTPSettings   `json:"xhttpSettings,omitempty"`
+	RealitySettings *xrayJSONRealitySettings `json:"realitySettings,omitempty"`
 }
 
 type xrayJSONFullTLSSettings struct {
 	ServerName string `json:"serverName"`
+}
+
+type xrayJSONRealitySettings struct {
+	ServerName  string `json:"serverName"`
+	Fingerprint string `json:"fingerprint"`
+	PublicKey   string `json:"publicKey"`
+	ShortID     string `json:"shortId"`
 }
 
 type xrayJSONFullRouting struct {

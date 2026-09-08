@@ -15,10 +15,10 @@ from typing import Any
 
 SCHEMA = "maestro-xray-cdn-commercial-bundle-v1"
 MANAGED_SCHEMA = "maestro-xray-cdn-commercial-bundle-v2"
-XRAY_VERSION = "26.5.9"
-XRAY_ARCHIVE_SHA256 = "f56c106b7c0159ad386bccd340faa5bbf55fd5c15821ec9e63e6a6ba11d3d1c7"
-XRAY_MODULE_VERSION = "v0.0.0-20260509173629-1bdb488c9ec0"
-XRAY_SOURCE_COMMIT = "1bdb488c9ec09ea51e6899697d5b7437f3cf6eb2"
+XRAY_VERSION = "26.7.28"
+XRAY_ARCHIVE_SHA256 = "8195d909f1109b8f3d99eefe401a3c451d7bf4af71f24d3815420f77e5dd2a40"
+XRAY_MODULE_VERSION = "v0.0.0-20260728075948-5ca6f4b7d4dc"
+XRAY_SOURCE_COMMIT = "5ca6f4b7d4dc20a881d4330e498892697627ec0c"
 MANIFEST_NAME = "manifest.json"
 EXECUTABLE_MEMBERS = {
     "bin/maestro-xray-cdn-agent",

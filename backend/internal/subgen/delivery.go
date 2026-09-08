@@ -33,34 +33,26 @@ type Delivery struct {
 // BuildDelivery validates a private subscription URL and returns the client-safe
 // delivery form. Happ keeps the HTTPS URL for copy/QR until device proof exists.
 func BuildDelivery(client, subscriptionURL string) (Delivery, error) {
-	linksURL, err := BuildLinksSubscriptionURL(subscriptionURL)
+	xrayURL, err := BuildXraySubscriptionURL(subscriptionURL)
 	if err != nil {
 		return Delivery{}, err
 	}
 
 	switch client {
 	case IncyDeliveryClient:
-		xrayURL, err := BuildXraySubscriptionURL(subscriptionURL)
-		if err != nil {
-			return Delivery{}, err
-		}
 		oneTapURL, err := encodeIncyOneTap(xrayURL)
 		if err != nil {
 			return Delivery{}, ErrDeliveryEncoding
 		}
 		return Delivery{Client: client, Format: IncyOneTapFormat, URL: oneTapURL, CopyURL: xrayURL}, nil
 	case HappDeliveryClient:
-		xrayURL, err := BuildXraySubscriptionURL(subscriptionURL)
-		if err != nil {
-			return Delivery{}, err
-		}
 		return Delivery{Client: client, Format: CopyHTTPSURLAndQRFormat, URL: xrayURL, CopyURL: xrayURL}, nil
 	case KaringDeliveryClient:
 		return Delivery{
 			Client:  client,
 			Format:  KaringInstallConfigFormat,
-			CopyURL: linksURL,
-			URL: "karing://install-config?url=" + url.QueryEscape(linksURL) +
+			CopyURL: xrayURL,
+			URL: "karing://install-config?url=" + url.QueryEscape(xrayURL) +
 				"&name=" + url.QueryEscape("MaestroVPN"),
 		}, nil
 	default:
