@@ -209,7 +209,7 @@ func validateLeaseState(state leaseState) error {
 	if state.Challenge != nil {
 		c := state.Challenge.Challenge
 		if c.Schema != 2 || !validDigest(c.Nonce) || !validDigest(c.ClockDomain) || c.ReadStartedBoottimeNS <= 0 ||
-			c.MaxDeadlineBoottimeNS <= c.ReadStartedBoottimeNS || c.MaxDeadlineBoottimeNS-c.ReadStartedBoottimeNS > int64(5_000_000_000) ||
+			c.MaxDeadlineBoottimeNS <= c.ReadStartedBoottimeNS || c.MaxDeadlineBoottimeNS-c.ReadStartedBoottimeNS > int64(managedLeaseWindow) ||
 			c.ManagedUsers == nil || len(c.ManagedUsers) > maxLeaseUsers || !strictlySortedUnique(c.ManagedUsers) || !state.Challenge.Receipt.ReadyAt(state.Challenge.Receipt.AppliedAt) {
 			return ErrLeaseUnavailable
 		}
