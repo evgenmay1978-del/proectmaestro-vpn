@@ -10,16 +10,27 @@ import re
 import secrets
 import sqlite3
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import httpx
+try:
+    from .maestro_customer_cdn import CDNCheckout, enabled as cdn_purchases_enabled
+except ImportError:
+    from maestro_customer_cdn import CDNCheckout, enabled as cdn_purchases_enabled
 
+
+try:
+    from .maestro_customer_entry import customer_balance_text, is_customer_login_reply, customer_login_command, send_customer_dashboard, open_customer_dashboard, send_customer_help
+except ImportError:
+    from maestro_customer_entry import customer_balance_text, is_customer_login_reply, customer_login_command, send_customer_dashboard, open_customer_dashboard, send_customer_help
 
 PRIMARY_ACTIONS = (
     "Моя подписка и баланс",
     "Продлить 30 дней — 400 ₽",
     "Купить или продлить CDN",
-    "Подключить устройство",
+    "Подписка Karing",
+    "Подписка HAPP",
+    "Подписка INCY",
     "Помощь",
 )
 GB_PACKS = ((5, 100), (20, 300), (50, 600), (100, 1000))
@@ -143,7 +154,11 @@ class CustomerFlow:
     def menu_actions(self) -> tuple[tuple[str, str], ...]:
         return tuple(
             (label, callback_data(action, "menu"))
-            for label, action in zip(PRIMARY_ACTIONS, ("balance", "renew", "gigabytes", "devices", "help"))
+            for label, action in zip(
+                PRIMARY_ACTIONS,
+                ("balance", "renew", "gigabytes", "client_karing", "client_happ", "client_incy", "help"),
+            )
+            if action not in ("renew", "gigabytes") or (action == "gigabytes" and cdn_purchases_enabled())
         )
 
     def payment_instructions(self) -> str:
@@ -168,15 +183,7 @@ class CustomerFlow:
         return await self.api.claim_paid(order_id)
 
     def balance_text(self, balance: dict) -> str:
-        available = int(balance.get("available_bytes") or 0)
-        gigabytes = available // 1_000_000_000
-        primary = balance.get("primary_access_state", "")
-        publication = balance.get("publication_verdict", "DISABLED")
-        if primary.upper() != "ACTIVE":
-            return f"Основной доступ истёк: сначала продлите его. Сохранённый баланс: {gigabytes} ГБ."
-        if publication == "DISABLED":
-            return f"Обычная подписка активна. Сохранённый баланс: {gigabytes} ГБ."
-        return f"Обычная подписка активна. CDN/LTE баланс: {gigabytes} ГБ."
+        return customer_balance_text(balance)
 
     async def show_balance(self) -> str:
         return self.balance_text(await self.api.balance())
@@ -213,8 +220,49 @@ class CustomerFlow:
         return "Напишите в поддержку и укажите ваш Maestro login."
 
 
+def is_maestro_customer_message(message) -> bool:
+    if is_customer_login_reply(message):
+        return True
+    text = (getattr(message, "text", None) or "").strip()
+    words = text.split(maxsplit=1)
+    if not words:
+        return False
+    command = words[0].split("@", 1)[0].lower()
+    return command == "/maestro" or (
+        command == "/start" and len(words) == 2 and words[1].startswith("maestro_")
+    )
+
+
+def not_maestro_customer_message(message) -> bool:
+    return not is_maestro_customer_message(message)
+
+
+def not_maestro_customer_callback(callback) -> bool:
+    return not (getattr(callback, "data", None) or "").startswith("mc:")
+
+
+async def claim_customer_login(login: str) -> tuple[str, str]:
+    login = login.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.@+-]{1,96}", login):
+        raise ValueError("invalid login")
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(panel_base_url(os.getenv("MAESTRO_CUSTOMER_URL") or os.getenv("MAESTRO_URL")) + "/cabinet/api/claim", json={"code": login})
+    response.raise_for_status()
+    parsed = urlparse(str(response.json().get("sub_url") or ""))
+    if not parsed.path.startswith("/sub/") or parsed.query or parsed.fragment:
+        raise ValueError("claim did not return a subscription")
+    token = parsed.path[len("/sub/"):]
+    if not _OPAQUE.fullmatch(token):
+        raise ValueError("claim did not return a bearer")
+    profile = await configured_customer_api(token).profile()
+    actual_login = str(profile.get("login") or "").strip()
+    if not actual_login:
+        raise ValueError("profile has no login")
+    return actual_login, token
+
+
 def configured_customer_api(customer_token: str) -> CustomerAPI:
-    return CustomerAPI(os.getenv("MAESTRO_URL"), customer_token)
+    return CustomerAPI(os.getenv("MAESTRO_CUSTOMER_URL") or os.getenv("MAESTRO_URL"), customer_token)
 
 
 def legacy_customer_logins(chat_id: int) -> tuple[str, ...]:
@@ -246,19 +294,18 @@ def legacy_customer_logins(chat_id: int) -> tuple[str, ...]:
     except (OSError, sqlite3.Error):
         return ()
 
-
 def legacy_customer_choice_key(login: str) -> str:
     import hashlib
     return hashlib.sha256(("maestro-account-choice\0" + login).encode()).hexdigest()[:24]
 
-
 def build_customer_router(store: CustomerBindingStore):
     """Return the production aiogram child router without importing aiogram in unit tests."""
     from aiogram import F, Router
-    from aiogram.filters import CommandStart
-    from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+    from aiogram.filters import Command, CommandStart
+    from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
     router = Router(name="maestro_customer")
+    cdn_checkout = CDNCheckout(store)
 
     def flow_for(chat_id: int) -> CustomerFlow | None:
         binding = store.get(chat_id)
@@ -306,20 +353,32 @@ def build_customer_router(store: CustomerBindingStore):
             await callback.answer("Сначала откройте /start с вашей ссылкой Maestro.", show_alert=True)
         return flow
 
-    @router.message(CommandStart(deep_link=True))
+    @router.message(Command("maestro"))
+    @router.message(CommandStart(deep_link=True), is_maestro_customer_message)
     async def bind_customer(message, command):
-        customer_token = (command.args or "").strip()
-        if not customer_token:
-            await message.answer("Откройте /start из вашей личной ссылки Maestro.")
-            return
+        argument = (command.args or "").strip()
         try:
-            profile = await configured_customer_api(customer_token).profile()
-            login = str(profile.get("login") or "").strip()
-            if not login:
-                raise ValueError("profile has no login")
+            if command.command.lower() == "maestro":
+                if argument:
+                    login, customer_token = await claim_customer_login(argument)
+                else:
+                    saved = store.get(message.chat.id)
+                    if saved is None:
+                        await message.answer("Введите /maestro и ваш логин MaestroVPN через пробел.")
+                        return
+                    login, customer_token = saved
+                    await configured_customer_api(customer_token).profile()
+            else:
+                if not argument.startswith("maestro_"):
+                    return
+                customer_token = argument[len("maestro_"):]
+                profile = await configured_customer_api(customer_token).profile()
+                login = str(profile.get("login") or "").strip()
+                if not login:
+                    raise ValueError("profile has no login")
             store.bind(message.chat.id, login, customer_token)
         except Exception:
-            await message.answer("Не удалось подтвердить личную ссылку Maestro.")
+            await message.answer("Не удалось войти. Проверьте логин MaestroVPN и повторите позже.")
             return
         try:
             await message.delete()
@@ -329,7 +388,11 @@ def build_customer_router(store: CustomerBindingStore):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=label, callback_data=value)] for label, value in flow.menu_actions()
         ])
-        await message.answer(flow.menu_text(), reply_markup=keyboard)
+        await send_customer_dashboard(message, flow)
+
+    @router.message(is_customer_login_reply)
+    async def bind_customer_login_reply(message):
+        await bind_customer(message, customer_login_command(message))
 
     @router.callback_query(F.data.func(lambda value: bool(value) and value.startswith("mc:")))
     async def customer_action(callback: CallbackQuery):
@@ -347,11 +410,26 @@ def build_customer_router(store: CustomerBindingStore):
             await callback.message.answer(await flow.show_balance())
             await callback.answer()
             return
+        if action == "home":
+            flow, handled = await resolve_customer_callback(callback)
+            if handled:
+                return
+            await open_customer_dashboard(callback, flow)
+            return
+        if action in ("cf", "cr"):
+            await cdn_checkout.dispatch(callback, action, opaque_id)
+            return
         flow = await require_flow(callback)
         if flow is None:
             return
+        if action in ("gigabytes", "paid") or action.startswith("gb"):
+            await cdn_checkout.dispatch(callback, action, opaque_id, flow)
+            return
+        if action == "renew":
+            await callback.answer("Для оплаты используйте прежнее меню тарифов бота.", show_alert=True)
+            return
         if action == "balance":
-            await callback.message.answer(await flow.show_balance())
+            await send_customer_dashboard(callback.message, flow)
         elif action == "renew":
             order = await flow.renew_access()
             order_id = str(order.get("order_id") or "")
@@ -386,14 +464,19 @@ def build_customer_router(store: CustomerBindingStore):
             delivery = await flow.delivery(client)
             copy_url = delivery.get("copy_url") or delivery["url"]
             label = {"karing": "Karing", "happ": "HAPP", "incy": "INCY"}[client]
+            try:
+                balance = await flow.show_balance()
+            except Exception:
+                balance = "Баланс CDN временно недоступен."
             await callback.message.answer(
                 f"MaestroVPN для {label}\n\n"
+                f"{balance}\n\n"
                 f"Скопируйте ссылку и добавьте её как подписку в {label}:\n{copy_url}\n\n"
                 "После покупки CDN обновите эту же подписку в приложении.",
                 parse_mode=None,
             )
         elif action == "help":
-            await callback.message.answer(flow.support_text())
+            await send_customer_help(callback.message, flow)
         else:
             await callback.answer("Неверное действие.", show_alert=True)
             return

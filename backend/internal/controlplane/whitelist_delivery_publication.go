@@ -36,6 +36,8 @@ type WhiteListPublicationRoute struct {
 type WhiteListPublicationDelivery struct {
 	Decision        WhiteListPublicationDecision
 	Routes          []WhiteListPublicationRoute
+	AvailableBytes  int64
+	ExpiresAtUnix   int64
 	Material        WhiteListClientMaterial
 	ExitID          string
 	CountryCode     string
@@ -348,7 +350,8 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 		}
 	}
 	return WhiteListPublicationDelivery{
-		Decision: decision, Routes: routes,
+		Decision: decision, Routes: routes, AvailableBytes: facts.AvailableBytes,
+		ExpiresAtUnix: facts.PrimaryExpiresAtUnix,
 		Material: referenceRoute.Material, ExitID: referenceRoute.ExitID,
 		CountryCode: referenceRoute.CountryCode, CountryLabel: referenceRoute.CountryLabel,
 		ReleaseID: releaseID, ProfileID: profileID, PresetID: presetID,

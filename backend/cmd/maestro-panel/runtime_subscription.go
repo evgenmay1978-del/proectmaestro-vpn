@@ -48,6 +48,8 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 	}
 	snapshot := api.WhiteListPublicationSnapshot{
 		Verdict:           api.WhiteListPublicationVerdict(delivery.Decision.Verdict),
+		AvailableBytes:    delivery.AvailableBytes,
+		ExpiresAtUnix:     delivery.ExpiresAtUnix,
 		ProjectionVersion: delivery.Decision.ProjectionVersion,
 		DesiredGeneration: delivery.Decision.DesiredGeneration,
 	}

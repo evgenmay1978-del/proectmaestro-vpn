@@ -206,6 +206,12 @@ func appendLegacyPaidWhiteList(
 		response.Header.Set("X-Maestro-CDN", "unavailable")
 		return nil
 	}
+	if snapshot.AvailableBytes > 0 && snapshot.ExpiresAtUnix > now.Unix() {
+		response.Header.Set("Subscription-Userinfo", fmt.Sprintf(
+			"upload=0; download=0; total=%d; expire=%d",
+			snapshot.AvailableBytes, snapshot.ExpiresAtUnix,
+		))
+	}
 	if xrayJSON {
 		document, err := subgen.WhiteListCombinedXrayJSONSubscription(string(ordinary), snapshot.Nodes)
 		if err != nil {

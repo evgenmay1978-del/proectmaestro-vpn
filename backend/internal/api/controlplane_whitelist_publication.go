@@ -25,6 +25,8 @@ const (
 type WhiteListPublicationSnapshot struct {
 	Verdict           WhiteListPublicationVerdict
 	Nodes             []subgen.WhiteListNode
+	AvailableBytes    int64
+	ExpiresAtUnix     int64
 	ProjectionVersion int64
 	DesiredGeneration int64
 	FreshThrough      time.Time
