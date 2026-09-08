@@ -207,7 +207,7 @@ ORDER BY desired.desired_generation`, Args: []any{
 	email := whiteListManagedEmail(entitlementID, exitID)
 	for _, row := range results[0].Rows {
 		desired, err := whiteListRuntimeDesiredFromRow(row)
-		if err != nil || whiteListContainsUser(desired.ManagedUsers, email) {
+		if err != nil || (whiteListContainsUser(desired.ManagedUsers, email) && !whiteListContainsUser(origin.unavailable, email)) {
 			return ErrUnavailable
 		}
 	}
