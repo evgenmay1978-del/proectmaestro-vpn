@@ -39,14 +39,14 @@ def panel_base_url(configured: str | None = None) -> str:
 
 
 def subscription_copy_url(raw: str) -> str:
-    """Select the URI-list representation without changing the private token."""
+    """Select the full-Xray JSON representation without changing the private token."""
     parsed = urlparse(str(raw or ""))
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
             or parsed.password is not None or parsed.fragment
             or not re.fullmatch(r"/sub/[^/]+", parsed.path)):
         raise ValueError("invalid subscription copy URL")
     query = parse_qs(parsed.query, keep_blank_values=True)
-    query["format"] = ["links"]
+    query["format"] = ["xray"]
     return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
