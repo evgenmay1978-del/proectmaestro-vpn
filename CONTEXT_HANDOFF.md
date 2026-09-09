@@ -6,7 +6,7 @@
 
 Непосредственное наблюдение после установки: 101 отсчёт за100s, generation1352→1360, 7 продлений deadline до58,9–59,9s, минимальный остаток39,5s. ready_samples=0, expired_samples=0, finals_samples=0; встречались только краткие active/unknown внутри последовательного renew без fence/rearm. Внутреннее истечение допуска устранено.
 
-Незавершённый шаг один: владелец должен обновить ту же подписку и проверить CDN в HAPP/INCY на мобильной сети. Это единственное отсутствующее подтверждение сквозного клиентского соединения. Если клиент снова не соединится, не повторять final-ordering/lease-renewal и не менять лимиты: сопоставить конкретный клиентский запрос с ingress/Xray за момент попытки.
+Сквозной результат подтверждён владельцем после обновления подписки: CDN в клиенте на мобильной сети работает правильно. Исправление завершено, незавершённых шагов по этому блокеру нет. Не повторять final-ordering/lease-renewal и не менять лимиты без новой наблюдаемой ошибки.
 
 Откат только controller: /var/backups/maestro-commercial-controller-20260904-s4-qzBchh/controller-upgrade-0cb9592/unit.before возвращает installed f87bd170517b107c4a38ac7d776cf22b12bd6f7d (binary SHA25653cd5a8679c33054cfa4f5127c9f15cc33584a68751a0713dd6a12537c44497b). Helper operational cwd06.09: upgrade-controller-f87bd17-to-0cb9592.py; receipts controller-staged-0cb9592.json и controller-installed-0cb9592.json. Локальных сборок и новых тестов не было.
 
