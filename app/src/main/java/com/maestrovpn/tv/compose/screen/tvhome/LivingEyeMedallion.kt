@@ -43,8 +43,8 @@ internal fun LivingEyeMedallion(
     modifier: Modifier = Modifier,
 ) {
 
-    val lids = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_lids)
-    val sclera = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_sclera)
+    val lids = ImageBitmap.imageResource(R.drawable.phone_eye_lids)
+    val sclera = ImageBitmap.imageResource(R.drawable.phone_eye_photo)
     val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_iris)
     val catchlight = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_catchlight)
     val mesh = remember { ReferenceEyeMesh() }

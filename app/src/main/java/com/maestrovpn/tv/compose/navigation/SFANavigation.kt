@@ -171,6 +171,8 @@ fun SFANavHost(
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
+                    onOpenServers = { navController.navigate(Screen.Groups.route) },
+                    onOpenSettings = { navController.navigate("settings") },
                 )
             } else {
                 TvHomeScreen(
@@ -191,6 +193,8 @@ fun SFANavHost(
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
                     onEnterTrial = { navController.navigate("trial") },
+                    onOpenServers = { navController.navigate(Screen.Groups.route) },
+                    onOpenSettings = { navController.navigate("settings") },
                 )
             }
         }

@@ -85,6 +85,8 @@ fun TvHomeScreen(
     onShareIos: () -> Unit = {},
     onScanQr: () -> Unit = {},
     onEnterTrial: () -> Unit = {},
+    onOpenServers: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -138,8 +140,7 @@ fun TvHomeScreen(
                     connectFocus = connectFocus,
                 )
             } else {
-                Mobile4DHome(
-                    statusText = statusText,
+                PhoneDashboard(
                     connected = connected,
                     connecting = connecting,
                     protocols = protocols,
@@ -149,17 +150,16 @@ fun TvHomeScreen(
                     daysLeft = daysLeft,
                     accountExpires = accountExpires,
                     hasSubProfile = hasSubProfile,
-                    hasOlcrtcCreds = hasOlcrtcCreds,
-                    olcrtcProvider = olcrtcProvider,
                     onToggleConnect = onToggleConnect,
                     onSelectProtocol = onSelectProtocol,
-                    onSelectOlcrtc = onSelectOlcrtc,
                     onBuy = onBuy,
                     onEnterCode = onEnterCode,
                     onSplitTunnel = onSplitTunnel,
                     onShareIos = onShareIos,
                     onScanQr = onScanQr,
                     onEnterTrial = onEnterTrial,
+                    onOpenServers = onOpenServers,
+                    onOpenSettings = onOpenSettings,
                 )
             }
         }

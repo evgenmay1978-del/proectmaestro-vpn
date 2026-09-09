@@ -120,7 +120,7 @@ if (cdnApkBuild) {
     require(1015900 > productionVersionCode) { "CDN APK version must exceed the source version" }
 }
 
-val effectiveVersionName = if (cdnApkBuild) "1.0.159-cdn" else task7TestVersionNameProperty ?: productionVersionName
+val effectiveVersionName = if (cdnApkBuild) "1.0.159" else task7TestVersionNameProperty ?: productionVersionName
 val effectiveVersionCode = if (cdnApkBuild) 1015900 else task7TestVersionCode ?: productionVersionCode
 android {
     namespace = "com.maestrovpn.tv"

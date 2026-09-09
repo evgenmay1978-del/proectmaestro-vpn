@@ -203,7 +203,7 @@ jobs:
               output.write(raw)
           PY
 
-      - name: Build APK 1.0.159-cdn with the stable signature
+      - name: Build APK 1.0.159 with the stable signature
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
@@ -219,12 +219,28 @@ jobs:
           if [ "${#apks[@]}" -ne 1 ]; then exit 1; fi
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
-          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.159-cdn' ]
+          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.159' ]
           [ "$(apkanalyzer manifest version-code "$apk")" = '1015900' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           "${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
           sha256sum "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/apk.sha256"
           echo "path=$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Require update-compatible signatures with both fleet APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          reference_dir="$RUNNER_TEMP/fleet-signers"
+          mkdir -p "$reference_dir"
+          gh release download tv-v1.0.157 --pattern 'MaestroVPN-TV-1.0.157-debug.apk' --dir "$reference_dir"
+          curl --fail --location --max-time 180 'https://storage.yandexcloud.net/maestro-apk/MaestroVPN-TV-1.0.153-debug.apk' -o "$reference_dir/fleet-153.apk"
+          signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
+          for baseline in "$reference_dir"/*.apk; do
+            "$signer" verify --print-certs "$baseline" > "$baseline.signer"
+            diff -u <(grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/cdn-apk-inputs/signer.txt") <(grep 'certificate SHA-256 digest:' "$baseline.signer")
+          done
+          echo 'Stable signing certificate matches fleet versions 153 and 157.' > "$RUNNER_TEMP/cdn-apk-inputs/fleet-signature-match.txt"
 
       - name: Upload APK artifact only
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -234,6 +250,7 @@ jobs:
             ${{ steps.apk.outputs.path }}
             ${{ runner.temp }}/cdn-apk-inputs/apk.sha256
             ${{ runner.temp }}/cdn-apk-inputs/signer.txt
+            ${{ runner.temp }}/cdn-apk-inputs/fleet-signature-match.txt
             ${{ runner.temp }}/cdn-apk-inputs/native-manifest.json
             ${{ runner.temp }}/cdn-apk-inputs/inputs.json
           if-no-files-found: error

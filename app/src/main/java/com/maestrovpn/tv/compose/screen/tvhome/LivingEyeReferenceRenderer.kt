@@ -106,17 +106,8 @@ internal fun DrawScope.drawReferenceEye(
             val aperture = eyeBand(0f, 1f)
             clipPath(aperture) {
                 layer(sclera, 0f, 0f, REFERENCE_EYE_SIZE, REFERENCE_EYE_SIZE)
-                // Preserve the old physical gaze amplitude at the new source resolution.
-                val dx = gazeX * 0.42f
-                val dy = gazeY * 0.42f
-                layer(iris, 113f + dx, 111f + dy, 144f, 144f)
-                val pupilCenter = point(185f + dx, 183f + dy)
-                val pupilRadius = (25.5f * pupilScale + 1.8f) * scale
-                drawCircle(Brush.radialGradient(
-                    0f to Color(0xFF010605), 0.86f to Color(0xFF020807),
-                    1f to Color(0x000A150C), center = pupilCenter, radius = pupilRadius),
-                    radius = pupilRadius, center = pupilCenter)
-                layer(catchlight, 161f + dx * 0.08f, 134f + dy * 0.08f, 48f, 48f)
+                // The photographic globe already contains its natural iris, pupil and
+                // corneal highlights. Keep it registered to the same source as the lids.
                 // The upper lid casts a soft contact shadow over the whole globe,
                 // including the iris and corneal reflection, as it closes.
                 repeat(8) { band ->

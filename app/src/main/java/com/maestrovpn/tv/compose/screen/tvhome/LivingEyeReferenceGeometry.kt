@@ -8,13 +8,13 @@ internal data class ReferenceEyeMargin(val x: Float, val upper: Float, val lower
  * Coordinates are measured from the generated anatomy reference in a 360-square fit.
  */
 internal val REFERENCE_EYE_CONTROLS = listOf(
-    ReferenceEyeMargin(16f, 192f, 192f),
-    ReferenceEyeMargin(16f, 185f, 202f),
-    ReferenceEyeMargin(102f, 126f, 243f),
-    ReferenceEyeMargin(180f, 126f, 243f),
-    ReferenceEyeMargin(258f, 126f, 243f),
-    ReferenceEyeMargin(344f, 183f, 199f),
-    ReferenceEyeMargin(344f, 191f, 191f),
+    ReferenceEyeMargin(16f, 186f, 186f),
+    ReferenceEyeMargin(52f, 168f, 201f),
+    ReferenceEyeMargin(108f, 124f, 230f),
+    ReferenceEyeMargin(180f, 124f, 230f),
+    ReferenceEyeMargin(252f, 124f, 230f),
+    ReferenceEyeMargin(310f, 166f, 201f),
+    ReferenceEyeMargin(344f, 187f, 187f),
 )
 
 private fun eyeCubic(a: Float, b: Float, c: Float, d: Float, t: Float): Float {
