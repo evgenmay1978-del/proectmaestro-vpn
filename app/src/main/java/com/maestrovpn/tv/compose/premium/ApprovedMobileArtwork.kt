@@ -9,6 +9,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
@@ -18,6 +22,15 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
 import kotlin.math.roundToInt
+
+/** Crown used by the approved subscription and renewal controls. */
+val MaestroCrown: ImageVector = ImageVector.Builder("MaestroCrown", 24.dp, 24.dp, 24f, 24f).apply {
+    path(fill = SolidColor(Color.White)) {
+        moveTo(1f, 6f); lineTo(6.5f, 10f); lineTo(12f, 2f); lineTo(17.5f, 10f)
+        lineTo(23f, 6f); lineTo(20f, 18f); lineTo(4f, 18f); close()
+        moveTo(4f, 20f); lineTo(20f, 20f); lineTo(20f, 22f); lineTo(4f, 22f); close()
+    }
+}.build()
 
 /** Unmodified approved artwork. Only ornament/wood regions are sampled; UI text stays live. */
 private data class ArtRect(val x: Int, val y: Int, val w: Int, val h: Int)

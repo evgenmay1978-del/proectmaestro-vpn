@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -77,8 +78,10 @@ fun ServiceSettingsScreen(
     serviceConnection: ServiceConnection? = null,
     serviceStatus: Status = Status.Stopped,
 ) {
+    val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
         TopAppBar(
+            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
             title = {
                 Text(
                     stringResource(R.string.service),
@@ -98,7 +101,7 @@ fun ServiceSettingsScreen(
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color(0xFF17110A),
+                containerColor = if (phoneArtwork) Color.Transparent else Color(0xFF17110A),
                 titleContentColor = Color(0xFFE8C877),
             ),
         )

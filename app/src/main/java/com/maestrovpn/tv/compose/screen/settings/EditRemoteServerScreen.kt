@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,8 +64,10 @@ import kotlinx.coroutines.withContext
 fun EditRemoteServerScreen(navController: NavController, serverId: Long = -1L) {
     val isNewServer = serverId == -1L
 
+    val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
         TopAppBar(
+            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
             title = {
                 Text(
                     stringResource(
@@ -90,7 +93,7 @@ fun EditRemoteServerScreen(navController: NavController, serverId: Long = -1L) {
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color(0xFF17110A),
+                containerColor = if (phoneArtwork) Color.Transparent else Color(0xFF17110A),
                 titleContentColor = Color(0xFFE8C877),
             ),
         )

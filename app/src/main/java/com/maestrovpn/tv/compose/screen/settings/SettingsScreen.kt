@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,8 +62,10 @@ import com.maestrovpn.tv.update.UpdateState
 @Composable
 fun SettingsScreen(navController: NavController) {
     val isTv = rememberIsTv()
+    val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
         TopAppBar(
+            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
             title = {
                 Text(
                     stringResource(R.string.title_settings),
@@ -74,7 +77,7 @@ fun SettingsScreen(navController: NavController) {
                 )
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = if (isTv) Color.Transparent else Color(0xFF17110A),
+                containerColor = Color.Transparent,
                 titleContentColor = Color(0xFFE8C877),
             ),
         )

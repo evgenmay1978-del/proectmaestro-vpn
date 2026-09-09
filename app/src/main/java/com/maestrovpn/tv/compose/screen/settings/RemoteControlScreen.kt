@@ -1,5 +1,6 @@
 package com.maestrovpn.tv.compose.screen.settings
 
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,8 +63,10 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun RemoteControlScreen(navController: NavController) {
+    val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
         TopAppBar(
+            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
             title = {
                 Text(
                     stringResource(R.string.remote_control),
@@ -92,7 +95,7 @@ fun RemoteControlScreen(navController: NavController) {
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color(0xFF17110A),
+                containerColor = if (phoneArtwork) Color.Transparent else Color(0xFF17110A),
                 titleContentColor = Color(0xFFE8C877),
             ),
         )

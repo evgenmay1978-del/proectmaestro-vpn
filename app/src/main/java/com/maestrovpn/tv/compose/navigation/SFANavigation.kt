@@ -245,9 +245,10 @@ fun SFANavHost(
         ) {
             // Per-app split tunnel (donor screen). On exit, enable split only when
             // the user actually picked apps; an empty list means "all apps via VPN".
+            val tvSplit = com.maestrovpn.tv.compose.rememberIsTv()
             PerAppProxyScreen(
                 onBack = {
-                    Settings.perAppProxyEnabled = Settings.perAppProxyList.isNotEmpty()
+                    if (tvSplit) Settings.perAppProxyEnabled = Settings.perAppProxyList.isNotEmpty()
                     navController.popBackStack()
                 },
                 serviceStatus = serviceStatus,

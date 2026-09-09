@@ -89,6 +89,8 @@ import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.base.UiEvent
 import com.maestrovpn.tv.compose.base.rememberApplyServiceChangeNotifier
 import com.maestrovpn.tv.compose.premium.MobilePremium4DShell
+import com.maestrovpn.tv.compose.premium.MobilePremiumButton
+import com.maestrovpn.tv.compose.premium.MobilePremiumSegmented
 import com.maestrovpn.tv.compose.premium.MobilePremiumPanel
 import com.maestrovpn.tv.compose.premium.MobilePremiumTextField
 import com.maestrovpn.tv.compose.premium.PremiumEmerald
@@ -129,6 +131,8 @@ fun PerAppProxyScreen(
     onBack: () -> Unit,
     serviceStatus: Status = Status.Stopped,
 ) {
+    val isTv = rememberIsTv()
+    var phoneAllApps by rememberSaveable { mutableStateOf(!Settings.perAppProxyEnabled) }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
@@ -189,6 +193,7 @@ fun PerAppProxyScreen(
     }
 
     fun saveSelectedApplications(newUids: Set<Int>) {
+        if (!isTv) return // Phone edits are applied together by the explicit Save button.
         coroutineScope.launch {
             withContext(Dispatchers.IO) {
                 Settings.perAppProxyList = buildPackageList(newUids)
@@ -332,11 +337,10 @@ fun PerAppProxyScreen(
         }
     }
 
-    val isTv = rememberIsTv()
 
     if (!isTv) {
         MobilePremium4DShell(
-            title = stringResource(R.string.per_app_proxy),
+            title = "Приложения и VPN",
             onBack = onBack,
             actions = {
                 IconButton(
@@ -364,12 +368,7 @@ fun PerAppProxyScreen(
                     hideDisabledApps = hideDisabledApps,
                     onModeChange = { mode ->
                         proxyMode = mode
-                        coroutineScope.launch {
-                            withContext(Dispatchers.IO) {
-                                Settings.perAppProxyMode = mode
-                            }
-                            notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
-                        }
+                        phoneAllApps = false
                     },
                     onSortModeChange = { mode ->
                         sortMode = mode
@@ -454,32 +453,16 @@ fun PerAppProxyScreen(
                     )
                 }
 
-                MobilePremiumPanel {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Text(
-                            text = if (proxyMode == Settings.PER_APP_PROXY_INCLUDE) {
-                                stringResource(R.string.per_app_proxy_mode_include_description)
-                            } else {
-                                stringResource(R.string.per_app_proxy_mode_exclude_description)
-                            },
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = PremiumText,
-                        )
-                        Text(
-                            text = "${selectedUids.size}/${currentPackages.size}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = PremiumTextMuted,
-                        )
-                    }
-                }
-
+                Spacer(Modifier.height(10.dp))
+                Text("Какие приложения используют VPN", color = PremiumGold, modifier = Modifier.padding(vertical = 8.dp))
+                MobilePremiumSegmented(
+                    options = listOf("Все", if (proxyMode == Settings.PER_APP_PROXY_INCLUDE) "Выбранные" else "Кроме выбранных"),
+                    selectedIndex = if (phoneAllApps) 0 else 1,
+                    onSelect = { phoneAllApps = it == 0 },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 AnimatedVisibility(
-                    visible = isSearchActive,
+                    visible = true,
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut(),
                 ) {
@@ -499,7 +482,7 @@ fun PerAppProxyScreen(
                                 searchQuery = it
                                 updateCurrentPackages(it)
                             },
-                            placeholder = stringResource(R.string.search),
+                            placeholder = "Найти приложение",
                             focusRequester = focusRequester,
                             modifier = Modifier.weight(1f),
                         )
@@ -522,7 +505,7 @@ fun PerAppProxyScreen(
                 }
 
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -530,13 +513,24 @@ fun PerAppProxyScreen(
                         AppSelectionCard(
                             packageCache = packageCache,
                             selected = selectedUids.contains(packageCache.uid),
-                            onToggle = { selected -> toggleSelection(packageCache, selected) },
+                            onToggle = { selected -> phoneAllApps = false; toggleSelection(packageCache, selected) },
                             onCopyLabel = { clipboardText = packageCache.applicationLabel },
                             onCopyPackage = { clipboardText = packageCache.packageName },
                             onCopyUid = { clipboardText = packageCache.uid.toString() },
                         )
                     }
                 }
+                MobilePremiumButton("Сохранить", {
+                    if (!isLoading && (phoneAllApps || selectedUids.isNotEmpty())) {
+                        Settings.perAppProxyList = buildPackageList(selectedUids)
+                        Settings.perAppProxyMode = proxyMode
+                        Settings.perAppProxyEnabled = !phoneAllApps && selectedUids.isNotEmpty()
+                        notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                        Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
+                    }
+                }, Modifier.fillMaxWidth(), enabled = !isLoading && (phoneAllApps || selectedUids.isNotEmpty()))
+                Text(if (!phoneAllApps && selectedUids.isEmpty()) "Выберите хотя бы одно приложение" else "Изменения применяются после сохранения", color = PremiumTextMuted,
+                    modifier = Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
             }
         }
     } else {
@@ -1690,4 +1684,3 @@ object PerAppProxyScanner {
         return false
     }
 }
-

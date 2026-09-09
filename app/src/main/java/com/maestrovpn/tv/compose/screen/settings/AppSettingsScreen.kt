@@ -117,8 +117,11 @@ fun AppSettingsScreen(
     navController: NavController,
     serviceStatus: Status = Status.Stopped,
 ) {
+    val phoneArtwork = !com.maestrovpn.tv.compose.rememberIsTv()
     OverrideTopBar {
         TopAppBar(
+            colors = if (phoneArtwork) androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent) else androidx.compose.material3.TopAppBarDefaults.topAppBarColors(),
+            modifier = if (phoneArtwork) Modifier.padding(horizontal = 30.dp).approvedMobilePanel() else Modifier,
             title = { Text(stringResource(R.string.title_app_settings)) },
             navigationIcon = {
                 IconButton(onClick = { navController.navigateUp() }) {
@@ -131,7 +134,6 @@ fun AppSettingsScreen(
         )
     }
 
-    val phoneArtwork = !rememberIsTv()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val hasUpdate by UpdateState.hasUpdate

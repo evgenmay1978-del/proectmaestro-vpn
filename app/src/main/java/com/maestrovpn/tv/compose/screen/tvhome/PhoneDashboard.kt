@@ -5,6 +5,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -131,7 +132,7 @@ internal fun PhoneDashboard(
                                 PhoneAction("Бот", Icons.Default.Send, { openBot() }, Modifier.weight(1.15f))
                             }
                             Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PhoneWallet("VPN", daysText, Icons.Default.Star, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
+                                PhoneWallet("VPN", daysText, MaestroCrown, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
                                 PhoneWallet("CDN", balanceText, Icons.Default.Storage, Modifier.weight(1f).fillMaxHeight()) { navigate("cdn") }
                             }
                             Box(Modifier.size(eyeSize).clip(CircleShape).clickable(role = Role.Button, onClick = onToggleConnect)
@@ -155,7 +156,7 @@ internal fun PhoneDashboard(
                             }, onCdn = { navigate("cdn") })
                             PhoneServerRow(server, false) { showCdnServers = cdnSelected; navigate("servers") }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", Icons.Default.Star, onBuy, Modifier.weight(1f))
+                                PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.weight(1f))
                                 PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.weight(1f))
                             }
                         }
@@ -168,7 +169,7 @@ internal fun PhoneDashboard(
                                     else if (showCdnServers && !cdnView.cellular) "Для CDN включите мобильную сеть"
                                     else "Список серверов пока недоступен")
                             }
-                            tags.forEach { tag -> PhoneServerRow(phoneServer(tag, cdnView.labels[tag]), selected == tag) { onSelectProtocol(tag) } }
+                            tags.forEach { tag -> PhoneServerRow(phoneServer(tag, cdnView.labels[tag]), selected == tag, selectable = true) { onSelectProtocol(tag) } }
                             if (showCdnServers) PhoneNotice("CDN работает в мобильной сети. Для Wi-Fi выберите обычный VPN.")
                             PhoneAction("Обновить список", Icons.Default.Refresh, { refreshAccount() }, Modifier.fillMaxWidth())
                         }
@@ -180,7 +181,7 @@ internal fun PhoneDashboard(
                                 accountExpires?.let { PhoneText("Действует до $it") }
                                 PhoneText("Трафик без ограничений")
                                 Spacer(Modifier.height(12.dp))
-                                PhoneAction("Продлить VPN", Icons.Default.Star, onBuy, Modifier.fillMaxWidth(), true)
+                                PhoneAction("Продлить VPN", MaestroCrown, onBuy, Modifier.fillMaxWidth(), true)
                             }
                             MobilePremiumPanel {
                                 PhoneText("CDN", true)
@@ -217,7 +218,7 @@ internal fun PhoneDashboard(
                                 !hasSubProfile -> PhoneAction("Ввести логин", Icons.Default.Person, onEnterCode, Modifier.fillMaxWidth(), true)
                                 expired -> {
                                     PhoneNotice("Купленные гигабайты сохранены. Для подключения нужно продлить обычную подписку.")
-                                    PhoneAction("Продлить VPN", Icons.Default.Star, onBuy, Modifier.fillMaxWidth(), true)
+                                    PhoneAction("Продлить VPN", MaestroCrown, onBuy, Modifier.fillMaxWidth(), true)
                                 }
                                 !cdnView.cellular -> PhoneNotice("CDN отключён вне мобильной сети. Доступные гигабайты сохраняются.")
                                 cdnTags.isNotEmpty() -> {
@@ -260,17 +261,17 @@ internal fun PhoneDashboard(
                             }, Modifier.fillMaxWidth(), true)
                         }
                         "settings" -> {
-                            PhoneAction("Обновление приложения", Icons.Default.SystemUpdate, { navigate("update") }, Modifier.fillMaxWidth())
-                            PhoneAction("Приложения и VPN", Icons.Default.Apps, onSplitTunnel, Modifier.fillMaxWidth())
-                            PhoneAction("Подключить устройство", Icons.Default.Devices, onShareIos, Modifier.fillMaxWidth())
-                            PhoneAction("Сканировать QR-код", Icons.Default.QrCodeScanner, onScanQr, Modifier.fillMaxWidth())
-                            PhoneAction("Дополнительные настройки", Icons.Default.Settings, onOpenSettings, Modifier.fillMaxWidth())
-                            Spacer(Modifier.height(7.dp))
-                            PhoneAction("Telegram-бот", Icons.Default.Send, { openBot() }, Modifier.fillMaxWidth())
-                            PhoneAction("Поддержка", Icons.Default.SupportAgent, {
+                            PhoneSettingsRow("Приложения и VPN", "Выбор приложений", Icons.Default.Apps, onSplitTunnel)
+                            PhoneSettingsRow("Подключить устройство", "Ссылка и QR-код", Icons.Default.Devices, onShareIos)
+                            PhoneSettingsRow("Сканировать QR-код", null, Icons.Default.QrCodeScanner, onScanQr)
+                            PhoneSettingsRow("Дополнительные настройки", null, Icons.Default.Settings, onOpenSettings)
+                            Text("Поддержка", color = PremiumGold, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                            PhoneSettingsRow("Telegram-бот", null, Icons.Default.Send, { openBot() })
+                            PhoneSettingsRow("Поддержка", null, Icons.Default.SupportAgent, {
                                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/wapmixx"))) }
                                     .onFailure { Toast.makeText(context, "Не удалось открыть поддержку", Toast.LENGTH_SHORT).show() }
-                            }, Modifier.fillMaxWidth())
+                            })
+                            PhoneSettingsRow("Обновление приложения", "Проверить обновление", Icons.Default.SystemUpdate, { navigate("update") })
                         }
                     }
                 }
@@ -345,15 +346,31 @@ private fun phoneServer(tag: String?, runtimeLabel: String?): PhoneServer {
 }
 
 @Composable
-private fun PhoneServerRow(server: PhoneServer, active: Boolean, onClick: () -> Unit) {
+private fun PhoneServerRow(server: PhoneServer, active: Boolean, selectable: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().approvedMobilePanel(selected = active).heightIn(min = 58.dp)
         .clickable(role = Role.RadioButton, onClick = onClick).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (server.flag.isNotEmpty()) Text(server.flag, fontSize = 25.sp) else Icon(Icons.Default.Public, null, tint = PremiumGold, modifier = Modifier.size(26.dp))
+        if (server.flag.isNotEmpty()) Box(Modifier.size(32.dp).border(1.dp, PremiumGold, CircleShape).clip(CircleShape), contentAlignment = Alignment.Center) {
+            Text(server.flag, fontSize = 29.sp)
+        } else Icon(Icons.Default.Public, null, tint = PremiumGold, modifier = Modifier.size(26.dp))
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
             Text(server.name, color = PremiumText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(server.detail, color = PremiumGold, fontSize = 12.sp)
         }
-        Icon(if (active) Icons.Default.CheckCircle else Icons.Default.ChevronRight, null, tint = if (active) PremiumEmerald else PremiumGold)
+        Icon(if (selectable) { if (active) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked }
+            else Icons.Default.ChevronRight, null, tint = if (active) PremiumEmerald else PremiumGold)
+    }
+}
+
+@Composable
+private fun PhoneSettingsRow(title: String, detail: String?, icon: ImageVector, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 52.dp)
+        .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 13.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(25.dp))
+        Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
+            Text(title, color = PremiumText, fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold)
+            if (detail != null) Text(detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+        Icon(Icons.Default.ChevronRight, null, tint = PremiumGold, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -361,7 +378,7 @@ private fun PhoneServerRow(server: PhoneServer, active: Boolean, onClick: () -> 
 internal fun PhoneBottomNavigation(active: String, home: () -> Unit, servers: () -> Unit, account: () -> Unit, settings: () -> Unit, modifier: Modifier = Modifier) {
     Row(modifier.approvedMobilePanel(navigation = true).padding(horizontal = 13.dp, vertical = 11.dp)) {
         listOf(Triple("Главная", Icons.Default.Home, "home"), Triple("Серверы", Icons.Default.Public, "servers"),
-            Triple("Подписка", Icons.Default.Star, "account"), Triple("Настройки", Icons.Default.Settings, "settings"))
+            Triple("Подписка", MaestroCrown, "account"), Triple("Настройки", Icons.Default.Settings, "settings"))
             .zip(listOf(home, servers, account, settings)).forEach { (item, action) ->
                 Column(Modifier.weight(1f).heightIn(min = 44.dp).clickable(role = Role.Tab, onClick = action),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
