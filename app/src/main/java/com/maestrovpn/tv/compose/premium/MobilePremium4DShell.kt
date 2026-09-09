@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -111,7 +112,7 @@ fun MobilePremiumTopBar(
     compact: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val titleSize = if (compact) 19.sp else 21.sp
+    val titleSize = if (compact) 18.sp else 20.sp
     Row(
         modifier = modifier
             .approvedMobilePanel()
@@ -138,7 +139,7 @@ fun MobilePremiumTopBar(
                 .weight(1f)
                 .padding(horizontal = 4.dp),
             color = PremiumGold,
-            fontFamily = PlayfairFamily,
+            fontFamily = FontFamily.SansSerif,
             fontWeight = FontWeight.SemiBold,
             fontSize = titleSize,
             lineHeight = (titleSize.value + 5).sp,
@@ -166,10 +167,10 @@ fun MobilePremiumDialogSurface(
         Text(
             text = title,
             color = PremiumGold,
-            fontFamily = PlayfairFamily,
+            fontFamily = FontFamily.SansSerif,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 24.sp,
-            lineHeight = 29.sp,
+            fontSize = 20.sp,
+            lineHeight = 25.sp,
         )
         Spacer(Modifier.height(16.dp))
         Column(

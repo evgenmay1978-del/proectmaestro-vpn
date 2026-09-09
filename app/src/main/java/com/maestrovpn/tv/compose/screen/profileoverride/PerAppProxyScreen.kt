@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +32,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -60,6 +63,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,12 +80,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile
@@ -89,14 +102,11 @@ import com.maestrovpn.tv.R
 import com.maestrovpn.tv.compose.base.UiEvent
 import com.maestrovpn.tv.compose.base.rememberApplyServiceChangeNotifier
 import com.maestrovpn.tv.compose.premium.MobilePremium4DShell
-import com.maestrovpn.tv.compose.premium.MobilePremiumButton
-import com.maestrovpn.tv.compose.premium.MobilePremiumSegmented
-import com.maestrovpn.tv.compose.premium.MobilePremiumPanel
-import com.maestrovpn.tv.compose.premium.MobilePremiumTextField
 import com.maestrovpn.tv.compose.premium.PremiumEmerald
 import com.maestrovpn.tv.compose.premium.PremiumGold
 import com.maestrovpn.tv.compose.premium.PremiumText
 import com.maestrovpn.tv.compose.premium.PremiumTextMuted
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import com.maestrovpn.tv.compose.shared.AppSelectionCard
 import com.maestrovpn.tv.compose.shared.PackageCache
 import com.maestrovpn.tv.compose.shared.SortMode
@@ -343,22 +353,6 @@ fun PerAppProxyScreen(
             title = "Приложения и VPN",
             onBack = onBack,
             actions = {
-                IconButton(
-                    onClick = {
-                        isSearchActive = !isSearchActive
-                        if (!isSearchActive) {
-                            searchQuery = ""
-                            updateCurrentPackages("")
-                            focusManager.clearFocus()
-                        }
-                    },
-                ) {
-                    Icon(
-                        imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = stringResource(R.string.search),
-                        tint = PremiumGold,
-                    )
-                }
                 PerAppProxyMenus(
                     proxyMode = proxyMode,
                     sortMode = sortMode,
@@ -453,61 +447,86 @@ fun PerAppProxyScreen(
                     )
                 }
 
-                Spacer(Modifier.height(10.dp))
-                Text("Какие приложения используют VPN", color = PremiumGold, modifier = Modifier.padding(vertical = 8.dp))
-                MobilePremiumSegmented(
-                    options = listOf("Все", if (proxyMode == Settings.PER_APP_PROXY_INCLUDE) "Выбранные" else "Кроме выбранных"),
-                    selectedIndex = if (phoneAllApps) 0 else 1,
-                    onSelect = { phoneAllApps = it == 0 },
-                    modifier = Modifier.fillMaxWidth(),
+                Text(
+                    "Какие приложения используют VPN",
+                    color = PremiumGold,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(vertical = 8.dp),
                 )
-                AnimatedVisibility(
-                    visible = true,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
+                Column(
+                    modifier = Modifier.fillMaxWidth().approvedMobilePanel()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
-                    val focusRequester = remember { FocusRequester() }
-                    LaunchedEffect(isSearchActive) {
-                        if (isSearchActive) focusRequester.requestFocus()
+                    val modes = listOf("Все приложения",
+                        if (proxyMode == Settings.PER_APP_PROXY_INCLUDE) "Только выбранные" else "Кроме выбранных")
+                    modes.forEachIndexed { index, label ->
+                        val checked = phoneAllApps == (index == 0)
+                        if (index > 0) HorizontalDivider(color = PremiumGold.copy(alpha = 0.4f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(40.dp)
+                                .selectable(selected = checked, role = Role.RadioButton,
+                                    onClick = { phoneAllApps = index == 0 }),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = checked,
+                                onClick = null,
+                                modifier = Modifier.size(24.dp),
+                                colors = RadioButtonDefaults.colors(selectedColor = PremiumEmerald,
+                                    unselectedColor = PremiumGold),
+                            )
+                            Text(label, color = PremiumText, fontSize = 15.sp, lineHeight = 20.sp)
+                        }
                     }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        MobilePremiumTextField(
-                            value = searchQuery,
-                            onValueChange = {
-                                searchQuery = it
-                                updateCurrentPackages(it)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(48.dp).approvedMobilePanel()
+                        .padding(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = PremiumGold,
+                        modifier = Modifier.size(22.dp))
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = {
+                            searchQuery = it
+                            updateCurrentPackages(it)
+                        },
+                        modifier = Modifier.weight(1f).semantics { contentDescription = "Найти приложение" },
+                        singleLine = true,
+                        textStyle = TextStyle(color = PremiumText, fontSize = 14.sp, lineHeight = 20.sp),
+                        cursorBrush = SolidColor(PremiumGold),
+                        decorationBox = { innerTextField ->
+                            if (searchQuery.isEmpty()) Text("Найти приложение", color = PremiumTextMuted,
+                                fontSize = 14.sp, lineHeight = 20.sp)
+                            innerTextField()
+                        },
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                searchQuery = ""
+                                updateCurrentPackages("")
+                                focusManager.clearFocus()
                             },
-                            placeholder = "Найти приложение",
-                            focusRequester = focusRequester,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(
-                                onClick = {
-                                    searchQuery = ""
-                                    updateCurrentPackages("")
-                                    focusManager.clearFocus()
-                                },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = stringResource(R.string.content_description_clear_search),
-                                    tint = PremiumGold,
-                                )
-                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = stringResource(R.string.content_description_clear_search),
+                                tint = PremiumGold,
+                            )
                         }
                     }
                 }
 
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(currentPackages, key = { it.packageName }) { packageCache ->
                         AppSelectionCard(
@@ -520,17 +539,26 @@ fun PerAppProxyScreen(
                         )
                     }
                 }
-                MobilePremiumButton("Сохранить", {
-                    if (!isLoading && (phoneAllApps || selectedUids.isNotEmpty())) {
-                        Settings.perAppProxyList = buildPackageList(selectedUids)
-                        Settings.perAppProxyMode = proxyMode
-                        Settings.perAppProxyEnabled = !phoneAllApps && selectedUids.isNotEmpty()
-                        notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
-                        Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
-                    }
-                }, Modifier.fillMaxWidth(), enabled = !isLoading && (phoneAllApps || selectedUids.isNotEmpty()))
+                val canSave = !isLoading && (phoneAllApps || selectedUids.isNotEmpty())
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(48.dp).approvedMobilePanel(selected = true)
+                        .alpha(if (canSave) 1f else 0.46f)
+                        .clickable(enabled = canSave, role = Role.Button, onClick = {
+                            if (!isLoading && (phoneAllApps || selectedUids.isNotEmpty())) {
+                                Settings.perAppProxyList = buildPackageList(selectedUids)
+                                Settings.perAppProxyMode = proxyMode
+                                Settings.perAppProxyEnabled = !phoneAllApps && selectedUids.isNotEmpty()
+                                notifyApplyChange(UiEvent.ApplyServiceChange.Mode.Reload)
+                                Toast.makeText(context, "Настройки сохранены", Toast.LENGTH_SHORT).show()
+                            }
+                        }),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Сохранить", color = PremiumText, fontSize = 16.sp, lineHeight = 22.sp,
+                        fontWeight = FontWeight.SemiBold)
+                }
                 Text(if (!phoneAllApps && selectedUids.isEmpty()) "Выберите хотя бы одно приложение" else "Изменения применяются после сохранения", color = PremiumTextMuted,
-                    modifier = Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                    modifier = Modifier.padding(vertical = 6.dp), fontSize = 11.sp, lineHeight = 15.sp)
             }
         }
     } else {

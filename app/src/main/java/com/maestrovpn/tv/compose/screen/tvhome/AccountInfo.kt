@@ -6,6 +6,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import com.maestrovpn.tv.bg.OlcrtcManager
 import com.maestrovpn.tv.bg.UpdateProfileWork
@@ -56,9 +57,10 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
     val phoneAccountSelection = if (isTelevision) null else rememberPhoneAccountKey()
     val phoneAccountKey = phoneAccountSelection?.value
     val lastPhoneHasSubProfile = remember { mutableStateOf(false) }
+    val lastPhoneLogin = rememberSaveable(phoneAccountKey?.first) { mutableStateOf<String?>(null) }
     return key(phoneAccountKey) {
         produceState(
-            initialValue = AccountInfo(hasSubProfile = !isTelevision && lastPhoneHasSubProfile.value),
+            initialValue = AccountInfo(login = lastPhoneLogin.value, hasSubProfile = !isTelevision && lastPhoneHasSubProfile.value),
             refreshKey,
             isTelevision,
         ) {
@@ -84,7 +86,7 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
                         }
                         ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                     val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
-                    val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
+                    val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(login = lastPhoneLogin.value, hasSubProfile = hasSubProfile)
                     val o = JSONObject(json)
                     if (!isTelevision) {
                         coroutineContext.ensureActive()
@@ -117,8 +119,10 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
                         },
                         obfsMode = wdtt?.optString("obfs_mode"),
                     )
+                    val resolvedLogin = o.optString("login").ifBlank { null }
+                    if (!isTelevision && resolvedLogin != null) lastPhoneLogin.value = resolvedLogin
                     AccountInfo(
-                        login = o.optString("login").ifBlank { null },
+                        login = resolvedLogin ?: lastPhoneLogin.value,
                         daysLeft = if (o.has("days_left")) o.getInt("days_left") else null,
                         hasSubProfile = hasSubProfile,
                         expiresDate = formatExpires(o.optString("expires").ifBlank { null }),
@@ -131,7 +135,7 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                AccountInfo(hasSubProfile = !isTelevision && lastPhoneHasSubProfile.value)
+                AccountInfo(login = lastPhoneLogin.value, hasSubProfile = !isTelevision && lastPhoneHasSubProfile.value)
             }
         }
     }

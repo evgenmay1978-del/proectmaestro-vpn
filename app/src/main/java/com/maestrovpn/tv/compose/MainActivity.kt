@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1015,7 +1016,8 @@ class MainActivity :
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
+                    .padding(paddingValues)
+                    .then(if (!isTelevision(this@MainActivity)) Modifier.consumeWindowInsets(paddingValues) else Modifier),
             ) {
                 if (!isTelevision(this@MainActivity)) ApprovedMobileBackground(Modifier.fillMaxSize())
                 // TV routes share the same graphite base as the premium home. Individual
@@ -1629,4 +1631,3 @@ class MainActivity :
         )
     }
 }
-

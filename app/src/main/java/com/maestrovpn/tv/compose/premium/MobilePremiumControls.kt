@@ -83,6 +83,7 @@ fun MobilePremiumButton(
             color = PremiumText,
             fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp,
+            lineHeight = 20.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -135,6 +136,7 @@ fun MobilePremiumTextField(
                         text = placeholder,
                         color = PremiumTextMuted,
                         fontSize = 16.sp,
+                        lineHeight = 22.sp,
                     )
                 }
                 innerTextField()
@@ -236,6 +238,8 @@ fun MobilePremiumSegmented(
                     text = label,
                     color = if (selected) PremiumText else PremiumTextMuted,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

@@ -141,7 +141,7 @@ jobs:
         run: rm -f -- app/release.keystore
   phone-screens:
     needs: apk
-    if: ${{ always() && (needs.apk.result == 'success' || inputs.capture_only == true) }}
+    if: ${{ always() && inputs.capture_only == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

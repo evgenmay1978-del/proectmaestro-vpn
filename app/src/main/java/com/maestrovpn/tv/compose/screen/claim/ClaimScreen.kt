@@ -66,11 +66,12 @@ import com.maestrovpn.tv.compose.theme.NeonGreen
 fun ClaimScreen(
     onDone: () -> Unit,
     viewModel: ClaimViewModel = viewModel(),
+    currentLogin: String? = null,
 ) {
     val state by viewModel.state.collectAsState()
     // rememberSaveable: the Activity is recreated on rotation (no configChanges/orientation
     // lock in the manifest), and plain remember dropped the code the user had typed.
-    var code by rememberSaveable { mutableStateOf("") }
+    var code by rememberSaveable(currentLogin) { mutableStateOf(currentLogin.orEmpty()) }
     val busy = state is ClaimState.Busy
     val isTv = rememberIsTv()
     val codeFocus = remember { FocusRequester() }
@@ -90,6 +91,7 @@ fun ClaimScreen(
             onClaim = { if (code.isNotBlank() && !busy) viewModel.claim(code) },
             onBack = onDone,
             codeFocus = codeFocus,
+            changingLogin = !currentLogin.isNullOrBlank(),
         )
     } else {
     // Keep the surface transparent: TV supplies its own graphite scene, while phone draws the
@@ -182,11 +184,12 @@ internal fun ClaimPhoneForm(
     onClaim: () -> Unit,
     onBack: () -> Unit,
     codeFocus: FocusRequester? = null,
+    changingLogin: Boolean = false,
 ) {
     val busy = state is ClaimState.Busy
 
     MobilePremiumScreen(
-        title = "Ввести логин",
+        title = if (changingLogin) "Сменить логин" else "Ввести логин",
         onBack = onBack,
         modifier = Modifier.testTag("premium-claim"),
     ) {
@@ -224,4 +227,3 @@ internal fun ClaimPhoneForm(
         }
     }
 }
-

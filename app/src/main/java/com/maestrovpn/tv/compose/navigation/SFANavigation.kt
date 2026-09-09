@@ -121,6 +121,11 @@ fun SFANavHost(
             if (showIosQr) {
                 IosKaringDialog(onDismiss = { showIosQr = false })
             }
+            val phoneLoginEditor = !com.maestrovpn.tv.compose.rememberIsTv()
+            fun openLogin() {
+                navController.navigate("claim")
+                if (phoneLoginEditor) navController.getBackStackEntry("claim").savedStateHandle["account_login"] = accountInfo.login
+            }
             if (groupsViewModel != null) {
                 val groupsUi = groupsViewModel.uiState.collectAsState().value
                 LaunchedEffect(serviceStatus) { groupsViewModel.updateServiceStatus(serviceStatus) }
@@ -168,7 +173,7 @@ fun SFANavHost(
                         }
                     },
                     onBuy = { navController.navigate("buy") },
-                    onEnterCode = { navController.navigate("claim") },
+                    onEnterCode = { openLogin() },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
@@ -193,7 +198,7 @@ fun SFANavHost(
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = {},
                     onBuy = { navController.navigate("buy") },
-                    onEnterCode = { navController.navigate("claim") },
+                    onEnterCode = { openLogin() },
                     onSplitTunnel = { navController.navigate("split") },
                     onShareIos = { showIosQr = true },
                     onScanQr = { navController.navigate("scanqr") },
@@ -211,7 +216,7 @@ fun SFANavHost(
             enterTransition = slideInFromRight, exitTransition = slideOutToLeft,
             popEnterTransition = slideInFromLeft, popExitTransition = slideOutToRight,
         ) {
-            ClaimScreen(onDone = { navController.popBackStack() })
+            ClaimScreen(onDone = { navController.popBackStack() }, currentLogin = it.savedStateHandle.get<String>("account_login"))
         }
 
         composable(

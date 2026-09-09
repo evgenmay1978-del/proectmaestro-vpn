@@ -128,7 +128,7 @@ private fun PhoneShareDialog(
     onDismiss: () -> Unit,
 ) {
     val configuration = LocalConfiguration.current
-    val bodyMaxHeight = (configuration.screenHeightDp * 0.72f).dp
+    val bodyMaxHeight = (configuration.screenHeightDp * 0.62f).dp
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -144,7 +144,7 @@ private fun PhoneShareDialog(
             contentAlignment = Alignment.Center,
         ) {
             MobilePremiumDialogSurface(
-                title = "Поделиться подпиской",
+                title = "Подключить устройство",
                 modifier = Modifier.pointerInput(Unit) {
                         detectTapGestures { /* Consume taps inside the panel. */ }
                     },
@@ -157,13 +157,12 @@ private fun PhoneShareDialog(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     PhoneShareBody(state)
-                    Spacer(Modifier.height(18.dp))
-                    MobilePremiumButton(
-                        label = "Закрыть",
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                 }
+                MobilePremiumButton(
+                    label = "Закрыть",
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -356,4 +355,3 @@ private fun ShareBody(
         }
     }
 }
-

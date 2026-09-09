@@ -19,7 +19,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -27,6 +34,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.compose.premium.*
@@ -99,7 +107,7 @@ internal fun PhoneDashboard(
         balance?.publicationVerdict in listOf("PROJECTION_PENDING", "PROJECTION_STALE") -> "Обновляется…"
         balance?.publicationVerdict == "DISABLED" -> "Не подключён"
         balance != null && balance.primaryAccessState == "expired" -> "${phoneGb(balance.purchasedRemainingBytes)} ГБ заморожено"
-        balance?.publicationVerdict in listOf("PUBLISHABLE", "NO_BALANCE") && balance != null -> "${phoneGb(balance.availableBytes)} ГБ"
+        balance?.primaryAccessState == "active" -> "${phoneGb(balance.availableBytes)} ГБ"
         wallet.loading -> "Загрузка…"
         else -> "Недоступен"
     }
@@ -115,7 +123,8 @@ internal fun PhoneDashboard(
         ApprovedMobileBackground(Modifier.fillMaxSize())
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             val side = (maxWidth * 0.085f).coerceIn(24.dp, 42.dp)
-            val eyeSize = minOf(maxWidth * 0.65f, (maxHeight - 516.dp).coerceIn(160.dp, 300.dp))
+            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 520.dp).coerceIn(170.dp, 320.dp) / CARVED_MEDALLION_ASPECT)
+            val heroHeight = heroWidth * CARVED_MEDALLION_ASPECT
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = side)
                     .verticalScroll(rememberScrollState()).padding(top = 14.dp, bottom = 10.dp),
@@ -128,27 +137,48 @@ internal fun PhoneDashboard(
                     when (page) {
                         "home" -> {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PhoneAction("Ввести логин", Icons.Default.Person, onEnterCode, Modifier.weight(2.85f))
+                                PhoneAction(if (hasSubProfile) accountLogin?.takeIf { it.isNotBlank() } ?: "Аккаунт" else "Ввести логин",
+                                    Icons.Default.Person, onEnterCode, Modifier.weight(2.85f),
+                                    trailingIcon = if (hasSubProfile) Icons.Default.Edit else null)
                                 PhoneAction("Бот", Icons.Default.Send, { openBot() }, Modifier.weight(1.15f))
                             }
                             Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 PhoneWallet("VPN", daysText, MaestroCrown, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
                                 PhoneWallet("CDN", balanceText, Icons.Default.Storage, Modifier.weight(1f).fillMaxHeight()) { navigate("cdn") }
                             }
-                            Box(Modifier.size(eyeSize).clip(CircleShape).clickable(role = Role.Button, onClick = onToggleConnect)
+                            Box(Modifier.size(heroWidth, heroHeight).drawWithCache {
+                                val light = Brush.radialGradient(listOf(Color(0x333F2816), Color.Transparent),
+                                    center = Offset(size.width / 2f, size.height / 2f), radius = size.width * 0.62f)
+                                onDrawBehind { drawCircle(light, radius = size.width * 0.62f) }
+                            }.clickable(role = Role.Button, onClick = onToggleConnect)
                                 .semantics { contentDescription = if (connected && !connecting) "Отключить VPN" else "Подключить VPN" },
                                 contentAlignment = Alignment.Center) {
-                                ApprovedMobileEyeFrame(Modifier.fillMaxSize().clip(CircleShape))
                                 LivingEyeMedallion(connected = connected && !connecting,
                                     opennessOverride = if (connecting) 0.5f else if (!connected) 0f else null,
-                                    modifier = Modifier.fillMaxSize(0.76f).clip(CircleShape))
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                        .offset(x = heroWidth * CARVED_EYE_LEFT, y = heroHeight * CARVED_EYE_TOP)
+                                        .size(heroWidth * CARVED_EYE_DIAMETER).clip(CircleShape)
+                                        .drawWithCache {
+                                            val paint = Paint().apply { colorFilter = ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+                                                0.924f, 0.087f, 0.009f, 0f, 0f,
+                                                0.024f, 0.899f, 0.008f, 0f, 0f,
+                                                0.023f, 0.078f, 0.809f, 0f, 0f,
+                                                0f, 0f, 0f, 1f, 0f))) }
+                                            onDrawWithContent {
+                                                val canvas = drawContext.canvas
+                                                canvas.saveLayer(Rect(Offset.Zero, size), paint)
+                                                drawContent()
+                                                canvas.restore()
+                                            }
+                                        })
+                                ApprovedMobileEyeFrame(Modifier.matchParentSize())
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
                                     color = if (connecting) PremiumGold else if (connected) PremiumEmerald else PremiumRuby,
-                                    fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                                    fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
                                 Text(if (connecting) "Устанавливаем соединение" else if (connected) "Нажмите на глаз, чтобы отключить" else "Нажмите на глаз для подключения",
-                                    color = PremiumText, fontSize = 12.sp, textAlign = TextAlign.Center)
+                                    color = PremiumText, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
                             }
                             PhoneModes(cdnSelected, onOrdinary = {
                                 val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" } ?: ordinary.firstOrNull()
@@ -192,13 +222,14 @@ internal fun PhoneDashboard(
                                 Spacer(Modifier.height(7.dp))
                                 PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.fillMaxWidth())
                             }
-                            PhoneAction("Ввести логин", Icons.Default.Person, onEnterCode, Modifier.fillMaxWidth())
+                            PhoneAction(if (hasSubProfile) "Сменить логин" else "Ввести логин", Icons.Default.Person, onEnterCode, Modifier.fillMaxWidth())
                             PhoneAction("Подключить устройство", Icons.Default.Devices, onShareIos, Modifier.fillMaxWidth())
                             PhoneAction("Telegram-бот", Icons.Default.Send, { openBot() }, Modifier.fillMaxWidth())
                             if (!hasSubProfile) PhoneAction("Попробовать бесплатно", Icons.Default.CardGiftcard, onEnterTrial, Modifier.fillMaxWidth())
                         }
                         "cdn" -> {
-                            val positive = balance?.publicationVerdict == "PUBLISHABLE" && balance.availableBytes > 0
+                            val positive = balance?.primaryAccessState == "active" && balance.availableBytes > 0 &&
+                                balance.publicationVerdict !in listOf("DISABLED", "PROJECTION_PENDING", "PROJECTION_STALE")
                             val expired = balance?.primaryAccessState == "expired"
                             MobilePremiumPanel {
                                 PhoneText(when {
@@ -286,26 +317,32 @@ internal fun PhoneDashboard(
 private fun PhonePageTitle(title: String, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().approvedMobilePanel().heightIn(min = 50.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад", tint = PremiumGold) }
-        Text(title, color = PremiumText, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, color = PremiumText, fontSize = 20.sp, lineHeight = 25.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 private fun PhoneText(text: String, heading: Boolean = false) {
     Text(text, color = if (heading) PremiumGold else PremiumText, fontSize = if (heading) 20.sp else 15.sp,
-        fontWeight = if (heading) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(vertical = 5.dp))
+        lineHeight = if (heading) 25.sp else 20.sp,
+        fontWeight = if (heading) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(vertical = 3.dp))
 }
 
 @Composable
 private fun PhoneNotice(text: String) { MobilePremiumPanel { PhoneText(text) } }
 
 @Composable
-private fun PhoneAction(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier, active: Boolean = false) {
+private fun PhoneAction(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier, active: Boolean = false, trailingIcon: ImageVector? = null) {
     Row(modifier.approvedMobilePanel(selected = active).heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onClick)
         .padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
         Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(21.dp))
         Spacer(Modifier.width(7.dp))
-        Text(label, color = PremiumText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+        Text(label, modifier = Modifier.weight(1f, fill = false), color = PremiumText, fontSize = 14.sp, lineHeight = 18.sp,
+            fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (trailingIcon != null) {
+            Spacer(Modifier.width(7.dp))
+            Icon(trailingIcon, "Сменить логин", tint = PremiumGold, modifier = Modifier.size(18.dp))
+        }
     }
 }
 
@@ -315,7 +352,8 @@ private fun PhoneWallet(label: String, value: String, icon: ImageVector, modifie
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = PremiumGold, modifier = Modifier.size(19.dp))
         Spacer(Modifier.width(7.dp))
-        Text("$label: $value", color = PremiumText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("$label: $value", modifier = Modifier.weight(1f), color = PremiumText, fontSize = 12.sp, lineHeight = 16.sp,
+            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -353,8 +391,8 @@ private fun PhoneServerRow(server: PhoneServer, active: Boolean, selectable: Boo
             Text(server.flag, fontSize = 29.sp)
         } else Icon(Icons.Default.Public, null, tint = PremiumGold, modifier = Modifier.size(26.dp))
         Column(Modifier.weight(1f).padding(horizontal = 11.dp)) {
-            Text(server.name, color = PremiumText, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text(server.detail, color = PremiumGold, fontSize = 12.sp)
+            Text(server.name, color = PremiumText, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(server.detail, color = PremiumGold, fontSize = 12.sp, lineHeight = 16.sp)
         }
         Icon(if (selectable) { if (active) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked }
             else Icons.Default.ChevronRight, null, tint = if (active) PremiumEmerald else PremiumGold)
@@ -384,7 +422,7 @@ internal fun PhoneBottomNavigation(active: String, home: () -> Unit, servers: ()
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     val color = if (active == item.third) PremiumEmerald else PremiumGold
                     Icon(item.second, null, tint = color, modifier = Modifier.size(23.dp))
-                    Text(item.first, color = color, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(item.first, color = color, fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     Box(Modifier.width(27.dp).height(2.dp).background(if (active == item.third) PremiumEmerald else Color.Transparent))
                 }
             }
