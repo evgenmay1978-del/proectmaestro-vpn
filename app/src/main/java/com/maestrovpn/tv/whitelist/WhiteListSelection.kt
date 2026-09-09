@@ -17,7 +17,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 internal object WhiteListSelection {
     const val ACTION = "com.maestrovpn.tv.CDN_SELECTION"
     data class Request(val epoch: Long, val profileId: Long, val revision: Long, val tag: String, val requestedAt: Long)
-    data class View(val labels: Map<String, String> = emptyMap(), val selected: String? = null, val active: String? = null)
+    data class View(val labels: Map<String, String> = emptyMap(), val selected: String? = null, val active: String? = null, val cellular: Boolean = false)
     private val mutableView = MutableStateFlow(View())
     val view = mutableView.asStateFlow()
     private var epoch = 0L
@@ -62,7 +62,7 @@ internal object WhiteListSelection {
         val active = mutableView.value.active
         val labels = runtime?.takeIf { allowed }?.profiles?.associate { it.tag to it.label }.orEmpty().toMutableMap()
         if (allowed && active != null) mutableView.value.labels[active]?.let { labels[active] = it }
-        mutableView.value = mutableView.value.copy(labels = labels)
+        mutableView.value = mutableView.value.copy(labels = labels, cellular = allowed)
     }
 
     @Synchronized fun select(tag: String, network: Network?): Boolean {

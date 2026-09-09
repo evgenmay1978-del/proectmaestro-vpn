@@ -98,6 +98,8 @@ import com.maestrovpn.tv.ktx.clipboardText
 import com.maestrovpn.tv.update.UpdateCheckException
 import com.maestrovpn.tv.update.UpdatePromptProvenance
 import com.maestrovpn.tv.update.UpdateSource
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
+import com.maestrovpn.tv.compose.rememberIsTv
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdateTrack
 import com.maestrovpn.tv.vendor.Vendor
@@ -129,6 +131,7 @@ fun AppSettingsScreen(
         )
     }
 
+    val phoneArtwork = !rememberIsTv()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val hasUpdate by UpdateState.hasUpdate
@@ -372,10 +375,11 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                    .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = if (phoneArtwork) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             ),
         ) {
             Column {
@@ -559,10 +563,11 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                    .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = if (phoneArtwork) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             ),
         ) {
             Column {
@@ -647,10 +652,11 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                    .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = if (phoneArtwork) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             ),
         ) {
             Column {
@@ -1094,10 +1100,11 @@ fun AppSettingsScreen(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = if (phoneArtwork) 30.dp else 16.dp)
+                    .then(if (phoneArtwork) Modifier.approvedMobilePanel() else Modifier),
             colors =
             CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                containerColor = if (phoneArtwork) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             ),
         ) {
             Column {

@@ -424,6 +424,24 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         }
     }
 
+    private var manualCdnRefresh: Job? = null
+    fun refreshCdnMenu() {
+        if (manualCdnRefresh?.isActive == true || RemoteControlManager.remoteServer.value != null ||
+            DeviceFormFactor.isTelevision(Application.application)) return
+        manualCdnRefresh = viewModelScope.launch(Dispatchers.IO) {
+            val account = WhiteListSelection.account()
+            val network = WhiteListSession.network()
+            val runtime = if (network != null && account.first >= 0) runCatching {
+                ProfileManager.get(account.first)?.typed?.remoteURL?.let { WhiteListRuntimeClient.fetch(it, network) }
+            }.getOrNull() else null
+            WhiteListSelection.preview(account, network, runtime)
+            if (_serviceStatus.value == Status.Stopped) {
+                val offline = loadOfflineGroups()
+                updateState { copy(groups = offline) }
+            }
+        }
+    }
+
     fun selectCdn(itemTag: String): Boolean {
         if (!itemTag.startsWith("cdn:") || RemoteControlManager.remoteServer.value != null ||
             DeviceFormFactor.isTelevision(Application.application)) return false

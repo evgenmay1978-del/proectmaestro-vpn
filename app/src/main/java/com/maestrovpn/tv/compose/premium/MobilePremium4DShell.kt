@@ -76,6 +76,9 @@ fun MobilePremium4DShell(
                 .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            ApprovedMobileBrand(Modifier.widthIn(max = maximumContentWidth).fillMaxWidth()
+                .padding(horizontal = horizontalPadding).padding(top = 16.dp).height(62.dp))
+            Spacer(Modifier.height(8.dp))
             MobilePremiumTopBar(
                 title = title,
                 onBack = onBack,
@@ -108,10 +111,11 @@ fun MobilePremiumTopBar(
     compact: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    val titleSize = if (compact) 25.sp else 30.sp
+    val titleSize = if (compact) 19.sp else 21.sp
     Row(
         modifier = modifier
-            .defaultMinSize(minHeight = if (compact) 56.dp else 64.dp)
+            .approvedMobilePanel()
+            .defaultMinSize(minHeight = 52.dp)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -132,7 +136,7 @@ fun MobilePremiumTopBar(
             text = title,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 4.dp),
             color = PremiumGold,
             fontFamily = PlayfairFamily,
             fontWeight = FontWeight.SemiBold,
@@ -193,42 +197,5 @@ fun MobilePremiumSheetSurface(
 
 @Composable
 private fun MobilePremium4DBackground(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .testTag("premium-mobile-shell-background")
-            .background(PremiumWalnut)
-            .drawBehind {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(PremiumLeather, PremiumWalnut, PremiumShellShadow),
-                    ),
-                )
-                val lightX = size.width * 0.5f
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            PremiumGold.copy(alpha = 0.10f),
-                            Color.Transparent,
-                        ),
-                        center = androidx.compose.ui.geometry.Offset(lightX, size.height * 0.18f),
-                        radius = size.maxDimension * 0.64f,
-                    ),
-                    center = androidx.compose.ui.geometry.Offset(lightX, size.height * 0.18f),
-                    radius = size.maxDimension * 0.64f,
-                )
-            },
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(4.dp)
-                .fantasyFrame(R.drawable.frame_panel)
-                .alpha(PremiumShellFrameAlpha),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = PremiumShellReadabilityScrimAlpha)),
-        )
-    }
+    ApprovedMobileBackground(modifier.testTag("premium-mobile-shell-background"))
 }

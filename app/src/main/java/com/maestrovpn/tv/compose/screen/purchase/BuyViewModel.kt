@@ -12,6 +12,7 @@ import com.maestrovpn.tv.database.TypedProfile
 import com.maestrovpn.tv.utils.httpGetStringTimed
 import com.maestrovpn.tv.utils.MaestroSub
 import io.nekohasekai.libbox.Libbox
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,8 +50,26 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
     val state = _state.asStateFlow()
     private val base = BuildConfig.BACKEND_URL.trimEnd('/')
 
-    init {
-        loadTariffs()
+    private val accountProfileId = Settings.selectedProfile
+    private val receipts = application.getSharedPreferences("pending-vpn-order", android.content.Context.MODE_PRIVATE)
+    private val receiptKey = "profile-$accountProfileId"
+    private var receipt: JSONObject? = runCatching { receipts.getString(receiptKey, null)?.let(::JSONObject) }.getOrNull()
+    private var orderId: String? = receipt?.optString("order_id")?.takeIf { it.isNotBlank() }
+
+    init { retry() }
+
+    private fun saveReceipt() {
+        receipts.edit().apply { if (receipt == null) remove(receiptKey) else putString(receiptKey, receipt.toString()) }.apply()
+    }
+
+    private fun paymentDetails(): BuyState.AwaitingPayment? = receipt?.let {
+        BuyState.AwaitingPayment(it.optInt("rub"), it.optString("code"), it.optString("sbp_phone"), it.optString("pay_url"))
+    }
+
+    fun retry() {
+        if (orderId == null) loadTariffs()
+        else if (receipt?.optBoolean("claim_sent") == true) checkPayment()
+        else _state.value = paymentDetails() ?: BuyState.Error("Не удалось восстановить счёт")
     }
 
     fun loadTariffs() {
@@ -70,8 +89,6 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private var orderId: String? = null
-
     fun buy(tariffKey: String) {
         // One order per tap. Without this the state stayed on Tariffs for the whole round trip, so
         // the list kept rendering and every extra tap POSTed another /order — N taps left N-1
@@ -80,7 +97,7 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         // one). Switching to Loading blocks the re-tap AND gives the user feedback that something
         // is happening. Same guard shape as ClaimViewModel/TrialViewModel; onClick runs on the
         // main thread, so this check-then-set is atomic against other taps.
-        if (_state.value is BuyState.Loading) return
+        if (_state.value !is BuyState.Tariffs || orderId != null) return
         _state.value = BuyState.Loading
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -89,47 +106,79 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
                 // account: send its sub_token (from the profile's /sub/<token> URL) so the
                 // backend extends the SAME login/keys across all 4 panels instead of minting
                 // a brand-new account each time. No subscription yet → omitted → new account.
-                runCatching {
-                    ProfileManager.list().firstNotNullOfOrNull {
-                        MaestroSub.token(it.typed.remoteURL).takeIf { t -> t.isNotBlank() }
-                    }
-                }.getOrNull()?.let { body.put("sub_token", it) }
+                if (accountProfileId >= 0L) {
+                    val url = ProfileManager.get(accountProfileId)?.typed?.remoteURL
+                        ?.takeIf(UpdateProfileWork::isTrustedSubUrl)
+                        ?: error("Войдите в аккаунт MaestroVPN перед продлением")
+                    val token = MaestroSub.token(url)?.takeIf { it.isNotBlank() }
+                        ?: error("Не удалось определить аккаунт для продления")
+                    body.put("sub_token", token)
+                }
                 val o = JSONObject(httpPost("$base/order", body.toString()))
                 orderId = o.getString("order_id")
-                _state.value = BuyState.AwaitingPayment(o.getInt("rub"), o.getString("code"), o.optString("sbp_phone"), o.optString("pay_url"))
+                receipt = o.put("claim_sent", false)
+                saveReceipt()
+                _state.value = paymentDetails() ?: error("не удалось сохранить счёт")
             } catch (e: Exception) {
                 _state.value = BuyState.Error(e.message ?: "ошибка")
             }
         }
     }
 
-    /** Customer pressed «Я оплатил»: notify the owner, then poll until confirmed. */
+    /** A paid claim requests confirmation; it never grants access on the client. */
     fun iPaid() {
+        if (_state.value is BuyState.AwaitingConfirm || _state.value is BuyState.Activating) return
         val id = orderId ?: return
         _state.value = BuyState.AwaitingConfirm
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 httpPost("$base/order/paid-claim", JSONObject().put("order_id", id).toString())
-                val confirmed = withTimeoutOrNull(15 * 60 * 1000L) {
-                    while (true) {
-                        delay(4000)
-                        val po = JSONObject(httpGet("$base/order/$id"))
-                        if (po.optString("status") == "paid") {
-                            _state.value = BuyState.Activating
-                            activate(po.getString("sub_url"))
-                            _state.value = BuyState.Done
-                            return@withTimeoutOrNull true
-                        }
-                    }
-                    @Suppress("UNREACHABLE_CODE") false
-                }
-                if (confirmed == null) {
-                    _state.value = BuyState.Error("не удалось подтвердить оплату — попробуйте позже")
-                }
-            } catch (e: Exception) {
-                _state.value = BuyState.Error(e.message ?: "ошибка")
-            }
+                receipt?.put("claim_sent", true)
+                saveReceipt()
+                awaitPayment(id)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: Exception) { _state.value = BuyState.Error(e.message ?: "не удалось отправить заявку; счёт сохранён") }
         }
+    }
+
+    private fun checkPayment() {
+        if (_state.value is BuyState.AwaitingConfirm || _state.value is BuyState.Activating) return
+        val id = orderId ?: return
+        _state.value = BuyState.AwaitingConfirm
+        viewModelScope.launch(Dispatchers.IO) {
+            try { awaitPayment(id) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: Exception) { _state.value = BuyState.Error(e.message ?: "не удалось проверить оплату; счёт сохранён") }
+        }
+    }
+
+    private suspend fun awaitPayment(id: String) {
+        val confirmed = withTimeoutOrNull(15 * 60 * 1000L) {
+            while (true) {
+                val order = JSONObject(httpGet("$base/order/$id"))
+                when (order.optString("status")) {
+                    "paid" -> {
+                        _state.value = BuyState.Activating
+                        activate(order.getString("sub_url"))
+                        receipt = null
+                        orderId = null
+                        saveReceipt()
+                        _state.value = BuyState.Done
+                        return@withTimeoutOrNull true
+                    }
+                    "expired", "cancelled", "rejected" -> {
+                        receipt = null
+                        orderId = null
+                        saveReceipt()
+                        _state.value = BuyState.Error("Счёт закрыт. Выберите тариф, чтобы создать новый.")
+                        return@withTimeoutOrNull true
+                    }
+                }
+                delay(4000)
+            }
+            @Suppress("UNREACHABLE_CODE") false
+        }
+        if (confirmed == null) _state.value = BuyState.Error("Подтверждение ещё не получено. Счёт сохранён — проверьте статус позже, повторно платить не нужно.")
     }
 
     private suspend fun activate(subUrl: String) {

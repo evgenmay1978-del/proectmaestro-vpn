@@ -21,10 +21,6 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: android-xhttp/go.mod
-          cache-dependency-path: android-xhttp/go.sum
       - uses: actions/cache@v4
         with:
           path: |
@@ -38,32 +34,33 @@ jobs:
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cdn-apk-inputs"
-      - name: Build pinned XHTTP library for both ABIs without tests
-        working-directory: android-xhttp
+      - name: Reuse unchanged native libraries from signed 159
         env:
-          CGO_ENABLED: '1'
-          GOOS: android
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          for abi in arm64-v8a armeabi-v7a; do
-            mkdir -p "../app/src/main/jniLibs/$abi"
-            if [ "$abi" = arm64-v8a ]; then
-              export GOARCH=arm64
-              export CC="$toolchain/aarch64-linux-android23-clang"
-              unset GOARM
-            else
-              export GOARCH=arm GOARM=7
-              export CC="$toolchain/armv7a-linux-androideabi23-clang"
-            fi
-            library="../app/src/main/jniLibs/$abi/libmaestro_xhttp.so"
-            # Android anet uses go:linkname, as does the existing olcRTC Android build.
-            go build -mod=readonly -trimpath -buildmode=c-shared -ldflags='-s -w -checklinkname=0 -buildid= -extldflags=-Wl,-z,max-page-size=16384' -o "$library" .
-            "$toolchain/llvm-nm" --defined-only -D "$library" > "$RUNNER_TEMP/cdn-apk-inputs/$abi.exports.txt"
-            for symbol in JNI_OnLoad Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStart Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStop; do
-              grep -q " $symbol$" "$RUNNER_TEMP/cdn-apk-inputs/$abi.exports.txt"
-            done
-          done
+          git diff --exit-code 6956ad75b0672b279217627542a30307a70410ef HEAD -- android-xhttp
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/10118243638/zip" > "$RUNNER_TEMP/fleet-159.zip"
+          python3 - <<'PY'
+          import hashlib, os, pathlib, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          with zipfile.ZipFile(root / 'fleet-159.zip') as z:
+              names = [n for n in z.namelist() if n.endswith('.apk')]
+              if len(names) != 1: raise SystemExit('baseline_apk_count')
+              data = z.read(names[0])
+          if hashlib.sha256(data).hexdigest() != '53270cee67b030509deaa8d12bf3c5076dff560afc709c65c5b90becfef0da65':
+              raise SystemExit('baseline_apk_digest')
+          baseline = root / 'fleet-159.apk'
+          baseline.write_bytes(data)
+          with zipfile.ZipFile(baseline) as z:
+              for abi in ('arm64-v8a', 'armeabi-v7a'):
+                  target = pathlib.Path('app/src/main/jniLibs') / abi
+                  target.mkdir(parents=True, exist_ok=True)
+                  for name in ('libmaestro_xhttp.so', 'libolcrtc.so'):
+                      payload = z.read(f'lib/{abi}/{name}')
+                      (target / name).write_bytes(payload)
+                      print(abi, name, hashlib.sha256(payload).hexdigest())
+          PY
       - name: Reuse exact libbox artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,17 +81,6 @@ jobs:
           pathlib.Path('app/libs').mkdir(exist_ok=True)
           pathlib.Path('app/libs/libbox.aar').write_bytes(data)
           PY
-      - name: Reuse existing olcRTC binaries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -b main -L1 --json databaseId -q '.[0].databaseId // empty')
-          [ -n "$RUN_ID" ]
-          gh run download "$RUN_ID" -n olcrtc-bin -D "$RUNNER_TEMP/olcrtc-bin"
-          for abi in arm64-v8a armeabi-v7a; do
-            cp "$RUNNER_TEMP/olcrtc-bin/libolcrtc-${abi}.so" "app/src/main/jniLibs/${abi}/libolcrtc.so"
-          done
       - name: Materialize stable signing keystore
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
@@ -111,7 +97,7 @@ jobs:
               os.fchmod(f.fileno(), 0o600)
               f.write(raw)
           PY
-      - name: Build signed APK 1.0.159 without test tasks
+      - name: Build signed APK 1.0.160 without test tasks
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
@@ -127,28 +113,57 @@ jobs:
           [ "${#apks[@]}" -eq 1 ]
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
-          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.159' ]
-          [ "$(apkanalyzer manifest version-code "$apk")" = '1015900' ]
+          [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.160' ]
+          [ "$(apkanalyzer manifest version-code "$apk")" = '1016000' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
           "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
-          mkdir -p "$RUNNER_TEMP/fleet-signers"
-          gh release download tv-v1.0.157 --pattern 'MaestroVPN-TV-1.0.157-debug.apk' --dir "$RUNNER_TEMP/fleet-signers"
-          curl --fail --location --max-time 180 'https://storage.yandexcloud.net/maestro-apk/MaestroVPN-TV-1.0.153-debug.apk' -o "$RUNNER_TEMP/fleet-signers/fleet-153.apk"
-          for baseline in "$RUNNER_TEMP/fleet-signers"/*.apk; do
-            "$signer" verify --print-certs "$baseline" > "$baseline.signer"
-            diff -u <(grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/cdn-apk-inputs/signer.txt") <(grep 'certificate SHA-256 digest:' "$baseline.signer")
-          done
-          echo 'Signature matches fleet versions 153 and 157.' > "$RUNNER_TEMP/cdn-apk-inputs/fleet-signature-match.txt"
+          "$signer" verify --print-certs "$RUNNER_TEMP/fleet-159.apk" > "$RUNNER_TEMP/fleet-159.signer"
+          diff -u <(grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/cdn-apk-inputs/signer.txt") <(grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/fleet-159.signer")
+          echo 'Signature matches stable signed 159 (same fleet signer as 153/157).' > "$RUNNER_TEMP/cdn-apk-inputs/fleet-signature-match.txt"
           sha256sum "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/apk.sha256"
           echo "path=$apk" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: maestrovpn-cdn-159-${{ github.sha }}
+          name: maestrovpn-mobile-160-${{ github.sha }}
           path: |
             ${{ steps.apk.outputs.path }}
             ${{ runner.temp }}/cdn-apk-inputs/
           if-no-files-found: error
+          retention-days: 14
+      - name: Open the built APK and capture its phone screens
+        timeout-minutes: 12
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: |
+          set -euo pipefail
+          sdkmanager 'emulator' 'system-images;android-30;google_apis;x86_64' >/dev/null
+          echo 'no' | avdmanager create avd -n maestro-phone -k 'system-images;android-30;google_apis;x86_64' --device 'pixel_4' --force
+          sudo chmod 666 /dev/kvm
+          "$ANDROID_SDK_ROOT/emulator/emulator" -avd maestro-phone -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 3072 > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          adb wait-for-device
+          for i in $(seq 1 90); do
+            [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break
+            sleep 2
+          done
+          [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]
+          adb shell wm size 1080x2340
+          adb shell wm density 480
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          adb install "$APK_PATH"
+          adb shell input keyevent 82
+          adb shell am start -n com.maestrovpn.tv/.compose.MainActivity
+          python3 ops/mobile-capture-screens.py "$RUNNER_TEMP/mobile-screens"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: maestrovpn-mobile-screens-160-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/mobile-screens/
+            ${{ runner.temp }}/emulator.log
+          if-no-files-found: warn
           retention-days: 14
       - name: Remove runner signing file
         if: ${{ always() }}

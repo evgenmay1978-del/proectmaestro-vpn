@@ -186,7 +186,7 @@ internal fun ClaimPhoneForm(
     val busy = state is ClaimState.Busy
 
     MobilePremiumScreen(
-        title = "Активация подписки",
+        title = "Ввести логин",
         onBack = onBack,
         modifier = Modifier.testTag("premium-claim"),
     ) {
@@ -194,20 +194,20 @@ internal fun ClaimPhoneForm(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(vertical = 32.dp),
-            verticalArrangement = Arrangement.Center,
+                .padding(vertical = 18.dp),
+            verticalArrangement = Arrangement.Top,
         ) {
             MobilePremiumPanel {
                 MobilePremiumTextField(
                     value = code,
                     onValueChange = onCodeChange,
-                    placeholder = "Код или логин",
+                    placeholder = "Введите логин",
                     enabled = !busy,
                     focusRequester = codeFocus,
                 )
                 Spacer(Modifier.height(20.dp))
                 MobilePremiumButton(
-                    label = if (busy) "Проверяем…" else "Активировать",
+                    label = if (busy) "Проверяем…" else "Войти",
                     onClick = onClaim,
                     enabled = code.isNotBlank() && !busy,
                     modifier = Modifier.fillMaxWidth(),

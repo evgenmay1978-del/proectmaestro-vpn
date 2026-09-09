@@ -88,6 +88,8 @@ fun SFANavHost(
         modifier = modifier,
     ) {
         composable(Screen.TvHome.route) {
+            val homeState = it.savedStateHandle
+            val phoneSection by homeState.getStateFlow("phone_section", "home").collectAsState()
             val tvStatusText = when (serviceStatus) {
                 Status.Starting -> "Подключение…"
                 Status.Started -> "Подключено"
@@ -149,10 +151,10 @@ fun SFANavHost(
                     hasSubProfile = accountInfo.hasSubProfile,
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag ->
-                        selectGroup?.takeIf { isProtocolSelectionAllowed(it.tag, tag) }?.let { g ->
-                            if (tag.startsWith("cdn:")) {
-                                if (groupsViewModel.selectCdn(tag) && serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
-                            } else if (serviceStatus == Status.Started) {
+                        if (tag.startsWith("cdn:")) {
+                            if (groupsViewModel.selectCdn(tag) && serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
+                        } else selectGroup?.takeIf { isProtocolSelectionAllowed(it.tag, tag) }?.let { g ->
+                            if (serviceStatus == Status.Started) {
                                 // VPN already up — just switch the live protocol.
                                 groupsViewModel.selectGroupItem(g.tag, tag)
                             } else {
@@ -173,6 +175,9 @@ fun SFANavHost(
                     onEnterTrial = { navController.navigate("trial") },
                     onOpenServers = { navController.navigate(Screen.Groups.route) },
                     onOpenSettings = { navController.navigate("settings") },
+                    phoneSection = phoneSection,
+                    onPhoneSectionChange = { homeState["phone_section"] = it },
+                    onRefreshServers = { groupsViewModel.refreshCdnMenu() },
                 )
             } else {
                 TvHomeScreen(
@@ -195,6 +200,8 @@ fun SFANavHost(
                     onEnterTrial = { navController.navigate("trial") },
                     onOpenServers = { navController.navigate(Screen.Groups.route) },
                     onOpenSettings = { navController.navigate("settings") },
+                    phoneSection = phoneSection,
+                    onPhoneSectionChange = { homeState["phone_section"] = it },
                 )
             }
         }

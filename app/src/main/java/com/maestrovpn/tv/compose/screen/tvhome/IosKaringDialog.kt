@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,7 @@ import com.maestrovpn.tv.compose.theme.NeonGreen
 import com.maestrovpn.tv.compose.util.QRCodeGenerator
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
+import com.maestrovpn.tv.utils.MaestroSub
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -154,7 +156,7 @@ private fun PhoneShareDialog(
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    ShareBody(state, androidMode, onMode, isTv = false)
+                    PhoneShareBody(state)
                     Spacer(Modifier.height(18.dp))
                     MobilePremiumButton(
                         label = "Закрыть",
@@ -163,6 +165,63 @@ private fun PhoneShareDialog(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PhoneShareBody(state: ShareState) {
+    val context = LocalContext.current
+    var selectedApp by remember { mutableStateOf(0) }
+    when (state) {
+        ShareState.Loading -> Text("Загрузка…", color = PremiumText)
+        ShareState.NeedActivate -> Text("Сначала войдите в аккаунт MaestroVPN.", color = PremiumText)
+        is ShareState.Failed -> Text("Не удалось получить подписку. Закройте окно и повторите.", color = PremiumText)
+        is ShareState.Ready -> {
+            val apps = listOf("MaestroVPN", "Happ", "Incy", "Karing")
+            Text("Выберите приложение на другом устройстве", color = PremiumText, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            apps.chunked(2).forEachIndexed { row, labels ->
+                MobilePremiumSegmented(labels, selectedIndex = selectedApp - row * 2,
+                    onSelect = { selectedApp = row * 2 + it }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+            }
+            val url = remember(state.baseUrl, selectedApp) {
+                val source = android.net.Uri.parse(MaestroSub.stripDeviceMetadata(state.baseUrl))
+                val builder = source.buildUpon().clearQuery()
+                source.queryParameterNames.filterNot { it == "format" || it == "app" }.forEach { name ->
+                    source.getQueryParameters(name).forEach { builder.appendQueryParameter(name, it) }
+                }
+                when (selectedApp) {
+                    1, 2 -> builder.appendQueryParameter("format", "xray")
+                    3 -> builder.appendQueryParameter("format", "links")
+                }
+                builder.build().toString()
+            }
+            val qr = remember(url) {
+                runCatching { QRCodeGenerator.generate(url, 640, android.graphics.Color.BLACK, android.graphics.Color.WHITE) }.getOrNull()
+            }
+            Spacer(Modifier.height(10.dp))
+            if (qr != null) {
+                Box(Modifier.fillMaxWidth(0.84f).aspectRatio(1f).background(Color.White).padding(10.dp)) {
+                    Image(qr.asImageBitmap(), "QR-код для ${apps[selectedApp]}", Modifier.fillMaxSize())
+                }
+            } else Text("Не удалось создать QR-код. Используйте копирование ссылки.", color = PremiumText)
+            Spacer(Modifier.height(12.dp))
+            Text("Отсканируйте QR-код или добавьте ссылку в ${apps[selectedApp]}.", color = PremiumText, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            MobilePremiumButton("Скопировать ссылку", {
+                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MaestroVPN", url))
+                android.widget.Toast.makeText(context, "Ссылка скопирована", android.widget.Toast.LENGTH_SHORT).show()
+            }, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(6.dp))
+            MobilePremiumButton("Поделиться", {
+                runCatching {
+                    context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, url), "Подписка MaestroVPN"))
+                }.onFailure { android.widget.Toast.makeText(context, "Не удалось открыть отправку", android.widget.Toast.LENGTH_SHORT).show() }
+            }, Modifier.fillMaxWidth())
         }
     }
 }

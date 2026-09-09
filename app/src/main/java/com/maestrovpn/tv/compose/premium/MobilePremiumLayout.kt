@@ -21,9 +21,9 @@ internal fun mobilePremiumLayoutMode(
 }
 
 internal fun mobilePremiumHorizontalPadding(mode: MobilePremiumLayoutMode): Int = when (mode) {
-    MobilePremiumLayoutMode.Compact -> 12
-    MobilePremiumLayoutMode.Regular -> 18
-    MobilePremiumLayoutMode.Expanded -> 32
+    MobilePremiumLayoutMode.Compact -> 24
+    MobilePremiumLayoutMode.Regular -> 30
+    MobilePremiumLayoutMode.Expanded -> 42
 }
 
 internal fun mobilePremiumHorizontalPadding(

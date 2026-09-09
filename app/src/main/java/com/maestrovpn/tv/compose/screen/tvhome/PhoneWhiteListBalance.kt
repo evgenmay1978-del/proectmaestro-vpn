@@ -19,6 +19,7 @@ import com.maestrovpn.tv.constant.SettingsKey
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.preference.OnPreferenceDataStoreChangeListener
+import com.maestrovpn.tv.whitelist.WhiteListBalance
 import com.maestrovpn.tv.whitelist.WhiteListBalanceClient
 import com.maestrovpn.tv.whitelist.displayText
 import kotlinx.coroutines.CancellationException
@@ -57,62 +58,59 @@ internal fun rememberPhoneAccountKey(): State<Pair<Long, Int>> {
     return selected
 }
 
-/**
- * Read-only commercial wallet, not transport readiness or a local traffic counter.
- * Phone-only caller: no background worker, credential-manager refresh, or TV change.
- */
+/** Wallet and fetch status are separate from transport availability. */
+internal data class PhoneCdnAccount(
+    val balance: WhiteListBalance? = null,
+    val loading: Boolean = true,
+    val unavailable: Boolean = false,
+) {
+    val text: String?
+        get() = balance?.displayText() ?: if (unavailable) "CDN: остаток временно недоступен" else null
+}
+
 @Composable
 internal fun rememberPhoneWhiteListBalance(refreshKey: Any?): State<String?> {
+    val account = rememberPhoneCdnAccount(refreshKey)
+    return remember(account) { androidx.compose.runtime.derivedStateOf { account.value.text } }
+}
+
+@Composable
+internal fun rememberPhoneCdnAccount(refreshKey: Any?): State<PhoneCdnAccount> {
     val accountSelection = rememberPhoneAccountKey()
     val accountKey = accountSelection.value
     val selectedProfileId = accountKey.first
     val lifecycle = remember { ProcessLifecycleOwner.get().lifecycle }
-    var foreground by remember {
-        mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-    }
+    var foreground by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, _ ->
-            foreground = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-        }
+        val observer = LifecycleEventObserver { _, _ -> foreground = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
         lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycle.removeObserver(observer) }
     }
-    // A newly selected/edited account starts hidden, even while its request is in flight.
     return key(accountKey) {
-        produceState<String?>(initialValue = null, foreground, refreshKey) {
-            value = null
-            if (!foreground || selectedProfileId < 0L) return@produceState
-            var wasVisible = false
+        produceState(initialValue = PhoneCdnAccount(), foreground, refreshKey) {
+            if (!foreground || selectedProfileId < 0L) {
+                value = value.copy(loading = false)
+                return@produceState
+            }
+            value = value.copy(loading = true)
             while (isActive) {
                 val balance = try {
                     withContext(Dispatchers.IO) {
-                        val profile = ProfileManager.get(selectedProfileId)
-                        val url = profile?.typed?.remoteURL
-                        if (url == null || !UpdateProfileWork.isTrustedSubUrl(url)) {
-                            null
-                        } else {
-                            WhiteListBalanceClient.fetch(url)
-                        }
+                        val url = ProfileManager.get(selectedProfileId)?.typed?.remoteURL
+                        if (url == null || !UpdateProfileWork.isTrustedSubUrl(url)) null
+                        else WhiteListBalanceClient.fetch(url)
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
-                    null
-                }
+                } catch (_: Exception) { null }
                 coroutineContext.ensureActive()
-                // Selection notifications can arrive while a bounded network read finishes.
                 if (Settings.selectedProfile != selectedProfileId || accountSelection.value != accountKey) {
-                    value = null
+                    value = PhoneCdnAccount(loading = false)
                     return@produceState
                 }
-                if (balance == null) {
-                    value = if (wasVisible) "CDN: остаток временно недоступен" else null
-                } else {
-                    value = balance.displayText()
-                    wasVisible = value != null
-                }
+                // A failed fetch never becomes zero and never takes the user to checkout.
+                value = if (balance == null) value.copy(loading = false, unavailable = true)
+                    else PhoneCdnAccount(balance = balance, loading = false)
                 delay(30_000L)
             }
         }

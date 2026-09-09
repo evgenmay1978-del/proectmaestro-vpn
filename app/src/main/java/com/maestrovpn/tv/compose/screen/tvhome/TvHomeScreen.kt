@@ -87,6 +87,9 @@ fun TvHomeScreen(
     onEnterTrial: () -> Unit = {},
     onOpenServers: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    phoneSection: String = "home",
+    onPhoneSectionChange: (String) -> Unit = {},
+    onRefreshServers: () -> Unit = {},
 ) {
     val isTv = rememberIsTv()
     val connectFocus = remember { FocusRequester() }
@@ -160,6 +163,9 @@ fun TvHomeScreen(
                     onEnterTrial = onEnterTrial,
                     onOpenServers = onOpenServers,
                     onOpenSettings = onOpenSettings,
+                    entrySection = phoneSection,
+                    onSectionChange = onPhoneSectionChange,
+                    onRefreshServers = onRefreshServers,
                 )
             }
         }
