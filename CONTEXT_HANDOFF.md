@@ -1,6 +1,14 @@
 ## Актуальное продолжение — 09.09.2026
 
-Новое разрешение: владелец ответом «Давай» утвердил удаление двух вставок compatibleXHTTPExtra из CDN-выдачи, необходимую build-only сборку на GitHub и замену только контроллера на current-s1. Исправление выполняется; состояние установки и отката будет зафиксировано здесь. Прежний режим «только изучение» ниже завершён этим разрешением.
+Владелец ответом «Давай» разрешил конкретное исправление; оно УСТАНОВЛЕНО. Source 88f567c027296d6d8d2b6ca71dab6449a7392955 удаляет только две вставки compatibleXHTTPExtra из CDN JSON-выдачи. GitHub build-only run34324918054 успешен: compile-panel; тестовый job пропущен. Artifact10093365626, binary SHA256 b3d9e4c672324cd4479c202dce952b5c329e61d4f83c1e1bb2483dc615a90247.
+
+current-s1 maestro-cdn-controller.service active с новым source. Установщик подтвердил прежние runtime.env и процесс обычной maestro-panel.service; боты, public front, origin DB и серверный XHTTP runtime не менялись. Receipt: controller-installed-88f567c.json в operational cwd06.09.
+
+После установки прочитана публичная выдача владельца: HTTP200 application/json; 7 профилей = 3 обычных VLESS + 4 CDN; у всех CDN advanced extra отсутствует, основные packet-up/GET/body/query параметры сохранены. Profile-Title MaestroVPN и Subscription-Userinfo присутствуют; shape_errors=[]; response SHA256 0ce4aadbbffa912f5420e554e5d19db7c7cd26f8c56ca9f46d9aa885bc763763. Receipt: owner-padding-correction-observed.json. Это подтверждает исправленную выдачу, не соединение с мобильной сети.
+
+Остался только результат владельца после обновления той же подписки в HAPP/INCY на мобильной сети. До наблюдения не расширять изменение. Откат текущего шага: /var/backups/maestro-commercial-controller-20260904-s4-qzBchh/controller-upgrade-88f567c/unit.before; предыдущий binary panel-candidate-8711db8/maestro-panel, SHA256 6d4e812c35f3b95ecd9e9698853addc085d882a606bb58124f0487821ab0a2e6. Восстановление unit и restart только maestro-cdn-controller.service возвращают 8711db8 (эта версия содержит известный padding mismatch и не является рабочим CDN-эталоном). Локальный helper upgrade-controller-8711db8-to-88f567c.py содержит автоматический откат при неуспешной установке.
+
+Ниже сохранена история до этого разрешения и установки; её прежние режимы и next-action не действуют.
 
 09.09.2026 параметры совместимости из рабочего образца Akonit применены к нашей Xray JSON-выдаче без копирования чужих UUID, encryption, доменов, путей или origin identity. Source 8711db8cb8920b734f9647e3f26c20b86b3eb2fa добавляет вложенный xhttpSettings.extra, ALPN и fingerprint firefox; прежние верхнеуровневые XHTTP-поля сохранены для совместимости.
 

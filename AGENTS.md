@@ -4,7 +4,7 @@ AGENTS.md и CONTEXT_HANDOFF.md должны оставаться актуаль
 
 Новые тесты и тестовый CI — только по явному указанию владельца. На компьютере сборки не запускать. Использовать кратчайшее достаточное решение без лишних wrapper, рефакторинга и повторных исследований. Уже полученное разрешение повторно не запрашивать.
 
-09.09.2026 владелец ответом «Давай» разрешил конкретное исправление: убрать несовместимые advanced extra из CDN JSON-выдачи, собрать только контроллер на GitHub без тестов и установить его вместо 8711db8 на current-s1. Сохранить JSON, флаги, срок, гигабайты, обычный VPN, ботов и платежи. Разрешение повторно не запрашивать. После установки наблюдать исправленную выдачу и результат владельца в HAPP/INCY; не расширять изменение. Серверный XHTTP runtime и клиентские credentials/path не перестраивать.
+09.09.2026 разрешённое исправление установлено: controller source 88f567c027296d6d8d2b6ca71dab6449a7392955 на current-s1. Убраны две вставки несовместимого advanced extra; публичная JSON-выдача наблюдалась: 3 обычных и 4 CDN, extra отсутствует у всех CDN, название MaestroVPN и Subscription-Userinfo сохранены. Обычная панель, runtime.env, боты и серверный XHTTP runtime не менялись. Остался результат владельца после обновления подписки в HAPP/INCY на мобильной сети; до него не расширять изменение и не объявлять соединение исправленным. Новые тесты и CI-прогоны без явного указания не запускать.
 # Yandex CDN white-list task
 
 Navigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](CONTEXT.md), [SPEC](docs/yandex-cdn-whitelist/SPEC.md), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [handoff](docs/yandex-cdn-whitelist/HANDOFF.md).
