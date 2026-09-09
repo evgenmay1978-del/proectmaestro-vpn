@@ -837,7 +837,7 @@ AND (
         NOT EXISTS(
             SELECT 1 FROM whitelist_commercial_metering_sources
             WHERE entitlement_id=? AND sampled_at_unix>?
-              AND (?=0 OR origin_id=? OR billing_period_id<>?)
+              AND (?=0 OR (origin_id=? AND exit_id=?) OR billing_period_id<>?)
         )
         AND NOT EXISTS(
             SELECT 1
@@ -865,7 +865,7 @@ THEN 1 ELSE abs(-9223372036854775808) END AS commercial_source_guard`,
 					boolInt(lateDiagnostic), source.EntitlementID, source.SampledAtUnix,
 					boolInt(lateDiagnostic),
 					source.EntitlementID, source.SampledAtUnix,
-					boolInt(finalProof != nil), source.OriginID, source.BillingPeriodID,
+					boolInt(finalProof != nil), source.OriginID, source.ExitID, source.BillingPeriodID,
 					source.EntitlementID,
 					whitelistmetering.CommercialDebitReceiptScope,
 					whitelistmetering.CommercialDebitReceiptCommand,
@@ -1273,7 +1273,7 @@ EXISTS(
 EXISTS(
     SELECT 1 FROM whitelist_commercial_metering_sources
     WHERE entitlement_id=? AND sampled_at_unix>?
-      AND (?=0 OR origin_id=? OR billing_period_id<>?)
+      AND (?=0 OR (origin_id=? AND exit_id=?) OR billing_period_id<>?)
 ) AS sampled_at_conflict,
 NOT EXISTS(
     SELECT 1 FROM whitelist_commercial_metering_sources
@@ -1291,7 +1291,7 @@ EXISTS(
 			want.EventID, want.SourceSHA256, want.MeterEpoch, want.RouteXrayIdentity,
 			uintText(want.CounterGeneration), uintText(want.SampleSequence),
 			want.EntitlementID, want.SampledAtUnix,
-			boolInt(finalProof != nil), want.OriginID, want.BillingPeriodID,
+			boolInt(finalProof != nil), want.OriginID, want.ExitID, want.BillingPeriodID,
 			want.EntitlementID, want.SampledAtUnix,
 			want.MeterEpoch, want.RouteXrayIdentity, want.ExitID,
 			want.EntitlementID, want.BillingPeriodID,
