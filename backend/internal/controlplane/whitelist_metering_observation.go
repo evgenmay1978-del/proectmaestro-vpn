@@ -532,7 +532,7 @@ func (s *Service) refreshWhiteListMeteringReadiness(ctx context.Context, workerI
 			recoverDelivery = true
 			continue
 		}
-		renew = renew || !receipt.ExpiresAt.After(s.clock.Now().Add(10*time.Second))
+		renew = renew || !receipt.ExpiresAt.After(s.clock.Now().Add(whiteListUseLeaseWindow))
 	}
 	if !renew && !recoverDelivery {
 		return true, nil
