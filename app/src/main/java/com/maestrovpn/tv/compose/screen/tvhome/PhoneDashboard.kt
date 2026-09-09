@@ -376,9 +376,3 @@ internal fun PhoneBottomNavigation(active: String, home: () -> Unit, servers: ()
 
 private fun phoneGb(bytes: Long): String = if (bytes in 1L..9_999_999L) "< 0,01" else
     DecimalFormat("0.##", DecimalFormatSymbols(Locale("ru", "RU"))).format(java.math.BigDecimal.valueOf(bytes, 9))
-private fun daysWord(value: Int): String = when {
-    value % 100 in 11..14 -> "дней"
-    value % 10 == 1 -> "день"
-    value % 10 in 2..4 -> "дня"
-    else -> "дней"
-}

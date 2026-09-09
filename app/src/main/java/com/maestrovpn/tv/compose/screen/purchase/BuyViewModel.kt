@@ -166,7 +166,7 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
                         _state.value = BuyState.Done
                         return@withTimeoutOrNull true
                     }
-                    "expired", "cancelled", "rejected" -> {
+                    "expired", "canceled", "cancelled", "rejected" -> {
                         receipt = null
                         orderId = null
                         saveReceipt()
