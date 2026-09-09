@@ -1,5 +1,7 @@
 ## Актуальное продолжение — 09.09.2026
 
+Новое разрешение: владелец ответом «Давай» утвердил удаление двух вставок compatibleXHTTPExtra из CDN-выдачи, необходимую build-only сборку на GitHub и замену только контроллера на current-s1. Исправление выполняется; состояние установки и отката будет зафиксировано здесь. Прежний режим «только изучение» ниже завершён этим разрешением.
+
 09.09.2026 параметры совместимости из рабочего образца Akonit применены к нашей Xray JSON-выдаче без копирования чужих UUID, encryption, доменов, путей или origin identity. Source 8711db8cb8920b734f9647e3f26c20b86b3eb2fa добавляет вложенный xhttpSettings.extra, ALPN и fingerprint firefox; прежние верхнеуровневые XHTTP-поля сохранены для совместимости.
 
 GitHub build-only run 34317166763 успешно скомпилировал panel без тестов; artifact 10090490592. На current-s1 переключён только maestro-cdn-controller.service: binary SHA-256 6d4e812c35f3b95ecd9e9698853addc085d882a606bb58124f0487821ab0a2e6, health ok 8711db8cb8920b734f9647e3f26c20b86b3eb2fa. runtime.env остался byte-for-byte тем же, обычный maestro-panel.service не перезапускался; public front, origins DB и боты не менялись.

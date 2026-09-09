@@ -69,7 +69,6 @@ func WhiteListXrayJSONSubscription(node WhiteListNode, countryCode string) ([]by
 					SessionIDLength:     xhttp.SessionIDLength,
 					SeqPlacement:        xhttp.SeqPlacement,
 					SeqKey:              xhttp.SeqKey,
-					Extra:               compatibleXHTTPExtra(xhttp),
 				},
 			},
 		}},
@@ -170,7 +169,6 @@ func whiteListXrayJSONConfigs(nodes []WhiteListNode) ([]xrayJSONFullConfig, erro
 			SessionIDLength:     xhttp.SessionIDLength,
 			SeqPlacement:        xhttp.SeqPlacement,
 			SeqKey:              xhttp.SeqKey,
-			Extra:               compatibleXHTTPExtra(xhttp),
 		}
 		stream := xrayJSONFullStreamSettings{
 			Network:       node.Network,
