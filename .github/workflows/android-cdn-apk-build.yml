@@ -57,7 +57,8 @@ jobs:
               export CC="$toolchain/armv7a-linux-androideabi23-clang"
             fi
             library="../app/src/main/jniLibs/$abi/libmaestro_xhttp.so"
-            go build -mod=readonly -trimpath -buildmode=c-shared -ldflags='-s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384' -o "$library" .
+            # Android anet uses go:linkname, as does the existing olcRTC Android build.
+            go build -mod=readonly -trimpath -buildmode=c-shared -ldflags='-s -w -checklinkname=0 -buildid= -extldflags=-Wl,-z,max-page-size=16384' -o "$library" .
             "$toolchain/llvm-nm" --defined-only -D "$library" > "$RUNNER_TEMP/cdn-apk-inputs/$abi.exports.txt"
             for symbol in JNI_OnLoad Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStart Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStop; do
               grep -q " $symbol$" "$RUNNER_TEMP/cdn-apk-inputs/$abi.exports.txt"
