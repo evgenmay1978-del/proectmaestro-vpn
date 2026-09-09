@@ -6,9 +6,20 @@ GitHub build-only run 34317166763 успешно скомпилировал pane
 
 Непосредственное чтение выдачи владельца после установки: HTTP 200, application/json, Profile-Title MaestroVPN, Subscription-Userinfo присутствует, X-Maestro-CDN: included; 7 профилей = 3 обычных VLESS + 4 CDN. У всех 4 CDN подтверждены XHTTP packet-up, GET/body, auth/chunk_id query, полный вложенный extra, ALPN h2, fingerprint firefox и MLKEM; shape_errors=[]; санитизированный response SHA-256 48e035d2cdb760c74a93b53c34490740c11f3928e6099e0b574ccc5eb25ba12.
 
-Образец Akonit использует Yandex Cloud CDN, не VK: его CDN-хосты разрешаются через *.topology.gslb.yccdn.ru, а адреса 188.72.111.0/24 принадлежат диапазону Yandex Cloud. Наши CDN-узлы также остаются на Yandex; проблема была в клиентской форме XHTTP JSON.
+Образец Akonit использует Yandex Cloud CDN, не VK: его CDN-хосты разрешаются через *.topology.gslb.yccdn.ru, а адреса 188.72.111.0/24 принадлежат диапазону Yandex Cloud. Наши CDN-узлы также остаются на Yandex. Прежнее утверждение, что исправление формы JSON устранило проблему соединения, опровергнуто наблюдением владельца ниже.
 
-Незавершён один шаг: владелец обновляет эту же подписку в INCY на мобильной сети и смотрит реальный пинг/подключение. Серверная проверка не заменяет этот операторский маршрут. До результата не менять бота, панель, обычные профили или CDN-настройки повторно.
+Последний результат владельца 09.09.2026: JSON, срок и гигабайты видны; ни один CDN не пингуется в HAPP и INCY, отдельная тестовая подписка работает. Владелец направил работу обратно на изучение. В этой сессии продукт, серверы и CI не менялись.
+
+Найден конкретный дефект 8711db8: backend/internal/subgen/xray_json.go:72,173 добавляет compatibleXHTTPExtra с xPaddingObfsMode=true, header/X-Padding, tokenish, 50-150 и scMaxEachPostBytes=3000000. У установленного commercial runtime (source 19f8804, Xray pin 5ca6f4b7d4dc) базовый server extra не задаёт эти поля. В Xray extra заменяет outer-поля кроме host/path/mode; server без obfs ожидает padding в Referer/query и при пустом результате возвращает HTTP 400 до VLESS. Это доказанный конфликт конфигураций; HTTP 400 именно попытки владельца в журналах не получен. Лимит POST клиента 3 MB против default сервера 1 MB — дополнительный риск HTTP 413, не объяснение маленького ping сам по себе.
+
+Предлагаемое минимальное исправление после разрешения: убрать две вставки compatibleXHTTPExtra из JSON-выдачи, вернув транспортные поля собственного рабочего теста с текущими собственными credentials/path. Полный JSON-массив, флаги, обычные профили, срок и баланс сохранить. Серверный транспорт под чужие параметры не перестраивать. После применения достаточно наблюдения того же отказавшего подключения, без тестовой кампании; текущая работоспособность не подтверждена.
+
+Уточнение диагностики: старый observe-admission-exits.py дал ложные нули route_in_desired, потому что payload_json возвращается Base64 и строковый поиск его не декодировал. Повторное read-only чтение с декодированием: generation4358, managed_count8, все четыре маршрута владельца присутствуют. Stored receipts просрочены; это само по себе не доказывает отсутствие пользователей в памяти Xray или состояние текущего use lease. Не повторять прежнее ошибочное утверждение об отсутствии пользователей. Чтение расширенных runtime/log facts не завершилось; ветка остановлена, изменения ради журналирования не выполнялись.
+
+Первичные источники на точном Xray commit:
+- https://github.com/XTLS/Xray-core/blob/5ca6f4b7d4dc20a881d4330e498892697627ec0c/infra/conf/transport_method.go
+- https://github.com/XTLS/Xray-core/blob/5ca6f4b7d4dc20a881d4330e498892697627ec0c/transport/internet/splithttp/xpadding.go#L238-L288
+- https://github.com/XTLS/Xray-core/blob/5ca6f4b7d4dc20a881d4330e498892697627ec0c/transport/internet/splithttp/hub.go
 
 Откат: protected backup /var/backups/maestro-commercial-controller-20260904-s4-qzBchh/controller-upgrade-8711db8 содержит unit.before; старый проверенный binary — panel-candidate-de67eea/maestro-panel, health SHA de67eeac1f04724c592313f47d10bdea3aae28a1. Для отката восстановить только unit, выполнить daemon-reload и restart maestro-cdn-controller.service, затем проверить старый health. Рабочие helper/receipt находятся в C:\Users\User\Documents\Codex\2026-09-06\new-chat.
 # MaestroVPN — актуальная точка продолжения
