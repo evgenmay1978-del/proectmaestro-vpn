@@ -1,3 +1,10 @@
+## Уточнение владельца от 09.09.2026 — актуальность контекста
+
+AGENTS.md и CONTEXT_HANDOFF.md должны оставаться актуальными. При существенном изменении разрешения, результата или блокера обновлять их в той же рабочей сессии. В handoff фиксировать наблюдаемый результат, незавершённый шаг и откат; в AGENTS — действующие правила. Исторические записи ниже не являются подтверждением текущего состояния сервера.
+
+Новые тесты и тестовый CI — только по явному указанию владельца. На компьютере сборки не запускать. Использовать кратчайшее достаточное решение без лишних wrapper, рефакторинга и повторных исследований. Уже полученное разрешение повторно не запрашивать.
+
+Текущая задача: параметры совместимости Akonit установлены только в maestro-cdn-controller.service на current-s1, source 8711db8cb8920b734f9647e3f26c20b86b3eb2fa. Серверная выдача владельца наблюдалась: HTTP 200 JSON, 7 профилей, 3 обычных и 4 CDN, все четыре CDN содержат совместимые extra, ALPN h2 и fingerprint firefox. Обычная панель не перезапускалась, runtime.env, платежи, балансы и боты не менялись. Незавершён только пользовательский просмотр обновлённой подписки в INCY на мобильной сети; до этого наблюдения не расширять изменение.
 # Yandex CDN white-list task
 
 Navigation: [requirements](docs/yandex-cdn-whitelist/MASTER_REQUIREMENTS.md), [vocabulary](CONTEXT.md), [SPEC](docs/yandex-cdn-whitelist/SPEC.md), [ADR/Wayfinder map](docs/yandex-cdn-whitelist/ADR_MAP.md), [Definition of Done](docs/yandex-cdn-whitelist/DEFINITION_OF_DONE.md), and [handoff](docs/yandex-cdn-whitelist/HANDOFF.md).

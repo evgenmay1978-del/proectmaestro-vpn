@@ -1,3 +1,16 @@
+## Актуальное продолжение — 09.09.2026
+
+09.09.2026 параметры совместимости из рабочего образца Akonit применены к нашей Xray JSON-выдаче без копирования чужих UUID, encryption, доменов, путей или origin identity. Source 8711db8cb8920b734f9647e3f26c20b86b3eb2fa добавляет вложенный xhttpSettings.extra, ALPN и fingerprint firefox; прежние верхнеуровневые XHTTP-поля сохранены для совместимости.
+
+GitHub build-only run 34317166763 успешно скомпилировал panel без тестов; artifact 10090490592. На current-s1 переключён только maestro-cdn-controller.service: binary SHA-256 6d4e812c35f3b95ecd9e9698853addc085d882a606bb58124f0487821ab0a2e6, health ok 8711db8cb8920b734f9647e3f26c20b86b3eb2fa. runtime.env остался byte-for-byte тем же, обычный maestro-panel.service не перезапускался; public front, origins DB и боты не менялись.
+
+Непосредственное чтение выдачи владельца после установки: HTTP 200, application/json, Profile-Title MaestroVPN, Subscription-Userinfo присутствует, X-Maestro-CDN: included; 7 профилей = 3 обычных VLESS + 4 CDN. У всех 4 CDN подтверждены XHTTP packet-up, GET/body, auth/chunk_id query, полный вложенный extra, ALPN h2, fingerprint firefox и MLKEM; shape_errors=[]; санитизированный response SHA-256 48e035d2cdb760c74a93b53c34490740c11f3928e6099e0b574ccc5eb25ba12.
+
+Образец Akonit использует Yandex Cloud CDN, не VK: его CDN-хосты разрешаются через *.topology.gslb.yccdn.ru, а адреса 188.72.111.0/24 принадлежат диапазону Yandex Cloud. Наши CDN-узлы также остаются на Yandex; проблема была в клиентской форме XHTTP JSON.
+
+Незавершён один шаг: владелец обновляет эту же подписку в INCY на мобильной сети и смотрит реальный пинг/подключение. Серверная проверка не заменяет этот операторский маршрут. До результата не менять бота, панель, обычные профили или CDN-настройки повторно.
+
+Откат: protected backup /var/backups/maestro-commercial-controller-20260904-s4-qzBchh/controller-upgrade-8711db8 содержит unit.before; старый проверенный binary — panel-candidate-de67eea/maestro-panel, health SHA de67eeac1f04724c592313f47d10bdea3aae28a1. Для отката восстановить только unit, выполнить daemon-reload и restart maestro-cdn-controller.service, затем проверить старый health. Рабочие helper/receipt находятся в C:\Users\User\Documents\Codex\2026-09-06\new-chat.
 # MaestroVPN — актуальная точка продолжения
 
 Обновлено 06.09.2026. Это текущий handoff, а не новый проект или новый план.
