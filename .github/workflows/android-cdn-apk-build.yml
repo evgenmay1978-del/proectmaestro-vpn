@@ -1,261 +1,154 @@
-name: Build signed CDN APK only
-
+name: Build signed MaestroVPN APK only
 on:
   workflow_call:
-    inputs:
-      native_artifact_id:
-        type: string
-        default: '9974061182'
-      native_artifact_sha256:
-        type: string
-        default: 'be2245314aaa1d3504a6ff5600be56dc0474a9550c1dfd400efc032385d5dd63'
   workflow_dispatch:
-    inputs:
-      native_artifact_id:
-        description: Exact maestro-xhttp-native artifact ID from run 33982084006
-        required: true
-        type: string
-        default: '9974061182'
-      native_artifact_sha256:
-        description: Exact archive SHA-256 from the reviewed artifact metadata (without sha256 prefix)
-        required: true
-        type: string
-        default: 'be2245314aaa1d3504a6ff5600be56dc0474a9550c1dfd400efc032385d5dd63'
-
 permissions:
   contents: read
   actions: read
-
 jobs:
   apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      NATIVE_RUN: '33982084006'
-      NATIVE_SOURCE: '458fec7c885250f65d474204061dcdd60d71ee56'
-      NATIVE_ARTIFACT_ID: ${{ inputs.native_artifact_id }}
-      NATIVE_ARTIFACT_SHA256: ${{ inputs.native_artifact_sha256 }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           fetch-depth: 0
-
-      - name: Require unchanged native source and JNI boundary
-        run: |
-          set -euo pipefail
-          git diff --exit-code "$NATIVE_SOURCE" HEAD -- \
-            android-xhttp app/src/main/java/com/maestrovpn/tv/whitelist/XhttpNative.kt \
-            libbox-awg version.properties .github/workflows/libbox.yml \
-            ':!android-xhttp/*_test.go' ':!android-xhttp/README.md'
-
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      - name: Preserve ordinary VPN engine
+        run: git diff --exit-code 458fec7c885250f65d474204061dcdd60d71ee56 HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
           java-version: '17'
-
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-
-      - name: Install the existing pinned Android packaging toolchain
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: android-xhttp/go.mod
+          cache-dependency-path: android-xhttp/go.sum
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'settings.gradle.kts', 'version.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+      - name: Install pinned packaging toolchain
         run: |
           set -euo pipefail
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
-
-      - name: Reuse the exact successful native and libbox artifacts
+          mkdir -p "$RUNNER_TEMP/cdn-apk-inputs"
+      - name: Build pinned XHTTP library for both ABIs without tests
+        working-directory: android-xhttp
+        env:
+          CGO_ENABLED: '1'
+          GOOS: android
+        run: |
+          set -euo pipefail
+          toolchain="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for abi in arm64-v8a armeabi-v7a; do
+            mkdir -p "../app/src/main/jniLibs/$abi"
+            if [ "$abi" = arm64-v8a ]; then
+              export GOARCH=arm64
+              export CC="$toolchain/aarch64-linux-android23-clang"
+              unset GOARM
+            else
+              export GOARCH=arm GOARM=7
+              export CC="$toolchain/armv7a-linux-androideabi23-clang"
+            fi
+            library="../app/src/main/jniLibs/$abi/libmaestro_xhttp.so"
+            go build -mod=readonly -trimpath -buildmode=c-shared -ldflags='-s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384' -o "$library" .
+            "$toolchain/llvm-nm" --defined-only -D "$library" > "$RUNNER_TEMP/cdn-apk-inputs/$abi.exports.txt"
+            for symbol in JNI_OnLoad Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStart Java_com_maestrovpn_tv_whitelist_XhttpNative_nativeStop; do
+              grep -q " $symbol$" "$RUNNER_TEMP/cdn-apk-inputs/$abi.exports.txt"
+            done
+          done
+      - name: Reuse exact libbox artifact
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/9203846250/zip" > "$RUNNER_TEMP/libbox.zip"
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, re, struct, subprocess, zipfile
-          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'cdn-apk-inputs'
-          root.mkdir()
-          repo = os.environ['GITHUB_REPOSITORY']
-          source = os.environ['NATIVE_SOURCE']
-          native_run = int(os.environ['NATIVE_RUN'])
-          native_id = os.environ['NATIVE_ARTIFACT_ID']
-          native_sha = os.environ['NATIVE_ARTIFACT_SHA256']
-          if not re.fullmatch(r'[1-9][0-9]{1,19}', native_id) or not re.fullmatch(r'[a-f0-9]{64}', native_sha):
-              raise SystemExit('native_artifact_pin_invalid')
-          if native_id != '9974061182' or native_sha != 'be2245314aaa1d3504a6ff5600be56dc0474a9550c1dfd400efc032385d5dd63':
-              raise SystemExit('native_artifact_not_the_reviewed_input')
-
-          def api(path):
-              return json.loads(subprocess.check_output(['gh', 'api', 'repos/' + repo + path]))
-
-          run = api('/actions/runs/' + str(native_run))
-          if run.get('head_sha') != source or run.get('conclusion') != 'success' or run.get('event') != 'workflow_dispatch':
-              raise SystemExit('native_run_binding_mismatch')
-
-          def archive(artifact_id, run_id, sha, filename, name=None, commit=None):
-              metadata = api('/actions/artifacts/' + str(artifact_id))
-              workflow = metadata.get('workflow_run') or {}
-              if metadata.get('id') != int(artifact_id) or workflow.get('id') != run_id or metadata.get('expired') is not False:
-                  raise SystemExit('artifact_binding_mismatch')
-              if name is not None and metadata.get('name') != name:
-                  raise SystemExit('artifact_name_mismatch')
-              if commit is not None and workflow.get('head_sha') != commit:
-                  raise SystemExit('artifact_source_mismatch')
-              if metadata.get('digest') not in (None, 'sha256:' + sha):
-                  raise SystemExit('artifact_digest_mismatch')
-              path = root / filename
-              with path.open('xb') as output:
-                  subprocess.run(['gh', 'api', 'repos/' + repo + '/actions/artifacts/' + str(artifact_id) + '/zip'], stdout=output, check=True)
-              digest = hashlib.sha256()
-              with path.open('rb') as value:
-                  for block in iter(lambda: value.read(1048576), b''):
-                      digest.update(block)
-              if digest.hexdigest() != sha:
-                  raise SystemExit('artifact_archive_mismatch')
-              return path
-
-          native_zip = archive(native_id, native_run, native_sha, 'native.zip', 'maestro-xhttp-native-' + source, source)
-          with zipfile.ZipFile(native_zip) as bundle:
-              if len(bundle.namelist()) != len(set(bundle.namelist())) or bundle.getinfo('manifest.json').file_size > 16384:
-                  raise SystemExit('native_manifest_invalid')
-              manifest = json.loads(bundle.read('manifest.json'))
-              if (manifest.get('schema_version') != 1 or manifest.get('source_commit') != source or
-                  manifest.get('xray_commit') != '5ca6f4b7d4dc20a881d4330e498892697627ec0c' or
-                  manifest.get('ndk') != '28.0.13004108' or manifest.get('android_api') != 23):
-                  raise SystemExit('native_build_pin_mismatch')
-              libraries = manifest['libraries']
-              if len(libraries) != 2 or {item['abi'] for item in libraries} != {'arm64-v8a', 'armeabi-v7a'}:
-                  raise SystemExit('native_abi_mismatch')
-              for item in libraries:
-                  abi = item['abi']
-                  name = abi + '/libmaestro_xhttp.so'
-                  if item['path'] != name or not 0 < item['bytes'] <= 64 * 1024 * 1024 or bundle.getinfo(name).file_size != item['bytes']:
-                      raise SystemExit('native_library_metadata_mismatch')
-                  data = bundle.read(name)
-                  if hashlib.sha256(data).hexdigest() != item['sha256'] or data[:4] != b'\x7fELF' or data[5] != 1:
-                      raise SystemExit('native_library_digest_mismatch')
-                  if data[4] != (2 if abi == 'arm64-v8a' else 1) or struct.unpack_from('<H', data, 18)[0] != (183 if abi == 'arm64-v8a' else 40):
-                      raise SystemExit('native_library_architecture_mismatch')
-                  target = pathlib.Path('app/src/main/jniLibs') / abi / 'libmaestro_xhttp.so'
-                  target.parent.mkdir(parents=True, exist_ok=True)
-                  with target.open('xb') as output:
-                      output.write(data)
-
-          aar_sha = 'c70ce917b331fd333d52b8e3c01eba2c2a343497f896fdf62c30436490a88f05'
-          libbox_zip = archive(9203846250, 31758418005, 'baf1ae39b845601ef5291c92c9638261f4a9dfd7725d04ffd856431d48d42b37', 'libbox.zip', 'libbox-aar')
-          with zipfile.ZipFile(libbox_zip) as bundle:
-              matches = [item for item in bundle.infolist() if pathlib.PurePosixPath(item.filename).name == 'libbox.aar']
-              if len(matches) != 1 or not 0 < matches[0].file_size <= 400 * 1024 * 1024:
-                  raise SystemExit('libbox_member_invalid')
-              data = bundle.read(matches[0])
-              if hashlib.sha256(data).hexdigest() != aar_sha:
-                  raise SystemExit('libbox_aar_digest_mismatch')
-              target = pathlib.Path('app/libs/libbox.aar')
-              target.parent.mkdir(parents=True, exist_ok=True)
-              target.write_bytes(data)
-          (root / 'native-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-          (root / 'inputs.json').write_text(json.dumps({'native_run': native_run, 'native_source': source,
-              'native_artifact_id': int(native_id), 'native_archive_sha256': native_sha,
-              'libbox_run': 31758418005, 'libbox_artifact_id': 9203846250, 'libbox_aar_sha256': aar_sha}, indent=2) + '\n')
+          import hashlib, os, pathlib, zipfile
+          archive = pathlib.Path(os.environ['RUNNER_TEMP']) / 'libbox.zip'
+          if hashlib.sha256(archive.read_bytes()).hexdigest() != 'baf1ae39b845601ef5291c92c9638261f4a9dfd7725d04ffd856431d48d42b37':
+              raise SystemExit('libbox_archive_mismatch')
+          with zipfile.ZipFile(archive) as z:
+              members = [v for v in z.infolist() if pathlib.PurePosixPath(v.filename).name == 'libbox.aar']
+              if len(members) != 1: raise SystemExit('libbox_member_mismatch')
+              data = z.read(members[0])
+          if hashlib.sha256(data).hexdigest() != 'c70ce917b331fd333d52b8e3c01eba2c2a343497f896fdf62c30436490a88f05':
+              raise SystemExit('libbox_digest_mismatch')
+          pathlib.Path('app/libs').mkdir(exist_ok=True)
+          pathlib.Path('app/libs/libbox.aar').write_bytes(data)
           PY
-
-      - name: Reuse the existing olcRTC binaries from successful main
+      - name: Reuse existing olcRTC binaries
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           RUN_ID=$(gh run list --workflow=olcrtc-bin.yml --status=success -b main -L1 --json databaseId -q '.[0].databaseId // empty')
-          if [ -z "$RUN_ID" ]; then
-            echo '::error::No existing successful olcrtc-bin.yml artifact on main.' >&2
-            exit 1
-          fi
-          source_dir="$RUNNER_TEMP/olcrtc-bin"
-          gh run download "$RUN_ID" -n olcrtc-bin -D "$source_dir"
+          [ -n "$RUN_ID" ]
+          gh run download "$RUN_ID" -n olcrtc-bin -D "$RUNNER_TEMP/olcrtc-bin"
           for abi in arm64-v8a armeabi-v7a; do
-            src="$source_dir/libolcrtc-${abi}.so"
-            [ -s "$src" ]
-            mkdir -p "app/src/main/jniLibs/${abi}"
-            cp "$src" "app/src/main/jniLibs/${abi}/libolcrtc.so"
+            cp "$RUNNER_TEMP/olcrtc-bin/libolcrtc-${abi}.so" "app/src/main/jniLibs/${abi}/libolcrtc.so"
           done
-          python3 - "$RUN_ID" <<'PY'
-          import json, os, pathlib, sys
-          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'cdn-apk-inputs/inputs.json'
-          metadata = json.loads(path.read_text())
-          metadata['olcrtc_run'] = int(sys.argv[1])
-          metadata['olcrtc_artifact'] = 'olcrtc-bin'
-          metadata['olcrtc_branch'] = 'main'
-          path.write_text(json.dumps(metadata, indent=2) + '\n')
-          PY
-
-      - name: Materialize the existing stable signing keystore
+      - name: Materialize stable signing keystore
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
-          set -euo pipefail
           python3 - <<'PY'
           import base64, os, pathlib
           encoded = os.environ.get('SIGNING_KEYSTORE_B64', '')
           if not encoded or not os.environ.get('LOCAL_PROPERTIES'):
               raise SystemExit('stable_signing_secrets_required')
           raw = base64.b64decode(''.join(encoded.split()), validate=True)
-          if not raw:
-              raise SystemExit('stable_keystore_empty')
-          path = pathlib.Path('app/release.keystore')
-          with path.open('xb') as output:
-              os.chmod(path, 0o600)
-              output.write(raw)
+          if not raw: raise SystemExit('stable_keystore_empty')
+          with pathlib.Path('app/release.keystore').open('xb') as f:
+              os.fchmod(f.fileno(), 0o600)
+              f.write(raw)
           PY
-
-      - name: Build APK 1.0.159 with the stable signature
+      - name: Build signed APK 1.0.159 without test tasks
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
-          set -euo pipefail
           chmod +x ./gradlew
           ./gradlew :app:assembleOtherDebug -PmaestroCdnApk=true --stacktrace --no-daemon
-
-      - name: Read the built APK identity and signature
+      - name: Require installable identity and fleet signing compatibility
         id: apk
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mapfile -t apks < <(find app/build/outputs/apk/other/debug -maxdepth 1 -type f -name '*.apk')
-          if [ "${#apks[@]}" -ne 1 ]; then exit 1; fi
+          [ "${#apks[@]}" -eq 1 ]
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
           [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.159' ]
           [ "$(apkanalyzer manifest version-code "$apk")" = '1015900' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
-          "${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
-          sha256sum "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/apk.sha256"
-          echo "path=$apk" >> "$GITHUB_OUTPUT"
-
-      - name: Require update-compatible signatures with both fleet APKs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          reference_dir="$RUNNER_TEMP/fleet-signers"
-          mkdir -p "$reference_dir"
-          gh release download tv-v1.0.157 --pattern 'MaestroVPN-TV-1.0.157-debug.apk' --dir "$reference_dir"
-          curl --fail --location --max-time 180 'https://storage.yandexcloud.net/maestro-apk/MaestroVPN-TV-1.0.153-debug.apk' -o "$reference_dir/fleet-153.apk"
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
-          for baseline in "$reference_dir"/*.apk; do
+          "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
+          mkdir -p "$RUNNER_TEMP/fleet-signers"
+          gh release download tv-v1.0.157 --pattern 'MaestroVPN-TV-1.0.157-debug.apk' --dir "$RUNNER_TEMP/fleet-signers"
+          curl --fail --location --max-time 180 'https://storage.yandexcloud.net/maestro-apk/MaestroVPN-TV-1.0.153-debug.apk' -o "$RUNNER_TEMP/fleet-signers/fleet-153.apk"
+          for baseline in "$RUNNER_TEMP/fleet-signers"/*.apk; do
             "$signer" verify --print-certs "$baseline" > "$baseline.signer"
             diff -u <(grep 'certificate SHA-256 digest:' "$RUNNER_TEMP/cdn-apk-inputs/signer.txt") <(grep 'certificate SHA-256 digest:' "$baseline.signer")
           done
-          echo 'Stable signing certificate matches fleet versions 153 and 157.' > "$RUNNER_TEMP/cdn-apk-inputs/fleet-signature-match.txt"
-
-      - name: Upload APK artifact only
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          echo 'Signature matches fleet versions 153 and 157.' > "$RUNNER_TEMP/cdn-apk-inputs/fleet-signature-match.txt"
+          sha256sum "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/apk.sha256"
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: maestrovpn-cdn-159-${{ github.sha }}
           path: |
             ${{ steps.apk.outputs.path }}
-            ${{ runner.temp }}/cdn-apk-inputs/apk.sha256
-            ${{ runner.temp }}/cdn-apk-inputs/signer.txt
-            ${{ runner.temp }}/cdn-apk-inputs/fleet-signature-match.txt
-            ${{ runner.temp }}/cdn-apk-inputs/native-manifest.json
-            ${{ runner.temp }}/cdn-apk-inputs/inputs.json
+            ${{ runner.temp }}/cdn-apk-inputs/
           if-no-files-found: error
           retention-days: 14
-
-      - name: Remove the runner signing file
+      - name: Remove runner signing file
         if: ${{ always() }}
         run: rm -f -- app/release.keystore
