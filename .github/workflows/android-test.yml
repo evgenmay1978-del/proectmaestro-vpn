@@ -32,6 +32,7 @@ on:
         options:
           - android
           - cdn-apk-build-only
+          - mobile-approved-screens
           - reserve-measure
           - xhttp-native
           - cdn-runtime-test-apk
@@ -48,6 +49,16 @@ on:
       - .github/workflows/android-test.yml
 
 jobs:
+  mobile-approved-screens:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-approved-screens' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cdn-apk-build.yml
+    with:
+      capture_only: true
+    secrets: inherit
+
   cdn-apk-build-only:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'cdn-apk-build-only' }}
     permissions:

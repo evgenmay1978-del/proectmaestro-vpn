@@ -31,6 +31,9 @@ def tap_label(tree, label):
 
 time.sleep(12)
 tree = snapshot('00-launch')
+if not any(n.get('package') == 'com.maestrovpn.tv' for n in tree.iter('node')):
+    (out / 'android-crash.txt').write_text(adb('logcat', '-b', 'crash', '-d'), encoding='utf-8')
+    raise SystemExit('APK is not foreground; launcher screenshot is not an app result')
 # Only navigate existing public controls. No login, trial creation, order, or VPN connection.
 for label, name in [('Серверы', '01-servers'), ('Подписка', '02-account'), ('Настройки', '03-settings')]:
     if tap_label(tree, label):

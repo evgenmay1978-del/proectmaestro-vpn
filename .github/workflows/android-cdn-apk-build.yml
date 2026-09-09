@@ -1,12 +1,17 @@
 name: Build signed MaestroVPN APK only
 on:
   workflow_call:
+    inputs:
+      capture_only:
+        type: boolean
+        default: false
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
 jobs:
   apk:
+    if: ${{ inputs.capture_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -136,6 +141,7 @@ jobs:
         run: rm -f -- app/release.keystore
   phone-screens:
     needs: apk
+    if: ${{ always() && (needs.apk.result == 'success' || inputs.capture_only == true) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -147,10 +153,12 @@ jobs:
         timeout-minutes: 12
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.capture_only && '34400214578' || github.run_id }}
+          SOURCE_SHA: ${{ inputs.capture_only && '3d7c287e46e2eb07afd8a4e4d4334a05aedcb56e' || github.sha }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/captured-apk"
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" -n "maestrovpn-mobile-160-$GITHUB_SHA" -D "$RUNNER_TEMP/captured-apk"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" -n "maestrovpn-mobile-160-$SOURCE_SHA" -D "$RUNNER_TEMP/captured-apk"
           mapfile -t apks < <(find "$RUNNER_TEMP/captured-apk" -name '*.apk' -type f)
           [ "${#apks[@]}" -eq 1 ]
           APK_PATH="${apks[0]}"
@@ -158,8 +166,8 @@ jobs:
           export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
           export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
           mkdir -p "$ANDROID_AVD_HOME"
-          sdkmanager 'emulator'  'system-images;android-30;google_apis;x86_64' >/dev/null
-          echo 'no' | avdmanager create avd -n maestro-phone -k 'system-images;android-30;google_apis;x86_64' --device 'pixel_4' --path "$ANDROID_AVD_HOME/maestro-phone.avd" --force
+          sdkmanager 'emulator' 'system-images;android-30;google_apis;x86' >/dev/null
+          echo 'no' | avdmanager create avd -n maestro-phone -k 'system-images;android-30;google_apis;x86' --device 'pixel_4' --path "$ANDROID_AVD_HOME/maestro-phone.avd" --force
           printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-30\n' "$ANDROID_AVD_HOME/maestro-phone.avd" > "$ANDROID_AVD_HOME/maestro-phone.ini"
           sudo chmod 666 /dev/kvm
           "$ANDROID_SDK_ROOT/emulator/emulator" -avd maestro-phone -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 3072 > "$RUNNER_TEMP/emulator.log" 2>&1 &
@@ -178,10 +186,12 @@ jobs:
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
-          adb install "$APK_PATH"
+          adb shell getprop ro.product.cpu.abilist
+          adb install --abi armeabi-v7a "$APK_PATH"
           adb shell input keyevent 82
           adb shell am start -n com.maestrovpn.tv/.compose.MainActivity
           python3 ops/mobile-capture-screens.py "$RUNNER_TEMP/mobile-screens"
+          echo "$SOURCE_SHA" > "$RUNNER_TEMP/mobile-screens/apk-source.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() }}
         with:
