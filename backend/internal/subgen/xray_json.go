@@ -69,6 +69,7 @@ func WhiteListXrayJSONSubscription(node WhiteListNode, countryCode string) ([]by
 					SessionIDLength:     xhttp.SessionIDLength,
 					SeqPlacement:        xhttp.SeqPlacement,
 					SeqKey:              xhttp.SeqKey,
+					Extra:               compatibleXHTTPExtra(xhttp),
 				},
 			},
 		}},
@@ -153,7 +154,11 @@ func whiteListXrayJSONConfigs(nodes []WhiteListNode) ([]xrayJSONFullConfig, erro
 		if err := json.Unmarshal([]byte(extra), &xhttp); err != nil {
 			return nil, errInvalidWhiteListNode
 		}
-		tlsSettings := xrayJSONFullTLSSettings{ServerName: node.ServerName}
+		tlsSettings := xrayJSONFullTLSSettings{
+			ServerName:  node.ServerName,
+			ALPN:        append([]string(nil), node.ALPN...),
+			Fingerprint: node.Fingerprint,
+		}
 		xhttpSettings := xrayJSONXHTTPSettings{
 			Host:                node.Host,
 			Path:                node.Path,
@@ -165,6 +170,7 @@ func whiteListXrayJSONConfigs(nodes []WhiteListNode) ([]xrayJSONFullConfig, erro
 			SessionIDLength:     xhttp.SessionIDLength,
 			SeqPlacement:        xhttp.SeqPlacement,
 			SeqKey:              xhttp.SeqKey,
+			Extra:               compatibleXHTTPExtra(xhttp),
 		}
 		stream := xrayJSONFullStreamSettings{
 			Network:       node.Network,
@@ -400,6 +406,57 @@ type xrayJSONXHTTPSettings struct {
 	SessionIDLength     int    `json:"sessionIDLength"`
 	SeqPlacement        string `json:"seqPlacement"`
 	SeqKey              string `json:"seqKey"`
+	Extra               *xrayJSONXHTTPExtra `json:"extra,omitempty"`
+}
+
+type xrayJSONXHTTPExtra struct {
+	NoGRPCHeader          bool             `json:"noGRPCHeader"`
+	NoSSEHeader           bool             `json:"noSSEHeader"`
+	SCMaxBufferedPosts    int              `json:"scMaxBufferedPosts"`
+	SCMaxEachPostBytes    int              `json:"scMaxEachPostBytes"`
+	SCMinPostsIntervalMS  string           `json:"scMinPostsIntervalMs"`
+	SeqKey                string           `json:"seqKey"`
+	SeqPlacement          string           `json:"seqPlacement"`
+	ServerMaxHeaderBytes  int              `json:"serverMaxHeaderBytes"`
+	SessionIDKey          string           `json:"sessionIDKey"`
+	SessionIDLength       string           `json:"sessionIDLength"`
+	SessionIDPlacement    string           `json:"sessionIDPlacement"`
+	SessionKey            string           `json:"sessionKey"`
+	SessionPlacement      string           `json:"sessionPlacement"`
+	UplinkDataPlacement     string            `json:"uplinkDataPlacement"`
+	UplinkHTTPMethod      string           `json:"uplinkHTTPMethod"`
+	XPaddingBytes         string           `json:"xPaddingBytes"`
+	XPaddingHeader        string           `json:"xPaddingHeader"`
+	XPaddingKey           string           `json:"xPaddingKey"`
+	XPaddingMethod        string           `json:"xPaddingMethod"`
+	XPaddingObfsMode      bool             `json:"xPaddingObfsMode"`
+	XPaddingPlacement     string           `json:"xPaddingPlacement"`
+	XMux                   xrayJSONXHTTPXMux `json:"xmux"`
+}
+
+type xrayJSONXHTTPXMux struct {
+	CMaxReuseTimes   string `json:"cMaxReuseTimes"`
+	HKeepAlivePeriod int    `json:"hKeepAlivePeriod"`
+	HMaxRequestTimes string `json:"hMaxRequestTimes"`
+	HMaxReusableSecs string `json:"hMaxReusableSecs"`
+	MaxConnections   string `json:"maxConnections"`
+}
+
+func compatibleXHTTPExtra(source xrayJSONXHTTPSettings) *xrayJSONXHTTPExtra {
+	return &xrayJSONXHTTPExtra{
+		NoGRPCHeader: true, NoSSEHeader: true,
+		SCMaxBufferedPosts: 100, SCMaxEachPostBytes: 3000000, SCMinPostsIntervalMS: "30",
+		SeqKey: source.SeqKey, SeqPlacement: source.SeqPlacement, ServerMaxHeaderBytes: 32768,
+		SessionIDKey: source.SessionIDKey, SessionIDLength: "16-32", SessionIDPlacement: source.SessionIDPlacement,
+		SessionKey: source.SessionIDKey, SessionPlacement: source.SessionIDPlacement,
+		UplinkDataPlacement: source.UplinkDataPlacement, UplinkHTTPMethod: source.UplinkHTTPMethod,
+		XPaddingBytes: "50-150", XPaddingHeader: "X-Padding", XPaddingKey: "x_padding",
+		XPaddingMethod: "tokenish", XPaddingObfsMode: true, XPaddingPlacement: "header",
+		XMux: xrayJSONXHTTPXMux{
+			CMaxReuseTimes: "0", HKeepAlivePeriod: 0, HMaxRequestTimes: "0",
+			HMaxReusableSecs: "0", MaxConnections: "1",
+		},
+	}
 }
 
 type xrayJSONRouting struct {
@@ -454,7 +511,9 @@ type xrayJSONFullStreamSettings struct {
 }
 
 type xrayJSONFullTLSSettings struct {
-	ServerName string `json:"serverName"`
+	ServerName  string   `json:"serverName"`
+	ALPN        []string `json:"alpn"`
+	Fingerprint string   `json:"fingerprint"`
 }
 
 type xrayJSONRealitySettings struct {
