@@ -74,9 +74,9 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, os, pathlib, shutil, subprocess, zipfile
 
-          source = 'deaee626f9fefc135e9142e5f106ea35016550b6'
-          run_id, artifact_id = 34411644353, 10127618879
-          archive_sha = '2e335cfd7a2d1933cd2f0793cb75a62be349eaec6ad0cce7cc6d8152f19bfadd'
+          source = 'e0b737d864e86062e1e5c3fe2fdfb26e663130f8'
+          run_id, artifact_id = 34422480557, 10131540365
+          archive_sha = 'd8aaff44601ebe471f99c5e934bf45d1337d8753fef6e797ba20ad2c0d0649eb'
           tag, apk_name = 'tv-v1.0.160', 'MaestroVPN-TV-1.0.160-debug.apk'
           repo = os.environ['GH_REPO']
 
@@ -121,7 +121,7 @@ jobs:
                   shutil.copyfileobj(input_file, output)
           assert digest(apk) == expected_sha
           metadata = pathlib.Path('version-metadata.json')
-          metadata.write_text(json.dumps(dict(version_code=1016000, version_name='1.0.160')), encoding='utf-8')
+          metadata.write_text(json.dumps(dict(version_code=1016001, version_name='1.0.160')), encoding='utf-8')
           files = (apk, metadata)
 
           ref = api('/git/ref/tags/' + tag, missing_ok=True)

@@ -325,61 +325,149 @@ jobs:
     needs: apk
     if: ${{ always() && inputs.capture_only == true && inputs.emulator_review != true }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
-      - name: Open the built APK and capture its phone screens
-        timeout-minutes: 12
+      - name: Capture the existing native payment fixture while its surface is visible
+        timeout-minutes: 18
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ inputs.capture_only && '34400214578' || github.run_id }}
-          SOURCE_SHA: ${{ inputs.capture_only && '3d7c287e46e2eb07afd8a4e4d4334a05aedcb56e' || github.sha }}
+          ANDROID_SERIAL: emulator-5554
+          SOURCE_RUN: '34422480557'
+          SOURCE_SHA: e0b737d864e86062e1e5c3fe2fdfb26e663130f8
+          SOURCE_ARTIFACT: '10131631683'
+          SOURCE_ZIP_SHA256: bed03e41c00a576462a9362bb0c1a62616903ab477ced76092595b12a65ae22e
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/captured-apk"
-          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" -n "maestrovpn-mobile-160-$SOURCE_SHA" -D "$RUNNER_TEMP/captured-apk"
-          mapfile -t apks < <(find "$RUNNER_TEMP/captured-apk" -name '*.apk' -type f)
-          [ "${#apks[@]}" -eq 1 ]
-          APK_PATH="${apks[0]}"
-          export ANDROID_USER_HOME="$RUNNER_TEMP/maestro-android"
+          export CAPTURE_OUT="$RUNNER_TEMP/mobile-screens"
+          mkdir -p "$CAPTURE_OUT" "$RUNNER_TEMP/captured-native"
+          collect_evidence() {
+            status=$?
+            trap - EXIT
+            set +e
+            timeout 15 adb logcat -b crash -d > "$CAPTURE_OUT/crash-logcat.txt" 2>&1
+            timeout 15 adb logcat -d -v threadtime > "$CAPTURE_OUT/logcat.txt" 2>&1
+            timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$CAPTURE_OUT/" > "$CAPTURE_OUT/captures-pull.txt" 2>&1
+            if grep -qi 'Permission denied' "$CAPTURE_OUT/captures-pull.txt"; then
+              timeout 15 adb root > "$CAPTURE_OUT/adb-root.txt" 2>&1
+              timeout 15 adb wait-for-device
+              timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$CAPTURE_OUT/" > "$CAPTURE_OUT/captures-root-pull.txt" 2>&1
+            fi
+            timeout 10 adb emu kill >/dev/null 2>&1
+            exit "$status"
+          }
+          trap collect_evidence EXIT
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT/zip" > "$RUNNER_TEMP/captured-native.zip"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          archive = root / 'captured-native.zip'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == os.environ['SOURCE_ZIP_SHA256']
+          with zipfile.ZipFile(archive) as z:
+              for name in ('app.apk', 'android-test.apk', 'apks.sha256', 'apk-source.txt'):
+                  entry, = [n for n in z.namelist() if pathlib.PurePosixPath(n).name == name]
+                  with z.open(entry) as source, (root / 'captured-native' / name).open('wb') as target:
+                      shutil.copyfileobj(source, target)
+          assert (root / 'captured-native/apk-source.txt').read_text().strip() == os.environ['SOURCE_SHA']
+          with zipfile.ZipFile(root / 'captured-native/app.apk') as z:
+              assert 'lib/x86_64/libbox.so' in z.namelist()
+              assert {n.split('/')[1] for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')} == {'x86_64'}
+          receipt = {key: os.environ[key] for key in ('SOURCE_RUN', 'SOURCE_SHA', 'SOURCE_ARTIFACT', 'SOURCE_ZIP_SHA256')}
+          (pathlib.Path(os.environ['CAPTURE_OUT']) / 'source.json').write_text(json.dumps(receipt, indent=2))
+          PY
+          pushd "$RUNNER_TEMP/captured-native" >/dev/null
+          sha256sum -c apks.sha256
+          popd >/dev/null
+          export ANDROID_USER_HOME="$RUNNER_TEMP/maestro-payment-android-34"
           export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
           export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
           mkdir -p "$ANDROID_AVD_HOME"
-          sdkmanager 'emulator' 'system-images;android-30;google_apis;x86' >/dev/null
-          echo 'no' | avdmanager create avd -n maestro-phone -k 'system-images;android-30;google_apis;x86' --device 'pixel_4' --path "$ANDROID_AVD_HOME/maestro-phone.avd" --force
-          printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-30\n' "$ANDROID_AVD_HOME/maestro-phone.avd" > "$ANDROID_AVD_HOME/maestro-phone.ini"
+          sdkmanager 'emulator' 'system-images;android-34;google_apis;x86_64' >/dev/null
+          echo 'no' | avdmanager create avd -n maestro-payment -k 'system-images;android-34;google_apis;x86_64' \
+            --device 'pixel_4' --path "$ANDROID_AVD_HOME/maestro-payment.avd" --force
+          printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-34\n' "$ANDROID_AVD_HOME/maestro-payment.avd" > "$ANDROID_AVD_HOME/maestro-payment.ini"
+          python3 - <<'PY'
+          import os, pathlib
+          path = pathlib.Path(os.environ['ANDROID_AVD_HOME']) / 'maestro-payment.avd/config.ini'
+          settings = {'hw.lcd.width': '1080', 'hw.lcd.height': '2340', 'hw.lcd.density': '450', 'hw.keyboard': 'no'}
+          lines = [line for line in path.read_text().splitlines() if line.partition('=')[0].strip() not in settings]
+          path.write_text('\n'.join(lines + [f'{key}={value}' for key, value in settings.items()]) + '\n')
+          PY
           sudo chmod 666 /dev/kvm
-          "$ANDROID_SDK_ROOT/emulator/emulator" -avd maestro-phone -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 3072 > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          "$ANDROID_SDK_ROOT/emulator/emulator" -avd maestro-payment -port 5554 -no-window -no-audio \
+            -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 3072 > "$CAPTURE_OUT/emulator.log" 2>&1 &
           emulator_pid=$!
-          trap 'adb emu kill >/dev/null 2>&1 || true' EXIT
-          if ! timeout 90 adb wait-for-device; then cat "$RUNNER_TEMP/emulator.log"; exit 1; fi
-          kill -0 "$emulator_pid"
-          for i in $(seq 1 90); do
-            kill -0 "$emulator_pid" || { cat "$RUNNER_TEMP/emulator.log"; exit 1; }
-            [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ] && break
+          boot_deadline=$((SECONDS + 180))
+          timeout 60 adb wait-for-device
+          while [ "$(timeout 5 adb shell getprop sys.boot_completed | tr -d '\r')" != 1 ]; do
+            kill -0 "$emulator_pid"
+            [ "$SECONDS" -lt "$boot_deadline" ]
             sleep 2
           done
-          [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]
+          [ "$(adb shell getprop ro.product.cpu.abi | tr -d '\r')" = x86_64 ]
           adb shell wm size 1080x2340
-          adb shell wm density 480
+          adb shell wm density 450
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
-          adb shell getprop ro.product.cpu.abilist
-          adb install --abi armeabi-v7a "$APK_PATH"
           adb shell input keyevent 82
-          adb shell am start -n com.maestrovpn.tv/.compose.MainActivity
-          python3 ops/mobile-capture-screens.py "$RUNNER_TEMP/mobile-screens"
-          echo "$SOURCE_SHA" > "$RUNNER_TEMP/mobile-screens/apk-source.txt"
+          adb install --abi x86_64 -r "$RUNNER_TEMP/captured-native/app.apk"
+          adb install --abi x86_64 -r -t "$RUNNER_TEMP/captured-native/android-test.apk"
+          adb shell pm grant com.maestrovpn.tv android.permission.CAMERA
+          adb shell pm grant com.maestrovpn.tv android.permission.POST_NOTIFICATIONS
+          adb logcat -c
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess, threading, time
+          output = pathlib.Path(os.environ['CAPTURE_OUT'])
+          frames = output / 'frames'; frames.mkdir()
+          method = 'awaitingPaymentUsesOnlyFixtureCallbacks'
+          target = 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#' + method
+          started, finished = threading.Event(), threading.Event()
+          origin = time.monotonic()
+          def capture_frames():
+              if not started.wait(90):
+                  return
+              next_frame = time.monotonic()
+              with (output / 'frames.jsonl').open('w') as log:
+                  for index in range(30):
+                      if finished.is_set(): break
+                      path = frames / f'frame-{index:02d}.png'
+                      at = time.monotonic() - origin
+                      try:
+                          with path.open('wb') as file:
+                              result = subprocess.run(['adb', 'exec-out', 'screencap', '-p'], stdout=file, stderr=subprocess.PIPE, timeout=5)
+                          log.write(json.dumps(dict(frame=path.name, elapsed_seconds=round(at, 3), size=path.stat().st_size, exit=result.returncode, error=result.stderr.decode(errors='replace'))) + '\n')
+                          log.flush()
+                          if result.returncode: break
+                      except subprocess.TimeoutExpired:
+                          log.write(json.dumps(dict(frame=path.name, elapsed_seconds=round(at, 3), error='screencap_timeout')) + '\n'); log.flush()
+                          break
+                      next_frame += 0.2
+                      finished.wait(max(0, next_frame - time.monotonic()))
+          sampler = threading.Thread(target=capture_frames, daemon=True)
+          sampler.start()
+          command = ['timeout', '180', 'adb', 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', target,
+                     'com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner']
+          try:
+              with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1) as process, (output / 'instrumentation.txt').open('w') as log:
+                  for line in process.stdout:
+                      log.write(line); log.flush(); print(line, end='', flush=True)
+                      if line.strip() == 'INSTRUMENTATION_STATUS: test=' + method:
+                          started.set()
+                  exit_code = process.wait()
+              (output / 'instrumentation-exit.txt').write_text(str(exit_code))
+          finally:
+              finished.set(); sampler.join(timeout=6)
+          text = (output / 'instrumentation.txt').read_text()
+          assert exit_code == 0 and re.search(r'OK \(1 tests?\)', text), 'The single payment fixture did not finish successfully'
+          assert re.search(r'^INSTRUMENTATION_CODE:\s*-1\s*$', text, re.M)
+          assert all(int(code) >= 0 for code in re.findall(r'^INSTRUMENTATION_STATUS_CODE:\s*(-?\d+)', text, re.M))
+          assert started.is_set() and any(path.stat().st_size for path in frames.glob('*.png')), 'No native frames were captured during the payment fixture'
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() }}
         with:
           name: maestrovpn-mobile-screens-160-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/mobile-screens/
-            ${{ runner.temp }}/emulator.log
+          path: ${{ runner.temp }}/mobile-screens/
           if-no-files-found: warn
           retention-days: 14
