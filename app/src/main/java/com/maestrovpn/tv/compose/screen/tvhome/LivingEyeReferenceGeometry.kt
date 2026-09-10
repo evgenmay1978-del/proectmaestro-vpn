@@ -59,7 +59,7 @@ internal fun referenceEyeWarpY(x: Float, y: Float, closure: Float): Float {
     return referenceEyeWarpBetween(y, open.upper, open.lower, current.upper, current.lower)
 }
 
-/** Move the photographed upper crease with its lid edge, preserving the strip between them. */
+/** Translate the upper texture without stretching its grain; the renderer mirrors its top edge. */
 internal fun referenceEyeWarpBetween(
     y: Float, openUpper: Float, openLower: Float, currentUpper: Float, currentLower: Float,
 ): Float {
@@ -68,9 +68,7 @@ internal fun referenceEyeWarpBetween(
         return v * v * (3f - 2f * v)
     }
     return when {
-        // Stretch above the crease band; stretching the band itself inflated the closed lid.
-        y <= openUpper -> y + (currentUpper - openUpper) *
-            smooth(y / (openUpper - REFERENCE_EYE_UPPER_BAND).coerceAtLeast(1f))
+        y <= openUpper -> y + (currentUpper - openUpper)
         y >= openLower -> y + (currentLower - openLower) *
             smooth((openLower + REFERENCE_EYE_LOWER_BAND - y) / REFERENCE_EYE_LOWER_BAND)
         else -> currentUpper + (y - openUpper) / (openLower - openUpper) *
@@ -78,7 +76,6 @@ internal fun referenceEyeWarpBetween(
     }
 }
 
-internal const val REFERENCE_EYE_UPPER_BAND = 56f
 internal const val REFERENCE_EYE_LOWER_BAND = 44f
 internal const val REFERENCE_EYE_SIZE = 360f
 // Same registered material guard and frame; no change to the Mobile4D viewport.

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1005,7 +1006,7 @@ class MainActivity :
                 (currentRoute == Screen.Settings.route ||
                     (currentRoute?.startsWith("settings/") == true && !currentRoute.orEmpty().endsWith("/manage")))
             if (legacyPhoneHeader) {
-                Column(Modifier.background(Color(0xFF120D09))) {
+                Column(Modifier.background(Color(0xFF120D09)).statusBarsPadding()) {
                     ApprovedMobileBrand(Modifier.fillMaxWidth().padding(horizontal = 30.dp).height(62.dp))
                     topBarOverride?.invoke()
                 }

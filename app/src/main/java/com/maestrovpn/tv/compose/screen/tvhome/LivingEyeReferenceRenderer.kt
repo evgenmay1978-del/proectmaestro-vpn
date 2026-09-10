@@ -21,6 +21,7 @@ import kotlin.math.roundToInt
 /** Reusable per-composition buffers; only vertices change during the existing blink clock. */
 internal class ReferenceEyeMesh {
     val vertices = FloatArray((GRID + 1) * (GRID + 1) * 2)
+    val upperFillVertices = FloatArray((GRID + 1) * 2 * 2)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     val openUpper = FloatArray(GRID + 1)
     val openLower = FloatArray(GRID + 1)
@@ -117,8 +118,26 @@ internal fun DrawScope.drawReferenceEye(
                 }
             }
         }
-        // One complete textured surface, never an open/closed crossfade. Native
-        // bitmap mesh preserves texture registration while both actual lids meet.
+        // The upper lid translates at its original scale. Mirror only the exposed
+        // top-edge pixels behind it, so no stretched grain or uncovered strip remains.
+        // The maximum 79.5px shift samples above the photographed crease (about y90).
+        if (phase > 0f) {
+            var fillIndex = 0
+            for (row in 0..1) {
+                val y = row * REFERENCE_EYE_SIZE
+                for (column in 0..ReferenceEyeMesh.GRID) {
+                    val x = column * REFERENCE_EYE_SIZE / ReferenceEyeMesh.GRID
+                    val shift = mesh.currentUpper[column] - mesh.openUpper[column]
+                    mesh.upperFillVertices[fillIndex++] = left + x * scale
+                    mesh.upperFillVertices[fillIndex++] = top + (shift - y) * scale
+                }
+            }
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawBitmapMesh(lids.asAndroidBitmap(), ReferenceEyeMesh.GRID,
+                    1, mesh.upperFillVertices, 0, null, 0, mesh.paint)
+            }
+        }
+        // One registered texture and one existing lid clock; no open/closed crossfade.
         var index = 0
         for (row in 0..ReferenceEyeMesh.GRID) {
             val y = row * REFERENCE_EYE_SIZE / ReferenceEyeMesh.GRID

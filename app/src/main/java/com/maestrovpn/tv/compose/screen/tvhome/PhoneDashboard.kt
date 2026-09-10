@@ -132,8 +132,8 @@ internal fun PhoneDashboard(
                                 PhoneAction("Бот", Icons.Default.Send, { openBot() }, Modifier.weight(1.15f))
                             }
                             Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PhoneWallet("VPN", daysText, MaestroCrown, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
-                                PhoneWallet("CDN", balanceText, Icons.Default.Storage, Modifier.weight(1f).fillMaxHeight()) { navigate("cdn") }
+                                PhoneWallet("VPN", if (hasSubProfile) daysText else "—", MaestroCrown, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
+                                PhoneWallet("CDN", if (hasSubProfile) balanceText else "—", Icons.Default.Storage, Modifier.weight(1f).fillMaxHeight()) { navigate("cdn") }
                             }
                             Box(Modifier.size(heroWidth, heroHeight).drawWithCache {
                                 val light = Brush.radialGradient(listOf(Color(0x333F2816), Color.Transparent),
@@ -201,7 +201,7 @@ internal fun PhoneDashboard(
                                 accountExpires?.let { PhoneText("Действует до $it") }
                                 PhoneText("Трафик без ограничений")
                                 Spacer(Modifier.height(12.dp))
-                                PhoneAction("Продлить VPN", MaestroCrown, onBuy, Modifier.fillMaxWidth(), true)
+                                PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.fillMaxWidth(), true)
                             }
                             MobilePremiumPanel {
                                 PhoneText("CDN", true)
@@ -231,7 +231,7 @@ internal fun PhoneDashboard(
                                     balance?.publicationVerdict == "NO_BALANCE" && balance.availableBytes == 0L -> "Гигабайты закончились"
                                     else -> "Обновляем данные CDN"
                                 }, true)
-                                PhoneText(balanceText)
+                                if (hasSubProfile) PhoneText(balanceText)
                                 if (wallet.unavailable && balance != null) PhoneText("Последний полученный остаток")
                                 PhoneText(if (cdnView.cellular) "Мобильная сеть" else "Для CDN включите мобильную сеть")
                             }

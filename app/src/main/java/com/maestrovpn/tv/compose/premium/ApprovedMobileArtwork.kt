@@ -118,6 +118,14 @@ fun ApprovedMobileEyeFrame(modifier: Modifier = Modifier) {
         canvas.saveLayer(Rect(Offset.Zero, size), Paint())
         // The source image is unchanged; the live eye occupies a clipped opening in the UI.
         clipPath(silhouette) { art(atlas, ArtRect(70, 536, 712, 720), 0f, 0f, size.width, size.height) }
+        // Blend the sampled carving into the surrounding wood without a rectangular photo edge.
+        val edge = 5.dp.toPx()
+        val xEdge = (edge / size.width).coerceAtMost(0.1f)
+        val yEdge = (edge / size.height).coerceAtMost(0.1f)
+        drawRect(Brush.horizontalGradient(0f to Color.Transparent, xEdge to Color.Black,
+            (1f - xEdge) to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+        drawRect(Brush.verticalGradient(0f to Color.Transparent, yEdge to Color.Black,
+            (1f - yEdge) to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
         canvas.restore()
     }
 }

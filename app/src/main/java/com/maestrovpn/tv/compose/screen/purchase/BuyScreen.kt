@@ -544,9 +544,9 @@ internal fun PhonePaymentContent(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (state.payUrl.isNotBlank()) {
-                        "Отсканируйте телефоном — откроется оплата (СБП или картой, из любого банка)"
+                        "Откройте страницу оплаты ниже. QR можно отсканировать другим устройством."
                     } else {
-                        "Отсканируйте телефоном — номер вводить не нужно"
+                        "QR для перевода можно отсканировать другим устройством."
                     },
                     color = PremiumText,
                     style = MaterialTheme.typography.bodyMedium,

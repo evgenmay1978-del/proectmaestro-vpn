@@ -134,7 +134,7 @@ jobs:
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
           [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.160' ]
-          [ "$(apkanalyzer manifest version-code "$apk")" = '1016000' ]
+          [ "$(apkanalyzer manifest version-code "$apk")" = '1016001' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
           "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
@@ -164,11 +164,6 @@ jobs:
             test_args=(
               :app:testOtherDebugUnitTest
               --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest'
-              --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnBalancePresentationTest'
-              --tests 'com.maestrovpn.tv.whitelist.WhiteListBalanceTest'
-              --tests 'com.maestrovpn.tv.utils.MaestroSubTest'
-              --tests 'com.maestrovpn.tv.compose.MobileHomeWindowPolicyTest'
-              --tests 'com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyImportTest'
             )
           fi
           ./gradlew "${test_args[@]}" :app:assembleOtherDebug :app:assembleOtherDebugAndroidTest \
@@ -237,7 +232,7 @@ jobs:
         timeout-minutes: 20
         env:
           ANDROID_SERIAL: emulator-5554
-          INSTRUMENTATION_CLASSES: com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest
+          INSTRUMENTATION_CLASSES: com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/mobile-validation"

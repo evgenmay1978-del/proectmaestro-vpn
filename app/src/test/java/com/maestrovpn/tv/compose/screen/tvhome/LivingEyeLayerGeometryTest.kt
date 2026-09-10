@@ -148,13 +148,18 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun openTextureIsIdentityAndSocketEdgesStayFixedWhileBlinking() {
+    fun openTextureIsIdentityAndTranslatedLidsStayOrderedWhileBlinking() {
         for (x in 0..360 step 3) {
             for (y in 0..360 step 3) {
                 assertEquals(y.toFloat(), referenceEyeWarpY(x.toFloat(), y.toFloat(), 0f), 0.0001f)
             }
             for (phase in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
-                assertEquals(0f, referenceEyeWarpY(x.toFloat(), 0f, phase), 0.0001f)
+                val openMargin = referenceEyeMargin(x.toFloat(), 0f)
+                val currentMargin = referenceEyeMargin(x.toFloat(), phase)
+                val translatedTop = referenceEyeWarpY(x.toFloat(), 0f, phase)
+                assertEquals(currentMargin.upper - openMargin.upper, translatedTop, 0.0001f)
+                // The mirrored fill can only reveal pixels above the first photographed crease.
+                assertTrue(translatedTop < 90f)
                 assertEquals(360f, referenceEyeWarpY(x.toFloat(), 360f, phase), 0.0001f)
                 val ys = (0..360).map { referenceEyeWarpY(x.toFloat(), it.toFloat(), phase) }
                 assertTrue(ys.all { it.isFinite() && it >= 0f && it <= 360f })
@@ -164,7 +169,7 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun closingUpperLidPreservesPhotographedCreaseThickness() {
+    fun closingUpperLidPreservesPhotographedCreaseAndUpperGrainScale() {
         // Centre landmarks in phone_eye_photo: crease y180 and lid edge y248 in the
         // 720px photograph, registered here in the renderer's 360px coordinate space.
         val x = 180f
@@ -177,6 +182,10 @@ class LivingEyeLayerGeometryTest {
             val movedLidEdge = referenceEyeWarpY(x, lidEdgeY, closure)
             assertTrue(movedCrease > creaseY)
             assertEquals(photographedThickness, movedLidEdge - movedCrease, 0.001f)
+            // This upper patch visibly stretched after the crease-only correction.
+            val upperPatchTop = referenceEyeWarpY(x, 18f, closure)
+            val upperPatchBottom = referenceEyeWarpY(x, 54f, closure)
+            assertEquals(36f, upperPatchBottom - upperPatchTop, 0.001f)
         }
     }
 
