@@ -40,9 +40,32 @@ func nativeErrorStatus(err error) int {
 	return 0
 }
 
+type nativeBoundaryPublicationFixture struct {
+	stable, native          WhiteListPublicationSnapshot
+	nativeErr               error
+	stableCalls, nativeCalls int
+}
+
+func (f *nativeBoundaryPublicationFixture) WhiteListPublication(context.Context, string, time.Time) (WhiteListPublicationSnapshot, error) {
+	f.stableCalls++
+	return f.stable, nil
+}
+
+func (f *nativeBoundaryPublicationFixture) WhiteListNativePublication(context.Context, string, time.Time) (WhiteListPublicationSnapshot, error) {
+	f.nativeCalls++
+	return f.native, f.nativeErr
+}
+
 func TestNativeRuntimeLeaseRoundsDownActualRemainingTime(t *testing.T) {
 	now := time.Unix(2000000, 100000000)
-	view, err := nativeWhiteListRuntimeView(nativePublicationFixture(now), now)
+	stable := nativePublicationFixture(now)
+	stable.FreshThrough = now.Add(24 * time.Hour)
+	source := &nativeBoundaryPublicationFixture{stable: stable, native: nativePublicationFixture(now)}
+	publication, err := whiteListNativePublication(context.Background(), source, "native-test-token", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := nativeWhiteListRuntimeView(publication, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +75,20 @@ func TestNativeRuntimeLeaseRoundsDownActualRemainingTime(t *testing.T) {
 	}
 	if time.Duration(view.FreshUntilUnix-view.IssuedAtUnix)*time.Second > nativePublicationFixture(now).FreshThrough.Sub(now) {
 		t.Fatal("integer lease extended actual freshness")
+	}
+	if source.nativeCalls != 1 || source.stableCalls != 0 {
+		t.Fatal("native runtime used the stable subscription export")
+	}
+	unchanged, err := source.WhiteListPublication(context.Background(), "native-test-token", now)
+	if err != nil || !unchanged.FreshThrough.Equal(stable.FreshThrough) {
+		t.Fatal("native routing shortened the stable subscription expiry")
+	}
+	if _, err := nativeWhiteListRuntimeView(unchanged, now); nativeErrorStatus(err) != http.StatusServiceUnavailable {
+		t.Fatal("native converter accepted the long stable expiry")
+	}
+	source.nativeErr = controlplane.ErrUnavailable
+	if _, err := whiteListNativePublication(context.Background(), source, "native-test-token", now); !errors.Is(err, controlplane.ErrUnavailable) || source.stableCalls != 1 {
+		t.Fatal("unavailable native readiness fell back to the stable export")
 	}
 }
 

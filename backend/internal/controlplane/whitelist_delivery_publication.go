@@ -112,6 +112,23 @@ func (s *Service) WhiteListPublicationDelivery(
 	ctx context.Context, rawToken string, now time.Time,
 	resolveSender func(string) (ExternalActionSender, bool),
 ) (WhiteListPublicationDelivery, error) {
+	return s.whiteListTokenPublicationDelivery(ctx, rawToken, now, resolveSender, true)
+}
+
+// WhiteListNativePublicationDelivery uses the same fresh all-Origin admission
+// path as internal runtime authorization, then resolves its client material.
+// It never derives an admission deadline from the stable subscription expiry.
+func (s *Service) WhiteListNativePublicationDelivery(
+	ctx context.Context, rawToken string, now time.Time,
+	resolveSender func(string) (ExternalActionSender, bool),
+) (WhiteListPublicationDelivery, error) {
+	return s.whiteListTokenPublicationDelivery(ctx, rawToken, now, resolveSender, false)
+}
+
+func (s *Service) whiteListTokenPublicationDelivery(
+	ctx context.Context, rawToken string, now time.Time,
+	resolveSender func(string) (ExternalActionSender, bool), stableSubscription bool,
+) (WhiteListPublicationDelivery, error) {
 	closed := func(verdict WhiteListPublicationVerdict) WhiteListPublicationDelivery {
 		return WhiteListPublicationDelivery{Decision: closedWhiteListPublication(verdict)}
 	}
@@ -134,7 +151,20 @@ func (s *Service) WhiteListPublicationDelivery(
 		return WhiteListPublicationDelivery{}, ErrUnavailable
 	}
 	entitlementID := entitlement.EntitlementID()
-	return s.whiteListPublicationForEntitlement(ctx, entitlementID, now, resolveSender, true)
+	delivery, err := s.whiteListPublicationForEntitlement(ctx, entitlementID, now, resolveSender, stableSubscription)
+	if err != nil || stableSubscription || delivery.Decision.Verdict != WhiteListPublicationPublishable {
+		return delivery, err
+	}
+	if err := s.fillWhiteListPublicationMaterials(ctx, entitlementID, delivery.Routes); err != nil {
+		return WhiteListPublicationDelivery{}, err
+	}
+	for _, route := range delivery.Routes {
+		if route.ExitID == delivery.ExitID {
+			delivery.Material = route.Material
+			break
+		}
+	}
+	return delivery, nil
 }
 
 // Both internal runtime use and public token delivery resolve this same actual
@@ -324,23 +354,8 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	}
 	var referenceRoute WhiteListPublicationRoute
 	if includeMaterial {
-		seenCountries := make(map[string]struct{}, len(routes))
-		seenLabels := make(map[string]struct{}, len(routes))
-		seenClientIDs := make(map[string]struct{}, len(routes))
-		for index := range routes {
-			routes[index].Material, err = s.whiteListClientMaterial(ctx, entitlementID, routes[index].ExitID)
-			if err != nil || routes[index].CountryCode == "" || routes[index].CountryLabel == "" {
-				return WhiteListPublicationDelivery{}, ErrUnavailable
-			}
-			_, countryExists := seenCountries[routes[index].CountryCode]
-			_, labelExists := seenLabels[routes[index].CountryLabel]
-			_, clientExists := seenClientIDs[routes[index].Material.ClientID]
-			if countryExists || labelExists || clientExists {
-				return WhiteListPublicationDelivery{}, ErrUnavailable
-			}
-			seenCountries[routes[index].CountryCode] = struct{}{}
-			seenLabels[routes[index].CountryLabel] = struct{}{}
-			seenClientIDs[routes[index].Material.ClientID] = struct{}{}
+		if err := s.fillWhiteListPublicationMaterials(ctx, entitlementID, routes); err != nil {
+			return WhiteListPublicationDelivery{}, err
 		}
 	}
 	for _, route := range routes {
@@ -357,6 +372,29 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 		ReleaseID: releaseID, ProfileID: profileID, PresetID: presetID,
 		desiredBindings: desired,
 	}, nil
+}
+
+func (s *Service) fillWhiteListPublicationMaterials(ctx context.Context, entitlementID string, routes []WhiteListPublicationRoute) error {
+	seenCountries := make(map[string]struct{}, len(routes))
+	seenLabels := make(map[string]struct{}, len(routes))
+	seenClientIDs := make(map[string]struct{}, len(routes))
+	for index := range routes {
+		material, err := s.whiteListClientMaterial(ctx, entitlementID, routes[index].ExitID)
+		if err != nil || routes[index].CountryCode == "" || routes[index].CountryLabel == "" {
+			return ErrUnavailable
+		}
+		routes[index].Material = material
+		_, countryExists := seenCountries[routes[index].CountryCode]
+		_, labelExists := seenLabels[routes[index].CountryLabel]
+		_, clientExists := seenClientIDs[material.ClientID]
+		if countryExists || labelExists || clientExists {
+			return ErrUnavailable
+		}
+		seenCountries[routes[index].CountryCode] = struct{}{}
+		seenLabels[routes[index].CountryLabel] = struct{}{}
+		seenClientIDs[material.ClientID] = struct{}{}
+	}
+	return nil
 }
 
 func (s *Service) whiteListPublicationByteBudgetFreshUntil(

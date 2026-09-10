@@ -17,6 +17,21 @@ type WhiteListNativeBusiness interface {
 	WhiteListNativeRuntime(context.Context, string) (WhiteListNativeRuntimeView, error)
 }
 
+// A stable subscription export is not a fresh native admission. Production
+// sources can expose both without changing the existing subscription contract.
+type WhiteListNativePublicationSource interface {
+	WhiteListNativePublication(context.Context, string, time.Time) (WhiteListPublicationSnapshot, error)
+}
+
+func whiteListNativePublication(ctx context.Context, source WhiteListPublicationSource, token string, now time.Time) (WhiteListPublicationSnapshot, error) {
+	if native, ok := source.(WhiteListNativePublicationSource); ok {
+		return native.WhiteListNativePublication(ctx, token, now)
+	}
+	// Existing providers that already supply short, fresh snapshots retain their
+	// contract. nativeWhiteListRuntimeView still rejects long or stale snapshots.
+	return source.WhiteListPublication(ctx, token, now)
+}
+
 type WhiteListNativeRuntimeView struct {
 	SchemaVersion     int                             `json:"schema_version"`
 	IssuedAtUnix      int64                           `json:"issued_at_unix"`
@@ -37,7 +52,7 @@ func (b *ServiceBusiness) WhiteListNativeRuntime(ctx context.Context, token stri
 	// and the commercial balance verdict. The actual source checks all Origins.
 	timed, cancel := context.WithTimeout(ctx, b.cfg.WhiteListPublicationTimeout)
 	defer cancel()
-	publication, err := b.cfg.WhiteListPublicationSource.WhiteListPublication(timed, token, b.requestNow())
+	publication, err := whiteListNativePublication(timed, b.cfg.WhiteListPublicationSource, token, b.requestNow())
 	if err != nil || timed.Err() != nil {
 		return WhiteListNativeRuntimeView{}, businessError(controlplane.ErrUnavailable)
 	}

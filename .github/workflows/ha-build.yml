@@ -13,6 +13,10 @@ on:
         description: Compile the panel artifact without running tests
         type: boolean
         default: false
+      native_runtime_check:
+        description: Run the focused native runtime publication regression before the build
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,6 +38,10 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      - name: Check native runtime publication boundary
+        if: inputs.native_runtime_check == true
+        working-directory: backend
+        run: go test -mod=readonly ./internal/api -run '^TestNativeRuntimeLeaseRoundsDownActualRemainingTime$' -count=1
       - name: Compile panel
         working-directory: backend
         env:

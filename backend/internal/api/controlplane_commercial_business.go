@@ -189,7 +189,7 @@ func (b *ServiceBusiness) whiteListBalanceVerdict(ctx context.Context, accountID
 	if err != nil || customer.Access.SubscriptionToken == "" {
 		return WhiteListSidecarUnavailable
 	}
-	publication, err := b.cfg.WhiteListPublicationSource.WhiteListPublication(timed, customer.Access.SubscriptionToken, b.requestNow())
+	publication, err := whiteListNativePublication(timed, b.cfg.WhiteListPublicationSource, customer.Access.SubscriptionToken, b.requestNow())
 	if err != nil || timed.Err() != nil {
 		return WhiteListSidecarUnavailable
 	}

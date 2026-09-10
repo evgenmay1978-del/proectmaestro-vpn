@@ -46,6 +46,20 @@ func (s rqliteWhiteListPublicationSource) WhiteListPublication(
 	if err != nil {
 		return api.WhiteListPublicationSnapshot{}, err
 	}
+	return runtimeWhiteListPublicationSnapshot(delivery)
+}
+
+func (s rqliteWhiteListPublicationSource) WhiteListNativePublication(
+	ctx context.Context, token string, now time.Time,
+) (api.WhiteListPublicationSnapshot, error) {
+	delivery, err := s.service.WhiteListNativePublicationDelivery(ctx, token, now, s.resolveSender)
+	if err != nil {
+		return api.WhiteListPublicationSnapshot{}, err
+	}
+	return runtimeWhiteListPublicationSnapshot(delivery)
+}
+
+func runtimeWhiteListPublicationSnapshot(delivery controlplane.WhiteListPublicationDelivery) (api.WhiteListPublicationSnapshot, error) {
 	snapshot := api.WhiteListPublicationSnapshot{
 		Verdict:           api.WhiteListPublicationVerdict(delivery.Decision.Verdict),
 		AvailableBytes:    delivery.AvailableBytes,
