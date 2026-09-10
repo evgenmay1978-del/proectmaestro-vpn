@@ -39,9 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.compose.premium.*
 import com.maestrovpn.tv.whitelist.WhiteListSelection
-import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
-import java.util.Locale
 import com.maestrovpn.tv.BuildConfig
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdatePromptProvenance
@@ -102,15 +99,7 @@ internal fun PhoneDashboard(
         daysLeft >= 3650 -> "Безлимит"
         else -> "$daysLeft ${daysWord(daysLeft)}"
     }
-    val balanceText = when {
-        !hasSubProfile -> "Войдите в аккаунт"
-        balance?.publicationVerdict in listOf("PROJECTION_PENDING", "PROJECTION_STALE") -> "Обновляется…"
-        balance?.publicationVerdict == "DISABLED" -> "Не подключён"
-        balance != null && balance.primaryAccessState == "expired" -> "${phoneGb(balance.purchasedRemainingBytes)} ГБ заморожено"
-        balance?.primaryAccessState == "active" -> "${phoneGb(balance.availableBytes)} ГБ"
-        wallet.loading -> "Загрузка…"
-        else -> "Недоступен"
-    }
+    val balanceText = phoneCdnBalanceText(hasSubProfile, wallet)
     fun openBot() {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/MaestroSecureVPN_bot"))) }
             .onFailure { Toast.makeText(context, "Не удалось открыть Telegram", Toast.LENGTH_SHORT).show() }
@@ -123,11 +112,11 @@ internal fun PhoneDashboard(
         ApprovedMobileBackground(Modifier.fillMaxSize())
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             val side = (maxWidth * 0.085f).coerceIn(24.dp, 42.dp)
-            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 520.dp).coerceIn(170.dp, 320.dp) / CARVED_MEDALLION_ASPECT)
+            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 460.dp).coerceIn(220.dp, 360.dp) / CARVED_MEDALLION_ASPECT)
             val heroHeight = heroWidth * CARVED_MEDALLION_ASPECT
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = side)
-                    .verticalScroll(rememberScrollState()).padding(top = 14.dp, bottom = 10.dp),
+                    .verticalScroll(rememberScrollState()).padding(bottom = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     ApprovedMobileBrand(Modifier.fillMaxWidth().height(62.dp))
@@ -172,13 +161,14 @@ internal fun PhoneDashboard(
                                             }
                                         })
                                 ApprovedMobileEyeFrame(Modifier.matchParentSize())
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Column(modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 5.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
                                     color = if (connecting) PremiumGold else if (connected) PremiumEmerald else PremiumRuby,
                                     fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
                                 Text(if (connecting) "Устанавливаем соединение" else if (connected) "Нажмите на глаз, чтобы отключить" else "Нажмите на глаз для подключения",
                                     color = PremiumText, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
+                            }
                             }
                             PhoneModes(cdnSelected, onOrdinary = {
                                 val choice = ordinary.firstOrNull { it == "auto" || it == "urltest" } ?: ordinary.firstOrNull()
@@ -428,6 +418,3 @@ internal fun PhoneBottomNavigation(active: String, home: () -> Unit, servers: ()
             }
     }
 }
-
-private fun phoneGb(bytes: Long): String = if (bytes in 1L..9_999_999L) "< 0,01" else
-    DecimalFormat("0.##", DecimalFormatSymbols(Locale("ru", "RU"))).format(java.math.BigDecimal.valueOf(bytes, 9))

@@ -45,7 +45,12 @@ sealed interface BuyState {
  * details → poll the order until the owner confirms payment → register the
  * subscription as an auto-updating Remote profile. All D-pad, no text entry.
  */
-class BuyViewModel(application: Application) : AndroidViewModel(application) {
+class BuyViewModel @JvmOverloads constructor(
+    application: Application,
+    private val httpGet: (String) -> String = ::defaultPurchaseGet,
+    private val httpPost: (String, String) -> String = ::defaultPurchasePost,
+    private val fetchSubscription: suspend (String) -> String? = { httpGetStringTimed(it) },
+) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<BuyState>(BuyState.Loading)
     val state = _state.asStateFlow()
     private val base = BuildConfig.BACKEND_URL.trimEnd('/')
@@ -185,7 +190,7 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         val context = getApplication<Application>()
         // Carry this install's device id so the renewed profile keeps counting against the cap.
         val devUrl = MaestroSub.withDevice(context, subUrl)
-        val content = httpGetStringTimed(devUrl) ?: error("подписка недоступна (таймаут)")
+        val content = fetchSubscription(devUrl) ?: error("подписка недоступна (таймаут)")
         Libbox.checkConfig(content)
         // A renewal returns the SAME account — match by sub TOKEN (the device query differs)
         // and refresh the existing profile (also upgrading its URL to carry the device id)
@@ -220,31 +225,32 @@ class BuyViewModel(application: Application) : AndroidViewModel(application) {
         UpdateProfileWork.reconfigureUpdater()
     }
 
-    private fun httpGet(url: String): String {
-        val c = URL(url).openConnection() as HttpURLConnection
-        try {
-            c.connectTimeout = 15000
-            c.readTimeout = 15000
-            if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
-            return c.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            c.disconnect()
-        }
-    }
+}
 
-    private fun httpPost(url: String, json: String): String {
-        val c = URL(url).openConnection() as HttpURLConnection
-        try {
-            c.requestMethod = "POST"
-            c.doOutput = true
-            c.connectTimeout = 15000
-            c.readTimeout = 15000
-            c.setRequestProperty("Content-Type", "application/json")
-            c.outputStream.use { it.write(json.toByteArray()) }
-            if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
-            return c.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            c.disconnect()
-        }
+private fun defaultPurchaseGet(url: String): String {
+    val c = URL(url).openConnection() as HttpURLConnection
+    try {
+        c.connectTimeout = 15000
+        c.readTimeout = 15000
+        if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
+        return c.inputStream.bufferedReader().use { it.readText() }
+    } finally {
+        c.disconnect()
+    }
+}
+
+private fun defaultPurchasePost(url: String, json: String): String {
+    val c = URL(url).openConnection() as HttpURLConnection
+    try {
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.connectTimeout = 15000
+        c.readTimeout = 15000
+        c.setRequestProperty("Content-Type", "application/json")
+        c.outputStream.use { it.write(json.toByteArray()) }
+        if (c.responseCode != 200) throw IOException("HTTP ${c.responseCode}")
+        return c.inputStream.bufferedReader().use { it.readText() }
+    } finally {
+        c.disconnect()
     }
 }

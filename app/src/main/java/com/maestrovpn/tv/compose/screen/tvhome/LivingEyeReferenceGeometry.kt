@@ -59,7 +59,7 @@ internal fun referenceEyeWarpY(x: Float, y: Float, closure: Float): Float {
     return referenceEyeWarpBetween(y, open.upper, open.lower, current.upper, current.lower)
 }
 
-/** Move the lid edge, leaving distant grain/veins fixed instead of stretching a hemisphere. */
+/** Move the photographed upper crease with its lid edge, preserving the strip between them. */
 internal fun referenceEyeWarpBetween(
     y: Float, openUpper: Float, openLower: Float, currentUpper: Float, currentLower: Float,
 ): Float {
@@ -68,8 +68,9 @@ internal fun referenceEyeWarpBetween(
         return v * v * (3f - 2f * v)
     }
     return when {
+        // Stretch above the crease band; stretching the band itself inflated the closed lid.
         y <= openUpper -> y + (currentUpper - openUpper) *
-            smooth((y - (openUpper - REFERENCE_EYE_UPPER_BAND)) / REFERENCE_EYE_UPPER_BAND)
+            smooth(y / (openUpper - REFERENCE_EYE_UPPER_BAND).coerceAtLeast(1f))
         y >= openLower -> y + (currentLower - openLower) *
             smooth((openLower + REFERENCE_EYE_LOWER_BAND - y) / REFERENCE_EYE_LOWER_BAND)
         else -> currentUpper + (y - openUpper) / (openLower - openUpper) *

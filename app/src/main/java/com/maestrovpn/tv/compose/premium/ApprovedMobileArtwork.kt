@@ -97,9 +97,9 @@ fun ApprovedMobileBrand(modifier: Modifier = Modifier) {
 }
 
 // Registration against the owner's approved carved reference, in source pixels.
-internal const val CARVED_MEDALLION_ASPECT = 592f / 712f
+internal const val CARVED_MEDALLION_ASPECT = 720f / 712f
 internal const val CARVED_EYE_LEFT = 148f / 712f
-internal const val CARVED_EYE_TOP = 81f / 592f
+internal const val CARVED_EYE_TOP = 81f / 720f
 internal const val CARVED_EYE_DIAMETER = 418f / 712f
 
 @Composable
@@ -117,11 +117,7 @@ fun ApprovedMobileEyeFrame(modifier: Modifier = Modifier) {
         val canvas = drawContext.canvas
         canvas.saveLayer(Rect(Offset.Zero, size), Paint())
         // The source image is unchanged; the live eye occupies a clipped opening in the UI.
-        clipPath(silhouette) { art(atlas, ArtRect(70, 536, 712, 592), 0f, 0f, size.width, size.height) }
-        drawRect(Brush.horizontalGradient(0f to Color.Transparent, 0.04f to Color.Black,
-            0.96f to Color.Black, 1f to Color.Transparent, endX = size.width), blendMode = BlendMode.DstIn)
-        drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.04f to Color.Black,
-            0.96f to Color.Black, 1f to Color.Transparent, endY = size.height), blendMode = BlendMode.DstIn)
+        clipPath(silhouette) { art(atlas, ArtRect(70, 536, 712, 720), 0f, 0f, size.width, size.height) }
         canvas.restore()
     }
 }

@@ -5,6 +5,9 @@ on:
       capture_only:
         type: boolean
         default: false
+      emulator_review:
+        type: boolean
+        default: false
   workflow_dispatch:
 permissions:
   contents: read
@@ -136,12 +139,177 @@ jobs:
             ${{ runner.temp }}/cdn-apk-inputs/
           if-no-files-found: error
           retention-days: 14
+      - name: Run focused JVM checks and package native emulator tests
+        if: ${{ inputs.emulator_review == true }}
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          set -euo pipefail
+          ./gradlew :app:testOtherDebugUnitTest \
+            --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest' \
+            --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnBalancePresentationTest' \
+            --tests 'com.maestrovpn.tv.whitelist.WhiteListBalanceTest' \
+            --tests 'com.maestrovpn.tv.utils.MaestroSubTest' \
+            --tests 'com.maestrovpn.tv.compose.MobileHomeWindowPolicyTest' \
+            --tests 'com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyImportTest' \
+            :app:assembleOtherDebug :app:assembleOtherDebugAndroidTest \
+            -PmaestroCdnApk=true -PmaestroEmulatorApk=true --stacktrace --no-daemon
+          mapfile -t emulator_apks < <(find app/build/outputs/apk/other/debug -maxdepth 1 -type f -name '*-emulator*.apk')
+          mapfile -t test_apks < <(find app/build/outputs/apk/androidTest/other/debug -maxdepth 1 -type f -name '*.apk')
+          [ "${#emulator_apks[@]}" -eq 1 ]
+          [ "${#test_apks[@]}" -eq 1 ]
+          [ "$(apkanalyzer manifest application-id "${emulator_apks[0]}")" = 'com.maestrovpn.tv' ]
+          [ "$(apkanalyzer manifest application-id "${test_apks[0]}")" = 'com.maestrovpn.tv.test' ]
+          mkdir -p "$RUNNER_TEMP/mobile-emulator-apks"
+          cp "${emulator_apks[0]}" "$RUNNER_TEMP/mobile-emulator-apks/app.apk"
+          cp "${test_apks[0]}" "$RUNNER_TEMP/mobile-emulator-apks/android-test.apk"
+          python3 - <<'PY'
+          import os, pathlib, zipfile
+          apk = pathlib.Path(os.environ['RUNNER_TEMP']) / 'mobile-emulator-apks/app.apk'
+          with zipfile.ZipFile(apk) as z:
+              names = z.namelist()
+              assert 'lib/x86_64/libbox.so' in names, 'Native x86_64 libbox is required'
+              abis = {n.split('/')[1] for n in names if n.startswith('lib/') and n.endswith('.so')}
+              assert abis == {'x86_64'}, f'Unexpected emulator APK ABIs: {abis}'
+          PY
+          pushd "$RUNNER_TEMP/mobile-emulator-apks" >/dev/null
+          sha256sum app.apk android-test.apk > apks.sha256
+          printf '%s\n' "$GITHUB_SHA" > apk-source.txt
+          popd >/dev/null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ inputs.emulator_review == true }}
+        with:
+          name: maestrovpn-mobile-emulator-160-${{ github.sha }}
+          path: ${{ runner.temp }}/mobile-emulator-apks/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() && inputs.emulator_review == true }}
+        with:
+          name: maestrovpn-mobile-jvm-160-${{ github.sha }}
+          path: |
+            app/build/test-results/testOtherDebugUnitTest/
+            app/build/reports/tests/testOtherDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Remove runner signing file
         if: ${{ always() }}
         run: rm -f -- app/release.keystore
+  phone-validation:
+    needs: apk
+    if: ${{ inputs.emulator_review == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Download the native emulator and instrumentation APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mobile-emulator-apks"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            -n "maestrovpn-mobile-emulator-160-$GITHUB_SHA" -D "$RUNNER_TEMP/mobile-emulator-apks"
+          pushd "$RUNNER_TEMP/mobile-emulator-apks" >/dev/null
+          [ "$(cat apk-source.txt)" = "$GITHUB_SHA" ]
+          sha256sum -c apks.sha256
+          popd >/dev/null
+      - name: Run focused phone instrumentation on native Android 34
+        timeout-minutes: 20
+        env:
+          ANDROID_SERIAL: emulator-5554
+          INSTRUMENTATION_CLASSES: com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/mobile-validation"
+          mkdir -p "$output"
+          export MAESTRO_VALIDATION_OUT="$output"
+          printf '%s\n' "$GITHUB_SHA" > "$output/apk-source.txt"
+          collect_evidence() {
+            status=$?
+            trap - EXIT
+            set +e
+            timeout 15 adb logcat -b crash -d > "$output/crash-logcat.txt" 2>&1
+            timeout 15 adb logcat -d -v threadtime > "$output/logcat.txt" 2>&1
+            timeout 15 adb shell dumpsys window > "$output/window.txt" 2>&1
+            timeout 15 adb exec-out screencap -p > "$output/final-screen.png" 2> "$output/final-screen-error.txt"
+            timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$output/" > "$output/captures-pull.txt" 2>&1
+            if grep -qi 'Permission denied' "$output/captures-pull.txt"; then
+              timeout 15 adb root > "$output/adb-root.txt" 2>&1
+              timeout 15 adb wait-for-device
+              timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$output/" > "$output/captures-root-pull.txt" 2>&1
+            fi
+            timeout 10 adb emu kill >/dev/null 2>&1
+            exit "$status"
+          }
+          trap collect_evidence EXIT
+          export ANDROID_USER_HOME="$RUNNER_TEMP/maestro-android-34"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          sdkmanager 'emulator' 'system-images;android-34;google_apis;x86_64' >/dev/null
+          echo 'no' | avdmanager create avd -n maestro-phone-native -k 'system-images;android-34;google_apis;x86_64' \
+            --device 'pixel_4' --path "$ANDROID_AVD_HOME/maestro-phone-native.avd" --force
+          printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-34\n' "$ANDROID_AVD_HOME/maestro-phone-native.avd" > "$ANDROID_AVD_HOME/maestro-phone-native.ini"
+          python3 - <<'PY'
+          import os, pathlib
+          path = pathlib.Path(os.environ['ANDROID_AVD_HOME']) / 'maestro-phone-native.avd/config.ini'
+          settings = {'hw.lcd.width': '1080', 'hw.lcd.height': '2340', 'hw.lcd.density': '450', 'hw.keyboard': 'no'}
+          lines = [line for line in path.read_text().splitlines() if line.partition('=')[0].strip() not in settings]
+          path.write_text('\n'.join(lines + [f'{key}={value}' for key, value in settings.items()]) + '\n')
+          PY
+          sudo chmod 666 /dev/kvm
+          "$ANDROID_SDK_ROOT/emulator/emulator" -avd maestro-phone-native -port 5554 -no-window -no-audio \
+            -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 3072 > "$output/emulator.log" 2>&1 &
+          emulator_pid=$!
+          boot_deadline=$((SECONDS + 180))
+          timeout 60 adb wait-for-device
+          while [ "$(timeout 5 adb shell getprop sys.boot_completed | tr -d '\r')" != 1 ]; do
+            kill -0 "$emulator_pid"
+            [ "$SECONDS" -lt "$boot_deadline" ]
+            sleep 2
+          done
+          [ "$(adb shell getprop ro.product.cpu.abi | tr -d '\r')" = x86_64 ]
+          adb shell getprop ro.product.cpu.abilist > "$output/device-abis.txt"
+          adb shell wm size 1080x2340
+          adb shell wm density 450
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          adb shell input keyevent 82
+          adb logcat -c
+          adb install --abi x86_64 -r "$RUNNER_TEMP/mobile-emulator-apks/app.apk"
+          adb install --abi x86_64 -r -t "$RUNNER_TEMP/mobile-emulator-apks/android-test.apk"
+          adb shell pm grant com.maestrovpn.tv android.permission.CAMERA
+          adb shell pm grant com.maestrovpn.tv android.permission.POST_NOTIFICATIONS
+          set +e
+          timeout 600 adb shell am instrument -w -r -e class "$INSTRUMENTATION_CLASSES" \
+            com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tee "$output/instrumentation.txt"
+          instrumentation_exit=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$instrumentation_exit" > "$output/instrumentation-exit.txt"
+          [ "$instrumentation_exit" -eq 0 ]
+          python3 - <<'PY'
+          import os, pathlib, re
+          text = (pathlib.Path(os.environ['MAESTRO_VALIDATION_OUT']) / 'instrumentation.txt').read_text(errors='replace')
+          assert re.search(r'OK \([1-9][0-9]* tests?\)', text), 'Instrumentation did not report a nonempty successful test run'
+          assert re.search(r'^INSTRUMENTATION_CODE:\s*-1\s*$', text, re.M), 'Instrumentation did not finish successfully'
+          codes = [int(value) for value in re.findall(r'^INSTRUMENTATION_STATUS_CODE:\s*(-?\d+)', text, re.M)]
+          assert codes and all(code >= 0 for code in codes), 'Instrumentation reported a failure, error, or skipped test'
+          seen = {value.strip() for value in re.findall(r'^INSTRUMENTATION_STATUS: class=(.+)$', text, re.M)}
+          expected = set(os.environ['INSTRUMENTATION_CLASSES'].split(','))
+          assert expected <= seen, f'Instrumentation did not execute classes: {sorted(expected - seen)}'
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ always() }}
+        with:
+          name: maestrovpn-mobile-validation-160-${{ github.sha }}
+          path: ${{ runner.temp }}/mobile-validation/
+          if-no-files-found: warn
+          retention-days: 14
   phone-screens:
     needs: apk
-    if: ${{ always() && inputs.capture_only == true }}
+    if: ${{ always() && inputs.capture_only == true && inputs.emulator_review != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

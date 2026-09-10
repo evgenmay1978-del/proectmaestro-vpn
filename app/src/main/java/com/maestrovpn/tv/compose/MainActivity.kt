@@ -1006,7 +1006,7 @@ class MainActivity :
                     (currentRoute?.startsWith("settings/") == true && !currentRoute.orEmpty().endsWith("/manage")))
             if (legacyPhoneHeader) {
                 Column(Modifier.background(Color(0xFF120D09))) {
-                    ApprovedMobileBrand(Modifier.fillMaxWidth().padding(horizontal = 30.dp).padding(top = 12.dp).height(62.dp))
+                    ApprovedMobileBrand(Modifier.fillMaxWidth().padding(horizontal = 30.dp).height(62.dp))
                     topBarOverride?.invoke()
                 }
             } else topBarOverride?.invoke()

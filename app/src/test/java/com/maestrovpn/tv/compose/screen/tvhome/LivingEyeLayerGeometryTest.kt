@@ -164,6 +164,23 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
+    fun closingUpperLidPreservesPhotographedCreaseThickness() {
+        // Centre landmarks in phone_eye_photo: crease y180 and lid edge y248 in the
+        // 720px photograph, registered here in the renderer's 360px coordinate space.
+        val x = 180f
+        val creaseY = 90f
+        val lidEdgeY = 124f
+        val photographedThickness = lidEdgeY - creaseY
+
+        for (closure in listOf(0.5f, 1f)) {
+            val movedCrease = referenceEyeWarpY(x, creaseY, closure)
+            val movedLidEdge = referenceEyeWarpY(x, lidEdgeY, closure)
+            assertTrue(movedCrease > creaseY)
+            assertEquals(photographedThickness, movedLidEdge - movedCrease, 0.001f)
+        }
+    }
+
+    @Test
     fun theSameCanthiAndTextureMeetWithoutRevealingTheOldBakedSlit() {
         REFERENCE_EYE_MARGINS.forEach { source ->
             val half = referenceEyeMargin(source.x, 0.5f)

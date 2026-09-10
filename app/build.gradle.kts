@@ -113,6 +113,10 @@ if (task7TestOverrideActive) {
 val cdnApkProperty = providers.gradleProperty("maestroCdnApk").orNull
 require(cdnApkProperty == null || cdnApkProperty == "true") { "maestroCdnApk must be true when supplied" }
 val cdnApkBuild = cdnApkProperty == "true"
+val emulatorApkProperty = providers.gradleProperty("maestroEmulatorApk").orNull
+require(emulatorApkProperty == null || emulatorApkProperty == "true")
+val emulatorApkBuild = emulatorApkProperty == "true"
+require(!emulatorApkBuild || cdnApkBuild) { "Emulator packaging requires the same signed APK configuration" }
 if (cdnApkBuild) {
     require(!task7TestOverrideActive) { "CDN APK and Task 7 version overrides cannot be combined" }
     require(listOf(releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all { it.isNotEmpty() } &&
@@ -141,7 +145,8 @@ android {
         targetSdk = 35
         versionCode = effectiveVersionCode
         versionName = effectiveVersionName
-        base.archivesName.set("MaestroVPN-TV-$effectiveVersionName")
+        base.archivesName.set("MaestroVPN-TV-$effectiveVersionName" + if (emulatorApkBuild) "-emulator" else "")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // backend the TV app hits for the claim-code → subscription exchange
         buildConfigField("String", "BACKEND_URL", "\"https://wapmixx.ru:8911\"")
         // Ship only ARM ABIs. Every real RU Android-TV box / phone is arm64-v8a or
@@ -149,7 +154,7 @@ android {
         // ~130MB of libbox.so, making a 138MB APK that flaked on mobile OTA ("то
         // ставится то нет"). Dropping them ~halves the download.
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += if (emulatorApkBuild) listOf("x86_64") else listOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
@@ -344,6 +349,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     "androidTestOtherImplementation"(composeBom23)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 
     // Common Compose-related libraries
     implementation("sh.calvin.reorderable:reorderable:3.0.0")

@@ -29,6 +29,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 
 /** Share account selection with /info; never display another imported account's wallet. */
 @Composable
@@ -67,6 +70,23 @@ internal data class PhoneCdnAccount(
     val text: String?
         get() = balance?.displayText() ?: if (unavailable) "CDN: остаток временно недоступен" else null
 }
+
+/** Balance presentation does not grant or revoke access to the CDN transport. */
+internal fun phoneCdnBalanceText(hasSubProfile: Boolean, account: PhoneCdnAccount): String {
+    val balance = account.balance
+    return when {
+        !hasSubProfile -> "Войдите в аккаунт"
+        balance?.publicationVerdict in listOf("PROJECTION_PENDING", "PROJECTION_STALE") -> "Обновляется…"
+        balance?.publicationVerdict == "DISABLED" -> "Не подключён"
+        balance != null && balance.primaryAccessState == "expired" -> "${phoneGb(balance.purchasedRemainingBytes)} ГБ заморожено"
+        balance?.primaryAccessState == "active" -> "${phoneGb(balance.availableBytes)} ГБ"
+        account.loading -> "Загрузка…"
+        else -> "Недоступен"
+    }
+}
+
+private fun phoneGb(bytes: Long): String = if (bytes in 1L..9_999_999L) "< 0,01" else
+    DecimalFormat("0.##", DecimalFormatSymbols(Locale("ru", "RU"))).format(java.math.BigDecimal.valueOf(bytes, 9))
 
 @Composable
 internal fun rememberPhoneWhiteListBalance(refreshKey: Any?): State<String?> {
