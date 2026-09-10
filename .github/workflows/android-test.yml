@@ -36,6 +36,7 @@ on:
           - cdn-apk-build-only
           - mobile-approved-screens
           - mobile-ui-validation
+          - mobile-ui-only
           - mobile-release-only
           - reserve-measure
           - xhttp-native
@@ -156,6 +157,17 @@ jobs:
           print(json.dumps(dict(release=published['html_url'], source=source, run=run_id,
                                 artifact=artifact_id, size=apk.stat().st_size, sha256=expected_sha)))
           PY
+
+  mobile-ui-only:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-ui-only' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cdn-apk-build.yml
+    with:
+      emulator_review: true
+      emulator_only: true
+    secrets: inherit
 
   mobile-ui-validation:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-ui-validation' }}

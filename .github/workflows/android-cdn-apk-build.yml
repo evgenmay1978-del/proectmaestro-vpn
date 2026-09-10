@@ -8,6 +8,9 @@ on:
       emulator_review:
         type: boolean
         default: false
+      emulator_only:
+        type: boolean
+        default: false
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +25,12 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Require unchanged production sources for instrumentation-only
+        if: ${{ inputs.emulator_only == true }}
+        run: |
+          set -euo pipefail
+          [ "${{ inputs.emulator_review }}" = true ]
+          git diff --exit-code 6a456798ad86c1c5d5adc0aba95a6f213a4cb2ca HEAD -- app/src/main app/build.gradle.kts
       - name: Preserve ordinary VPN engine
         run: git diff --exit-code 458fec7c885250f65d474204061dcdd60d71ee56 HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
@@ -43,6 +52,7 @@ jobs:
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/28.0.13004108" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/cdn-apk-inputs"
       - name: Reuse unchanged native libraries from signed 159
+        if: ${{ inputs.emulator_only != true }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -106,6 +116,7 @@ jobs:
               f.write(raw)
           PY
       - name: Build signed APK 1.0.160 without test tasks
+        if: ${{ inputs.emulator_only != true }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
@@ -113,6 +124,7 @@ jobs:
           ./gradlew :app:assembleOtherDebug -PmaestroCdnApk=true --stacktrace --no-daemon
       - name: Require installable identity and fleet signing compatibility
         id: apk
+        if: ${{ inputs.emulator_only != true }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -132,6 +144,7 @@ jobs:
           sha256sum "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/apk.sha256"
           echo "path=$apk" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ inputs.emulator_only != true }}
         with:
           name: maestrovpn-mobile-160-${{ github.sha }}
           path: |
@@ -145,14 +158,20 @@ jobs:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
           set -euo pipefail
-          ./gradlew :app:testOtherDebugUnitTest \
-            --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest' \
-            --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnBalancePresentationTest' \
-            --tests 'com.maestrovpn.tv.whitelist.WhiteListBalanceTest' \
-            --tests 'com.maestrovpn.tv.utils.MaestroSubTest' \
-            --tests 'com.maestrovpn.tv.compose.MobileHomeWindowPolicyTest' \
-            --tests 'com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyImportTest' \
-            :app:assembleOtherDebug :app:assembleOtherDebugAndroidTest \
+          chmod +x ./gradlew
+          test_args=()
+          if [ "${{ inputs.emulator_only }}" != true ]; then
+            test_args=(
+              :app:testOtherDebugUnitTest
+              --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest'
+              --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnBalancePresentationTest'
+              --tests 'com.maestrovpn.tv.whitelist.WhiteListBalanceTest'
+              --tests 'com.maestrovpn.tv.utils.MaestroSubTest'
+              --tests 'com.maestrovpn.tv.compose.MobileHomeWindowPolicyTest'
+              --tests 'com.maestrovpn.tv.compose.screen.profileoverride.PerAppProxyImportTest'
+            )
+          fi
+          ./gradlew "${test_args[@]}" :app:assembleOtherDebug :app:assembleOtherDebugAndroidTest \
             -PmaestroCdnApk=true -PmaestroEmulatorApk=true --stacktrace --no-daemon
           mapfile -t emulator_apks < <(find app/build/outputs/apk/other/debug -maxdepth 1 -type f -name '*-emulator*.apk')
           mapfile -t test_apks < <(find app/build/outputs/apk/androidTest/other/debug -maxdepth 1 -type f -name '*.apk')
@@ -184,7 +203,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ always() && inputs.emulator_review == true }}
+        if: ${{ always() && inputs.emulator_review == true && inputs.emulator_only != true }}
         with:
           name: maestrovpn-mobile-jvm-160-${{ github.sha }}
           path: |

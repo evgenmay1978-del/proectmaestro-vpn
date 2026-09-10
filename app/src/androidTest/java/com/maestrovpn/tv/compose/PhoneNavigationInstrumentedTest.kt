@@ -4,10 +4,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.view.KeyEvent
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.test.espresso.Espresso.pressBack
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.maestrovpn.tv.database.Profile
@@ -131,6 +131,11 @@ class PhoneNavigationInstrumentedTest {
         shot("share-fixture")
         tap("Закрыть")
         node("Настройки").assertIsDisplayed()
+    }
+
+    private fun pressBack() {
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        ui.waitForIdle()
     }
 
     private fun node(text: String): SemanticsNodeInteraction {
