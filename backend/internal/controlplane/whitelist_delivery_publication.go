@@ -345,10 +345,7 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 			}
 		}
 	}
-	decision := EvaluateWhiteListPublication(facts)
-	if stableSubscription {
-		decision = evaluateWhiteListSubscriptionPublication(facts)
-	}
+	decision := s.evaluateWhiteListPublicationAfterReads(facts, stableSubscription)
 	if decision.Verdict != WhiteListPublicationPublishable {
 		return WhiteListPublicationDelivery{Decision: decision}, nil
 	}
@@ -372,6 +369,16 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 		ReleaseID: releaseID, ProfileID: profileID, PresetID: presetID,
 		desiredBindings: desired,
 	}, nil
+}
+
+func (s *Service) evaluateWhiteListPublicationAfterReads(facts WhiteListPublicationFacts, stableSubscription bool) WhiteListPublicationDecision {
+	if stableSubscription {
+		return evaluateWhiteListSubscriptionPublication(facts)
+	}
+	// Receipt and metering reads can cross a second boundary. Evaluate their
+	// existing absolute deadlines at the current time; never renew those deadlines.
+	facts.NowUnix = s.clock.Now().Unix()
+	return EvaluateWhiteListPublication(facts)
 }
 
 func (s *Service) fillWhiteListPublicationMaterials(ctx context.Context, entitlementID string, routes []WhiteListPublicationRoute) error {

@@ -1,6 +1,9 @@
 package controlplane
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func validWhiteListPublicationFacts() WhiteListPublicationFacts {
 	return WhiteListPublicationFacts{
@@ -141,5 +144,36 @@ func TestEvaluateWhiteListPublicationUsesSeparateBoundedAdmissionDeadline(t *tes
 				t.Fatalf("admission decision=%#v facts=%#v", decision, facts)
 			}
 		})
+	}
+}
+
+func TestWhiteListPublicationRechecksClockAfterReadsWithoutExtendingDeadlines(t *testing.T) {
+	facts := validWhiteListPublicationFacts()
+	requestNow := facts.NowUnix
+	facts.ObservedThroughUnix = 0 // Byte-budgeted admission has no synthetic usage watermark.
+	facts.AdmissionFreshUntilUnix = requestNow + 7 // Five seconds from a read completed at requestNow+2.
+	facts.ReceiptsFreshUntilUnix = requestNow + 120
+	original := facts
+	if got := EvaluateWhiteListPublication(facts).Verdict; got != WhiteListPublicationProjectionStale {
+		t.Fatalf("fixture must reproduce the old request-clock rejection: %q", got)
+	}
+	service := &Service{clock: fixedClock{value: time.Unix(requestNow+2, 0)}}
+	for _, offset := range []int64{2, 3} {
+		service.clock = fixedClock{value: time.Unix(requestNow+offset, 0)}
+		got := service.evaluateWhiteListPublicationAfterReads(facts, false)
+		if got.Verdict != WhiteListPublicationPublishable || got.FreshUntilUnix != original.AdmissionFreshUntilUnix {
+			t.Fatalf("clock advanced by %ds: deadline changed or fresh admission rejected: %#v", offset, got)
+		}
+	}
+	service.clock = fixedClock{value: time.Unix(original.AdmissionFreshUntilUnix, 0)}
+	if got := service.evaluateWhiteListPublicationAfterReads(facts, false); got != (WhiteListPublicationDecision{Verdict: WhiteListPublicationProjectionStale}) {
+		t.Fatalf("expired admission did not close with zero metadata: %#v", got)
+	}
+	stable := service.evaluateWhiteListPublicationAfterReads(facts, true)
+	if stable.Verdict != WhiteListPublicationPublishable || stable.FreshUntilUnix != original.PrimaryExpiresAtUnix {
+		t.Fatalf("stable subscription expiry changed: %#v", stable)
+	}
+	if facts != original {
+		t.Fatal("clock re-evaluation rewrote the collected facts or absolute deadlines")
 	}
 }
