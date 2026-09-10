@@ -1,6 +1,9 @@
 package com.maestrovpn.tv.compose
 
 import android.graphics.Bitmap
+import android.os.Build
+import android.os.SystemClock
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -34,11 +37,13 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Real phone components on the disposable CI emulator; no claim, payment or VPN backend. */
 @RunWith(AndroidJUnit4::class)
 class PhoneComponentGeometryInstrumentedTest {
-    @get:Rule val ui = createComposeRule()
+    @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
@@ -172,6 +177,8 @@ class PhoneComponentGeometryInstrumentedTest {
     }
 
     private fun paymentFixture(content: @Composable () -> Unit) {
+        // Payment has no blink phase to freeze; let its real rendering clock advance.
+        ui.mainClock.autoAdvance = true
         ui.setContent {
             SFATheme {
                 MobilePremium4DShell(title = "Подписка", onBack = {}) {
@@ -204,6 +211,18 @@ class PhoneComponentGeometryInstrumentedTest {
 
     private fun shot(name: String) {
         ui.waitForIdle()
+        ui.waitUntil(5_000) { ui.runOnUiThread { ui.activity.window.decorView.hasWindowFocus() } }
+        val committed = CountDownLatch(1)
+        ui.runOnUiThread {
+            val view = ui.activity.window.decorView
+            assertTrue("The native fixture window must use hardware rendering", view.isHardwareAccelerated)
+            if (Build.VERSION.SDK_INT >= 29) {
+                view.viewTreeObserver.registerFrameCommitCallback { committed.countDown() }
+                view.invalidate()
+            } else error("Native fixture frame capture requires Android 29+")
+        }
+        assertTrue("The fixture frame must be committed before capture", committed.await(5, TimeUnit.SECONDS))
+        SystemClock.sleep(250)
         val bitmap = checkNotNull(instrumentation.uiAutomation.takeScreenshot()) { "No screenshot for $name" }
         try {
             assertEquals("Fixture viewport width", 1080, bitmap.width)

@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           [ "${{ inputs.emulator_review }}" = true ]
-          git diff --exit-code 6a456798ad86c1c5d5adc0aba95a6f213a4cb2ca HEAD -- app/src/main app/build.gradle.kts
+          git diff --exit-code e0b737d864e86062e1e5c3fe2fdfb26e663130f8 HEAD -- app/src/main app/build.gradle.kts
       - name: Preserve ordinary VPN engine
         run: git diff --exit-code 458fec7c885250f65d474204061dcdd60d71ee56 HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
@@ -232,7 +232,7 @@ jobs:
         timeout-minutes: 20
         env:
           ANDROID_SERIAL: emulator-5554
-          INSTRUMENTATION_CLASSES: com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest
+          INSTRUMENTATION_CLASSES: ${{ inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/mobile-validation"
@@ -311,7 +311,7 @@ jobs:
           codes = [int(value) for value in re.findall(r'^INSTRUMENTATION_STATUS_CODE:\s*(-?\d+)', text, re.M)]
           assert codes and all(code >= 0 for code in codes), 'Instrumentation reported a failure, error, or skipped test'
           seen = {value.strip() for value in re.findall(r'^INSTRUMENTATION_STATUS: class=(.+)$', text, re.M)}
-          expected = set(os.environ['INSTRUMENTATION_CLASSES'].split(','))
+          expected = {target.split('#', 1)[0] for target in os.environ['INSTRUMENTATION_CLASSES'].split(',')}
           assert expected <= seen, f'Instrumentation did not execute classes: {sorted(expected - seen)}'
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
