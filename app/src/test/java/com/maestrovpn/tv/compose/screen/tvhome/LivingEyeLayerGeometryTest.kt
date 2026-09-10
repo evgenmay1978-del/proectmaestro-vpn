@@ -148,18 +148,13 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun openTextureIsIdentityAndTranslatedLidsStayOrderedWhileBlinking() {
+    fun openTextureIsIdentityAndBaseStaysBoundedWhileBlinking() {
         for (x in 0..360 step 3) {
             for (y in 0..360 step 3) {
                 assertEquals(y.toFloat(), referenceEyeWarpY(x.toFloat(), y.toFloat(), 0f), 0.0001f)
             }
             for (phase in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
-                val openMargin = referenceEyeMargin(x.toFloat(), 0f)
-                val currentMargin = referenceEyeMargin(x.toFloat(), phase)
-                val translatedTop = referenceEyeWarpY(x.toFloat(), 0f, phase)
-                assertEquals(currentMargin.upper - openMargin.upper, translatedTop, 0.0001f)
-                // The mirrored fill can only reveal pixels above the first photographed crease.
-                assertTrue(translatedTop < 90f)
+                assertEquals(0f, referenceEyeWarpY(x.toFloat(), 0f, phase), 0.0001f)
                 assertEquals(360f, referenceEyeWarpY(x.toFloat(), 360f, phase), 0.0001f)
                 val ys = (0..360).map { referenceEyeWarpY(x.toFloat(), it.toFloat(), phase) }
                 assertTrue(ys.all { it.isFinite() && it >= 0f && it <= 360f })
@@ -169,41 +164,36 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun closingUpperLidPreservesPhotographedCreaseAndUpperGrainScale() {
-        // Centre landmarks in phone_eye_photo: crease y180 and lid edge y248 in the
-        // 720px photograph, registered here in the renderer's 360px coordinate space.
+    fun upperCreaseStaysFixedWhileUpperLidDoesMostClosing() {
+        // y90 is the photographed upper crease; y18 and y54 are the upper grain
+        // that visibly stretched in the rejected rendering (360px source space).
         val x = 180f
-        val creaseY = 90f
-        val lidEdgeY = 124f
-        val photographedThickness = lidEdgeY - creaseY
+        val open = referenceEyeMargin(x, 0f)
 
         for (closure in listOf(0.5f, 1f)) {
-            val movedCrease = referenceEyeWarpY(x, creaseY, closure)
-            val movedLidEdge = referenceEyeWarpY(x, lidEdgeY, closure)
-            assertTrue(movedCrease > creaseY)
-            assertEquals(photographedThickness, movedLidEdge - movedCrease, 0.001f)
-            // This upper patch visibly stretched after the crease-only correction.
-            val upperPatchTop = referenceEyeWarpY(x, 18f, closure)
-            val upperPatchBottom = referenceEyeWarpY(x, 54f, closure)
-            assertEquals(36f, upperPatchBottom - upperPatchTop, 0.001f)
+            for (y in listOf(18f, 54f, 90f)) {
+                assertEquals(y, referenceEyeWarpY(x, y, closure), 0.001f)
+            }
+            val current = referenceEyeMargin(x, closure)
+            val upperTravel = current.upper - open.upper
+            val lowerTravel = open.lower - current.lower
+            assertTrue(lowerTravel > 0f)
+            assertTrue(upperTravel > lowerTravel)
         }
     }
 
     @Test
-    fun theSameCanthiAndTextureMeetWithoutRevealingTheOldBakedSlit() {
+    fun apertureClosesAgainstLowerLidWithFixedCanthi() {
         REFERENCE_EYE_MARGINS.forEach { source ->
             val half = referenceEyeMargin(source.x, 0.5f)
             val closed = referenceEyeMargin(source.x, 1f)
             assertEquals((source.lower - source.upper) / 2f, half.lower - half.upper, 0.0001f)
             assertEquals(closed.upper, closed.lower, 0.0001f)
-            assertEquals(closed.upper, referenceEyeWarpY(source.x, source.upper, 1f), 0.0001f)
             assertEquals(closed.lower, referenceEyeWarpY(source.x, source.lower, 1f), 0.0001f)
         }
         for (corner in listOf(REFERENCE_EYE_MARGINS.first(), REFERENCE_EYE_MARGINS.last())) {
             assertEquals(corner, referenceEyeMargin(corner.x, 1f))
         }
-        // Cover the entire registered 650px material guard without painting bronze.
-        assertEquals(650f, REFERENCE_EYE_SOCKET_FRACTION * (2f * 2160f * 260f / 853f), 0.001f)
         assertTrue(REFERENCE_EYE_SOCKET_FRACTION < 0.5f)
     }
 }

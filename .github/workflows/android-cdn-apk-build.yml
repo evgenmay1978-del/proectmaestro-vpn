@@ -11,6 +11,9 @@ on:
       emulator_only:
         type: boolean
         default: false
+      visual_preview:
+        type: boolean
+        default: false
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,7 +29,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Require unchanged production sources for instrumentation-only
-        if: ${{ inputs.emulator_only == true }}
+        if: ${{ inputs.emulator_only == true && inputs.visual_preview != true }}
         run: |
           set -euo pipefail
           [ "${{ inputs.emulator_review }}" = true ]
@@ -232,7 +235,8 @@ jobs:
         timeout-minutes: 20
         env:
           ANDROID_SERIAL: emulator-5554
-          INSTRUMENTATION_CLASSES: ${{ inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
+          INSTRUMENTATION_CLASSES: ${{ inputs.visual_preview && 'com.maestrovpn.tv.compose.PhoneEyePreviewInstrumentedTest#homeEyeMotionPreview' || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
+          MAESTRO_VISUAL_PREVIEW: ${{ inputs.visual_preview }}
         run: |
           set -euo pipefail
           output="$RUNNER_TEMP/mobile-validation"
@@ -290,6 +294,9 @@ jobs:
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
+          if [ "$MAESTRO_VISUAL_PREVIEW" = true ]; then
+            adb shell settings put global animator_duration_scale 1
+          fi
           adb shell input keyevent 82
           adb logcat -c
           adb install --abi x86_64 -r "$RUNNER_TEMP/mobile-emulator-apks/app.apk"
@@ -303,16 +310,61 @@ jobs:
           set -e
           printf '%s\n' "$instrumentation_exit" > "$output/instrumentation-exit.txt"
           [ "$instrumentation_exit" -eq 0 ]
+          if [ "$MAESTRO_VISUAL_PREVIEW" = true ]; then
+            adb shell wm size 1920x1080
+            adb shell wm density 160
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 0
+            set +e
+            timeout 120 adb shell am instrument -w -r -e preview_form_factor tv \
+              -e class com.maestrovpn.tv.compose.PhoneEyePreviewInstrumentedTest#tvHomeLayoutPreview \
+              com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tee "$output/tv-instrumentation.txt"
+            tv_exit=${PIPESTATUS[0]}
+            set -e
+            printf '%s\n' "$tv_exit" > "$output/tv-instrumentation-exit.txt"
+            [ "$tv_exit" -eq 0 ]
+            if ! timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$output/" > "$output/preview-captures-pull.txt" 2>&1; then
+              grep -qi 'Permission denied' "$output/preview-captures-pull.txt"
+              timeout 15 adb root > "$output/preview-adb-root.txt" 2>&1
+              timeout 15 adb wait-for-device
+              timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$output/" > "$output/preview-captures-root-pull.txt" 2>&1
+            fi
+          fi
           python3 - <<'PY'
           import os, pathlib, re
-          text = (pathlib.Path(os.environ['MAESTRO_VALIDATION_OUT']) / 'instrumentation.txt').read_text(errors='replace')
-          assert re.search(r'OK \([1-9][0-9]* tests?\)', text), 'Instrumentation did not report a nonempty successful test run'
-          assert re.search(r'^INSTRUMENTATION_CODE:\s*-1\s*$', text, re.M), 'Instrumentation did not finish successfully'
-          codes = [int(value) for value in re.findall(r'^INSTRUMENTATION_STATUS_CODE:\s*(-?\d+)', text, re.M)]
-          assert codes and all(code >= 0 for code in codes), 'Instrumentation reported a failure, error, or skipped test'
-          seen = {value.strip() for value in re.findall(r'^INSTRUMENTATION_STATUS: class=(.+)$', text, re.M)}
+          output = pathlib.Path(os.environ['MAESTRO_VALIDATION_OUT'])
+          visual_preview = os.environ.get('MAESTRO_VISUAL_PREVIEW') == 'true'
+          logs = ['instrumentation.txt'] + (['tv-instrumentation.txt'] if visual_preview else [])
           expected = {target.split('#', 1)[0] for target in os.environ['INSTRUMENTATION_CLASSES'].split(',')}
-          assert expected <= seen, f'Instrumentation did not execute classes: {sorted(expected - seen)}'
+          for name in logs:
+              text = (output / name).read_text(errors='replace')
+              assert re.search(r'OK \([1-9][0-9]* tests?\)', text), f'{name}: no successful test run'
+              assert re.search(r'^INSTRUMENTATION_CODE:\s*-1\s*$', text, re.M), f'{name}: did not finish successfully'
+              codes = [int(value) for value in re.findall(r'^INSTRUMENTATION_STATUS_CODE:\s*(-?\d+)', text, re.M)]
+              assert codes and all(code >= 0 for code in codes), f'{name}: failure, error, or skipped test'
+              seen = {value.strip() for value in re.findall(r'^INSTRUMENTATION_STATUS: class=(.+)$', text, re.M)}
+              assert expected <= seen, f'{name}: missing classes {sorted(expected - seen)}'
+          if visual_preview:
+              captures = output / 'ui-captures'
+              for name in ['fixture-eye-home-off.png', 'fixture-eye-home-on.png',
+                           'fixture-eye-home-off-after.png', 'fixture-tv-home.png', 'fixture-eye-home-motion.mp4']:
+                  file = captures / name
+                  assert file.is_file() and file.stat().st_size > 0, f'Missing native preview: {name}'
+              # screenrecord exits before the fixture ends; require a completed MP4 container.
+              data = (captures / 'fixture-eye-home-motion.mp4').read_bytes()
+              atoms, offset = set(), 0
+              while offset + 8 <= len(data):
+                  size = int.from_bytes(data[offset:offset + 4], 'big')
+                  kind = data[offset + 4:offset + 8]
+                  header = 8
+                  if size == 1:
+                      size = int.from_bytes(data[offset + 8:offset + 16], 'big'); header = 16
+                  elif size == 0:
+                      size = len(data) - offset
+                  assert size >= header and offset + size <= len(data), 'Incomplete native MP4 atom'
+                  atoms.add(kind)
+                  offset += size
+              assert offset == len(data) and {b'ftyp', b'moov', b'mdat'} <= atoms, 'Native MP4 is not finalized'
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() }}

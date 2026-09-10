@@ -37,6 +37,7 @@ on:
           - mobile-approved-screens
           - mobile-ui-validation
           - mobile-ui-only
+          - mobile-eye-preview
           - mobile-release-only
           - reserve-measure
           - xhttp-native
@@ -167,6 +168,18 @@ jobs:
     with:
       emulator_review: true
       emulator_only: true
+    secrets: inherit
+
+  mobile-eye-preview:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-eye-preview' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cdn-apk-build.yml
+    with:
+      emulator_review: true
+      emulator_only: true
+      visual_preview: true
     secrets: inherit
 
   mobile-ui-validation:

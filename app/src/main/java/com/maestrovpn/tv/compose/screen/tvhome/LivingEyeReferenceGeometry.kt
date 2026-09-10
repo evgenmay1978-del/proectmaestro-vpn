@@ -45,7 +45,7 @@ internal fun referenceEyeMargin(x: Float, closure: Float): ReferenceEyeMargin {
         }
     }
     val phase = closure.coerceIn(0f, 1f)
-    val seam = open.upper * 0.25f + open.lower * 0.75f
+    val seam = open.upper * 0.05f + open.lower * 0.95f
     return ReferenceEyeMargin(x, open.upper + (seam - open.upper) * phase,
         open.lower + (seam - open.lower) * phase)
 }
@@ -56,10 +56,10 @@ internal val REFERENCE_EYE_MARGINS: List<ReferenceEyeMargin> =
 internal fun referenceEyeWarpY(x: Float, y: Float, closure: Float): Float {
     val open = referenceEyeMargin(x, 0f)
     val current = referenceEyeMargin(x, closure)
-    return referenceEyeWarpBetween(y, open.upper, open.lower, current.upper, current.lower)
+    return referenceEyeWarpBetween(y, open.upper, open.lower, open.upper, current.lower)
 }
 
-/** Translate the upper texture without stretching its grain; the renderer mirrors its top edge. */
+/** Base texture warp: pin the upper crease; the renderer supplies the moving upper lid separately. */
 internal fun referenceEyeWarpBetween(
     y: Float, openUpper: Float, openLower: Float, currentUpper: Float, currentLower: Float,
 ): Float {
