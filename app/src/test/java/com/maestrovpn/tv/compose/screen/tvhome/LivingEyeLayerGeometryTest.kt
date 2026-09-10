@@ -148,10 +148,10 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun openTextureIsIdentityAndBaseStaysBoundedWhileBlinking() {
+    fun closedTextureIsIdentityAndOpeningStaysBounded() {
         for (x in 0..360 step 3) {
             for (y in 0..360 step 3) {
-                assertEquals(y.toFloat(), referenceEyeWarpY(x.toFloat(), y.toFloat(), 0f), 0.0001f)
+                assertEquals(y.toFloat(), referenceEyeWarpY(x.toFloat(), y.toFloat(), 1f), 0.0001f)
             }
             for (phase in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
                 assertEquals(0f, referenceEyeWarpY(x.toFloat(), 0f, phase), 0.0001f)
@@ -165,13 +165,13 @@ class LivingEyeLayerGeometryTest {
 
     @Test
     fun upperCreaseStaysFixedWhileUpperLidDoesMostClosing() {
-        // y90 is the photographed upper crease; y18 and y54 are the upper grain
-        // that visibly stretched in the rejected rendering (360px source space).
+        // The fixed crease is near y92 in the registered closed source; the upper
+        // grain must stay registered while the material below it folds away.
         val x = 180f
         val open = referenceEyeMargin(x, 0f)
 
         for (closure in listOf(0.5f, 1f)) {
-            for (y in listOf(18f, 54f, 90f)) {
+            for (y in listOf(18f, 54f, 92f)) {
                 assertEquals(y, referenceEyeWarpY(x, y, closure), 0.001f)
             }
             val current = referenceEyeMargin(x, closure)
@@ -183,13 +183,16 @@ class LivingEyeLayerGeometryTest {
     }
 
     @Test
-    fun apertureClosesAgainstLowerLidWithFixedCanthi() {
+    fun oneSourceSeamSeparatesIntoMarginsAndClosesAtFixedCanthi() {
         REFERENCE_EYE_MARGINS.forEach { source ->
             val half = referenceEyeMargin(source.x, 0.5f)
             val closed = referenceEyeMargin(source.x, 1f)
             assertEquals((source.lower - source.upper) / 2f, half.lower - half.upper, 0.0001f)
             assertEquals(closed.upper, closed.lower, 0.0001f)
-            assertEquals(closed.lower, referenceEyeWarpY(source.x, source.lower, 1f), 0.0001f)
+            if (source.lower > source.upper) {
+                assertEquals(half.upper, referenceEyeWarpY(source.x, closed.upper - 0.001f, 0.5f), 0.002f)
+                assertEquals(half.lower, referenceEyeWarpY(source.x, closed.upper + 0.001f, 0.5f), 0.002f)
+            }
         }
         for (corner in listOf(REFERENCE_EYE_MARGINS.first(), REFERENCE_EYE_MARGINS.last())) {
             assertEquals(corner, referenceEyeMargin(corner.x, 1f))

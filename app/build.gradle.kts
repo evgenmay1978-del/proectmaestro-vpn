@@ -121,11 +121,11 @@ if (cdnApkBuild) {
     require(!task7TestOverrideActive) { "CDN APK and Task 7 version overrides cannot be combined" }
     require(listOf(releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all { it.isNotEmpty() } &&
         file("release.keystore").isFile) { "CDN APK requires the existing stable signing keystore and all signing properties" }
-    require(1016001 > productionVersionCode) { "CDN APK version must exceed the source version" }
+    require(1016002 > productionVersionCode) { "CDN APK version must exceed the source version" }
 }
 
 val effectiveVersionName = if (cdnApkBuild) "1.0.160" else task7TestVersionNameProperty ?: productionVersionName
-val effectiveVersionCode = if (cdnApkBuild) 1016001 else task7TestVersionCode ?: productionVersionCode
+val effectiveVersionCode = if (cdnApkBuild) 1016002 else task7TestVersionCode ?: productionVersionCode
 android {
     namespace = "com.maestrovpn.tv"
     compileSdk = 36

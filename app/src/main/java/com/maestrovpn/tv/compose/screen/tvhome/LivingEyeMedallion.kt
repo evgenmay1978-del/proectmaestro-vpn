@@ -40,10 +40,9 @@ internal fun LivingEyeMedallion(
     modifier: Modifier = Modifier,
 ) {
 
-    val lids = ImageBitmap.imageResource(R.drawable.phone_eye_lids)
+    val lids = ImageBitmap.imageResource(R.drawable.phone_eye_closed_surface)
     val sclera = ImageBitmap.imageResource(R.drawable.mobile_eye_sclera_clean)
     val iris = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_iris)
-    val catchlight = ImageBitmap.imageResource(R.drawable.mobile_eye_reference_catchlight)
     val mesh = remember { ReferenceEyeMesh() }
 
     // 0 = reference opening; 1 = the same textured lids meeting at the contact seam.
@@ -164,7 +163,6 @@ internal fun LivingEyeMedallion(
             lids = lids,
             sclera = sclera,
             iris = iris,
-            catchlight = catchlight,
             mesh = mesh,
             closure = lidPhase.value,
             gazeX = gazeX.value - BLINK_NASAL_SHIFT * blinkEyeShift.value,

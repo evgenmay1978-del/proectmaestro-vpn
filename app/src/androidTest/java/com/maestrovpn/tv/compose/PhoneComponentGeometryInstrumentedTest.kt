@@ -85,16 +85,23 @@ class PhoneComponentGeometryInstrumentedTest {
         // Keep the same visible Activity until screenrecord closes the MP4 itself.
         val directory = requireNotNull(context.getExternalFilesDir("ui-captures"))
         val video = File(directory, "fixture-eye-home-motion.mp4")
-        val recording = instrumentation.uiAutomation.executeShellCommand(
-            "screenrecord --time-limit 26 --bit-rate 6000000 --size 1080x2340 '${video.absolutePath}'",
+        // UiAutomation uses Runtime.exec(String), not a shell: quotes would become
+        // literal path characters. This fixture-owned path has no whitespace.
+        check(video.absolutePath.none { it.isWhitespace() })
+        val recording = instrumentation.uiAutomation.executeShellCommandRwe(
+            "screenrecord --time-limit 26 --bit-rate 6000000 --size 1080x2340 ${video.absolutePath}",
         )
+        recording[1].close() // screenrecord takes no stdin; let its process cleanup reach EOF.
         val recordingLog = ByteArrayOutputStream()
-        val recordingFinished = CountDownLatch(1)
-        thread(name = "native-eye-preview-recording") {
-            try {
-                ParcelFileDescriptor.AutoCloseInputStream(recording).use { it.copyTo(recordingLog) }
-            } finally {
-                recordingFinished.countDown()
+        val recordingError = ByteArrayOutputStream()
+        val recordingFinished = CountDownLatch(2)
+        for ((descriptor, log) in listOf(recording[0] to recordingLog, recording[2] to recordingError)) {
+            thread(name = "native-eye-preview-recording") {
+                try {
+                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.copyTo(log) }
+                } finally {
+                    recordingFinished.countDown()
+                }
             }
         }
         val started = SystemClock.uptimeMillis()
@@ -123,9 +130,12 @@ class PhoneComponentGeometryInstrumentedTest {
             }
             SystemClock.sleep(16L)
         }
-        assertTrue("screenrecord must finish within its bounded deadline", recordingFinished.await(5, TimeUnit.SECONDS))
+        val recordingClosed = recordingFinished.await(5, TimeUnit.SECONDS)
         File(directory, "fixture-eye-recording.txt").writeBytes(recordingLog.toByteArray())
-        assertTrue("Native eye video is missing or empty", video.isFile && video.length() > 0L)
+        File(directory, "fixture-eye-recording-stderr.txt").writeBytes(recordingError.toByteArray())
+        assertTrue("screenrecord must finish within its bounded deadline", recordingClosed)
+        assertTrue("Native eye video is missing or empty: ${recordingError.toString("UTF-8").take(512)}",
+            video.isFile && video.length() > 0L)
         ui.onNodeWithText("Отключено", useUnmergedTree = true).assertIsDisplayed()
         shot("fixture-eye-home-off-after")
     }

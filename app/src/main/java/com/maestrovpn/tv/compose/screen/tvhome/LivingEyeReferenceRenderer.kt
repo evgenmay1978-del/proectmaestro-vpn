@@ -4,15 +4,16 @@ import android.graphics.Paint
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -21,10 +22,10 @@ import kotlin.math.roundToInt
 /** Reusable per-composition buffers; only vertices change during the existing blink clock. */
 internal class ReferenceEyeMesh {
     val vertices = FloatArray((GRID + 1) * (GRID + 1) * 2)
-    val upperFillVertices = FloatArray((GRID + 1) * 2 * 2)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     val openUpper = FloatArray(GRID + 1)
     val openLower = FloatArray(GRID + 1)
+    val sourceSeam = FloatArray(GRID + 1)
     val currentUpper = FloatArray(GRID + 1)
     val currentLower = FloatArray(GRID + 1)
     val marginUpper = FloatArray(REFERENCE_EYE_CONTROLS.size)
@@ -35,6 +36,7 @@ internal class ReferenceEyeMesh {
             val margin = referenceEyeMargin(column * REFERENCE_EYE_SIZE / GRID, 0f)
             openUpper[column] = margin.upper
             openLower[column] = margin.lower
+            sourceSeam[column] = referenceEyeMargin(column * REFERENCE_EYE_SIZE / GRID, 1f).upper
         }
     }
 
@@ -42,14 +44,14 @@ internal class ReferenceEyeMesh {
         for (column in 0..GRID) {
             val upper = openUpper[column]
             val lower = openLower[column]
-            val seam = upper * 0.05f + lower * 0.95f
-            currentUpper[column] = upper + (seam - upper) * phase
-            currentLower[column] = lower + (seam - lower) * phase
+            val seam = sourceSeam[column]
+            currentUpper[column] = if (phase == 1f) seam else upper + (seam - upper) * phase
+            currentLower[column] = if (phase == 1f) seam else lower + (seam - lower) * phase
         }
         REFERENCE_EYE_CONTROLS.forEachIndexed { index, source ->
-            val seam = source.upper * 0.05f + source.lower * 0.95f
-            marginUpper[index] = source.upper + (seam - source.upper) * phase
-            marginLower[index] = source.lower + (seam - source.lower) * phase
+            val seam = REFERENCE_EYE_CLOSED_SEAM_Y[index]
+            marginUpper[index] = if (phase == 1f) seam else source.upper + (seam - source.upper) * phase
+            marginLower[index] = if (phase == 1f) seam else source.lower + (seam - source.lower) * phase
         }
     }
 
@@ -60,7 +62,6 @@ internal fun DrawScope.drawReferenceEye(
     lids: ImageBitmap,
     sclera: ImageBitmap,
     iris: ImageBitmap,
-    catchlight: ImageBitmap,
     mesh: ReferenceEyeMesh,
     closure: Float,
     gazeX: Float,
@@ -80,15 +81,11 @@ internal fun DrawScope.drawReferenceEye(
             dstSize = IntSize((width * scale).roundToInt().coerceAtLeast(1),
                 (height * scale).roundToInt().coerceAtLeast(1)), filterQuality = FilterQuality.High)
     }
-    fun eyeBand(start: Float, end: Float, upperLidFill: Boolean = false): Path {
-        fun control(index: Int, fraction: Float): Offset {
-            val source = REFERENCE_EYE_CONTROLS[index]
-            val upper = if (upperLidFill) {
-                source.upper - minOf(8f, (mesh.marginUpper[index] - source.upper).coerceAtLeast(0f))
-            } else mesh.marginUpper[index]
-            val lower = if (upperLidFill) mesh.marginUpper[index] else mesh.marginLower[index]
-            return point(source.x, upper + (lower - upper) * fraction)
-        }
+    fun eyeBand(start: Float, end: Float): Path {
+        fun control(index: Int, fraction: Float): Offset = point(
+            REFERENCE_EYE_CONTROLS[index].x,
+            mesh.marginUpper[index] + (mesh.marginLower[index] - mesh.marginUpper[index]) * fraction,
+        )
         return Path().apply {
             val first = control(0, start)
             moveTo(first.x, first.y)
@@ -106,9 +103,9 @@ internal fun DrawScope.drawReferenceEye(
         }
     }
     val socket = Path().apply { addOval(Rect(left, top, left + radius * 2f, top + radius * 2f)) }
+    val aperture = eyeBand(0f, 1f)
     clipPath(socket) {
         if (livingEyeRenderPolicy(phase).eyeLayersEnabled) {
-            val aperture = eyeBand(0f, 1f)
             clipPath(aperture) {
                 // Native 660x280 sclera, registered at half scale without changing its aspect.
                 layer(sclera, 15f, 110f, 330f, 140f)
@@ -122,7 +119,28 @@ internal fun DrawScope.drawReferenceEye(
                     0f to Color(0xFF010605), 0.86f to Color(0xFF020807),
                     1f to Color(0x000A150C), center = pupilCenter, radius = pupilRadius),
                     radius = pupilRadius, center = pupilCenter)
-                layer(catchlight, 161f, 134f, 48f, 48f)
+                // Fixed, soft optical reflections; no glow, pulsing or gaze-driven parallax.
+                val reflection = point(161f, 151f)
+                withTransform({
+                    translate(reflection.x, reflection.y)
+                    rotate(-25f, pivot = Offset.Zero)
+                    this.scale(1.2f, 0.8f, pivot = Offset.Zero)
+                }) {
+                    val reflectionRadius = 6f * scale
+                    drawCircle(Brush.radialGradient(
+                        0f to Color.White.copy(alpha = 0.9f),
+                        0.4f to Color.White.copy(alpha = 0.78f),
+                        1f to Color.Transparent,
+                        center = Offset.Zero, radius = reflectionRadius),
+                        radius = reflectionRadius, center = Offset.Zero)
+                }
+                val tinyReflection = point(175f, 161f)
+                drawCircle(Brush.radialGradient(
+                    0f to Color.White.copy(alpha = 0.82f),
+                    0.45f to Color.White.copy(alpha = 0.65f),
+                    1f to Color.Transparent,
+                    center = tinyReflection, radius = 1.8f * scale),
+                    radius = 1.8f * scale, center = tinyReflection)
                 // The upper lid casts a soft contact shadow over the whole globe,
                 // including the iris and corneal reflection, as it closes.
                 repeat(8) { band ->
@@ -132,7 +150,8 @@ internal fun DrawScope.drawReferenceEye(
                 }
             }
         }
-        // The upper crease stays registered; only the lower lid moves slightly in this base layer.
+        // One complete source is identity when closed. During opening the gap is clipped out;
+        // no copied tissue band, old open rim or separately painted closure seam is retained.
         var index = 0
         for (row in 0..ReferenceEyeMesh.GRID) {
             val y = row * REFERENCE_EYE_SIZE / ReferenceEyeMesh.GRID
@@ -141,51 +160,14 @@ internal fun DrawScope.drawReferenceEye(
                 mesh.vertices[index++] = left + x * scale
                 mesh.vertices[index++] = top + referenceEyeWarpBetween(y,
                     mesh.openUpper[column], mesh.openLower[column],
-                    mesh.openUpper[column], mesh.currentLower[column]) * scale
+                    mesh.sourceSeam[column], mesh.currentUpper[column], mesh.currentLower[column]) * scale
             }
         }
-        drawIntoCanvas { canvas ->
-            canvas.nativeCanvas.drawBitmapMesh(lids.asAndroidBitmap(), ReferenceEyeMesh.GRID,
-                ReferenceEyeMesh.GRID, mesh.vertices, 0, null, 0, mesh.paint)
-        }
-        if (phase > 0f) {
-            // Only the clean lower green rows enter this clip, at the original texture scale.
-            // The band is at most 108.7px tall, sampling source y251.3..360 without its baked eye edge.
-            var fillIndex = 0
-            for (row in 0..1) {
-                val y = row * REFERENCE_EYE_SIZE
-                for (column in 0..ReferenceEyeMesh.GRID) {
-                    val x = column * REFERENCE_EYE_SIZE / ReferenceEyeMesh.GRID
-                    mesh.upperFillVertices[fillIndex++] = left + x * scale
-                    mesh.upperFillVertices[fillIndex++] =
-                        top + (mesh.currentUpper[column] - REFERENCE_EYE_SIZE + y) * scale
-                }
+        clipPath(aperture, clipOp = ClipOp.Difference) {
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawBitmapMesh(lids.asAndroidBitmap(), ReferenceEyeMesh.GRID,
+                    ReferenceEyeMesh.GRID, mesh.vertices, 0, null, 0, mesh.paint)
             }
-            // Draw after the base so the original open rim is covered, not left as a second slit.
-            clipPath(eyeBand(0f, 1f, upperLidFill = true)) {
-                drawIntoCanvas { canvas ->
-                    canvas.nativeCanvas.drawBitmapMesh(lids.asAndroidBitmap(), ReferenceEyeMesh.GRID,
-                        1, mesh.upperFillVertices, 0, null, 0, mesh.paint)
-                }
-            }
-        }
-        if (phase > 0.9f) {
-            val seam = Path().apply {
-                fun control(index: Int): Offset {
-                    val source = REFERENCE_EYE_CONTROLS[index]
-                    return point(source.x, source.upper * 0.05f + source.lower * 0.95f)
-                }
-                val first = control(0)
-                moveTo(first.x, first.y)
-                for (offset in listOf(0, 3)) {
-                    val a = control(offset + 1)
-                    val b = control(offset + 2)
-                    val c = control(offset + 3)
-                    cubicTo(a.x, a.y, b.x, b.y, c.x, c.y)
-                }
-            }
-            drawPath(seam, Color(0xFF06130B).copy(alpha = ((phase - 0.9f) * 10f).coerceIn(0f, 1f)),
-                style = Stroke(width = 0.8f * scale))
         }
     }
 }

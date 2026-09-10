@@ -137,7 +137,7 @@ jobs:
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
           [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.160' ]
-          [ "$(apkanalyzer manifest version-code "$apk")" = '1016001' ]
+          [ "$(apkanalyzer manifest version-code "$apk")" = '1016002' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
           "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
@@ -163,7 +163,13 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           test_args=()
-          if [ "${{ inputs.emulator_only }}" != true ]; then
+          if [ "${{ inputs.visual_preview }}" = true ]; then
+            test_args=(
+              :app:testOtherDebugUnitTest
+              --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest'
+              --tests 'com.maestrovpn.tv.whitelist.WhiteListRuntimeTest'
+            )
+          elif [ "${{ inputs.emulator_only }}" != true ]; then
             test_args=(
               :app:testOtherDebugUnitTest
               --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest'
@@ -201,7 +207,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ always() && inputs.emulator_review == true && inputs.emulator_only != true }}
+        if: ${{ always() && inputs.emulator_review == true && (inputs.emulator_only != true || inputs.visual_preview == true) }}
         with:
           name: maestrovpn-mobile-jvm-160-${{ github.sha }}
           path: |

@@ -84,7 +84,9 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
             !WhiteListSelection.matches(request) || SystemClock.elapsedRealtime() - request.requestedAt !in 0..60_000 || !XhttpNative.available()) return null
         val network = network() ?: return null
         val subscription = ProfileManager.get(request.profileId)?.typed?.remoteURL ?: return null
+        val initialFetchStarted = SystemClock.elapsedRealtime()
         val runtime = WhiteListRuntimeClient.fetch(subscription, network) ?: return null
+        var lastFetchMs = (SystemClock.elapsedRealtime() - initialFetchStarted).coerceAtLeast(0L)
         val route = runtime.profiles.singleOrNull { it.tag == request.tag } ?: return null
         val lookup = dnsExecutor.submit<Array<InetAddress>> { network.getAllByName(route.address) }
         val addresses = try { lookup.get(1, TimeUnit.SECONDS) } finally { lookup.cancel(true) }
@@ -123,8 +125,16 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         }
         renewal = scope.launch {
             while (valid(live)) {
-                delay(((live.deadline - SystemClock.elapsedRealtime()) / 2).coerceIn(100, 1_000))
+                val remaining = live.deadline - SystemClock.elapsedRealtime()
+                val waitMs = remaining - lastFetchMs - 250L
+                if (waitMs >= 100L) delay(waitMs.coerceAtMost(1_000L))
+                if (!valid(live)) {
+                    expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
+                    break
+                }
+                val fetchStarted = SystemClock.elapsedRealtime()
                 val fresh = WhiteListRuntimeClient.fetch(subscription, network)
+                lastFetchMs = (SystemClock.elapsedRealtime() - fetchStarted).coerceAtLeast(0L)
                 synchronized(live) {
                     if (!valid(live) || fresh == null || !fresh.fresh(SystemClock.elapsedRealtime()) ||
                         fresh.desiredGeneration != live.desiredGeneration || fresh.profiles.singleOrNull { it.tag == request.tag } != live.route) {
