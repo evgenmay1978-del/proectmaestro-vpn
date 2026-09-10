@@ -195,7 +195,8 @@ func (b *ServiceBusiness) whiteListBalanceVerdict(ctx context.Context, accountID
 	}
 	switch publication.Verdict {
 	case WhiteListPublishable:
-		if _, err := nativeWhiteListRuntimeView(publication, b.requestNow()); err == nil {
+		now := b.requestNow()
+		if _, err := nativeWhiteListRuntimeView(publication, now, now); err == nil {
 			return WhiteListPublishable
 		}
 	case WhiteListNoEntitlement, WhiteListPrimaryExpired, WhiteListNoBalance,

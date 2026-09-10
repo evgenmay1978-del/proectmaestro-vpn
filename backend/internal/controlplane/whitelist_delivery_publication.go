@@ -151,20 +151,23 @@ func (s *Service) whiteListTokenPublicationDelivery(
 		return WhiteListPublicationDelivery{}, ErrUnavailable
 	}
 	entitlementID := entitlement.EntitlementID()
-	delivery, err := s.whiteListPublicationForEntitlement(ctx, entitlementID, now, resolveSender, stableSubscription)
-	if err != nil || stableSubscription || delivery.Decision.Verdict != WhiteListPublicationPublishable {
-		return delivery, err
+	if stableSubscription {
+		return s.whiteListPublicationForEntitlement(ctx, entitlementID, now, resolveSender, true)
 	}
-	if err := s.fillWhiteListPublicationMaterials(ctx, entitlementID, delivery.Routes); err != nil {
+	if resolveSender == nil {
+		return WhiteListPublicationDelivery{}, ErrUnavailable
+	}
+	state, err := s.loadWhiteListSidecarRuntimeState(ctx)
+	if err != nil {
 		return WhiteListPublicationDelivery{}, err
 	}
-	for _, route := range delivery.Routes {
-		if route.ExitID == delivery.ExitID {
-			delivery.Material = route.Material
-			break
-		}
+	origins, err := s.loadWhiteListPublicationOrigins(ctx, state, resolveSender)
+	if err != nil {
+		return WhiteListPublicationDelivery{}, err
 	}
-	return delivery, nil
+	// This is the same request-local proof path used by internal authorizations.
+	// A nonempty shared snapshot keeps includeMaterial=true out of stable export.
+	return s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolveSender, true, state, origins)
 }
 
 // Both internal runtime use and public token delivery resolve this same actual
@@ -351,7 +354,11 @@ func (s *Service) whiteListPublicationForEntitlementFromState(
 	}
 	var referenceRoute WhiteListPublicationRoute
 	if includeMaterial {
-		if err := s.fillWhiteListPublicationMaterials(ctx, entitlementID, routes); err != nil {
+		materialDeadline := int64(0)
+		if !stableSubscription {
+			materialDeadline = decision.FreshUntilUnix
+		}
+		if err := s.fillWhiteListPublicationMaterials(ctx, entitlementID, routes, materialDeadline); err != nil {
 			return WhiteListPublicationDelivery{}, err
 		}
 	}
@@ -381,16 +388,31 @@ func (s *Service) evaluateWhiteListPublicationAfterReads(facts WhiteListPublicat
 	return EvaluateWhiteListPublication(facts)
 }
 
-func (s *Service) fillWhiteListPublicationMaterials(ctx context.Context, entitlementID string, routes []WhiteListPublicationRoute) error {
+func (s *Service) fillWhiteListPublicationMaterials(ctx context.Context, entitlementID string, routes []WhiteListPublicationRoute, deadlineUnix int64) error {
+	if len(routes) == 0 {
+		return ErrUnavailable
+	}
+	statements := make([]rqlite.Statement, len(routes))
+	for index, route := range routes {
+		statements[index] = whiteListRouteCredentialRead(entitlementID, route.ExitID)
+	}
+	results, err := s.store.db.QueryLinearizable(ctx, statements...)
+	if err != nil || len(results) != len(routes) {
+		return ErrUnavailable
+	}
+	materials := make([]WhiteListClientMaterial, len(routes))
 	seenCountries := make(map[string]struct{}, len(routes))
 	seenLabels := make(map[string]struct{}, len(routes))
 	seenClientIDs := make(map[string]struct{}, len(routes))
 	for index := range routes {
-		material, err := s.whiteListClientMaterial(ctx, entitlementID, routes[index].ExitID)
+		if len(results[index].Rows) != 1 {
+			return ErrUnavailable
+		}
+		material, err := s.whiteListClientMaterialFromRow(entitlementID, routes[index].ExitID, results[index].Rows[0])
 		if err != nil || routes[index].CountryCode == "" || routes[index].CountryLabel == "" {
 			return ErrUnavailable
 		}
-		routes[index].Material = material
+		materials[index] = material
 		_, countryExists := seenCountries[routes[index].CountryCode]
 		_, labelExists := seenLabels[routes[index].CountryLabel]
 		_, clientExists := seenClientIDs[material.ClientID]
@@ -401,6 +423,13 @@ func (s *Service) fillWhiteListPublicationMaterials(ctx context.Context, entitle
 		seenLabels[routes[index].CountryLabel] = struct{}{}
 		seenClientIDs[material.ClientID] = struct{}{}
 	}
+	// Read/decrypt completion cannot renew the authority that admitted this set.
+	if deadlineUnix != 0 && deadlineUnix <= s.clock.Now().Unix() {
+		return ErrUnavailable
+	}
+	for index := range routes {
+		routes[index].Material = materials[index]
+	}
 	return nil
 }
 
@@ -408,35 +437,62 @@ func (s *Service) whiteListPublicationByteBudgetFreshUntil(
 	ctx context.Context, entitlementID string, routes []WhiteListPublicationRoute,
 	state whiteListSidecarRuntimeState, receipts map[string]WhiteListSidecarReceipt, now time.Time,
 ) int64 {
-	if len(routes) != whiteListRequiredPublicationRouteCount || len(receipts) != len(state.origins) {
+	if len(routes) != whiteListRequiredPublicationRouteCount || len(state.origins) == 0 || len(receipts) != len(state.origins) {
+		return 0
+	}
+	// The account period/balance is common to all exits in this authorization.
+	// Keep every exit's credential/health gate, but read that common basis once.
+	for _, route := range routes {
+		if _, ok := state.credentials[entitlementID][route.ExitID]; !ok || !state.exits[route.ExitID].Healthy {
+			return 0
+		}
+	}
+	period, available, periodEndsAt, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, routes[0].ExitID, state)
+	if err != nil || available <= 0 {
 		return 0
 	}
 	freshUntil := now.Unix() + whiteListObservationFreshnessSeconds
+	if periodEndsAt < freshUntil {
+		freshUntil = periodEndsAt
+	}
+	statements := make([]rqlite.Statement, 0, len(routes)*len(state.origins))
 	for _, route := range routes {
-		period, available, periodEndsAt, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, route.ExitID, state)
-		if err != nil || available <= 0 {
-			return 0
-		}
-		if periodEndsAt < freshUntil {
-			freshUntil = periodEndsAt
-		}
 		for _, origin := range state.origins {
 			receipt, ok := receipts[origin.OriginID]
 			if !ok {
 				return 0
 			}
-			row, err := s.whiteListByteAllocationRow(ctx, entitlementID, route.ExitID, origin.OriginID, receipt.XrayProcessBootID)
-			boundPeriod, periodOK := rowString(row, "billing_period_id")
-			outstanding, outstandingOK := rowInt64(row, "outstanding_bytes")
-			if err != nil || !periodOK || !outstandingOK || boundPeriod != period || outstanding <= 0 {
-				return 0
-			}
+			statements = append(statements, rqlite.Statement{
+				SQL:  `SELECT * FROM whitelist_byte_allocation_balances WHERE ` + whiteListByteAllocationKeySQL,
+				Args: []any{entitlementID, route.ExitID, origin.OriginID, receipt.XrayProcessBootID},
+			})
 			if receipt.ExpiresAt.Unix() < freshUntil {
 				freshUntil = receipt.ExpiresAt.Unix()
 			}
 		}
 	}
-	if freshUntil <= now.Unix() {
+	results, err := s.store.db.QueryLinearizable(ctx, statements...)
+	if err != nil || len(results) != len(statements) {
+		return 0
+	}
+	for index, result := range results {
+		if len(result.Rows) != 1 {
+			return 0
+		}
+		row := result.Rows[0]
+		for keyIndex, key := range []string{"entitlement_id", "exit_id", "origin_id", "xray_process_boot_id"} {
+			value, ok := rowString(row, key)
+			if !ok || value != statements[index].Args[keyIndex] {
+				return 0
+			}
+		}
+		boundPeriod, periodOK := rowString(row, "billing_period_id")
+		outstanding, outstandingOK := rowInt64(row, "outstanding_bytes")
+		if !periodOK || !outstandingOK || boundPeriod != period || outstanding <= 0 {
+			return 0
+		}
+	}
+	if freshUntil <= s.clock.Now().Unix() {
 		return 0
 	}
 	return freshUntil
@@ -473,7 +529,16 @@ func whiteListPublicationRouteExitIDs(entitlementID string, desired []WhiteListS
 func (s *Service) whiteListClientMaterial(ctx context.Context, entitlementID, exitID string) (WhiteListClientMaterial, error) {
 	results, err := s.store.db.QueryLinearizable(ctx, whiteListRouteCredentialRead(entitlementID, exitID))
 	row, ok := firstRow(results)
-	if err != nil || !ok {
+	if err != nil || !ok || len(results) != 1 || len(results[0].Rows) != 1 {
+		return WhiteListClientMaterial{}, ErrUnavailable
+	}
+	return s.whiteListClientMaterialFromRow(entitlementID, exitID, row)
+}
+
+func (s *Service) whiteListClientMaterialFromRow(entitlementID, exitID string, row map[string]any) (WhiteListClientMaterial, error) {
+	boundEntitlement, entitlementOK := rowString(row, "entitlement_id")
+	boundExit, exitOK := rowString(row, "exit_id")
+	if !entitlementOK || !exitOK || boundEntitlement != entitlementID || boundExit != exitID {
 		return WhiteListClientMaterial{}, ErrUnavailable
 	}
 	encoded, ok := whiteListRowBytes(row, "credential_envelope")

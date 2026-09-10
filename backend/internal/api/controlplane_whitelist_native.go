@@ -52,14 +52,15 @@ func (b *ServiceBusiness) WhiteListNativeRuntime(ctx context.Context, token stri
 	// and the commercial balance verdict. The actual source checks all Origins.
 	timed, cancel := context.WithTimeout(ctx, b.cfg.WhiteListPublicationTimeout)
 	defer cancel()
-	publication, err := whiteListNativePublication(timed, b.cfg.WhiteListPublicationSource, token, b.requestNow())
+	requestedAt := b.requestNow()
+	publication, err := whiteListNativePublication(timed, b.cfg.WhiteListPublicationSource, token, requestedAt)
 	if err != nil || timed.Err() != nil {
 		return WhiteListNativeRuntimeView{}, businessError(controlplane.ErrUnavailable)
 	}
-	return nativeWhiteListRuntimeView(publication, b.requestNow())
+	return nativeWhiteListRuntimeView(publication, requestedAt, b.requestNow())
 }
 
-func nativeWhiteListRuntimeView(publication WhiteListPublicationSnapshot, now time.Time) (WhiteListNativeRuntimeView, error) {
+func nativeWhiteListRuntimeView(publication WhiteListPublicationSnapshot, requestedAt, now time.Time) (WhiteListNativeRuntimeView, error) {
 	closed := WhiteListNativeRuntimeView{}
 	switch publication.Verdict {
 	case WhiteListPublishable:
@@ -68,16 +69,17 @@ func nativeWhiteListRuntimeView(publication WhiteListPublicationSnapshot, now ti
 	default:
 		return closed, businessError(controlplane.ErrUnavailable)
 	}
-	// Integer-second leases must round conservatively: rounding the issued time
-	// down could let a fast client extend the true deadline by almost a second.
-	issued := now.Unix()
-	if now.Nanosecond() != 0 {
+	// Clients anchor this duration to their request start and subtract the whole
+	// round trip. Anchor it before source reads too, so processing is not deducted
+	// twice. Rounding up remains conservative; the absolute deadline is unchanged.
+	issued := requestedAt.Unix()
+	if requestedAt.Nanosecond() != 0 {
 		issued++
 	}
 	fresh := publication.FreshThrough.Unix()
-	if now.Unix() <= 0 || publication.ProjectionVersion <= 0 || publication.DesiredGeneration <= 0 ||
+	if requestedAt.Unix() <= 0 || now.Before(requestedAt) || publication.ProjectionVersion <= 0 || publication.DesiredGeneration <= 0 ||
 		publication.FreshThrough.IsZero() || !publication.FreshThrough.After(now) ||
-		publication.FreshThrough.After(now.Add(5*time.Second)) || fresh <= issued || fresh-issued > 5 {
+		publication.FreshThrough.After(requestedAt.Add(5*time.Second)) || fresh <= issued || fresh-issued > 5 {
 		return closed, businessError(controlplane.ErrUnavailable)
 	}
 	profiles, err := subgen.NativeWhiteListProfiles(publication.Nodes)

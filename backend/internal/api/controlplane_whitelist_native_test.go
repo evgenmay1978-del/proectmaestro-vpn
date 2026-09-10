@@ -65,7 +65,7 @@ func TestNativeRuntimeLeaseRoundsDownActualRemainingTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := nativeWhiteListRuntimeView(publication, now)
+	view, err := nativeWhiteListRuntimeView(publication, now, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +76,21 @@ func TestNativeRuntimeLeaseRoundsDownActualRemainingTime(t *testing.T) {
 	if time.Duration(view.FreshUntilUnix-view.IssuedAtUnix)*time.Second > nativePublicationFixture(now).FreshThrough.Sub(now) {
 		t.Fatal("integer lease extended actual freshness")
 	}
+	// The client subtracts the complete round trip once, including source work.
+	completed := now.Add(2500 * time.Millisecond)
+	delayed, delayedErr := nativeWhiteListRuntimeView(publication, now, completed)
+	if delayedErr != nil || delayed.IssuedAtUnix != view.IssuedAtUnix || delayed.FreshUntilUnix != view.FreshUntilUnix {
+		t.Fatal("source processing was deducted twice or changed the absolute deadline")
+	}
+	clientRemaining := time.Duration(delayed.FreshUntilUnix-delayed.IssuedAtUnix)*time.Second - completed.Sub(now)
+	if clientRemaining <= 0 || clientRemaining > publication.FreshThrough.Sub(completed) {
+		t.Fatal("client duration must remain usable without extending server freshness")
+	}
+	for _, finished := range []time.Time{now.Add(-time.Nanosecond), publication.FreshThrough} {
+		if _, err := nativeWhiteListRuntimeView(publication, now, finished); nativeErrorStatus(err) != http.StatusServiceUnavailable {
+			t.Fatal("clock reversal or elapsed source deadline must fail closed")
+		}
+	}
 	if source.nativeCalls != 1 || source.stableCalls != 0 {
 		t.Fatal("native runtime used the stable subscription export")
 	}
@@ -83,7 +98,7 @@ func TestNativeRuntimeLeaseRoundsDownActualRemainingTime(t *testing.T) {
 	if err != nil || !unchanged.FreshThrough.Equal(stable.FreshThrough) {
 		t.Fatal("native routing shortened the stable subscription expiry")
 	}
-	if _, err := nativeWhiteListRuntimeView(unchanged, now); nativeErrorStatus(err) != http.StatusServiceUnavailable {
+	if _, err := nativeWhiteListRuntimeView(unchanged, now, now); nativeErrorStatus(err) != http.StatusServiceUnavailable {
 		t.Fatal("native converter accepted the long stable expiry")
 	}
 	source.nativeErr = controlplane.ErrUnavailable
@@ -102,7 +117,7 @@ func TestNativeRuntimeRejectsEveryClosedOrIncompletePublication(t *testing.T) {
 		t.Run(string(verdict), func(t *testing.T) {
 			publication := nativePublicationFixture(now)
 			publication.Verdict = verdict
-			view, err := nativeWhiteListRuntimeView(publication, now)
+			view, err := nativeWhiteListRuntimeView(publication, now, now)
 			if nativeErrorStatus(err) != status || len(view.Profiles) != 0 {
 				t.Fatal("closed verdict leaked profile")
 			}
@@ -121,7 +136,7 @@ func TestNativeRuntimeRejectsEveryClosedOrIncompletePublication(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			publication := nativePublicationFixture(now)
 			mutate(&publication)
-			view, err := nativeWhiteListRuntimeView(publication, now)
+			view, err := nativeWhiteListRuntimeView(publication, now, now)
 			if nativeErrorStatus(err) != 503 || len(view.Profiles) != 0 {
 				t.Fatal("incomplete publication leaked profile")
 			}
@@ -144,7 +159,7 @@ func (b *nativeHTTPFixture) WhiteListNativeRuntime(_ context.Context, token stri
 
 func TestNativeRuntimeHTTPRequiresHeaderIdentityAndNeverCaches(t *testing.T) {
 	now := time.Unix(2000000, 0)
-	view, err := nativeWhiteListRuntimeView(nativePublicationFixture(now), now)
+	view, err := nativeWhiteListRuntimeView(nativePublicationFixture(now), now, now)
 	if err != nil {
 		t.Fatal(err)
 	}
