@@ -170,6 +170,7 @@ func whiteListXrayJSONConfigs(nodes []WhiteListNode) ([]xrayJSONFullConfig, erro
 			SeqPlacement:        xhttp.SeqPlacement,
 			SeqKey:              xhttp.SeqKey,
 		}
+		xhttpSettings.Extra = compatibleXHTTPExtra(xhttpSettings)
 		stream := xrayJSONFullStreamSettings{
 			Network:       node.Network,
 			Security:      node.Security,
