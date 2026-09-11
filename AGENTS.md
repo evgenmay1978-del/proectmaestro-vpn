@@ -257,3 +257,9 @@ finding when the production adapter adds authorization, status, expiry, cache,
 or rendering gates. Closure requires the public boundary through the real
 production adapter and real migrations/storage (or an explicitly proven exact
 equivalent), with both positive and negative states asserted.
+## Текущий результат: пропадание CDN из подписок — 11.09.2026
+
+Karing/HAPP/INCY исправлены server-side: controller `ae1ed4d`, legacy subscription timeout 10s, 30/30 `included`, текущие три формата содержат CDN/XHTTP. Наше приложение использует отдельный strict runtime с двумя 3s попытками; воспроизведение осталось нестабильным (5/12). Три server runtime-варианта (TTL/cadence/pass budget) не помогли и полностью откатаны. На сервере оставлен только подтверждённый timeout10; обычный VPN, панель, Xray, боты и учёт не менялись. Доказательства и откат: `docs/yandex-cdn-whitelist/CDN_SUBSCRIPTION_FLICKER_2026-09-11.md`. Дальше не менять серверные таймауты: нужен выбор между обновлением приложения (короче) и отдельной оптимизацией rqlite round trips. Прежний запрет на приложение действует до нового указания владельца.
+## Подтверждённый результат CDN для сторонних клиентов — 11.09.2026
+
+Установлен controller `c2960b77863411f2d0fa62f6d0a9d07b24859d01`: Xray JSON теперь вкладывает в `xhttpSettings.extra` только точные семь параметров действующего server profile. Build-only run `34623638053`, artifact `10272804684`, binary SHA-256 `63942fffa596c288e456be960430a5ca96d3f0597b1c223d4f939cf77501c66a`; rollback `/var/backups/maestro-cdn-minimal-extra-20260911T164540Z/unit.before`. Владелец подтвердил: CDN пингуется и работает в INCY и HAPP. Karing CDN не пингуется, такое же поведение наблюдается у Akonit; не продолжать исправлять Karing без новой задачи. Обычный VLESS/Xray, ingress, боты, платежи и балансы не менялись.
