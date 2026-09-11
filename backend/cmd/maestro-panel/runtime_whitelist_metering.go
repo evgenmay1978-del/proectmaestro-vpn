@@ -21,7 +21,6 @@ import (
 
 const (
 	runtimeWhiteListMeteringInterval   = 2 * time.Second
-	runtimeWhiteListByteBudgetInterval = 45 * time.Second
 	runtimeWhiteListMeteringPassBudget = 5 * time.Second
 	runtimeWhiteListUseLeaseWindow     = 60 * time.Second
 )
@@ -143,16 +142,12 @@ func runRQLiteBackground(
 		// A second sidecar worker must not revoke between those durable steps.
 		sidecar = nil
 		workers.Add(1)
-		meteringInterval := runtimeWhiteListMeteringInterval
-		if byteBudget > 0 {
-			meteringInterval = runtimeWhiteListByteBudgetInterval
-		}
 		go func() {
 			defer workers.Done()
 			runRuntimeWhiteListMetering(ctx, &runtimeWhiteListMeteringCollector{
 				control: metering, store: meteringStore, workerID: workerID, senders: senders,
 				reserves: reserves, byteBudgetBytes: byteBudget,
-			}, meteringInterval)
+			}, runtimeWhiteListMeteringInterval)
 		}()
 	}
 	runRQLiteReconcilers(ctx, renewal, sidecar, workerID, senders, runtimeWhiteListRenewalInterval)
@@ -204,7 +199,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		// Prepaid byte ceilings bound forwarding independently of processing time.
 		// Give the controller enough time to finish durable accounting before it
 		// refreshes the independently enforced BOOTTIME lease.
-		passBudget, processingBudget = 60*time.Second, 30*time.Second
+		passBudget, processingBudget = 30*time.Second, 15*time.Second
 	}
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
