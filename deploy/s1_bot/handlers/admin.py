@@ -630,7 +630,7 @@ async def admin_update_tariff(msg, state, db, api):
     if not is_admin(msg.from_user.id): return
     try:
         price = int(msg.text.strip())
-        if price < 0: raise ValueError
+        if price <= 0: raise ValueError
     except ValueError:
         await msg.answer("❌ Введи число > 0")
         return

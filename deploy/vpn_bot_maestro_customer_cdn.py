@@ -6,6 +6,7 @@ not a payment ledger and has no background worker or poller.
 """
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -25,6 +26,15 @@ PRODUCTS = {1: "wl-gb-1-20260906", 5: "wl-gb-5-20260906", 10: "wl-gb-10-20260906
             25: "wl-gb-25-20260906", 50: "wl-gb-50-20260906"}
 LEGACY_PRODUCTS = frozenset({"wl-gb-5-v1", "wl-gb-20-v1", "wl-gb-50-v1", "wl-gb-100-v1"})
 OPAQUE = re.compile(r"[A-Za-z0-9_-]{1,58}\Z")
+
+
+async def acknowledge_callback(cb):
+    """A Telegram spinner acknowledgement must not block a payment action."""
+    try:
+        await asyncio.wait_for(cb.answer(), timeout=3)
+    except Exception as error:
+        logging.getLogger(__name__).warning(
+            "CDN callback acknowledgement failed: %s", type(error).__name__)
 
 
 def enabled():
@@ -212,7 +222,7 @@ class CDNCheckout:
         if cb.from_user.id not in owner_ids() or cb.message.chat.id != cb.from_user.id:
             await cb.answer("Только владелец", show_alert=True)
             return
-        await cb.answer()
+        await acknowledge_callback(cb)
         async with self.locks.setdefault(order_id, asyncio.Lock()):
             row = self.order(order_id)
             decision = "confirm" if action == "cf" else "reject"
@@ -250,7 +260,7 @@ class CDNCheckout:
             if action in ("cf", "cr"):
                 await self.decide(cb, action, identity)
                 return
-            await cb.answer()
+            await acknowledge_callback(cb)
             if flow is None:
                 raise ValueError("customer binding required")
             if action == "gigabytes":
@@ -265,5 +275,7 @@ class CDNCheckout:
                 await self.paid(cb, flow, identity)
             else:
                 raise ValueError("unsupported CDN action")
-        except Exception:
+        except Exception as error:
+            logging.getLogger(__name__).warning(
+                "CDN action %s failed: %s", action, type(error).__name__)
             await cb.message.answer("Не удалось завершить действие. Повторите эту же кнопку; повторный перевод не нужен.")

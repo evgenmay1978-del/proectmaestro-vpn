@@ -40,7 +40,8 @@ async def main():
     dp["db"] = db
     dp["api"] = api
 
-    from handlers.maestro_customer_entry import configure_customer_ui
+    from handlers.maestro_customer_entry import configure_customer_ui, callback_ack_middleware
+    bot.session.middleware.register(callback_ack_middleware)
 
     def callback_state(callback):
         return dp.fsm.get_context(bot=callback.bot, chat_id=callback.message.chat.id,

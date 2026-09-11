@@ -24,6 +24,19 @@ CDN_GUIDE = (
 _UI = {}
 
 
+async def callback_ack_middleware(make_request, bot, method):
+    """Failure to stop Telegram's spinner must not cancel the user's action."""
+    if getattr(method, "__api_method__", None) != "answerCallbackQuery":
+        return await make_request(bot, method)
+    from aiogram.exceptions import TelegramAPIError
+    try:
+        return await asyncio.wait_for(make_request(bot, method), timeout=3)
+    except (asyncio.TimeoutError, TelegramAPIError) as error:
+        import logging
+        logging.getLogger(__name__).warning("Callback acknowledgement failed: %s", type(error).__name__)
+        return True
+
+
 def configure_customer_ui(**hooks):
     _UI.update(hooks)
 

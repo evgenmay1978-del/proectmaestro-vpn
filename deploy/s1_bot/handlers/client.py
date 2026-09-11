@@ -220,6 +220,10 @@ async def client_tariff_selected(cb, state, db, api):
 
 @router.callback_query(F.data.startswith("client:paid:"))
 async def client_paid(cb, state, db, api):
+    if db.has_pending_order(cb.from_user.id):
+        await _submit_order(cb.bot, state, db, cb.message, cb.from_user.id, cb.from_user.username)
+        await cb.answer()
+        return
     data = await state.get_data()
     if not all(data.get(key) for key in ("days", "amount", "action")):
         if db.has_pending_order(cb.from_user.id):
@@ -237,6 +241,12 @@ async def client_paid(cb, state, db, api):
 
 async def _submit_order(bot, state, db, msg_target, tg_id, username, photo_id=None):
     data = await state.get_data()
+    pending = db.conn.execute(
+        "SELECT * FROM orders WHERE tg_id=? AND status='pending' ORDER BY id DESC LIMIT 1", (tg_id,)
+    ).fetchone()
+    if pending:
+        data = {"days": pending["days"], "amount": pending["amount"], "action": pending["type"]}
+        photo_id = pending["photo_id"]
     days = data.get("days")
     amount = data.get("amount")
     action = data.get("action")
@@ -249,14 +259,11 @@ async def _submit_order(bot, state, db, msg_target, tg_id, username, photo_id=No
     # Clear FSM state FIRST so a fast second tap (photo + «Пропустить») can't create a 2nd
     # order for the same payment; and dedup any already-pending order from this user.
     await state.set_state(ClientStates.main)
-    if db.has_pending_order(tg_id):
-        await msg_target.answer("⏳ Заявка уже отправлена администратору. Подтверждение придёт сюда после проверки перевода.")
-        return
     user = db.get_user(tg_id)
     inbound_id = user["inbound_id"] if user else None
     client_email = user["client_email"] if user else None
-    order_id = db.create_order(tg_id, inbound_id, client_email, days, amount, action, photo_id)
-    await msg_target.answer(payment_sent(order_id, days, amount))
+    order_id = pending["id"] if pending else db.create_order(tg_id, inbound_id, client_email, days, amount, action, photo_id)
+    delivered = 0
     for admin_id in config.ADMIN_IDS:
         try:
             if photo_id:
@@ -267,8 +274,15 @@ async def _submit_order(bot, state, db, msg_target, tg_id, username, photo_id=No
                 await bot.send_message(admin_id,
                     admin_order_notification(order_id, tg_id, username or "", days, amount, action),
                     reply_markup=admin_order_kb(order_id))
+            delivered += 1
         except Exception:
             pass
+    if delivered:
+        await msg_target.answer(payment_sent(order_id, days, amount))
+    else:
+        await msg_target.answer("Заявка сохранена, но уведомление администратору не доставлено. "
+                                "Нажмите «Я оплатил» ещё раз. Повторный перевод не нужен.",
+                                reply_markup=payment_kb(0))
     await state.set_state(ClientStates.main)
 
 @router.callback_query(F.data == "client:skip_photo", ClientStates.waiting_photo)

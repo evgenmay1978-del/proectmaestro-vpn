@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """NaiveProxy VPN Bot — Enhanced Edition"""
-import os, asyncio, logging, sqlite3, secrets, string, io, html, threading, re, hashlib
+import os, asyncio, math, logging, sqlite3, secrets, string, io, html, threading, re, hashlib
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from typing import Optional
@@ -373,8 +373,8 @@ def days_left(exp_str: Optional[str]) -> int:
     if not exp_str:
         return -1
     try:
-        d = datetime.fromisoformat(exp_str.replace("Z", "+00:00")).replace(tzinfo=None)
-        return max(0, (d - datetime.now()).days)
+        d = datetime.fromisoformat(exp_str.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
+        return max(0, math.ceil((d - datetime.now()).total_seconds() / 86400))
     except:
         return -1
 
@@ -382,7 +382,7 @@ def fmt_exp(exp_str: Optional[str]) -> str:
     if not exp_str:
         return "навсегда"
     try:
-        d = datetime.fromisoformat(exp_str.replace("Z", "+00:00")).replace(tzinfo=None)
+        d = datetime.fromisoformat(exp_str.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
         return d.strftime("%d.%m.%Y")
     except:
         return "?"
@@ -529,7 +529,7 @@ async def job_sync_panel_expiry():
         try:
             real_exp = datetime.fromisoformat(real_str)
             if real_exp.tzinfo is not None:
-                real_exp = real_exp.replace(tzinfo=None)  # normalize → naive (was crashing vs datetime.now())
+                real_exp = real_exp.astimezone().replace(tzinfo=None)  # normalize → naive (was crashing vs datetime.now())
         except Exception:
             continue
 
@@ -796,22 +796,22 @@ async def cb_paid(cb: CallbackQuery):
     # Guard: don't create duplicate pending payments for the same user+tariff
     with get_db() as db:
         existing = db.execute(
-            "SELECT id FROM payments WHERE tg_id=? AND tariff_days=? AND status='pending'",
+            "SELECT * FROM payments WHERE tg_id=? AND tariff_days=? AND status='pending'",
             (tg_id, days)
         ).fetchone()
         if existing:
-            await cb.answer("⏳ Заявка уже отправлена, ожидайте подтверждения.", show_alert=True)
-            return
-
-        db.execute(
-            "INSERT INTO payments (tg_id, username, tariff_days, amount, status) "
-            "VALUES (?,?,?,?,'pending')",
-            (tg_id, username, days, price)
-        )
-        pid = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+            pid, username, price = existing["id"], existing["username"], existing["amount"]
+        else:
+            db.execute(
+                "INSERT INTO payments (tg_id, username, tariff_days, amount, status) "
+                "VALUES (?,?,?,?,'pending')",
+                (tg_id, username, days, price)
+            )
+            pid = db.execute("SELECT last_insert_rowid()").fetchone()[0]
         db.commit()
 
     name = f"@{cb.from_user.username}" if cb.from_user.username else html.escape(cb.from_user.first_name or "")
+    notified = False
     try:
         await bot.send_message(
             ADMIN_ID,
@@ -822,14 +822,18 @@ async def cb_paid(cb: CallbackQuery):
             f"💵 Сумма: <b>{price}₽</b>",
             reply_markup=kb_approve_reject(pid)
         )
+        notified = True
         await cb.message.edit_text(
             "✅ <b>Заявка отправлена!</b>\n\n"
             "Администратор проверит платёж и пришлёт подтверждение."
         )
     except Exception as e:
         logger.error(f"cb_paid notify/edit error for tg_id={tg_id}: {e}")
-        # Payment is recorded; user still gets confirmation even if edit fails
-        await cb.answer("✅ Заявка принята! Ожидайте подтверждения.", show_alert=True)
+        if notified:
+            await cb.answer("✅ Заявка отправлена администратору.", show_alert=True)
+        else:
+            await cb.message.answer("Заявка сохранена, но уведомление администратору не доставлено. "
+                                    "Нажмите «Я оплатил» ещё раз. Повторный перевод не нужен.")
         return
     await cb.answer()
 
@@ -878,7 +882,7 @@ async def apply_payment(cb, payment):
         base = datetime.now()
         if old_exp:
             try:
-                old_expires_dt = datetime.fromisoformat(old_exp.replace("Z", "+00:00")).replace(tzinfo=None)
+                old_expires_dt = datetime.fromisoformat(old_exp.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
                 base = max(old_expires_dt, datetime.now())
             except Exception as e:
                 logger.error(f"cb_approve: failed to parse expiresAt={old_exp!r} for {username}: {e}")
@@ -1256,7 +1260,9 @@ async def adm_add_handle(msg: Message, state: FSMContext):
         return await msg.answer("❌ Формат: <code>логин пароль [дней]</code>")
 
     u, p = parts[0], parts[1]
-    days = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else None
+    if len(parts) > 3 or (len(parts) == 3 and (not parts[2].isdigit() or not 1 <= int(parts[2]) <= 3650)):
+        return await msg.answer("❌ Укажите от 1 до 3650 дней. Для бессрочного доступа не указывайте дни.")
+    days = int(parts[2]) if len(parts) == 3 else None
     expires_at = datetime.now() + timedelta(days=days) if days else None
 
     ok = await panel.add(u, p, expires_at)
@@ -1450,7 +1456,7 @@ async def adm_setdays_handle(msg: Message, state: FSMContext):
     base = datetime.now()
     if old_exp:
         try:
-            old_expires_dt = datetime.fromisoformat(old_exp.replace("Z", "+00:00")).replace(tzinfo=None)
+            old_expires_dt = datetime.fromisoformat(old_exp.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
             base = max(old_expires_dt, datetime.now())
         except Exception as e:
             logger.error(f"set_days: failed to parse expiresAt={old_exp!r} for {username}: {e}")
@@ -1752,6 +1758,8 @@ async def legacy_admin(callback):
 
 
 async def main():
+    from maestro_customer_entry import callback_ack_middleware
+    bot.session.middleware.register(callback_ack_middleware)
     configure_customer_ui(status=legacy_customer_status, renew=legacy_customer_renew,
                           connect=legacy_customer_connect, is_admin=is_admin, admin=legacy_admin,
                           bind_login=legacy_customer_bind_login, clear_state=legacy_customer_clear_state)
