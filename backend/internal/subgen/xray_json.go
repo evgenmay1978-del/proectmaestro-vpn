@@ -446,7 +446,7 @@ func compatibleXHTTPExtra(source xrayJSONXHTTPSettings) *xrayJSONXHTTPExtra {
 		NoGRPCHeader: true, NoSSEHeader: true,
 		SCMaxBufferedPosts: 100, SCMaxEachPostBytes: 3000000, SCMinPostsIntervalMS: "30",
 		SeqKey: source.SeqKey, SeqPlacement: source.SeqPlacement, ServerMaxHeaderBytes: 32768,
-		SessionIDKey: source.SessionIDKey, SessionIDLength: "16-32", SessionIDPlacement: source.SessionIDPlacement,
+		SessionIDKey: source.SessionIDKey, SessionIDLength: "16", SessionIDPlacement: source.SessionIDPlacement,
 		SessionKey: source.SessionIDKey, SessionPlacement: source.SessionIDPlacement,
 		UplinkDataPlacement: source.UplinkDataPlacement, UplinkHTTPMethod: source.UplinkHTTPMethod,
 		XPaddingBytes: "50-150", XPaddingHeader: "X-Padding", XPaddingKey: "x_padding",
