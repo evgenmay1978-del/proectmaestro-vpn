@@ -21,6 +21,7 @@ import (
 
 const (
 	runtimeWhiteListMeteringInterval   = 2 * time.Second
+	runtimeWhiteListByteBudgetInterval = 45 * time.Second
 	runtimeWhiteListMeteringPassBudget = 5 * time.Second
 	runtimeWhiteListUseLeaseWindow     = 60 * time.Second
 )
@@ -142,12 +143,16 @@ func runRQLiteBackground(
 		// A second sidecar worker must not revoke between those durable steps.
 		sidecar = nil
 		workers.Add(1)
+		meteringInterval := runtimeWhiteListMeteringInterval
+		if byteBudget > 0 {
+			meteringInterval = runtimeWhiteListByteBudgetInterval
+		}
 		go func() {
 			defer workers.Done()
 			runRuntimeWhiteListMetering(ctx, &runtimeWhiteListMeteringCollector{
 				control: metering, store: meteringStore, workerID: workerID, senders: senders,
 				reserves: reserves, byteBudgetBytes: byteBudget,
-			}, runtimeWhiteListMeteringInterval)
+			}, meteringInterval)
 		}()
 	}
 	runRQLiteReconcilers(ctx, renewal, sidecar, workerID, senders, runtimeWhiteListRenewalInterval)
