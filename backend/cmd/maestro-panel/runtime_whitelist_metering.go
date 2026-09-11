@@ -204,7 +204,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		// Prepaid byte ceilings bound forwarding independently of processing time.
 		// Give the controller enough time to finish durable accounting before it
 		// refreshes the independently enforced BOOTTIME lease.
-		passBudget, processingBudget = 30*time.Second, 15*time.Second
+		passBudget, processingBudget = 60*time.Second, 30*time.Second
 	}
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
