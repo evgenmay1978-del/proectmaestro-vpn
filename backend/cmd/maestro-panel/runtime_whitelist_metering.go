@@ -208,15 +208,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	ctx = reconcileContext
 	collector.reconcileNeeded = true
 	defer func() {
-		preserveExactLease := runErr != nil && collector.byteBudgetBytes > 0 && protectedByEarlyLease
+		preserveExactLease := runErr != nil && collector.byteBudgetBytes > 0 &&
+			protectedByEarlyLease && errors.Is(runErr, errRuntimeWhiteListDebitPending)
 		if runErr != nil {
 			runErr = fmt.Errorf("%s after %s: %w", stage, time.Since(started).Round(time.Millisecond), runErr)
 		}
-		if preserveExactLease {
-			collector.cachedLeaseAuthority = cachedLeaseAuthority
-			return
-		}
-		if !collector.reconcileNeeded {
+		if preserveExactLease || !collector.reconcileNeeded {
 			return
 		}
 		if err := collector.reconcile(reconcileContext); err != nil {
