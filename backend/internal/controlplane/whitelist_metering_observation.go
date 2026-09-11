@@ -14,7 +14,7 @@ import (
 
 const (
 	whiteListObservationTTLSeconds          int64 = 5
-	whiteListAccountedObservationTTLSeconds int64 = 30
+	whiteListAccountedObservationTTLSeconds int64 = 60
 )
 
 // WhiteListAdmissionReserve is an explicit, verified measurement input, not a
