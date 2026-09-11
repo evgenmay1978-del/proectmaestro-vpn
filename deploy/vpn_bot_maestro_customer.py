@@ -20,9 +20,11 @@ except ImportError:
 
 
 try:
-    from .maestro_customer_entry import customer_balance_text, is_customer_login_reply, customer_login_command, send_customer_dashboard, open_customer_dashboard, send_customer_help
+    from .maestro_customer_entry import customer_balance_text, is_customer_login_reply, customer_login_command, send_customer_dashboard, open_customer_dashboard, send_customer_help, configure_customer_ui, ordinary_customer_status, ui_call, ui_is_admin, cabinet_keyboard
+    from .maestro_customer_entry import ui_message_owned
 except ImportError:
-    from maestro_customer_entry import customer_balance_text, is_customer_login_reply, customer_login_command, send_customer_dashboard, open_customer_dashboard, send_customer_help
+    from maestro_customer_entry import customer_balance_text, is_customer_login_reply, customer_login_command, send_customer_dashboard, open_customer_dashboard, send_customer_help, configure_customer_ui, ordinary_customer_status, ui_call, ui_is_admin, cabinet_keyboard
+    from maestro_customer_entry import ui_message_owned
 
 PRIMARY_ACTIONS = (
     "Моя подписка и баланс",
@@ -188,7 +190,9 @@ class CustomerFlow:
     async def show_balance(self) -> str:
         return self.balance_text(await self.api.balance())
 
-    async def delivery(self, client: str) -> dict:
+    async def delivery(self, client: str, mode: str = "vpn") -> dict:
+        if mode not in {"vpn", "cdn"}:
+            raise ValueError("unsupported connection mode")
         result = await self.api.delivery(client)
         if client == "incy" and result.get("format") == "INCY_ONE_TAP":
             copy_url = result.get("copy_url")
@@ -221,7 +225,7 @@ class CustomerFlow:
 
 
 def is_maestro_customer_message(message) -> bool:
-    if is_customer_login_reply(message):
+    if is_customer_login_reply(message) or ui_message_owned(message):
         return True
     text = (getattr(message, "text", None) or "").strip()
     words = text.split(maxsplit=1)
@@ -356,6 +360,9 @@ def build_customer_router(store: CustomerBindingStore):
     @router.message(Command("maestro"))
     @router.message(CommandStart(deep_link=True), is_maestro_customer_message)
     async def bind_customer(message, command):
+        if message.chat.type != "private" or message.chat.id != message.from_user.id:
+            return
+        await ui_call("clear_state", message)
         argument = (command.args or "").strip()
         try:
             if command.command.lower() == "maestro":
@@ -376,6 +383,12 @@ def build_customer_router(store: CustomerBindingStore):
                 login = str(profile.get("login") or "").strip()
                 if not login:
                     raise ValueError("profile has no login")
+            try:
+                if await ui_call("bind_login", message, login) is False:
+                    raise ValueError("Не удалось связать обычную подписку с этим логином. Обратитесь в поддержку.")
+            except ValueError as error:
+                await message.answer(str(error), parse_mode=None)
+                return
             store.bind(message.chat.id, login, customer_token)
         except Exception:
             await message.answer("Не удалось войти. Проверьте логин MaestroVPN и повторите позже.")
@@ -385,17 +398,48 @@ def build_customer_router(store: CustomerBindingStore):
         except Exception:
             pass
         flow = flow_for(message.chat.id)
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=label, callback_data=value)] for label, value in flow.menu_actions()
-        ])
         await send_customer_dashboard(message, flow)
 
     @router.message(is_customer_login_reply)
     async def bind_customer_login_reply(message):
         await bind_customer(message, customer_login_command(message))
 
+    async def home_for_message(message, section="main"):
+        ordinary = await ordinary_customer_status(message)
+        flow = flow_for(message.chat.id)
+        # Reuse a trusted legacy Telegram binding without asking for a second login.
+        if flow is None:
+            logins = legacy_customer_logins(message.chat.id)
+            if len(logins) == 1:
+                try:
+                    login, token = await claim_customer_login(logins[0])
+                    if login == logins[0]:
+                        store.bind(message.chat.id, login, token)
+                        flow = flow_for(message.chat.id)
+                except Exception:
+                    pass
+        if section == "help":
+            await send_customer_help(message, flow)
+        else:
+            await send_customer_dashboard(message, flow, section, ordinary=ordinary)
+
+    configure_customer_ui(home=home_for_message)
+    try:
+        from .maestro_customer_admin import CustomerAdmin
+        from .maestro_customer_devices import send_device_menu, send_client_instructions, route_device_callback
+    except ImportError:
+        from maestro_customer_admin import CustomerAdmin
+        from maestro_customer_devices import send_device_menu, send_client_instructions, route_device_callback
+    admin_ui = CustomerAdmin(cdn_checkout)
+    configure_customer_ui(message_owned=admin_ui.is_credit_reply)
+    router.message.register(admin_ui.credit_reply, admin_ui.is_credit_reply)
+
     @router.callback_query(F.data.func(lambda value: bool(value) and value.startswith("mc:")))
     async def customer_action(callback: CallbackQuery):
+        message = callback.message
+        if not message or message.chat.type != "private" or message.chat.id != callback.from_user.id:
+            await callback.answer("Откройте личный чат с ботом.", show_alert=True)
+            return
         try:
             _, action, opaque_id = callback.data.split(":", 2)
             if not _OPAQUE.fullmatch(action) or not _OPAQUE.fullmatch(opaque_id):
@@ -403,84 +447,81 @@ def build_customer_router(store: CustomerBindingStore):
         except (AttributeError, ValueError):
             await callback.answer("Неверное действие.", show_alert=True)
             return
-        if action == "account":
-            flow, handled = await resolve_customer_callback(callback, opaque_id)
-            if handled or flow is None:
+        try:
+            await ui_call("clear_state", message)
+            if action in ("cf", "cr"):
+                await cdn_checkout.dispatch(callback, action, opaque_id)
                 return
-            await callback.message.answer(await flow.show_balance())
-            await callback.answer()
-            return
-        if action == "home":
-            flow, handled = await resolve_customer_callback(callback)
-            if handled:
+            if action == "admin" and opaque_id == "menu":
+                if not ui_is_admin(callback.from_user.id):
+                    await callback.answer("Доступ только администратору.", show_alert=True)
+                    return
+                await ui_call("admin", callback)
                 return
-            await open_customer_dashboard(callback, flow)
-            return
-        if action in ("cf", "cr"):
-            await cdn_checkout.dispatch(callback, action, opaque_id)
-            return
-        flow = await require_flow(callback)
-        if flow is None:
-            return
-        if action in ("gigabytes", "paid") or action.startswith("gb"):
-            await cdn_checkout.dispatch(callback, action, opaque_id, flow)
-            return
-        if action == "renew":
-            await callback.answer("Для оплаты используйте прежнее меню тарифов бота.", show_alert=True)
-            return
-        if action == "balance":
-            await send_customer_dashboard(callback.message, flow)
-        elif action == "renew":
-            order = await flow.renew_access()
-            order_id = str(order.get("order_id") or "")
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-                text="Я оплатил", callback_data=callback_data("paid", order_id)
-            )]]) if _OPAQUE.fullmatch(order_id) else None
-            await callback.message.answer(flow.payment_instructions(), reply_markup=keyboard)
-        elif action == "gigabytes":
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(
-                    text=f"{gigabytes} ГБ — {price} ₽",
-                    callback_data=callback_data(f"gb{gigabytes}", secrets.token_urlsafe(9)),
-                )] for gigabytes, price in GB_PACKS])
-            await callback.message.answer("Выберите пакет гигабайтов:", reply_markup=keyboard)
-        elif action.startswith("gb") and action[2:].isdigit():
-            order = await flow.buy_gigabytes(int(action[2:]), opaque_id)
-            order_id = str(order.get("order_id") or "")
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-                text="Я оплатил", callback_data=callback_data("paid", order_id)
-            )]]) if _OPAQUE.fullmatch(order_id) else None
-            await callback.message.answer(flow.payment_instructions(), reply_markup=keyboard)
-        elif action == "paid":
-            await flow.claim_paid(opaque_id)
-            await callback.message.answer("Заявка об оплате отправлена владельцу на подтверждение.")
-        elif action == "devices":
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text=label, callback_data=callback_data("client_" + client, "open"))
-            ] for client, label in (("karing", "Karing"), ("happ", "HAPP"), ("incy", "INCY"))])
-            await callback.message.answer("Выберите приложение:", reply_markup=keyboard, parse_mode=None)
-        elif action in {"client_karing", "client_happ", "client_incy"}:
-            client = action.removeprefix("client_")
-            delivery = await flow.delivery(client)
-            copy_url = delivery.get("copy_url") or delivery["url"]
-            label = {"karing": "Karing", "happ": "HAPP", "incy": "INCY"}[client]
+            if await admin_ui.dispatch(callback, action, opaque_id):
+                return
+            if action == "help":
+                await callback.answer()
+                await send_customer_help(message, flow_for(message.chat.id), opaque_id)
+                return
+            if action == "home" and opaque_id == "login":
+                await open_customer_dashboard(callback, None)
+                return
+            if action == "home" or action == "balance":
+                await callback.answer()
+                await home_for_message(message, "cdn" if opaque_id == "cdn" else "main")
+                return
+            if action == "renew":
+                flow = flow_for(message.chat.id)
+                ordinary = await ordinary_customer_status(message)
+                if flow is not None and ordinary.get("login") != flow.login:
+                    await callback.answer("Логин обычного VPN и логин кабинета различаются. Сначала выберите нужный логин.", show_alert=True)
+                    await send_customer_help(message, flow, topic="subscription")
+                    return
+                await ui_call("renew", callback)
+                return
+            if action in ("devices", "ordinary") and opaque_id != "cdn":
+                if await ui_call("connect", callback):
+                    return
+            flow = flow_for(message.chat.id)
+            if action == "devices":
+                await callback.answer()
+                await send_device_menu(message, "cdn" if opaque_id == "cdn" else "vpn")
+                return
+            if await route_device_callback(callback, flow):
+                return
+            if action == "account":
+                flow, handled = await resolve_customer_callback(callback, opaque_id)
+                if handled or flow is None:
+                    return
+                await callback.answer()
+                await send_customer_dashboard(message, flow)
+                return
+            flow = await require_flow(callback)
+            if flow is None:
+                return
+            if action in ("gigabytes", "paid") or action.startswith("gb"):
+                await cdn_checkout.dispatch(callback, action, opaque_id, flow)
+                return
+            if action in {"client_karing", "client_happ", "client_incy"}:
+                await callback.answer()
+                await send_client_instructions(message, flow, action.removeprefix("client_"))
+                return
+            if action == "ordinary":
+                await callback.answer()
+                await send_device_menu(message)
+                return
+            await callback.answer("Откройте нужный раздел через главное меню.", show_alert=True)
+        except Exception:
+            # Never echo API exceptions: they may contain a personal subscription URL.
             try:
-                balance = await flow.show_balance()
+                await callback.answer("Сейчас данные недоступны. Попробуйте ещё раз.", show_alert=True)
             except Exception:
-                balance = "Баланс CDN временно недоступен."
-            await callback.message.answer(
-                f"MaestroVPN для {label}\n\n"
-                f"{balance}\n\n"
-                f"Скопируйте ссылку и добавьте её как подписку в {label}:\n{copy_url}\n\n"
-                "После покупки CDN обновите эту же подписку в приложении.",
-                parse_mode=None,
-            )
-        elif action == "help":
-            await send_customer_help(callback.message, flow)
-        else:
-            await callback.answer("Неверное действие.", show_alert=True)
-            return
-        await callback.answer()
+                pass
+            await message.answer(
+                "Не удалось завершить действие. Если вы уже оплатили, повторный перевод не нужен. "
+                "Откройте «Помощь» или обновите этот раздел.",
+                reply_markup=cabinet_keyboard(), parse_mode=None)
 
     return router
 

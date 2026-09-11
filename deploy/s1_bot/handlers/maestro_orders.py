@@ -1,0 +1,171 @@
+"""MaestroVPN TV — order confirmation handler for the vpn_bot (server 1).
+
+When a customer presses «Я оплатил» on the TV, maestro-panel sends the admin a
+message with a one-tap «✅ Подтвердить оплату» button (callback_data
+"moconf:<order_id>"). This handler catches that tap and tells maestro-panel to
+confirm + provision the customer (POST /admin/order/confirm), then the TV's poll
+activates automatically.
+
+INSTALL (gated production edit — run yourself on server 1):
+  1. cp /root/maestrovpn-tv/deploy/vpn_bot_maestro_orders.py /root/vpn_bot/handlers/maestro_orders.py
+  2. in /root/vpn_bot/main.py:
+       - add `maestro_orders` to the `from handlers import ...` line
+       - add `dp.include_router(maestro_orders.router)` next to the other include_router calls
+  3. systemctl restart vpnbot
+"""
+import io
+import os
+
+import httpx
+import qrcode
+from aiogram import F, Router
+from aiogram.types import BufferedInputFile, CallbackQuery
+from subscription_links import clean_subscription_url
+
+router = Router()
+
+
+def _qr_png(data: str) -> bytes:
+    """Black-on-white scannable QR PNG of `data` (opaque — phone cameras need it)."""
+    qr = qrcode.QRCode(box_size=10, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data(data)
+    qr.make(fit=True)
+    buf = io.BytesIO()
+    qr.make_image(fill_color="black", back_color="white").save(buf, format="PNG")
+    return buf.getvalue()
+
+MAESTRO_URL = os.getenv("MAESTRO_URL", "http://127.0.0.1:8910")
+
+try:
+    # ADMIN_IDS lives on the Config INSTANCE (config.config.ADMIN_IDS), not as a
+    # module attribute — getattr(module,"ADMIN_IDS") returned [] and left the gate
+    # fail-OPEN (any user could confirm payments / read subs). Use the instance.
+    from config import config as _cfg
+
+    _ADMINS = {str(x) for x in _cfg.ADMIN_IDS}
+except Exception:
+    _ADMINS = {x.strip() for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
+
+
+def _maestro_token() -> str:
+    try:
+        with open("/etc/maestro-panel.env", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MAESTRO_ADMIN_TOKEN="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+@router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("moconf:")))
+async def confirm_order(cb: CallbackQuery):
+    if str(cb.from_user.id) not in _ADMINS:
+        await cb.answer("Только администратор", show_alert=True)
+        return
+    order_id = cb.data.split(":", 1)[1]
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{MAESTRO_URL}/admin/order/confirm",
+                json={"order_id": order_id},
+                headers={"Authorization": f"Bearer {_maestro_token()}"},
+            )
+        if r.status_code == 200:
+            base = cb.message.text or ""
+            await cb.message.edit_text(base + "\n\n✅ Подтверждено — подписка выдана")
+        else:
+            await cb.answer(f"Панель вернула HTTP {r.status_code}: {r.text[:120]}", show_alert=True)
+    except Exception as e:  # noqa: BLE001
+        await cb.answer(f"Ошибка: {e}", show_alert=True)
+
+
+@router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("mocancel:")))
+async def cancel_order(cb: CallbackQuery):
+    """Owner saw no payment → drop the pending order so the bot/panel don't accumulate junk."""
+    if str(cb.from_user.id) not in _ADMINS:
+        await cb.answer("Только администратор", show_alert=True)
+        return
+    order_id = cb.data.split(":", 1)[1]
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{MAESTRO_URL}/admin/order/cancel",
+                json={"order_id": order_id},
+                headers={"Authorization": f"Bearer {_maestro_token()}"},
+            )
+        if r.status_code == 200:
+            base = cb.message.text or ""
+            await cb.message.edit_text(base + "\n\n❌ Отменено (оплата не поступила)")
+        elif r.status_code == 409:
+            await cb.answer("Заказ уже оплачен — отменить нельзя.", show_alert=True)
+        else:
+            await cb.answer(f"Панель вернула HTTP {r.status_code}: {r.text[:120]}", show_alert=True)
+    except Exception as e:  # noqa: BLE001
+        await cb.answer(f"Ошибка: {e}", show_alert=True)
+
+
+@router.callback_query(F.data.func(lambda d: bool(d) and d.startswith("aclsub:")))
+async def show_app_subscription(cb: CallbackQuery):
+    """Admin button «🔗 Подписка (приложение)» on a client card → MaestroVPN app sub."""
+    if str(cb.from_user.id) not in _ADMINS:
+        await cb.answer("Только администратор", show_alert=True)
+        return
+    login = cb.data.split(":", 1)[1]
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(
+                f"{MAESTRO_URL}/admin/customer",
+                params={"login": login},
+                headers={"Authorization": f"Bearer {_maestro_token()}"},
+            )
+        if r.status_code == 404:
+            await cb.answer("В приложении MaestroVPN у этого клиента подписки нет.", show_alert=True)
+            return
+        if r.status_code != 200:
+            await cb.answer(f"Панель вернула HTTP {r.status_code}", show_alert=True)
+            return
+        d = r.json()
+        sub_url = clean_subscription_url(d.get("sub_url") or "")
+        if not sub_url:
+            await cb.answer("У клиента нет ссылки на подписку.", show_alert=True)
+            return
+        exp = d.get("expires", "") or ""
+        exp_disp = "—"
+        days_disp = ""
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+            if dt.year > 1970:  # not the zero-time placeholder
+                exp_disp = exp[:10]
+                secs = (dt - datetime.now(timezone.utc)).total_seconds()
+                if secs > 0:
+                    d_left = int(secs // 86400) + (1 if secs % 86400 else 0)  # ceil → <24h shows 1, not 0
+                    days_disp = f" ({d_left} дн)"
+                else:
+                    days_disp = " (истекла)"
+        except Exception:
+            pass
+        status = "🟢 активна" if d.get("active") else "🔴 истекла"
+        proto_names = {
+            "vless": "VLESS", "hysteria2": "Hysteria2",
+            "naive": "NaiveProxy", "anytls": "AnyTLS",
+        }
+        protos = ", ".join(proto_names.get(p, p) for p in (d.get("protocols") or [])) or "—"
+        caption = (
+            f"🦊 <b>MaestroVPN — подписка</b>\n"
+            f"Клиент: <code>{login}</code>\n"
+            f"Статус: {status}  •  до {exp_disp}{days_disp}\n"
+            f"Протоколы ({len(d.get('protocols') or [])}): {protos}\n\n"
+            f"🔗 Ссылка на подписку (все протоколы):\n<code>{sub_url}</code>\n\n"
+            f"📲 В приложении MaestroVPN — отсканируй этот QR или вставь ссылку.\n"
+            f"Для Karing/Hiddify вставь эту же ссылку без дополнительных приписок."
+        )
+        await cb.message.answer_photo(
+            BufferedInputFile(_qr_png(sub_url), filename="maestrovpn_sub.png"),
+            caption=caption,
+            parse_mode="HTML",
+        )
+        await cb.answer()
+    except Exception as e:  # noqa: BLE001
+        await cb.answer(f"Ошибка: {e}", show_alert=True)

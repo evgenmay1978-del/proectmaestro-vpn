@@ -230,7 +230,8 @@ class CDNCheckout:
             result = f"Начислено {row['bytes'] // 1_000_000_000} ГБ CDN." if state == "confirmed" else "Заявка на покупку гигабайтов отклонена."
             if not row["customer_notified"]:
                 try:
-                    await cb.bot.send_message(row["chat_id"], result + " Откройте /maestro → «Моя подписка и баланс».", parse_mode=None)
+                    await cb.bot.send_message(row["chat_id"], result + " Остаток: /start → «CDN · остаток и покупка ГБ».",
+                        parse_mode=None, reply_markup=self.keyboard([("📶 Остаток CDN", "mc:home:cdn")]))
                     self.update(order_id, customer_notified=True)
                 except Exception:
                     await cb.message.answer(result + " Уведомление клиенту не доставлено. Повторите эту кнопку для доставки; повторного начисления не будет.")
@@ -241,7 +242,7 @@ class CDNCheckout:
         if cb.message.chat.type != "private" or cb.message.chat.id != cb.from_user.id:
             await cb.answer("Откройте личный чат с ботом.", show_alert=True)
             return
-        if (not enabled() and action not in ("cf", "cr")
+        if (not enabled() and action not in ("cf", "cr", "paid")
                 and not test_customer_enabled(getattr(flow, "login", None), cb.from_user.id)):
             await cb.answer("Покупка CDN пока недоступна.", show_alert=True)
             return
@@ -254,8 +255,10 @@ class CDNCheckout:
                 raise ValueError("customer binding required")
             if action == "gigabytes":
                 products = await self.catalog(flow)
-                keyboard = self.keyboard([(f"{gb} ГБ — {product['amount_minor'] / 100:g} ₽", callback("gb" + str(gb), secrets.token_urlsafe(9))) for gb, product in sorted(products.items())])
-                await cb.message.answer("Выберите пакет CDN:", reply_markup=keyboard)
+                rows = [(f"{gb} ГБ — {product['amount_minor'] / 100:g} ₽", callback("gb" + str(gb), secrets.token_urlsafe(9))) for gb, product in sorted(products.items())]
+                rows.append(("◀️ Назад к CDN", "mc:home:cdn"))
+                await cb.message.answer("Выберите пакет CDN. Покупка добавляет гигабайты; дни обычного VPN оплачиваются отдельно.",
+                    parse_mode=None, reply_markup=self.keyboard(rows))
             elif action.startswith("gb") and action[2:].isdigit():
                 await self.purchase(cb, flow, int(action[2:]), identity)
             elif action == "paid":

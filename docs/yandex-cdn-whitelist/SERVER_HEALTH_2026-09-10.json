@@ -1,0 +1,868 @@
+{
+  "observed_utc": "2026-09-10T20:41:44Z/2026-09-10T20:45:29Z",
+  "scope": "Read-only OS/service/capacity inspection; no functional VPN test, mutations or restarts.",
+  "S1_ssh": {
+    "direct": "connection-closed-before-auth",
+    "via_S4": "banner-exchange-timeout",
+    "os_inventory": "unavailable"
+  },
+  "S2": {
+    "time_utc": "2026-09-10T20:41:44.122884+00:00",
+    "cpu_count": 2,
+    "cpu_busy_percent_1s": 9.7,
+    "load_1_5_15": [
+      0.25048828125,
+      0.169921875,
+      0.10888671875
+    ],
+    "uptime_days": 45.13,
+    "memory_mib": {
+      "total": 1968,
+      "available": 1275,
+      "swap_total": 512,
+      "swap_used": 76
+    },
+    "disks": "Mounted on   1B-blocks       Used     Avail Use%\n/          10479628288 9667842048 258318336  98%\n/          10479628288 9667842048 258318336  98%\n/          10479628288 9667842048 258318336  98%",
+    "inodes": "",
+    "services": [
+      {
+        "unit": "caddy.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "hysteria-server.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-app.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-firewall.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "exited"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-s2.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial-agent.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "nginx.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "sing-box-anytls.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "ssh.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "vpn_bot.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      }
+    ],
+    "service_details": [
+      {
+        "unit": "caddy.service",
+        "MainPID": "1040",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-07-28 01:33:11 CST"
+      },
+      {
+        "unit": "hysteria-server.service",
+        "MainPID": "1326219",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 23:36:02 CST"
+      },
+      {
+        "unit": "maestro-app.service",
+        "MainPID": "1121541",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-01 06:09:50 CST"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-firewall.service",
+        "MainPID": "0",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sun 2026-09-06 13:29:29 CST"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-s2.service",
+        "MainPID": "1257185",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sun 2026-09-06 13:29:29 CST"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial-agent.service",
+        "MainPID": "1319140",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 18:26:00 CST"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial.service",
+        "MainPID": "1319125",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 18:26:00 CST"
+      },
+      {
+        "unit": "nginx.service",
+        "MainPID": "1121294",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-01 06:09:42 CST"
+      },
+      {
+        "unit": "sing-box-anytls.service",
+        "MainPID": "1326352",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 23:36:06 CST"
+      },
+      {
+        "unit": "ssh.service",
+        "MainPID": "1218661",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sat 2026-09-05 06:26:40 CST"
+      },
+      {
+        "unit": "vpn_bot.service",
+        "MainPID": "1332770",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Wed 2026-09-09 04:09:43 CST"
+      }
+    ],
+    "failed_units": [],
+    "top_processes": [
+      "    PID COMMAND         %CPU %MEM   RSS",
+      "1381771 systemd          6.9  0.5 11176",
+      "1326219 hysteria         4.0  1.5 32184",
+      "   1040 caddy            2.7  3.0 60780",
+      "1381829 python3          2.6  0.8 16484",
+      "1257185 rqlited          2.0  5.1 103048",
+      "1326352 sing-box         0.6  1.4 29960",
+      "1381766 sshd             0.4  0.5 10608",
+      "   1157 node /opt/naive  0.2  2.2 45452"
+    ],
+    "tcp_listening_ports": [
+      22,
+      53,
+      80,
+      443,
+      2019,
+      3000,
+      4001,
+      4002,
+      7000,
+      7500,
+      8080,
+      8088,
+      8443,
+      18084,
+      18443,
+      18444,
+      21115,
+      21116,
+      21117,
+      21118,
+      21119,
+      28081,
+      28082
+    ],
+    "error_journal_30m_lines": 0,
+    "error_categories_30m": {
+      "oom": 0,
+      "storage": 0,
+      "crash": 0,
+      "timeout": 0,
+      "tls": 0,
+      "connection": 0,
+      "authentication": 0
+    },
+    "kernel_errors_24h": {
+      "oom": 0,
+      "storage": 0,
+      "crash": 0
+    },
+    "preserved_hashes": {}
+  },
+  "S3": {
+    "time_utc": "2026-09-10T20:41:45.681663+00:00",
+    "cpu_count": 1,
+    "cpu_busy_percent_1s": 96,
+    "load_1_5_15": [
+      1.775390625,
+      1.28515625,
+      1.24365234375
+    ],
+    "uptime_days": 34.34,
+    "memory_mib": {
+      "total": 1830,
+      "available": 887,
+      "swap_total": 1024,
+      "swap_used": 31
+    },
+    "disks": "Mounted on   1B-blocks       Used       Avail Use%\n/          42195746816 7679115264 32352485376  20%\n/          42195746816 7679115264 32352485376  20%\n/          42195746816 7679115264 32352485376  20%",
+    "inodes": "",
+    "services": [
+      {
+        "unit": "maestro-cdn-rqlite-firewall.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "exited"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-s3.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-s3-commercial-guard.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "exited"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial-agent.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "mysql.service",
+        "load": "not-found",
+        "active": "inactive",
+        "sub": "dead"
+      },
+      {
+        "unit": "mysqld.service",
+        "load": "not-found",
+        "active": "inactive",
+        "sub": "dead"
+      },
+      {
+        "unit": "nginx.service",
+        "load": "not-found",
+        "active": "inactive",
+        "sub": "dead"
+      },
+      {
+        "unit": "ssh.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "x-ui.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      }
+    ],
+    "service_details": [
+      {
+        "unit": "maestro-cdn-rqlite-firewall.service",
+        "MainPID": "0",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sun 2026-09-06 07:29:28 CEST"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-s3.service",
+        "MainPID": "3505166",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sun 2026-09-06 07:29:28 CEST"
+      },
+      {
+        "unit": "maestro-s3-commercial-guard.service",
+        "MainPID": "0",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sat 2026-09-05 17:40:19 CEST"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial-agent.service",
+        "MainPID": "3806847",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 12:27:25 CEST"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial.service",
+        "MainPID": "3806835",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 12:27:25 CEST"
+      },
+      {
+        "unit": "ssh.service",
+        "MainPID": "3217325",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Fri 2026-09-04 06:10:12 CEST"
+      },
+      {
+        "unit": "x-ui.service",
+        "MainPID": "697",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Fri 2026-08-07 14:32:40 CEST"
+      }
+    ],
+    "failed_units": [],
+    "top_processes": [
+      "    PID COMMAND         %CPU %MEM   RSS",
+      "3505166 rqlited         15.6  6.7 125740",
+      "4191784 systemd          5.5  0.4  9276",
+      "4191844 python3          3.5  0.7 13864",
+      "3731818 xray-linux-amd6  3.4  3.6 68128",
+      " 324689 olcrtc           3.0  1.5 29552",
+      "    707 olcrtc           2.3  1.1 22032",
+      "    697 x-ui             2.1 12.3 231628",
+      "    704 olcrtc           1.8  0.9 18504"
+    ],
+    "tcp_listening_ports": [
+      22,
+      443,
+      4001,
+      4002,
+      11111,
+      18084,
+      18443,
+      18444,
+      28081,
+      28082,
+      47989,
+      62789
+    ],
+    "error_journal_30m_lines": 4,
+    "error_categories_30m": {
+      "oom": 0,
+      "storage": 0,
+      "crash": 0,
+      "timeout": 0,
+      "tls": 0,
+      "connection": 0,
+      "authentication": 4
+    },
+    "kernel_errors_24h": {
+      "oom": 0,
+      "storage": 0,
+      "crash": 0
+    },
+    "preserved_hashes": {}
+  },
+  "S4": {
+    "time_utc": "2026-09-10T20:41:48.942891+00:00",
+    "cpu_count": 1,
+    "cpu_busy_percent_1s": 3.1,
+    "load_1_5_15": [
+      3.1240234375,
+      1.3955078125,
+      0.68603515625
+    ],
+    "uptime_days": 39.08,
+    "memory_mib": {
+      "total": 1968,
+      "available": 1073,
+      "swap_total": 512,
+      "swap_used": 51
+    },
+    "disks": "Mounted on   1B-blocks       Used      Avail Use%\n/          15764316160 8114880512 6827651072  55%\n/          15764316160 8114880512 6827651072  55%\n/          15764316160 8114880512 6827651072  55%",
+    "inodes": "",
+    "services": [
+      {
+        "unit": "hysteria-server.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-cdn-ingress.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-firewall.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "exited"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-s4.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial-agent.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "maestro-xray-cdn.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "ssh.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      },
+      {
+        "unit": "x-ui.service",
+        "load": "loaded",
+        "active": "active",
+        "sub": "running"
+      }
+    ],
+    "service_details": [
+      {
+        "unit": "hysteria-server.service",
+        "MainPID": "84371",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Mon 2026-08-03 11:36:16 UTC"
+      },
+      {
+        "unit": "maestro-cdn-ingress.service",
+        "MainPID": "646960",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sat 2026-09-05 00:49:22 UTC"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-firewall.service",
+        "MainPID": "0",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sun 2026-09-06 05:29:30 UTC"
+      },
+      {
+        "unit": "maestro-cdn-rqlite-s4.service",
+        "MainPID": "698638",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sun 2026-09-06 05:29:30 UTC"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial-agent.service",
+        "MainPID": "830608",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 15:42:18 UTC"
+      },
+      {
+        "unit": "maestro-xray-cdn-commercial.service",
+        "MainPID": "809893",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Tue 2026-09-08 10:24:52 UTC"
+      },
+      {
+        "unit": "maestro-xray-cdn.service",
+        "MainPID": "1032592",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Thu 2026-09-10 20:13:31 UTC"
+      },
+      {
+        "unit": "ssh.service",
+        "MainPID": "665136",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sat 2026-09-05 07:00:30 UTC"
+      },
+      {
+        "unit": "x-ui.service",
+        "MainPID": "12979",
+        "Result": "success",
+        "NRestarts": "0",
+        "ActiveEnterTimestamp": "Sun 2026-08-02 19:24:56 UTC"
+      }
+    ],
+    "failed_units": [],
+    "top_processes": [
+      "    PID COMMAND         %CPU %MEM   RSS",
+      "1034489 ps               500  0.2  4352",
+      "1034395 systemd         14.7  0.5 11136",
+      "1034484 python3         13.1  0.8 16512",
+      " 698638 rqlited          5.5  5.1 103408",
+      "  12979 x-ui             2.8 12.3 248404",
+      " 830608 maestro-xray-cd  1.9  0.8 18036",
+      "1034390 sshd             1.7  0.5 10624",
+      " 792346 xray-linux-amd6  1.4  2.3 48100"
+    ],
+    "tcp_listening_ports": [
+      22,
+      443,
+      2096,
+      4001,
+      4002,
+      11111,
+      16173,
+      18081,
+      18082,
+      18084,
+      18443,
+      18444,
+      28080,
+      28081,
+      28082,
+      62789
+    ],
+    "error_journal_30m_lines": 0,
+    "error_categories_30m": {
+      "oom": 0,
+      "storage": 0,
+      "crash": 0,
+      "timeout": 0,
+      "tls": 0,
+      "connection": 0,
+      "authentication": 0
+    },
+    "kernel_errors_24h": {
+      "oom": 0,
+      "storage": 0,
+      "crash": 0
+    },
+    "preserved_hashes": {
+      "maestro-xray-cdn/config.json": "2e22b6eaa365073a62966b463759ed07c5860af714013fe949c0c34df42f6a0a",
+      "maestro-cdn-ingress/nginx.conf": "d0fb82bd61409ff633e5f85bd64d6df3104024de30798f5490339409d179cc54"
+    }
+  },
+  "S2_disk": {
+    "directory_bytes": {
+      "exit": 0,
+      "lines": [
+        "964907008\t/var/lib",
+        "4096\t/var/mail",
+        "177266688\t/var/cache",
+        "4096\t/var/snap",
+        "20480\t/var/spool",
+        "1030860800\t/var/tmp",
+        "506900480\t/var/log",
+        "4096\t/var/local",
+        "4096\t/var/crash",
+        "25702400\t/var/www",
+        "523481088\t/var/backups",
+        "4096\t/var/opt",
+        "3229167616\t/var",
+        "7229440\t/opt/naiveproxy-panel",
+        "12288\t/opt/containerd",
+        "13799424\t/opt/rustdesk-server",
+        "35123200\t/opt/maestro-cdn-rqlite",
+        "418562048\t/opt/maestro-xray-cdn-commercial",
+        "76607488\t/opt/vpn_bot",
+        "551337984\t/opt",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-maestro-cdn-rqlite-firewall.service-17loDd",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-systemd-logind.service-5r3yfR",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-maestro-cdn-rqlite-s2.service-1BaQyR",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-systemd-timesyncd.service-xh41mY",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-systemd-resolved.service-xET5SL",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-ModemManager.service-QVdMzg",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-maestro-xray-cdn-commercial.service-Q49Sji",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-caddy.service-iMmgzv",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-polkit.service-Dgo5ue",
+        "4096\t/tmp/snap-private-tmp",
+        "8192\t/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-maestro-xray-cdn-commercial-agent.service-YW6aIn",
+        "98304\t/tmp",
+        "98304\t/root/backup-naive-2026-04-30_17-38",
+        "85581824\t/root/.npm",
+        "143360\t/root/.config",
+        "114311168\t/root/cverify",
+        "28672\t/root/mita-decom-20260622-135002",
+        "32768\t/root/.gnupg",
+        "12288\t/root/panel-config-emergency",
+        "232050688\t/root/.local",
+        "1953792\t/root/.cache",
+        "4096\t/root/frozen",
+        "8192\t/root/cert",
+        "4096\t/root/tmp",
+        "102400\t/root/.pm2",
+        "24576\t/root/backup-panel-2026-04-30_17-49",
+        "4096\t/root/melt",
+        "254439424\t/root/gembake",
+        "12288\t/root/backup-before-frps",
+        "2183168\t/root/.acme.sh",
+        "20480\t/root/.ssh",
+        "12288\t/root/.aws",
+        "389120\t/root/maestro-s2-recovery-20260811T1345Z",
+        "40960\t/root/backups",
+        "12288\t/root/maestro-signing-backup",
+        "700035072\t/root"
+      ],
+      "stderr": ""
+    },
+    "journal_size": {
+      "exit": 0,
+      "lines": [
+        "Archived and active journals take up 96.0M in the file system."
+      ],
+      "stderr": ""
+    },
+    "inode_used_percent": 34.5
+  },
+  "S3_cpu": {
+    "cpu_window_seconds": 10,
+    "load": [
+      0.814453125,
+      1.0732421875,
+      1.16650390625
+    ],
+    "cpu_percent": {
+      "user": 35.6,
+      "system": 26,
+      "idle": 31.9,
+      "iowait": 0.2,
+      "steal": 0
+    },
+    "processes": [
+      {
+        "pid": 3505166,
+        "comm": "rqlited",
+        "cpu_percent_10s": 50.8,
+        "state": "S"
+      },
+      {
+        "pid": 324689,
+        "comm": "olcrtc",
+        "cpu_percent_10s": 3.8,
+        "state": "S"
+      },
+      {
+        "pid": 3731818,
+        "comm": "xray-linux-amd6",
+        "cpu_percent_10s": 3.2,
+        "state": "S"
+      },
+      {
+        "pid": 707,
+        "comm": "olcrtc",
+        "cpu_percent_10s": 2.7,
+        "state": "S"
+      },
+      {
+        "pid": 704,
+        "comm": "olcrtc",
+        "cpu_percent_10s": 2.3,
+        "state": "S"
+      },
+      {
+        "pid": 697,
+        "comm": "x-ui",
+        "cpu_percent_10s": 1.6,
+        "state": "S"
+      },
+      {
+        "pid": 4190453,
+        "comm": "kworker/0:0-events",
+        "cpu_percent_10s": 0.7,
+        "state": "I"
+      },
+      {
+        "pid": 677,
+        "comm": "fail2ban-server",
+        "cpu_percent_10s": 0.4,
+        "state": "S"
+      }
+    ],
+    "pressure": {
+      "cpu": "some avg10=21.19 avg60=21.75 avg300=21.20 total=249062731810\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+      "io": "some avg10=0.46 avg60=0.56 avg300=0.50 total=16150665958\nfull avg10=0.05 avg60=0.11 avg300=0.07 total=11598400733",
+      "memory": "some avg10=0.08 avg60=0.07 avg300=0.02 total=131716414\nfull avg10=0.00 avg60=0.02 avg300=0.00 total=57049893"
+    },
+    "blocked_process_count": 0,
+    "inode_used_percent": 4.7
+  },
+  "S4_cpu": {
+    "cpu_window_seconds": 10,
+    "load": [
+      1.96240234375,
+      1.55615234375,
+      0.85546875
+    ],
+    "cpu_percent": {
+      "user": 13.6,
+      "system": 12.4,
+      "idle": 71.7,
+      "iowait": 1.8,
+      "steal": 0.1
+    },
+    "processes": [
+      {
+        "pid": 698638,
+        "comm": "rqlited",
+        "cpu_percent_10s": 16.4,
+        "state": "S"
+      },
+      {
+        "pid": 830608,
+        "comm": "maestro-xray-cd",
+        "cpu_percent_10s": 1.7,
+        "state": "S"
+      },
+      {
+        "pid": 12979,
+        "comm": "x-ui",
+        "cpu_percent_10s": 1.1,
+        "state": "S"
+      },
+      {
+        "pid": 792346,
+        "comm": "xray-linux-amd6",
+        "cpu_percent_10s": 1.1,
+        "state": "S"
+      },
+      {
+        "pid": 29,
+        "comm": "kcompactd0",
+        "cpu_percent_10s": 0.4,
+        "state": "S"
+      },
+      {
+        "pid": 594973,
+        "comm": "fail2ban-server",
+        "cpu_percent_10s": 0.4,
+        "state": "S"
+      },
+      {
+        "pid": 809893,
+        "comm": "xray",
+        "cpu_percent_10s": 0.3,
+        "state": "S"
+      },
+      {
+        "pid": 594231,
+        "comm": "systemd-journal",
+        "cpu_percent_10s": 0.2,
+        "state": "S"
+      }
+    ],
+    "pressure": {
+      "cpu": "some avg10=14.58 avg60=8.11 avg300=8.37 total=117631963334\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+      "io": "some avg10=2.02 avg60=1.27 avg300=1.21 total=34662913711\nfull avg10=1.23 avg60=0.71 avg300=0.70 total=25338837220",
+      "memory": "some avg10=0.00 avg60=0.07 avg300=0.05 total=124255544\nfull avg10=0.00 avg60=0.04 avg300=0.02 total=59165696"
+    },
+    "blocked_process_count": 0,
+    "inode_used_percent": 15.7
+  },
+  "S1_http": {
+    "utc": "2026-09-10T20:45:29.340515+00:00",
+    "s1_existing_http_health_from_s4": {
+      "curl_exit": 0,
+      "response": "maestro-cdn-origin-ok\n\n200 0.093278",
+      "error": ""
+    }
+  },
+  "S2_staging": {
+    "staging_size_exit": 0,
+    "largest_staging_directories": [
+      {
+        "bytes": 1030860800,
+        "path": "/var/tmp"
+      },
+      {
+        "bytes": 422309888,
+        "path": "/var/tmp/maestro-mobile-candidate-1016002"
+      },
+      {
+        "bytes": 399908864,
+        "path": "/var/tmp/maestro-ota-159"
+      },
+      {
+        "bytes": 208461824,
+        "path": "/var/tmp/maestro-ota-160"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-maestro-cdn-rqlite-s2.service-nSmK8w"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-caddy.service-oVd13d"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-systemd-logind.service-zfN0wg"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-systemd-resolved.service-ayQLK0"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-maestro-xray-cdn-commercial.service-MzIY3I"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-polkit.service-Ex4f1n"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-maestro-cdn-rqlite-firewall.service-qF1exp"
+      },
+      {
+        "bytes": 8192,
+        "path": "/var/tmp/systemd-private-e619d0f0197e4969abda97e39eeb34ec-ModemManager.service-1zyIMC"
+      }
+    ]
+  }
+}
