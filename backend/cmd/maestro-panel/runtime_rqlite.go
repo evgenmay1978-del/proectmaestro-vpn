@@ -121,7 +121,7 @@ func buildRQLitePanelRuntime(
 		publicationSource,
 	))
 	server := api.NewControlPlane(business, apiConfig)
-	handler, err := api.WrapLegacySubscriptions(server.Handler(), config.LegacySubscriptionUpstream, publicationSource, time.Second, rqliteSubscriptionTopologyFromEnvironment())
+	handler, err := api.WrapLegacySubscriptions(server.Handler(), config.LegacySubscriptionUpstream, publicationSource, 5*time.Second, rqliteSubscriptionTopologyFromEnvironment())
 	if err != nil {
 		return nil, err
 	}
