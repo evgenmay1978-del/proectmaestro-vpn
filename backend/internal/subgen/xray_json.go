@@ -170,7 +170,7 @@ func whiteListXrayJSONConfigs(nodes []WhiteListNode) ([]xrayJSONFullConfig, erro
 			SeqPlacement:        xhttp.SeqPlacement,
 			SeqKey:              xhttp.SeqKey,
 		}
-		xhttpSettings.Extra = compatibleXHTTPExtra(xhttpSettings)
+		xhttpSettings.Extra = json.RawMessage(extra)
 		stream := xrayJSONFullStreamSettings{
 			Network:       node.Network,
 			Security:      node.Security,
@@ -405,7 +405,7 @@ type xrayJSONXHTTPSettings struct {
 	SessionIDLength     int    `json:"sessionIDLength"`
 	SeqPlacement        string `json:"seqPlacement"`
 	SeqKey              string `json:"seqKey"`
-	Extra               *xrayJSONXHTTPExtra `json:"extra,omitempty"`
+	Extra               json.RawMessage `json:"extra,omitempty"`
 }
 
 type xrayJSONXHTTPExtra struct {
