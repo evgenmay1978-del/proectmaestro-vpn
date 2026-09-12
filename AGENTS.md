@@ -1,3 +1,11 @@
+## Изучен matrixlegend-code/vpn-cdn-installer — 12.09.2026
+
+Публичный GitHub содержит только README во всех 13 коммитах: установщика, исходников, релизов, тегов, лицензии, тестов и проверяемых rollback/checksum нет. Скрипт продаётся и выдаётся через Telegram как закрытый root payload. Не запускать его на MaestroVPN production и не считать рекламные заявления доказательством.
+
+Полезные подтверждённые идеи: отдельный профиль на каждого CDN; Yandex HTTPS origin; cache/compression off; query parameters нельзя игнорировать; режим добавления CDN к существующей панели безопаснее полной переустановки. Selectel DELETE/POST и Timeweb HTTP:80 относятся только к этим провайдерам и не переносятся на Yandex. Для нашей действующей Yandex GET-body/query схемы в репозитории нет нового параметра или исправления. S4 3x-ui не обновлять на основании этого README.
+
+Полный разбор: docs/yandex-cdn-whitelist/VPN_CDN_INSTALLER_REVIEW_2026-09-12.md.
+
 ## Текущий результат: Чехия переведена с Hysteria2 на VLESS-Reality — 12.09.2026
 
 На S2 установлен отдельный maestro-vless-s2.service: официальный Xray 26.7.28 (5ca6f4b), TCP 2096, Reality/vision. В конфиге 42 активных клиента с их существующими основными VLESS UUID; новые UUID и второй клиентский аккаунт не создавались. Hysteria v2.9.2 была актуальной версией, но живой журнал показывал повторяющиеся UDP/QUIC timeout/error; после подтверждённого VLESS-перехода unit/config/binary Hysteria удалены из рабочих путей и сохранены в root-only rollback backup.
