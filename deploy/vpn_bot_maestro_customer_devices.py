@@ -19,9 +19,9 @@ _INCY_ANDROID = "https://play.google.com/store/apps/details?id=llc.itdev.incy"
 _INCY_IOS = "https://apps.apple.com/ru/app/incy/id6756943388"
 
 _DEVICE_CLIENTS = {
-    "android": (("maestro", "MaestroVPN"), ("karing", "Karing"), ("happ", "HAPP"), ("incy", "INCY")),
-    "ios": (("karing", "Karing"), ("happ", "HAPP"), ("incy", "INCY")),
-    "desktop": (("karing", "Karing"),),
+    "android": (("maestro", "MaestroVPN"), ("karing", "Karing"), ("happ", "HAPP"), ("incy", "INCY"), ("v2raytun", "v2RayTun"), ("mihomo", "Clash Mi · Mihomo")),
+    "ios": (("karing", "Karing"), ("happ", "HAPP"), ("incy", "INCY"), ("mihomo", "Clash Mi · Mihomo")),
+    "desktop": (("karing", "Karing"), ("mihomo", "Clash Mi · Mihomo")),
     "tv": (("maestro", "MaestroVPN"),),
 }
 
@@ -35,7 +35,7 @@ _DEVICE_LABELS = {
 _DEVICE_STEPS = {
     "android": "Установите приложение, скопируйте личную ссылку, добавьте её как подписку и подключитесь.",
     "ios": "Установите приложение, скопируйте личную ссылку, добавьте её как подписку и подключитесь.",
-    "desktop": "Установите Karing, скопируйте личную ссылку, добавьте её как подписку и подключитесь.",
+    "desktop": "Выберите приложение, установите его и добавьте личную ссылку как подписку.",
     "tv": "Установите MaestroVPN, введите ваш Maestro login и подключитесь.",
 }
 
@@ -44,9 +44,21 @@ _CLIENT_LABELS = {
     "karing": "Karing",
     "happ": "HAPP",
     "incy": "INCY",
+    "mihomo": "Clash Mi · Mihomo",
+    "v2raytun": "v2RayTun",
 }
 
 _CLIENT_INSTALLS = {
+    "mihomo": (
+        ("🤖 Clash Mi для Android", "https://github.com/KaringX/clashmi/releases/latest"),
+        ("🍏 Clash Mi для iPhone / iPad", "https://apps.apple.com/ru/app/clash-mi/id6744321968"),
+        ("💻 Clash Mi для компьютера", "https://clashmi.app/download"),
+        ("📖 Инструкция Clash Mi", "https://clashmi.app"),
+    ),
+    "v2raytun": (
+        ("🤖 Скачать v2RayTun", "https://play.google.com/store/apps/details?id=com.v2raytun.android"),
+        ("🌐 Сайт v2RayTun", "https://v2raytun.com/"),
+    ),
     "maestro": (("📥 Скачать MaestroVPN", _MAESTRO_APK),),
     "karing": (
         ("🍏 Karing для iPhone / iPad", _KARING_IOS),
@@ -250,6 +262,11 @@ async def send_client_instructions(message, flow, client, mode="vpn"):
         )
         if not copy_button_added:
             details += f"\n\n<code>{escape(copy_url)}</code>"
+
+    if client == "mihomo":
+        details += "\n\nВ Clash Mi откройте «Профили», нажмите «+» и добавьте профиль по URL. Затем выберите MaestroVPN. По умолчанию выбран обычный VPN; CDN выбирается вручную и расходует купленные ГБ. Для CDN используйте актуальное ядро Mihomo с поддержкой XHTTP."
+    elif client == "v2raytun":
+        details += "\n\nВ v2RayTun нажмите «+» → импорт из буфера обмена. Для CDN требуется версия с поддержкой XHTTP; подтверждённые у нас клиенты CDN — HAPP и INCY."
 
     await message.answer(
         f"<b>{label} · {mode_name}</b>\n\n{details}",

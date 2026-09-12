@@ -59,7 +59,7 @@ def subscription_copy_url(raw: str, client: str = "incy") -> str:
             or not re.fullmatch(r"/sub/[^/]+", parsed.path)):
         raise ValueError("invalid subscription copy URL")
     query = parse_qs(parsed.query, keep_blank_values=True)
-    query["format"] = ["links" if client == "karing" else "xray"]
+    query["format"] = ["mihomo" if client == "mihomo" else "links" if client in {"karing", "v2raytun"} else "xray"]
     return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
@@ -193,6 +193,9 @@ class CustomerFlow:
     async def delivery(self, client: str, mode: str = "vpn") -> dict:
         if mode not in {"vpn", "cdn"}:
             raise ValueError("unsupported connection mode")
+        if client in {"mihomo", "v2raytun"}:
+            result = await self.api.delivery("happ")
+            return {"copy_url": subscription_copy_url(result.get("copy_url") or result["url"], client)}
         result = await self.api.delivery(client)
         if client == "incy" and result.get("format") == "INCY_ONE_TAP":
             copy_url = result.get("copy_url")

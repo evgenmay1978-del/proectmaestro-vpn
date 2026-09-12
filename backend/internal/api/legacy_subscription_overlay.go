@@ -22,6 +22,7 @@ import (
 const maxLegacyLinksBytes = ((1 << 20) + 2) / 3 * 4
 
 type legacySubscriptionXrayJSONKey struct{}
+type legacySubscriptionMihomoKey struct{}
 
 // WrapLegacySubscriptions keeps the live legacy server authoritative for token,
 // expiry, device admission and all ordinary protocol settings. Verified endpoint
@@ -75,6 +76,11 @@ func WrapLegacySubscriptions(
 		if legacySubscriptionToken(request) != "" {
 			request.Header.Set("Accept-Encoding", "identity")
 			query := request.URL.Query()
+			if query.Get("format") == "mihomo" {
+				*request = *request.WithContext(context.WithValue(request.Context(), legacySubscriptionMihomoKey{}, true))
+				query.Set("format", "links")
+				request.URL.RawQuery = query.Encode()
+			}
 			_, formatSelected := query["format"]
 			_, appSelected := query["app"]
 			client := strings.TrimSpace(request.Header.Get("X-Client"))
@@ -105,7 +111,20 @@ func WrapLegacySubscriptions(
 		}
 	}
 	proxy.ModifyResponse = func(response *http.Response) error {
-		return appendLegacyPaidWhiteList(response, publication, publicationTimeout, labeler)
+		if err := appendLegacyPaidWhiteList(response, publication, publicationTimeout, labeler); err != nil { return err }
+		mihomo, _ := response.Request.Context().Value(legacySubscriptionMihomoKey{}).(bool)
+		if !mihomo || response.StatusCode != http.StatusOK { return nil }
+		raw, err := io.ReadAll(io.LimitReader(response.Body, maxLegacyLinksBytes+1))
+		_ = response.Body.Close()
+		if err != nil || len(raw) > maxLegacyLinksBytes { return errors.New("subscription unavailable") }
+		document, err := subgen.MihomoSubscription(string(raw))
+		if err != nil { return errors.New("subscription unavailable") }
+		response.Body = io.NopCloser(bytes.NewReader(document))
+		response.ContentLength = int64(len(document))
+		response.Header.Set("Content-Length", fmt.Sprint(len(document)))
+		response.Header.Set("Content-Type", "application/json; charset=utf-8")
+		response.Header.Del("ETag")
+		return nil
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if strings.HasPrefix(request.URL.Path, "/sub/") {
