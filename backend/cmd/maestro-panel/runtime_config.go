@@ -85,7 +85,7 @@ func readRQLiteRuntimeConfig(getenv func(string) string) (rqliteRuntimeConfig, e
 		seen[endpoint] = struct{}{}
 		config.Endpoints = append(config.Endpoints, endpoint)
 	}
-	if len(config.Endpoints) != 3 || config.CAFile == "" || config.CertFile == "" ||
+	if len(config.Endpoints) < 2 || len(config.Endpoints) > 3 || config.CAFile == "" || config.CertFile == "" ||
 		config.KeyFile == "" || config.KeyBundleFile == "" {
 		return rqliteRuntimeConfig{}, errInvalidRQLiteRuntime
 	}

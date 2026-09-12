@@ -68,7 +68,7 @@ func buildRQLitePanelRuntime(
 	dependencies rqliteRuntimeDependencies,
 	whiteListPublicationEnabled ...bool,
 ) (*panelRuntime, error) {
-	if ctx == nil || len(config.Endpoints) != 3 || config.CAFile == "" || config.CertFile == "" ||
+	if ctx == nil || len(config.Endpoints) < 2 || len(config.Endpoints) > 3 || config.CAFile == "" || config.CertFile == "" ||
 		config.KeyFile == "" || config.KeyBundleFile == "" || dependencies.newClient == nil ||
 		dependencies.loadSecretBox == nil || dependencies.applyMigrations == nil ||
 		dependencies.ids == nil || dependencies.clock == nil {
