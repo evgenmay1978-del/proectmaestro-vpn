@@ -1,3 +1,15 @@
+# Точка продолжения: случайное исчезновение ping CDN — 12.09.2026
+
+Владелец сообщает случайный `n/a`/исчезновение ping всех CDN в HAPP/INCY. Это не исправлено. Нельзя снова подменять клиентский результат свежей readiness-квитанцией: 140 секунд receipt-наблюдения были чистыми, но владелец в тот же период подтвердил реальный сбой.
+
+Текущее production после полного отката неудачного no-lease опыта: S1 controller `79bc50456a5e4fcd839df1ae6d3e0144c2200044`, SHA256 `d9b04a24bec207985ff8ee5597dd00e74870a22de13d85e83059c0b770ddbe5d`, active, rqlite endpoints только S2/S3, use-lease default. S4 commercial agent active с `MAESTRO_COMMERCIAL_RUNTIME_LEASE=true`; ingress, commercial/private Xray и x-ui active. S4 rqlite follower inactive, но enabled и с сохранёнными данными; S2+S3 active/quorum. Неудачный commit `354a727` откатан commit `223e2bb` и не должен устанавливаться.
+
+Факты диагностики: S4 follower доходил до 92% одного CPU; S2 видел 1165 timeout и 1961 ошибки к S4 за сутки, S4 Raft — `broken pipe`. После остановки S4 follower нагрузка упала до 0,17 и S2/S3 дали 8/8, но клиентский ping всё равно пропадал. Восемь маршрутов делили короткую use-lease; простое выключение lease на controller+agent дало отсутствие ping на всех CDN и откатано. Тестовая private CDN-подписка удалена, private service пустой active, backup `/var/backups/maestro-private-test-subscription-20260912T192022Z`.
+
+Следующий шаг только end-to-end: в момент `n/a` одновременно читать S4 ingress, commercial Xray и реальный managed-user snapshot `/v1/usage`; `payload_json` из rqlite сначала Base64-decode, затем JSON. После локализации упростить доступ по принципу Akonit: положительный купленный баланс + активный VPN удерживают пользователя в Xray, а временный сбой учёта не должен снимать доступ. Не разворачивать no-lease односторонне и не увеличивать таймеры. Полный отчёт и откаты: docs/yandex-cdn-whitelist/CDN_RANDOM_PING_INCIDENT_2026-09-12.md.
+
+Рекламный пилот поставлен на паузу, бюджет до 10 000 ₽ не тратился.
+
 # Telegram-канал MaestroVPN: основа продвижения установлена — 12.09.2026
 
 Владелец одобрил стратегию и разрешил реализацию. Канал @maestrovpn имел 3 подписчика, имя MaestroTv | Official, повторяющиеся публикации и не обновлялся с 07.08.2026. В Telegram Web он переименован в MaestroVPN | Официальный канал. Описание теперь сообщает о новостях, статусе сети, инструкциях для телефона/ТВ/ПК и содержит кликабельные @MaestroSecureVPN_bot и @wapmixx.
