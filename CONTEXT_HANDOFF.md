@@ -494,3 +494,6 @@ Karing/HAPP/INCY исправлены server-side: controller `ae1ed4d`, legacy 
 ## Последний результат — Mihomo и v2RayTun, 12.09.2026
 
 Установлен controller a5ab80e92379253e2fd5935b43446264dda03545 и два общих модуля обоих ботов. Добавлены официальные скачивания/инструкции и личная выдача format=mihomo (native config) / format=links (v2RayTun). Mihomo1.19.30: обычный VPN и CDN HTTPS200; фактическая публикация содержит проверенный session contract. Прежний format=xray сохранил 7 профилей. Наблюдение v2RayTun ограничено меню/выдачей, не фактическим клиентским соединением. Подробности, все откаты и источники: docs/telegram-bots/CLIENTS_2026-09-12.md. Xray, учёт, платежные обработчики и приложение не изменены.
+## Последнее исследование — видео CDN и Yandex, 12.09.2026
+
+Разобрано основное видео Selectel и два найденных материала про Yandex/мульти-CDN; текущий Yandex resource просмотрен read-only. Вывод: Selectel `DELETE/POST` и timeout нельзя переносить; для нашего Yandex сохраняется подтверждённый `packet-up + GET-body + query session/seq + ML-KEM`, cache/gzip/segmentation off. Короткое видео о direct Yandex VM не содержит достаточных доказательств. Открытый 60s downstream cut не решён этими материалами. Настройки/серверы не менялись. Подробности: `docs/yandex-cdn-whitelist/VIDEO_GUIDES_ANALYSIS_2026-09-12.md`.

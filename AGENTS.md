@@ -266,3 +266,6 @@ Karing/HAPP/INCY исправлены server-side: controller `ae1ed4d`, legacy 
 ## Дополнение клиентов ботов — 12.09.2026
 
 Оба бота получили Mihomo/Clash Mi и v2RayTun со скачиванием, инструкциями и персональной ссылкой. Controller a5ab80e добавляет только новый format=mihomo, прежняя выдача HAPP/INCY/Karing сохранена. На official Mihomo1.19.30 ordinary VPN и CDN прошли HTTPS200; session-table=uuid/session-length=16 обязательны для проверенного маршрута. v2RayTun: выдача ссылки проверена, соединение в приложении не заявлять. Источник, пределы и откат: docs/telegram-bots/CLIENTS_2026-09-12.md. Оплату/Xray/app/OTA не менять ради меню. Глобальное правило сверки версий внесено в C:/Users/User/.codex/AGENTS.md.
+## Разбор CDN-видео и Yandex — 12.09.2026
+
+Изучены Selectel-гайд и найденные материалы про Yandex. Selectel использует provider-specific `DELETE/POST`; к Yandex эти параметры не переносить. Текущий Yandex resource read-only подтверждён: HTTP origin, client Host, GET/HEAD/OPTIONS, cache/gzip/segmentation off, без location rules, shielding и raw logs. Сохранять доказанный Maestro-профиль `packet-up + GET-body + query session/seq + ML-KEM`; production не менять по видео. Полный разбор: `docs/yandex-cdn-whitelist/VIDEO_GUIDES_ANALYSIS_2026-09-12.md`.
