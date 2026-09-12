@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,6 +111,7 @@ type runtimeWhiteListMeteringCollector struct {
 	byteBudgetBytes       int64
 	cachedLeaseAuthority  *runtimeWhiteListCachedLeaseAuthority
 	leaseAuthorityChanged bool
+	disableUseLease       bool
 }
 
 func newRuntimeWhiteListMeteringStore(database rqlite.RQLite) (*shadowbilling.DurableStore, error) {
@@ -147,6 +149,7 @@ func runRQLiteBackground(
 			runRuntimeWhiteListMetering(ctx, &runtimeWhiteListMeteringCollector{
 				control: metering, store: meteringStore, workerID: workerID, senders: senders,
 				reserves: reserves, byteBudgetBytes: byteBudget,
+				disableUseLease: strings.TrimSpace(os.Getenv("MAESTRO_WHITELIST_USE_LEASE")) == "0",
 			}, runtimeWhiteListMeteringInterval)
 		}()
 	}
@@ -242,7 +245,8 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		sender, ok := collector.senders[nodeID]
 		return sender, ok && sender != nil
 	}
-	leaseControl, leaseEnabled := collector.control.(runtimeWhiteListLeaseControlPlane)
+	leaseControl, leaseAvailable := collector.control.(runtimeWhiteListLeaseControlPlane)
+	leaseEnabled := leaseAvailable && !collector.disableUseLease
 	stage = "final receipt drain"
 	if leaseEnabled {
 		collector.leaseAuthorityChanged = false
