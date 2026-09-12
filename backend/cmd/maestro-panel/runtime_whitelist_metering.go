@@ -218,7 +218,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 		if err := collector.reconcile(reconcileContext); err != nil {
 			if runErr == nil {
-				runErr = errRuntimeWhiteListMeteringUnavailable
+				runErr = fmt.Errorf("%w: sidecar reconcile: %v", errRuntimeWhiteListMeteringUnavailable, err)
 			}
 			return
 		}
