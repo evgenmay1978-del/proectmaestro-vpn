@@ -84,9 +84,9 @@ func (c *Client) SyncVLESSUsers(users []VLESSUser) error {
 	script := fmt.Sprintf(`set -e
 cp -a %[1]s %[1]s.bak
 umask 077
-python3 -c '%[4]s' %[1]s %[1]s.new
-install -o root -g maestro-vless-s2 -m 0640 %[1]s.new %[1]s
-rm -f %[1]s.new
+python3 -c '%[4]s' %[1]s %[1]s.new.json
+install -o root -g maestro-vless-s2 -m 0640 %[1]s.new.json %[1]s
+rm -f %[1]s.new.json
 if ! %[2]s run -test -config %[1]s || ! systemctl restart %[3]s; then
   cp -a %[1]s.bak %[1]s
   systemctl restart %[3]s || true
