@@ -89,8 +89,9 @@ type runtimeWhiteListMeteringStore interface {
 }
 
 type runtimeWhiteListCachedLeaseAuthority struct {
-	planFingerprint [sha256.Size]byte
-	authorization   controlplane.WhiteListUseLeaseAuthorization
+	planFingerprint  [sha256.Size]byte
+	authorization    controlplane.WhiteListUseLeaseAuthorization
+	unavailableUsers map[string][]string
 }
 
 type runtimeWhiteListLeaseDelivery struct {
@@ -213,7 +214,13 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		if runErr != nil {
 			runErr = fmt.Errorf("%s after %s: %w", stage, time.Since(started).Round(time.Millisecond), runErr)
 		}
-		if preserveExactLease || !collector.reconcileNeeded {
+		if preserveExactLease {
+			// Retry only the same funded ceilings within their original authority
+			// deadline. A delayed debit must not discard a still-valid renewal.
+			collector.cachedLeaseAuthority = cachedLeaseAuthority
+			return
+		}
+		if !collector.reconcileNeeded {
 			return
 		}
 		if err := collector.reconcile(reconcileContext); err != nil {
@@ -372,6 +379,22 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 				_, earlyDeliveryErrors[index] = earlyDeliveries[index].sender.PostUseLease(ctx, earlyDeliveries[index].request)
 			}()
 		}
+		earlyDeliveriesWait.Wait()
+		stage = "early use lease delivery"
+		freshNonceNeeded := false
+		for index, deliveryErr := range earlyDeliveryErrors {
+			if errors.Is(deliveryErr, sidecaragentclient.ErrFreshLeaseNonceNeeded) {
+				freshNonceNeeded = true
+				continue
+			}
+			if deliveryErr != nil {
+				return fmt.Errorf("early lease delivery to %s: %w (context: %v)", earlyDeliveries[index].originID, deliveryErr, ctx.Err())
+			}
+		}
+		if freshNonceNeeded {
+			return errRuntimeWhiteListFreshLeaseNonce
+		}
+		protectedByEarlyLease = len(earlyDeliveries) == len(plan.Origins)
 	}
 
 	var usageErr error
@@ -422,24 +445,6 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 	}
 
-	if earlyLeaseReady {
-		earlyDeliveriesWait.Wait()
-		stage = "early use lease delivery"
-		freshNonceNeeded := false
-		for index, deliveryErr := range earlyDeliveryErrors {
-			if errors.Is(deliveryErr, sidecaragentclient.ErrFreshLeaseNonceNeeded) {
-				freshNonceNeeded = true
-				continue
-			}
-			if deliveryErr != nil {
-				return fmt.Errorf("early lease delivery to %s: %w (context: %v)", earlyDeliveries[index].originID, deliveryErr, ctx.Err())
-			}
-		}
-		if freshNonceNeeded {
-			return errRuntimeWhiteListFreshLeaseNonce
-		}
-		protectedByEarlyLease = len(earlyDeliveries) == len(plan.Origins)
-	}
 	if usageErr != nil {
 		return usageErr
 	}
@@ -599,8 +604,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	}
 	if collector.byteBudgetBytes > 0 && planFingerprintOK && len(authorization.Emails) > 0 {
 		collector.cachedLeaseAuthority = &runtimeWhiteListCachedLeaseAuthority{
-			planFingerprint: planFingerprint,
-			authorization:   runtimeWhiteListCloneUseLeaseAuthorization(authorization),
+			planFingerprint:  planFingerprint,
+			authorization:    runtimeWhiteListCloneUseLeaseAuthorization(authorization),
+			unavailableUsers: make(map[string][]string, len(snapshots)),
+		}
+		for originID, snapshot := range snapshots {
+			collector.cachedLeaseAuthority.unavailableUsers[originID] = append([]string(nil), snapshot.UnavailableUsers...)
 		}
 	}
 	if unchangedByteRoutes && authorization.ProvisioningComplete {
@@ -645,8 +654,6 @@ func runtimeWhiteListLeasePlanFingerprint(plan controlplane.WhiteListMeteringPla
 			origin.Receipt.ActionKey, origin.Receipt.OriginID, origin.Receipt.ReleaseID,
 			origin.Receipt.XrayProcessBootID, origin.Receipt.ConfigDigest,
 			strconv.FormatInt(origin.Receipt.DesiredGeneration, 10), origin.Receipt.ManagedUserSetDigest,
-			strconv.FormatInt(origin.Receipt.AppliedAt.UnixNano(), 10),
-			strconv.FormatInt(origin.Receipt.ExpiresAt.UnixNano(), 10),
 		} {
 			writeField(value)
 		}
@@ -736,14 +743,23 @@ func (collector *runtimeWhiteListMeteringCollector) prepareCachedByteLeaseDelive
 		originCeilings, ceilingsOK := authorization.CumulativeByteCeilings[origin.Origin.OriginID]
 		originFences, fencesOK := authorization.ByteBudgetFenceGenerations[origin.Origin.OriginID]
 		if !snapshotOK || !receivedOK || receivedAt.IsZero() || !ceilingsOK || !fencesOK ||
-			len(snapshot.Users) != len(authorization.Emails) || len(originCeilings) != len(authorization.Emails) ||
+			len(snapshot.Users)+len(snapshot.UnavailableUsers) != len(authorization.Emails) || len(originCeilings) != len(authorization.Emails) ||
 			len(originFences) != len(authorization.Emails) {
 			return nil, false
 		}
-		emails := make([]string, 0, len(snapshot.Users))
-		seen := make(map[string]struct{}, len(snapshot.Users))
-		ceilings := make(map[string]int64, len(snapshot.Users))
-		fences := make(map[string]uint64, len(snapshot.Users))
+		previousUnavailable := cached.unavailableUsers[origin.Origin.OriginID]
+		if len(previousUnavailable) != len(snapshot.UnavailableUsers) {
+			return nil, false
+		}
+		for index, email := range snapshot.UnavailableUsers {
+			if previousUnavailable[index] != email {
+				return nil, false
+			}
+		}
+		emails := make([]string, 0, len(authorization.Emails))
+		seen := make(map[string]struct{}, len(authorization.Emails))
+		ceilings := make(map[string]int64, len(authorization.Emails))
+		fences := make(map[string]uint64, len(authorization.Emails))
 		for _, user := range snapshot.Users {
 			if _, allowed := authorized[user.Email]; !allowed {
 				return nil, false
@@ -762,6 +778,26 @@ func (collector *runtimeWhiteListMeteringCollector) prepareCachedByteLeaseDelive
 			ceilings[user.Email] = ceiling
 			fences[user.Email] = fence
 		}
+		// An unchanged never-observed counter pair does not invalidate another
+		// paid user's renewal. Preserve its previously authorized ceiling; never
+		// manufacture counters or accept an available-to-unavailable transition.
+		for _, email := range snapshot.UnavailableUsers {
+			if _, allowed := authorized[email]; !allowed {
+				return nil, false
+			}
+			if _, duplicate := seen[email]; duplicate {
+				return nil, false
+			}
+			ceiling, ceilingOK := originCeilings[email]
+			fence, fenceOK := originFences[email]
+			if !ceilingOK || !fenceOK || ceiling <= 0 {
+				return nil, false
+			}
+			seen[email] = struct{}{}
+			emails = append(emails, email)
+			ceilings[email] = ceiling
+			fences[email] = fence
+		}
 		if len(seen) != len(authorization.Emails) {
 			return nil, false
 		}
@@ -769,6 +805,11 @@ func (collector *runtimeWhiteListMeteringCollector) prepareCachedByteLeaseDelive
 		budget := runtimeWhiteListUseLeaseWindow
 		if hardRemaining := authorization.AuthorityExpiresAt.Sub(receivedAt); hardRemaining < budget {
 			budget = hardRemaining
+		}
+		// Receipt refresh changes only its times, not the plan identity. It may
+		// never extend the cached paid authority or outlive the current receipt.
+		if receiptRemaining := snapshot.Receipt.ExpiresAt.Sub(receivedAt); receiptRemaining < budget {
+			budget = receiptRemaining
 		}
 		if budget <= 0 {
 			return nil, false
