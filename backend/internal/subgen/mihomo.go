@@ -46,6 +46,8 @@ func MihomoSubscription(encoded string) ([]byte, error) {
 					v, ok := extra[from].(string); if !ok || v == "" { return nil, errInvalidWhiteListNode }; x[to] = v
 				}
 				p["xhttp-opts"] = x
+				x["session-table"] = "uuid"
+				x["session-length"] = "16"
 				p["alpn"] = []string{"h2"}
 			}
 		} else {
