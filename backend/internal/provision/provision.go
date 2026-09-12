@@ -90,6 +90,7 @@ type AnyTLSTmpl struct {
 // if their Server is empty, that protocol is simply not provisioned.
 type Config struct {
 	VLESS  VLESSTmpl
+	VLESS2 VLESSTmpl // standalone VLESS-Reality on S2; empty Server = off
 	Hy2    Hy2Tmpl
 	Naive  NaiveTmpl
 	AnyTLS AnyTLSTmpl
@@ -177,16 +178,12 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 	// orphaning the old SubToken or duplicating the 3x-ui client.
 	uuid := uuid4()
 	subTok := randHex(16)
-	hy2Pass := randHex(16)
 	if prev, perr := p.st.ByLogin(login); perr == nil && prev != nil {
 		if prev.SubToken != "" {
 			subTok = prev.SubToken
 		}
 		if prev.VLESS != nil && prev.VLESS.UUID != "" {
 			uuid = prev.VLESS.UUID
-		}
-		if prev.Hy2 != nil && prev.Hy2.Pass != "" {
-			hy2Pass = prev.Hy2.Pass
 		}
 	}
 
@@ -223,22 +220,19 @@ func (p *Provisioner) Provision(login string, dur time.Duration) (*store.Custome
 			PublicKey: p.cfg.VLESS.PublicKey, ShortID: p.cfg.VLESS.ShortID,
 			Fingerprint: p.cfg.VLESS.Fingerprint,
 		},
-		Hy2: &subgen.Hy2Creds{
-			Server: p.cfg.Hy2.Server, Port: p.cfg.Hy2.Port, User: login, Pass: hy2Pass,
-			SNI: p.cfg.Hy2.SNI, Insecure: p.cfg.Hy2.Insecure,
-		},
 	}
+	p.addVLESS2(cust)
 	if err := p.st.Put(cust); err != nil {
 		return nil, fmt.Errorf("provision: store: %w", err)
 	}
 
-	// Server 2: re-sync the Hysteria user set to include this customer.
-	if err := p.syncHy2(); err != nil {
+	// Server 2: re-sync the standalone VLESS user set to include this customer.
+	if err := p.syncVLESS2(); err != nil {
 		// Клиент возвращается вместе с ошибкой — он УЖЕ в хранилище (Put выше). Для Provision
 		// повторное выполнение не страшно (дата абсолютная, now+dur, накопления нет), но
 		// вызывающий должен видеть, что запись создана, и пометить заказ как начисленный
 		// единообразно с веткой Extend.
-		return cust, fmt.Errorf("provision: hy2 sync: %w", err)
+		return cust, fmt.Errorf("provision: s2 vless sync: %w", err)
 	}
 
 	// Extra protocols — best-effort: never fail the provision (VLESS+Hy2 are
@@ -284,8 +278,8 @@ func (p *Provisioner) ActivateExisting(login string) (*store.Customer, error) {
 		return nil, err
 	}
 	// Push the freshly created server-2 user sets (best-effort).
-	if err := p.syncHy2(); err != nil {
-		log.Printf("activate: hy2 sync %q: %v", login, err)
+	if err := p.syncVLESS2(); err != nil {
+		log.Printf("activate: s2 vless sync %q: %v", login, err)
 	}
 	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
 		if err := p.syncNaive(); err != nil {
@@ -356,12 +350,7 @@ func (p *Provisioner) activateExistingLocked(login string) (*store.Customer, err
 			PublicKey: p.cfg.VLESS.PublicKey, ShortID: p.cfg.VLESS.ShortID, Fingerprint: p.cfg.VLESS.Fingerprint,
 		}
 	}
-
-	// Hy2: always create.
-	cust.Hy2 = &subgen.Hy2Creds{
-		Server: p.cfg.Hy2.Server, Port: p.cfg.Hy2.Port, User: login, Pass: randHex(16),
-		SNI: p.cfg.Hy2.SNI, Insecure: p.cfg.Hy2.Insecure,
-	}
+	p.addVLESS2(cust)
 
 	// Naive: reuse their existing Caddy credential, else create an mtv_ one.
 	if naiveFound {
@@ -413,8 +402,8 @@ func (p *Provisioner) BulkActivateExisting(logins []string) (int, []string, erro
 	// One server-2 sync for the WHOLE batch (full-regen from the active set) — one
 	// hysteria restart + one sing-box-anytls restart + one Caddy reload, not N.
 	if imported > 0 {
-		if err := p.syncHy2(); err != nil {
-			log.Printf("bulk-activate: hy2 sync: %v", err)
+		if err := p.syncVLESS2(); err != nil {
+			log.Printf("bulk-activate: s2 vless sync: %v", err)
 		}
 		if err := p.syncNaive(); err != nil {
 			log.Printf("bulk-activate: naive sync: %v", err)
@@ -544,8 +533,8 @@ func (p *Provisioner) syncServer2Locked(reason string) {
 	if p.s2 == nil {
 		return
 	}
-	if err := p.syncHy2(); err != nil {
-		log.Printf("%s: s2 hy2 sync: %v", reason, err)
+	if err := p.syncVLESS2(); err != nil {
+		log.Printf("%s: s2 vless sync: %v", reason, err)
 	}
 	// Guarded like syncAnyTLS: with Naive unconfigured we must not push a user set at all.
 	if p.cfg.Naive.Server != "" {
@@ -604,8 +593,8 @@ func (p *Provisioner) fanOutExpiry(cust *store.Customer) error {
 			return fmt.Errorf("provision: xui updateClient: %w", err)
 		}
 	}
-	if err := p.syncHy2(); err != nil {
-		return fmt.Errorf("provision: hy2 sync: %w", err)
+	if err := p.syncVLESS2(); err != nil {
+		return fmt.Errorf("provision: s2 vless sync: %w", err)
 	}
 	if cust.Naive != nil && strings.HasPrefix(cust.Naive.Username, server2.NaivePrefix) {
 		if err := p.syncNaive(); err != nil {
@@ -664,16 +653,33 @@ func (p *Provisioner) ReconcileExpiries() {
 	}
 }
 
-// syncHy2 regenerates server-2's Hysteria user set from all ACTIVE customers, so
-// an expired or disabled customer is dropped and can no longer connect.
-func (p *Provisioner) syncHy2() error {
-	var users []server2.Hy2User
+// syncVLESS2 regenerates server-2's VLESS user set from all ACTIVE customers.
+func (p *Provisioner) syncVLESS2() error {
+	if p.cfg.VLESS2.Server == "" {
+		return nil
+	}
+	syncer, ok := p.s2.(interface{ SyncVLESSUsers([]server2.VLESSUser) error })
+	if !ok {
+		return fmt.Errorf("provision: server2 VLESS sync unavailable")
+	}
+	var users []server2.VLESSUser
 	for _, c := range p.st.List() {
-		if c.Active() && c.Hy2 != nil {
-			users = append(users, server2.Hy2User{User: c.Hy2.User, Pass: c.Hy2.Pass})
+		if c.Active() && c.VLESS2 != nil && c.VLESS2.UUID != "" {
+			users = append(users, server2.VLESSUser{Name: c.Login, UUID: c.VLESS2.UUID})
 		}
 	}
-	return p.s2.SyncHy2Users(users)
+	return syncer.SyncVLESSUsers(users)
+}
+
+func (p *Provisioner) addVLESS2(cust *store.Customer) {
+	if p.cfg.VLESS2.Server == "" || cust.VLESS == nil || cust.VLESS.UUID == "" {
+		return
+	}
+	cust.VLESS2 = &subgen.VLESSCreds{
+		Server: p.cfg.VLESS2.Server, Port: p.cfg.VLESS2.Port, UUID: cust.VLESS.UUID,
+		Flow: p.cfg.VLESS2.Flow, SNI: p.cfg.VLESS2.SNI, PublicKey: p.cfg.VLESS2.PublicKey,
+		ShortID: p.cfg.VLESS2.ShortID, Fingerprint: p.cfg.VLESS2.Fingerprint,
+	}
 }
 
 // addNaive records app-managed Naive creds (mtv_-prefixed Caddy basic_auth);

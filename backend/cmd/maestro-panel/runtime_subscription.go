@@ -115,10 +115,14 @@ func runtimeCountryFlag(code string) string {
 func rqliteSubscriptionTopologyFromEnvironment() subgen.Customer {
 	topology := subgen.Customer{
 		VLESS: runtimeVLESSTopology("", env("VLESS_SERVER", "wapmixx.ru")),
-		Hy2: &subgen.Hy2Creds{
+	}
+	if server := os.Getenv("S2_VLESS_SERVER"); server != "" {
+		topology.VLESS2 = runtimeVLESSTopology("S2_", server)
+	} else {
+		topology.Hy2 = &subgen.Hy2Creds{
 			Server: env("HY2_SERVER", "wapmix.duckdns.org"), Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
 			SNI: env("HY2_SNI", "wapmix.duckdns.org"), Insecure: env("HY2_INSECURE", "1") == "1",
-		},
+		}
 	}
 	if server := os.Getenv("NAIVE_SERVER"); server != "" {
 		topology.Naive = &subgen.NaiveCreds{

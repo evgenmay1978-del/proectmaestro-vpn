@@ -38,6 +38,9 @@ func newLegacyShareLabeler(topology subgen.Customer) legacyShareLabeler {
 	if node := topology.VLESS; node != nil {
 		add("vless", node.Server, node.Port, "🇪🇸 Испания · VLESS")
 	}
+	if node := topology.VLESS2; node != nil {
+		add("vless", node.Server, node.Port, "🇨🇿 Чехия · VLESS")
+	}
 	if node := topology.Hy2; node != nil {
 		add("hysteria2", node.Server, node.Port, "🇨🇿 Чехия · Hysteria2")
 	}

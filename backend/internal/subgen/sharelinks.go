@@ -16,6 +16,9 @@ func ShareLinks(c Customer) string {
 	if c.VLESS != nil {
 		links = append(links, vlessLink(c.VLESS, "🇪🇸", c.Name))
 	}
+	if c.VLESS2 != nil {
+		links = append(links, vlessLink(c.VLESS2, "🇨🇿", c.Name+" S2"))
+	}
 	if c.Hy2 != nil {
 		links = append(links, hy2Link(c.Hy2, "🇨🇿", c.Name))
 	}

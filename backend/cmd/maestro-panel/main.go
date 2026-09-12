@@ -205,6 +205,9 @@ func main() {
 			AnyTLSKey:        env("ANYTLS_KEY", "/etc/sing-box-anytls/key.pem"),
 			AnyTLSService:    env("ANYTLS_SERVICE", "sing-box-anytls"),
 			AnyTLSConfigPath: env("ANYTLS_CONFIG", "/etc/sing-box-anytls/config.json"),
+			VLESSService:      env("S2_VLESS_SERVICE", "maestro-vless-s2"),
+			VLESSConfigPath:   env("S2_VLESS_CONFIG", "/etc/maestro-vless-s2/config.json"),
+			VLESSBinaryPath:   env("S2_VLESS_BINARY", "/opt/maestro-vless-s2/xray"),
 		})
 		provCfg := provision.Config{
 			VLESS: provision.VLESSTmpl{
@@ -218,6 +221,14 @@ func main() {
 				Server: env("HY2_SERVER", "wapmix.duckdns.org"), Port: atoi(os.Getenv("S2_HY2_PORT"), 8443),
 				SNI: env("HY2_SNI", "wapmix.duckdns.org"), Insecure: env("HY2_INSECURE", "1") == "1",
 			},
+		}
+		if server := os.Getenv("S2_VLESS_SERVER"); server != "" {
+			provCfg.VLESS2 = provision.VLESSTmpl{
+				Server: server, Port: atoi(os.Getenv("S2_VLESS_PORT"), 2096),
+				SNI: os.Getenv("S2_VLESS_SNI"), PublicKey: os.Getenv("S2_VLESS_PBK"),
+				ShortID: os.Getenv("S2_VLESS_SID"), Flow: env("S2_VLESS_FLOW", "xtls-rprx-vision"),
+				Fingerprint: env("S2_VLESS_FP", "firefox"),
+			}
 		}
 		// Naive: enabled when the rixxx-panel is reachable + NAIVE_SERVER set.
 		if os.Getenv("NAIVE_SERVER") != "" {

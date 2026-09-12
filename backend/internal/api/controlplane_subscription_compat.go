@@ -48,6 +48,7 @@ func renderControlPlaneSubscription(customer controlplane.BusinessCustomer, topo
 	}
 	configured.Name = customer.Login
 	configured.VLESS = configuredVLESS(topology.VLESS, customer.Access.Credentials["vless"])
+	configured.VLESS2 = configuredVLESS(topology.VLESS2, customer.Access.Credentials["vless"])
 	configured.Hy2 = configuredHy2(topology.Hy2, customer.Login, customer.Access.Credentials["hysteria2"])
 	naiveUsername := customer.Login
 	if importedUsername := customer.Access.CredentialUsernames["naive"]; importedUsername != "" {

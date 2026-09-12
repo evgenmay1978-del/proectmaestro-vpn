@@ -68,6 +68,7 @@ type AnyTLSCreds struct {
 type Customer struct {
 	Name   string
 	VLESS  *VLESSCreds
+	VLESS2 *VLESSCreds  // VLESS-Reality on server 2 (Czech Republic)
 	Hy2    *Hy2Creds
 	Naive  *NaiveCreds
 	AnyTLS *AnyTLSCreds
@@ -124,6 +125,7 @@ type WGCreds = controlplane.WGCredentialIdentity
 
 const (
 	tagVLESS  = "🇪🇸 MaestroVPN VLESS"
+	tagVLESS2 = "🇨🇿 MaestroVPN VLESS"
 	tagVLESS3 = "🇳🇱 MaestroVPN VLESS S3" // VLESS-Reality on the 3rd node
 	tagVLESS4 = "🇩🇪 MaestroVPN VLESS S4" // VLESS-Reality on the 4th node (S4)
 	tagHy2    = "🇨🇿 MaestroVPN Hysteria2"
@@ -281,6 +283,10 @@ func GenerateSingbox(c Customer) ([]byte, error) {
 	if c.VLESS != nil {
 		outbounds = append(outbounds, vlessOutbound(c.VLESS, tagVLESS))
 		protoTags = append(protoTags, tagVLESS)
+	}
+	if c.VLESS2 != nil {
+		outbounds = append(outbounds, vlessOutbound(c.VLESS2, tagVLESS2))
+		protoTags = append(protoTags, tagVLESS2)
 	}
 	if c.Hy2 != nil {
 		outbounds = append(outbounds, hy2Outbound(c.Hy2))

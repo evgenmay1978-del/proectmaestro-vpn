@@ -43,12 +43,65 @@ type Config struct {
 	AnyTLSKey        string // /etc/sing-box-anytls/key.pem
 	AnyTLSService    string // sing-box-anytls
 	AnyTLSConfigPath string // /etc/sing-box-anytls/config.json
+
+	VLESSService    string // maestro-vless-s2
+	VLESSConfigPath string // /etc/maestro-vless-s2/config.json
+	VLESSBinaryPath string // /opt/maestro-vless-s2/xray
 }
 
 // Hy2User is one Hysteria2 userpass credential.
 type Hy2User struct {
 	User string
 	Pass string
+}
+
+// VLESSUser is one customer identity on the standalone S2 VLESS-Reality inbound.
+type VLESSUser struct {
+	Name string `json:"Name"`
+	UUID string `json:"UUID"`
+}
+
+// SyncVLESSUsers replaces only the client list in the already-installed S2
+// VLESS-Reality config. The local Reality key, target and listener stay untouched.
+func (c *Client) SyncVLESSUsers(users []VLESSUser) error {
+	path := c.cfg.VLESSConfigPath
+	if path == "" {
+		path = "/etc/maestro-vless-s2/config.json"
+	}
+	service := c.cfg.VLESSService
+	if service == "" {
+		service = "maestro-vless-s2"
+	}
+	binary := c.cfg.VLESSBinaryPath
+	if binary == "" {
+		binary = "/opt/maestro-vless-s2/xray"
+	}
+	payload, err := json.Marshal(users)
+	if err != nil {
+		return fmt.Errorf("server2: marshal vless users: %w", err)
+	}
+	python := `import json,sys;c=json.load(open(sys.argv[1]));u=json.load(sys.stdin);c["inbounds"][0]["settings"]["clients"]=[{"id":x["UUID"],"email":x["Name"],"flow":"xtls-rprx-vision"} for x in u];open(sys.argv[2],"w").write(json.dumps(c,separators=(",",":")))`
+	script := fmt.Sprintf(`set -e
+cp -a %[1]s %[1]s.bak
+umask 077
+python3 -c '%[4]s' %[1]s %[1]s.new
+install -o root -g maestro-vless-s2 -m 0640 %[1]s.new %[1]s
+rm -f %[1]s.new
+if ! %[2]s run -test -config %[1]s || ! systemctl restart %[3]s; then
+  cp -a %[1]s.bak %[1]s
+  systemctl restart %[3]s || true
+  exit 1
+fi
+sleep 1
+systemctl is-active %[3]s`, path, binary, service, python)
+	out, err := c.run(script, string(payload))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(out) != "active" {
+		return fmt.Errorf("server2: %s not active after VLESS sync: %q", service, strings.TrimSpace(out))
+	}
+	return nil
 }
 
 const hy2ConfigPath = "/etc/hysteria/config.yaml"
