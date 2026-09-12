@@ -1,3 +1,17 @@
+# Актуальная точка: S2 Чехия VLESS-Reality, Hysteria выведена — 12.09.2026
+
+Владелец поручил убрать нестабильную чешскую Hysteria и поставить VLESS, не перепутав версии, а также спросил о безопасном обновлении S4 3x-ui/Xray. Live-инвентарь разделил узлы: S4 содержит рабочий VLESS-Reality и не является источником чешского Hysteria-сбоя; Hysteria находилась на S2. S4 x-ui 3.4.0/Xray 26.6.22 оставлены без изменений, потому что 3x-ui 3.7.0 выполняет миграцию схемы при первом запуске, а к сбою S2 это не относится.
+
+На S2 установлен standalone maestro-vless-s2.service с точной официальной Xray 26.7.28 (5ca6f4b), binary SHA256 64d46afb80adea1bf97a0d467e83f4a9ac1ebd0995891e84bca3f1a1d1affb1d, TCP 2096, Reality/vision. Сначала один owner-canary дал HTTPS 200/0,396 с при сохранённой Hysteria. Затем атомарно загружены 42 активных существующих VLESS UUID; проверка выданной production-ссылки дала HTTPS 200/0,357 с.
+
+Source commit 4d8e23747e82, GitHub build-only run 34696383136 SUCCESS, tests skipped, artifact 10299211030; S1 panel и maestro-cdn-controller.service используют один exact binary SHA256 7881c7b08787a23adb50d141d00ca69763b8fee79a152e93b95405a829b79f42. 50 из 51 сохранённых записей получили vless2 на том же основном UUID. Links/Xray/app: Чехия VLESS присутствует один раз, Hysteria отсутствует, Profile-Title MaestroVPN и Subscription-Userinfo сохранены, X-Maestro-CDN=included, 4 ordinary VLESS + 4 CDN.
+
+После этого Hysteria v2.9.2 остановлена, отключена и перемещена из рабочих unit/config/binary путей в root-only backup. Финальная live-проверка: S1 panel/controller active и healthz 200; S2 VLESS active/enabled, 42 клиента, TCP 2096; AnyTLS и S2 bot active; failed units=0; Hysteria load=not-found, UDP 8443 отсутствует. UFW не менялся. Приложение/OTA, CDN ingress/origins/accounting, оплаты, балансы, базы заказов и S3/S4 VLESS не менялись.
+
+Rollback: S1 /var/backups/maestro-vless2-s1-20260912T133212Z; S2 users /var/backups/maestro-vless-s2-users-20260912T132658Z; initial canary /var/backups/maestro-s2-vless-canary-20260912T130031Z; retired Hysteria /var/backups/maestro-hysteria-retired-20260912T134101Z. При откате кода не восстанавливать customer/order DB: вернуть binary/env/unit, а добавочное поле vless2 старым бинарником игнорируется. Полный порядок и доказательства: docs/yandex-cdn-whitelist/S2_VLESS_CUTOVER_2026-09-12.md.
+
+Следующий шаг: остановиться и ждать фактического клиентского наблюдения владельца. Не обновлять S4 3x-ui/Xray и не менять CDN/ботов/платежи/приложение без нового конкретного сбоя или поручения.
+
 ## Текущий результат: проверка оплат и функций ботов — 11.09.2026
 
 Владелец прямо разрешил проверить остальные функции и самостоятельно подтвердить контрольныеCDN-заявки. Основные клиентские/админские сценарии проверены; найденные исправления установлены в обоих ботах. Контрольные1ГБ в каждом боте подтверждены агентом; уведомления пришли, повторный admin-confirm не увеличил баланс. На реальных клиентах не выполнялись тестовые блокировки/удаления/рассылки/смена тарифов и дат — для них использовались изолированные SQLite и зависимости.
