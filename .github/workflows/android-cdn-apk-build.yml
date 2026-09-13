@@ -2,6 +2,9 @@ name: Build signed MaestroVPN APK only
 on:
   workflow_call:
     inputs:
+      new_customer_only:
+        type: boolean
+        default: false
       phone_flow_checks:
         type: boolean
         default: false
@@ -40,11 +43,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Require unchanged production sources for instrumentation-only
-        if: ${{ inputs.emulator_only == true && inputs.visual_preview != true }}
+        if: ${{ inputs.emulator_only == true && inputs.visual_preview != true && inputs.new_customer_only != true }}
         run: |
           set -euo pipefail
           [ "${{ inputs.emulator_review }}" = true ]
           git diff --exit-code e0b737d864e86062e1e5c3fe2fdfb26e663130f8 HEAD -- app/src/main app/build.gradle.kts
+      - name: Preserve tested phone candidate for new-customer check
+        if: ${{ inputs.new_customer_only == true }}
+        run: git diff --exit-code 9e90edc276c9b609ce79c7e033e303d672c8c603 HEAD -- app/src/main app/build.gradle.kts
       - name: Preserve ordinary VPN engine
         run: git diff --exit-code 458fec7c885250f65d474204061dcdd60d71ee56 HEAD -- libbox-awg version.properties .github/workflows/libbox.yml
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
@@ -248,7 +254,7 @@ jobs:
         timeout-minutes: 20
         env:
           ANDROID_SERIAL: emulator-5554
-          INSTRUMENTATION_CLASSES: ${{ inputs.visual_preview && (inputs.phone_flow_checks && 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.screen.tvhome.AccountInfoLifecycleInstrumentedTest' || 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview') || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
+          INSTRUMENTATION_CLASSES: ${{ inputs.new_customer_only && 'com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest#firstPurchaseCreatesSelectedProfileAndAccountBoundGbLink' || inputs.visual_preview && (inputs.phone_flow_checks && 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.screen.tvhome.AccountInfoLifecycleInstrumentedTest' || 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview') || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
           MAESTRO_VISUAL_PREVIEW: ${{ inputs.visual_preview }}
         run: |
           set -euo pipefail

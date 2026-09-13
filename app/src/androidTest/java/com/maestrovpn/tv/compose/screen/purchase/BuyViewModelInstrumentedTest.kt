@@ -2,15 +2,20 @@ package com.maestrovpn.tv.compose.screen.purchase
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewModelScope
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.maestrovpn.tv.BuildConfig
+import com.maestrovpn.tv.bg.UpdateProfileWork
+import com.maestrovpn.tv.compose.screen.tvhome.phoneCdnPurchaseLink
 import com.maestrovpn.tv.database.Profile
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.database.TypedProfile
+import com.maestrovpn.tv.utils.DeviceFormFactor
+import com.maestrovpn.tv.utils.MaestroSub
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
@@ -42,6 +47,7 @@ class BuyViewModelInstrumentedTest {
     private val receiptKeys = mutableSetOf<String>()
     private val stores = linkedMapOf<BuyViewModel, ViewModelStore>()
     private var fixtureDeviceId: String? = null
+    private var ownsNewProfileUpdater = false
     private val base = BuildConfig.BACKEND_URL.trimEnd('/')
     private val receipts get() = application.getSharedPreferences("pending-vpn-order", Context.MODE_PRIVATE)
 
@@ -64,13 +70,86 @@ class BuyViewModelInstrumentedTest {
                 val edit = receipts.edit()
                 receiptKeys.forEach { edit.remove(it) }
                 assertTrue(edit.commit())
-                runBlocking(Dispatchers.IO) { profiles.asReversed().forEach { ProfileManager.delete(it) } }
+                runBlocking(Dispatchers.IO) {
+                    profiles.asReversed().forEach { ProfileManager.delete(it) }
+                    if (ownsNewProfileUpdater) UpdateProfileWork.reconfigureUpdater()
+                }
                 files.forEach { assertTrue("Could not remove fixture ${it.name}", it.delete() || !it.exists()) }
                 fixtureDeviceId?.let { ownedId ->
                     val devicePrefs = application.getSharedPreferences("maestro_device", Context.MODE_PRIVATE)
                     if (devicePrefs.getString("device_id", null) == ownedId) {
                         assertTrue(devicePrefs.edit().remove("device_id").commit())
                     }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun firstPurchaseCreatesSelectedProfileAndAccountBoundGbLink() {
+        assertFalse("Fresh purchase fixture requires a phone", DeviceFormFactor.isTelevision(application))
+        onMain { Settings.selectedProfile = -1L }
+        val newReceiptKey = "profile--1"
+        assertFalse("Fixture must not overwrite an existing new-account receipt", receipts.contains(newReceiptKey))
+        receiptKeys.add(newReceiptKey)
+        val token = UUID.randomUUID().toString().replace("-", "")
+        val config = """{"outbounds":[{"type":"direct","tag":"direct"}],"route":{"final":"direct"}}"""
+        val nextFileId = runBlocking(Dispatchers.IO) { ProfileManager.nextFileID() }
+        val newConfigFile = File(application.filesDir, "configs/$nextFileId.json")
+        assertFalse("Fixture must not overwrite an existing config", newConfigFile.exists())
+        // Register the exact fresh destination before activation, including a partial failure before Room insert.
+        files.add(newConfigFile)
+        val devicePrefs = application.getSharedPreferences("maestro_device", Context.MODE_PRIVATE)
+        if (!devicePrefs.contains("device_id")) {
+            fixtureDeviceId = fixturePrefix
+            assertTrue(devicePrefs.edit().putString("device_id", fixtureDeviceId).commit())
+        }
+        val deviceId = devicePrefs.getString("device_id", null)
+        val fetchedUrls = CopyOnWriteArrayList<String>()
+        val backend = FixtureOrders(base) {
+            JSONObject().put("status", "paid").put("sub_url", "$base/sub/$token").toString()
+        }
+        val model = model(backend) { url -> fetchedUrls.add(url); config }
+        try {
+            awaitState<BuyState.Tariffs>(model)
+            onMain { model.buy("month") }
+            awaitState<BuyState.AwaitingPayment>(model)
+            assertEquals("month", backend.orders.single().getString("tariff"))
+            assertFalse("First purchase must not renew another account", backend.orders.single().has("sub_token"))
+            assertTrue(receipts.contains(newReceiptKey))
+            assertTrue(runBlocking(Dispatchers.IO) { ProfileManager.list().isEmpty() })
+            ownsNewProfileUpdater = true
+            onMain { model.iPaid() }
+            // Production activation reaches Done only after the real Libbox.checkConfig and Room insertion.
+            awaitState<BuyState.Done>(model)
+
+            val remaining = runBlocking(Dispatchers.IO) { ProfileManager.list() }
+            assertEquals(1, remaining.size)
+            val created = remaining.single()
+            assertEquals(created.id, Settings.selectedProfile)
+            assertEquals(TypedProfile.Type.Remote, created.typed.type)
+            assertTrue(created.typed.autoUpdate)
+            assertEquals(15, created.typed.autoUpdateInterval)
+            assertTrue(created.typed.lastUpdated.time > 0L)
+            assertEquals(newConfigFile.canonicalPath, File(created.typed.path).canonicalPath)
+            assertEquals(config, newConfigFile.readText())
+            assertEquals(fetchedUrls.single(), created.typed.remoteURL)
+            val subscription = Uri.parse(created.typed.remoteURL)
+            assertEquals("/sub/$token", subscription.path)
+            assertEquals(deviceId, subscription.getQueryParameter("device"))
+            assertEquals(DeviceFormFactor.MOBILE, subscription.getQueryParameter("platform"))
+            assertFalse(receipts.contains(newReceiptKey))
+            assertEquals(1, backend.orders.size)
+            assertEquals(listOf(backend.orderId), backend.claims.toList())
+            val account = created.id to 0L
+            assertEquals("https://t.me/MaestroSecureVPN_bot?start=maestro_$token",
+                phoneCdnPurchaseLink(created.typed.remoteURL, account, account))
+        } finally {
+            try { close(model) } finally {
+                // Capture an inserted fixture even if a later assertion or activation step failed.
+                runBlocking(Dispatchers.IO) {
+                    ProfileManager.list().filter { MaestroSub.token(it.typed.remoteURL) == token }
+                        .forEach { owned -> if (profiles.none { it.id == owned.id }) profiles.add(owned) }
                 }
             }
         }

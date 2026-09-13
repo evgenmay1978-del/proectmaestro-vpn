@@ -37,6 +37,7 @@ on:
           - mobile-ui-validation
           - mobile-ui-only
           - mobile-ring-preview
+          - mobile-new-customer-only
           - mobile-release-only
           - reserve-measure
           - xhttp-native
@@ -185,6 +186,18 @@ jobs:
       visual_preview: true
       phone_cdn_checks: ${{ inputs.phone_cdn_checks == true }}
       phone_flow_checks: ${{ inputs.phone_flow_checks == true }}
+    secrets: inherit
+
+  mobile-new-customer-only:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-new-customer-only' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cdn-apk-build.yml
+    with:
+      emulator_review: true
+      emulator_only: true
+      new_customer_only: true
     secrets: inherit
 
   mobile-ui-validation:
