@@ -337,9 +337,8 @@ jobs:
           adb shell pm grant com.maestrovpn.tv android.permission.POST_NOTIFICATIONS
           if [ "$MAESTRO_VISUAL_PREVIEW" = true ]; then
             # The disposable emulator's Pixel Launcher ANR stole focus from both fixtures.
-            # Keep it out of the capture run; no application or device-under-test policy changes.
+            # Clear its stale dialog without removing the Overview service used by System UI.
             adb shell am force-stop com.google.android.apps.nexuslauncher
-            adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher
           fi
           set +e
           timeout 600 adb shell am instrument -w -r -e class "$INSTRUMENTATION_CLASSES" \
