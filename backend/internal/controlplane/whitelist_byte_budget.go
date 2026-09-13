@@ -40,7 +40,7 @@ func whiteListMeteringAdmissionCandidateExitSets(candidates []WhiteListMeteringA
 	return sets, len(sets) > 0
 }
 
-// Filter before taking the fresh counter snapshot. A funded allocation needs
+// Filter already funded allocations. A funded allocation needs
 // no refill transaction until half its chunk is consumed. This grants nothing:
 // every use lease still rechecks actual settlement, balance, boot and freshness.
 func (s *Service) WhiteListByteBudgetRefillCandidates(ctx context.Context, plan WhiteListMeteringPlan, candidates []WhiteListMeteringAdmissionCandidate, chunkBytes int64) ([]WhiteListMeteringAdmissionCandidate, error) {
@@ -137,13 +137,27 @@ func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, ent
 SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM whitelist_metering_origin_observations WHERE origin_id=? AND observation_sha256=?)
 AND NOT EXISTS(SELECT 1 FROM whitelist_byte_allocations WHERE ` + whiteListByteAllocationKeySQL + `)`, Args: args})
 	}
+	currentLifetimes := make([]string, 0, len(origins))
+	currentLifetimeArgs := make([]any, 0, len(origins)*2)
+	for _, origin := range origins {
+		currentLifetimes = append(currentLifetimes, "(retained.origin_id=? AND retained.xray_process_boot_id=?)")
+		currentLifetimeArgs = append(currentLifetimeArgs, origin.origin.OriginID, origin.receipt.XrayProcessBootID)
+	}
 	for index, origin := range origins {
 		// Transactional reads see earlier reservations in this same batch. Divide
-		// the remaining free balance over the remaining origins; no stale Go-side
-		// balance calculation can allocate the same byte twice.
+		// the paid pool equally across all exits and current origins, after keeping
+		// every retired lifetime's reservation. A larger chunk must not let the
+		// first exit consume the other exits' shares on a small paid balance.
+		args := append([]any{routeChunkBytes}, currentLifetimeArgs...)
+		args = append(args, len(origins)*whiteListCommercialExitCount, len(origins)-index,
+			now, now, entitlementID, exitID, origin.origin.OriginID,
+			origin.receipt.XrayProcessBootID, period, origin.origin.OriginID, origin.hash)
 		statements = append(statements, rqlite.Statement{SQL: `UPDATE whitelist_byte_allocations
 SET cumulative_byte_ceiling=cumulative_byte_ceiling+COALESCE((
 SELECT MAX(0,MIN(?-budget.outstanding_bytes,9223372036854775806-budget.cumulative_byte_ceiling,
+ (projection.purchased_remaining_bytes+projection.included_remaining_bytes-COALESCE((
+ SELECT SUM(retained.outstanding_bytes) FROM whitelist_byte_allocation_balances AS retained
+ WHERE retained.entitlement_id=budget.entitlement_id AND NOT (` + strings.Join(currentLifetimes, " OR ") + `)),0))/?-budget.outstanding_bytes,
  (projection.purchased_remaining_bytes+projection.included_remaining_bytes-COALESCE((
  SELECT SUM(allocation.outstanding_bytes) FROM whitelist_byte_allocation_balances AS allocation
  WHERE allocation.entitlement_id=budget.entitlement_id),0))/?))
@@ -157,10 +171,7 @@ AND budget.xray_process_boot_id=whitelist_byte_allocations.xray_process_boot_id
 AND projection.pending=0 AND projection.uncovered_bytes=0 AND customer.status='active' AND customer.expires_at_unix>?
 ),0),updated_at_unix=?
 WHERE ` + whiteListByteAllocationKeySQL + ` AND billing_period_id=?
-AND EXISTS(SELECT 1 FROM whitelist_metering_origin_observations WHERE origin_id=? AND observation_sha256=?)`, Args: []any{
-			routeChunkBytes, len(origins) - index, now, now, entitlementID, exitID, origin.origin.OriginID,
-			origin.receipt.XrayProcessBootID, period, origin.origin.OriginID, origin.hash,
-		}})
+AND EXISTS(SELECT 1 FROM whitelist_metering_origin_observations WHERE origin_id=? AND observation_sha256=?)`, Args: args})
 	}
 	statements = append(statements, backupRPODirtyGenerationStatement(now))
 	// Unknown commit responses are resolved by reading the durable absolute
