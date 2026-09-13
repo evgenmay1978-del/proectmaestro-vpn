@@ -271,6 +271,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		return fmt.Errorf("metering plan after %s: %w (sampling: %v)", time.Since(started).Round(time.Millisecond), err, ctx.Err())
 	}
 	planFingerprint, planFingerprintOK := runtimeWhiteListLeasePlanFingerprint(plan)
+	log.Printf("white-list metering timing: plan=%s", time.Since(started).Round(time.Millisecond))
 	if cachedLeaseAuthority == nil || !planFingerprintOK || cachedLeaseAuthority.planFingerprint != planFingerprint {
 		cachedLeaseAuthority = nil
 	}
@@ -441,6 +442,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		}
 	}
 	stage = "actual usage settlement"
+	log.Printf("white-list metering timing: before settlement=%s", time.Since(started).Round(time.Millisecond))
 	jobs := make(chan []func() error, len(settlements))
 	results := make(chan error, len(settlements))
 	for _, account := range settlements {
@@ -470,6 +472,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		return usageErr
 	}
 	if collector.byteBudgetBytes > 0 {
+		log.Printf("white-list metering timing: after settlement=%s", time.Since(started).Round(time.Millisecond))
 		// Settlement changes outstanding bytes. Re-evaluate the full exit set,
 		// not the subset selected before the fresh counters were applied.
 		stage = "settled byte refill"
@@ -503,10 +506,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		ctx = leaseContext
 	}
 	stage = "use lease authorization"
+	log.Printf("white-list metering timing: before authorization=%s", time.Since(started).Round(time.Millisecond))
 	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
 	if err != nil {
 		return fmt.Errorf("lease authorization: %w (context: %v)", err, ctx.Err())
 	}
+	log.Printf("white-list metering timing: after authorization=%s", time.Since(started).Round(time.Millisecond))
 	authorizedRoutes := make(map[string]struct{}, len(authorization.Emails))
 	for _, email := range authorization.Emails {
 		if _, exists := routes[email]; !exists {

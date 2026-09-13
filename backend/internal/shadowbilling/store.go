@@ -1079,9 +1079,8 @@ func (store *DurableStore) pendingCommercialDebits(
 		// Discard acknowledged intervals before loading their event, policy and
 		// epoch records. The immutable history grows even when no debit is pending.
 		SQL: `WITH pending_debits AS MATERIALIZED (
-SELECT source.event_id
-FROM whitelist_commercial_metering_sources AS source
-JOIN whitelist_commercial_debit_outbox AS outbox ON outbox.event_id=source.event_id
+SELECT outbox.event_id
+FROM whitelist_commercial_debit_outbox AS outbox
 LEFT JOIN idempotency_requests AS receipt
   ON receipt.scope=?
  AND receipt.command_type=?
@@ -1089,14 +1088,16 @@ LEFT JOIN idempotency_requests AS receipt
  AND receipt.request_hash=outbox.request_hash
  AND receipt.resource_id=outbox.entitlement_id
  AND receipt.status='applied'
-WHERE source.entitlement_id=?
+WHERE outbox.entitlement_id=?
   AND receipt.idempotency_key IS NULL
 ) ` + commercialSourceSelectSQL + `
 JOIN pending_debits AS pending ON pending.event_id=source.event_id
+WHERE source.entitlement_id=?
 ORDER BY source.sampled_at_unix,source.event_id`,
 		Args: []any{
 			whitelistmetering.CommercialDebitReceiptScope,
 			whitelistmetering.CommercialDebitReceiptCommand,
+			entitlementID,
 			entitlementID,
 		},
 	})
