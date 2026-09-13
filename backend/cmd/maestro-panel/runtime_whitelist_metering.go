@@ -275,6 +275,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		cachedLeaseAuthority = nil
 	}
 	var candidates []controlplane.WhiteListMeteringAdmissionCandidate
+	var allByteCandidates []controlplane.WhiteListMeteringAdmissionCandidate
 	unchangedByteRoutes := false
 	if collector.byteBudgetBytes > 0 {
 		stage = "candidate preparation"
@@ -285,6 +286,7 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		// Compare the full candidate set before funded routes are filtered out.
 		// A first admission or changed membership still needs reconciliation.
 		unchangedByteRoutes = runtimeWhiteListCandidatesMatchPlan(candidates, plan)
+		allByteCandidates = candidates
 		if refill, ok := collector.control.(runtimeWhiteListByteBudgetRefillControlPlane); ok {
 			candidates, err = refill.WhiteListByteBudgetRefillCandidates(ctx, plan, candidates, collector.byteBudgetBytes)
 			if err != nil {
@@ -447,6 +449,21 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 
 	if usageErr != nil {
 		return usageErr
+	}
+	if collector.byteBudgetBytes > 0 {
+		// Settlement changes outstanding bytes. Re-evaluate the full exit set,
+		// not the subset selected before the fresh counters were applied.
+		stage = "settled byte refill"
+		refillCandidates := allByteCandidates
+		if refill, ok := collector.control.(runtimeWhiteListByteBudgetRefillControlPlane); ok {
+			refillCandidates, err = refill.WhiteListByteBudgetRefillCandidates(ctx, plan, allByteCandidates, collector.byteBudgetBytes)
+			if err != nil {
+				return err
+			}
+		}
+		if err := collector.authorizeAdmissions(ctx, refillCandidates); err != nil {
+			return err
+		}
 	}
 	if collector.byteBudgetBytes == 0 {
 		stage = "account admission"

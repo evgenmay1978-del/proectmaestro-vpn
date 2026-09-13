@@ -295,12 +295,22 @@ func (reconciler *Reconciler) converge(ctx context.Context, desired Desired) err
 }
 
 func (reconciler *Reconciler) preflightExits(ctx context.Context, bootID string, exitIDs []string) error {
+	// Independent relay probes must share the refresh window, not consume it
+	// sequentially while every receipt and lease request waits for the mutex.
+	results := make(chan error, len(exitIDs))
 	for _, exitID := range exitIDs {
-		if err := reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, exitID); err != nil {
-			return err
+		exitID := exitID
+		go func() {
+			results <- reconciler.preflight.Validate(ctx, reconciler.releaseID, reconciler.configDigest, bootID, exitID)
+		}()
+	}
+	var firstErr error
+	for range exitIDs {
+		if err := <-results; err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return nil
+	return firstErr
 }
 
 func desiredExitIDs(desired Desired) ([]string, error) {
