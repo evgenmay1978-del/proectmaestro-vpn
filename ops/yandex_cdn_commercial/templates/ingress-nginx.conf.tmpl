@@ -25,16 +25,22 @@ http {
         proxy_cache off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+        # Nginx hides X-Accel-* by default; the CDN also needs this streaming hint.
+        # Keep forwarding scoped to XHTTP, not cabinet/subscription handlers.
         location = <PRIVATE_XHTTP_PATH> {
+            proxy_pass_header X-Accel-Buffering;
             proxy_pass http://127.0.0.1:18081;
         }
         location ^~ <PRIVATE_XHTTP_PATH>/ {
+            proxy_pass_header X-Accel-Buffering;
             proxy_pass http://127.0.0.1:18081;
         }
         location = <COMMERCIAL_XHTTP_PATH> {
+            proxy_pass_header X-Accel-Buffering;
             proxy_pass http://127.0.0.1:28081;
         }
         location ^~ <COMMERCIAL_XHTTP_PATH>/ {
+            proxy_pass_header X-Accel-Buffering;
             proxy_pass http://127.0.0.1:28081;
         }
         location / { return 404; }

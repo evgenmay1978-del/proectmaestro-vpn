@@ -1,0 +1,22 @@
+name: mvpn-remna-trial
+services:
+  remnanode:
+    image: remnawave/node:3.4.1
+    container_name: mvpn-remna-trial-node
+    restart: "no"
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: "0.50"
+    cap_drop: [NET_ADMIN]
+    env_file: [node.env]
+    environment: {NODE_PORT: "2222"}
+    networks: [trial]
+    ports:
+      - "${NODE_BIND_ADDRESS}:32222:2222"
+      - "127.0.0.1:38081:18081"
+    logging:
+      driver: local
+      options: {max-size: "5m", max-file: "2"}
+networks:
+  trial: {name: mvpn-remna-trial-network, driver: bridge}
+
