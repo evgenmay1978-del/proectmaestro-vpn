@@ -2,7 +2,6 @@ package com.maestrovpn.tv.compose
 
 import android.graphics.Bitmap
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
@@ -39,11 +38,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlin.concurrent.thread
 
 /** Real phone components on the disposable CI emulator; no claim, payment or VPN backend. */
 @RunWith(AndroidJUnit4::class)
@@ -72,72 +69,30 @@ class PhoneComponentGeometryInstrumentedTest {
         homeFixture(connected = true, connecting = false, status = "Подключено", name = "on")
     }
 
-    /** Full native Home, including real OFF -> ON -> OFF transitions; no backend is called. */
-    fun homeEyeMotionPreview() {
-        assertTrue("Eye motion preview requires the phone viewport", !tvPreview)
+    /** One visual capture for each connection state; no backend or VPN is called. */
+    fun homeRingPreview() {
+        assertTrue("Ring preview requires the phone viewport", !tvPreview)
         val connected = mutableStateOf(false)
-        ui.setContent { SFATheme { homeContent(connected.value, false) {} } }
+        val connecting = mutableStateOf(false)
+        var connectionClicks = 0
+        ui.setContent { SFATheme {
+            homeContent(connected.value, connecting.value, onToggleConnect = { connectionClicks++ }) {}
+        } }
         settle()
         ui.onNodeWithText("Отключено", useUnmergedTree = true).assertIsDisplayed()
-        shot("fixture-eye-home-off")
-
-        // Start only after shot() has observed window focus and a committed native frame.
-        // Keep the same visible Activity until screenrecord closes the MP4 itself.
-        val directory = requireNotNull(context.getExternalFilesDir("ui-captures"))
-        val video = File(directory, "fixture-eye-home-motion.mp4")
-        // UiAutomation uses Runtime.exec(String), not a shell: quotes would become
-        // literal path characters. This fixture-owned path has no whitespace.
-        check(video.absolutePath.none { it.isWhitespace() })
-        val recording = instrumentation.uiAutomation.executeShellCommandRwe(
-            "screenrecord --time-limit 26 --bit-rate 6000000 --size 1080x2340 ${video.absolutePath}",
-        )
-        recording[1].close() // screenrecord takes no stdin; let its process cleanup reach EOF.
-        val recordingLog = ByteArrayOutputStream()
-        val recordingError = ByteArrayOutputStream()
-        val recordingFinished = CountDownLatch(2)
-        for ((descriptor, log) in listOf(recording[0] to recordingLog, recording[2] to recordingError)) {
-            thread(name = "native-eye-preview-recording") {
-                try {
-                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.copyTo(log) }
-                } finally {
-                    recordingFinished.countDown()
-                }
-            }
-        }
-        val started = SystemClock.uptimeMillis()
-        val clockStarted = ui.mainClock.currentTime
-        var opened = false
-        var capturedOn = false
-        var closed = false
-        while (SystemClock.uptimeMillis() - started < 27_000L) {
-            val elapsed = SystemClock.uptimeMillis() - started
-            if (elapsed >= 2_000L && !opened) {
-                ui.runOnUiThread { connected.value = true }
-                opened = true
-            }
-            if (elapsed >= 22_000L && !closed) {
-                ui.runOnUiThread { connected.value = false }
-                closed = true
-            }
-            // Test clocks do not advance by sleeping. Follow wall time explicitly so the
-            // native recording shows motion at its intended speed, not a frozen fixture.
-            val due = elapsed - (ui.mainClock.currentTime - clockStarted)
-            if (due > 0L) ui.mainClock.advanceTimeBy(due)
-            if (elapsed >= 3_500L && !capturedOn) {
-                ui.onNodeWithText("Подключено", useUnmergedTree = true).assertIsDisplayed()
-                shot("fixture-eye-home-on")
-                capturedOn = true
-            }
-            SystemClock.sleep(16L)
-        }
-        val recordingClosed = recordingFinished.await(5, TimeUnit.SECONDS)
-        File(directory, "fixture-eye-recording.txt").writeBytes(recordingLog.toByteArray())
-        File(directory, "fixture-eye-recording-stderr.txt").writeBytes(recordingError.toByteArray())
-        assertTrue("screenrecord must finish within its bounded deadline", recordingClosed)
-        assertTrue("Native eye video is missing or empty: ${recordingError.toString("UTF-8").take(512)}",
-            video.isFile && video.length() > 0L)
-        ui.onNodeWithText("Отключено", useUnmergedTree = true).assertIsDisplayed()
-        shot("fixture-eye-home-off-after")
+        ui.onNodeWithContentDescription("Подключить VPN").assertHasClickAction().performClick()
+        ui.runOnIdle { assertEquals(1, connectionClicks) }
+        shot("fixture-ring-home-off")
+        ui.runOnUiThread { connecting.value = true }
+        settle()
+        ui.onNodeWithText("Подключение…", useUnmergedTree = true).assertIsDisplayed()
+        shot("fixture-ring-home-connecting")
+        ui.runOnUiThread { connecting.value = false; connected.value = true }
+        settle()
+        ui.onNodeWithText("Подключено", useUnmergedTree = true).assertIsDisplayed()
+        ui.onNodeWithContentDescription("Отключить VPN").assertHasClickAction().performClick()
+        ui.runOnIdle { assertEquals(2, connectionClicks) }
+        shot("fixture-ring-home-on")
     }
 
     /** The production TV component on a landscape native surface, not TV hardware validation. */
@@ -251,7 +206,7 @@ class PhoneComponentGeometryInstrumentedTest {
         ui.runOnIdle { assertEquals(1, renewClicks) }
     }
 
-    @Composable private fun homeContent(connected: Boolean, connecting: Boolean, onBuy: () -> Unit) {
+    @Composable private fun homeContent(connected: Boolean, connecting: Boolean, onToggleConnect: () -> Unit = {}, onBuy: () -> Unit) {
         PhoneDashboard(
             connected = connected,
             connecting = connecting,
@@ -262,7 +217,7 @@ class PhoneComponentGeometryInstrumentedTest {
             daysLeft = 29,
             accountExpires = "2027-01-01",
             hasSubProfile = true,
-            onToggleConnect = {},
+            onToggleConnect = onToggleConnect,
             onSelectProtocol = {},
             onBuy = onBuy,
             onEnterCode = {},
@@ -277,7 +232,7 @@ class PhoneComponentGeometryInstrumentedTest {
     }
 
     private fun paymentFixture(content: @Composable () -> Unit) {
-        // Payment has no blink phase to freeze; let its real rendering clock advance.
+        // Payment has no connection animation to freeze; let its rendering clock advance.
         ui.mainClock.autoAdvance = true
         ui.setContent {
             SFATheme {
@@ -340,11 +295,11 @@ class PhoneComponentGeometryInstrumentedTest {
 
 /** Opt-in capture methods kept separate so the existing component suite stays unchanged. */
 @RunWith(AndroidJUnit4::class)
-class PhoneEyePreviewInstrumentedTest {
+class PhoneConnectionRingPreviewInstrumentedTest {
     private val fixture = PhoneComponentGeometryInstrumentedTest()
     @get:Rule val ui = fixture.ui
 
     @Before fun requireFixtureEnvironment() = fixture.requireFixtureEnvironment()
-    @Test fun homeEyeMotionPreview() = fixture.homeEyeMotionPreview()
+    @Test fun homeRingPreview() = fixture.homeRingPreview()
     @Test fun tvHomeLayoutPreview() = fixture.tvHomeLayoutPreview()
 }

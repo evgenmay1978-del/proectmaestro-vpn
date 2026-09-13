@@ -51,19 +51,12 @@ internal enum class Mobile4DParallaxLayer(val maximumDepthDp: Float) {
     // Резной веер протоколов смонтирован на дерево поверх лоз, но ближе к зрителю их
     // и дальше медальона: он не должен «плавать» сильнее кольца при наклоне.
     Arc(4f),
-    RingAndEye(5f),
 }
 
 internal data class Mobile4DParallaxOffset(
     val xDp: Float,
     val yDp: Float,
 )
-
-internal enum class Mobile4DEyeState {
-    Disconnected,
-    Connecting,
-    Connected,
-}
 
 internal data class Mobile4DTiltVector(
     val x: Float,
@@ -266,15 +259,6 @@ internal fun mobile4DParallaxOffset(
     yDp = tiltY.coerceIn(-1f, 1f) * layer.maximumDepthDp,
 )
 
-internal fun mobile4DEyeState(
-    connected: Boolean,
-    connecting: Boolean,
-): Mobile4DEyeState = when {
-    connecting -> Mobile4DEyeState.Connecting
-    connected -> Mobile4DEyeState.Connected
-    else -> Mobile4DEyeState.Disconnected
-}
-
 internal fun mobile4DRemapForDisplayRotation(
     tilt: Mobile4DTiltVector,
     rotation: Mobile4DDisplayRotation,
@@ -341,7 +325,7 @@ internal fun mobile4DAssetMemoryPolicy(
     val memoryClassBytes = memoryClassMiB.coerceAtLeast(0).toLong() * MOBILE_4D_BYTES_PER_MEBIBYTE
     val decodedArtBudget = (
         memoryClassBytes * Mobile4DGeneratedAssets.maximumMemoryClassFraction
-        ).toLong().minus(MOBILE_4D_EYE_RESERVE_BYTES).coerceAtLeast(0L)
+        ).toLong().minus(MOBILE_4D_BITMAP_HEADROOM_BYTES).coerceAtLeast(0L)
     if (sceneMode == Mobile4DSceneMode.Internal) {
         return Mobile4DAssetMemoryPolicy(
             targetWidthPx = 0,
@@ -425,11 +409,8 @@ private fun mobile4DNextLowerTargetWidthBucket(currentWidthPx: Int): Int {
 
 private const val MOBILE_4D_MASTER_WIDTH = 2160f
 private const val MOBILE_4D_MASTER_HEIGHT = 4670f
-// Центр медальона привязан к НОВОМУ кольцу с eye-surround (`home_ring_*`, 01.08): его alpha bbox
-// [156,827,2005,2676) даёт центр (1080,1751) и Ø1849 на мастер-холсте. Прежние 430/853 и 711/1844
-// указывали на старое пустое кольцо и уводили глаз на 9 dp вниз от резьбы.
-// Радиус остаётся фиксированной геометрией socket/medallion и не меняется. Размер и owner-approved
-// offset динамической анатомии принадлежат fitLivingEyeLayer; baked eye-surround заполняет диск.
+// Legacy atlas coordinates retained for the independent atlas geometry checks.
+// The current phone connection ring draws directly and does not use these bounds.
 private const val MOBILE_4D_MEDALLION_CENTER_X = 1080f
 private const val MOBILE_4D_MEDALLION_CENTER_Y = 1751f
 private const val MOBILE_4D_MEDALLION_RADIUS_X = MOBILE_4D_MASTER_WIDTH * 260f / 853f
@@ -441,4 +422,4 @@ private const val MOBILE_4D_TILT_FILTER_TIME_CONSTANT_MILLIS = 180f
 private const val MOBILE_4D_MINIMUM_TARGET_WIDTH_PX = 64
 private const val MOBILE_4D_ARGB_BYTES_PER_PIXEL = 4L
 private const val MOBILE_4D_BYTES_PER_MEBIBYTE = 1024L * 1024L
-private const val MOBILE_4D_EYE_RESERVE_BYTES = 8L * MOBILE_4D_BYTES_PER_MEBIBYTE
+private const val MOBILE_4D_BITMAP_HEADROOM_BYTES = 8L * MOBILE_4D_BYTES_PER_MEBIBYTE

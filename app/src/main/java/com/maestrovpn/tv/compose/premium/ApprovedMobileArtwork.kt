@@ -16,13 +16,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
@@ -94,40 +91,6 @@ fun Modifier.approvedMobilePanel(selected: Boolean = false, navigation: Boolean 
 fun ApprovedMobileBrand(modifier: Modifier = Modifier) {
     val atlas = ImageBitmap.imageResource(R.drawable.mobile_carved_brand_reference)
     Canvas(modifier) { art(atlas, ArtRect(65, 104, 724, 145), 0f, 0f, size.width, size.height) }
-}
-
-// Registration against the owner's approved carved reference, in source pixels.
-internal const val CARVED_MEDALLION_ASPECT = 720f / 712f
-internal const val CARVED_EYE_LEFT = 148f / 712f
-internal const val CARVED_EYE_TOP = 81f / 720f
-internal const val CARVED_EYE_DIAMETER = 418f / 712f
-
-@Composable
-fun ApprovedMobileEyeFrame(modifier: Modifier = Modifier) {
-    val atlas = ImageBitmap.imageResource(R.drawable.mobile_carved_medallion_reference)
-    Canvas(modifier) {
-        val scale = size.width / 712f
-        val centre = Offset(357f * scale, 290f * scale)
-        val radius = 207f * scale
-        val silhouette = Path().apply {
-            fillType = PathFillType.EvenOdd
-            addRect(Rect(Offset.Zero, size))
-            addOval(Rect(centre.x - radius, centre.y - radius, centre.x + radius, centre.y + radius))
-        }
-        val canvas = drawContext.canvas
-        canvas.saveLayer(Rect(Offset.Zero, size), Paint())
-        // The source image is unchanged; the live eye occupies a clipped opening in the UI.
-        clipPath(silhouette) { art(atlas, ArtRect(70, 536, 712, 720), 0f, 0f, size.width, size.height) }
-        // Blend the sampled carving into the surrounding wood without a rectangular photo edge.
-        val edge = 5.dp.toPx()
-        val xEdge = (edge / size.width).coerceAtMost(0.1f)
-        val yEdge = (edge / size.height).coerceAtMost(0.1f)
-        drawRect(Brush.horizontalGradient(0f to Color.Transparent, xEdge to Color.Black,
-            (1f - xEdge) to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
-        drawRect(Brush.verticalGradient(0f to Color.Transparent, yEdge to Color.Black,
-            (1f - yEdge) to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
-        canvas.restore()
-    }
 }
 
 @Composable

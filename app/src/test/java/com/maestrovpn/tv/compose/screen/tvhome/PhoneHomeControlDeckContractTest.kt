@@ -19,7 +19,6 @@ class PhoneHomeControlDeckContractTest {
         assertEquals(listOf("telegram", "max", "whatsapp"), homeContactSpecs.map { it.tag })
         assertEquals(listOf(34.1f, 144.8f, 255.5f), homeContactSpecs.map { it.leftDp })
         assertEquals(listOf(134.5f, 245.2f, 355.7f), homeContactSpecs.map { it.rightDp })
-        assertEquals(25f, MOBILE_HOME_LOWER_DECK_SHIFT_DP, 0f)
         assertEquals(521f, HOME_CONTACT_TOP_DP, 0f)
         assertEquals(585f, HOME_CONTACT_BOTTOM_DP, 0f)
         assertEquals(26f, HOME_CONTACT_ICON_DP, 0f)

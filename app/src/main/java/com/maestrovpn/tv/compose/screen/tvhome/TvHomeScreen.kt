@@ -54,13 +54,13 @@ import com.maestrovpn.tv.compose.theme.NeonGreen
 /**
  * MaestroVPN home — the universal connect screen for BOTH a TV remote (D-pad) and a
  * touch phone. TV keeps its independent full-screen layout; phone uses the fixed carved
- * gold/wood frame, a full-size obsidian/emerald eye as the connect button, and a cylindrical
+ * gold/wood frame, a gold connection ring, and a cylindrical
  * lower menu. Orange remains the protocol-selection and purchase accent.
  *
  * Layout adapts to the screen: a TV is WIDE, so it gets a two-zone LANDSCAPE layout —
  * hero (medallion + status + account) on the left, the menu on the right — which fits in
  * roughly one screen so there's almost nothing to scroll with the D-pad. Phone keeps the
- * hero fixed and scrolls only the content below the eye.
+ * connection control and scrollable phone controls.
  */
 @Composable
 fun TvHomeScreen(

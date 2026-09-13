@@ -2,6 +2,7 @@ package com.maestrovpn.tv.compose.screen.tvhome
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -14,6 +15,7 @@ import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.database.Settings
 import com.maestrovpn.tv.utils.DeviceFormFactor
+import com.maestrovpn.tv.utils.AppLifecycleObserver
 import com.maestrovpn.tv.utils.MaestroSub
 import com.maestrovpn.tv.utils.httpGetStringTimed
 import com.maestrovpn.tv.whitelist.WhiteListClientInfoParser
@@ -51,9 +53,17 @@ private fun formatExpires(raw: String?): String? {
  * (a throw there would crash the whole app — see the produceState gotcha).
  */
 @Composable
-fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
+fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> =
+    rememberAccountInfo(refreshKey) { httpGetStringTimed(it) }
+
+@Composable
+internal fun rememberAccountInfo(
+    refreshKey: Any?,
+    fetchInfo: suspend (String) -> String?,
+): State<AccountInfo> {
     val context = LocalContext.current
     val isTelevision = DeviceFormFactor.isTelevision(context)
+    val phoneForeground = if (isTelevision) true else AppLifecycleObserver.isForeground.collectAsState().value
     val phoneAccountSelection = if (isTelevision) null else rememberPhoneAccountKey()
     val phoneAccountKey = phoneAccountSelection?.value
     val lastPhoneHasSubProfile = remember { mutableStateOf(false) }
@@ -63,7 +73,11 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
             initialValue = AccountInfo(login = lastPhoneLogin.value, hasSubProfile = !isTelevision && lastPhoneHasSubProfile.value),
             refreshKey,
             isTelevision,
+            phoneForeground,
         ) {
+            // Returning from the bot refreshes the paid term without reconnecting the VPN.
+            // Retain the displayed account while the phone is in the background.
+            if (!phoneForeground) return@produceState
             value = try {
                 withContext(Dispatchers.IO) {
                     // hasSubProfile is true whenever a MaestroVPN sub profile exists locally — even if
@@ -86,7 +100,7 @@ fun rememberAccountInfo(refreshKey: Any?): State<AccountInfo> {
                         }
                         ?: return@withContext AccountInfo(hasSubProfile = hasSubProfile)
                     val url = MaestroSub.endpoint(profile.typed.remoteURL, "info")
-                    val json = httpGetStringTimed(url) ?: return@withContext AccountInfo(login = lastPhoneLogin.value, hasSubProfile = hasSubProfile)
+                    val json = fetchInfo(url) ?: return@withContext AccountInfo(login = lastPhoneLogin.value, hasSubProfile = hasSubProfile)
                     val o = JSONObject(json)
                     if (!isTelevision) {
                         coroutineContext.ensureActive()

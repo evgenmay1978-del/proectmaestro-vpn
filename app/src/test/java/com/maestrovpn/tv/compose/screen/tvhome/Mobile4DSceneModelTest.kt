@@ -131,52 +131,6 @@ class Mobile4DSceneModelTest {
             Mobile4DParallaxOffset(4f, -4f),
             mobile4DParallaxOffset(Mobile4DParallaxLayer.Arc, 1f, -1f),
         )
-        assertEquals(
-            Mobile4DParallaxOffset(5f, -5f),
-            mobile4DParallaxOffset(Mobile4DParallaxLayer.RingAndEye, 1f, -1f),
-        )
-    }
-
-    @Test
-    fun onlyLowerDeckReliefLayersFollowTheSharedScrollOwner() {
-        assertEquals(
-            mapOf(
-                "console" to true,
-                "contacts" to true,
-                "frame" to false,
-                "cartouche" to false,
-                "vines" to false,
-                "arc" to true,
-            ),
-            mobile4DHomeReliefLayers.associate { it.name to it.movesWithDeck },
-        )
-
-        val staticShiftPx = 50f
-        val scrollPx = 137f
-        mobile4DHomeReliefLayers.forEach { layer ->
-            val expected = if (layer.movesWithDeck) staticShiftPx - scrollPx else 0f
-            assertEquals(
-                expected,
-                mobile4DDeckLayerTranslationYPx(layer, staticShiftPx, scrollPx),
-                0f,
-            )
-        }
-    }
-
-    @Test
-    fun disconnectedEyeIsClosed() {
-        assertEquals(Mobile4DEyeState.Disconnected, mobile4DEyeState(connected = false, connecting = false))
-    }
-
-    @Test
-    fun connectingEyeIsHalfOpen() {
-        assertEquals(Mobile4DEyeState.Connecting, mobile4DEyeState(connected = false, connecting = true))
-    }
-
-    @Test
-    fun connectedEyeIsOpenOnlyWhenNotConnecting() {
-        assertEquals(Mobile4DEyeState.Connected, mobile4DEyeState(connected = true, connecting = false))
-        assertEquals(Mobile4DEyeState.Connecting, mobile4DEyeState(connected = true, connecting = true))
     }
 
     @Test

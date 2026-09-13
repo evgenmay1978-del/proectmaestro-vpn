@@ -32,8 +32,6 @@ WORKFLOW_FILE = "android-test.yml"
 ALLOWED_REF = "codex/mobile-4d-deck"
 TASK_ARTIFACT_PATTERNS = {
     "android": "maestrovpn-tv-test-apk",
-    "mobile-eye-ring-assets": "mobile-eye-ring-assets-{head_sha}",
-    "mobile-eye-runtime-assets": "mobile-eye-runtime-assets-{head_sha}",
 }
 API_ORIGIN = "https://api.github.com"
 API_ACTIONS_PREFIX = f"/repos/{REPOSITORY}/actions/"
@@ -110,20 +108,6 @@ TASK_ARTIFACT_LIMITS = {
         max_total_extracted_bytes=256 * MIB,
         max_file_bytes=224 * MIB,
         max_members=16,
-        max_compression_ratio=100.0,
-    ),
-    "mobile-eye-ring-assets": ArtifactLimits(
-        max_download_bytes=64 * MIB,
-        max_total_extracted_bytes=64 * MIB,
-        max_file_bytes=16 * MIB,
-        max_members=16,
-        max_compression_ratio=100.0,
-    ),
-    "mobile-eye-runtime-assets": ArtifactLimits(
-        max_download_bytes=160 * MIB,
-        max_total_extracted_bytes=256 * MIB,
-        max_file_bytes=96 * MIB,
-        max_members=64,
         max_compression_ratio=100.0,
     ),
 }

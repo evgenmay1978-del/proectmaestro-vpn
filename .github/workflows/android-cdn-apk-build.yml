@@ -133,9 +133,7 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew :app:testOtherDebugUnitTest \
-            --tests 'com.maestrovpn.tv.whitelist.WhiteListRuntimeTest' \
-            --tests 'com.maestrovpn.tv.whitelist.WhiteListBalanceTest' \
-            --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnBalancePresentationTest' \
+            --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnPurchaseLinkTest' \
             -PmaestroCdnApk=true --stacktrace --no-daemon
       - name: Build signed APK 1.0.160 without test tasks
         if: ${{ inputs.emulator_only != true }}
@@ -156,7 +154,7 @@ jobs:
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
           [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.160' ]
-          [ "$(apkanalyzer manifest version-code "$apk")" = '1016003' ]
+          [ "$(apkanalyzer manifest version-code "$apk")" = '1016004' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
           "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
@@ -174,27 +172,14 @@ jobs:
             ${{ runner.temp }}/cdn-apk-inputs/
           if-no-files-found: error
           retention-days: 14
-      - name: Run focused JVM checks and package native emulator tests
+      - name: Package native emulator previews
         if: ${{ inputs.emulator_review == true }}
         env:
           LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          test_args=()
-          if [ "${{ inputs.visual_preview }}" = true ]; then
-            test_args=(
-              :app:testOtherDebugUnitTest
-              --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest'
-              --tests 'com.maestrovpn.tv.whitelist.WhiteListRuntimeTest'
-            )
-          elif [ "${{ inputs.emulator_only }}" != true ]; then
-            test_args=(
-              :app:testOtherDebugUnitTest
-              --tests 'com.maestrovpn.tv.compose.screen.tvhome.LivingEyeLayerGeometryTest'
-            )
-          fi
-          ./gradlew "${test_args[@]}" :app:assembleOtherDebug :app:assembleOtherDebugAndroidTest \
+          ./gradlew :app:compileOtherDebugUnitTestKotlin :app:assembleOtherDebug :app:assembleOtherDebugAndroidTest \
             -PmaestroCdnApk=true -PmaestroEmulatorApk=true --stacktrace --no-daemon
           mapfile -t emulator_apks < <(find app/build/outputs/apk/other/debug -maxdepth 1 -type f -name '*-emulator*.apk')
           mapfile -t test_apks < <(find app/build/outputs/apk/androidTest/other/debug -maxdepth 1 -type f -name '*.apk')
@@ -226,7 +211,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ always() && (inputs.phone_cdn_checks == true || (inputs.emulator_review == true && (inputs.emulator_only != true || inputs.visual_preview == true))) }}
+        if: ${{ always() && inputs.phone_cdn_checks == true }}
         with:
           name: maestrovpn-mobile-jvm-160-${{ github.sha }}
           path: |
@@ -260,7 +245,7 @@ jobs:
         timeout-minutes: 20
         env:
           ANDROID_SERIAL: emulator-5554
-          INSTRUMENTATION_CLASSES: ${{ inputs.visual_preview && 'com.maestrovpn.tv.compose.PhoneEyePreviewInstrumentedTest#homeEyeMotionPreview' || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
+          INSTRUMENTATION_CLASSES: ${{ inputs.visual_preview && 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.screen.tvhome.AccountInfoLifecycleInstrumentedTest' || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
           MAESTRO_VISUAL_PREVIEW: ${{ inputs.visual_preview }}
         run: |
           set -euo pipefail
@@ -342,7 +327,7 @@ jobs:
             adb shell settings put system user_rotation 0
             set +e
             timeout 120 adb shell am instrument -w -r -e preview_form_factor tv \
-              -e class com.maestrovpn.tv.compose.PhoneEyePreviewInstrumentedTest#tvHomeLayoutPreview \
+              -e class com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#tvHomeLayoutPreview \
               com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tee "$output/tv-instrumentation.txt"
             tv_exit=${PIPESTATUS[0]}
             set -e
@@ -360,8 +345,8 @@ jobs:
           output = pathlib.Path(os.environ['MAESTRO_VALIDATION_OUT'])
           visual_preview = os.environ.get('MAESTRO_VISUAL_PREVIEW') == 'true'
           logs = ['instrumentation.txt'] + (['tv-instrumentation.txt'] if visual_preview else [])
-          expected = {target.split('#', 1)[0] for target in os.environ['INSTRUMENTATION_CLASSES'].split(',')}
           for name in logs:
+              expected = {'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest'} if name == 'tv-instrumentation.txt' else {target.split('#', 1)[0] for target in os.environ['INSTRUMENTATION_CLASSES'].split(',')}
               text = (output / name).read_text(errors='replace')
               assert re.search(r'OK \([1-9][0-9]* tests?\)', text), f'{name}: no successful test run'
               assert re.search(r'^INSTRUMENTATION_CODE:\s*-1\s*$', text, re.M), f'{name}: did not finish successfully'
@@ -371,25 +356,10 @@ jobs:
               assert expected <= seen, f'{name}: missing classes {sorted(expected - seen)}'
           if visual_preview:
               captures = output / 'ui-captures'
-              for name in ['fixture-eye-home-off.png', 'fixture-eye-home-on.png',
-                           'fixture-eye-home-off-after.png', 'fixture-tv-home.png', 'fixture-eye-home-motion.mp4']:
+              for name in ['fixture-ring-home-off.png', 'fixture-ring-home-connecting.png',
+                           'fixture-ring-home-on.png', 'fixture-tv-home.png']:
                   file = captures / name
                   assert file.is_file() and file.stat().st_size > 0, f'Missing native preview: {name}'
-              # screenrecord exits before the fixture ends; require a completed MP4 container.
-              data = (captures / 'fixture-eye-home-motion.mp4').read_bytes()
-              atoms, offset = set(), 0
-              while offset + 8 <= len(data):
-                  size = int.from_bytes(data[offset:offset + 4], 'big')
-                  kind = data[offset + 4:offset + 8]
-                  header = 8
-                  if size == 1:
-                      size = int.from_bytes(data[offset + 8:offset + 16], 'big'); header = 16
-                  elif size == 0:
-                      size = len(data) - offset
-                  assert size >= header and offset + size <= len(data), 'Incomplete native MP4 atom'
-                  atoms.add(kind)
-                  offset += size
-              assert offset == len(data) and {b'ftyp', b'moov', b'mdat'} <= atoms, 'Native MP4 is not finalized'
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() }}

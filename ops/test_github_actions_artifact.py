@@ -52,14 +52,6 @@ class DispatchPolicyTest(unittest.TestCase):
             MODULE.artifact_name_for("android", REF, HEAD_SHA),
             "maestrovpn-tv-test-apk",
         )
-        self.assertEqual(
-            MODULE.artifact_name_for("mobile-eye-ring-assets", REF, HEAD_SHA),
-            f"mobile-eye-ring-assets-{HEAD_SHA}",
-        )
-        self.assertEqual(
-            MODULE.artifact_name_for("mobile-eye-runtime-assets", REF, HEAD_SHA),
-            f"mobile-eye-runtime-assets-{HEAD_SHA}",
-        )
 
         with self.assertRaisesRegex(MODULE.PolicyError, "task"):
             MODULE.artifact_name_for("release", REF, HEAD_SHA)
@@ -664,8 +656,6 @@ class ArtifactPersistenceTest(unittest.TestCase):
         )
         revision = MODULE.LocalRevision(ref=REF, head_sha=HEAD_SHA)
         cases = (
-            ("mobile-eye-ring-assets", 64 * MIB + 1),
-            ("mobile-eye-runtime-assets", 160 * MIB + 1),
             ("android", 256 * MIB + 1),
         )
 

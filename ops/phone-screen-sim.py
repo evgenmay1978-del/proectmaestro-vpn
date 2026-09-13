@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Deterministic visual smoke test for the PHONE screens (390x844 dp @2x).
+"""Archived 4D PHONE layout preview (390x844 dp @2x).
+
+This is not a screenshot or a preview of the current PhoneDashboard.
 
 Телефонный близнец ops/tv-master-sim.py. Существует потому, что правило проекта
 требует смотреть UI ГЛАЗАМИ ДО КОДА (CLAUDE.md, п.3 «UI = пиксель-в-пиксель»), а
@@ -9,7 +11,6 @@
 
 Что берётся из репо (воспроизводимо, ничего не выдумано):
   mobile_4d/atlas_c_*.webp      — центральное освещение пятислойной 4D-сцены
-  mobile_eye_open                — live anatomy revealed by one moving 70/30 aperture
   mobile_surface.webp            — фон внутренних экранов
   frame_button.9.png / frame_bar.9.png / frame_panel.9.png — nine-patch рамы
   font/playfair_display.ttf      — титульный шрифт
@@ -27,8 +28,7 @@
     когда у Text задан maxLines и НЕ задан overflow. Это обрубание посреди глифа,
     без «...». Если поправить на ellipsis=True «чтобы красивее» — симуляция начнёт
     врать и перестанет ловить именно этот класс дефектов.
- 3. Это НЕ скриншот. Лист фаз глаза детерминированно показывает форму моргания,
-    но не воспроизводит слежение за пальцем; барабан не крутится, суммы/QR условные.
+ 3. Это НЕ скриншот. Макет статичен, суммы/QR условные.
     Для доказательств поведения — CI и
     устройство, симуляция только для глаз.
 
@@ -36,10 +36,8 @@
 """
 import os
 import re
-import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from PIL import ImageChops
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / 'app/src/main/res/drawable-nodpi'
@@ -49,7 +47,6 @@ OUTDIR = ROOT / 'build/phone-screen-sim'
 OUTDIR.mkdir(parents=True, exist_ok=True)
 OUT = str(OUTDIR / 'phone-screens.png')
 S = 2  # супер-семплинг: работаем в 2x от dp
-EYE_PHASES_ONLY = '--eye-phases-only' in sys.argv
 
 PLAY = str(ROOT / 'app/src/main/res/font/playfair_display.ttf')
 
@@ -466,161 +463,6 @@ def home_scene(w, h, deck_scroll_dp=0.0):
         positioned.close()
     return scene
 
-LIVING_EYE_BRONZE_INSET_FRACTION = 26.0 / 520.0   # LivingEyeLayerGeometry.kt
-LIVING_EYE_STATE_W, LIVING_EYE_STATE_H = 890.0, 635.0
-LIVING_EYE_VIRTUAL_SIZE = 822.5
-LIVING_EYE_ANATOMY_SCALE = 1.10
-LIVING_EYE_OFFSET_X_FRACTION = 3.5 / 238.0
-LIVING_EYE_OFFSET_Y_FRACTION = 7.0 / 238.0
-LIVING_EYE_SEAM_FROM_UPPER = 0.70
-LIVING_EYE_CONTACT_SHADOW_FRACTION = 3.0 / 520.0
-LIVING_EYE_CONTACT_SHADOW_ALPHA = 0.18
-
-def eye_box():
-    """Коробка живого глаза = medallion* из Mobile4DSceneModel.kt + общий сдвиг героя.
-
-    ⛔ ЛОВУШКА: это НЕ `B['medallion']`. Границы эталона описывают ВНЕШНЕЕ бронзовое
-    кольцо (338 dp), а LivingEyeMedallion вписывает ассет 890×635 в квадрат
-    2*radius (238 dp) минус бронзовый инсет. Если взять эталонные — глаз вылезет
-    из кольца на 42%."""
-    sc = max(390.0 / MASTER_4D_SIZE[0], 844.0 / MASTER_4D_SIZE[1])
-    tx = (390.0 - MASTER_4D_SIZE[0] * sc) / 2
-    ty = (844.0 - MASTER_4D_SIZE[1] * sc) / 2
-    cx = 1080.0 * sc + tx
-    cy = 1751.0 * sc + ty + HERO_TRANSLATION_Y
-    size = min((MASTER_4D_SIZE[0] * 260 / 853) * sc, (MASTER_4D_SIZE[1] * 260 / 1844) * sc) * 2
-    state_w = size * LIVING_EYE_STATE_W / LIVING_EYE_VIRTUAL_SIZE * LIVING_EYE_ANATOMY_SCALE
-    state_h = size * LIVING_EYE_STATE_H / LIVING_EYE_VIRTUAL_SIZE * LIVING_EYE_ANATOMY_SCALE
-    return cx, cy, size, state_w, state_h
-APERTURE_UPPER = [
-    (388,1083),(405,1061),(430,1037),(460,1014),(500,993),(540,978),
-    (580,968),(620,961),(660,957),(700,957),(740,962),(780,973),
-    (820,990),(860,1011),(900,1036),(932,1061),(957,1083),
-]
-APERTURE_LOWER = [
-    (388,1083),(420,1104),(460,1123),(500,1139),(540,1152),(580,1162),
-    (620,1170),(660,1174),(700,1172),(740,1167),(780,1159),(820,1148),
-    (860,1133),(900,1115),(932,1098),(957,1083),
-]
-
-def _interpolate_contour_y(points, x):
-    """Linear Y at X for a monotonic contour; both contours use their union of X values."""
-    if x <= points[0][0]:
-        return float(points[0][1])
-    if x >= points[-1][0]:
-        return float(points[-1][1])
-    for (x0, y0), (x1, y1) in zip(points, points[1:]):
-        if x0 <= x <= x1:
-            if x1 == x0:
-                return float(y1)
-            t = (x - x0) / (x1 - x0)
-            return y0 + (y1 - y0) * t
-    raise AssertionError(f'contour does not cover x={x}')
-
-
-APERTURE_SAMPLES = tuple(
-    (x, _interpolate_contour_y(APERTURE_UPPER, x),
-     _interpolate_contour_y(APERTURE_LOWER, x))
-    for x in sorted({p[0] for p in APERTURE_UPPER} | {p[0] for p in APERTURE_LOWER})
-)
-
-
-def _living_eye_contours(phase, state_left, state_top, state_px):
-    """Upper/lower aperture contours converging on a 70/30 shared seam."""
-    phase = max(0.0, min(1.0, float(phase)))
-    upper, lower = [], []
-    for x, source_upper_y, source_lower_y in APERTURE_SAMPLES:
-        seam_y = source_upper_y + (source_lower_y - source_upper_y) * LIVING_EYE_SEAM_FROM_UPPER
-        current_upper_y = source_upper_y + (seam_y - source_upper_y) * phase
-        current_lower_y = source_lower_y + (seam_y - source_lower_y) * phase
-        px = state_left + (x - 230.0) / LIVING_EYE_STATE_W * state_px[0]
-        upper.append((px, state_top + (current_upper_y - 745.0) / LIVING_EYE_STATE_H * state_px[1]))
-        lower.append((px, state_top + (current_lower_y - 745.0) / LIVING_EYE_STATE_H * state_px[1]))
-    return upper, lower
-
-
-def _living_eye_components(phase):
-    """Live anatomy clipped by a moving 70/30 aperture over registered eye-surround."""
-    phase = max(0.0, min(1.0, float(phase)))
-    cx, cy, size, state_w, state_h = eye_box()
-    canvas_px = round(size * S)
-    state_px = (round(state_w * S), round(state_h * S))
-    state_left = round(
-        (canvas_px - state_px[0]) / 2 + canvas_px * LIVING_EYE_OFFSET_X_FRACTION)
-    state_top = round(
-        (canvas_px - state_px[1]) / 2 + canvas_px * LIVING_EYE_OFFSET_Y_FRACTION)
-    owner_state_px = (
-        round(size * S * (LIVING_EYE_STATE_W / LIVING_EYE_VIRTUAL_SIZE)
-              * LIVING_EYE_ANATOMY_SCALE),
-        round(size * S * (LIVING_EYE_STATE_H / LIVING_EYE_VIRTUAL_SIZE)
-              * LIVING_EYE_ANATOMY_SCALE),
-    )
-    owner_state_origin = (
-        round((canvas_px - owner_state_px[0]) / 2
-              + canvas_px * LIVING_EYE_OFFSET_X_FRACTION),
-        round((canvas_px - owner_state_px[1]) / 2
-              + canvas_px * LIVING_EYE_OFFSET_Y_FRACTION),
-    )
-    assert state_px == owner_state_px, (
-        'simulator eye geometry is stale: state_px must mirror the owner-approved '
-        f'uniform anatomy scale; expected={owner_state_px}, actual={state_px}'
-    )
-    assert (state_left, state_top) == owner_state_origin, (
-        'simulator eye geometry is stale: state origin must mirror the owner-approved '
-        f'offset; expected={owner_state_origin}, actual={(state_left, state_top)}'
-    )
-
-    open_upper, open_lower = _living_eye_contours(0.0, state_left, state_top, state_px)
-    upper, lower = _living_eye_contours(phase, state_left, state_top, state_px)
-    open_aperture = Image.new('L', (canvas_px, canvas_px), 0)
-    ImageDraw.Draw(open_aperture).polygon(
-        open_upper + list(reversed(open_lower)), fill=255)
-
-    aperture = Image.new('L', (canvas_px, canvas_px), 0)
-    if phase < 0.999:
-        ImageDraw.Draw(aperture).polygon(upper + list(reversed(lower)), fill=255)
-
-    eye_layer = Image.new('RGBA', (canvas_px, canvas_px), (0, 0, 0, 0))
-    if phase < 0.999:
-        source = Image.open(RES / 'mobile_eye_open.webp').convert('RGBA').resize(
-            state_px, Image.Resampling.LANCZOS)
-        eye_layer.alpha_composite(source, (state_left, state_top))
-        source.close()
-        eye_layer.putalpha(ImageChops.multiply(eye_layer.getchannel('A'), aperture))
-
-    seam_width = max(1, round(canvas_px * LIVING_EYE_CONTACT_SHADOW_FRACTION))
-    seam = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
-    seam_draw = ImageDraw.Draw(seam, 'RGBA')
-    seam_rgb = (6, 20, 9)  # LivingEyeMedallion.kt EYE_CONTACT_SHADOW = #061409
-    seam_alpha = round(255 * LIVING_EYE_CONTACT_SHADOW_ALPHA * (1.0 - phase))
-    if seam_alpha > 0:
-        seam_colour = (*seam_rgb, seam_alpha)
-        seam_draw.line(upper, fill=seam_colour, width=seam_width, joint='curve')
-        seam_draw.line(lower, fill=seam_colour, width=seam_width, joint='curve')
-
-    x = round(cx * S - canvas_px / 2)
-    y = round(cy * S - canvas_px / 2)
-    return eye_layer, seam, aperture, open_aperture, x, y
-
-
-def living_eye_phase_layer(phase):
-    eye_layer, seam, aperture, open_aperture, x, y = _living_eye_components(phase)
-    canvas = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
-    canvas.alpha_composite(eye_layer)
-    canvas.alpha_composite(seam)
-    eye_layer.close()
-    seam.close()
-    aperture.close()
-    open_aperture.close()
-    return canvas, x, y
-
-
-def living_eye_layer(state):
-    """Static state sampled from the same one-layer aperture animation used at runtime."""
-    phase = {'connected': 0.0, 'connecting': 0.5, 'disconnected': 1.0}[state]
-    return living_eye_phase_layer(phase)
-
-
 def tile(layer, x, y, w, h, label, icf, *, selected=False, locked=False,
          icon_sp=22, label_min=8, label_max=12, gap=6, bar=False):
     """Резная плитка: nine-patch frame_button + иконка сверху + подпись снизу.
@@ -688,12 +530,6 @@ def pill(layer, x, y, w, h, label, icf, icon_tint):
 def screen_home(state='connected', deck_scroll_dp=0.0):
     """state: connected | connecting | disconnected."""
     ph = home_scene(W, H, deck_scroll_dp).convert('RGBA')
-
-    # ── глаз и титул fixed: они не принадлежат scroll-owner нижней деки.
-    eye, eye_x, eye_y = living_eye_layer(state)
-    ph.alpha_composite(eye, (eye_x, eye_y))
-    eye.close()
-
 
     lay = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(lay)
@@ -961,104 +797,19 @@ def rounded(im, rad):
     o = im.copy(); o.putalpha(m); return o
 
 STATES = ('connected', 'connecting', 'disconnected')
-STATE_RU = {'connected': 'ПОДКЛЮЧЕНО — глаз открыт',
-            'connecting': 'ПОДКЛЮЧЕНИЕ — глаз полуоткрыт',
-            'disconnected': 'ОТКЛЮЧЕНО — глаз полностью закрыт'}
+STATE_RU = {'connected': 'ПОДКЛЮЧЕНО',
+            'connecting': 'ПОДКЛЮЧЕНИЕ',
+            'disconnected': 'ОТКЛЮЧЕНО'}
 
 homes = {}
 SCROLL_PROOF_DP = 64.0
 SCROLLED = str(OUTDIR / 'owner-home-connected-scrolled.png')
-if not EYE_PHASES_ONLY:
-    for st in STATES:
-        im = screen_home(st)
-        homes[st] = im
-        im.convert('RGB').save(OUTDIR / f'owner-home-{st}.png', 'PNG', optimize=True)
-    home_scrolled = screen_home('connected', SCROLL_PROOF_DP)
-    home_scrolled.convert('RGB').save(SCROLLED, 'PNG', optimize=True)
-else:
-    home_scrolled = None
-
-# ── детерминированный close-up пяти фаз: live anatomy + registered surround reveal
-EYE_PHASES = (0.0, 0.25, 0.5, 0.75, 1.0)
-EYE_PHASE_CARD = 360
-EYE_PHASE_GAP = 16
-EYE_PHASE_MARGIN = 24
-EYE_PHASE_HEADER = 86
-eye_phase_sheet = Image.new(
-    'RGB',
-    (EYE_PHASE_MARGIN * 2 + EYE_PHASE_CARD * len(EYE_PHASES)
-     + EYE_PHASE_GAP * (len(EYE_PHASES) - 1), EYE_PHASE_HEADER + EYE_PHASE_CARD + 56),
-    (13, 9, 6),
-)
-eye_phase_draw = ImageDraw.Draw(eye_phase_sheet)
-txt(eye_phase_draw, (eye_phase_sheet.width / 2, 18),
-    'Живой глаз — единый изумрудный материал, апертура 70/30', F(PLAY, 18), GOLD, anchor='ma')
-txt(eye_phase_draw, (eye_phase_sheet.width / 2, 50),
-    'Open-анатомия остаётся живой; закрытие раскрывает тот же eye-surround без отдельного века.',
-    F(SANS, 10), TXTM, anchor='ma')
-eye_phase_base = home_scene(W, H, 0.0).convert('RGBA')
-cx, cy, _, _, _ = eye_box()
-eye_phase_half_crop = round(180 * S)
-eye_phase_crop_box = (
-    round(cx * S) - eye_phase_half_crop,
-    round(cy * S) - eye_phase_half_crop,
-    round(cx * S) + eye_phase_half_crop,
-    round(cy * S) + eye_phase_half_crop,
-)
-for index, phase in enumerate(EYE_PHASES):
-    eye_layer, seam, aperture, open_aperture, eye_x, eye_y = _living_eye_components(phase)
-    combined = Image.new('RGBA', eye_layer.size, (0, 0, 0, 0))
-    combined.alpha_composite(eye_layer)
-    combined.alpha_composite(seam)
-
-    seam_mask = seam.getchannel('A').point(lambda alpha: 255 if alpha else 0)
-    allowed_mask = ImageChops.lighter(open_aperture, seam_mask)
-    outside_mask = ImageChops.invert(allowed_mask)
-    assert ImageChops.multiply(combined.getchannel('A'), outside_mask).getbbox() is None, \
-        f'phase={phase}: eye overlay leaked outside original aperture/seam'
-    if phase == 1.0:
-        assert aperture.getbbox() is None, 'closed phase must disable the open anatomy aperture'
-        assert combined.getchannel('A').getbbox() is None, (
-            'closed phase must reveal the registered eye-surround without an overlay; '
-            f'overlay={combined.getchannel("A").getbbox()}')
-
-    frame = eye_phase_base.copy()
-    frame.alpha_composite(combined, (eye_x, eye_y))
-    before = eye_phase_base.crop((eye_x, eye_y, eye_x + combined.width, eye_y + combined.height))
-    after = frame.crop((eye_x, eye_y, eye_x + combined.width, eye_y + combined.height))
-    colour_diff = ImageChops.difference(before.convert('RGB'), after.convert('RGB'))
-    assert all(ImageChops.multiply(channel, outside_mask).getbbox() is None
-               for channel in colour_diff.split()), \
-        f'phase={phase}: base eye-surround changed outside original aperture/seam'
-
-    crop = frame.crop(eye_phase_crop_box).convert('RGB').resize(
-        (EYE_PHASE_CARD, EYE_PHASE_CARD), Image.Resampling.LANCZOS)
-    x = EYE_PHASE_MARGIN + index * (EYE_PHASE_CARD + EYE_PHASE_GAP)
-    eye_phase_draw.rectangle((x - 2, EYE_PHASE_HEADER - 2,
-                              x + EYE_PHASE_CARD + 1, EYE_PHASE_HEADER + EYE_PHASE_CARD + 1),
-                             fill=(75, 57, 34))
-    eye_phase_sheet.paste(crop, (x, EYE_PHASE_HEADER))
-    txt(eye_phase_draw, (x + EYE_PHASE_CARD / 2, EYE_PHASE_HEADER + EYE_PHASE_CARD + 16),
-        f'phase {phase:.2f}', F(SANSB, 12), GOLD, anchor='ma')
-    crop.close(); before.close(); after.close(); frame.close(); colour_diff.close()
-    allowed_mask.close(); outside_mask.close(); seam_mask.close()
-    combined.close(); eye_layer.close(); seam.close(); aperture.close(); open_aperture.close()
-eye_phase_base.close()
-EYE_PHASE_SHEET = str(OUTDIR / 'owner-eye-blink-phases.png')
-eye_phase_sheet.save(EYE_PHASE_SHEET, 'PNG', optimize=True)
-EYE_PHASE_SHEET_QA = str(OUTDIR / 'owner-eye-blink-phases-qa.jpg')
-eye_phase_qa_width = 600
-eye_phase_qa = eye_phase_sheet.resize(
-    (eye_phase_qa_width, round(eye_phase_sheet.height * eye_phase_qa_width / eye_phase_sheet.width)),
-    Image.Resampling.LANCZOS,
-)
-eye_phase_qa.save(EYE_PHASE_SHEET_QA, 'JPEG', quality=55, optimize=True)
-eye_phase_qa.close()
-eye_phase_sheet.close()
-if EYE_PHASES_ONLY:
-    print('OK', EYE_PHASE_SHEET, f'{os.path.getsize(EYE_PHASE_SHEET)/1024:.0f} KB')
-    print('OK', EYE_PHASE_SHEET_QA, f'{os.path.getsize(EYE_PHASE_SHEET_QA)/1024:.0f} KB')
-    raise SystemExit(0)
+for st in STATES:
+    im = screen_home(st)
+    homes[st] = im
+    im.convert('RGB').save(OUTDIR / f'owner-home-{st}.png', 'PNG', optimize=True)
+home_scrolled = screen_home('connected', SCROLL_PROOF_DP)
+home_scrolled.convert('RGB').save(SCROLLED, 'PNG', optimize=True)
 
 # ── доска сравнения: эталон владельца слева, симуляция того же вьюпорта справа
 ref = Image.open(REF_JPG).convert('RGB').resize((W, H), Image.LANCZOS)
@@ -1072,7 +823,7 @@ txt(bd, (cb_w / 2, 34 * S), 'MaestroVPN Home — эталон владельца
 for i, line in enumerate([
         'Слева — установленный Home 08-owner-installed-test-home-2026-08-08.jpg. Справа — симуляция по числам',
         'PhoneHomeReferenceLayout.kt и PhoneHomeControlDeck.kt на ПОДЛИННЫХ ассетах репозитория (центральный',
-        'свет 4D-атласа из 8 relief-слоёв, Playfair). Кадр фиксирует фазу; Android сохраняет blink/gaze/touch.',
+        'свет 4D-атласа из 8 relief-слоёв, Playfair). Архивный макет не проверяет анимацию приложения.',
         'Резьба дуги и консоли — настоящий арт из атласа; код рисует только подписи, иконки и выбор.']):
     txt(bd, (cb_w / 2, (80 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
 for x, im, cap in ((CMARG, ref, 'Эталон владельца'),
@@ -1099,7 +850,7 @@ sbd = ImageDraw.Draw(scroll_board)
 txt(sbd, (scroll_w / 2, 30 * S), 'Home — fixed hero и единый скролл нижней деки',
     F(PLAY, 28), GOLD, anchor='ma')
 for i, line in enumerate([
-        'Слева — начало. Справа — +64 dp: логотип, кольцо и глаз остаются на месте;',
+        'Слева — начало. Справа — +64 dp: логотип и кольцо остаются на месте;',
         'arc / contacts / console и все их подписи смещаются на одно значение и клипуются под героем.']):
     txt(sbd, (scroll_w / 2, (72 + i * 19) * S), line, F(SANS, 13), TXTM, anchor='ma')
 for x, im, cap in ((SMARG, homes['connected'].convert('RGB'), 'Начало деки'),
@@ -1118,7 +869,7 @@ scroll_board_qa.save(SCROLL_BOARD_JPG, 'JPEG', quality=42, optimize=True)
 scroll_board_qa.close()
 
 
-# ── лист трёх состояний глаза
+# ── лист трёх состояний подключения
 GAP = 46 * S; MARG = 40 * S; TOPH = 150 * S; CAPH = 118 * S
 sheet_w = MARG * 2 + W * 3 + GAP * 2
 sheet_h = TOPH + H + CAPH + 30 * S
@@ -1128,10 +879,10 @@ ImageDraw.Draw(glow).ellipse((sheet_w * .15, -sheet_h * .35, sheet_w * .85, shee
                              fill=(38, 27, 18))
 sheet = Image.blend(sheet, glow.filter(ImageFilter.GaussianBlur(160)), .85)
 sd = ImageDraw.Draw(sheet)
-txt(sd, (sheet_w / 2, 34 * S), 'MaestroVPN — Home, три состояния глаза (симуляция)',
+txt(sd, (sheet_w / 2, 34 * S), 'MaestroVPN — архивный Home, три состояния подключения',
     F(PLAY, 30), GOLD, anchor='ma')
 for i, line in enumerate([
-        'Неподвижны: логотип, медальон, eye-surround и живой глаз. Ниже идут статус и активный протокол,',
+        'Неподвижны: логотип и медальон. Ниже идут статус и активный протокол,',
         'телефон, Telegram / МАКС / WhatsApp, дуга протоколов, покупка и нижняя консоль.',
         'Нижняя дека имеет один scroll-owner для рельефа, плиток, иконок и текста. Старого барабана,',
         'снэпа, наклона рядов и градиентной маски больше нет.']):
@@ -1151,7 +902,6 @@ sheet_qa = sheet.resize((900, round(sheet.height * 900 / sheet.width)), Image.LA
 sheet_qa.save(OUT_QA, 'JPEG', quality=60, optimize=True)
 sheet_qa.close()
 
-for name in [OUT, OUT_QA, BOARD, BOARD_JPG, SCROLLED, SCROLL_BOARD, EYE_PHASE_SHEET,
-             EYE_PHASE_SHEET_QA] + [
+for name in [OUT, OUT_QA, BOARD, BOARD_JPG, SCROLLED, SCROLL_BOARD] + [
         str(OUTDIR / f'owner-home-{st}.png') for st in STATES]:
     print('OK', name, f'{os.path.getsize(name)/1024:.0f} KB')

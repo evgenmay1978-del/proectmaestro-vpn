@@ -19,14 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -40,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.maestrovpn.tv.compose.premium.*
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.BuildConfig
+import com.maestrovpn.tv.database.ProfileManager
 import com.maestrovpn.tv.update.UpdateState
 import com.maestrovpn.tv.update.UpdatePromptProvenance
 import com.maestrovpn.tv.vendor.Vendor
@@ -104,6 +98,24 @@ internal fun PhoneDashboard(
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/MaestroSecureVPN_bot"))) }
             .onFailure { Toast.makeText(context, "Не удалось открыть Telegram", Toast.LENGTH_SHORT).show() }
     }
+    fun openCdnPurchase() {
+        val account = WhiteListSelection.account()
+        if (account.first < 0) { onEnterCode(); return }
+        scope.launch {
+            val subscription = try {
+                withContext(Dispatchers.IO) { ProfileManager.get(account.first)?.typed?.remoteURL }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) { null }
+            val link = phoneCdnPurchaseLink(subscription, account, WhiteListSelection.account())
+            if (link == null) {
+                Toast.makeText(context, "Обновите подписку и повторите покупку для выбранного аккаунта.", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
+                .onFailure { Toast.makeText(context, "Не удалось открыть Telegram", Toast.LENGTH_SHORT).show() }
+        }
+    }
     fun refreshAccount() { refresh++; onRefreshServers() }
     val server = phoneServer(actual, actual?.let { cdnView.labels[it] })
     val activeTab = when (page) { "cdn", "account" -> "account"; "servers" -> "servers"; "settings", "update" -> "settings"; else -> "home" }
@@ -112,8 +124,8 @@ internal fun PhoneDashboard(
         ApprovedMobileBackground(Modifier.fillMaxSize())
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             val side = (maxWidth * 0.085f).coerceIn(24.dp, 42.dp)
-            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 460.dp).coerceIn(220.dp, 360.dp) / CARVED_MEDALLION_ASPECT)
-            val heroHeight = heroWidth * CARVED_MEDALLION_ASPECT
+            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 460.dp).coerceIn(210.dp, 300.dp))
+            val heroHeight = heroWidth + 58.dp
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = side)
                     .verticalScroll(rememberScrollState()).padding(bottom = 10.dp),
@@ -135,38 +147,17 @@ internal fun PhoneDashboard(
                                 PhoneWallet("VPN", if (hasSubProfile) daysText else "—", MaestroCrown, Modifier.weight(1f).fillMaxHeight()) { navigate("account") }
                                 PhoneWallet("CDN", if (hasSubProfile) balanceText else "—", Icons.Default.Storage, Modifier.weight(1f).fillMaxHeight()) { navigate("cdn") }
                             }
-                            Box(Modifier.size(heroWidth, heroHeight).drawWithCache {
-                                val light = Brush.radialGradient(listOf(Color(0x333F2816), Color.Transparent),
-                                    center = Offset(size.width / 2f, size.height / 2f), radius = size.width * 0.62f)
-                                onDrawBehind { drawCircle(light, radius = size.width * 0.62f) }
-                            }.clickable(role = Role.Button, onClick = onToggleConnect)
+                            Box(Modifier.size(heroWidth, heroHeight).clickable(role = Role.Button, onClick = onToggleConnect)
                                 .semantics { contentDescription = if (connected && !connecting) "Отключить VPN" else "Подключить VPN" },
                                 contentAlignment = Alignment.Center) {
-                                LivingEyeMedallion(connected = connected && !connecting,
-                                    opennessOverride = if (connecting) 0.5f else if (!connected) 0f else null,
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                        .offset(x = heroWidth * CARVED_EYE_LEFT, y = heroHeight * CARVED_EYE_TOP)
-                                        .size(heroWidth * CARVED_EYE_DIAMETER).clip(CircleShape)
-                                        .drawWithCache {
-                                            val paint = Paint().apply { colorFilter = ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                                                0.924f, 0.087f, 0.009f, 0f, 0f,
-                                                0.024f, 0.899f, 0.008f, 0f, 0f,
-                                                0.023f, 0.078f, 0.809f, 0f, 0f,
-                                                0f, 0f, 0f, 1f, 0f))) }
-                                            onDrawWithContent {
-                                                val canvas = drawContext.canvas
-                                                canvas.saveLayer(Rect(Offset.Zero, size), paint)
-                                                drawContent()
-                                                canvas.restore()
-                                            }
-                                        })
-                                ApprovedMobileEyeFrame(Modifier.matchParentSize())
+                                PhoneConnectionRing(connected, connecting,
+                                    Modifier.align(Alignment.TopCenter).size(heroWidth))
                             Column(modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 5.dp, vertical = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(if (connecting) "Подключение…" else if (connected) "Подключено" else "Отключено",
                                     color = if (connecting) PremiumGold else if (connected) PremiumEmerald else PremiumRuby,
                                     fontSize = 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold)
-                                Text(if (connecting) "Устанавливаем соединение" else if (connected) "Нажмите на глаз, чтобы отключить" else "Нажмите на глаз для подключения",
+                                Text(if (connecting) "Устанавливаем соединение" else if (connected) "Нажмите, чтобы отключить" else "Нажмите для подключения",
                                     color = PremiumText, fontSize = 12.sp, lineHeight = 16.sp, textAlign = TextAlign.Center)
                             }
                             }
@@ -177,7 +168,7 @@ internal fun PhoneDashboard(
                             PhoneServerRow(server, false) { showCdnServers = cdnSelected; navigate("servers") }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 PhoneAction(if (hasSubProfile) "Продлить VPN" else "Купить VPN", MaestroCrown, onBuy, Modifier.weight(1f))
-                                PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.weight(1f))
+                                PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openCdnPurchase() }, Modifier.weight(1f))
                             }
                         }
                         "servers" -> {
@@ -210,7 +201,7 @@ internal fun PhoneDashboard(
                                 Spacer(Modifier.height(12.dp))
                                 PhoneAction("Открыть CDN", Icons.Default.Storage, { navigate("cdn") }, Modifier.fillMaxWidth(), true)
                                 Spacer(Modifier.height(7.dp))
-                                PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.fillMaxWidth())
+                                PhoneAction("Купить ГБ", Icons.Default.ShoppingCart, { openCdnPurchase() }, Modifier.fillMaxWidth())
                             }
                             PhoneAction(if (hasSubProfile) "Сменить логин" else "Ввести логин", Icons.Default.Person, onEnterCode, Modifier.fillMaxWidth())
                             PhoneAction("Подключить устройство", Icons.Default.Devices, onShareIos, Modifier.fillMaxWidth())
@@ -254,7 +245,7 @@ internal fun PhoneDashboard(
                                 else -> PhoneNotice("Серверы появятся после получения данных аккаунта и допуска к подключению.")
                             }
                             PhoneAction("Обновить", Icons.Default.Refresh, { refreshAccount() }, Modifier.fillMaxWidth())
-                            if (hasSubProfile) PhoneAction(if (positive) "Купить ещё ГБ" else "Купить ГБ", Icons.Default.ShoppingCart, { openBot() }, Modifier.fillMaxWidth())
+                            if (hasSubProfile) PhoneAction(if (positive) "Купить ещё ГБ" else "Купить ГБ", Icons.Default.ShoppingCart, { openCdnPurchase() }, Modifier.fillMaxWidth())
                             PhoneNotice("При Wi-Fi CDN отключается. После возврата на мобильную сеть включите CDN вручную.")
                         }
                         "update" -> {
