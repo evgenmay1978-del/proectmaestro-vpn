@@ -37,6 +37,7 @@ on:
           - mobile-ui-validation
           - mobile-ui-only
           - mobile-ring-preview
+          - mobile-ring-recapture
           - mobile-new-customer-only
           - mobile-release-only
           - reserve-measure
@@ -198,6 +199,19 @@ jobs:
       emulator_review: true
       emulator_only: true
       new_customer_only: true
+    secrets: inherit
+
+  mobile-ring-recapture:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.task == 'mobile-ring-recapture' }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/android-cdn-apk-build.yml
+    with:
+      emulator_review: true
+      visual_preview: true
+      reuse_emulator_run: 34778438157
+      reuse_emulator_source: 9e90edc276c9b609ce79c7e033e303d672c8c603
     secrets: inherit
 
   mobile-ui-validation:

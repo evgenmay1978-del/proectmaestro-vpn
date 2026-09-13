@@ -2,6 +2,12 @@ name: Build signed MaestroVPN APK only
 on:
   workflow_call:
     inputs:
+      reuse_emulator_run:
+        type: number
+        default: 0
+      reuse_emulator_source:
+        type: string
+        default: ''
       new_customer_only:
         type: boolean
         default: false
@@ -34,7 +40,7 @@ permissions:
   actions: read
 jobs:
   apk:
-    if: ${{ inputs.capture_only != true }}
+    if: ${{ inputs.capture_only != true && inputs.reuse_emulator_run == 0 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -233,7 +239,7 @@ jobs:
         run: rm -f -- app/release.keystore
   phone-validation:
     needs: apk
-    if: ${{ inputs.emulator_review == true }}
+    if: ${{ always() && inputs.emulator_review == true && (needs.apk.result == 'success' || inputs.reuse_emulator_run > 0) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -241,13 +247,19 @@ jobs:
       - name: Download the native emulator and instrumentation APKs
         env:
           GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN: ${{ inputs.reuse_emulator_run || github.run_id }}
+          ARTIFACT_SOURCE: ${{ inputs.reuse_emulator_source || github.sha }}
         run: |
           set -euo pipefail
+          [[ "$ARTIFACT_RUN" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          [ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN" --jq '.head_sha')" = "$ARTIFACT_SOURCE" ]
+          [ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN/jobs?per_page=100" --jq '[.jobs[] | select(.name | endswith("/ apk")) | .conclusion] == ["success"]')" = true ]
           mkdir -p "$RUNNER_TEMP/mobile-emulator-apks"
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            -n "maestrovpn-mobile-emulator-160-$GITHUB_SHA" -D "$RUNNER_TEMP/mobile-emulator-apks"
+          gh run download "$ARTIFACT_RUN" --repo "$GITHUB_REPOSITORY" \
+            -n "maestrovpn-mobile-emulator-160-$ARTIFACT_SOURCE" -D "$RUNNER_TEMP/mobile-emulator-apks"
           pushd "$RUNNER_TEMP/mobile-emulator-apks" >/dev/null
-          [ "$(cat apk-source.txt)" = "$GITHUB_SHA" ]
+          [ "$(cat apk-source.txt)" = "$ARTIFACT_SOURCE" ]
           sha256sum -c apks.sha256
           popd >/dev/null
       - name: Run focused phone instrumentation on native Android 34
@@ -261,7 +273,8 @@ jobs:
           output="$RUNNER_TEMP/mobile-validation"
           mkdir -p "$output"
           export MAESTRO_VALIDATION_OUT="$output"
-          printf '%s\n' "$GITHUB_SHA" > "$output/apk-source.txt"
+          cp "$RUNNER_TEMP/mobile-emulator-apks/apk-source.txt" "$output/apk-source.txt"
+          printf '%s\n' "$GITHUB_SHA" > "$output/harness-source.txt"
           collect_evidence() {
             status=$?
             trap - EXIT
@@ -322,6 +335,12 @@ jobs:
           adb install --abi x86_64 -r -t "$RUNNER_TEMP/mobile-emulator-apks/android-test.apk"
           adb shell pm grant com.maestrovpn.tv android.permission.CAMERA
           adb shell pm grant com.maestrovpn.tv android.permission.POST_NOTIFICATIONS
+          if [ "$MAESTRO_VISUAL_PREVIEW" = true ]; then
+            # The disposable emulator's Pixel Launcher ANR stole focus from both fixtures.
+            # Keep it out of the capture run; no application or device-under-test policy changes.
+            adb shell am force-stop com.google.android.apps.nexuslauncher
+            adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher
+          fi
           set +e
           timeout 600 adb shell am instrument -w -r -e class "$INSTRUMENTATION_CLASSES" \
             com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tee "$output/instrumentation.txt"
