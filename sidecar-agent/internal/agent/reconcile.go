@@ -95,13 +95,38 @@ func (reconciler *Reconciler) Refresh(ctx context.Context) (Receipt, error) {
 	if reconciler == nil {
 		return Receipt{}, errors.New("sidecar agent: reconciler unavailable")
 	}
+	if ctx == nil {
+		return Receipt{}, ErrInvalidDesired
+	}
 	reconciler.mutex.Lock()
-	defer reconciler.mutex.Unlock()
 	desired, err := reconciler.store.LoadDesired()
+	bootID, bootErr := reconciler.processBootID()
+	reconciler.mutex.Unlock()
 	if err != nil {
 		return Receipt{}, err
 	}
-	return reconciler.applyLocked(ctx, desired)
+	if bootErr != nil || !safeIdentifier(bootID) || desired.validate() != nil {
+		return Receipt{}, ErrInvalidDesired
+	}
+	exitIDs, err := desiredExitIDs(desired)
+	if err != nil {
+		return Receipt{}, err
+	}
+	// Relay network probes do not modify this inbound. Run them outside the
+	// mutation lock so they cannot starve nonce reads and paid lease renewals.
+	if err := reconciler.preflightExits(ctx, bootID, exitIDs); err != nil {
+		return Receipt{}, err
+	}
+	reconciler.mutex.Lock()
+	defer reconciler.mutex.Unlock()
+	current, err := reconciler.store.LoadDesired()
+	if err != nil {
+		return Receipt{}, err
+	}
+	if current.DesiredSHA256() != desired.DesiredSHA256() {
+		return Receipt{}, ErrConflict
+	}
+	return reconciler.applyPreparedLocked(ctx, desired, bootID)
 }
 
 func (reconciler *Reconciler) Recover(ctx context.Context) (Receipt, error) {
@@ -132,6 +157,10 @@ func (reconciler *Reconciler) LookupReceipt(ctx context.Context, actionKey strin
 }
 
 func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) (Receipt, error) {
+	return reconciler.applyPreparedLocked(ctx, desired, "")
+}
+
+func (reconciler *Reconciler) applyPreparedLocked(ctx context.Context, desired Desired, preparedBoot string) (Receipt, error) {
 	if ctx == nil {
 		return Receipt{}, ErrInvalidDesired
 	}
@@ -174,11 +203,16 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if err != nil || !safeIdentifier(bootID) {
 		return Receipt{}, errors.New("sidecar agent: Xray process identity unavailable")
 	}
+	if preparedBoot != "" && preparedBoot != bootID {
+		return Receipt{}, errors.New("sidecar agent: Xray process changed during relay preflight")
+	}
 	if err := reconciler.store.InvalidateReceiptsExceptBoot(bootID); err != nil {
 		return Receipt{}, err
 	}
-	if err := reconciler.preflightExits(ctx, bootID, exitIDs); err != nil {
-		return Receipt{}, errors.New("sidecar agent: relay readiness preflight failed")
+	if preparedBoot == "" {
+		if err := reconciler.preflightExits(ctx, bootID, exitIDs); err != nil {
+			return Receipt{}, errors.New("sidecar agent: relay readiness preflight failed")
+		}
 	}
 	var convergeErr error
 	if reconciler.managedLeaseEnabled {
@@ -189,11 +223,13 @@ func (reconciler *Reconciler) applyLocked(ctx context.Context, desired Desired) 
 	if convergeErr != nil {
 		return Receipt{}, convergeErr
 	}
-	if err := reconciler.preflightExits(ctx, bootID, exitIDs); err != nil {
-		return Receipt{}, errors.New("sidecar agent: final relay readiness preflight failed")
+	if preparedBoot == "" {
+		if err := reconciler.preflightExits(ctx, bootID, exitIDs); err != nil {
+			return Receipt{}, errors.New("sidecar agent: final relay readiness preflight failed")
+		}
 	}
 	// One action/boot produces one immutable readiness receipt. A real refresh
-	// still performs both preflights and convergence above, but does not invent
+	// still verifies relay readiness and convergence, but does not invent
 	// new timestamps for an action the controller has already journaled.
 	now := reconciler.now()
 	if existing, err := reconciler.store.LoadReceipt(desired.ActionKey()); err == nil {
