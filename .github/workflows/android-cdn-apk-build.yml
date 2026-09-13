@@ -2,6 +2,9 @@ name: Build signed MaestroVPN APK only
 on:
   workflow_call:
     inputs:
+      phone_flow_checks:
+        type: boolean
+        default: false
       phone_cdn_checks:
         type: boolean
         default: false
@@ -245,7 +248,7 @@ jobs:
         timeout-minutes: 20
         env:
           ANDROID_SERIAL: emulator-5554
-          INSTRUMENTATION_CLASSES: ${{ inputs.visual_preview && 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.screen.tvhome.AccountInfoLifecycleInstrumentedTest' || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
+          INSTRUMENTATION_CLASSES: ${{ inputs.visual_preview && (inputs.phone_flow_checks && 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.screen.tvhome.AccountInfoLifecycleInstrumentedTest' || 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview') || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
           MAESTRO_VISUAL_PREVIEW: ${{ inputs.visual_preview }}
         run: |
           set -euo pipefail

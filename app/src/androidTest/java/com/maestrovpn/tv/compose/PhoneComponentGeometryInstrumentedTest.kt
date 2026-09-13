@@ -82,17 +82,38 @@ class PhoneComponentGeometryInstrumentedTest {
         ui.onNodeWithText("Отключено", useUnmergedTree = true).assertIsDisplayed()
         ui.onNodeWithContentDescription("Подключить VPN").assertHasClickAction().performClick()
         ui.runOnIdle { assertEquals(1, connectionClicks) }
+        assertHomePurchaseRowIsUnclipped()
         shot("fixture-ring-home-off")
         ui.runOnUiThread { connecting.value = true }
         settle()
         ui.onNodeWithText("Подключение…", useUnmergedTree = true).assertIsDisplayed()
+        assertHomePurchaseRowIsUnclipped()
         shot("fixture-ring-home-connecting")
         ui.runOnUiThread { connecting.value = false; connected.value = true }
         settle()
         ui.onNodeWithText("Подключено", useUnmergedTree = true).assertIsDisplayed()
         ui.onNodeWithContentDescription("Отключить VPN").assertHasClickAction().performClick()
         ui.runOnIdle { assertEquals(2, connectionClicks) }
+        assertHomePurchaseRowIsUnclipped()
         shot("fixture-ring-home-on")
+    }
+
+    private fun assertHomePurchaseRowIsUnclipped() {
+        val navigationTop = ui.onNode(hasText("Главная") and hasClickAction())
+            .getUnclippedBoundsInRoot().top
+        for (label in listOf("Продлить VPN", "Купить ГБ")) {
+            // Merged clickable rows include their full padding and hit area, not only the text.
+            val button = ui.onNode(hasText(label) and hasClickAction()).assertIsDisplayed()
+            val full = button.getUnclippedBoundsInRoot()
+            val visible = button.fetchSemanticsNode().boundsInRoot
+            with(ui.density) {
+                assertEquals("$label left edge is clipped", full.left.toPx(), visible.left, 1f)
+                assertEquals("$label top edge is clipped", full.top.toPx(), visible.top, 1f)
+                assertEquals("$label right edge is clipped", full.right.toPx(), visible.right, 1f)
+                assertEquals("$label bottom edge is clipped", full.bottom.toPx(), visible.bottom, 1f)
+            }
+            assertTrue("$label overlaps the bottom navigation", full.bottom <= navigationTop)
+        }
     }
 
     /** The production TV component on a landscape native surface, not TV hardware validation. */

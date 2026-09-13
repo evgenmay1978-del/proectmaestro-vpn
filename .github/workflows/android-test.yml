@@ -45,6 +45,10 @@ on:
         description: Run focused mobile CDN checks with the signed candidate
         type: boolean
         default: false
+      phone_flow_checks:
+        description: Run phone navigation and purchase flows with the native preview
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'app/**'
@@ -180,6 +184,7 @@ jobs:
       emulator_only: false
       visual_preview: true
       phone_cdn_checks: ${{ inputs.phone_cdn_checks == true }}
+      phone_flow_checks: ${{ inputs.phone_flow_checks == true }}
     secrets: inherit
 
   mobile-ui-validation:

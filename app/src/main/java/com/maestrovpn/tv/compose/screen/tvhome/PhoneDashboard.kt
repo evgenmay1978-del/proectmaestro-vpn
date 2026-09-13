@@ -124,8 +124,9 @@ internal fun PhoneDashboard(
         ApprovedMobileBackground(Modifier.fillMaxSize())
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             val side = (maxWidth * 0.085f).coerceIn(24.dp, 42.dp)
-            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 460.dp).coerceIn(210.dp, 300.dp))
-            val heroHeight = heroWidth + 58.dp
+            val statusHeight = 58.dp
+            val heroWidth = minOf(maxWidth - side * 2, (maxHeight - 460.dp - statusHeight).coerceIn(210.dp, 300.dp))
+            val heroHeight = heroWidth + statusHeight
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = side)
                     .verticalScroll(rememberScrollState()).padding(bottom = 10.dp),
