@@ -46,6 +46,10 @@ on:
           - mobile-eye-ring-assets
           - mobile-eye-runtime-assets
           - mobile-eye-state-preview
+      phone_cdn_checks:
+        description: Run focused mobile CDN checks with the signed candidate
+        type: boolean
+        default: false
   pull_request:
     paths:
       - 'app/**'
@@ -208,6 +212,8 @@ jobs:
       contents: read
       actions: read
     uses: ./.github/workflows/android-cdn-apk-build.yml
+    with:
+      phone_cdn_checks: ${{ inputs.phone_cdn_checks == true }}
     secrets: inherit
 
   cdn-runtime-test-apk:

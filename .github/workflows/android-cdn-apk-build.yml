@@ -2,6 +2,9 @@ name: Build signed MaestroVPN APK only
 on:
   workflow_call:
     inputs:
+      phone_cdn_checks:
+        type: boolean
+        default: false
       capture_only:
         type: boolean
         default: false
