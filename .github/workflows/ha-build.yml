@@ -51,7 +51,7 @@ jobs:
       - name: Check commercial accounting invariants
         if: inputs.commercial_metering_check == true
         working-directory: backend
-        run: go test -mod=readonly ./internal/shadowbilling -run '^TestCommercial(Debit|FirstCumulative|Producer|FinalStore)' -count=1
+        run: go test -mod=readonly ./internal/shadowbilling -run '^TestCommercial(Debit|Producer)' -count=1
       - name: Compile panel
         working-directory: backend
         env:

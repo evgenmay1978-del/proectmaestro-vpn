@@ -371,8 +371,12 @@ func (store *DurableStore) applyCommercialFinalOrdered(
 			return DurableResult{}, err
 		}
 	}
-	if err := store.drainCommercialDebitsLocked(ctx, binding.EntitlementID, debiter); err != nil {
-		return DurableResult{}, fmt.Errorf("shadowbilling: debit commercial interval: %w", err)
+	// The pre-drain and transaction guard cleared older pending work. Verify
+	// this exact committed interval instead of scanning the entire history again.
+	if result.Decision.Interval != nil {
+		if err := store.ensureCommercialDebit(ctx, commercialDebitFromBinding(binding), debiter); err != nil {
+			return DurableResult{}, fmt.Errorf("shadowbilling: debit commercial interval: %w", err)
+		}
 	}
 	return result, nil
 }

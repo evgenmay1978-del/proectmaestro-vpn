@@ -1118,9 +1118,8 @@ func (collector *runtimeWhiteListMeteringCollector) applyUser(
 	if err != nil {
 		return err
 	}
-	if err := collector.store.DrainCommercialDebits(ctx, route.Entitlement.EntitlementID(), collector.control); err != nil {
-		return fmt.Errorf("%w: %v", errRuntimeWhiteListDebitPending, err)
-	}
+	// Both ApplyCommercial methods verify this interval's durable debit before
+	// success. The explicit recovery drain above remains for an earlier attempt.
 	return nil
 }
 
