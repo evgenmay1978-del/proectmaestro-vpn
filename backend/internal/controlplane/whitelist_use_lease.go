@@ -333,7 +333,7 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 		delivery, evaluated := deliveries[entitlementID]
 		if !evaluated {
 			var err error
-			delivery, err = s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, now, resolve, true, state, origins)
+			delivery, err = s.whiteListPublicationForEntitlementFromState(ctx, entitlementID, s.clock.Now(), resolve, true, state, origins)
 			if err != nil {
 				return closed, err
 			}
@@ -420,6 +420,23 @@ func (s *Service) WhiteListUseLeaseAuthorizations(ctx context.Context, plan Whit
 	stage = "remaining freshness"
 	evaluatedAt := s.clock.Now()
 	remaining := until.Sub(evaluatedAt)
+	allByteBudgeted := len(closed.Emails) > 0 && len(closed.CumulativeByteCeilings) == len(plan.Origins)
+	for _, origin := range plan.Origins {
+		allByteBudgeted = allByteBudgeted && len(closed.CumulativeByteCeilings[origin.Origin.OriginID]) == len(closed.Emails)
+	}
+	if allByteBudgeted {
+		// The short-lived client descriptor is not the lifetime of a prepaid
+		// runtime grant. Each account was publishable when evaluated, all byte
+		// ceilings are committed, and observations must still be current now.
+		// Keep the existing runtime window and absolute paid/receipt deadlines.
+		if _, err := origins.observedAt(state, evaluatedAt); err != nil {
+			return closed, err
+		}
+		remaining = authorityUntil.Sub(evaluatedAt)
+		if remaining > whiteListUseLeaseWindow {
+			remaining = whiteListUseLeaseWindow
+		}
+	}
 	if remaining <= 0 || remaining > whiteListUseLeaseWindow {
 		return WhiteListUseLeaseAuthorization{Emails: []string{}}, ErrUnavailable
 	}
