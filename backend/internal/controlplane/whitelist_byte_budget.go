@@ -69,7 +69,13 @@ func (s *Service) WhiteListByteBudgetRefillCandidates(ctx context.Context, plan 
 			return nil, ErrUnavailable
 		}
 		now := s.clock.Now().Unix()
-		args := []any{candidate.EntitlementID, candidate.ExitID, minimum, now, now}
+		args := []any{candidate.EntitlementID, candidate.ExitID, minimum}
+		retainedBindings := make([]string, 0, len(plan.Origins))
+		for _, origin := range plan.Origins {
+			retainedBindings = append(retainedBindings, "(retained.origin_id=? AND retained.xray_process_boot_id=?)")
+			args = append(args, origin.Origin.OriginID, origin.Receipt.XrayProcessBootID)
+		}
+		args = append(args, len(plan.Origins)*whiteListCommercialExitCount*2, now, now)
 		bindings := make([]string, 0, len(plan.Origins))
 		for _, origin := range plan.Origins {
 			bindings = append(bindings, "(allocation.origin_id=? AND allocation.xray_process_boot_id=?)")
@@ -78,7 +84,11 @@ func (s *Service) WhiteListByteBudgetRefillCandidates(ctx context.Context, plan 
 		statements = append(statements, rqlite.Statement{SQL: `SELECT COUNT(*) AS funded_origins
 FROM whitelist_byte_allocation_balances AS allocation
 JOIN whitelist_billing_periods AS period ON period.period_id=allocation.billing_period_id AND period.entitlement_id=allocation.entitlement_id
-WHERE allocation.entitlement_id=? AND allocation.exit_id=? AND allocation.outstanding_bytes>=?
+JOIN whitelist_balance_projections AS projection ON projection.entitlement_id=allocation.entitlement_id
+WHERE allocation.entitlement_id=? AND allocation.exit_id=? AND allocation.outstanding_bytes>=MAX(1,MIN(?,
+ (projection.purchased_remaining_bytes+projection.included_remaining_bytes-COALESCE((
+ SELECT SUM(retained.outstanding_bytes) FROM whitelist_byte_allocation_balances AS retained
+ WHERE retained.entitlement_id=allocation.entitlement_id AND NOT (` + strings.Join(retainedBindings, " OR ") + `)),0))/?))
 AND period.starts_at_unix<=? AND ?<period.ends_at_unix AND (` + strings.Join(bindings, " OR ") + `)`, Args: args})
 	}
 	results, err := s.store.db.QueryLinearizable(ctx, statements...)

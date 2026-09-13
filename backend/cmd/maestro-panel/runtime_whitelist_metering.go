@@ -971,15 +971,34 @@ func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx cont
 				return fmt.Errorf("candidate discovery: %w", err)
 			}
 		}
+		// Each reservation is a linearizable transaction with an all-exit fair
+		// share and a global paid-balance cap. Overlap independent remote reads;
+		// keep only four requests in flight so refill fits the sampling window.
+		results := make([]error, len(candidates))
+		jobs := make(chan int, len(candidates))
+		for index := range candidates {
+			jobs <- index
+		}
+		close(jobs)
+		var workers sync.WaitGroup
+		for worker := 0; worker < 4 && worker < len(candidates); worker++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				for index := range jobs {
+					candidate := candidates[index]
+					results[index] = budgetControl.AuthorizeWhiteListByteBudgetAdmission(ctx, candidate.EntitlementID, candidate.ExitID, collector.byteBudgetBytes)
+				}
+			}()
+		}
+		workers.Wait()
+		if ctx.Err() != nil {
+			return errRuntimeWhiteListMeteringUnavailable
+		}
 		var admissionErr error
 		admitted := 0
-		for _, candidate := range candidates {
-			if ctx.Err() != nil {
-				return errRuntimeWhiteListMeteringUnavailable
-			}
-			// An exhausted account cannot stop other accounts. Lease authority
-			// independently requires a committed positive allocation below.
-			if err := budgetControl.AuthorizeWhiteListByteBudgetAdmission(ctx, candidate.EntitlementID, candidate.ExitID, collector.byteBudgetBytes); err != nil {
+		for _, err := range results {
+			if err != nil {
 				admissionErr = err
 			} else {
 				admitted++
