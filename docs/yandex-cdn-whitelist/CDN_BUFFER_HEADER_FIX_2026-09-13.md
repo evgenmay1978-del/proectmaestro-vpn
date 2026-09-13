@@ -1,6 +1,6 @@
 # CDN downstream delay and isolated Remnawave trial — 2026-09-13
 
-Latest owner confirmation: ping is present and YouTube, Instagram, Telegram and WhatsApp work. Keep the header-forwarding change; do not expand production changes on this evidence. Long-term stability is not established. Earlier four-client production observation did fail with independently recorded credit exhaustion/fencing, so this must not be labelled complete elimination of the random incident.
+Owner confirmation at the earlier ee82268 checkpoint: ping and the named applications worked. The later active-only failure is diagnosed separately in CDN_ACTIVE_ROUTE_CREDIT_ANALYSIS_2026-09-13.md: internal route credit can reach zero despite a positive paid balance and live lease. Keep the independently evidenced header-forwarding change; it does not fix this second defect. The random incident must not be labelled resolved.
 
 ## Evidence and minimal change
 

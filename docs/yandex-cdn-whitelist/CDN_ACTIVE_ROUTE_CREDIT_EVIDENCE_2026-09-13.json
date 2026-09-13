@@ -1,0 +1,91 @@
+{
+  "scope": "Existing passive watchdog records and read-only source/runtime metadata; no new traffic runs or production changes.",
+  "observed_from_utc": "2026-09-13T11:47:56",
+  "observed_through_utc": "2026-09-13T12:33:44.943400+00:00",
+  "route_event_count": 228,
+  "ingress_sha256": "7fee7db3153aeb2109be48211cdc41f21250d401ec110b67477caaeddedc552c",
+  "zero_credit_intervals": [
+    {
+      "exit": "exit-s1",
+      "country_label": "Испания",
+      "first_zero_sample_utc": "2026-09-13T12:00:59.846851+00:00",
+      "lease_remaining_seconds_at_first_zero": 53.37,
+      "previous_sample_utc": "2026-09-13T12:00:54.048172+00:00",
+      "previous_credit_bytes": 1068123,
+      "next_nonzero_or_phase_change_sample_utc": "2026-09-13T12:01:26.371109+00:00",
+      "sample_gap_seconds": 26.524,
+      "next_phase": "fenced",
+      "next_credit_bytes": 0,
+      "cumulative_counter_equal_to_ceiling": true
+    },
+    {
+      "exit": "exit-s2",
+      "country_label": "Чехия",
+      "first_zero_sample_utc": "2026-09-13T11:49:12.648412+00:00",
+      "lease_remaining_seconds_at_first_zero": 45.32,
+      "previous_sample_utc": "2026-09-13T11:48:59.353588+00:00",
+      "previous_credit_bytes": 15643173,
+      "next_nonzero_or_phase_change_sample_utc": "2026-09-13T11:49:33.966451+00:00",
+      "sample_gap_seconds": 21.318,
+      "next_phase": "fenced",
+      "next_credit_bytes": 0,
+      "cumulative_counter_equal_to_ceiling": true
+    },
+    {
+      "exit": "exit-s3",
+      "country_label": "Нидерланды",
+      "first_zero_sample_utc": "2026-09-13T12:24:16.341900+00:00",
+      "lease_remaining_seconds_at_first_zero": 46.05,
+      "previous_sample_utc": "2026-09-13T12:24:14.264036+00:00",
+      "previous_credit_bytes": 1324389,
+      "next_nonzero_or_phase_change_sample_utc": "2026-09-13T12:24:35.149404+00:00",
+      "sample_gap_seconds": 18.808,
+      "next_phase": "active",
+      "next_credit_bytes": 12340248,
+      "cumulative_counter_equal_to_ceiling": true
+    },
+    {
+      "exit": "exit-s4",
+      "country_label": "Германия",
+      "first_zero_sample_utc": "2026-09-13T12:19:24.150636+00:00",
+      "lease_remaining_seconds_at_first_zero": 39.51,
+      "previous_sample_utc": "2026-09-13T12:19:04.652653+00:00",
+      "previous_credit_bytes": 5048640,
+      "next_nonzero_or_phase_change_sample_utc": "2026-09-13T12:19:38.652598+00:00",
+      "sample_gap_seconds": 14.502,
+      "next_phase": "active",
+      "next_credit_bytes": 10264556,
+      "cumulative_counter_equal_to_ceiling": true
+    },
+    {
+      "exit": "exit-s4",
+      "country_label": "Германия",
+      "first_zero_sample_utc": "2026-09-13T12:21:48.152449+00:00",
+      "lease_remaining_seconds_at_first_zero": 30.49,
+      "previous_sample_utc": "2026-09-13T12:21:40.974474+00:00",
+      "previous_credit_bytes": 4358177,
+      "next_nonzero_or_phase_change_sample_utc": "2026-09-13T12:22:26.747198+00:00",
+      "sample_gap_seconds": 38.595,
+      "next_phase": "active",
+      "next_credit_bytes": 11614959,
+      "cumulative_counter_equal_to_ceiling": true
+    }
+  ],
+  "authority_snapshot": {
+    "at": "2026-09-13T12:41:12.294751+00:00",
+    "controller_binary_sha256": "0e99ec36c2baaa3535417702dbb9748f3ab0b99a4c9ecee9817abe1c78d3a48a",
+    "byte_budget_env": "64000000",
+    "paid_remaining_positive": true,
+    "total_exceeds_all_reservations": true,
+    "primary_active": true,
+    "projection_pending": 0,
+    "uncovered_bytes": 0,
+    "unapplied_debits": 1
+  },
+  "limitations": [
+    "Sample gaps are not exact end-user outage durations; counter observation is approximately every five seconds.",
+    "INCY app version3.6.5 is reported; its embedded core version is not verified.",
+    "Earlier final-fence reasons were not persisted; code permits downstream account-wide fencing but an exact historical trigger is not proved.",
+    "A later read-only authority snapshot had one unapplied debit; zero pending-debits is not asserted throughout the incident."
+  ]
+}
