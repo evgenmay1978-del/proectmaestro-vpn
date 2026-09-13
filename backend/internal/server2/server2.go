@@ -93,15 +93,11 @@ if ! %[2]s run -test -config %[1]s || ! systemctl restart %[3]s; then
   exit 1
 fi
 sleep 1
-systemctl is-active %[3]s`, path, binary, service, python)
-	out, err := c.run(script, string(payload))
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(out) != "active" {
-		return fmt.Errorf("server2: %s not active after VLESS sync: %q", service, strings.TrimSpace(out))
-	}
-	return nil
+systemctl is-active --quiet %[3]s`, path, binary, service, python)
+	// Xray's successful config validation prints a banner to stdout. The
+	// service's exit status, not the combined command output, proves readiness.
+	_, err = c.run(script, string(payload))
+	return err
 }
 
 const hy2ConfigPath = "/etc/hysteria/config.yaml"
