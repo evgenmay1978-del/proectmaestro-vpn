@@ -1,0 +1,181 @@
+{
+  "czech": {
+    "updated": true,
+    "changed_vless2_addresses": 50,
+    "credentials_and_other_customer_fields_preserved": true,
+    "czech_live_link_direct_ip": true,
+    "sni_preserved": "www.philips.com",
+    "fingerprint_preserved": "firefox",
+    "port_preserved": 2096,
+    "xray_services_restarted": false,
+    "panel_and_controller_active": true,
+    "backup": "/var/backups/maestro-czech-address-20260912T230856Z"
+  },
+  "watchdogs": {
+    "reports": [
+      {
+        "collector_errors": [],
+        "event_kinds_since_start": {
+          "heartbeat": 6,
+          "service_log": 17,
+          "started": 1,
+          "unit_state": 4
+        },
+        "last_heartbeat": {
+          "at": "2026-09-12T23:52:13.935542+00:00",
+          "disk_available_bytes": 26755452928,
+          "kind": "heartbeat",
+          "loadavg": [
+            0.32861328125,
+            0.22265625,
+            0.201171875
+          ],
+          "node": "S1",
+          "rqlite": [
+            {
+              "applied_index": 1512903,
+              "commit_index": 1512903,
+              "endpoint": 0,
+              "fsm_pending": 0,
+              "ready": true,
+              "seconds": 0.133,
+              "state": "Leader"
+            },
+            {
+              "applied_index": 1512903,
+              "commit_index": 1512903,
+              "endpoint": 1,
+              "fsm_pending": 0,
+              "ready": true,
+              "seconds": 0.102,
+              "state": "Follower"
+            }
+          ]
+        },
+        "log_bytes": 70539,
+        "log_mode": "0o600",
+        "node": "S1",
+        "packet_capture_stats": null,
+        "source_sha256": "9385f2f8fcb492bb67e4a17c404f0ab6387f08a54e0def4878d8e7ad1ec392d5",
+        "started": "2026-09-12T23:49:40.985388+00:00",
+        "state": {
+          "ActiveState": "active",
+          "MemoryCurrent": "14991360",
+          "NRestarts": "0",
+          "SubState": "running",
+          "UnitFileState": "enabled"
+        }
+      },
+      {
+        "collector_errors": [],
+        "event_kinds_since_start": {
+          "heartbeat": 5,
+          "service_log": 335,
+          "started": 1,
+          "unit_state": 4
+        },
+        "last_heartbeat": {
+          "at": "2026-09-12T23:52:02.660960+00:00",
+          "disk_available_bytes": 813858816,
+          "kind": "heartbeat",
+          "loadavg": [
+            0.73193359375,
+            0.623046875,
+            0.5693359375
+          ],
+          "node": "S2"
+        },
+        "log_bytes": 1167509,
+        "log_mode": "0o600",
+        "node": "S2",
+        "packet_capture_stats": null,
+        "source_sha256": "9385f2f8fcb492bb67e4a17c404f0ab6387f08a54e0def4878d8e7ad1ec392d5",
+        "started": "2026-09-12T23:50:00.143661+00:00",
+        "state": {
+          "ActiveState": "active",
+          "MemoryCurrent": "14057472",
+          "NRestarts": "0",
+          "SubState": "running",
+          "UnitFileState": "enabled"
+        }
+      },
+      {
+        "collector_errors": [],
+        "event_kinds_since_start": {
+          "heartbeat": 4,
+          "service_log": 4,
+          "started": 1,
+          "unit_state": 4
+        },
+        "last_heartbeat": {
+          "at": "2026-09-12T23:51:53.705102+00:00",
+          "disk_available_bytes": 31945584640,
+          "kind": "heartbeat",
+          "loadavg": [
+            0.2177734375,
+            0.35400390625,
+            0.3564453125
+          ],
+          "node": "S3"
+        },
+        "log_bytes": 29109,
+        "log_mode": "0o600",
+        "node": "S3",
+        "packet_capture_stats": null,
+        "source_sha256": "9385f2f8fcb492bb67e4a17c404f0ab6387f08a54e0def4878d8e7ad1ec392d5",
+        "started": "2026-09-12T23:50:21.903116+00:00",
+        "state": {
+          "ActiveState": "active",
+          "MemoryCurrent": "16601088",
+          "NRestarts": "0",
+          "SubState": "running",
+          "UnitFileState": "enabled"
+        }
+      },
+      {
+        "collector_errors": [],
+        "event_kinds_since_start": {
+          "heartbeat": 8,
+          "packet_capture_stats": 7,
+          "packet_observer_ready": 1,
+          "routes": 21,
+          "started": 1,
+          "unit_state": 4
+        },
+        "last_heartbeat": {
+          "at": "2026-09-12T23:52:05.961249+00:00",
+          "counter_pairs": 4,
+          "disk_available_bytes": 6004215808,
+          "kind": "heartbeat",
+          "loadavg": [
+            0.15087890625,
+            0.1806640625,
+            0.1708984375
+          ],
+          "node": "S4",
+          "packet_counts": {}
+        },
+        "log_bytes": 343340,
+        "log_mode": "0o600",
+        "node": "S4",
+        "packet_capture_stats": {
+          "at": "2026-09-12T23:52:04.976121+00:00",
+          "captured_packets": 0,
+          "dropped_packets": 0,
+          "kind": "packet_capture_stats",
+          "node": "S4"
+        },
+        "source_sha256": "9385f2f8fcb492bb67e4a17c404f0ab6387f08a54e0def4878d8e7ad1ec392d5",
+        "started": "2026-09-12T23:48:31.452021+00:00",
+        "state": {
+          "ActiveState": "active",
+          "MemoryCurrent": "14372864",
+          "NRestarts": "0",
+          "SubState": "running",
+          "UnitFileState": "enabled"
+        }
+      }
+    ]
+  },
+  "scope": "Passive server logging only; owner requested stop for today; n/a alone is not a confirmed VPN disconnect"
+}
