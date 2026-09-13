@@ -17,6 +17,10 @@ on:
         description: Run the focused native runtime publication regression before the build
         type: boolean
         default: false
+      commercial_metering_check:
+        description: Check the existing commercial accounting invariants before compiling
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,6 +48,10 @@ jobs:
         run: |
           go test -mod=readonly ./internal/controlplane -run '^TestWhiteListPublicationBatch(Allocations|Materials)StayExactAndClosed$' -count=1
           go test -mod=readonly ./internal/api -run '^TestNativeRuntime(LeaseRoundsDownActualRemainingTime|RejectsEveryClosedOrIncompletePublication)$' -count=1
+      - name: Check commercial accounting invariants
+        if: inputs.commercial_metering_check == true
+        working-directory: backend
+        run: go test -mod=readonly ./internal/shadowbilling -run '^TestCommercial(Debit|FirstCumulative|Producer|FinalStore)' -count=1
       - name: Compile panel
         working-directory: backend
         env:

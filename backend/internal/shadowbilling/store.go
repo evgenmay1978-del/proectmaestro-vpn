@@ -46,8 +46,15 @@ type DurableResult struct {
 // DurableStore persists the existing pure ApplyOrdered state machine through
 // the repository's single rqlite abstraction.
 type DurableStore struct {
-	db           rqlite.RQLite
-	commercialMu sync.Mutex
+	db              rqlite.RQLite
+	commercialLocks sync.Map
+}
+
+// Balances and projections are entitlement-scoped. Keep each customer's debit
+// and replay sequence serialized without blocking independent paid customers.
+func (store *DurableStore) commercialLock(entitlementID string) *sync.Mutex {
+	lock, _ := store.commercialLocks.LoadOrStore(entitlementID, &sync.Mutex{})
+	return lock.(*sync.Mutex)
 }
 
 // CommercialProducerCursor binds one Xray process/reset epoch to the next
@@ -334,8 +341,9 @@ func (store *DurableStore) applyCommercialFinalOrdered(
 	if err != nil {
 		return DurableResult{}, err
 	}
-	store.commercialMu.Lock()
-	defer store.commercialMu.Unlock()
+	lock := store.commercialLock(binding.EntitlementID)
+	lock.Lock()
+	defer lock.Unlock()
 	if err := store.verifyCommercialEpoch(ctx, binding); err != nil {
 		return DurableResult{}, err
 	}
@@ -381,8 +389,9 @@ func (store *DurableStore) DrainCommercialDebits(
 		!exactCommercialIdentifier(entitlementID) {
 		return ErrInvalidInput
 	}
-	store.commercialMu.Lock()
-	defer store.commercialMu.Unlock()
+	lock := store.commercialLock(entitlementID)
+	lock.Lock()
+	defer lock.Unlock()
 	return store.drainCommercialDebitsLocked(ctx, entitlementID, debiter)
 }
 

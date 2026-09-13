@@ -29,15 +29,24 @@ func (s *Service) WhiteListMeteringAdmissionCandidates(ctx context.Context) ([]W
 	}
 	candidates := make([]WhiteListMeteringAdmissionCandidate, 0)
 	for entitlementID := range state.publications {
+		baseReady := false
 		for exitID := range state.credentials[entitlementID] {
-			if _, _, _, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state); err != nil {
-				if contextErr := ctx.Err(); contextErr != nil {
-					return nil, contextErr
-				}
-				if !errors.Is(err, ErrUnavailable) {
-					return nil, err
-				}
+			if !state.exits[exitID].Healthy {
 				continue
+			}
+			// Period and balance are shared by this account's four exits.
+			// Discovery grants nothing; each admission rechecks its paid base.
+			if !baseReady {
+				if _, _, _, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state); err != nil {
+					if contextErr := ctx.Err(); contextErr != nil {
+						return nil, contextErr
+					}
+					if !errors.Is(err, ErrUnavailable) {
+						return nil, err
+					}
+					break
+				}
+				baseReady = true
 			}
 			candidates = append(candidates, WhiteListMeteringAdmissionCandidate{
 				EntitlementID: entitlementID, ExitID: exitID,

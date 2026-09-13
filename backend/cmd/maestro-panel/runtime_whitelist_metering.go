@@ -427,23 +427,42 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			return err
 		}
 	}
+	settlements := make(map[string][]func() error)
 	for _, origin := range plan.Origins {
 		snapshot := snapshots[origin.Origin.OriginID]
 		for _, user := range snapshot.Users {
-			stage = "actual usage settlement"
+			route := routes[user.Email]
 			index := sort.SearchStrings(origin.PendingFirstCumulativeUsers, user.Email)
 			firstCumulative := index < len(origin.PendingFirstCumulativeUsers) && origin.PendingFirstCumulativeUsers[index] == user.Email
-			if err := collector.applyUser(ctx, origin, routes[user.Email], snapshot.SampledAt, user, firstCumulative); err != nil {
-				if errors.Is(err, errRuntimeWhiteListDebitPending) {
-					usageErr = err
-				} else {
-					usageErr = errRuntimeWhiteListMeteringUnavailable
-				}
-				break
-			}
+			account := route.Entitlement.EntitlementID()
+			settlements[account] = append(settlements[account], func() error {
+				return collector.applyUser(ctx, origin, route, snapshot.SampledAt, user, firstCumulative)
+			})
 		}
-		if usageErr != nil {
-			break
+	}
+	stage = "actual usage settlement"
+	jobs := make(chan []func() error, len(settlements))
+	results := make(chan error, len(settlements))
+	for _, account := range settlements {
+		jobs <- account
+	}
+	close(jobs)
+	for worker := 0; worker < 4 && worker < len(settlements); worker++ {
+		go func() {
+			for account := range jobs {
+				var accountErr error
+				for _, settle := range account {
+					if accountErr = settle(); accountErr != nil {
+						break
+					}
+				}
+				results <- accountErr
+			}
+		}()
+	}
+	for range settlements {
+		if err := <-results; err != nil && usageErr == nil {
+			usageErr = err
 		}
 	}
 
@@ -1081,7 +1100,6 @@ func (collector *runtimeWhiteListMeteringCollector) applyUser(
 		return nil
 	}
 	eventID := runtimeWhiteListMeteringEventID(cursor.MeterEpoch, route.ManagedEmail, cursor.NextSampleSequence)
-	collector.reconcileNeeded = true
 	event := shadowbilling.CommercialOrderedUsageEvent{
 		OrderedUsageEvent: shadowbilling.OrderedUsageEvent{
 			UsageEvent: shadowbilling.UsageEvent{
