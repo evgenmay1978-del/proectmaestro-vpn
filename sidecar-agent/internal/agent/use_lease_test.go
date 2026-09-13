@@ -177,6 +177,47 @@ func (f *leaseFixture) request(t *testing.T, emails ...string) UseLeaseRequest {
 		ManagedUserSetDigest: usage.Receipt.ManagedUserSetDigest, Nonce: c.Nonce, ClockDomain: c.ClockDomain, ReadStartedBoottimeNS: c.ReadStartedBoottimeNS, DeadlineBoottimeNS: c.MaxDeadlineBoottimeNS, Emails: append([]string{}, emails...)}
 }
 
+func TestMembershipAdditionPreservesExistingLease(t *testing.T) {
+	f := newLeaseFixture(t)
+	f.ackAll(t)
+	request := f.request(t, "wl:one:exit-s1")
+	if _, err := f.r.UseLease(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	before, err := f.store.loadLeaseState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := before.Users[leaseUserKey(f.boot, "wl:one:exit-s1")]
+	controlCount := len(f.handler.controls)
+	next := testDesired(t, 2, "release-12", strings.Repeat("a", 64), "wl:one:exit-s1", "wl:two:exit-s1")
+	if _, err := f.r.Apply(context.Background(), next); err != nil {
+		t.Fatal(err)
+	}
+	// The new user's unused receipt is deliberately still pending. It must
+	// not make an ordinary background refresh fence the existing paid user.
+	if _, err := f.r.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := f.store.loadLeaseState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := after.Users[leaseUserKey(f.boot, "wl:one:exit-s1")]
+	if kept.Phase != "active" || kept.Generation != old.Generation || kept.DeadlineBoottimeNS != old.DeadlineBoottimeNS ||
+		kept.CumulativeByteCeiling != old.CumulativeByteCeiling || kept.Binding != old.Binding || kept.ReadinessActionKey != next.ActionKey() {
+		t.Fatal("membership addition changed the existing runtime authority")
+	}
+	for _, control := range f.handler.controls[controlCount:] {
+		if control.Email == "wl:one:exit-s1" {
+			t.Fatal("membership addition or refresh sent a control to the unchanged user")
+		}
+	}
+	if after.Users[leaseUserKey(f.boot, "wl:two:exit-s1")].Phase != "ready" {
+		t.Fatal("new membership granted forwarding before authorization")
+	}
+}
+
 func TestCommercialBootstrapRequiresTrueUnusedProofAckAndPreStatsClock(t *testing.T) {
 	f := newLeaseFixture(t)
 	if len(f.handler.controls) != 1 || f.handler.controls[0].Operation != "fence" {

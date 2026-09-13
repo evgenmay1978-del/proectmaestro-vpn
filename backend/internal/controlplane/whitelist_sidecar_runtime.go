@@ -9,11 +9,9 @@ import (
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/rqlite"
 )
 
-// ReconcileWhiteListSidecarIntents consumes the durable white-list publication
-// controls through the complete fail-closed publication decision. A closed
-// decision is converted to a revoke before a removal generation is sent. An
-// enabled control is publishable only after the resulting generation is ready
-// on every active Origin.
+// ReconcileWhiteListSidecarIntents maintains authenticated managed membership.
+// Funded existing users survive transient freshness failures; forwarding still
+// requires its independent runtime lease. Explicitly closed controls revoke.
 func (s *Service) ReconcileWhiteListSidecarIntents(
 	ctx context.Context,
 	workerID string,
@@ -76,6 +74,20 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		facts.ReceiptSetReady = approvedNodeCount > 0
 		facts.ReceiptsFreshUntilUnix = now.Unix() + 1
 		facts.ApprovedNodeCount = approvedNodeCount
+		_, wasManaged := previousEntitlements[entitlementID]
+		if wasManaged && publication.Enabled && publication.PrimaryStatus == "active" &&
+			publication.PrimaryExpiresAtUnix > now.Unix() && facts.AvailableBytes > 0 &&
+			(publication.Source == WhiteListActivationConfirmedGBPurchase || publication.Source == WhiteListActivationAdminEnable) &&
+			releaseBindingExact && facts.CredentialUsable {
+			// Keep authenticated, funded membership across transient metering or
+			// receipt delays. Membership grants no forwarding authority: the agent
+			// still enforces the independently authorized byte and time lease.
+			factsByEntitlement[entitlementID] = facts
+			decisions[entitlementID] = EvaluateWhiteListPublication(facts)
+			provisioning[entitlementID] = true
+			targetEntitlements = append(targetEntitlements, entitlementID)
+			continue
+		}
 		if facts.CredentialUsable {
 			ready := true
 			for _, exit := range exits {
@@ -100,16 +112,6 @@ func (s *Service) ReconcileWhiteListSidecarIntents(
 		decision := EvaluateWhiteListPublication(facts)
 		factsByEntitlement[entitlementID] = facts
 		decisions[entitlementID] = decision
-		_, wasManaged := previousEntitlements[entitlementID]
-		if wasManaged && decision.Verdict == WhiteListPublicationProjectionStale &&
-			facts.AvailableBytes > 0 && releaseBindingExact && facts.CredentialUsable {
-			// Keep the paid route installed while its short observation lease is
-			// renewed. The agent still denies traffic when the use lease expires;
-			// removing the user here would restart the same bootstrap cycle.
-			provisioning[entitlementID] = true
-			targetEntitlements = append(targetEntitlements, entitlementID)
-			continue
-		}
 		if decision.Verdict == WhiteListPublicationPublishable {
 			targetEntitlements = append(targetEntitlements, entitlementID)
 			continue

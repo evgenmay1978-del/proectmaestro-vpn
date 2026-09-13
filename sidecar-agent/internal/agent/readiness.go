@@ -4,14 +4,18 @@ package agent
 // runtime identity. Every other desired field, including static identities,
 // remains part of the equality boundary; changed configuration still fences.
 func readinessGenerationOnly(previous, desired Desired) bool {
+	return readinessRuntimeUnchanged(previous, desired) &&
+		previous.ManagedUserSetDigest == desired.ManagedUserSetDigest &&
+		sameReadinessUsers(previous.ManagedUsers, desired.ManagedUsers)
+}
+
+func readinessRuntimeUnchanged(previous, desired Desired) bool {
 	return previous.Generation > 0 && desired.Generation > previous.Generation &&
 		previous.Version == desired.Version && previous.OriginID == desired.OriginID &&
 		previous.NodeID == desired.NodeID && previous.ReleaseID == desired.ReleaseID &&
 		previous.ProfileID == desired.ProfileID && previous.PresetID == desired.PresetID &&
 		previous.ExitID == desired.ExitID && previous.ConfigDigest == desired.ConfigDigest &&
-		previous.ManagedUserSetDigest == desired.ManagedUserSetDigest &&
-		sameReadinessUsers(previous.StaticUsers, desired.StaticUsers) &&
-		sameReadinessUsers(previous.ManagedUsers, desired.ManagedUsers)
+		sameReadinessUsers(previous.StaticUsers, desired.StaticUsers)
 }
 
 func sameReadinessUsers(previous, desired []string) bool {

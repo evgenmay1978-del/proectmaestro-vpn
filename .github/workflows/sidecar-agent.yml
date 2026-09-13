@@ -14,6 +14,10 @@ on:
           - managed-build-only
           - runtime-fence-proof
           - runtime-module-graph
+      membership_check:
+        description: Check paid lease continuity when another customer is added
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/sidecar-agent.yml'
@@ -49,6 +53,10 @@ jobs:
         with:
           go-version-file: sidecar-agent/go.mod
           cache-dependency-path: sidecar-agent/go.sum
+      - name: Check membership continuity
+        if: inputs.membership_check == true
+        working-directory: sidecar-agent
+        run: go test -mod=readonly ./internal/agent -run '^(TestMembershipAdditionPreservesExistingLease|TestDesiredRemovalRetainsFinalCountersBeyondReadinessExpiry|TestFailedDrainNeverRemovesOrReplacesUser|TestPendingGrantIsNeverReplayedByDesiredRefresh)$' -count=1
       - name: Compile and package managed services
         env:
           CGO_ENABLED: '0'

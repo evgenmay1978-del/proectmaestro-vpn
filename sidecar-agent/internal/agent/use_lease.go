@@ -692,7 +692,8 @@ func (reconciler *Reconciler) convergeCommercial(ctx context.Context, desired, p
 		return ErrLeaseUnavailable
 	}
 	managed, expected := managedSet(current), stringSet(desired.ManagedUsers)
-	readinessOnly := len(state.FinalReceipts) == 0 && readinessGenerationOnly(previous, desired)
+	runtimeUnchanged := readinessRuntimeUnchanged(previous, desired)
+	previousMembers := stringSet(previous.ManagedUsers)
 	readinessChanged := false
 	retiring := managedSet(current)
 	for _, email := range previous.ManagedUsers {
@@ -731,12 +732,13 @@ func (reconciler *Reconciler) convergeCommercial(ctx context.Context, desired, p
 				return ErrLeaseUnavailable
 			}
 		}
+		_, wasMember := previousMembers[email]
 		preserveBinding := user.Binding.ActionKey == desired.ActionKey() ||
-			(len(state.FinalReceipts) == 0 && user.ReadinessActionKey == desired.ActionKey()) ||
-			(readinessOnly && (user.Binding == bindingForDesired(previous) || user.ReadinessActionKey == previous.ActionKey()))
+			user.ReadinessActionKey == desired.ActionKey() ||
+			(runtimeUnchanged && wasMember && (user.Binding == bindingForDesired(previous) || user.ReadinessActionKey == previous.ActionKey()))
 		if present && tracked && matches && preserveBinding && (user.Phase == "ready" || (user.Phase == "active" && now < user.DeadlineBoottimeNS)) {
-			// A readiness generation carries no new runtime authority. Keep the
-			// prior binding for authentic final tails until a subsequent successful
+			// Another customer's membership change cannot alter this user's paid
+			// authority. Keep the prior binding for authentic final tails until a successful
 			// grant/renew adopts the new desired binding; lease and byte cap stay put.
 			if user.Binding.ActionKey != desired.ActionKey() && user.ReadinessActionKey != desired.ActionKey() {
 				user.ReadinessActionKey = desired.ActionKey()
