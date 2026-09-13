@@ -1,0 +1,61 @@
+{
+  "controller_source": "cd13d4363bfa0339eb885615be918077e668b6ed",
+  "agent_source": "fa4ab725efe33bf849eb8b89063edc721e8f42bf",
+  "profiles": [
+    {
+      "country": "Spain",
+      "started_at": "2026-09-13T14:27:35.281314+00:00",
+      "finished_at": "2026-09-13T14:37:35.282544+00:00",
+      "elapsed_s": 600.001,
+      "requests": 120,
+      "failed": 0,
+      "payload_bytes": 1320,
+      "complete_archives": 0,
+      "cleanup": true
+    },
+    {
+      "country": "Czechia",
+      "started_at": "2026-09-13T14:27:35.034547+00:00",
+      "finished_at": "2026-09-13T14:37:35.035493+00:00",
+      "elapsed_s": 600.001,
+      "requests": 120,
+      "failed": 0,
+      "payload_bytes": 1320,
+      "complete_archives": 0,
+      "cleanup": true
+    },
+    {
+      "country": "Netherlands",
+      "started_at": "2026-09-13T14:27:35.383549+00:00",
+      "finished_at": "2026-09-13T14:37:35.384510+00:00",
+      "elapsed_s": 600.0,
+      "requests": 120,
+      "failed": 0,
+      "payload_bytes": 1320,
+      "complete_archives": 0,
+      "cleanup": true
+    },
+    {
+      "country": "Germany",
+      "started_at": "2026-09-13T14:27:35.001699+00:00",
+      "finished_at": "2026-09-13T14:37:35.002430+00:00",
+      "elapsed_s": 600.0,
+      "requests": 95,
+      "failed": 0,
+      "payload_bytes": 592615344,
+      "complete_archives": 28,
+      "cleanup": true
+    }
+  ],
+  "observations": {
+    "samples": 47,
+    "first_at": "2026-09-13T14:27:47.654622+00:00",
+    "last_at": "2026-09-13T14:37:31.663491+00:00",
+    "minimum_deadline_remaining_s": 21.71,
+    "minimum_observed_byte_credit": 217544338,
+    "fenced_ready_removed_samples": 0,
+    "transient_unknown_samples": 10,
+    "credit_refills": 2
+  },
+  "all_tests_payload_bytes": 1164289697
+}
