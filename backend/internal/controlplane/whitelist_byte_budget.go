@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -127,10 +128,13 @@ func (s *Service) AuthorizeWhiteListByteBudgetAdmission(ctx context.Context, ent
 	}
 	period, _, _, err := s.whiteListAdmissionBaseFromState(ctx, entitlementID, exitID, state)
 	if err != nil {
-		return err
+		return fmt.Errorf("byte admission paid base: %w", err)
 	}
 	origins, err := s.whiteListObservedOriginsFromState(ctx, state)
-	if err != nil || len(origins) == 0 {
+	if err != nil {
+		return fmt.Errorf("byte admission observed origins: %w", err)
+	}
+	if len(origins) == 0 {
 		return ErrUnavailable
 	}
 	now := s.clock.Now().Unix()
@@ -205,7 +209,13 @@ AND EXISTS(SELECT 1 FROM whitelist_metering_origin_observations WHERE origin_id=
 // the agent durably rejects generations older than its acknowledged desired.
 // Preserve all old allocations and their unknown outstanding reservations.
 func (s *Service) whiteListByteAllocationNewLifetime(ctx context.Context, entitlementID, exitID string, origin whiteListObservedOrigin) error {
-	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT desired.*
+	// Readiness renewals repeat the same immutable, hash-bound member set.
+	// Validate every distinct set, rather than transferring thousands of copies
+	// of those sets for each new customer and exhausting the admission window.
+	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `WITH lifetime_memberships AS (
+SELECT desired.*,ROW_NUMBER() OVER (
+ PARTITION BY desired.managed_user_set_digest ORDER BY desired.desired_generation DESC
+) AS membership_rank
 FROM whitelist_sidecar_desired AS desired
 LEFT JOIN whitelist_sidecar_receipts AS receipt ON receipt.action_key=desired.action_key
 WHERE desired.origin_id=? AND (receipt.xray_process_boot_id=? OR (
@@ -217,18 +227,25 @@ receipt.action_key IS NULL AND NOT EXISTS (
  AND superseding.applied_at_unix<?
 )))
 AND NOT EXISTS(SELECT 1 FROM whitelist_byte_allocations WHERE ` + whiteListByteAllocationKeySQL + `)
-ORDER BY desired.desired_generation`, Args: []any{
+)
+SELECT * FROM lifetime_memberships WHERE membership_rank=1 ORDER BY desired_generation`, Args: []any{
 		origin.origin.OriginID, origin.receipt.XrayProcessBootID,
 		origin.receipt.DesiredGeneration, origin.receipt.XrayProcessBootID, origin.receipt.AppliedAt.Unix(),
 		entitlementID, exitID, origin.origin.OriginID, origin.receipt.XrayProcessBootID,
 	}})
-	if err != nil || len(results) != 1 {
+	if err != nil {
+		return fmt.Errorf("byte admission lifetime history: %w", err)
+	}
+	if len(results) != 1 {
 		return ErrUnavailable
 	}
 	email := whiteListManagedEmail(entitlementID, exitID)
 	for _, row := range results[0].Rows {
 		desired, err := whiteListRuntimeDesiredFromRow(row)
-		if err != nil || (whiteListContainsUser(desired.ManagedUsers, email) && !whiteListContainsUser(origin.unavailable, email)) {
+		if err != nil {
+			return fmt.Errorf("byte admission history binding: %w", err)
+		}
+		if whiteListContainsUser(desired.ManagedUsers, email) && !whiteListContainsUser(origin.unavailable, email) {
 			return ErrUnavailable
 		}
 	}

@@ -1005,7 +1005,11 @@ func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx cont
 			}
 		}
 		if admitted == 0 && admissionErr != nil {
-			return fmt.Errorf("no byte budget admission: %w (context: %v)", admissionErr, ctx.Err())
+			// Funded existing routes have already been filtered out of candidates.
+			// A failed first admission must not prevent their settlement and renewal.
+			// The final authorization still requires a committed positive allocation
+			// for every route it grants, so failed candidates receive no access.
+			log.Printf("white-list byte admissions deferred: %v", admissionErr)
 		}
 		return nil
 	}
