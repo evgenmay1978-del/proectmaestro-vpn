@@ -19,6 +19,9 @@ class PhoneCdnBalancePresentationTest {
         val account = PhoneCdnAccount(balance = fundedBalance, loading = false)
 
         assertEquals("19,99 ГБ", phoneCdnBalanceText(hasSubProfile = true, account = account))
+        assertEquals("CDN: осталось 19,99 ГБ", account.text)
+        assertEquals(account.text, account.copy(loading = true, unavailable = true).text)
+        assertEquals(account.text, account.copy(balance = fundedBalance.copy(publicationVerdict = "RELEASE_MISMATCH")).text)
     }
 
     @Test
@@ -30,13 +33,14 @@ class PhoneCdnBalancePresentationTest {
     }
 
     @Test
-    fun pendingProjectionDoesNotPresentItsBytesAsAnAvailableBalance() {
+    fun pendingProjectionKeepsRecordedBytesWithUpdatingStatus() {
         for (verdict in listOf("PROJECTION_PENDING", "PROJECTION_STALE")) {
             val account = PhoneCdnAccount(
-                balance = fundedBalance.copy(publicationVerdict = verdict),
+                balance = fundedBalance.copy(availableBytes = 0, publicationVerdict = verdict),
                 loading = false,
             )
-            assertEquals("Обновляется…", phoneCdnBalanceText(true, account))
+            assertEquals("19,99 ГБ · обновляется", phoneCdnBalanceText(true, account))
+            assertEquals("CDN: 19,99 ГБ · обновляется", account.text)
         }
     }
 

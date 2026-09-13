@@ -9,6 +9,7 @@ import com.maestrovpn.tv.bg.WdttManager
 import com.maestrovpn.tv.Application
 import com.maestrovpn.tv.utils.DeviceFormFactor
 import com.maestrovpn.tv.whitelist.WhiteListRuntimeClient
+import com.maestrovpn.tv.whitelist.WhiteListRuntimeFetch
 import com.maestrovpn.tv.whitelist.WhiteListSelection
 import com.maestrovpn.tv.whitelist.WhiteListSession
 import com.maestrovpn.tv.compose.base.BaseViewModel
@@ -27,6 +28,7 @@ import com.maestrovpn.tv.utils.CommandTarget
 import com.maestrovpn.tv.utils.MaestroSub
 import com.maestrovpn.tv.utils.RemoteControlManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -136,11 +138,11 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     val network = WhiteListSession.network()
                     val visible = AppLifecycleObserver.isForeground.value && AppLifecycleObserver.isScreenOn.value &&
                         RemoteControlManager.remoteServer.value == null
-                    val runtime = if (visible && network != null && account.first >= 0) runCatching {
+                    val result = if (visible && network != null && account.first >= 0) runCatching {
                         val url = ProfileManager.get(account.first)?.typed?.remoteURL
-                        if (url != null) WhiteListRuntimeClient.fetch(url, network) else null
-                    }.getOrNull() else null
-                    WhiteListSelection.preview(account, network, runtime)
+                        if (url != null) WhiteListRuntimeClient.fetchPreview(url, network) else WhiteListRuntimeFetch.Denied
+                    }.getOrDefault(WhiteListRuntimeFetch.Unavailable) else WhiteListRuntimeFetch.Denied
+                    WhiteListSelection.preview(account, network, result)
                     delay(1_000)
                 }
             }
@@ -431,15 +433,42 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
         manualCdnRefresh = viewModelScope.launch(Dispatchers.IO) {
             val account = WhiteListSelection.account()
             val network = WhiteListSession.network()
-            val runtime = if (network != null && account.first >= 0) runCatching {
-                ProfileManager.get(account.first)?.typed?.remoteURL?.let { WhiteListRuntimeClient.fetch(it, network) }
-            }.getOrNull() else null
-            WhiteListSelection.preview(account, network, runtime)
+            val result = if (network != null && account.first >= 0) runCatching {
+                ProfileManager.get(account.first)?.typed?.remoteURL?.let { WhiteListRuntimeClient.fetchPreview(it, network) }
+                    ?: WhiteListRuntimeFetch.Denied
+            }.getOrDefault(WhiteListRuntimeFetch.Unavailable) else WhiteListRuntimeFetch.Denied
+            WhiteListSelection.preview(account, network, result)
             if (_serviceStatus.value == Status.Stopped) {
                 val offline = loadOfflineGroups()
                 updateState { copy(groups = offline) }
             }
         }
+    }
+
+    /** Retained phone menu labels are not authority: recheck before accepting a tap. */
+    suspend fun selectCdnFresh(itemTag: String): Boolean {
+        if (!itemTag.startsWith("cdn:") || RemoteControlManager.remoteServer.value != null ||
+            DeviceFormFactor.isTelevision(Application.application)) return false
+        val account = WhiteListSelection.account()
+        val network = WhiteListSession.network() ?: return selectCdn(itemTag)
+        val version = WhiteListSelection.version()
+        pendingSelect = null
+        val selectionGeneration = pendingGeneration.incrementAndGet()
+        val result = try {
+            withContext(Dispatchers.IO) {
+                ProfileManager.get(account.first)?.typed?.remoteURL?.let { WhiteListRuntimeClient.fetchPreview(it, network) }
+                    ?: WhiteListRuntimeFetch.Denied
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            WhiteListRuntimeFetch.Unavailable
+        }
+        if (WhiteListSelection.account() != account || WhiteListSession.network() != network ||
+            WhiteListSelection.version() != version || pendingGeneration.get() != selectionGeneration ||
+            RemoteControlManager.remoteServer.value != null) return false
+        WhiteListSelection.preview(account, network, result)
+        return selectCdn(itemTag)
     }
 
     fun selectCdn(itemTag: String): Boolean {
@@ -458,7 +487,7 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
     /** CDN requests never reach libbox's direct selector or the deferred transport managers. */
     private fun selectCdnOrRestore(groupTag: String, itemTag: String): Boolean {
         val cdn = itemTag.startsWith("cdn:")
-        if (cdn) { selectCdn(itemTag); return true }
+        if (cdn) { viewModelScope.launch { selectCdnFresh(itemTag) }; return true }
         if (RemoteControlManager.remoteServer.value != null || DeviceFormFactor.isTelevision(Application.application)) return cdn
         val managed = WhiteListSelection.current() != null || WhiteListSelection.view.value.active != null
         if (!cdn && !managed) return false

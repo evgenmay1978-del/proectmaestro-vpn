@@ -13,6 +13,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.CopyOnWriteArrayList
 
+internal data class WhiteListMenuPreview(val labels: Map<String, String>, val deadlineMillis: Long)
+
+internal fun whiteListMenuPreview(
+    previous: Map<String, String>, sameContext: Boolean, allowed: Boolean, result: WhiteListRuntimeFetch,
+): WhiteListMenuPreview = when {
+    !allowed -> WhiteListMenuPreview(emptyMap(), 0)
+    result is WhiteListRuntimeFetch.Ready -> WhiteListMenuPreview(
+        result.runtime.profiles.associate { it.tag to it.label }, result.runtime.deadlineMillis,
+    )
+    sameContext && result == WhiteListRuntimeFetch.Unavailable -> WhiteListMenuPreview(previous, 0)
+    else -> WhiteListMenuPreview(emptyMap(), 0)
+}
+
 /** Same-process intent mailbox. No credentials, saved profile changes, or exported IPC. */
 internal object WhiteListSelection {
     const val ACTION = "com.maestrovpn.tv.CDN_SELECTION"
@@ -53,14 +66,16 @@ internal object WhiteListSelection {
         invalidations.forEach { it() }
     }
 
-    @Synchronized fun preview(account: Pair<Long, Long>, network: Network?, runtime: WhiteListRuntime?) {
+    @Synchronized fun preview(account: Pair<Long, Long>, network: Network?, result: WhiteListRuntimeFetch) {
         if (account != WhiteListSelection.account()) return
         val allowed = WhiteListSession.isCellular(network)
+        val preview = whiteListMenuPreview(mutableView.value.labels,
+            previewAccount == account && previewNetwork == network, allowed, result)
         previewAccount = account
         previewNetwork = network.takeIf { allowed }
-        previewDeadline = runtime?.deadlineMillis?.takeIf { allowed } ?: 0L
+        previewDeadline = preview.deadlineMillis
         val active = mutableView.value.active
-        val labels = runtime?.takeIf { allowed }?.profiles?.associate { it.tag to it.label }.orEmpty().toMutableMap()
+        val labels = preview.labels.toMutableMap()
         if (allowed && active != null) mutableView.value.labels[active]?.let { labels[active] = it }
         mutableView.value = mutableView.value.copy(labels = labels, cellular = allowed)
     }

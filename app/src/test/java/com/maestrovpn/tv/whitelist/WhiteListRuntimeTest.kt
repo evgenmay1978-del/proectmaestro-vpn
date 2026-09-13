@@ -73,6 +73,42 @@ class WhiteListRuntimeTest {
         }
     }
 
+    @Test fun menuDistinguishesDeniedAccessFromTemporaryOrExpiredResponses() {
+        val subscription = "https://account.example.com/sub/synthetic"
+        listOf(401, 403, 404).forEach { status ->
+            assertEquals(WhiteListRuntimeFetch.Denied, WhiteListRuntimeClient.fetchResult(subscription, { 0L }) {
+                FakeConnection(it, status, body())
+            })
+        }
+        assertEquals(WhiteListRuntimeFetch.Unavailable, WhiteListRuntimeClient.fetchResult(subscription, { 0L }) {
+            FakeConnection(it, 503, body())
+        })
+        var ticks = 0
+        assertEquals(WhiteListRuntimeFetch.Unavailable, WhiteListRuntimeClient.fetchResult(subscription,
+            { if (ticks++ == 0) 0L else 1_500L }) { FakeConnection(it, 200, body(1)) })
+        ticks = 0
+        assertNull(WhiteListRuntimeClient.fetch(subscription,
+            { if (ticks++ == 0) 0L else 1_500L }) { FakeConnection(it, 200, body(1)) })
+    }
+
+    @Test fun retainedPhoneMenuLabelsNeverRetainConnectionAuthority() {
+        val runtime = requireNotNull(WhiteListRuntimeClient.parse(body(), 1_000, 1_001))
+        val ready = whiteListMenuPreview(emptyMap(), sameContext = true, allowed = true, result = WhiteListRuntimeFetch.Ready(runtime))
+        assertEquals(mapOf(runtime.profiles.single().tag to "CDN Test"), ready.labels)
+        assertEquals(runtime.deadlineMillis, ready.deadlineMillis)
+        val unavailable = whiteListMenuPreview(ready.labels, sameContext = true, allowed = true, result = WhiteListRuntimeFetch.Unavailable)
+        assertEquals(ready.labels, unavailable.labels)
+        assertEquals(0L, unavailable.deadlineMillis)
+        for (closed in listOf(
+            whiteListMenuPreview(ready.labels, sameContext = true, allowed = true, result = WhiteListRuntimeFetch.Denied),
+            whiteListMenuPreview(ready.labels, sameContext = false, allowed = true, result = WhiteListRuntimeFetch.Unavailable),
+            whiteListMenuPreview(ready.labels, sameContext = true, allowed = false, result = WhiteListRuntimeFetch.Unavailable),
+        )) {
+            assertTrue(closed.labels.isEmpty())
+            assertEquals(0L, closed.deadlineMillis)
+        }
+    }
+
     private class FakeConnection(url: URL, private val status: Int, private val body: String) : HttpsURLConnection(url) {
         var reads = 0
         var disconnected = false

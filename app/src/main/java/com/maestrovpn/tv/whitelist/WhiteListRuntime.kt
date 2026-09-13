@@ -37,6 +37,12 @@ internal data class WhiteListRuntime(
     override fun toString(): String = "WhiteListRuntime(redacted)"
 }
 
+internal sealed interface WhiteListRuntimeFetch {
+    data class Ready(val runtime: WhiteListRuntime) : WhiteListRuntimeFetch
+    data object Denied : WhiteListRuntimeFetch
+    data object Unavailable : WhiteListRuntimeFetch
+}
+
 internal object WhiteListRuntimeClient {
     private const val LIMIT = 65_536
     private const val REQUEST_LIMIT_MS = 3_000L
@@ -54,17 +60,29 @@ internal object WhiteListRuntimeClient {
         fetch(subscriptionUrl, SystemClock::elapsedRealtime) { network.openConnection(it) as HttpsURLConnection }
     }
 
+    /** Phone menu metadata may survive a transport failure; runtime permission never does. */
+    suspend fun fetchPreview(subscriptionUrl: String, network: Network): WhiteListRuntimeFetch = withContext(Dispatchers.IO) {
+        if (!UpdateProfileWork.isTrustedSubUrl(subscriptionUrl)) return@withContext WhiteListRuntimeFetch.Denied
+        fetchResult(subscriptionUrl, SystemClock::elapsedRealtime) { network.openConnection(it) as HttpsURLConnection }
+    }
+
     internal fun fetch(
         subscriptionUrl: String,
         clock: () -> Long,
         open: (URL) -> HttpsURLConnection,
-    ): WhiteListRuntime? {
-        val source = runCatching { URI(subscriptionUrl) }.getOrNull() ?: return null
+    ): WhiteListRuntime? = (fetchResult(subscriptionUrl, clock, open) as? WhiteListRuntimeFetch.Ready)?.runtime
+
+    internal fun fetchResult(
+        subscriptionUrl: String,
+        clock: () -> Long,
+        open: (URL) -> HttpsURLConnection,
+    ): WhiteListRuntimeFetch {
+        val source = runCatching { URI(subscriptionUrl) }.getOrNull() ?: return WhiteListRuntimeFetch.Denied
         if (source.scheme != "https" || source.rawUserInfo != null || source.host.isNullOrBlank() ||
             source.rawFragment != null || (source.port != -1 && source.port !in 1..65_535)
-        ) return null
-        val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return null
-        if (token == "." || token == "..") return null
+        ) return WhiteListRuntimeFetch.Denied
+        val token = subscriptionPath.matchEntire(source.path.orEmpty())?.groupValues?.get(1) ?: return WhiteListRuntimeFetch.Denied
+        if (token == "." || token == "..") return WhiteListRuntimeFetch.Denied
         val endpoints = listOf(URI("https", null, source.host, source.port, "/account/whitelist-runtime", null, null).toURL()) +
             listOfNotNull(MaestroSub.cdnFallbackUrl(subscriptionUrl, "/cabinet/api/runtime")?.let(::URL))
         for (endpoint in endpoints) {
@@ -86,22 +104,23 @@ internal object WhiteListRuntimeClient {
                 deadline = deadlineExecutor.schedule({ request.disconnect() }, REQUEST_LIMIT_MS, TimeUnit.MILLISECONDS)
                 val status = request.responseCode
                 if (status in 500..599 || status == -1) continue
-                if (status != 200 || request.contentLength > LIMIT) return null
-                val bytes = request.inputStream.use { it.readBytesBounded(LIMIT) } ?: return null
+                if (status != 200 || request.contentLength > LIMIT) return WhiteListRuntimeFetch.Denied
+                val bytes = request.inputStream.use { it.readBytesBounded(LIMIT) } ?: return WhiteListRuntimeFetch.Denied
                 if (clock() - started !in 0..REQUEST_LIMIT_MS) continue
-                return parse(bytes.toString(Charsets.UTF_8), started, clock())
+                return parse(bytes.toString(Charsets.UTF_8), started, clock())?.let { WhiteListRuntimeFetch.Ready(it) }
+                    ?: WhiteListRuntimeFetch.Unavailable
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: IOException) {
                 // Only a transport failure or 5xx can try the fixed CDN endpoint.
             } catch (_: Exception) {
-                return null
+                return WhiteListRuntimeFetch.Denied
             } finally {
                 deadline?.cancel(false)
                 connection?.disconnect()
             }
         }
-        return null
+        return WhiteListRuntimeFetch.Unavailable
     }
 
     private fun java.io.InputStream.readBytesBounded(limit: Int): ByteArray? {

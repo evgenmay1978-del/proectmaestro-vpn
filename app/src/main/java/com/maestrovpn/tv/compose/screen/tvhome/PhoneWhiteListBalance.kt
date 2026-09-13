@@ -68,7 +68,18 @@ internal data class PhoneCdnAccount(
     val unavailable: Boolean = false,
 ) {
     val text: String?
-        get() = balance?.displayText() ?: if (unavailable) "CDN: остаток временно недоступен" else null
+        get() = balance?.let {
+            // Native readiness does not erase an authenticated wallet balance.
+            when {
+                it.publicationVerdict == "DISABLED" -> null
+                it.primaryAccessState == "expired" -> "CDN: ${phoneGb(it.purchasedRemainingBytes)} ГБ заморожено"
+                it.primaryAccessState == "active" && it.publicationVerdict in listOf("PROJECTION_PENDING", "PROJECTION_STALE") ->
+                    "CDN: ${phoneRecordedGb(it)} ГБ · обновляется"
+                it.primaryAccessState == "active" && it.publicationVerdict in listOf("SIDECAR_UNAVAILABLE", "RELEASE_MISMATCH") ->
+                    "CDN: осталось ${phoneGb(it.availableBytes)} ГБ"
+                else -> it.displayText()
+            }
+        } ?: if (unavailable) "CDN: остаток временно недоступен" else null
 }
 
 /** Balance presentation does not grant or revoke access to the CDN transport. */
@@ -76,17 +87,26 @@ internal fun phoneCdnBalanceText(hasSubProfile: Boolean, account: PhoneCdnAccoun
     val balance = account.balance
     return when {
         !hasSubProfile -> "Войдите в аккаунт"
-        balance?.publicationVerdict in listOf("PROJECTION_PENDING", "PROJECTION_STALE") -> "Обновляется…"
         balance?.publicationVerdict == "DISABLED" -> "Не подключён"
         balance != null && balance.primaryAccessState == "expired" -> "${phoneGb(balance.purchasedRemainingBytes)} ГБ заморожено"
+        balance?.primaryAccessState == "active" && balance.publicationVerdict in listOf("PROJECTION_PENDING", "PROJECTION_STALE") ->
+            "${phoneRecordedGb(balance)} ГБ · обновляется"
         balance?.primaryAccessState == "active" -> "${phoneGb(balance.availableBytes)} ГБ"
         account.loading -> "Загрузка…"
         else -> "Недоступен"
     }
 }
 
-private fun phoneGb(bytes: Long): String = if (bytes in 1L..9_999_999L) "< 0,01" else
-    DecimalFormat("0.##", DecimalFormatSymbols(Locale("ru", "RU"))).format(java.math.BigDecimal.valueOf(bytes, 9))
+private fun phoneGb(bytes: Long): String = phoneGb(java.math.BigDecimal.valueOf(bytes, 9))
+
+private fun phoneRecordedGb(balance: WhiteListBalance): String = phoneGb(
+    java.math.BigDecimal.valueOf(balance.includedRemainingBytes, 9)
+        .add(java.math.BigDecimal.valueOf(balance.purchasedRemainingBytes, 9)),
+)
+
+private fun phoneGb(gigabytes: java.math.BigDecimal): String =
+    if (gigabytes.signum() > 0 && gigabytes < java.math.BigDecimal("0.01")) "< 0,01"
+    else DecimalFormat("0.##", DecimalFormatSymbols(Locale("ru", "RU"))).format(gigabytes)
 
 @Composable
 internal fun rememberPhoneWhiteListBalance(refreshKey: Any?): State<String?> {

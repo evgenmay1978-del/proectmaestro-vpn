@@ -1,6 +1,7 @@
 package com.maestrovpn.tv.compose.navigation
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,9 +12,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maestrovpn.tv.compose.model.isProtocolSelectionAllowed
 import com.maestrovpn.tv.compose.model.isProtocolVisibleInUi
@@ -47,6 +50,7 @@ import com.maestrovpn.tv.compose.screen.settings.RemoteControlScreen
 import com.maestrovpn.tv.compose.screen.settings.ServiceSettingsScreen
 import com.maestrovpn.tv.compose.screen.settings.SettingsScreen
 import com.maestrovpn.tv.constant.Status
+import kotlinx.coroutines.launch
 
 private val slideInFromRight: AnimatedContentTransitionScope<*>.() -> androidx.compose.animation.EnterTransition = {
     slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, animationSpec = tween(300))
@@ -122,6 +126,9 @@ fun SFANavHost(
                 IosKaringDialog(onDismiss = { showIosQr = false })
             }
             val phoneLoginEditor = !com.maestrovpn.tv.compose.rememberIsTv()
+            val homeScope = rememberCoroutineScope()
+            val homeContext = LocalContext.current
+            var cdnSelectionBusy by remember { mutableStateOf(false) }
             fun openLogin() {
                 navController.navigate("claim")
                 if (phoneLoginEditor) navController.getBackStackEntry("claim").savedStateHandle["account_login"] = accountInfo.login
@@ -157,7 +164,18 @@ fun SFANavHost(
                     onToggleConnect = { dashboardViewModel?.toggleService() },
                     onSelectProtocol = { tag ->
                         if (tag.startsWith("cdn:")) {
-                            if (groupsViewModel.selectCdn(tag) && serviceStatus == Status.Stopped) dashboardViewModel?.toggleService()
+                            if (phoneLoginEditor && !cdnSelectionBusy) {
+                                cdnSelectionBusy = true
+                                homeScope.launch {
+                                    try {
+                                        if (groupsViewModel.selectCdnFresh(tag)) {
+                                            if (groupsViewModel.serviceStatus.value == Status.Stopped) dashboardViewModel?.toggleService()
+                                        } else Toast.makeText(homeContext, "CDN сейчас недоступен. Повторите подключение.", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        cdnSelectionBusy = false
+                                    }
+                                }
+                            }
                         } else selectGroup?.takeIf { isProtocolSelectionAllowed(it.tag, tag) }?.let { g ->
                             if (serviceStatus == Status.Started) {
                                 // VPN already up — just switch the live protocol.
