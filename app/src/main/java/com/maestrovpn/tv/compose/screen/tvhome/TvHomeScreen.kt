@@ -144,6 +144,7 @@ fun TvHomeScreen(
                 )
             } else {
                 PhoneDashboard(
+                    statusText = statusText,
                     connected = connected,
                     connecting = connecting,
                     protocols = protocols,

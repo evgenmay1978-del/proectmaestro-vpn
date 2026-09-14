@@ -76,7 +76,9 @@ internal object WhiteListSelection {
         previewDeadline = preview.deadlineMillis
         val active = mutableView.value.active
         val labels = preview.labels.toMutableMap()
-        if (allowed && active != null) mutableView.value.labels[active]?.let { labels[active] = it }
+        if (allowed && active != null && result != WhiteListRuntimeFetch.Denied) {
+            mutableView.value.labels[active]?.let { labels[active] = it }
+        }
         mutableView.value = mutableView.value.copy(labels = labels, cellular = allowed)
     }
 
@@ -115,19 +117,25 @@ internal object WhiteListSelection {
         return true
     }
 
-    @Synchronized fun clear(value: Request? = null) {
+    @Synchronized fun clear(value: Request? = null, retainLabels: Boolean = true) {
         if (value == null || request == value) {
             preferences.edit().putBoolean("requires-explicit-choice", false).apply()
-            clearLocked()
+            clearLocked(retainLabels)
         }
     }
-    @Synchronized fun destroyed() { clearLocked() }
-    private fun clearLocked() {
+    @Synchronized fun destroyed() { clearLocked(retainLabels = true) }
+    private fun clearLocked(retainLabels: Boolean = false) {
+        val network = if (retainLabels) WhiteListSession.network() else null
+        val allowed = WhiteListSession.isCellular(network)
+        // Stopping clears consent and freshness; the same phone context may keep server names.
+        val preview = whiteListMenuPreview(mutableView.value.labels,
+            retainLabels && previewAccount == account() && previewNetwork == network,
+            allowed, WhiteListRuntimeFetch.Unavailable)
         epoch++
         request = null
         previewDeadline = 0
-        previewNetwork = null
-        previewAccount = null
-        mutableView.value = View()
+        previewNetwork = network.takeIf { preview.labels.isNotEmpty() }
+        previewAccount = account().takeIf { preview.labels.isNotEmpty() }
+        mutableView.value = View(labels = preview.labels, cellular = allowed)
     }
 }

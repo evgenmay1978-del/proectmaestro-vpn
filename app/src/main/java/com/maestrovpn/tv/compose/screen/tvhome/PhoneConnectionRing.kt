@@ -16,6 +16,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.StrokeCap
@@ -24,8 +28,6 @@ import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
-import com.maestrovpn.tv.compose.premium.PremiumEmerald
-import com.maestrovpn.tv.compose.premium.PremiumGold
 
 /** Clean carved phone artwork; only the inner light moves during connection. */
 @Composable
@@ -40,26 +42,31 @@ internal fun PhoneConnectionRing(connected: Boolean, connecting: Boolean, modifi
     val active = connected && !connecting
     Canvas(modifier) {
         if (size.minDimension <= 0f) return@Canvas
-        val canvas = drawContext.canvas
-        canvas.saveLayer(Rect(Offset.Zero, size), Paint())
-        drawImage(artwork, dstSize = IntSize(size.width.toInt(), size.height.toInt()))
-        val edgeX = (5.dp.toPx() / size.width).coerceAtMost(0.1f)
-        val edgeY = (5.dp.toPx() / size.height).coerceAtMost(0.1f)
-        drawRect(Brush.horizontalGradient(0f to Color.Transparent, edgeX to Color.Black,
-            (1f - edgeX) to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
-        drawRect(Brush.verticalGradient(0f to Color.Transparent, edgeY to Color.Black,
-            (1f - edgeY) to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
-        canvas.restore()
-
-        // Measured inner disk in the 1254 px asset; the ornament's bounds are asymmetric.
+        // The original source stays intact. Alpha is applied only to the outer decoration;
+        // its dark rectangular backdrop becomes transparent, while the real walnut disk is retained.
         val centre = Offset(size.width * 0.499601f, size.height * 0.446842f)
+        val diskRadius = size.width * 0.269f
+        val disk = Path().apply { addOval(Rect(centre - Offset(diskRadius, diskRadius), Size(diskRadius * 2, diskRadius * 2))) }
+        val destination = IntSize(size.width.toInt(), size.height.toInt())
+        clipPath(disk) { drawImage(artwork, dstSize = destination) }
+        drawImage(artwork, dstSize = destination, colorFilter = ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+            1f, 0f, 0f, 0f, 0f,
+            0f, 1f, 0f, 0f, 0f,
+            0f, 0f, 1f, 0f, 0f,
+            1.4f, 2.6f, 0f, 0f, -190f,
+        ))))
+
         val radius = size.width * 0.258f
         val topLeft = centre - Offset(radius, radius)
         val arcSize = Size(radius * 2, radius * 2)
-        drawCircle(if (active) PremiumEmerald.copy(alpha = 0.78f) else PremiumGold.copy(alpha = 0.22f),
-            radius, centre, style = Stroke(1.dp.toPx()))
+        if (active) {
+            drawCircle(ConsoleEmerald.copy(alpha = .10f), radius, centre, style = Stroke(7.dp.toPx()))
+            drawCircle(ConsoleEmerald.copy(alpha = .24f), radius, centre, style = Stroke(3.dp.toPx()))
+        }
+        drawCircle(if (active) ConsoleEmerald else ConsoleGold.copy(alpha = .3f),
+            radius, centre, style = Stroke(1.4.dp.toPx()))
         if (connecting) {
-            drawArc(PremiumGold.copy(alpha = 0.4f), rotation - 140f, 90f, false,
+            drawArc(ConsoleGold.copy(alpha = 0.4f), rotation - 140f, 90f, false,
                 topLeft, arcSize, style = Stroke(1.7.dp.toPx(), cap = StrokeCap.Round))
             drawArc(Color(0xFFFFE2A4), rotation - 92f, 42f, false,
                 topLeft, arcSize, style = Stroke(1.7.dp.toPx(), cap = StrokeCap.Round))
@@ -78,7 +85,8 @@ internal fun PhoneConnectionRing(connected: Boolean, connecting: Boolean, modifi
         }
         power(Brush.verticalGradient(listOf(Color(0xFF100A04), Color(0xAA100A04))),
             powerStroke + 1.4.dp.toPx(), Offset(0.7.dp.toPx(), 1.1.dp.toPx()))
-        power(Brush.linearGradient(listOf(Color(0xFFFFE4A7), Color(0xFFB78432), Color(0xFFE6BD6D)),
+        power(Brush.linearGradient(if (active) listOf(Color(0xFF7EEAB6), ConsoleEmerald, Color(0xFF168E52))
+            else listOf(ConsoleGoldLight, ConsoleGold, Color(0xFF9D7738)),
             centre - Offset(powerRadius, powerRadius), centre + Offset(powerRadius, powerRadius)), powerStroke)
         power(Brush.verticalGradient(listOf(Color(0xB3FFF1C6), Color(0x335E360F)),
             centre.y - powerRadius, centre.y + powerRadius), powerStroke * 0.24f,

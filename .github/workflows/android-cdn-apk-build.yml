@@ -150,6 +150,15 @@ jobs:
           ./gradlew :app:testOtherDebugUnitTest \
             --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnPurchaseLinkTest' \
             -PmaestroCdnApk=true --stacktrace --no-daemon
+      - name: Check mobile CDN renewal and transient response handling
+        if: ${{ inputs.visual_preview == true }}
+        env:
+          LOCAL_PROPERTIES: ${{ secrets.LOCAL_PROPERTIES }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testOtherDebugUnitTest \
+            --tests 'com.maestrovpn.tv.whitelist.WhiteListRuntimeTest' \
+            -PmaestroCdnApk=true --stacktrace --no-daemon
       - name: Build signed APK 1.0.160 without test tasks
         if: ${{ inputs.emulator_only != true }}
         env:
@@ -169,7 +178,7 @@ jobs:
           apk="${apks[0]}"
           [ "$(apkanalyzer manifest application-id "$apk")" = 'com.maestrovpn.tv' ]
           [ "$(apkanalyzer manifest version-name "$apk")" = '1.0.160' ]
-          [ "$(apkanalyzer manifest version-code "$apk")" = '1016004' ]
+          [ "$(apkanalyzer manifest version-code "$apk")" = '1016005' ]
           [ "$(apkanalyzer manifest debuggable "$apk")" = 'false' ]
           signer="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
           "$signer" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/cdn-apk-inputs/signer.txt"
@@ -226,7 +235,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ always() && inputs.phone_cdn_checks == true }}
+        if: ${{ always() && (inputs.phone_cdn_checks == true || inputs.visual_preview == true) }}
         with:
           name: maestrovpn-mobile-jvm-160-${{ github.sha }}
           path: |
@@ -266,7 +275,7 @@ jobs:
         timeout-minutes: 20
         env:
           ANDROID_SERIAL: emulator-5554
-          INSTRUMENTATION_CLASSES: ${{ inputs.new_customer_only && 'com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest#firstPurchaseCreatesSelectedProfileAndAccountBoundGbLink' || inputs.visual_preview && (inputs.phone_flow_checks && 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview,com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest,com.maestrovpn.tv.compose.screen.tvhome.AccountInfoLifecycleInstrumentedTest' || 'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#homeRingPreview') || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
+          INSTRUMENTATION_CLASSES: ${{ inputs.new_customer_only && 'com.maestrovpn.tv.compose.screen.purchase.BuyViewModelInstrumentedTest#firstPurchaseCreatesSelectedProfileAndAccountBoundGbLink' || inputs.visual_preview && 'com.maestrovpn.tv.compose.PhoneConsolePreviewInstrumentedTest#consoleStatesAndActionsStayReachable' || inputs.emulator_only && 'com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest#awaitingPaymentUsesOnlyFixtureCallbacks' || 'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest,com.maestrovpn.tv.compose.PhoneComponentGeometryInstrumentedTest' }}
           MAESTRO_VISUAL_PREVIEW: ${{ inputs.visual_preview }}
         run: |
           set -euo pipefail
@@ -340,40 +349,60 @@ jobs:
             # Clear its stale dialog without removing the Overview service used by System UI.
             adb shell am force-stop com.google.android.apps.nexuslauncher
           fi
-          set +e
-          timeout 600 adb shell am instrument -w -r -e class "$INSTRUMENTATION_CLASSES" \
-            com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tee "$output/instrumentation.txt"
-          instrumentation_exit=${PIPESTATUS[0]}
-          set -e
-          printf '%s\n' "$instrumentation_exit" > "$output/instrumentation-exit.txt"
-          [ "$instrumentation_exit" -eq 0 ]
-          if [ "$MAESTRO_VISUAL_PREVIEW" = true ]; then
-            adb shell wm size 1920x1080
-            adb shell wm density 160
-            adb shell settings put system accelerometer_rotation 0
-            adb shell settings put system user_rotation 0
+          run_instrumentation() {
+            local label="$1"
+            shift
             set +e
-            timeout 120 adb shell am instrument -w -r -e preview_form_factor tv \
-              -e class com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest#tvHomeLayoutPreview \
-              com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tee "$output/tv-instrumentation.txt"
-            tv_exit=${PIPESTATUS[0]}
+            timeout 600 adb shell am instrument -w -r "$@" \
+              com.maestrovpn.tv.test/androidx.test.runner.AndroidJUnitRunner 2>&1 | tee "$output/$label.txt"
+            local instrument_exit=${PIPESTATUS[0]}
             set -e
-            printf '%s\n' "$tv_exit" > "$output/tv-instrumentation-exit.txt"
-            [ "$tv_exit" -eq 0 ]
+            printf '%s\n' "$instrument_exit" > "$output/$label-exit.txt"
+            [ "$instrument_exit" -eq 0 ]
+          }
+          if [ "$MAESTRO_VISUAL_PREVIEW" = true ]; then
+            # Each invocation starts a fresh fixture Activity after the real window and
+            # system font configuration change. No fixture values enter production state.
+            for specification in 'phone-360 360 780 1.0' 'phone-412 412 892 1.0' \
+                                 'phone-480 480 800 1.0' 'phone-short-large-font 360 640 1.3'; do
+              read -r profile width height font_scale <<< "$specification"
+              adb shell wm size "$((width * 3))x$((height * 3))"
+              adb shell wm density 480
+              adb shell settings put system font_scale "$font_scale"
+              adb shell am force-stop com.google.android.apps.nexuslauncher
+              run_instrumentation "$profile" -e class "$INSTRUMENTATION_CLASSES" \
+                -e profile "$profile" -e expectedWidthDp "$width" -e expectedHeightDp "$height" -e fontScale "$font_scale"
+            done
+            # Exercise the actual app navigation once; account registration and purchases
+            # remain outside this visual task. The fixture restores its local settings.
+            adb shell wm size 1236x2676
+            adb shell wm density 480
+            adb shell settings put system font_scale 1.0
+            adb shell am force-stop com.google.android.apps.nexuslauncher
+            run_instrumentation navigation -e class \
+              'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest#pagesAndKeyboardKeepActionsReachable'
             if ! timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$output/" > "$output/preview-captures-pull.txt" 2>&1; then
               grep -qi 'Permission denied' "$output/preview-captures-pull.txt"
               timeout 15 adb root > "$output/preview-adb-root.txt" 2>&1
               timeout 15 adb wait-for-device
               timeout 30 adb pull /sdcard/Android/data/com.maestrovpn.tv/files/ui-captures "$output/" > "$output/preview-captures-root-pull.txt" 2>&1
             fi
+          else
+            run_instrumentation instrumentation -e class "$INSTRUMENTATION_CLASSES"
           fi
           python3 - <<'PY'
           import os, pathlib, re
           output = pathlib.Path(os.environ['MAESTRO_VALIDATION_OUT'])
           visual_preview = os.environ.get('MAESTRO_VISUAL_PREVIEW') == 'true'
-          logs = ['instrumentation.txt'] + (['tv-instrumentation.txt'] if visual_preview else [])
-          for name in logs:
-              expected = {'com.maestrovpn.tv.compose.PhoneConnectionRingPreviewInstrumentedTest'} if name == 'tv-instrumentation.txt' else {target.split('#', 1)[0] for target in os.environ['INSTRUMENTATION_CLASSES'].split(',')}
+          profiles = ['phone-360', 'phone-412', 'phone-480', 'phone-short-large-font']
+          logs = profiles + ['navigation'] if visual_preview else ['instrumentation']
+          for label in logs:
+              if visual_preview:
+                  expected = {'com.maestrovpn.tv.compose.PhoneNavigationInstrumentedTest' if label == 'navigation'
+                              else 'com.maestrovpn.tv.compose.PhoneConsolePreviewInstrumentedTest'}
+              else:
+                  expected = {target.split('#', 1)[0] for target in os.environ['INSTRUMENTATION_CLASSES'].split(',')}
+              name = label + '.txt'
               text = (output / name).read_text(errors='replace')
               assert re.search(r'OK \([1-9][0-9]* tests?\)', text), f'{name}: no successful test run'
               assert re.search(r'^INSTRUMENTATION_CODE:\s*-1\s*$', text, re.M), f'{name}: did not finish successfully'
@@ -383,10 +412,11 @@ jobs:
               assert expected <= seen, f'{name}: missing classes {sorted(expected - seen)}'
           if visual_preview:
               captures = output / 'ui-captures'
-              for name in ['fixture-ring-home-off.png', 'fixture-ring-home-connecting.png',
-                           'fixture-ring-home-on.png', 'fixture-tv-home.png']:
-                  file = captures / name
-                  assert file.is_file() and file.stat().st_size > 0, f'Missing native preview: {name}'
+              for profile in profiles:
+                  for suffix in ['off-status', 'connecting-status', 'on-status', 'error-status', 'off-controls']:
+                      name = f'fixture-console-{profile}-{suffix}.png'
+                      file = captures / name
+                      assert file.is_file() and file.stat().st_size > 0, f'Missing native preview: {name}'
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() }}

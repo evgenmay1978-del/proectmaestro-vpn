@@ -109,6 +109,32 @@ class WhiteListRuntimeTest {
         }
     }
 
+    @Test fun renewalFailureKeepsOnlyTheUnexpiredPermitAndNeverRevivesIt() {
+        val initial = requireNotNull(WhiteListRuntimeClient.parse(body(), 1_000, 1_001))
+        val route = initial.profiles.single()
+        val ready = WhiteListRuntimeFetch.Ready(requireNotNull(WhiteListRuntimeClient.parse(body(), 2_000, 2_001)))
+        fun deadline(result: WhiteListRuntimeFetch, now: Long) = whiteListRenewalDeadline(
+            initial.deadlineMillis, initial.desiredGeneration, route, result, now)
+        assertEquals(initial.deadlineMillis, requireNotNull(deadline(WhiteListRuntimeFetch.Unavailable, 2_000)))
+        assertEquals(initial.deadlineMillis, requireNotNull(deadline(WhiteListRuntimeFetch.Unavailable, 5_999)))
+        assertNull(deadline(WhiteListRuntimeFetch.Denied, 2_000))
+        assertNull(deadline(WhiteListRuntimeFetch.Unavailable, 6_000))
+        assertNull(deadline(ready, 6_000))
+    }
+
+    @Test fun onlyFreshMatchingMaterialAndGenerationRenewThePermit() {
+        val initial = requireNotNull(WhiteListRuntimeClient.parse(body(), 1_000, 1_001))
+        val fresh = requireNotNull(WhiteListRuntimeClient.parse(body(), 2_000, 2_001))
+        val route = initial.profiles.single()
+        fun deadline(runtime: WhiteListRuntime) = whiteListRenewalDeadline(initial.deadlineMillis,
+            initial.desiredGeneration, route, WhiteListRuntimeFetch.Ready(runtime), 2_001)
+        assertEquals(fresh.deadlineMillis, requireNotNull(deadline(fresh)))
+        assertNull(deadline(fresh.copy(deadlineMillis = 2_001)))
+        assertNull(deadline(fresh.copy(desiredGeneration = fresh.desiredGeneration + 1)))
+        assertNull(deadline(fresh.copy(profiles = emptyList())))
+        assertNull(deadline(fresh.copy(profiles = listOf(route.copy(path = "/changed")))))
+    }
+
     private class FakeConnection(url: URL, private val status: Int, private val body: String) : HttpsURLConnection(url) {
         var reads = 0
         var disconnected = false

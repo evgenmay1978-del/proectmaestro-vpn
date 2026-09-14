@@ -141,7 +141,8 @@ class GroupsViewModel(private val sharedCommandClient: CommandClient? = null) :
                     val result = if (visible && network != null && account.first >= 0) runCatching {
                         val url = ProfileManager.get(account.first)?.typed?.remoteURL
                         if (url != null) WhiteListRuntimeClient.fetchPreview(url, network) else WhiteListRuntimeFetch.Denied
-                    }.getOrDefault(WhiteListRuntimeFetch.Unavailable) else WhiteListRuntimeFetch.Denied
+                    }.getOrDefault(WhiteListRuntimeFetch.Unavailable) else if (network != null && account.first >= 0 &&
+                        RemoteControlManager.remoteServer.value == null) WhiteListRuntimeFetch.Unavailable else WhiteListRuntimeFetch.Denied
                     WhiteListSelection.preview(account, network, result)
                     delay(1_000)
                 }

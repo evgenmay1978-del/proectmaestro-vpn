@@ -43,6 +43,20 @@ internal sealed interface WhiteListRuntimeFetch {
     data object Unavailable : WhiteListRuntimeFetch
 }
 
+/** An unavailable renewal cannot extend a permit, and a late response cannot revive one. */
+internal fun whiteListRenewalDeadline(
+    currentDeadline: Long, desiredGeneration: Long, route: WhiteListRuntimeRoute,
+    result: WhiteListRuntimeFetch, nowMillis: Long,
+): Long? = when {
+    nowMillis >= currentDeadline -> null
+    result is WhiteListRuntimeFetch.Ready -> result.runtime.takeIf {
+        it.fresh(nowMillis) && it.desiredGeneration == desiredGeneration &&
+            it.profiles.singleOrNull { candidate -> candidate.tag == route.tag } == route
+    }?.deadlineMillis
+    result == WhiteListRuntimeFetch.Unavailable -> currentDeadline
+    else -> null
+}
+
 internal object WhiteListRuntimeClient {
     private const val LIMIT = 65_536
     private const val REQUEST_LIMIT_MS = 3_000L
@@ -55,13 +69,13 @@ internal object WhiteListRuntimeClient {
     private val uuid = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
     private val json = Json { ignoreUnknownKeys = false }
 
-    suspend fun fetch(subscriptionUrl: String, network: Network): WhiteListRuntime? = withContext(Dispatchers.IO) {
-        if (!UpdateProfileWork.isTrustedSubUrl(subscriptionUrl)) return@withContext null
-        fetch(subscriptionUrl, SystemClock::elapsedRealtime) { network.openConnection(it) as HttpsURLConnection }
-    }
+    suspend fun fetch(subscriptionUrl: String, network: Network): WhiteListRuntime? =
+        (fetchResult(subscriptionUrl, network) as? WhiteListRuntimeFetch.Ready)?.runtime
 
-    /** Phone menu metadata may survive a transport failure; runtime permission never does. */
-    suspend fun fetchPreview(subscriptionUrl: String, network: Network): WhiteListRuntimeFetch = withContext(Dispatchers.IO) {
+    suspend fun fetchPreview(subscriptionUrl: String, network: Network): WhiteListRuntimeFetch =
+        fetchResult(subscriptionUrl, network)
+
+    suspend fun fetchResult(subscriptionUrl: String, network: Network): WhiteListRuntimeFetch = withContext(Dispatchers.IO) {
         if (!UpdateProfileWork.isTrustedSubUrl(subscriptionUrl)) return@withContext WhiteListRuntimeFetch.Denied
         fetchResult(subscriptionUrl, SystemClock::elapsedRealtime) { network.openConnection(it) as HttpsURLConnection }
     }

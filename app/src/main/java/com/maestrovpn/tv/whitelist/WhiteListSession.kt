@@ -85,7 +85,9 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         val network = network() ?: return null
         val subscription = ProfileManager.get(request.profileId)?.typed?.remoteURL ?: return null
         val initialFetchStarted = SystemClock.elapsedRealtime()
-        val runtime = WhiteListRuntimeClient.fetch(subscription, network) ?: return null
+        val initial = WhiteListRuntimeClient.fetchResult(subscription, network)
+        if (initial == WhiteListRuntimeFetch.Denied) WhiteListSelection.clear(request, retainLabels = false)
+        val runtime = (initial as? WhiteListRuntimeFetch.Ready)?.runtime ?: return null
         var lastFetchMs = (SystemClock.elapsedRealtime() - initialFetchStarted).coerceAtLeast(0L)
         val route = runtime.profiles.singleOrNull { it.tag == request.tag } ?: return null
         val lookup = dnsExecutor.submit<Array<InetAddress>> { network.getAllByName(route.address) }
@@ -133,16 +135,22 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                     break
                 }
                 val fetchStarted = SystemClock.elapsedRealtime()
-                val fresh = WhiteListRuntimeClient.fetch(subscription, network)
+                val fresh = WhiteListRuntimeClient.fetchResult(subscription, network)
                 lastFetchMs = (SystemClock.elapsedRealtime() - fetchStarted).coerceAtLeast(0L)
                 synchronized(live) {
-                    if (!valid(live) || fresh == null || !fresh.fresh(SystemClock.elapsedRealtime()) ||
-                        fresh.desiredGeneration != live.desiredGeneration || fresh.profiles.singleOrNull { it.tag == request.tag } != live.route) {
+                    val nextDeadline = if (valid(live)) whiteListRenewalDeadline(live.deadline,
+                        live.desiredGeneration, live.route, fresh, SystemClock.elapsedRealtime()) else null
+                    if (nextDeadline == null) {
+                        if (fresh == WhiteListRuntimeFetch.Denied) WhiteListSelection.clear(request, retainLabels = false)
                         expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
-                    } else {
-                        live.deadline = fresh.deadlineMillis
+                    } else if (nextDeadline != live.deadline) {
+                        live.deadline = nextDeadline
                         armExpiry(live)
                     }
+                }
+                if (fresh == WhiteListRuntimeFetch.Unavailable && valid(live)) {
+                    // Bound retries by the existing permit and avoid spinning on immediate failures.
+                    delay(100L.coerceAtMost((live.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)))
                 }
             }
         }
