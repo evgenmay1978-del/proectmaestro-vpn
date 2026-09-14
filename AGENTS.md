@@ -1,3 +1,17 @@
+## Текущий приоритет 14.09.2026 — восстановление живого CDN, приложение на паузе
+
+Владелец разрешил чинить и тестировать только CDN; после устойчивого результата подробно передать факты новому чату и поддерживать контекст. Готовность пока НЕ подтверждена.
+Сохранять `codex/yandex-cdn-whitelist-task3-sync`, main/stable OTA/ТВ не обновлять, APK не публиковать. App-source `af1bce27…` сохранён; corrective preview patch только снаружи repo, не применён.
+Android run34813479660: WhiteListRuntimeTest и подписанный ARM прошли, artifact10335293427; native fixture compile не прошёл (DpRect). APK не установлен.
+Владелец наблюдает HAPP/INCY all n/a и отсутствие интернета; combined-подписка HTTP200 содержит8профилей/4CDN. Windows-проверка дала8 curl35/HTTP000, payload0.
+Диагностический commit `2901e8f14435ba811770d107eb9a4847aed87972`, build-only34819426504 успешен, artifact10336749263; через transactional installer обновлён только S1 controller.
+Controller SHA256 `3d6845afbe2fdb2e5df0002a9809cc114b92dbf0fc258de2e094e5884977cf92`, backup `controller-upgrade-2901e8f`; runtime.env, ordinary panel, боты и public front сохранены.
+Точный отказ: `final receipt authorize: controlplane: final-proof-write-read: unavailable`; строка idempotency proof не появляется. Root классифицирует SQL write/read, без сброса данных/защит.
+Read-only receipt GET дал12валидныхproofs(9fenced/3unused); у первой записи predicate/period/AEAD/host/path/crypto прошли, quorum готов. Это ещё не исправление CDN.
+Общий лимит5ГБ не обнулять: ранее~1,715ГБpayload плюс неучтённыйoverhead. Покупки/продление13.09 завершены; повторных банковских платежей/начислений ради диагностики не делать.
+Полная текущая локальная передача: `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/work/cdn-current-handoff-draft.md`.
+Статусы и следующие шаги ниже исторические; они не переопределяют эту точку, паузу приложения и действующие границы разрешения.
+
 ## Актуальная передача на 14.09.2026 — сначала читать её
 
 Владелец подтвердил, что серверы настроены и работают. Следующая задача — добиться устойчивого CDN именно в мобильном MaestroVPN. Серверы не перенастраивать по старым записям. Сегодня отбой, продолжение только после возобновления владельцем завтра.

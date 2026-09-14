@@ -153,19 +153,61 @@ type WhiteListDiagnosticError struct {
 }
 
 func (e *WhiteListDiagnosticError) Error() string {
-	reason := "unavailable"
+	return "controlplane: " + e.stage + ": " + whiteListDiagnosticReason(e.cause)
+}
+
+func whiteListDiagnosticReason(cause error) string {
 	var nested *WhiteListDiagnosticError
+	var statement *rqlite.StatementError
+	var transport *rqlite.TransportError
 	switch {
-	case errors.As(e.cause, &nested):
-		reason = nested.Error()
-	case errors.Is(e.cause, context.DeadlineExceeded):
-		reason = "deadline"
-	case errors.Is(e.cause, context.Canceled):
-		reason = "cancelled"
-	case errors.Is(e.cause, ErrConflict):
-		reason = "conflict"
+	case errors.As(cause, &nested):
+		return nested.Error()
+	case errors.As(cause, &statement):
+		// Classify the engine message; never emit constraint names, SQL or values.
+		message := statement.Message
+		switch {
+		case message == "FOREIGN KEY constraint failed":
+			return "sqlite-foreign-key"
+		case strings.HasPrefix(message, "UNIQUE constraint failed"):
+			return "sqlite-unique"
+		case strings.HasPrefix(message, "NOT NULL constraint failed"):
+			return "sqlite-not-null"
+		case strings.HasPrefix(message, "CHECK constraint failed"):
+			return "sqlite-check"
+		case strings.HasPrefix(message, "no such table:"):
+			return "sqlite-table-missing"
+		case strings.HasPrefix(message, "no such column:") || strings.Contains(message, " has no column named "):
+			return "sqlite-column-missing"
+		case message == "database is locked" || message == "database table is locked":
+			return "sqlite-locked"
+		case message == "attempt to write a readonly database":
+			return "sqlite-readonly"
+		case message == "database or disk is full":
+			return "sqlite-full"
+		case message == "disk I/O error":
+			return "sqlite-io"
+		case message == "database disk image is malformed":
+			return "sqlite-corrupt"
+		case strings.Contains(message, "syntax error"):
+			return "sqlite-syntax"
+		default:
+			return "rqlite-statement"
+		}
+	case errors.Is(cause, context.DeadlineExceeded):
+		return "deadline"
+	case errors.Is(cause, context.Canceled):
+		return "cancelled"
+	case errors.As(cause, &transport):
+		if transport.StatusCode >= 100 && transport.StatusCode <= 599 {
+			return fmt.Sprintf("rqlite-http-%d", transport.StatusCode)
+		}
+		return "rqlite-transport"
+	case errors.Is(cause, ErrConflict):
+		return "conflict"
+	default:
+		return "unavailable"
 	}
-	return "controlplane: " + e.stage + ": " + reason
 }
 
 func (e *WhiteListDiagnosticError) Unwrap() error { return e.cause }
@@ -283,12 +325,29 @@ WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND adm
 		return closed, errors.Join(ErrUnavailable, err)
 	}
 	stage = "final-proof-write-read"
-	_, err = s.store.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `INSERT OR IGNORE INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,resource_id,decision,operation_id,status,response_json,created_at_unix,applied_at_unix) VALUES('whitelist-final-proof','accept-agent-fence',?,?,?,'accepted',?,'applied',?,?,?)`, Args: []any{final.ReceiptID, final.ProofSHA256, entitlementID, "wl-final-proof:" + final.ReceiptID, string(body), s.clock.Now().Unix(), s.clock.Now().Unix()}})
+	writeResults, writeErr := s.store.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `INSERT OR IGNORE INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,resource_id,decision,operation_id,status,response_json,created_at_unix,applied_at_unix) VALUES('whitelist-final-proof','accept-agent-fence',?,?,?,'accepted',?,'applied',?,?,?)`, Args: []any{final.ReceiptID, final.ProofSHA256, entitlementID, "wl-final-proof:" + final.ReceiptID, string(body), s.clock.Now().Unix(), s.clock.Now().Unix()}})
 	// An unknown commit is resolved by exact immutable evidence, never by a
 	// second operation or by accepting a changed proof for the same receipt ID.
 	stored, readErr := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT request_hash,resource_id,response_json,status FROM idempotency_requests WHERE scope='whitelist-final-proof' AND command_type='accept-agent-fence' AND idempotency_key=?`, Args: []any{final.ReceiptID}})
-	if readErr != nil || len(stored) != 1 || len(stored[0].Rows) != 1 {
-		return closed, errors.Join(ErrUnavailable, err, readErr)
+	if readErr != nil || len(stored) != 1 || len(stored[0].Rows) > 1 {
+		stage = "final-proof-read"
+		return closed, errors.Join(ErrUnavailable, readErr, writeErr)
+	}
+	if len(stored[0].Rows) == 0 {
+		if writeErr != nil {
+			stage = "final-proof-write-" + whiteListDiagnosticReason(writeErr)
+		} else {
+			stage = "final-proof-missing"
+			if len(writeResults) == 1 {
+				switch writeResults[0].RowsAffected {
+				case 0:
+					stage = "final-proof-missing-zero-rows"
+				case 1:
+					stage = "final-proof-missing-after-insert"
+				}
+			}
+		}
+		return closed, errors.Join(ErrUnavailable, writeErr)
 	}
 	stage = "final-proof-match"
 	row := stored[0].Rows[0]
