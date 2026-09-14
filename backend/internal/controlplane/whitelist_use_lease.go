@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -144,23 +145,58 @@ func (a WhiteListFinalReceiptAuthorization) Receipt() sidecaragentclient.Managed
 	return v
 }
 
-func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID string, final sidecaragentclient.ManagedFinalReceipt) (WhiteListFinalReceiptAuthorization, error) {
+// WhiteListDiagnosticError exposes only fixed stages and classes; its cause remains
+// available to errors.Is without rendering database, URL, or credential contents.
+type WhiteListDiagnosticError struct {
+	stage string
+	cause error
+}
+
+func (e *WhiteListDiagnosticError) Error() string {
+	reason := "unavailable"
+	var nested *WhiteListDiagnosticError
+	switch {
+	case errors.As(e.cause, &nested):
+		reason = nested.Error()
+	case errors.Is(e.cause, context.DeadlineExceeded):
+		reason = "deadline"
+	case errors.Is(e.cause, context.Canceled):
+		reason = "cancelled"
+	case errors.Is(e.cause, ErrConflict):
+		reason = "conflict"
+	}
+	return "controlplane: " + e.stage + ": " + reason
+}
+
+func (e *WhiteListDiagnosticError) Unwrap() error { return e.cause }
+
+func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID string, final sidecaragentclient.ManagedFinalReceipt) (authorization WhiteListFinalReceiptAuthorization, runErr error) {
+	stage := "final-input"
+	defer func() {
+		if runErr != nil {
+			runErr = &WhiteListDiagnosticError{stage: stage, cause: runErr}
+		}
+	}()
 	closed := WhiteListFinalReceiptAuthorization{}
 	if s == nil || s.store == nil || s.store.db == nil || s.clock == nil || ctx == nil || nodeID == "" || sidecaragentclient.ValidateManagedFinalReceipt(final) != nil {
 		return closed, ErrUnavailable
 	}
+	stage = "final-observed-time"
 	observed, err := time.Parse(time.RFC3339Nano, final.Receipt.ObservedAt)
 	if err != nil || observed.After(s.clock.Now()) {
-		return closed, ErrUnavailable
+		return closed, errors.Join(ErrUnavailable, err)
 	}
+	stage = "final-desired-read"
 	results, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT origin_id,node_id,release_id,profile_id,preset_id,exit_id,config_digest,managed_user_set_digest,desired_sha256,action_type,action_key,desired_generation,payload_json FROM whitelist_sidecar_desired WHERE action_key=?`, Args: []any{final.ActionKey}}, whiteListSidecarReceiptRead(final.ActionKey))
 	if err != nil || len(results) != 2 || len(results[0].Rows) != 1 || len(results[1].Rows) > 1 {
-		return closed, ErrUnavailable
+		return closed, errors.Join(ErrUnavailable, err)
 	}
+	stage = "final-desired-shape"
 	desired, err := whiteListRuntimeDesiredFromRow(results[0].Rows[0])
 	if err != nil {
 		return closed, err
 	}
+	stage = "final-desired-binding"
 	if desired.NodeID != nodeID || desired.OriginID != final.OriginID || desired.ReleaseID != final.ReleaseID || desired.Generation != final.DesiredGeneration || desired.ConfigDigest != final.Control.ConfigDigest || desired.ManagedUserSetDigest != final.ManagedUserSetDigest || !whiteListContainsUser(desired.ManagedUsers, final.Control.Email) {
 		return closed, ErrUnavailable
 	}
@@ -170,46 +206,55 @@ func (s *Service) AuthorizeWhiteListFinalReceipt(ctx context.Context, nodeID str
 	// Actual counters still require successful provisioning and its lower time
 	// bound. Neither branch grants use or supplies a synthetic zero sample.
 	if final.Receipt.State != "fenced_unused" {
+		stage = "final-provision-read"
 		receipt, err := whiteListSidecarReceiptFromResults(results[1:])
 		if err != nil {
 			return closed, err
 		}
+		stage = "final-provision-binding"
 		if receipt.OriginID != final.OriginID || receipt.ReleaseID != final.ReleaseID || receipt.DesiredGeneration != final.DesiredGeneration || receipt.ManagedUserSetDigest != final.ManagedUserSetDigest || receipt.ConfigDigest != final.Control.ConfigDigest || receipt.XrayProcessBootID != final.Control.BootID || observed.Before(receipt.AppliedAt) {
 			return closed, ErrUnavailable
 		}
 	}
+	stage = "final-managed-email"
 	entitlementID, exitID, ok := whiteListMeteringRouteFromManagedEmail(final.Control.Email)
 	if !ok {
 		return closed, ErrUnavailable
 	}
+	stage = "final-managed-exits"
 	desiredExits, currentRoutesOK := whiteListMeteringManagedExitSet(desired.ManagedUsers, entitlementID)
 	_, exactExit := desiredExits[exitID]
 	legacyRouteOK := !currentRoutesOK && len(desiredExits) == 1 && desired.ExitID == exitID
 	if !exactExit || (!currentRoutesOK && !legacyRouteOK) {
 		return closed, ErrUnavailable
 	}
+	stage = "final-identity-read"
 	identityResults, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT customer_id FROM whitelist_entitlement_identities WHERE entitlement_id=?`, Args: []any{entitlementID}})
 	if err != nil || len(identityResults) != 1 || len(identityResults[0].Rows) != 1 {
-		return closed, ErrUnavailable
+		return closed, errors.Join(ErrUnavailable, err)
 	}
+	stage = "final-identity-row"
 	accountID, ok := rowString(identityResults[0].Rows[0], "customer_id")
 	if !ok {
 		return closed, ErrUnavailable
 	}
+	stage = "final-identity-material"
 	entitlement, err := whiteListEntitlementFromPersistedIdentity(accountID, entitlementID)
 	if err != nil {
-		return closed, ErrUnavailable
+		return closed, errors.Join(ErrUnavailable, err)
 	}
 	route := WhiteListMeteringRoute{ManagedEmail: final.Control.Email, ExitID: exitID, Entitlement: entitlement}
 	if final.Receipt.State == "fenced" {
+		stage = "final-period-read"
 		periodResults, err := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT period.period_id,period.starts_at_unix,period.ends_at_unix,period.included_grant_bytes,admission.admitted_at_unix
 FROM (SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,admitted_at_unix,zero_start_authorized FROM whitelist_first_use_admissions
 UNION ALL SELECT entitlement_id,exit_id,origin_id,xray_process_boot_id,billing_period_id,admitted_at_unix,1 FROM whitelist_byte_allocations) AS admission
 JOIN whitelist_billing_periods AS period ON period.period_id=admission.billing_period_id AND period.entitlement_id=admission.entitlement_id
 WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND admission.exit_id=? AND admission.origin_id=? AND admission.xray_process_boot_id=? AND admission.zero_start_authorized=1`, Args: []any{entitlementID, exitID, final.OriginID, final.Control.BootID}})
 		if err != nil || len(periodResults) != 1 || len(periodResults[0].Rows) != 1 {
-			return closed, ErrUnavailable
+			return closed, errors.Join(ErrUnavailable, err)
 		}
+		stage = "final-period-window"
 		row := periodResults[0].Rows[0]
 		period, periodOK := rowString(row, "period_id")
 		start, startOK := rowInt64(row, "starts_at_unix")
@@ -219,28 +264,33 @@ WHERE ` + whiteListPeriodAuthoritySQL + ` AND admission.entitlement_id=? AND adm
 		if !periodOK || period == "" || !startOK || !endOK || !includedOK || included != 0 || !admittedOK || start > admitted || admitted > observed.Unix() || observed.Unix() >= end {
 			return closed, ErrUnavailable
 		}
+		stage = "final-material"
 		material, err := s.whiteListClientMaterial(ctx, entitlementID, exitID)
 		if err != nil {
-			return closed, ErrUnavailable
+			return closed, errors.Join(ErrUnavailable, err)
 		}
+		stage = "final-activate"
 		entitlement, err = entitlement.Activate(desired.ProfileID, desired.PresetID, desired.ReleaseID, WhiteListCredential{ClientID: material.ClientID, ClientEncryption: material.ClientEncryption, ClientEncryptionRole: material.ClientEncryptionRole, ClientEncryptionProofRef: material.ClientEncryptionProofRef})
 		if err != nil {
-			return closed, ErrUnavailable
+			return closed, errors.Join(ErrUnavailable, err)
 		}
 		route.Entitlement = entitlement
 		route.Policy = WhiteListMeteringPolicy{BillingPeriodID: period, PeriodStartsAtUnix: start, PeriodEndsAtUnix: end, Unit: whiteListMeteringUnitGBDecimal, Basis: whiteListMeteringBasisUplinkPlusDownlink, PriceMode: whiteListMeteringPriceFree, PriceSource: whiteListMeteringPriceGlobal}
 	}
+	stage = "final-proof-json"
 	body, err := json.Marshal(final)
 	if err != nil {
-		return closed, ErrUnavailable
+		return closed, errors.Join(ErrUnavailable, err)
 	}
+	stage = "final-proof-write-read"
 	_, err = s.store.db.Request(ctx, rqlite.Linearizable, true, rqlite.Statement{SQL: `INSERT OR IGNORE INTO idempotency_requests(scope,command_type,idempotency_key,request_hash,resource_id,decision,operation_id,status,response_json,created_at_unix,applied_at_unix) VALUES('whitelist-final-proof','accept-agent-fence',?,?,?,'accepted',?,'applied',?,?,?)`, Args: []any{final.ReceiptID, final.ProofSHA256, entitlementID, "wl-final-proof:" + final.ReceiptID, string(body), s.clock.Now().Unix(), s.clock.Now().Unix()}})
 	// An unknown commit is resolved by exact immutable evidence, never by a
 	// second operation or by accepting a changed proof for the same receipt ID.
 	stored, readErr := s.store.db.QueryLinearizable(ctx, rqlite.Statement{SQL: `SELECT request_hash,resource_id,response_json,status FROM idempotency_requests WHERE scope='whitelist-final-proof' AND command_type='accept-agent-fence' AND idempotency_key=?`, Args: []any{final.ReceiptID}})
 	if readErr != nil || len(stored) != 1 || len(stored[0].Rows) != 1 {
-		return closed, ErrUnavailable
+		return closed, errors.Join(ErrUnavailable, err, readErr)
 	}
+	stage = "final-proof-match"
 	row := stored[0].Rows[0]
 	if row["request_hash"] != final.ProofSHA256 || row["resource_id"] != entitlementID || row["response_json"] != string(body) || row["status"] != "applied" {
 		return closed, ErrConflict

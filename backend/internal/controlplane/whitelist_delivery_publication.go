@@ -526,43 +526,71 @@ func whiteListPublicationRouteExitIDs(entitlementID string, desired []WhiteListS
 	return required, true
 }
 
-func (s *Service) whiteListClientMaterial(ctx context.Context, entitlementID, exitID string) (WhiteListClientMaterial, error) {
+func (s *Service) whiteListClientMaterial(ctx context.Context, entitlementID, exitID string) (material WhiteListClientMaterial, runErr error) {
+	stage := "material-read"
+	defer func() {
+		if runErr != nil {
+			runErr = &WhiteListDiagnosticError{stage: stage, cause: runErr}
+		}
+	}()
 	results, err := s.store.db.QueryLinearizable(ctx, whiteListRouteCredentialRead(entitlementID, exitID))
 	row, ok := firstRow(results)
 	if err != nil || !ok || len(results) != 1 || len(results[0].Rows) != 1 {
-		return WhiteListClientMaterial{}, ErrUnavailable
+		return WhiteListClientMaterial{}, errors.Join(ErrUnavailable, err)
 	}
+	stage = "material-row"
 	return s.whiteListClientMaterialFromRow(entitlementID, exitID, row)
 }
 
-func (s *Service) whiteListClientMaterialFromRow(entitlementID, exitID string, row map[string]any) (WhiteListClientMaterial, error) {
+func (s *Service) whiteListClientMaterialFromRow(entitlementID, exitID string, row map[string]any) (material WhiteListClientMaterial, runErr error) {
+	stage := "material-binding"
+	defer func() {
+		if runErr != nil {
+			runErr = &WhiteListDiagnosticError{stage: stage, cause: runErr}
+		}
+	}()
 	boundEntitlement, entitlementOK := rowString(row, "entitlement_id")
 	boundExit, exitOK := rowString(row, "exit_id")
 	if !entitlementOK || !exitOK || boundEntitlement != entitlementID || boundExit != exitID {
 		return WhiteListClientMaterial{}, ErrUnavailable
 	}
+	stage = "material-envelope"
 	encoded, ok := whiteListRowBytes(row, "credential_envelope")
 	if !ok {
 		return WhiteListClientMaterial{}, ErrUnavailable
 	}
 	var envelope Envelope
+	stage = "material-envelope-json"
 	if err := json.Unmarshal(encoded, &envelope); err != nil {
-		return WhiteListClientMaterial{}, ErrUnavailable
+		return WhiteListClientMaterial{}, errors.Join(ErrUnavailable, err)
 	}
+	stage = "material-decrypt"
 	plaintext, err := s.store.secrets.Open(WhiteListRouteCredentialScope(entitlementID, exitID), envelope)
 	if err != nil {
-		return WhiteListClientMaterial{}, ErrUnavailable
+		switch err.Error() {
+		case "controlplane: referenced secret key version is unavailable":
+			stage = "material-decrypt-key-version"
+		case "controlplane: invalid secret envelope":
+			stage = "material-decrypt-envelope"
+		case "controlplane: secret authentication failed":
+			stage = "material-decrypt-authentication"
+		case "controlplane: secret box is unavailable":
+			stage = "material-decrypt-box"
+		}
+		return WhiteListClientMaterial{}, errors.Join(ErrUnavailable, err)
 	}
+	stage = "material-json"
 	decoder := json.NewDecoder(bytes.NewReader(plaintext))
 	decoder.DisallowUnknownFields()
-	var material WhiteListClientMaterial
 	if err := decoder.Decode(&material); err != nil {
-		return WhiteListClientMaterial{}, ErrUnavailable
+		return WhiteListClientMaterial{}, errors.Join(ErrUnavailable, err)
 	}
+	stage = "material-json-trailing"
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return WhiteListClientMaterial{}, ErrUnavailable
+		return WhiteListClientMaterial{}, errors.Join(ErrUnavailable, err)
 	}
+	stage = "material-validation"
 	credential := WhiteListCredential{
 		ClientID: material.ClientID, ClientEncryption: material.ClientEncryption,
 		ClientEncryptionRole:     material.ClientEncryptionRole,

@@ -44,14 +44,15 @@ func (*runtimeLeaseStoreFake) ApplyCommercialFinalReceipt(context.Context, contr
 
 type runtimeLeaseSenderFake struct {
 	*runtimeWhiteListMeteringSender
-	page    sidecaragentclient.FinalReceiptPage
-	posted  []sidecaragentclient.UseLeaseRequest
-	postErr error
-	acks    int
+	page      sidecaragentclient.FinalReceiptPage
+	lookupErr error
+	posted    []sidecaragentclient.UseLeaseRequest
+	postErr   error
+	acks      int
 }
 
 func (s *runtimeLeaseSenderFake) LookupFinalReceipts(context.Context) (sidecaragentclient.FinalReceiptPage, error) {
-	return s.page, nil
+	return s.page, s.lookupErr
 }
 func (s *runtimeLeaseSenderFake) AckFinalReceipts(context.Context, []sidecaragentclient.FinalReceiptACK) error {
 	s.acks++
@@ -130,6 +131,20 @@ func TestRuntimeLeaseRecoveryReplaysExactPendingAndNeverACKsUnsettledTail(t *tes
 	sender.page = sidecaragentclient.FinalReceiptPage{Schema: 2, FinalReceipts: []sidecaragentclient.ManagedFinalReceipt{{OriginID: "origin-s4"}}}
 	if err := collector.drainFinalReceipts(context.Background(), control); err == nil || sender.acks != 0 || len(sender.posted) != 1 {
 		t.Fatal("unsettled removed-user tail ACKed or granted")
+	}
+}
+
+func TestRuntimeFinalDrainNamesStageRedactsCauseAndPreservesErrorsIs(t *testing.T) {
+	privateCause := errors.New("private-diagnostic-marker")
+	control := &runtimeLeaseControlFake{runtimeWhiteListMeteringControl: &runtimeWhiteListMeteringControl{}, targets: map[string]string{"origin-s4": "s4"}}
+	sender := &runtimeLeaseSenderFake{runtimeWhiteListMeteringSender: &runtimeWhiteListMeteringSender{}, lookupErr: errors.Join(privateCause, context.DeadlineExceeded)}
+	collector := &runtimeWhiteListMeteringCollector{control: control, store: &runtimeLeaseStoreFake{&runtimeWhiteListMeteringStoreFake{}}, senders: map[string]controlplane.ExternalActionSender{"s4": sender}}
+	err := collector.drainFinalReceipts(context.Background(), control)
+	if !errors.Is(err, errRuntimeWhiteListMeteringUnavailable) || !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, privateCause) {
+		t.Fatal("diagnostic wrapper lost an error identity")
+	}
+	if err.Error() != "final receipt lookup-page: deadline" || strings.Contains(err.Error(), privateCause.Error()) || sender.acks != 0 || len(sender.posted) != 0 {
+		t.Fatal("diagnostic wrapper exposed its cause or advanced final settlement")
 	}
 }
 

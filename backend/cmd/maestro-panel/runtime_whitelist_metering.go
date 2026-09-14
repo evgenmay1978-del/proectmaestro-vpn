@@ -899,11 +899,45 @@ func runtimeWhiteListCandidatesMatchPlan(candidates []controlplane.WhiteListMete
 // Drain retained evidence before requesting a new usage nonce, including
 // removed users and stale readiness. Exact pending bodies survive backend
 // restart in the agent journal; they are replayed verbatim, never renewed.
-func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx context.Context, control runtimeWhiteListLeaseControlPlane) error {
+// Retain errors.Is while keeping transport URLs and database details out of logs.
+type runtimeWhiteListFinalCause struct{ cause error }
+
+func (e runtimeWhiteListFinalCause) Error() string {
+	var diagnostic *controlplane.WhiteListDiagnosticError
+	switch {
+	case errors.As(e.cause, &diagnostic):
+		return diagnostic.Error()
+	case errors.Is(e.cause, context.DeadlineExceeded):
+		return "deadline"
+	case errors.Is(e.cause, context.Canceled):
+		return "cancelled"
+	case errors.Is(e.cause, sidecaragentclient.ErrDeliveryUnknown):
+		return "delivery-unknown"
+	case errors.Is(e.cause, sidecaragentclient.ErrRequestRejected):
+		return "request-rejected"
+	case errors.Is(e.cause, controlplane.ErrConflict):
+		return "conflict"
+	case errors.Is(e.cause, shadowbilling.ErrDurableStateInvalid):
+		return "durable-state-invalid"
+	default:
+		return "unavailable"
+	}
+}
+
+func (e runtimeWhiteListFinalCause) Unwrap() error { return e.cause }
+
+func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx context.Context, control runtimeWhiteListLeaseControlPlane) (runErr error) {
+	stage := "store"
+	defer func() {
+		if runErr != nil {
+			runErr = fmt.Errorf("final receipt %s: %w", stage, runtimeWhiteListFinalCause{cause: runErr})
+		}
+	}()
 	store, ok := collector.store.(runtimeWhiteListFinalStore)
 	if !ok {
 		return errRuntimeWhiteListMeteringUnavailable
 	}
+	stage = "targets"
 	targets, err := control.WhiteListUseLeaseTargets(ctx)
 	if err != nil {
 		return err
@@ -914,55 +948,67 @@ func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx conte
 	}
 	sort.Strings(origins)
 	for _, origin := range origins {
+		stage = "sender"
 		sender, ok := collector.senders[targets[origin]].(runtimeWhiteListLeaseSender)
 		if !ok {
 			return errRuntimeWhiteListMeteringUnavailable
 		}
 		drained := false
 		for pageNumber := 0; pageNumber < 130; pageNumber++ {
+			stage = "context"
 			if ctx.Err() != nil {
-				return errRuntimeWhiteListMeteringUnavailable
+				return errors.Join(errRuntimeWhiteListMeteringUnavailable, ctx.Err())
 			}
+			stage = "lookup-page"
 			page, err := sender.LookupFinalReceipts(ctx)
 			if err != nil || page.Schema != 2 || len(page.FinalReceipts) > 32 || page.HasMoreFinalReceipts && len(page.FinalReceipts) == 0 {
-				return errRuntimeWhiteListMeteringUnavailable
+				return errors.Join(errRuntimeWhiteListMeteringUnavailable, err)
 			}
 			if len(page.FinalReceipts) > 0 || page.PendingUseLease != nil {
 				collector.leaseAuthorityChanged = true
 			}
 			ack := make([]sidecaragentclient.FinalReceiptACK, 0, len(page.FinalReceipts))
 			for _, final := range page.FinalReceipts {
+				stage = "origin-binding"
 				if final.OriginID != origin {
 					return errRuntimeWhiteListMeteringUnavailable
 				}
+				stage = "authorize"
 				authorization, err := control.AuthorizeWhiteListFinalReceipt(ctx, targets[origin], final)
 				if err != nil || !authorization.Verified() {
-					return errRuntimeWhiteListMeteringUnavailable
+					return errors.Join(errRuntimeWhiteListMeteringUnavailable, err)
 				}
 				if !authorization.Unused() {
+					stage = "apply-final"
 					if _, err := store.ApplyCommercialFinalReceipt(ctx, authorization, collector.control); err != nil {
-						return errRuntimeWhiteListMeteringUnavailable
+						return errors.Join(errRuntimeWhiteListMeteringUnavailable, err)
 					}
 				}
 				if final.Control.Schema == 3 {
+					stage = "complete-budget"
 					budgetControl, ok := collector.control.(runtimeWhiteListByteBudgetControlPlane)
-					if !ok || budgetControl.CompleteWhiteListByteBudgetFinal(ctx, authorization) != nil {
+					if !ok {
 						return errRuntimeWhiteListMeteringUnavailable
+					}
+					if err := budgetControl.CompleteWhiteListByteBudgetFinal(ctx, authorization); err != nil {
+						return errors.Join(errRuntimeWhiteListMeteringUnavailable, err)
 					}
 				}
 				ack = append(ack, sidecaragentclient.FinalReceiptACK{ReceiptID: final.ReceiptID, ProofSHA256: final.ProofSHA256})
 			}
 			if len(ack) > 0 {
+				stage = "ack"
 				if err := sender.AckFinalReceipts(ctx, ack); err != nil {
-					return errRuntimeWhiteListMeteringUnavailable
+					return errors.Join(errRuntimeWhiteListMeteringUnavailable, err)
 				}
 				continue
 			}
 			if page.PendingUseLease != nil {
+				stage = "pending-use-lease"
 				if _, err := sender.PostUseLease(ctx, *page.PendingUseLease); errors.Is(err, sidecaragentclient.ErrFreshLeaseNonceNeeded) {
-					return errRuntimeWhiteListFreshLeaseNonce
+					return errors.Join(errRuntimeWhiteListFreshLeaseNonce, err)
 				} else if err != nil {
-					return errRuntimeWhiteListMeteringUnavailable
+					return errors.Join(errRuntimeWhiteListMeteringUnavailable, err)
 				}
 				continue
 			}
@@ -971,6 +1017,7 @@ func (collector *runtimeWhiteListMeteringCollector) drainFinalReceipts(ctx conte
 		}
 		// The bounded loop cannot authorize use on an unproven empty backlog.
 		if !drained {
+			stage = "page-limit"
 			return errRuntimeWhiteListMeteringUnavailable
 		}
 	}
