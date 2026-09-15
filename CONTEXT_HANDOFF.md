@@ -4,7 +4,7 @@
 
 Владелец подтвердил серверы рабочими и вчерашнее начисление купленных ГБ на своём аккаунте. S2/S3 согласованы, S4 rqlite остановлен, fence replay завершён без изменения paid ledger. Android/UI/APK пауза; ТВ без CDN; main/stable OTA не менять; owner binding `wapmix` не переключать.
 
-Оставшийся дефект — control-plane `/admin/renew`: обычная дата продлевается, CDN period раньше не продлевался. Текущая незакоммиченная правка добавляет идемпотентный zero-grant customer-source period с generation/expiry/projection/CAS/RPO guards. Адресный реальный SQLite regression и соседние customer tests зелёные; exact-SHA CI и live renewal read-only ещё впереди. По последнему указанию владельца production install/restart не выполнять — сначала проверка Astra 6.
+Оставшийся дефект — control-plane `/admin/renew`: обычная дата продлевается, CDN period раньше не продлевался. Локальный коммит `16aed67` добавляет идемпотентный zero-grant customer-source period с generation/expiry/projection/CAS/RPO guards. Адресный реальный SQLite regression и соседние customer tests зелёные; exact-SHA CI и live renewal read-only ещё впереди. По последнему указанию владельца production install/restart не выполнять — сначала проверка Astra 6.
 
 ## CDN восстановлен — актуальное состояние после 11:48 UTC
 

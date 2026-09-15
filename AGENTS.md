@@ -2,9 +2,9 @@
 
 Сначала читать `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/outputs/NEXT_CHAT_HANDOFF.md`: это единственная чистая актуальная передача. Старые оперативные блоки ниже сохранены для истории и не переопределяют её.
 
-Каноническая ветка `codex/yandex-cdn-whitelist-task3-sync`, базовый HEAD `00ff51b`. Серверы owner-confirmed working; серверное расследование завершено. Текущая задача — только минимальный renewal→CDN bridge в `backend/internal/controlplane`: Android/UI/APK на паузе, ТВ без CDN, main/stable OTA не менять, покупки/подписки/балансы/owner binding `wapmix` сохранять.
+Каноническая ветка `codex/yandex-cdn-whitelist-task3-sync`, текущий локальный HEAD `16aed67` (родитель `00ff51b`). Серверы owner-confirmed working; серверное расследование завершено. Текущая задача — только минимальный renewal→CDN bridge в `backend/internal/controlplane`: Android/UI/APK на паузе, ТВ без CDN, main/stable OTA не менять, покупки/подписки/балансы/owner binding `wapmix` сохранять.
 
-В текущем рабочем дереве добавлены `customer_renewal_whitelist.go`, адресный SQLite regression и вызов из `RenewCustomer`; соседние customer tests проходят. По последнему указанию владельца production install/restart не выполнять: Astra 6 сначала проверяет diff и CI. Не повторять полный `/db/load`, `354a727`, новые покупки или повторный длинный прогон без новой наблюдаемой ошибки.
+Коммит `16aed67` добавляет `customer_renewal_whitelist.go`, адресный SQLite regression и вызов из `RenewCustomer`; соседние customer tests проходят. По последнему указанию владельца production install/restart не выполнять: Astra 6 сначала проверяет diff и CI. Не повторять полный `/db/load`, `354a727`, новые покупки или повторный длинный прогон без новой наблюдаемой ошибки.
 
 ## CDN восстановлен — актуальное состояние после 11:48 UTC
 
