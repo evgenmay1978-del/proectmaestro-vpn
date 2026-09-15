@@ -86,7 +86,9 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
         val subscription = ProfileManager.get(request.profileId)?.typed?.remoteURL ?: return null
         val initialFetchStarted = SystemClock.elapsedRealtime()
         val initial = WhiteListRuntimeClient.fetchResult(subscription, network)
-        if (initial == WhiteListRuntimeFetch.Denied) WhiteListSelection.clear(request, retainLabels = false)
+        // A transient/invalid runtime response must not erase the last server names from the
+        // phone menu. clear() still removes selection authority and the permit is not revived.
+        if (initial == WhiteListRuntimeFetch.Denied) WhiteListSelection.clear(request, retainLabels = true)
         val runtime = (initial as? WhiteListRuntimeFetch.Ready)?.runtime ?: return null
         var lastFetchMs = (SystemClock.elapsedRealtime() - initialFetchStarted).coerceAtLeast(0L)
         val route = runtime.profiles.singleOrNull { it.tag == request.tag } ?: return null
@@ -141,7 +143,7 @@ internal class WhiteListSession(private val vpn: VPNService, private val onExpir
                     val nextDeadline = if (valid(live)) whiteListRenewalDeadline(live.deadline,
                         live.desiredGeneration, live.route, fresh, SystemClock.elapsedRealtime()) else null
                     if (nextDeadline == null) {
-                        if (fresh == WhiteListRuntimeFetch.Denied) WhiteListSelection.clear(request, retainLabels = false)
+                        if (fresh == WhiteListRuntimeFetch.Denied) WhiteListSelection.clear(request, retainLabels = true)
                         expire(live, restoreOrdinary = WhiteListSession.network() != live.network)
                     } else if (nextDeadline != live.deadline) {
                         live.deadline = nextDeadline
