@@ -43,7 +43,7 @@ internal sealed interface WhiteListRuntimeFetch {
     data object Unavailable : WhiteListRuntimeFetch
 }
 
-/** An unavailable renewal cannot extend a permit, and a late response cannot revive one. */
+/** A failed renewal cannot extend a permit, and a late response cannot revive one. */
 internal fun whiteListRenewalDeadline(
     currentDeadline: Long, desiredGeneration: Long, route: WhiteListRuntimeRoute,
     result: WhiteListRuntimeFetch, nowMillis: Long,
@@ -53,7 +53,7 @@ internal fun whiteListRenewalDeadline(
         it.fresh(nowMillis) && it.desiredGeneration == desiredGeneration &&
             it.profiles.singleOrNull { candidate -> candidate.tag == route.tag } == route
     }?.deadlineMillis
-    result == WhiteListRuntimeFetch.Unavailable -> currentDeadline
+    result == WhiteListRuntimeFetch.Unavailable || result == WhiteListRuntimeFetch.Denied -> currentDeadline
     else -> null
 }
 

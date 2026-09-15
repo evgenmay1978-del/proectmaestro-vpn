@@ -22,7 +22,7 @@ internal fun whiteListMenuPreview(
     result is WhiteListRuntimeFetch.Ready -> WhiteListMenuPreview(
         result.runtime.profiles.associate { it.tag to it.label }, result.runtime.deadlineMillis,
     )
-    sameContext && result == WhiteListRuntimeFetch.Unavailable -> WhiteListMenuPreview(previous, 0)
+    sameContext && result !is WhiteListRuntimeFetch.Ready -> WhiteListMenuPreview(previous, 0)
     else -> WhiteListMenuPreview(emptyMap(), 0)
 }
 
