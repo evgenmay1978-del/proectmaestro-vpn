@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -78,8 +79,8 @@ internal fun PhoneConsoleLayout(
                 // Let the approved wood continue under Android's bars without drawing fake
                 // status/navigation indicators in the app itself. TV never composes this layout.
                 (view.context as? android.app.Activity)?.window?.apply {
-                    statusBarColor = android.graphics.Color.TRANSPARENT
-                    navigationBarColor = android.graphics.Color.TRANSPARENT
+                    statusBarColor = ConsoleWalnut.toArgb()
+                    navigationBarColor = ConsoleWalnut.toArgb()
                     if (android.os.Build.VERSION.SDK_INT >= 29) {
                         isStatusBarContrastEnforced = false
                         isNavigationBarContrastEnforced = false
