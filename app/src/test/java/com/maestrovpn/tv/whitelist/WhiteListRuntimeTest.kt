@@ -99,8 +99,10 @@ class WhiteListRuntimeTest {
         val unavailable = whiteListMenuPreview(ready.labels, sameContext = true, allowed = true, result = WhiteListRuntimeFetch.Unavailable)
         assertEquals(ready.labels, unavailable.labels)
         assertEquals(0L, unavailable.deadlineMillis)
+        val denied = whiteListMenuPreview(ready.labels, sameContext = true, allowed = true, result = WhiteListRuntimeFetch.Denied)
+        assertEquals(ready.labels, denied.labels)
+        assertEquals(0L, denied.deadlineMillis)
         for (closed in listOf(
-            whiteListMenuPreview(ready.labels, sameContext = true, allowed = true, result = WhiteListRuntimeFetch.Denied),
             whiteListMenuPreview(ready.labels, sameContext = false, allowed = true, result = WhiteListRuntimeFetch.Unavailable),
             whiteListMenuPreview(ready.labels, sameContext = true, allowed = false, result = WhiteListRuntimeFetch.Unavailable),
         )) {
@@ -117,7 +119,8 @@ class WhiteListRuntimeTest {
             initial.deadlineMillis, initial.desiredGeneration, route, result, now)
         assertEquals(initial.deadlineMillis, requireNotNull(deadline(WhiteListRuntimeFetch.Unavailable, 2_000)))
         assertEquals(initial.deadlineMillis, requireNotNull(deadline(WhiteListRuntimeFetch.Unavailable, 5_999)))
-        assertNull(deadline(WhiteListRuntimeFetch.Denied, 2_000))
+        assertEquals(initial.deadlineMillis, requireNotNull(deadline(WhiteListRuntimeFetch.Denied, 2_000)))
+        assertNull(deadline(WhiteListRuntimeFetch.Denied, 6_000))
         assertNull(deadline(WhiteListRuntimeFetch.Unavailable, 6_000))
         assertNull(deadline(ready, 6_000))
     }
