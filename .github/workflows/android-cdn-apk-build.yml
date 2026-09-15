@@ -149,6 +149,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:testOtherDebugUnitTest \
             --tests 'com.maestrovpn.tv.compose.screen.tvhome.PhoneCdnPurchaseLinkTest' \
+            --tests 'com.maestrovpn.tv.whitelist.WhiteListRuntimeTest' \
             -PmaestroCdnApk=true --stacktrace --no-daemon
       - name: Check mobile CDN renewal and transient response handling
         if: ${{ inputs.visual_preview == true }}
