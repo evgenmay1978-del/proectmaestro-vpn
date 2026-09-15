@@ -64,6 +64,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
       - uses: actions/cache@v4
         with:
           path: |
@@ -254,6 +256,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
       - name: Download the native emulator and instrumentation APKs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -433,6 +437,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
       - name: Capture the existing native payment fixture while its surface is visible
         timeout-minutes: 18
         env:
