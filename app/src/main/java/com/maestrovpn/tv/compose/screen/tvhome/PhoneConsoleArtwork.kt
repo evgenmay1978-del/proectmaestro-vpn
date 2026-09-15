@@ -71,9 +71,9 @@ internal fun PhoneConsoleLayout(
         PhoneConsoleBackground(Modifier.fillMaxSize())
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             val contentWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
-            // The reference medallion nearly fills the inner console width; keeping it at
-            // 299.dp made the phone candidate read as the older compact screen.
-            val heroWidth = minOf(contentWidth, (maxHeight - contentWidth / 5f - 470.dp).coerceIn(240.dp, 380.dp))
+            // The linked reference keeps the medallion compact, leaving the carved side rails
+            // visible and the purchase row clear above navigation.
+            val heroWidth = minOf(contentWidth, (maxHeight - contentWidth / 5f - 520.dp).coerceIn(208.dp, 320.dp))
             val view = LocalView.current
             androidx.compose.runtime.SideEffect {
                 // Let the approved wood continue under Android's bars without drawing fake
