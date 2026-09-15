@@ -1,3 +1,45 @@
+## CURRENT POINTER — 15.09.2026
+
+Чистая актуальная передача находится в `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/outputs/NEXT_CHAT_HANDOFF.md`; старые повторяющиеся блоки ниже — только история.
+
+Владелец подтвердил серверы рабочими и вчерашнее начисление купленных ГБ на своём аккаунте. S2/S3 согласованы, S4 rqlite остановлен, fence replay завершён без изменения paid ledger. Android/UI/APK пауза; ТВ без CDN; main/stable OTA не менять; owner binding `wapmix` не переключать.
+
+Оставшийся дефект — control-plane `/admin/renew`: обычная дата продлевается, CDN period раньше не продлевался. Текущая незакоммиченная правка добавляет идемпотентный zero-grant customer-source period с generation/expiry/projection/CAS/RPO guards. Адресный реальный SQLite regression и соседние customer tests зелёные; exact-SHA CI и live renewal read-only ещё впереди. По последнему указанию владельца production install/restart не выполнять — сначала проверка Astra 6.
+
+## CDN восстановлен — актуальное состояние после 11:48 UTC
+
+Двеfencecompletion успешно восстановлены11:45 (session62808 завершён), exactproductionCAS; оплаченныебалансы до/послеточноравны, paidledgerнетронут. BackupS1 `/var/backups/maestro-cdn-fence-replay-20260914T114520499876Z`. НЕповторятьUPDATE и/ dbload.
+11:47S4:12active,0pending,0finals. 11:48:45–53WindowsXray26.7.28 черезоригинальнуюownerподписку: HTTP2008profiles/4CDN, ВСЕ8/8HTTPSsuccess(4regions),2236payloadbytes. Subscription502отmaintenanceустранён. Пробник29741завершён/клиентыостановлены. Теперьнужен600s sustainedrun(готовитphoneagent), ещёНЕзапускался.
+S2/S3обаvoter,S2Leaderterm20;S4voterудалён, егоrqliteосталсяstopped. S3новаяполнаясогласованнаяреплика,PID568348, originaldataиunitсохранены112428. S1controller00ffPID3513109active;ordinarypanel2476419,XrayS4 809893неперезапускались.
+TemporaryswapS2 512MiB иS3 2GiB безопасноswapoff+удалены:taskused0/4.3MB приMemAvailable1.4/1.0GB. ОстатокS2bavail1733464064Б,S3 29933793280Б. Fstabне менялся. Всеoldernoticesобactive62808/67751илиstoppedcontrollerнижеисторические.
+App/UI/APKнапаузе. Новыхпокупок/начисленийне делать. Main/stableOTA/TVне трогать. Общий5GBтестовыйлимитнеобнулён (~1.715GBранее+overhead,сегодняпока2236Bполезноготрафика). ВопросвладельцуобувеличениидискаS2покабезответа. Longrunрезультатнельзяпредвосхищать.
+
+## Текущая точка: база согласована, идёт восстановление двух fence marks
+
+Старые записи ниже про активный session67751 НЕАКТУАЛЬНЫ. /db/load единожды далHTTP500, обеБД осталисьпобайтно прежними; НЕ повторять fullRAMload. После сменылидера S2сталLeader, S3Follower.
+Официальное streamed восстановление выполнено: S4voterудалён11:20(егоrqliteосталсяstopped), S3удалён11:23; весьS3datadir сохранён `/var/lib/maestro-cdn-rqlite/s3.preserved-20260914T112428447119Z`. ПустойS3 присоединилсяnonvoter иполучилsnapshot. ЕгоSQLite732483584Б,WAL0,bodySHA `106fac72d19e95da782a65ec9700bcd7936dc60f8796b38bc8a002321fbe8825` точносовпалсfreshS2backup. Вcheck_s3_snapshot_body.pyошибочностоитдругойexpectedtext, ноactualhashсовпалсистиннымS2status.before-0; не считатьневерныйexpectedтекстданными.
+S3 затемпослеcatch-up остановлен/удалёнкакnonvoter/запущенvoter11:37; сейчасS2/S3дваvoters,S2Leaderterm20. S3PID568348. Rootonlybackupunit/argv/configs: `/var/backups/maestro-cdn-s3-rejoin-20260914T112428447119Z`. Постоянныйdropin90-cdn-recovery.conf voter=falseфлагraft-non-voter, bootstrap-expect0, single S2 RAFTjoin. Не возвращатьbootstrap3автоматически. ВinitialnonvoterstartмешалстарыйExecStartPre test-s raft.db; temporaryguardпроверялpreservedraftиfreshdir. Дляvoterисходныйnonemptyraftguardвосстановлен.
+S1controller00ff/07c0d4 сноваactive с11:30:10UTC,PID3513109. OrdinarypanelPID2476419неперезапускался. 502подпискииз-заmaintenanceостановкиустранён:11:31:07HTTP200,8profiles/4CDN. Но8/8HTTPSчерезCDNещёcurl35/HTTP000,payload0; probeafterrecovery66926завершён, clientsstopped.
+Точнаяоставшаясяпричина409empty: двеDBallocationlast_fenced_generation18866 противagent18905,остальные10совпадают. Все12proof/receiptID/physical/currentauthenticated/oldS3completed/settledactual/ceilingguardsпроверены. 2targetsordinal8actual=cumulative364238631, ordinal11actual=cumulative2001488584; nativefencesповторносвереныlive12ready.
+СЕЙЧАС Rootзапустилguarded exactCompleteWhiteListByteBudgetFinal SQL replay для2targets: локальнаяsession62808, helper work/replay_confirmed_fence_completion.py. ПлатёжныйledgerНЕменяется; originalCASпоpreviousgen/ceiling/settled, authenticatedproof иpostconditionвтранзакции, backupRPOdirtyкаквproduction. Дождатьсярезультата,неповторятьвслепую. Serverprivatebackupбудет `/var/backups/maestro-cdn-fence-replay-<UTC>`. Пока ещёНЕподтвержденоживоеCDN.
+Подробнаяактуальнаяпередача: `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/outputs/NEXT_CHAT_HANDOFF.md`.
+
+## Активное восстановление 14.09.2026, начато 10:52 UTC
+
+Root запустил ОДИН recovery helper; локальная session67751 (исправленный запуск;64154 остановилсяДОload настаромtimestampcancel). Не повторять POST /db/load и не запускать второй recovery. Текущее состояние читать на S1: `/var/backups/maestro-cdn-restore-20260914T105959067883Z/status.json`, helper `work/read_cdn_restore_progress.py`.
+Контроллер CDN временно остановлен helper; ordinary panel и VPN cores сохранены. После снимков и commerce guard helper делает один binary load свежей полной S2 на текущий S3 Leader, проверяет свежие node-local copies обоих узлов и только затем запускает controller. До POST ошибка возобновляет старый controller; после POST ошибка оставляет writer остановленным для выяснения исхода. HTTP200 НЕ доказывает успех.
+Временный swap `/var/tmp/maestro-rqlite-restore-20260914.swap`: S3 2GiB (10:26), S2 512MiB (10:52); fstab не менялся. S2 после swap bavail1,210,822,656B; reserved553,467,904B НЕ учитываются, rqlite UID999. После восстановления безопасно освободить temporaryswap при достаточной RAM.
+S2 cleanup завершена: три неактивных каталога и syslog.1 сохранены и проверены на S1 `/var/backups/maestro-s2-preserved-cleanup-20260914T102316Z`; удалены S2, плюс67APTindexes205MB и два старых136headers. Ядро/модули/139headers/linux-generic/ordinary VPN/PIDs сохранены. Доswapсвободно1,747,791,872B.
+Подробности: `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/outputs/NEXT_CHAT_HANDOFF.md`.
+
+## Инцидент CDN 14.09.2026 — актуально после сравнения резервных копий
+
+CDN НЕ восстановлен. Приложение отложено по прямому указанию владельца; чинить и тестировать CDN, сохранить покупки/ГБ/обычныйVPN/TV/main/stable OTA.
+S2 диск был заполнен; после очистки SQL ожил, но node-local SQLite S2/S3 различается при одинаковыхFSMиндексах. Rqlitev10.1.0, S4voter остановлен; не пересоздавать peer безquorum.
+Обе независимые базы сохранены root-only на S1 `/var/backups/maestro-cdn-data-recovery-20260914T094048Z`. Покупки совпали; ledger24толькоS2/3толькоS3, однаprojection отличается90128байт. Не делать слепойrestore/union/сброслимитов.
+Controller00ff51b установлен, startupRecovery заблокирован2повторноиспользованнымиreceipt keys. Финансовыеguards/leasesне отключать. Только доказанное согласование данных; никаких повторныхплатежей.
+Подробная текущая передача: `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/outputs/NEXT_CHAT_HANDOFF.md`. Она заменяет старые оперативные статусы ниже; постоянные ограничения сохраняются.
+
 ## Текущий приоритет 14.09.2026 — восстановление живого CDN, приложение на паузе
 
 Владелец разрешил чинить и тестировать только CDN; после устойчивого результата подробно передать факты новому чату и поддерживать контекст. Готовность пока НЕ подтверждена.

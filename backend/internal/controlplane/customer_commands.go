@@ -98,10 +98,17 @@ func (s *Service) ExtendCustomer(ctx context.Context, command ExtendCustomerComm
 }
 
 func (s *Service) RenewCustomer(ctx context.Context, command RenewCustomerCommand) (Customer, error) {
-	return s.mutateCustomer(ctx, customerMutation{
+	customer, err := s.mutateCustomer(ctx, customerMutation{
 		commandType: "customer.renew", login: command.Login, idempotency: command.IdempotencyKey,
 		days: command.Days, status: "active",
 	})
+	if err != nil {
+		return Customer{}, err
+	}
+	if err := s.reconcileCustomerWhiteListRenewal(ctx, customer, command.IdempotencyKey); err != nil {
+		return Customer{}, err
+	}
+	return customer, nil
 }
 
 func (s *Service) SetCustomerExpiry(ctx context.Context, command SetExpiryCommand) (Customer, error) {

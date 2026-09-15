@@ -40,6 +40,11 @@ func TestCustomerWriteCommandsUseOneCanonicalTransaction(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := canonicalMutationDB(test.exists)
+			if test.name == "renew" {
+				// The renewal path checks for an optional CDN entitlement; this
+				// fixture represents an ordinary account with no entitlement.
+				db.linear = append(db.linear, rowsScript())
+			}
 			service, _ := testService(t, db)
 			if err := test.call(context.Background(), service); err != nil {
 				t.Fatalf("command: %v", err)
@@ -66,6 +71,9 @@ func TestExtendAndRenewUseDistinctExpiryRules(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			db := canonicalMutationDB(true)
+			if test.name == "renew" {
+				db.linear = append(db.linear, rowsScript())
+			}
 			service, _ := testService(t, db)
 			if err := test.call(context.Background(), service); err != nil {
 				t.Fatalf("command: %v", err)
