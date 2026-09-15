@@ -97,23 +97,23 @@ class PhoneConsolePreviewInstrumentedTest {
             scrollToTop()
             val account = ui.onNodeWithTag("phone-console-account").assertIsDisplayed()
             val bot = ui.onNodeWithTag("phone-console-bot").assertIsDisplayed()
-            assertEquals("Account and bot must have equal height", account.getUnclippedBoundsInRoot().height.value,
-                bot.getUnclippedBoundsInRoot().height.value, 1f)
+            assertEquals("Account and bot must have equal height", account.getUnclippedBoundsInRoot().height,
+                bot.getUnclippedBoundsInRoot().height, 1f)
             val vpn = ui.onNodeWithTag("phone-console-vpn-wallet").assertIsDisplayed()
             val cdn = ui.onNodeWithTag("phone-console-cdn-wallet").assertIsDisplayed()
-            assertEquals("Wallets must have equal height", vpn.getUnclippedBoundsInRoot().height.value,
-                cdn.getUnclippedBoundsInRoot().height.value, 1f)
-            assertEquals("The upper groups share their left edge", account.getUnclippedBoundsInRoot().left.value,
-                vpn.getUnclippedBoundsInRoot().left.value, 1f)
-            assertEquals("The upper groups share their right edge", bot.getUnclippedBoundsInRoot().right.value,
-                cdn.getUnclippedBoundsInRoot().right.value, 1f)
+            assertEquals("Wallets must have equal height", vpn.getUnclippedBoundsInRoot().height,
+                cdn.getUnclippedBoundsInRoot().height, 1f)
+            assertEquals("The upper groups share their left edge", account.getUnclippedBoundsInRoot().left,
+                vpn.getUnclippedBoundsInRoot().left, 1f)
+            assertEquals("The upper groups share their right edge", bot.getUnclippedBoundsInRoot().right,
+                cdn.getUnclippedBoundsInRoot().right, 1f)
             val medallion = show("phone-console-medallion")
             val circle = medallion.getUnclippedBoundsInRoot()
             val stateLabel = if (state.name == "error") "Ошибка подключения" else state.status
             medallion.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, stateLabel))
-            assertEquals("The medallion must remain circular", circle.width.value, circle.height.value, 1f)
+            assertEquals("The medallion must remain circular", circle.width, circle.height, 1f)
             assertEquals("The medallion shares the screen axis", expectedWidthDp / 2f,
-                circle.left.value + circle.width.value / 2f, 1f)
+                circle.left + circle.width / 2f, 1f)
             show("phone-console-status")
             ui.onNodeWithText(state.status, useUnmergedTree = true).assertIsDisplayed()
             val action = if (state.connecting) "Отменить подключение" else if (state.connected) "Отключить VPN" else "Подключить VPN"
@@ -125,10 +125,10 @@ class PhoneConsolePreviewInstrumentedTest {
             }
             val renew = ui.onNodeWithTag("phone-console-buy-vpn")
             val buy = ui.onNodeWithTag("phone-console-buy-cdn")
-            assertEquals("Purchase buttons have equal height", renew.getUnclippedBoundsInRoot().height.value,
-                buy.getUnclippedBoundsInRoot().height.value, 1f)
-            assertEquals("Purchase buttons have equal width", renew.getUnclippedBoundsInRoot().width.value,
-                buy.getUnclippedBoundsInRoot().width.value, 1f)
+            assertEquals("Purchase buttons have equal height", renew.getUnclippedBoundsInRoot().height,
+                buy.getUnclippedBoundsInRoot().height, 1f)
+            assertEquals("Purchase buttons have equal width", renew.getUnclippedBoundsInRoot().width,
+                buy.getUnclippedBoundsInRoot().width, 1f)
             val nav = ui.onNodeWithTag("phone-console-navigation").assertIsDisplayed()
             assertTrue("The bottom navigation must not cover the purchase row",
                 buy.getUnclippedBoundsInRoot().bottom <= nav.getUnclippedBoundsInRoot().top)
@@ -137,7 +137,7 @@ class PhoneConsolePreviewInstrumentedTest {
             val navWidths = listOf("home", "servers", "account", "settings").map { name ->
                 val node = ui.onNodeWithTag("phone-nav-$name").assertIsDisplayed().assertHasClickAction()
                 assertHitArea(node, name)
-                node.getUnclippedBoundsInRoot().width.value
+                node.getUnclippedBoundsInRoot().width
             }
             assertTrue("Navigation items share equal width", navWidths.max() - navWidths.min() <= 1f)
             if (index == 0) shot("off-controls")
@@ -196,8 +196,8 @@ class PhoneConsolePreviewInstrumentedTest {
 
     private fun assertHitArea(node: SemanticsNodeInteraction, label: String) {
         val bounds = node.getUnclippedBoundsInRoot()
-        assertTrue("$label touch target width", bounds.width.value >= 48f)
-        assertTrue("$label touch target height", bounds.height.value >= 48f)
+        assertTrue("$label touch target width", bounds.width >= 48f)
+        assertTrue("$label touch target height", bounds.height >= 48f)
     }
 
     private fun assertFullBoundsVisible(node: SemanticsNodeInteraction, label: String) {
