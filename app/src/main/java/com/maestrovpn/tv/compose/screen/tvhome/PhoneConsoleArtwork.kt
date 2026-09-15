@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
@@ -67,7 +68,18 @@ internal fun PhoneConsoleLayout(
         PhoneConsoleBackground(Modifier.fillMaxSize())
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
             val contentWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
-            val heroWidth = minOf(contentWidth, (maxHeight - contentWidth / 5f - 520.dp).coerceIn(208.dp, 320.dp))
+            // The reference medallion nearly fills the inner console width; keeping it at
+            // 299.dp made the phone candidate read as the older compact screen.
+            val heroWidth = minOf(contentWidth, (maxHeight - contentWidth / 5f - 450.dp).coerceIn(240.dp, 380.dp))
+            val view = LocalView.current
+            androidx.compose.runtime.SideEffect {
+                // Let the approved wood continue under Android's bars without drawing fake
+                // status/navigation indicators in the app itself. TV never composes this layout.
+                (view.context as? android.app.Activity)?.window?.apply {
+                    statusBarColor = android.graphics.Color.TRANSPARENT
+                    navigationBarColor = android.graphics.Color.TRANSPARENT
+                }
+            }
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp)
