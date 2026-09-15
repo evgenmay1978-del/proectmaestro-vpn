@@ -309,11 +309,9 @@ internal fun PhoneWallet(label: String, value: String, icon: ImageVector, modifi
         .padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = ConsoleGold, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, color = ConsoleTextMuted, fontFamily = FontFamily.SansSerif, fontSize = 11.sp, lineHeight = 14.sp)
-            Text(value, color = ConsoleText, fontFamily = FontFamily.SansSerif, fontSize = 14.sp, lineHeight = 18.sp,
-                fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
+        Text("$label: $value", modifier = Modifier.weight(1f), color = ConsoleText,
+            fontFamily = FontFamily.SansSerif, fontSize = 14.sp, lineHeight = 18.sp,
+            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -391,7 +389,7 @@ private fun PhoneSettingsRow(title: String, detail: String?, icon: ImageVector, 
 @Composable
 internal fun PhoneBottomNavigation(active: String, home: () -> Unit, servers: () -> Unit, account: () -> Unit, settings: () -> Unit,
     modifier: Modifier = Modifier) {
-    Row(modifier.testTag("phone-console-navigation").phoneConsolePanel().selectableGroup().padding(4.dp)) {
+    Row(modifier.testTag("phone-console-navigation").phoneConsolePanel(navigation = true).selectableGroup().padding(4.dp)) {
         listOf(Triple("Главная", Icons.Default.Home, "home"), Triple("Серверы", Icons.Default.Public, "servers"),
             Triple("Подписка", MaestroCrown, "account"), Triple("Настройки", Icons.Default.Settings, "settings"))
             .zip(listOf(home, servers, account, settings)).forEach { (item, action) ->

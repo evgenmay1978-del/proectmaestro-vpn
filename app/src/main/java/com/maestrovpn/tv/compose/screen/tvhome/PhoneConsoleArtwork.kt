@@ -28,7 +28,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
+import com.maestrovpn.tv.compose.premium.ApprovedMobileBackground
 import com.maestrovpn.tv.compose.premium.ApprovedMobileBrand
+import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import kotlin.math.roundToInt
 
 // Phone-only materials. Shared premium/TV tokens and artwork remain untouched.
@@ -42,45 +44,12 @@ internal val ConsoleCoral = Color(0xFFD46A61)
 internal val ConsoleShape = RoundedCornerShape(8.dp)
 
 /** One inset profile, without a separate wood bitmap or a second cast shadow. */
-internal fun Modifier.phoneConsolePanel(selected: Boolean = false): Modifier =
-    clip(ConsoleShape).drawWithCache {
-        val inset = 1.dp.toPx()
-        val radius = CornerRadius(8.dp.toPx())
-        val metal = Brush.linearGradient(
-            listOf(ConsoleGoldLight.copy(alpha = .8f), ConsoleGold, Color(0xFF705127)),
-            Offset.Zero, Offset(size.width, size.height),
-        )
-        val surface = if (selected) Brush.linearGradient(
-            listOf(Color(0xEB174431), Color(0xEF092A1C)), Offset.Zero, Offset(size.width, size.height),
-        ) else Brush.linearGradient(
-            listOf(Color(0x64231B12), Color(0xB3100C08)), Offset.Zero, Offset(size.width, size.height),
-        )
-        onDrawBehind {
-            drawRoundRect(surface, cornerRadius = radius)
-            drawRoundRect(metal, topLeft = Offset(inset, inset),
-                size = Size(size.width - inset * 2, size.height - inset * 2),
-                cornerRadius = radius, style = Stroke(1.dp.toPx()))
-            // Fine inner lip, lit from the upper left; all panels share the same metal profile.
-            drawRoundRect(ConsoleGold.copy(alpha = .18f), topLeft = Offset(inset * 3, inset * 3),
-                size = Size((size.width - inset * 6).coerceAtLeast(0f), (size.height - inset * 6).coerceAtLeast(0f)),
-                cornerRadius = CornerRadius(6.dp.toPx()), style = Stroke(.5.dp.toPx()))
-        }
-    }
+internal fun Modifier.phoneConsolePanel(selected: Boolean = false, navigation: Boolean = false): Modifier =
+    approvedMobilePanel(selected = selected, navigation = navigation)
 
 @Composable
 private fun PhoneConsoleBackground(modifier: Modifier) {
-    val atlas = ImageBitmap.imageResource(R.drawable.mobile_approved_atlas)
-    Box(modifier.background(ConsoleWalnut)) {
-        Image(painterResource(R.drawable.phone_home_wood), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Canvas(Modifier.fillMaxSize()) {
-            // Retain the current console's side carvings; they meet the content at one common inset.
-            val rail = 24.dp.toPx().roundToInt()
-            drawImage(atlas, IntOffset(0, 0), IntSize(72, 1628),
-                IntOffset.Zero, IntSize(rail, size.height.roundToInt()))
-            drawImage(atlas, IntOffset(780, 0), IntSize(72, 1628),
-                IntOffset(size.width.roundToInt() - rail, 0), IntSize(rail, size.height.roundToInt()))
-        }
-    }
+    ApprovedMobileBackground(modifier)
 }
 
 /** Insets are consumed once. Navigation stays outside the scrollable, naturally sized content. */
