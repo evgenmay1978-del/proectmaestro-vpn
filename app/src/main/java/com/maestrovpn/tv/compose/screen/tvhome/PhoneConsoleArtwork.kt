@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.maestrovpn.tv.R
-import com.maestrovpn.tv.compose.premium.ApprovedMobileBackground
 import com.maestrovpn.tv.compose.premium.ApprovedMobileBrand
 import com.maestrovpn.tv.compose.premium.approvedMobilePanel
 import kotlin.math.roundToInt
@@ -50,7 +49,10 @@ internal fun Modifier.phoneConsolePanel(selected: Boolean = false, navigation: B
 
 @Composable
 private fun PhoneConsoleBackground(modifier: Modifier) {
-    ApprovedMobileBackground(modifier)
+    Box(modifier.background(ConsoleWalnut)) {
+        Image(painterResource(R.drawable.phone_home_wood), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+        Image(painterResource(R.drawable.phone_home_frame), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+    }
 }
 
 /** Insets are consumed once. Navigation stays outside the scrollable, naturally sized content. */
@@ -70,7 +72,7 @@ internal fun PhoneConsoleLayout(
             val contentWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             // The reference medallion nearly fills the inner console width; keeping it at
             // 299.dp made the phone candidate read as the older compact screen.
-            val heroWidth = minOf(contentWidth, (maxHeight - contentWidth / 5f - 450.dp).coerceIn(240.dp, 380.dp))
+            val heroWidth = minOf(contentWidth, (maxHeight - contentWidth / 5f - 470.dp).coerceIn(240.dp, 380.dp))
             val view = LocalView.current
             androidx.compose.runtime.SideEffect {
                 // Let the approved wood continue under Android's bars without drawing fake
@@ -78,6 +80,10 @@ internal fun PhoneConsoleLayout(
                 (view.context as? android.app.Activity)?.window?.apply {
                     statusBarColor = android.graphics.Color.TRANSPARENT
                     navigationBarColor = android.graphics.Color.TRANSPARENT
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        isStatusBarContrastEnforced = false
+                        isNavigationBarContrastEnforced = false
+                    }
                 }
             }
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -86,10 +92,10 @@ internal fun PhoneConsoleLayout(
                         .testTag("phone-console-scroll").verticalScroll(rememberScrollState())
                         .padding(top = 8.dp, bottom = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     // Keep the approved wordmark's aspect ratio and original carved lettering.
-                    ApprovedMobileBrand(Modifier.fillMaxWidth().aspectRatio(724f / 145f))
+                    ApprovedMobileBrand(Modifier.fillMaxWidth().aspectRatio(724f / 120f))
                     content(heroWidth)
                 }
                 PhoneBottomNavigation(activeTab, onHome, onServers, onAccount, onSettings,
