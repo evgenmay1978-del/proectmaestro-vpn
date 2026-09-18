@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -222,6 +223,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNCharge(w http.ResponseWrit
 	}
 	login, err := s.flatCDNLoginByUUID(r.Context(), uuid)
 	if err != nil {
+		log.Printf("flat-cdn charge lookup failed uuid=%s: %v", uuid, err)
 		writeControlPlaneBusinessError(w, err)
 		return
 	}
@@ -233,6 +235,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNCharge(w http.ResponseWrit
 		Login: login, Action: "debit", Bytes: request.Bytes, Actor: "flatmeter", IdempotencyKey: key,
 	})
 	if err != nil {
+		log.Printf("flat-cdn charge rejected login=%s uuid=%s bytes=%d: %v", login, uuid, request.Bytes, err)
 		writeControlPlaneBusinessError(w, err)
 		return
 	}

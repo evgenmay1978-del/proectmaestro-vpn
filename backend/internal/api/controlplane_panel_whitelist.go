@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log"
 	"errors"
 	"net/http"
 
@@ -80,6 +81,7 @@ func (b *ServiceBusiness) PanelWhiteListAdmin(ctx context.Context, command panel
 	}
 	switch command.Action {
 	case "debit":
+		log.Printf("panel whitelist debit login=%s bytes=%d ent=%s", command.Login, command.Bytes, entitlement.EntitlementID())
 		_, err = b.service.DebitWhiteListUsage(ctx, controlplane.DebitWhiteListUsageCommand{EntitlementID: entitlement.EntitlementID(), Bytes: command.Bytes, IdempotencyKey: command.IdempotencyKey, Actor: command.Actor})
 	case "credit":
 		_, err = b.service.CreditWhiteListManualGB(ctx, controlplane.CreditWhiteListManualGBCommand{EntitlementID: entitlement.EntitlementID(), GB: command.GB, IdempotencyKey: command.IdempotencyKey, Actor: command.Actor})
