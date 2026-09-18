@@ -1,4 +1,87 @@
 # MaestroVPN — актуальный контекст и передача работы
+## 0Y. INCIDENT: rqlite перестал делать strong-чтения → CDN-контроллер лёг → подписка 502 (18.09.2026)
+
+Симптом владельца: «подписка даже не обновляется, HTTP error 502» + CDN-локации не авторизовали клиентов.
+
+Подтверждённая цепочка:
+
+- nginx на порту 8911 отдаёт все `/sub/*` в upstream `127.0.0.1:18910` — это порт службы
+  `maestro-cdn-controller`. В `nginx error.log` поток: `connect() failed (111: Connection refused)
+  while connecting to upstream, request: "GET /sub/... " upstream: "http://127.0.0.1:18910/sub/..."` → клиенту 502.
+- `maestro-cdn-controller` был в рестарт-петле:
+  `build rqlite runtime: rqlite runtime: schema unavailable: controlplane: verify schema: rqlite:
+  request transport failed` (вариант шага: `verify voter foreign keys`).
+- Панель (`maestro-panel`, 8910) при этом была жива и rqlite не использует — поэтому админка работала, а подписка нет.
+
+Первопричина (замеры с primary 193.17.183.48, сертификаты контроллера):
+
+- Кластер rqlite из **двух** голосующих (`s2`, `s3`), обе ноды `v10.1.0`, лидер `s3`, term 46,
+  `applied_index == last_log_index == commit_index`, `/nodes` показывает обоих `reachable`.
+- **strong-чтения не выполнялись**: `POST /db/query?level=strong` — таймаут 8–10 с на ОБОИХ узлах;
+  `GET /status` на лидере — тоже таймаут. Weak/none-чтения, `/db/query` без `level` и `/nodes`
+  отвечали за 0.09–0.2 с; TLS и ALPN в порядке (`curl --http2` — 200). `strace`/tcpdump: TLS-хендшейк
+  проходит, дальше запрос уходит и ответа нет до клиентского таймаута.
+- Go-клиент go-rqlite по умолчанию читает со `level=strong`, поэтому контроллер не мог построить
+  rqlite-runtime и падал за ~20 с.
+- Оба `rqlited` перезапускались 17.09 (s3 10:46, s2 16:00) — совпадает с началом отказов.
+
+Лечение (выполнено, проверено):
+
+- `systemctl restart maestro-cdn-rqlite-s3` на S3 → лидером стал `s2` (s3 — follower).
+- После рестарта strong-чтения — HTTP 200 за 0.15–0.25 с, стабильно (3 прогона подряд на обоих узлах).
+- `systemctl reset-failed maestro-cdn-controller; systemctl start maestro-cdn-controller` → служба
+  `active`, `NRestarts=0`, слушает `127.0.0.1:18910`, `/healthz` = `ok 00ff51be4520aeedbafa7a43c3686be482b69eeb`,
+  в логе `maestro-panel listening on 127.0.0.1:18910 (rqlite control plane)`.
+- Подписка снаружи: **HTTP 200** в обоих проверенных форматах (`?format=xray` и `?device=…`).
+  502 закрыт.
+- Мелочь: `GET /status` на `s3`-follower всё ещё висит — на работу не влияет, `s2` отдаёт статус.
+
+Остаток (НЕ закрыто, следующая сессия):
+
+- Контроллер не завершает проходы white-list/metering:
+  `white-list metering reconciliation deferred: empty bootstrap … controlplane: deliver white-list
+  sidecar desired: controlplane: unavailable (sampling: <nil>)`;
+  в `diag.jsonl` — `passes_completed_6m: 0`, `deferrals_6m` растёт.
+- Что уже исключено замерами: rqlite здоров (weak/strong/status 0.12–0.25 с); схема на месте
+  (84 таблицы, `schema_migrations` до версии 21); sidecar-агенты на всех четырёх узлах живы —
+  с клиентским сертификатом контроллера и SNI `maestro-agent-sN.internal:18443`
+  `POST /v1/desired` без тела даёт **400** (эндпоинт есть и валидирует payload), `GET` — 405;
+  лиза в rqlite живая (`cluster_job_leases`, job `external-action:whitelist_sidecar_apply`,
+  holder `worker_…`, TTL 30 с обновляется).
+- Формат ошибки в бинаре: `metering plan after %s: %w (sampling: %v)` — `sampling: <nil>` это лишь
+  nil-диагностика, реальная ошибка — `controlplane: unavailable` на шаге доставки desired.
+- Версии/сборки: unit запускает `panel-candidate-00ff51b` (билд 00ff51b, 14.09),
+  `ConditionFileIsExecutable` смотрит на `panel-candidate-b14738d` (10.09), рядом лежит
+  `/opt/maestro-cdn-controller/releases/4d8e237/` (12.09), у агента свой
+  `MAESTRO_RELEASE_ID`. Гипотеза: доставка desired отклоняется из-за несовпадения сборок/цепочки
+  доверия (controller build vs agent release/CA).
+- Следующий безопасный шаг: сверить release id и CA-каталоги агента и контроллера, вернуть unit на
+  штатную сборку **с бэкапом юнита**, релиз проверять ручным запуском 40–60 с и обязательно
+  возвращать systemd-сервис; смотреть логи агентов (`/var/log/maestro-xray-cdn-commercial/`,
+  `MAESTRO_RECEIPT_DIRECTORY`).
+
+Дрейф от утверждённого дизайна (важно):
+
+- Раздел 0V утверждает **трёхузловой** rqlite-кворум на живых S2/S3/S4. По факту 18.09 кворум
+  **двухзвенный**: `s2` + `s3`, а на S4 порты rqlite (4001/4002) **закрыты** — узла в кластере нет.
+  Двухзвенный кворум без запаса отказоустойчивости: одиночный рестарт узла (как 17.09) выводит
+  кластер в состояние, где strong-чтения не обслуживаются. Вернуть S4 в кластер или явно
+  зафиксировать решение владельца о двух узлах.
+
+Наблюдаемость (уже есть, не изобретать):
+
+- `maestro-cdn-watch@S1.service`, `maestro-cdn-probe.service`, `maestro-cdn-diag.timer`;
+  `/var/log/maestro-cdn-watch/{diag,events}.jsonl` — там rqlite `weak_ms/linearizable_ms/strong_ms/status_ms`
+  и счётчики проходов контроллера (`passes_completed_6m`, `deferrals_6m`, `last_deferrals`).
+
+Ловушка адресов (для новых сессий):
+
+- `193.17.53.133` (старый адрес primary) не отвечает ни на одном порту (22/80/443/8910/8911/2053 — таймаут).
+  Актуальный primary — `193.17.183.48` (см. 0W). Домен панели резолвится именно туда.
+
+Границы: панель, клиенты, биллинг, OTA, DNS, сертификаты и протоколы (VLESS/Reality, AnyTLS, Hysteria2,
+Naive, XHTTP) в этой работе не менялись; тронут только rqlite-кластер (рестарт лидера) и служба
+CDN-контроллера.
 
 ## 0X. PR #87 — актуальное состояние WDTT/olcRTC (14.08.2026)
 
