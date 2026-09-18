@@ -521,6 +521,7 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok " + BuildCommit))
 	})
 	mux.HandleFunc("/sub/", s.handleControlPlaneSub)
+	mux.HandleFunc("/cdn-sub/", s.handleControlPlaneFlatCDNSubscription)
 	mux.HandleFunc("/claim", s.handleControlPlaneClaim)
 	mux.HandleFunc("/order/catalog", s.handleControlPlaneCommercialCatalog)
 	mux.HandleFunc("/order/tariffs", s.handleControlPlaneTariffs)

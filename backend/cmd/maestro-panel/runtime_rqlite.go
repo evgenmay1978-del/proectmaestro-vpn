@@ -213,6 +213,7 @@ func rqliteAPIConfigFromEnvironment() api.Config {
 		SBPPhone:                os.Getenv("MAESTRO_SBP_PHONE"),
 		PayURL:                  os.Getenv("MAESTRO_SBP_PAY_URL"),
 		CustomerCDNSalesEnabled: os.Getenv("MAESTRO_CUSTOMER_CDN_SALES_ENABLE") == "1",
+		FlatCDNSubFile:          os.Getenv("MAESTRO_FLAT_CDN_SUB_FILE"),
 		UpdateDir:               env("MAESTRO_UPDATE_DIR", "/var/lib/maestro/update"),
 		ReportDir:               env("MAESTRO_REPORT_DIR", "/var/lib/maestro/reports"),
 		EnforceDeviceLimit:      deviceLimitEnforced(env("MAESTRO_DEVICE_LIMIT", "on")),
