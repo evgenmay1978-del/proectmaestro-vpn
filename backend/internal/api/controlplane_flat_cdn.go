@@ -22,6 +22,10 @@ import (
 
 const flatCDNSubscriptionPrefix = "/cdn-sub/"
 
+// flatCDNMaxPageSize is the largest customer page the control plane accepts;
+// a bigger limit is answered with a forbidden error, not an empty page.
+const flatCDNMaxPageSize = 200
+
 var (
 	errFlatCDNUnavailable       = errors.New("flat cdn subscription unavailable")
 	errFlatCDNUnsupportedFormat = errors.New("unsupported flat cdn subscription format")
@@ -250,7 +254,7 @@ func (s *ControlPlaneServer) flatCDNLoginByUUID(ctx context.Context, uuid string
 		return "", serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
 	active := true
-	customers, err := s.business.ListCustomers(ctx, CustomerFilter{Active: &active, Limit: 500})
+	customers, err := s.business.ListCustomers(ctx, CustomerFilter{Active: &active, Limit: flatCDNMaxPageSize})
 	if err != nil {
 		return "", err
 	}
@@ -447,7 +451,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNClients(w http.ResponseWri
 	}
 	limit := 200
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 500 {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= flatCDNMaxPageSize {
 			limit = parsed
 		}
 	}
