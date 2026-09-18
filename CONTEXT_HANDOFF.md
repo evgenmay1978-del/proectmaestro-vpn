@@ -1,4 +1,47 @@
 # MaestroVPN — актуальный контекст и передача работы
+
+## 1A. INCIDENT: CDN-узел «падал» после ребута — не восстанавливалась nft-таблица (18.09.2026)
+
+Контекст: владелец «CDN заработал в INCY» → «и опять отвалился»; в клиенте все CDN-локации `n/a`.
+Первопричина: после ребута CDN-узла исчезла nft-таблица `inet maestro_xray_cdn`. Её не создаёт ни один
+компонент — sidecar-агент только читает её в readiness-preflight (`internal/preflight/preflight.go`),
+сравнивая сеты `active_origins_18084` / `controller_source_18443` с runtime-контрактом узла. Нет таблицы →
+preflight не проходит → `Refresh`/`Apply` агента не выполняются (в журнале каждые 10 с
+`maestro sidecar agent readiness refresh failed`) → контроллер не доставляет white-list
+(`deliver white-list sidecar desired: controlplane: unavailable`) → узел не авторизует клиентов.
+
+Сделано:
+
+- таблица восстановлена из снапшота; доставка пошла (white-list generation 13731+), в INCY заработало;
+- **самовосстановление на всех четырёх узлах**: `/usr/local/sbin/maestro-xray-cdn-firewall` (строит таблицу
+  из `runtime/active-origin-ips.json` и `runtime/controller-source-ip.json`), юнит
+  `maestro-xray-cdn-firewall.service` (`Before` юнита агента, enabled) и таймер каждые 5 минут
+  (`OnBootSec=2min`, `OnCalendar=*:0/5`; без `RemainAfterExit` — иначе повторный запуск oneshot-юнита
+  становится no-op и таймер не срабатывает);
+- сторож `maestro-cdn-stability-watch.timer` на primary: раз в минуту проверяет свежесть white-list receipt
+  (TTL 120 с) и `/healthz` контроллера; при простое >240 с или healthz≠ok трижды перезапускает контроллер
+  (не чаще 1 раза в 10 мин), лог `/var/log/maestro-cdn-stability.log`.
+
+Проверка (принято): `passes_completed_6m > 0` (было 0), строк `reconciliation deferred` за 90 с нет,
+подписка снаружи 200, агент узла без ошибок.
+
+Остаток:
+
+- **метод аплинка CDN**: край принимает только `OPTIONS` (GET → 400, POST → 405), а панель отдаёт клиенту
+  `"uplinkHTTPMethod": "GET"`; по инструкции владельца нужно `OPTIONS` + преобразование `OPTIONS → POST`
+  на origin. Правка — в генераторе CDN-ссылки панели + пересборка; до неё CDN-локации в клиентах,
+  слушающих `extra`, не работают;
+- каденция доставки 64–110 с при TTL 120 с: проходы метеринга 20–50 с, база rqlite ~1.4 ГБ
+  (`whitelist_metering_events` 675 МБ) → нужен retention/VACUUM (решение владельца, биллинг не трогали);
+- периодические деградации проходов: guard `integer overflow` в shadowbilling, `byte admissions`,
+  `settled byte refill / origin usage lookup / account admission` (таймауты 8–50 с);
+- контроллер запущен из бэкап-кандидата (`panel-candidate-00ff51b`), Condition смотрит на `b14738d`,
+  рядом релиз `4d8e237` — привести к актуальной сборке (строки `uplinkHTTPMethod` в доступных ветках нет);
+- rqlite: кворум двухзвенный, одиночный рестарт `rqlited` ломает strong-чтения (см. 0Y) — нужен health-check лидера.
+
+Подробный разбор и команды: приватная память `maestro-memory → cdn-node-nft-firewall-selfheal-2026-09-18.md`.
+
+
 ## 0Z. ОКРУЖЕНИЕ: ops-окружение восстановлено на primary, старый сторож olcRTC снят (18.09.2026)
 
 Контекст: после переезда/переустановки primary (см. 0W) на нём не восстановили рабочее окружение агента,
