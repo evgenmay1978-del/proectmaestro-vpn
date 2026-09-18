@@ -274,6 +274,9 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialDelivery(w http.Respons
 	}
 	var request struct {
 		Client string `json:"client"`
+		// CDN asks for the standalone CDN subscription in the same
+		// per-application descriptor the regular subscription uses.
+		CDN bool `json:"cdn"`
 	}
 	if !decodeControlPlanePublicMutation(w, r, &request) {
 		return
@@ -285,6 +288,10 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialDelivery(w http.Respons
 	}
 	idempotencyKey, ok := s.controlPlanePublicIdempotencyKey(w, r, "/account/subscription-delivery", customer.CustomerID, client)
 	if !ok {
+		return
+	}
+	if request.CDN {
+		s.writeFlatCDNSubscriptionDelivery(w, r, client)
 		return
 	}
 	view, err := s.commercial.SubscriptionDelivery(r.Context(), CommercialDeliveryCommand{
