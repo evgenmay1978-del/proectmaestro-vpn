@@ -133,7 +133,7 @@ func WrapLegacySubscriptions(
 			// through to the native handler instead of being returned to the client.
 			recorder := &legacyFallbackRecorder{header: http.Header{}, status: http.StatusOK}
 			proxy.ServeHTTP(recorder, request)
-			if recorder.status == http.StatusNotFound && !recorder.streamed {
+			if recorder.status == http.StatusNotFound {
 				next.ServeHTTP(w, request)
 				return
 			}
