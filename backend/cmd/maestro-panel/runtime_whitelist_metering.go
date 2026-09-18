@@ -22,7 +22,7 @@ import (
 const (
 	runtimeWhiteListMeteringInterval   = 2 * time.Second
 	runtimeWhiteListMeteringPassBudget = 5 * time.Second
-	runtimeWhiteListUseLeaseWindow     = 60 * time.Second
+	runtimeWhiteListUseLeaseWindow     = 180 * time.Second
 )
 
 // A durable debit can consume the whole sampling window on a loaded control
@@ -561,6 +561,22 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		return fmt.Errorf("lease authorization: %w (context: %v)", err, ctx.Err())
 	}
 	log.Printf("white-list metering timing: after authorization=%s", time.Since(started).Round(time.Millisecond))
+	if collector.byteBudgetBytes > 0 {
+		// A lease that lapses while this pass is running leaves final fence
+		// receipts behind. The start-of-pass drain cannot see them yet, and the
+		// nonce refresh below rejects any pass that observes them, so without a
+		// second drain a slow pass could never renew the lease again.
+		authorityChangedBefore := collector.leaseAuthorityChanged
+		if err := collector.drainFinalReceipts(ctx, leaseControl); err != nil {
+			return fmt.Errorf("mid-pass final receipt drain: %w", err)
+		}
+		if collector.leaseAuthorityChanged && !authorityChangedBefore {
+			// The drain changed the authority the authorization above was
+			// evaluated against. Deliver nothing this pass; the next pass
+			// re-reads the observation and authorizes the drained state.
+			return nil
+		}
+	}
 	authorizedRoutes := make(map[string]struct{}, len(authorization.Emails))
 	for _, email := range authorization.Emails {
 		if _, exists := routes[email]; !exists {
