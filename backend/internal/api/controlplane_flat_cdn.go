@@ -147,7 +147,9 @@ func (s *ControlPlaneServer) renderFlatCDNSubscription(_ context.Context, entitl
 		case "", "xray", "json":
 			// The CDN subscription carries CDN nodes only: the ordinary servers live
 			// in the regular subscription, and the product keeps them separate.
-			rendered, err := subgen.WhiteListXrayJSONSubscriptions(nodes)
+			// Each node is rendered on its own and merged, so one rejected node cannot
+			// hide the others and every remark keeps its own country label.
+			rendered, err := flatCDNXrayDocument(nodes)
 			if err != nil {
 				return nil, "", err
 			}
@@ -308,12 +310,40 @@ func (s *ControlPlaneServer) flatCDNNodes() ([]subgen.WhiteListNode, error) {
 
 // flatCDNShareLinkPayload is the encoded share-link subscription every
 // third-party client understands.
+// flatCDNXrayDocument renders every node separately and merges the arrays.
+func flatCDNXrayDocument(nodes []subgen.WhiteListNode) ([]byte, error) {
+	merged := make([]json.RawMessage, 0, len(nodes))
+	for _, node := range nodes {
+		part, err := subgen.WhiteListXrayJSONSubscription(node, "")
+		if err != nil {
+			continue
+		}
+		var items []json.RawMessage
+		if json.Unmarshal(part, &items) != nil {
+			continue
+		}
+		merged = append(merged, items...)
+	}
+	if len(merged) == 0 {
+		return nil, errFlatCDNUnavailable
+	}
+	return json.Marshal(merged)
+}
+
 func flatCDNShareLinkPayload(nodes []subgen.WhiteListNode) ([]byte, error) {
 	links := make([]string, 0, len(nodes))
 	for _, node := range nodes {
 		link, err := subgen.WhiteListShareLink(node)
 		if err != nil {
 			return nil, err
+		}
+		if label := strings.TrimSpace(node.Label); label != "" {
+			// The subgen share link keeps one fixed label; the panel gives every
+			// CDN node its own country label so clients can tell them apart.
+			if base, _, found := strings.Cut(link, "#"); found {
+				link = base
+			}
+			link += "#" + url.QueryEscape(label)
 		}
 		links = append(links, link)
 	}
