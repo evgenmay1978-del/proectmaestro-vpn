@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -206,6 +207,7 @@ func (s *ControlPlaneServer) handleControlPlaneSub(w http.ResponseWriter, r *htt
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	rest := strings.TrimPrefix(r.URL.Path, "/sub/")
+	log.Printf("sub handler entry: path=%s token_len=%d ua=%s", r.URL.Path, len(rest), r.UserAgent()[:min(24, len(r.UserAgent()))])
 	info := strings.HasSuffix(rest, "/info")
 	helpers := strings.HasSuffix(rest, "/helpers")
 	if info {
