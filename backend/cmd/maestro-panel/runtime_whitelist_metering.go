@@ -216,6 +216,9 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	collector.cachedLeaseAuthority = nil
 	protectedByEarlyLease := false
 	var settlementErr error
+	// Accounts whose durable debit is deferred in this pass. They keep their
+	// deferred debit but must not be funded or leased until it is applied.
+	failedAccounts := make(map[string]struct{})
 	passBudget, processingBudget := runtimeWhiteListMeteringPassBudget, runtimeWhiteListMeteringInterval
 	if collector.byteBudgetBytes > 0 {
 		// Prepaid byte ceilings bound forwarding independently of processing time.
@@ -494,7 +497,6 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			}
 		}()
 	}
-	failedAccounts := make(map[string]struct{})
 	for range settlements {
 		result := <-results
 		if result.err == nil {
