@@ -33,6 +33,7 @@ type flatCDNEntitlement struct {
 	Known            bool
 	Login            string
 	CustomerID       string
+	ExpiresAtUnix    int64
 	Active           bool
 	AvailableBytes   int64
 	PeriodEndsAtUnix int64
@@ -86,11 +87,17 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte("MaestroVPN CDN")))
+	w.Header().Set("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte("MaestroVPN VPN + CDN")))
 	w.Header().Set("Profile-Update-Interval", "1")
 	// The white-list balance IS the remaining quota of this subscription, so it
 	// is reported as an untouched total and every client shows it as remaining.
-	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=%d; expire=%d", entitlement.AvailableBytes, entitlement.PeriodEndsAtUnix))
+	expire := entitlement.PeriodEndsAtUnix
+	if entitlement.ExpiresAtUnix > 0 && (expire == 0 || entitlement.ExpiresAtUnix < expire) {
+		// The CDN cannot outlive the regular subscription, so the client shows the
+		// earlier of the two ends instead of a far-away billing period.
+		expire = entitlement.ExpiresAtUnix
+	}
+	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=%d; expire=%d", entitlement.AvailableBytes, expire))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
 }
@@ -316,7 +323,10 @@ func (s *ControlPlaneServer) flatCDNEntitlement(ctx context.Context, token strin
 	if err != nil {
 		return flatCDNEntitlement{}, err
 	}
-	entitlement := flatCDNEntitlement{Known: true, Login: customer.Login, CustomerID: customer.CustomerID, Active: customer.Active}
+	entitlement := flatCDNEntitlement{
+		Known: true, Login: customer.Login, CustomerID: customer.CustomerID,
+		Active: customer.Active, ExpiresAtUnix: customer.Expires.Unix(),
+	}
 	balance, balanceErr := s.commercial.WhiteListBalance(ctx, customer.CustomerID)
 	if balanceErr != nil {
 		if controlPlaneCommercialStatus(balanceErr) == http.StatusNotFound {
