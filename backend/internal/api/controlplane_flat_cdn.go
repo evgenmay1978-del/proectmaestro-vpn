@@ -188,8 +188,7 @@ func flatCDNShareLinkPayload(nodes []subgen.WhiteListNode) ([]byte, error) {
 		}
 		links = append(links, link)
 	}
-	return []byte(base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "
-")))), nil
+	return []byte(base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))), nil
 }
 
 // writeFlatCDNSubscriptionDelivery answers the per-application delivery request
