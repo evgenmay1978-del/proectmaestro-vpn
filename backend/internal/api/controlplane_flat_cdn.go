@@ -105,7 +105,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 // renderFlatCDNSubscription renders the paid flat-CDN node for the requested
 // client representation. The on-disk node file wins; FlatCDNSubFile stays as a
 // verbatim emergency override that ignores the requested format.
-func (s *ControlPlaneServer) renderFlatCDNSubscription(ctx context.Context, entitlement flatCDNEntitlement, token string, query url.Values) ([]byte, string, error) {
+func (s *ControlPlaneServer) renderFlatCDNSubscription(_ context.Context, entitlement flatCDNEntitlement, token string, query url.Values) ([]byte, string, error) {
 	raw := query.Get("raw") == "1"
 	nodes, nodeErr := s.flatCDNNodes()
 	if nodeErr == nil {
@@ -125,26 +125,14 @@ func (s *ControlPlaneServer) renderFlatCDNSubscription(ctx context.Context, enti
 		}
 		switch strings.ToLower(strings.TrimSpace(query.Get("format"))) {
 		case "", "xray", "json":
-			// The customer's own subscription plus the CDN node: one document with
-			// every server, so the second link is a full subscription, not a stub.
-			if ordinary := s.ordinarySubscriptionPayload(ctx, token); ordinary != "" {
-				if combined, combineErr := subgen.WhiteListCombinedXrayJSONSubscription(ordinary, nodes); combineErr == nil {
-					return combined, "application/json; charset=utf-8", nil
-				}
-			}
+			// The CDN subscription carries CDN nodes only: the ordinary servers live
+			// in the regular subscription, and the product keeps them separate.
 			rendered, err := subgen.WhiteListXrayJSONSubscriptions(nodes)
 			if err != nil {
 				return nil, "", err
 			}
 			return rendered, "application/json; charset=utf-8", nil
 		case "links", "link", "base64", "v2ray", "v2raytun", "mihomo", "clash":
-			// Every ordinary share link gets the CDN link appended, so a client
-			// that imports this subscription sees all servers plus the CDN node.
-			if ordinary := s.ordinarySubscriptionPayload(ctx, token); ordinary != "" {
-				if combined, combineErr := subgen.AppendWhiteListShareLinks(ordinary, nodes); combineErr == nil {
-					return []byte(combined), "text/plain; charset=utf-8", nil
-				}
-			}
 			rendered, err := flatCDNShareLinkPayload(nodes)
 			if err != nil {
 				return nil, "", err
