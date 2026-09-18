@@ -230,8 +230,17 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialBalance(w http.Response
 	}
 	view, err := s.commercial.WhiteListBalance(r.Context(), customer.CustomerID)
 	if err != nil {
-		writeControlPlaneCommercialError(w, err)
-		return
+		// A customer who never bought CDN traffic has no white-list account yet.
+		// Report the honest zero balance, together with the regular VPN state,
+		// instead of turning a first-time buyer away with "not found".
+		if controlPlaneCommercialStatus(err) != http.StatusNotFound {
+			writeControlPlaneCommercialError(w, err)
+			return
+		}
+		view = WhiteListBalanceView{PrimaryAccessState: "INACTIVE"}
+		if customer.Active {
+			view.PrimaryAccessState = "ACTIVE"
+		}
 	}
 	if view.AccountID != "" && view.AccountID != customer.CustomerID {
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
