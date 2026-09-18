@@ -22,7 +22,7 @@ import (
 const (
 	runtimeWhiteListMeteringInterval   = 2 * time.Second
 	runtimeWhiteListMeteringPassBudget = 5 * time.Second
-	runtimeWhiteListUseLeaseWindow     = 60 * time.Second
+	runtimeWhiteListUseLeaseWindow     = 180 * time.Second
 )
 
 // A durable debit can consume the whole sampling window on a loaded control

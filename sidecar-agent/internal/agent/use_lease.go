@@ -16,7 +16,10 @@ type managedRuntimeController interface {
 	ApplyManagedControl(context.Context, runtimefence.Control) (runtimefence.Receipt, error)
 }
 
-const managedLeaseWindow = 60 * time.Second
+// The use lease must outlive one full reconciliation pass (the controller
+// budget is 110 s). A 60 s window lapsed inside its own pass, so the agent
+// fenced every user before the next lease arrived.
+const managedLeaseWindow = 180 * time.Second
 
 type UseLeaseRequest struct {
 	Schema                   int               `json:"schema"`
