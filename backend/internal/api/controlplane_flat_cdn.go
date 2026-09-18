@@ -2,14 +2,29 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
 )
 
 const flatCDNSubscriptionPrefix = "/cdn-sub/"
+
+// flatCDNEntitlement is the product state behind the standalone CDN
+// subscription: whether the bearer is a known customer, whether the regular VPN
+// subscription is active, and how many CDN bytes are still available.
+type flatCDNEntitlement struct {
+	Known            bool
+	Login            string
+	Active           bool
+	AvailableBytes   int64
+	PeriodEndsAtUnix int64
+}
 
 // handleControlPlaneFlatCDNSubscription serves the standalone CDN subscription
 // — the second subscription a customer holds next to the regular VPN one.
@@ -43,29 +58,24 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
 		return
 	}
-	customer, err := s.commercial.CustomerByToken(r.Context(), token)
+	entitlement, err := s.flatCDNEntitlement(r.Context(), token)
 	if err != nil {
 		writeControlPlaneCommercialError(w, err)
 		return
 	}
-	if !customer.Active {
+	if !entitlement.Known {
+		writeControlPlaneJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if !entitlement.Active {
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "vpn subscription inactive"})
 		return
 	}
-	balance, err := s.commercial.WhiteListBalance(r.Context(), customer.CustomerID)
-	if err != nil {
-		writeControlPlaneCommercialError(w, err)
-		return
-	}
-	if balance.AccountID != "" && balance.AccountID != customer.CustomerID {
-		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
-		return
-	}
-	if balance.AvailableBytes <= 0 {
+	if entitlement.AvailableBytes <= 0 {
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "cdn traffic exhausted"})
 		return
 	}
-	body := renderFlatCDNSubscription(document, token, customer.Login)
+	body := renderFlatCDNSubscription(document, token, entitlement.Login)
 	if r.URL.Query().Get("raw") == "1" {
 		if decoded, decodeErr := base64.StdEncoding.DecodeString(strings.TrimSpace(string(body))); decodeErr == nil && len(decoded) != 0 {
 			body = decoded
@@ -76,7 +86,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 	w.Header().Set("Profile-Update-Interval", "1")
 	// The white-list balance IS the remaining quota of this subscription, so it
 	// is reported as an untouched total and every client shows it as remaining.
-	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=%d; expire=%d", balance.AvailableBytes, balance.PeriodEndsAtUnix))
+	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=%d; expire=%d", entitlement.AvailableBytes, entitlement.PeriodEndsAtUnix))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
 }
@@ -96,4 +106,52 @@ func flatCDNContentType(document []byte) string {
 		return "application/json; charset=utf-8"
 	}
 	return "text/plain; charset=utf-8"
+}
+
+// flatCDNEntitlement resolves the gate for one bearer.
+//
+// The commercial port only knows customers that already bought CDN traffic: a
+// customer who never topped up has no white-list account and its lookup returns
+// "not found". That is an ENTITLEMENT denial, not a missing subscription, so the
+// identity is confirmed through the primary subscription port and the balance is
+// reported as zero. Unknown bearers stay "not found".
+func (s *ControlPlaneServer) flatCDNEntitlement(ctx context.Context, token string) (flatCDNEntitlement, error) {
+	if s.commercial == nil {
+		return flatCDNEntitlement{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
+	}
+	customer, err := s.commercial.CustomerByToken(ctx, token)
+	if err == nil {
+		balance, balanceErr := s.commercial.WhiteListBalance(ctx, customer.CustomerID)
+		if balanceErr != nil {
+			return flatCDNEntitlement{}, balanceErr
+		}
+		if balance.AccountID != "" && balance.AccountID != customer.CustomerID {
+			return flatCDNEntitlement{}, serviceBusinessError{err: controlplane.ErrForbidden, status: http.StatusForbidden}
+		}
+		return flatCDNEntitlement{
+			Known: true, Login: customer.Login, Active: customer.Active,
+			AvailableBytes: balance.AvailableBytes, PeriodEndsAtUnix: balance.PeriodEndsAtUnix,
+		}, nil
+	}
+	if controlPlaneCommercialStatus(err) != http.StatusNotFound {
+		return flatCDNEntitlement{}, err
+	}
+	source, ok := s.business.(requestSubscriptionSource)
+	if !ok {
+		return flatCDNEntitlement{}, err
+	}
+	snapshot, snapshotErr := source.subscriptionSnapshotForRequest(ctx, token, subscriptionRenderOptions{Endpoint: subscriptionEndpointInfo})
+	if snapshotErr != nil {
+		return flatCDNEntitlement{}, err
+	}
+	return flatCDNEntitlement{Known: true, Login: snapshot.Customer.Login, Active: snapshot.Customer.Active}, nil
+}
+
+func controlPlaneCommercialStatus(err error) int {
+	type statusError interface{ HTTPStatus() int }
+	var typed statusError
+	if errors.As(err, &typed) {
+		return typed.HTTPStatus()
+	}
+	return http.StatusConflict
 }
