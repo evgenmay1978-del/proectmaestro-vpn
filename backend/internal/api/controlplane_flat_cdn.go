@@ -91,6 +91,27 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 	_, _ = w.Write(body)
 }
 
+// flatCDNSubscriptionURL builds the public second-subscription URL a customer
+// imports into the client next to the regular subscription.
+func flatCDNSubscriptionURL(base, token string) string {
+	base = strings.TrimSuffix(strings.TrimSpace(base), "/")
+	token = strings.TrimSpace(token)
+	if base == "" || token == "" || strings.Contains(token, "/") {
+		return ""
+	}
+	return base + flatCDNSubscriptionPrefix + token
+}
+
+// controlPlaneBearerToken returns the customer bearer carried by the request.
+func controlPlaneBearerToken(r *http.Request) string {
+	const prefix = "Bearer "
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(header, prefix))
+}
+
 func renderFlatCDNSubscription(document []byte, token, login string) []byte {
 	replacer := strings.NewReplacer(
 		"{{TOKEN}}", token,
@@ -108,43 +129,38 @@ func flatCDNContentType(document []byte) string {
 	return "text/plain; charset=utf-8"
 }
 
-// flatCDNEntitlement resolves the gate for one bearer.
+// flatCDNEntitlement resolves the gate for one bearer: identity, whether the
+// regular VPN subscription is still active, and the remaining CDN bytes.
 //
-// The commercial port only knows customers that already bought CDN traffic: a
-// customer who never topped up has no white-list account and its lookup returns
-// "not found". That is an ENTITLEMENT denial, not a missing subscription, so the
-// identity is confirmed through the primary subscription port and the balance is
-// reported as zero. Unknown bearers stay "not found".
+// The balance lookup only knows customers that already bought CDN traffic: a
+// customer who never topped up has no white-list account and the lookup returns
+// "not found". That is a zero balance, not a missing or broken subscription, so
+// it is reported as zero and the customer still gets the entitlement message.
+// Unknown bearers keep the lookup error.
 func (s *ControlPlaneServer) flatCDNEntitlement(ctx context.Context, token string) (flatCDNEntitlement, error) {
 	if s.commercial == nil {
 		return flatCDNEntitlement{}, serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
 	}
 	customer, err := s.commercial.CustomerByToken(ctx, token)
-	if err == nil {
-		balance, balanceErr := s.commercial.WhiteListBalance(ctx, customer.CustomerID)
-		if balanceErr != nil {
-			return flatCDNEntitlement{}, balanceErr
+	if err != nil {
+		return flatCDNEntitlement{}, err
+	}
+	entitlement := flatCDNEntitlement{Known: true, Login: customer.Login, Active: customer.Active}
+	balance, balanceErr := s.commercial.WhiteListBalance(ctx, customer.CustomerID)
+	if balanceErr != nil {
+		// A customer who never bought CDN traffic has no white-list account yet.
+		// That is a zero balance, not a missing or broken subscription.
+		if controlPlaneCommercialStatus(balanceErr) == http.StatusNotFound {
+			return entitlement, nil
 		}
-		if balance.AccountID != "" && balance.AccountID != customer.CustomerID {
-			return flatCDNEntitlement{}, serviceBusinessError{err: controlplane.ErrForbidden, status: http.StatusForbidden}
-		}
-		return flatCDNEntitlement{
-			Known: true, Login: customer.Login, Active: customer.Active,
-			AvailableBytes: balance.AvailableBytes, PeriodEndsAtUnix: balance.PeriodEndsAtUnix,
-		}, nil
+		return flatCDNEntitlement{}, balanceErr
 	}
-	if controlPlaneCommercialStatus(err) != http.StatusNotFound {
-		return flatCDNEntitlement{}, err
+	if balance.AccountID != "" && balance.AccountID != customer.CustomerID {
+		return flatCDNEntitlement{}, serviceBusinessError{err: controlplane.ErrForbidden, status: http.StatusForbidden}
 	}
-	source, ok := s.business.(requestSubscriptionSource)
-	if !ok {
-		return flatCDNEntitlement{}, err
-	}
-	snapshot, snapshotErr := source.subscriptionSnapshotForRequest(ctx, token, subscriptionRenderOptions{Endpoint: subscriptionEndpointInfo})
-	if snapshotErr != nil {
-		return flatCDNEntitlement{}, err
-	}
-	return flatCDNEntitlement{Known: true, Login: snapshot.Customer.Login, Active: snapshot.Customer.Active}, nil
+	entitlement.AvailableBytes = balance.AvailableBytes
+	entitlement.PeriodEndsAtUnix = balance.PeriodEndsAtUnix
+	return entitlement, nil
 }
 
 func controlPlaneCommercialStatus(err error) int {

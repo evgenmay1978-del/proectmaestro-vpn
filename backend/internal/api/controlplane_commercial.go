@@ -87,6 +87,10 @@ type WhiteListBalanceView struct {
 	PeriodEndsAtUnix        int64  `json:"period_ends_at_unix"`
 	PrimaryAccessState      string `json:"primary_access_state"`
 	PublicationVerdict      string `json:"publication_verdict"`
+	// CDNSubURL is the standalone CDN subscription of this customer: the second
+	// subscription that carries the same private token as the regular one and is
+	// gated by an active VPN subscription plus a positive CDN balance.
+	CDNSubURL string `json:"cdn_sub_url,omitempty"`
 }
 
 type CommercialPublicationCommand struct {
@@ -234,6 +238,7 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialBalance(w http.Response
 		return
 	}
 	view.AccountID = ""
+	view.CDNSubURL = flatCDNSubscriptionURL(s.cfg.SubBaseURL, controlPlaneBearerToken(r))
 	writeControlPlaneJSON(w, http.StatusOK, view)
 }
 
