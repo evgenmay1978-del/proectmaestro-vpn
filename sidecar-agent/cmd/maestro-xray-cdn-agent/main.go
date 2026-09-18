@@ -98,7 +98,7 @@ func run() error {
 	reconciler, err := agent.NewReconciler(agent.ReconcilerConfig{
 		Handler: xray, Store: stateStore, InboundTag: agent.DefaultInboundTag,
 		ReleaseID: configuration.releaseID, ConfigDigest: configuration.configDigest,
-		ProcessBootID: bootIdentity, Preflight: readinessPreflight, ReceiptTTL: agent.DefaultReceiptTTL,
+		ProcessBootID: bootIdentity, Preflight: readinessPreflight, ReceiptTTL: configuration.receiptTTL,
 		ManagedLeaseEnabled: configuration.managedLeaseEnabled,
 	})
 	if err != nil {
@@ -194,6 +194,7 @@ type configuration struct {
 	xrayCA                   string
 	xrayServerName           string
 	xrayAPIAddress           string
+	receiptTTL               time.Duration
 }
 
 func loadConfiguration() (configuration, error) {
@@ -217,6 +218,11 @@ func loadConfiguration() (configuration, error) {
 		xrayServerName:           envOr("MAESTRO_XRAY_API_SERVER_NAME", "maestro-xray-api"),
 		xrayAPIAddress:           envOr("MAESTRO_XRAY_API_ADDRESS", "127.0.0.1:18082"),
 	}
+	receiptTTL, ttlErr := time.ParseDuration(envOr("MAESTRO_SIDECAR_RECEIPT_TTL", agent.DefaultReceiptTTL.String()))
+	if ttlErr != nil || receiptTTL <= 0 || receiptTTL > agent.MaxReceiptTTL {
+		return configuration, errors.New("sidecar agent: invalid receipt TTL configuration")
+	}
+	configuration.receiptTTL = receiptTTL
 	if configuration.releaseID == "" || !validDigest(configuration.configDigest) || !allAbsolute(configuration) ||
 		!validXrayAPIAddress(configuration.xrayAPIAddress) || !validXrayPIDPath(configuration.xrayPIDFile) {
 		return configuration, errors.New("sidecar agent: invalid environment configuration")
