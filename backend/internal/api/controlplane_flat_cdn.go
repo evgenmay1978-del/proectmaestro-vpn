@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/evgenmay1978-del/proectmaestro-vpn/backend/internal/controlplane"
@@ -29,6 +32,7 @@ var (
 type flatCDNEntitlement struct {
 	Known            bool
 	Login            string
+	CustomerID       string
 	Active           bool
 	AvailableBytes   int64
 	PeriodEndsAtUnix int64
@@ -76,7 +80,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "cdn traffic exhausted"})
 		return
 	}
-	body, contentType, err := s.renderFlatCDNSubscription(token, r.URL.Query())
+	body, contentType, err := s.renderFlatCDNSubscription(entitlement, token, r.URL.Query())
 	if err != nil {
 		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
 		return
@@ -94,10 +98,17 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 // renderFlatCDNSubscription renders the paid flat-CDN node for the requested
 // client representation. The on-disk node file wins; FlatCDNSubFile stays as a
 // verbatim emergency override that ignores the requested format.
-func (s *ControlPlaneServer) renderFlatCDNSubscription(token string, query url.Values) ([]byte, string, error) {
+func (s *ControlPlaneServer) renderFlatCDNSubscription(entitlement flatCDNEntitlement, token string, query url.Values) ([]byte, string, error) {
 	raw := query.Get("raw") == "1"
 	nodes, nodeErr := s.flatCDNNodes()
 	if nodeErr == nil {
+		if uuid := flatCDNCustomerUUID(s.cfg.FlatCDNUUIDSecret, entitlement.CustomerID); uuid != "" {
+			// One credential per customer: the flat origin can meter and revoke
+			// every subscriber on its own.
+			for index := range nodes {
+				nodes[index].ClientID = uuid
+			}
+		}
 		if raw {
 			link, err := subgen.WhiteListShareLink(nodes[0])
 			if err != nil {
@@ -277,7 +288,7 @@ func (s *ControlPlaneServer) flatCDNEntitlement(ctx context.Context, token strin
 	if err != nil {
 		return flatCDNEntitlement{}, err
 	}
-	entitlement := flatCDNEntitlement{Known: true, Login: customer.Login, Active: customer.Active}
+	entitlement := flatCDNEntitlement{Known: true, Login: customer.Login, CustomerID: customer.CustomerID, Active: customer.Active}
 	balance, balanceErr := s.commercial.WhiteListBalance(ctx, customer.CustomerID)
 	if balanceErr != nil {
 		if controlPlaneCommercialStatus(balanceErr) == http.StatusNotFound {
@@ -291,6 +302,83 @@ func (s *ControlPlaneServer) flatCDNEntitlement(ctx context.Context, token strin
 	entitlement.AvailableBytes = balance.AvailableBytes
 	entitlement.PeriodEndsAtUnix = balance.PeriodEndsAtUnix
 	return entitlement, nil
+}
+
+// flatCDNCustomerUUID derives the stable VLESS credential of one customer from
+// the panel secret. Deterministic (no extra state), unique per customer, and a
+// valid canonical UUIDv4 so the subgen validators accept it.
+func flatCDNCustomerUUID(secret, customerID string) string {
+	secret = strings.TrimSpace(secret)
+	customerID = strings.TrimSpace(customerID)
+	if secret == "" || customerID == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte("maestro-flat-cdn-uuid:" + customerID))
+	sum := mac.Sum(nil)
+	var id [16]byte
+	copy(id[:], sum[:16])
+	id[6] = (id[6] & 0x0f) | 0x40
+	id[8] = (id[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16])
+}
+
+// flatCDNClientEntry is one origin credential the flat CDN agent installs.
+type flatCDNClientEntry struct {
+	UUID           string `json:"uuid"`
+	Login          string `json:"login"`
+	ExpiresAtUnix  int64  `json:"expires_at_unix"`
+	AvailableBytes int64  `json:"available_bytes"`
+}
+
+// handleControlPlaneFlatCDNClients is the origin-side view of the entitlement:
+// every customer whose regular subscription is active and whose CDN balance is
+// positive, with the credential that must exist on the flat origin. The origin
+// agent applies the diff and never decides entitlement itself.
+func (s *ControlPlaneServer) handleControlPlaneFlatCDNClients(w http.ResponseWriter, r *http.Request) {
+	if !requireControlPlaneMethod(w, r, http.MethodGet) {
+		return
+	}
+	if strings.TrimSpace(s.cfg.FlatCDNUUIDSecret) == "" || s.commercial == nil {
+		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
+		return
+	}
+	limit := 200
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 500 {
+			limit = parsed
+		}
+	}
+	active := true
+	customers, err := s.business.ListCustomers(r.Context(), CustomerFilter{Active: &active, Limit: limit})
+	if err != nil {
+		writeControlPlaneBusinessError(w, err)
+		return
+	}
+	entries := make([]flatCDNClientEntry, 0, len(customers))
+	for _, customer := range customers {
+		uuid := flatCDNCustomerUUID(s.cfg.FlatCDNUUIDSecret, customer.CustomerID)
+		if uuid == "" {
+			continue
+		}
+		balance, balanceErr := s.commercial.WhiteListBalance(r.Context(), customer.CustomerID)
+		if balanceErr != nil {
+			// A customer without a white-list account has no CDN traffic at all.
+			if controlPlaneCommercialStatus(balanceErr) == http.StatusNotFound {
+				continue
+			}
+			writeControlPlaneCommercialError(w, balanceErr)
+			return
+		}
+		if balance.AvailableBytes <= 0 {
+			continue
+		}
+		entries = append(entries, flatCDNClientEntry{
+			UUID: uuid, Login: customer.Login,
+			ExpiresAtUnix: customer.Expires.Unix(), AvailableBytes: balance.AvailableBytes,
+		})
+	}
+	writeControlPlaneJSON(w, http.StatusOK, map[string]any{"clients": entries, "count": len(entries)})
 }
 
 func controlPlaneCommercialStatus(err error) int {

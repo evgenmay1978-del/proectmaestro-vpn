@@ -551,6 +551,7 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 		mux.HandleFunc("/admin/customers", s.controlPlaneAdmin(s.handleControlPlaneCustomers))
 		mux.HandleFunc("/admin/customer/whitelist-balance", s.controlPlaneAdmin(s.handleControlPlaneCustomerWhiteListBalance))
 		mux.HandleFunc("/admin/customer/whitelist-credit", s.controlPlaneAdmin(s.handleControlPlaneCustomerWhiteListCredit))
+		mux.HandleFunc("/admin/flat-cdn/clients", s.controlPlaneAdmin(s.handleControlPlaneFlatCDNClients))
 		mux.HandleFunc("/admin/backfill-anytls", s.controlPlaneAdmin(s.controlPlaneReconcile("anytls")))
 		mux.HandleFunc("/admin/backfill-s3", s.controlPlaneAdmin(s.controlPlaneReconcile("s3")))
 		mux.HandleFunc("/admin/backfill-s4", s.controlPlaneAdmin(s.handleControlPlaneBackfillS4))

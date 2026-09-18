@@ -111,6 +111,10 @@ type Config struct {
 	// renders the standalone CDN subscription in every client representation.
 	// Empty → /cdn-sub/ serves FlatCDNSubFile verbatim.
 	FlatCDNNodeFile         string
+	// FlatCDNUUIDSecret derives the stable per-customer VLESS credential of the
+	// standalone CDN subscription (HMAC-SHA256 → UUIDv4). Empty → the node file
+	// keeps its own shared credential.
+	FlatCDNUUIDSecret string
 	TGBotToken              string // bot token for owner payment notifications (send-only, no poll)
 	TGAdminID               string // owner's Telegram chat id
 	UpdateDir               string // dir holding the panel-hosted OTA channel (update.json + *.apk); empty disables /update/
