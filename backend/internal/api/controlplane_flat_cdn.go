@@ -32,6 +32,12 @@ var (
 	errFlatCDNUnsupportedFormat = errors.New("unsupported flat cdn subscription format")
 )
 
+// flatCDNCustomerByLogin is the frozen-port lookup used to read the paid term of
+// a customer row without widening the Business contract.
+type flatCDNCustomerByLogin interface {
+	CustomerByLogin(context.Context, string) (CustomerView, error)
+}
+
 // flatCDNEntitlement is the product state behind the standalone CDN
 // subscription: whether the bearer is a known customer, whether the regular VPN
 // subscription is active, and how many CDN bytes are still available.
@@ -416,6 +422,16 @@ func (s *ControlPlaneServer) flatCDNEntitlement(ctx context.Context, token strin
 	}
 	entitlement.AvailableBytes = balance.AvailableBytes
 	entitlement.PeriodEndsAtUnix = balance.PeriodEndsAtUnix
+	if source, ok := s.business.(flatCDNCustomerByLogin); ok && customer.Login != "" {
+		// The paid term lives on the customer row, not in the billing period: an
+		// expired subscription must switch the CDN off even while a period runs.
+		if view, lookupErr := source.CustomerByLogin(ctx, customer.Login); lookupErr == nil {
+			entitlement.ExpiresAtUnix = view.Expires.Unix()
+			if !view.Expires.IsZero() && !view.Expires.After(time.Now()) {
+				entitlement.Active = false
+			}
+		}
+	}
 	return entitlement, nil
 }
 
