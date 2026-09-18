@@ -1,5 +1,51 @@
 # MaestroVPN — актуальный контекст и передача работы
 
+## 1B. 18.09.2026, вечер: «CDN то работает, то нет» — что сделано и что осталось
+
+Симптом владельца: CDN-локации в INCY то с пингом, то `n/a`, то исчезают из подписки; «у Аконита работает, у нас нет».
+
+### Диагноз (замерами, не догадками)
+1. Проход метеринга падал на списании одного аккаунта и не доходил до выдачи use-lease → узел не авторизовал клиентов → CDN `n/a`.
+2. Бюджет прохода 50 с не вмещал тяжёлые стадии (plan 10–39 с, settlement до 64 с) → проход умирал до фазы лизы.
+3. Квитанция агента жила 2 мин при каденции доставки 64–110 с → квитанция протухала и закрывала «origin proofs».
+4. Оплаченный аккаунт, выпавший из managed-set, не мог вернуться (`wasManaged`-гейт): нет наблюдения → нет публикации → нет CDN-ссылок. Именно это случилось с аккаунтом владельца (`wl-ent-a19fe2fb…`, 62,66 ГБ).
+5. Днём rqlite-кластер потерял лидера (следствие чистки устаревшего снапшота): кластер восстановлен клоном S3→S2, диск S2 расширен до 20 ГБ.
+
+### Выкачено (ветка `codex/cdn-lease-decouple-20260918`, PR #92)
+| # | Правка | Сборка | Где | Откат |
+|---|---|---|---|---|
+| P1 | settlement изолирован по аккаунтам (ошибка одного не рвёт проход) | e65ffadd | контроллер S1 | `/var/backups/maestro-commercial-controller-20260904-s4-qzBchh/cdn-lease-decouple-v3-*/unit.before` |
+| P2 | бюджет прохода 110 с, исчерпание бюджета = deferral | afc6a37f | контроллер | `.../cdn-budget-*/unit.before` |
+| P3 | агент: TTL квитанции 10 мин (`MAESTRO_SIDECAR_RECEIPT_TTL=10m`) | e65ffadd | S4 agent | `/root/agent-upgrade-*/` |
+| P4 | снят гейт `wasManaged` — аккаунт возвращается в managed-set | db87efdf | контроллер | `.../cdn-membership-*/unit.before` |
+| P5 | продление desired за 4 мин до истечения квитанции | bd797a6d | контроллер | `.../cdn-renew-*/unit.before` |
+
+Результат: подписка снова отдаёт 8 локаций (4 Reality + 4 CDN, `X-Maestro-CDN: included`) для sing-box/INCY/v2rayNG; аккаунт владельца снова в managed-set (desired: 0d199409, 24498dc2, a19fe2fb).
+
+### Что ЕЩЁ не работает (на 15:40 UTC)
+`use lease authorization: origin proofs: unavailable` — лиза не выдаётся, туннель через CDN не поднимается (сторож: total=8 failed=4). Наблюдение и desired совпадают по action-key, квитанции свежие (TTL ~350 c) → отказ внутри `loadWhiteListPublicationOrigins`. Рабочая гипотеза: гонка «наблюдение записано в начале прохода → desired продлился внутри прохода → строки наблюдения под новый action-key ещё нет». Проверять сравнением action-key наблюдения и desired в момент отказа; лечение — перезаписывать наблюдение после продления либо принимать наблюдение предыдущего поколения в ограниченном окне.
+
+### План теста владельца (следующая сессия)
+1. В Telegram-боте зарегистрировать тестового клиента.
+2. Купить обычный VPN → подтвердить оплату.
+3. Купить CDN → подтвердить оплату без денег.
+4. Удалить клиента из панели.
+После каждого шага проверять: подписка отдаёт 8 локаций; `maestro-node-watch` 8/8; в журнале контроллера нет `origin proofs`/`sidecar reconcile`; rqlite healthy; diag без роста `deferrals_6m`.
+Наблюдаемость для «что и где сломалось»: `/var/log/maestro-cdn-watch/diag.jsonl` (last_deferrals по стадиям), `/var/log/maestro-cdn-watch/events.jsonl`, `/var/log/maestro-cdn-stability.log`, `/var/log/maestro-node-watch/status.jsonl`.
+
+### Инфраструктура (на 18.09.2026)
+- Каноническая ветка: `codex/cdn-lease-decouple-20260918`; сборка панели — GitHub Actions `HA immutable panel artifact` (dispatch, `build_only=true`), артефакт `maestro-panel-<sha>` (manifest с `deployment_authorized:false` — это норма пайплайна).
+- primary S1 193.17.183.48; rqlite: s2 85.137.166.237 (Leader, диск 20 ГБ), s3 46.30.42.151 (Follower).
+- Контроллер: unit `maestro-cdn-controller`, ExecStart=`/var/backups/maestro-commercial-controller-20260904-s4-qzBchh/panel-candidate-bd797a6d/maestro-panel`.
+- Агент CDN: S4 89.125.19.95, `/opt/maestro-xray-cdn-commercial/agent-overrides/e65ffadd…/`, env `/opt/maestro-xray-cdn-commercial/current/agent.env`.
+- Подписки для тестов: `~/work/test-subscriptions.txt` (режим 600). Отчёт: `~/work/CDN-LEASE-DECOUPLE-REPORT-2026-09-18.md`.
+
+### Открытые вопросы к владельцу
+1. Плоский CDN-стек без managed-lease (S4:18081, как у Akonit) как основной путь — снимает зависимость CDN от control-plane полностью; либо остаёмся на управляемой схеме.
+2. Ретенция `whitelist_metering_events` (~695 МБ) и третий голосующий rqlite.
+3. Самовосстанавливающийся онбординг/оплата (repair-проход, идемпотентность).
+4. Красные CI-гейты ветки — предсуществующие (устаревший policy-текст и legacy-debt список gofmt), не из-за этих правок.
+
 ## 1A. INCIDENT: CDN-узел «падал» после ребута — не восстанавливалась nft-таблица (18.09.2026)
 
 Контекст: владелец «CDN заработал в INCY» → «и опять отвалился»; в клиенте все CDN-локации `n/a`.
