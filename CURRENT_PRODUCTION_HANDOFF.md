@@ -14,11 +14,21 @@ Last verified: 2026-09-18 (Europe/Moscow)
 - Recovery: restarting the leader `rqlited` restored strong reads (HTTP 200, 0.15-0.25 s, stable across
   repeated probes); the controller was then started, is active with no restarts, listens on its local
   port and reports `ok <build>` on `/healthz`. The public subscription endpoint was verified HTTP 200.
-- Follow-up (open): white-list/metering reconciliation passes still defer with `controlplane: unavailable`
-  while delivering desired state to node sidecar agents. Already excluded: rqlite health and schema,
-  sidecar agent reachability on all four nodes (`POST` to the desired-state path validates payload),
-  and the control-plane lease. Suspected build/trust-chain mismatch between the controller build named by
-  the unit and the node agent release.
+- Follow-up (resolved 2026-09-18 evening): the white-list delivery failure was not a build/trust-chain
+  mismatch. The nft table `inet maestro_xray_cdn` on the CDN node is only *read* by the sidecar agent's
+  readiness preflight and is created by no component, so after the node reboot the preflight failed, the
+  agent could not apply or refresh desired state, and delivery ended with `controlplane: unavailable`.
+  Restoring the table restored delivery (white-list generations resumed); a self-healing unit plus a
+  5-minute timer were installed on all four nodes, and a per-minute stability watchdog on the primary
+  restarts the controller if no fresh white-list receipt appears within 240 s.
+- Open follow-up 1: the CDN edge accepts only OPTIONS uplinks (GET → 400, POST → 405) while the panel
+  hands clients `"uplinkHTTPMethod": "GET"`; the owner's Yandex CDN instruction requires OPTIONS plus an
+  OPTIONS→POST mapping at the origin. CDN locations stay unavailable in clients that follow the panel
+  `extra` until the link generator is fixed and the panel rebuilt.
+- Open follow-up 2: delivery cadence is 64-110 s against a 120 s receipt TTL, and metering passes take
+  20-50 s while the rqlite database grew to ~1.4 GB (metering events 675 MB, idempotency requests 204 MB).
+  History retention/VACUUM (owner decision; billing data was not touched) and a controller build refresh
+  are the remaining stability items.
 - Design drift to resolve: the approved control-plane design assumes a three-node rqlite quorum on
   S2/S3/S4; production currently runs two voters and no rqlite node on S4. Either restore the third node
   or record an explicit owner decision for a two-node cluster.
