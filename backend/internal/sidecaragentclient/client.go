@@ -36,7 +36,7 @@ const (
 	maxUsageResponseBytes = 4 << 20
 	maxLeaseUsers         = 4096
 	maxLeaseFinalReceipts = 32
-	maxUseLeaseWindow     = 180 * time.Second
+	maxUseLeaseWindow     = 60 * time.Second
 )
 
 type definitelyNotSentError string

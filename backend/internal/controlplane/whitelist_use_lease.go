@@ -16,7 +16,7 @@ import (
 
 const whiteListCommercialExitCount = 4
 
-const whiteListUseLeaseWindow = 180 * time.Second
+const whiteListUseLeaseWindow = 60 * time.Second
 
 type whiteListMeteringExitSet map[string]struct{}
 

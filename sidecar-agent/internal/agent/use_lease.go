@@ -16,7 +16,7 @@ type managedRuntimeController interface {
 	ApplyManagedControl(context.Context, runtimefence.Control) (runtimefence.Receipt, error)
 }
 
-const managedLeaseWindow = 180 * time.Second
+const managedLeaseWindow = 60 * time.Second
 
 type UseLeaseRequest struct {
 	Schema                   int               `json:"schema"`
