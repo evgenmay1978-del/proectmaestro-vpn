@@ -1,6 +1,29 @@
 # MaestroVPN current production handoff
 
-Last verified: 2026-08-13 (Europe/Moscow)
+Last verified: 2026-09-18 (Europe/Moscow)
+
+## Control-plane incident 2026-09-18 (recovered; one follow-up open)
+
+- The subscription endpoint answered HTTP 502 because the CDN controller service on the primary node was
+  in a restart loop: its rqlite client could not build the runtime (`request transport failed`), so the
+  local upstream port used by the web front end was closed.
+- Root cause: the rqlite cluster (two voters, `v10.1.0`) stopped serving `level=strong` reads on both
+  nodes (8-10 s timeouts, both for queries and for the leader's status endpoint), while weak/none reads,
+  plain queries, the node listing and TLS/ALPN answered normally. Both `rqlited` instances had been
+  restarted on 2026-09-17.
+- Recovery: restarting the leader `rqlited` restored strong reads (HTTP 200, 0.15-0.25 s, stable across
+  repeated probes); the controller was then started, is active with no restarts, listens on its local
+  port and reports `ok <build>` on `/healthz`. The public subscription endpoint was verified HTTP 200.
+- Follow-up (open): white-list/metering reconciliation passes still defer with `controlplane: unavailable`
+  while delivering desired state to node sidecar agents. Already excluded: rqlite health and schema,
+  sidecar agent reachability on all four nodes (`POST` to the desired-state path validates payload),
+  and the control-plane lease. Suspected build/trust-chain mismatch between the controller build named by
+  the unit and the node agent release.
+- Design drift to resolve: the approved control-plane design assumes a three-node rqlite quorum on
+  S2/S3/S4; production currently runs two voters and no rqlite node on S4. Either restore the third node
+  or record an explicit owner decision for a two-node cluster.
+- No passwords, tokens, subscription URLs, customer data or node addresses are recorded here; the detailed
+  evidence trail is in `CONTEXT_HANDOFF.md` section 0Y.
 
 ## Pending reviewed runtime repair (PR #87)
 
