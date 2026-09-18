@@ -186,6 +186,79 @@ func (s *ControlPlaneServer) ordinarySubscriptionPayload(ctx context.Context, to
 	return strings.TrimSpace(string(snapshot.Document))
 }
 
+
+// handleControlPlaneFlatCDNCharge charges already-metered bytes to the customer
+// that owns the reported credential. The origin meter sends only the credential
+// and a byte delta; entitlement and balances stay owned by the control plane.
+func (s *ControlPlaneServer) handleControlPlaneFlatCDNCharge(w http.ResponseWriter, r *http.Request) {
+	if !requireControlPlaneMethod(w, r, http.MethodPost) {
+		return
+	}
+	var request struct {
+		UUID           string `json:"uuid"`
+		Bytes          int64  `json:"bytes"`
+		IdempotencyKey string `json:"idempotency_key"`
+	}
+	if !decodeControlPlaneMutation(w, r, &request) {
+		return
+	}
+	uuid := strings.ToLower(strings.TrimSpace(request.UUID))
+	if len(uuid) != 36 || request.Bytes <= 0 {
+		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+	business, ok := s.business.(panelWhiteListBusiness)
+	if !ok || s.commercial == nil {
+		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
+		return
+	}
+	key := strings.TrimSpace(request.IdempotencyKey)
+	if key == "" {
+		key = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	}
+	if key == "" {
+		writeControlPlaneJSON(w, http.StatusBadRequest, map[string]string{"error": "idempotency key required"})
+		return
+	}
+	login, err := s.flatCDNLoginByUUID(r.Context(), uuid)
+	if err != nil {
+		writeControlPlaneBusinessError(w, err)
+		return
+	}
+	if login == "" {
+		writeControlPlaneJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	view, err := business.PanelWhiteListAdmin(r.Context(), panelWhiteListCommand{
+		Login: login, Action: "debit", Bytes: request.Bytes, Actor: "flatmeter", IdempotencyKey: key,
+	})
+	if err != nil {
+		writeControlPlaneBusinessError(w, err)
+		return
+	}
+	writeControlPlaneJSON(w, http.StatusOK, map[string]any{"login": login, "bytes": request.Bytes, "remaining_bytes": view.RemainingBytes})
+}
+
+// flatCDNLoginByUUID maps an origin credential back to the customer login with
+// the same deterministic derivation the subscription uses.
+func (s *ControlPlaneServer) flatCDNLoginByUUID(ctx context.Context, uuid string) (string, error) {
+	secret := strings.TrimSpace(s.cfg.FlatCDNUUIDSecret)
+	if secret == "" {
+		return "", serviceBusinessError{err: controlplane.ErrUnavailable, status: http.StatusServiceUnavailable}
+	}
+	active := true
+	customers, err := s.business.ListCustomers(ctx, CustomerFilter{Active: &active, Limit: 500})
+	if err != nil {
+		return "", err
+	}
+	for _, customer := range customers {
+		if flatCDNCustomerUUID(secret, customer.CustomerID) == uuid {
+			return customer.Login, nil
+		}
+	}
+	return "", nil
+}
+
 // flatCDNNodes reads the configured node file. A single object and an array of
 // objects are both accepted.
 func (s *ControlPlaneServer) flatCDNNodes() ([]subgen.WhiteListNode, error) {

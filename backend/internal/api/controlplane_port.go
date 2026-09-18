@@ -552,6 +552,7 @@ func (s *ControlPlaneServer) Handler() http.Handler {
 		mux.HandleFunc("/admin/customer/whitelist-balance", s.controlPlaneAdmin(s.handleControlPlaneCustomerWhiteListBalance))
 		mux.HandleFunc("/admin/customer/whitelist-credit", s.controlPlaneAdmin(s.handleControlPlaneCustomerWhiteListCredit))
 		mux.HandleFunc("/admin/flat-cdn/clients", s.controlPlaneAdmin(s.handleControlPlaneFlatCDNClients))
+		mux.HandleFunc("/admin/flat-cdn/charge", s.controlPlaneAdmin(s.handleControlPlaneFlatCDNCharge))
 		// Same handler outside the /admin tree: the origin agent reaches it over the
 		// public front (IP-pinned in nginx), where legacy admin guards do not apply.
 		mux.HandleFunc("/cdn-origin/clients", s.controlPlaneAdmin(s.handleControlPlaneFlatCDNClients))

@@ -18,6 +18,7 @@ type panelWhiteListCommand struct {
 	Login          string `json:"login"`
 	Action         string `json:"action"`
 	GB             int64  `json:"gb"`
+	Bytes          int64  `json:"bytes"`
 	Actor          string `json:"-"`
 	IdempotencyKey string `json:"-"`
 }
@@ -78,6 +79,8 @@ func (b *ServiceBusiness) PanelWhiteListAdmin(ctx context.Context, command panel
 		return empty, businessError(err)
 	}
 	switch command.Action {
+	case "debit":
+		_, err = b.service.DebitWhiteListUsage(ctx, controlplane.DebitWhiteListUsageCommand{EntitlementID: entitlement.EntitlementID(), Bytes: command.Bytes, IdempotencyKey: command.IdempotencyKey, Actor: command.Actor})
 	case "credit":
 		_, err = b.service.CreditWhiteListManualGB(ctx, controlplane.CreditWhiteListManualGBCommand{EntitlementID: entitlement.EntitlementID(), GB: command.GB, IdempotencyKey: command.IdempotencyKey, Actor: command.Actor})
 	case "enable", "disable":
@@ -104,6 +107,8 @@ func validPanelWhiteListCommand(command panelWhiteListCommand) bool {
 		return command.GB == 0
 	case "credit":
 		return command.GB >= 1 && command.GB <= 9223372036
+	case "debit":
+		return command.GB == 0 && command.Bytes >= 1
 	default:
 		return false
 	}
@@ -151,3 +156,4 @@ func (s *ControlPlaneServer) handleControlPlanePanelWhiteList(w http.ResponseWri
 	}
 	writeControlPlaneJSON(w, http.StatusOK, view)
 }
+
