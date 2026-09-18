@@ -28,7 +28,7 @@ const (
 // A durable debit can consume the whole sampling window on a loaded control
 // plane. The settlement gets its own budget so one slow stage cannot cancel the
 // lease refresh that keeps every healthy account online.
-const runtimeWhiteListSettlementBudget = 20 * time.Second
+const runtimeWhiteListSettlementBudget = 45 * time.Second
 
 var (
 	errRuntimeWhiteListMeteringUnavailable = errors.New("white-list metering runtime is unavailable")
@@ -223,8 +223,11 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	if collector.byteBudgetBytes > 0 {
 		// Prepaid byte ceilings bound forwarding independently of processing time.
 		// Give the controller enough time to finish durable accounting before it
-		// refreshes the independently enforced BOOTTIME lease.
-		passBudget, processingBudget = 50*time.Second, 25*time.Second
+		// refreshes the independently enforced BOOTTIME lease. The agent receipt
+		// now tolerates a slow control plane (ten-minute freshness), so a pass may
+		// run longer than the old fifty-second budget instead of deferring the
+		// whole reconciliation and dropping every lease.
+		passBudget, processingBudget = 110*time.Second, 50*time.Second
 	}
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
