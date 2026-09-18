@@ -91,12 +91,26 @@ func main() {
 		}
 		runtimeDependencies := productionRQLiteRuntimeDependencies()
 		runtimeDependencies.whiteListSidecarSenders = sidecarSenders
-		runtimeInstance, err := buildRQLitePanelRuntime(
-			context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), runtimeDependencies,
-			sidecarConfig.Enabled,
-		)
-		if err != nil {
-			log.Fatalf("build rqlite runtime: %v", err)
+		// Keep the process alive while the rqlite cluster is briefly unavailable
+		// (leader election, slow snapshot) instead of crash-looping under systemd.
+		var runtimeInstance *panelRuntime
+		buildDelay := 3 * time.Second
+		for attempt := 1; ; attempt++ {
+			runtimeInstance, err = buildRQLitePanelRuntime(
+				context.Background(), runtimeConfig, rqliteAPIConfigFromEnvironment(), runtimeDependencies,
+				sidecarConfig.Enabled,
+			)
+			if err == nil {
+				break
+			}
+			log.Printf("build rqlite runtime (attempt %d) failed: %v; retrying in %s", attempt, err, buildDelay)
+			time.Sleep(buildDelay)
+			if buildDelay < 20*time.Second {
+				buildDelay *= 2
+				if buildDelay > 20*time.Second {
+					buildDelay = 20 * time.Second
+				}
+			}
 		}
 		runtimeInstance.whiteListSidecarSenders = sidecarSenders
 		workerContext, stopWorker := context.WithCancel(context.Background())
