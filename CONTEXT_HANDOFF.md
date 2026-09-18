@@ -1,4 +1,42 @@
 # MaestroVPN — актуальный контекст и передача работы
+## 0Z. ОКРУЖЕНИЕ: ops-окружение восстановлено на primary, старый сторож olcRTC снят (18.09.2026)
+
+Контекст: после переезда/переустановки primary (см. 0W) на нём не восстановили рабочее окружение агента,
+а на узле остался старый сторож olcRTC.
+
+Сделано:
+
+- **`/root/maestrotv-ops` восстановлен** из приватного репозитория `maestrotv-ops` (ветка `main`) —
+  рабочая часть, 15 файлов ≈90 КБ: `orient.sh`, `projects.sh`, `status.sh`, `xui-attach-client.sh`,
+  `panel-reset-devices.sh`, `README.md` и python-хелперы (panels, seo_audit, wordstat, yandex, metrika,
+  ftp_deploy, wm_region_attempt). Каталог сайта `live/` (~32 МБ) на сервер не заливался — агенту он не нужен.
+  Проверка: `sh /root/maestrotv-ops/orient.sh` печатает живое состояние (панель `ok ed6edd32…`,
+  узлы в env: S1 S3 S4 hy2 naive anytls, клиенты 43, юниты S1 все боевые active).
+  Это важно, потому что ORIENT.md и SessionStart-хук ссылаются ровно на этот путь.
+- **Старый сторож olcRTC снят** (просьба владельца «удали тех, которые уже установлены»):
+  `maestro-olcrtc-health.timer` (каждые 60 с) и `.service`, а также `/usr/local/bin/olcrtc-health.sh`,
+  `/etc/maestro-olcrtc.env`, `/usr/local/libexec/maestro-olcrtc-ssh-config.sh`.
+  Бэкап: `/var/backups/maestro-old-olcrtc-watchdog-20260918T090427Z.tgz`.
+  Откат одной командой:
+  `tar xzf /var/backups/maestro-old-olcrtc-watchdog-*.tgz -C / && systemctl daemon-reload && systemctl enable --now maestro-olcrtc-health.timer`.
+- **Боевые сервисы не тронуты**: `wdtt.service` на primary, `olcrtc-srv.service` и
+  `olcrtc-srv@wapmix2/wapmixx` на S3. Владелец отложил их удаление: «если просто с серверов удалить
+  из панели, это сломает подключение».
+- **Сторожа CDN проверены**: на primary — `maestro-cdn-watch@S1`, `maestro-cdn-probe`,
+  `maestro-cdn-diag.timer` (раз в минуту), `maestro-disk-guard.timer`; на S2/S3 —
+  `maestro-cdn-watch@S2/S3`. Готовый комплект `cdn-health.*` (из `/sdcard/Download/maestro-ops`)
+  намеренно НЕ ставился: он дублировал бы уже работающих сторожей.
+- **Память подчищена**: `MEMORY.md` был 18 136 байт (выше собственного лимита «ниже 17 КБ» из-за
+  длинных строк) — сжат до 16 971 байта: длинные строки обрезаны до короткого крючка (подробности
+  и так в файлах), где в отрезанном хвосте был ⛔ — оставлена пометка «⛔см.файл».
+
+Остаток:
+
+- **S4 не обслужить**: SSH недоступен (ни пароль, ни ключ; в госте, судя по всему, только publickey),
+  VNC-консоль отдаёт пустой кадр. Поэтому сторожей/окружение на S4 не проверяли и не ставили —
+  нужен доступ владельца (или reboot через панель хостинга с последующим входом в консоль).
+- s2/s3 отдельного ops-окружения не требуют: `orient.sh` читает `/etc/maestro-panel.env`,
+  который есть на primary; на S2/S3 при необходимости разворачивается тот же набор файлов.
 ## 0Y. INCIDENT: rqlite перестал делать strong-чтения → CDN-контроллер лёг → подписка 502 (18.09.2026)
 
 Симптом владельца: «подписка даже не обновляется, HTTP error 502» + CDN-локации не авторизовали клиентов.
