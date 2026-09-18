@@ -314,15 +314,26 @@ func (s *ControlPlaneServer) flatCDNNodes() ([]subgen.WhiteListNode, error) {
 func flatCDNXrayDocument(nodes []subgen.WhiteListNode) ([]byte, error) {
 	merged := make([]json.RawMessage, 0, len(nodes))
 	for _, node := range nodes {
-		part, err := subgen.WhiteListXrayJSONSubscription(node, "")
+		// The plural renderer is the one that works per node; it is called with a
+		// single node and the remark is replaced by the node label.
+		part, err := subgen.WhiteListXrayJSONSubscriptions([]subgen.WhiteListNode{node})
 		if err != nil {
 			continue
 		}
-		var items []json.RawMessage
+		var items []map[string]any
 		if json.Unmarshal(part, &items) != nil {
 			continue
 		}
-		merged = append(merged, items...)
+		for _, item := range items {
+			if label := strings.TrimSpace(node.Label); label != "" {
+				item["remarks"] = label
+			}
+			encoded, encodeErr := json.Marshal(item)
+			if encodeErr != nil {
+				continue
+			}
+			merged = append(merged, encoded)
+		}
 	}
 	if len(merged) == 0 {
 		return nil, errFlatCDNUnavailable
@@ -343,7 +354,7 @@ func flatCDNShareLinkPayload(nodes []subgen.WhiteListNode) ([]byte, error) {
 			if base, _, found := strings.Cut(link, "#"); found {
 				link = base
 			}
-			link += "#" + url.QueryEscape(label)
+			link += "#" + strings.ReplaceAll(url.QueryEscape(label), "+", "%20")
 		}
 		links = append(links, link)
 	}
