@@ -108,6 +108,12 @@ func isValidSubscriptionURL(rawURL string) bool {
 		return false
 	}
 
+	// Both the regular subscription and the standalone CDN subscription carry a
+	// private token in the path; every other shape stays rejected.
 	parts := strings.Split(parsed.Path, "/")
-	return len(parts) == 3 && parts[0] == "" && parts[1] == "sub" && parts[2] != ""
+	if len(parts) != 3 || parts[0] != "" || parts[2] == "" {
+		return false
+	}
+	return parts[1] == "sub" || parts[1] == "cdn-sub"
 }
+
