@@ -37,7 +37,10 @@ func (s *Service) CustomerByToken(ctx context.Context, rawToken string) (Custome
 	if rawToken == "" {
 		return Customer{}, ErrNotFound
 	}
-	if err := s.refreshLegacyPrimary(ctx, "", rawToken); err != nil {
+	// The legacy import is a best-effort refresh: a token the legacy store never
+	// knew is not an error, and the native subscription_tokens table is
+	// authoritative for credentials minted here.
+	if err := s.refreshLegacyPrimary(ctx, "", rawToken); err != nil && !errors.Is(err, ErrNotFound) {
 		return Customer{}, err
 	}
 	lookup := s.store.secrets.LookupHMAC("subscription-token", []byte(rawToken))
@@ -45,7 +48,7 @@ func (s *Service) CustomerByToken(ctx context.Context, rawToken string) (Custome
 }
 
 func (s *Service) CustomerByLogin(ctx context.Context, login string) (Customer, error) {
-	if err := s.refreshLegacyPrimary(ctx, login, ""); err != nil {
+	if err := s.refreshLegacyPrimary(ctx, login, ""); err != nil && !errors.Is(err, ErrNotFound) {
 		return Customer{}, err
 	}
 	identity, err := s.ResolveCustomerLogin(ctx, login)
@@ -260,3 +263,4 @@ func roleAllows(role string, permission Permission) bool {
 		return false
 	}
 }
+
