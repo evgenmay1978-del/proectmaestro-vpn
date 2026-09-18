@@ -80,7 +80,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "cdn traffic exhausted"})
 		return
 	}
-	body, contentType, err := s.renderFlatCDNSubscription(entitlement, token, r.URL.Query())
+	body, contentType, err := s.renderFlatCDNSubscription(r.Context(), entitlement, token, r.URL.Query())
 	if err != nil {
 		writeControlPlaneJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "unavailable"})
 		return
@@ -98,7 +98,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 // renderFlatCDNSubscription renders the paid flat-CDN node for the requested
 // client representation. The on-disk node file wins; FlatCDNSubFile stays as a
 // verbatim emergency override that ignores the requested format.
-func (s *ControlPlaneServer) renderFlatCDNSubscription(entitlement flatCDNEntitlement, token string, query url.Values) ([]byte, string, error) {
+func (s *ControlPlaneServer) renderFlatCDNSubscription(ctx context.Context, entitlement flatCDNEntitlement, token string, query url.Values) ([]byte, string, error) {
 	raw := query.Get("raw") == "1"
 	nodes, nodeErr := s.flatCDNNodes()
 	if nodeErr == nil {
@@ -118,15 +118,26 @@ func (s *ControlPlaneServer) renderFlatCDNSubscription(entitlement flatCDNEntitl
 		}
 		switch strings.ToLower(strings.TrimSpace(query.Get("format"))) {
 		case "", "xray", "json":
+			// The customer's own subscription plus the CDN node: one document with
+			// every server, so the second link is a full subscription, not a stub.
+			if ordinary := s.ordinarySubscriptionPayload(ctx, token); ordinary != "" {
+				if combined, combineErr := subgen.WhiteListCombinedXrayJSONSubscription(ordinary, nodes); combineErr == nil {
+					return combined, "application/json; charset=utf-8", nil
+				}
+			}
 			rendered, err := subgen.WhiteListXrayJSONSubscriptions(nodes)
 			if err != nil {
 				return nil, "", err
 			}
 			return rendered, "application/json; charset=utf-8", nil
 		case "links", "link", "base64", "v2ray", "v2raytun", "mihomo", "clash":
-			// A CDN-only subscription has no ordinary node, so the Mihomo
-			// renderer (which keeps ordinary nodes selectable) cannot be used:
-			// clients that consume share links get the links representation.
+			// Every ordinary share link gets the CDN link appended, so a client
+			// that imports this subscription sees all servers plus the CDN node.
+			if ordinary := s.ordinarySubscriptionPayload(ctx, token); ordinary != "" {
+				if combined, combineErr := subgen.AppendWhiteListShareLinks(ordinary, nodes); combineErr == nil {
+					return []byte(combined), "text/plain; charset=utf-8", nil
+				}
+			}
 			rendered, err := flatCDNShareLinkPayload(nodes)
 			if err != nil {
 				return nil, "", err
@@ -161,6 +172,23 @@ func (s *ControlPlaneServer) renderFlatCDNSubscription(entitlement flatCDNEntitl
 		}
 	}
 	return body, flatCDNContentType(body), nil
+}
+
+// ordinarySubscriptionPayload returns the customer's regular subscription in the
+// share-link representation, which is the common denominator the subgen
+// combiners accept. An empty answer simply means "CDN node only".
+func (s *ControlPlaneServer) ordinarySubscriptionPayload(ctx context.Context, token string) string {
+	source, ok := s.business.(requestSubscriptionSource)
+	if !ok || strings.TrimSpace(token) == "" {
+		return ""
+	}
+	snapshot, err := source.subscriptionSnapshotForRequest(ctx, token, subscriptionRenderOptions{
+		ClientRequest: true, Links: true, Endpoint: subscriptionEndpointBase,
+	})
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(snapshot.Document))
 }
 
 // flatCDNNodes reads the configured node file. A single object and an array of
