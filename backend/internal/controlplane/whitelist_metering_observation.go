@@ -14,7 +14,14 @@ import (
 
 const (
 	whiteListObservationTTLSeconds          int64 = 5
-	whiteListAccountedObservationTTLSeconds int64 = 30
+	// An accounted observation is persisted right after the fresh counter read
+	// and re-read by the use-lease authorization only after settlement, so its
+	// freshness window must cover the whole reconciliation pass (110 s budget).
+	// The former 30 s window lost that race by 1-2 s on every slow pass and
+	// deferred the lease with "origin proofs: unavailable". A receipt already
+	// tolerates a slow control plane (ten-minute freshness); the observation
+	// must do the same or the slow pass cancels its own lease.
+	whiteListAccountedObservationTTLSeconds int64 = 180
 	// Renew the delivered desired state well before its receipt expires. A
 	// receipt that lapses closes the authenticated origin proofs, which blocks
 	// the use-lease authorization and drops every CDN location until a later
