@@ -247,7 +247,12 @@ func (s *ControlPlaneServer) handleControlPlaneCommercialBalance(w http.Response
 		return
 	}
 	view.AccountID = ""
-	view.CDNSubURL = flatCDNSubscriptionURL(s.cfg.SubBaseURL, controlPlaneBearerToken(r))
+	// Only publish the second subscription when it would actually work: a
+	// customer without paid CDN traffic (or with an expired VPN) must not receive
+	// a link that answers 403.
+	if view.AvailableBytes > 0 && customer.Active {
+		view.CDNSubURL = flatCDNSubscriptionURL(s.cfg.SubBaseURL, controlPlaneBearerToken(r))
+	}
 	writeControlPlaneJSON(w, http.StatusOK, view)
 }
 
