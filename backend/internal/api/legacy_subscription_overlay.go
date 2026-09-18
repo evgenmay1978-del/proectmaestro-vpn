@@ -128,7 +128,22 @@ func WrapLegacySubscriptions(
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if strings.HasPrefix(request.URL.Path, "/sub/") {
-			proxy.ServeHTTP(w, request)
+			// The legacy upstream knows every imported subscription. Credentials that the
+			// control plane minted itself have no legacy record, so a legacy 404 falls
+			// through to the native handler instead of being returned to the client.
+			recorder := &legacyFallbackRecorder{header: http.Header{}, status: http.StatusOK}
+			proxy.ServeHTTP(recorder, request)
+			if recorder.status == http.StatusNotFound && !recorder.streamed {
+				next.ServeHTTP(w, request)
+				return
+			}
+			for name, values := range recorder.header {
+				for _, value := range values {
+					w.Header().Add(name, value)
+				}
+			}
+			w.WriteHeader(recorder.status)
+			_, _ = w.Write(recorder.body.Bytes())
 			return
 		}
 		next.ServeHTTP(w, request)
@@ -271,4 +286,27 @@ func setLegacySubscriptionBody(response *http.Response, document string) {
 type legacySubscriptionReadCloser struct {
 	io.Reader
 	io.Closer
+}
+
+// legacyFallbackRecorder buffers a legacy subscription answer so a not-found can
+// be replaced by the native one without leaking a partial response.
+type legacyFallbackRecorder struct {
+	header   http.Header
+	status   int
+	body     bytes.Buffer
+	streamed bool
+}
+
+func (r *legacyFallbackRecorder) Header() http.Header { return r.header }
+
+func (r *legacyFallbackRecorder) WriteHeader(status int) {
+	if r.streamed {
+		return
+	}
+	r.status = status
+}
+
+func (r *legacyFallbackRecorder) Write(payload []byte) (int, error) {
+	r.streamed = true
+	return r.body.Write(payload)
 }
