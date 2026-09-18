@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"time"
 	"os"
 	"strconv"
 	"strings"
@@ -34,6 +35,14 @@ var (
 // flatCDNEntitlement is the product state behind the standalone CDN
 // subscription: whether the bearer is a known customer, whether the regular VPN
 // subscription is active, and how many CDN bytes are still available.
+// Entitled reports whether the CDN may be served right now: the regular
+// subscription is active AND has not expired yet. The expiry is checked
+// explicitly because the commercial view can stay "active" while a billing
+// period (not the paid term) still runs.
+func (e flatCDNEntitlement) Entitled() bool {
+	return e.Known && e.Active && (e.ExpiresAtUnix == 0 || e.ExpiresAtUnix > time.Now().Unix())
+}
+
 type flatCDNEntitlement struct {
 	Known            bool
 	Login            string
@@ -78,7 +87,7 @@ func (s *ControlPlaneServer) handleControlPlaneFlatCDNSubscription(w http.Respon
 		writeControlPlaneJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	if !entitlement.Active {
+	if !entitlement.Entitled() {
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "vpn subscription inactive"})
 		return
 	}
@@ -320,7 +329,7 @@ func (s *ControlPlaneServer) writeFlatCDNSubscriptionDelivery(w http.ResponseWri
 		writeControlPlaneJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	if !entitlement.Active {
+	if !entitlement.Entitled() {
 		writeControlPlaneJSON(w, http.StatusForbidden, map[string]string{"error": "vpn subscription inactive"})
 		return
 	}
