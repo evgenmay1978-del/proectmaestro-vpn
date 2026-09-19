@@ -1,5 +1,7 @@
 # MaestroVPN CDN — контекст для нового чата (18.09.2026, 18:00 UTC)
 
+> Обновление 19.09.2026: чувствительные значения в примерах заменены плейсхолдерами. Актуальные ключи и UUID следует читать только из закрытой серверной конфигурации. Значения из истории коммитов не использовать; редактирование документа само по себе не меняет доступы.
+
 ## 0. Что случилось в этой сессии (кратко)
 1. Найдена и устранена причина 'use lease authorization: origin proofs: unavailable'
    (окно свежести наблюдения 30 с < длительности прохода 45–90 с) — панель 18615671.
@@ -365,8 +367,8 @@ S1 и S4 у меня есть — начинаю с них (2 CDN-ноды: 🇪
   tee `/usr/local/sbin/maestro-flat-tee`. Проверено: XRAY_TEST_OK, оба юнита active, statsapi отвечает.
 - PATH S1 (для nginx-ingress и Yandex CDN): `/static/main/video/segment.ts/e52baa5316687412d08eb62bd04a27ddaf7082918f9d99da12db3c4df61b6cef`
 - Клиентский encryption для ноды S1 в `flat-cdn-node.json`:
-  `mlkem768x25519plus.native.0rtt.eUWudtgYQNRqZLqUgoptbhkR3-JY-FYc60cbQsBKDTSDfrRIXGmUf-OajXZ5NStpUTNGfggi_-VGpoooEDWf3zUWLVMlftDFzBGQOvQLOqNtkwYed-pGNjnGdsYdw4IdfxUIn2zCuXqRHeEx41S6DhWcafBXvYktrCuZfSV285V6r0ipn_NQrzzCfgnFvVG1eiNIYmq2w6kLITgVZQoPNyBGhmGt-pe7iXwLo5AfjnUMZaZs5nd_LXyWDweKGhReFKQyLovNnDyQ5RsWnfKB3kMJGflQliSiMBYCkTvOjKFcEfhqYDTLjAw8gxIxPqtZOkOyarEU1olRXDUeH1ha1almRSmaK5GVkHLGs9u8plSewUlLawskO7cSUOgFxGegAazCXoyWHHlu2tdipfgN2nPJg-bHZ3h1_pBX0ts6GRRO-Pl2KmGtO6gSJ-JNr9It4YSfluWNPcFK3tsRp3KKJ2bEhEi41EIqGKCu6gk3x5FG6uyVA0Nv4-fIsHgjjjBw1YNr4fk3d1OuMoVDrigpO8JEXNuJ9EWL93ZcdadRSIpph4ex4pkC1rmxV5wlLrF6G4ZVhiYrqeZSBgo8PlVc3gJU7KNvjKZmFNR2n-zFylwtXpAyZHIcAuavhnhLBSmbAddbV_ZBtjWE2MwFHLSp-apkhUuW2nK5ftCIbBwnAiUgmOR517h1vlkYMLdidjgD_Eh44Qkw0XR2_ydySASAgTTO_XQoK8CYcddgCcJM5cC7EyCf8ImLuUMyvpwvj6OPDdayShsoYqsdV7WEOrqo6fVihjRygEe0KiFsTPqXzDDONtHMBOI3glS5M8hjJSu-5MlKMIBbxHxgAiK69komhJMJB6hLHqMLnKmO-7jCCvoAVpgBgyDK6YBwl8q4h8XLTotMWuqvm8Bnx2giViRqg_K-QwYksba7tlNl4xk-N7HKEuEWiNAVhEaVeGhkP0nEbLyHniCotHKEt7wRjHqpZJYI4jx8GRCLKixAXsEQq-l4RDwnu9JlRYCj3IcqpQSyvEWXFwxl_bRWHRJ325IC3URnJPjKbhHH_yYZaREz6vqJJRJFu9e1ZxYCg2cvI1NxLtG1RZA7M3RPkgNJ_6pq3zG7RLVV03iRl7G9xigQPcC6HqiP0IUzcefFLetqVdNQ62AktFNBsQQ5qvCWFtFCLeEneXwOlRYVbBZsYhZA07k15zzDNQpjXFvP4QVC-ea2vxk4Wsm566J_MshIkSkIUPF_H4iU41CbmQy8zqU1-bHBIyGK6lOxY3o_MLw-7VYtYIETMcIsKpkutjpPvRUfONEsy-hq7tiiHKdyllBwOhe7qelNJpSBOvOBOcKDmrsMx9F1-bWEuIC7iQoB2dl9hSYQZ5C9GwiztCWkbytb0fZzKagFWNBu-oCtcSc9oevCw6EnJqUNAQadSJSLCtmGS5snapdTvuHMvegjCssA1cUoAWsSfJvJ2kQLh0jBYCavScYShAhOPOxLw5VuQrkzp7FtcvhFYUk3-OGXKrUIbLxzkwk2F6l00xZRLnSAe-BYPVtzfw8pUYQeU7cQcwWdw3wONTY0dvcVkQXfmI8GTJs`
-- Серверный decryption (в конфиге S1) — тот же ключ в паре: `...native.600s.UlF4XtzyjXgEwBIFbF63NMIEVrOxGyib8zB-ewXfC3z-TG_96RDWqMITiP1PQTJMuUDXO2i6nH7EMbShhB4SoA`.
+  `<client-encryption-redacted>`
+- Серверный decryption (в конфиге S1) — тот же ключ в паре: `<server-key-redacted>`.
 - Ставить S2/S3 тем же скриптом (~/work/s1_origin_install.sh — образец, меняются только клиенты/decryption/path).
 - ОСТАЛОСЬ для S1: строка в nginx (порт 28080, location = и ^~ этот PATH → 127.0.0.1:18097),
   origin+путь в Yandex CDN, запись ноды S1 в `/var/lib/maestro/flat-cdn-node.json` (массив) с её encryption/path,
@@ -887,7 +889,7 @@ refreshLegacyPrimary) и починить; затем прогнать сцен�
 
 ### 42.2 ГЕРМАНИЯ: ordinary DE = n/a в приложении
 - Причина: у S4 в **запущенном** xray-конфиге было 40 клиентов, а в БД 44 — клиент `strogino`
-  (UUID `061d2970-6335-409c-bd6c-52c288c83362`, subId = токен владельца) не попал в рабочий конфиг
+  (UUID `<uuid-redacted>`, subId = токен владельца) не попал в рабочий конфиг
   (в БД его добавили, xray не перезапустили). CDN DE работал, обычная DE — нет.
 - Лечение: `systemctl restart x-ui` на S4 → конфиг перегенерирован (42 клиента, strogino есть).
   Проба реальным xray-клиентом (89.125.19.95:443, UUID strogino) → **HTTP 204** ✅.
@@ -995,7 +997,7 @@ refreshLegacyPrimary) и починить; затем прогнать сцен�
   в ПУТЬ (`/<path>/<uuid>?chunk_id=0`) вместо query → origin отвечает 400. Приложение (INCY) делает правильно —
   реальный трафик идёт (в логах origin сессии с UUID клиента). Для автотестов использовать сырой HTTP с `x_padding` в query.
 - Клиент ОСТАВЛЕН для завтрашней отладки CZ: login `e2efin225730`, token `subscription_<redacted>`,
-  UUID `bc056c4b-e2d8-4abc-bfb2-ebffba9be6ab`, баланс ≈ 4,997 ГБ, срок до 2026-10-18.
+  UUID `<uuid-redacted>`, баланс ≈ 4,997 ГБ, срок до 2026-10-18.
   Удаление — soft-delete в rqlite (status='deleted' + удалить токены), см. раздел 40.
 
 ### 44.3 CDN: состояние и грабли
