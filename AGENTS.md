@@ -1,4 +1,12 @@
-## CURRENT POINTER — 15.09.2026
+## CURRENT POINTER — 19.09.2026
+
+Текущая ветка `codex/flat-cdn-sync-quiet-20260919`. Сначала читать
+`docs/handoff/CONTINUATION-2026-09-19.md`, затем `docs/handoff/README.md`.
+CDN sync исправлен; ordinary UUID ротация завершена после устранения гонки запуска
+Xray. Старую операцию apply повторно не выполнять. APK STRAVO 1.0.2 собран отдельно.
+Секреты и частные планы в Git не переносить. Новые тесты — только по запросу владельца.
+
+## HISTORICAL POINTER — 15.09.2026
 
 Сначала читать `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/outputs/NEXT_CHAT_HANDOFF.md`: это единственная чистая актуальная передача. Старые оперативные блоки ниже сохранены для истории и не переопределяют её.
 

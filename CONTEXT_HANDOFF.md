@@ -1,4 +1,12 @@
-## CURRENT POINTER — 15.09.2026
+## CURRENT POINTER — 19.09.2026
+
+Актуальная передача: `docs/handoff/CONTINUATION-2026-09-19.md`.
+Ветка `codex/flat-cdn-sync-quiet-20260919`; CDN sync работает без повторных
+мнимых изменений. Раскрытый ordinary UUID согласованно заменён на четырёх узлах;
+подписку затронутого аккаунта нужно обновить. STRAVO APK 1.0.2 — `6007623`.
+Ниже история; она не отменяет текущую flat-CDN архитектуру и результаты 19 сентября.
+
+## HISTORICAL POINTER — 15.09.2026
 
 Чистая актуальная передача находится в `C:/Users/User/Documents/Codex/2026-09-14/c-users-user-documents-codex-2026/outputs/NEXT_CHAT_HANDOFF.md`; старые повторяющиеся блоки ниже — только история.
 
