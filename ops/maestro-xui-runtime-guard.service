@@ -1,0 +1,20 @@
+[Unit]
+Description=Reconcile ordinary x-ui VLESS clients with live Xray users
+After=x-ui.service
+ConditionPathExists=/etc/maestro-xui-guard.env
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/maestro-xui-guard.env
+ExecStart=/usr/bin/python3 /usr/local/lib/maestro-xui-runtime-guard.py --inbound-ids ${INBOUND_IDS} --repair
+TimeoutStartSec=90
+StateDirectory=maestro-xui-guard
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run /var/lib/maestro-xui-guard
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

@@ -1,0 +1,11 @@
+[Unit]
+Description=Observe ordinary x-ui client drift every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30s
+Unit=maestro-xui-runtime-guard.service
+
+[Install]
+WantedBy=timers.target
