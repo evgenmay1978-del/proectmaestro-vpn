@@ -1052,3 +1052,27 @@ refreshLegacyPrimary) и починить; затем прогнать сцен�
   4. S4: удалены старые atop-логи, обрезан btmp (34 572 записи).
 - Рекомендация на будущее: перевести S1 на вход по ключам (сейчас пароль root включён; fail2ban смягчает,
   но лучше `PasswordAuthentication no` + ключ агента, который уже в `authorized_keys`).
+
+## 46. Обновления Ubuntu и перезагрузки S1/S4 (19.09 10:00–10:16 UTC)
+
+- **S2, S3**: обновлять нечего (unattended-upgrades уже всё поставил, 0 пакетов).
+- **S4** (162320.com, Ubuntu 24.04): обновлений нет, но висела необходимость перезагрузки → перезагружен.
+  После ребута: ядро **6.8.0-139**, все сервисы поднялись сами (ingress, canary xray, tee, meter, x-ui, watch, sync.timer),
+  nft-правила на месте, все 4 CDN-пути отвечают (400 от Xray), `reboot-required` снят.
+- **S1** (ubuntu24): установлены **150 пакетов**
+  (`apt-get -y -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef upgrade`, rc=0, конфиги сохранены;
+  бэкап `/root/pre-update/configs-20260919T095908Z.tar.gz`, логи `/root/pre-update/apt-*.log`), осталось 0.
+  Затем перезагрузка → ядро **6.8.0-139** (было 6.8.0-36), `reboot-required` снят.
+- ⚠️ **КРИТИЧНОЕ, найденное перед ребутом**: у юнита `maestro-cdn-controller` **не было `[Install] WantedBy`**
+  (static) и стояло устаревшее условие `ConditionFileIsExecutable=…panel-candidate-b14738d/maestro-panel`.
+  То есть **после любой перезагрузки коммерческая панель (18910) не поднялась бы** — обе подписки легли бы.
+  Исправлено: условие указывает на текущий бинарь (`panel-candidate-87fe24eb/maestro-panel`), добавлен
+  `[Install] WantedBy=multi-user.target`, юнит теперь `enabled` (симлинк в `multi-user.target.wants`).
+  Бэкап юнита: `/etc/systemd/system/maestro-cdn-controller.service.before-enable-*`.
+- После ребута S1 контроллер стартовал: первая попытка rqlite не прошла, **ретрай (наш патч) сработал** →
+  `listening on 127.0.0.1:18910` через ~14 с, health=200. (Без патча юнит ушёл бы в рестарт-цикл.)
+- Проверено после ребутов: `/sub/` 200 (в т.ч. новый токен `subscription_…`), `/cdn-sub/` 200, в подписке 🇩🇪 на **8443**;
+  бот @MaestroSecureVPN_bot поднялся сам; таймер charge активен; с телефона DE 8443 TLS-OK (162 мс, сертификат philips),
+  ES 443 TLS-OK, все 4 CDN-страны 200 (125–325 мс).
+- Рекомендация: перед следующими ребутами проверять `systemctl is-enabled` у ключевых юнитов
+  (урок этого раза) и держать `unattended-upgrades` в режиме security-only.
