@@ -1,6 +1,29 @@
 # MaestroVPN current production handoff
 
-Last verified: 2026-09-18 (Europe/Moscow)
+Last verified: 2026-09-19 (Europe/Moscow)
+
+## Control-plane incident 2026-09-19 (recovered)
+
+- The subscription front end answered HTTP 502 because the commerce controller could not build its rqlite
+  runtime: the database had grown to ~1.51 GB and `PRAGMA foreign_key_check` took 11,751 ms against the
+  controller's 15 s client timeout, while raft commits stalled when a follower was catching up on snapshots.
+- Recovery (replicated through rqlite; no voter was stopped):
+  - the five immutable-delete trigger chains were temporarily lifted and then restored verbatim;
+  - metering events/intervals/sources/outbox older than 3 days (134,037 rows each) were deleted, keeping every
+    interval referenced by the financial ledger (`whitelist_balance_entries`) and by usage applications;
+  - `idempotency_requests` older than 3 days (155,171 rows) were deleted; the 3,441
+    `whitelist-balance/apply-usage` receipts still required by retained outbox rows were restored from the
+    pre-change backup, because their absence set `commercial_debit_pending` and rejected charges with 409;
+  - both nodes now run with `-auto-vacuum-int=24h` (a one-minute interval was used for the initial compaction).
+- Result: database 386,994,176 bytes on both voters, `foreign_key_check` 483 ms, controller `/healthz` 200,
+  public subscription 200, flat-charge timer active and charging again.
+- The pre-change backup is `/root/backups/maestro-rqlite-20260919T200552Z.sqlite` on the primary node
+  (sha256 `3bee72cd…adc6a`).
+- Open follow-ups: retention job plus monitoring for the metering tables (growth ~70 MB/day); third rqlite
+  voter; `/sub/<unknown token>` panics in the snapshot lookup and returns 502 instead of 404.
+- Detailed report: `docs/handoff/POST-INCIDENT-2026-09-19-rqlite.md`.
+
+
 
 ## Control-plane incident 2026-09-18 (recovered; one follow-up open)
 
