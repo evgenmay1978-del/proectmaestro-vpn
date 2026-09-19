@@ -22,14 +22,34 @@ import (
 const (
 	runtimeWhiteListMeteringInterval   = 2 * time.Second
 	runtimeWhiteListMeteringPassBudget = 5 * time.Second
-	runtimeWhiteListUseLeaseWindow     = 60 * time.Second
+	runtimeWhiteListUseLeaseWindow     = 180 * time.Second
 )
+
+// A durable debit can consume the whole sampling window on a loaded control
+// plane. The settlement gets its own budget so one slow stage cannot cancel the
+// lease refresh that keeps every healthy account online.
+const runtimeWhiteListSettlementBudget = 45 * time.Second
 
 var (
 	errRuntimeWhiteListMeteringUnavailable = errors.New("white-list metering runtime is unavailable")
 	errRuntimeWhiteListFreshLeaseNonce     = errors.New("white-list metering requires a fresh lease nonce")
 	errRuntimeWhiteListDebitPending        = errors.New("white-list durable commercial debit is pending")
 )
+
+// runtimeWhiteListSettlementJob carries one account's debit closure so the
+// worker pool can report the outcome per account.
+type runtimeWhiteListSettlementJob struct {
+	account string
+	steps   []func() error
+}
+
+// runtimeWhiteListSettlementResult is the per-account settlement outcome. A
+// single failing account must not abort the whole reconciliation pass: every
+// other account still needs its lease refreshed.
+type runtimeWhiteListSettlementResult struct {
+	account string
+	err     error
+}
 
 type runtimeWhiteListUsageLookup interface {
 	LookupUsage(context.Context, string) (sidecaragentclient.UsageSnapshot, error)
@@ -195,12 +215,19 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	cachedLeaseAuthority := collector.cachedLeaseAuthority
 	collector.cachedLeaseAuthority = nil
 	protectedByEarlyLease := false
+	var settlementErr error
+	// Accounts whose durable debit is deferred in this pass. They keep their
+	// deferred debit but must not be funded or leased until it is applied.
+	failedAccounts := make(map[string]struct{})
 	passBudget, processingBudget := runtimeWhiteListMeteringPassBudget, runtimeWhiteListMeteringInterval
 	if collector.byteBudgetBytes > 0 {
 		// Prepaid byte ceilings bound forwarding independently of processing time.
 		// Give the controller enough time to finish durable accounting before it
-		// refreshes the independently enforced BOOTTIME lease.
-		passBudget, processingBudget = 50*time.Second, 25*time.Second
+		// refreshes the independently enforced BOOTTIME lease. The agent receipt
+		// now tolerates a slow control plane (ten-minute freshness), so a pass may
+		// run longer than the old fifty-second budget instead of deferring the
+		// whole reconciliation and dropping every lease.
+		passBudget, processingBudget = 110*time.Second, 50*time.Second
 	}
 	// Cooperative operation bounds, not proof of the live sampling/revoke SLO.
 	// Recovery must keep time to reconcile even when sampling exhausts its budget.
@@ -424,11 +451,12 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		// prepaid byte ceiling after every Origin observation and before accepting
 		// that boot's first cumulative counter.
 		stage = "account admission"
-		if err := collector.authorizeAdmissions(ctx, candidates); err != nil {
+		if err := collector.authorizeAdmissions(ctx, runtimeWhiteListFundableCandidates(candidates, failedAccounts)); err != nil {
 			return err
 		}
 	}
 	settlements := make(map[string][]func() error)
+	settlementAccounts := make([]string, 0, len(plan.Routes))
 	for _, origin := range plan.Origins {
 		snapshot := snapshots[origin.Origin.OriginID]
 		for _, user := range snapshot.Users {
@@ -436,40 +464,58 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 			index := sort.SearchStrings(origin.PendingFirstCumulativeUsers, user.Email)
 			firstCumulative := index < len(origin.PendingFirstCumulativeUsers) && origin.PendingFirstCumulativeUsers[index] == user.Email
 			account := route.Entitlement.EntitlementID()
+			if _, tracked := settlements[account]; !tracked {
+				settlementAccounts = append(settlementAccounts, account)
+			}
 			settlements[account] = append(settlements[account], func() error {
 				return collector.applyUser(ctx, origin, route, snapshot.SampledAt, user, firstCumulative)
 			})
 		}
 	}
+	sort.Strings(settlementAccounts)
+	// Durable debits keep their own budget: admissions can already have consumed
+	// the sampling window, and cancelling every settlement would only push the
+	// runtime into deny-only.
+	settlementContext, cancelSettlement := context.WithTimeout(context.WithoutCancel(reconcileContext), runtimeWhiteListSettlementBudget)
+	defer cancelSettlement()
+	ctx = settlementContext
 	stage = "actual usage settlement"
 	log.Printf("white-list metering timing: before settlement=%s", time.Since(started).Round(time.Millisecond))
-	jobs := make(chan []func() error, len(settlements))
-	results := make(chan error, len(settlements))
-	for _, account := range settlements {
-		jobs <- account
+	jobs := make(chan runtimeWhiteListSettlementJob, len(settlements))
+	results := make(chan runtimeWhiteListSettlementResult, len(settlements))
+	for _, account := range settlementAccounts {
+		jobs <- runtimeWhiteListSettlementJob{account: account, steps: settlements[account]}
 	}
 	close(jobs)
 	for worker := 0; worker < 4 && worker < len(settlements); worker++ {
 		go func() {
-			for account := range jobs {
+			for job := range jobs {
 				var accountErr error
-				for _, settle := range account {
+				for _, settle := range job.steps {
 					if accountErr = settle(); accountErr != nil {
 						break
 					}
 				}
-				results <- accountErr
+				results <- runtimeWhiteListSettlementResult{account: job.account, err: accountErr}
 			}
 		}()
 	}
 	for range settlements {
-		if err := <-results; err != nil && usageErr == nil {
-			usageErr = err
+		result := <-results
+		if result.err == nil {
+			continue
+		}
+		failedAccounts[result.account] = struct{}{}
+		if settlementErr == nil {
+			settlementErr = result.err
 		}
 	}
-
-	if usageErr != nil {
-		return usageErr
+	if len(failedAccounts) > 0 {
+		// The lease phase below is what keeps every other account online, so a
+		// deferred debit stays deferred instead of cancelling the whole pass.
+		// Failed accounts are excluded from funding and from the lease, which
+		// preserves "settle before grant" for exactly those accounts.
+		log.Printf("white-list metering settlement deferred for %d account(s): %v", len(failedAccounts), settlementErr)
 	}
 	if collector.byteBudgetBytes > 0 {
 		log.Printf("white-list metering timing: after settlement=%s", time.Since(started).Round(time.Millisecond))
@@ -483,13 +529,13 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 				return err
 			}
 		}
-		if err := collector.authorizeAdmissions(ctx, refillCandidates); err != nil {
+		if err := collector.authorizeAdmissions(ctx, runtimeWhiteListFundableCandidates(refillCandidates, failedAccounts)); err != nil {
 			return err
 		}
 	}
 	if collector.byteBudgetBytes == 0 {
 		stage = "account admission"
-		if err := collector.authorizeAdmissions(ctx, candidates); err != nil {
+		if err := collector.authorizeAdmissions(ctx, runtimeWhiteListFundableCandidates(candidates, failedAccounts)); err != nil {
 			return err
 		}
 	}
@@ -501,17 +547,36 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 	// authorize the settled observation before fetching a new agent nonce.
 	if collector.byteBudgetBytes > 0 {
 		cancelSampling()
-		leaseContext, cancelLease := context.WithTimeout(reconcileContext, processingBudget)
+		// The lease phase gets a fresh deadline instead of inheriting an already
+		// exhausted pass budget: the expiry of this phase is what drops a node
+		// into deny-only and makes every following pass heavier.
+		leaseContext, cancelLease := context.WithTimeout(context.WithoutCancel(reconcileContext), processingBudget)
 		defer cancelLease()
 		ctx = leaseContext
 	}
 	stage = "use lease authorization"
 	log.Printf("white-list metering timing: before authorization=%s", time.Since(started).Round(time.Millisecond))
-	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, plan, resolve)
+	authorization, err := leaseControl.WhiteListUseLeaseAuthorizations(ctx, runtimeWhiteListLeasePlanWithoutFailedAccounts(plan, failedAccounts), resolve)
 	if err != nil {
 		return fmt.Errorf("lease authorization: %w (context: %v)", err, ctx.Err())
 	}
 	log.Printf("white-list metering timing: after authorization=%s", time.Since(started).Round(time.Millisecond))
+	if collector.byteBudgetBytes > 0 {
+		// A lease that lapses while this pass is running leaves final fence
+		// receipts behind. The start-of-pass drain cannot see them yet, and the
+		// nonce refresh below rejects any pass that observes them, so without a
+		// second drain a slow pass could never renew the lease again.
+		authorityChangedBefore := collector.leaseAuthorityChanged
+		if err := collector.drainFinalReceipts(ctx, leaseControl); err != nil {
+			return fmt.Errorf("mid-pass final receipt drain: %w", err)
+		}
+		if collector.leaseAuthorityChanged && !authorityChangedBefore {
+			// The drain changed the authority the authorization above was
+			// evaluated against. Deliver nothing this pass; the next pass
+			// re-reads the observation and authorizes the drained state.
+			return nil
+		}
+	}
 	authorizedRoutes := make(map[string]struct{}, len(authorization.Emails))
 	for _, email := range authorization.Emails {
 		if _, exists := routes[email]; !exists {
@@ -659,7 +724,51 @@ func (collector *runtimeWhiteListMeteringCollector) runPass(ctx context.Context)
 		// and delay the next sample; every error path retains the normal defer.
 		collector.reconcileNeeded = false
 	}
+	if settlementErr != nil {
+		// The lease above was still renewed for every settled account. Report the
+		// deferred debit last so the deferral stays visible to operators.
+		stage = "actual usage settlement"
+		return settlementErr
+	}
 	return nil
+}
+
+// runtimeWhiteListFundableCandidates drops the admission candidates of accounts
+// whose settlement failed in this pass. Funding them would grant access before
+// their usage is durably debited.
+func runtimeWhiteListFundableCandidates(candidates []controlplane.WhiteListMeteringAdmissionCandidate, failed map[string]struct{}) []controlplane.WhiteListMeteringAdmissionCandidate {
+	if len(failed) == 0 || len(candidates) == 0 {
+		return candidates
+	}
+	kept := make([]controlplane.WhiteListMeteringAdmissionCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, failedAccount := failed[candidate.EntitlementID]; failedAccount {
+			continue
+		}
+		kept = append(kept, candidate)
+	}
+	return kept
+}
+
+// runtimeWhiteListLeasePlanWithoutFailedAccounts keeps the renewal of every
+// account whose usage was durably settled. An account with a pending debit is
+// left out of this lease round instead of cancelling it for all the others.
+func runtimeWhiteListLeasePlanWithoutFailedAccounts(plan controlplane.WhiteListMeteringPlan, failed map[string]struct{}) controlplane.WhiteListMeteringPlan {
+	if len(failed) == 0 || len(plan.Routes) == 0 {
+		return plan
+	}
+	routes := make([]controlplane.WhiteListMeteringRoute, 0, len(plan.Routes))
+	for _, route := range plan.Routes {
+		if _, failedAccount := failed[route.Entitlement.EntitlementID()]; failedAccount {
+			continue
+		}
+		routes = append(routes, route)
+	}
+	if len(routes) == len(plan.Routes) {
+		return plan
+	}
+	plan.Routes = routes
+	return plan
 }
 
 func runtimeWhiteListLeasePlanFingerprint(plan controlplane.WhiteListMeteringPlan) ([sha256.Size]byte, bool) {
@@ -1064,7 +1173,10 @@ func (collector *runtimeWhiteListMeteringCollector) authorizeAdmissions(ctx cont
 		}
 		workers.Wait()
 		if ctx.Err() != nil {
-			return errRuntimeWhiteListMeteringUnavailable
+			// Budget exhaustion is a deferral, not a pass failure: already funded
+			// routes stay valid and the lease phase runs with its own deadline.
+			log.Printf("white-list byte admissions deferred: sampling budget exhausted")
+			return nil
 		}
 		var admissionErr error
 		admitted := 0
