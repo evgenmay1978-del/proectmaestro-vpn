@@ -1,0 +1,14 @@
+[Unit]
+Description=Synchronize paid flat CDN clients from the controller
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=/etc/maestro-flat-cdn-sync.env
+ExecStart=/usr/bin/python3 /usr/local/sbin/maestro-flat-cdn-sync
+TimeoutStartSec=240
+NoNewPrivileges=true

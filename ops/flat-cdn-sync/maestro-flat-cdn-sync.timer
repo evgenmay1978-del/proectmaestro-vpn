@@ -1,0 +1,11 @@
+[Unit]
+Description=Synchronize paid flat CDN clients every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+AccuracySec=15s
+Unit=maestro-flat-cdn-sync.service
+
+[Install]
+WantedBy=timers.target

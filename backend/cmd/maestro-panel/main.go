@@ -72,6 +72,9 @@ func buildRuntime(ctx context.Context, mode string, factories runtimeFactories) 
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--prepare-vless-rotation" {
+		os.Exit(runVLESSRotationTool(os.Args[2:]))
+	}
 	listen := env("MAESTRO_LISTEN", "127.0.0.1:8910")
 	switch mode := strings.TrimSpace(os.Getenv("MAESTRO_CONTROL_PLANE")); mode {
 	case "rqlite":
