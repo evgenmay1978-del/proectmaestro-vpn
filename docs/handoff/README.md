@@ -54,3 +54,12 @@ VPN-сервис MaestroVPN: приложение (INCY) + Telegram-боты + �
 S2 — пароль в `/etc/maestro-panel.env` на S1; S3 — ключ на S1 `/root/.ssh/maestro_olcrtc_s3`;
 S4 — ключ `~/work/sshjs/s1_key`. Хелперы: `~/work/s1cmd.cjs`, `s2cmd.cjs` (пароль `~/work/s2pass.txt`),
 `s4cmd.cjs`, `upload.cjs` (только на S1), `ghbuild.cjs`/`ghdlp.cjs` (сборка и артефакт панели).
+
+## ⚠️ СНАЧАЛА ПРОЧТИ ЭТО (актуально на 19.09.2026 ~19:30 UTC)
+**Панель коммерции сейчас НЕ работает** (порт 18910 не слушает) → `/sub/` и `/cdn-sub/` отдают **502**.
+Причина: база rqlite выросла до ~1.5 ГБ, и стартовая проверка панели (`PRAGMA foreign_key_check`) занимает ~120 с,
+не укладываясь в таймаут клиента. VPN-ноды при этом работают.
+👉 Полный разбор и пошаговый план починки: **`docs/handoff/INCIDENT-2026-09-19-rqlite.md`** — читать первым делом.
+Кратко: 1) уменьшить базу (удалить старые `whitelist_metering_events`/`idempotency_requests` + VACUUM),
+2) `systemctl restart maestro-cdn-controller` и проверить 200, 3) **вернуть таймер списаний** (`systemctl start maestro-flat-charge.timer`
+— он сейчас остановлен), 4) поставить retention и третий voter rqlite на S1.
