@@ -118,6 +118,11 @@ func WhiteListCombinedXrayJSONSubscription(ordinary string, nodes []WhiteListNod
 	if len(configs) == 0 || len(configs) > 32 {
 		return nil, errInvalidOrdinarySubscription
 	}
+	auto, err := whiteListAutoXrayJSONConfig(configs)
+	if err != nil {
+		return nil, err
+	}
+	configs = append([]xrayJSONFullConfig{auto}, configs...)
 	labels := make(map[string]struct{}, len(configs))
 	for _, config := range configs {
 		if _, exists := labels[config.Remarks]; exists {
@@ -315,6 +320,71 @@ func xrayJSONClientInbounds() []xrayJSONFullInbound {
 	}
 }
 
+const (
+	whiteListXrayJSONAutoLabel        = "🇪🇺 ⚡ Авто"
+	whiteListXrayJSONAutoBalancerTag  = "auto"
+	whiteListXrayJSONAutoOutboundBase = "proxy"
+)
+
+// whiteListAutoXrayJSONConfig folds every proxy endpoint of the already built
+// per-node profiles into one selectable profile with a least-ping balancer and a
+// burst observatory, so the client dials whichever endpoint answers probes.
+func whiteListAutoXrayJSONConfig(configs []xrayJSONFullConfig) (xrayJSONFullConfig, error) {
+	outbounds := make([]xrayJSONFullOutbound, 0, len(configs)+2)
+	for index, config := range configs {
+		proxy := xrayJSONFullOutbound{}
+		found := false
+		for _, outbound := range config.Outbounds {
+			if outbound.Tag == "direct" || outbound.Tag == "block-quic" {
+				continue
+			}
+			proxy = outbound
+			found = true
+			break
+		}
+		if !found {
+			return xrayJSONFullConfig{}, errInvalidOrdinarySubscription
+		}
+		proxy.Tag = whiteListXrayJSONAutoOutboundBase + "-" + strconv.Itoa(index+1)
+		outbounds = append(outbounds, proxy)
+	}
+	if len(outbounds) == 0 {
+		return xrayJSONFullConfig{}, errInvalidOrdinarySubscription
+	}
+	outbounds = append(outbounds,
+		xrayJSONFullOutbound{Tag: "direct", Protocol: "freedom"},
+		xrayJSONFullOutbound{Tag: "block-quic", Protocol: "blackhole"},
+	)
+	return xrayJSONFullConfig{
+		Remarks:  whiteListXrayJSONAutoLabel,
+		Log:      xrayJSONLog{LogLevel: "warning"},
+		Inbounds: xrayJSONClientInbounds(),
+		Meta:     &xrayJSONFullMeta{ServerDescription: "Сам выбирает самый быстрый сервер и уходит с упавшего"},
+		Outbounds: outbounds,
+		Routing: xrayJSONFullRouting{
+			DomainStrategy: "AsIs",
+			Balancers: []xrayJSONBalancer{{
+				Tag:      whiteListXrayJSONAutoBalancerTag,
+				Selector: []string{whiteListXrayJSONAutoOutboundBase},
+				Strategy: &xrayJSONBalancerStrategy{Type: "leastPing"},
+			}},
+			Rules: []xrayJSONFullRoutingRule{
+				{Type: "field", Network: "udp", Port: "443", OutboundTag: "block-quic"},
+				{Type: "field", Network: "tcp,udp", BalancerTag: whiteListXrayJSONAutoBalancerTag},
+			},
+		},
+		BurstObservatory: &xrayJSONBurstObservatory{
+			SubjectSelector: []string{whiteListXrayJSONAutoOutboundBase},
+			PingConfig: xrayJSONBurstPingConfig{
+				Destination: "http://www.gstatic.com/generate_204",
+				Interval:    "3m",
+				Sampling:    5,
+				Timeout:     "3s",
+			},
+		},
+	}, nil
+}
+
 func marshalWhiteListXrayJSONConfigs(configs []xrayJSONFullConfig) ([]byte, error) {
 	rendered, err := json.Marshal(configs)
 	if err != nil {
@@ -474,6 +544,8 @@ type xrayJSONFullConfig struct {
 	Inbounds  []xrayJSONFullInbound  `json:"inbounds"`
 	Outbounds []xrayJSONFullOutbound `json:"outbounds"`
 	Routing   xrayJSONFullRouting    `json:"routing"`
+	Meta      *xrayJSONFullMeta      `json:"meta,omitempty"`
+	BurstObservatory *xrayJSONBurstObservatory `json:"burstObservatory,omitempty"`
 }
 
 type xrayJSONFullInbound struct {
@@ -524,6 +596,7 @@ type xrayJSONRealitySettings struct {
 
 type xrayJSONFullRouting struct {
 	DomainStrategy string                    `json:"domainStrategy"`
+	Balancers      []xrayJSONBalancer        `json:"balancers,omitempty"`
 	Rules          []xrayJSONFullRoutingRule `json:"rules"`
 }
 
@@ -531,5 +604,32 @@ type xrayJSONFullRoutingRule struct {
 	Type        string `json:"type"`
 	Network     string `json:"network,omitempty"`
 	Port        string `json:"port,omitempty"`
-	OutboundTag string `json:"outboundTag"`
+	OutboundTag string `json:"outboundTag,omitempty"`
+	BalancerTag string `json:"balancerTag,omitempty"`
+}
+
+type xrayJSONFullMeta struct {
+	ServerDescription string `json:"serverDescription,omitempty"`
+}
+
+type xrayJSONBalancer struct {
+	Tag      string                    `json:"tag"`
+	Selector []string                  `json:"selector"`
+	Strategy *xrayJSONBalancerStrategy `json:"strategy,omitempty"`
+}
+
+type xrayJSONBalancerStrategy struct {
+	Type string `json:"type"`
+}
+
+type xrayJSONBurstObservatory struct {
+	SubjectSelector []string                `json:"subjectSelector"`
+	PingConfig      xrayJSONBurstPingConfig `json:"pingConfig"`
+}
+
+type xrayJSONBurstPingConfig struct {
+	Destination string `json:"destination"`
+	Interval    string `json:"interval"`
+	Sampling    int    `json:"sampling"`
+	Timeout     string `json:"timeout"`
 }
