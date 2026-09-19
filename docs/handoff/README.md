@@ -55,11 +55,12 @@ S2 — пароль в `/etc/maestro-panel.env` на S1; S3 — ключ на S1
 S4 — ключ `~/work/sshjs/s1_key`. Хелперы: `~/work/s1cmd.cjs`, `s2cmd.cjs` (пароль `~/work/s2pass.txt`),
 `s4cmd.cjs`, `upload.cjs` (только на S1), `ghbuild.cjs`/`ghdlp.cjs` (сборка и артефакт панели).
 
-## ⚠️ СНАЧАЛА ПРОЧТИ ЭТО (актуально на 19.09.2026 ~19:30 UTC)
-**Панель коммерции сейчас НЕ работает** (порт 18910 не слушает) → `/sub/` и `/cdn-sub/` отдают **502**.
-Причина: база rqlite выросла до ~1.5 ГБ, и стартовая проверка панели (`PRAGMA foreign_key_check`) занимает ~120 с,
-не укладываясь в таймаут клиента. VPN-ноды при этом работают.
-👉 Полный разбор и пошаговый план починки: **`docs/handoff/INCIDENT-2026-09-19-rqlite.md`** — читать первым делом.
-Кратко: 1) уменьшить базу (удалить старые `whitelist_metering_events`/`idempotency_requests` + VACUUM),
-2) `systemctl restart maestro-cdn-controller` и проверить 200, 3) **вернуть таймер списаний** (`systemctl start maestro-flat-charge.timer`
-— он сейчас остановлен), 4) поставить retention и третий voter rqlite на S1.
+## ✅ ИНЦИДЕНТ 19.09 ЗАКРЫТ (актуально на 19.09.2026 ~20:45 UTC)
+Панель коммерции работает (`healthz` 200), публичный `/sub/<token>` отдаёт 200, списания идут
+(`maestro-flat-charge.timer` active+enabled). База rqlite уменьшена с 1.5 ГБ до ~369 МБ на обеих нодах,
+`PRAGMA foreign_key_check` через API — 483 мс. Бэкап до чистки:
+`/root/backups/maestro-rqlite-20260919T200552Z.sqlite` на S1.
+👉 Отчёт о лечении, цифры и ловушки: **`docs/handoff/POST-INCIDENT-2026-09-19-rqlite.md`**.
+Разбор аварии (история): `docs/handoff/INCIDENT-2026-09-19-rqlite.md`.
+Открыто: retention-джоб и мониторинг размера/`foreign_key_check`, третий voter rqlite,
+паника `/sub/<неизвестный токен>` (`subscription_snapshot.go:67` → 502 вместо 404).
