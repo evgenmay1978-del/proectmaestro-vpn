@@ -308,11 +308,11 @@ func (s *ControlPlaneServer) flatCDNNodes() ([]subgen.WhiteListNode, error) {
 	return nodes, nil
 }
 
-// flatCDNShareLinkPayload is the encoded share-link subscription every
-// third-party client understands.
-// flatCDNXrayDocument renders every node separately and merges the arrays.
+// flatCDNXrayDocument renders every node separately and merges the arrays. When
+// more than one node survives validation, the selectable "Авто" profile is
+// prepended so Incy/Happ users can pick the fastest CDN origin automatically.
 func flatCDNXrayDocument(nodes []subgen.WhiteListNode) ([]byte, error) {
-	merged := make([]json.RawMessage, 0, len(nodes))
+	items := make([]map[string]any, 0, len(nodes))
 	for _, node := range nodes {
 		// The plural renderer is the one that works per node; it is called with a
 		// single node and the remark is replaced by the node label.
@@ -320,25 +320,107 @@ func flatCDNXrayDocument(nodes []subgen.WhiteListNode) ([]byte, error) {
 		if err != nil {
 			continue
 		}
-		var items []map[string]any
-		if json.Unmarshal(part, &items) != nil {
+		var rendered []map[string]any
+		if json.Unmarshal(part, &rendered) != nil {
 			continue
 		}
-		for _, item := range items {
+		for _, item := range rendered {
 			if label := strings.TrimSpace(node.Label); label != "" {
 				item["remarks"] = label
 			}
-			encoded, encodeErr := json.Marshal(item)
-			if encodeErr != nil {
-				continue
-			}
-			merged = append(merged, encoded)
+			items = append(items, item)
 		}
 	}
-	if len(merged) == 0 {
+	if len(items) == 0 {
 		return nil, errFlatCDNUnavailable
 	}
+	merged := make([]json.RawMessage, 0, len(items)+1)
+	if len(items) > 1 {
+		if auto, ok := flatCDNAutoItem(items); ok {
+			if encoded, err := json.Marshal(auto); err == nil {
+				merged = append(merged, encoded)
+			}
+		}
+	}
+	for _, item := range items {
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+		merged = append(merged, encoded)
+	}
 	return json.Marshal(merged)
+}
+
+// flatCDNAutoItem builds the selectable "Авто" profile for the CDN subscription:
+// every validated node becomes a proxy-N outbound behind a least-ping balancer,
+// so the client switches to whichever CDN origin answers probes. The first
+// node's inbounds are reused verbatim; per-node validation stays as it was.
+func flatCDNAutoItem(items []map[string]any) (map[string]any, bool) {
+	outbounds := make([]any, 0, len(items)+2)
+	for index, item := range items {
+		rawOutbounds, ok := item["outbounds"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawOutbound := range rawOutbounds {
+			outbound, ok := rawOutbound.(map[string]any)
+			if !ok {
+				continue
+			}
+			tag, _ := outbound["tag"].(string)
+			if tag == "direct" || tag == "block-quic" {
+				continue
+			}
+			proxy := make(map[string]any, len(outbound))
+			for key, value := range outbound {
+				proxy[key] = value
+			}
+			proxy["tag"] = fmt.Sprintf("proxy-%d", index+1)
+			outbounds = append(outbounds, proxy)
+			break
+		}
+	}
+	if len(outbounds) == 0 {
+		return nil, false
+	}
+	outbounds = append(outbounds,
+		map[string]any{"tag": "direct", "protocol": "freedom"},
+		map[string]any{"tag": "block-quic", "protocol": "blackhole"},
+	)
+	auto := map[string]any{
+		"remarks":   "🇪🇺 ⚡ Авто",
+		"log":       map[string]any{"loglevel": "warning"},
+		"meta":      map[string]any{"serverDescription": "Сам выбирает самый быстрый сервер и уходит с упавшего"},
+		"outbounds": outbounds,
+		"routing": map[string]any{
+			"domainStrategy": "AsIs",
+			"balancers": []any{map[string]any{
+				"tag":      "auto",
+				"selector": []any{"proxy"},
+				"strategy": map[string]any{"type": "leastPing"},
+			}},
+			"rules": []any{
+				map[string]any{"type": "field", "network": "udp", "port": "443", "outboundTag": "block-quic"},
+				map[string]any{"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
+			},
+		},
+		"burstObservatory": map[string]any{
+			"subjectSelector": []any{"proxy"},
+			"pingConfig": map[string]any{
+				"destination": "http://www.gstatic.com/generate_204",
+				"interval":    "3m",
+				"sampling":    5,
+				"timeout":     "3s",
+			},
+		},
+	}
+	for _, key := range []string{"inbounds", "stats", "policy"} {
+		if value, ok := items[0][key]; ok {
+			auto[key] = value
+		}
+	}
+	return auto, true
 }
 
 func flatCDNShareLinkPayload(nodes []subgen.WhiteListNode) ([]byte, error) {
